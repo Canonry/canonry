@@ -36,9 +36,9 @@ function setup(): { db: ReturnType<typeof createClient>; projectId: string; sess
   const now = new Date().toISOString()
   db.insert(projects).values({
     id: projectId,
-    name: 'demand-iq',
-    displayName: 'Demand IQ',
-    canonicalDomain: 'demand-iq.com',
+    name: 'acme-iq',
+    displayName: 'Acme IQ',
+    canonicalDomain: 'acme-iq.example.com',
     country: 'US',
     language: 'en',
     ownedDomains: '[]',
@@ -48,7 +48,7 @@ function setup(): { db: ReturnType<typeof createClient>; projectId: string; sess
   db.insert(competitors).values({
     id: crypto.randomUUID(),
     projectId,
-    domain: 'aurora-solar.com',
+    domain: 'sunplanner.test',
     provenance: 'cli',
     createdAt: now,
   }).run()
@@ -94,16 +94,16 @@ function buildDeps(opts: { probeBuckets: Array<'cited' | 'wasted' | 'aspirationa
       const idx = query.toLowerCase().charCodeAt(0) - 97
       const bucket = opts.probeBuckets[idx]
       if (bucket === 'cited') {
-        return { citationState: 'cited', citedDomains: ['demand-iq.com'], answerMentioned: true, rawResponse: {} }
+        return { citationState: 'cited', citedDomains: ['acme-iq.example.com'], answerMentioned: true, rawResponse: {} }
       }
       if (bucket === 'wasted') {
-        return { citationState: 'not-cited', citedDomains: ['aurora-solar.com'], answerMentioned: false, rawResponse: {} }
+        return { citationState: 'not-cited', citedDomains: ['sunplanner.test'], answerMentioned: false, rawResponse: {} }
       }
       return { citationState: 'not-cited', citedDomains: ['random.com'], answerMentioned: false, rawResponse: {} }
     },
     async classifyDomains({ domains }) {
       const known: Record<string, 'direct-competitor' | 'other'> = {
-        'aurora-solar.com': 'direct-competitor',
+        'sunplanner.test': 'direct-competitor',
         'random.com': 'other',
       }
       const map: Record<string, 'direct-competitor' | 'other'> = {}
@@ -138,7 +138,7 @@ describe('executeDiscoveryRun', () => {
     expect(sessionRow.seedProvider).toBe('gemini-test')
     // The orchestrator's classification pass types every recurring cited domain.
     expect(sessionRow.competitorMap).toEqual([
-      { domain: 'aurora-solar.com', hits: 2, competitorType: 'direct-competitor' },
+      { domain: 'sunplanner.test', hits: 2, competitorType: 'direct-competitor' },
       { domain: 'random.com', hits: 1, competitorType: 'other' },
     ])
 
@@ -170,13 +170,13 @@ describe('executeDiscoveryRun', () => {
     expect(recommendation!.reason).toContain('cited=1')
     expect(recommendation!.reason).toContain('aspirational=1')
     expect(recommendation!.reason).toContain('wasted=2')
-    expect(recommendation!.reason).toContain('aurora-solar.com')
+    expect(recommendation!.reason).toContain('sunplanner.test')
   })
 
   it('dismisses prior basket-divergence insights for the project when a new session writes one', async () => {
     // Without dedup, the session-level basket-divergence insight accumulates
     // — every discovery run leaves a fresh insight active and the older
-    // ones stick around. azcoatings May 2026 had 12 active entries from
+    // ones stick around. One project in May 2026 had 12 active entries from
     // 12 sessions, all flagging the same aggregate. The newest session's
     // findings supersede the prior ones by definition, so auto-dismiss
     // is the right semantic.
@@ -392,22 +392,22 @@ describe('executeDiscoveryRun', () => {
 describe('buildClassificationPrompt', () => {
   const project = {
     id: 'p',
-    name: 'Demand IQ',
-    canonicalDomains: ['demand-iq.com'],
-    competitorDomains: ['aurora-solar.com', 'enerflo.com'],
+    name: 'Acme IQ',
+    canonicalDomains: ['acme-iq.example.com'],
+    competitorDomains: ['sunplanner.test', 'solarflow.test'],
   }
 
   it('includes project context, the ICP, tracked competitors, every domain, and every category', () => {
     const prompt = buildClassificationPrompt({
       project,
       icpDescription: 'solar installers shopping for quoting software',
-      domains: ['helioscope.com', 'expedia.com', 'timeout.com'],
+      domains: ['raydesign.test', 'expedia.com', 'timeout.com'],
     })
-    expect(prompt).toContain('Demand IQ')
-    expect(prompt).toContain('demand-iq.com')
+    expect(prompt).toContain('Acme IQ')
+    expect(prompt).toContain('acme-iq.example.com')
     expect(prompt).toContain('solar installers shopping for quoting software')
-    expect(prompt).toContain('aurora-solar.com, enerflo.com')
-    for (const domain of ['helioscope.com', 'expedia.com', 'timeout.com']) {
+    expect(prompt).toContain('sunplanner.test, solarflow.test')
+    for (const domain of ['raydesign.test', 'expedia.com', 'timeout.com']) {
       expect(prompt).toContain(domain)
     }
     // The full category menu must be spelled out for the model.
@@ -429,15 +429,15 @@ describe('buildClassificationPrompt', () => {
 describe('parseClassificationResponse', () => {
   it('parses the domain => category line format', () => {
     const text = [
-      'helioscope.com => direct-competitor',
+      'raydesign.test => direct-competitor',
       'expedia.com => ota-aggregator',
       'timeout.com => editorial-media',
       'sec.gov => other',
     ].join('\n')
     expect(
-      parseClassificationResponse(text, ['helioscope.com', 'expedia.com', 'timeout.com', 'sec.gov']),
+      parseClassificationResponse(text, ['raydesign.test', 'expedia.com', 'timeout.com', 'sec.gov']),
     ).toEqual({
-      'helioscope.com': 'direct-competitor',
+      'raydesign.test': 'direct-competitor',
       'expedia.com': 'ota-aggregator',
       'timeout.com': 'editorial-media',
       'sec.gov': 'other',
@@ -445,20 +445,20 @@ describe('parseClassificationResponse', () => {
   })
 
   it('is case-insensitive and tolerates surrounding markdown / numbering', () => {
-    const text = ['```', '1. HelioScope.com => Direct-Competitor', '- EXPEDIA.COM  =>  ota-aggregator', '```'].join(
+    const text = ['```', '1. RayDesign.test => Direct-Competitor', '- EXPEDIA.COM  =>  ota-aggregator', '```'].join(
       '\n',
     )
-    expect(parseClassificationResponse(text, ['helioscope.com', 'expedia.com'])).toEqual({
-      'helioscope.com': 'direct-competitor',
+    expect(parseClassificationResponse(text, ['raydesign.test', 'expedia.com'])).toEqual({
+      'raydesign.test': 'direct-competitor',
       'expedia.com': 'ota-aggregator',
     })
   })
 
   it('omits domains the model skipped or labeled with an unrecognized category', () => {
-    const text = ['helioscope.com => direct-competitor', 'mystery.com => partner'].join('\n')
+    const text = ['raydesign.test => direct-competitor', 'mystery.com => partner'].join('\n')
     expect(
-      parseClassificationResponse(text, ['helioscope.com', 'mystery.com', 'notmentioned.com']),
-    ).toEqual({ 'helioscope.com': 'direct-competitor' })
+      parseClassificationResponse(text, ['raydesign.test', 'mystery.com', 'notmentioned.com']),
+    ).toEqual({ 'raydesign.test': 'direct-competitor' })
   })
 
   it('reads the category from the right of => so a category word in the hostname does not pollute', () => {
@@ -468,44 +468,44 @@ describe('parseClassificationResponse', () => {
   })
 
   it('does not let a shorter domain match a longer domain\'s line', () => {
-    const text = ['mysolar.com => editorial-media', 'solar.com => direct-competitor'].join('\n')
-    expect(parseClassificationResponse(text, ['solar.com', 'mysolar.com'])).toEqual({
-      'solar.com': 'direct-competitor',
-      'mysolar.com': 'editorial-media',
+    const text = ['mypanels.example => editorial-media', 'panels.example => direct-competitor'].join('\n')
+    expect(parseClassificationResponse(text, ['panels.example', 'mypanels.example'])).toEqual({
+      'panels.example': 'direct-competitor',
+      'mypanels.example': 'editorial-media',
     })
   })
 
   it('keeps the shorter-domain guard when numbering pushes the domain off the line start', () => {
     // `startsWith` fails on every numbered line, so the lookup falls through to
-    // the token scan — which must still not let `solar.com` pick up
-    // `mysolar.com`'s line.
-    const text = ['1. mysolar.com => editorial-media', '2. solar.com => direct-competitor'].join('\n')
-    expect(parseClassificationResponse(text, ['solar.com', 'mysolar.com'])).toEqual({
-      'solar.com': 'direct-competitor',
-      'mysolar.com': 'editorial-media',
+    // the token scan — which must still not let `panels.example` pick up
+    // `mypanels.example`'s line.
+    const text = ['1. mypanels.example => editorial-media', '2. panels.example => direct-competitor'].join('\n')
+    expect(parseClassificationResponse(text, ['panels.example', 'mypanels.example'])).toEqual({
+      'panels.example': 'direct-competitor',
+      'mypanels.example': 'editorial-media',
     })
   })
 
   it('does not let a domain match the line of a longer domain it prefixes', () => {
-    const text = ['solar.com.au => editorial-media', 'solar.com => direct-competitor'].join('\n')
-    expect(parseClassificationResponse(text, ['solar.com', 'solar.com.au'])).toEqual({
-      'solar.com': 'direct-competitor',
-      'solar.com.au': 'editorial-media',
+    const text = ['panels.example.au => editorial-media', 'panels.example => direct-competitor'].join('\n')
+    expect(parseClassificationResponse(text, ['panels.example', 'panels.example.au'])).toEqual({
+      'panels.example': 'direct-competitor',
+      'panels.example.au': 'editorial-media',
     })
   })
 
   it('does not match `other` inside a hostname on an arrow-less line', () => {
     // No `=>` forces the whole-line category scan; `other` must match as a
-    // whole token, not inside `brothersolar.com`.
-    expect(parseClassificationResponse('brothersolar.com', ['brothersolar.com'])).toEqual({})
+    // whole token, not inside `brotherpanels.example`.
+    expect(parseClassificationResponse('brotherpanels.example', ['brotherpanels.example'])).toEqual({})
     expect(
-      parseClassificationResponse('brothersolar.com => direct-competitor', ['brothersolar.com']),
-    ).toEqual({ 'brothersolar.com': 'direct-competitor' })
+      parseClassificationResponse('brotherpanels.example => direct-competitor', ['brotherpanels.example']),
+    ).toEqual({ 'brotherpanels.example': 'direct-competitor' })
   })
 
   it('returns an empty map for empty input', () => {
     expect(parseClassificationResponse('', [])).toEqual({})
-    expect(parseClassificationResponse('helioscope.com => direct-competitor', [])).toEqual({})
+    expect(parseClassificationResponse('raydesign.test => direct-competitor', [])).toEqual({})
   })
 })
 
@@ -566,8 +566,8 @@ describe('buildLocationConstraint', () => {
 describe('buildSeedPrompt', () => {
   const project = {
     id: 'p',
-    name: 'AZ Coatings',
-    canonicalDomains: ['azcoatings.com'],
+    name: 'Harborline Coatings',
+    canonicalDomains: ['harborline-coatings.example.com'],
     competitorDomains: [],
   }
   const detroit: LocationContext = { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' }
@@ -581,7 +581,7 @@ describe('buildSeedPrompt', () => {
 
   it('omits the location block entirely when no locations are given', () => {
     const prompt = buildSeedPrompt({ project, icpDescription: 'spray foam installers' })
-    expect(prompt).toContain('Customer: AZ Coatings')
+    expect(prompt).toContain('Customer: Harborline Coatings')
     expect(prompt).toContain('ICP: spray foam installers')
     expect(prompt).not.toMatch(/business serves/i)
     // The intent-bucket scaffold is still present.
@@ -658,26 +658,26 @@ describe('buildDefaultDeps probe() computes the mention signal independently of 
   }
 
   const project = {
-    id: 'p', name: 'demand-iq', brandNames: ['Demand IQ'],
-    canonicalDomains: ['demand-iq.com'], competitorDomains: [],
+    id: 'p', name: 'acme-iq', brandNames: ['Acme IQ'],
+    canonicalDomains: ['acme-iq.example.com'], competitorDomains: [],
   }
 
   it('mentioned-not-cited: brand named in the answer, client domain absent from sources', async () => {
-    const deps = depsWith('For solar quoting we recommend Demand IQ, a strong option.', ['aurora-solar.com'])
+    const deps = depsWith('For solar quoting we recommend Acme IQ, a strong option.', ['sunplanner.test'])
     const res = await deps.probe({ project, query: 'best solar quoting tool' })
     expect(res.answerMentioned).toBe(true)
     expect(res.citationState).toBe('not-cited')
   })
 
   it('cited-not-mentioned: client domain in sources, brand absent from the answer text', async () => {
-    const deps = depsWith('Here are some general tips for choosing a solar installer.', ['demand-iq.com'])
+    const deps = depsWith('Here are some general tips for choosing a solar installer.', ['acme-iq.example.com'])
     const res = await deps.probe({ project, query: 'how to choose a solar installer' })
     expect(res.answerMentioned).toBe(false)
     expect(res.citationState).toBe('cited')
   })
 
   it('falls back to domain-only matching when no brand names are supplied', async () => {
-    const deps = depsWith('Check out demand-iq.com for quotes.', [])
+    const deps = depsWith('Check out acme-iq.example.com for quotes.', [])
     const res = await deps.probe({
       project: { ...project, brandNames: undefined },
       query: 'solar quote site',
@@ -689,17 +689,17 @@ describe('buildDefaultDeps probe() computes the mention signal independently of 
 describe('buildSeedPrompt seed hygiene', () => {
   const project = {
     id: 'p1',
-    name: 'demand-iq',
-    brandNames: ['Demand IQ'],
-    canonicalDomains: ['demand-iq.com'],
+    name: 'acme-iq',
+    brandNames: ['Acme IQ'],
+    canonicalDomains: ['acme-iq.example.com'],
     competitorDomains: [],
   }
 
   it('always states the no-brand hard rule with the concrete identities', () => {
     const prompt = buildSeedPrompt({ project, icpDescription: 'solar contractors' })
     expect(prompt).toMatch(/NEVER include the customer's own brand name or domain/)
-    expect(prompt).toContain('Demand IQ')
-    expect(prompt).toContain('demand-iq.com')
+    expect(prompt).toContain('Acme IQ')
+    expect(prompt).toContain('acme-iq.example.com')
     expect(prompt).toMatch(/EARN the mention/)
   })
 
@@ -733,7 +733,7 @@ describe('buildDefaultDeps probe() forwards the location to the provider (geo pr
     }
     const registry = { get: () => ({ adapter, config: { apiKey: 'test-key' } }) } as unknown as ProviderRegistry
     const deps = buildDefaultDeps(registry)
-    const project = { id: 'p', name: 'demand-iq', brandNames: [], canonicalDomains: ['demand-iq.com'], competitorDomains: [] }
+    const project = { id: 'p', name: 'acme-iq', brandNames: [], canonicalDomains: ['acme-iq.example.com'], competitorDomains: [] }
     const phoenix = { label: 'phoenix', city: 'Phoenix', region: 'Arizona', country: 'US' }
 
     await deps.probe({ project, query: 'best roof coating contractors', location: phoenix })
@@ -772,7 +772,7 @@ describe('buildDefaultDeps seed() multi-provider composite', () => {
     return { registry, calls }
   }
 
-  const project = { id: 'p', name: 'demand-iq', brandNames: [], canonicalDomains: ['demand-iq.com'], competitorDomains: [] }
+  const project = { id: 'p', name: 'acme-iq', brandNames: [], canonicalDomains: ['acme-iq.example.com'], competitorDomains: [] }
 
   it('defaults to Gemini-only: identical behaviour, one seed call', async () => {
     const { registry, calls } = registryWith({ gemini: ['g one', 'g two'], openai: ['o one'] })

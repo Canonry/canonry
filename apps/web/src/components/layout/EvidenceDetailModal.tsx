@@ -174,8 +174,8 @@ export function EvidenceDetailModal({
 
   // Build competitor highlight terms from overlap domains + recommended competitor names.
   // Source the brand from the registrable domain — taking the leftmost label of
-  // a stored subdomain (e.g. `offers.roofle.com` → `offers`) would highlight
-  // arbitrary words like "offers" in the prose. Use `roofle` instead.
+  // a stored subdomain (e.g. `offers.quotebird.test` → `offers`) would highlight
+  // arbitrary words like "offers" in the prose. Use `quotebird` instead.
   const competitorHighlightTerms = [
     ...display.mentionedCompetitorDomains.flatMap(d => {
       const brand = brandLabelFromDomain(d)

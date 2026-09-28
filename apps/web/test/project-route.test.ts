@@ -28,8 +28,8 @@ test('resolveProjectNameForRouteSegment keeps name routes and maps stale id rout
 })
 
 test('resolveProjectNameFromPathname feeds project-name routes to project dashboard lookups', () => {
-  const data = dashboard([{ id: 'project-uuid', name: 'az-coatings' }])
+  const data = dashboard([{ id: 'project-uuid', name: 'acme-coatings' }])
 
-  expect(resolveProjectNameFromPathname('/projects/az-coatings', data)).toBe('az-coatings')
-  expect(resolveProjectNameFromPathname('/projects/project-uuid/report', data)).toBe('az-coatings')
+  expect(resolveProjectNameFromPathname('/projects/acme-coatings', data)).toBe('acme-coatings')
+  expect(resolveProjectNameFromPathname('/projects/project-uuid/report', data)).toBe('acme-coatings')
 })

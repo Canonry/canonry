@@ -66,9 +66,9 @@ function seedProject(
   const now = new Date().toISOString()
   db.insert(projects).values({
     id: projectId,
-    name: 'demand-iq',
-    displayName: 'Demand IQ',
-    canonicalDomain: opts.canonicalDomain ?? 'demand-iq.com',
+    name: 'harbor-iq',
+    displayName: 'Harbor IQ',
+    canonicalDomain: opts.canonicalDomain ?? 'harbor-iq.test',
     ownedDomains: opts.ownedDomains ?? [],
     country: 'US',
     language: 'en',
@@ -81,14 +81,14 @@ function seedProject(
   db.insert(competitors).values({
     id: crypto.randomUUID(),
     projectId,
-    domain: 'aurora-solar.com',
+    domain: 'amberfield-solar.test',
     provenance: 'cli',
     createdAt: now,
   }).run()
   db.insert(competitors).values({
     id: crypto.randomUUID(),
     projectId,
-    domain: 'enerflo.com',
+    domain: 'emberflow.test',
     provenance: 'cli',
     createdAt: now,
   }).run()
@@ -98,15 +98,15 @@ function seedProject(
 describe('classifyProbeBucket', () => {
   const project: DiscoveryProjectContext = {
     id: 'p',
-    name: 'demand-iq',
-    canonicalDomains: ['demand-iq.com', 'www.demand-iq.com'],
-    competitorDomains: ['aurora-solar.com'],
+    name: 'harbor-iq',
+    canonicalDomains: ['harbor-iq.test', 'www.harbor-iq.test'],
+    competitorDomains: ['amberfield-solar.test'],
   }
 
   it('returns "cited" when any canonical domain is cited (case-insensitive)', () => {
     expect(classifyProbeBucket({
       citationState: 'cited',
-      citedDomains: ['Demand-IQ.com'],
+      citedDomains: ['Harbor-IQ.test'],
       project,
     })).toBe('cited')
   })
@@ -114,7 +114,7 @@ describe('classifyProbeBucket', () => {
   it('returns "wasted-surface" when a tracked competitor is cited but we are not', () => {
     expect(classifyProbeBucket({
       citationState: 'not-cited',
-      citedDomains: ['aurora-solar.com', 'random.com'],
+      citedDomains: ['amberfield-solar.test', 'random.com'],
       project,
     })).toBe('wasted-surface')
   })
@@ -138,7 +138,7 @@ describe('classifyProbeBucket', () => {
   it('treats canonical hit as cited even when competitors are also present (cited takes precedence)', () => {
     expect(classifyProbeBucket({
       citationState: 'cited',
-      citedDomains: ['demand-iq.com', 'aurora-solar.com'],
+      citedDomains: ['harbor-iq.test', 'amberfield-solar.test'],
       project,
     })).toBe('cited')
   })
@@ -147,37 +147,37 @@ describe('classifyProbeBucket', () => {
 describe('buildCompetitorMap', () => {
   const project: DiscoveryProjectContext = {
     id: 'p',
-    name: 'demand-iq',
-    canonicalDomains: ['demand-iq.com'],
-    competitorDomains: ['aurora-solar.com'],
+    name: 'harbor-iq',
+    canonicalDomains: ['harbor-iq.test'],
+    competitorDomains: ['amberfield-solar.test'],
   }
 
   it('counts each domain at most once per probe (within-probe dedup)', () => {
-    const probes = [{ citedDomains: ['aurora-solar.com', 'aurora-solar.com', 'enerflo.com'] }]
+    const probes = [{ citedDomains: ['amberfield-solar.test', 'amberfield-solar.test', 'emberflow.test'] }]
     expect(buildCompetitorMap(probes, project)).toEqual([
-      { domain: 'aurora-solar.com', hits: 1, competitorType: 'unknown' },
-      { domain: 'enerflo.com', hits: 1, competitorType: 'unknown' },
+      { domain: 'amberfield-solar.test', hits: 1, competitorType: 'unknown' },
+      { domain: 'emberflow.test', hits: 1, competitorType: 'unknown' },
     ])
   })
 
   it('excludes the project canonical from the map', () => {
-    const probes = [{ citedDomains: ['demand-iq.com', 'enerflo.com'] }]
+    const probes = [{ citedDomains: ['harbor-iq.test', 'emberflow.test'] }]
     expect(buildCompetitorMap(probes, project)).toEqual([
-      { domain: 'enerflo.com', hits: 1, competitorType: 'unknown' },
+      { domain: 'emberflow.test', hits: 1, competitorType: 'unknown' },
     ])
   })
 
   it('aggregates and sorts by hits desc, then domain asc', () => {
     const probes = [
-      { citedDomains: ['enerflo.com'] },
-      { citedDomains: ['aurora-solar.com'] },
-      { citedDomains: ['enerflo.com', 'aurora-solar.com'] },
-      { citedDomains: ['enerflo.com', 'helioscope.com'] },
+      { citedDomains: ['emberflow.test'] },
+      { citedDomains: ['amberfield-solar.test'] },
+      { citedDomains: ['emberflow.test', 'amberfield-solar.test'] },
+      { citedDomains: ['emberflow.test', 'halopanel.test'] },
     ]
     expect(buildCompetitorMap(probes, project)).toEqual([
-      { domain: 'enerflo.com', hits: 3, competitorType: 'unknown' },
-      { domain: 'aurora-solar.com', hits: 2, competitorType: 'unknown' },
-      { domain: 'helioscope.com', hits: 1, competitorType: 'unknown' },
+      { domain: 'emberflow.test', hits: 3, competitorType: 'unknown' },
+      { domain: 'amberfield-solar.test', hits: 2, competitorType: 'unknown' },
+      { domain: 'halopanel.test', hits: 1, competitorType: 'unknown' },
     ])
   })
 
@@ -187,25 +187,25 @@ describe('buildCompetitorMap', () => {
   })
 
   it('canonical match is case-insensitive', () => {
-    const probes = [{ citedDomains: ['Demand-IQ.com', 'enerflo.com'] }]
+    const probes = [{ citedDomains: ['Harbor-IQ.test', 'emberflow.test'] }]
     expect(buildCompetitorMap(probes, project)).toEqual([
-      { domain: 'enerflo.com', hits: 1, competitorType: 'unknown' },
+      { domain: 'emberflow.test', hits: 1, competitorType: 'unknown' },
     ])
   })
 
   it('attaches competitorType from the classification map, defaulting unmapped domains to unknown', () => {
     const probes = [
-      { citedDomains: ['enerflo.com'] },
-      { citedDomains: ['enerflo.com', 'expedia.com'] },
+      { citedDomains: ['emberflow.test'] },
+      { citedDomains: ['emberflow.test', 'expedia.com'] },
       { citedDomains: ['timeout.com'] },
     ]
     const classification: DiscoveryDomainClassification = {
-      'enerflo.com': 'direct-competitor',
+      'emberflow.test': 'direct-competitor',
       'expedia.com': 'ota-aggregator',
       // timeout.com intentionally omitted — must fall back to unknown.
     }
     expect(buildCompetitorMap(probes, project, classification)).toEqual([
-      { domain: 'enerflo.com', hits: 2, competitorType: 'direct-competitor' },
+      { domain: 'emberflow.test', hits: 2, competitorType: 'direct-competitor' },
       { domain: 'expedia.com', hits: 1, competitorType: 'ota-aggregator' },
       { domain: 'timeout.com', hits: 1, competitorType: 'unknown' },
     ])
@@ -294,7 +294,7 @@ describe('executeDiscovery', () => {
         'best home solar quoting tool', // 'b' cluster — shorter, wins as rep
         'home solar quoting software', // 'h' cluster
         'ai quote tool', // 'a' cluster — shorter
-        'aurora solar alternatives', // 'a' cluster
+        'amberfield solar alternatives', // 'a' cluster
         'compare solar quoting tools', // 'c' cluster
       ],
       probeResults: [
@@ -302,12 +302,12 @@ describe('executeDiscovery', () => {
           // 'b' cluster representative — shortest in cluster
           query: 'best home solar quoting tool',
           citationState: 'cited',
-          citedDomains: ['demand-iq.com'],
+          citedDomains: ['harbor-iq.test'],
         },
         {
           query: 'home solar quoting software',
           citationState: 'not-cited',
-          citedDomains: ['aurora-solar.com'],
+          citedDomains: ['amberfield-solar.test'],
         },
         {
           // 'a' cluster representative — shortest in cluster
@@ -318,12 +318,12 @@ describe('executeDiscovery', () => {
         {
           query: 'compare solar quoting tools',
           citationState: 'not-cited',
-          citedDomains: ['enerflo.com', 'aurora-solar.com'],
+          citedDomains: ['emberflow.test', 'amberfield-solar.test'],
         },
       ],
       classification: {
-        'aurora-solar.com': 'direct-competitor',
-        'enerflo.com': 'direct-competitor',
+        'amberfield-solar.test': 'direct-competitor',
+        'emberflow.test': 'direct-competitor',
         'random.com': 'other',
       },
     })
@@ -334,9 +334,9 @@ describe('executeDiscovery', () => {
       sessionId,
       project: {
         id: projectId,
-        name: 'demand-iq',
-        canonicalDomains: ['demand-iq.com'],
-        competitorDomains: ['aurora-solar.com', 'enerflo.com'],
+        name: 'harbor-iq',
+        canonicalDomains: ['harbor-iq.test'],
+        competitorDomains: ['amberfield-solar.test', 'emberflow.test'],
       },
       icpDescription: 'solar contractors',
       deps,
@@ -347,8 +347,8 @@ describe('executeDiscovery', () => {
     expect(result.buckets).toEqual({ cited: 1, aspirational: 1, 'wasted-surface': 2 })
     // The post-probe classification call types every recurring cited domain.
     expect(result.competitorMap).toEqual([
-      { domain: 'aurora-solar.com', hits: 2, competitorType: 'direct-competitor' },
-      { domain: 'enerflo.com', hits: 1, competitorType: 'direct-competitor' },
+      { domain: 'amberfield-solar.test', hits: 2, competitorType: 'direct-competitor' },
+      { domain: 'emberflow.test', hits: 1, competitorType: 'direct-competitor' },
       { domain: 'random.com', hits: 1, competitorType: 'other' },
     ])
 
@@ -360,8 +360,8 @@ describe('executeDiscovery', () => {
     expect(sessionRow.aspirationalCount).toBe(1)
     expect(sessionRow.wastedCount).toBe(2)
     expect(sessionRow.competitorMap).toEqual([
-      { domain: 'aurora-solar.com', hits: 2, competitorType: 'direct-competitor' },
-      { domain: 'enerflo.com', hits: 1, competitorType: 'direct-competitor' },
+      { domain: 'amberfield-solar.test', hits: 2, competitorType: 'direct-competitor' },
+      { domain: 'emberflow.test', hits: 1, competitorType: 'direct-competitor' },
       { domain: 'random.com', hits: 1, competitorType: 'other' },
     ])
     expect(sessionRow.seedProvider).toBe('gemini-test')
@@ -387,8 +387,8 @@ describe('executeDiscovery', () => {
         .map(r => ({ domain: r.domain, competitorType: r.competitorType, hits: r.hits, sessionId: r.sessionId }))
         .sort((a, b) => a.domain.localeCompare(b.domain)),
     ).toEqual([
-      { domain: 'aurora-solar.com', competitorType: 'direct-competitor', hits: 2, sessionId },
-      { domain: 'enerflo.com', competitorType: 'direct-competitor', hits: 1, sessionId },
+      { domain: 'amberfield-solar.test', competitorType: 'direct-competitor', hits: 2, sessionId },
+      { domain: 'emberflow.test', competitorType: 'direct-competitor', hits: 1, sessionId },
       { domain: 'random.com', competitorType: 'other', hits: 1, sessionId },
     ])
   })
@@ -400,9 +400,9 @@ describe('executeDiscovery', () => {
     const { projectId } = seedProject(db, { icpDescription: 'solar contractors' })
     const project = {
       id: projectId,
-      name: 'demand-iq',
-      canonicalDomains: ['demand-iq.com'],
-      competitorDomains: ['aurora-solar.com'],
+      name: 'harbor-iq',
+      canonicalDomains: ['harbor-iq.test'],
+      competitorDomains: ['amberfield-solar.test'],
     }
     const now = new Date().toISOString()
 
@@ -419,15 +419,15 @@ describe('executeDiscovery', () => {
         db, runId, sessionId, project, icpDescription: 'solar contractors',
         deps: buildDeps({
           candidates: ['best solar quoting tool'],
-          probeResults: [{ query: 'best solar quoting tool', citationState: 'not-cited', citedDomains: ['aurora-solar.com'] }],
+          probeResults: [{ query: 'best solar quoting tool', citationState: 'not-cited', citedDomains: ['amberfield-solar.test'] }],
           classification,
         }),
       })
       return sessionId
     }
 
-    await runSession({ 'aurora-solar.com': 'editorial-media' })
-    const secondSession = await runSession({ 'aurora-solar.com': 'direct-competitor' })
+    await runSession({ 'amberfield-solar.test': 'editorial-media' })
+    const secondSession = await runSession({ 'amberfield-solar.test': 'direct-competitor' })
 
     const rows = db.select().from(domainClassifications).all()
     expect(rows).toHaveLength(1) // unique (project_id, domain) — upsert, not duplicate
@@ -463,9 +463,9 @@ describe('executeDiscovery', () => {
     const deps = buildDeps({
       candidates: ['alpha q', 'beta q', 'gamma q', 'delta q', 'epsilon q'],
       probeResults: [
-        { query: 'alpha q', citationState: 'cited', citedDomains: ['demand-iq.com'] },
-        { query: 'beta q', citationState: 'cited', citedDomains: ['demand-iq.com'] },
-        { query: 'gamma q', citationState: 'cited', citedDomains: ['demand-iq.com'] },
+        { query: 'alpha q', citationState: 'cited', citedDomains: ['harbor-iq.test'] },
+        { query: 'beta q', citationState: 'cited', citedDomains: ['harbor-iq.test'] },
+        { query: 'gamma q', citationState: 'cited', citedDomains: ['harbor-iq.test'] },
       ],
     })
 
@@ -475,8 +475,8 @@ describe('executeDiscovery', () => {
       sessionId,
       project: {
         id: projectId,
-        name: 'demand-iq',
-        canonicalDomains: ['demand-iq.com'],
+        name: 'harbor-iq',
+        canonicalDomains: ['harbor-iq.test'],
         competitorDomains: [],
       },
       icpDescription: 'cap test',
@@ -515,7 +515,7 @@ describe('executeDiscovery', () => {
     const deps = buildDeps({
       candidates,
       probeResults: [
-        { query: 'roof q1', citationState: 'cited', citedDomains: ['demand-iq.com'] },
+        { query: 'roof q1', citationState: 'cited', citedDomains: ['harbor-iq.test'] },
       ],
     })
 
@@ -525,8 +525,8 @@ describe('executeDiscovery', () => {
       sessionId,
       project: {
         id: projectId,
-        name: 'demand-iq',
-        canonicalDomains: ['demand-iq.com'],
+        name: 'harbor-iq',
+        canonicalDomains: ['harbor-iq.test'],
         competitorDomains: [],
       },
       icpDescription: 'collapse test',
@@ -607,7 +607,7 @@ describe('executeDiscovery', () => {
           inFlight--
           return {
             citationState: query === 'alpha q' ? 'cited' as const : 'not-cited' as const,
-            citedDomains: query === 'alpha q' ? ['demand-iq.com'] : [],
+            citedDomains: query === 'alpha q' ? ['harbor-iq.test'] : [],
             answerMentioned: query === 'alpha q',
             rawResponse: { query },
           }
@@ -619,7 +619,7 @@ describe('executeDiscovery', () => {
         db,
         runId,
         sessionId,
-        project: { id: projectId, name: 'demand-iq', canonicalDomains: ['demand-iq.com'], competitorDomains: [] },
+        project: { id: projectId, name: 'harbor-iq', canonicalDomains: ['harbor-iq.test'], competitorDomains: [] },
         icpDescription: 'pool test',
         probeConcurrency: 3,
         deps,
@@ -687,7 +687,7 @@ describe('executeDiscovery', () => {
         db,
         runId,
         sessionId,
-        project: { id: projectId, name: 'demand-iq', canonicalDomains: ['demand-iq.com'], competitorDomains: [] },
+        project: { id: projectId, name: 'harbor-iq', canonicalDomains: ['harbor-iq.test'], competitorDomains: [] },
         icpDescription: 'serial default test',
         deps,
       })
@@ -724,7 +724,7 @@ describe('executeDiscovery', () => {
         db,
         runId,
         sessionId,
-        project: { id: projectId, name: 'demand-iq', canonicalDomains: ['demand-iq.com'], competitorDomains: [] },
+        project: { id: projectId, name: 'harbor-iq', canonicalDomains: ['harbor-iq.test'], competitorDomains: [] },
         icpDescription: 'clamp test',
         probeConcurrency: 999,
         deps,
@@ -757,7 +757,7 @@ describe('executeDiscovery', () => {
         db,
         runId,
         sessionId,
-        project: { id: projectId, name: 'demand-iq', canonicalDomains: ['demand-iq.com'], competitorDomains: [] },
+        project: { id: projectId, name: 'harbor-iq', canonicalDomains: ['harbor-iq.test'], competitorDomains: [] },
         icpDescription: 'failure test',
         probeConcurrency: 2,
         deps,
@@ -799,8 +799,8 @@ describe('executeDiscovery', () => {
       sessionId,
       project: {
         id: projectId,
-        name: 'demand-iq',
-        canonicalDomains: ['demand-iq.com'],
+        name: 'harbor-iq',
+        canonicalDomains: ['harbor-iq.test'],
         competitorDomains: [],
       },
       icpDescription: 'dedup test',
@@ -830,8 +830,8 @@ describe('executeDiscovery', () => {
     const deps = buildDeps({
       candidates: ['alpha q', 'beta q'],
       probeResults: [
-        { query: 'alpha q', citationState: 'not-cited', citedDomains: ['enerflo.com'] },
-        { query: 'beta q', citationState: 'not-cited', citedDomains: ['enerflo.com'] },
+        { query: 'alpha q', citationState: 'not-cited', citedDomains: ['emberflow.test'] },
+        { query: 'beta q', citationState: 'not-cited', citedDomains: ['emberflow.test'] },
       ],
     })
     // Classification outage must degrade the competitor map, not fail the run.
@@ -845,8 +845,8 @@ describe('executeDiscovery', () => {
       sessionId,
       project: {
         id: projectId,
-        name: 'demand-iq',
-        canonicalDomains: ['demand-iq.com'],
+        name: 'harbor-iq',
+        canonicalDomains: ['harbor-iq.test'],
         competitorDomains: [],
       },
       icpDescription: 'classification failure test',
@@ -854,7 +854,7 @@ describe('executeDiscovery', () => {
     })
 
     expect(result.competitorMap).toEqual([
-      { domain: 'enerflo.com', hits: 2, competitorType: 'unknown' },
+      { domain: 'emberflow.test', hits: 2, competitorType: 'unknown' },
     ])
     expect(db.select().from(discoverySessions).get()!.status).toBe('completed')
   })
@@ -867,8 +867,8 @@ describe('executeDiscovery', () => {
 
     const project: DiscoveryProjectContext = {
       id: projectId,
-      name: 'demand-iq',
-      canonicalDomains: ['demand-iq.com'],
+      name: 'harbor-iq',
+      canonicalDomains: ['harbor-iq.test'],
       competitorDomains: [],
     }
 
@@ -956,7 +956,7 @@ describe('discovery routes', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'Boutique hotels in Williamsburg' },
     })
     expect(response.statusCode).toBe(201)
@@ -997,14 +997,14 @@ describe('discovery routes', () => {
     }).run()
     db.insert(discoveryProbes).values({
       id: 'pr_f', sessionId, projectId, query: 'cited not mentioned q',
-      citationState: 'cited', citedDomains: ['demand-iq.com'], answerMentioned: false, createdAt: now,
+      citationState: 'cited', citedDomains: ['harbor-iq.test'], answerMentioned: false, createdAt: now,
     }).run()
     db.insert(discoveryProbes).values({
       id: 'pr_n', sessionId, projectId, query: 'legacy unknown q',
       citationState: 'not-cited', createdAt: now,
     }).run()
 
-    const res = await app.inject({ method: 'GET', url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}` })
+    const res = await app.inject({ method: 'GET', url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}` })
     expect(res.statusCode).toBe(200)
     const body = res.json() as { probes: Array<{ query: string; citationState: string; answerMentioned: boolean | null }> }
     const by = (q: string) => body.probes.find((p) => p.query === q)!
@@ -1024,7 +1024,7 @@ describe('discovery routes', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: {},
     })
     expect(response.statusCode).toBe(201)
@@ -1040,7 +1040,7 @@ describe('discovery routes', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: {},
     })
     expect(response.statusCode).toBe(400)
@@ -1058,7 +1058,7 @@ describe('discovery routes', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: {},
     })
     expect(response.statusCode).toBe(400)
@@ -1076,7 +1076,7 @@ describe('discovery routes', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { locations: ['florida'] },
     })
     expect(response.statusCode).toBe(201)
@@ -1093,7 +1093,7 @@ describe('discovery routes', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: {},
     })
     expect(response.statusCode).toBe(201)
@@ -1108,7 +1108,7 @@ describe('discovery routes', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: {},
     })
     expect(response.statusCode).toBe(201)
@@ -1123,7 +1123,7 @@ describe('discovery routes', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { locations: ['california'] },
     })
     expect(response.statusCode).toBe(400)
@@ -1148,7 +1148,7 @@ describe('discovery routes', () => {
 
     const first = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'industrial coatings', locations: ['phoenix'] },
     })
     expect(first.statusCode).toBe(201)
@@ -1157,7 +1157,7 @@ describe('discovery routes', () => {
     // Same ICP, different location subset: fresh session, never a reuse.
     const second = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'industrial coatings', locations: ['tucson'] },
     })
     expect(second.statusCode).toBe(201)
@@ -1166,7 +1166,7 @@ describe('discovery routes', () => {
     // Same ICP, same location subset: consolidates.
     const third = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'industrial coatings', locations: ['phoenix'] },
     })
     expect(third.statusCode).toBe(200)
@@ -1192,7 +1192,7 @@ describe('discovery routes', () => {
 
     const res = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'industrial coatings' },
     })
     expect(res.statusCode).toBe(201)
@@ -1212,7 +1212,7 @@ describe('discovery routes', () => {
 
     const first = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'industrial coatings' },
     })
     expect(first.statusCode).toBe(201)
@@ -1221,7 +1221,7 @@ describe('discovery routes', () => {
     // Different provider set = fresh session (different phrasing distribution).
     const second = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'industrial coatings', seedProviders: ['openai', 'gemini'] },
     })
     expect(second.statusCode).toBe(201)
@@ -1231,7 +1231,7 @@ describe('discovery routes', () => {
     // onto the first (no-provider-field) session.
     const third = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'industrial coatings', seedProviders: ['gemini'] },
     })
     expect(third.statusCode).toBe(200)
@@ -1256,7 +1256,7 @@ describe('discovery routes', () => {
     }).run()
     const reuse = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'legacy icp' },
     })
     expect(reuse.statusCode).toBe(200)
@@ -1271,7 +1271,7 @@ describe('discovery routes', () => {
 
     const first = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'industrial coatings', buyerDescription: 'plant facility managers' },
     })
     expect(first.statusCode).toBe(201)
@@ -1281,7 +1281,7 @@ describe('discovery routes', () => {
     // different question, so this must start a fresh session, never consolidate.
     const second = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'industrial coatings', buyerDescription: 'roofing distributors' },
     })
     expect(second.statusCode).toBe(201)
@@ -1290,7 +1290,7 @@ describe('discovery routes', () => {
     // Same ICP, NO buyer: still a different identity than a with-buyer session.
     const third = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'industrial coatings' },
     })
     expect(third.statusCode).toBe(201)
@@ -1298,7 +1298,7 @@ describe('discovery routes', () => {
     // Same ICP + same buyer DOES consolidate onto the first session.
     const fourth = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'industrial coatings', buyerDescription: 'plant facility managers' },
     })
     expect(fourth.statusCode).toBe(200)
@@ -1321,7 +1321,7 @@ describe('discovery routes', () => {
 
     const first = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'industrial coatings' },
     })
     expect(first.statusCode).toBe(201)
@@ -1334,7 +1334,7 @@ describe('discovery routes', () => {
 
     const second = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'industrial coatings' },
     })
     expect(second.statusCode).toBe(200)
@@ -1362,7 +1362,7 @@ describe('discovery routes', () => {
 
     const first = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'industrial coatings' },
     })
     const firstBody = first.json() as { sessionId: string }
@@ -1373,7 +1373,7 @@ describe('discovery routes', () => {
 
     const second = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'industrial coatings' },
     })
     const secondBody = second.json() as { sessionId: string; consolidated: boolean }
@@ -1399,7 +1399,7 @@ describe('discovery routes', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'industrial coatings' },
     })
     expect(response.statusCode).toBe(201)
@@ -1428,7 +1428,7 @@ describe('discovery routes', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'industrial coatings' },
     })
     expect(response.statusCode).toBe(201)
@@ -1444,14 +1444,14 @@ describe('discovery routes', () => {
 
     await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'industrial coatings' },
     })
     db.update(discoverySessions).set({ status: 'probing' }).run()
 
     const second = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'aerospace coatings' },
     })
     expect(second.statusCode).toBe(201)
@@ -1471,7 +1471,7 @@ describe('discovery routes', () => {
 
     const first = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'industrial coatings' },
     })
     const firstBody = first.json() as { sessionId: string }
@@ -1479,7 +1479,7 @@ describe('discovery routes', () => {
 
     const second = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: '  industrial coatings  ' },
     })
     const secondBody = second.json() as { sessionId: string; consolidated: boolean }
@@ -1496,7 +1496,7 @@ describe('discovery routes', () => {
 
     const first = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: {},
     })
     const firstBody = first.json() as { sessionId: string }
@@ -1504,7 +1504,7 @@ describe('discovery routes', () => {
 
     const second = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: {},
     })
     const secondBody = second.json() as { sessionId: string; consolidated: boolean }
@@ -1538,7 +1538,7 @@ describe('discovery routes', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'industrial coatings' },
     })
     expect(response.statusCode).toBe(201)
@@ -1554,7 +1554,7 @@ describe('discovery routes', () => {
     // desc + age guard pick the newest non-stale row), not the zombie.
     const followUp = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/discover/run',
+      url: '/api/v1/projects/harbor-iq/discover/run',
       payload: { icpDescription: 'industrial coatings' },
     })
     expect(followUp.statusCode).toBe(200)
@@ -1589,7 +1589,7 @@ describe('discovery routes', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: '/api/v1/projects/demand-iq/discover/sessions',
+      url: '/api/v1/projects/harbor-iq/discover/sessions',
     })
     expect(response.statusCode).toBe(200)
     const sessions = response.json() as DiscoverySessionDto[]
@@ -1625,7 +1625,7 @@ describe('discovery routes', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: '/api/v1/projects/demand-iq/discover/sessions/sess_other',
+      url: '/api/v1/projects/harbor-iq/discover/sessions/sess_other',
     })
     expect(response.statusCode).toBe(404)
   })
@@ -1647,7 +1647,7 @@ describe('discovery routes', () => {
       citedCount: 1,
       aspirationalCount: 0,
       wastedCount: 1,
-      competitorMap: [{ domain: 'aurora-solar.com', hits: 1, competitorType: 'unknown' }],
+      competitorMap: [{ domain: 'amberfield-solar.test', hits: 1, competitorType: 'unknown' }],
       warning: 'Seed dedup collapsed 12 raw candidates into 1 canonical query at threshold 0.85.',
       createdAt: new Date().toISOString(),
     }).run()
@@ -1659,7 +1659,7 @@ describe('discovery routes', () => {
         query: 'best solar quoting',
         bucket: 'cited',
         citationState: 'cited',
-        citedDomains: ['demand-iq.com'],
+        citedDomains: ['harbor-iq.test'],
         rawResponse: '{}',
         createdAt: new Date().toISOString(),
       },
@@ -1667,10 +1667,10 @@ describe('discovery routes', () => {
         id: 'probe_2',
         sessionId,
         projectId,
-        query: 'aurora alternatives',
+        query: 'amberfield alternatives',
         bucket: 'wasted-surface',
         citationState: 'not-cited',
-        citedDomains: ['aurora-solar.com'],
+        citedDomains: ['amberfield-solar.test'],
         rawResponse: '{}',
         createdAt: new Date().toISOString(),
       },
@@ -1678,7 +1678,7 @@ describe('discovery routes', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}`,
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}`,
     })
     expect(response.statusCode).toBe(200)
     const detail = response.json() as DiscoverySessionDetailDto
@@ -1686,7 +1686,7 @@ describe('discovery routes', () => {
     expect(detail.probes!.map(p => p.bucket)).toEqual(expect.arrayContaining(['cited', 'wasted-surface']))
     // A competitor map persisted without competitorType normalizes to unknown.
     expect(detail.competitorMap).toEqual([
-      { domain: 'aurora-solar.com', hits: 1, competitorType: 'unknown' },
+      { domain: 'amberfield-solar.test', hits: 1, competitorType: 'unknown' },
     ])
     // The persisted operator warning rides the session DTO.
     expect(detail.warning).toBe(
@@ -1697,7 +1697,7 @@ describe('discovery routes', () => {
   it('GET /discover/sessions/:id/promote returns bucketed queries + suggested new competitors of every type', async () => {
     const { app, db, tmpDir } = buildAppWithRoutes([])
     cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
-    const { projectId } = seedProject(db) // aurora-solar.com and enerflo.com are already tracked
+    const { projectId } = seedProject(db) // amberfield-solar.test and emberflow.test are already tracked
 
     const sessionId = crypto.randomUUID()
     db.insert(discoverySessions).values({
@@ -1705,10 +1705,10 @@ describe('discovery routes', () => {
       projectId,
       status: 'completed',
       competitorMap: [
-        { domain: 'aurora-solar.com', hits: 3, competitorType: 'direct-competitor' }, // already tracked
-        { domain: 'enerflo.com', hits: 2, competitorType: 'direct-competitor' }, // already tracked
+        { domain: 'amberfield-solar.test', hits: 3, competitorType: 'direct-competitor' }, // already tracked
+        { domain: 'emberflow.test', hits: 2, competitorType: 'direct-competitor' }, // already tracked
         { domain: 'expedia.com', hits: 3, competitorType: 'ota-aggregator' }, // new + recurring aggregator
-        { domain: 'helioscope.com', hits: 2, competitorType: 'direct-competitor' }, // new + recurring
+        { domain: 'halopanel.test', hits: 2, competitorType: 'direct-competitor' }, // new + recurring
         { domain: 'oneoff.example', hits: 1, competitorType: 'direct-competitor' }, // new but too noisy to suggest
       ],
       createdAt: new Date().toISOString(),
@@ -1748,7 +1748,7 @@ describe('discovery routes', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
     })
     expect(response.statusCode).toBe(200)
     const body = response.json() as {
@@ -1763,7 +1763,7 @@ describe('discovery routes', () => {
     // one-off domains are still skipped.
     expect(body.suggestedCompetitors).toEqual([
       { domain: 'expedia.com', hits: 3, competitorType: 'ota-aggregator' },
-      { domain: 'helioscope.com', hits: 2, competitorType: 'direct-competitor' },
+      { domain: 'halopanel.test', hits: 2, competitorType: 'direct-competitor' },
     ])
   })
 })
@@ -1780,7 +1780,7 @@ describe('queries.provenance is unaffected by route registration', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/demand-iq/queries',
+      url: '/api/v1/projects/harbor-iq/queries',
       payload: { queries: ['probe sanity check'] },
     })
     expect(response.statusCode).toBeLessThan(300)
@@ -1843,24 +1843,24 @@ describe('POST /discover/sessions/:id/promote', () => {
   it('promotes cited + aspirational by default, tags discovery provenance, and writes one audit log row', async () => {
     const { app, db, tmpDir } = buildAppWithRoutes()
     cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
-    const { projectId } = seedProject(db) // tracks aurora-solar.com, enerflo.com
+    const { projectId } = seedProject(db) // tracks amberfield-solar.test, emberflow.test
 
     const sessionId = seedSession(db, projectId, {
       probes: [
         { query: 'best solar quoting tool', bucket: 'cited' },
         { query: 'solar crm for installers', bucket: 'aspirational' },
-        { query: 'aurora solar alternatives', bucket: 'wasted-surface' },
+        { query: 'amberfield solar alternatives', bucket: 'wasted-surface' },
       ],
       competitorMap: [
-        { domain: 'aurora-solar.com', hits: 3 }, // already tracked
-        { domain: 'helioscope.com', hits: 2 }, // recurring new
-        { domain: 'solargraf.com', hits: 1 }, // one-off new
+        { domain: 'amberfield-solar.test', hits: 3 }, // already tracked
+        { domain: 'halopanel.test', hits: 2 }, // recurring new
+        { domain: 'solarplot.test', hits: 1 }, // one-off new
       ],
     })
 
     const response = await app.inject({
       method: 'POST',
-      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
       payload: {},
     })
     expect(response.statusCode).toBe(200)
@@ -1869,9 +1869,9 @@ describe('POST /discover/sessions/:id/promote', () => {
       'best solar quoting tool',
       'solar crm for installers',
     ])
-    expect(body.promoted.competitors).toEqual(['helioscope.com'])
+    expect(body.promoted.competitors).toEqual(['halopanel.test'])
     expect(body.skipped.queries).toEqual([])
-    expect(body.skipped.competitors).toEqual(['aurora-solar.com'])
+    expect(body.skipped.competitors).toEqual(['amberfield-solar.test'])
 
     // Every promoted query carries discovery provenance.
     const queryRows = db.select().from(queries).all()
@@ -1882,7 +1882,7 @@ describe('POST /discover/sessions/:id/promote', () => {
     const compRows = db.select().from(competitors).all()
     expect(compRows).toHaveLength(3)
     const promotedComps = compRows.filter(c => c.provenance === `discovery:${sessionId}`)
-    expect(promotedComps.map(c => c.domain).sort()).toEqual(['helioscope.com'])
+    expect(promotedComps.map(c => c.domain).sort()).toEqual(['halopanel.test'])
 
     // Exactly one discovery.promoted audit row, pointed at the session.
     const promoteAudits = db.select().from(auditLog).all().filter(a => a.action === 'discovery.promoted')
@@ -1901,12 +1901,12 @@ describe('POST /discover/sessions/:id/promote', () => {
         { query: 'aspirational query', bucket: 'aspirational' },
         { query: 'wasted query', bucket: 'wasted-surface' },
       ],
-      competitorMap: [{ domain: 'helioscope.com', hits: 1 }],
+      competitorMap: [{ domain: 'halopanel.test', hits: 1 }],
     })
 
     const response = await app.inject({
       method: 'POST',
-      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
       payload: { buckets: ['wasted-surface'], includeCompetitors: false },
     })
     expect(response.statusCode).toBe(200)
@@ -1916,7 +1916,7 @@ describe('POST /discover/sessions/:id/promote', () => {
 
     // Only the explicitly requested wasted-surface query landed.
     expect(db.select().from(queries).all().map(r => r.query)).toEqual(['wasted query'])
-    // includeCompetitors=false → helioscope.com was not merged.
+    // includeCompetitors=false → halopanel.test was not merged.
     expect(db.select().from(competitors).all()).toHaveLength(2)
   })
 
@@ -1927,15 +1927,15 @@ describe('POST /discover/sessions/:id/promote', () => {
 
     const sessionId = seedSession(db, projectId, {
       probes: [{ query: 'best solar quoting tool', bucket: 'cited' }],
-      competitorMap: [{ domain: 'helioscope.com', hits: 2 }],
+      competitorMap: [{ domain: 'halopanel.test', hits: 2 }],
     })
-    const url = `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`
+    const url = `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`
 
     const first = await app.inject({ method: 'POST', url, payload: {} })
     expect(first.statusCode).toBe(200)
     expect((first.json() as DiscoveryPromoteResult).promoted).toEqual({
       queries: ['best solar quoting tool'],
-      competitors: ['helioscope.com'],
+      competitors: ['halopanel.test'],
     })
 
     const second = await app.inject({ method: 'POST', url, payload: {} })
@@ -1944,7 +1944,7 @@ describe('POST /discover/sessions/:id/promote', () => {
     expect(body.promoted).toEqual({ queries: [], competitors: [] })
     expect(body.skipped).toEqual({
       queries: ['best solar quoting tool'],
-      competitors: ['helioscope.com'],
+      competitors: ['halopanel.test'],
     })
 
     // No duplicate rows from the re-run.
@@ -1973,7 +1973,7 @@ describe('POST /discover/sessions/:id/promote', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
       payload: { includeCompetitors: false },
     })
     expect(response.statusCode).toBe(200)
@@ -1999,7 +1999,7 @@ describe('POST /discover/sessions/:id/promote', () => {
 
     const preview = await app.inject({
       method: 'GET',
-      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
     })
     expect(preview.statusCode).toBe(200)
     expect(
@@ -2013,7 +2013,7 @@ describe('POST /discover/sessions/:id/promote', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
       payload: {},
     })
     expect(response.statusCode).toBe(200)
@@ -2041,7 +2041,7 @@ describe('POST /discover/sessions/:id/promote', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
       payload: {},
     })
     expect(response.statusCode).toBe(200)
@@ -2050,8 +2050,8 @@ describe('POST /discover/sessions/:id/promote', () => {
     // legacy-unknown domains are suppressed even though they clear the hit floor.
     expect(body.promoted.competitors).toEqual(['rival-solar.com'])
     expect(db.select().from(competitors).all().map(c => c.domain).sort()).toEqual([
-      'aurora-solar.com',
-      'enerflo.com',
+      'amberfield-solar.test',
+      'emberflow.test',
       'rival-solar.com',
     ])
   })
@@ -2072,7 +2072,7 @@ describe('POST /discover/sessions/:id/promote', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
       payload: { competitorTypes: ['direct-competitor', 'editorial-media'] },
     })
     expect(response.statusCode).toBe(200)
@@ -2098,27 +2098,27 @@ describe('POST /discover/sessions/:id/promote', () => {
       // the unknown-normalization fallback. Cast bypasses the typed schema so
       // we can land malformed JSON like an older row would have.
       competitorMap: [
-        { domain: 'helioscope.com', hits: 3 },
-        { domain: 'solargraf.com', hits: 2 },
+        { domain: 'halopanel.test', hits: 3 },
+        { domain: 'solarplot.test', hits: 2 },
       ] as DiscoveryCompetitorMapEntry[],
       createdAt: new Date().toISOString(),
     }).run()
 
     const defaultRun = await app.inject({
       method: 'POST',
-      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
       payload: { buckets: ['cited'] },
     })
     expect((defaultRun.json() as DiscoveryPromoteResult).promoted.competitors).toEqual([])
 
     const recovered = await app.inject({
       method: 'POST',
-      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
       payload: { buckets: ['cited'], competitorTypes: ['unknown'] },
     })
     expect((recovered.json() as DiscoveryPromoteResult).promoted.competitors).toEqual([
-      'helioscope.com',
-      'solargraf.com',
+      'halopanel.test',
+      'solarplot.test',
     ])
   })
 
@@ -2134,7 +2134,7 @@ describe('POST /discover/sessions/:id/promote', () => {
       })
       const response = await app.inject({
         method: 'POST',
-        url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+        url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
         payload: {},
       })
       expect(response.statusCode).toBe(400)
@@ -2154,7 +2154,7 @@ describe('POST /discover/sessions/:id/promote', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
       payload: { buckets: ['not-a-bucket'] },
     })
     expect(response.statusCode).toBe(400)
@@ -2182,7 +2182,7 @@ describe('POST /discover/sessions/:id/promote', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
       payload: {},
     })
     expect(response.statusCode).toBe(404)
@@ -2277,7 +2277,7 @@ describe('GET /discover/sessions/:id/harvest', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/harvest`,
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/harvest`,
     })
     expect(response.statusCode).toBe(200)
     const harvest = response.json() as DiscoveryHarvestDto
@@ -2327,7 +2327,7 @@ describe('GET /discover/sessions/:id/harvest', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/harvest`,
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/harvest`,
     })
     expect(response.statusCode).toBe(200)
     const harvest = response.json() as DiscoveryHarvestDto
@@ -2348,7 +2348,7 @@ describe('GET /discover/sessions/:id/harvest', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/harvest?minProbeHits=2`,
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/harvest?minProbeHits=2`,
     })
     expect(response.statusCode).toBe(200)
     const harvest = response.json() as DiscoveryHarvestDto
@@ -2367,7 +2367,7 @@ describe('GET /discover/sessions/:id/harvest', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/harvest?anchor=false`,
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/harvest?anchor=false`,
     })
     expect(response.statusCode).toBe(200)
     const harvest = response.json() as DiscoveryHarvestDto
@@ -2396,7 +2396,7 @@ describe('GET /discover/sessions/:id/harvest', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/harvest`,
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/harvest`,
     })
     expect(response.statusCode).toBe(200)
     const harvest = response.json() as DiscoveryHarvestDto
@@ -2408,7 +2408,7 @@ describe('GET /discover/sessions/:id/harvest', () => {
   })
 
   it('anchors an abstract-brand project on a descriptive OWNED domain', async () => {
-    // The canonical domain ("demand-iq") is an abstract brand that yields no
+    // The canonical domain ("harbor-iq") is an abstract brand that yields no
     // subject term, so anchoring on it alone would drop the on-subject solar
     // candidate. Folding in the owned domain ("solar-leads.com") supplies the
     // real subject terms, so the anchor admits solar and still drops the
@@ -2416,7 +2416,7 @@ describe('GET /discover/sessions/:id/harvest', () => {
     const { app, db, tmpDir } = buildHarvestApp(fakeExtract)
     cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
     const { projectId } = seedProject(db, {
-      canonicalDomain: 'demand-iq.com',
+      canonicalDomain: 'harbor-iq.test',
       ownedDomains: ['solar-leads.com'],
     })
     const sessionId = seedHarvestSession(
@@ -2428,7 +2428,7 @@ describe('GET /discover/sessions/:id/harvest', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/harvest`,
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/harvest`,
     })
     expect(response.statusCode).toBe(200)
     const harvest = response.json() as DiscoveryHarvestDto
@@ -2458,7 +2458,7 @@ describe('GET /discover/sessions/:id/harvest', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/harvest`,
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/harvest`,
     })
     expect(response.statusCode).toBe(200)
     const harvest = response.json() as DiscoveryHarvestDto
@@ -2484,7 +2484,7 @@ describe('GET /discover/sessions/:id/harvest', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/harvest`,
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/harvest`,
     })
     expect(response.statusCode).toBe(200)
     const harvest = response.json() as DiscoveryHarvestDto
@@ -2502,7 +2502,7 @@ describe('GET /discover/sessions/:id/harvest', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/harvest`,
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/harvest`,
     })
     expect(response.statusCode).toBe(200)
     const harvest = response.json() as DiscoveryHarvestDto
@@ -2517,7 +2517,7 @@ describe('GET /discover/sessions/:id/harvest', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: '/api/v1/projects/demand-iq/discover/sessions/does-not-exist/harvest',
+      url: '/api/v1/projects/harbor-iq/discover/sessions/does-not-exist/harvest',
     })
     expect(response.statusCode).toBe(404)
   })
@@ -2549,8 +2549,8 @@ describe('executeDiscovery seed hygiene', () => {
         seedInput = input
         return {
           candidates: [
-            'demand iq reviews', // branded: phrase match on brand name
-            'is demand-iq.com legit', // branded: canonical domain
+            'harbor iq reviews', // branded: phrase match on brand name
+            'is harbor-iq.example.com legit', // branded: canonical domain
             'best solar quoting tool',
             'compare solar quoting tools',
           ],
@@ -2576,9 +2576,9 @@ describe('executeDiscovery seed hygiene', () => {
       db, runId, sessionId,
       project: {
         id: projectId,
-        name: 'demand-iq',
-        brandNames: ['Demand IQ'],
-        canonicalDomains: ['demand-iq.com'],
+        name: 'harbor-iq',
+        brandNames: ['Harbor IQ'],
+        canonicalDomains: ['harbor-iq.example.com'],
         competitorDomains: [],
       },
       icpDescription: 'solar contractors',
@@ -2598,8 +2598,8 @@ describe('executeDiscovery seed hygiene', () => {
     const probes = db.select().from(discoveryProbes).all()
     expect(probes.length).toBeGreaterThan(0)
     for (const probe of probes) {
-      expect(probe.query.toLowerCase()).not.toContain('demand iq')
-      expect(probe.query.toLowerCase()).not.toContain('demand-iq.com')
+      expect(probe.query.toLowerCase()).not.toContain('harbor iq')
+      expect(probe.query.toLowerCase()).not.toContain('harbor-iq.example.com')
     }
   })
 })
@@ -2652,7 +2652,7 @@ describe('executeDiscovery geo probes', () => {
     const probeLocations: Array<unknown> = []
     await executeDiscovery({
       db, runId, sessionId,
-      project: { id: projectId, name: 'demand-iq', canonicalDomains: ['demand-iq.com'], competitorDomains: [] },
+      project: { id: projectId, name: 'harbor-iq', canonicalDomains: ['harbor-iq.test'], competitorDomains: [] },
       icpDescription: 'roof coatings',
       locations,
       deps: geoDeps(probeLocations),
@@ -2715,7 +2715,7 @@ describe('executeDiscovery dedup diagnostics', () => {
 
     await executeDiscovery({
       db, runId, sessionId,
-      project: { id: projectId, name: 'demand-iq', canonicalDomains: ['demand-iq.com'], competitorDomains: [] },
+      project: { id: projectId, name: 'harbor-iq', canonicalDomains: ['harbor-iq.test'], competitorDomains: [] },
       icpDescription: 'solar contractors',
       deps,
     })
@@ -2876,7 +2876,7 @@ describe('executeDiscovery multi-provider monotonic merge (end-to-end)', () => {
 
     const result = await executeDiscovery({
       db, runId, sessionId,
-      project: { id: projectId, name: 'demand-iq', canonicalDomains: ['demand-iq.com'], competitorDomains: [] },
+      project: { id: projectId, name: 'harbor-iq', canonicalDomains: ['harbor-iq.test'], competitorDomains: [] },
       icpDescription: 'roof coatings',
       seedProviders: ['gemini', 'openai'],
       // wide threshold so the bridges WOULD chain the two primary intents if pooled

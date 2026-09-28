@@ -895,9 +895,9 @@ test('buildProjectCommandCenter emits one evidence row per location when a multi
   const data: ProjectData = {
     project: {
       id: 'proj_multi',
-      name: 'azcoatings',
-      displayName: 'AZ Coatings',
-      canonicalDomain: 'azcoatings.example',
+      name: 'bluekettle',
+      displayName: 'Blue Kettle',
+      canonicalDomain: 'bluekettle.example.com',
       ownedDomains: [],
       country: 'US',
       language: 'en',
@@ -953,8 +953,8 @@ test('buildProjectCommandCenter emits one evidence row per location when a multi
           model: 'gemini-2.5-flash',
           citationState: 'cited',
           answerMentioned: true,
-          answerText: 'AZ Coatings is one Florida vendor for polyurea roof coating.',
-          citedDomains: ['azcoatings.example'],
+          answerText: 'Blue Kettle is one Florida vendor for polyurea roof coating.',
+          citedDomains: ['bluekettle.example.com'],
           competitorOverlap: [],
           groundingSources: [],
           searchQueries: [],
@@ -1003,7 +1003,7 @@ test('buildProjectCommandCenter emits one evidence row per location when a multi
   expect(michigan).toBeDefined()
   expect(florida?.citationState).toBe('cited')
   expect(michigan?.citationState).toBe('not-cited')
-  expect(florida?.citedDomains).toEqual(['azcoatings.example'])
+  expect(florida?.citedDomains).toEqual(['bluekettle.example.com'])
   expect(michigan?.citedDomains).toEqual([])
   expect(florida?.answerSnippet).toContain('Florida')
   expect(michigan?.answerSnippet).toContain('Michigan')
@@ -1019,9 +1019,9 @@ test('buildProjectCommandCenter scopes per-location streak/changeLabel to that l
   const data: ProjectData = {
     project: {
       id: 'proj_loc_history',
-      name: 'azcoatings',
-      displayName: 'AZ Coatings',
-      canonicalDomain: 'azcoatings.example',
+      name: 'bluekettle',
+      displayName: 'Blue Kettle',
+      canonicalDomain: 'bluekettle.example.com',
       ownedDomains: [],
       country: 'US',
       language: 'en',
@@ -1084,7 +1084,7 @@ test('buildProjectCommandCenter scopes per-location streak/changeLabel to that l
           citationState: 'cited',
           answerMentioned: true,
           answerText: 'florida snap',
-          citedDomains: ['azcoatings.example'],
+          citedDomains: ['bluekettle.example.com'],
           competitorOverlap: [],
           groundingSources: [],
           searchQueries: [],
@@ -1145,9 +1145,9 @@ test('buildProjectCommandCenter emits a single history-only row when no location
   const data: ProjectData = {
     project: {
       id: 'proj_history_only',
-      name: 'azcoatings',
-      displayName: 'AZ Coatings',
-      canonicalDomain: 'azcoatings.example',
+      name: 'bluekettle',
+      displayName: 'Blue Kettle',
+      canonicalDomain: 'bluekettle.example.com',
       ownedDomains: [],
       country: 'US',
       language: 'en',
@@ -1207,7 +1207,7 @@ test('buildProjectCommandCenter emits a single history-only row when no location
           citationState: 'cited',
           answerMentioned: true,
           answerText: 'florida gemini snap',
-          citedDomains: ['azcoatings.example'],
+          citedDomains: ['bluekettle.example.com'],
           competitorOverlap: [],
           groundingSources: [],
           searchQueries: [],

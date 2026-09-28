@@ -166,14 +166,6 @@ For a configured portfolio destination, select one `--market <key>` or `--proper
 
 <a id="compare-competitors-and-measure-complex-portfolios"></a>
 
-### Portfolios and competitors
-
-Use [versioned measurement plans](docs/mcp.md#tool-surface) for portfolios of locations, products, or site sections.
-
-- **Properties:** Assign queries, engines, models, and locations to each property. Keep branded and non-brand coverage separate.
-- **Market groups:** Organize overlapping sets of properties, each with its own competitors.
-- **Comparisons:** Compare properties, groups, engines, and locations. Open the exact answers and cited URLs behind each result.
-
 ### Search, traffic, and site health
 
 Investigate visibility changes with evidence from search and local performance, crawler visits, AI page fetches, referrals, and conversions.
@@ -182,6 +174,14 @@ Site audits show technical findings alongside that evidence.
 ![Canonry Site Map graph](https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/dashboard.png)
 
 *Map crawlable pages and the internal links that connect them.*
+
+### Portfolios and competitors
+
+Use [versioned measurement plans](docs/mcp.md#tool-surface) for portfolios of locations, products, or site sections.
+
+- **Properties:** Assign queries, engines, models, and locations to each property. Keep branded and non-brand coverage separate.
+- **Market groups:** Organize overlapping sets of properties, each with its own competitors.
+- **Comparisons:** Compare properties, groups, engines, and locations. Open the exact answers and cited URLs behind each result.
 
 ## Act on the evidence
 

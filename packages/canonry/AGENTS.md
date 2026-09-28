@@ -294,6 +294,8 @@ That is not a style preference. The gate used to be a `let` inside `inspectUrlsP
 
 `canonry backfill answer-visibility` does more than recompute `answerMentioned`. It also reparses stored provider `raw_response` payloads for supported API providers (OpenAI, Claude, Gemini, Perplexity) and refreshes derived snapshot fields such as `citationState`, `citedDomains`, `groundingSources`, and `searchQueries`.
 
+It writes retrieval fields in exactly one case: OpenAI rows labelled `native-auto-v1` (written by 4.139.0 through 5.19.0, which all sent a forced-search request) become `search-required-v1`, with `retrievalStatus` re-derived from the stored `apiResponse` (`correctStoredOpenAIRetrieval`, counted as `retrievalRelabeled`). NULL contracts predate the field and stay NULL; no other provider's retrieval fields are touched. Never widen this into "set every row to the adapter's current contract": a future contract change would then relabel history.
+
 The command lives in `src/commands/backfill.ts` (historical recomputation for answer visibility fields and insights).
 
 ### Server and SPA serving
@@ -315,7 +317,7 @@ Providers are registered at server startup in `server.ts`. Each provider adapter
   "service": "canonry",
   "version": "4.193.0",
   "commit": "eed745d5c1f0a4b6e2d8c9a7b3f1e0d2c4b6a8f0",
-  "instance": { "name": "gjelina-demo", "role": "client-demo" },
+  "instance": { "name": "acme-demo", "role": "client-demo" },
   "basePath": "/canonry"
 }
 ```
@@ -389,6 +391,7 @@ Registered via `src/cli-commands/measurement-plan.ts`.
 
 - `visibility-stats <project>` — aggregated per-query mention/citation rates with sample size (`--since`/`--until`/`--month <YYYY-MM>`/`--last-runs`/`--by-provider`/`--share-of-voice`); `--share-of-voice` adds pooled project-vs-competitor share of voice to the envelope; collection command → jsonl streams one record per query.
 - Also `visibility-compare <project> --from <YYYY-MM> --to <YYYY-MM>` (`showVisibilityCompare`) — month-over-month AEO comparison rendered as the statistician-panel table (share-of-voice-led with `*` drift-robust marker, each cell `point [ci-lo, ci-hi]`, within-noise/moved verdict, basket + low-sweep caveat + model-change note); object command, `--format json` (jsonl degrades to json).
+- Monthly class rates have distinct branded/non-brand metric keys. `--scope`, `--scope-key`, `--market-key`, `--provider`, and `--location` map to the same REST/MCP selection. Print the Advanced `classComparison` cohort separately from the preserved legacy project basket, and print the selection whenever one is set; JSON retains the complete API response. A bad selector is a usage error (exit 1).
 - Delegates to `ApiClient.getVisibilityStats` / `getVisibilityCompare`. Registered via `src/cli-commands/visibility-stats.ts`.
 
 `src/commands/report.ts`: `runReportCommand` — `canonry report <project>` — fetches `/report` JSON, renders self-contained HTML to disk via `renderReportHtml` from `@ainyc/canonry-api-routes`.
