@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import type { KeyboardEvent, ReactNode } from 'react'
-import { UNATTRIBUTED_MENTION_REASON, reportUnattributedAnswers } from '@ainyc/canonry-contracts'
+import { formatPercent, UNATTRIBUTED_MENTION_REASON, reportUnattributedAnswers } from '@ainyc/canonry-contracts'
 import type { MetricTone } from '../../../view-models.js'
 
 import { InfoTooltip } from '../../shared/InfoTooltip.js'
@@ -265,7 +265,7 @@ function isMeasured(metric: AdvancedMeasurementMetric): metric is Extract<Advanc
 
 function metricLabel(metric: AdvancedMeasurementMetric): string {
   if (!isMeasured(metric)) return 'N/A'
-  return `${metric.numerator} of ${metric.denominator} (${Math.round((metric.numerator / metric.denominator) * 100)}%)`
+  return `${metric.numerator} of ${metric.denominator} (${formatPercent(metric.numerator / metric.denominator)})`
 }
 
 function metricReason(metric: AdvancedMeasurementMetric): string {

@@ -424,8 +424,8 @@ describe('headline strip', () => {
     const breakdown = screen.getByRole('region', { name: 'Scope breakdown' })
     fireEvent.click(within(breakdown).getByRole('button', { name: 'Properties' }))
     const [, , mentioned, cited] = [...within(breakdown).getByRole('button', { name: 'Harbor House' }).closest('tr')!.querySelectorAll('td')]
-    expect(mentioned!.textContent).toBe('75%3 of 41 of 5 answers could not be tied to one property')
-    expect(cited!.textContent).toBe('50%2 of 4')
+    expect(mentioned!.textContent).toBe('75.0%3 of 41 of 5 answers could not be tied to one property')
+    expect(cited!.textContent).toBe('50.0%2 of 4')
   })
 
   it('orders the strip, trend chart, breakdown, Property outcomes, and query results', () => {

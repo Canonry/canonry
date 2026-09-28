@@ -49,6 +49,7 @@ import {
   AdsDeliverySnapshotStatuses,
   AdsLiveEntityTypes,
   formatMicros,
+  formatPercent,
   describeError,
 } from '@ainyc/canonry-contracts'
 import type { z } from 'zod'
@@ -613,7 +614,7 @@ export async function adsSummary(project: string, opts?: { format?: string }): P
   console.log(`Structure:    ${result.campaignCount} campaigns / ${result.adGroupCount} ad groups / ${result.adCount} ads`)
   console.log(`Window:       ${result.window.from ?? '—'} → ${result.window.to ?? '—'}${partialDayNote(result.window.inProgressDate)}`)
   console.log(`Impressions:  ${result.totals.impressions}`)
-  console.log(`Clicks:       ${result.totals.clicks}${result.totals.ctr != null ? ` (CTR ${(result.totals.ctr * 100).toFixed(2)}%)` : ''}`)
+  console.log(`Clicks:       ${result.totals.clicks}${result.totals.ctr != null ? ` (CTR ${formatPercent(result.totals.ctr)})` : ''}`)
   console.log(`Spend:        ${formatMicros(result.totals.spendMicros, result.currencyCode ?? 'USD')}${result.totals.cpcMicros != null ? ` (CPC ${formatMicros(result.totals.cpcMicros, result.currencyCode ?? 'USD')})` : ''}`)
   console.log(`Last synced:  ${result.lastSyncedAt ?? 'never'}`)
 }

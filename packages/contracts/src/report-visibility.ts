@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { formatPercent } from './formatting.js'
 import {
   visibilityReportPopulationSchema,
   visibilityReportSelectionSchema,
@@ -47,8 +48,9 @@ export function reportQueryClassLabel(value: VisibilityReportPopulationClass): s
   return { branded: 'Branded', 'non-brand': 'Non-brand', unknown: 'Unclassified' }[value]
 }
 
+/** A frozen population's rate (a 0..1 fraction) as a percent, `33.3%`, or `Not measured` without one. */
 export function reportVisibilityRate(value: VisibilityReportRate): string {
-  return value.rate === null ? REPORT_VISIBILITY_COPY.notMeasured : `${Number((value.rate * 100).toFixed(1))}%`
+  return value.rate === null ? REPORT_VISIBILITY_COPY.notMeasured : formatPercent(value.rate)
 }
 
 export function reportVisibilityEvidence(value: VisibilityReportRate): string {

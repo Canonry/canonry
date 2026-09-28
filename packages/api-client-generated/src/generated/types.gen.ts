@@ -2081,6 +2081,23 @@ export type BrandMetricsDto = {
     };
     trend: 'improving' | 'declining' | 'stable';
     mentionTrend: 'improving' | 'declining' | 'stable';
+    windowChange: {
+        citationRate: {
+            first: number;
+            latest: number;
+            delta: number;
+        } | null;
+        mentionRate: {
+            first: number;
+            latest: number;
+            delta: number;
+        } | null;
+        mentionShare: {
+            first: number;
+            latest: number;
+            delta: number;
+        } | null;
+    };
     queryChanges: Array<{
         date: string;
         delta: number;
@@ -3525,6 +3542,191 @@ export type Ga4SyncResponseDto = {
     syncedComponents?: Array<string>;
 };
 
+export type GaAttributionTrendResponse = {
+    organic: {
+        sessions7d: number;
+        sessionsPrev7d: number;
+        trend7dPct: number | null;
+        sessions30d: number;
+        sessionsPrev30d: number;
+        trend30dPct: number | null;
+    };
+    ai: {
+        sessions7d: number;
+        sessionsPrev7d: number;
+        trend7dPct: number | null;
+        sessions30d: number;
+        sessionsPrev30d: number;
+        trend30dPct: number | null;
+    };
+    social: {
+        sessions7d: number;
+        sessionsPrev7d: number;
+        trend7dPct: number | null;
+        sessions30d: number;
+        sessionsPrev30d: number;
+        trend30dPct: number | null;
+    };
+    direct: {
+        sessions7d: number;
+        sessionsPrev7d: number;
+        trend7dPct: number | null;
+        sessions30d: number;
+        sessionsPrev30d: number;
+        trend30dPct: number | null;
+    };
+    total: {
+        sessions7d: number;
+        sessionsPrev7d: number;
+        trend7dPct: number | null;
+        sessions30d: number;
+        sessionsPrev30d: number;
+        trend30dPct: number | null;
+    };
+    aiBiggestMover: {
+        source: string;
+        sessions7d: number;
+        sessionsPrev7d: number;
+        changeSessions: number;
+        changePct: number | null;
+        changeBasis: 'new' | 'small-base' | 'percent';
+    } | null;
+    socialBiggestMover: {
+        source: string;
+        sessions7d: number;
+        sessionsPrev7d: number;
+        changeSessions: number;
+        changePct: number | null;
+        changeBasis: 'new' | 'small-base' | 'percent';
+    } | null;
+};
+
+export type GaSocialReferralTrendResponse = {
+    socialSessions7d: number;
+    socialSessionsPrev7d: number;
+    trend7dPct: number | null;
+    socialSessions30d: number;
+    socialSessionsPrev30d: number;
+    trend30dPct: number | null;
+    biggestMover: {
+        source: string;
+        sessions7d: number;
+        sessionsPrev7d: number;
+        changeSessions: number;
+        changePct: number | null;
+        changeBasis: 'new' | 'small-base' | 'percent';
+    } | null;
+};
+
+export type GaTrafficResponse = {
+    totalSessions: number;
+    totalOrganicSessions: number;
+    totalDirectSessions: number;
+    totalUsers: number | null;
+    topPages: Array<{
+        landingPage: string;
+        sessions: number;
+        organicSessions: number;
+        directSessions: number;
+        users: number;
+        organicShare: number | null;
+    }>;
+    aiReferrals: Array<{
+        source: string;
+        medium: string;
+        trafficClass: 'organic' | 'paid';
+        sessions: number;
+        users?: number;
+        sourceDimension: 'session' | 'first_user' | 'manual_utm';
+        share: number;
+    }>;
+    aiReferralLandingPages: Array<{
+        source: string;
+        medium: string;
+        trafficClass: 'organic' | 'paid';
+        sourceDimension: 'session' | 'first_user' | 'manual_utm';
+        landingPage: string;
+        sessions: number;
+        users?: number;
+    }>;
+    aiSessionsDeduped: number;
+    aiUsersDeduped?: number;
+    paidAiSessionsDeduped: number;
+    paidAiUsersDeduped?: number;
+    organicAiSessionsDeduped: number;
+    organicAiUsersDeduped?: number;
+    aiSessionsBySession: number;
+    aiUsersBySession?: number;
+    paidAiSessionsBySession: number;
+    paidAiUsersBySession?: number;
+    organicAiSessionsBySession: number;
+    organicAiUsersBySession?: number;
+    socialReferrals: Array<{
+        source: string;
+        medium: string;
+        sessions: number;
+        users?: number;
+        channelGroup: string;
+        share: number;
+    }>;
+    socialSessions: number;
+    socialUsers?: number;
+    channelBreakdown: {
+        organic: {
+            sessions: number;
+            sharePct: number;
+            sharePctDisplay: string;
+        };
+        social: {
+            sessions: number;
+            sharePct: number;
+            sharePctDisplay: string;
+        };
+        direct: {
+            sessions: number;
+            sharePct: number;
+            sharePctDisplay: string;
+        };
+        ai: {
+            sessions: number;
+            sharePct: number;
+            sharePctDisplay: string;
+        };
+        other: {
+            sessions: number;
+            sharePct: number;
+            sharePctDisplay: string;
+        };
+    };
+    organicSharePct: number;
+    aiSharePct: number;
+    aiSharePctBySession: number;
+    paidAiSharePct: number;
+    paidAiSharePctBySession: number;
+    organicAiSharePct: number;
+    organicAiSharePctBySession: number;
+    directSharePct: number;
+    socialSharePct: number;
+    organicSharePctDisplay: string;
+    aiSharePctDisplay: string;
+    aiSharePctBySessionDisplay: string;
+    paidAiSharePctDisplay: string;
+    paidAiSharePctBySessionDisplay: string;
+    organicAiSharePctDisplay: string;
+    organicAiSharePctBySessionDisplay: string;
+    directSharePctDisplay: string;
+    socialSharePctDisplay: string;
+    otherSessions: number;
+    otherSharePct: number;
+    otherSharePctDisplay: string;
+    lastSyncedAt: string | null;
+    windowStart: string | null;
+    windowEnd: string | null;
+    windowDays: number | null;
+    periodStart: string | null;
+    periodEnd: string | null;
+};
+
 export type GbpAccountListResponse = {
     accounts: Array<{
         name: string;
@@ -4173,6 +4375,8 @@ export type GscCoverageSummaryDto = {
         notIndexed: number;
         deindexed: number;
         percentage: number;
+        indexedShare: number | null;
+        notIndexedShare: number | null;
     };
     lastInspectedAt: string | null;
     lastSyncedAt: string | null;
@@ -6338,7 +6542,6 @@ export type MeasurementChangesResponse = {
                     value: number;
                     numerator?: number;
                     denominator?: number;
-                    unattributed?: number;
                 } | {
                     state: 'unavailable';
                     reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -6348,7 +6551,6 @@ export type MeasurementChangesResponse = {
                     value: number;
                     numerator?: number;
                     denominator?: number;
-                    unattributed?: number;
                 } | {
                     state: 'unavailable';
                     reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -6422,7 +6624,6 @@ export type MeasurementChangesResponse = {
                         value: number;
                         numerator?: number;
                         denominator?: number;
-                        unattributed?: number;
                     } | {
                         state: 'unavailable';
                         reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -6432,7 +6633,6 @@ export type MeasurementChangesResponse = {
                         value: number;
                         numerator?: number;
                         denominator?: number;
-                        unattributed?: number;
                     } | {
                         state: 'unavailable';
                         reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -6505,7 +6705,6 @@ export type MeasurementChangesResponse = {
                         value: number;
                         numerator?: number;
                         denominator?: number;
-                        unattributed?: number;
                     } | {
                         state: 'unavailable';
                         reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -6515,7 +6714,6 @@ export type MeasurementChangesResponse = {
                         value: number;
                         numerator?: number;
                         denominator?: number;
-                        unattributed?: number;
                     } | {
                         state: 'unavailable';
                         reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -6972,7 +7170,6 @@ export type MeasurementOverviewResponse = {
             value: number;
             numerator?: number;
             denominator?: number;
-            unattributed?: number;
         } | {
             state: 'unavailable';
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -7127,7 +7324,6 @@ export type MeasurementPortfolioSummaryResponse = {
             value: number;
             numerator?: number;
             denominator?: number;
-            unattributed?: number;
         } | {
             state: 'unavailable';
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -7325,7 +7521,6 @@ export type MeasurementPortfolioSummaryResponse = {
             value: number;
             numerator?: number;
             denominator?: number;
-            unattributed?: number;
         } | {
             state: 'unavailable';
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -9774,10 +9969,17 @@ export type ProjectOverviewDto = {
             breakdown: {
                 projectMentionSnapshots: number;
                 competitorMentionSnapshots: number;
+                combinedMentionSnapshots: number;
                 perCompetitor: Array<{
                     domain: string;
                     mentionSnapshots: number;
                     shareOfCompetitiveTotal: number;
+                }>;
+                ranking: Array<{
+                    kind: 'project' | 'competitor';
+                    domain: string | null;
+                    mentionSnapshots: number;
+                    share: number;
                 }>;
                 snapshotsWithAnswerText: number;
                 snapshotsTotal: number;
@@ -9787,10 +9989,17 @@ export type ProjectOverviewDto = {
             branded: {
                 projectMentionSnapshots: number;
                 competitorMentionSnapshots: number;
+                combinedMentionSnapshots: number;
                 perCompetitor: Array<{
                     domain: string;
                     mentionSnapshots: number;
                     shareOfCompetitiveTotal: number;
+                }>;
+                ranking: Array<{
+                    kind: 'project' | 'competitor';
+                    domain: string | null;
+                    mentionSnapshots: number;
+                    share: number;
                 }>;
                 snapshotsWithAnswerText: number;
                 snapshotsTotal: number;
@@ -11216,6 +11425,7 @@ export type SiteAuditPagesResponseDto = {
             name: string;
             weight: number;
             score: number;
+            sharePct: number | null;
         }>;
     }>;
 };
@@ -11272,6 +11482,7 @@ export type SiteAuditScoreDto = {
         id: string;
         name: string;
         weight: number;
+        sharePct: number | null;
         avgScore: number;
         status: 'pass' | 'partial' | 'fail';
         pagesPassing: number;
@@ -11524,6 +11735,7 @@ export type SiteCrawlPageAuditDto = {
         name: string;
         weight: number;
         score: number;
+        sharePct: number | null;
         status: 'pass' | 'partial' | 'fail';
         applicable: boolean | null;
         findings: Array<{
@@ -11555,6 +11767,7 @@ export type SiteCrawlPageAuditDto = {
         name: string;
         weight: number;
         score: number;
+        sharePct: number | null;
         status: 'pass' | 'partial' | 'fail';
         applicable: boolean | null;
         findings: Array<{
@@ -24973,9 +25186,7 @@ export type GetApiV1ProjectsByNameGaTrafficResponses = {
     /**
      * GA4 traffic data returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: GaTrafficResponse;
 };
 
 export type GetApiV1ProjectsByNameGaTrafficResponse = GetApiV1ProjectsByNameGaTrafficResponses[keyof GetApiV1ProjectsByNameGaTrafficResponses];
@@ -25150,9 +25361,7 @@ export type GetApiV1ProjectsByNameGaSocialReferralTrendResponses = {
     /**
      * Social referral trend returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: GaSocialReferralTrendResponse;
 };
 
 export type GetApiV1ProjectsByNameGaSocialReferralTrendResponse = GetApiV1ProjectsByNameGaSocialReferralTrendResponses[keyof GetApiV1ProjectsByNameGaSocialReferralTrendResponses];
@@ -25186,9 +25395,7 @@ export type GetApiV1ProjectsByNameGaAttributionTrendResponses = {
     /**
      * Attribution trend returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: GaAttributionTrendResponse;
 };
 
 export type GetApiV1ProjectsByNameGaAttributionTrendResponse = GetApiV1ProjectsByNameGaAttributionTrendResponses[keyof GetApiV1ProjectsByNameGaAttributionTrendResponses];

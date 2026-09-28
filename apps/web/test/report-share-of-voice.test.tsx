@@ -25,5 +25,7 @@ test('report SPA uses the same basis and unmeasured copy as the HTML report', ()
   expect(screen.getByText('Share of voice · non-brand queries: 25.0% · observed competitors')).toBeTruthy()
   expect(screen.getByText('Share of voice · branded queries: Not measured')).toBeTruthy()
   expect(screen.getByText('No competitors configured.')).toBeTruthy()
-  expect(screen.queryByText('100.0%')).toBeNull()
+  // 34 branded mentions against no competitor must never read as a share, in
+  // either the one-decimal form or the exact-100 form the shared rule prints.
+  expect(screen.queryByText(/100(\.0)?%/)).toBeNull()
 })

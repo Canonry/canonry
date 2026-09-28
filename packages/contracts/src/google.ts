@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { fraction, percent } from './ratio-unit.js'
 import { linearTrendSchema } from './statistics.js'
 
 export const googleConnectionTypeSchema = z.enum(['gsc', 'ga4', 'gbp'])
@@ -24,7 +25,7 @@ export const gscSearchDataDtoSchema = z.object({
   device: z.string().nullable().optional(),
   clicks: z.number(),
   impressions: z.number(),
-  ctr: z.number(),
+  ctr: fraction(),
   position: z.number(),
 })
 export type GscSearchDataDto = z.infer<typeof gscSearchDataDtoSchema>
@@ -62,7 +63,7 @@ export const gscPerformanceDailyPointSchema = z.object({
   date: z.string(),
   clicks: z.number(),
   impressions: z.number(),
-  ctr: z.number(),
+  ctr: fraction(),
   /**
    * Average ranking position for the day, or `null` on a date served by the
    * dimensioned fallback. Summing `gsc_search_data` cannot produce a property
@@ -125,7 +126,7 @@ const gscPeriodTotalsSchema = z.object({
   clicks: z.number(),
   impressions: z.number(),
   /** The period's own `clicks / impressions`, never a mean of daily ratios. */
-  ctr: z.number().nullable(),
+  ctr: fraction().nullable(),
   /** Impression-weighted mean position, or null when no day carried one. */
   position: z.number().nullable(),
   /**
@@ -198,10 +199,10 @@ export const gscPeriodComparisonSchema = z.object({
    * worse. Desirability is the renderer's call.
    */
   change: z.object({
-    clicks: z.number().nullable(),
-    impressions: z.number().nullable(),
-    ctr: z.number().nullable(),
-    position: z.number().nullable(),
+    clicks: fraction().nullable(),
+    impressions: fraction().nullable(),
+    ctr: fraction().nullable(),
+    position: fraction().nullable(),
   }),
 })
 export type GscPeriodComparison = z.infer<typeof gscPeriodComparisonSchema>
@@ -210,7 +211,7 @@ export const gscPerformanceDailyDtoSchema = z.object({
   totals: z.object({
     clicks: z.number(),
     impressions: z.number(),
-    ctr: z.number(),
+    ctr: fraction(),
     /**
      * Impression-weighted mean position over the window, or `null` when no day
      * carried a property-level position. Weighted, not a plain mean of the
@@ -252,7 +253,7 @@ export const gscTopPageRowSchema = z.object({
   page: z.string(),
   clicks: z.number(),
   impressions: z.number(),
-  ctr: z.number(),
+  ctr: fraction(),
 })
 export type GscTopPageRow = z.infer<typeof gscTopPageRowSchema>
 
@@ -277,7 +278,7 @@ export const gscTopPagesDtoSchema = z.object({
   totals: z.object({
     clicks: z.number(),
     impressions: z.number(),
-    ctr: z.number(),
+    ctr: fraction(),
     days: z.number(),
     /** First date the property-level totals actually cover. */
     coveredFrom: z.string().nullable(),
@@ -317,8 +318,8 @@ export const gscQueryTotalRowSchema = z.object({
   query: z.string(),
   clicks: z.number(),
   impressions: z.number(),
-  /** clicks / impressions, 0 when impressions are 0. */
-  ctr: z.number(),
+  /** clicks / impressions as a 0..1 fraction, 0 when impressions are 0. */
+  ctr: fraction(),
   /**
    * Impression-weighted average position over the window:
    * sum(position * impressions) / sum(impressions). When the query has no
@@ -399,11 +400,22 @@ export type GscReasonGroup = z.infer<typeof gscReasonGroupSchema>
 
 export const gscCoverageSummaryDtoSchema = z.object({
   summary: z.object({
+    /** Inspected pages, each in exactly one of `indexed` / `notIndexed`. */
     total: z.number(),
     indexed: z.number(),
     notIndexed: z.number(),
+    /** Pages whose latest inspection lost the indexed state of the one before it. */
     deindexed: z.number(),
-    percentage: z.number(),
+    /** `indexed / total` as a 0..100 percent rounded to one decimal; 0 when nothing was inspected. */
+    percentage: percent(),
+    /**
+     * `indexed / total` as an unrounded 0..1 fraction, so one page short of
+     * full coverage still reads short of 100%. Null when nothing was
+     * inspected: an empty site has no coverage share, not a 0% one.
+     */
+    indexedShare: fraction(z.number().min(0).max(1)).nullable(),
+    /** `notIndexed / total`, 0..1. With `indexedShare` it sums to 1. Null when nothing was inspected. */
+    notIndexedShare: fraction(z.number().min(0).max(1)).nullable(),
   }),
   lastInspectedAt: z.string().nullable(),
   lastSyncedAt: z.string().nullable(),

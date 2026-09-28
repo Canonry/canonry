@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { linearTrend, wilsonInterval } from '../src/statistics.js'
+import { breakdownShares, linearTrend, shareOf, wilsonInterval } from '../src/statistics.js'
 
 describe('wilsonInterval', () => {
   // Fixtures verified against the closed-form Wilson score interval (z=1.96).
@@ -168,5 +168,42 @@ describe('calendar index space', () => {
   it('returns nothing for a reversed range', async () => {
     const { calendarDateRange } = await import('../src/formatting.js')
     expect(calendarDateRange('2026-04-10', '2026-04-01')).toEqual([])
+  })
+})
+
+describe('shareOf', () => {
+  it('divides a part by its total as a 0..1 fraction', () => {
+    expect(shareOf(50, 80)).toBe(0.625)
+    expect(shareOf(1, 3)).toBe(1 / 3)
+    expect(shareOf(80, 80)).toBe(1)
+  })
+
+  it('reads no part as 0, with or without a total', () => {
+    expect(shareOf(0, 80)).toBe(0)
+    expect(shareOf(0, 0)).toBe(0)
+  })
+
+  it('refuses a share it cannot know rather than calling it 0 or Infinity', () => {
+    // Referral rows synced before the totals behind them: sessions exist, the total does not.
+    expect(shareOf(12, 0)).toBeNull()
+    expect(shareOf(Number.NaN, 10)).toBeNull()
+    expect(shareOf(5, Number.POSITIVE_INFINITY)).toBeNull()
+  })
+})
+
+describe('breakdownShares', () => {
+  it('gives each part its share of the parts, in order, adding up to 1', () => {
+    expect(breakdownShares([6, 3, 1])).toEqual([0.6, 0.3, 0.1])
+    const thirds = breakdownShares([1, 1, 1])
+    expect(thirds).toEqual([1 / 3, 1 / 3, 1 / 3])
+    expect(thirds.reduce((sum, share) => sum + share, 0)).toBeCloseTo(1, 12)
+    const uneven = breakdownShares([7, 5, 3, 2, 1, 1])
+    expect(uneven.reduce((sum, share) => sum + share, 0)).toBeCloseTo(1, 12)
+    expect(uneven[0]).toBe(7 / 19)
+  })
+
+  it('shares out nothing when the parts sum to zero', () => {
+    expect(breakdownShares([0, 0])).toEqual([0, 0])
+    expect(breakdownShares([])).toEqual([])
   })
 })

@@ -84,10 +84,10 @@
       ],
       "content": [
         {
-          "tile": "AI bot requests observed 249 234 verified · 15 unverified · «positive|Up 104% vs prior 7 days (122 requests)»"
+          "tile": "AI bot requests observed 249 234 verified · 15 unverified · «positive|Up 104.1% vs prior 7 days (122 requests)»"
         },
         {
-          "tile": "AI user-fetch requests 42 «positive|Up 133% vs prior 7 days (18 requests)»"
+          "tile": "AI user-fetch requests 42 «positive|Up 133.3% vs prior 7 days (18 requests)»"
         },
         {
           "tile": "AI referral sessions 12 «positive|Up 100% vs prior 7 days (6 sessions)» · Paid 9 · Organic 2 · Unclassified 1"
@@ -220,7 +220,7 @@
           "text": "Google indexing your site increases the chances of it appearing in AI search (especially Gemini)."
         },
         {
-          "text": "«caution|80%» 80 of 100 pages indexed 20 pages are not indexed yet."
+          "text": "«caution|80.0%» 80 of 100 pages indexed 20 pages are not indexed yet."
         },
         {
           "text": "What people search Google for"

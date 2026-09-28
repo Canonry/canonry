@@ -527,7 +527,7 @@ describe('organic evidence native measurement reconciliation', () => {
     expect(body.findings).toContainEqual(expect.objectContaining({
       tone: 'positive',
       title: 'Search visibility increased',
-      detail: expect.stringContaining('700 in the latest cohort versus 500 prior'),
+      detail: expect.stringContaining('700 in the latest cohort versus 500 prior (+40.0%)'),
     }))
     expect(body.findings).toContainEqual(expect.objectContaining({
       tone: 'caution',
@@ -537,7 +537,7 @@ describe('organic evidence native measurement reconciliation', () => {
     expect(body.findings).toContainEqual(expect.objectContaining({
       tone: 'neutral',
       title: 'Lead trend is measured, not causal',
-      detail: expect.stringMatching(/0 in the latest cohort versus 4 prior/i),
+      detail: expect.stringMatching(/0 in the latest cohort versus 4 prior \(-100%\)/i),
     }))
     expect(body.findings).toContainEqual(expect.objectContaining({
       tone: 'neutral',
@@ -555,7 +555,8 @@ describe('organic evidence native measurement reconciliation', () => {
     expect(changed.findings).toContainEqual(expect.objectContaining({
       tone: 'neutral',
       title: 'Organic sessions changed',
-      detail: expect.stringMatching(/16 in the latest cohort versus 35 prior/i),
+      // (16 - 35) / 35 is -54.29%, shown to one decimal.
+      detail: expect.stringMatching(/16 in the latest cohort versus 35 prior \(-54\.3%\)/i),
     }))
 
     ctx.db.delete(gaAcquisitionDaily).run()

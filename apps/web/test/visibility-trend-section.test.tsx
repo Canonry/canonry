@@ -35,7 +35,16 @@ function provider(citationRate: number, mentionRate: number) {
   return { citationRate, cited: 1, total: 4, mentionRate, mentionedCount: 2 }
 }
 
-function metricsDto(buckets: unknown[], mentionShareScope: 'non-brand' | 'pooled' = 'non-brand') {
+type RateChange = { first: number; latest: number; delta: number } | null
+interface WindowChange { citationRate: RateChange; mentionRate: RateChange; mentionShare: RateChange }
+
+const NO_WINDOW_CHANGE: WindowChange = { citationRate: null, mentionRate: null, mentionShare: null }
+
+function metricsDto(
+  buckets: unknown[],
+  mentionShareScope: 'non-brand' | 'pooled' = 'non-brand',
+  windowChange: WindowChange = NO_WINDOW_CHANGE,
+) {
   return {
     window: 'all',
     mentionShareScope,
@@ -44,6 +53,7 @@ function metricsDto(buckets: unknown[], mentionShareScope: 'non-brand' | 'pooled
     byProvider: { gemini: provider(0.5, 0.5) },
     trend: 'improving',
     mentionTrend: 'stable',
+    windowChange,
     queryChanges: [],
     modelAttribution: {
       gemini: {
@@ -91,6 +101,13 @@ const TWO_BUCKETS = [
   },
 ]
 
+/** What the server reports for TWO_BUCKETS: first bucket to latest, per series. */
+const TWO_BUCKETS_CHANGE: WindowChange = {
+  citationRate: { first: 0.25, latest: 0.75, delta: 0.5 },
+  mentionRate: { first: 0.5, latest: 0.5, delta: 0 },
+  mentionShare: { first: 0.25, latest: 0.75, delta: 0.5 },
+}
+
 function renderSection(competitorDomains: readonly string[] = []) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -104,7 +121,7 @@ test('defaults to the by-engine view with a per-engine legend, and toggles to al
   const restore = mockFetch((url) => {
     const path = url.split('?')[0]!
     if (path.endsWith('/projects/test-project/analytics/metrics')) {
-      return jsonResponse(metricsDto(TWO_BUCKETS))
+      return jsonResponse(metricsDto(TWO_BUCKETS, 'non-brand', TWO_BUCKETS_CHANGE))
     }
     throw new Error(`Unexpected fetch: ${url}`)
   })
@@ -138,15 +155,19 @@ test('defaults to the by-engine view with a per-engine legend, and toggles to al
   expect(allEngines.getAttribute('aria-pressed')).toBe('false')
   expect(screen.getByRole('button', { name: 'All' })).toBeTruthy()
 
-  // The headline is the blended average across engines, tagged "avg".
+  // The headline is the blended average across engines, tagged "avg". Mentioned
+  // sits at 0.5 in both buckets, so its change reads as none.
   expect(screen.getByText('avg')).toBeTruthy()
+  expect(screen.getByText('0 pts')).toBeTruthy()
+  expect(screen.getByText('Mentioned rate across 2 sweeps. Latest 50.0%, no change over the period.')).toBeTruthy()
 
   // The legend lists each engine with its latest value (a direct read of the
-  // rightmost plotted point — gemini 50% in both buckets, openai 25% then gone).
+  // rightmost plotted point — gemini 50% in both buckets, openai 25% then gone),
+  // in the shared one-decimal percent format.
   expect(within(legend).getByText('Gemini')).toBeTruthy()
   expect(within(legend).getByText('OpenAI')).toBeTruthy()
-  expect(within(legend).getByText('50%')).toBeTruthy()
-  expect(within(legend).getByText('25%')).toBeTruthy()
+  expect(within(legend).getByText('50.0%')).toBeTruthy()
+  expect(within(legend).getByText('25.0%')).toBeTruthy()
 
   // Switching to All engines presses it (no refetch) and drops the per-engine
   // legend + "avg" tag — the headline now matches the single plotted line.
@@ -161,7 +182,7 @@ test('labels per-engine legend entries from analytics bucket evidence and surfac
   const restore = mockFetch((url) => {
     const path = url.split('?')[0]!
     if (path.endsWith('/projects/test-project/analytics/metrics')) {
-      return jsonResponse(metricsDto(TWO_BUCKETS))
+      return jsonResponse(metricsDto(TWO_BUCKETS, 'non-brand', TWO_BUCKETS_CHANGE))
     }
     throw new Error(`Unexpected fetch: ${url}`)
   })
@@ -183,7 +204,7 @@ test('labels per-engine legend entries from analytics bucket evidence and surfac
 })
 
 test('dates an anchored change "on or before" and says how much history is shown', async () => {
-  const anchored = metricsDto(TWO_BUCKETS)
+  const anchored = metricsDto(TWO_BUCKETS, 'non-brand', TWO_BUCKETS_CHANGE)
   Object.assign(anchored.modelAttribution.gemini.events[0]!, { fromPreWindowAnchor: true })
   Object.assign(anchored.modelAttribution.gemini, { eventTotal: 84 })
 
@@ -244,7 +265,7 @@ test('renders mention-share as a metric view and hides the engine split', async 
   const restore = mockFetch((url) => {
     const path = url.split('?')[0]!
     if (path.endsWith('/projects/test-project/analytics/metrics')) {
-      return jsonResponse(metricsDto(TWO_BUCKETS))
+      return jsonResponse(metricsDto(TWO_BUCKETS, 'non-brand', TWO_BUCKETS_CHANGE))
     }
     throw new Error(`Unexpected fetch: ${url}`)
   })
@@ -259,10 +280,89 @@ test('renders mention-share as a metric view and hides the engine split', async 
   expect(mentionShare.getAttribute('aria-pressed')).toBe('true')
   expect(screen.queryByRole('group', { name: 'Series' })).toBeNull()
   expect(screen.queryByRole('list', { name: 'Engines' })).toBeNull()
-  expect(screen.getByText('75%')).toBeTruthy()
+  expect(screen.getByText('75.0%')).toBeTruthy()
+  // 0.25 to 0.75 across the two plotted points.
+  expect(screen.getByText('+50.0 pts')).toBeTruthy()
+  expect(screen.getByText(/Latest 75\.0%, up 50\.0 points over the period\./)).toBeTruthy()
   expect(screen.getByRole('img', { name: /Mention share.*non-brand queries.*trend chart/i })).toBeTruthy()
-  expect(screen.getByText(/75% mention share for non-brand queries, 3 of 4 brand mentions were you/)).toBeTruthy()
+  expect(screen.getByText(/75\.0% mention share for non-brand queries, 3 of 4 brand mentions were you/)).toBeTruthy()
   expect(screen.getAllByText('Mention share · non-brand queries').length).toBeGreaterThan(0)
+})
+
+test('reads the head and legend from the API rates, so a rate near either end never prints as 0% or 100%', async () => {
+  // The chart rows round 0.0004 to 0 and 0.9996 to 100 for the axis.
+  const edgeBuckets = [
+    { ...TWO_BUCKETS[0]!, mentionRate: 0.9996, byProvider: { gemini: provider(0.25, 0.5) } },
+    { ...TWO_BUCKETS[1]!, mentionRate: 0.0004, byProvider: { gemini: provider(0.75, 0.9996) } },
+  ]
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse(metricsDto(edgeBuckets, 'non-brand', {
+        ...TWO_BUCKETS_CHANGE,
+        mentionRate: { first: 0.9996, latest: 0.0004, delta: -0.9992 },
+      }))
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  renderSection()
+
+  const legend = await screen.findByRole('list', { name: 'Engines' })
+  // Head: the blended mentioned rate, 0.9996 then 0.0004.
+  expect(screen.getByText('<0.1%')).toBeTruthy()
+  expect(screen.getByText('-99.9 pts')).toBeTruthy()
+  expect(screen.getByText('Mentioned rate across 2 sweeps. Latest <0.1%, down 99.9 points over the period.')).toBeTruthy()
+  // Legend: gemini's latest mentioned rate.
+  expect(within(legend).getByText('>99.9%')).toBeTruthy()
+  expect(screen.queryByText('0%')).toBeNull()
+  expect(screen.queryByText('100%')).toBeNull()
+})
+
+test('prints the server change across the window, never a subtraction of the plotted rates', async () => {
+  // The buckets plot 0.25 then 0.75 for Cited, but the server reports its own
+  // change. The head must print that figure, so a client-side subtraction
+  // (+50.0 pts) would fail here.
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse(metricsDto(TWO_BUCKETS, 'non-brand', {
+        ...TWO_BUCKETS_CHANGE,
+        citationRate: { first: 0.25, latest: 0.75, delta: 0.1234 },
+      }))
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  renderSection()
+  await screen.findByRole('list', { name: 'Engines' })
+  act(() => { fireEvent.click(screen.getByRole('button', { name: 'Cited' })) })
+
+  expect(screen.getByText('+12.3 pts')).toBeTruthy()
+  expect(screen.queryByText('+50.0 pts')).toBeNull()
+  expect(screen.getByText('Cited rate across 2 sweeps. Latest 75.0%, up 12.3 points over the period.')).toBeTruthy()
+})
+
+test('shows the latest rate with no change when the server has none to report', async () => {
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse(metricsDto(TWO_BUCKETS, 'non-brand', NO_WINDOW_CHANGE))
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  renderSection()
+  await screen.findByRole('list', { name: 'Engines' })
+
+  // Two plotted buckets, but no server change: the head prints the latest
+  // rate and no delta, rather than deriving one.
+  expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('50.0%')
+  expect(document.querySelector('.visibility-trend-current-delta')).toBeNull()
+  expect(screen.getByText('Mentioned rate across 2 sweeps. Latest 50.0%.')).toBeTruthy()
 })
 
 test('labels a pooled mention-share trend as classification unavailable', async () => {
@@ -273,7 +373,7 @@ test('labels a pooled mention-share trend as classification unavailable', async 
   const restore = mockFetch((url) => {
     const path = url.split('?')[0]!
     if (path.endsWith('/projects/test-project/analytics/metrics')) {
-      return jsonResponse(metricsDto(pooledBuckets))
+      return jsonResponse(metricsDto(pooledBuckets, 'non-brand', TWO_BUCKETS_CHANGE))
     }
     throw new Error(`Unexpected fetch: ${url}`)
   })
@@ -291,7 +391,7 @@ test('prompts for competitors before rendering the mention-share metric view', a
   const restore = mockFetch((url) => {
     const path = url.split('?')[0]!
     if (path.endsWith('/projects/test-project/analytics/metrics')) {
-      return jsonResponse(metricsDto(TWO_BUCKETS))
+      return jsonResponse(metricsDto(TWO_BUCKETS, 'non-brand', TWO_BUCKETS_CHANGE))
     }
     throw new Error(`Unexpected fetch: ${url}`)
   })
@@ -313,7 +413,7 @@ test('refetches mention-share metrics when the competitor frame changes', async 
     const path = url.split('?')[0]!
     if (path.endsWith('/projects/test-project/analytics/metrics')) {
       requests.push(url)
-      return jsonResponse(metricsDto(TWO_BUCKETS))
+      return jsonResponse(metricsDto(TWO_BUCKETS, 'non-brand', TWO_BUCKETS_CHANGE))
     }
     throw new Error(`Unexpected fetch: ${url}`)
   })
@@ -342,7 +442,7 @@ test('refetches mention-share metrics when the competitor frame changes', async 
 })
 
 test('files a change inherited from before the window under its own heading, not among the dated changes', async () => {
-  const anchored = metricsDto(TWO_BUCKETS)
+  const anchored = metricsDto(TWO_BUCKETS, 'non-brand', TWO_BUCKETS_CHANGE)
   Object.assign(anchored.modelAttribution.gemini.events[0]!, {
     fromPreWindowAnchor: true,
     anchorObservedAt: '2026-03-25T00:00:00.000Z',
@@ -407,7 +507,7 @@ test('says nothing about served models when the API omits them', async () => {
   const restore = mockFetch((url) => {
     const path = url.split('?')[0]!
     if (path.endsWith('/projects/test-project/analytics/metrics')) {
-      return jsonResponse(metricsDto(TWO_BUCKETS))
+      return jsonResponse(metricsDto(TWO_BUCKETS, 'non-brand', TWO_BUCKETS_CHANGE))
     }
     throw new Error(`Unexpected fetch: ${url}`)
   })

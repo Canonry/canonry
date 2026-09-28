@@ -1,11 +1,15 @@
 import { z } from 'zod'
+import { fraction } from './ratio-unit.js'
 import { citedUrlCaptureStatusSchema } from './cited-urls.js'
 import {
   measurementAttributionClassSchema,
 } from './measurement-service.js'
 import {
+  measurementCountMetricValueSchema,
   measurementMetricUnavailableReasonSchema,
   measurementMetricValueSchema,
+  type CountMetricValue,
+  type MetricValue,
   measurementOverviewScopeKindSchema,
   measurementPropertyMetroSchema,
   measurementQueryClassFilterSchema,
@@ -202,8 +206,8 @@ export type MeasurementPortfolioTieMetro = z.output<typeof measurementPortfolioT
  */
 export const measurementPortfolioWeakestTieSchema = z.object({
   count: z.number().int().min(2),
-  mentionRate: z.number(),
-  citationRate: z.number(),
+  mentionRate: fraction(),
+  citationRate: fraction(),
   note: z.literal(MEASUREMENT_PORTFOLIO_TIE_NOTE),
   /**
    * Tied Properties per top-level market, most first, then by label. A
@@ -274,7 +278,7 @@ export const measurementPortfolioMarketSchema = z.object({
   /** Direct child markets; read one with `groupKey` to list them. */
   childMarketCount: measurementDemoCountSchema,
   propertyCount: measurementDemoCountSchema,
-  propertiesMentioned: measurementMetricValueSchema,
+  propertiesMentioned: measurementCountMetricValueSchema,
   mentionCoverage: measurementMetricValueSchema,
   citationCoverage: measurementMetricValueSchema,
 }).strict()
@@ -312,7 +316,7 @@ export const measurementPortfolioSummaryResponseSchema = z.object({
   /** Engines behind the displayed answers, after any provider filter. Empty before a run completes. */
   engines: z.array(providerNameSchema),
   metrics: z.object({
-    propertiesMentioned: measurementMetricValueSchema,
+    propertiesMentioned: measurementCountMetricValueSchema,
     mentionCoverage: measurementMetricValueSchema,
     citationCoverage: measurementMetricValueSchema,
   }).strict(),
@@ -595,33 +599,56 @@ const measurementComparableRunSchema = measurementDemoRunMetadataSchema.extend({
   measurementScope: z.union([z.enum(['full', 'spot_check']), z.null()]),
 }).strict()
 
+interface MetricMove {
+  previous: MetricValue | CountMetricValue
+  current: MetricValue | CountMetricValue
+  delta: number
+}
+
+/** A metric's move between two runs: both must be measured, and `delta` is `current - previous`. */
+function refineMetricMove(metric: MetricMove, ctx: z.RefinementCtx): void {
+  if (metric.previous.state !== 'available' || metric.current.state !== 'available') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Available deltas require two available metrics',
+    })
+    return
+  }
+  if (Math.abs(metric.delta - (metric.current.value - metric.previous.value)) > Number.EPSILON) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['delta'], message: 'Delta must equal current minus previous' })
+  }
+}
+
+const unavailableMetricMoveSchema = z.object({
+  state: z.literal('unavailable'),
+  reason: measurementMetricUnavailableReasonSchema,
+}).strict()
+
+/** A coverage move, as a 0..1 fraction (0.05 is five points). */
 export const measurementMetricDeltaSchema = z.discriminatedUnion('state', [
   z.object({
     state: z.literal('available'),
     previous: measurementMetricValueSchema,
     current: measurementMetricValueSchema,
-    delta: z.number(),
-  }).strict().superRefine((metric, ctx) => {
-    if (metric.previous.state !== 'available' || metric.current.state !== 'available') {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Available deltas require two available metrics',
-      })
-      return
-    }
-    if (Math.abs(metric.delta - (metric.current.value - metric.previous.value)) > Number.EPSILON) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['delta'], message: 'Delta must equal current minus previous' })
-    }
-  }),
-  z.object({
-    state: z.literal('unavailable'),
-    reason: measurementMetricUnavailableReasonSchema,
-  }).strict(),
+    delta: fraction(),
+  }).strict().superRefine(refineMetricMove),
+  unavailableMetricMoveSchema,
 ])
 export type MeasurementMetricDelta = z.output<typeof measurementMetricDeltaSchema>
 
+/** `propertiesMentioned` moves by a whole number of Properties. */
+export const measurementCountMetricDeltaSchema = z.discriminatedUnion('state', [
+  z.object({
+    state: z.literal('available'),
+    previous: measurementCountMetricValueSchema,
+    current: measurementCountMetricValueSchema,
+    delta: z.number().int(),
+  }).strict().superRefine(refineMetricMove),
+  unavailableMetricMoveSchema,
+])
+
 const measurementChangesMetricsSchema = z.object({
-  propertiesMentioned: measurementMetricDeltaSchema,
+  propertiesMentioned: measurementCountMetricDeltaSchema,
   mentionCoverage: measurementMetricDeltaSchema,
   citationCoverage: measurementMetricDeltaSchema,
 }).strict()

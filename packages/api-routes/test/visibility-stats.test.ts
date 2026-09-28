@@ -195,16 +195,16 @@ describe('computeVisibilityStats (pure)', () => {
     expect(queries).toEqual([])
   })
 
-  it('rounds rates to 4 decimal places (round4)', () => {
-    // 1 of 3 checked → 0.33333… → 0.3333; 2 of 3 cited → 0.66666… → 0.6667.
+  it('rounds rates to the fraction wire precision', () => {
+    // 1 of 3 checked → 0.33333… → 0.33333333; 2 of 3 cited → 0.66666… → 0.66666667.
     const snapshots = [
       snap({ citationState: 'cited', answerMentioned: true }),
       snap({ citationState: 'cited', answerMentioned: false }),
       snap({ citationState: 'not-cited', answerMentioned: false }),
     ]
     const { totals } = computeVisibilityStats({ queries: Q, snapshots, groupBy: null })
-    expect(totals.mentionRate).toBe(0.3333) // 1/3
-    expect(totals.citedRate).toBe(0.6667) // 2/3
+    expect(totals.mentionRate).toBe(0.33333333) // 1/3
+    expect(totals.citedRate).toBe(0.66666667) // 2/3
   })
 })
 

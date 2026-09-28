@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { fraction } from './ratio-unit.js'
 
 /**
  * Shared, stored-evidence visibility report.
@@ -133,7 +134,7 @@ export type VisibilityReportQuery = z.output<typeof visibilityReportQuerySchema>
 export const visibilityReportRateSchema = z.object({
   numerator: z.number().int().nonnegative().nullable(),
   denominator: z.number().int().nonnegative().nullable(),
-  rate: z.number().min(0).max(1).nullable(),
+  rate: fraction(z.number().min(0).max(1)).nullable(),
   reason: z.enum(['no-population', 'incomplete', 'evidence-incomplete', 'identity-ambiguous', 'not-applicable']).optional(),
   /**
    * Answers left out of a mention rate because they could not be tied to one
@@ -342,7 +343,7 @@ export const visibilityReportRateChangeSchema = z.discriminatedUnion('state', [
   z.object({
     state: z.literal('available'),
     previous: visibilityReportRateSchema,
-    delta: z.number().min(-1).max(1),
+    delta: fraction(z.number().min(-1).max(1)),
   }).strict(),
   z.object({
     state: z.literal('unavailable'),

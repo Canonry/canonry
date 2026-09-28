@@ -272,11 +272,11 @@ describe('site crawl graph layout', () => {
       id: attemptId, projectId, runId, attemptNumber: 1, state: 'running', createdAt: now, updatedAt: now,
     }).run()
     const pages = [
-      { nodeKey: 'root', url: 'https://example.com/', path: '/', depth: 3, linkScoreNormalized: 0.01 },
-      { nodeKey: 'depth-zero', url: 'https://example.com/start', path: '/start', depth: 0, linkScoreNormalized: 0.02 },
-      { nodeKey: 'alpha', url: 'https://example.com/a', path: '/a', depth: 1, linkScoreNormalized: 0.9 },
-      { nodeKey: 'beta', url: 'https://example.com/b', path: '/b', depth: 1, linkScoreNormalized: 0.9 },
-      { nodeKey: 'low', url: 'https://example.com/low', path: '/low', depth: 1, linkScoreNormalized: 0.1 },
+      { nodeKey: 'root', url: 'https://example.com/', path: '/', depth: 3, linkScoreNormalized: 1 },
+      { nodeKey: 'depth-zero', url: 'https://example.com/start', path: '/start', depth: 0, linkScoreNormalized: 2 },
+      { nodeKey: 'alpha', url: 'https://example.com/a', path: '/a', depth: 1, linkScoreNormalized: 90 },
+      { nodeKey: 'beta', url: 'https://example.com/b', path: '/b', depth: 1, linkScoreNormalized: 90 },
+      { nodeKey: 'low', url: 'https://example.com/low', path: '/low', depth: 1, linkScoreNormalized: 10 },
     ]
     db.insert(siteCrawlPages).values(pages.map((page) => ({
       id: crypto.randomUUID(), projectId, runId, attemptId, parentPath: '/', discoverySource: 'link',
@@ -382,7 +382,7 @@ describe('site crawl graph layout', () => {
     const pageValues = (runId: string, attemptId: string, nodeKey: string, url: string, pathName: string) => ({
       id: crypto.randomUUID(), projectId, runId, attemptId, nodeKey, url, path: pathName, parentPath: '/', discoverySource: 'link',
       fetchState: 'fetched', indexabilityState: 'eligible', auditState: 'complete', inventoryEligible: true,
-      depth: nodeKey === 'root' ? 0 : 1, linkScoreNormalized: nodeKey === 'new' ? 0.8 : 0.9,
+      depth: nodeKey === 'root' ? 0 : 1, linkScoreNormalized: nodeKey === 'new' ? 80 : 90,
       createdAt: now, updatedAt: now,
     })
     db.insert(siteCrawlPages).values([

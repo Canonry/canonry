@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { fraction, percent } from './ratio-unit.js'
 import { runStatusSchema } from './run.js'
 
 // Keep this as an explicit union instead of `.nullable()`: OpenAPI 3.0 emits
@@ -50,7 +51,23 @@ export const SiteAuditTrendDirections = siteAuditTrendDirectionSchema.enum
 export const siteAuditFactorSummarySchema = z.object({
   id: z.string(),
   name: z.string(),
+  /**
+   * The engine's RELATIVE weight. Weights do not add up to 100 (the sixteen
+   * core factors sum to 111), so this is never a percentage: `sharePct` is.
+   */
   weight: z.number(),
+  /**
+   * This factor's share of the site score, 0–100 to one decimal: the mean of
+   * its per-page `sharePct` over the successfully audited pages, counting 0 on
+   * a page where it did not apply. The site score is the mean of those pages'
+   * scores, so this is how many of its 100 points the factor controls. Rounded
+   * by largest remainder (`roundPreservingTotal`), so the rollup's shares add
+   * up to exactly 100.
+   *
+   * `null` when the scan did not record every page's shares, which is every
+   * scan stored before this field existed. Never derived from `weight`.
+   */
+  sharePct: percent(z.number().min(0).max(100)).nullable().default(null),
   avgScore: z.number(),
   /** Canonry's own pass/partial/fail banding of `avgScore` (aeo-audit v3 is gradeless). */
   status: siteAuditFactorStatusSchema,
@@ -72,8 +89,12 @@ export const siteAuditCrossCuttingIssueSchema = z.object({
   avgScore: z.number(),
   affectedPages: z.number().int().nonnegative(),
   totalPages: z.number().int().nonnegative(),
-  /** `round(affectedPages / totalPages * 100)`, `0` when `totalPages` is `0`. Computed by canonry, not aeo-audit. */
-  affectedPct: z.number().int().nonnegative(),
+  /**
+   * `affectedPages / totalPages * 100` at wire precision, `0` when `totalPages`
+   * is `0`. Computed by canonry, not aeo-audit. Audits stored by earlier
+   * versions carry a whole number.
+   */
+  affectedPct: percent(z.number().nonnegative()),
   topRecommendations: z.array(z.string()).default([]),
 })
 export type SiteAuditCrossCuttingIssueDto = z.infer<typeof siteAuditCrossCuttingIssueSchema>
@@ -114,8 +135,23 @@ export type SiteAuditScoreDto = z.infer<typeof siteAuditScoreSchema>
 export const siteAuditPageFactorSchema = z.object({
   id: z.string(),
   name: z.string(),
+  /**
+   * The engine's RELATIVE weight. Weights do not add up to 100 (the sixteen
+   * core factors sum to 111), so this is never a percentage: `sharePct` is.
+   */
   weight: z.number(),
   score: z.number(),
+  /**
+   * This factor's share of the page score, 0–100 to one decimal, exactly as
+   * `@canonry/aeo-audit` recorded it. The page score divides by the weight of
+   * the factors that applied, and the engine splits 100 across them by largest
+   * remainder, so one page's shares add up to exactly 100; a factor that did
+   * not apply to the page reports 0.
+   *
+   * `null` when the scan did not record it, which is every row stored before
+   * this field existed. Never derived from `weight`.
+   */
+  sharePct: percent(z.number().min(0).max(100)).nullable().default(null),
 })
 export type SiteAuditPageFactorDto = z.infer<typeof siteAuditPageFactorSchema>
 
@@ -1037,7 +1073,8 @@ export const siteCrawlPageSchema = z.object({
   inboundOccurrences: z.number().int().nonnegative(),
   outboundOccurrences: z.number().int().nonnegative(),
   linkScoreRaw: z.number().nullable(),
-  linkScoreNormalized: z.number().nullable(),
+  /** Internal-link importance, 0..100 against the crawl's top page (the audit engine's `linkScore`). */
+  linkScoreNormalized: percent().nullable(),
   healthState: siteHealthStateSchema,
 })
 export type SiteCrawlPageDto = z.infer<typeof siteCrawlPageSchema>
@@ -1186,7 +1223,7 @@ export const siteCrawlEdgeSchema = z.object({
    * the threshold means every anchor on the link is chrome. Present exactly
    * when `templateSource` is `ubiquity`, because it is that rule's evidence.
    */
-  templateRatio: z.union([z.number(), z.null()]),
+  templateRatio: z.union([fraction(), z.null()]),
   /**
    * Which rule decided `isTemplate`. Read this before comparing counts across
    * scans: `placement` and `ubiquity` do not measure the same thing.
@@ -1213,7 +1250,8 @@ export const siteCrawlGraphNodeSchema = z.object({
   inventoryEligible: z.boolean(),
   inboundUniqueEdges: z.number().int().nonnegative(),
   outboundUniqueEdges: z.number().int().nonnegative(),
-  linkScoreNormalized: z.number().nullable(),
+  /** Internal-link importance, 0..100 against the crawl's top page. It sets the node's size. */
+  linkScoreNormalized: percent().nullable(),
   healthState: siteHealthStateSchema,
   /** Publish-time ForceAtlas2 coordinate. Reads never run layout physics. */
   x: z.number(),

@@ -110,7 +110,7 @@ describe('executive summary', () => {
     const section = within(getReportSection(ReportSectionIds['executive-summary']))
     expect(section.getByText(executiveCopy.heroKicker)).toBeTruthy()
     expect(section.getByText('3 of 5 tracked queries cite Rich Project')).toBeTruthy()
-    expect(section.getByText('65% citation coverage and 40% mention coverage across 2 providers.')).toBeTruthy()
+    expect(section.getByText('65.0% citation coverage and 40.0% mention coverage across 2 providers.')).toBeTruthy()
   })
 
   test('proof tiles come first, then the metric tiles, each with the HTML value and line', () => {
@@ -130,10 +130,10 @@ describe('executive summary', () => {
       scopeCopy.providerLabel,
     ])
     expect(readTile(section, executiveCopy.proofTiles.citationTrend)).toMatchObject({ value: '↑ Up', subtitle: '3/5 queries cited' })
-    expect(readTile(section, executiveCopy.proofTiles.mentionCoverage)).toMatchObject({ value: '40%', subtitle: '2/5 queries mentioned' })
+    expect(readTile(section, executiveCopy.proofTiles.mentionCoverage)).toMatchObject({ value: '40.0%', subtitle: '2/5 queries mentioned' })
     expect(readTile(section, executiveCopy.proofTiles.prioritizedActions)).toMatchObject({ value: '2', subtitle: executiveCopy.prioritizedActionsCopy })
-    expect(readTile(section, executiveCopy.tiles.citationRate)).toMatchObject({ value: '65%', subtitle: '↑ Up · 3/5 queries cited · 2 providers' })
-    expect(readTile(section, executiveCopy.tiles.mentionRate)).toMatchObject({ value: '40%', subtitle: '2/5 queries mentioned' })
+    expect(readTile(section, executiveCopy.tiles.citationRate)).toMatchObject({ value: '65.0%', subtitle: '↑ Up · 3/5 queries cited · 2 providers' })
+    expect(readTile(section, executiveCopy.tiles.mentionRate)).toMatchObject({ value: '40.0%', subtitle: '2/5 queries mentioned' })
     expect(readTile(section, executiveCopy.tiles.queriesTracked)).toMatchObject({ value: '5', subtitle: '3 competitors tracked' })
     expect(readTile(section, executiveCopy.tiles.gscClicks)).toMatchObject({ value: '1.0K', subtitle: '5.0K imp · 20.0% CTR · Apr 1, 2026 → Apr 30, 2026' })
     expect(readTile(section, executiveCopy.tiles.gaSessions)).toMatchObject({ value: '12.0K', subtitle: '9.0K users · Apr 1, 2026 → Apr 30, 2026' })
@@ -198,16 +198,16 @@ describe('executive summary', () => {
     renderReportPage(report, { audience: 'agency' })
     const section = getReportSection(ReportSectionIds['executive-summary'])
     const title = (text: string) => within(section).getByText(text)
-    expect(title('Citation rate at 65%').tagName).toBe('STRONG')
-    expect(within(insightCard(title('Citation rate at 65%'))).getByText('Up from previous run.')).toBeTruthy()
-    expect(toneClasses(insightCard(title('Citation rate at 65%')))).toEqual(['insight-card-positive'])
+    expect(title('Citation rate at 65.0%').tagName).toBe('STRONG')
+    expect(within(insightCard(title('Citation rate at 65.0%'))).getByText('Up from previous run.')).toBeTruthy()
+    expect(toneClasses(insightCard(title('Citation rate at 65.0%')))).toEqual(['insight-card-positive'])
     expect(toneClasses(insightCard(title('1 critical regression')))).toEqual(['insight-card-negative'])
     expect(toneClasses(insightCard(title('GSC demand gap')))).toEqual(['insight-card-caution'])
     // Neutral keeps the base card's accent.
     expect(toneClasses(insightCard(title('Mention coverage holding')))).toEqual([])
 
     const lastMetricTile = readTile(section, executiveCopy.tiles.gaSessions).valueElement
-    const firstFinding = insightCard(title('Citation rate at 65%'))
+    const firstFinding = insightCard(title('Citation rate at 65.0%'))
     const scopeHeading = within(section).getByRole('heading', { level: 3, name: scopeCopy.heading })
     expect(follows(lastMetricTile, firstFinding)).toBe(true)
     expect(follows(firstFinding, scopeHeading)).toBe(true)

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { fraction } from './ratio-unit.js'
 import {
   brandKeyFromText,
   textContainsAnyBrandAlias,
@@ -134,7 +135,7 @@ export const discoverySessionDtoSchema = z.object({
   /** Dedup calibration: min pairwise cosine per multi-member cluster. */
   dedupClusterMinSims: z.array(z.number()).nullable().optional(),
   /** Dedup calibration: fraction of all pairs in the ambiguous 0.90-0.97 band. */
-  dedupBandPairFraction: z.number().nullable().optional(),
+  dedupBandPairFraction: fraction().nullable().optional(),
   dedupPairsTotal: z.number().int().nullable().optional(),
   /** Seed provider set the session ran with (canonical order); null = legacy /
    *  Gemini-only default. */

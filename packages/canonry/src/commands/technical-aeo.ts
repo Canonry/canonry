@@ -1,4 +1,4 @@
-import type { SiteHealthChangeRecordDto } from '@ainyc/canonry-contracts'
+import { formatPercent, RatioUnits, type SiteHealthChangeRecordDto } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -33,10 +33,13 @@ export async function technicalAeoScore(project: string, opts: { runId?: string;
   lines.push(`As of ${score.auditedAt}`)
   if (score.factors.length > 0) {
     lines.push('')
-    lines.push(`${'Factor'.padEnd(32)}${'Wt'.padStart(4)}${'Avg'.padStart(6)}${'Status'.padStart(9)}   Pass/Part/Fail`)
+    // Share is the factor's recorded share of the site score (the column adds
+    // up to 100%). The raw weight is relative (the core set sums to 111), so it
+    // is never printed as a percentage; a scan that recorded no share shows a dash.
+    lines.push(`${'Factor'.padEnd(32)}${'Share'.padStart(7)}${'Avg'.padStart(6)}${'Status'.padStart(9)}   Pass/Part/Fail`)
     for (const f of score.factors) {
       lines.push(
-        `${f.name.slice(0, 31).padEnd(32)}${String(f.weight).padStart(4)}${String(f.avgScore).padStart(6)}${f.status.padStart(9)}   ${f.pagesPassing}/${f.pagesPartial}/${f.pagesFailing}`,
+        `${f.name.slice(0, 31).padEnd(32)}${formatPercent(f.sharePct, RatioUnits.percent).padStart(7)}${String(f.avgScore).padStart(6)}${f.status.padStart(9)}   ${f.pagesPassing}/${f.pagesPartial}/${f.pagesFailing}`,
       )
     }
   }
@@ -386,7 +389,10 @@ export async function technicalAeoPageAudit(
   if (res.factors.length > 0) {
     lines.push('', 'Factors:')
     for (const factor of res.factors) {
-      lines.push(`  ${factor.name}: ${factor.score}/100 (${factor.status})`)
+      const share = typeof factor.sharePct === 'number'
+        ? ` · worth ${formatPercent(factor.sharePct, RatioUnits.percent)} of the page score`
+        : ''
+      lines.push(`  ${factor.name}: ${factor.score}/100 (${factor.status})${share}`)
       for (const finding of factor.findings) lines.push(`    [${finding.code}] ${finding.message}`)
       for (const recommendation of factor.recommendations) lines.push(`    Fix: ${recommendation}`)
     }

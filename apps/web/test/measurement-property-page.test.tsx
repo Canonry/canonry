@@ -441,7 +441,7 @@ describe('Property page', () => {
       name: 'Mention and citation coverage for this Property, split by query class',
     })
     const nonBrand = within(contrast).getByText('When they don\'t').closest('tr')!
-    expect(within(nonBrand).getByText('75%')).toBeTruthy()
+    expect(within(nonBrand).getByText('75.0%')).toBeTruthy()
     expect(screen.getByRole('alert').textContent).toContain('Could not load branded queries.')
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry branded queries' }))
@@ -470,7 +470,7 @@ describe('Property page', () => {
       name: 'Mention and citation coverage for this Property, split by query class',
     })
     const branded = within(contrast).getByText('When they know your name').closest('tr')!
-    expect(within(branded).getAllByText('50%')).toHaveLength(2)
+    expect(within(branded).getAllByText('50.0%')).toHaveLength(2)
     // The evidence panel is now one row per ANSWER, so the row that survives a
     // failed refresh is addressed by its question rather than by a cited URL —
     // the URL moved inside the row and is collapsed by default.
@@ -486,7 +486,7 @@ describe('Property page', () => {
     })
 
     await screen.findByText('Refresh failed.')
-    expect(within(branded).getAllByText('50%')).toHaveLength(2)
+    expect(within(branded).getAllByText('50.0%')).toHaveLength(2)
     expect(within(evidence).getByText(NEARBY_QUESTION)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Retry branded queries' }))
     await waitFor(() => expect(within(branded).getAllByText('100%')).toHaveLength(2))
@@ -666,7 +666,7 @@ describe('Property page', () => {
     const gemini = within(providers).getByText('gemini').closest('tr')!
     const openai = within(providers).getByText('openai').closest('tr')!
 
-    expect(within(gemini).getByText('50%')).toBeTruthy()
+    expect(within(gemini).getByText('50.0%')).toBeTruthy()
     expect(within(gemini).getByText('0%')).toBeTruthy()
     expect(within(openai).getAllByText('100%')).toHaveLength(2)
   })
@@ -954,8 +954,12 @@ describe('Coverage hero', () => {
     const eyebrows = within(hero).getAllByText(/the demand to earn|already named/)
     expect(eyebrows[0]!.textContent).toContain('the demand to earn')
 
-    // The rate is never shown without the count it came from.
-    expect(within(hero).getByText('20')).toBeTruthy()
+    // The rate is never shown without the count it came from. The figure is
+    // the shared one-decimal format with its percent sign set apart.
+    expect(within(hero).getByText('20.0')).toBeTruthy()
+    expect(within(hero).getByText('15.0')).toBeTruthy()
+    expect(within(hero).getAllByText('100')).toHaveLength(2)
+    expect(within(hero).getAllByText('%')).toHaveLength(4)
     expect(within(hero).getByText('4 of 20')).toBeTruthy()
     expect(within(hero).getByText('3 of 20')).toBeTruthy()
     expect(within(hero).getAllByText('12 of 12').length).toBe(2)

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { fraction } from './ratio-unit.js'
 
 import { providerNameSchema } from './provider.js'
 import { discoveryCompetitorTypeSchema } from './discovery.js'
@@ -211,7 +212,7 @@ export const contentTargetRowDtoSchema = z.object({
    * `[0, 1]`. `null` when the gate failed open (no classification coverage for
    * the cited surface) — distinct from a computed `1.0`.
    */
-  winnability: z.number().min(0).max(1).nullable(),
+  winnability: fraction(z.number().min(0).max(1)).nullable(),
 })
 
 export type ContentTargetRowDto = z.infer<typeof contentTargetRowDtoSchema>
@@ -395,7 +396,7 @@ export const contentGapRowDtoSchema = z.object({
   query: z.string(),
   competitorDomains: z.array(z.string()),
   competitorCount: z.number().int().nonnegative(),
-  missRate: z.number().min(0).max(1),
+  missRate: fraction(z.number().min(0).max(1)),
   lastSeenInRunId: z.string(),
 })
 

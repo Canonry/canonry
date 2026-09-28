@@ -19,6 +19,8 @@ import {
   AiReferralTrafficClasses,
   CitationStates,
   deltaPercent,
+  formatSignedPercent,
+  RatioUnits,
   RunKinds,
   RunStatuses,
   VerificationStatuses,
@@ -128,7 +130,7 @@ function summarizeServer(
 function comparisonDetail(latest: number, prior: number): string {
   if (prior === 0) return `${latest} in the latest cohort versus 0 in the prior cohort`
   const change = deltaPercent(latest, prior) ?? 0
-  return `${latest} in the latest cohort versus ${prior} prior (${change >= 0 ? '+' : ''}${change}%)`
+  return `${latest} in the latest cohort versus ${prior} prior (${formatSignedPercent(change, RatioUnits.percent)})`
 }
 
 function aggregateCoverage(row: { startDate: string | null; endDate: string | null; observedDays: number } | undefined) {
