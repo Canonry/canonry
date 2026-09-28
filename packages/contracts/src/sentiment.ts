@@ -108,7 +108,8 @@ function exclusiveSentimentRuns(value: { runId?: string; runIds?: string[] }, ct
 }
 export const sentimentSelectionSchema = sentimentSelectionBaseSchema.superRefine(exclusiveSentimentRuns)
 export type SentimentSelection = z.infer<typeof sentimentSelectionSchema>
-export const sentimentEvidenceRequestSchema = sentimentSelectionBaseSchema.extend({ cursor: z.string().min(1).max(16384).optional(), limit: z.coerce.number().int().min(1).max(100).default(50) }).superRefine(exclusiveSentimentRuns)
+export type SentimentEvidenceSelection = SentimentSelection & { assessmentId?: string }
+export const sentimentEvidenceRequestSchema = sentimentSelectionBaseSchema.extend({ assessmentId: id.optional(), cursor: z.string().min(1).max(16384).optional(), limit: z.coerce.number().int().min(1).max(100).default(50) }).superRefine(exclusiveSentimentRuns)
 export const sentimentCompareRequestSchema = sentimentSelectionBaseSchema.extend({ fromRunId: id, toRunId: id }).superRefine((value, ctx) => { exclusiveSentimentRuns(value, ctx); if (value.runIds) ctx.addIssue({ code: 'custom', path: ['runIds'], message: 'Comparison requires one explicit run per period.' }) })
 export const sentimentResolvedSelectionSchema = sentimentSelectionBaseSchema.extend({ runId: id.nullable(), revision: z.number().int().nullable(), evaluationDefinitionId: id.nullable(), mode: z.enum(['simple', 'advanced']) })
 export type SentimentResolvedSelection = z.infer<typeof sentimentResolvedSelectionSchema>
@@ -121,7 +122,14 @@ export const sentimentHeadlineSchema = z.object({ ...headlineFields, selection: 
 export type SentimentHeadline = z.infer<typeof sentimentHeadlineSchema>
 export const sentimentOverviewSchema = z.object({ configured: z.boolean(), branded: sentimentHeadlineSchema, nonBrand: sentimentHeadlineSchema }).strict()
 export type SentimentOverview = z.infer<typeof sentimentOverviewSchema>
-export const sentimentQuerySummarySchema = z.object({ ...headlineFields, queryId: id, queryText: z.string(), queryClass: z.enum(['branded', 'non-brand']), sourceSnapshotIds: z.array(id), locations: z.array(z.object({ ...headlineFields, location: z.string().nullable(), sourceSnapshotIds: z.array(id) }).strict()) }).strict()
+/** Compact stored assessment metadata for exact engine rows; never carries answer text or quotes. */
+export const sentimentAssessmentSummarySchema = z.object({
+  assessmentId: id.nullable(), sourceSnapshotId: id, runId: id, subjectId: id, subjectLabel: z.string(),
+  executionNodeKey: id.nullable(), provider: id, requestedModel: z.string().nullable(), servedModel: z.string().nullable(), location: z.string().nullable(),
+  evaluationDefinitionId: id.nullable(), state: sentimentStateSchema, outcome: z.union([sentimentOutcomeSchema, z.null()]), reason: z.string().nullable(),
+}).strict()
+export type SentimentAssessmentSummary = z.infer<typeof sentimentAssessmentSummarySchema>
+export const sentimentQuerySummarySchema = z.object({ ...headlineFields, queryId: id, queryText: z.string(), queryClass: z.enum(['branded', 'non-brand']), sourceSnapshotIds: z.array(id), assessments: z.array(sentimentAssessmentSummarySchema).default([]), locations: z.array(z.object({ ...headlineFields, location: z.string().nullable(), sourceSnapshotIds: z.array(id) }).strict()) }).strict()
 export type SentimentQuerySummary = z.infer<typeof sentimentQuerySummarySchema>
 export const sentimentBreakdownSchema = z.object({ ...headlineFields, dimension: z.enum(['provider', 'property', 'market', 'query']), key: z.string(), label: z.string(), queryClass: z.enum(['branded', 'non-brand']) }).strict()
 export const sentimentSummarySchema = z.object({
@@ -163,7 +171,8 @@ export const sentimentEvidenceItemSchema = z.object({
   returnedModel: z.string().nullable(), reason: z.string().nullable(),
 }).strict()
 export type SentimentEvidenceItem = z.infer<typeof sentimentEvidenceItemSchema>
-export const sentimentEvidencePageSchema = z.object({ state: sentimentStateSchema, selection: sentimentResolvedSelectionSchema, items: z.array(sentimentEvidenceItemSchema), nextCursor: z.string().nullable() }).strict()
+export const sentimentEvidencePageSchema = z.object({ state: sentimentStateSchema, selection: sentimentResolvedSelectionSchema.extend({ assessmentId: id.optional() }), items: z.array(sentimentEvidenceItemSchema), nextCursor: z.string().nullable() }).strict()
+export type SentimentEvidencePage = z.infer<typeof sentimentEvidencePageSchema>
 export const sentimentComparisonSchema = z.object({
   from: sentimentSummarySchema, to: sentimentSummarySchema, verdict: z.enum(['improved', 'declined', 'no-clear-change']).nullable(),
   favorableRateDelta: z.number().nullable(), refusalReasons: z.array(z.string()), commonUnits: count,

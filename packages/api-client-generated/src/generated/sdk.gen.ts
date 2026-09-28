@@ -1035,7 +1035,7 @@ export const getApiV1ProjectsByNameSentimentSettings = <ThrowOnError extends boo
 /**
  * Configure experimental project sentiment
  *
- * Install administrators only. Enabling processes future eligible completions; historical backfill is explicit. Theme definitions are identity-bearing and start a new comparison series. TypeSafe credentials remain local install configuration.
+ * Install administrators only. Enabling processes future eligible completions; historical backfill is explicit. Stance-only evaluator definitions are immutable and comparisons preserve their identity. TypeSafe credentials remain local install configuration.
  */
 export const putApiV1ProjectsByNameSentimentSettings = <ThrowOnError extends boolean = false>(options: Options<PutApiV1ProjectsByNameSentimentSettingsData, ThrowOnError>) => {
     return (options.client ?? client).put<PutApiV1ProjectsByNameSentimentSettingsResponses, PutApiV1ProjectsByNameSentimentSettingsErrors, ThrowOnError>({

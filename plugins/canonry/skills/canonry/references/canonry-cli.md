@@ -1371,6 +1371,7 @@ canonry sentiment settings <project> --format json
 canonry sentiment configure <project> --enabled true --format json
 canonry sentiment <project> --run-id <run> --query-class non-brand --format json
 canonry sentiment evidence <project> --run-id <run> --query-class non-brand --query-id <query> --evaluation-definition-id <definition> --format json
+canonry sentiment evidence <project> --run-id <run> --query-class non-brand --assessment-id <assessment> --provider <engine> --model <served-model> --format json
 canonry sentiment compare <project> --from-run-id <before> --to-run-id <after> --format json
 canonry sentiment backfill <project> --preview --run-id <run> --format json
 canonry sentiment backfill <project> --preview --from <ISO-date-time> --to <ISO-date-time> --format json
@@ -1392,7 +1393,12 @@ Advanced `--scope property --scope-key <key> --market-key <key>` preserves exact
 frozen usage edges. Keep every selection field and the returned evaluator ID while
 following `--cursor`. Branded and non-brand are supported with separate denominators;
 select the class explicitly (the default remains branded). Summary includes
-server-computed per-query and location scores. For a grouped read, summary and
+server-computed per-query and location scores plus batched `queries[].assessments`
+with exact engine verdicts, requested/served models, source IDs, subject, location,
+state and exclusions. Unclassified sources have no verdict; absent subjects are
+not unfavorable. Evidence-only `--assessment-id` selects one returned assessment
+within the other filters; retain it with the evaluator and scope when following
+a cursor. `--model` matches the served source model. For a grouped read, summary and
 evidence accept `--run-ids <first> --run-ids <second>` instead of `--run-id`.
 Backfill retains repeated `--run-id` for its historical selection. JSON equals the HTTP DTO;
 evidence JSONL is one complete page document so empty state and cursor survive.

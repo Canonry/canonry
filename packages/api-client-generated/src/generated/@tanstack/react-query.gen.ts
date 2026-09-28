@@ -1184,7 +1184,7 @@ export const getApiV1ProjectsByNameSentimentSettingsOptions = (options: Options<
 /**
  * Configure experimental project sentiment
  *
- * Install administrators only. Enabling processes future eligible completions; historical backfill is explicit. Theme definitions are identity-bearing and start a new comparison series. TypeSafe credentials remain local install configuration.
+ * Install administrators only. Enabling processes future eligible completions; historical backfill is explicit. Stance-only evaluator definitions are immutable and comparisons preserve their identity. TypeSafe credentials remain local install configuration.
  */
 export const putApiV1ProjectsByNameSentimentSettingsMutation = (options?: Partial<Options<PutApiV1ProjectsByNameSentimentSettingsData>>): UseMutationOptions<PutApiV1ProjectsByNameSentimentSettingsResponse, PutApiV1ProjectsByNameSentimentSettingsError, Options<PutApiV1ProjectsByNameSentimentSettingsData>> => {
     const mutationOptions: UseMutationOptions<PutApiV1ProjectsByNameSentimentSettingsResponse, PutApiV1ProjectsByNameSentimentSettingsError, Options<PutApiV1ProjectsByNameSentimentSettingsData>> = {

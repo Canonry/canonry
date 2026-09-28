@@ -571,6 +571,7 @@ function queryRows(candidates: readonly Candidate[], definition: VisibilityRepor
     const first = rows[0]!
     const value = coverageSummary(rows, definition, targets)
     return {
+      sourceSnapshotIds: [...new Set(rows.flatMap(row => row.observation ? [row.observation.answerId] : []))].sort(compareText),
       queryKey: first.slot.queryKey,
       queryId: first.slot.queryId,
       query: first.slot.query,

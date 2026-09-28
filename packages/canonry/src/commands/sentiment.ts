@@ -44,6 +44,11 @@ function printSummary(value: SentimentSummary): void {
   for (const row of value.queries) {
     console.log(`Query ${row.queryId} · ${row.queryText} · ${row.queryClass}: Favorable ${row.score.favorableDisplay} · ${row.coverage.counts.favorable} favorable / ${row.coverage.judged} judged · ${row.state}${row.provisional ? ' · provisional' : ''}`)
     if (row.reason) console.log(`  ${row.reason}`)
+    for (const assessment of row.assessments) {
+      console.log(`  ${assessment.provider} · requested ${assessment.requestedModel ?? 'unavailable'} · served ${assessment.servedModel ?? 'unavailable'} · ${assessment.location ?? 'No location'} · ${assessment.subjectLabel}: ${assessment.outcome ?? assessment.state}`)
+      console.log(`    source ${assessment.sourceSnapshotId} · assessment ${assessment.assessmentId ?? 'not measured'}`)
+      if (assessment.reason) console.log(`    ${assessment.reason}`)
+    }
   }
   for (const row of value.breakdowns) if (row.dimension !== 'query') console.log(`${row.dimension} ${row.label} · ${row.queryClass}: ${row.score.favorableDisplay} favorable · ${row.coverage.judged} of ${row.coverage.selected} judged`)
 }

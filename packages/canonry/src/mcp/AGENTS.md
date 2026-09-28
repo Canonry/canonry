@@ -99,6 +99,8 @@ nulls, frozen query/subject/market/evaluator context, server-owned per-query sco
 and refusal reasons. `queryClass` selects exactly one branded or non-brand
 population; `queryId` retains its frozen identity. Summary and evidence accept
 `runIds` for exact grouped location runs instead of `runId`; preserve this full
-selection when following evidence cursors. Configure accepts only enabled
+selection when following evidence cursors. Summary query rows include batched exact
+engine assessments; evidence-only `assessmentId` narrows the stored verdict without
+widening project, class, source or subject scope. Configure accepts only enabled
 state, and no active tool accepts theme settings. Credentials are never accepted. Native Aero defers all nine tools until its
 separate sentiment evaluation and release gate.

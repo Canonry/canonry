@@ -1300,18 +1300,18 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'put', path: '/api/v1/projects/{name}/sentiment/settings', summary: 'Configure experimental project sentiment', tags: ['sentiment'], parameters: [nameParameter],
-    description: 'Install administrators only. Enabling processes future eligible completions; historical backfill is explicit. Theme definitions are identity-bearing and start a new comparison series. TypeSafe credentials remain local install configuration.',
+    description: 'Install administrators only. Enabling processes future eligible completions; historical backfill is explicit. Stance-only evaluator definitions are immutable and comparisons preserve their identity. TypeSafe credentials remain local install configuration.',
     requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SentimentSettingsUpdate' } } } },
     responses: { 200: jsonResponse('Updated project configuration.', 'SentimentSettings'), 400: errorResponse('Invalid configuration or install unavailable.'), 403: errorResponse('Install administrator required.'), 404: errorResponse('Project not found.') },
   },
   {
     method: 'get', path: '/api/v1/projects/{name}/sentiment', summary: 'Read stored class-separated sentiment and coverage', tags: ['sentiment'], parameters: [nameParameter, ...sentimentSelectionParameters],
     description: 'Stored reads never call TypeSafe. Favorable rate is favorable divided by favorable plus mixed plus unfavorable. All scope filters are identity-bearing; overlapping usage edges count each answer-subject assessment once. Incomplete source sweeps and probes cannot supply the headline.',
-    responses: { 200: jsonResponse('Stored scores, exclusions, coverage, and frozen query and location aggregates.', 'SentimentSummary'), 400: errorResponse('Invalid selection.'), 404: errorResponse('Project or selected source not found.') },
+    responses: { 200: jsonResponse('Stored scores, exclusions, coverage, frozen query/location aggregates, and exact per-engine subject assessments.', 'SentimentSummary'), 400: errorResponse('Invalid selection.'), 404: errorResponse('Project or selected source not found.') },
   },
   {
     method: 'get', path: '/api/v1/projects/{name}/sentiment/evidence', summary: 'Read verbatim sentiment evidence', tags: ['sentiment'],
-    parameters: [nameParameter, ...sentimentSelectionParameters, { name: 'cursor', in: 'query', description: 'Opaque cursor bound to every selection field and resolved evaluator ID.', schema: stringSchema }, { name: 'limit', in: 'query', description: 'Page size only; does not change assessment identity.', schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } }],
+    parameters: [nameParameter, ...sentimentSelectionParameters, { name: 'assessmentId', in: 'query', description: 'Exact stored assessment within the authorized source, subject, scope, and evaluator selection. Does not widen access.', schema: stringSchema }, { name: 'cursor', in: 'query', description: 'Opaque cursor bound to every selection field and resolved evaluator ID.', schema: stringSchema }, { name: 'limit', in: 'query', description: 'Page size only; does not change assessment identity.', schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } }],
     responses: { 200: jsonResponse('Stored answer-subject evidence page.', 'SentimentEvidencePage'), 400: errorResponse('Invalid cursor or selection.'), 404: errorResponse('Project or selected source not found.') },
   },
   {

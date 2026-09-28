@@ -1,10 +1,11 @@
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { buildSimpleMeasurementDefinition, sentimentSummarySchema } from '@ainyc/canonry-contracts'
-import { apiKeys, createClient, migrate, projects, queries, querySnapshots, runs, simpleMeasurementDefinitions, users, SentimentRepository, type DatabaseClient } from '@ainyc/canonry-db'
+import { buildSimpleMeasurementDefinition, createSentimentEvaluationDefinition, sentimentSummarySchema } from '@ainyc/canonry-contracts'
+import { apiKeys, createClient, migrate, projects, queries, querySnapshots, runs, sentimentAttempts, sentimentJobs, simpleMeasurementDefinitions, users, SentimentRepository, type DatabaseClient } from '@ainyc/canonry-db'
 import { apiRoutes, createUserSession, USER_SESSION_COOKIE_NAME } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 import { SentimentService } from '../src/sentiment-service.js'
+import { sentimentHash } from '../src/sentiment-input.js'
 
 let db: DatabaseClient
 let app: ReturnType<typeof Fastify>
@@ -33,6 +34,59 @@ function request(method: 'GET' | 'PUT' | 'POST', path: string, key = 'root', pay
 // The standalone registration receives the API prefix explicitly in beforeEach below.
 
 describe('sentiment stored API', () => {
+
+  it('binds exact assessment evidence to current project, run, class, provider, model, query and cursor scope', async () => {
+    service.configure('p', { enabled: true })
+    const stored = db.select().from(simpleMeasurementDefinitions).get()!
+    db.insert(runs).values({ id: 'r2', projectId: 'p', kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt: clock }).run()
+    db.insert(simpleMeasurementDefinitions).values({ ...stored, runId: 'r2' }).run()
+    db.insert(querySnapshots).values({ id: 's2', runId: 'r2', queryId: 'q', provider: 'openai', model: 'gpt-test', servedModel: 'gpt-test-v1', answerText: 'Acme is disappointing.', citationState: 'cited', createdAt: clock }).run()
+    const preview = service.preview('p', { runIds: ['r', 'r2'] })
+    service.submit('p', preview.previewToken!, 'exact-evidence', 'test')
+    const repository = new SentimentRepository(db)
+    for (;;) {
+      const work = repository.claim({ owner: 'exact', now: clock, leaseMs: 10_000 })
+      if (!work) break
+      const input = work.input as { sentences: Array<{ id: string; text: string; start: number; end: number }> }
+      const outcome = work.runId === 'r' ? 'favorable' : 'unfavorable'
+      repository.completeWork({ workItemId: work.id, owner: 'exact', now: clock, outcome, returnedModel: 'jev-1.13.0', result: { kind: 'classified', outcome, returnedModel: 'jev-1.13.0', usage: { kind: 'reported', inputTokens: 10, outputTokens: 1 }, conclusion: input.sentences.slice(0, 1), complaint: null, confidence: null } })
+    }
+    const summary = await request('GET', '?runIds=r&runIds=r2', 'read')
+    const target = sentimentSummarySchema.parse(summary.json()).queries[0]!.assessments.find(item => item.sourceSnapshotId === 's')!
+    const jobsBefore = db.select().from(sentimentJobs).all(), attemptsBefore = db.select().from(sentimentAttempts).all()
+    const selected = await request('GET', `/evidence?runIds=r&runIds=r2&assessmentId=${target.assessmentId}`, 'read')
+    expect(selected.statusCode, selected.body).toBe(200)
+    expect(selected.json().selection.assessmentId).toBe(target.assessmentId)
+    expect(selected.json().items).toHaveLength(1)
+    expect(selected.json().items[0]).toMatchObject({ assessmentId: target.assessmentId, runId: 'r', sourceSnapshotId: 's', outcome: 'favorable' })
+    // An exact ID cannot widen a valid but different evaluator selection.
+    const nextDefinition = { ...createSentimentEvaluationDefinition(), confidenceThreshold: 0.8 }
+    const nextDefinitionId = sentimentHash(nextDefinition)
+    repository.putDefinition({ id: nextDefinitionId, contentHash: nextDefinitionId, requestedModel: nextDefinition.requestedModel, definition: nextDefinition, createdAt: clock })
+    repository.configure({ projectId: 'p', enabled: true, evaluationDefinitionId: nextDefinitionId, configuration: { enabled: true }, now: clock })
+    const differentEvaluator = await request('GET', `/evidence?runId=r&evaluationDefinitionId=${nextDefinitionId}&assessmentId=${target.assessmentId}`, 'read')
+    expect(differentEvaluator.statusCode, differentEvaluator.body).toBe(200)
+    expect(differentEvaluator.json().items).toEqual([])
+    const unknownAssessment = await request('GET', '/evidence?runId=r&assessmentId=unknown-assessment', 'read')
+    expect(unknownAssessment.statusCode).toBe(200)
+    expect(unknownAssessment.json().items).toEqual([])
+    for (const refinement of ['runId=r2', 'runId=r&queryClass=non-brand', 'runId=r&provider=gemini', 'runId=r&model=other', 'runId=r&queryId=other', 'runId=r&location=elsewhere']) {
+      const hidden = await request('GET', `/evidence?${refinement}&assessmentId=${target.assessmentId}`, 'read')
+      expect(hidden.statusCode, hidden.body).toBe(200)
+      expect(hidden.json().items).toEqual([])
+    }
+    expect((await request('GET', `?assessmentId=${target.assessmentId}`, 'read')).statusCode).toBe(400)
+    const first = await request('GET', '/evidence?runIds=r&runIds=r2&limit=1', 'read')
+    expect(first.json().nextCursor).not.toBeNull()
+    const escaped = await request('GET', `/evidence?runIds=r&runIds=r2&limit=1&assessmentId=${target.assessmentId}&cursor=${encodeURIComponent(first.json().nextCursor)}`, 'read')
+    expect(escaped.statusCode).toBe(400)
+    const foreign = await app.inject({ method: 'GET', url: `/api/v1/projects/other/sentiment/evidence?runId=r&assessmentId=${target.assessmentId}`, headers: { authorization: 'Bearer cnry_scoped' } })
+    expect(foreign.statusCode).toBe(403)
+    const unavailable = await app.inject({ method: 'GET', url: `/api/v1/projects/other/sentiment/evidence?runId=r&assessmentId=${target.assessmentId}`, headers: { authorization: 'Bearer cnry_root' } })
+    expect(unavailable.statusCode).toBe(404)
+    expect(db.select().from(sentimentJobs).all()).toEqual(jobsBefore)
+    expect(db.select().from(sentimentAttempts).all()).toEqual(attemptsBefore)
+  })
 
   it('refuses evaluator metadata belonging only to another project', async () => {
     const settings = service.configure('other', { enabled: true })

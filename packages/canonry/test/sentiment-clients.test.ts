@@ -30,9 +30,9 @@ describe('sentiment CLI transport contract', () => {
     expect(JSON.parse(await invoke(['demo'], fixture, 'getSentiment'))).toEqual(fixture)
   })
   it('passes every identity-bearing Advanced filter to evidence', async () => {
-    await invoke(['evidence', 'demo', '--run-id', 'run', '--revision', '4', '--mode', 'advanced', '--query-class', 'branded', '--query-id', 'frozen-query', '--scope', 'property', '--scope-key', 'p', '--market-key', 'market', '--provider', 'openai', '--model', 'gpt-test', '--location', 'NY', '--evaluation-definition-id', 'def', '--cursor', 'cursor', '--limit', '12'], { items: [], nextCursor: null }, 'getSentimentEvidence')
+    await invoke(['evidence', 'demo', '--run-id', 'run', '--revision', '4', '--mode', 'advanced', '--query-class', 'branded', '--query-id', 'frozen-query', '--scope', 'property', '--scope-key', 'p', '--market-key', 'market', '--provider', 'openai', '--model', 'gpt-test', '--location', 'NY', '--evaluation-definition-id', 'def', '--assessment-id', 'frozen-assessment', '--cursor', 'cursor', '--limit', '12'], { items: [], nextCursor: null }, 'getSentimentEvidence')
     expect(client.getSentimentEvidence).toHaveBeenLastCalledWith('demo', {
-      runId: 'run', revision: 4, mode: 'advanced', queryClass: 'branded', queryId: 'frozen-query', scope: 'property', scopeKey: 'p', marketKey: 'market', provider: 'openai', model: 'gpt-test', location: 'NY', evaluationDefinitionId: 'def', cursor: 'cursor', limit: 12,
+      runId: 'run', revision: 4, mode: 'advanced', queryClass: 'branded', queryId: 'frozen-query', scope: 'property', scopeKey: 'p', marketKey: 'market', provider: 'openai', model: 'gpt-test', location: 'NY', evaluationDefinitionId: 'def', assessmentId: 'frozen-assessment', cursor: 'cursor', limit: 12,
     })
   })
   it('preserves an exact grouped run selection across summary and paginated evidence reads', async () => {
@@ -77,12 +77,27 @@ describe('sentiment CLI transport contract', () => {
     expect(output).toContain(fixture.score.limitation)
   })
   it.each(['branded', 'non-brand'] as const)('preserves %s per-query JSON and prints the server-owned favorable display', async queryClass => {
-    const query = { queryId: 'frozen-query', queryText: 'Which apartments are good?', queryClass, sourceSnapshotIds: ['frozen-snapshot'], locations: [], state: 'partial', reason: 'Classification is incomplete.', provisional: true, coverage: sentimentFixtureSummary.coverage, score: { ...sentimentFixtureSummary.score, favorableDisplay: '61%' } }
+    const query = { queryId: 'frozen-query', queryText: 'Which apartments are good?', queryClass, sourceSnapshotIds: ['frozen-snapshot'], locations: [], assessments: [], state: 'partial', reason: 'Classification is incomplete.', provisional: true, coverage: sentimentFixtureSummary.coverage, score: { ...sentimentFixtureSummary.score, favorableDisplay: '61%' } }
     const fixture = sentimentSummarySchema.parse({ ...sentimentFixtureSummary, selection: { ...sentimentFixtureSummary.selection, queryClass, queryId: query.queryId }, queries: [query] })
     expect(JSON.parse(await invoke(['demo', '--query-class', queryClass, '--query-id', query.queryId], fixture, 'getSentiment'))).toEqual(fixture)
     expect(client.getSentiment).toHaveBeenLastCalledWith('demo', { mode: 'auto', scope: 'project', queryClass, queryId: query.queryId })
     const output = await invoke(['demo', '--query-class', queryClass], fixture, 'getSentiment', 'text')
     expect(output).toContain(`frozen-query · Which apartments are good? · ${queryClass}: Favorable 61% · 3 favorable / 5 judged · partial · provisional`)
+  })
+  it('prints exact engine verdicts and preserves unmeasured sources without inventing a rate', async () => {
+    const base = { assessmentId: 'assessment-openai', sourceSnapshotId: 'snapshot-openai', runId: 'run', subjectId: 'subject', subjectLabel: 'Frozen subject', executionNodeKey: null, provider: 'openai', requestedModel: 'requested', servedModel: 'served', location: 'Harbor', evaluationDefinitionId: 'definition', state: 'complete' as const, outcome: 'favorable' as const, reason: null }
+    const assessments = [base, { ...base, assessmentId: null, sourceSnapshotId: 'snapshot-gemini', provider: 'gemini', state: 'not-measured' as const, outcome: null, reason: 'Not admitted.' }]
+    const fixture = sentimentSummarySchema.parse({ ...sentimentFixtureSummary, queries: [{ queryId: 'query', queryText: 'Frozen query', queryClass: 'non-brand', sourceSnapshotIds: assessments.map(item => item.sourceSnapshotId), locations: [], assessments, state: 'partial', reason: null, provisional: true, coverage: sentimentFixtureSummary.coverage, score: sentimentFixtureSummary.score }] })
+    expect(JSON.parse(await invoke(['demo'], fixture, 'getSentiment'))).toEqual(fixture)
+    const output = await invoke(['demo'], fixture, 'getSentiment', 'text')
+    expect(output).toContain('openai · requested requested · served served · Harbor · Frozen subject: favorable')
+    expect(output).toContain('source snapshot-openai · assessment assessment-openai')
+    expect(output).toContain('gemini · requested requested · served served · Harbor · Frozen subject: not-measured')
+    expect(output).toContain('source snapshot-gemini · assessment not measured')
+    expect(output).toContain('Not admitted.')
+  })
+  it.each([['demo', '--assessment-id', 'assessment'], ['compare', 'demo', '--from-run-id', 'a', '--to-run-id', 'b', '--assessment-id', 'assessment'], ['evidence', 'demo', '--assessment-id', '']])('rejects evidence-only or empty assessment selection %j', async (...argv) => {
+    await expect(dispatchRegisteredCommand(['sentiment', ...argv], 'json', SENTIMENT_CLI_COMMANDS)).rejects.toBeInstanceOf(CliError)
   })
   it('only prints No evaluative answers for a completed zero-judgment selection', async () => {
     for (const state of ['complete', 'processing', 'canceled'] as const) {

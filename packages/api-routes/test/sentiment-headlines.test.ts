@@ -8,7 +8,7 @@ import {
 } from '@ainyc/canonry-contracts'
 import {
   apiKeys, createClient, measurementPlanVersions, migrate, projects, queries, querySnapshots, runs,
-  sentimentDefinitions, sentimentJobs, sentimentWorkItems, simpleMeasurementDefinitions, SentimentRepository, type DatabaseClient,
+  sentimentAttempts, sentimentDefinitions, sentimentJobs, sentimentWorkItems, simpleMeasurementDefinitions, SentimentRepository, type DatabaseClient,
 } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
@@ -31,20 +31,20 @@ beforeEach(() => {
 })
 afterEach(() => db.$client.close())
 
-function simple(runId: string, labels = ['Acme reviews', 'best service options'], location: string | null = null, domain = 'acme.example') {
+function simple(runId: string, labels = ['Acme reviews', 'best service options'], location: string | null = null, domain = 'acme.example', providers = ['openai']) {
   db.insert(runs).values({ id: runId, projectId: 'p', kind: 'answer-visibility', status: 'completed', trigger: 'manual', location, createdAt: NOW }).run()
   const frozen = labels.map((queryText, index) => ({ queryId: `q-${index}`, queryText, provenance: null }))
   for (const query of frozen) db.insert(queries).values({ id: query.queryId, projectId: 'p', query: query.queryText, createdAt: NOW }).onConflictDoNothing().run()
-  const definition = buildSimpleMeasurementDefinition({ capturedAt: NOW, identity: { displayName: 'Acme', aliases: ['Acme Co'], canonicalDomain: domain, ownedDomains: [] }, country: 'US', language: 'en', location: location ? { label: location, city: location, region: 'EX', country: 'US' } : null, engines: [{ provider: 'openai', requestedModel: 'source-model' }], queries: frozen })
+  const definition = buildSimpleMeasurementDefinition({ capturedAt: NOW, identity: { displayName: 'Acme', aliases: ['Acme Co'], canonicalDomain: domain, ownedDomains: [] }, country: 'US', language: 'en', location: location ? { label: location, city: location, region: 'EX', country: 'US' } : null, engines: providers.map(provider => ({ provider, requestedModel: provider === 'openai' ? 'source-model' : `${provider}-requested` })), queries: frozen })
   db.insert(simpleMeasurementDefinitions).values({ runId, projectId: 'p', definition, checksum: runId, capturedAt: NOW }).run()
-  for (const query of frozen) db.insert(querySnapshots).values({ id: `${runId}-${query.queryId}`, runId, queryId: query.queryId, queryText: query.queryText, location, provider: 'openai', model: 'source-model', servedModel: 'served-model', answerText: 'Acme Co offers excellent service.', citationState: 'cited', createdAt: NOW }).run()
+  for (const query of frozen) for (const provider of providers) db.insert(querySnapshots).values({ id: `${runId}-${query.queryId}${provider === 'openai' ? '' : `-${provider}`}`, runId, queryId: query.queryId, queryText: query.queryText, location, provider, model: provider === 'openai' ? 'source-model' : `${provider}-requested`, servedModel: provider === 'openai' ? 'served-model' : `${provider}-served`, answerText: 'Acme Co offers excellent service.', citationState: 'cited', createdAt: NOW }).run()
 }
 function finish(outcomes: Record<string, SentimentOutcome> = {}) {
   for (;;) {
     const work = repository.claim({ owner: 'headlines', now: NOW, leaseMs: 30_000 })
     if (!work) break
     const input = storedSentimentClassifierInputSchema.parse(work.input)
-    const outcome = outcomes[work.snapshotId] ?? 'favorable'
+    const outcome = outcomes[`${work.snapshotId}:${input.subject.id}`] ?? outcomes[work.snapshotId] ?? 'favorable'
     const common = { returnedModel: 'jev-1.13.0', usage: { kind: 'reported' as const, inputTokens: 10, outputTokens: 1 } }
     const result: SentimentClassifierOutput = ['favorable', 'mixed', 'unfavorable'].includes(outcome)
       ? { ...common, kind: 'classified', outcome, conclusion: input.sentences.slice(0, 1), complaint: null, confidence: null }
@@ -61,6 +61,74 @@ function summary(runId: string, queryClass: 'branded' | 'non-brand', extra = {})
 }
 
 describe('class-separated sentiment headlines', () => {
+  it('returns opposite engine outcomes and explicit unadmitted metadata without changing the query denominator', () => {
+    simple('engines', ['best service options'], 'Harbor', 'acme.example', ['openai', 'gemini', 'claude'])
+    admit('engines', 'non-brand', { provider: 'openai' }); admit('engines', 'non-brand', { provider: 'gemini' })
+    finish({ 'engines-q-0-gemini': 'unfavorable' })
+    const jobs = db.select().from(sentimentJobs).all(), attempts = db.select().from(sentimentAttempts).all()
+    const result = summary('engines', 'non-brand')
+    expect(result).toMatchObject({ coverage: { selected: 2, eligibleAssessments: 3, judged: 2 }, score: { favorableRate: 0.5 } })
+    const rows = result.queries[0]!.assessments
+    expect(rows).toHaveLength(3)
+    expect(rows.find(row => row.provider === 'openai')).toMatchObject({ sourceSnapshotId: 'engines-q-0', runId: 'engines', subjectId: 'p', subjectLabel: 'Acme', provider: 'openai', requestedModel: 'source-model', servedModel: 'served-model', location: 'Harbor', state: 'complete', outcome: 'favorable' })
+    expect(rows.find(row => row.provider === 'gemini')).toMatchObject({ state: 'complete', outcome: 'unfavorable', requestedModel: 'gemini-requested', servedModel: 'gemini-served' })
+    expect(rows.find(row => row.provider === 'claude')).toMatchObject({ assessmentId: null, evaluationDefinitionId: null, state: 'not-measured', outcome: null })
+    expect(JSON.stringify(rows)).not.toContain('offers excellent service')
+    expect(rows.every(row => !('sourceText' in row) && !('conclusion' in row))).toBe(true)
+    expect(summary('engines', 'non-brand', { provider: 'gemini', model: 'gemini-served', location: 'Harbor' }).queries[0]!.assessments).toEqual(rows.filter(row => row.provider === 'gemini'))
+    expect(summary('engines', 'branded').queries).toEqual([])
+    expect(db.select().from(sentimentJobs).all()).toEqual(jobs)
+    expect(db.select().from(sentimentAttempts).all()).toEqual(attempts)
+    service.configure('p', { enabled: false })
+    expect(summary('engines', 'non-brand').queries[0]!.assessments.every(row => row.state === 'disabled' && row.outcome === null)).toBe(true)
+  })
+
+  it('reports durable pending, running, retry, failed and canceled states without inventing a verdict', () => {
+    simple('states', ['Acme reviews']); admit('states', 'branded')
+    const row = () => summary('states', 'branded').queries[0]!.assessments[0]!
+    expect(row()).toMatchObject({ state: 'processing', outcome: 'pending' })
+    const work = repository.claim({ owner: 'state-test', now: NOW, leaseMs: 30_000 })!
+    expect(row()).toMatchObject({ state: 'processing', outcome: 'running' })
+    repository.failWork({ workItemId: work.id, owner: 'state-test', now: NOW, errorCode: 'RETRYABLE', retryAt: '2026-09-28T00:01:00.000Z' })
+    expect(row()).toMatchObject({ state: 'processing', outcome: 'waiting-to-retry', reason: 'RETRYABLE' })
+    repository.claim({ owner: 'state-test-2', now: '2026-09-28T00:02:00.000Z', leaseMs: 30_000 })
+    repository.failWork({ workItemId: work.id, owner: 'state-test-2', now: '2026-09-28T00:02:00.000Z', errorCode: 'EXHAUSTED' })
+    expect(row()).toMatchObject({ state: 'failed', outcome: 'failed', reason: 'EXHAUSTED' })
+    const preview = service.preview('p', { runId: 'states' })
+    service.submit('p', preview.previewToken!, 'explicit-retry', 'fixture')
+    repository.cancelProject('p', NOW, 'test-cancel')
+    expect(row()).toMatchObject({ state: 'canceled', outcome: 'canceled', reason: 'test-cancel' })
+    expect(db.select().from(sentimentAttempts).all()).toHaveLength(0)
+  })
+
+  it.each(['factual', 'subject-not-mentioned', 'wrong-subject', 'unsupported-language'] as const)('retains the exact nonjudged %s outcome on engine rows', outcome => {
+    simple('abstained', ['best service options']); admit('abstained', 'non-brand'); finish({ 'abstained-q-0': outcome })
+    const result = summary('abstained', 'non-brand')
+    expect(result.queries[0]!.assessments[0]).toMatchObject({ state: 'complete', outcome, reason: 'Offline fixture exclusion.' })
+    expect(result).toMatchObject({ coverage: { judged: 0 }, score: { favorableRate: null } })
+  })
+
+  it('keeps shared Advanced answers separate by subject across engines and overlapping markets', () => {
+    const plan = measurementPlanV2Fixture()
+    plan.reportingScopes = ['alpha', 'beta'].map(stableKey => ({ stableKey, label: stableKey, kind: 'market', usageEdges: plan.usageEdges }))
+    db.insert(measurementPlanVersions).values({ id: 'v', projectId: 'p', revision: 1, canonicalJson: canonicalMeasurementPlanV2Json(plan), checksum: 'v', schemaVersion: 2, compiledChecksum: plan.compiledChecksum, createdAt: NOW }).run()
+    db.insert(runs).values({ id: 'shared', projectId: 'p', kind: 'answer-visibility', status: 'completed', trigger: 'manual', measurementPlanVersionId: 'v', measurementManifest: buildMeasurementPlanV2Manifest(plan), measurementExecutionIdentity: { language: 'en' }, createdAt: NOW }).run()
+    for (const node of plan.executionNodes) for (const provider of ['openai', 'gemini']) db.insert(querySnapshots).values({ id: `${node.stableKey}-${provider}`, runId: 'shared', measurementExecutionId: node.stableKey, queryText: node.queryText, provider, model: `${provider}-requested`, servedModel: `${provider}-served`, answerText: 'Harbor Homes and Bayside Homes receive different reviews.', citationState: 'cited', createdAt: NOW }).run()
+    admit('shared', 'non-brand'); finish({ 'exec-nearby-openai:bayside': 'unfavorable', 'exec-nearby-gemini:harbor': 'unfavorable' })
+    const result = summary('shared', 'non-brand')
+    const assessments = result.queries[0]!.assessments
+    expect(result).toMatchObject({ coverage: { selected: 4, distinctSourceAnswers: 2, judged: 4 }, score: { favorableRate: 0.5 } })
+    expect(assessments).toHaveLength(4)
+    expect(assessments.filter(row => row.sourceSnapshotId === 'exec-nearby-openai').map(row => [row.subjectId, row.outcome]).sort()).toEqual([['bayside', 'unfavorable'], ['harbor', 'favorable']])
+    expect(assessments.filter(row => row.sourceSnapshotId === 'exec-nearby-gemini').map(row => [row.subjectId, row.outcome]).sort()).toEqual([['bayside', 'favorable'], ['harbor', 'unfavorable']])
+    const selected = sentimentSelectionSchema.parse({ runId: 'shared', queryClass: 'non-brand', scope: 'property', scopeKey: 'harbor', marketKey: 'alpha', provider: 'openai', model: 'openai-served', location: 'Harbor' })
+    const one = service.summary('p', selected).queries[0]!.assessments
+    expect(one).toHaveLength(1); expect(one[0]).toMatchObject({ subjectId: 'harbor', outcome: 'favorable', executionNodeKey: 'exec-nearby' })
+    expect(service.evidence('p', { ...selected, assessmentId: one[0]!.assessmentId! }, 50).items).toHaveLength(1)
+    expect(service.evidence('p', { ...selected, scopeKey: 'bayside', assessmentId: one[0]!.assessmentId! }, 50).items).toEqual([])
+    expect(summary('shared', 'non-brand', { marketKey: 'beta' }).queries[0]!.assessments).toEqual(assessments)
+  })
+
   it('returns a strict unavailable DTO before any source exists', () => {
     const result = sentimentSummarySchema.parse(service.summary('p', sentimentSelectionSchema.parse({})))
     expect(result).toMatchObject({ state: 'not-measured', selection: { runId: null }, score: { favorableRate: null } })
@@ -168,7 +236,7 @@ describe('class-separated sentiment headlines', () => {
     const selected = sentimentSelectionSchema.parse({ runIds: ['original', 'changed'], queryClass: 'branded' })
     const incompatible = service.summary('p', selected)
     expect(incompatible).toMatchObject({ state: 'unsupported', reason: 'subject-identity-changed', score: { favorableRate: null, favorableDisplay: 'Unavailable' } })
-    expect(incompatible.queries.every(query => query.score.favorableRate === null)).toBe(true)
+    expect(incompatible.queries.every(query => query.score.favorableRate === null && query.assessments.every(row => row.outcome === null && row.state === 'unsupported'))).toBe(true)
     const definition = { ...createSentimentEvaluationDefinition(), confidenceThreshold: 0.8 }
     const id = sentimentHash(definition)
     repository.putDefinition({ id, contentHash: id, requestedModel: definition.requestedModel, definition, createdAt: NOW })

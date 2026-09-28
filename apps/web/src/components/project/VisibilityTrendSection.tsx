@@ -1,4 +1,4 @@
-import { SentimentControls, SentimentHeadlines, SentimentQueryScore, useSentimentResolvedSource } from './SentimentSection.js'
+import { SentimentControls, SentimentHeadlines, SentimentQueryScore, SentimentAnswerOutcome, useSentimentResolvedSource } from './SentimentSection.js'
 import { REPORT_VISIBILITY_COPY, reportUnattributedAnswers } from '@ainyc/canonry-contracts'
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -337,7 +337,7 @@ function QueryResultGroup({ group, queryClass, advanced, targetLabels, marketHea
   return <tbody data-query-key={group.queryKey}>
     {marketHeading ? <tr><th colSpan={4} className="border-t border-default py-4 text-left"><h3 className="text-base font-semibold text-heading">{marketHeading}</h3></th></tr> : null}
     <tr className="measurement-result-heading"><th scope="rowgroup" colSpan={4}>
-      <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="break-words text-base font-medium text-heading">{group.query}</h3><div className="text-sm font-normal"><SentimentQueryScore showLabel queryId={first.queryId} queryClass={queryClass === 'unknown' ? null : queryClass} /></div></div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="break-words text-base font-medium text-heading">{group.query}</h3><div className="text-sm font-normal"><SentimentQueryScore showLabel queryId={first.queryId} sourceSnapshotIds={group.rows.flatMap(row => row.sourceSnapshotIds ?? [])} queryClass={queryClass === 'unknown' ? null : queryClass} /></div></div>
       <div className="flex flex-wrap items-center gap-x-5 text-sm font-normal text-secondary">
         {advanced && sharedTargets ? <QueryProperties targetKeys={first.targetKeys} labels={targetLabels} /> : null}
         {sharedLocation ? <span>{locationLabel(first.location)}</span> : null}
@@ -349,6 +349,7 @@ function QueryResultGroup({ group, queryClass, advanced, targetLabels, marketHea
         <span className="block break-words text-sm text-secondary">{row.model ?? 'Model not recorded'}</span>
         {advanced && !sharedTargets ? <div className="mt-1 text-sm text-secondary"><QueryProperties targetKeys={row.targetKeys} labels={targetLabels} /></div> : null}
         {!sharedLocation ? <span className="mt-1 block text-sm text-secondary">{locationLabel(row.location)}</span> : null}
+        <SentimentAnswerOutcome showLabel showSubjects={advanced} queryId={row.queryId} sourceSnapshotIds={row.sourceSnapshotIds ?? []} queryClass={queryClass === 'unknown' ? null : queryClass} provider={row.provider} model={row.model} location={row.location} />
       </td>
       <td><span className="measurement-result-mobile-label" aria-hidden="true">Mentioned</span><QueryResultRate value={row.mentionCoverage} singleAnswer={row.answerCount === 1} /></td>
       <td><span className="measurement-result-mobile-label" aria-hidden="true">Cited</span><QueryResultRate value={row.citationCoverage} singleAnswer={row.answerCount === 1} /></td>

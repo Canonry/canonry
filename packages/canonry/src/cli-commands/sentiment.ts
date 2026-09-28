@@ -17,7 +17,7 @@ const selectionOptions = {
   'evaluation-definition-id': stringOption(),
 }
 const readSelectionOptions = { ...selectionOptions, 'run-ids': multiStringOption() }
-const selectionHelp = 'Selection: --run-id <id> --query-id <frozen-query-id> --revision <n> --mode auto|simple|advanced --query-class branded|non-brand --scope project|property|group|market --scope-key <key> --market-key <key> --provider <provider> --model <id> --location <label> --evaluation-definition-id <id>. Branded and non-brand are separate populations; select exactly one class. Favorable % is favorable / (favorable + mixed + unfavorable), excluding factual and unjudged answers. The summary includes per-query scores. Reads use stored data only.'
+const selectionHelp = 'Selection: --run-id <id> --query-id <frozen-query-id> --revision <n> --mode auto|simple|advanced --query-class branded|non-brand --scope project|property|group|market --scope-key <key> --market-key <key> --provider <provider> --model <id> --location <label> --evaluation-definition-id <id>. Branded and non-brand are separate populations; select exactly one class. Favorable % is favorable / (favorable + mixed + unfavorable), excluding factual and unjudged answers. The summary includes per-query scores and exact engine assessment verdicts. Reads use stored data only.'
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value)
@@ -60,11 +60,11 @@ export const SENTIMENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
-    path: ['sentiment', 'evidence'], usage: 'canonry sentiment evidence <project> [selection options] [--cursor <cursor>] [--limit 1..100] [--format json]',
-    help: `${readSelectionHelp} Keep all selection fields, including the returned evaluationDefinitionId, when following a cursor. JSONL preserves the entire page envelope, including empty state and next cursor.`,
-    options: { ...readSelectionOptions, cursor: stringOption(), limit: stringOption() },
+    path: ['sentiment', 'evidence'], usage: 'canonry sentiment evidence <project> [selection options] [--assessment-id <id>] [--cursor <cursor>] [--limit 1..100] [--format json]',
+    help: `${readSelectionHelp} Use --assessment-id from a query assessment to read that exact stored verdict; existing scope filters still apply. Keep all selection fields, including assessmentId and the returned evaluationDefinitionId, when following a cursor. JSONL preserves the entire page envelope, including empty state and next cursor.`,
+    options: { ...readSelectionOptions, 'assessment-id': stringOption(), cursor: stringOption(), limit: stringOption() },
     run: input => showSentimentEvidence(project(input, 'evidence'), parse(sentimentEvidenceRequestSchema, {
-      ...readSelection(input), cursor: getString(input.values, 'cursor'), limit: getString(input.values, 'limit'),
+      ...readSelection(input), assessmentId: getString(input.values, 'assessment-id'), cursor: getString(input.values, 'cursor'), limit: getString(input.values, 'limit'),
     }), input.format),
   },
   {

@@ -7,7 +7,7 @@ import {
   storedSentimentEvaluationDefinitionSchema, sentimentJobSchema, sentimentOutcomeSchema, sentimentSettingsUpdateSchema,
   validationError, type SentimentBackfillPreview, type SentimentBackfillSelection, type SentimentClassifierInput,
   type SentimentComparison, type SentimentEvidenceItem, type SentimentJob, type SentimentResolvedSelection,
-  type SentimentSelection, type SentimentSettings, type SentimentSummary, type SentimentOverview,
+  type SentimentSelection, type SentimentEvidenceSelection, type SentimentSettings, type SentimentSummary, type SentimentOverview,
 } from '@ainyc/canonry-contracts'
 import {
   measurementPlanVersions, querySnapshots, runs, sentimentAttempts, sentimentDefinitions, sentimentJobItems, sentimentJobs,
@@ -204,6 +204,7 @@ export class SentimentService {
       group.eligible.push(item); queries.set(edge.queryKey, group)
     }
     for (const item of items) for (const key of new Set(item.edges.map(edge => edge.queryKey))) queries.get(key)?.measured.push(item)
+    const measuredBySourceSubject = new Map(items.map(item => [`${item.work.snapshotId}\0${item.input.subject.id}`, item]))
     const queryRows: SentimentSummary['queries'] = [...queries].map(([queryId, group]) => {
       const eligibleByLocation = new Map<string | null, SentimentSourceAssessment[]>()
       const measuredByLocation = new Map<string | null, StoredItem[]>()
@@ -211,8 +212,21 @@ export class SentimentService {
       for (const item of group.measured) for (const location of new Set(item.edges.filter(edge => edge.queryKey === queryId).map(edge => edge.context?.label ?? null))) measuredByLocation.set(location, [...(measuredByLocation.get(location) ?? []), item])
       const sourceSnapshotIds = [...new Set(group.eligible.map(item => item.snapshotId))].sort()
       const result = aggregate(group.measured, group.eligible)
+      const assessments = group.eligible.map(member => {
+        const item = measuredBySourceSubject.get(`${member.snapshotId}\0${member.subject.key}`)
+        const edge = selectedEdges(member).find(edge => edge.queryKey === queryId)!
+        const state = aggregateSentiment(item ? [{ assessmentId: item.work.id, sourceSnapshotId: member.snapshotId, outcome: item.evidence.outcome }] : [], { disabled }).state
+        return {
+          assessmentId: item?.work.id ?? null, sourceSnapshotId: member.snapshotId, runId: member.runId,
+          subjectId: member.subject.key, subjectLabel: member.subject.name, executionNodeKey: edge.executionNodeKey,
+          provider: edge.provider, requestedModel: edge.sourceModel, servedModel: edge.servedModel, location: edge.context?.label ?? null,
+          evaluationDefinitionId: item?.work.evaluationDefinitionId ?? null, state,
+          outcome: disabled ? null : item?.evidence.outcome ?? null,
+          reason: disabled ? 'Sentiment is disabled.' : item ? item.evidence.reason : 'This source assessment has not been admitted.',
+        }
+      }).sort((left, right) => left.sourceSnapshotId.localeCompare(right.sourceSnapshotId) || left.subjectId.localeCompare(right.subjectId))
       breakdowns.push({ ...result, dimension: 'query', key: queryId, label: group.queryText, queryClass: selection.queryClass })
-      return { ...result, queryId, queryText: group.queryText, queryClass: selection.queryClass, sourceSnapshotIds, locations: [...eligibleByLocation].map(([location, eligible]) => ({ ...aggregate(measuredByLocation.get(location) ?? [], eligible), location, sourceSnapshotIds: [...new Set(eligible.map(item => item.snapshotId))].sort() })) }
+      return { ...result, queryId, queryText: group.queryText, queryClass: selection.queryClass, sourceSnapshotIds, assessments, locations: [...eligibleByLocation].map(([location, eligible]) => ({ ...aggregate(measuredByLocation.get(location) ?? [], eligible), location, sourceSnapshotIds: [...new Set(eligible.map(item => item.snapshotId))].sort() })) }
     })
     return { ...aggregate(items, source.assessments, source.sourceCoverage), configured: settings.enabled && settings.installEnabled, selection, evaluationDefinition: definition, breakdowns, queries: queryRows }
   }
@@ -242,7 +256,7 @@ export class SentimentService {
     }
     const result = this.aggregate(projectId, selection, items, source)
     const unavailable = { state: 'unsupported' as const, reason, provisional: true, score: aggregateSentiment([]).score }
-    const summary: SentimentSummary = reason ? { ...result, ...unavailable, breakdowns: result.breakdowns.map(row => ({ ...row, ...unavailable })), queries: result.queries.map(row => ({ ...row, ...unavailable, locations: row.locations.map(location => ({ ...location, ...unavailable })) })) } : result
+    const summary: SentimentSummary = reason ? { ...result, ...unavailable, breakdowns: result.breakdowns.map(row => ({ ...row, ...unavailable })), queries: result.queries.map(row => ({ ...row, ...unavailable, assessments: row.assessments.map(assessment => ({ ...assessment, state: 'unsupported' as const, outcome: null, reason })), locations: row.locations.map(location => ({ ...location, ...unavailable })) })) } : result
     return { selection, items, summary, fingerprint: sentimentHash(selections) }
   }
   summary(projectId: string, query: SentimentSelection): SentimentSummary { return this.readSelection(projectId, query).summary }
@@ -255,11 +269,13 @@ export class SentimentService {
     const settings = this.settings(projectId)
     return { configured: settings.enabled && settings.installEnabled, branded: headline('branded'), nonBrand: headline('non-brand') }
   }
-  evidence(projectId: string, query: SentimentSelection, limit: number, cursor?: string) {
-    const { selection, items: all, summary, fingerprint } = this.readSelection(projectId, query)
+  evidence(projectId: string, query: SentimentEvidenceSelection, limit: number, cursor?: string) {
+    const { assessmentId, ...sourceSelection } = query
+    const { selection: resolved, items: all, summary, fingerprint } = this.readSelection(projectId, sourceSelection)
+    const selection = { ...resolved, ...(assessmentId ? { assessmentId } : {}) }
     let after = ''
     if (cursor) { const token = this.verify<{ projectId: string; selection: SentimentResolvedSelection; fingerprint: string; after: string }>(cursor); if (token.projectId !== projectId || sentimentHash(token.selection) !== sentimentHash(selection) || token.fingerprint !== fingerprint) throw validationError('Evidence cursor does not match the resolved selection.'); after = token.after }
-    const items = all.sort((a, b) => a.work.id.localeCompare(b.work.id)).filter(item => item.work.id > after)
+    const items = all.filter(item => !assessmentId || item.work.id === assessmentId).sort((a, b) => a.work.id.localeCompare(b.work.id)).filter(item => item.work.id > after)
     const page = items.slice(0, limit)
     return { state: summary.state, selection, items: page.map(item => item.evidence), nextCursor: items.length > limit ? this.sign({ projectId, selection, fingerprint, after: page.at(-1)!.work.id }) : null }
   }

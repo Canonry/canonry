@@ -18,7 +18,7 @@ const cases = [
   { name: 'canonry_sentiment_settings', method: 'getSentimentSettings', input: { project: 'demo' }, args: ['demo'] },
   { name: 'canonry_sentiment_configure', method: 'configureSentiment', input: { project: 'demo', enabled: false }, args: ['demo', { enabled: false }] },
   { name: 'canonry_sentiment', method: 'getSentiment', input: { project: 'demo' }, args: ['demo', { mode: 'auto', queryClass: 'branded', scope: 'project' }] },
-  { name: 'canonry_sentiment_evidence', method: 'getSentimentEvidence', input: { project: 'demo', scope: 'property', scopeKey: 'property', marketKey: 'market', evaluationDefinitionId: 'def', cursor: 'cursor' }, args: ['demo', { mode: 'auto', queryClass: 'branded', scope: 'property', scopeKey: 'property', marketKey: 'market', evaluationDefinitionId: 'def', cursor: 'cursor', limit: 50 }] },
+  { name: 'canonry_sentiment_evidence', method: 'getSentimentEvidence', input: { project: 'demo', scope: 'property', scopeKey: 'property', marketKey: 'market', assessmentId: 'assessment', evaluationDefinitionId: 'def', cursor: 'cursor' }, args: ['demo', { mode: 'auto', queryClass: 'branded', scope: 'property', scopeKey: 'property', marketKey: 'market', assessmentId: 'assessment', evaluationDefinitionId: 'def', cursor: 'cursor', limit: 50 }] },
   { name: 'canonry_sentiment_compare', method: 'compareSentiment', input: { project: 'demo', fromRunId: 'before', toRunId: 'after' }, args: ['demo', { mode: 'auto', queryClass: 'branded', scope: 'project', fromRunId: 'before', toRunId: 'after' }] },
   { name: 'canonry_sentiment_backfill_preview', method: 'previewSentimentBackfill', input: { project: 'demo', runIds: ['run'] }, args: ['demo', { mode: 'auto', queryClass: 'branded', scope: 'project', runIds: ['run'] }] },
   { name: 'canonry_sentiment_backfill', method: 'submitSentimentBackfill', input: { project: 'demo', previewToken: 'token', idempotencyKey: 'key' }, args: ['demo', { previewToken: 'token', idempotencyKey: 'key' }] },
@@ -58,7 +58,7 @@ describe('sentiment MCP parity', () => {
     expect(tool('canonry_sentiment_compare').inputSchema.safeParse({ project: 'demo', fromRunId: 'a', toRunId: 'b', runIds: ['extra'] }).success).toBe(false)
   })
   it.each(['branded', 'non-brand'] as const)('passes one explicit %s query population and preserves per-query results', async queryClass => {
-    const summary = sentimentSummarySchema.parse({ ...sentimentFixtureSummary, selection: { ...sentimentFixtureSummary.selection, queryClass, queryId: 'frozen-query' }, queries: [{ queryId: 'frozen-query', queryText: 'Which apartments are good?', queryClass, sourceSnapshotIds: ['frozen-snapshot'], locations: [], state: 'partial', reason: null, provisional: true, coverage: sentimentFixtureSummary.coverage, score: sentimentFixtureSummary.score }] })
+    const summary = sentimentSummarySchema.parse({ ...sentimentFixtureSummary, selection: { ...sentimentFixtureSummary.selection, queryClass, queryId: 'frozen-query' }, queries: [{ queryId: 'frozen-query', queryText: 'Which apartments are good?', queryClass, sourceSnapshotIds: ['frozen-snapshot'], locations: [], assessments: [], state: 'partial', reason: null, provisional: true, coverage: sentimentFixtureSummary.coverage, score: sentimentFixtureSummary.score }] })
     const call = vi.fn().mockResolvedValue(summary)
     const spec = tool('canonry_sentiment')
     const result = await withToolErrors(() => spec.handler({ getSentiment: call } as unknown as ApiClient, spec.inputSchema.parse({ project: 'demo', queryClass, queryId: 'frozen-query' })))
@@ -66,6 +66,18 @@ describe('sentiment MCP parity', () => {
     expect(result.structuredContent).toEqual(summary)
     expect(spec.description).toContain('favorable / (favorable + mixed + unfavorable)')
     expect(spec.description).not.toContain('unsupported')
+  })
+  it('accepts an exact assessment only on evidence and retains it in the output selection', async () => {
+    const spec = tool('canonry_sentiment_evidence')
+    const input = { project: 'demo', queryClass: 'non-brand', runId: 'run', provider: 'gemini', model: 'served-v2', location: 'Marina', assessmentId: 'exact-assessment' }
+    const response = { selection: { ...input }, items: [], nextCursor: null }
+    const call = vi.fn().mockResolvedValue(response)
+    const result = await withToolErrors(() => spec.handler({ getSentimentEvidence: call } as unknown as ApiClient, spec.inputSchema.parse(input)))
+    const { project, ...selection } = input
+    expect(call).toHaveBeenCalledWith(project, { mode: 'auto', scope: 'project', limit: 50, ...selection })
+    expect(result.structuredContent).toEqual(response)
+    expect(spec.inputSchema.safeParse({ ...input, assessmentId: '' }).success).toBe(false)
+    expect(tool('canonry_sentiment').inputSchema.safeParse(input).success).toBe(false)
   })
   it('rejects retired theme configuration and pooled sentiment selections', () => {
     const configure = tool('canonry_sentiment_configure')

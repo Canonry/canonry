@@ -189,6 +189,22 @@ export type SentimentSummary = {
         queryText: string;
         queryClass: 'branded' | 'non-brand';
         sourceSnapshotIds: Array<string>;
+        assessments: Array<{
+            assessmentId: string | null;
+            sourceSnapshotId: string;
+            runId: string;
+            subjectId: string;
+            subjectLabel: string;
+            executionNodeKey: string | null;
+            provider: string;
+            requestedModel: string | null;
+            servedModel: string | null;
+            location: string | null;
+            evaluationDefinitionId: string | null;
+            state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+            outcome: 'favorable' | 'mixed' | 'unfavorable' | 'factual' | 'subject-not-mentioned' | 'wrong-subject' | 'ambiguous-subject' | 'ambiguous-judgment' | 'subject-not-applicable' | 'unsupported-language' | 'missing-source-text' | 'input-too-large' | 'invalid-conclusion-evidence' | 'pending' | 'running' | 'waiting-to-retry' | 'failed' | 'canceled' | null;
+            reason: string | null;
+        }>;
         locations: Array<{
             state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
             reason: string | null;
@@ -279,6 +295,7 @@ export type SentimentEvidencePage = {
         model?: string;
         location?: string;
         evaluationDefinitionId: string | null;
+        assessmentId?: string;
     };
     items: Array<{
         assessmentId: string;
@@ -529,6 +546,22 @@ export type SentimentComparison = {
             queryText: string;
             queryClass: 'branded' | 'non-brand';
             sourceSnapshotIds: Array<string>;
+            assessments: Array<{
+                assessmentId: string | null;
+                sourceSnapshotId: string;
+                runId: string;
+                subjectId: string;
+                subjectLabel: string;
+                executionNodeKey: string | null;
+                provider: string;
+                requestedModel: string | null;
+                servedModel: string | null;
+                location: string | null;
+                evaluationDefinitionId: string | null;
+                state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+                outcome: 'favorable' | 'mixed' | 'unfavorable' | 'factual' | 'subject-not-mentioned' | 'wrong-subject' | 'ambiguous-subject' | 'ambiguous-judgment' | 'subject-not-applicable' | 'unsupported-language' | 'missing-source-text' | 'input-too-large' | 'invalid-conclusion-evidence' | 'pending' | 'running' | 'waiting-to-retry' | 'failed' | 'canceled' | null;
+                reason: string | null;
+            }>;
             locations: Array<{
                 state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
                 reason: string | null;
@@ -766,6 +799,22 @@ export type SentimentComparison = {
             queryText: string;
             queryClass: 'branded' | 'non-brand';
             sourceSnapshotIds: Array<string>;
+            assessments: Array<{
+                assessmentId: string | null;
+                sourceSnapshotId: string;
+                runId: string;
+                subjectId: string;
+                subjectLabel: string;
+                executionNodeKey: string | null;
+                provider: string;
+                requestedModel: string | null;
+                servedModel: string | null;
+                location: string | null;
+                evaluationDefinitionId: string | null;
+                state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+                outcome: 'favorable' | 'mixed' | 'unfavorable' | 'factual' | 'subject-not-mentioned' | 'wrong-subject' | 'ambiguous-subject' | 'ambiguous-judgment' | 'subject-not-applicable' | 'unsupported-language' | 'missing-source-text' | 'input-too-large' | 'invalid-conclusion-evidence' | 'pending' | 'running' | 'waiting-to-retry' | 'failed' | 'canceled' | null;
+                reason: string | null;
+            }>;
             locations: Array<{
                 state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
                 reason: string | null;
@@ -1218,6 +1267,7 @@ export type VisibilityReportResponse = {
         };
         queries: {
             items: Array<{
+                sourceSnapshotIds: Array<string>;
                 queryKey: string;
                 queryId: string | null;
                 query: string;
@@ -16303,7 +16353,7 @@ export type GetApiV1ProjectsByNameSentimentError = GetApiV1ProjectsByNameSentime
 
 export type GetApiV1ProjectsByNameSentimentResponses = {
     /**
-     * Stored scores, exclusions, coverage, and frozen query and location aggregates.
+     * Stored scores, exclusions, coverage, frozen query/location aggregates, and exact per-engine subject assessments.
      */
     200: SentimentSummary;
 };
@@ -16371,6 +16421,10 @@ export type GetApiV1ProjectsByNameSentimentEvidenceData = {
          * Exact frozen measurement revision.
          */
         revision?: number;
+        /**
+         * Exact stored assessment within the authorized source, subject, scope, and evaluator selection. Does not widen access.
+         */
+        assessmentId?: string;
         /**
          * Opaque cursor bound to every selection field and resolved evaluator ID.
          */

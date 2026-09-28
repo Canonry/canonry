@@ -10,7 +10,7 @@ import {
   useClientTable,
 } from '../shared/DataTableControls.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
-import { SentimentHeadlines, SentimentQueryScore, useSentimentConfigured } from './SentimentSection.js'
+import { SentimentHeadlines, SentimentQueryScore, SentimentAnswerOutcome, useSentimentConfigured } from './SentimentSection.js'
 import { CitationTimeline, mergeProviderHistories } from './CitationTimeline.js'
 import { useDrawer } from '../../hooks/use-drawer.js'
 import { highlightTermsInText, type HighlightTermGroup } from '../../lib/highlight.js'
@@ -173,10 +173,14 @@ export function EvidenceTable({
   evidence,
   compareLocations = false,
   defaultDensity = 'detailed',
+  providerSelection: controlledProvider,
+  onProviderSelectionChange,
 }: {
   evidence: CitationInsightVm[]
   compareLocations?: boolean
   defaultDensity?: Density
+  providerSelection?: string
+  onProviderSelectionChange?: (provider: string) => void
 }) {
   const { openEvidence } = useDrawer()
   const panelId = useId()
@@ -185,7 +189,9 @@ export function EvidenceTable({
   const [mode, setMode] = useState<CoverageMode>('mentions')
   const [density, setDensity] = useState<Density>(defaultDensity)
   const [queryClassSelection, setQueryClassSelection] = useState<QueryClassSelection>('all')
-  const [providerSelection, setProviderSelection] = useState('')
+  const [localProvider, setLocalProvider] = useState('')
+  const providerSelection = controlledProvider ?? localProvider
+  const setProviderSelection = (provider: string) => { setLocalProvider(provider); onProviderSelectionChange?.(provider) }
   const providers = useMemo(() => [...new Set([
     ...evidence.map(item => item.provider).filter(Boolean),
     ...(providerSelection ? [providerSelection] : []),
@@ -320,7 +326,7 @@ export function EvidenceTable({
               <tr>
                 <th scope="col">Query</th>
                 <th scope="col">Status</th>
-                {sentimentConfigured && <th scope="col">Favorable</th>}
+                {sentimentConfigured && <th scope="col" aria-label="Favorable"><span className="inline-flex items-center">Favorable<InfoTooltip text="Query rows show the favorable share of judged answers. Expanded engine rows show each stored answer’s sentiment; factual and unmentioned answers are not judgments." /></span></th>}
                 <th scope="col">{historyHeader}</th>
                 <th scope="col">Latest run</th>
                 <th><span className="sr-only">Answer</span></th>
@@ -399,7 +405,7 @@ export function EvidenceTable({
                               label={statusLabelForMode(item.citationState, mode)}
                             />
                           </td>
-                          {sentimentConfigured && <td />}
+                          {sentimentConfigured && <td><SentimentAnswerOutcome queryId={item.queryId} sourceSnapshotIds={item.sourceSnapshotId ? [item.sourceSnapshotId] : []} queryClass={item.queryClass} provider={item.provider} location={item.location ?? null} /></td>}
                           <td>
                             <CitationTimeline history={item.runHistory} signal={mode} />
                           </td>

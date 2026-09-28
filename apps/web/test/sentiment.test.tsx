@@ -1,9 +1,9 @@
-import type { ComponentProps, ReactNode } from 'react'
+import { useState, type ComponentProps, type ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { aggregateSentiment, createSentimentEvaluationDefinition, emptySentimentCounts } from '@ainyc/canonry-contracts'
-import type { SentimentEvidenceItem, SentimentSettings, SentimentSummary } from '@ainyc/canonry-contracts'
-import { SentimentScopeProvider, SentimentControls, SentimentHeadlines, SentimentQueryScore, SentimentOverviewMetric, SentimentEvidenceDrawer, useSentimentResolvedSource, SENTIMENT_COPY } from '../src/components/project/SentimentSection.js'
+import type { SentimentEvidenceItem, SentimentSettings, SentimentSummary, SentimentAssessmentSummary } from '@ainyc/canonry-contracts'
+import { SentimentScopeProvider, SentimentControls, SentimentHeadlines, SentimentQueryScore, SentimentAnswerOutcome, SentimentOverviewMetric, SentimentEvidenceDrawer, useSentimentResolvedSource, SENTIMENT_COPY } from '../src/components/project/SentimentSection.js'
 import { sentimentSelectionFromVisibility, sentimentSelectionForSimpleEvidence, sentimentQueryKey } from '../src/queries/sentiment.js'
 import { EvidenceTable } from '../src/components/project/EvidenceTable.js'
 import { createDashboardFixture } from '../src/mock-data.js'
@@ -38,6 +38,15 @@ function renderScope(children: ReactNode, options: { enabled?: boolean; configur
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   const view = render(<QueryClientProvider client={client}><SentimentScopeProvider projectName="project" selection={{ mode: 'advanced', queryClass: 'branded', scope: 'property', scopeKey: 'north', marketKey: 'chicago', provider: 'openai', model: 'source-model', runId: 'run', revision: 3 }}>{children}</SentimentScopeProvider></QueryClientProvider>)
   return { requests, client, view, close: () => { cleanup(); client.clear(); restore() } }
+}
+function assessment(overrides: Partial<SentimentAssessmentSummary> = {}): SentimentAssessmentSummary {
+  return { assessmentId: 'assessment-openai', sourceSnapshotId: 'snapshot-openai', runId: 'run', subjectId: 'north', subjectLabel: 'North Hall', executionNodeKey: null, provider: 'openai', requestedModel: 'source-model', servedModel: 'source-model', location: 'Chicago', evaluationDefinitionId: 'definition-a', state: 'complete', outcome: 'favorable', reason: null, ...overrides }
+}
+function summaryWithAssessments(items: SentimentAssessmentSummary[]): SentimentSummary {
+  const dto = summary(); const { state, reason, provisional, coverage, score } = dto
+  dto.selection.provider = undefined; dto.selection.model = undefined
+  dto.queries = [{ queryId: 'q', queryText: 'Is North Hall good?', queryClass: 'branded', sourceSnapshotIds: [...new Set(items.map(item => item.sourceSnapshotId))], state, reason, provisional, coverage, score, locations: [], assessments: items }]
+  return dto
 }
 describe('sentiment presentation', () => {
   it('renders independent branded and non-brand API values with no theme controls', async () => {
@@ -95,14 +104,15 @@ describe('sentiment presentation', () => {
   })
   it('places favorable in the existing query table and class filtering changes its headlines', async () => {
     const dto = summary(); const { state, reason, provisional, coverage, score } = dto
-    dto.queries = [{ queryId: 'q', queryText: 'Is North Hall good?', queryClass: 'branded', sourceSnapshotIds: ['snapshot'], state, reason, provisional, coverage, score, locations: [] }]
+    dto.queries = [{ queryId: 'q', queryText: 'Is North Hall good?', queryClass: 'branded', sourceSnapshotIds: ['snapshot'], state, reason, provisional, coverage, score, assessments: [], locations: [] }]
     const seed = createDashboardFixture({}).dashboard.projects[0]!.visibilityEvidence[0]!
     const page = renderScope(<EvidenceTable evidence={[{ ...seed, id: 'north', queryId: 'q', sourceSnapshotId: 'snapshot', query: 'Is North Hall good?', queryClass: 'branded' }]} />, { branded: dto })
     try {
       await screen.findByRole('columnheader', { name: 'Favorable' })
       const score = await screen.findByRole('button', { name: 'View Branded sentiment evidence for Is North Hall good?' })
       expect(score.textContent).toContain('60.1%')
-      const queryToggle = screen.getByRole('button', { name: 'Is North Hall good?', exact: true })
+      const row = score.closest('tr')!
+      const queryToggle = within(row).getByRole('button', { name: 'Is North Hall good?', exact: true })
       fireEvent.keyDown(score, { key: 'Enter' })
       expect(queryToggle.getAttribute('aria-expanded')).toBe('false')
       fireEvent.change(screen.getByRole('combobox', { name: 'Query class' }), { target: { value: 'branded' } })
@@ -116,7 +126,7 @@ describe('sentiment presentation', () => {
   it('resolves deleted queries by exact source identity and location without per-row reads', async () => {
     const dto = summary(); dto.provisional = true; dto.state = 'partial'
     const { state, reason, provisional, coverage, score } = dto
-    dto.queries = [{ queryId: 'deleted-query', queryText: 'Is North Hall good?', queryClass: 'branded', sourceSnapshotIds: ['snapshot'], state, reason, provisional, coverage, score, locations: [{ location: 'Chicago', sourceSnapshotIds: ['snapshot'], state, reason, provisional, coverage, score: { ...score, favorableDisplay: '31.7%' } }] }]
+    dto.queries = [{ queryId: 'deleted-query', queryText: 'Is North Hall good?', queryClass: 'branded', sourceSnapshotIds: ['snapshot'], state, reason, provisional, coverage, score, assessments: [], locations: [{ location: 'Chicago', sourceSnapshotIds: ['snapshot'], state, reason, provisional, coverage, score: { ...score, favorableDisplay: '31.7%' } }] }]
     const page = renderScope(<><SentimentQueryScore sourceSnapshotIds={['snapshot']} queryClass="branded" location="Chicago" /><SentimentQueryScore queryId="different-query" queryClass="branded" /><SentimentQueryScore queryId="deleted-query" sourceSnapshotIds={['newer-snapshot']} queryClass="branded" /></>, { branded: dto })
     try {
       const button = await screen.findByRole('button', { name: 'View Branded sentiment evidence for Is North Hall good?' })
@@ -140,17 +150,106 @@ describe('sentiment presentation', () => {
     expect(screen.getByText('definition-a')).toBeTruthy()
   })
 })
+describe('per-engine sentiment', () => {
+  it('shows opposite stored engine outcomes in expanded rows and opens only the chosen assessment', async () => {
+    const dto = summaryWithAssessments([assessment(), assessment({ assessmentId: 'assessment-gemini', sourceSnapshotId: 'snapshot-gemini', provider: 'gemini', outcome: 'unfavorable' })])
+    const seed = createDashboardFixture({}).dashboard.projects[0]!.visibilityEvidence[0]!
+    const items = ['openai', 'gemini'].map(provider => ({ ...seed, id: provider, provider, queryId: 'q', sourceSnapshotId: `snapshot-${provider}`, query: 'Is North Hall good?', queryClass: 'branded' as const, location: 'Chicago' }))
+    const page = renderScope(<EvidenceTable evidence={items} />, { branded: dto })
+    try {
+      await screen.findByRole('columnheader', { name: 'Favorable' })
+      fireEvent.click(screen.getByRole('button', { name: 'Is North Hall good?', exact: true }))
+      const favorable = await screen.findByRole('button', { name: 'View openai sentiment evidence for North Hall: Favorable' })
+      const unfavorable = screen.getByRole('button', { name: 'View gemini sentiment evidence for North Hall: Unfavorable' })
+      expect(within(favorable.closest('tr')!).getByText('openai')).toBeTruthy()
+      expect(within(unfavorable.closest('tr')!).getByText('gemini')).toBeTruthy()
+      expect(page.requests.filter(url => url.pathname.endsWith('/sentiment'))).toHaveLength(2)
+      expect(page.requests.filter(url => url.pathname.endsWith('/evidence'))).toHaveLength(0)
+      fireEvent.click(unfavorable)
+      await screen.findByText('No stored sentiment evidence for this query and scope.')
+      const evidence = page.requests.filter(url => url.pathname.endsWith('/evidence'))
+      expect(evidence).toHaveLength(1)
+      expect(evidence[0]!.searchParams.get('assessmentId')).toBe('assessment-gemini')
+      expect(evidence[0]!.searchParams.get('queryId')).toBe('q')
+      expect(evidence[0]!.searchParams.get('runId')).toBe('run')
+    } finally { page.close() }
+  })
+  it('keeps shared-source Property judgments separate and refuses an unrelated source or model', async () => {
+    const dto = summaryWithAssessments([assessment(), assessment({ assessmentId: 'assessment-south', subjectId: 'south', subjectLabel: 'South Hall', outcome: 'unfavorable' })])
+    const props = { queryId: 'q', sourceSnapshotIds: ['snapshot-openai'], queryClass: 'branded' as const, provider: 'openai', model: 'source-model', location: 'Chicago' }
+    const page = renderScope(<><SentimentAnswerOutcome {...props} showSubjects /><SentimentAnswerOutcome {...props} sourceSnapshotIds={['older-snapshot']} /><SentimentAnswerOutcome {...props} model="other-model" /></>, { branded: dto })
+    try {
+      expect((await screen.findByRole('button', { name: 'View openai sentiment evidence for North Hall: Favorable' })).textContent).toBe('North Hall · Favorable')
+      expect(screen.getByRole('button', { name: 'View openai sentiment evidence for South Hall: Unfavorable' }).textContent).toBe('South Hall · Unfavorable')
+      expect(screen.getAllByText('Unavailable')).toHaveLength(2)
+      expect(screen.queryByText('Mixed')).toBeNull()
+    } finally { page.close() }
+  })
+  it.each([
+    ['factual', 'complete', 'Factual'], ['subject-not-mentioned', 'complete', 'Not mentioned'],
+    ['mixed', 'complete', 'Mixed'], ['pending', 'processing', 'Pending'], ['running', 'processing', 'Classifying'],
+    ['failed', 'failed', 'Failed'], ['canceled', 'canceled', 'Canceled'],
+    [null, 'not-measured', 'Not classified'], [null, 'unsupported', 'Unavailable'],
+  ] as const)('keeps %s / %s separate from negative sentiment', async (outcome, state, label) => {
+    const dto = summaryWithAssessments([assessment({ outcome, state, assessmentId: outcome ? 'assessment' : null, reason: outcome ? null : 'No compatible stored judgment.' })])
+    const page = renderScope(<SentimentAnswerOutcome queryId="q" sourceSnapshotIds={['snapshot-openai']} queryClass="branded" provider="openai" location="Chicago" />, { branded: dto })
+    try {
+      await waitFor(() => expect(screen.getByLabelText('openai sentiment').textContent).toContain(label))
+      expect(screen.queryByText('0%')).toBeNull()
+      expect(screen.queryByText('Unfavorable')).toBeNull()
+      if (!outcome) expect(screen.getByRole('button', { name: 'No compatible stored judgment.' })).toBeTruthy()
+    } finally { page.close() }
+  })
+  it('uses the controlled engine for both class reads and recovers All engines without stale model scope', async () => {
+    const reads: URL[] = []
+    const restore = mockFetch(url => {
+      const request = new URL(url); reads.push(request)
+      if (request.pathname.endsWith('/settings')) return jsonResponse(settings())
+      const dto = summaryWithAssessments([assessment()]); dto.selection = { ...dto.selection, queryClass: request.searchParams.get('queryClass') as 'branded' | 'non-brand', provider: request.searchParams.get('provider') ?? undefined, model: undefined }
+      dto.score.favorableDisplay = request.searchParams.get('provider') === 'openai' ? '100%' : '50%'
+      return jsonResponse(dto)
+    })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const seed = createDashboardFixture({}).dashboard.projects[0]!.visibilityEvidence[0]!
+    function View({ locationEmpty = false }: { locationEmpty?: boolean }) {
+      const [provider, setProvider] = useState('')
+      const evidence = [{ ...seed, provider: 'gemini', sourceRunId: 'gemini-run', queryClass: 'branded' as const }, ...(!locationEmpty ? [{ ...seed, provider: 'openai', sourceRunId: 'openai-run', queryClass: 'branded' as const }] : [])]
+      const selection = sentimentSelectionForSimpleEvidence({ mode: 'advanced', scope: 'project', queryClass: 'branded', provider: 'stale-engine', model: 'stale-model', runId: 'stale-run', revision: 9 }, evidence, provider)
+      return <SentimentScopeProvider hasSourceEvidence={Boolean(selection.runId || selection.runIds?.length)} projectName="project" selection={selection}><EvidenceTable evidence={evidence} providerSelection={provider} onProviderSelectionChange={setProvider} /></SentimentScopeProvider>
+    }
+    try {
+      const view = render(<QueryClientProvider client={client}><View /></QueryClientProvider>)
+      await waitFor(() => expect(screen.getByLabelText('Branded favorable share').textContent).toContain('50%'))
+      fireEvent.change(screen.getByRole('combobox', { name: 'Answer engine' }), { target: { value: 'openai' } })
+      await waitFor(() => expect(screen.getByLabelText('Branded favorable share').textContent).toContain('100%'))
+      const summaries = reads.filter(url => url.pathname.endsWith('/sentiment'))
+      expect(summaries).toHaveLength(4)
+      expect(summaries.slice(-2).every(url => url.searchParams.get('provider') === 'openai')).toBe(true)
+      expect(summaries.every(url => !url.searchParams.has('model') && !url.searchParams.has('revision'))).toBe(true)
+      expect(summaries.slice(-2).every(url => url.searchParams.get('runId') === 'openai-run' && !url.searchParams.has('runIds[]'))).toBe(true)
+      view.rerender(<QueryClientProvider client={client}><View locationEmpty /></QueryClientProvider>)
+      await waitFor(() => expect(screen.getByLabelText('Favorable answer scores').textContent).toContain('Unavailable'))
+      expect(screen.getByRole('combobox', { name: 'Answer engine' })).toHaveProperty('value', 'openai')
+      expect(screen.queryByLabelText('Branded favorable share')).toBeNull()
+      expect(reads.filter(url => url.pathname.endsWith('/sentiment'))).toHaveLength(4)
+      fireEvent.change(screen.getByRole('combobox', { name: 'Answer engine' }), { target: { value: '' } })
+      await waitFor(() => expect(screen.getByLabelText('Branded favorable share').textContent).toContain('50%'))
+    } finally { cleanup(); client.clear(); restore() }
+  })
+})
+
 describe('sentiment cache identity', () => {
   it('uses the displayed Simple snapshot group instead of a stale Advanced URL run', () => {
     const previous = { mode: 'advanced' as const, scope: 'project' as const, queryClass: 'branded' as const, runId: 'older-run', runIds: ['stale-group'], revision: 7 }
-    expect(sentimentSelectionForSimpleEvidence(previous, ['west-run', 'east-run', 'west-run'])).toEqual({ ...previous, mode: 'simple', runId: undefined, runIds: ['east-run', 'west-run'], revision: undefined })
-    expect(sentimentSelectionForSimpleEvidence(previous, ['latest-run'])).toEqual({ ...previous, mode: 'simple', runId: 'latest-run', runIds: undefined, revision: undefined })
+    expect(sentimentSelectionForSimpleEvidence(previous, [{ provider: 'openai', sourceRunId: 'west-run' }, { provider: 'gemini', sourceRunId: 'east-run' }, { provider: 'openai', sourceRunId: 'west-run' }])).toEqual({ ...previous, mode: 'simple', provider: undefined, model: undefined, runId: undefined, runIds: ['east-run', 'west-run'], revision: undefined })
+    expect(sentimentSelectionForSimpleEvidence(previous, [{ provider: 'openai', sourceRunId: 'latest-run' }])).toEqual({ ...previous, mode: 'simple', provider: undefined, model: undefined, runId: 'latest-run', runIds: undefined, revision: undefined })
   })
   it('carries full Advanced selection and separates market and evaluator caches', () => {
     const selection = sentimentSelectionFromVisibility({ measurementScope: 'property', measurementScopeKey: 'north', marketKey: 'chicago', queryClass: 'branded', model: 'source-model', provider: 'openai', location: 'Chicago', measurementRunId: 'run', revision: 3 }, 'advanced', 'definition-a')
     expect(selection).toEqual({ mode: 'advanced', scope: 'property', scopeKey: 'north', marketKey: 'chicago', queryClass: 'branded', model: 'source-model', provider: 'openai', location: 'Chicago', runId: 'run', revision: 3, evaluationDefinitionId: 'definition-a' })
     expect(sentimentQueryKey('project', 'evidence', selection)).not.toEqual(sentimentQueryKey('project', 'evidence', { ...selection, evaluationDefinitionId: 'definition-b' }))
     expect(sentimentQueryKey('project', 'evidence', selection)).not.toEqual(sentimentQueryKey('project', 'evidence', { ...selection, marketKey: 'other' }))
+    expect(sentimentQueryKey('project', 'evidence', { ...selection, assessmentId: 'one' })).not.toEqual(sentimentQueryKey('project', 'evidence', { ...selection, assessmentId: 'two' }))
   })
 })
 
@@ -193,7 +292,7 @@ describe('sentiment generated SDK and administrator flow', () => {
   it('preserves exact grouped run IDs in evidence and clears them for a single-sweep preview', async () => {
     const dto = summary(); dto.selection = { ...dto.selection, mode: 'simple', scope: 'project', runId: null, runIds: ['east-run', 'west-run'] }
     const { state, reason, provisional, coverage, score } = dto
-    dto.queries = [{ queryId: 'q', queryText: 'Is North Hall good?', queryClass: 'branded', sourceSnapshotIds: ['snapshot'], state, reason, provisional, coverage, score, locations: [] }]
+    dto.queries = [{ queryId: 'q', queryText: 'Is North Hall good?', queryClass: 'branded', sourceSnapshotIds: ['snapshot'], state, reason, provisional, coverage, score, assessments: [], locations: [] }]
     const requests: URL[] = []
     const restore = mockFetch(url => {
       const request = new URL(url); requests.push(request)

@@ -1,4 +1,4 @@
-import type { SentimentSelection, SentimentSummary } from '@ainyc/canonry-contracts'
+import type { SentimentSelection, SentimentSummary, SentimentEvidenceSelection } from '@ainyc/canonry-contracts'
 import type { VisibilitySelectionState } from '../lib/measurement-view-url.js'
 
 export function sentimentSelectionFromVisibility(selection: VisibilitySelectionState, mode: 'simple' | 'advanced', evaluationDefinitionId?: string): SentimentSelection {
@@ -6,13 +6,13 @@ export function sentimentSelectionFromVisibility(selection: VisibilitySelectionS
     queryClass: selection.queryClass === 'non-brand' ? 'non-brand' : 'branded', provider: selection.provider, model: selection.model, location: selection.location,
     runId: selection.measurementRunId, revision: selection.revision, evaluationDefinitionId }
 }
-/** Simple renders its saved snapshot group; stale Advanced URL run/revision filters do not select its evidence. */
-export function sentimentSelectionForSimpleEvidence(selection: SentimentSelection, sourceRunIds: readonly string[]): SentimentSelection {
-  const ids = [...new Set(sourceRunIds)].sort()
-  return { ...selection, mode: 'simple', revision: undefined, runId: ids.length === 1 ? ids[0] : undefined, runIds: ids.length > 1 ? ids : undefined }
+/** Simple renders its saved snapshot group; its visible engine control replaces carried Advanced provider/model/run/revision filters. */
+export function sentimentSelectionForSimpleEvidence(selection: SentimentSelection, evidence: readonly { provider: string; sourceRunId?: string | null }[], provider?: string): SentimentSelection {
+  const ids = [...new Set(evidence.filter(item => !provider || item.provider === provider).map(item => item.sourceRunId).filter((id): id is string => Boolean(id)))].sort()
+  return { ...selection, mode: 'simple', provider: provider || undefined, model: undefined, revision: undefined, runId: ids.length === 1 ? ids[0] : undefined, runIds: ids.length > 1 ? ids : undefined }
 }
 /** Includes every source, subject/scope and evaluator dimension; cursors never cross this key. */
-export function sentimentQueryKey(projectName: string, surface: string, selection?: SentimentSelection, cursor?: string) {
+export function sentimentQueryKey(projectName: string, surface: string, selection?: SentimentEvidenceSelection, cursor?: string) {
   return ['sentiment', projectName, surface, selection ?? null, cursor ?? null] as const
 }
 

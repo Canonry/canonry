@@ -249,6 +249,8 @@ export const visibilityReportTrendPointSchema = z.object({
 export type VisibilityReportTrendPoint = z.output<typeof visibilityReportTrendPointSchema>
 
 export const visibilityReportQueryRowSchema = z.object({
+  /** Exact observed answer IDs in this engine row; empty for unfilled slots. */
+  sourceSnapshotIds: z.array(nonBlankIdSchema).default([]),
   queryKey: nonBlankIdSchema,
   queryId: z.string().nullable(),
   query: z.string(),

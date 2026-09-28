@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { sentimentFixtureSummary, sentimentCompleteFixtureSummary } from './fixtures/sentiment.js'
 import { sentimentSummarySchema } from '../src/sentiment.js'
-import { aggregateSentiment, canonicalSentimentDefinitionJson, createSentimentEvaluationDefinition, sentimentClassifierOutputSchema, sentimentRateDisplay, sentimentSettingsUpdateSchema, sentimentSelectionSchema, sentimentCompareRequestSchema, storedSentimentEvaluationDefinitionSchema, storedSentimentClassifierOutputSchema, type SentimentAggregateItem, type SentimentOutcome } from '../src/sentiment.js'
+import { aggregateSentiment, canonicalSentimentDefinitionJson, createSentimentEvaluationDefinition, sentimentClassifierOutputSchema, sentimentRateDisplay, sentimentSettingsUpdateSchema, sentimentSelectionSchema, sentimentCompareRequestSchema, sentimentAssessmentSummarySchema, sentimentEvidenceRequestSchema, storedSentimentEvaluationDefinitionSchema, storedSentimentClassifierOutputSchema, type SentimentAggregateItem, type SentimentOutcome } from '../src/sentiment.js'
 
 const outcomes: SentimentOutcome[] = ['favorable', 'favorable', 'favorable', 'mixed', 'unfavorable', 'factual', 'wrong-subject', 'invalid-conclusion-evidence', 'failed', 'pending']
 const canonical: SentimentAggregateItem[] = outcomes.map((outcome, index) => ({ assessmentId: `a${index}`, sourceSnapshotId: `s${index}`, outcome }))
@@ -13,6 +13,13 @@ describe('sentiment measurement invariants', () => {
     for (const state of ['disabled', 'not-measured', 'processing', 'partial', 'complete', 'failed', 'canceled', 'unsupported'] as const) {
       expect(sentimentSummarySchema.safeParse({ ...sentimentFixtureSummary, state }).success).toBe(true)
     }
+  })
+  it('keeps per-engine rows compact and assessment filters exclusive to evidence requests', () => {
+    const row = { assessmentId: null, sourceSnapshotId: 'snapshot', runId: 'run', subjectId: 'subject', subjectLabel: 'Subject', executionNodeKey: null, provider: 'openai', requestedModel: 'requested', servedModel: null, location: null, evaluationDefinitionId: null, state: 'not-measured', outcome: null, reason: 'Not admitted.' }
+    expect(sentimentAssessmentSummarySchema.parse(row)).toEqual(row)
+    expect(sentimentAssessmentSummarySchema.safeParse({ ...row, sourceText: 'Do not embed answer bodies.' }).success).toBe(false)
+    expect(sentimentEvidenceRequestSchema.parse({ assessmentId: 'assessment' }).assessmentId).toBe('assessment')
+    expect(sentimentSelectionSchema.safeParse({ assessmentId: 'assessment' }).success).toBe(false)
   })
   it('counts five judgments out of ten assessments with no mixed favorable credit', () => {
     const result = aggregateSentiment(canonical)

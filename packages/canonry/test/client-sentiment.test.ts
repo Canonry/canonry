@@ -30,7 +30,7 @@ describe('sentiment generated SDK client', () => {
     const runIds = ['run-bayside', 'run-harbor']
     const selection = { runIds, queryClass: 'non-brand' as const, queryId: 'frozen-query', evaluationDefinitionId: 'frozen-definition' }
     if (operation === 'summary') await client.getSentiment('demo', selection)
-    else if (operation === 'evidence') await client.getSentimentEvidence('demo', { ...selection, cursor: 'cursor', limit: 7 })
+    else if (operation === 'evidence') await client.getSentimentEvidence('demo', { ...selection, assessmentId: 'exact-assessment', cursor: 'cursor', limit: 7 })
     else await client.previewSentimentBackfill('demo', { mode: 'auto', scope: 'project', ...selection })
     const url = new URL(received!.url)
     expect(url.searchParams.getAll('runIds')).toEqual(runIds)
@@ -38,7 +38,7 @@ describe('sentiment generated SDK client', () => {
     expect(url.searchParams.get('queryClass')).toBe('non-brand')
     expect(url.searchParams.get('queryId')).toBe('frozen-query')
     expect(url.searchParams.get('evaluationDefinitionId')).toBe('frozen-definition')
-    if (operation === 'evidence') expect(url.searchParams.get('cursor')).toBe('cursor')
+    if (operation === 'evidence') { expect(url.searchParams.get('cursor')).toBe('cursor'); expect(url.searchParams.get('assessmentId')).toBe('exact-assessment') }
   })
   it('preserves frozen backfill token/key bytes across retries', async () => {
     const requests: Request[] = []

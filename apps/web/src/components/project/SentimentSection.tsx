@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
-import type { SentimentEvidenceItem, SentimentJob, SentimentSettings, SentimentSummary, SentimentSelection, SentimentBackfillPreview, SentimentOverview, SentimentHeadline } from '@ainyc/canonry-contracts'
+import type { SentimentEvidenceItem, SentimentJob, SentimentSettings, SentimentSummary, SentimentSelection, SentimentBackfillPreview, SentimentOverview, SentimentHeadline, SentimentAssessmentSummary, SentimentEvidenceSelection } from '@ainyc/canonry-contracts'
 import { describeError } from '@ainyc/canonry-contracts'
 import { Button } from '../ui/button.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet.js'
@@ -51,29 +51,30 @@ interface ScopeValue {
   settings: ReturnType<typeof useSentiment>['settings']
   summaries: Record<QueryClass, UseQueryResult<SentimentSummary>>
   configured: boolean
+  hasSourceEvidence: boolean
   resolveSource: (source: { runId: string; revision?: number } | null) => void
   openManage: (opener: HTMLButtonElement) => void
-  openEvidence: (selection: SentimentSelection, label: string, opener: HTMLButtonElement) => void
+  openEvidence: (selection: SentimentEvidenceSelection, label: string, opener: HTMLButtonElement) => void
 }
 const SentimentContext = createContext<ScopeValue | null>(null)
 export function useSentimentConfigured() { return useContext(SentimentContext)?.configured ?? false }
 
-export function SentimentScopeProvider({ projectName, selection, runOptions = [], waitForResolvedRun = false, evidenceReady = true, children }: {
-  projectName: string; selection: SentimentSelection; runOptions?: RunOption[]; waitForResolvedRun?: boolean; evidenceReady?: boolean; children: ReactNode
+export function SentimentScopeProvider({ projectName, selection, runOptions = [], waitForResolvedRun = false, evidenceReady = true, hasSourceEvidence = true, children }: {
+  projectName: string; selection: SentimentSelection; runOptions?: RunOption[]; waitForResolvedRun?: boolean; evidenceReady?: boolean; hasSourceEvidence?: boolean; children: ReactNode
 }) {
-  return <SentimentScope projectName={projectName} selection={selection} runOptions={runOptions} waitForResolvedRun={waitForResolvedRun} evidenceReady={evidenceReady}>{children}</SentimentScope>
+  return <SentimentScope projectName={projectName} selection={selection} runOptions={runOptions} waitForResolvedRun={waitForResolvedRun} evidenceReady={evidenceReady} hasSourceEvidence={hasSourceEvidence}>{children}</SentimentScope>
 }
-function SentimentScope({ projectName, selection, runOptions, waitForResolvedRun, evidenceReady, children }: {
-  projectName: string; selection: SentimentSelection; runOptions: RunOption[]; waitForResolvedRun: boolean; evidenceReady: boolean; children: ReactNode
+function SentimentScope({ projectName, selection, runOptions, waitForResolvedRun, evidenceReady, hasSourceEvidence, children }: {
+  projectName: string; selection: SentimentSelection; runOptions: RunOption[]; waitForResolvedRun: boolean; evidenceReady: boolean; hasSourceEvidence: boolean; children: ReactNode
 }) {
   const selectionKey = JSON.stringify([projectName, selection])
   const [resolvedSource, setResolvedSource] = useState<{ key: string; runId: string; revision?: number } | null>(null)
   const resolveSource = useCallback((value: { runId: string; revision?: number } | null) => setResolvedSource(previous => previous?.key === selectionKey && previous?.runId === value?.runId && previous?.revision === value?.revision ? previous : value ? { ...value, key: selectionKey } : null), [selectionKey])
   const sourceReady = evidenceReady && (!waitForResolvedRun || resolvedSource?.key === selectionKey)
   const activeSelection = waitForResolvedRun && sourceReady && resolvedSource ? { ...selection, runId: resolvedSource.runId, revision: resolvedSource.revision } : selection
-  const { settings, branded, nonBrand, jobs } = useSentiment(projectName, activeSelection, sourceReady)
+  const { settings, branded, nonBrand, jobs } = useSentiment(projectName, activeSelection, sourceReady && hasSourceEvidence)
   const [manageOpen, setManageOpen] = useState(false)
-  const [evidence, setEvidence] = useState<{ selection: SentimentSelection; label: string } | null>(null)
+  const [evidence, setEvidence] = useState<{ selection: SentimentEvidenceSelection; label: string } | null>(null)
   const opener = useRef<HTMLButtonElement | null>(null)
   useEffect(() => { setManageOpen(false); setEvidence(null) }, [selectionKey])
   const configured = sourceReady && Boolean(settings.data?.enabled && settings.data.installEnabled)
@@ -82,7 +83,7 @@ function SentimentScope({ projectName, selection, runOptions, waitForResolvedRun
   const resolved: SentimentSelection = { ...activeSelection, ...(effective ? { ...effective, runId: effective.runId ?? undefined, runIds: effective.runId ? undefined : effective.runIds, revision: effective.revision ?? undefined, evaluationDefinitionId: effective.evaluationDefinitionId ?? undefined } : {}) }
   const options = resolved.runId && !runOptions.some(run => run.id === resolved.runId) ? [{ id: resolved.runId, label: 'Displayed sweep' }, ...runOptions] : runOptions
   const restoreFocus = (event: Event) => { event.preventDefault(); opener.current?.focus() }
-  return <SentimentContext.Provider value={{ projectName, selection: activeSelection, resolveSource, settings, summaries: { branded, 'non-brand': nonBrand }, configured,
+  return <SentimentContext.Provider value={{ projectName, selection: activeSelection, resolveSource, settings, summaries: { branded, 'non-brand': nonBrand }, configured, hasSourceEvidence,
     openManage: element => { opener.current = element; setManageOpen(true) },
     openEvidence: (value, label, element) => { opener.current = element; setEvidence({ selection: value, label }) },
   }}>
@@ -123,7 +124,7 @@ export function SentimentHeadlines({ queryClass = 'all' }: { queryClass?: QueryC
       const query = scope.summaries[value]
       return <div key={value}>
         <div className="mb-1 flex items-center gap-2"><span className="text-sm text-secondary">Favorable · {CLASS_LABEL[value]}</span><InfoTooltip text={SENTIMENT_COPY.favorable} /></div>
-        {query.data ? <>
+        {!scope.hasSourceEvidence ? <p className="text-sm text-secondary">Unavailable</p> : query.data ? <>
           <FavorableValue value={query.data} label={CLASS_LABEL[value]} />
           <details className="mt-1 text-sm text-secondary"><summary className="cursor-pointer">Coverage and method</summary>
             <p>{query.data.coverage.judged} judged of {query.data.coverage.selected} selected assessments; {query.data.coverage.distinctSourceAnswers} distinct source answers.</p>
@@ -144,7 +145,7 @@ export function SentimentQueryScore({ queryId, sourceSnapshotIds = [], queryClas
   const scope = useContext(SentimentContext)
   if (!scope?.configured) return null
   const parent = queryClass ? scope.summaries[queryClass] : undefined
-  const summary = parent?.data
+  const summary = scope.hasSourceEvidence ? parent?.data : undefined
   // Deleted queries retain exact source membership. Never join different saved queries by text.
   const matches = summary?.queries.filter(item => item.queryClass === queryClass && (queryId ? item.queryId === queryId : sourceSnapshotIds.length > 0) && sourceSnapshotIds.every(id => item.sourceSnapshotIds.includes(id))) ?? []
   const row = matches.length === 1 ? matches[0] : undefined
@@ -154,6 +155,47 @@ export function SentimentQueryScore({ queryId, sourceSnapshotIds = [], queryClas
   return <Button type="button" variant="ghost" className="h-auto min-h-11 flex-col items-start gap-0 px-1" aria-label={`View ${CLASS_LABEL[row.queryClass]} sentiment evidence for ${row.queryText}`} onKeyDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); scope.openEvidence(selection, row.queryText, event.currentTarget) }}>
     {showLabel && <span className="text-sm font-normal text-secondary">Favorable</span>}<span className="font-mono text-primary">{value.score.favorableDisplay}</span><span className="text-sm font-normal text-secondary">{value.coverage.judged} judged</span>{value.provisional && <span className="text-xs font-normal text-caution">Provisional</span>}
   </Button>
+}
+
+function assessmentLabel(item: SentimentAssessmentSummary): string {
+  if (item.outcome === 'subject-not-mentioned') return 'Not mentioned'
+  if (item.outcome === 'running') return 'Classifying'
+  if (item.outcome === 'waiting-to-retry') return 'Retrying'
+  if (item.outcome) return outcomeLabel(item.outcome)
+  if (item.state === 'not-measured') return 'Not classified'
+  if (item.state === 'processing') return 'Classifying'
+  if (item.state === 'failed') return 'Failed'
+  if (item.state === 'canceled') return 'Canceled'
+  return 'Unavailable'
+}
+
+/** Read exact source/subject assessments from the two shared class summaries, never per row. */
+export function SentimentAnswerOutcome({ queryId, sourceSnapshotIds, queryClass, provider, model, location, showSubjects = false, showLabel = false }: {
+  queryId?: string | null; sourceSnapshotIds: string[]; queryClass?: QueryClass | null
+  provider: string; model?: string | null; location: string | null; showSubjects?: boolean; showLabel?: boolean
+}) {
+  const scope = useContext(SentimentContext)
+  if (!scope?.configured) return null
+  const query = queryClass ? scope.summaries[queryClass] : undefined
+  const summary = scope.hasSourceEvidence ? query?.data : undefined
+  const rows = summary?.queries.filter(row => row.queryClass === queryClass && (!queryId || row.queryId === queryId)
+    && sourceSnapshotIds.length > 0 && sourceSnapshotIds.every(id => row.sourceSnapshotIds.includes(id))) ?? []
+  const row = rows.length === 1 ? rows[0] : undefined
+  const assessments = row?.assessments?.filter(item => sourceSnapshotIds.includes(item.sourceSnapshotId)
+    && item.provider === provider && item.location === location && (model === undefined || item.servedModel === model)) ?? []
+  return <div role="group" className="text-sm text-secondary" aria-label={`${provider || 'Saved answer'} sentiment`}>
+    {showLabel && <span className="block text-sm text-secondary">Sentiment</span>}
+    {!assessments.length ? <span>{query?.isPending && sourceSnapshotIds.length ? 'Loading…' : 'Unavailable'}</span> : assessments.map(item => {
+      const label = assessmentLabel(item)
+      const tone = item.outcome === 'favorable' ? 'positive' : item.outcome === 'unfavorable' ? 'negative' : item.outcome === 'mixed' ? 'caution' : 'neutral'
+      const content = <>{showSubjects && <span>{item.subjectLabel} · </span>}<ToneBadge tone={tone} className="rounded-none border-0 bg-transparent p-0 text-sm font-normal tracking-normal">{label}</ToneBadge></>
+      const selection: SentimentEvidenceSelection = { ...scope.selection, ...summary!.selection, runId: summary!.selection.runId ?? undefined, runIds: summary!.selection.runId ? undefined : summary!.selection.runIds, revision: summary!.selection.revision ?? undefined, evaluationDefinitionId: summary!.selection.evaluationDefinitionId ?? undefined, queryClass: row!.queryClass, queryId: row!.queryId, assessmentId: item.assessmentId ?? undefined }
+      return <div key={JSON.stringify([item.sourceSnapshotId, item.subjectId, item.assessmentId])} className="flex items-center gap-1">
+        {item.assessmentId ? <Button type="button" variant="ghost" className="h-auto min-h-11 justify-start whitespace-normal px-1 text-left text-sm" aria-label={`View ${item.provider} sentiment evidence for ${item.subjectLabel}: ${label}`} onKeyDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); scope.openEvidence(selection, `${row!.queryText} · ${item.provider} · ${item.subjectLabel}`, event.currentTarget) }}>{content}</Button> : <span>{content}</span>}
+        {item.reason && <InfoTooltip text={item.reason} />}
+      </div>
+    })}
+  </div>
 }
 
 function SentimentEvidenceContent({ item }: { item: SentimentEvidenceItem }) {
@@ -169,7 +211,7 @@ function SentimentEvidenceContent({ item }: { item: SentimentEvidenceItem }) {
 export function SentimentEvidenceDrawer({ item, onClose, onRestoreFocus }: { item: SentimentEvidenceItem | null; onClose: () => void; onRestoreFocus?: () => void }) {
   return <Sheet open={item !== null} onOpenChange={open => { if (!open) onClose() }}><SheetContent className="overflow-y-auto" onCloseAutoFocus={event => { if (onRestoreFocus) { event.preventDefault(); onRestoreFocus() } }}><SheetHeader><SheetTitle>Sentiment evidence: {item?.subject.displayName}</SheetTitle><SheetDescription>Stored answer and verbatim quotations for this assessment.</SheetDescription></SheetHeader>{item && <SentimentEvidenceContent item={item} />}</SheetContent></Sheet>
 }
-function SentimentQueryEvidence({ projectName, selection }: { projectName: string; selection: SentimentSelection }) {
+function SentimentQueryEvidence({ projectName, selection }: { projectName: string; selection: SentimentEvidenceSelection }) {
   const [cursor, setCursor] = useState<string | undefined>()
   const query = useQuery({ queryKey: sentimentQueryKey(projectName, 'evidence', selection, cursor), queryFn: () => fetchSentimentEvidence(projectName, selection, cursor), retry: false })
   if (query.isPending) return <p role="status" className="mt-4 text-sm text-secondary">Loading sentiment evidence…</p>

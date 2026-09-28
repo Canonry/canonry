@@ -1887,6 +1887,7 @@ function ProjectPageContent({
   const [removingQuery, setRemovingQuery] = useState<string | null>(null)
   const [competitorLandscapeWindow, setCompetitorLandscapeWindow] = useState<CompetitorLandscapeWindow>('30d')
   const [locationFilter, setLocationFilter] = useState<string | undefined>(undefined)
+  const [evidenceProvider, setEvidenceProvider] = useState('')
   const [compareLocations, setCompareLocations] = useState(false)
   const [locationTimeline, setLocationTimeline] = useState<import('../api.js').ApiTimelineEntry[] | null>(null)
   const [_locationTimelineLoading, setLocationTimelineLoading] = useState(false)
@@ -2739,9 +2740,9 @@ function ProjectPageContent({
     let sentimentSelection = sentimentSelectionFromVisibility(visibilitySelection, isSimpleOverview ? 'simple' : 'advanced', typeof projectSearchParams.sentimentEvaluationDefinitionId === 'string' ? projectSearchParams.sentimentEvaluationDefinitionId : undefined)
     if (isSimpleOverview) {
       sentimentSelection.location = locationFilter === '' ? 'none' : locationFilter
-      sentimentSelection = sentimentSelectionForSimpleEvidence(sentimentSelection, filteredEvidence.map(item => item.sourceRunId).filter((id): id is string => Boolean(id)))
+      sentimentSelection = sentimentSelectionForSimpleEvidence(sentimentSelection, filteredEvidence, evidenceProvider)
     }
-    return <SentimentScopeProvider evidenceReady={!isSimpleOverview || !(evidenceDashboard.isLoading || evidenceDashboard.evidenceLoading || evidenceDashboard.evidenceError)} waitForResolvedRun={!isSimpleOverview} projectName={projectName} runOptions={model.recentRuns.filter(run => run.kind === RunKinds['answer-visibility'] && run.trigger !== RunTriggers.probe && (run.status === RunStatuses.completed || run.status === RunStatuses.partial)).map(run => ({ id: run.id, label: formatTimestamp(run.finishedAt ?? run.createdAt) }))} selection={sentimentSelection}>{content}</SentimentScopeProvider>
+    return <SentimentScopeProvider hasSourceEvidence={!isSimpleOverview || Boolean(sentimentSelection.runId || sentimentSelection.runIds?.length)} evidenceReady={!isSimpleOverview || !(evidenceDashboard.isLoading || evidenceDashboard.evidenceLoading || evidenceDashboard.evidenceError)} waitForResolvedRun={!isSimpleOverview} projectName={projectName} runOptions={model.recentRuns.filter(run => run.kind === RunKinds['answer-visibility'] && run.trigger !== RunTriggers.probe && (run.status === RunStatuses.completed || run.status === RunStatuses.partial)).map(run => ({ id: run.id, label: formatTimestamp(run.finishedAt ?? run.createdAt) }))} selection={sentimentSelection}>{content}</SentimentScopeProvider>
   }
 
   // The context row's measurement scope slot. Each tab owns recovery for a
@@ -3134,7 +3135,7 @@ function ProjectPageContent({
                 <Button type="button" variant="outline" onClick={() => { void evidenceDashboard.refetch() }}>Retry</Button>
               </div>
             ) : (
-              <EvidenceTable evidence={filteredEvidence} compareLocations={compareLocations} />
+              <EvidenceTable evidence={filteredEvidence} compareLocations={compareLocations} providerSelection={evidenceProvider} onProviderSelectionChange={setEvidenceProvider} />
             )}
           </OverviewDisclosure>
 
