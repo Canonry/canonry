@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { buildMentionShare, type MentionShareSnapshot, type MentionShareCompetitor } from '../src/mention-share.js'
 
 function snap(projectMentioned: boolean, answerText: string): MentionShareSnapshot {
@@ -229,6 +229,24 @@ describe('buildMentionShare', () => {
     expect(result.tone).toBe('negative')
     expect(result.breakdown.perCompetitor[0]!.domain).toBe('rooftally.example.com')
     expect(result.breakdown.perCompetitor[0]!.mentionSnapshots).toBe(20)
+  })
+
+  it('walks an answer once however many competitors it names', () => {
+    const competitors: MentionShareCompetitor[] = [
+      { domain: 'one.com', brandTokens: ['oneco'] },
+      { domain: 'two.com', brandTokens: ['twoco'] },
+      { domain: 'three.com', brandTokens: ['threeco'] },
+    ]
+    const segment = vi.spyOn(Intl.Segmenter.prototype, 'segment')
+    try {
+      const result = buildMentionShare([snap(false, 'OneCo, TwoCo and ThreeCo compete here.')], { competitors })
+      expect(result.breakdown.perCompetitor.map(row => [row.domain, row.mentionSnapshots])).toEqual([['one.com', 1], ['three.com', 1], ['two.com', 1]])
+      expect(result.breakdown.competitorMentionSnapshots).toBe(3)
+      // One shared word walk, not one per competitor.
+      expect(segment.mock.calls.filter(([text]) => String(text).includes('compete here'))).toHaveLength(1)
+    } finally {
+      segment.mockRestore()
+    }
   })
 })
 

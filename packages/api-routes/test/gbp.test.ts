@@ -5,7 +5,7 @@ import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpPlaceDetails, auditLog } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, auditLog } from '@ainyc/canonry-db'
 import { AppError, type GoogleConnectionType } from '@ainyc/canonry-contracts'
 import { googleRoutes } from '../src/google.js'
 
@@ -497,6 +497,8 @@ describe('GBP routes (Phase 1)', () => {
       ctx.db.insert(gbpKeywordMonthly).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', month: '2026-04', keyword: 'hotel', valueCount: 100, valueThreshold: null, syncRunId: null, syncedAt: '2026-05-01T00:00:00Z' }).run()
       ctx.db.insert(gbpPlaceActions).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', placeActionLinkName: 'locations/1/placeActionLinks/x', placeActionType: 'BOOK', uri: 'https://book.example', isPreferred: true, providerType: 'MERCHANT', syncRunId: null }).run()
       ctx.db.insert(gbpLodgingSnapshots).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', contentHash: 'h1', attributes: {}, populatedGroupCount: 0, syncedAt: '2026-05-01T00:00:00Z', syncRunId: null }).run()
+      ctx.db.insert(gbpAttributesSnapshots).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', contentHash: 'a1', attributes: [{ name: 'attributes/has_wheelchair_accessible_entrance', valueType: 'BOOL', values: [true], unsetValues: [], uris: [] }], attributeCount: 1, syncedAt: '2026-05-01T00:00:00Z', syncRunId: null }).run()
+      ctx.db.insert(gbpPlaceDetails).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', placeId: 'ChIJlocation1', contentHash: 'p1', tier: 'atmosphere', attributes: { servesBreakfast: true }, syncedAt: '2026-05-01T00:00:00Z', syncRunId: null }).run()
 
       // Sanity: both locations persisted
       expect(ctx.db.select().from(gbpLocations).where(eq(gbpLocations.projectId, projectId)).all().length).toBe(2)
@@ -514,6 +516,9 @@ describe('GBP routes (Phase 1)', () => {
       expect(ctx.db.select().from(gbpKeywordMonthly).where(eq(gbpKeywordMonthly.projectId, projectId)).all().length).toBe(0)
       expect(ctx.db.select().from(gbpPlaceActions).where(eq(gbpPlaceActions.projectId, projectId)).all().length).toBe(0)
       expect(ctx.db.select().from(gbpLodgingSnapshots).where(eq(gbpLodgingSnapshots.projectId, projectId)).all().length).toBe(0)
+      // Owner attributes and Places listing snapshots too, or /gbp/attributes and /gbp/places keep serving them.
+      expect(ctx.db.select().from(gbpAttributesSnapshots).where(eq(gbpAttributesSnapshots.projectId, projectId)).all().length).toBe(0)
+      expect(ctx.db.select().from(gbpPlaceDetails).where(eq(gbpPlaceDetails.projectId, projectId)).all().length).toBe(0)
       // Connection store entry is gone
       expect(ctx.connections.find(c => c.domain === 'hotels.example.com' && c.connectionType === 'gbp')).toBeUndefined()
     })
