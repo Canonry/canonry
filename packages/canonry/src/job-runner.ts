@@ -2113,7 +2113,7 @@ export class JobRunner {
     log.warn('batch.abandoned-unreadable', {
       runId: batch.runId,
       batchId: batch.id,
-      providerName: batch.provider,
+      provider: batch.provider,
       recorded: tally.recordedCount,
       unread: batch.requestCount - tally.ingestedCount,
       released,
