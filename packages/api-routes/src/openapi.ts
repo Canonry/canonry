@@ -6200,6 +6200,12 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['doctor'],
     parameters: [
       {
+        name: 'reportMonth',
+        in: 'query',
+        description: 'Report month YYYY-MM (not future). Omit for this month plus the previous month through UTC day 3. Read selection only; no writes or provider calls by report checks.',
+        schema: { type: 'string', pattern: '^[1-9][0-9]{3}-(0[1-9]|1[0-2])$' },
+      },
+      {
         name: 'check',
         in: 'query',
         description: 'Optional comma-separated list of check IDs or wildcard prefixes (e.g. "config.*").',
@@ -6208,6 +6214,7 @@ const routeCatalog: OpenApiOperation[] = [
     ],
     responses: {
       200: jsonResponse('Doctor report returned.', 'DoctorReportDto'),
+      400: errorResponse('Invalid report month.'),
     },
   },
   {
@@ -6220,6 +6227,12 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [
       nameParameter,
       {
+        name: 'reportMonth',
+        in: 'query',
+        description: 'Report month YYYY-MM (not future). Omit for this month plus the previous month through UTC day 3. Read selection only; no writes or provider calls by report checks.',
+        schema: { type: 'string', pattern: '^[1-9][0-9]{3}-(0[1-9]|1[0-2])$' },
+      },
+      {
         name: 'check',
         in: 'query',
         description: 'Optional comma-separated list of check IDs or wildcard prefixes (e.g. "google.auth.*").',
@@ -6228,6 +6241,7 @@ const routeCatalog: OpenApiOperation[] = [
     ],
     responses: {
       200: jsonResponse('Doctor report returned.', 'DoctorReportDto'),
+      400: errorResponse('Invalid report month.'),
       404: errorResponse('Project not found.'),
     },
   },

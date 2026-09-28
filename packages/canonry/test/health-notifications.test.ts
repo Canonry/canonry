@@ -324,3 +324,18 @@ test('a row written before the signature column does not page on the first pass'
   const stored = db.select().from(doctorHealthState).where(eq(doctorHealthState.projectId, projectId)).get()!
   expect(stored.failingSignature).toBe('warn:a.first.code,warn:b.second.code')
 })
+
+test('report advisories never page, change health signatures, or mask real recovery', async () => {
+  const { notifier, projectId, db } = harness()
+  const send = vi.spyOn(notifier as never, 'sendWebhook').mockImplementation(async () => {})
+  const advisory = { ...check('report.sweeps', 'warn', 'report.sweeps.missing'), notificationPolicy: 'silent' as const }
+  const healthy = check('ga.auth', 'ok', 'ga.auth.connected')
+  expect(await notifier.onHealthChecked(projectId, { checks: [healthy, advisory], ...at('2026-09-30T12:00:00Z') })).toBeNull()
+  expect(await notifier.onHealthChecked(projectId, { checks: [healthy, { ...advisory, code: 'report.sweeps.ready', status: 'ok' }], ...at('2026-10-01T12:00:00Z') })).toBeNull()
+  const failing = check('ga.auth', 'fail', 'ga.auth.failed')
+  expect(await notifier.onHealthChecked(projectId, { checks: [failing, advisory], ...at('2026-10-02T12:00:00Z') })).toBe('health.degraded')
+  expect(await notifier.onHealthChecked(projectId, { checks: [advisory], ...at('2026-10-02T13:00:00Z') })).toBeNull()
+  expect(db.select().from(doctorHealthState).where(eq(doctorHealthState.projectId, projectId)).get()?.status).toBe('fail')
+  expect(await notifier.onHealthChecked(projectId, { checks: [healthy, advisory], ...at('2026-10-03T12:00:00Z') })).toBe('health.recovered')
+  expect(send).toHaveBeenCalledTimes(2)
+})

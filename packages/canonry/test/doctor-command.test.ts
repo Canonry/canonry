@@ -90,6 +90,12 @@ describe('doctorCommand', () => {
     expect(mockRunDoctor).toHaveBeenCalledWith({ project: 'demo', checkIds: ['google.*'] })
   })
 
+  it('forwards an explicit report month without losing filters', async () => {
+    mockRunDoctor.mockResolvedValue(okReport)
+    await doctorCommand({ project: 'demo', reportMonth: '2026-08', checks: ['report.*'], format: 'json' })
+    expect(mockRunDoctor).toHaveBeenCalledWith({ project: 'demo', checkIds: ['report.*'], reportMonth: '2026-08' })
+  })
+
   it('prints JSON when format=json and exits 0 on ok', async () => {
     mockRunDoctor.mockResolvedValue(okReport)
     const logs: string[] = []

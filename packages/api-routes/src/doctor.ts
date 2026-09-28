@@ -10,6 +10,7 @@ import type { WordpressConnectionStore } from './wordpress.js'
 import type { Ga4CredentialStore } from './ga.js'
 import type { ProviderSummaryEntry } from './settings.js'
 import type { AgentProviderOption } from '@ainyc/canonry-contracts'
+import { reportMonthSchema, validationError } from '@ainyc/canonry-contracts'
 import { isInstanceAdministrator } from './auth.js'
 import { resolveProject } from './helpers.js'
 import type { GoogleMarketingDoctorInputResolver } from './doctor/checks/google-marketing.js'
@@ -48,6 +49,13 @@ export interface DoctorRoutesOptions {
   getGoogleMarketingDoctorInput?: GoogleMarketingDoctorInputResolver
 }
 
+function parseReportMonth(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined
+  const parsed = reportMonthSchema.safeParse(raw)
+  if (!parsed.success || raw > new Date().toISOString().slice(0, 7)) throw validationError('"reportMonth" must be YYYY-MM and cannot be in the future')
+  return parsed.data
+}
+
 function parseCheckIds(raw: string | undefined): string[] {
   if (!raw) return []
   return raw
@@ -68,10 +76,11 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
   const redirectUri = resolveRedirectUri(opts)
 
   // GET /doctor — global checks (config, providers, etc.)
-  app.get<{ Querystring: { check?: string } }>('/doctor', async (request) => {
+  app.get<{ Querystring: { check?: string; reportMonth?: string } }>('/doctor', async (request) => {
     const checkIds = parseCheckIds(request.query.check)
     const ctx: DoctorContext = {
       db: app.db,
+      reportMonth: parseReportMonth(request.query.reportMonth),
       project: null,
       googleConnectionStore: opts.googleConnectionStore,
       bingConnectionStore: opts.bingConnectionStore,
@@ -98,12 +107,13 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
   // GET /projects/:name/doctor — project-scoped checks (Google auth, GA, etc.)
   app.get<{
     Params: { name: string }
-    Querystring: { check?: string }
+    Querystring: { check?: string; reportMonth?: string }
   }>('/projects/:name/doctor', async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const checkIds = parseCheckIds(request.query.check)
     const ctx: DoctorContext = {
       db: app.db,
+      reportMonth: parseReportMonth(request.query.reportMonth),
       project: {
         id: project.id,
         name: project.name,

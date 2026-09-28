@@ -3256,6 +3256,10 @@ export type DoctorReportDto = {
      */
     project: string | null;
     /**
+     * Calendar months evaluated by project report readiness checks.
+     */
+    reportMonths?: Array<string>;
+    /**
      * ISO-8601 timestamp when this doctor run started.
      */
     generatedAt: string;
@@ -3273,6 +3277,10 @@ export type DoctorReportDto = {
         scope: 'global' | 'project';
         title: string;
         status: 'ok' | 'warn' | 'fail' | 'skipped';
+        /**
+         * Health checks page by default. Silent report advisories remain visible but never affect health alert state.
+         */
+        notificationPolicy?: 'health' | 'silent';
         /**
          * Stable machine-readable code (e.g. "google.token.refresh-failed"). Use this for filtering and remediation logic.
          */
@@ -25408,12 +25416,25 @@ export type GetApiV1DoctorData = {
     path?: never;
     query?: {
         /**
+         * Report month YYYY-MM (not future). Omit for this month plus the previous month through UTC day 3. Read selection only; no writes or provider calls by report checks.
+         */
+        reportMonth?: string;
+        /**
          * Optional comma-separated list of check IDs or wildcard prefixes (e.g. "config.*").
          */
         check?: string;
     };
     url: '/api/v1/doctor';
 };
+
+export type GetApiV1DoctorErrors = {
+    /**
+     * Invalid report month.
+     */
+    400: ErrorEnvelope;
+};
+
+export type GetApiV1DoctorError = GetApiV1DoctorErrors[keyof GetApiV1DoctorErrors];
 
 export type GetApiV1DoctorResponses = {
     /**
@@ -25434,6 +25455,10 @@ export type GetApiV1ProjectsByNameDoctorData = {
     };
     query?: {
         /**
+         * Report month YYYY-MM (not future). Omit for this month plus the previous month through UTC day 3. Read selection only; no writes or provider calls by report checks.
+         */
+        reportMonth?: string;
+        /**
          * Optional comma-separated list of check IDs or wildcard prefixes (e.g. "google.auth.*").
          */
         check?: string;
@@ -25442,6 +25467,10 @@ export type GetApiV1ProjectsByNameDoctorData = {
 };
 
 export type GetApiV1ProjectsByNameDoctorErrors = {
+    /**
+     * Invalid report month.
+     */
+    400: ErrorEnvelope;
     /**
      * Project not found.
      */
