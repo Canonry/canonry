@@ -65,4 +65,4 @@ files.
 2. Read [`architecture.md`](architecture.md) for the current shape of the system.
 3. Use the provider, deployment, and testing docs for current implementation details.
 
-- [Experimental branded sentiment](sentiment.md) — configuration, frozen provenance, permissions, and [validation gates](sentiment-validation.md).
+- [Experimental sentiment](sentiment.md) — configuration, frozen provenance, permissions, and [validation gates](sentiment-validation.md).

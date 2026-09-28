@@ -463,21 +463,23 @@ The silent `report.ai-referral-bursts` doctor diagnostic carries these limits in
 its details, counts `candidateGroups`, and warns only when candidate bursts
 exist; it never claims a verified 3x warning.
 
-### Experimental branded sentiment
+### Experimental sentiment
 
 Load `monitoring` for `canonry_sentiment_settings`, `canonry_sentiment`,
 `canonry_sentiment_evidence`, `canonry_sentiment_compare`,
 `canonry_sentiment_backfill_preview`, `canonry_sentiment_jobs`, and
 `canonry_sentiment_job`. Reads use stored data and never call TypeSafe. The response
-keeps judged/selected denominators, exclusions, distinct source answers, overlapping
-theme polarities, nullable rates and comparison refusal reasons. Non-brand is an
-explicit unsupported state. Preserve every selection field and the resolved
+keeps judged/selected denominators, exclusions, distinct source answers, nullable
+rates, per-query and location summaries, and comparison refusal reasons. Select
+`queryClass` explicitly; branded and non-brand have separate denominators. An absent
+intended subject is excluded, never unfavorable. Use `queryId` for a specific frozen
+query. Preserve every selection field and the resolved
 `evaluationDefinitionId` when following an evidence cursor.
 
 `canonry_sentiment_configure` and `canonry_sentiment_backfill` are write tools for
 install administrators. Viewer, delegated viewer, read-only and project-scoped
-credentials cannot authorize them. Configuring a project takes explicit `enabled`,
-`preset`, or `customThemes`; credentials stay in local install configuration. Both
+credentials cannot authorize them. Configuring a project takes explicit `enabled`;
+credentials stay in local install configuration. Both
 install and project switches default off. Enabling applies to future completions.
 
 For historical work, preview explicit `runIds` (or `runId`) or a bounded `from`/`to`

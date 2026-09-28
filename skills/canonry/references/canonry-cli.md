@@ -1364,13 +1364,13 @@ Compact reference for the composite / keyed commands agents read most (shapes ca
 | `cnry ads geo search <p> --query <text>` | `AdsGeoSearchResponse{ count, query, results[] }` @ `contracts/ads.ts`; each location has `{ id, type, canonicalName, countryCode, name, regionCode }`. | ✅ one result / line as `{project, query, …location}` |
 | `cnry ads conversions pixels <p>` / `event-settings <p>` | `{ pixels[] }` / `{ eventSettings[] }` @ `contracts/ads.ts`. Event settings include the conversion event, attribution window, source IDs/details, archive state, and version. | ✅ one pixel/event setting / line as `{project, …row}` |
 
-## Experimental branded sentiment
+## Experimental sentiment
 
 ```bash
 canonry sentiment settings <project> --format json
-canonry sentiment configure <project> --enabled true --preset default --format json
-canonry sentiment <project> --run-id <run> --format json
-canonry sentiment evidence <project> --run-id <run> --evaluation-definition-id <definition> --format json
+canonry sentiment configure <project> --enabled true --format json
+canonry sentiment <project> --run-id <run> --query-class non-brand --format json
+canonry sentiment evidence <project> --run-id <run> --query-class non-brand --query-id <query> --evaluation-definition-id <definition> --format json
 canonry sentiment compare <project> --from-run-id <before> --to-run-id <after> --format json
 canonry sentiment backfill <project> --preview --run-id <run> --format json
 canonry sentiment backfill <project> --preview --from <ISO-date-time> --to <ISO-date-time> --format json
@@ -1383,16 +1383,17 @@ Reads are stored-only. Install and project switches default off; the install key
 configured locally, never through remote commands. Configure and backfill submission
 require install administrator authority. Enabling processes future complete runs;
 preview/submit is the explicit historical workflow. A repeated key with the same
-preview returns the same job; changed payloads conflict. Custom themes use
-`--custom-themes '[{"id":"custom-id","name":"Theme","description":"Short definition"}]'`
-and remain Custom, not evaluated.
+preview returns the same job; changed payloads conflict. Initial settings only
+control enablement; there are no theme presets or custom themes.
 
-Summary, evidence, comparison and preview accept run/revision, mode, query class,
+Summary, evidence, comparison and preview accept run/revision, mode, query class, query ID,
 scope/scope key, market key, provider/model, location and evaluation definition.
 Advanced `--scope property --scope-key <key> --market-key <key>` preserves exact
 frozen usage edges. Keep every selection field and the returned evaluator ID while
-following `--cursor`. Non-brand returns unsupported. JSON equals the HTTP DTO;
+following `--cursor`. Branded and non-brand are supported with separate denominators;
+select the class explicitly (the default remains branded). Summary includes
+server-computed per-query and location scores. JSON equals the HTTP DTO;
 evidence JSONL is one complete page document so empty state and cursor survive.
 Jobs JSONL streams one project-stamped receipt per line. Favorable rates use judged
-assessments, mixed gets no partial credit, theme praise and criticism overlap, and
+assessments; mixed gets no partial credit, absent subjects are excluded, and
 partial scores cannot establish improvement or decline.
