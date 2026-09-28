@@ -15,7 +15,7 @@ import {
   type QueryWorkspace,
 } from '../lib/project-scope.js'
 import { useQueryClient } from '@tanstack/react-query'
-import { parseVisibilityReportScopeErrorDetails, RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
+import { parseVisibilityReportScopeErrorDetails, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import type { MeasurementOverviewSort } from '@ainyc/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
@@ -34,6 +34,8 @@ import {
 import { ProviderBadge } from '../components/shared/ProviderBadge.js'
 import { RunRow } from '../components/shared/RunRow.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
+import { SentimentSection } from '../components/project/SentimentSection.js'
+import { sentimentSelectionFromVisibility } from '../queries/sentiment.js'
 import { EvidenceTable } from '../components/project/EvidenceTable.js'
 import { BingSummaryMetric } from '../components/project/BingSummaryMetric.js'
 import { ActivitySection } from '../components/project/ActivitySection.js'
@@ -3217,6 +3219,7 @@ function ProjectPageContent({
             isLoadMoreError={advancedMeasurementOverviewQuery.isFetchNextPageError}
             viewSearch={advancedMeasurementView.search ?? ''}
           />)}
+          {!isEmbed() && <SentimentSection projectName={projectName} runOptions={model.recentRuns.filter(run => run.kind === RunKinds['answer-visibility'] && run.trigger !== RunTriggers.probe && (run.status === RunStatuses.completed || run.status === RunStatuses.partial)).map(run => ({ id: run.id, label: formatTimestamp(run.finishedAt ?? run.createdAt) }))} selection={sentimentSelectionFromVisibility(visibilitySelection, isSimpleOverview ? 'simple' : 'advanced', typeof projectSearchParams.sentimentEvaluationDefinitionId === 'string' ? projectSearchParams.sentimentEvaluationDefinitionId : undefined)} />}
           {!isSimpleOverview && visibilitySelection.measurementScope === 'project' ? <details key={projectName} className="visibility-disclosure" onToggle={event => {
             if (event.currentTarget.open) onRequestOverview()
           }}>
