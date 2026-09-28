@@ -24,6 +24,20 @@ The overview card shows two aligned class/rate rows. Judgment coverage, state an
 
 The [UI follow-up receipt](../evals/sentiment/card-ui-smoke-receipt-2026-09-28.json) pins the rebuilt dashboard artifact separately from the earlier full revision artifact. All 28 focused UI tests, web typecheck, changed-file lint and dashboard build passed. The packaged browser smoke passed 11 assertions with 15 screenshots, including desktop/mobile card layout, first-touch help, viewport bounds, project navigation, Simple/Advanced evidence and permissions. It made zero provider requests and stopped its owned server. The CLI/runtime and dependencies were reused unchanged; earlier backend and recovery receipts remain attached to their original artifact.
 
+## Engine evidence follow-up (2026-09-28)
+
+The stack is rebased onto PR #1235. Version 5.26.0 adds stored verdicts to expanded engine rows, scopes Simple scores to the visible engine and saved run group, and keeps shared Advanced subject judgments and location-specific query scores separate. Exact assessment links preserve source and evaluator identity. Changing the resolved Advanced run or revision dismisses stale evidence and management drawers.
+
+The [engine receipt](../evals/sentiment/engine-smoke-receipt-2026-09-28.json) pins a fresh CLI/dashboard package. Focused checks passed: 274 web, 100 API, 13 contracts, 12 generated SDK, and 65 CLI/MCP tests; affected package and script typechecks; lint; generated-client/plugin/Val guards; and both builds. Unchanged runtime dependencies were copied from the prior isolated installed smoke.
+
+One complete installed command passed seven assertion groups across HTTP, spawned CLI, hosted MCP, and spawned stdio MCP, then six browser assertion groups with 14 screenshots. The fixture covers opposing engine verdicts, a locally excluded absent subject, an unadmitted engine, shared Advanced subjects, exact model/location/Property/market evidence, the 100%/0% location regression, mobile reachability, keyboard focus, read-only users and disabled state. Expanding rows adds no per-row summary reads. Seven assessments completed through six deterministic loopback requests; all subsequent reads and browser actions added zero attempts. There were no unexpected HTTP, console or page errors or external requests. The owned server stopped. No additional live Jev requests were made.
+
+Reproduce with a freshly installed package under `/tmp/canonry-sentiment-...` and the Playwright/Chromium setup documented in the evaluation README:
+
+```sh
+pnpm exec tsx scripts/smoke-sentiment-engines.mjs --package-root /tmp/canonry-sentiment-install/node_modules/@canonry/canonry --browser
+```
+
 ## Original schema 1 checks (2026-09-28)
 
 | Layer | Evidence |
