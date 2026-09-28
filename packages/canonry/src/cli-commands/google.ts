@@ -12,6 +12,7 @@ import {
   googlePerformance,
   googlePerformanceDaily,
   googleTopPages,
+  googleQueryTotals,
   googleProperties,
   googleRefresh,
   googleRequestIndexing,
@@ -35,6 +36,9 @@ import { usageError } from '../cli-error.js'
 
 const GOOGLE_PERFORMANCE_USAGE =
   'canonry google performance <project> [--days <n> | --start <YYYY-MM-DD> --end <YYYY-MM-DD>] [--keyword <kw>] [--page <url>] [--limit <n>] [--offset <n>] [--order-by clicks|impressions|date] [--format json]'
+
+const GOOGLE_QUERY_TOTALS_USAGE =
+  'canonry google query-totals <project> [--start <YYYY-MM-DD>] [--end <YYYY-MM-DD>] [--window 7d|30d|90d|all] [--limit <n>] [--offset <n>] [--format json]'
 
 export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
@@ -271,6 +275,36 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['google', 'query-totals'],
+    usage: GOOGLE_QUERY_TOTALS_USAGE,
+    options: {
+      window: stringOption(),
+      start: stringOption(),
+      end: stringOption(),
+      limit: stringOption(),
+      offset: stringOption(),
+    },
+    run: async (input) => {
+      const project = requireProject(input, 'google.query-totals', GOOGLE_QUERY_TOTALS_USAGE)
+      await googleQueryTotals(project, {
+        window: getString(input.values, 'window'),
+        startDate: getString(input.values, 'start'),
+        endDate: getString(input.values, 'end'),
+        limit: parseIntegerOption(input, 'limit', {
+          command: 'google.query-totals',
+          usage: GOOGLE_QUERY_TOTALS_USAGE,
+          message: '--limit must be an integer',
+        }),
+        offset: parseIntegerOption(input, 'offset', {
+          command: 'google.query-totals',
+          usage: GOOGLE_QUERY_TOTALS_USAGE,
+          message: '--offset must be an integer',
+        }),
+        format: input.format,
+      })
+    },
+  },
+  {
     path: ['google', 'inspect'],
     usage: 'canonry google inspect <project> <url> [--format json]',
     run: async (input) => {
@@ -399,12 +433,12 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['google'],
-    usage: 'canonry google <connect|disconnect|status|properties|set-property|set-sitemap|list-sitemaps|submit-sitemap|discover-sitemaps|sync|performance|performance-daily|inspect|inspect-sitemap|coverage|coverage-history|inspections|deindexed|request-indexing|refresh> <project> [args]',
+    usage: 'canonry google <connect|disconnect|status|properties|set-property|set-sitemap|list-sitemaps|submit-sitemap|discover-sitemaps|sync|performance|performance-daily|top-pages|query-totals|inspect|inspect-sitemap|coverage|coverage-history|inspections|deindexed|request-indexing|refresh> <project> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'google',
-        usage: 'canonry google <connect|disconnect|status|properties|set-property|set-sitemap|list-sitemaps|submit-sitemap|discover-sitemaps|sync|performance|performance-daily|inspect|inspect-sitemap|coverage|coverage-history|inspections|deindexed|request-indexing|refresh> <project> [args]',
-        available: ['connect', 'disconnect', 'status', 'properties', 'set-property', 'set-sitemap', 'list-sitemaps', 'submit-sitemap', 'discover-sitemaps', 'sync', 'performance', 'performance-daily', 'inspect', 'inspect-sitemap', 'coverage', 'coverage-history', 'inspections', 'deindexed', 'request-indexing', 'refresh'],
+        usage: 'canonry google <connect|disconnect|status|properties|set-property|set-sitemap|list-sitemaps|submit-sitemap|discover-sitemaps|sync|performance|performance-daily|top-pages|query-totals|inspect|inspect-sitemap|coverage|coverage-history|inspections|deindexed|request-indexing|refresh> <project> [args]',
+        available: ['connect', 'disconnect', 'status', 'properties', 'set-property', 'set-sitemap', 'list-sitemaps', 'submit-sitemap', 'discover-sitemaps', 'sync', 'performance', 'performance-daily', 'top-pages', 'query-totals', 'inspect', 'inspect-sitemap', 'coverage', 'coverage-history', 'inspections', 'deindexed', 'request-indexing', 'refresh'],
       })
     },
   },
