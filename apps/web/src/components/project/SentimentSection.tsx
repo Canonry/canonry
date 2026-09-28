@@ -34,11 +34,12 @@ function FavorableValue({ value, label }: { value: Pick<SentimentHeadline, 'scor
 export function SentimentOverviewMetric({ value }: { value?: SentimentOverview }) {
   if (!value?.configured) return null
   return <div className="project-row-stat" data-sentiment-score>
-    <div className="metric-inline-block">
+    <div className="grid gap-1">
       <p className="metric-inline-label">Favorable</p>
-      {([['non-brand', value.nonBrand], ['branded', value.branded]] as const).map(([queryClass, headline]) => <p key={queryClass} role="group" className="flex items-center justify-between gap-2 text-xs text-secondary" aria-label={`${CLASS_LABEL[queryClass]} favorable share`}>
-        <span className="font-mono text-primary">{headline.score.favorableDisplay}</span><span className="whitespace-nowrap">{CLASS_LABEL[queryClass]}</span>
-      </p>)}
+      {([['non-brand', value.nonBrand], ['branded', value.branded]] as const).map(([queryClass, headline]) => <div key={queryClass} role="group" aria-label={`${CLASS_LABEL[queryClass]} favorable share`} title={headline.reason ?? SENTIMENT_COPY.states[headline.state]}>
+        <p className="flex items-center justify-between gap-2 text-xs text-secondary"><span className="font-mono text-primary">{headline.score.favorableDisplay}</span><span className="whitespace-nowrap">{CLASS_LABEL[queryClass]}</span></p>
+        <p className="text-xs text-secondary">{headline.coverage.judged} judged{headline.provisional && <span className="text-caution"> · Provisional</span>}</p>
+      </div>)}
     </div>
   </div>
 }
@@ -150,7 +151,7 @@ export function SentimentQueryScore({ queryId, sourceSnapshotIds = [], queryClas
   if (!row || !value) return <span className="text-sm text-secondary">{parent?.isPending && (queryId || sourceSnapshotIds.length) ? 'Loading…' : 'Unavailable'}</span>
   const selection: SentimentSelection = { ...scope.selection, ...summary!.selection, runId: summary!.selection.runId ?? undefined, runIds: summary!.selection.runId ? undefined : summary!.selection.runIds, revision: summary!.selection.revision ?? undefined, evaluationDefinitionId: summary!.selection.evaluationDefinitionId ?? undefined, queryClass: row.queryClass, queryId: row.queryId, ...(location === undefined ? {} : { location: location ?? 'none' }) }
   return <Button type="button" variant="ghost" className="h-auto min-h-11 flex-col items-start gap-0 px-1" aria-label={`View ${CLASS_LABEL[row.queryClass]} sentiment evidence for ${row.queryText}`} onKeyDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); scope.openEvidence(selection, row.queryText, event.currentTarget) }}>
-    {showLabel && <span className="text-sm font-normal text-secondary">Favorable</span>}<span className="font-mono text-primary">{value.score.favorableDisplay}</span><span className="text-sm font-normal text-secondary">{value.coverage.judged} judged</span>
+    {showLabel && <span className="text-sm font-normal text-secondary">Favorable</span>}<span className="font-mono text-primary">{value.score.favorableDisplay}</span><span className="text-sm font-normal text-secondary">{value.coverage.judged} judged</span>{value.provisional && <span className="text-xs font-normal text-caution">Provisional</span>}
   </Button>
 }
 

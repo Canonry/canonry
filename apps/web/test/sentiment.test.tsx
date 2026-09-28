@@ -74,12 +74,13 @@ describe('sentiment presentation', () => {
     } finally { page.close() }
   })
   it('renders overview scores only when configured and uses the exact two server values', () => {
-    const dto = summary(); const value = { configured: false, branded: { ...dto, runIds: ['run'] }, nonBrand: { ...dto, runIds: ['run'], score: { ...dto.score, favorableDisplay: '25%' } } }
+    const dto = summary(); dto.provisional = true; dto.state = 'partial'; const value = { configured: false, branded: { ...dto, runIds: ['run'] }, nonBrand: { ...dto, runIds: ['run'], score: { ...dto.score, favorableDisplay: '25%' } } }
     const view = render(<SentimentOverviewMetric value={value} />)
     expect(screen.queryByText('Favorable')).toBeNull()
     view.rerender(<SentimentOverviewMetric value={{ ...value, configured: true }} />)
     expect(screen.getByLabelText('Branded favorable share').textContent).toContain('60.1%')
     expect(screen.getByLabelText('Non-brand favorable share').textContent).toContain('25%')
+    expect(screen.getByLabelText('Branded favorable share').textContent).toContain('5 judged · Provisional')
   })
   it('places favorable in the existing query table and class filtering changes its headlines', async () => {
     const dto = summary(); const { state, reason, provisional, coverage, score } = dto
@@ -102,7 +103,7 @@ describe('sentiment presentation', () => {
     } finally { page.close() }
   })
   it('resolves deleted queries by exact source identity and location without per-row reads', async () => {
-    const dto = summary()
+    const dto = summary(); dto.provisional = true; dto.state = 'partial'
     const { state, reason, provisional, coverage, score } = dto
     dto.queries = [{ queryId: 'deleted-query', queryText: 'Is North Hall good?', queryClass: 'branded', sourceSnapshotIds: ['snapshot'], state, reason, provisional, coverage, score, locations: [{ location: 'Chicago', sourceSnapshotIds: ['snapshot'], state, reason, provisional, coverage, score: { ...score, favorableDisplay: '31.7%' } }] }]
     const page = renderScope(<><SentimentQueryScore sourceSnapshotIds={['snapshot']} queryClass="branded" location="Chicago" /><SentimentQueryScore queryId="different-query" queryClass="branded" /><SentimentQueryScore queryId="deleted-query" sourceSnapshotIds={['newer-snapshot']} queryClass="branded" /></>, { branded: dto })
@@ -110,6 +111,7 @@ describe('sentiment presentation', () => {
       const button = await screen.findByRole('button', { name: 'View Branded sentiment evidence for Is North Hall good?' })
       expect(button.textContent).toContain('31.7%')
       expect(button.textContent).toContain('5 judged')
+      expect(button.textContent).toContain('Provisional')
       expect(screen.getAllByText('Unavailable')).toHaveLength(2)
       fireEvent.click(button)
       await screen.findByText('No stored sentiment evidence for this query and scope.')

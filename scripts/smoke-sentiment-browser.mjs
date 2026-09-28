@@ -58,6 +58,13 @@ try {
   await simpleCard.locator('[data-sentiment-score]').waitFor({ timeout: 30_000 })
   await simpleCard.getByLabel('Branded favorable share', { exact: true }).waitFor()
   await simpleCard.getByLabel('Non-brand favorable share', { exact: true }).waitFor()
+  const overviewResponse = await context.request.get(new URL('api/v1/projects/simple/overview', base).href)
+  if (overviewResponse.status() !== 200) throw new Error('Synthetic overview could not be read')
+  const overview = await overviewResponse.json()
+  for (const [label, value] of [['Branded', overview.sentiment.branded], ['Non-brand', overview.sentiment.nonBrand]]) {
+    const shown = await simpleCard.getByLabel(`${label} favorable share`, { exact: true }).innerText()
+    if (!shown.includes(value.score.favorableDisplay) || !shown.includes(`${value.coverage.judged} judged`) || (value.provisional && !shown.includes('Provisional'))) throw new Error('Overview lost exact score, judged coverage or provisional state')
+  }
   await capture('overview-configured')
   const disabled = await context.request.put(new URL('api/v1/projects/simple/sentiment/settings', base).href, { data: { enabled: false } })
   if (disabled.status() !== 200) throw new Error('Could not disable copied synthetic project for overview check')
