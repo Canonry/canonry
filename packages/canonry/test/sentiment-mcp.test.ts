@@ -38,6 +38,25 @@ describe('sentiment MCP parity', () => {
     expect(spec.tier).toBe('monitoring')
     for (const operation of spec.openApiOperations) expect(MCP_OPENAPI_OPERATION_CLASSIFICATIONS[operation as keyof typeof MCP_OPENAPI_OPERATION_CLASSIFICATIONS]).toBe('included')
   })
+  it.each([
+    { name: 'canonry_sentiment', method: 'getSentiment', extra: {} },
+    { name: 'canonry_sentiment_evidence', method: 'getSentimentEvidence', extra: { cursor: 'cursor', limit: 7 } },
+  ])('$name preserves grouped run identity and rejects a simultaneous single run', async ({ name, method, extra }) => {
+    const runIds = ['run-bayside', 'run-harbor']
+    const input = { project: 'demo', runIds, queryClass: 'non-brand', queryId: 'frozen-query', evaluationDefinitionId: 'frozen-definition', ...extra }
+    const response = { ...sentimentFixtureSummary, selection: { ...sentimentFixtureSummary.selection, runId: null, runIds } }
+    const call = vi.fn().mockResolvedValue(response)
+    const spec = tool(name)
+    const result = await withToolErrors(() => spec.handler({ [method]: call } as unknown as ApiClient, spec.inputSchema.parse(input)))
+    const { project, ...selection } = input
+    expect(call).toHaveBeenCalledWith(project, { mode: 'auto', scope: 'project', ...selection })
+    expect(result.structuredContent).toEqual(response)
+    expect(spec.inputSchema.safeParse({ ...input, runId: 'extra' }).success).toBe(false)
+    expect(spec.inputSchema.safeParse({ ...input, runIds: [] }).success).toBe(false)
+  })
+  it('rejects grouped run selectors for pairwise comparison', () => {
+    expect(tool('canonry_sentiment_compare').inputSchema.safeParse({ project: 'demo', fromRunId: 'a', toRunId: 'b', runIds: ['extra'] }).success).toBe(false)
+  })
   it.each(['branded', 'non-brand'] as const)('passes one explicit %s query population and preserves per-query results', async queryClass => {
     const summary = sentimentSummarySchema.parse({ ...sentimentFixtureSummary, selection: { ...sentimentFixtureSummary.selection, queryClass, queryId: 'frozen-query' }, queries: [{ queryId: 'frozen-query', queryText: 'Which apartments are good?', queryClass, sourceSnapshotIds: ['frozen-snapshot'], locations: [], state: 'partial', reason: null, provisional: true, coverage: sentimentFixtureSummary.coverage, score: sentimentFixtureSummary.score }] })
     const call = vi.fn().mockResolvedValue(summary)

@@ -715,5 +715,7 @@ Submission only accepts the returned preview token and idempotency key. Authorit
 and idempotency remain server-enforced. No read invokes the classifier, and clients
 display server-owned per-query percentages, intervals and refusal reasons. Select
 exactly one branded or non-brand population; `--query-id` preserves the frozen query
-identity. Favorable % uses favorable / (favorable + mixed + unfavorable), excluding
+identity. Summary and evidence accept repeatable `--run-ids` for the exact grouped
+location runs, mutually exclusive with `--run-id`; backfill keeps its existing
+repeatable `--run-id` syntax. Favorable % uses favorable / (favorable + mixed + unfavorable), excluding
 factual and unjudged assessments.

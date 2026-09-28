@@ -122,6 +122,21 @@ describe('non-brand intended-subject boundaries', () => {
     expect(await instance.classify(nonBrand(sourceText))).toMatchObject({ kind: 'abstained', outcome: 'subject-not-mentioned', returnedModel: null, usage: { kind: 'unknown' } })
     expect(requests).toHaveLength(0)
   })
+  it('withholds a shared cross-class assessment when the intended subject is absent despite its branded primary context', async () => {
+    const input = nonBrand('South Hall is excellent.')
+    input.context.queryClass = 'branded'
+    input.context.queryText = 'Is North Hall good?'
+    input.context.usageEdges = [
+      { queryId: 'branded-query', executionNodeKey: 'shared', targetId: input.subject.id, propertyId: input.subject.id, groupId: null, marketId: null, queryClass: 'branded', location: null },
+      { queryId: 'non-brand-query', executionNodeKey: 'shared', targetId: input.subject.id, propertyId: input.subject.id, groupId: null, marketId: null, queryClass: 'non-brand', location: null },
+    ]
+    const { instance, requests } = classifier({ stance: 'unfavorable' })
+    expect(await instance.classify(input)).toMatchObject({ kind: 'abstained', outcome: 'subject-not-mentioned' })
+    expect(requests).toHaveLength(0)
+    input.context.usageEdges[1].targetId = 'another-subject'
+    expect(await instance.classify(input)).toMatchObject({ kind: 'classified', outcome: 'unfavorable' })
+    expect(requests).toHaveLength(1)
+  })
   it('distinguishes missing frozen identity from a known absent subject', async () => {
     const input = nonBrand('South Hall is excellent.')
     input.subject.aliases = []; input.subject.qualifiedAliases = []; input.subject.urls = []

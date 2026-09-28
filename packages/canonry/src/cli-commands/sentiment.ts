@@ -16,6 +16,7 @@ const selectionOptions = {
   'scope-key': stringOption(), 'market-key': stringOption(), provider: stringOption(), model: stringOption(), location: stringOption(),
   'evaluation-definition-id': stringOption(),
 }
+const readSelectionOptions = { ...selectionOptions, 'run-ids': multiStringOption() }
 const selectionHelp = 'Selection: --run-id <id> --query-id <frozen-query-id> --revision <n> --mode auto|simple|advanced --query-class branded|non-brand --scope project|property|group|market --scope-key <key> --market-key <key> --provider <provider> --model <id> --location <label> --evaluation-definition-id <id>. Branded and non-brand are separate populations; select exactly one class. Favorable % is favorable / (favorable + mixed + unfavorable), excluding factual and unjudged answers. The summary includes per-query scores. Reads use stored data only.'
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
@@ -30,6 +31,12 @@ function selection(input: CliCommandInput): Record<string, unknown> {
     return value === undefined ? [] : [[field, value]]
   }))
 }
+function readSelection(input: CliCommandInput): Record<string, unknown> {
+  const runIds = getStringArray(input.values, 'run-ids')
+  return { ...selection(input), ...(runIds ? { runIds } : {}) }
+}
+const readSelectionHelp = `${selectionHelp} To read an exact grouped location sweep, repeat --run-ids <id> for each run, instead of --run-id.`
+
 function project(input: CliCommandInput, command: string): string {
   return requireProject(input, `sentiment.${command}`, `canonry sentiment ${command} <project> [options]`)
 }
@@ -54,10 +61,10 @@ export const SENTIMENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['sentiment', 'evidence'], usage: 'canonry sentiment evidence <project> [selection options] [--cursor <cursor>] [--limit 1..100] [--format json]',
-    help: `${selectionHelp} Keep all selection fields, including the returned evaluationDefinitionId, when following a cursor. JSONL preserves the entire page envelope, including empty state and next cursor.`,
-    options: { ...selectionOptions, cursor: stringOption(), limit: stringOption() },
+    help: `${readSelectionHelp} Keep all selection fields, including the returned evaluationDefinitionId, when following a cursor. JSONL preserves the entire page envelope, including empty state and next cursor.`,
+    options: { ...readSelectionOptions, cursor: stringOption(), limit: stringOption() },
     run: input => showSentimentEvidence(project(input, 'evidence'), parse(sentimentEvidenceRequestSchema, {
-      ...selection(input), cursor: getString(input.values, 'cursor'), limit: getString(input.values, 'limit'),
+      ...readSelection(input), cursor: getString(input.values, 'cursor'), limit: getString(input.values, 'limit'),
     }), input.format),
   },
   {
@@ -99,7 +106,7 @@ export const SENTIMENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['sentiment'], usage: 'canonry sentiment <project> [selection options] [--format json]',
-    help: selectionHelp, options: selectionOptions,
-    run: input => showSentiment(requireProject(input, 'sentiment', 'canonry sentiment <project> [options]'), parse(sentimentSelectionSchema, selection(input)), input.format),
+    help: readSelectionHelp, options: readSelectionOptions,
+    run: input => showSentiment(requireProject(input, 'sentiment', 'canonry sentiment <project> [options]'), parse(sentimentSelectionSchema, readSelection(input)), input.format),
   },
 ]

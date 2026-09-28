@@ -56,7 +56,8 @@ export function buildJevSentimentRequest(input: SentimentClassifierInput): Reque
   for (const key of ['identity', 'judgment', 'stance', 'conclusion', 'complaint'] as const) {
     if (typeof wording[key] !== 'string' || !wording[key].trim()) return reject(SentimentOutcomes['ambiguous-judgment'], 'The frozen evaluator has incomplete question wording.')
   }
-  if (input.context.queryClass === 'non-brand' && !matcherMatchesText(identityMatcher, input.sourceText)) {
+  const hasNonBrandUsage = input.context.queryClass === 'non-brand' || input.context.usageEdges.some(edge => edge.targetId === input.subject.id && edge.queryClass === 'non-brand')
+  if (hasNonBrandUsage && !matcherMatchesText(identityMatcher, input.sourceText)) {
     return reject(SentimentOutcomes['subject-not-mentioned'], 'The non-brand answer does not mention the known intended subject by any frozen alias or domain.')
   }
   const sentences = Object.fromEntries(input.sentences.map(span => [span.id, span.text]))

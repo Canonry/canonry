@@ -1144,14 +1144,14 @@ const AGENT_WEBHOOK_EVENTS = [
   notificationEventSchema.enum['citation.gained'],
 ] satisfies NotificationEvent[]
 
-const sentimentInputSchema = sentimentSelectionSchema.extend({ project: projectNameSchema })
-const sentimentEvidenceInputSchema = sentimentEvidenceRequestSchema.extend({ project: projectNameSchema })
-const sentimentCompareInputSchema = sentimentCompareRequestSchema.extend({ project: projectNameSchema })
+const sentimentInputSchema = sentimentSelectionSchema.safeExtend({ project: projectNameSchema })
+const sentimentEvidenceInputSchema = sentimentEvidenceRequestSchema.safeExtend({ project: projectNameSchema })
+const sentimentCompareInputSchema = sentimentCompareRequestSchema.safeExtend({ project: projectNameSchema })
 const sentimentConfigureInputSchema = sentimentSettingsUpdateSchema.extend({ project: projectNameSchema }).refine(
   input => input.enabled !== undefined,
   'Explicit enabled is required',
 )
-const sentimentPreviewInputSchema = sentimentBackfillSelectionSchema.extend({ project: projectNameSchema }).superRefine((input, ctx) => {
+const sentimentPreviewInputSchema = sentimentBackfillSelectionSchema.safeExtend({ project: projectNameSchema }).superRefine((input, ctx) => {
   const hasRuns = Boolean(input.runId || input.runIds?.length)
   const hasDates = Boolean(input.from || input.to)
   if ((!hasRuns && (!input.from || !input.to)) || (hasRuns && hasDates) || (input.runId && input.runIds?.length)) {
@@ -1178,14 +1178,14 @@ export const canonryMcpTools = [
   }),
   defineTool({
     name: 'canonry_sentiment', title: 'Read sentiment and per-query scores',
-    description: 'Read stored model-classified language about frozen Simple identities or Advanced Properties. Returns headline and per-query favorable/mixed/unfavorable rates, judged and selected counts, distinct answers, exclusions, intervals and method limitations. Favorable % is favorable / (favorable + mixed + unfavorable); factual and unjudged answers do not enter that denominator. Select branded or non-brand explicitly and keep their metrics separate; the default is branded. Optional queryId selects one frozen query. A known subject absent from a non-brand answer is not unfavorable. Partial values are provisional. Never starts a classifier. Preserve the resolved evaluationDefinitionId and complete selection for later evidence reads.',
+    description: 'Read stored model-classified language about frozen Simple identities or Advanced Properties. Returns headline and per-query favorable/mixed/unfavorable rates, judged and selected counts, distinct answers, exclusions, intervals and method limitations. Favorable % is favorable / (favorable + mixed + unfavorable); factual and unjudged answers do not enter that denominator. Select branded or non-brand explicitly and keep their metrics separate; the default is branded. Optional queryId selects one frozen query. Optional runIds selects the exact grouped location runs instead of runId. A known subject absent from a non-brand answer is not unfavorable. Partial values are provisional. Never starts a classifier. Preserve the resolved evaluationDefinitionId and complete selection for later evidence reads.',
     access: 'read', tier: 'monitoring', inputSchema: sentimentInputSchema, outputSchema: sentimentSummarySchema, annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/sentiment'],
     handler: (client, input) => { const { project, ...query } = input; return client.getSentiment(project, query) },
   }),
   defineTool({
     name: 'canonry_sentiment_evidence', title: 'Read sentiment evidence',
-    description: 'Page stored answer-subject assessments and exact source quotations. Returns frozen identity/context, source hash, evaluator and engine provenance, exclusions, and optional complaint. Keep queryClass, optional frozen queryId, every other selection field and resolved evaluationDefinitionId unchanged when following nextCursor. Advanced market refinement uses exact frozen usage edges. No provider calls.',
+    description: 'Page stored answer-subject assessments and exact source quotations. Returns frozen identity/context, source hash, evaluator and engine provenance, exclusions, and optional complaint. Keep queryClass, optional frozen queryId, exact runId or runIds, every other selection field and resolved evaluationDefinitionId unchanged when following nextCursor. Advanced market refinement uses exact frozen usage edges. No provider calls.',
     access: 'read', tier: 'monitoring', inputSchema: sentimentEvidenceInputSchema, outputSchema: sentimentEvidencePageSchema, annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/sentiment/evidence'],
     handler: (client, input) => { const { project, ...query } = input; return client.getSentimentEvidence(project, query) },

@@ -35,6 +35,16 @@ describe('sentiment CLI transport contract', () => {
       runId: 'run', revision: 4, mode: 'advanced', queryClass: 'branded', queryId: 'frozen-query', scope: 'property', scopeKey: 'p', marketKey: 'market', provider: 'openai', model: 'gpt-test', location: 'NY', evaluationDefinitionId: 'def', cursor: 'cursor', limit: 12,
     })
   })
+  it('preserves an exact grouped run selection across summary and paginated evidence reads', async () => {
+    const runIds = ['run-bayside', 'run-harbor']
+    const fixture = { ...sentimentFixtureSummary, selection: { ...sentimentFixtureSummary.selection, runId: null, runIds, queryClass: 'non-brand' } }
+    const flags = ['demo', '--run-ids', runIds[0], '--run-ids', runIds[1], '--query-class', 'non-brand']
+    expect(JSON.parse(await invoke(flags, fixture, 'getSentiment'))).toEqual(fixture)
+    expect(client.getSentiment).toHaveBeenLastCalledWith('demo', { mode: 'auto', scope: 'project', queryClass: 'non-brand', runIds })
+    const page = { state: fixture.state, selection: fixture.selection, items: [], nextCursor: 'next' }
+    expect(JSON.parse(await invoke(['evidence', ...flags, '--evaluation-definition-id', 'frozen-definition', '--cursor', 'cursor', '--limit', '7'], page, 'getSentimentEvidence'))).toEqual(page)
+    expect(client.getSentimentEvidence).toHaveBeenLastCalledWith('demo', { mode: 'auto', scope: 'project', queryClass: 'non-brand', runIds, evaluationDefinitionId: 'frozen-definition', cursor: 'cursor', limit: 7 })
+  })
   it('previews an explicit run selection and submits only its token and idempotency key', async () => {
     await invoke(['backfill', 'demo', '--preview', '--run-id', 'r1', '--run-id', 'r2'], { eligibleAssessments: 2 }, 'previewSentimentBackfill')
     expect(client.previewSentimentBackfill).toHaveBeenLastCalledWith('demo', expect.objectContaining({ runIds: ['r1', 'r2'] }))
@@ -43,6 +53,8 @@ describe('sentiment CLI transport contract', () => {
     expect(client.submitSentimentBackfill).toHaveBeenLastCalledWith('demo', { previewToken: 'frozen', idempotencyKey: 'key' })
   })
   it.each([
+    ['demo', '--run-id', 'r1', '--run-ids', 'r2'], ['evidence', 'demo', '--run-id', 'r1', '--run-ids', 'r2'],
+    ['compare', 'demo', '--from-run-id', 'r1', '--to-run-id', 'r2', '--run-ids', 'r3'], ['backfill', 'demo', '--preview', '--run-ids', 'r1'],
     ['configure', 'demo'], ['configure', 'demo', '--enabled', 'maybe'],
     ['configure', 'demo', '--preset', 'default'], ['configure', 'demo', '--custom-themes', '[]'],
     ['backfill', 'demo', '--preview'], ['backfill', 'demo', '--preview-token', 'token'],

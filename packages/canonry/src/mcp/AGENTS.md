@@ -97,6 +97,8 @@ reuse contracts; only configure and backfill submit are writes. Both require ins
 administrator authority at the API, including delegated credentials. Reads preserve
 nulls, frozen query/subject/market/evaluator context, server-owned per-query scores
 and refusal reasons. `queryClass` selects exactly one branded or non-brand
-population; `queryId` retains its frozen identity. Configure accepts only enabled
+population; `queryId` retains its frozen identity. Summary and evidence accept
+`runIds` for exact grouped location runs instead of `runId`; preserve this full
+selection when following evidence cursors. Configure accepts only enabled
 state, and no active tool accepts theme settings. Credentials are never accepted. Native Aero defers all nine tools until its
 separate sentiment evaluation and release gate.
