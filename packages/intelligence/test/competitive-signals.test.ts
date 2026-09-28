@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { answerProseForMentions, extractDomainsFromText } from '@ainyc/canonry-contracts'
 import { compileCompetitiveSignalResolver } from '../src/competitive-signals.js'
 
 describe('compileCompetitiveSignalResolver', () => {
@@ -32,11 +33,27 @@ describe('compileCompetitiveSignalResolver', () => {
   })
 
   it('keeps supplied prose domains equivalent to ordinary extraction', () => {
-    const answerText = 'Read https://www.rival.com/review before deciding.'
+    const answerText = 'Compare rates at rival.com first. ([enemy.com](https://enemy.com/rates?utm_source=chatgpt.com))'
     const ordinary = resolver.resolve({ answerText })
-    const reused = resolver.resolve({ answerText, answerDomains: ['www.rival.com'] })
+    const reused = resolver.resolve({
+      answerText,
+      answerDomains: extractDomainsFromText(answerProseForMentions(answerText)),
+    })
 
+    expect(ordinary).toEqual({ citedCompetitorDomains: [], mentionedCompetitorDomains: ['rival.com'] })
     expect(reused).toEqual(ordinary)
+  })
+
+  it('does not turn a citation chip in the answer text into a mention', () => {
+    // OpenAI web search writes its sources into the answer as inline chips.
+    // The competitor is cited there, not named.
+    const answerText = 'Bayside Flats has the lowest pet fees in the area. ([rival.com](https://rival.com/pets?utm_source=chatgpt.com), [Enemy](https://enemy.com/pets?utm_source=chatgpt.com))'
+    expect(resolver.resolve({ answerText, citedDomains: ['rival.com', 'enemy.com'] })).toEqual({
+      citedCompetitorDomains: ['rival.com', 'enemy.com'],
+      mentionedCompetitorDomains: [],
+    })
+    expect(resolver.resolve({ answerText: 'Read https://www.rival.com/review before deciding.' }).mentionedCompetitorDomains)
+      .toEqual([])
   })
 
   it('recognizes an exact short domain without treating its generic label as identity', () => {

@@ -124,6 +124,16 @@ test('extractRecommendedCompetitors never recommends a cited listing marketplace
   expect(extractRecommendedCompetitors(answer, ['brand.example'], ['apartments.com', 'rivalhomes.example'], [], ['Brand'])).toEqual(['Rival Homes'])
 })
 
+test('extractRecommendedCompetitors never recommends a rival named only in a citation chip', () => {
+  // Shape of an OpenAI web-search answer: sources are inline chips whose
+  // labels can be a site name. A chip is a citation, not a recommendation.
+  const chipOnly = 'Pet fees at Bayside Flats run $300 to $400 per pet. ([Rival Homes](https://rivalhomes.example/pets/?utm_source=chatgpt.com), [harborview.com](https://harborview.com/pets/?utm_source=chatgpt.com))'
+  expect(extractRecommendedCompetitors(chipOnly, ['harborview.com'], ['rivalhomes.example', 'harborview.com'], [], ['Harborview Living'])).toEqual([])
+  // The same rival linked in a sentence is named by the answer.
+  const prose = `For lower fees, [Rival Homes](https://rivalhomes.example/pets) charges $200 per pet. ${chipOnly.slice(chipOnly.indexOf('(['))}`
+  expect(extractRecommendedCompetitors(prose, ['harborview.com'], ['rivalhomes.example', 'harborview.com'], [], ['Harborview Living'])).toEqual(['Rival Homes'])
+})
+
 test('extractRecommendedCompetitors still recommends a marketplace the operator tracks as a competitor', () => {
   const answer = '1. **Zillow** - search every listing in one place\n2. **Other Pick** - an alternative'
   expect(extractRecommendedCompetitors(answer, ['brand.example'], ['zillow.com'], ['zillow.com'], ['Brand'])).toEqual(['Zillow'])

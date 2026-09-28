@@ -51,6 +51,7 @@ import {
   type RunDetailDto,
   type RunHistoryPointDto,
   type ScoreSummaryDto,
+  answerProseForMentions,
   escapeLikePattern,
   extractDomainsFromText,
   normalizeQueryText,
@@ -235,11 +236,12 @@ export async function compositeRoutes(app: FastifyInstance, options: { sentiment
     // headlines the non-brand class and keeps branded beside it.
     // The overview reads each stored answer for both current project identity
     // and competitor signals. Keep prose-domain parsing local to this request
-    // and share it across those independent readers.
+    // and share it across those independent readers. Domains come from the
+    // answer's prose only: a citation chip in the text is not a mention.
     const answerDomainsByText = new Map<string, readonly string[]>()
     for (const snapshot of trackedLatest) {
       if (snapshot.answerText && !answerDomainsByText.has(snapshot.answerText)) {
-        answerDomainsByText.set(snapshot.answerText, extractDomainsFromText(snapshot.answerText))
+        answerDomainsByText.set(snapshot.answerText, extractDomainsFromText(answerProseForMentions(snapshot.answerText)))
       }
     }
     const mentionShareInputs = buildMentionShareInputs({

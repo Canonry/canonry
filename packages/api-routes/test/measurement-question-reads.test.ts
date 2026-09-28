@@ -583,4 +583,19 @@ describe('targetMentionedInAnswer', () => {
     expect(targetMentionedInAnswer('Harbor is open.', 'harbor', targets)).toBeNull()
     expect(targetMentionedInAnswer('Harbor is open.', 'bayside', targets)).toBeNull()
   })
+
+  it('reads the answer prose, never a citation chip label or a cited URL path', () => {
+    const targets = [
+      { id: 'harbor', label: 'Harbor Homes', aliases: ['Harbor Homes'], urls: [] },
+      { id: 'bayside', label: 'Bayside Flats', aliases: ['Bayside Flats'], urls: [] },
+    ]
+    // Shape of an OpenAI web-search answer: the property is only in the chips.
+    const chipUrlPath = 'Pets are welcome with a $350 fee. ([northstar.example](https://northstar.example/apartments/harbor-homes/pets/?utm_source=chatgpt.com))'
+    const chipLabel = 'Pets are welcome with a $350 fee. ([Harbor Homes](https://northstar.example/pets/?utm_source=chatgpt.com), [Apartments.com](https://www.apartments.com/x/?utm_source=chatgpt.com))'
+    expect(targetMentionedInAnswer(chipUrlPath, 'harbor', targets)).toBe(false)
+    expect(targetMentionedInAnswer(chipLabel, 'harbor', targets)).toBe(false)
+    expect(targetMentionedInAnswer(`Harbor Homes allows two pets per unit. ${chipUrlPath}`, 'harbor', targets)).toBe(true)
+    expect(targetMentionedInAnswer('[Harbor Homes](https://northstar.example/harbor-homes/) allows two pets per unit.', 'harbor', targets)).toBe(true)
+    expect(targetMentionedInAnswer('[Harbor Homes](https://northstar.example/harbor-homes/) allows two pets per unit.', 'bayside', targets)).toBe(false)
+  })
 })

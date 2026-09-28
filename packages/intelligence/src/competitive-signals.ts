@@ -1,5 +1,6 @@
 import {
   MIN_DOMAIN_BRAND_KEY_LENGTH,
+  answerProseForMentions,
   brandKeyFromText,
   brandLabelFromDomain,
   compileBrandAliases,
@@ -17,7 +18,10 @@ export interface CompetitiveSignalEvidence {
   citedDomains?: readonly string[]
   groundingSources?: readonly CompetitiveSignalSource[]
   answerText?: string | null
-  /** Request-scoped prose-domain result, when another reader already has it. */
+  /**
+   * Request-scoped prose-domain result, when another reader already has it:
+   * `extractDomainsFromText(answerProseForMentions(answerText))`.
+   */
   answerDomains?: readonly string[]
 }
 
@@ -80,8 +84,10 @@ export function compileCompetitiveSignalResolver(
         ...(evidence.citedDomains ?? []),
         ...(evidence.groundingSources ?? []).map(source => source.uri),
       ]
-      const answerDomains = evidence.answerDomains ?? extractDomainsFromText(evidence.answerText)
-      const mentionedBrandKeys = matchedAliasKeys(domainBrandMatcher, evidence.answerText)
+      // Mentions read the answer's prose: a citation chip in the text is a citation.
+      const prose = answerProseForMentions(evidence.answerText)
+      const answerDomains = evidence.answerDomains ?? extractDomainsFromText(prose)
+      const mentionedBrandKeys = matchedAliasKeys(domainBrandMatcher, prose)
       const citedCompetitorDomains: string[] = []
       const mentionedCompetitorDomains: string[] = []
 

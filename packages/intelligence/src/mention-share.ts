@@ -1,4 +1,5 @@
 import {
+  answerProseForMentions,
   brandKeyFromText,
   compileBrandAliases,
   formatPercent,
@@ -268,8 +269,9 @@ export function buildMentionShare(
     tally.snapshotsWithAnswerText++
     if (snap.projectMentioned) tally.projectMentionSnapshots++
     if (options.competitors.length === 0) continue
-    // One normalization and word walk per answer, shared by every competitor.
-    const prepared = prepareBrandMatchText(text)
+    // One normalization and word walk per answer, shared by every competitor,
+    // over the answer's prose: a competitor's citation chip is a citation.
+    const prepared = prepareBrandMatchText(answerProseForMentions(text))
     for (const competitor of options.competitors) {
       const matcher = competitorMatchers.get(competitor.domain)
       if (matcher && matcherMatchesText(matcher, prepared)) {

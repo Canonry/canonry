@@ -78,6 +78,26 @@ describe('buildMentionLandscape', () => {
     expect(rival.mentionedQueries).toEqual(['best CRM'])
   })
 
+  it('does not count a citation chip as a project or competitor mention', () => {
+    // Shape of an OpenAI web-search answer: sources are inline link chips.
+    const chipsOnly = 'Pet-friendly options near the waterfront include Bayside Flats and The Ferris. ([rival.com](https://rival.com/apartments/oakland?utm_source=chatgpt.com), [acme.com](https://acme.com/bayside-flats?utm_source=chatgpt.com))'
+    const result = buildMentionLandscape(
+      [
+        snap({ queryId: 'q1', answerText: chipsOnly, answerMentioned: true }),
+        snap({ queryId: 'q2', answerText: `Rival Co is the cheaper pick. ${chipsOnly}`, answerMentioned: true }),
+      ],
+      ['rival.com'],
+      PROJECT_BRAND_NAMES,
+      PROJECT_DOMAINS,
+      lookup([['q1', 'pet friendly apartments'], ['q2', 'cheap apartments']]),
+    )
+    expect(result.totalAnswerSnapshots).toBe(2)
+    expect(result.projectMentionCount).toBe(0)
+    const rival = result.competitors.find(c => c.domain === 'rival.com')!
+    expect(rival.mentionCount).toBe(1)
+    expect(rival.mentionedQueries).toEqual(['cheap apartments'])
+  })
+
   it('matches a short competitor only by its exact domain, not the bare derived label', () => {
     const result = buildMentionLandscape(
       [
