@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { calendarMonthBounds } from './visibility-stats.js'
+import { shiftIsoCalendarDate } from './formatting.js'
 
 export const checkStatusSchema = z.enum(['ok', 'warn', 'fail', 'skipped'])
 export type CheckStatus = z.infer<typeof checkStatusSchema>
@@ -34,6 +35,17 @@ export function reportMonthsForDoctor(reportMonth?: string, now: Date = new Date
   if (now.getUTCDate() > 3) return [current]
   const previous = new Date(Date.parse(calendarMonthBounds(current).since) - 1).toISOString().slice(0, 7)
   return [previous, current]
+}
+
+/**
+ * The report months whose readiness decides a report check's status. Through
+ * day 3 the default window also shows the new month, which has had no time to
+ * collect evidence yet; only the closed month the report is built from is
+ * graded then. A single month, explicit or default, is always graded.
+ */
+export function gradedReportMonths(months: readonly string[], now: Date = new Date()): Set<string> {
+  const current = now.toISOString().slice(0, 7)
+  return new Set(months.length > 1 ? months.filter(month => month !== current) : months)
 }
 
 export const checkResultSchema = z.object({
@@ -86,7 +98,7 @@ export function groupIsoDateRanges(dates: readonly string[]) {
   const ranges: Array<{ start: string; end: string }> = []
   for (const date of [...new Set(dates)].sort()) {
     const previous = ranges.at(-1)
-    if (previous && Date.parse(date) - Date.parse(previous.end) === 86_400_000) previous.end = date
+    if (previous && shiftIsoCalendarDate(previous.end, 1) === date) previous.end = date
     else ranges.push({ start: date, end: date })
   }
   return ranges

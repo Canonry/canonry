@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest'
 
-import { refreshAllIntegrations, type DataRefreshClient } from '../src/data-refresh.js'
+import { gaRefreshDays, refreshAllIntegrations, type DataRefreshClient } from '../src/data-refresh.js'
 
 function makeClient(overrides: Partial<DataRefreshClient> = {}): DataRefreshClient {
   return {
@@ -15,11 +15,29 @@ function makeClient(overrides: Partial<DataRefreshClient> = {}): DataRefreshClie
   }
 }
 
+describe('gaRefreshDays', () => {
+  test('covers the closed report month through day 3, and 30 days otherwise', () => {
+    // 2026-09-01..2026-10-03 is 33 days; 2025-12-01..2026-01-01 is 32.
+    expect(gaRefreshDays(new Date('2026-10-03T23:59:59Z'))).toBe(33)
+    expect(gaRefreshDays(new Date('2026-01-01T00:00:00Z'))).toBe(32)
+    // February is short: 2026-02-01..2026-03-02 is exactly 30 days.
+    expect(gaRefreshDays(new Date('2026-03-02T12:00:00Z'))).toBe(30)
+    expect(gaRefreshDays(new Date('2026-03-03T12:00:00Z'))).toBe(31)
+    expect(gaRefreshDays(new Date('2026-10-04T00:00:00Z'))).toBe(30)
+  })
+
+  test('asks the scheduled GA sync for the report-day window', async () => {
+    const client = makeClient()
+    await refreshAllIntegrations(client, 'proj', new Date('2026-10-02T06:00:00Z'))
+    expect(client.gaSync).toHaveBeenCalledWith('proj', { days: 32 })
+  })
+})
+
 describe('refreshAllIntegrations', () => {
   test('fans out every integration sync for the project with explicit Google provider calls', async () => {
     const client = makeClient()
 
-    await refreshAllIntegrations(client, 'proj')
+    await refreshAllIntegrations(client, 'proj', new Date('2026-09-28T12:00:00Z'))
 
     expect(client.gscSync).toHaveBeenCalledTimes(1)
     expect(client.gscSync).toHaveBeenCalledWith('proj', {})
