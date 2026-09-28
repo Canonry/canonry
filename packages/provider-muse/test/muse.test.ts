@@ -197,7 +197,10 @@ test('HTTP 200 incomplete and refusal responses are stored as observations', asy
     { type: 'message', content: [{ type: 'output_text', text: 'Partial citation.', annotations: [{ type: 'url_citation', url: 'https://example.com' }] }] },
   ] }
   vi.stubGlobal('fetch', async () => { calls++; return fakeResponse(partial) })
-  const truncated = museAdapter.normalizeResult(await museAdapter.executeTrackedQuery(helloQuery, config))
+  const truncatedRaw = await museAdapter.executeTrackedQuery(helloQuery, config)
+  expect(truncatedRaw.stopReason).toBe('content_filter')
+  expect(truncatedRaw.usage).toBeUndefined()
+  const truncated = museAdapter.normalizeResult(truncatedRaw)
   expect(truncated).toMatchObject({ answerText: 'Partial citation.', citedDomains: ['example.com'] })
   expect(calls).toBe(1)
   await expect(museAdapter.generateText('hello', config)).rejects.toThrow(/response status: incomplete \(content_filter\)/)
@@ -207,7 +210,32 @@ test('HTTP 200 incomplete and refusal responses are stored as observations', asy
     { type: 'message', status: 'completed', content: [{ type: 'refusal', refusal: 'Cannot answer.' }] },
   ] }))
   const refused = await museAdapter.executeTrackedQuery(helloQuery, config)
+  expect(refused.stopReason).toBe('completed')
   expect(museAdapter.normalizeResult(refused)).toEqual(emptyEvidence)
+})
+
+// The usage object follows Meta's Response schema reference
+// (https://dev.meta.ai/docs/api-reference/responses/schemas); no live body
+// with usage has been captured yet.
+test('usage is read off the response, with cached tokens split out of input', async () => {
+  vi.stubGlobal('fetch', async () => fakeResponse({
+    id: 'resp_2', status: 'completed', model: 'muse-spark-1.3',
+    output: [
+      { type: 'web_search_call', status: 'completed', action: { type: 'search', queries: ['q1'] } },
+      { type: 'web_search_call', status: 'completed', action: { type: 'search', queries: ['q2'] } },
+      { type: 'message', content: [{ type: 'output_text', text: 'Answer.', annotations: [] }] },
+    ],
+    usage: {
+      input_tokens: 1200,
+      input_tokens_details: { cached_tokens: 200 },
+      output_tokens: 340,
+      output_tokens_details: { reasoning_tokens: 120 },
+      total_tokens: 1540,
+    },
+  }))
+  const raw = await museAdapter.executeTrackedQuery(helloQuery, config)
+  expect(raw.usage).toEqual({ inputTokens: 1000, cachedInputTokens: 200, cacheWriteTokens: 0, outputTokens: 340, searchCount: 2 })
+  expect(raw.stopReason).toBe('completed')
 })
 
 test('HTTP 200 failed responses surface the error code and retry only a throttle', async () => {

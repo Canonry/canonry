@@ -83,7 +83,7 @@ export class ProviderBatchPoller {
       try {
         if (await this.advance(row)) settledRuns.set(row.runId, row.projectId)
       } catch (err: unknown) {
-        log.warn('batch.advance-failed', { batchId: row.id, runId: row.runId, providerName: row.provider, error: describeError(err) })
+        log.warn('batch.advance-failed', { batchId: row.id, runId: row.runId, provider: row.provider, error: describeError(err) })
         this.reschedule(row.id, null)
       }
     }
@@ -133,12 +133,12 @@ export class ProviderBatchPoller {
           return ended ? this.ingest({ ...row, status: ProviderBatchStatuses.ended, resultsExpireAt: poll.resultsExpireAt ?? null }) : false
         }
       } catch (err: unknown) {
-        log.warn('batch.poll-failed', { batchId: row.id, runId: row.runId, providerName: row.provider, error: describeError(err) })
+        log.warn('batch.poll-failed', { batchId: row.id, runId: row.runId, provider: row.provider, error: describeError(err) })
       }
     } else {
       // Nothing here can reach it (its provider was removed from config); the
       // deadline still bounds how long the run waits.
-      log.warn('batch.poll-unavailable', { batchId: row.id, runId: row.runId, providerName: row.provider })
+      log.warn('batch.poll-unavailable', { batchId: row.id, runId: row.runId, provider: row.provider })
     }
     this.reschedule(row.id, status)
     return this.enforceDeadline(row, registered)
@@ -165,12 +165,12 @@ export class ProviderBatchPoller {
         .run()
         .changes === 1
       if (!claimed) return false
-      log.warn('batch.deadline-passed', { batchId: row.id, runId: row.runId, providerName: row.provider, deadlineAt: row.deadlineAt })
+      log.warn('batch.deadline-passed', { batchId: row.id, runId: row.runId, provider: row.provider, deadlineAt: row.deadlineAt })
       if (registered?.adapter.batch && row.providerBatchId) {
         try {
           await registered.adapter.batch.cancel(row.providerBatchId, registered.config)
         } catch (err: unknown) {
-          log.warn('batch.cancel-failed', { batchId: row.id, providerName: row.provider, error: describeError(err) })
+          log.warn('batch.cancel-failed', { batchId: row.id, provider: row.provider, error: describeError(err) })
         }
       }
       return false
@@ -187,7 +187,7 @@ export class ProviderBatchPoller {
       .run()
       .changes === 1
     this.schedule.delete(row.id)
-    if (gaveUp) log.warn('batch.abandoned-after-deadline', { batchId: row.id, runId: row.runId, providerName: row.provider })
+    if (gaveUp) log.warn('batch.abandoned-after-deadline', { batchId: row.id, runId: row.runId, provider: row.provider })
     return gaveUp
   }
 
@@ -197,7 +197,7 @@ export class ProviderBatchPoller {
       return result.kind !== 'skipped'
     } catch (err: unknown) {
       const error = describeError(err)
-      log.warn('batch.ingest-failed', { batchId: row.id, runId: row.runId, providerName: row.provider, error })
+      log.warn('batch.ingest-failed', { batchId: row.id, runId: row.runId, provider: row.provider, error })
       // Results that can no longer be read (the provider deleted them), or
       // that still cannot be read an hour past the deadline, would hold the
       // run (and every later scheduled sweep) open for good. Stop waiting.

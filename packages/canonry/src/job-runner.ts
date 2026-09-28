@@ -1136,7 +1136,7 @@ export class JobRunner {
         for (const provider of apiProviders) {
           if (frozenModes[providerKey(provider)] !== ProviderDispatchModes.batch) continue
           if (adapterSupportsBatch(provider.adapter)) batchProviders.add(provider.adapter.name)
-          else log.warn('run.batch-unsupported', { runId, providerName: provider.adapter.name })
+          else log.warn('run.batch-unsupported', { runId, provider: provider.adapter.name })
         }
         log.info('run.plan-dispatch', {
           runId,
@@ -1681,7 +1681,7 @@ export class JobRunner {
       } catch (err: unknown) {
         // The sync call builds the same request, so it reports this failure
         // as the provider's error for the slot.
-        log.warn('batch.build-failed', { runId: ctx.runId, providerName, executionId: unit.executionId, error: describeError(err) })
+        log.warn('batch.build-failed', { runId: ctx.runId, provider: providerName, executionId: unit.executionId, error: describeError(err) })
         syncUnits.push(unit)
         continue
       }
@@ -1695,7 +1695,7 @@ export class JobRunner {
     for (const [model, lines] of linesByModel) {
       const { chunks, oversized } = chunkBatchLines(lines, maxRequests, capability.maxBytesPerBatch)
       if (oversized.length > 0) {
-        log.warn('batch.line-too-large', { runId: ctx.runId, providerName, model, count: oversized.length, maxBytes: capability.maxBytesPerBatch })
+        log.warn('batch.line-too-large', { runId: ctx.runId, provider: providerName, model, count: oversized.length, maxBytes: capability.maxBytesPerBatch })
         syncUnits.push(...oversized.map(line => line.unit))
       }
       for (const chunk of chunks) {
@@ -1765,7 +1765,7 @@ export class JobRunner {
     } catch (err: unknown) {
       // The row and its ledger rolled back and nothing reached the provider,
       // so these slots are answered sync like a refused batch's.
-      log.warn('batch.ledger-failed', { runId: ctx.runId, providerName, requests: lines.length, error: describeError(err) })
+      log.warn('batch.ledger-failed', { runId: ctx.runId, provider: providerName, requests: lines.length, error: describeError(err) })
       return lines.map(line => line.unit)
     }
     ctx.batchRowIds.push(rowId)
@@ -1795,7 +1795,7 @@ export class JobRunner {
           txDb.update(providerBatches).set({ quotaReleased: lines.length, updatedAt: at }).where(eq(providerBatches.id, rowId)).run()
           if (!sweepLive) releaseDailyQueryQuota(txDb, { scope: reservation.scope, period: reservation.period, count: lines.length })
         })
-        log.warn('batch.submit-refused', { runId: ctx.runId, providerName, batchId: rowId, requests: lines.length, error: message })
+        log.warn('batch.submit-refused', { runId: ctx.runId, provider: providerName, batchId: rowId, requests: lines.length, error: message })
         // A run that is over answers nothing more.
         if (!sweepLive) return []
         this.countDispatched(ctx.providerDispatchCounts, providerName, -lines.length)
@@ -1811,7 +1811,7 @@ export class JobRunner {
         })
         .where(and(eq(providerBatches.id, rowId), eq(providerBatches.status, ProviderBatchStatuses.submitting)))
         .run()
-      log.error('batch.submit-unknown', { runId: ctx.runId, providerName, batchId: rowId, requests: lines.length, error: message })
+      log.error('batch.submit-unknown', { runId: ctx.runId, provider: providerName, batchId: rowId, requests: lines.length, error: message })
       return []
     }
 
@@ -1838,7 +1838,7 @@ export class JobRunner {
       await this.cancelAtProvider([{ id: rowId, provider: providerName, providerBatchId: result.providerBatchId }])
       return []
     }
-    log.info('batch.submitted', { runId: ctx.runId, providerName, batchId: rowId, providerBatchId: result.providerBatchId, model, requests: lines.length })
+    log.info('batch.submitted', { runId: ctx.runId, provider: providerName, batchId: rowId, providerBatchId: result.providerBatchId, model, requests: lines.length })
     return []
   }
 
@@ -1896,14 +1896,14 @@ export class JobRunner {
       if (!row.providerBatchId) continue
       const registered = this.registry.get(row.provider)
       if (!registered?.adapter.batch) {
-        log.warn('batch.cancel-unavailable', { batchId: row.id, providerName: row.provider })
+        log.warn('batch.cancel-unavailable', { batchId: row.id, provider: row.provider })
         continue
       }
       try {
         await registered.adapter.batch.cancel(row.providerBatchId, registered.config)
-        log.info('batch.cancelled', { batchId: row.id, providerName: row.provider, providerBatchId: row.providerBatchId })
+        log.info('batch.cancelled', { batchId: row.id, provider: row.provider, providerBatchId: row.providerBatchId })
       } catch (err: unknown) {
-        log.warn('batch.cancel-failed', { batchId: row.id, providerName: row.provider, error: describeError(err) })
+        log.warn('batch.cancel-failed', { batchId: row.id, provider: row.provider, error: describeError(err) })
       }
     }
   }
@@ -1975,7 +1975,7 @@ export class JobRunner {
       for await (const line of capability.results(batch.providerBatchId, registered.config)) {
         const request = requests.get(line.customId)
         if (!request) {
-          log.warn('batch.unknown-line', { batchId: batch.id, providerName: batch.provider, customId: line.customId })
+          log.warn('batch.unknown-line', { batchId: batch.id, provider: batch.provider, customId: line.customId })
           continue
         }
         // Handled by an earlier pass that was interrupted.
@@ -2016,7 +2016,7 @@ export class JobRunner {
       // Where the sync call would have thrown on the same body (Claude: a
       // failed web search). The answer was billed but cannot be read.
       const error = describeError(err)
-      log.warn('batch.parse-failed', { runId: batch.runId, batchId: batch.id, providerName: batch.provider, executionId: request.executionId, error })
+      log.warn('batch.parse-failed', { runId: batch.runId, batchId: batch.id, provider: batch.provider, executionId: request.executionId, error })
       return { outcome: ProviderBatchRequestOutcomes.parse_failed, error }
     }
     const unit: PlanExecutionUnit = {
@@ -2075,7 +2075,7 @@ export class JobRunner {
         .where(and(eq(providerBatches.id, batch.id), eq(providerBatches.status, ProviderBatchStatuses.ended)))
         .run()
       const { recordedCount: recorded, notRecorded } = tally
-      log.info('batch.ingested', { runId: batch.runId, batchId: batch.id, providerName: batch.provider, recorded, notRecorded, released })
+      log.info('batch.ingested', { runId: batch.runId, batchId: batch.id, provider: batch.provider, recorded, notRecorded, released })
       return { kind: 'ingested', recorded, notRecorded, released } as const
     })
   }
@@ -2113,7 +2113,7 @@ export class JobRunner {
     log.warn('batch.abandoned-unreadable', {
       runId: batch.runId,
       batchId: batch.id,
-      providerName: batch.provider,
+      provider: batch.provider,
       recorded: tally.recordedCount,
       unread: batch.requestCount - tally.ingestedCount,
       released,
