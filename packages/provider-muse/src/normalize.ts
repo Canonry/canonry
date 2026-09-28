@@ -9,8 +9,10 @@ import {
   normalizeServedModel,
   registrableDomain,
   retryAfterDelayMs,
+  usageCount,
   withRetry,
   type GroundingSource,
+  type ProviderUsage,
   type RetrievalStatus,
 } from '@ainyc/canonry-contracts'
 import type { MuseConfig, MuseNormalizedResult, MuseRawResult, MuseTrackedQueryInput } from './types.js'
@@ -145,6 +147,8 @@ export async function executeTrackedQuery(input: MuseTrackedQueryInput): Promise
       groundingSources: parsed.groundingSources,
       searchQueries: parsed.searchQueries,
       retrievalStatus: parsed.retrievalStatus,
+      usage: extractUsage(rawResponse),
+      stopReason: extractStopReason(rawResponse),
     }
   } catch (err: unknown) {
     throw new Error(`[provider-muse] ${describeError(err)}`)
@@ -153,6 +157,34 @@ export async function executeTrackedQuery(input: MuseTrackedQueryInput): Promise
 
 export function extractServedModel(rawResponse: Record<string, unknown>): string | undefined {
   return normalizeServedModel(rawResponse.model)
+}
+
+/**
+ * Billable usage off the response's `usage` object. Meta documents the same
+ * fields as OpenAI's Responses usage (https://dev.meta.ai/docs/api-reference/responses/schemas),
+ * so cached tokens are read as a part of `input_tokens` and subtracted from it.
+ */
+function extractUsage(rawResponse: Record<string, unknown>): ProviderUsage | undefined {
+  const usage = asRecord(rawResponse.usage)
+  if (!usage) return undefined
+  const inputTokens = usageCount(usage.input_tokens)
+  const cachedInputTokens = usageCount(asRecord(usage.input_tokens_details)?.cached_tokens)
+  const output = Array.isArray(rawResponse.output) ? rawResponse.output : []
+  return {
+    inputTokens: Math.max(0, inputTokens - cachedInputTokens),
+    cachedInputTokens,
+    cacheWriteTokens: 0,
+    outputTokens: usageCount(usage.output_tokens),
+    searchCount: output.filter((item) => asRecord(item)?.type === 'web_search_call').length,
+  }
+}
+
+/** Why the response stopped: `incomplete_details.reason` when it has one, else `status`. */
+function extractStopReason(rawResponse: Record<string, unknown>): string | undefined {
+  const reason = asRecord(rawResponse.incomplete_details)?.reason
+  if (typeof reason === 'string' && reason.length > 0) return reason
+  const status = rawResponse.status
+  return typeof status === 'string' && status.length > 0 ? status : undefined
 }
 
 export function normalizeResult(raw: MuseRawResult): MuseNormalizedResult {

@@ -918,7 +918,7 @@ export async function createServer(opts: {
   // API. Say so once at boot rather than silently running sync forever.
   for (const name of providersWithUnsupportedBatch(providers, (provider) => adapterMap[provider])) {
     log.warn("provider.batch.unsupported", {
-      providerName: name,
+      provider: name,
       message: `providers.${name}.batch.enabled is true, but the ${name} adapter has no batch API; its sweeps run sync.`,
     });
   }

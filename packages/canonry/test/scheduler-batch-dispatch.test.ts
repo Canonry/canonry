@@ -114,7 +114,7 @@ describe('scheduled sweeps and batch dispatch', () => {
     expect(db.select().from(runs).where(eq(runs.id, runId!)).get()?.providerDispatchModes).toEqual({ claude: 'batch' })
     const fallback = logs.filter(entry => entry.action === 'run.dispatch-sync-fallback')
     expect(fallback).toHaveLength(1)
-    expect(fallback[0]).toMatchObject({ level: 'warn', runId, providerName: 'openai', reason: 'batch_unavailable' })
+    expect(fallback[0]).toMatchObject({ level: 'warn', runId, provider: 'openai', reason: 'batch_unavailable' })
   })
 
   it('runs a planless project\'s preference sync, with the reason', () => {
@@ -124,7 +124,7 @@ describe('scheduled sweeps and batch dispatch', () => {
     const [runId] = trigger(db, projectId, ['claude', 'openai'])
 
     expect(db.select().from(runs).where(eq(runs.id, runId!)).get()?.providerDispatchModes).toBeNull()
-    expect(logs.filter(entry => entry.action === 'run.dispatch-sync-fallback').map(entry => [entry.providerName, entry.reason]))
+    expect(logs.filter(entry => entry.action === 'run.dispatch-sync-fallback').map(entry => [entry.provider, entry.reason]))
       .toEqual([['claude', 'not_plan_run'], ['openai', 'not_plan_run']])
   })
 

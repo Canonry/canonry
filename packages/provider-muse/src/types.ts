@@ -1,4 +1,4 @@
-import type { GroundingSource, LocationContext, ProviderQuotaPolicy, RetrievalStatus } from '@ainyc/canonry-contracts'
+import type { GroundingSource, LocationContext, ProviderQuotaPolicy, ProviderUsage, RetrievalStatus } from '@ainyc/canonry-contracts'
 
 export type { GroundingSource }
 
@@ -25,6 +25,10 @@ export interface MuseRawResult {
   groundingSources: GroundingSource[]
   searchQueries: string[]
   retrievalStatus: RetrievalStatus
+  /** Billable usage from the response's `usage` object; undefined when it had none. */
+  usage?: ProviderUsage
+  /** `incomplete_details.reason`, else `status`; undefined when the response had neither. */
+  stopReason?: string
 }
 
 export interface MuseNormalizedResult {

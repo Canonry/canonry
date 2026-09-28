@@ -748,8 +748,7 @@ export class Scheduler {
         log.warn('run.dispatch-sync-fallback', {
           runId,
           projectName: project.name,
-          // Not `provider`: the log redactor drops that key as a payload graph.
-          providerName: provider,
+          provider,
           reason,
           message: `${provider} is set to batch for this project but runs sync on this sweep: ${describeBatchIneligibility(provider, reason)}`,
         })

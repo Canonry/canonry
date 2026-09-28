@@ -50,4 +50,6 @@ Canonry counts only `url_citation` annotations on final `message` → `output_te
 
 A refused or truncated (`incomplete`) answer is stored as an observation, with the text and citations it carries. A `failed` response fails the query with Meta's error code; rate-limit and server errors are retried first.
 
+Each answer stores the response's `usage` (input tokens less `input_tokens_details.cached_tokens`, cached tokens, output tokens, and one search per `web_search_call`) and its `stopReason` (`incomplete_details.reason`, else `status`). Canonry has no built-in Muse price, so cost stays unknown unless `providers.muse.pricing` is set; see [batch mode](../batch-mode.md).
+
 This measures Meta Model API responses. It makes no claim about citations or behavior in Meta's consumer interfaces. See Meta's [search grounding guide](https://dev.meta.ai/docs/search-grounding) and [model list](https://dev.meta.ai/docs/models).
