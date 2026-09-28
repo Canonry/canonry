@@ -29,6 +29,42 @@ function source(id: string, receipt = true) {
 function worker(classify = vi.fn(async (input: SentimentClassifierInput) => classified(input))) { return { classify, runtime: new SentimentWorker(db, { configuration, classifier: () => ({ classify }), now }) } }
 
 describe('durable sentiment worker', () => {
+
+  it('records two billed retry attempts while storing one successful assessment', async () => {
+    service.configure('p', { enabled: true }); source('r')
+    let calls = 0
+    const classify = vi.fn(async (input: SentimentClassifierInput): Promise<SentimentClassifierOutput> => ++calls === 1 ? { kind: 'failed', outcome: 'failed', returnedModel: 'jev-1.13.0', usage: { kind: 'reported', inputTokens: 1000, outputTokens: 0 }, error: { code: 'RETRYABLE_RESPONSE', message: 'Safe failure', retryable: true, retryAfterMs: 1000 } } : classified(input))
+    const runtime = new SentimentWorker(db, { configuration, classifier: () => ({ classify }), now })
+    await runtime.tick()
+    time = '2026-09-28T00:01:00.000Z'
+    await runtime.tick(); await runtime.tick()
+    expect(classify).toHaveBeenCalledTimes(2)
+    expect(db.select().from(sentimentAttempts).all()).toHaveLength(2)
+    expect(db.select().from(llmUsageEvents).all()).toHaveLength(2)
+    expect(service.jobs('p').jobs[0]).toMatchObject({ selected: 1, state: 'complete', counts: { favorable: 1 } })
+  })
+
+
+  it('does not dispatch beyond the durable attempt budget after repeated crashed attempts', async () => {
+    service.configure('p', { enabled: true }); source('r')
+    const { runtime, classify } = worker(); runtime.reconcile()
+    const repository = new SentimentRepository(db)
+    for (let number = 0; number < 3; number++) {
+      const work = repository.claim({ owner: `crashed-${number}`, now: time, leaseMs: 1_000 })!
+      expect(repository.startAttempt({ workItemId: work.id, owner: `crashed-${number}`, requestedModel: 'jev-1.13.0', now: time })).toBeDefined()
+      time = new Date(Date.parse(time) + 2_000).toISOString()
+    }
+    await runtime.tick()
+    expect(classify).not.toHaveBeenCalled()
+    expect(service.jobs('p').jobs[0]).toMatchObject({ state: 'failed', counts: { failed: 1 } })
+    expect(db.select().from(sentimentAttempts).all()).toHaveLength(3)
+    const preview = service.preview('p', { runId: 'r' })
+    service.submit('p', preview.previewToken!, 'explicit-retry', 'operator')
+    await runtime.tick()
+    expect(classify).toHaveBeenCalledTimes(1)
+    expect(db.select().from(sentimentAttempts).all()).toHaveLength(4)
+  })
+
   it('makes zero provider calls while either switch is disabled', async () => {
     source('r'); const { runtime, classify } = worker()
     await runtime.tick(); expect(classify).not.toHaveBeenCalled()

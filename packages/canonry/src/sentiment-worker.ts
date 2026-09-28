@@ -80,7 +80,8 @@ export class SentimentWorker {
     if (!settings?.enabled || settings.enablementEpoch !== work.enablementEpoch) { this.repository.cancelProject(work.projectId, this.now()); return }
     const estimate = prepared?.ok ? prepared.estimatedInputTokens : Math.ceil(canonicalSentimentJson(input).length / 3)
     if (estimate > config.maxInputTokensPerMinute) { this.repository.failWork({ workItemId: work.id, owner, now: this.now(), errorCode: 'INPUT_EXCEEDS_INSTALL_TOKEN_BUDGET' }); return }
-    const attempt = this.repository.startAttempt({ workItemId: work.id, owner, requestedModel: input.definition.requestedModel, now: this.now(), estimatedInputTokens: estimate, maxRequestsPerMinute: config.maxRequestsPerMinute, maxInputTokensPerMinute: config.maxInputTokensPerMinute })
+    if (work.attemptCount - work.attemptBudgetStart >= config.maxAttempts) { this.repository.failWork({ workItemId: work.id, owner, now: this.now(), errorCode: 'ATTEMPT_BUDGET_EXHAUSTED' }); return }
+    const attempt = this.repository.startAttempt({ workItemId: work.id, owner, requestedModel: input.definition.requestedModel, now: this.now(), estimatedInputTokens: estimate, maxRequestsPerMinute: config.maxRequestsPerMinute, maxAttempts: config.maxAttempts, maxInputTokensPerMinute: config.maxInputTokensPerMinute })
     if (!attempt) {
       this.repository.failWork({ workItemId: work.id, owner, now: this.now(), errorCode: 'RATE_LIMIT_WAIT', retryAt: new Date(Date.parse(this.now()) + 60_000).toISOString() })
       return
@@ -94,8 +95,8 @@ export class SentimentWorker {
     if (result.kind === 'failed') {
       const latest = this.options.configuration()
       if (!sentimentInstallReadiness(latest).ready) { this.cancelDisabled(); return }
-      const retryMs = Math.max(result.error.retryAfterMs ?? 0, backoffDelayMs(attempt.attemptNumber - 1))
-      this.repository.failWork({ workItemId: work.id, owner, now, errorCode: result.error.code, ...(result.error.retryable && attempt.attemptNumber < latest.maxAttempts ? { retryAt: new Date(Date.parse(now) + retryMs).toISOString() } : {}) })
+      const retryMs = Math.max(result.error.retryAfterMs ?? 0, backoffDelayMs(attempt.attemptNumber - work.attemptBudgetStart - 1))
+      this.repository.failWork({ workItemId: work.id, owner, now, errorCode: result.error.code, ...(result.error.retryable && attempt.attemptNumber - work.attemptBudgetStart < latest.maxAttempts ? { retryAt: new Date(Date.parse(now) + retryMs).toISOString() } : {}) })
     } else this.repository.completeWork({ workItemId: work.id, owner, outcome: result.outcome, result, returnedModel: result.returnedModel, now })
   }
 }

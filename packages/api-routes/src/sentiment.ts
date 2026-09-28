@@ -32,7 +32,7 @@ export async function sentimentRoutes(app: FastifyInstance, options: SentimentRo
     requireSentimentAdministrator(request)
     const body = parseSentimentRequest(sentimentBackfillRequestSchema, request.body)
     const project = resolveProject(app.db, request.params.name)
-    const result = service.submit(project.id, body.previewToken, body.idempotencyKey, request.principal?.id ?? 'local')
+    const result = service.submit(project.id, body.previewToken, body.idempotencyKey, request.principal?.delegatedUser?.id ?? request.principal?.id ?? 'local')
     return result
   })
   app.get<{ Params: { name: string } }>('/projects/:name/sentiment/jobs', async request => service.jobs(resolveProject(app.db, request.params.name).id))
