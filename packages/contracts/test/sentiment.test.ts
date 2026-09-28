@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { sentimentFixtureSummary, sentimentCompleteFixtureSummary } from './fixtures/sentiment.js'
+import { sentimentSummarySchema } from '../src/sentiment.js'
 import { aggregateSentiment, canonicalSentimentDefinitionJson, createSentimentEvaluationDefinition, sentimentClassifierOutputSchema, sentimentPresetThemes, sentimentRateDisplay, sentimentThemesSchema, type SentimentAggregateItem, type SentimentOutcome, type SentimentThemeResult } from '../src/sentiment.js'
 
 const outcomes: SentimentOutcome[] = ['favorable', 'favorable', 'favorable', 'mixed', 'unfavorable', 'factual', 'wrong-subject', 'invalid-conclusion-evidence', 'failed', 'pending']
@@ -9,6 +11,13 @@ function themeResult(praised: boolean, criticized: boolean): SentimentThemeResul
 const canonical: SentimentAggregateItem[] = outcomes.map((outcome, index) => ({ assessmentId: `a${index}`, sourceSnapshotId: `s${index}`, outcome, themes: index < 3 ? [themeResult(index < 2, true)] : [] }))
 
 describe('sentiment measurement invariants', () => {
+  it('shares strict partial and complete DTO fixtures across every surface', () => {
+    expect(sentimentSummarySchema.parse(sentimentFixtureSummary)).toEqual(sentimentFixtureSummary)
+    expect(sentimentSummarySchema.parse(sentimentCompleteFixtureSummary).state).toBe('complete')
+    for (const state of ['disabled', 'not-measured', 'processing', 'partial', 'complete', 'failed', 'canceled', 'unsupported'] as const) {
+      expect(sentimentSummarySchema.safeParse({ ...sentimentFixtureSummary, state }).success).toBe(true)
+    }
+  })
   it('counts five judgments out of ten assessments with no mixed favorable credit', () => {
     const result = aggregateSentiment(canonical, [price])
     expect(result.coverage).toMatchObject({ selected: 10, judged: 5, distinctSourceAnswers: 10 })
