@@ -380,6 +380,31 @@ describe('computeVisibilityCompare — model continuity', () => {
     expect(metricOf(dto, 'mention-rate').to).toMatchObject({ numerator: 0, denominator: 1 })
   })
 
+  it('reads model evidence only from pairs present in both months, so a one-month pair cannot flip a provider', () => {
+    // OpenAI answered q1 on gpt-5.4 in May only; June has q1 from Gemini alone.
+    // (q1, openai) is not a common pair, so its gpt-5.4 row says nothing about
+    // the (q2, openai) comparison, which ran on gpt-5.5 in both months.
+    const from = [
+      snap({ queryId: 'q1', provider: 'openai', model: 'gpt-5.4' }),
+      snap({ queryId: 'q2', provider: 'openai', model: 'gpt-5.5' }),
+      snap({ queryId: 'q1', provider: 'gemini', model: 'gemini-2' }),
+    ]
+    const to = [
+      snap({ queryId: 'q2', provider: 'openai', model: 'gpt-5.5' }),
+      snap({ queryId: 'q1', provider: 'gemini', model: 'gemini-2' }),
+    ]
+    const dto = computeVisibilityCompare(build(from, to))
+    expect(dto.continuity).toEqual({
+      status: 'comparable',
+      comparedProviders: ['gemini', 'openai'],
+      providers: [
+        { provider: 'gemini', status: 'included', fromModels: ['gemini-2'], toModels: ['gemini-2'] },
+        { provider: 'openai', status: 'included', fromModels: ['gpt-5.5'], toModels: ['gpt-5.5'] },
+      ],
+    })
+    expect(dto.modelChanges).toEqual([])
+  })
+
   it('excludes a provider whose only snapshots in one period sit on non-basket queries — no phantom rows, no spurious model change', () => {
     // openai is observed in BOTH periods pre-basket, but its `from` snapshots
     // are all on q1, which is not in the query basket (q1 is absent from `to`).
