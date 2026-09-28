@@ -32,6 +32,8 @@ The [engine receipt](../evals/sentiment/engine-smoke-receipt-2026-09-28.json) pi
 
 One complete installed command passed seven assertion groups across HTTP, spawned CLI, hosted MCP, and spawned stdio MCP, then six browser assertion groups with 14 screenshots. The fixture covers opposing engine verdicts, a locally excluded absent subject, an unadmitted engine, shared Advanced subjects, exact model/location/Property/market evidence, the 100%/0% location regression, mobile reachability, keyboard focus, read-only users and disabled state. Expanding rows adds no per-row summary reads. Seven assessments completed through six deterministic loopback requests; all subsequent reads and browser actions added zero attempts. There were no unexpected HTTP, console or page errors or external requests. The owned server stopped. No additional live Jev requests were made.
 
+The [final mobile follow-up receipt](../evals/sentiment/engine-mobile-smoke-receipt-2026-09-28.json) pins the subsequent dashboard rebuild: subject and verdict may use separate lines, and verdict words stay intact. All 33 semantic sentiment UI tests, lint and the dashboard build passed. The complete installed command passed again with seven assertion groups, six browser groups, 14 screenshots and six loopback requests. A real text-range assertion verifies the verdict fits on one line inside its button; the Advanced mobile screenshot is exactly 390 pixels wide. The prior receipt remains attached to its original artifact.
+
 Reproduce with a freshly installed package under `/tmp/canonry-sentiment-...` and the Playwright/Chromium setup documented in the evaluation README:
 
 ```sh
