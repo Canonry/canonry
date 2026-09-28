@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useId, useMemo, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { CitationStates, brandLabelFromDomain, type QueryClass } from '@ainyc/canonry-contracts'
 
@@ -9,8 +9,7 @@ import {
   DataTableSearch,
   useClientTable,
 } from '../shared/DataTableControls.js'
-import { ProviderBadge } from '../shared/ProviderBadge.js'
-import { ToneBadge } from '../shared/ToneBadge.js'
+import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { CitationTimeline, mergeProviderHistories } from './CitationTimeline.js'
 import { useDrawer } from '../../hooks/use-drawer.js'
 import { highlightTermsInText, type HighlightTermGroup } from '../../lib/highlight.js'
@@ -43,11 +42,7 @@ function queryClassLabel(queryClass: QueryClass | null): string {
 }
 
 function evidenceGroupSearchText(group: EvidenceGroup): string {
-  return [
-    group.phrase,
-    group.location ?? '',
-    ...group.rawItems.map((item) => item.provider),
-  ].join(' ')
+  return group.phrase
 }
 
 /** Map a snapshot to the state value driving the column for the active mode.
@@ -85,24 +80,6 @@ function statusLabelForMode(state: CitationState, mode: CoverageMode): string {
     case 'emerging': return 'Emerging'
     case 'pending': return 'Pending'
   }
-}
-
-function describeChange(history: RunHistoryPoint[], mode: CoverageMode): string {
-  const verb = mode === 'mentions' ? 'mentioned' : 'cited'
-  const verbCap = mode === 'mentions' ? 'Mentioned' : 'Cited'
-  if (history.length === 0) return 'Awaiting first run'
-  if (history.length === 1) return 'First observation'
-  const latest = history[history.length - 1]!.citationState
-  const prev = history[history.length - 2]!.citationState
-  if (prev !== 'cited' && latest === 'cited') return `Newly ${verb}`
-  if (prev === 'cited' && latest !== 'cited') return 'Lost since last run'
-  let streak = 0
-  for (let i = history.length - 1; i >= 0; i--) {
-    if (history[i]!.citationState === latest) streak++
-    else break
-  }
-  if (latest === 'cited') return streak <= 1 ? `${verbCap} in latest run` : `${verbCap} for ${streak} runs`
-  return streak <= 1 ? `Not ${verb} in latest run` : `Not ${verb} across ${streak} runs`
 }
 
 function projectItemsForMode(items: CitationInsightVm[], mode: CoverageMode): CitationInsightVm[] {
@@ -166,16 +143,16 @@ export function summarizeSignalsForItems(items: CitationInsightVm[]): EvidenceSi
   ]
 }
 
-function SignalBadge({ signal }: { signal: EvidenceSignalSummary }) {
+function SignalLabel({ signal }: { signal: EvidenceSignalSummary }) {
   const toneClass = signal.tone === 'positive'
-    ? 'border-positive-500/25 bg-positive-500/10 text-positive'
+    ? 'text-positive'
     : signal.tone === 'negative'
-      ? 'border-negative-500/25 bg-negative-500/10 text-negative'
+      ? 'text-negative'
       : signal.tone === 'pending'
-        ? 'border-caution-500/20 bg-caution-500/10 text-caution'
-        : 'border-mono-700/60 bg-bg-elevated/70 text-secondary'
+        ? 'text-caution'
+        : 'text-secondary'
   return (
-    <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium leading-none ${toneClass}`}>
+    <span className={toneClass}>
       {signal.label}
     </span>
   )
@@ -183,9 +160,9 @@ function SignalBadge({ signal }: { signal: EvidenceSignalSummary }) {
 
 function SignalStrip({ items }: { items: CitationInsightVm[] }) {
   return (
-    <div className="mt-1 flex flex-wrap gap-1" aria-label="Latest run mention and citation signals">
+    <div className="query-evidence-signals" aria-label="Latest run mention and citation signals">
       {summarizeSignalsForItems(items).map(signal => (
-        <SignalBadge key={signal.key} signal={signal} />
+        <SignalLabel key={signal.key} signal={signal} />
       ))}
     </div>
   )
@@ -201,14 +178,21 @@ export function EvidenceTable({
   defaultDensity?: Density
 }) {
   const { openEvidence } = useDrawer()
+  const panelId = useId()
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [mode, setMode] = useState<CoverageMode>('mentions')
   const [density, setDensity] = useState<Density>(defaultDensity)
   const [queryClassSelection, setQueryClassSelection] = useState<QueryClassSelection>('all')
+  const [providerSelection, setProviderSelection] = useState('')
+  const providers = useMemo(() => [...new Set([
+    ...evidence.map(item => item.provider).filter(Boolean),
+    ...(providerSelection ? [providerSelection] : []),
+  ])].sort(), [evidence, providerSelection])
 
   const groups = useMemo(() => {
     const map = new Map<string, EvidenceGroup>()
     for (const rawItem of evidence) {
+      if (providerSelection && rawItem.provider !== providerSelection) continue
       const phrase = rawItem.query
       const queryClass = rawItem.queryClass ?? null
       const location = compareLocations ? (rawItem.location ?? null) : null
@@ -219,7 +203,7 @@ export function EvidenceTable({
       map.set(key, existing)
     }
     return [...map.values()]
-  }, [evidence, mode, compareLocations])
+  }, [evidence, mode, compareLocations, providerSelection])
   const classGroups = useMemo(() => groups.filter(group =>
     queryClassSelection === 'all'
     || (queryClassSelection === 'unclassified' ? group.queryClass === null : group.queryClass === queryClassSelection),
@@ -246,52 +230,46 @@ export function EvidenceTable({
   const countNoun = mode === 'mentions' ? 'mentioned' : 'cited'
 
   return (
-    <div>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className="text-[10px] uppercase tracking-wide text-muted">View by</span>
-        <div
-          className="inline-flex gap-0.5 p-0.5 rounded-md bg-bg-elevated/60 border border-subtle"
-          role="tablist"
-          aria-label="Citation tracking view"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === 'mentions'}
-            className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-              mode === 'mentions'
-                ? 'bg-mono-800 text-heading'
-                : 'text-secondary hover:text-strong'
-            }`}
-            onClick={() => setMode('mentions')}
-          >
-            Mentions
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === 'citations'}
-            className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-              mode === 'citations'
-                ? 'bg-mono-800 text-heading'
-                : 'text-secondary hover:text-strong'
-            }`}
-            onClick={() => setMode('citations')}
-          >
-            Citations
-          </button>
+    <div className="query-evidence">
+      <div className="query-evidence-view-row">
+        <div className="flex items-center gap-3">
+          <div className="query-evidence-tabs" role="tablist" aria-label="Citation tracking view">
+            {(['mentions', 'citations'] as const).map(value => (
+              <button
+                key={value}
+                id={`${panelId}-${value}`}
+                type="button"
+                role="tab"
+                aria-controls={panelId}
+                aria-selected={mode === value}
+                tabIndex={mode === value ? 0 : -1}
+                onClick={() => setMode(value)}
+                onKeyDown={event => {
+                  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+                  event.preventDefault()
+                  const next = event.key === 'Home' ? 'mentions' : event.key === 'End' ? 'citations' : value === 'mentions' ? 'citations' : 'mentions'
+                  setMode(next)
+                  document.getElementById(`${panelId}-${next}`)?.focus()
+                }}
+              >
+                {value === 'mentions' ? 'Mentions' : 'Citations'}
+              </button>
+            ))}
+          </div>
+          <InfoTooltip text="Mentions track your brand or domain in answer text. Citations track your domain in source links. Each signal is measured independently." />
         </div>
-        <span className="text-[11px] text-muted">
-          {mode === 'mentions'
-            ? 'Brand or domain in answer text'
-            : 'Brand or domain in source links'}
-        </span>
-        <div className="ml-auto flex items-center gap-3">
-          <button
+        <div className="query-evidence-display-controls">
+          <label className="query-evidence-preview-toggle">
+            <input type="checkbox" checked={density === 'detailed'} onChange={event => setDensity(event.target.checked ? 'detailed' : 'compact')} />
+            Show answer previews
+          </label>
+          <Button
             type="button"
-            className="text-[11px] text-secondary hover:text-strong"
+            variant="ghost"
+            className="min-h-11"
+            disabled={visibleGroupKeys.length === 0}
             onClick={() => {
-              setExpandedRows((previous) => {
+              setExpandedRows(previous => {
                 const next = new Set(previous)
                 for (const key of visibleGroupKeys) {
                   if (visibleGroupsExpanded) next.delete(key)
@@ -302,63 +280,28 @@ export function EvidenceTable({
             }}
           >
             {visibleGroupsExpanded ? 'Collapse page' : 'Expand page'}
-          </button>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase tracking-wide text-muted">Density</span>
-            <div
-              className="inline-flex gap-0.5 p-0.5 rounded-md bg-bg-elevated/60 border border-subtle"
-              role="tablist"
-              aria-label="Evidence row density"
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={density === 'compact'}
-                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-                  density === 'compact'
-                    ? 'bg-mono-800 text-heading'
-                    : 'text-secondary hover:text-strong'
-                }`}
-                onClick={() => setDensity('compact')}
-              >
-                Compact
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={density === 'detailed'}
-                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-                  density === 'detailed'
-                    ? 'bg-mono-800 text-heading'
-                    : 'text-secondary hover:text-strong'
-                }`}
-                onClick={() => setDensity('detailed')}
-              >
-                Detailed
-              </button>
-            </div>
-          </div>
+          </Button>
         </div>
       </div>
-      {groups.length > 0 ? (
-        <div className="mb-3 flex flex-wrap items-center gap-3">
+      {evidence.length > 0 || providerSelection ? (
+        <div className="query-evidence-filters">
           <DataTableSearch
             value={groupsTable.query}
             onChange={groupsTable.setQuery}
-            label="Filter tracked queries"
-            placeholder="Filter query, location, or provider"
-            className="w-full max-w-md"
+            label="Find a query"
+            placeholder="Find a query"
+            className="query-evidence-search"
           />
-          <label className="flex items-center gap-2 text-xs text-secondary">
-            Query class
-            <select
-              value={queryClassSelection}
-              onChange={event => {
-                setQueryClassSelection(event.target.value as QueryClassSelection)
-                groupsTable.setPage(1)
-              }}
-              className="h-9 rounded-md border border-default bg-surface px-3 text-sm text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500"
-            >
+          <label className="query-evidence-filter">
+            <span className="sr-only">Answer engine</span>
+            <select value={providerSelection} onChange={event => { setProviderSelection(event.target.value); groupsTable.setPage(1) }}>
+              <option value="">All engines</option>
+              {providers.map(provider => <option key={provider} value={provider}>{provider}</option>)}
+            </select>
+          </label>
+          <label className="query-evidence-filter">
+            <span className="sr-only">Query class</span>
+            <select value={queryClassSelection} onChange={event => { setQueryClassSelection(event.target.value as QueryClassSelection); groupsTable.setPage(1) }}>
               <option value="all">All queries</option>
               <option value="branded">Branded</option>
               <option value="non-brand">Non-brand</option>
@@ -367,150 +310,136 @@ export function EvidenceTable({
           </label>
         </div>
       ) : null}
-      <div className="evidence-table-wrap">
-        <table className="evidence-table">
-          <thead>
-            <tr>
-              <th style={{ width: '2rem' }} />
-              <th scope="col">Query</th>
-              <th scope="col">Status</th>
-              <th scope="col">{historyHeader}</th>
-              <th scope="col">Latest run</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {groupsTable.rows.map(({ key: groupKey, phrase, queryClass, location, items, rawItems }) => {
-              const isExpanded = expandedRows.has(groupKey)
-              const states = items.map(i => i.citationState)
-              const aggState: CitationState =
-                states.includes('cited') ? 'cited' :
-                states.includes('emerging') ? 'emerging' :
-                states.includes('lost') ? 'lost' :
-                states.every(s => s === 'pending') ? 'pending' : 'not-cited'
+      <div id={panelId} role="tabpanel" aria-labelledby={`${panelId}-${mode}`}>
+        <div className="query-evidence-table-wrap">
+          <table className="evidence-table query-evidence-table">
+            <thead>
+              <tr>
+                <th scope="col">Query</th>
+                <th scope="col">Status</th>
+                <th scope="col">{historyHeader}</th>
+                <th scope="col">Latest run</th>
+                <th><span className="sr-only">Answer</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {groupsTable.rows.map(({ key: groupKey, phrase, queryClass, location, items, rawItems }, groupIndex) => {
+                const isExpanded = expandedRows.has(groupKey)
+                const metadataId = `${panelId}-query-${groupIndex}`
+                const states = items.map(i => i.citationState)
+                const aggState: CitationState =
+                  states.includes('cited') ? 'cited' :
+                  states.includes('emerging') ? 'emerging' :
+                  states.includes('lost') ? 'lost' :
+                  states.every(s => s === 'pending') ? 'pending' : 'not-cited'
 
-              const mergedHistory = mergeProviderHistories(items)
-              const presentCount = items.filter(i => i.citationState === CitationStates.cited || i.citationState === 'emerging').length
-              const aggChangeLabel = describeChange(mergedHistory, mode)
+                const mergedHistory = mergeProviderHistories(items)
+                const presentCount = items.filter(i => i.citationState === CitationStates.cited || i.citationState === 'emerging').length
 
-              return (
-                <Fragment key={groupKey}>
-                  <tr
-                    className="cursor-pointer hover:bg-mono-800/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
-                    onClick={() => toggleRow(groupKey)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        toggleRow(groupKey)
-                      }
-                    }}
-                    tabIndex={0}
-                    role="button"
-                    aria-expanded={isExpanded}
-                  >
-                    <td>
-                      <ChevronRight
-                        size={14}
-                        className={`transition-transform duration-150 text-muted ${isExpanded ? 'rotate-90' : ''}`}
-                      />
-                    </td>
-                    <td className="evidence-query-cell">
-                      <div>
-                        <span className="font-medium text-heading">{phrase}</span>
-                        {compareLocations && (
-                          <span className="ml-2 text-[10px] uppercase tracking-wide text-muted">
-                            {location ?? 'No location'}
-                          </span>
-                        )}
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          <ToneBadge tone="neutral" className="whitespace-nowrap">{queryClassLabel(queryClass)}</ToneBadge>
-                          {items.map(item => (
-                            <ProviderBadge key={item.id} provider={item.provider} />
-                          ))}
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="flex items-center gap-2">
-                        <CitationBadge state={aggState} label={statusLabelForMode(aggState, mode)} />
-                        <span
-                          className="text-[11px] text-muted"
-                          title={`${presentCount} of ${items.length} engines ${countNoun}`}
+                return (
+                  <Fragment key={groupKey}>
+                    <tr className="query-evidence-row" onClick={() => toggleRow(groupKey)}>
+                      <td className="evidence-query-cell">
+                        <button
+                          type="button"
+                          className="query-evidence-query"
+                          aria-label={phrase}
+                          aria-describedby={metadataId}
+                          aria-expanded={isExpanded}
+                          onClick={event => { event.stopPropagation(); toggleRow(groupKey) }}
                         >
-                          {presentCount}/{items.length}
-                        </span>
-                      </div>
-                    </td>
-                    <td>
-                      <CitationTimeline history={mergedHistory} />
-                    </td>
-                    <td className="evidence-change-cell">
-                      <div>{aggChangeLabel}</div>
-                      <SignalStrip items={rawItems} />
-                    </td>
-                    <td />
-                  </tr>
-                  {isExpanded && items.map((item, index) => (
-                    <Fragment key={item.id}>
-                      <tr className="bg-surface">
-                        <td />
-                        <td className="evidence-query-cell pl-5">
-                          <ProviderBadge provider={item.provider} />
-                        </td>
-                        <td>
-                          <CitationBadge
-                            state={item.citationState}
-                            label={statusLabelForMode(item.citationState, mode)}
-                          />
-                        </td>
-                        <td>
-                          <CitationTimeline history={item.runHistory} />
-                        </td>
-                        <td className="evidence-change-cell">
-                          <div>{describeChange(item.runHistory, mode)}</div>
-                          <SignalStrip items={[rawItems[index] ?? item]} />
-                        </td>
-                        <td>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); void openEvidence(item.id) }}
+                          <ChevronRight size={16} aria-hidden="true" className={isExpanded ? 'rotate-90' : ''} />
+                          <span className="min-w-0">
+                            <span>{phrase}</span>
+                            <span id={metadataId} className="query-evidence-meta">
+                              <span>{queryClassLabel(queryClass)}</span>
+                              {compareLocations && <span>{location ?? 'No location'}</span>}
+                              {items.filter(item => item.provider).map(item => <span key={item.id}>{item.provider}</span>)}
+                            </span>
+                          </span>
+                        </button>
+                      </td>
+                      <td>
+                        <div className="flex items-center gap-2">
+                          <CitationBadge state={aggState} label={statusLabelForMode(aggState, mode)} className="rounded-none border-0 bg-transparent p-0 text-sm tracking-normal" />
+                          <span
+                            className="text-sm text-secondary tabular-nums"
+                            aria-label={`${presentCount} of ${items.length} engines ${countNoun}`}
+                            title={`${presentCount} of ${items.length} engines ${countNoun}`}
                           >
-                            View
-                          </Button>
-                        </td>
-                      </tr>
-                      {density === 'detailed' && (
-                        <tr className="bg-surface-subtle">
-                          <td />
-                          <td colSpan={5} className="px-5 pb-4">
-                            <AnswerInlinePanel
-                              item={item}
-                              onViewFull={() => openEvidence(item.id)}
+                            {presentCount}/{items.length}
+                          </span>
+                        </div>
+                      </td>
+                      <td>
+                        <CitationTimeline history={mergedHistory} signal={mode} />
+                      </td>
+                      <td className="evidence-change-cell">
+                        <SignalStrip items={rawItems} />
+                      </td>
+                      <td />
+                    </tr>
+                    {isExpanded && items.map((item, index) => (
+                      <Fragment key={item.id}>
+                        <tr className="query-evidence-engine-row">
+                          <td className="evidence-query-cell">
+                            <span className="text-sm text-secondary">{item.provider || 'Awaiting engine'}</span>
+                          </td>
+                          <td>
+                            <CitationBadge
+                              state={item.citationState}
+                              className="rounded-none border-0 bg-transparent p-0 text-sm tracking-normal"
+                              label={statusLabelForMode(item.citationState, mode)}
                             />
                           </td>
+                          <td>
+                            <CitationTimeline history={item.runHistory} signal={mode} />
+                          </td>
+                          <td className="evidence-change-cell">
+                            <SignalStrip items={[rawItems[index] ?? item]} />
+                          </td>
+                          <td>
+                            <Button
+                              variant="ghost"
+                              className="min-h-11"
+                              type="button"
+                              title={`View ${item.provider || 'saved'} answer for ${item.query}`}
+                              onClick={(e) => { e.stopPropagation(); void openEvidence(item.id) }}
+                            >
+                              View
+                            </Button>
+                          </td>
                         </tr>
-                      )}
-                    </Fragment>
-                  ))}
-                </Fragment>
-              )
-            })}
-          </tbody>
-        </table>
+                        {density === 'detailed' && (
+                          <tr className="query-evidence-preview-row">
+                            <td colSpan={5}>
+                              <AnswerInlinePanel
+                                item={item}
+                                onViewFull={() => openEvidence(item.id)}
+                              />
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    ))}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+        {groupsTable.totalRows === 0 && (groupsTable.hasQuery || queryClassSelection !== 'all' || providerSelection) ? (
+          <p className="supporting-copy mt-3">No tracked queries match this filter.</p>
+        ) : null}
+        <DataTablePagination
+          page={groupsTable.page}
+          pageSize={groupsTable.pageSize}
+          visibleRows={groupsTable.rows.length}
+          totalRows={groupsTable.totalRows}
+          onPageChange={groupsTable.setPage}
+          itemLabel={groupsTable.hasQuery || queryClassSelection !== 'all' || providerSelection ? 'matches' : 'queries'}
+        />
       </div>
-      {groupsTable.totalRows === 0 && (groupsTable.hasQuery || queryClassSelection !== 'all') ? (
-        <p className="supporting-copy mt-3">No tracked queries match this filter.</p>
-      ) : null}
-      <DataTablePagination
-        page={groupsTable.page}
-        pageSize={groupsTable.pageSize}
-        visibleRows={groupsTable.rows.length}
-        totalRows={groupsTable.totalRows}
-        onPageChange={groupsTable.setPage}
-        itemLabel={groupsTable.hasQuery || queryClassSelection !== 'all' ? 'matches' : 'queries'}
-      />
       <p className="sr-only" aria-live="polite">
         Showing {presenceVerb === 'cited' ? 'citations (sources)' : 'mentions (answer text)'}.
       </p>
@@ -557,7 +486,7 @@ function AnswerInlinePanel({
   const hasAnswer = item.answerSnippet.trim().length > 0
   if (!hasAnswer) {
     return (
-      <p className="text-[11px] text-muted italic">
+      <p className="text-sm text-secondary">
         No answer text captured for this run.
       </p>
     )
@@ -567,59 +496,56 @@ function AnswerInlinePanel({
   const groups = buildHighlightGroups(item)
 
   return (
-    <div className="space-y-2">
-      <p className="text-[10px] uppercase tracking-wide text-muted">Answer text</p>
+    <div className="max-w-prose space-y-3">
+      <p className="text-[13px] font-medium text-secondary">Answer text</p>
       <p className="text-sm leading-relaxed text-neutral">
         {highlightTermsInText(body, groups)}
       </p>
       {(item.citedDomains.length > 0 || (item.mentionedCompetitorDomains?.length ?? 0) > 0) && (
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-secondary">
           {item.citedDomains.length > 0 && (
             <>
-              <span className="text-[10px] uppercase tracking-wide text-muted">Cited:</span>
+              <span className="font-medium">Cited:</span>
               {item.citedDomains.slice(0, 6).map(d => (
                 <span
                   key={`c-${d}`}
-                  className={`rounded-full border px-2 py-0.5 text-[11px] ${
-                    isCitedCompetitorDomain(item, d)
-                      ? 'border-negative-900/40 bg-negative-950/30 text-negative'
-                      : 'border-mono-700/60 bg-bg-elevated/60 text-neutral'
-                  }`}
+                  className="[overflow-wrap:anywhere]"
                 >
                   {d}{isCitedCompetitorDomain(item, d) ? ' · competitor source' : ''}
                 </span>
               ))}
               {item.citedDomains.length > 6 && (
-                <span className="text-[10px] text-muted">+{item.citedDomains.length - 6} more</span>
+                <span>+{item.citedDomains.length - 6} more</span>
               )}
             </>
           )}
           {(item.mentionedCompetitorDomains?.length ?? 0) > 0 && (
             <>
-              <span className="ml-2 text-[10px] uppercase tracking-wide text-negative-500/80">Competitors in answer:</span>
+              <span className="font-medium">Competitors in answer:</span>
               {item.mentionedCompetitorDomains!.slice(0, 4).map(d => (
                 <span
                   key={`co-${d}`}
-                  className="rounded-full border border-negative-900/40 bg-negative-950/30 px-2 py-0.5 text-[11px] text-negative"
+                  className="[overflow-wrap:anywhere]"
                 >
                   {d}
                 </span>
               ))}
               {item.mentionedCompetitorDomains!.length > 4 && (
-                <span className="text-[10px] text-muted">+{item.mentionedCompetitorDomains!.length - 4} more</span>
+                <span>+{item.mentionedCompetitorDomains!.length - 4} more</span>
               )}
             </>
           )}
         </div>
       )}
       {truncated && (
-        <button
+        <Button
           type="button"
-          className="text-[11px] font-medium text-positive-400 hover:text-positive"
+          variant="ghost"
+          className="min-h-11"
           onClick={(e) => { e.stopPropagation(); onViewFull() }}
         >
-          View full answer →
-        </button>
+          View full answer
+        </Button>
       )}
     </div>
   )

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnswerMarkdown } from '../shared/AnswerMarkdown.js'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ExternalLink, Play, RefreshCw } from 'lucide-react'
+import { Play, RefreshCw } from 'lucide-react'
 import {
   MAX_RESEARCH_BATCH_QUERIES,
   MAX_RESEARCH_BATCH_RUNS,
@@ -33,7 +33,7 @@ import {
 } from '@ainyc/canonry-api-client/react-query'
 import { addToast } from '../../lib/toast-store.js'
 import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
-import { safeExternalUrl } from '../../lib/safe-url.js'
+import { SourceLink } from '../shared/SourceLink.js'
 import { WriteButton } from '../shared/AccessControls.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
@@ -718,15 +718,12 @@ function ResearchAnswer({
       {query.groundingSources.length > 0 && (
         <div>
           <p className="text-[10px] uppercase tracking-wide text-muted">Source links</p>
-          <ul className="mt-2 space-y-1">
-            {query.groundingSources.map((source, index) => {
-              const href = safeExternalUrl(source.uri)
-              const label = source.title || source.uri
-              return <li key={`${source.uri}-${index}`} className="flex min-w-0 items-start gap-1.5 text-sm">
-                {href ? <a href={href} target="_blank" rel="noopener noreferrer" className="truncate text-secondary hover:text-link focus:outline-none focus:underline">{label}</a> : <span className="truncate text-secondary">{label}</span>}
-                {href && <ExternalLink className="mt-0.5 size-3 shrink-0 text-muted" aria-hidden="true" />}
+          <ul className="mt-2 space-y-3">
+            {query.groundingSources.map((source, index) => (
+              <li key={`${source.uri}-${index}`} className="min-w-0">
+                <SourceLink url={source.uri} title={source.title} />
               </li>
-            })}
+            ))}
           </ul>
         </div>
       )}

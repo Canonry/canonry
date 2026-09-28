@@ -98,7 +98,7 @@ test('buildProjectCommandCenter evidence summary uses canonical mention vocabula
   ])
 })
 
-test('buildProjectCommandCenter carries the model web search queries into evidence', () => {
+test('buildProjectCommandCenter carries the model web searches and captured source URLs into evidence', () => {
   // The search queries the model actually issued (snapshot.searchQueries, parsed
   // from the provider raw response) must reach the evidence view-model so the
   // detail modal can surface "Web searches the model ran". This is a pure
@@ -166,6 +166,7 @@ test('buildProjectCommandCenter carries the model web search queries into eviden
         competitorOverlap: [],
         groundingSources: [],
         searchQueries: ['best polyurea roof coating brands', 'polyurea vs silicone roof coating'],
+        citedUrls: ['https://example.com/roof-coatings?material=polyurea'],
         model: 'gemini-2.5-flash',
         location: null,
         createdAt: '2026-03-15T00:00:00Z',
@@ -181,6 +182,7 @@ test('buildProjectCommandCenter carries the model web search queries into eviden
     'best polyurea roof coating brands',
     'polyurea vs silicone roof coating',
   ])
+  expect(evidence!.evidenceUrls).toEqual(['https://example.com/roof-coatings?material=polyurea'])
 })
 
 test('buildProjectCommandCenter defaults searchQueries to empty for not-yet-run queries', () => {

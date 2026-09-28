@@ -314,7 +314,7 @@ function buildEvidenceFromTimeline(
             changeLabel: changeLabel(effectiveTransition, streak),
             answerSnippet: snap?.answerText ?? '',
             citedDomains: snap?.citedDomains ?? [],
-            evidenceUrls: [],
+            evidenceUrls: snap?.citedUrls ?? [],
             citedCompetitorDomains,
             mentionedCompetitorDomains,
             competitorDomains,

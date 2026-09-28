@@ -14,7 +14,7 @@ import { Button } from '../ui/button.js'
 import { Check, ChevronRight, Minus, X } from 'lucide-react'
 import { AnswerMarkdown, ANSWER_SOURCES_LABEL } from '../shared/AnswerMarkdown.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
-import { safeExternalUrl } from '../../lib/safe-url.js'
+import { SourceLink } from '../shared/SourceLink.js'
 import {
   CartesianGrid,
   CHART_AXIS_STROKE,
@@ -728,7 +728,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
           <div className="mt-4"><AnswerMarkdown headingLevel={4} copyable={Boolean(answer.answerText?.trim())}>{answer.answerText ?? 'Answer text unavailable.'}</AnswerMarkdown></div>
           {answer.sources.length > 0 ? <details className="mt-2" data-answer-sources>
             <summary className="min-h-11 cursor-pointer py-3 text-sm text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">{ANSWER_SOURCES_LABEL} ({answer.sources.length})</summary>
-            <ul className="space-y-2 pb-3">{answer.sources.map(source => { const url = safeExternalUrl(source); return <li key={source} className="break-all text-sm">{url ? <a href={url} target="_blank" rel="noopener noreferrer" className="text-link underline">{source}</a> : <span className="text-secondary">{source}</span>}</li> })}</ul>
+            <ul className="space-y-2 pb-3">{answer.sources.map(source => <li key={source} className="min-w-0"><SourceLink url={source} /></li>)}</ul>
           </details> : null}
         </article>)}
         {answerPage(population).items.length === 0 ? <p className="py-4 text-sm text-secondary">{answerPage(population).nextCursor ? 'No matching answers on this page. Continue to the next answers.' : 'No matching saved answers on this page.'}</p> : null}
