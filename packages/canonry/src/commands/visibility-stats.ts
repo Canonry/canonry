@@ -5,6 +5,8 @@ import {
   type VisibilityStatsDto,
   type VisibilityStatsCounts,
   type VisibilityCompareDto,
+  isVisibilityCompareClassMetric,
+  type VisibilityCompareSelection,
   type VisibilityCompareMetric,
   type VisibilityCompareMetricPeriod,
 } from '@ainyc/canonry-contracts'
@@ -57,7 +59,7 @@ function pct(rate: number | null): string {
 
 // ── visibility-compare (month over month) ────────────────────────────────────
 
-export interface VisibilityCompareOptions {
+export interface VisibilityCompareOptions extends VisibilityCompareSelection {
   from?: string
   to?: string
   format?: string
@@ -67,7 +69,7 @@ export interface VisibilityCompareOptions {
 export async function showVisibilityCompare(project: string, opts: VisibilityCompareOptions): Promise<void> {
   if (!opts.from || !opts.to) throw new Error('visibility-compare requires --from <YYYY-MM> and --to <YYYY-MM>')
   const client = createApiClient()
-  const data = await client.getVisibilityCompare(project, opts.from, opts.to)
+  const data = await client.getVisibilityCompare(project, opts.from, opts.to, { scope: opts.scope, scopeKey: opts.scopeKey, marketKey: opts.marketKey, provider: opts.provider, location: opts.location })
 
   if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(data, null, 2))
@@ -78,6 +80,7 @@ export async function showVisibilityCompare(project: string, opts: VisibilityCom
 
 /** A metric period as `"2.1% [1.3, 3.5]"`, or `"no data"` when the sample was empty. */
 function periodCell(p: VisibilityCompareMetricPeriod): string {
+  if (p.availability === 'classification-unavailable') return 'unavailable: query classification'
   if (p.availability === 'no-competitive-frame') {
     return `unavailable: no competitive frame (${p.numerator} observed)`
   }
@@ -102,13 +105,27 @@ function verdictCell(m: VisibilityCompareMetric): string {
 }
 
 function metricQueryClassLabel(metric: VisibilityCompareMetric): string {
+  if (metric.queryClass === 'branded') return 'branded queries'
   if (metric.queryClass === 'non-brand') return 'non-brand queries'
   if (metric.queryClass === 'pooled') return 'pooled queries; classification unavailable'
   return 'all queries'
 }
 
+/** The selection a scoped table is over, so it is never read as the whole project. */
+function selectionLabel(selection: VisibilityCompareSelection | undefined): string | null {
+  if (!selection) return null
+  const parts: string[] = []
+  if (selection.scope && selection.scope !== 'project') parts.push(`${selection.scope} ${selection.scopeKey ?? ''}`.trim())
+  if (selection.marketKey) parts.push(`market ${selection.marketKey}`)
+  if (selection.provider) parts.push(`engine ${selection.provider}`)
+  if (selection.location) parts.push(`location ${selection.location}`)
+  return parts.length > 0 ? parts.join(' · ') : null
+}
+
 function printVisibilityCompare(data: VisibilityCompareDto): void {
   console.log(`AEO month over month: ${data.project}   ${data.from.month} -> ${data.to.month}`)
+  const selection = selectionLabel(data.selection)
+  if (selection) console.log(`Selection: ${selection}`)
   const b = data.basket
   const excl: string[] = []
   if (b.excludedFromOnly > 0) excl.push(`${b.excludedFromOnly} only in ${data.from.month}`)
@@ -123,9 +140,22 @@ function printVisibilityCompare(data: VisibilityCompareDto): void {
   }
   console.log('')
 
+  if (data.classComparison) {
+    const frame = data.classComparison
+    console.log(`Class metrics basket (frozen Advanced): ${frame.basket.queryCount} queries; engines: ${frame.basket.providers.join(', ') || 'none'}`)
+    const classSweeps = `Class basket sweeps: ${frame.from.month} ${frame.from.runCount}, ${frame.to.month} ${frame.to.runCount}; continuity: ${frame.continuity.status}`
+    // The class rates rest on their own sweeps, which can be fewer than the project's.
+    const classLow = frame.from.lowRunCount || frame.to.lowRunCount
+    console.log(classLow ? `${classSweeps}  (below the 5-sweep floor — class intervals are wide, a "moved" verdict is unlikely to be reachable)` : classSweeps)
+    for (const provider of frame.continuity.providers) {
+      if (provider.status !== 'included') console.log(`Class basket excludes ${provider.provider}: ${provider.fromModels.join('/') || '?'} -> ${provider.toModels.join('/') || '?'} (${provider.status})`)
+    }
+    console.log('')
+  }
+
   // Column widths.
   const rows = data.metrics.map((m) => ({
-    label: `${m.label} · ${metricQueryClassLabel(m)}${m.driftRobust ? ' *' : ''}`,
+    label: `${m.label} · ${metricQueryClassLabel(m)}${data.classComparison && isVisibilityCompareClassMetric(m.key) ? ' · class basket' : ''}${m.driftRobust ? ' *' : ''}`,
     to: periodCell(m.to),
     from: periodCell(m.from),
     verdict: verdictCell(m),

@@ -100,6 +100,7 @@ import type {
   SourceBreakdownDto,
   VisibilityStatsDto,
   VisibilityCompareDto,
+  VisibilityCompareSelection,
   LocationContext,
   WordpressAuditIssueDto,
   WordpressAuditPageDto,
@@ -4613,12 +4614,12 @@ export class ApiClient {
     )
   }
 
-  async getVisibilityCompare(project: string, from: string, to: string): Promise<VisibilityCompareDto> {
+  async getVisibilityCompare(project: string, from: string, to: string, selection: VisibilityCompareSelection = {}): Promise<VisibilityCompareDto> {
     return this.invoke<VisibilityCompareDto>(() =>
       getApiV1ProjectsByNameVisibilityCompare({
         client: this.heyClient,
         path: { name: project },
-        query: { from, to } as never,
+        query: { from, to, ...selection },
       }),
     )
   }
