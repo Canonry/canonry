@@ -2,15 +2,19 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { getPlaceReviewSignals, toPlaceReviewSignals } from '../src/review-signals.js'
 import { PLACES_ATMOSPHERE_FIELDS, PLACES_PRO_FIELDS, PLACES_REVIEW_SIGNAL_FIELDS } from '../src/constants.js'
 
-// Shape follows the Places API (New) Place resource reference: `rating`,
-// `userRatingCount`, and up to five `reviews[]`. Not yet a live capture.
+// The first review mirrors a live Place Details response for the
+// `id,rating,userRatingCount,reviews` mask (captured 2026-09-28 on a hotel
+// listing), field for field, with identifiers, names and text replaced. Google
+// sends `publishTime` with nanosecond precision and sends both `text` and
+// `originalText` even when they match. The translated, rating-only and
+// undatable cases below come from the reference, not the capture.
 const place = {
   id: 'ChIJexample',
   rating: 4.4,
   userRatingCount: 212,
   reviews: [
     {
-      name: 'places/ChIJexample/reviews/ChZabc',
+      name: 'places/ChIJexample/reviews/ChdDSUhNMG9nS0VJQ0FnTURBZXhhbXBsZRAB',
       relativePublishTimeDescription: '2 days ago',
       rating: 2,
       text: { text: 'The room was not ready at check-in.', languageCode: 'en' },
@@ -18,11 +22,11 @@ const place = {
       authorAttribution: {
         displayName: 'Sam Rivera',
         uri: 'https://www.google.com/maps/contrib/100000000000000000001/reviews',
-        photoUri: 'https://lh3.googleusercontent.com/a-/example',
+        photoUri: 'https://lh3.googleusercontent.com/a-/ALV-UjExample=s128-c0x00000000-cc-rp-mo',
       },
-      publishTime: '2026-09-24T18:03:11.482922Z',
-      flagContentUri: 'https://www.google.com/local/review/rap/report?postId=abc',
-      googleMapsUri: 'https://www.google.com/maps/reviews/data=!4m6!14m5',
+      publishTime: '2026-09-24T18:03:11.482922501Z',
+      flagContentUri: 'https://www.google.com/local/review/rap/report?postId=ChdDSUhNMG9nS0VJQ0FnTURBZXhhbXBsZRAB&d=17924085&t=1',
+      googleMapsUri: 'https://www.google.com/maps/reviews/data=!4m6!14m5!1m4!2m3!1sChdDSUhNMG9nS0VJQ0FnTURBZXhhbXBsZRAB!2m1!1s0x0:0x1234567890abcdef',
     },
     {
       name: 'places/ChIJexample/reviews/ChZdef',
@@ -47,12 +51,12 @@ describe('toPlaceReviewSignals', () => {
       userRatingCount: 212,
       reviews: [
         {
-          reviewName: 'places/ChIJexample/reviews/ChZabc',
+          reviewName: 'places/ChIJexample/reviews/ChdDSUhNMG9nS0VJQ0FnTURBZXhhbXBsZRAB',
           starRating: 2,
           comment: 'The room was not ready at check-in.',
           reviewerName: 'Sam Rivera',
           publishTime: '2026-09-24T18:03:11.482Z',
-          googleMapsUri: 'https://www.google.com/maps/reviews/data=!4m6!14m5',
+          googleMapsUri: 'https://www.google.com/maps/reviews/data=!4m6!14m5!1m4!2m3!1sChdDSUhNMG9nS0VJQ0FnTURBZXhhbXBsZRAB!2m1!1s0x0:0x1234567890abcdef',
         },
         {
           reviewName: 'places/ChIJexample/reviews/ChZdef',
