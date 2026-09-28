@@ -16,9 +16,12 @@ await context.route('**/*', async route => {
   await route.continue()
 })
 const page = await context.newPage()
-page.on('console', message => { if (message.type() === 'error') report.consoleErrors.push(message.text()) })
-page.on('pageerror', error => report.pageErrors.push(error.message))
-page.on('response', response => { if (response.status() >= 400) report.requests.push({ path: new URL(response.url()).pathname, status: response.status() }) })
+function observePage(observed) {
+  observed.on('console', message => { if (message.type() === 'error') report.consoleErrors.push(message.text()) })
+  observed.on('pageerror', error => report.pageErrors.push(error.message))
+  observed.on('response', response => { if (response.status() >= 400) report.requests.push({ path: new URL(response.url()).pathname, status: response.status() }) })
+}
+observePage(page)
 async function capture(name) { const file = `${output}/${name}.png`; await page.screenshot({ path: file, fullPage: true }); report.screenshots.push(file) }
 async function view(project, query = '') {
   await page.goto(new URL(`projects/${project}?queryClass=branded${query}`, base).href, { waitUntil: 'networkidle' })
@@ -87,6 +90,7 @@ try {
   const viewerSession = await viewerContext.request.post(new URL('api/v1/session', base).href, { data: { apiKey: 'cnry_sentiment_synthetic_read' } })
   if (viewerSession.status() !== 200) throw new Error(`Synthetic viewer session returned ${viewerSession.status()}`)
   const viewer = await viewerContext.newPage()
+  observePage(viewer)
   await viewer.goto(new URL('projects/simple?queryClass=branded&measurementRunId=simple-run', base).href, { waitUntil: 'networkidle' })
   await viewer.getByLabel('Branded favorable share', { exact: true }).waitFor({ timeout: 30_000 })
   if (await viewer.getByRole('button', { name: 'Manage sentiment', exact: true }).count()) throw new Error('Read-only browser displayed administrator controls')
@@ -109,6 +113,7 @@ try {
     const changingSession = await changingContext.request.post(new URL('api/v1/session', base).href, { data: { apiKey: created.key } })
     if (changingSession.status() !== 200) throw new Error('Synthetic permission-change session failed')
     const changing = await changingContext.newPage()
+    observePage(changing)
     await changing.goto(new URL('projects/simple?queryClass=branded&measurementRunId=simple-run', base).href, { waitUntil: 'networkidle' })
     await changing.getByRole('button', { name: 'Manage sentiment', exact: true }).click()
     await changing.getByRole('button', { name: 'Save sentiment settings', exact: true }).waitFor()
