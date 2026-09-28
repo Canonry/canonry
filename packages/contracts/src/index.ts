@@ -92,3 +92,4 @@ export * from './update-notice.js'
 export * from './shell.js'
 
 export * from './referral-assessment.js'
+export * from './sentiment.js'
