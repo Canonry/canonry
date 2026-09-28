@@ -33,7 +33,7 @@
   },
   "finalArtifact": {
     "packageVersion": "5.24.5",
-    "tarballSha256": "4e4f8a76387b03c38703bd688abeca37c8a395e6ee95eef45883946127186b5b",
+    "tarballSha256": "845698b2694663b315fd68b8d7d50e41123f8533f711ebd3c6475b2ab9c3b629",
     "liveProviderCalls": 0,
     "normalTransportSmoke": "passed",
     "recoverySmoke": "passed",
