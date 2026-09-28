@@ -194,6 +194,14 @@ try {
   const advancedMobileCell = page.locator('.measurement-result-engine').getByLabel('gemini sentiment', { exact: true })
   await advancedMobileCell.scrollIntoViewIfNeeded()
   assert(await advancedMobileCell.evaluate(node => { const box = node.getBoundingClientRect(); return box.width > 0 && box.left >= 0 && box.right <= node.ownerDocument.documentElement.clientWidth }), 'Advanced mobile verdict must fit its engine result')
+  const mobileVerdict = advancedMobileCell.getByText('Unfavorable', { exact: true })
+  assert(await mobileVerdict.evaluate(node => {
+    const range = node.ownerDocument.createRange()
+    range.selectNodeContents(node)
+    const lines = [...range.getClientRects()].filter(rect => rect.width > 0 && rect.height > 0)
+    const button = node.closest('button')?.getBoundingClientRect()
+    return lines.length === 1 && button !== undefined && lines[0].left >= button.left - 0.5 && lines[0].right <= button.right + 0.5 && lines[0].top >= button.top - 0.5 && lines[0].bottom <= button.bottom + 0.5
+  }), 'The mobile Unfavorable verdict must remain one unbroken word inside its evidence button')
   await screenshot('advanced-engine-mobile')
   await page.setViewportSize({ width: 1440, height: 1100 })
   mark('Advanced engine filtering preserves frozen Property/market/model/location/source identity and exact subject verdicts on desktop and mobile')
