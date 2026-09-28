@@ -7,7 +7,7 @@
  * prevents a read from mutating or re-fetching evidence.
  */
 
-import { normalizeMeasurementHost } from '@ainyc/canonry-contracts'
+import { answerProseForMentions, normalizeMeasurementHost } from '@ainyc/canonry-contracts'
 
 export type MeasurementAttributionClass =
   | 'assigned'
@@ -370,6 +370,12 @@ interface RouteClaim {
 
 interface PreparedObservation {
   input: MeasurementObservationInput
+  /**
+   * The answer's prose (`answerProseForMentions`), null when the answer text
+   * is. Every mention read uses this, never `input.answerText`: an alias that
+   * appears only in a citation chip or a cited URL path is not a mention.
+   */
+  mentionText: string | null
   slot: MeasurementExpectedSlotInput
   bridged: boolean
   historical: boolean
@@ -590,8 +596,9 @@ function aliasMatchesAt(textWords: readonly string[], aliasWords: readonly strin
   return true
 }
 
-function containsAnyAlias(answerText: string, aliases: readonly string[]): boolean {
-  const textWords = words(answerText)
+/** `prose` is an answer's `answerProseForMentions` text, never the raw answer. */
+function containsAnyAlias(prose: string, aliases: readonly string[]): boolean {
+  const textWords = words(prose)
   const candidates = aliases.map(words).filter(alias => alias.length > 0)
   for (let start = 0; start < textWords.length; start++) {
     if (candidates.some(alias => aliasMatchesAt(textWords, alias, start))) return true
@@ -666,6 +673,7 @@ function identityAmbiguityPatterns(aliases: readonly string[]) {
   }
 }
 
+/** `text` is the answer's prose (`answerProseForMentions`), never the raw answer. */
 function resolveMentionIdentity(
   text: string | null,
   targets: readonly MeasurementTargetInput[],
@@ -706,7 +714,12 @@ export function targetMentionedInAnswer(
   targets: readonly MeasurementTargetInput[],
 ): boolean | null {
   if (answerText === null) return null
-  const state = resolveMentionIdentity(answerText, targets, indexMentionAliases(compiledMentionAliases(targets)), new Set())
+  const state = resolveMentionIdentity(
+    answerProseForMentions(answerText),
+    targets,
+    indexMentionAliases(compiledMentionAliases(targets)),
+    new Set(),
+  )
   return state.unknown.has(targetId) ? null : state.mentioned.has(targetId)
 }
 
@@ -792,6 +805,7 @@ function prepareReport(
     if (!source.complete) evidenceIncomplete.add(observation.id)
     observationsBySlot.set(slot.id, {
       input: observation,
+      mentionText: answerProseForMentions(observation.answerText),
       slot,
       bridged: isBridged,
       historical: source.historical,
@@ -839,7 +853,7 @@ function prepareReport(
       const source = sourceAttribution(url)
       return source.classification === 'matched' ? source.matchedTargetIds : []
     }))
-    const mentions = resolveMentionIdentity(observation.input.answerText, input.targets, aliasesByFirstWord, citedTargetIds, ambiguityPatterns)
+    const mentions = resolveMentionIdentity(observation.mentionText, input.targets, aliasesByFirstWord, citedTargetIds, ambiguityPatterns)
     observation.mentionedTargetIds = mentions.mentioned
     observation.unknownMentionTargetIds = mentions.unknown
     observation.citedTargetIds = citedTargetIds
@@ -1105,7 +1119,7 @@ function buildSovForSlots(
         return { domain: row.domain, own: row.own, presentIn: null, of: null, reason: 'aliasless' }
       }
       const presentIn = selected.filter(slot => {
-        const answer = prepared.observationsBySlot.get(slot.id)?.input.answerText
+        const answer = prepared.observationsBySlot.get(slot.id)?.mentionText
         return answer !== null && answer !== undefined && containsAnyAlias(answer, row.aliases)
       }).length
       return { domain: row.domain, own: row.own, presentIn, of: selected.length }
@@ -1416,7 +1430,7 @@ function presenceIn(
   prepared: PreparedReport,
 ): number {
   return slots.filter(slot => {
-    const answer = prepared.observationsBySlot.get(slot.id)?.input.answerText
+    const answer = prepared.observationsBySlot.get(slot.id)?.mentionText
     return answer !== null && answer !== undefined && containsAnyAlias(answer, aliases)
   }).length
 }

@@ -186,6 +186,37 @@ describe('buildCompetitorLandscapeHistory', () => {
     ])
   })
 
+  it('credits a mention only for a brand named in prose, never for its citation chip', () => {
+    // Shape of an OpenAI web-search answer: the pinned competitor and the
+    // project appear only in the inline source chips.
+    const chips = '([pinned.example](https://pinned.example/rates?utm_source=chatgpt.com), [Acme](https://acme.example/?utm_source=chatgpt.com))'
+    const result = buildCompetitorLandscapeHistory({
+      project: { domain: 'acme.example', label: 'Acme', domains: ['acme.example'] },
+      pinned: [{ domain: 'pinned.example', label: 'Pinned' }],
+      shareOfVoiceEligible: true,
+      classifications: new Map(),
+      snapshots: [
+        snapshot({
+          id: 'chips-only',
+          answerText: `Bayside Flats has the lowest fees. ${chips}`,
+          citedDomains: ['pinned.example', 'acme.example'],
+          citedUrls: ['https://pinned.example/rates', 'https://acme.example/'],
+        }),
+        snapshot({
+          id: 'prose',
+          createdAt: '2026-09-02T00:00:00.000Z',
+          answerText: `Pinned is cheaper. ${chips}`,
+          citedDomains: ['pinned.example'],
+          citedUrls: ['https://pinned.example/rates'],
+        }),
+      ],
+    })
+    expect(result.evidence).toMatchObject({ answeredResults: 2, mentionCredits: 1 })
+    expect(result.pinned).toEqual([
+      expect.objectContaining({ domain: 'pinned.example', mentionCount: 1, citationCount: 2 }),
+    ])
+  })
+
   it('discovers direct competitors from stored cited URLs, keeps zero-observation pins, and credits every named brand once per answer', () => {
     const result = buildCompetitorLandscapeHistory({
       project: {

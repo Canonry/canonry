@@ -1,3 +1,4 @@
+import { answerProseForMentions } from './answer-prose.js'
 import { brandKeyFromText, compileBrandAliases, matchedAliasKeys } from './brand-matching.js'
 import type { MentionState, VisibilityState } from './run.js'
 import {
@@ -15,6 +16,17 @@ export interface AnswerMentionResult {
   matchedTerms: string[]
 }
 
+/**
+ * Which approved identities the answer's PROSE names.
+ *
+ * Both halves (owned domains written out, and brand names or domain labels)
+ * read `answerProseForMentions(answerText)`, never the raw text: a citation
+ * chip or source link in the answer is a citation, not a mention.
+ *
+ * `answerDomains`, when given, must be the hosts of that same prose,
+ * `extractDomainsFromText(answerProseForMentions(answerText))`. It exists so
+ * a request that reads one answer for several signals parses it once.
+ */
 export function extractAnswerMentions(
   answerText: string | null | undefined,
   brandNames: string[],
@@ -22,10 +34,11 @@ export function extractAnswerMentions(
   answerDomains?: readonly string[],
 ): AnswerMentionResult {
   if (!answerText) return { mentioned: false, matchedTerms: [] }
+  const prose = answerProseForMentions(answerText)
 
   const matchedTerms: string[] = []
   const matchedDomainTerms = new Set<string>()
-  const extractedAnswerDomains = answerDomains ?? extractDomainsFromText(answerText)
+  const extractedAnswerDomains = answerDomains ?? extractDomainsFromText(prose)
 
   for (const domain of domains) {
     const normalizedDomain = hostOf(domain)
@@ -56,7 +69,7 @@ export function extractAnswerMentions(
   if (candidates.length > 0) {
     const hits = matchedAliasKeys(
       compileBrandAliases(candidates.map(c => c.term)),
-      answerText,
+      prose,
     )
     // Push in the original order: names before domain labels, which the
     // dedup below depends on.
@@ -65,9 +78,17 @@ export function extractAnswerMentions(
     }
   }
 
-  // Deduplicate and remove tokens already subsumed by a domain match
+  // Deduplicate terms that differ only in case, keeping the first spelling (a
+  // display name 'Acme' before its own domain label 'acme'), then remove
+  // tokens already subsumed by a domain match
   // e.g. if 'ainyc.ai' is in matchedTerms, don't also show 'ainyc'
-  const unique = [...new Set(matchedTerms)]
+  const seenTerms = new Set<string>()
+  const unique = matchedTerms.filter(term => {
+    const folded = term.toLowerCase()
+    if (seenTerms.has(folded)) return false
+    seenTerms.add(folded)
+    return true
+  })
   const domainBrandKeys = new Set(
     [...matchedDomainTerms]
       .map(domain => brandKeyFromText(brandLabelFromDomain(domain)))

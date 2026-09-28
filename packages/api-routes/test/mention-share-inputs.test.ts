@@ -19,7 +19,7 @@ describe('mention-share input identity', () => {
 
   it('accepts request-scoped prose domains without changing project mentions', () => {
     const answerDomainsByText = new Map<string, readonly string[]>()
-    const answerText = 'See https://www.acme.com/pricing for details.'
+    const answerText = 'See acme.com/pricing for details.'
     const inputs = buildMentionShareInputs({
       project: { displayName: 'Acme', canonicalDomain: 'acme.com' },
       competitorDomains: [],
@@ -29,6 +29,25 @@ describe('mention-share input identity', () => {
 
     expect(inputs.snapshots[0]!.projectMentioned).toBe(true)
     expect(answerDomainsByText.get(answerText)).toEqual(['acme.com'])
+  })
+
+  it('caches prose domains only, so a citation chip never becomes a project mention', () => {
+    // Shape of an OpenAI web-search answer: the project appears only in its
+    // inline source chips. The shared cache feeds both project mentions and
+    // competitor signals, so it must hold the prose's hosts, not the chips'.
+    const answerDomainsByText = new Map<string, readonly string[]>()
+    const answerText = 'Plans start at $20 a month with a free trial. ([acme.com](https://acme.com/pricing?utm_source=chatgpt.com), [rival.com](https://rival.com/compare?utm_source=chatgpt.com))'
+    const inputs = buildMentionShareInputs({
+      project: { displayName: 'Acme Automation', canonicalDomain: 'acme.com' },
+      competitorDomains: ['rival.com'],
+      snapshots: [{ queryText: 'automation pricing', answerMentioned: true, answerText }],
+      answerDomainsByText,
+    })
+    const result = buildMentionShare(inputs.snapshots, { competitors: inputs.competitors })
+
+    expect(answerDomainsByText.get(answerText)).toEqual([])
+    expect(inputs.snapshots[0]!.projectMentioned).toBe(false)
+    expect(result.breakdown.competitorMentionSnapshots).toBe(0)
   })
 
   it('counts an exact short competitor domain without counting its bare label', () => {

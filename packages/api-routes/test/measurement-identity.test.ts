@@ -20,6 +20,65 @@ function fixture(): MeasurementOverviewInput {
   }
 }
 
+describe('property mentions read the answer prose, not its citations', () => {
+  // Shape of an OpenAI web-search answer: property pages are cited through
+  // inline chips whose URL path, and sometimes label, carries the name.
+  const CHIPS = '([northstar.example](https://northstar.example/harbor/harbor-point-apartments/?utm_source=chatgpt.com), [Sail Loft](https://northstar.example/loft/?utm_source=chatgpt.com))'
+
+  it('does not count an alias found only in a chip URL path or chip label, and still counts the citation', () => {
+    const input = fixture()
+    input.observations[0]!.answerText = `Pet fees in the area run $300 to $400 per pet. ${CHIPS}`
+    input.observations[0]!.citedUrls = ['https://northstar.example/harbor/harbor-point-apartments/']
+    input.observations[1]!.answerText = `Most waterfront units have in-unit laundry. ${CHIPS}`
+
+    const evidence = buildMeasurementEvidence(input).answers
+    expect(evidence.map(row => [row.usageEdgeId, row.mentioned, row.cited])).toEqual([
+      ['edge-harbor', false, true],
+      ['edge-loft', false, false],
+    ])
+    expect(buildMeasurementObservationSignals(input).map(row => row.mentionedTargetIds)).toEqual([[], []])
+    const overview = buildMeasurementOverview(input)
+    expect(overview.mentionCoverage).toEqual({ numerator: 0, denominator: 2, rate: 0 })
+    expect(overview.citationCoverage).toEqual({ numerator: 1, denominator: 2, rate: 0.5 })
+    // The project brand appears only as a chip label: presence is a prose read too.
+    expect(overview.brandPresence).toEqual({ numerator: 0, denominator: 2, rate: 0 })
+  })
+
+  it('counts the same aliases written in prose, including a prose link label', () => {
+    const input = fixture()
+    input.observations[0]!.answerText = `Harbor Point charges $350 per pet. ${CHIPS}`
+    input.observations[1]!.answerText = `[Sail Loft](https://northstar.example/loft/) has in-unit laundry, and Northstar manages it. ${CHIPS}`
+
+    expect(buildMeasurementEvidence(input).answers.map(row => [row.usageEdgeId, row.mentioned])).toEqual([
+      ['edge-harbor', true],
+      ['edge-loft', true],
+    ])
+    const overview = buildMeasurementOverview(input)
+    expect(overview.mentionCoverage).toEqual({ numerator: 2, denominator: 2, rate: 1 })
+    expect(overview.brandPresence).toEqual({ numerator: 1, denominator: 2, rate: 0.5 })
+  })
+
+  it('counts group share of voice from the prose, never from a competitor or project chip', () => {
+    const input = fixture()
+    input.groups[0]!.competitors = [{ domain: 'rivalhomes.example', aliases: ['Rival Homes'] }]
+    const rivalChips = '([Rival Homes](https://rivalhomes.example/pets/?utm_source=chatgpt.com), [rivalhomes.example](https://rivalhomes.example/rival-homes-oakland/?utm_source=chatgpt.com))'
+    input.observations[0]!.answerText = `Pet fees in the area run $300 to $400 per pet. ${rivalChips} ${CHIPS}`
+    input.observations[1]!.answerText = `Most waterfront units have in-unit laundry. ${rivalChips}`
+    const sov = () => buildMeasurementReport(input).groups[0]!.sov.domains
+
+    expect(sov()).toEqual([
+      { domain: 'northstar.example', own: true, presentIn: 0, of: 2 },
+      { domain: 'rivalhomes.example', own: false, presentIn: 0, of: 2 },
+    ])
+
+    input.observations[0]!.answerText = `Rival Homes charges less per pet than Northstar. ${rivalChips} ${CHIPS}`
+    expect(sov()).toEqual([
+      { domain: 'northstar.example', own: true, presentIn: 1, of: 2 },
+      { domain: 'rivalhomes.example', own: false, presentIn: 1, of: 2 },
+    ])
+  })
+})
+
 describe('assignment-aware identity attribution', () => {
   it('never credits a sibling named only in another property’s assigned answer', () => {
     const input = fixture()

@@ -104,6 +104,23 @@ describe('buildMentionShare', () => {
     expect(result.breakdown.score).toBe(40)
   })
 
+  it('does not count a competitor citation chip as a competitor mention', () => {
+    // Shape of an OpenAI web-search answer: its sources are inline link chips.
+    const result = buildMentionShare(
+      [
+        snap(true, 'Acme Flats is the best value near the park. ([rival-a.com](https://rival-a.com/listings?utm_source=chatgpt.com), [Rival](https://rival-a.com/about?utm_source=chatgpt.com))'),
+        snap(false, 'Rival has more units. ([rival-a.com](https://rival-a.com/units?utm_source=chatgpt.com))'),
+      ],
+      baseOpts,
+    )
+    expect(result.breakdown.snapshotsWithAnswerText).toBe(2)
+    expect(result.breakdown.projectMentionSnapshots).toBe(1)
+    expect(result.breakdown.competitorMentionSnapshots).toBe(1)
+    expect(result.breakdown.perCompetitor).toEqual([
+      { domain: 'rival-a.com', mentionSnapshots: 1, shareOfCompetitiveTotal: 100 },
+    ])
+  })
+
   it('respects word-boundary matching: brand token "rival" does NOT match "Survival"', () => {
     const result = buildMentionShare(
       [snap(false, 'A story of survival and grit.')],

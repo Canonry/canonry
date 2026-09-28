@@ -6,6 +6,7 @@ import {
   isListingMarketplace,
   textContainsAnyBrandAlias,
   registrableDomain,
+  stripCitationChips,
   textContainsBrandAlias,
   textContainsDomain,
 } from '@ainyc/canonry-contracts'
@@ -195,10 +196,14 @@ export function extractRecommendedCompetitors(
     'whywechoseit',
   ])
 
+  // A name that appears only in a citation chip (`([Rival](https://...))`) is
+  // a citation, not a recommendation. Links written in prose stay as markdown
+  // for the `[Name](url)` pattern.
+  const scanText = stripCitationChips(answerText)
   const seen = new Map<string, string>()
   for (const pattern of candidatePatterns) {
     let match: RegExpExecArray | null
-    while ((match = pattern.exec(answerText)) !== null) {
+    while ((match = pattern.exec(scanText)) !== null) {
       const candidate = cleanCandidateName(match[1])
       const candidateKey = brandKeyFromText(candidate)
       if (!candidateKey) continue

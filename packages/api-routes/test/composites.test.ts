@@ -651,6 +651,47 @@ describe('GET /api/v1/projects/:name/overview', () => {
     await app.close()
   })
 
+  it('never counts a project or competitor that appears only in citation chips as mentioned', async () => {
+    // Shape of an OpenAI web-search answer: both sites are cited through
+    // inline chips and neither is named in the prose. The overview shares one
+    // prose-domain parse between mention share and competitor signals.
+    const { app, db, projectId, latestRunId } = seedProjectWithRuns()
+    const chipQueryId = crypto.randomUUID()
+    db.insert(competitors).values({
+      id: crypto.randomUUID(),
+      projectId,
+      domain: 'rival.com',
+      createdAt: '2026-04-18T14:19:00.000Z',
+    }).run()
+    db.insert(queries).values({ id: chipQueryId, projectId, query: 'aeo pricing', createdAt: '2026-04-18T14:19:00.000Z' }).run()
+    db.insert(querySnapshots).values({
+      id: crypto.randomUUID(),
+      runId: latestRunId,
+      queryId: chipQueryId,
+      provider: 'openai',
+      citationState: 'cited',
+      answerMentioned: false,
+      answerText: 'Plans start at $20 a month with a free trial. ([example.com](https://example.com/pricing?utm_source=chatgpt.com), [rival.com](https://rival.com/compare?utm_source=chatgpt.com))',
+      citedDomains: ['example.com', 'rival.com'],
+      competitorOverlap: [],
+      recommendedCompetitors: [],
+      createdAt: '2026-04-18T14:20:30.000Z',
+    }).run()
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/overview' })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as ProjectOverviewDto
+
+    // Only the two prose answers name the project, and only one names Rival.
+    expect(body.scores.mentionShare.breakdown.snapshotsWithAnswerText).toBe(3)
+    expect(body.scores.mentionShare.breakdown.projectMentionSnapshots).toBe(2)
+    expect(body.scores.mentionShare.breakdown.competitorMentionSnapshots).toBe(1)
+    expect(body.scores.mentionGaps.value).toBe('0')
+
+    await app.close()
+  })
+
   // queryCounts.mentionedQueries must read the mention signal (answerMentioned)
   // independently of cited — never derived from it. Seed queries where the two
   // signals deliberately diverge and prove the counts track their own field.
