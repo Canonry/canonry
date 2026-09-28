@@ -264,3 +264,56 @@ describe('showVisibilityCompare', () => {
     expect(cap.text()).not.toMatch(/\b100(?:\.0)?%/)
   })
 })
+
+describe('monthly class metric presentation', () => {
+  it('prints the distinct frozen Advanced cohort and preserves the complete JSON response', async () => {
+    const dto = compareData('non-brand')
+    dto.classComparison = { from: dto.from, to: dto.to, basket: { ...dto.basket, queryCount: 3, providers: ['gemini'], excludedProviders: ['openai'] }, continuity: { status: 'comparable', comparedProviders: ['gemini'], providers: [{ provider: 'openai', status: 'model-discontinuous', fromModels: ['old'], toModels: ['new'] }] }, modelChanges: [{ provider: 'openai', fromModels: ['old'], toModels: ['new'] }] }
+    dto.metrics.push({ ...dto.metrics[0]!, key: 'mention-rate-branded', label: 'Mention rate', queryClass: 'branded', driftRobust: false })
+    mockGetVisibilityCompare.mockResolvedValue(dto)
+    const human = captureOutput(() => showVisibilityCompare('acme', { from: '2026-05', to: '2026-06' }))
+    await human.run
+    expect(human.text()).toContain('Class metrics basket (frozen Advanced): 3 queries; engines: gemini')
+    expect(human.text()).toContain('Mention rate · branded queries · class basket')
+    expect(human.text()).toContain('Class basket excludes openai: old -> new (model-discontinuous)')
+    const machine = captureOutput(() => showVisibilityCompare('acme', { from: '2026-05', to: '2026-06', scope: 'property', scopeKey: 'harbor', marketKey: 'market', provider: 'gemini', format: 'json' }))
+    await machine.run
+    expect(JSON.parse(machine.text())).toEqual(dto)
+    expect(mockGetVisibilityCompare).toHaveBeenLastCalledWith('acme', '2026-05', '2026-06', { scope: 'property', scopeKey: 'harbor', marketKey: 'market', provider: 'gemini', location: undefined })
+  })
+
+  it('warns when the class basket has fewer sweeps than the floor even if the project frame does not', async () => {
+    const dto = compareData('non-brand')
+    dto.from = { ...dto.from, runCount: 20, lowRunCount: false }
+    dto.to = { ...dto.to, runCount: 20, lowRunCount: false }
+    dto.classComparison = { from: { ...dto.from, runCount: 3, lowRunCount: true }, to: { ...dto.to, runCount: 20, lowRunCount: false }, basket: dto.basket, continuity: dto.continuity, modelChanges: [] }
+    mockGetVisibilityCompare.mockResolvedValue(dto)
+    const human = captureOutput(() => showVisibilityCompare('acme', { from: '2026-05', to: '2026-06' }))
+    await human.run
+    const lines = human.lines()
+    expect(lines.find(line => line.startsWith('Sweeps:'))).toBe('Sweeps: 2026-05 20, 2026-06 20')
+    expect(lines.find(line => line.startsWith('Class basket sweeps:'))).toBe(
+      `Class basket sweeps: 2026-05 3, 2026-06 20; continuity: ${dto.continuity.status}  (below the 5-sweep floor — class intervals are wide, a "moved" verdict is unlikely to be reachable)`,
+    )
+  })
+})
+
+describe('monthly comparison selection', () => {
+  it('prints the selection a scoped table covers', async () => {
+    const dto = compareData('non-brand')
+    dto.selection = { scope: 'property', scopeKey: 'harbor', marketKey: 'coastal', provider: 'gemini', location: 'Harbor' }
+    mockGetVisibilityCompare.mockResolvedValue(dto)
+    const human = captureOutput(() => showVisibilityCompare('acme', { from: '2026-05', to: '2026-06' }))
+    await human.run
+    expect(human.lines()[1]).toBe('Selection: property harbor · market coastal · engine gemini · location Harbor')
+  })
+
+  it('refuses an unknown scope as a usage error (exit 1) before calling the API', async () => {
+    const { VISIBILITY_STATS_CLI_COMMANDS } = await import('../src/cli-commands/visibility-stats.js')
+    const command = VISIBILITY_STATS_CLI_COMMANDS.find(spec => spec.path.join(' ') === 'visibility-compare')!
+    mockGetVisibilityCompare.mockClear()
+    await expect(command.run({ positionals: ['acme'], values: { from: '2026-05', to: '2026-06', scope: 'region' }, format: 'json', dryRun: false }))
+      .rejects.toMatchObject({ code: 'CLI_USAGE_ERROR', exitCode: 1, message: '--scope must be one of: project, group, market, property' })
+    expect(mockGetVisibilityCompare).not.toHaveBeenCalled()
+  })
+})

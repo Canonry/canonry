@@ -4,6 +4,7 @@ import {
   formatPercent,
   matcherMatchesText,
   percentOf,
+  prepareBrandMatchText,
   type BrandAliasMatcher,
   type MetricTone,
   type QueryClass,
@@ -266,9 +267,12 @@ export function buildMentionShare(
     if (text.length === 0) continue
     tally.snapshotsWithAnswerText++
     if (snap.projectMentioned) tally.projectMentionSnapshots++
+    if (options.competitors.length === 0) continue
+    // One normalization and word walk per answer, shared by every competitor.
+    const prepared = prepareBrandMatchText(text)
     for (const competitor of options.competitors) {
       const matcher = competitorMatchers.get(competitor.domain)
-      if (matcher && matcherMatchesText(matcher, text)) {
+      if (matcher && matcherMatchesText(matcher, prepared)) {
         tally.competitorCounts.set(competitor.domain, (tally.competitorCounts.get(competitor.domain) ?? 0) + 1)
       }
     }

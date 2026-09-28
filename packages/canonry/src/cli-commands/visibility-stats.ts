@@ -1,5 +1,6 @@
+import { visibilityCompareSelectionSchema, type VisibilityCompareSelection } from '@ainyc/canonry-contracts'
 import { showVisibilityStats, showVisibilityCompare } from '../commands/visibility-stats.js'
-import type { CliCommandSpec } from '../cli-dispatch.js'
+import type { CliCommandSpec, CliValues } from '../cli-dispatch.js'
 import {
   getBoolean,
   getString,
@@ -7,6 +8,7 @@ import {
   requireProject,
   stringOption,
 } from '../cli-command-helpers.js'
+import { usageError } from '../cli-error.js'
 
 const USAGE =
   'canonry visibility-stats <project> [--since <iso>] [--until <iso>] [--month <YYYY-MM>] [--last-runs <n>] [--by-provider] [--share-of-voice] [--query-class branded|non-brand] [--format json|jsonl]'
@@ -20,7 +22,34 @@ function parseQueryClass(value: string | undefined): 'branded' | 'non-brand' | u
   return value
 }
 
-const COMPARE_USAGE = 'canonry visibility-compare <project> --from <YYYY-MM> --to <YYYY-MM> [--format json]'
+const COMPARE_USAGE = 'canonry visibility-compare <project> --from <YYYY-MM> --to <YYYY-MM> [--scope project|group|market|property] [--scope-key <key>] [--market-key <key>] [--provider <engine>] [--location <label|none>] [--format json]'
+
+const COMPARE_SELECTION_FLAGS: Record<string, string> = {
+  scope: '--scope',
+  scopeKey: '--scope-key',
+  marketKey: '--market-key',
+  provider: '--provider',
+  location: '--location',
+}
+
+/** A bad selector is a usage error (exit 1), never a raw validation dump. */
+function parseCompareSelection(values: CliValues): VisibilityCompareSelection {
+  const parsed = visibilityCompareSelectionSchema.safeParse({
+    scope: getString(values, 'scope'),
+    scopeKey: getString(values, 'scope-key'),
+    marketKey: getString(values, 'market-key'),
+    provider: getString(values, 'provider'),
+    location: getString(values, 'location'),
+  })
+  if (parsed.success) return parsed.data
+  const issue = parsed.error.issues[0]!
+  const flag = COMPARE_SELECTION_FLAGS[String(issue.path[0])] ?? '--scope'
+  const message = flag === '--scope' ? '--scope must be one of: project, group, market, property' : `${flag} must not be empty`
+  throw usageError(`Error: ${message}\nUsage: ${COMPARE_USAGE}`, {
+    message,
+    details: { command: 'visibility-compare', usage: COMPARE_USAGE },
+  })
+}
 
 export const VISIBILITY_STATS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
@@ -59,12 +88,18 @@ export const VISIBILITY_STATS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     options: {
       from: stringOption(),
       to: stringOption(),
+      scope: stringOption(),
+      'scope-key': stringOption(),
+      'market-key': stringOption(),
+      provider: stringOption(),
+      location: stringOption(),
     },
     run: async (input) => {
       const project = requireProject(input, 'visibility-compare', COMPARE_USAGE)
       await showVisibilityCompare(project, {
         from: getString(input.values, 'from'),
         to: getString(input.values, 'to'),
+        ...parseCompareSelection(input.values),
         format: input.format,
       })
     },

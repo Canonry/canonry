@@ -82,7 +82,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Portfolio analysis",
     description: "Interpret Simple and Advanced portfolios, compare Properties and markets, trace answer evidence, and qualify missing or incompatible measurements.",
     entryPoint: false,
-    characters: 9037,
+    characters: 9102,
     content: aeroReferencesPortfolioAnalysisPart0,
   },
   {
@@ -102,7 +102,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Reporting Templates",
     description: "Weekly and monthly report templates with metric tables, regression/gain sections, and recommended-actions structure. Read when asked to produce a client-facing summary.",
     entryPoint: false,
-    characters: 10742,
+    characters: 11469,
     content: aeroReferencesReportingPart0,
   },
   {
@@ -162,7 +162,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry CLI Reference",
     description: "canonry skill reference: references/canonry-cli.md",
     entryPoint: false,
-    characters: 109733,
+    characters: 110734,
     content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1].join(''),
   },
   {

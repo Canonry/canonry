@@ -2027,6 +2027,8 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     tx.delete(gbpKeywordMonthly).where(eq(gbpKeywordMonthly.projectId, projectId)).run()
     tx.delete(gbpPlaceActions).where(eq(gbpPlaceActions.projectId, projectId)).run()
     tx.delete(gbpLodgingSnapshots).where(eq(gbpLodgingSnapshots.projectId, projectId)).run()
+    tx.delete(gbpAttributesSnapshots).where(eq(gbpAttributesSnapshots.projectId, projectId)).run()
+    tx.delete(gbpPlaceDetails).where(eq(gbpPlaceDetails.projectId, projectId)).run()
     tx.delete(gbpLocations).where(eq(gbpLocations.projectId, projectId)).run()
   }
 
