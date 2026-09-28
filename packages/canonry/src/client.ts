@@ -197,6 +197,7 @@ import type {
   GscPerformanceResponseDto,
   GscPerformanceDailyDto,
   GscTopPagesDto,
+  GscQueryTotalsDto,
   GscUrlInspectionDto,
   GscCoverageSummaryDto,
   GscCoverageSnapshotDto,
@@ -446,6 +447,7 @@ import {
   getApiV1ProjectsByNameGoogleGscPerformance,
   getApiV1ProjectsByNameGoogleGscPerformanceDaily,
   getApiV1ProjectsByNameGoogleGscTopPages,
+  getApiV1ProjectsByNameGoogleGscQueryTotals,
   postApiV1ProjectsByNameGoogleGscInspect,
   getApiV1ProjectsByNameGoogleGscInspections,
   getApiV1ProjectsByNameGoogleGscDeindexed,
@@ -3307,6 +3309,16 @@ export class ApiClient {
   async gscTopPages(project: string, params?: Record<string, string>): Promise<GscTopPagesDto> {
     return this.invoke<GscTopPagesDto>(() =>
       getApiV1ProjectsByNameGoogleGscTopPages({
+        client: this.heyClient,
+        path: { name: project },
+        query: params as never,
+      }),
+    )
+  }
+
+  async gscQueryTotals(project: string, params?: Record<string, string>): Promise<GscQueryTotalsDto> {
+    return this.invoke<GscQueryTotalsDto>(() =>
+      getApiV1ProjectsByNameGoogleGscQueryTotals({
         client: this.heyClient,
         path: { name: project },
         query: params as never,

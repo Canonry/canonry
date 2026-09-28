@@ -56,7 +56,7 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
   {
     name: 'gsc',
     title: 'Google Search Console',
-    description: 'Read GSC performance, inspections, coverage, sitemaps, and deindexed URLs.',
+    description: 'Read GSC performance, per-query totals, inspections, coverage, sitemaps, and deindexed URLs.',
     whenToLoad: 'Load when you need indexing, coverage, or sitemap data from Google Search Console.',
   },
   {

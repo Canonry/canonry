@@ -1,5 +1,6 @@
 import type {
   GscPerformanceDailyDto,
+  GscQueryTotalsDto,
   GscSubmitSitemapsResponseDto,
   GscUrlInspectionDto,
   IndexingRequestResultDto,
@@ -453,6 +454,76 @@ export async function googleTopPages(project: string, opts: {
     console.log('Property total: not available for this window.')
     console.log('  Adding up the page rows would not give it. Run "canonry google sync" to fetch it.')
   }
+}
+
+export async function googleQueryTotals(project: string, opts: {
+  window?: string
+  startDate?: string
+  endDate?: string
+  limit?: number
+  offset?: number
+  format?: string
+}): Promise<void> {
+  const client = getClient()
+  const params: Record<string, string> = {}
+  if (opts.startDate) params.startDate = opts.startDate
+  if (opts.endDate) params.endDate = opts.endDate
+  if (opts.window) params.window = opts.window
+  if (opts.limit !== undefined) params.limit = String(opts.limit)
+  if (opts.offset !== undefined) params.offset = String(opts.offset)
+
+  const data: GscQueryTotalsDto = await client.gscQueryTotals(project, Object.keys(params).length > 0 ? params : undefined)
+  const { rows, totalMatching, truncated, window } = data
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(data, null, 2))
+    return
+  } else if (opts.format === 'jsonl') {
+    emitJsonl(rows.map((row) => ({ project, window, ...row })))
+    return
+  }
+
+  if (rows.length === 0) {
+    // Queries exist, this page just starts past the end of them. The fix is a
+    // smaller offset, not a sync.
+    if (totalMatching > 0) {
+      console.log(
+        `Offset ${opts.offset ?? 0} is past the end of the result set (${totalMatching.toLocaleString()} queries). Lower --offset to page through them.`,
+      )
+      return
+    }
+    console.log('No GSC query data found in this window. Run "canonry google sync" first.')
+    return
+  }
+
+  const range = `${window.startDate ?? 'earliest'} to ${window.endDate ?? 'latest'}`
+  console.log(`GSC query totals (${rows.length.toLocaleString()} of ${totalMatching.toLocaleString()} queries, ${range}):\n`)
+  const showSource = rows.some((row) => row.source !== 'google')
+  console.log(
+    `  ${'QUERY'.padEnd(40)}${'CLICKS'.padStart(8)}${'IMPR'.padStart(10)}${'CTR'.padStart(8)}${'POS'.padStart(7)}${'DAYS'.padStart(6)}${showSource ? '  SOURCE' : ''}`,
+  )
+  console.log(`  ${'─'.repeat(40)}${'─'.repeat(8)}${'─'.repeat(10)}${'─'.repeat(8)}${'─'.repeat(7)}${'─'.repeat(6)}${showSource ? `  ${'─'.repeat(11)}` : ''}`)
+  for (const row of rows.slice(0, 50)) {
+    const query = row.query.length > 38 ? row.query.slice(0, 35) + '...' : row.query
+    console.log(
+      `  ${query.padEnd(40)}${row.clicks.toLocaleString().padStart(8)}${row.impressions.toLocaleString().padStart(10)}${`${(row.ctr * 100).toFixed(1)}%`.padStart(8)}${row.position.toFixed(1).padStart(7)}${String(row.days).padStart(6)}${showSource ? `  ${row.source}` : ''}`,
+    )
+  }
+  if (rows.length > 50) {
+    console.log(`\n  ... and ${rows.length - 50} more rows on this page (use --format json for full output)`)
+  }
+  if (truncated) {
+    const nextOffset = (opts.offset ?? 0) + rows.length
+    console.log(`\n  This is one page. Use --offset ${nextOffset} (with the same --limit) to read the next.`)
+  }
+  console.log()
+  if (showSource) {
+    console.log('  Rows marked page-summed or mixed use the legacy page table for some days. Their impressions')
+    console.log('  over-count, because one search showing several of your pages was stored once per page.')
+    console.log('  Run "canonry google sync" over the window to replace them with Google\'s per-query totals.')
+  }
+  console.log('  These are the queries Google names. Google leaves rare queries out, so the rows do not add up')
+  console.log('  to the property total. Use "canonry google performance-daily" for that.')
 }
 
 export async function googlePerformance(project: string, opts: {
