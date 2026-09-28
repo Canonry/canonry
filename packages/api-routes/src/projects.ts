@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { and, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { projects, queries, competitors, schedules, notifications, runs, querySnapshots, insights, auditLog } from '@ainyc/canonry-db'
+import { projects, queries, competitors, schedules, notifications, runs, querySnapshots, insights, auditLog, readAllNegativeReviewMaxStars, readNegativeReviewMaxStars, writeNegativeReviewMaxStars } from '@ainyc/canonry-db'
 import type { InferSelectModel } from 'drizzle-orm'
 import {
   alreadyExists,
@@ -177,6 +177,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         updatedAt: now,
       }).onConflictDoNothing().run()
       if (result.changes !== 1) return false
+      writeNegativeReviewMaxStars(tx, id, body.negativeReviewMaxStars ?? null, now)
 
       writeAuditLog(tx, {
         projectId: id,
@@ -192,7 +193,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     notifyProjectCreated(id, name)
     opts.onProjectUpserted?.(id, name)
     const created = app.db.select().from(projects).where(eq(projects.id, id)).get()!
-    return reply.status(201).send(formatProject(created))
+    return reply.status(201).send(formatProject(created, body.negativeReviewMaxStars ?? null))
   })
 
   // PUT /projects/:name — upsert project
@@ -211,6 +212,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       locations?: LocationContext[]
       defaultLocation?: string | null
       autoExtractBacklinks?: boolean
+      negativeReviewMaxStars?: number | null
       configSource?: string
       providerModels?: Record<string, string>
       providerDispatchModes?: ProviderDispatchModesMap
@@ -279,6 +281,10 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     const nextAutoExtractBacklinks = body.autoExtractBacklinks !== undefined
       ? body.autoExtractBacklinks
       : existing?.autoExtractBacklinks ?? false
+    // Omitted keeps the stored threshold; an explicit null resets it to the default.
+    const nextNegativeReviewMaxStars = body.negativeReviewMaxStars !== undefined
+      ? body.negativeReviewMaxStars
+      : existing ? readNegativeReviewMaxStars(app.db, existing.id) : null
 
     const nextMeasurement = body.measurement ?? existing?.measurement ?? DEFAULT_MEASUREMENT_CONFIG
 
@@ -309,6 +315,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           configRevision: existing.configRevision + 1,
           updatedAt: now,
         }).where(eq(projects.id, existing.id)).run()
+        writeNegativeReviewMaxStars(tx, existing.id, nextNegativeReviewMaxStars, now)
 
         writeAuditLog(tx, {
           projectId: existing.id,
@@ -323,7 +330,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       if (aliasesChanged) opts.onAliasesChanged?.(existing.id, name)
 
       const updated = app.db.select().from(projects).where(eq(projects.id, existing.id)).get()!
-      return reply.status(200).send(formatProject(updated))
+      return reply.status(200).send(formatProject(updated, nextNegativeReviewMaxStars))
     }
 
     const id = crypto.randomUUID()
@@ -351,6 +358,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         createdAt: now,
         updatedAt: now,
       }).run()
+      writeNegativeReviewMaxStars(tx, id, nextNegativeReviewMaxStars, now)
 
       writeAuditLog(tx, {
         projectId: id,
@@ -365,7 +373,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     opts.onProjectUpserted?.(id, name)
 
     const created = app.db.select().from(projects).where(eq(projects.id, id)).get()!
-    return reply.status(201).send(formatProject(created))
+    return reply.status(201).send(formatProject(created, nextNegativeReviewMaxStars))
   })
 
   // GET /projects — list all. A project-scoped key sees ONLY its own project,
@@ -375,13 +383,14 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     const rows = scoped
       ? app.db.select().from(projects).where(eq(projects.id, scoped)).all()
       : app.db.select().from(projects).all()
-    return reply.send(rows.map(formatProject))
+    const thresholds = readAllNegativeReviewMaxStars(app.db)
+    return reply.send(rows.map(row => formatProject(row, thresholds.get(row.id) ?? null)))
   })
 
   // GET /projects/:name — get single
   app.get<{ Params: { name: string } }>('/projects/:name', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
-    return reply.send(formatProject(project))
+    return reply.send(formatProject(project, readNegativeReviewMaxStars(app.db, project.id)))
   })
 
   app.get<{ Params: { name: string } }>('/projects/:name/delete-preview', async (request, reply) => {
@@ -604,6 +613,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
   // GET /projects/:name/export — export as canonry.yaml format
   app.get<{ Params: { name: string } }>('/projects/:name/export', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
+    const negativeReviewMaxStars = readNegativeReviewMaxStars(app.db, project.id)
 
     const qs = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
     const comps = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
@@ -636,6 +646,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         locations: project.locations,
         ...(project.defaultLocation ? { defaultLocation: project.defaultLocation } : {}),
         ...(project.autoExtractBacklinks ? { autoExtractBacklinks: true } : {}),
+        ...(negativeReviewMaxStars !== null ? { negativeReviewMaxStars } : {}),
         notifications: notificationRows.map((row) => {
           const cfg = row.config
           return {
@@ -706,7 +717,12 @@ function providerModelsEqual(a: ProviderModels, b: ProviderModels): boolean {
   return aKeys.every(key => a[key] === b[key])
 }
 
-export function formatProject(row: InferSelectModel<typeof projects>) {
+/**
+ * `negativeReviewMaxStars` lives in `gbp_review_settings`, not on the row, so
+ * every caller passes it in (null = the default). Required on purpose: an
+ * optional argument would let a new caller silently report the default.
+ */
+export function formatProject(row: InferSelectModel<typeof projects>, negativeReviewMaxStars: number | null) {
   return {
     id: row.id,
     name: row.name,
@@ -725,6 +741,7 @@ export function formatProject(row: InferSelectModel<typeof projects>) {
     locations: row.locations,
     defaultLocation: row.defaultLocation,
     autoExtractBacklinks: row.autoExtractBacklinks,
+    negativeReviewMaxStars,
     configSource: row.configSource,
     configRevision: row.configRevision,
     createdAt: row.createdAt,

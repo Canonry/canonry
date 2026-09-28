@@ -36,6 +36,7 @@ import {
   gbpLodgingDtoSchema,
   gbpAttributesDtoSchema,
   gbpPlaceDetailsDtoSchema,
+  gbpReviewDtoSchema,
   googleConnectionDtoSchema,
   googleAdsConnectionMetadataDtoSchema,
   googleAdsRawSnapshotMetadataDtoSchema,
@@ -406,7 +407,11 @@ const COVERAGE: Record<string, CoverageEntry> = {
   gbpLocations: {
     kind: 'dto',
     dto: gbpLocationDtoSchema,
-    internal: {},
+    internal: {
+      reviewsAccess: 'Served per location on GET /gbp/reviews (locations[].reviewsAccess), next to the reviews it governs.',
+      reviewsAccessReason: 'Served per location on GET /gbp/reviews (locations[].reviewsAccessReason).',
+      reviewsCheckedAt: 'Served per location on GET /gbp/reviews (locations[].reviewsCheckedAt).',
+    },
   },
   gbpDailyMetrics: {
     kind: 'dto',
@@ -542,6 +547,23 @@ const COVERAGE: Record<string, CoverageEntry> = {
       syncRunId: 'Internal join key.',
       contentHash: 'Snapshot-on-change dedupe key; internal.',
     },
+  },
+  gbpReviews: {
+    kind: 'dto',
+    dto: gbpReviewDtoSchema,
+    internal: {
+      id: 'Surrogate key.',
+      projectId: 'Implied by the route scope.',
+      syncRunId: 'Internal join key.',
+    },
+  },
+  gbpReviewSettings: {
+    kind: 'internal-only',
+    reason: 'Per-project GBP review alert settings, one row only while a project overrides a default. Served as ProjectDto.negativeReviewMaxStars (and echoed as negativeMaxStars on GET /gbp/reviews); stored off the projects table so the root row stays unchanged.',
+  },
+  gbpReviewRatings: {
+    kind: 'internal-only',
+    reason: 'Rating history per location and origin, snapshotted on change. The newest row per location is served on GET /gbp/reviews as locations[].rating, reviewCount, ratingOrigin and ratingObservedAt. The first row is the baseline marker the review sync reads, and alert_state is review.rating-dropped webhook bookkeeping, neither of which is a measurement.',
   },
   gbpAttributesSnapshots: {
     kind: 'dto',

@@ -16,3 +16,11 @@ export { getLodging, countPopulatedGroups, hashLodging } from './lodging-client.
 export type { GbpLodging } from './lodging-client.js'
 export { getAttributes, countAttributes, hashAttributes } from './attributes-client.js'
 export type { GbpAttribute } from './attributes-client.js'
+export { listReviews, classifyReviewsError, normalizeGoogleTimestamp } from './reviews-client.js'
+export type {
+  GbpReviewRow,
+  GbpReviewListing,
+  ListReviewsOptions,
+  GbpReviewsAccess,
+  GbpReviewsErrorClass,
+} from './reviews-client.js'

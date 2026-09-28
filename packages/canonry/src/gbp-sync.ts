@@ -1,8 +1,8 @@
 import crypto from 'node:crypto'
 import { eq, and, desc, inArray, lt } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { runs, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpPlaceDetails, gbpAttributesSnapshots } from '@ainyc/canonry-db'
-import { buildRunErrorFromMessages, serializeRunError, describeError } from '@ainyc/canonry-contracts'
+import { runs, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpPlaceDetails, gbpAttributesSnapshots, readNegativeReviewMaxStars } from '@ainyc/canonry-db'
+import { buildRunErrorFromMessages, serializeRunError, describeError, resolveNegativeReviewMaxStars } from '@ainyc/canonry-contracts'
 import { refreshAccessToken } from '@ainyc/canonry-integration-google'
 import {
   listLocations,
@@ -24,6 +24,8 @@ import type { CanonryConfig } from './config.js'
 import { saveConfigPatch } from './config.js'
 import { getGoogleAuthConfig, getGoogleConnection, patchGoogleConnection } from './google-config.js'
 import { getPlacesConfig } from './places-config.js'
+import { fetchLocationReviews, persistReviewObservation } from './gbp-reviews.js'
+import type { ReviewFetchContext } from './gbp-reviews.js'
 import { createLogger } from './logger.js'
 
 const MS_PER_DAY = 86_400_000
@@ -77,9 +79,14 @@ interface GbpSyncOptions {
 
 /**
  * Sync GBP performance data (daily metrics + monthly keyword impressions) for
- * a project's selected locations. Reviews and Q&A are intentionally absent:
- * the v4 reviews API is separately access-gated by Google, and the Q&A API was
- * retired. Each location is range-replaced so re-runs don't duplicate.
+ * a project's selected locations. Each location is range-replaced so re-runs
+ * don't duplicate.
+ *
+ * Reviews come from the v4 API, which Google enables per Cloud project only on
+ * request, so a 403 there is the normal case and never fails the location.
+ * Without it, locations fall back to the public Places listing (see
+ * gbp-reviews.ts). Negative reviews are queued here and sent by the notifier
+ * after the run completes. The Q&A API was retired and is not synced.
  */
 export async function executeGbpSync(
   db: DatabaseClient,
@@ -151,6 +158,15 @@ export async function executeGbpSync(
 
     log.info('sync.start', { runId, projectId, locations: locationRows.length, daysOfMetrics, monthsOfKeywords })
 
+    const negativeMaxStars = resolveNegativeReviewMaxStars(readNegativeReviewMaxStars(db, projectId))
+    const reviewContext: ReviewFetchContext = {
+      runId,
+      now: new Date(),
+      accessToken,
+      places: { apiKey: placesApiKey, tier: placesTier },
+      gate: { projectWideReason: null },
+    }
+
     const errors = new Map<string, string>()
     let okCount = 0
 
@@ -159,7 +175,7 @@ export async function executeGbpSync(
       const batch = locationRows.slice(i, i + LOCATION_CONCURRENCY)
       await Promise.all(batch.map(async (loc) => {
         try {
-          const [metricRows, keywordRows, placeActionRows, lodging, attributes, monthlyKeywordResults] = await Promise.all([
+          const [metricRows, keywordRows, placeActionRows, lodging, attributes, monthlyKeywordResults, reviewFetch] = await Promise.all([
             fetchDailyMetrics(accessToken, loc.locationName, {
               metrics: GBP_DAILY_METRICS,
               startDate: metricsStart,
@@ -182,6 +198,9 @@ export async function executeGbpSync(
               month: monthKey(m),
               rows: await listMonthlyKeywords(accessToken, loc.locationName, { startMonth: m, endMonth: m }),
             }))),
+            // Never rejects: a gated or failing reviews source is recorded on
+            // the location and the rest of the sync proceeds.
+            fetchLocationReviews(db, projectId, loc, reviewContext),
           ])
 
           // Lodging snapshot-on-change: only insert a new row when the content
@@ -242,7 +261,8 @@ export async function executeGbpSync(
             }
           }
 
-          const insertNow = new Date().toISOString()
+          const reviewNow = new Date()
+          const insertNow = reviewNow.toISOString()
           // Range-replace the per-sync surfaces for this location in one
           // transaction so a re-sync never leaves stale or duplicate rows.
           db.transaction((tx) => {
@@ -401,8 +421,29 @@ export async function executeGbpSync(
                 .run()
             }
 
+            // Reviews: store what each origin returned and queue alerts for
+            // the notifier. A location's first observation is a silent baseline.
+            for (const observation of reviewFetch.observations) {
+              const persisted = persistReviewObservation(tx, projectId, runId, observation, { now: reviewNow, negativeMaxStars })
+              if (persisted.queuedReviews > 0 || persisted.queuedRatingDrop) {
+                log.info('reviews.queued', {
+                  runId,
+                  location: loc.locationName,
+                  origin: observation.origin,
+                  reviews: persisted.queuedReviews,
+                  ratingDrop: persisted.queuedRatingDrop,
+                })
+              }
+            }
+
             tx.update(gbpLocations)
-              .set({ syncedAt: insertNow, updatedAt: insertNow })
+              .set({
+                syncedAt: insertNow,
+                updatedAt: insertNow,
+                reviewsAccess: reviewFetch.access.status,
+                reviewsAccessReason: reviewFetch.access.reason,
+                reviewsCheckedAt: insertNow,
+              })
               .where(eq(gbpLocations.id, loc.id))
               .run()
           })

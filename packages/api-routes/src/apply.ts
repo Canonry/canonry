@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { projects, competitors, schedules, notifications } from '@ainyc/canonry-db'
+import { projects, competitors, schedules, notifications, readNegativeReviewMaxStars, writeNegativeReviewMaxStars } from '@ainyc/canonry-db'
 import { forbidden, nextScheduleUpdatedAt, normalizeProjectAliases, normalizeProjectDomain, projectConfigSchema, registrableDomain, resolveConfigSpecQueries, SchedulableRunKinds, validationError, describeError } from '@ainyc/canonry-contracts'
 import type { ProviderAdapterInfo } from './settings.js'
 import { pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
@@ -233,6 +233,10 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         })
       }
 
+      // Declarative like the project fields above: an omitted threshold means
+      // the default, so applying a spec without it clears an earlier override.
+      writeNegativeReviewMaxStars(tx, projectId, config.spec.negativeReviewMaxStars ?? null, now)
+
       // Replace queries + competitors. Query rows are the FK anchor for every
       // historical snapshot, so unchanged texts must keep their EXISTING rows —
       // delete-all + reinsert would orphan the project's whole sweep history.
@@ -402,6 +406,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       locations: project.locations,
       defaultLocation: project.defaultLocation,
       autoExtractBacklinks: project.autoExtractBacklinks,
+      negativeReviewMaxStars: readNegativeReviewMaxStars(app.db, project.id),
       configSource: project.configSource,
       configRevision: project.configRevision,
       createdAt: project.createdAt,

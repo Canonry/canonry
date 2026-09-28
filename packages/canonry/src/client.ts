@@ -193,6 +193,7 @@ import type {
   GbpLodgingListResponse,
   GbpAttributesListResponse,
   GbpPlaceDetailsListResponse,
+  GbpReviewListResponse,
   GbpSummaryDto,
   GscPerformanceResponseDto,
   GscPerformanceDailyDto,
@@ -441,6 +442,7 @@ import {
   getApiV1ProjectsByNameGbpLodging,
   getApiV1ProjectsByNameGbpAttributes,
   getApiV1ProjectsByNameGbpPlaces,
+  getApiV1ProjectsByNameGbpReviews,
   getApiV1ProjectsByNameGbpSummary,
   // GSC
   postApiV1ProjectsByNameGoogleGscSync,
@@ -3261,6 +3263,23 @@ export class ApiClient {
         client: this.heyClient,
         path: { name: project },
         query: opts?.locationName ? { locationName: opts.locationName } as never : undefined,
+      }),
+    )
+  }
+
+  async listGbpReviews(
+    project: string,
+    opts?: { locationName?: string; negative?: boolean | string; limit?: number | string },
+  ): Promise<GbpReviewListResponse> {
+    const query: Record<string, string> = {}
+    if (opts?.locationName) query.locationName = opts.locationName
+    if (opts?.negative !== undefined) query.negative = String(opts.negative)
+    if (opts?.limit !== undefined) query.limit = String(opts.limit)
+    return this.invoke<GbpReviewListResponse>(() =>
+      getApiV1ProjectsByNameGbpReviews({
+        client: this.heyClient,
+        path: { name: project },
+        query: Object.keys(query).length > 0 ? query as never : undefined,
       }),
     )
   }

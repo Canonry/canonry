@@ -1,4 +1,5 @@
 export * from './client.js'
+export * from './gbp-review-settings.js'
 export * from './json.js'
 export * from './migrate.js'
 export * from './operational-logs.js'

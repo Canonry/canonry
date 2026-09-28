@@ -328,6 +328,56 @@ export async function gbpPlaces(
   }
 }
 
+export async function gbpReviews(
+  project: string,
+  opts: { location?: string; negative?: boolean; limit?: number; format?: string },
+): Promise<void> {
+  const client = getClient()
+  const response = await client.listGbpReviews(project, {
+    locationName: opts.location,
+    ...(opts.negative ? { negative: true } : {}),
+    ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+  })
+  if (isMachineFormat(opts.format)) {
+    console.log(JSON.stringify(response, null, 2))
+    return
+  }
+  if (response.locations.length === 0 && response.reviews.length === 0) {
+    console.log('No reviews yet. Run "canonry gbp sync" first.')
+    return
+  }
+
+  const names = new Map(response.locations.map((loc) => [loc.locationName, loc.displayName]))
+  for (const loc of response.locations) {
+    // The v4 average is not rounded by Google, so trim it for display only.
+    const rating = loc.rating !== null
+      ? `${Number(loc.rating.toFixed(2))} from ${loc.reviewCount ?? '?'} reviews (${loc.ratingOrigin === 'gbp' ? 'Business Profile' : 'public listing'})`
+      : 'no rating yet'
+    const access = loc.reviewsAccess === 'ok'
+      ? 'every review'
+      : loc.reviewsAccess === null
+        ? 'review access not checked yet'
+        : `Business Profile reviews ${loc.reviewsAccess}${loc.reviewsAccessReason ? ` (${loc.reviewsAccessReason})` : ''}`
+    console.log(`${loc.displayName}  ${loc.locationName}`)
+    console.log(`  ${rating}; ${access}`)
+  }
+
+  const label = opts.negative ? 'negative review(s)' : 'review(s)'
+  if (response.reviews.length === 0) {
+    console.log(`\nNo ${label} stored.`)
+    return
+  }
+  const shown = response.reviews.length < response.total ? `, newest ${response.reviews.length} shown` : ''
+  console.log(`\n${response.total} ${label}${shown}:`)
+  const manyLocations = response.locations.length > 1
+  for (const r of response.reviews) {
+    const stars = r.starRating !== null ? `${r.starRating}★` : '--'
+    const where = manyLocations ? `  ${names.get(r.locationName) ?? r.locationName}` : ''
+    const text = r.comment ? `"${r.comment.length > 80 ? `${r.comment.slice(0, 79)}…` : r.comment}"` : '(rating only)'
+    console.log(`  ${r.updateTime.slice(0, 10)}  ${stars}${where}  ${r.reviewerName ?? 'Anonymous'}  ${text}  [${r.origin}, ${r.alertState}]`)
+  }
+}
+
 function fmtDelta(pct: number | null): string {
   if (pct === null) return 'n/a'
   return `${pct >= 0 ? '+' : ''}${pct}%`

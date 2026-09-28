@@ -38,6 +38,9 @@ export const GBP_DEFAULT_PAGE_SIZE = 100
 // Safety limit: max pagination iterations to avoid infinite loops.
 export const GBP_MAX_PAGES = 200
 
+// The v4 reviews list caps pageSize at 50.
+export const GBP_REVIEWS_PAGE_SIZE = 50
+
 // Default readMask for listLocations. `metadata.placeId` / `metadata.mapsUri`
 // are output-only and only populated when the location is on Maps — they are
 // the join key to the Places API for supplemental rendered-listing data (#648).

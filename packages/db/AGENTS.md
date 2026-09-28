@@ -60,6 +60,7 @@ How the runner uses it:
 - A new table's entry creates the table plus every index from its schema definition; a new column uses `ALTER TABLE ... ADD COLUMN`.
 - Removing a column or table: SQLite does not support `DROP COLUMN` on older versions; document the intent and leave the entry's `statements[]` as a comment-only no-op if needed.
 - Duplicate or out-of-order `version` values break the skip-already-applied logic.
+- Put a new feature setting in a table keyed by `project_id` rather than a new `projects` column. Migration tests across packages migrate to an older version and then insert a project through Drizzle, which names every current column, so a new `projects` column breaks all of them (`gbp_review_settings` exists for this reason).
 
 Checklist: table/column added to `schema.ts`; matching `MIGRATION_VERSIONS` entry in `migrate.ts`; relevant schema and migration tests pass locally (full workspace checks run in CI).
 

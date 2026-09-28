@@ -152,6 +152,14 @@ export class RunCoordinator {
       } catch (err) {
         log.error('gbp-intelligence.failed', { runId, error: describeError(err) })
       }
+
+      // Negative-review and rating-drop webhooks the sync queued. Separate
+      // from the insights above so one failing cannot swallow the other.
+      try {
+        await this.notifier.dispatchReviewAlerts(projectId)
+      } catch (err) {
+        log.error('review-webhook.failed', { runId, error: describeError(err) })
+      }
     }
 
     // 2. Notifications — may short-circuit if no webhooks configured, catches its own errors
