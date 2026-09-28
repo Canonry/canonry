@@ -53,5 +53,7 @@
       "providerCalls": 0,
       "status": "passed"
     }
-  }
+  },
+  "evaluatorSchemaVersion": 1,
+  "scope": "Historical branded schema 1 live validation. The stance-only schema 2 revision has separate deterministic receipts and made no additional live requests."
 }
