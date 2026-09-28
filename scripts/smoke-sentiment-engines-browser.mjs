@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict'
 import { mkdir, writeFile } from 'node:fs/promises'
-const { chromium } = await import(process.env.CANONRY_PLAYWRIGHT_MODULE ?? 'playwright')
+const playwrightSpecifier = process.env.CANONRY_PLAYWRIGHT_MODULE ?? 'playwright'
+const { chromium } = await import(playwrightSpecifier).catch(error => {
+  throw new Error(`Browser smoke needs Playwright, and ${JSON.stringify(playwrightSpecifier)} did not load (${error instanceof Error ? error.message : String(error)}). Install the playwright package and its Chromium (npx playwright install chromium), or set CANONRY_PLAYWRIGHT_MODULE to a Playwright index.mjs and CANONRY_BROWSER_EXECUTABLE to a Chromium binary.`)
+})
 const base = new URL(process.env.SENTIMENT_SMOKE_URL)
 assert(base.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(base.hostname), 'Browser smoke requires its isolated loopback server')
 const output = process.env.SENTIMENT_BROWSER_ARTIFACTS
 assert(output?.startsWith('/tmp/canonry-sentiment-engines-'))
 await mkdir(output, { recursive: true })
-const browser = await chromium.launch({ executablePath: process.env.CANONRY_BROWSER_EXECUTABLE, headless: true, args: ['--no-sandbox'] })
+const browser = await chromium.launch({ ...(process.env.CANONRY_BROWSER_EXECUTABLE ? { executablePath: process.env.CANONRY_BROWSER_EXECUTABLE } : {}), headless: true, args: ['--no-sandbox'] })
 const report = { complete: false, checks: [], screenshots: [], reads: [], httpErrors: [], consoleErrors: [], pageErrors: [], externalRequests: [] }
 const context = await browser.newContext({ viewport: { width: 1440, height: 1100 }, hasTouch: true, extraHTTPHeaders: { authorization: 'Bearer cnry_sentiment_synthetic_admin' } })
 async function restrict(context) { await context.route('**/*', async route => { if (new URL(route.request().url()).origin !== base.origin) { report.externalRequests.push(route.request().url()); await route.abort() } else await route.continue() }) }
@@ -26,7 +29,7 @@ const mark = message => report.checks.push(message)
 async function screenshot(name) { const file = `${output}/${name}.png`; await page.screenshot({ path: file, fullPage: true }); report.screenshots.push(file) }
 async function summary(project, scope = {}) {
   const url = new URL(`api/v1/projects/${project}/sentiment`, base)
-  url.search = new URLSearchParams({ mode: project === 'simple' ? 'simple' : 'advanced', queryClass: 'non-brand', scope: 'project', runId: `${project}-run`, ...scope }).toString()
+  url.search = new URLSearchParams({ mode: project === 'simple' ? 'simple' : 'advanced', queryClass: 'non-brand', scope: 'project', runId: `${project}-run`, include: 'assessments,locations', ...scope }).toString()
   const response = await context.request.get(url.href)
   assert.equal(response.status(), 200)
   return response.json()

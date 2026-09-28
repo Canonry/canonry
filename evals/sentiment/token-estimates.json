@@ -11,12 +11,12 @@
       "complaint"
     ],
     "estimate": {
-      "method": "utf8-byte-upper-bound-v1",
-      "inputTokens": 3855,
-      "stateAndLongestQuestionTokens": 2395,
-      "inputCostUsd": 0.00016191
+      "method": "calibrated-utf8-byte-bound-v2",
+      "inputTokens": 2157,
+      "stateAndLongestQuestionTokens": 1573,
+      "inputCostUsd": 0.00009059400000000001
     },
-    "limitation": "UTF-8 byte upper bound plus 1024 framing allowance, not the vendor tokenizer or returned usage. Official price checked 2026-09-28: USD 0.042/M input tokens."
+    "limitation": "Calibrated UTF-8 bytes / 2.5 plus 1024 framing allowance, not the vendor tokenizer or returned usage. Official price checked 2026-09-28: USD 0.042/M input tokens."
   },
   "non-brand": {
     "queryClass": "non-brand",
@@ -30,12 +30,12 @@
       "complaint"
     ],
     "estimate": {
-      "method": "utf8-byte-upper-bound-v1",
-      "inputTokens": 3884,
-      "stateAndLongestQuestionTokens": 2424,
-      "inputCostUsd": 0.00016312800000000001
+      "method": "calibrated-utf8-byte-bound-v2",
+      "inputTokens": 2168,
+      "stateAndLongestQuestionTokens": 1584,
+      "inputCostUsd": 0.00009105600000000002
     },
-    "limitation": "UTF-8 byte upper bound plus 1024 framing allowance, not the vendor tokenizer or returned usage. Official price checked 2026-09-28: USD 0.042/M input tokens."
+    "limitation": "Calibrated UTF-8 bytes / 2.5 plus 1024 framing allowance, not the vendor tokenizer or returned usage. Official price checked 2026-09-28: USD 0.042/M input tokens."
   },
   "non-brand-subject-absent": {
     "queryClass": "non-brand",
@@ -43,6 +43,6 @@
     "outcome": "subject-not-mentioned",
     "questions": [],
     "estimate": null,
-    "limitation": "UTF-8 byte upper bound plus 1024 framing allowance, not the vendor tokenizer or returned usage. Official price checked 2026-09-28: USD 0.042/M input tokens."
+    "limitation": "Calibrated UTF-8 bytes / 2.5 plus 1024 framing allowance, not the vendor tokenizer or returned usage. Official price checked 2026-09-28: USD 0.042/M input tokens."
   }
 }

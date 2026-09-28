@@ -1,8 +1,9 @@
 import type { z } from 'zod'
 import type {
-  SentimentSummary, SentimentSettings, SentimentSelection, SentimentBackfillSelection,
+  SentimentSummaryRead, SentimentSettingsRead, SentimentBackfillSelection, sentimentSummaryRequestSchema, sentimentJobRequestSchema,
   sentimentSettingsUpdateSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentBackfillRequestSchema,
 } from '@ainyc/canonry-contracts'
+import { formatPercent, RatioUnits } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat, type CliFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -13,7 +14,7 @@ function machine(value: unknown, format: CliFormat): boolean {
   return true
 }
 
-function printSettings(value: SentimentSettings): void {
+function printSettings(value: SentimentSettingsRead): void {
   console.log(`Sentiment: ${value.enabled ? 'enabled' : 'disabled'} · ${value.ready ? 'ready' : 'unavailable'} · experimental`)
   console.log(`Evaluator: ${value.model} · definition: ${value.evaluationDefinitionId ?? 'not configured'} · epoch: ${value.enablementEpoch}`)
   for (const reason of value.readinessReasons) console.log(reason)
@@ -21,13 +22,13 @@ function printSettings(value: SentimentSettings): void {
   console.log(value.disclosure)
 }
 
-export async function showSentiment(project: string, selection: SentimentSelection, format: CliFormat): Promise<void> {
+export async function showSentiment(project: string, selection: z.infer<typeof sentimentSummaryRequestSchema>, format: CliFormat): Promise<void> {
   const value = await createApiClient().getSentiment(project, selection)
   if (machine(value, format)) return
   printSummary(value)
 }
 
-function printSummary(value: SentimentSummary): void {
+function printSummary(value: SentimentSummaryRead): void {
   const label = value.selection.queryClass === 'branded' ? 'Branded' : 'Non-brand'
   console.log(`${label} sentiment: ${value.state}${value.provisional ? ' · provisional' : ''}`)
   if (value.reason) console.log(value.reason)
@@ -39,10 +40,10 @@ function printSummary(value: SentimentSummary): void {
   console.log(`Evaluation definition: ${value.selection.evaluationDefinitionId ?? 'not measured'}`)
   if (value.state === 'complete' && value.coverage.judged === 0) console.log('No evaluative answers.')
   for (const [outcome, count] of Object.entries(value.coverage.counts)) if (count > 0) console.log(`  ${outcome}: ${count}`)
-  if (value.score.interval) console.log(`Wilson 95% interval (proportion): ${value.score.interval.low}–${value.score.interval.high}`)
+  if (value.score.interval) console.log(`Wilson 95% interval: ${formatPercent(value.score.interval.low, RatioUnits.fraction)} to ${formatPercent(value.score.interval.high, RatioUnits.fraction)}`)
   console.log(value.score.limitation)
   for (const row of value.queries) {
-    console.log(`Query ${row.queryId} · ${row.queryText} · ${row.queryClass}: Favorable ${row.score.favorableDisplay} · ${row.coverage.counts.favorable} favorable / ${row.coverage.judged} judged · ${row.state}${row.provisional ? ' · provisional' : ''}`)
+    console.log(`Query ${row.queryId}${row.executionNodeKey ? ` · node ${row.executionNodeKey}` : ''} · ${row.queryText} · ${row.queryClass}: Favorable ${row.score.favorableDisplay} · ${row.coverage.counts.favorable} favorable / ${row.coverage.judged} judged · ${row.state}${row.provisional ? ' · provisional' : ''}`)
     if (row.reason) console.log(`  ${row.reason}`)
     for (const assessment of row.assessments) {
       console.log(`  ${assessment.provider} · requested ${assessment.requestedModel ?? 'unavailable'} · served ${assessment.servedModel ?? 'unavailable'} · ${assessment.location ?? 'No location'} · ${assessment.subjectLabel}: ${assessment.outcome ?? assessment.state}`)
@@ -51,6 +52,8 @@ function printSummary(value: SentimentSummary): void {
     }
   }
   for (const row of value.breakdowns) if (row.dimension !== 'query') console.log(`${row.dimension} ${row.label} · ${row.queryClass}: ${row.score.favorableDisplay} favorable · ${row.coverage.judged} of ${row.coverage.selected} judged`)
+  if (value.queryPage) console.log(`Query rows: ${value.queries.length} of ${value.queryPage.total}`)
+  if (value.queryPage?.nextCursor) console.log(`Next query cursor: ${value.queryPage.nextCursor}`)
 }
 
 export async function showSentimentSettings(project: string, format: CliFormat): Promise<void> {
@@ -110,15 +113,17 @@ export async function listSentimentJobs(project: string, format: CliFormat): Pro
   if (format === 'jsonl') { emitJsonl(value.jobs.map(job => ({ project, ...job }))); return }
   if (machine(value, format)) return
   if (value.jobs.length === 0) console.log('No sentiment jobs.')
-  for (const job of value.jobs) console.log(`${job.id}: ${job.state} · ${job.origin} · ${job.selected} selected · ${job.evaluationDefinitionId}`)
+  for (const job of value.jobs) console.log(`${job.id}: ${job.state} · ${job.origin} · ${job.selected} selected · ${job.attemptCount} attempts · ${job.evaluationDefinitionId}`)
 }
 
-export async function showSentimentJob(project: string, jobId: string, format: CliFormat): Promise<void> {
-  const value = await createApiClient().getSentimentJob(project, jobId)
+export async function showSentimentJob(project: string, jobId: string, page: Partial<z.infer<typeof sentimentJobRequestSchema>>, format: CliFormat): Promise<void> {
+  const value = await createApiClient().getSentimentJob(project, jobId, page)
   if (machine(value, format)) return
   console.log(`Sentiment job ${value.id}: ${value.state} · ${value.origin} · epoch ${value.enablementEpoch}`)
   if (value.cancellationReason) console.log(value.cancellationReason)
   console.log(`${value.selected} selected assessments · definition ${value.evaluationDefinitionId}`)
   for (const [outcome, count] of Object.entries(value.counts)) if (count > 0) console.log(`  ${outcome}: ${count}`)
+  if (value.attemptCount !== undefined) console.log(`Attempts: ${value.attempts.length} shown of ${value.attemptCount}, newest first`)
   for (const attempt of value.attempts) console.log(`Attempt ${attempt.id}: ${attempt.completedAt ?? 'in progress'} · usage ${attempt.usage.kind}${attempt.errorCode ? ` · ${attempt.errorCode}` : ''}`)
+  if (value.nextAttemptCursor) console.log(`Next attempt cursor: ${value.nextAttemptCursor}`)
 }

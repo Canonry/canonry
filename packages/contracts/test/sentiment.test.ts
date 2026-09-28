@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { sentimentFixtureSummary, sentimentCompleteFixtureSummary } from './fixtures/sentiment.js'
 import { sentimentSummarySchema } from '../src/sentiment.js'
-import { aggregateSentiment, canonicalSentimentDefinitionJson, createSentimentEvaluationDefinition, sentimentClassifierOutputSchema, sentimentRateDisplay, sentimentSettingsUpdateSchema, sentimentSelectionSchema, sentimentCompareRequestSchema, sentimentAssessmentSummarySchema, sentimentEvidenceRequestSchema, storedSentimentEvaluationDefinitionSchema, storedSentimentClassifierOutputSchema, type SentimentAggregateItem, type SentimentOutcome } from '../src/sentiment.js'
+import { aggregateSentiment, canonicalSentimentDefinitionJson, createSentimentEvaluationDefinition, hasCurrentSentimentTemplate, sentimentJobRequestSchema, sentimentJobsSchema, sentimentSummaryRequestSchema, sentimentClassifierOutputSchema, sentimentRateDisplay, sentimentSettingsUpdateSchema, sentimentSelectionSchema, sentimentCompareRequestSchema, sentimentAssessmentSummarySchema, sentimentEvidenceRequestSchema, storedSentimentEvaluationDefinitionSchema, storedSentimentClassifierOutputSchema, type SentimentAggregateItem, type SentimentOutcome } from '../src/sentiment.js'
 
 const outcomes: SentimentOutcome[] = ['favorable', 'favorable', 'favorable', 'mixed', 'unfavorable', 'factual', 'wrong-subject', 'invalid-conclusion-evidence', 'failed', 'pending']
 const canonical: SentimentAggregateItem[] = outcomes.map((outcome, index) => ({ assessmentId: `a${index}`, sourceSnapshotId: `s${index}`, outcome }))
@@ -51,11 +51,34 @@ describe('sentiment measurement invariants', () => {
   it('pins the stance-only evaluator identity independently of answer text', () => {
     const definition = createSentimentEvaluationDefinition()
     const json = canonicalSentimentDefinitionJson(definition)
-    expect(definition).toMatchObject({ schemaVersion: 2, verdictVersion: 'stance-v2', identityVersion: 'qualified-subject-v2' })
+    expect(definition).toMatchObject({ schemaVersion: 2, verdictVersion: 'stance-v2', identityVersion: 'qualified-subject-v3', segmentationVersion: 'sentence-spans-v2' })
     expect(Object.keys(definition.questions)).toEqual(['identity', 'judgment', 'stance', 'conclusion', 'complaint'])
     expect(canonicalSentimentDefinitionJson({ ...definition, confidenceThreshold: 0.8 })).not.toBe(json)
     expect(json).not.toContain('sourceTextHash')
     expect(json).not.toContain('themes')
+  })
+  it('dispatches only definitions frozen under the pinned request template', () => {
+    const current = createSentimentEvaluationDefinition()
+    expect(hasCurrentSentimentTemplate(current)).toBe(true)
+    // Tuning outside the template (a threshold) keeps the template; any version string does not.
+    expect(hasCurrentSentimentTemplate({ ...current, confidenceThreshold: 0.8 })).toBe(true)
+    for (const field of ['verdictVersion', 'identityVersion', 'evidenceVersion', 'segmentationVersion', 'preprocessingVersion'] as const) {
+      expect(hasCurrentSentimentTemplate({ ...current, [field]: `${current[field]}-earlier` }), field).toBe(false)
+    }
+    expect(hasCurrentSentimentTemplate({ ...current, identityVersion: 'qualified-subject-v2', segmentationVersion: 'sentence-spans-v1' })).toBe(false)
+    expect(hasCurrentSentimentTemplate({ ...current, schemaVersion: 1 })).toBe(false)
+  })
+  it('parses summary paging and job attempt paging as tuning beside the identity selection', () => {
+    expect(sentimentSummaryRequestSchema.parse({ runId: 'r' })).toMatchObject({ runId: 'r', queryLimit: 25, queryClass: 'branded' })
+    expect(sentimentSummaryRequestSchema.parse({ runId: 'r', include: 'assessments, locations', queryLimit: '500', executionNodeKey: 'node' })).toMatchObject({ include: ['assessments', 'locations'], queryLimit: 500, executionNodeKey: 'node' })
+    expect(sentimentSummaryRequestSchema.parse({ include: ['locations'] }).include).toEqual(['locations'])
+    for (const invalid of [{ include: 'answers' }, { queryLimit: 0 }, { queryLimit: 501 }, { runId: 'r', runIds: ['r'] }]) expect(sentimentSummaryRequestSchema.safeParse(invalid).success, JSON.stringify(invalid)).toBe(false)
+    expect(sentimentJobRequestSchema.parse({})).toEqual({ attemptLimit: 50 })
+    expect(sentimentJobRequestSchema.safeParse({ attemptLimit: 201 }).success).toBe(false)
+    const summary = { id: 'j', projectId: 'p', origin: 'automatic', state: 'complete', enablementEpoch: 1, evaluationDefinitionId: 'd', selection: { mode: 'auto', queryClass: 'branded', scope: 'project', runId: 'r' }, createdAt: 't', updatedAt: 't', counts: aggregateSentiment([]).coverage.counts, selected: 0, cancellationReason: null, attemptCount: 0 }
+    expect(sentimentJobsSchema.parse({ jobs: [summary] }).jobs[0]).toEqual(summary)
+    // The list never carries attempt receipts.
+    expect(sentimentJobsSchema.safeParse({ jobs: [{ ...summary, attempts: [] }] }).success).toBe(false)
   })
   it('projects archived definitions and results without rewriting their immutable version or JSON', () => {
     const old = { ...createSentimentEvaluationDefinition(), schemaVersion: 1, verdictVersion: 'stance-v1', identityVersion: 'qualified-subject-v1', themes: [{ id: 'old-theme' }], questions: { ...createSentimentEvaluationDefinition().questions, theme: 'Old frozen theme question' } }

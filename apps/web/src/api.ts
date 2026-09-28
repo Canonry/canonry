@@ -2299,12 +2299,26 @@ import {
   getApiV1ProjectsByNameSentiment, getApiV1ProjectsByNameSentimentSettings,
   putApiV1ProjectsByNameSentimentSettings, getApiV1ProjectsByNameSentimentEvidence,
   getApiV1ProjectsByNameSentimentBackfillPreview, postApiV1ProjectsByNameSentimentBackfills,
-  getApiV1ProjectsByNameSentimentJobs, getApiV1ProjectsByNameSentimentCompare,
+  getApiV1ProjectsByNameSentimentJobs, getApiV1ProjectsByNameSentimentCompare, getApiV1ProjectsByNameSentimentJobsByJobId,
 } from '@ainyc/canonry-api-client'
-import type { SentimentSelection, SentimentSummary, SentimentSettings, SentimentBackfillSelection, SentimentBackfillPreview, SentimentJob, SentimentEvidenceSelection, SentimentEvidencePage, SentimentComparison } from '@ainyc/canonry-contracts'
+import { SENTIMENT_QUERY_PAGE_MAX } from '@ainyc/canonry-contracts'
+import type { SentimentSelection, SentimentSummary, SentimentSettings, SentimentBackfillSelection, SentimentBackfillPreview, SentimentJob, SentimentJobSummary, SentimentEvidenceSelection, SentimentEvidencePage, SentimentComparison } from '@ainyc/canonry-contracts'
 
-export function fetchSentiment(project: string, selection: SentimentSelection): Promise<SentimentSummary> {
-  return invokeWeb(() => getApiV1ProjectsByNameSentiment({ client: heyClient, path: { name: project }, query: selection }))
+/**
+ * The dashboard lays out every query row with its per-engine assessments and
+ * locations, so it asks for both and follows the query pages to the end.
+ */
+export async function fetchSentiment(project: string, selection: SentimentSelection): Promise<SentimentSummary> {
+  const read = (queryCursor?: string) => invokeWeb<SentimentSummary>(() => getApiV1ProjectsByNameSentiment({ client: heyClient, path: { name: project }, query: { ...selection, include: ['assessments', 'locations'], queryLimit: SENTIMENT_QUERY_PAGE_MAX, queryCursor } }))
+  const first = await read()
+  const queries = [...first.queries]
+  let cursor = first.queryPage?.nextCursor ?? null
+  while (cursor) {
+    const page = await read(cursor)
+    queries.push(...page.queries)
+    cursor = page.queryPage?.nextCursor ?? null
+  }
+  return { ...first, queries, ...(first.queryPage ? { queryPage: { ...first.queryPage, nextCursor: null } } : {}) }
 }
 export function fetchSentimentSettings(project: string): Promise<SentimentSettings> {
   return invokeWeb(() => getApiV1ProjectsByNameSentimentSettings({ client: heyClient, path: { name: project } }))
@@ -2321,8 +2335,12 @@ export function previewSentimentBackfill(project: string, selection: SentimentBa
 export function submitSentimentBackfill(project: string, previewToken: string, idempotencyKey: string): Promise<SentimentJob> {
   return invokeWeb(() => postApiV1ProjectsByNameSentimentBackfills({ client: heyClient, path: { name: project }, body: { previewToken, idempotencyKey } }))
 }
-export function fetchSentimentJobs(project: string): Promise<{ jobs: SentimentJob[] }> {
+export function fetchSentimentJobs(project: string): Promise<{ jobs: SentimentJobSummary[] }> {
   return invokeWeb(() => getApiV1ProjectsByNameSentimentJobs({ client: heyClient, path: { name: project } }))
+}
+/** One page of a job's attempt receipts, newest first. */
+export function fetchSentimentJob(project: string, jobId: string, attemptCursor?: string): Promise<SentimentJob> {
+  return invokeWeb(() => getApiV1ProjectsByNameSentimentJobsByJobId({ client: heyClient, path: { name: project, jobId }, query: { attemptCursor } }))
 }
 export function fetchSentimentComparison(project: string, selection: SentimentSelection, fromRunId: string, toRunId: string): Promise<SentimentComparison> {
   return invokeWeb(() => getApiV1ProjectsByNameSentimentCompare({ client: heyClient, path: { name: project }, query: { ...selection, fromRunId, toRunId } }))

@@ -3319,8 +3319,28 @@ export const sentimentSettings = sqliteTable('sentiment_settings', {
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
   enablementEpoch: integer('enablement_epoch').notNull().default(0),
   completionBoundary: integer('completion_boundary').notNull().default(0),
+  /** Highest receipt sequence whose automatic admissions are settled, so reconciliation never rereads it. */
+  reconciledSequence: integer('reconciled_sequence').notNull().default(0),
+  /** Round-robin position: the project claimed least recently dispatches next within a priority tier. */
+  dispatchTurn: integer('dispatch_turn').notNull().default(0),
   evaluationDefinitionId: text('evaluation_definition_id').notNull().references(() => sentimentDefinitions.id),
   configuration: text('configuration', { mode: 'json' }).$type<unknown>().notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
+/**
+ * One install-wide row (id 'install'). A provider rate limit or authorization
+ * refusal pauses every project's dispatch until next_dispatch_at. The credential
+ * fingerprint is a one-way hash that lets a rotated key resume at once; the key
+ * itself is never stored.
+ */
+export const sentimentDispatchState = sqliteTable('sentiment_dispatch_state', {
+  id: text('id').primaryKey(),
+  blockedReason: text('blocked_reason'),
+  blockedAt: text('blocked_at'),
+  nextDispatchAt: text('next_dispatch_at'),
+  rateLimitStreak: integer('rate_limit_streak').notNull().default(0),
+  credentialFingerprint: text('credential_fingerprint'),
   updatedAt: text('updated_at').notNull(),
 })
 
@@ -3353,6 +3373,12 @@ export const sentimentJobs = sqliteTable('sentiment_jobs', {
   actor: text('actor').notNull(),
   state: text('state').notNull().default('pending'),
   cancellationReason: text('cancellation_reason'),
+  /** Membership counts by dispatch bucket, kept incrementally so a transition never rereads the whole job. */
+  pendingItems: integer('pending_items').notNull().default(0),
+  runningItems: integer('running_items').notNull().default(0),
+  completedItems: integer('completed_items').notNull().default(0),
+  failedItems: integer('failed_items').notNull().default(0),
+  canceledItems: integer('canceled_items').notNull().default(0),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
@@ -3377,8 +3403,14 @@ export const sentimentWorkItems = sqliteTable('sentiment_work_items', {
   leaseOwner: text('lease_owner'),
   leaseExpiresAt: text('lease_expires_at'),
   attemptCount: integer('attempt_count').notNull().default(0),
-  /** Count at the last explicit replay; lifetime attempt numbers remain monotonic. */
+  /**
+   * Attempts excluded from the retry budget: every attempt before the last explicit
+   * replay, plus each attempt the provider refused for rate limit or authorization.
+   * Lifetime attempt numbers remain monotonic.
+   */
   attemptBudgetStart: integer('attempt_budget_start').notNull().default(0),
+  /** 0 for automatic admissions, 1 for backfills; automatic work dispatches first. */
+  dispatchPriority: integer('dispatch_priority').notNull().default(0),
   nextAttemptAt: text('next_attempt_at'),
   errorCode: text('error_code'),
   cancellationReason: text('cancellation_reason'),
@@ -3389,6 +3421,10 @@ export const sentimentWorkItems = sqliteTable('sentiment_work_items', {
   uniqueIndex('idx_sentiment_work_project_id').on(table.projectId, table.id),
   index('idx_sentiment_work_dispatch').on(table.status, table.nextAttemptAt, table.leaseExpiresAt),
   index('idx_sentiment_work_run').on(table.projectId, table.runId),
+  // Serves the cascade from query_snapshots(run_id, id); without it each deleted snapshot scans this table.
+  index('idx_sentiment_work_source').on(table.runId, table.snapshotId),
+  // Only leased rows enter the install concurrency count, so history never widens it.
+  index('idx_sentiment_work_lease').on(table.leaseExpiresAt).where(sql`lease_owner IS NOT NULL`),
   foreignKey({ columns: [table.projectId, table.runId], foreignColumns: [runs.projectId, runs.id] }).onDelete('cascade'),
   foreignKey({ columns: [table.runId, table.snapshotId], foreignColumns: [querySnapshots.runId, querySnapshots.id] }).onDelete('cascade'),
 ])

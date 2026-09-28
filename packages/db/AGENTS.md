@@ -183,3 +183,18 @@ Source/project composite foreign keys prevent cross-project evidence and cascade
 source deletion. JSON columns retain frozen inputs and exact usage edges; reads must
 validate them through sentiment contracts before returning public DTOs. Credentials
 and raw provider failures never belong in these records.
+
+`sentiment_jobs` keeps per-bucket member counts (`pending_items`, `running_items`,
+`completed_items`, `failed_items`, `canceled_items`). Each status transition shifts
+one bucket in the jobs that still follow the assessment, and admission and
+cancellation recount once, so a claim costs the number of jobs sharing an
+assessment, not their size. `sentiment_settings.reconciled_sequence` is the
+reconcile cursor (each receipt is reconciled once per epoch), and `dispatch_turn`
+rotates claims across projects. `sentiment_work_items.dispatch_priority`
+(0 automatic, 1 backfill) puts new sweeps ahead of backfills.
+`sentiment_dispatch_state` is the single install-wide pause row after a provider
+429 or 401/403: reason, next dispatch time, rate-limit streak and a one-way
+credential fingerprint, never the key. A refused attempt is requeued outside the
+retry budget by advancing `attempt_budget_start`. Partial index
+`idx_sentiment_work_lease` serves the concurrency count, and
+`idx_sentiment_work_source(run_id, snapshot_id)` serves the snapshot cascade.

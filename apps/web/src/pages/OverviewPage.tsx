@@ -4,7 +4,7 @@ import { formatPercent, RatioUnits } from '@ainyc/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
-import { SentimentOverviewMetric } from '../components/project/SentimentSection.js'
+import { SentimentOverviewMetric, showsSentimentOverview } from '../components/project/SentimentSection.js'
 import { Sparkline } from '../components/shared/Sparkline.js'
 import { StatusBadge } from '../components/shared/StatusBadge.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
@@ -23,7 +23,7 @@ function OverviewProjectCard({
   project: PortfolioProjectVm
 }) {
   return (
-    <div className={`project-row relative${project.sentiment?.configured ? ' project-row-with-sentiment' : ''}`}>
+    <div className={`project-row relative${showsSentimentOverview(project.sentiment) ? ' project-row-with-sentiment' : ''}`}>
       <div className="project-row-chart">
         <Sparkline points={project.trend} tone={toneFromRunStatus(project.lastRun.status)} />
       </div>

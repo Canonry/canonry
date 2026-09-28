@@ -18,12 +18,14 @@ const cases = [
   { name: 'canonry_sentiment_settings', method: 'getSentimentSettings', input: { project: 'demo' }, args: ['demo'] },
   { name: 'canonry_sentiment_configure', method: 'configureSentiment', input: { project: 'demo', enabled: false }, args: ['demo', { enabled: false }] },
   { name: 'canonry_sentiment', method: 'getSentiment', input: { project: 'demo' }, args: ['demo', { mode: 'auto', queryClass: 'branded', scope: 'project' }] },
+  { name: 'canonry_sentiment', method: 'getSentiment', input: { project: 'demo', queryId: 'q', executionNodeKey: 'node', include: ['assessments'], queryLimit: 10, queryCursor: 'next' }, args: ['demo', { mode: 'auto', queryClass: 'branded', scope: 'project', queryId: 'q', executionNodeKey: 'node', include: ['assessments'], queryLimit: 10, queryCursor: 'next' }] },
   { name: 'canonry_sentiment_evidence', method: 'getSentimentEvidence', input: { project: 'demo', scope: 'property', scopeKey: 'property', marketKey: 'market', assessmentId: 'assessment', evaluationDefinitionId: 'def', cursor: 'cursor' }, args: ['demo', { mode: 'auto', queryClass: 'branded', scope: 'property', scopeKey: 'property', marketKey: 'market', assessmentId: 'assessment', evaluationDefinitionId: 'def', cursor: 'cursor', limit: 50 }] },
   { name: 'canonry_sentiment_compare', method: 'compareSentiment', input: { project: 'demo', fromRunId: 'before', toRunId: 'after' }, args: ['demo', { mode: 'auto', queryClass: 'branded', scope: 'project', fromRunId: 'before', toRunId: 'after' }] },
-  { name: 'canonry_sentiment_backfill_preview', method: 'previewSentimentBackfill', input: { project: 'demo', runIds: ['run'] }, args: ['demo', { mode: 'auto', queryClass: 'branded', scope: 'project', runIds: ['run'] }] },
+  { name: 'canonry_sentiment_backfill_preview', method: 'previewSentimentBackfill', input: { project: 'demo', runIds: ['run'], queryClass: 'non-brand' }, args: ['demo', { mode: 'auto', queryClass: 'non-brand', scope: 'project', runIds: ['run'] }] },
   { name: 'canonry_sentiment_backfill', method: 'submitSentimentBackfill', input: { project: 'demo', previewToken: 'token', idempotencyKey: 'key' }, args: ['demo', { previewToken: 'token', idempotencyKey: 'key' }] },
   { name: 'canonry_sentiment_jobs', method: 'listSentimentJobs', input: { project: 'demo' }, args: ['demo'] },
-  { name: 'canonry_sentiment_job', method: 'getSentimentJob', input: { project: 'demo', jobId: 'job' }, args: ['demo', 'job'] },
+  { name: 'canonry_sentiment_job', method: 'getSentimentJob', input: { project: 'demo', jobId: 'job' }, args: ['demo', 'job', {}] },
+  { name: 'canonry_sentiment_job', method: 'getSentimentJob', input: { project: 'demo', jobId: 'job', attemptLimit: 5, attemptCursor: 'older' }, args: ['demo', 'job', { attemptLimit: 5, attemptCursor: 'older' }] },
 ]
 
 describe('sentiment MCP parity', () => {
@@ -98,8 +100,23 @@ describe('sentiment MCP parity', () => {
   })
   it('rejects unbounded and contradictory preview selections', () => {
     for (const input of [{ project: 'demo' }, { project: 'demo', from: '2026-09-01T00:00:00Z' }, { project: 'demo', runId: 'run', runIds: ['other'] }]) {
-      expect(tool('canonry_sentiment_backfill_preview').inputSchema.safeParse(input).success).toBe(false)
+      expect(tool('canonry_sentiment_backfill_preview').inputSchema.safeParse({ ...input, queryClass: 'branded' }).success).toBe(false)
     }
+  })
+  it('requires one explicit query class on backfill preview instead of defaulting to branded', () => {
+    const preview = tool('canonry_sentiment_backfill_preview')
+    const result = preview.inputSchema.safeParse({ project: 'demo', runIds: ['run'] })
+    expect(result.success).toBe(false)
+    expect(JSON.stringify(result.error?.issues)).toContain('queryClass')
+    for (const queryClass of ['all', 'pooled']) expect(preview.inputSchema.safeParse({ project: 'demo', runIds: ['run'], queryClass }).success).toBe(false)
+    expect(preview.inputSchema.parse({ project: 'demo', runIds: ['run'], queryClass: 'branded' }).queryClass).toBe('branded')
+    // The advertised input schema carries no branded default for an agent to lean on.
+    const properties = (schema: unknown) => (schema as { properties: Record<string, Record<string, unknown>> }).properties
+    expect(properties(preview.inputJsonSchema).queryClass).not.toHaveProperty('default')
+    expect(properties(tool('canonry_sentiment').inputJsonSchema).queryClass).toMatchObject({ default: 'branded' })
+    expect(preview.description).toContain('queryClass (required')
+    // The summary read keeps its documented branded default; only the write path's preview is strict.
+    expect(tool('canonry_sentiment').inputSchema.parse({ project: 'demo' }).queryClass).toBe('branded')
   })
   it.each(['viewer', 'delegated-viewer', 'project-scoped', 'read-only'])('retains API denial for %s without broadening authority', async credential => {
     const fake = { configureSentiment: vi.fn().mockRejectedValue(new CliError({ code: 'FORBIDDEN', message: 'Install administrator required', details: { credential } })) } as unknown as ApiClient

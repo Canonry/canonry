@@ -359,12 +359,13 @@ Local-AEO signals. The OAuth connection reuses `google_connections` with `connec
 | Table | Purpose |
 | --- | --- |
 | **sentiment_definitions** | Immutable evaluator content, content hash, and requested Jev model. A source answer changes assessment identity without changing the reusable definition. |
-| **sentiment_settings** | Default-off project opt-in, effective sentiment enablement configuration, enablement epoch, completion-sequence boundary, and persisted install suspension. No credentials. |
+| **sentiment_settings** | Default-off project opt-in, effective sentiment enablement configuration, enablement epoch, completion-sequence boundary, reconcile cursor, round-robin dispatch turn, and persisted install suspension. No credentials. |
 | **sentiment_completion_receipts** | Monotonic AUTOINCREMENT completion order, including fills. Enablement uses the sequence high-water mark, which survives source deletion. |
-| **sentiment_jobs / sentiment_job_items** | Project/action/idempotency-key admissions and frozen selections. Per-selection cancellation remains visible when a later explicit backfill reuses the assessment. |
-| **sentiment_work_items** | One leased work identity per project, snapshot, source-text hash, subject hash, and evaluator definition. Exact frozen inputs and usage edges, durable retry time, and attempt count. |
+| **sentiment_jobs / sentiment_job_items** | Project/action/idempotency-key admissions and frozen selections. Per-selection cancellation remains visible when a later explicit backfill reuses the assessment. Jobs keep incremental member counts by dispatch state. |
+| **sentiment_work_items** | One leased work identity per project, snapshot, source-text hash, subject hash, and evaluator definition. Exact frozen inputs and usage edges, durable retry time, attempt count, and dispatch priority (automatic before backfill); indexed by (run_id, snapshot_id) for snapshot cascades. |
 | **sentiment_results** | One stored result per assessment work item. Composite foreign keys prevent cross-project source/result links and cascade evidence cleanup with source deletion. |
 | **sentiment_attempts** | Each external dispatch, requested/returned model, reported or unknown usage, safe failure, and estimated rate-limit tokens. Reported tokens also enter `llm_usage_events` as provider `typesafe`. Result uniqueness does not guarantee exactly-once remote billing after a crash. |
+| **sentiment_dispatch_state** | One install-wide row: the provider rate-limit or credential pause, next dispatch time, rate-limit streak and a one-way credential fingerprint (never the key). |
 
 Sentiment JSON columns use native Drizzle JSON mode. Provider calls run outside database transactions. Migration 164 creates the tables, supporting composite indexes, and an immutable-definition update trigger; it does not enable projects or admit historical work.
 

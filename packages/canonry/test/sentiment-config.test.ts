@@ -16,4 +16,30 @@ describe('sentiment live configuration', () => {
     fs.writeFileSync(file, 'sentiment: [invalid')
     expect(loadSentimentInstallConfig().enabled).toBe(false)
   })
+  it('marks invalid or unreadable configuration so it holds dispatch instead of disabling the install', () => {
+    vi.stubEnv('CANONRY_SENTIMENT_ENABLED', 'true'); vi.stubEnv('TYPESAFE_API_KEY', 'synthetic-key')
+    const file = path.join(directory, 'config.yaml')
+    const invalid = { enabled: false, invalid: true }
+    expect(loadSentimentInstallConfig()).toMatchObject(invalid)
+    for (const contents of [
+      'sentiment:\n  enabled: true\n  maxConcurency: 4\n',
+      'sentiment:\n  enabled: true\n  maxConcurrency: 10\n',
+      'sentiment: [invalid',
+      'sentiment: true\n',
+      '',
+      '- sentiment\n',
+    ]) {
+      fs.writeFileSync(file, contents)
+      expect(loadSentimentInstallConfig(), JSON.stringify(contents)).toMatchObject(invalid)
+    }
+  })
+  it('treats only a readable disabled or absent block as an install disable', () => {
+    const file = path.join(directory, 'config.yaml')
+    for (const contents of ['sentiment:\n  enabled: false\n', 'apiUrl: http://127.0.0.1:4100\n', 'sentiment:\n']) {
+      fs.writeFileSync(file, contents)
+      const config = loadSentimentInstallConfig()
+      expect(config.enabled, JSON.stringify(contents)).toBe(false)
+      expect(config, JSON.stringify(contents)).not.toHaveProperty('invalid')
+    }
+  })
 })

@@ -44,6 +44,8 @@ Reproduce with a freshly installed package under `/tmp/canonry-sentiment-...` an
 pnpm exec tsx scripts/smoke-sentiment-engines.mjs --package-root /tmp/canonry-sentiment-install/node_modules/@canonry/canonry --browser
 ```
 
+`--browser` resolves the `playwright` package and its bundled Chromium the normal way. To use another install, set `CANONRY_PLAYWRIGHT_MODULE` to a Playwright `index.mjs` and `CANONRY_BROWSER_EXECUTABLE` to a Chromium binary (`PLAYWRIGHT_BROWSERS_PATH` is passed through). The run stops with a clear message if Playwright cannot be loaded.
+
 ## Original schema 1 checks (2026-09-28)
 
 | Layer | Evidence |

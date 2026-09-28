@@ -199,7 +199,7 @@ try {
   assert.deepEqual(await all('evidence', 'simple', historical), evidence)
   assert.equal(evidence.items[0].subject.displayName, 'Aurora Service')
   assert.equal(evidence.items[0].context.queryClass, 'branded')
-  assert.equal(summary.evaluationDefinition.identityVersion, 'qualified-subject-v2')
+  assert.equal(summary.evaluationDefinition.identityVersion, 'qualified-subject-v3')
   assert(!Object.hasOwn(summary, 'themes'))
   mark('S18 live subject, language and evaluator changes leave historical frozen summary/evidence identical across all four installed transports')
   assert.equal(attemptCount(), 0)

@@ -199,7 +199,7 @@ describe('class-separated sentiment headlines', () => {
       expect(result.branded.runIds.sort()).toEqual(['bayside', 'harbor'])
       const located = await app.inject({ method: 'GET', url: '/api/v1/projects/p/overview?location=Harbor', headers: { authorization: 'Bearer cnry_headlines' } })
       expect(located.json().sentiment.branded).toMatchObject({ coverage: { selected: 1, judged: 1 }, score: { favorableRate: 1 }, runIds: ['harbor'] })
-      const grouped = await app.inject({ method: 'GET', url: '/api/v1/projects/p/sentiment?runIds=harbor&runIds=bayside&queryClass=branded', headers: { authorization: 'Bearer cnry_headlines' } })
+      const grouped = await app.inject({ method: 'GET', url: '/api/v1/projects/p/sentiment?runIds=harbor&runIds=bayside&queryClass=branded&include=locations', headers: { authorization: 'Bearer cnry_headlines' } })
       expect(grouped.statusCode, grouped.body).toBe(200)
       const groupSummary = sentimentSummarySchema.parse(grouped.json())
       expect(groupSummary).toMatchObject({ selection: { runId: null, runIds: ['bayside', 'harbor'] }, coverage: { selected: 2, judged: 2 }, score: { favorableRate: 0.5 } })
@@ -217,7 +217,7 @@ describe('class-separated sentiment headlines', () => {
         const rejected = await app.inject({ method: 'GET', url: `/api/v1/projects/p/sentiment${path}`, headers: { authorization: 'Bearer cnry_headlines' } })
         expect(rejected.statusCode, rejected.body).toBe(400)
       }
-      expect(service.jobs('p').jobs).toHaveLength(4)
+      expect(service.jobList('p').jobs).toHaveLength(4)
     } finally { await app.close() }
   })
 
@@ -256,8 +256,8 @@ describe('class-separated sentiment headlines', () => {
     const input = { ...sentimentClassifierInput(source, service.definition(id)), definition: old }
     repository.admitJob({ projectId: 'p', action: 'backfill', origin: 'backfill', enablementEpoch: service.settings('p').enablementEpoch, evaluationDefinitionId: id, idempotencyKey: 'legacy', payloadHash: sentimentHash({ previewToken: 'old-preview-token' }), selection: { ...sentimentSelectionSchema.parse({ runId: 'legacy' }), runIds: ['legacy'] }, actor: 'fixture', now: NOW, work: [{ runId: 'legacy', snapshotId: source.snapshotId, sourceTextHash: input.sourceTextHash, subjectHash: input.subjectHash, input, edges: source.edges }] })
     const storedSelection = db.select().from(sentimentJobs).get()!.selection
-    expect(service.jobs('p').jobs[0]!.selection).toMatchObject({ runId: 'legacy' })
-    expect(service.jobs('p').jobs[0]!.selection.runIds).toBeUndefined()
+    expect(service.jobList('p').jobs[0]!.selection).toMatchObject({ runId: 'legacy' })
+    expect(service.jobList('p').jobs[0]!.selection.runIds).toBeUndefined()
     expect(service.submit('p', 'old-preview-token', 'legacy', 'fixture').selected).toBe(1)
     expect(db.select().from(sentimentJobs).all()).toHaveLength(1)
     expect(db.select().from(sentimentJobs).get()!.selection).toEqual(storedSelection)

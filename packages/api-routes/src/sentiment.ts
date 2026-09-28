@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import {
   sentimentBackfillRequestSchema, sentimentBackfillSelectionSchema, sentimentCompareRequestSchema,
-  sentimentEvidenceRequestSchema, sentimentSelectionSchema, sentimentSettingsUpdateSchema,
+  sentimentEvidenceRequestSchema, sentimentJobRequestSchema, sentimentSettingsUpdateSchema, sentimentSummaryRequestSchema,
 } from '@ainyc/canonry-contracts'
 import { resolveProject } from './helpers.js'
 import { canAdministerSentiment, requireSentimentAdministrator } from './sentiment-auth.js'
@@ -18,7 +18,11 @@ export async function sentimentRoutes(app: FastifyInstance, options: SentimentRo
     const result = service.configure(project.id, parseSentimentRequest(sentimentSettingsUpdateSchema, request.body), request.principal?.delegatedUser?.id ?? request.principal?.id ?? 'local')
     return result
   })
-  app.get<{ Params: { name: string }; Querystring: unknown }>('/projects/:name/sentiment', async request => service.summary(resolveProject(app.db, request.params.name).id, parseSentimentRequest(sentimentSelectionSchema, request.query)))
+  app.get<{ Params: { name: string }; Querystring: unknown }>('/projects/:name/sentiment', async request => {
+    // include, queryLimit and queryCursor are tuning: they shape and page query rows, never the scored population.
+    const { include, queryLimit, queryCursor, ...selection } = parseSentimentRequest(sentimentSummaryRequestSchema, request.query)
+    return service.summary(resolveProject(app.db, request.params.name).id, selection, { include, queryLimit, queryCursor })
+  })
   app.get<{ Params: { name: string }; Querystring: unknown }>('/projects/:name/sentiment/evidence', async request => {
     const { limit, cursor, ...selection } = parseSentimentRequest(sentimentEvidenceRequestSchema, request.query)
     return service.evidence(resolveProject(app.db, request.params.name).id, selection, limit, cursor)
@@ -35,6 +39,9 @@ export async function sentimentRoutes(app: FastifyInstance, options: SentimentRo
     const result = service.submit(project.id, body.previewToken, body.idempotencyKey, request.principal?.delegatedUser?.id ?? request.principal?.id ?? 'local')
     return result
   })
-  app.get<{ Params: { name: string } }>('/projects/:name/sentiment/jobs', async request => service.jobs(resolveProject(app.db, request.params.name).id))
-  app.get<{ Params: { name: string; jobId: string } }>('/projects/:name/sentiment/jobs/:jobId', async request => service.job(resolveProject(app.db, request.params.name).id, request.params.jobId))
+  app.get<{ Params: { name: string } }>('/projects/:name/sentiment/jobs', async request => service.jobList(resolveProject(app.db, request.params.name).id))
+  app.get<{ Params: { name: string; jobId: string }; Querystring: unknown }>('/projects/:name/sentiment/jobs/:jobId', async request => {
+    const { attemptLimit, attemptCursor } = parseSentimentRequest(sentimentJobRequestSchema, request.query ?? {})
+    return service.job(resolveProject(app.db, request.params.name).id, request.params.jobId, { limit: attemptLimit, cursor: attemptCursor })
+  })
 }

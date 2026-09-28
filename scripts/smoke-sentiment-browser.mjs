@@ -1,5 +1,8 @@
 import { realpath, mkdir, writeFile } from 'node:fs/promises'
-const { chromium } = await import(process.env.CANONRY_PLAYWRIGHT_MODULE ?? 'playwright')
+const playwrightSpecifier = process.env.CANONRY_PLAYWRIGHT_MODULE ?? 'playwright'
+const { chromium } = await import(playwrightSpecifier).catch(error => {
+  throw new Error(`Browser smoke needs Playwright, and ${JSON.stringify(playwrightSpecifier)} did not load (${error instanceof Error ? error.message : String(error)}). Install the playwright package and its Chromium (npx playwright install chromium), or set CANONRY_PLAYWRIGHT_MODULE to a Playwright index.mjs and CANONRY_BROWSER_EXECUTABLE to a Chromium binary.`)
+})
 
 const base = new URL(process.env.SENTIMENT_SMOKE_URL ?? 'http://127.0.0.1:4300/smoke/')
 if (!base.pathname.endsWith('/')) base.pathname += '/'

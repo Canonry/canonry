@@ -162,6 +162,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Attempt rows are projected into safe attempt receipts; request reservation and internal failure storage are not raw DTOs.',
   },
+  sentimentDispatchState: {
+    kind: 'internal-only',
+    reason: 'Install-wide dispatch pause after a provider rate limit or credential refusal; the service projects only its reason into readiness, and the one-way credential fingerprint never leaves storage.',
+  },
   runtimeLogs: {
     kind: 'internal-only',
     reason: 'Storage rows are projected into OperationalLogEntryDto; sequence, raw storage columns, and byte accounting never leave the log store.',

@@ -1,14 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
-import type { SentimentEvidenceItem, SentimentJob, SentimentSettings, SentimentSummary, SentimentSelection, SentimentBackfillPreview, SentimentOverview, SentimentHeadline, SentimentAssessmentSummary, SentimentEvidenceSelection } from '@ainyc/canonry-contracts'
-import { describeError } from '@ainyc/canonry-contracts'
+import type { SentimentEvidenceItem, SentimentJobSummary, SentimentSettings, SentimentSummary, SentimentSelection, SentimentBackfillPreview, SentimentBackfillSelection, SentimentOverview, SentimentHeadline, SentimentAssessmentSummary, SentimentEvidenceSelection } from '@ainyc/canonry-contracts'
+import { describeError, formatPercent, RatioUnits } from '@ainyc/canonry-contracts'
 import { Button } from '../ui/button.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { WriteButton } from '../shared/AccessControls.js'
 import { formatTimestamp } from '../../lib/format-helpers.js'
-import { fetchSentimentEvidence, fetchSentimentSettings, previewSentimentBackfill, submitSentimentBackfill, updateSentimentSettings } from '../../api.js'
+import { fetchSentimentEvidence, fetchSentimentJob, fetchSentimentSettings, isEmbed, previewSentimentBackfill, submitSentimentBackfill, updateSentimentSettings } from '../../api.js'
 import { sentimentQueryKey, useSentiment } from '../../queries/sentiment.js'
 
 type QueryClass = 'branded' | 'non-brand'
@@ -22,25 +22,54 @@ export const SENTIMENT_COPY = {
 } as const
 function outcomeLabel(value: string) { return value.replaceAll('-', ' ').replace(/^./, character => character.toUpperCase()) }
 
+/** Branded is the headline sentiment figure; non-brand follows it as its own population. */
+const CLASS_ORDER: readonly QueryClass[] = ['branded', 'non-brand']
+/** The Wilson interval in the shared percent format, or null when nothing was judged. */
+function sentimentIntervalText(score: Pick<SentimentHeadline['score'], 'interval'>): string | null {
+  return score.interval ? `${formatPercent(score.interval.low, RatioUnits.fraction)} to ${formatPercent(score.interval.high, RatioUnits.fraction)}` : null
+}
 function FavorableValue({ value, label }: { value: Pick<SentimentHeadline, 'score' | 'coverage' | 'provisional'>; label: string }) {
-  return <div aria-label={`${label} favorable share`}>
+  const interval = sentimentIntervalText(value.score)
+  return <div role="group" aria-label={`${label} favorable share`}>
     <span className="font-mono text-lg text-primary">{value.score.favorableDisplay}</span>
     <span className="ml-2 text-sm text-secondary">{value.coverage.judged} judged</span>
     {value.provisional && <span className="ml-2 text-sm text-secondary">Provisional</span>}
+    {interval && <span className="block text-sm text-secondary">95% interval {interval}</span>}
+  </div>
+}
+
+/** The portfolio card shows sentiment only where the project page does: configured, and never inside an embed. */
+export function showsSentimentOverview(value?: SentimentOverview): value is SentimentOverview {
+  return Boolean(value?.configured) && !isEmbed()
+}
+
+/** One class on the portfolio card: its server display value, judged n and Wilson interval. */
+function OverviewClassFigure({ queryClass, headline, primary }: { queryClass: QueryClass; headline: SentimentHeadline; primary: boolean }) {
+  const interval = sentimentIntervalText(headline.score)
+  const range = headline.score.interval ? `${formatPercent(headline.score.interval.low, RatioUnits.fraction)}–${formatPercent(headline.score.interval.high, RatioUnits.fraction)}` : null
+  return <div role="group" aria-label={`${CLASS_LABEL[queryClass]} favorable share`} {...(primary ? { 'data-sentiment-primary': '' } : {})}>
+    <p className="flex items-baseline justify-between gap-1">
+      <span className="text-[12px] text-secondary">{CLASS_LABEL[queryClass]}</span>
+      <span className={`whitespace-nowrap font-mono ${primary ? 'text-base font-semibold text-heading' : 'text-[13px] text-primary'}`}>{headline.score.favorableDisplay}{headline.provisional && <span role="img" aria-label="Provisional" className="ml-0.5 text-caution">*</span>}</span>
+    </p>
+    <p className="truncate text-[11px] leading-4 text-faint" title={`${headline.coverage.judged} judged${interval ? `, 95% interval ${interval}` : ''}`}>{headline.coverage.judged} judged{range && <> · <span className="sr-only">95% interval </span>{range}</>}</p>
   </div>
 }
 
 /** Portfolio values come from the existing overview response, never separate per-card requests. */
 export function SentimentOverviewMetric({ value }: { value?: SentimentOverview }) {
-  if (!value?.configured) return null
-  const classes = [['non-brand', value.nonBrand], ['branded', value.branded]] as const
-  const detail = [SENTIMENT_COPY.favorable, ...classes.map(([queryClass, headline]) => `${CLASS_LABEL[queryClass]}: ${headline.coverage.judged} of ${headline.coverage.selected} judged. ${headline.provisional ? 'Provisional. ' : ''}${SENTIMENT_COPY.states[headline.state]}${headline.reason ? ` ${headline.reason}` : ''}`)].join(' ')
+  if (!showsSentimentOverview(value)) return null
+  const headlines: Record<QueryClass, SentimentHeadline> = { branded: value.branded, 'non-brand': value.nonBrand }
+  const detail = [SENTIMENT_COPY.favorable, ...CLASS_ORDER.map(queryClass => {
+    const headline = headlines[queryClass]
+    const interval = sentimentIntervalText(headline.score)
+    return `${CLASS_LABEL[queryClass]}: ${headline.score.favorableDisplay}, ${headline.coverage.judged} of ${headline.coverage.selected} judged${interval ? `, 95% interval ${interval}` : ''}. ${headline.provisional ? 'Provisional. ' : ''}${SENTIMENT_COPY.states[headline.state]}${headline.reason ? ` ${headline.reason}` : ''}`
+  })].join(' ')
+  // Branded is the primary figure; non-brand follows as its own population with its own denominator.
   return <div className="project-row-stat" data-sentiment-score>
-    <div className="metric-inline-block">
+    <div className="grid gap-y-1">
       <div className="flex items-center"><p className="metric-inline-label">Favorable</p><span className="relative z-10"><InfoTooltip text={detail} placement="bottom" /></span></div>
-      {classes.map(([queryClass, headline]) => <p key={queryClass} role="group" aria-label={`${CLASS_LABEL[queryClass]} favorable share`} className="flex items-center justify-between gap-1 text-[13px] leading-4 text-secondary">
-        <span className="whitespace-nowrap">{CLASS_LABEL[queryClass]}</span><span className="whitespace-nowrap font-mono text-primary">{headline.score.favorableDisplay}{headline.provisional && <span role="img" aria-label="Provisional" className="ml-0.5 text-caution">*</span>}</span>
-      </p>)}
+      {CLASS_ORDER.map((queryClass, index) => <OverviewClassFigure key={queryClass} queryClass={queryClass} headline={headlines[queryClass]} primary={index === 0} />)}
     </div>
   </div>
 }
@@ -92,7 +121,7 @@ function SentimentScope({ projectName, selection, runOptions, waitForResolvedRun
     <Sheet open={manageOpen && Boolean(settings.data?.actions.configure)} onOpenChange={setManageOpen}>
       <SheetContent onCloseAutoFocus={restoreFocus} className="overflow-y-auto"><SheetHeader><SheetTitle>Manage sentiment</SheetTitle><SheetDescription>Classify saved answers and review the cost before submitting a backfill.</SheetDescription></SheetHeader>
         {settings.data?.actions.configure && <SentimentSettingsEditor key={JSON.stringify([settings.data.evaluationDefinitionId, settings.data.enabled, settings.data.enablementEpoch])} projectName={projectName} settings={settings.data} selection={resolved} runOptions={options} />}
-        {jobs.data && <SentimentJobs jobs={jobs.data.jobs} />}
+        {jobs.data && <SentimentJobs projectName={projectName} jobs={jobs.data.jobs} />}
       </SheetContent>
     </Sheet>
     <Sheet open={evidence !== null} onOpenChange={open => { if (!open) setEvidence(null) }}>
@@ -119,7 +148,7 @@ export function SentimentControls() {
 export function SentimentHeadlines({ queryClass = 'all' }: { queryClass?: QueryClassView }) {
   const scope = useContext(SentimentContext)
   if (!scope?.configured || queryClass === 'unknown' || queryClass === 'unclassified') return null
-  const classes: QueryClass[] = queryClass === 'all' ? ['non-brand', 'branded'] : [queryClass]
+  const classes: readonly QueryClass[] = queryClass === 'all' ? CLASS_ORDER : [queryClass]
   return <div className="mb-4 flex flex-wrap items-start gap-x-8 gap-y-3" aria-label="Favorable answer scores">
     {classes.map(value => {
       const query = scope.summaries[value]
@@ -134,7 +163,7 @@ export function SentimentHeadlines({ queryClass = 'all' }: { queryClass?: QueryC
             {query.data.reason && <p>{query.data.reason}</p>}
             {Object.entries(query.data.coverage.counts).filter(([outcome, count]) => count > 0 && !['favorable', 'mixed', 'unfavorable'].includes(outcome)).map(([outcome, count]) => <p key={outcome}>{outcomeLabel(outcome)}: {count}</p>)}
             <p>{scope.settings.data?.disclosure}</p>
-            <p>95% Wilson interval: {query.data.score.interval ? `${query.data.score.interval.low} to ${query.data.score.interval.high}` : 'Unavailable'}</p><p>{query.data.score.limitation}</p>
+            <p>95% Wilson interval: {sentimentIntervalText(query.data.score) ?? 'Unavailable'}</p><p>{query.data.score.limitation}</p>
           </details>
         </> : query.isError ? <p role="alert" className="text-sm text-secondary">Favorable score unavailable. <Button variant="ghost" onClick={() => { void query.refetch() }}>Retry score</Button></p> : <p role="status" className="text-sm text-secondary">Loading favorable score…</p>}
       </div>
@@ -151,8 +180,9 @@ export function SentimentQueryScore({ queryId, sourceSnapshotIds = [], queryClas
   const matches = summary?.queries.filter(item => item.queryClass === queryClass && (queryId ? item.queryId === queryId : sourceSnapshotIds.length > 0) && sourceSnapshotIds.every(id => item.sourceSnapshotIds.includes(id))) ?? []
   const row = matches.length === 1 ? matches[0] : undefined
   const value = location === undefined ? row : row?.locations.find(item => item.location === location)
-  if (!row || !value) return <span className="text-sm text-secondary">{parent?.isPending && (queryId || sourceSnapshotIds.length) ? 'Loading…' : 'Unavailable'}</span>
-  const selection: SentimentSelection = { ...scope.selection, ...summary!.selection, runId: summary!.selection.runId ?? undefined, runIds: summary!.selection.runId ? undefined : summary!.selection.runIds, revision: summary!.selection.revision ?? undefined, evaluationDefinitionId: summary!.selection.evaluationDefinitionId ?? undefined, queryClass: row.queryClass, queryId: row.queryId, ...(location === undefined ? {} : { location: location ?? 'none' }) }
+  // With no source evidence the class summaries are never requested, so a pending query here would never settle.
+  if (!row || !value) return <span className="text-sm text-secondary">{scope.hasSourceEvidence && parent?.isPending && (queryId || sourceSnapshotIds.length) ? 'Loading…' : 'Unavailable'}</span>
+  const selection: SentimentSelection = { ...scope.selection, ...summary!.selection, runId: summary!.selection.runId ?? undefined, runIds: summary!.selection.runId ? undefined : summary!.selection.runIds, revision: summary!.selection.revision ?? undefined, evaluationDefinitionId: summary!.selection.evaluationDefinitionId ?? undefined, queryClass: row.queryClass, queryId: row.queryId, executionNodeKey: row.executionNodeKey ?? undefined, ...(location === undefined ? {} : { location: location ?? 'none' }) }
   return <Button type="button" variant="ghost" className="h-auto min-h-11 flex-col items-start gap-0 px-1" aria-label={`View ${CLASS_LABEL[row.queryClass]} sentiment evidence for ${row.queryText}`} onKeyDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); scope.openEvidence(selection, row.queryText, event.currentTarget) }}>
     {showLabel && <span className="text-sm font-normal text-secondary">Favorable</span>}<span className="font-mono text-primary">{value.score.favorableDisplay}</span><span className="text-sm font-normal text-secondary">{value.coverage.judged} judged</span>{value.provisional && <span className="text-xs font-normal text-caution">Provisional</span>}
   </Button>
@@ -186,11 +216,11 @@ export function SentimentAnswerOutcome({ queryId, sourceSnapshotIds, queryClass,
     && item.provider === provider && item.location === location && (model === undefined || item.servedModel === model)) ?? []
   return <div role="group" className="text-sm text-secondary" aria-label={`${provider || 'Saved answer'} sentiment`}>
     {showLabel && <span className="block text-sm text-secondary">Sentiment</span>}
-    {!assessments.length ? <span>{query?.isPending && sourceSnapshotIds.length ? 'Loading…' : 'Unavailable'}</span> : assessments.map(item => {
+    {!assessments.length ? <span>{scope.hasSourceEvidence && query?.isPending && sourceSnapshotIds.length ? 'Loading…' : 'Unavailable'}</span> : assessments.map(item => {
       const label = assessmentLabel(item)
       const tone = item.outcome === 'favorable' ? 'positive' : item.outcome === 'unfavorable' ? 'negative' : item.outcome === 'mixed' ? 'caution' : 'neutral'
       const content = <>{showSubjects && <span>{item.subjectLabel} · </span>}<ToneBadge tone={tone} className="max-w-full shrink-0 rounded-none border-0 bg-transparent p-0 text-sm font-normal tracking-normal [overflow-wrap:normal]">{label}</ToneBadge></>
-      const selection: SentimentEvidenceSelection = { ...scope.selection, ...summary!.selection, runId: summary!.selection.runId ?? undefined, runIds: summary!.selection.runId ? undefined : summary!.selection.runIds, revision: summary!.selection.revision ?? undefined, evaluationDefinitionId: summary!.selection.evaluationDefinitionId ?? undefined, queryClass: row!.queryClass, queryId: row!.queryId, assessmentId: item.assessmentId ?? undefined }
+      const selection: SentimentEvidenceSelection = { ...scope.selection, ...summary!.selection, runId: summary!.selection.runId ?? undefined, runIds: summary!.selection.runId ? undefined : summary!.selection.runIds, revision: summary!.selection.revision ?? undefined, evaluationDefinitionId: summary!.selection.evaluationDefinitionId ?? undefined, queryClass: row!.queryClass, queryId: row!.queryId, executionNodeKey: row!.executionNodeKey ?? undefined, assessmentId: item.assessmentId ?? undefined }
       return <div key={JSON.stringify([item.sourceSnapshotId, item.subjectId, item.assessmentId])} className="flex items-center gap-1">
         {item.assessmentId ? <Button type="button" variant="ghost" className="h-auto min-h-11 flex-wrap justify-start whitespace-normal px-1 text-left text-sm" aria-label={`View ${item.provider} sentiment evidence for ${item.subjectLabel}: ${label}`} onKeyDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); scope.openEvidence(selection, `${row!.queryText} · ${item.provider} · ${item.subjectLabel}`, event.currentTarget) }}>{content}</Button> : <span>{content}</span>}
         {item.reason && <InfoTooltip text={item.reason} />}
@@ -221,16 +251,70 @@ function SentimentQueryEvidence({ projectName, selection }: { projectName: strin
     <div className="mt-3 flex gap-2">{cursor && <Button variant="outline" onClick={() => setCursor(undefined)}>First evidence page</Button>}{query.data.nextCursor && <Button variant="outline" onClick={() => setCursor(query.data.nextCursor ?? undefined)}>Next evidence page</Button>}</div>
   </>
 }
-export function SentimentJobs({ jobs }: { jobs: SentimentJob[] }) {
-  return <details className="mt-6 text-sm text-secondary"><summary className="cursor-pointer">Recent sentiment jobs</summary>{jobs.length === 0 ? <p className="mt-2">No sentiment jobs have been submitted.</p> : <div className="data-table-wrapper mt-3"><table className="data-table" aria-label="Sentiment jobs"><thead><tr><th>Submitted</th><th>State</th><th>Selected</th><th>Details</th></tr></thead><tbody>{jobs.map(job => <tr key={job.id}><td>{formatTimestamp(job.createdAt)}</td><td>{outcomeLabel(job.state)}</td><td>{job.selected}</td><td><details><summary>Job details</summary>{job.cancellationReason && <p>{job.cancellationReason}</p>}{Object.entries(job.counts).filter(([, count]) => count > 0).map(([state, count]) => <p key={state}>{outcomeLabel(state)}: {count}</p>)}{job.attempts.map(attempt => <p key={attempt.id}>{attempt.errorCode ?? 'Request complete'}; {attempt.usage.kind === 'unknown' ? 'Usage unknown' : `${attempt.usage.inputTokens ?? 'Unknown'} input tokens (${attempt.usage.kind})`}</p>)}</details></td></tr>)}</tbody></table></div>}</details>
+/** Attempt receipts load only when a job's details are opened, one page at a time, newest first. */
+function SentimentJobAttempts({ projectName, jobId }: { projectName: string; jobId: string }) {
+  const [cursor, setCursor] = useState<string | undefined>()
+  const query = useQuery({ queryKey: sentimentQueryKey(projectName, `job:${jobId}`, undefined, cursor), queryFn: () => fetchSentimentJob(projectName, jobId, cursor), retry: false })
+  if (query.isPending) return <p role="status">Loading attempts…</p>
+  if (query.isError) return <p role="alert">Could not load attempts. <Button variant="outline" onClick={() => { void query.refetch() }}>Retry attempts</Button></p>
+  return <>{query.data.attempts.map(attempt => <p key={attempt.id}>{attempt.errorCode ?? 'Request complete'}; {attempt.usage.kind === 'unknown' ? 'Usage unknown' : `${attempt.usage.inputTokens ?? 'Unknown'} input tokens (${attempt.usage.kind})`}</p>)}
+    <div className="mt-2 flex gap-2">{cursor && <Button variant="outline" onClick={() => setCursor(undefined)}>Newest attempts</Button>}{query.data.nextAttemptCursor && <Button variant="outline" onClick={() => setCursor(query.data.nextAttemptCursor ?? undefined)}>Older attempts</Button>}</div>
+  </>
+}
+function SentimentJobDetails({ projectName, job }: { projectName: string; job: SentimentJobSummary }) {
+  const [open, setOpen] = useState(false)
+  return <details onToggle={event => setOpen(event.currentTarget.open)}><summary>Job details</summary>{job.cancellationReason && <p>{job.cancellationReason}</p>}{Object.entries(job.counts).filter(([, count]) => count > 0).map(([state, count]) => <p key={state}>{outcomeLabel(state)}: {count}</p>)}<p>Attempts: {job.attemptCount}</p>{open && job.attemptCount > 0 && <SentimentJobAttempts projectName={projectName} jobId={job.id} />}</details>
+}
+export function SentimentJobs({ projectName, jobs }: { projectName: string; jobs: SentimentJobSummary[] }) {
+  return <details className="mt-6 text-sm text-secondary"><summary className="cursor-pointer">Recent sentiment jobs</summary>{jobs.length === 0 ? <p className="mt-2">No sentiment jobs have been submitted.</p> : <div className="data-table-wrapper mt-3"><table className="data-table" aria-label="Sentiment jobs"><thead><tr><th>Submitted</th><th>State</th><th>Selected</th><th>Details</th></tr></thead><tbody>{jobs.map(job => <tr key={job.id}><td>{formatTimestamp(job.createdAt)}</td><td>{outcomeLabel(job.state)}</td><td>{job.selected}</td><td><SentimentJobDetails projectName={projectName} job={job} /></td></tr>)}</tbody></table></div>}</details>
+}
+/** Plain labels for the server's backfill skip reasons; a reason this build does not know still reads through. */
+const SENTIMENT_SKIP_REASON_LABELS: Readonly<Record<string, string>> = {
+  probe: 'Probe sweeps',
+  'unsupported-run-kind': 'Not an answer sweep',
+  'failed-run': 'Failed sweep',
+  'incomplete-run': 'Incomplete sweep',
+  'legacy-missing-provenance': 'Saved without its frozen query and subject record',
+  'legacy-missing-language': 'Saved before the answer language was recorded',
+  'excluded-branded': 'Branded answers (backfill that class separately)',
+  'excluded-non-brand': 'Non-brand answers (backfill that class separately)',
+}
+function skipReasonLabel(reason: string): string { return SENTIMENT_SKIP_REASON_LABELS[reason] ?? outcomeLabel(reason) }
+/** The view filters that would narrow a backfill: engine, model, location, query, revision and a Property, group or market. */
+function viewBackfillFilters(selection: SentimentBackfillSelection): string[] {
+  return [
+    selection.provider && `engine ${selection.provider}`,
+    selection.model && `model ${selection.model}`,
+    selection.location && (selection.location === 'none' ? 'no location' : `location ${selection.location}`),
+    selection.scope !== 'project' && selection.scopeKey && `${selection.scope} ${selection.scopeKey}`,
+    selection.marketKey && `market ${selection.marketKey}`,
+    selection.queryId && `query ${selection.queryId}`,
+    selection.revision !== undefined && `revision ${selection.revision}`,
+  ].filter((part): part is string => Boolean(part))
+}
+/** The selection a preview actually covered, as the server echoed it. */
+function describeSentimentBackfillSelection(selection: SentimentBackfillSelection): string {
+  const filters = viewBackfillFilters(selection)
+  return [`${CLASS_LABEL[selection.queryClass]} queries`, ...(filters.length ? filters : ['whole sweep'])].join(' · ')
+}
+/**
+ * A dashboard backfill covers the whole chosen sweep for one query class: every
+ * engine, model, location, query and Property. Narrowing it to the filters on
+ * screen is an explicit choice, never inherited silently from the view.
+ */
+function sentimentBackfillSelection(view: SentimentSelection, runId: string, queryClass: QueryClass, limitToView: boolean): SentimentBackfillSelection {
+  if (limitToView) return { ...view, queryClass, queryId: undefined, runIds: undefined, runId }
+  return { mode: 'auto', scope: 'project', queryClass, runId }
 }
 function SentimentSettingsEditor({ projectName, settings, selection, runOptions }: { projectName: string; settings: SentimentSettings; selection: SentimentSelection; runOptions: RunOption[] }) {
   const client = useQueryClient()
   const [enabled, setEnabled] = useState(settings.enabled)
   const [runId, setRunId] = useState(selection.runId ?? '')
   const [queryClass, setQueryClass] = useState<QueryClass>(selection.queryClass)
+  const [limitToView, setLimitToView] = useState(false)
   const [preview, setPreview] = useState<SentimentBackfillPreview | null>(null)
   const key = useRef<string | null>(null)
+  const viewFilters = viewBackfillFilters({ ...selection, queryId: undefined })
   const refresh = () => client.invalidateQueries({ queryKey: ['sentiment', projectName] })
   const reset = () => { setPreview(null); key.current = null }
   const save = useMutation({ mutationFn: async () => {
@@ -239,7 +323,7 @@ function SentimentSettingsEditor({ projectName, settings, selection, runOptions 
   }, onSuccess: async () => { reset(); await refresh(); await client.invalidateQueries({ queryKey: ['project-overview-slim'] }) }, onError: refresh })
   const inspect = useMutation({ mutationFn: async () => {
     if (!(await fetchSentimentSettings(projectName)).actions.backfill) throw new Error('Administrator permission is required to backfill sentiment.')
-    return previewSentimentBackfill(projectName, { ...selection, queryClass, queryId: undefined, runIds: undefined, runId })
+    return previewSentimentBackfill(projectName, sentimentBackfillSelection(selection, runId, queryClass, limitToView && viewFilters.length > 0))
   }, onSuccess: value => { setPreview(value); key.current = crypto.randomUUID() }, onError: refresh })
   const submit = useMutation({ mutationFn: async () => {
     if (!preview?.previewToken || !key.current) throw new Error('Create and review a backfill preview first.')
@@ -251,8 +335,13 @@ function SentimentSettingsEditor({ projectName, settings, selection, runOptions 
     <p>{settings.disclosure}</p>{!settings.ready && <p>{settings.readinessReasons.join('; ') || 'An operator must configure sentiment on this installation.'}</p>}
     <form className="space-y-3" onSubmit={event => { event.preventDefault(); save.mutate() }}><label className="flex items-center gap-2"><input type="checkbox" checked={enabled} disabled={pending} onChange={event => { setEnabled(event.target.checked); reset() }} />Enable project sentiment</label><p>Enabling applies to future completed sweeps. Past sweeps require an explicit backfill.</p><WriteButton type="submit" disabled={pending}>{save.isPending ? 'Saving…' : 'Save sentiment settings'}</WriteButton>{save.isError && <p role="alert">{describeError(save.error)}</p>}{save.isSuccess && <p role="status">Sentiment settings saved.</p>}</form>
     {settings.actions.backfill && <section className="space-y-3"><h3>Backfill a saved sweep</h3><label className="block">Saved sweep<select className="mt-1 block w-full rounded-md border border-default bg-bg p-2 text-primary" value={runId} disabled={pending} onChange={event => { setRunId(event.target.value); reset() }}><option value="">Select a saved sweep</option>{runOptions.map(run => <option key={run.id} value={run.id}>{run.label}</option>)}</select></label><label className="block">Query class<select className="mt-1 block w-full rounded-md border border-default bg-bg p-2 text-primary" value={queryClass} disabled={pending} onChange={event => { setQueryClass(event.target.value as QueryClass); reset() }}><option value="non-brand">Non-brand</option><option value="branded">Branded</option></select></label>
+      <p>The backfill covers every engine, location and query of the chosen sweep for this query class.</p>
+      {viewFilters.length > 0 && <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" checked={limitToView} disabled={pending} onChange={event => { setLimitToView(event.target.checked); reset() }} /><span>Limit to the current view<span className="block">{viewFilters.join(' · ')}</span></span></label>}
       <Button variant="outline" disabled={pending || !runId || !settings.enabled || !settings.ready} onClick={() => { reset(); inspect.mutate() }}>{inspect.isPending ? 'Preparing preview…' : 'Preview sentiment backfill'}</Button>{inspect.isError && <p role="alert">{describeError(inspect.error)}</p>}
-      {preview && <div className="space-y-3"><dl className="grid grid-cols-[1fr_auto] gap-2"><dt>Eligible assessments</dt><dd>{preview.eligibleAssessments}</dd><dt>Already classified</dt><dd>{preview.alreadyClassified}</dd><dt>Estimated input tokens</dt><dd>{preview.estimatedInputTokens}</dd><dt>Estimated cost (USD)</dt><dd>{preview.estimatedCostUsd ?? 'Unavailable'}</dd></dl><InfoTooltip text={preview.estimateMethod} /><WriteButton disabled={pending || !preview.previewToken || preview.eligibleAssessments === 0} onClick={() => submit.mutate()}>{submit.isPending ? 'Submitting…' : 'Confirm sentiment backfill'}</WriteButton></div>}
+      {preview && <div className="space-y-3"><dl className="grid grid-cols-[1fr_auto] gap-2"><dt>Selection</dt><dd className="text-right">{describeSentimentBackfillSelection(preview.selection)}</dd><dt>Eligible assessments</dt><dd>{preview.eligibleAssessments}</dd><dt>Already classified</dt><dd>{preview.alreadyClassified}</dd><dt>Estimated input tokens</dt><dd>{preview.estimatedInputTokens}</dd><dt>Estimated cost (USD)</dt><dd>{preview.estimatedCostUsd ?? 'Unavailable'}</dd></dl><InfoTooltip text={preview.estimateMethod} />
+        {preview.eligibleAssessments === 0 && <p>No saved answers in this selection can be classified.</p>}
+        {preview.skipped.length > 0 && <div><p>Not included:</p><ul aria-label="Skipped assessments" className="list-disc pl-5">{preview.skipped.map(item => <li key={`${item.runId}:${item.reason}`}>{skipReasonLabel(item.reason)}: {item.count}</li>)}</ul></div>}
+        <WriteButton disabled={pending || !preview.previewToken || preview.eligibleAssessments === 0} onClick={() => submit.mutate()}>{submit.isPending ? 'Submitting…' : 'Confirm sentiment backfill'}</WriteButton></div>}
       {submit.isError && <p role="alert">{describeError(submit.error)} Retry uses the same request key.</p>}{submit.isSuccess && <p role="status">Backfill submitted. Progress is available in Recent jobs.</p>}
     </section>}
   </div>

@@ -48,15 +48,45 @@ describe('subject-specific stance and evidence classification', () => {
     expect(await instance.classify(input)).toMatchObject({ kind: 'abstained', outcome: 'invalid-conclusion-evidence' })
     expect(requests).toHaveLength(0)
   })
-  it('refuses oversized requests without truncation or dispatch', async () => {
-    const input = inputFixture(); input.sourceText = 'A'.repeat(64001)
+  it.each([90_000, 77_000])('refuses a %i-byte answer over the calibrated bound without truncation or dispatch', async bytes => {
+    const input = inputFixture(); input.sourceText = 'A'.repeat(bytes)
     input.sourceTextHash = createHash('sha256').update(input.sourceText).digest('hex')
     input.sentences = [{ id: 's1', text: input.sourceText, start: 0, end: input.sourceText.length }]
     const { instance, requests } = classifier()
     expect(await instance.classify(input)).toMatchObject({ kind: 'abstained', outcome: 'input-too-large' })
     expect(requests).toHaveLength(0)
+    const built = buildJevSentimentRequest(input)
+    // 77,000 bytes pass the answer-only check; the framed request still exceeds the state bound.
+    if (bytes === 77_000) expect(built).toMatchObject({ ok: false, outcome: 'input-too-large', estimate: { stateAndLongestQuestionTokens: expect.any(Number) } })
+    if (!built.ok && built.estimate) expect(built.estimate.stateAndLongestQuestionTokens).toBeGreaterThan(32_000)
   })
-  it('consumes frozen stance-only question wording with a conservative request estimate', () => {
+  it.each([[24_000, 240], [32_000, 250]])('sends a full %i-byte, %i-sentence answer that fits the real context window', async (bytes, count) => {
+    const unit = Math.floor(bytes / count)
+    const sentences = Array.from({ length: count }, (_, index) => {
+      const lead = `North Hall review point ${index + 1}: residents mention quiet units, reliable maintenance, and a rooftop deck`
+      return (lead + ' with a short walk to transit and groceries'.repeat(4)).slice(0, unit - 2).trimEnd() + '.'
+    })
+    const input = inputFixture(); input.sourceText = sentences.join(' ')
+    input.sourceTextHash = createHash('sha256').update(input.sourceText).digest('hex')
+    let start = 0
+    input.sentences = sentences.map((text, index) => { const span = { id: `s${index + 1}`, text, start, end: start + text.length }; start += text.length + 1; return span })
+    expect(Buffer.byteLength(input.sourceText, 'utf8')).toBeGreaterThan(bytes * 0.95)
+    const built = buildJevSentimentRequest(input)
+    expect(built.ok, JSON.stringify(built.ok ? built.estimate : built)).toBe(true)
+    if (!built.ok) return
+    expect(built.estimate.stateAndLongestQuestionTokens).toBeLessThan(32_000)
+    const { instance, requests } = classifier()
+    expect(await instance.classify(input)).toMatchObject({ kind: 'classified', outcome: 'favorable' })
+    expect(requests).toHaveLength(1)
+    expect(Object.values((requests[0].state as { answerSentences: Record<string, string> }).answerSentences).join(' ')).toBe(input.sourceText)
+  })
+  it('keeps a provider context rejection as a permanent failure when the estimate undercounts', async () => {
+    let calls = 0
+    const instance = createTypeSafeClassifier({ apiKey: 'synthetic-secret', fetch: async () => { calls++; return Response.json({ error: 'context too long' }, { status: 413 }) } })
+    expect(await instance.classify(inputFixture())).toMatchObject({ kind: 'failed', outcome: 'failed', error: { code: 'provider-context-limit', retryable: false } })
+    expect(calls).toBe(1)
+  })
+  it('consumes frozen stance-only question wording with a calibrated request estimate', () => {
     const input = inputFixture(); input.definition.questions.identity = 'Frozen revised identity question'
     const result = buildJevSentimentRequest(input)
     expect(result.ok, JSON.stringify(result.ok ? result.estimate : result)).toBe(true)
@@ -64,8 +94,8 @@ describe('subject-specific stance and evidence classification', () => {
     expect(result.request.questions.identity.instructions).toContain(input.definition.questions.identity)
     expect(Object.keys(result.request.questions)).toHaveLength(5)
     expect(Object.keys(result.request.questions).some(key => key.startsWith('theme_'))).toBe(false)
-    expect(result.estimate.inputTokens).toBe(Buffer.byteLength(JSON.stringify(result.request), 'utf8') + 1024)
-    expect(result.estimate.method).toBe('utf8-byte-upper-bound-v1')
+    expect(result.estimate.inputTokens).toBe(Math.ceil(Buffer.byteLength(JSON.stringify(result.request), 'utf8') / 2.5) + 1024)
+    expect(result.estimate.method).toBe('calibrated-utf8-byte-bound-v2')
   })
   it('does not dispatch unsupported languages or inapplicable subjects', async () => {
     for (const mutation of ['language', 'subject']) {
@@ -177,6 +207,15 @@ describe('non-brand intended-subject boundaries', () => {
     input.definition.verdictVersion = 'stance-v1'; input.definition.identityVersion = 'qualified-subject-v1'
     const { instance, requests } = classifier()
     expect(await instance.classify(input)).toMatchObject({ kind: 'abstained', outcome: 'ambiguous-judgment' })
+    expect(requests).toHaveLength(0)
+  })
+  it.each([['identityVersion', 'qualified-subject-v2'], ['segmentationVersion', 'sentence-spans-v1']] as const)('refuses a definition frozen before the current %s revision', async (field, previous) => {
+    // v2 identity sent Simple non-brand answers only when they printed an alias or domain, never the
+    // display name alone; v1 segmentation split after abbreviations and list markers.
+    const input = nonBrand()
+    input.definition[field] = previous
+    const { instance, requests } = classifier()
+    expect(await instance.classify(input)).toMatchObject({ kind: 'abstained', outcome: 'ambiguous-judgment', reason: 'The frozen evaluator template version is unsupported.' })
     expect(requests).toHaveLength(0)
   })
 })

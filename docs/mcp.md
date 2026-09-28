@@ -491,19 +491,34 @@ keeps judged/selected denominators, exclusions, distinct source answers, nullabl
 rates, per-query and location summaries, and comparison refusal reasons. Select
 `queryClass` explicitly; branded and non-brand have separate denominators. An absent
 intended subject is excluded, never unfavorable. Use `queryId` for a specific frozen
-query. Summary/evidence can select an exact saved run group with a `runIds` array,
-mutually exclusive with `runId`. Preserve every selection field and the resolved
-`evaluationDefinitionId` when following an evidence cursor.
+query, and `executionNodeKey` for one Advanced execution node of it. Summary query
+rows are compact and paged: `queryLimit` rows (default 25), then pass
+`queryPage.nextCursor` as `queryCursor`. Per-engine assessments and per-location
+scores are opt-in with `include: ["assessments", "locations"]`, or come by default
+when `queryId` names one query; Advanced rows are per `executionNodeKey`. The jobs
+tool returns job summaries with an `attemptCount`; `canonry_sentiment_job` pages
+attempt receipts (`attemptLimit`, `attemptCursor`). Summary/evidence can select an
+exact saved run group with a `runIds` array, mutually exclusive with `runId`. Preserve every selection field and the resolved
+`evaluationDefinitionId` when following an evidence cursor. Output schemas are
+tolerant readers: a field a newer server adds is dropped, and a new state or outcome
+reads as a string, so an older adapter never rejects a newer server's response.
 
 `canonry_sentiment_configure` and `canonry_sentiment_backfill` are write tools for
 install administrators. Viewer, delegated viewer, read-only and project-scoped
 credentials cannot authorize them. Configuring a project takes explicit `enabled`;
 credentials stay in local install configuration. Both
-install and project switches default off. Enabling applies to future completions.
+install and project switches default off. Enabling applies to future completions and
+needs a ready install; switching a project off works even while the install is off.
+While either switch is off, reads keep operational states but withhold verdicts,
+quotations and outcome counts.
 
 For historical work, preview explicit `runIds` (or `runId`) or a bounded `from`/`to`
-range, inspect the returned selection, then submit its exact `previewToken` and an
-explicit `idempotencyKey`. Submission can disclose source answer text to TypeSafe
-and incur usage; unchanged retries return one job receipt. Read the job to inspect
-progress, safe attempt errors, unknown usage and cancellation epochs. Native Aero
+range with a required `queryClass` (`branded` or `non-brand`; preview and submit each
+class you need), inspect the returned selection and `skipped` reasons (including
+`excluded-branded` / `excluded-non-brand` for the other class and
+`legacy-missing-language` for Advanced sweeps saved before language was
+recorded), then submit its exact `previewToken` and an explicit `idempotencyKey`.
+Submission can disclose source answer text to TypeSafe and incur usage; unchanged
+retries return one job receipt. Read the job to inspect progress, safe attempt
+errors, unknown usage and cancellation epochs. Native Aero
 and downstream report integration remain deferred.

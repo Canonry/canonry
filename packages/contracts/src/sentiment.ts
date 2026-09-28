@@ -30,8 +30,8 @@ export const sentimentEvaluationDefinitionSchema = z.object({
 export type SentimentEvaluationDefinition = z.infer<typeof sentimentEvaluationDefinitionSchema>
 export function createSentimentEvaluationDefinition(): SentimentEvaluationDefinition {
   return sentimentEvaluationDefinitionSchema.parse({
-    schemaVersion: 2, requestedModel: SENTIMENT_MODEL, verdictVersion: 'stance-v2', identityVersion: 'qualified-subject-v2',
-    evidenceVersion: 'sentence-evidence-v1', segmentationVersion: 'sentence-spans-v1', preprocessingVersion: 'verbatim-v1',
+    schemaVersion: 2, requestedModel: SENTIMENT_MODEL, verdictVersion: 'stance-v2', identityVersion: 'qualified-subject-v3',
+    evidenceVersion: 'sentence-evidence-v1', segmentationVersion: 'sentence-spans-v2', preprocessingVersion: 'verbatim-v1',
     languagePolicy: 'en-only', comparisonMethodVersion: 'wilson-independent-v1', confidenceThreshold: null,
     questions: {
       identity: 'Does the answer discuss the intended subject, using qualified aliases, URLs, and execution context? A bare shared name is insufficient. Choose correct, absent, wrong, or ambiguous. Absent means the intended subject is not mentioned and is never an unfavorable judgment.',
@@ -41,6 +41,16 @@ export function createSentimentEvaluationDefinition(): SentimentEvaluationDefini
       complaint: 'Select the most serious complaint about the intended subject, or absent.',
     },
   })
+}
+const SENTIMENT_TEMPLATE_FIELDS = ['schemaVersion', 'verdictVersion', 'identityVersion', 'evidenceVersion', 'segmentationVersion', 'preprocessingVersion'] as const
+/**
+ * True when a stored definition was frozen under the request template this build implements, the
+ * same versions the classifier pins. A definition from an earlier template stays readable but
+ * never dispatches: the classifier would refuse it, so it waits for sentiment to be configured again.
+ */
+export function hasCurrentSentimentTemplate(definition: SentimentEvaluationDefinition): boolean {
+  const current = createSentimentEvaluationDefinition()
+  return SENTIMENT_TEMPLATE_FIELDS.every(field => definition[field] === current[field])
 }
 function storedDefinitionProjection(value: unknown): unknown {
   if (typeof value !== 'object' || value === null || !('schemaVersion' in value) || value.schemaVersion !== 1) return value
@@ -103,6 +113,8 @@ const sentimentSelectionBaseSchema = z.object({
   runId: id.optional(), runIds: runIds.optional(), revision: z.coerce.number().int().positive().optional(), mode: z.enum(['auto', 'simple', 'advanced']).default('auto'),
   queryClass: z.enum(['branded', 'non-brand']).default('branded'), scope: z.enum(['project', 'property', 'group', 'market']).default('project'),
   queryId: id.optional(), scopeKey: id.optional(), marketKey: id.optional(), provider: id.optional(), model: id.optional(), location: z.string().min(1).optional(), evaluationDefinitionId: id.optional(),
+  /** Exact frozen Advanced execution node of the selected query. Identity: it narrows the assessed population. */
+  executionNodeKey: id.optional(),
 }).strict()
 function exclusiveSentimentRuns(value: { runId?: string; runIds?: string[] }, ctx: z.RefinementCtx) {
   if (value.runId && value.runIds) ctx.addIssue({ code: 'custom', path: ['runIds'], message: 'Choose runId or runIds, not both.' })
@@ -111,6 +123,19 @@ function exclusiveSentimentRuns(value: { runId?: string; runIds?: string[] }, ct
 export const sentimentSelectionSchema = sentimentSelectionBaseSchema.superRefine(exclusiveSentimentRuns)
 export type SentimentSelection = z.infer<typeof sentimentSelectionSchema>
 export type SentimentEvidenceSelection = SentimentSelection & { assessmentId?: string }
+export const sentimentSummaryIncludeSchema = z.enum(['assessments', 'locations'])
+export type SentimentSummaryInclude = z.infer<typeof sentimentSummaryIncludeSchema>
+export const SENTIMENT_QUERY_PAGE_DEFAULT = 25
+export const SENTIMENT_QUERY_PAGE_MAX = 500
+/**
+ * Summary read. `include`, `queryLimit` and `queryCursor` are tuning: they shape the response
+ * (per-query detail and paging) and never change which assessments are scored.
+ */
+export const sentimentSummaryRequestSchema = sentimentSelectionBaseSchema.extend({
+  include: z.preprocess(value => typeof value === 'string' ? value.split(',').map(item => item.trim()).filter(Boolean) : value, z.array(sentimentSummaryIncludeSchema).max(2)).optional(),
+  queryLimit: z.coerce.number().int().min(1).max(SENTIMENT_QUERY_PAGE_MAX).default(SENTIMENT_QUERY_PAGE_DEFAULT),
+  queryCursor: z.string().min(1).max(16384).optional(),
+}).superRefine(exclusiveSentimentRuns)
 export const sentimentEvidenceRequestSchema = sentimentSelectionBaseSchema.extend({ assessmentId: id.optional(), cursor: z.string().min(1).max(16384).optional(), limit: z.coerce.number().int().min(1).max(100).default(50) }).superRefine(exclusiveSentimentRuns)
 export const sentimentCompareRequestSchema = sentimentSelectionBaseSchema.extend({ fromRunId: id, toRunId: id }).superRefine((value, ctx) => { exclusiveSentimentRuns(value, ctx); if (value.runIds) ctx.addIssue({ code: 'custom', path: ['runIds'], message: 'Comparison requires one explicit run per period.' }) })
 export const sentimentResolvedSelectionSchema = sentimentSelectionBaseSchema.extend({ runId: id.nullable(), revision: z.number().int().nullable(), evaluationDefinitionId: id.nullable(), mode: z.enum(['simple', 'advanced']) })
@@ -131,13 +156,16 @@ export const sentimentAssessmentSummarySchema = z.object({
   evaluationDefinitionId: id.nullable(), state: sentimentStateSchema, outcome: z.union([sentimentOutcomeSchema, z.null()]), reason: z.string().nullable(),
 }).strict()
 export type SentimentAssessmentSummary = z.infer<typeof sentimentAssessmentSummarySchema>
-export const sentimentQuerySummarySchema = z.object({ ...headlineFields, queryId: id, queryText: z.string(), queryClass: z.enum(['branded', 'non-brand']), sourceSnapshotIds: z.array(id), assessments: z.array(sentimentAssessmentSummarySchema).default([]), locations: z.array(z.object({ ...headlineFields, location: z.string().nullable(), sourceSnapshotIds: z.array(id) }).strict()) }).strict()
+/** Advanced rows are per frozen execution node (`executionNodeKey`); Simple rows carry null. */
+export const sentimentQuerySummarySchema = z.object({ ...headlineFields, queryId: id, executionNodeKey: id.nullable().optional(), queryText: z.string(), queryClass: z.enum(['branded', 'non-brand']), sourceSnapshotIds: z.array(id), assessments: z.array(sentimentAssessmentSummarySchema).default([]), locations: z.array(z.object({ ...headlineFields, location: z.string().nullable(), sourceSnapshotIds: z.array(id) }).strict()) }).strict()
 export type SentimentQuerySummary = z.infer<typeof sentimentQuerySummarySchema>
 export const sentimentBreakdownSchema = z.object({ ...headlineFields, dimension: z.enum(['provider', 'property', 'market', 'query']), key: z.string(), label: z.string(), queryClass: z.enum(['branded', 'non-brand']) }).strict()
 export const sentimentSummarySchema = z.object({
   ...headlineFields, configured: z.boolean(), selection: sentimentResolvedSelectionSchema,
   evaluationDefinition: sentimentEvaluationDefinitionSchema.nullable(),
   breakdowns: z.array(sentimentBreakdownSchema), queries: z.array(sentimentQuerySummarySchema),
+  /** Present on the paged summary read; follow `nextCursor` as `queryCursor` for the next query rows. */
+  queryPage: z.object({ total: count, limit: count, nextCursor: z.string().nullable() }).strict().optional(),
 }).strict()
 export type SentimentSummary = z.infer<typeof sentimentSummarySchema>
 export const sentimentSettingsUpdateSchema = z.object({ enabled: z.boolean().optional() }).strict()
@@ -163,9 +191,20 @@ export const sentimentJobSchema = z.object({
   id, projectId: id, origin: z.enum(['automatic', 'backfill']), state: sentimentJobStateSchema, enablementEpoch: count,
   evaluationDefinitionId: id, selection: sentimentBackfillSelectionSchema, createdAt: z.string(), updatedAt: z.string(),
   counts: sentimentCountsSchema, selected: count, cancellationReason: z.string().nullable(), attempts: z.array(sentimentAttemptReceiptSchema),
+  /** Paged job read: every attempt of the job, and the cursor for the next (older) attempts. */
+  attemptCount: count.optional(), nextAttemptCursor: z.string().nullable().optional(),
 }).strict()
 export type SentimentJob = z.infer<typeof sentimentJobSchema>
-export const sentimentJobsSchema = z.object({ jobs: z.array(sentimentJobSchema) }).strict()
+/** List entry: counts and an attempt total, never attempt receipts. */
+export const sentimentJobSummarySchema = sentimentJobSchema.omit({ attempts: true, attemptCount: true, nextAttemptCursor: true }).extend({ attemptCount: count }).strict()
+export type SentimentJobSummary = z.infer<typeof sentimentJobSummarySchema>
+export const sentimentJobsSchema = z.object({ jobs: z.array(sentimentJobSummarySchema) }).strict()
+export const SENTIMENT_ATTEMPT_PAGE_DEFAULT = 50
+/** Attempt paging on the job read; tuning only. */
+export const sentimentJobRequestSchema = z.object({
+  attemptLimit: z.coerce.number().int().min(1).max(200).default(SENTIMENT_ATTEMPT_PAGE_DEFAULT),
+  attemptCursor: z.string().min(1).max(4096).optional(),
+}).strict()
 export const sentimentEvidenceItemSchema = z.object({
   assessmentId: id, runId: id, sourceSnapshotId: id, sourceText: z.string(), sourceTextHash: id, subject: sentimentSubjectSchema,
   subjectHash: id, context: sentimentExecutionContextSchema, evaluationDefinitionId: id, outcome: sentimentOutcomeSchema,

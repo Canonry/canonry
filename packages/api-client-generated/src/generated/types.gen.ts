@@ -66,6 +66,7 @@ export type SentimentSummary = {
         model?: string;
         location?: string;
         evaluationDefinitionId: string | null;
+        executionNodeKey?: string;
     };
     evaluationDefinition: {
         schemaVersion: 1 | 2;
@@ -186,6 +187,7 @@ export type SentimentSummary = {
             limitation: string;
         };
         queryId: string;
+        executionNodeKey?: string | null;
         queryText: string;
         queryClass: 'branded' | 'non-brand';
         sourceSnapshotIds: Array<string>;
@@ -256,6 +258,11 @@ export type SentimentSummary = {
             sourceSnapshotIds: Array<string>;
         }>;
     }>;
+    queryPage?: {
+        total: number;
+        limit: number;
+        nextCursor: string | null;
+    };
 };
 
 export type SentimentSettings = {
@@ -295,6 +302,7 @@ export type SentimentEvidencePage = {
         model?: string;
         location?: string;
         evaluationDefinitionId: string | null;
+        executionNodeKey?: string;
         assessmentId?: string;
     };
     items: Array<{
@@ -423,6 +431,7 @@ export type SentimentComparison = {
             model?: string;
             location?: string;
             evaluationDefinitionId: string | null;
+            executionNodeKey?: string;
         };
         evaluationDefinition: {
             schemaVersion: 1 | 2;
@@ -543,6 +552,7 @@ export type SentimentComparison = {
                 limitation: string;
             };
             queryId: string;
+            executionNodeKey?: string | null;
             queryText: string;
             queryClass: 'branded' | 'non-brand';
             sourceSnapshotIds: Array<string>;
@@ -613,6 +623,11 @@ export type SentimentComparison = {
                 sourceSnapshotIds: Array<string>;
             }>;
         }>;
+        queryPage?: {
+            total: number;
+            limit: number;
+            nextCursor: string | null;
+        };
     };
     to: {
         state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
@@ -676,6 +691,7 @@ export type SentimentComparison = {
             model?: string;
             location?: string;
             evaluationDefinitionId: string | null;
+            executionNodeKey?: string;
         };
         evaluationDefinition: {
             schemaVersion: 1 | 2;
@@ -796,6 +812,7 @@ export type SentimentComparison = {
                 limitation: string;
             };
             queryId: string;
+            executionNodeKey?: string | null;
             queryText: string;
             queryClass: 'branded' | 'non-brand';
             sourceSnapshotIds: Array<string>;
@@ -866,6 +883,11 @@ export type SentimentComparison = {
                 sourceSnapshotIds: Array<string>;
             }>;
         }>;
+        queryPage?: {
+            total: number;
+            limit: number;
+            nextCursor: string | null;
+        };
     };
     verdict: 'improved' | 'declined' | 'no-clear-change';
     favorableRateDelta: number | null;
@@ -895,6 +917,7 @@ export type SentimentBackfillPreview = {
         model?: string;
         location?: string;
         evaluationDefinitionId?: string;
+        executionNodeKey?: string;
         from?: string;
         to?: string;
     };
@@ -938,6 +961,7 @@ export type SentimentJobs = {
             model?: string;
             location?: string;
             evaluationDefinitionId?: string;
+            executionNodeKey?: string;
             from?: string;
             to?: string;
         };
@@ -965,19 +989,7 @@ export type SentimentJobs = {
         };
         selected: number;
         cancellationReason: string | null;
-        attempts: Array<{
-            id: string;
-            workItemId: string;
-            dispatchedAt: string;
-            completedAt: string | null;
-            returnedModel: string | null;
-            usage: {
-                kind: 'reported' | 'estimated' | 'unknown';
-                inputTokens: number | null;
-                outputTokens: number | null;
-            };
-            errorCode: string | null;
-        }>;
+        attemptCount: number;
     }>;
 };
 
@@ -1002,6 +1014,7 @@ export type SentimentJob = {
         model?: string;
         location?: string;
         evaluationDefinitionId?: string;
+        executionNodeKey?: string;
         from?: string;
         to?: string;
     };
@@ -1042,6 +1055,8 @@ export type SentimentJob = {
         };
         errorCode: string | null;
     }>;
+    attemptCount?: number;
+    nextAttemptCursor?: string | null;
 };
 
 export type VisibilityReportResponse = {
@@ -10794,6 +10809,7 @@ export type ProjectOverviewDto = {
                 model?: string;
                 location?: string;
                 evaluationDefinitionId: string | null;
+                executionNodeKey?: string;
             };
             runIds: Array<string>;
         };
@@ -10858,6 +10874,7 @@ export type ProjectOverviewDto = {
                 model?: string;
                 location?: string;
                 evaluationDefinitionId: string | null;
+                executionNodeKey?: string;
             };
             runIds: Array<string>;
         };
@@ -16968,6 +16985,10 @@ export type GetApiV1ProjectsByNameSentimentData = {
          */
         queryId?: string;
         /**
+         * Exact frozen Advanced execution node of the selected query. Identity: it narrows the assessed population.
+         */
+        executionNodeKey?: string;
+        /**
          * Frozen Simple or Advanced source mode.
          */
         mode?: 'auto' | 'simple' | 'advanced';
@@ -17011,6 +17032,18 @@ export type GetApiV1ProjectsByNameSentimentData = {
          * Exact frozen measurement revision.
          */
         revision?: number;
+        /**
+         * Opt-in per-query detail, repeated or comma-separated. Omitted, query rows are compact unless queryId names one query. Tuning, not identity.
+         */
+        include?: Array<'assessments' | 'locations'>;
+        /**
+         * Query rows per page; tuning.
+         */
+        queryLimit?: number;
+        /**
+         * Opaque queryPage.nextCursor bound to the resolved selection.
+         */
+        queryCursor?: string;
     };
     url: '/api/v1/projects/{name}/sentiment';
 };
@@ -17030,7 +17063,7 @@ export type GetApiV1ProjectsByNameSentimentError = GetApiV1ProjectsByNameSentime
 
 export type GetApiV1ProjectsByNameSentimentResponses = {
     /**
-     * Stored scores, exclusions, coverage, frozen query/location aggregates, and exact per-engine subject assessments.
+     * Stored scores, exclusions, coverage, and a page of frozen query aggregates, with per-engine subject assessments and location aggregates when included.
      */
     200: SentimentSummary;
 };
@@ -17054,6 +17087,10 @@ export type GetApiV1ProjectsByNameSentimentEvidenceData = {
          * Exact frozen query identity within the selected query class.
          */
         queryId?: string;
+        /**
+         * Exact frozen Advanced execution node of the selected query. Identity: it narrows the assessed population.
+         */
+        executionNodeKey?: string;
         /**
          * Frozen Simple or Advanced source mode.
          */
@@ -17154,6 +17191,10 @@ export type GetApiV1ProjectsByNameSentimentCompareData = {
          */
         queryId?: string;
         /**
+         * Exact frozen Advanced execution node of the selected query. Identity: it narrows the assessed population.
+         */
+        executionNodeKey?: string;
+        /**
          * Frozen Simple or Advanced source mode.
          */
         mode?: 'auto' | 'simple' | 'advanced';
@@ -17248,6 +17289,10 @@ export type GetApiV1ProjectsByNameSentimentBackfillPreviewData = {
          * Exact frozen query identity within the selected query class.
          */
         queryId?: string;
+        /**
+         * Exact frozen Advanced execution node of the selected query. Identity: it narrows the assessed population.
+         */
+        executionNodeKey?: string;
         /**
          * Frozen Simple or Advanced source mode.
          */
@@ -17391,7 +17436,7 @@ export type GetApiV1ProjectsByNameSentimentJobsError = GetApiV1ProjectsByNameSen
 
 export type GetApiV1ProjectsByNameSentimentJobsResponses = {
     /**
-     * Stored durable job receipts.
+     * Newest 100 job summaries with SQL-counted outcomes and attemptCount; attempt receipts are paged on the job read.
      */
     200: SentimentJobs;
 };
@@ -17410,7 +17455,16 @@ export type GetApiV1ProjectsByNameSentimentJobsByJobIdData = {
          */
         jobId: string;
     };
-    query?: never;
+    query?: {
+        /**
+         * Attempt receipts per page, newest first; tuning.
+         */
+        attemptLimit?: number;
+        /**
+         * Opaque nextAttemptCursor bound to this job.
+         */
+        attemptCursor?: string;
+    };
     url: '/api/v1/projects/{name}/sentiment/jobs/{jobId}';
 };
 
@@ -17425,7 +17479,7 @@ export type GetApiV1ProjectsByNameSentimentJobsByJobIdError = GetApiV1ProjectsBy
 
 export type GetApiV1ProjectsByNameSentimentJobsByJobIdResponses = {
     /**
-     * Coverage, cancellation, retries, and reported or unknown usage.
+     * Coverage, cancellation, attemptCount, and one page of attempt receipts with reported or unknown usage.
      */
     200: SentimentJob;
 };

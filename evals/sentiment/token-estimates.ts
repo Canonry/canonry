@@ -17,6 +17,6 @@ const report = Object.fromEntries((['branded', 'non-brand', 'non-brand-subject-a
   const sourceText = name === 'non-brand-subject-absent' ? 'South Hall is a great place to live.' : base.sourceText
   const input: SentimentClassifierInput = { ...base, context: { ...base.context, queryClass, queryText: queryClass === 'branded' ? base.context.queryText : 'Which apartment buildings are good in Chicago?' }, sourceText, sourceTextHash: createHash('sha256').update(sourceText).digest('hex'), sentences: sourceText === base.sourceText ? base.sentences : [{ id: 's1', text: sourceText, start: 0, end: sourceText.length }] }
   const built = buildJevSentimentRequest(input)
-  return [name, { queryClass, providerRequestRequired: built.ok, outcome: built.ok ? null : built.outcome, questions: built.ok ? Object.keys(built.request.questions) : [], estimate: built.estimate ?? null, limitation: 'UTF-8 byte upper bound plus 1024 framing allowance, not the vendor tokenizer or returned usage. Official price checked 2026-09-28: USD 0.042/M input tokens.' }]
+  return [name, { queryClass, providerRequestRequired: built.ok, outcome: built.ok ? null : built.outcome, questions: built.ok ? Object.keys(built.request.questions) : [], estimate: built.estimate ?? null, limitation: 'Calibrated UTF-8 bytes / 2.5 plus 1024 framing allowance, not the vendor tokenizer or returned usage. Official price checked 2026-09-28: USD 0.042/M input tokens.' }]
 }))
 await writeFile(process.argv[2] ?? 'evals/sentiment/token-estimates.json', JSON.stringify(report, null, 2) + '\n')

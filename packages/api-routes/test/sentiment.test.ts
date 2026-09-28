@@ -51,7 +51,7 @@ describe('sentiment stored API', () => {
       const outcome = work.runId === 'r' ? 'favorable' : 'unfavorable'
       repository.completeWork({ workItemId: work.id, owner: 'exact', now: clock, outcome, returnedModel: 'jev-1.13.0', result: { kind: 'classified', outcome, returnedModel: 'jev-1.13.0', usage: { kind: 'reported', inputTokens: 10, outputTokens: 1 }, conclusion: input.sentences.slice(0, 1), complaint: null, confidence: null } })
     }
-    const summary = await request('GET', '?runIds=r&runIds=r2', 'read')
+    const summary = await request('GET', '?runIds=r&runIds=r2&include=assessments', 'read')
     const target = sentimentSummarySchema.parse(summary.json()).queries[0]!.assessments.find(item => item.sourceSnapshotId === 's')!
     const jobsBefore = db.select().from(sentimentJobs).all(), attemptsBefore = db.select().from(sentimentAttempts).all()
     const selected = await request('GET', `/evidence?runIds=r&runIds=r2&assessmentId=${target.assessmentId}`, 'read')
@@ -155,6 +155,26 @@ describe('sentiment stored API', () => {
     expect(summary.statusCode).toBe(200)
     expect(sentimentSummarySchema.parse(summary.json()).score.favorableRate).toBeNull()
   })
+  it('reports an install-wide provider pause in readiness, and a credential refusal blocks backfill until the key changes', async () => {
+    service.configure('p', { enabled: true })
+    const preview = service.preview('p', { runId: 'r' })
+    service.submit('p', preview.previewToken!, 'pause', 'test')
+    const repository = new SentimentRepository(db)
+    const work = repository.claim({ owner: 'o', now: clock, leaseMs: 60_000 })!
+    const attempt = repository.startAttempt({ workItemId: work.id, owner: 'o', requestedModel: 'jev-1.13.0', now: clock })!
+    repository.recordProviderRefusal({ workItemId: work.id, owner: 'o', now: clock, dispatchedAt: attempt.dispatchedAt, reason: 'provider-authorization', delayMs: () => 3_600_000, credentialFingerprint: 'refused' })
+    const paused = (await request('GET', '/settings')).json()
+    expect(paused).toMatchObject({ ready: false, actions: { configure: true, backfill: false } })
+    expect(paused.readinessReasons).toEqual([expect.stringMatching(/^provider-authorization: /)])
+    expect(service.preview('p', { runId: 'r' }).previewToken).toBeNull()
+    expect(repository.dispatchGate({ now: clock, credentialFingerprint: 'rotated' })).toBe('open')
+    expect((await request('GET', '/settings')).json()).toMatchObject({ ready: true, readinessReasons: [] })
+    const next = repository.claim({ owner: 'o2', now: clock, leaseMs: 60_000 })!
+    const second = repository.startAttempt({ workItemId: next.id, owner: 'o2', requestedModel: 'jev-1.13.0', now: clock })!
+    repository.recordProviderRefusal({ workItemId: next.id, owner: 'o2', now: clock, dispatchedAt: second.dispatchedAt, reason: 'provider-rate-limit', delayMs: () => 30_000, credentialFingerprint: 'rotated' })
+    // A rate limit only delays dispatch, so the install stays ready and says when it resumes.
+    expect((await request('GET', '/settings')).json()).toMatchObject({ ready: true, readinessReasons: ['provider-rate-limit: TypeSafe is rate limiting this install. Dispatch resumes after 2026-09-28T00:00:30.000Z.'] })
+  })
   it.each(['read', 'narrow', 'scoped', 'accounts'])('denies configuration to %s credentials', async key => {
     const response = await request('PUT', '/settings', key, { enabled: true })
     expect(response.statusCode).toBe(403)
@@ -180,7 +200,7 @@ describe('sentiment stored API', () => {
     service.configure('p', { enabled: true })
     expect((await request('GET', '/backfill-preview?runId=r', 'read')).statusCode).toBe(200)
     expect((await request('GET', '', 'read')).statusCode).toBe(200)
-    expect(service.jobs('p').jobs).toEqual([])
+    expect(service.jobList('p').jobs).toEqual([])
   })
   it('prevents a scoped reader from another project and wrong-project jobs', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/v1/projects/other/sentiment/settings', headers: { authorization: 'Bearer cnry_scoped' } })

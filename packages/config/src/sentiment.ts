@@ -10,7 +10,10 @@ export const sentimentInstallConfigSchema = z.object({
   maxInputTokensPerMinute: z.number().int().min(1).max(10_000_000).default(100_000),
   maxAttempts: z.number().int().min(1).max(5).default(3),
 }).strict()
-export type SentimentInstallConfig = z.output<typeof sentimentInstallConfigSchema>
+export type SentimentInstallConfig = z.output<typeof sentimentInstallConfigSchema> & {
+  /** Set by the install loader when config.yaml is missing, unreadable or invalid. Never ready, and not an operator disable. */
+  invalid?: true
+}
 export type SentimentInstallConfigInput = z.input<typeof sentimentInstallConfigSchema>
 
 /** Explicit env values win. Invalid switches fail closed rather than enabling spend. */
@@ -27,10 +30,12 @@ export function resolveSentimentInstallConfig(
   })
 }
 
+/** Only 'install-disabled' is an operator disable; every other reason holds dispatch without canceling work. */
 export function sentimentInstallReadiness(config: SentimentInstallConfig): {
-  enabled: boolean; ready: boolean; reason: 'install-disabled' | 'missing-credentials' | 'unsupported-model' | null
+  enabled: boolean; ready: boolean; reason: 'invalid-config' | 'install-disabled' | 'missing-credentials' | 'unsupported-model' | null
 } {
-  const reason = !config.enabled ? 'install-disabled'
+  const reason = config.invalid ? 'invalid-config'
+    : !config.enabled ? 'install-disabled'
     : config.model !== 'jev-1.13.0' ? 'unsupported-model'
       : !config.apiKey ? 'missing-credentials' : null
   return { enabled: config.enabled, ready: reason === null, reason }

@@ -3,9 +3,13 @@ import { getApiV1ProjectsByNameTrafficReferralAssessment } from '@ainyc/canonry-
 
 import type { z } from 'zod'
 import type {
-  SentimentSummary, SentimentSettings, SentimentSelection, SentimentBackfillSelection, SentimentBackfillPreview,
-  SentimentComparison, SentimentJob, sentimentSettingsUpdateSchema, sentimentEvidenceRequestSchema,
-  sentimentCompareRequestSchema, sentimentBackfillRequestSchema, sentimentEvidencePageSchema, sentimentJobsSchema,
+  SentimentBackfillSelection, sentimentSettingsUpdateSchema, sentimentEvidenceRequestSchema, sentimentSummaryRequestSchema,
+  sentimentCompareRequestSchema, sentimentBackfillRequestSchema, sentimentJobRequestSchema, SentimentSummaryRead, SentimentSettingsRead,
+  SentimentEvidencePageRead, SentimentComparisonRead, SentimentBackfillPreviewRead, SentimentJobRead, SentimentJobsRead,
+} from '@ainyc/canonry-contracts'
+import {
+  sentimentSummaryReadSchema, sentimentSettingsReadSchema, sentimentEvidencePageReadSchema, sentimentComparisonReadSchema,
+  sentimentBackfillPreviewReadSchema, sentimentJobReadSchema, sentimentJobsReadSchema,
 } from '@ainyc/canonry-contracts'
 import {
   getApiV1ProjectsByNameSentiment, getApiV1ProjectsByNameSentimentSettings, putApiV1ProjectsByNameSentimentSettings,
@@ -898,40 +902,45 @@ type MeasurementQueryTemplateUpsertRequest = Parameters<typeof putApiV1ProjectsB
 type MeasurementQueryTemplateApplyRequest = Parameters<typeof postApiV1ProjectsByNameMeasurementQueryTemplatesByTemplateIdApply>[0]['body']
 
 export class ApiClient {
-  async getSentiment(name: string, query: Partial<SentimentSelection> = {}): Promise<SentimentSummary> {
-    return this.invoke<SentimentSummary>(() => getApiV1ProjectsByNameSentiment({ client: this.heyClient, path: { name }, query }))
+  // Sentiment responses are read with the tolerant readers from contracts, so
+  // a field, state or outcome added by a newer server is dropped or read
+  // through instead of rejecting the response (see `sentiment-read.ts`).
+  /** One page of query rows; follow `queryPage.nextCursor` as `queryCursor`. */
+  async getSentiment(name: string, query: Partial<z.infer<typeof sentimentSummaryRequestSchema>> = {}): Promise<SentimentSummaryRead> {
+    return sentimentSummaryReadSchema.parse(await this.invoke<unknown>(() => getApiV1ProjectsByNameSentiment({ client: this.heyClient, path: { name }, query })))
   }
 
-  async getSentimentSettings(name: string): Promise<SentimentSettings> {
-    return this.invoke<SentimentSettings>(() => getApiV1ProjectsByNameSentimentSettings({ client: this.heyClient, path: { name } }))
+  async getSentimentSettings(name: string): Promise<SentimentSettingsRead> {
+    return sentimentSettingsReadSchema.parse(await this.invoke<unknown>(() => getApiV1ProjectsByNameSentimentSettings({ client: this.heyClient, path: { name } })))
   }
 
-  async configureSentiment(name: string, body: z.infer<typeof sentimentSettingsUpdateSchema>): Promise<SentimentSettings> {
-    return this.invoke<SentimentSettings>(() => putApiV1ProjectsByNameSentimentSettings({ client: this.heyClient, path: { name }, body }))
+  async configureSentiment(name: string, body: z.infer<typeof sentimentSettingsUpdateSchema>): Promise<SentimentSettingsRead> {
+    return sentimentSettingsReadSchema.parse(await this.invoke<unknown>(() => putApiV1ProjectsByNameSentimentSettings({ client: this.heyClient, path: { name }, body })))
   }
 
-  async getSentimentEvidence(name: string, query: Partial<z.infer<typeof sentimentEvidenceRequestSchema>> = {}): Promise<z.infer<typeof sentimentEvidencePageSchema>> {
-    return this.invoke<z.infer<typeof sentimentEvidencePageSchema>>(() => getApiV1ProjectsByNameSentimentEvidence({ client: this.heyClient, path: { name }, query }))
+  async getSentimentEvidence(name: string, query: Partial<z.infer<typeof sentimentEvidenceRequestSchema>> = {}): Promise<SentimentEvidencePageRead> {
+    return sentimentEvidencePageReadSchema.parse(await this.invoke<unknown>(() => getApiV1ProjectsByNameSentimentEvidence({ client: this.heyClient, path: { name }, query })))
   }
 
-  async compareSentiment(name: string, query: z.infer<typeof sentimentCompareRequestSchema>): Promise<SentimentComparison> {
-    return this.invoke<SentimentComparison>(() => getApiV1ProjectsByNameSentimentCompare({ client: this.heyClient, path: { name }, query }))
+  async compareSentiment(name: string, query: z.infer<typeof sentimentCompareRequestSchema>): Promise<SentimentComparisonRead> {
+    return sentimentComparisonReadSchema.parse(await this.invoke<unknown>(() => getApiV1ProjectsByNameSentimentCompare({ client: this.heyClient, path: { name }, query })))
   }
 
-  async previewSentimentBackfill(name: string, query: SentimentBackfillSelection): Promise<SentimentBackfillPreview> {
-    return this.invoke<SentimentBackfillPreview>(() => getApiV1ProjectsByNameSentimentBackfillPreview({ client: this.heyClient, path: { name }, query }))
+  async previewSentimentBackfill(name: string, query: SentimentBackfillSelection): Promise<SentimentBackfillPreviewRead> {
+    return sentimentBackfillPreviewReadSchema.parse(await this.invoke<unknown>(() => getApiV1ProjectsByNameSentimentBackfillPreview({ client: this.heyClient, path: { name }, query })))
   }
 
-  async submitSentimentBackfill(name: string, body: z.infer<typeof sentimentBackfillRequestSchema>): Promise<SentimentJob> {
-    return this.invoke<SentimentJob>(() => postApiV1ProjectsByNameSentimentBackfills({ client: this.heyClient, path: { name }, body }))
+  async submitSentimentBackfill(name: string, body: z.infer<typeof sentimentBackfillRequestSchema>): Promise<SentimentJobRead> {
+    return sentimentJobReadSchema.parse(await this.invoke<unknown>(() => postApiV1ProjectsByNameSentimentBackfills({ client: this.heyClient, path: { name }, body })))
   }
 
-  async listSentimentJobs(name: string): Promise<z.infer<typeof sentimentJobsSchema>> {
-    return this.invoke<z.infer<typeof sentimentJobsSchema>>(() => getApiV1ProjectsByNameSentimentJobs({ client: this.heyClient, path: { name } }))
+  async listSentimentJobs(name: string): Promise<SentimentJobsRead> {
+    return sentimentJobsReadSchema.parse(await this.invoke<unknown>(() => getApiV1ProjectsByNameSentimentJobs({ client: this.heyClient, path: { name } })))
   }
 
-  async getSentimentJob(name: string, jobId: string): Promise<SentimentJob> {
-    return this.invoke<SentimentJob>(() => getApiV1ProjectsByNameSentimentJobsByJobId({ client: this.heyClient, path: { name, jobId } }))
+  /** One page of attempt receipts, newest first; follow `nextAttemptCursor` as `attemptCursor`. */
+  async getSentimentJob(name: string, jobId: string, query: Partial<z.infer<typeof sentimentJobRequestSchema>> = {}): Promise<SentimentJobRead> {
+    return sentimentJobReadSchema.parse(await this.invoke<unknown>(() => getApiV1ProjectsByNameSentimentJobsByJobId({ client: this.heyClient, path: { name, jobId }, query })))
   }
 
   private originUrl: string

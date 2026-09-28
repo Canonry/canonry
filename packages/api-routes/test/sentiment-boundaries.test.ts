@@ -48,7 +48,7 @@ function advanced(runId: string) {
   plan.assignments.forEach(assignment => { assignment.queryClass = 'branded' })
   plan.reportingScopes = ['alpha', 'beta'].map(stableKey => ({ stableKey, label: stableKey, kind: 'market', usageEdges: plan.usageEdges }))
   db.insert(measurementPlanVersions).values({ id: `${runId}-version`, projectId: 'p', revision: 1, canonicalJson: canonicalMeasurementPlanV2Json(plan), checksum: runId, schemaVersion: 2, compiledChecksum: plan.compiledChecksum, createdAt: clock }).run()
-  db.insert(runs).values({ id: runId, projectId: 'p', kind: 'answer-visibility', status: 'completed', trigger: 'manual', measurementPlanVersionId: `${runId}-version`, measurementManifest: buildMeasurementPlanV2Manifest(plan), createdAt: clock }).run()
+  db.insert(runs).values({ id: runId, projectId: 'p', kind: 'answer-visibility', status: 'completed', trigger: 'manual', measurementPlanVersionId: `${runId}-version`, measurementManifest: buildMeasurementPlanV2Manifest(plan), measurementExecutionIdentity: { language: 'en' }, createdAt: clock }).run()
   for (const node of plan.executionNodes) for (const provider of ['openai', 'gemini']) db.insert(querySnapshots).values({ id: `${runId}-${node.stableKey}-${provider}`, runId, measurementExecutionId: node.stableKey, queryText: node.queryText, provider, model: 'source-model', servedModel: 'source-model-v1', answerText: 'Harbor Homes and Bayside Homes offer homes.', citationState: 'cited', createdAt: clock }).run()
 }
 function complete(runId: string, outcome: 'favorable' | 'unfavorable' | 'factual' = 'favorable') {

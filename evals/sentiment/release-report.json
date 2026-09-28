@@ -1,19 +1,25 @@
 {
   "schemaVersion": 2,
   "evaluatorDefinitionId": "pending-v2-independent-corpus-freeze",
+  "frozenEvaluatorDefinitionId": "8f9ce9e8da2647134551932ebc35fc506e3af1bf37aaa3f60413ba59e8c8c1b3",
   "count": 0,
   "releaseEligible": false,
   "blockers": [
+    "The evaluator definition ID must equal the frozen definition hash 8f9ce9e8da2647134551932ebc35fc506e3af1bf37aaa3f60413ba59e8c8c1b3.",
     "branded: representative sample requires at least 150 independently reviewed answers.",
     "branded: representative sample requires at least two industries.",
     "branded: at least 25 adjudicated favorable examples are required across representative and challenge samples.",
     "branded: at least 25 adjudicated mixed examples are required across representative and challenge samples.",
     "branded: at least 25 adjudicated unfavorable examples are required across representative and challenge samples.",
+    "branded: at least 25 challenge examples tagged same-name with adjudicated outcome wrong-subject are required.",
+    "branded: at least 25 challenge examples tagged caveated-favorable with adjudicated outcome favorable are required.",
     "non-brand: representative sample requires at least 150 independently reviewed answers.",
     "non-brand: representative sample requires at least two industries.",
     "non-brand: at least 25 adjudicated favorable examples are required across representative and challenge samples.",
     "non-brand: at least 25 adjudicated mixed examples are required across representative and challenge samples.",
-    "non-brand: at least 25 adjudicated unfavorable examples are required across representative and challenge samples."
+    "non-brand: at least 25 adjudicated unfavorable examples are required across representative and challenge samples.",
+    "non-brand: at least 25 challenge examples tagged same-name with adjudicated outcome wrong-subject are required.",
+    "non-brand: at least 25 challenge examples tagged caveated-favorable with adjudicated outcome favorable are required."
   ],
   "populations": {
     "branded": {
@@ -180,6 +186,32 @@
             },
             "differenceInterval": null
           }
+        },
+        "gates": {
+          "same-name": {
+            "expectedOutcome": "wrong-subject",
+            "target": 0.9,
+            "minimumExamples": 25,
+            "recall": {
+              "numerator": 0,
+              "denominator": 0,
+              "value": null,
+              "interval": null
+            },
+            "passed": false
+          },
+          "caveated-favorable": {
+            "expectedOutcome": "favorable",
+            "target": 0.9,
+            "minimumExamples": 25,
+            "recall": {
+              "numerator": 0,
+              "denominator": 0,
+              "value": null,
+              "interval": null
+            },
+            "passed": false
+          }
         }
       },
       "gates": {
@@ -225,7 +257,9 @@
         "branded: representative sample requires at least two industries.",
         "branded: at least 25 adjudicated favorable examples are required across representative and challenge samples.",
         "branded: at least 25 adjudicated mixed examples are required across representative and challenge samples.",
-        "branded: at least 25 adjudicated unfavorable examples are required across representative and challenge samples."
+        "branded: at least 25 adjudicated unfavorable examples are required across representative and challenge samples.",
+        "branded: at least 25 challenge examples tagged same-name with adjudicated outcome wrong-subject are required.",
+        "branded: at least 25 challenge examples tagged caveated-favorable with adjudicated outcome favorable are required."
       ],
       "releaseEligible": false
     },
@@ -393,6 +427,32 @@
             },
             "differenceInterval": null
           }
+        },
+        "gates": {
+          "same-name": {
+            "expectedOutcome": "wrong-subject",
+            "target": 0.9,
+            "minimumExamples": 25,
+            "recall": {
+              "numerator": 0,
+              "denominator": 0,
+              "value": null,
+              "interval": null
+            },
+            "passed": false
+          },
+          "caveated-favorable": {
+            "expectedOutcome": "favorable",
+            "target": 0.9,
+            "minimumExamples": 25,
+            "recall": {
+              "numerator": 0,
+              "denominator": 0,
+              "value": null,
+              "interval": null
+            },
+            "passed": false
+          }
         }
       },
       "gates": {
@@ -438,7 +498,9 @@
         "non-brand: representative sample requires at least two industries.",
         "non-brand: at least 25 adjudicated favorable examples are required across representative and challenge samples.",
         "non-brand: at least 25 adjudicated mixed examples are required across representative and challenge samples.",
-        "non-brand: at least 25 adjudicated unfavorable examples are required across representative and challenge samples."
+        "non-brand: at least 25 adjudicated unfavorable examples are required across representative and challenge samples.",
+        "non-brand: at least 25 challenge examples tagged same-name with adjudicated outcome wrong-subject are required.",
+        "non-brand: at least 25 challenge examples tagged caveated-favorable with adjudicated outcome favorable are required."
       ],
       "releaseEligible": false
     }
@@ -452,6 +514,7 @@
     "Branded and non-brand populations are evaluated separately; their favorable shares, denominators, and quality gates are never pooled.",
     "Proportions use Wilson 95% intervals. Macro F1 uses 500 seeded ordinary bootstrap resamples; intervals do not account for Property, query-family, or sweep clustering.",
     "Favorable-share difference interval uses independent marginal Wilson bounds; abstentions and excluded cases are disclosed.",
+    "Representative slices below 25 examples or five of any stance are reported as not gated. Challenge slices are diagnostic; same-name and caveated-favorable challenge recall is gated per population.",
     "Vendor confidence is not interpreted as probability of correctness. Themes are deferred and do not participate in this release gate; non-English sentiment requires separate evaluation."
   ]
 }

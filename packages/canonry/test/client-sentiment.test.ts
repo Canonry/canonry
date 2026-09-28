@@ -1,9 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { emptySentimentCounts, type SentimentBackfillPreview, type SentimentEvidencePage, type SentimentJob } from '@ainyc/canonry-contracts'
 import { sentimentFixtureSummary } from '../../contracts/test/fixtures/sentiment.js'
 import { ApiClient } from '../src/client.js'
 import { CliError } from '../src/cli-error.js'
 
 afterEach(() => vi.unstubAllGlobals())
+
+// Whole response bodies as the server sends them: the client reads each one
+// with its tolerant reader, which still requires every field it knows.
+const evidencePage: SentimentEvidencePage = { state: 'complete', selection: { ...sentimentFixtureSummary.selection, runId: null, runIds: ['run-bayside', 'run-harbor'] }, items: [], nextCursor: null }
+const preview: SentimentBackfillPreview = { previewToken: null, expiresAt: null, selection: { mode: 'auto', queryClass: 'non-brand', scope: 'project', runIds: ['run-bayside', 'run-harbor'] }, evaluationDefinitionId: 'frozen-definition', eligibleAssessments: 0, alreadyClassified: 0, skipped: [], estimatedInputTokens: 0, estimatedCostUsd: null, estimateMethod: 'Token and cost estimates unavailable on this host.' }
+const receipt: SentimentJob = { id: 'same-job', projectId: 'project', origin: 'backfill', state: 'pending', enablementEpoch: 1, evaluationDefinitionId: 'frozen-definition', selection: preview.selection, createdAt: '2026-09-28T00:00:00.000Z', updatedAt: '2026-09-28T00:00:00.000Z', counts: { ...emptySentimentCounts(), pending: 1 }, selected: 1, cancellationReason: null, attempts: [] }
 
 describe('sentiment generated SDK client', () => {
   it('preserves the base path, all identity filters and the canonical HTTP DTO', async () => {
@@ -24,7 +31,7 @@ describe('sentiment generated SDK client', () => {
     let received: Request | undefined
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       received = input instanceof Request ? input : new Request(input, init)
-      return Response.json(sentimentFixtureSummary)
+      return Response.json(operation === 'summary' ? sentimentFixtureSummary : operation === 'evidence' ? evidencePage : preview)
     }))
     const client = new ApiClient('https://canonry.test/prefix', 'cnry_test', { skipProbe: true })
     const runIds = ['run-bayside', 'run-harbor']
@@ -44,11 +51,12 @@ describe('sentiment generated SDK client', () => {
     const requests: Request[] = []
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       requests.push(input instanceof Request ? input : new Request(input, init))
-      return new Response(JSON.stringify({ id: 'same-job', state: 'pending' }), { headers: { 'content-type': 'application/json' } })
+      return new Response(JSON.stringify(receipt), { headers: { 'content-type': 'application/json' } })
     }))
     const client = new ApiClient('https://canonry.test/prefix', 'cnry_test', { skipProbe: true })
     const request = { previewToken: 'frozen+/=token', idempotencyKey: 'retry-key' }
-    expect(await client.submitSentimentBackfill('demo', request)).toEqual(await client.submitSentimentBackfill('demo', request))
+    expect(await client.submitSentimentBackfill('demo', request)).toEqual(receipt)
+    expect(await client.submitSentimentBackfill('demo', request)).toEqual(receipt)
     for (const received of requests) {
       expect(received.method).toBe('POST')
       expect(new URL(received.url).pathname).toBe('/prefix/api/v1/projects/demo/sentiment/backfills')

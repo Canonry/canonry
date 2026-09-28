@@ -12,6 +12,20 @@ import { SMOKE_ADMIN, SMOKE_READ, SMOKE_SCOPED } from './sentiment-smoke-seed.js
 
 const args = process.argv.slice(2)
 assert(args.includes('--package-root') && !args.some(arg => arg.includes('live')), 'Pass only a scratch --package-root; this smoke has no live mode')
+/**
+ * --browser resolves Playwright and its bundled Chromium the normal way. To use
+ * another install, set CANONRY_PLAYWRIGHT_MODULE to its index.mjs and
+ * CANONRY_BROWSER_EXECUTABLE to a Chromium binary; PLAYWRIGHT_BROWSERS_PATH is
+ * passed through too. Only the variables that are set reach the browser child.
+ */
+const BROWSER_ENV_KEYS = ['CANONRY_PLAYWRIGHT_MODULE', 'CANONRY_BROWSER_EXECUTABLE', 'PLAYWRIGHT_BROWSERS_PATH']
+const browserEnv = () => Object.fromEntries(BROWSER_ENV_KEYS.filter(key => process.env[key]).map(key => [key, process.env[key]]))
+if (args.includes('--browser')) {
+  const specifier = process.env.CANONRY_PLAYWRIGHT_MODULE ?? 'playwright'
+  try { await import(specifier) } catch (error) {
+    throw new Error(`--browser needs Playwright, and ${JSON.stringify(specifier)} did not load (${error instanceof Error ? error.message : String(error)}). Install the playwright package and its Chromium (npx playwright install chromium), or set CANONRY_PLAYWRIGHT_MODULE to a Playwright index.mjs and CANONRY_BROWSER_EXECUTABLE to a Chromium binary.`)
+  }
+}
 const packageRoot = await realpath(args[args.indexOf('--package-root') + 1])
 const checkout = await realpath(fileURLToPath(new URL('../', import.meta.url)))
 assert(packageRoot.startsWith('/tmp/canonry-sentiment-') && packageRoot.includes('/node_modules/@canonry/canonry') && !packageRoot.startsWith(checkout), 'Use the fresh installed scratch tarball')
@@ -91,7 +105,8 @@ try {
   server.stdout.on('data', capture); server.stderr.on('data', capture)
   async function http(project, suffix = '', { selection = {}, method = 'GET', body, key = SMOKE_ADMIN, status = 200 } = {}) {
     const url = new URL(`${base}/api/v1/projects/${project}/sentiment${suffix}`)
-    if (['', '/evidence', '/backfill-preview'].includes(suffix)) url.search = new URLSearchParams({ mode: project === 'simple' ? 'simple' : 'advanced', queryClass: 'non-brand', scope: 'project', runId: `${project}-run`, ...selection }).toString()
+    // Summary query rows are compact by default; this smoke checks every engine verdict, so it asks for them.
+    if (['', '/evidence', '/backfill-preview'].includes(suffix)) url.search = new URLSearchParams({ mode: project === 'simple' ? 'simple' : 'advanced', queryClass: 'non-brand', scope: 'project', runId: `${project}-run`, ...(suffix === '' ? { include: 'assessments,locations' } : {}), ...selection }).toString()
     const response = await fetch(url, { method, headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(15000) })
     const data = await response.json(); assert.equal(response.status, status, JSON.stringify(data)); return data
   }
@@ -163,7 +178,7 @@ try {
     const client = new Client({ name: 'engine-smoke', version: '1' }); clients.push(client); await client.connect(transport)
     for (const { project, selection, summary, exact } of scopedReads) {
       const common = { mode: project === 'simple' ? 'simple' : 'advanced', queryClass: 'non-brand', scope: 'project', runId: `${project}-run`, ...selection }
-      for (const [name, parameters, expected] of [['canonry_sentiment', common, summary], ['canonry_sentiment_evidence', { ...common, assessmentId: exact.selection.assessmentId, evaluationDefinitionId: exact.selection.evaluationDefinitionId }, exact]]) {
+      for (const [name, parameters, expected] of [['canonry_sentiment', { ...common, include: ['assessments', 'locations'] }, summary], ['canonry_sentiment_evidence', { ...common, assessmentId: exact.selection.assessmentId, evaluationDefinitionId: exact.selection.evaluationDefinitionId }, exact]]) {
         const result = await client.callTool({ name, arguments: { project, ...parameters } })
         assert(!result.isError, JSON.stringify(result)); assert.deepEqual(result.structuredContent ?? JSON.parse(result.content[0].text), expected)
       }
@@ -172,12 +187,12 @@ try {
   }
   for (const { project, selection, summary, exact } of scopedReads) {
     const flags = ['--run-id', `${project}-run`, '--mode', project === 'simple' ? 'simple' : 'advanced', '--query-class', 'non-brand', ...Object.entries(selection).flatMap(([key, value]) => [`--${key.replace(/[A-Z]/g, char => `-${char.toLowerCase()}`)}`, value]), '--format', 'json']
-    assert.deepEqual(await command(bin, ['sentiment', project, ...flags], configs.read), summary)
+    assert.deepEqual(await command(bin, ['sentiment', project, ...flags, '--include', 'assessments,locations'], configs.read), summary)
     assert.deepEqual(await command(bin, ['sentiment', 'evidence', project, ...flags, '--assessment-id', exact.selection.assessmentId, '--evaluation-definition-id', exact.selection.evaluationDefinitionId], configs.read), exact)
   }
   mark('Installed CLI and both read-only MCP transports preserve batched verdict JSON and exact assessment evidence')
   if (args.includes('--browser')) {
-    const env = { ...cleanEnv, CANONRY_PLAYWRIGHT_MODULE: process.env.CANONRY_PLAYWRIGHT_MODULE ?? '/tmp/canonry-auth-browser/node_modules/playwright/index.mjs', CANONRY_BROWSER_EXECUTABLE: process.env.CANONRY_BROWSER_EXECUTABLE ?? '/home/arberx/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome', SENTIMENT_SMOKE_URL: `${base}/`, SENTIMENT_BROWSER_ARTIFACTS: path.join(scratch, 'browser') }
+    const env = { ...cleanEnv, ...browserEnv(), SENTIMENT_SMOKE_URL: `${base}/`, SENTIMENT_BROWSER_ARTIFACTS: path.join(scratch, 'browser') }
     browserProcess = spawn(process.execPath, [fileURLToPath(new URL('./smoke-sentiment-engines-browser.mjs', import.meta.url))], { cwd: scratch, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
     let output = ''; browserProcess.stdout.on('data', data => { output += String(data) }); browserProcess.stderr.on('data', data => { output += String(data) })
     const timer = setTimeout(() => { process.kill(-browserProcess.pid, 'SIGTERM') }, 180000)

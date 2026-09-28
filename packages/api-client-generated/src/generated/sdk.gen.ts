@@ -1057,7 +1057,7 @@ export const putApiV1ProjectsByNameSentimentSettings = <ThrowOnError extends boo
 /**
  * Read stored class-separated sentiment and coverage
  *
- * Stored reads never call TypeSafe. Favorable rate is favorable divided by favorable plus mixed plus unfavorable. All scope filters are identity-bearing; overlapping usage edges count each answer-subject assessment once. Incomplete source sweeps and probes cannot supply the headline.
+ * Stored reads never call TypeSafe. Favorable rate is favorable divided by favorable plus mixed plus unfavorable. All scope filters are identity-bearing; overlapping usage edges count each answer-subject assessment once. Incomplete source sweeps and probes cannot supply the headline. Query rows are sorted by query text, paged by queryLimit, and are per Advanced execution node; per-engine assessments and per-location aggregates are opt-in through include.
  */
 export const getApiV1ProjectsByNameSentiment = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameSentimentData, ThrowOnError>) => {
     return (options.client ?? client).get<GetApiV1ProjectsByNameSentimentResponses, GetApiV1ProjectsByNameSentimentErrors, ThrowOnError>({

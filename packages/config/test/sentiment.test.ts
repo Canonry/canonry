@@ -14,4 +14,9 @@ describe('sentiment install configuration', () => {
     expect(sentimentInstallReadiness(resolveSentimentInstallConfig({}, { enabled: true })).reason).toBe('missing-credentials')
     expect(sentimentInstallReadiness(resolveSentimentInstallConfig({ TYPESAFE_API_KEY: 'env-key' }, { enabled: true })).ready).toBe(true)
   })
+  it('reports an invalid install file as its own reason, never as an operator disable', () => {
+    expect(sentimentInstallReadiness({ ...resolveSentimentInstallConfig({}, { enabled: false }), invalid: true })).toEqual({ enabled: false, ready: false, reason: 'invalid-config' })
+    // The marker wins even over values that would otherwise be ready.
+    expect(sentimentInstallReadiness({ ...resolveSentimentInstallConfig({}, { enabled: true, apiKey: 'key' }), invalid: true })).toMatchObject({ ready: false, reason: 'invalid-config' })
+  })
 })

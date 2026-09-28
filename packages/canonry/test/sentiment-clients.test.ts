@@ -40,14 +40,31 @@ describe('sentiment CLI transport contract', () => {
     const fixture = { ...sentimentFixtureSummary, selection: { ...sentimentFixtureSummary.selection, runId: null, runIds, queryClass: 'non-brand' } }
     const flags = ['demo', '--run-ids', runIds[0], '--run-ids', runIds[1], '--query-class', 'non-brand']
     expect(JSON.parse(await invoke(flags, fixture, 'getSentiment'))).toEqual(fixture)
-    expect(client.getSentiment).toHaveBeenLastCalledWith('demo', { mode: 'auto', scope: 'project', queryClass: 'non-brand', runIds })
+    expect(client.getSentiment).toHaveBeenLastCalledWith('demo', { mode: 'auto', scope: 'project', queryClass: 'non-brand', runIds, queryLimit: 25 })
     const page = { state: fixture.state, selection: fixture.selection, items: [], nextCursor: 'next' }
     expect(JSON.parse(await invoke(['evidence', ...flags, '--evaluation-definition-id', 'frozen-definition', '--cursor', 'cursor', '--limit', '7'], page, 'getSentimentEvidence'))).toEqual(page)
     expect(client.getSentimentEvidence).toHaveBeenLastCalledWith('demo', { mode: 'auto', scope: 'project', queryClass: 'non-brand', runIds, evaluationDefinitionId: 'frozen-definition', cursor: 'cursor', limit: 7 })
   })
+  it('passes summary paging, detail and node flags, and prints the next query and attempt cursors', async () => {
+    const row = { queryId: 'frozen-query', executionNodeKey: 'node-a', queryText: 'Which apartments are good?', queryClass: 'branded', sourceSnapshotIds: ['frozen-snapshot'], locations: [], assessments: [], state: 'complete', reason: null, provisional: false, coverage: sentimentFixtureSummary.coverage, score: sentimentFixtureSummary.score }
+    const fixture = sentimentSummarySchema.parse({ ...sentimentFixtureSummary, queries: [row], queryPage: { total: 3, limit: 1, nextCursor: 'next-rows' } })
+    const output = await invoke(['demo', '--include', 'assessments,locations', '--query-limit', '1', '--query-cursor', 'rows', '--execution-node-key', 'node-a'], fixture, 'getSentiment', 'text')
+    expect(client.getSentiment).toHaveBeenLastCalledWith('demo', { mode: 'auto', scope: 'project', queryClass: 'branded', include: ['assessments', 'locations'], queryLimit: 1, queryCursor: 'rows', executionNodeKey: 'node-a' })
+    expect(output).toContain('Query frozen-query · node node-a · Which apartments are good?')
+    expect(output).toContain('Query rows: 1 of 3')
+    expect(output).toContain('Next query cursor: next-rows')
+    await expect(invoke(['demo', '--include', 'answers'], fixture, 'getSentiment')).rejects.toThrow()
+    const receipt = { id: 'job', projectId: 'p', origin: 'automatic', state: 'complete', enablementEpoch: 1, evaluationDefinitionId: 'def', selection: { mode: 'auto', queryClass: 'branded', scope: 'project', runId: 'r' }, createdAt: 't', updatedAt: 't', counts: { ...sentimentFixtureSummary.coverage.counts }, selected: 1, cancellationReason: null, attemptCount: 3, nextAttemptCursor: 'older', attempts: [{ id: 'a3', workItemId: 'w', dispatchedAt: 't', completedAt: 't', returnedModel: 'jev-1.13.0', usage: { kind: 'reported', inputTokens: 10, outputTokens: 1 }, errorCode: null }] }
+    const jobOutput = await invoke(['job', 'demo', 'job', '--attempt-limit', '1', '--attempt-cursor', 'newer'], receipt, 'getSentimentJob', 'text')
+    expect(client.getSentimentJob).toHaveBeenLastCalledWith('demo', 'job', { attemptLimit: 1, attemptCursor: 'newer' })
+    expect(jobOutput).toContain('Attempts: 1 shown of 3, newest first')
+    expect(jobOutput).toContain('Next attempt cursor: older')
+    const { attempts: _attempts, nextAttemptCursor: _next, ...listed } = receipt
+    expect(await invoke(['jobs', 'demo'], { jobs: [listed] }, 'listSentimentJobs', 'text')).toContain('job: complete · automatic · 1 selected · 3 attempts · def')
+  })
   it('previews an explicit run selection and submits only its token and idempotency key', async () => {
-    await invoke(['backfill', 'demo', '--preview', '--run-id', 'r1', '--run-id', 'r2'], { eligibleAssessments: 2 }, 'previewSentimentBackfill')
-    expect(client.previewSentimentBackfill).toHaveBeenLastCalledWith('demo', expect.objectContaining({ runIds: ['r1', 'r2'] }))
+    await invoke(['backfill', 'demo', '--preview', '--query-class', 'non-brand', '--run-id', 'r1', '--run-id', 'r2'], { eligibleAssessments: 2 }, 'previewSentimentBackfill')
+    expect(client.previewSentimentBackfill).toHaveBeenLastCalledWith('demo', expect.objectContaining({ runIds: ['r1', 'r2'], queryClass: 'non-brand' }))
     const receipt = { id: 'job', state: 'pending' }
     expect(JSON.parse(await invoke(['backfill', 'demo', '--preview-token', 'frozen', '--idempotency-key', 'key'], receipt, 'submitSentimentBackfill'))).toEqual(receipt)
     expect(client.submitSentimentBackfill).toHaveBeenLastCalledWith('demo', { previewToken: 'frozen', idempotencyKey: 'key' })
@@ -58,11 +75,31 @@ describe('sentiment CLI transport contract', () => {
     ['configure', 'demo'], ['configure', 'demo', '--enabled', 'maybe'],
     ['configure', 'demo', '--preset', 'default'], ['configure', 'demo', '--custom-themes', '[]'],
     ['backfill', 'demo', '--preview'], ['backfill', 'demo', '--preview-token', 'token'],
-    ['backfill', 'demo', '--preview', '--run-id', 'run', '--preview-token', 'token'],
+    ['backfill', 'demo', '--preview', '--query-class', 'branded', '--run-id', 'run', '--preview-token', 'token'],
+    ['backfill', 'demo', '--preview', '--query-class', 'all', '--run-id', 'run'],
     ['backfill', 'demo', '--preview-token', 'token', '--idempotency-key', 'key', '--run-id', 'run'],
     ['compare', 'demo', '--from-run-id', 'r1'], ['evidence', 'demo', '--limit', '1oops'],
   ])('rejects invalid explicit arguments: %j', async (...argv) => {
     await expect(dispatchRegisteredCommand(['sentiment', ...argv], 'json', SENTIMENT_CLI_COMMANDS)).rejects.toBeInstanceOf(CliError)
+  })
+  it('requires an explicit query class for a backfill preview and names both classes', async () => {
+    client.previewSentimentBackfill.mockClear()
+    for (const argv of [['backfill', 'demo', '--preview', '--run-id', 'r1'], ['backfill', 'demo', '--preview', '--from', '2026-09-01T00:00:00Z', '--to', '2026-09-02T00:00:00Z']]) {
+      const failure = dispatchRegisteredCommand(['sentiment', ...argv], 'json', SENTIMENT_CLI_COMMANDS)
+      await expect(failure).rejects.toBeInstanceOf(CliError)
+      await expect(failure).rejects.toMatchObject({ message: expect.stringContaining('--query-class branded or --query-class non-brand') })
+    }
+    expect(client.previewSentimentBackfill).not.toHaveBeenCalled()
+    for (const queryClass of ['branded', 'non-brand'] as const) {
+      await invoke(['backfill', 'demo', '--preview', '--query-class', queryClass, '--run-id', 'r1'], { eligibleAssessments: 1 }, 'previewSentimentBackfill')
+      expect(client.previewSentimentBackfill).toHaveBeenLastCalledWith('demo', { mode: 'auto', scope: 'project', queryClass, runIds: ['r1'] })
+    }
+  })
+  it('prints the interval with the shared percent format', async () => {
+    const output = await invoke(['demo'], sentimentFixtureSummary, 'getSentiment', 'text')
+    expect(sentimentFixtureSummary.score.interval).toEqual({ low: 0.2307, high: 0.8824 })
+    expect(output).toContain('Wilson 95% interval: 23.1% to 88.2%')
+    expect(output).not.toContain('0.2307')
   })
   it('preserves server display values, denominator and uncertainty without theme output', async () => {
     const fixture = { ...sentimentFixtureSummary, coverage: { ...sentimentFixtureSummary.coverage, eligibleAssessments: 17, unadmittedAssessments: 7 }, score: { ...sentimentFixtureSummary.score, favorableDisplay: '61%' } }
@@ -80,7 +117,7 @@ describe('sentiment CLI transport contract', () => {
     const query = { queryId: 'frozen-query', queryText: 'Which apartments are good?', queryClass, sourceSnapshotIds: ['frozen-snapshot'], locations: [], assessments: [], state: 'partial', reason: 'Classification is incomplete.', provisional: true, coverage: sentimentFixtureSummary.coverage, score: { ...sentimentFixtureSummary.score, favorableDisplay: '61%' } }
     const fixture = sentimentSummarySchema.parse({ ...sentimentFixtureSummary, selection: { ...sentimentFixtureSummary.selection, queryClass, queryId: query.queryId }, queries: [query] })
     expect(JSON.parse(await invoke(['demo', '--query-class', queryClass, '--query-id', query.queryId], fixture, 'getSentiment'))).toEqual(fixture)
-    expect(client.getSentiment).toHaveBeenLastCalledWith('demo', { mode: 'auto', scope: 'project', queryClass, queryId: query.queryId })
+    expect(client.getSentiment).toHaveBeenLastCalledWith('demo', { mode: 'auto', scope: 'project', queryClass, queryId: query.queryId, queryLimit: 25 })
     const output = await invoke(['demo', '--query-class', queryClass], fixture, 'getSentiment', 'text')
     expect(output).toContain(`frozen-query · Which apartments are good? · ${queryClass}: Favorable 61% · 3 favorable / 5 judged · partial · provisional`)
   })

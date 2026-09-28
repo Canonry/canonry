@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { and, eq, sql } from 'drizzle-orm'
-import { expect, onTestFinished, test } from 'vitest'
+import { expect, onTestFinished, test, vi } from 'vitest'
 import {
   auditLog, createClient, migrate, MIGRATION_VERSIONS, projects, runs, querySnapshots,
   SentimentRepository, SentimentIdempotencyConflict, recordSentimentCompletion,
@@ -300,4 +300,143 @@ test('crash recovery preserves the started attempt budget and explicit replay re
   expect(db.select().from(sentimentAttempts).all()).toHaveLength(2)
   expect(db.select().from(sentimentAttempts).where(eq(sentimentAttempts.id, first.id)).get()).toMatchObject({ completedAt: null, usageStatus: 'unknown' })
   expect(db.select().from(llmUsageEvents).all()).toHaveLength(0)
+})
+
+/** SQL text and rows returned by every statement `action` prepares. */
+function recordStatements(db: ReturnType<typeof createClient>, action: () => void) {
+  const client = db.$client
+  const prepare = client.prepare.bind(client)
+  const statements: string[] = []
+  let rows = 0
+  const spy = vi.spyOn(client, 'prepare').mockImplementation(((source: string) => {
+    statements.push(source)
+    const statement = prepare(source)
+    const all = statement.all.bind(statement), get = statement.get.bind(statement)
+    statement.all = ((...args: unknown[]) => { const result = all(...args); rows += result.length; return result }) as typeof statement.all
+    statement.get = ((...args: unknown[]) => { const result = get(...args); if (result !== undefined) rows++; return result }) as typeof statement.get
+    return statement
+  }) as typeof client.prepare)
+  try { action() } finally { spy.mockRestore() }
+  return { statements, rows }
+}
+
+function bucketOf(status: string, canceledAt: string | null) {
+  return canceledAt ? 'canceled' : status === 'waiting-to-retry' ? 'pending' : status
+}
+
+/** The stored counters and state must equal a full recount of each job's membership. */
+function expectJobsMatchMembership(db: ReturnType<typeof createClient>) {
+  for (const job of db.select().from(sentimentJobs).all()) {
+    const buckets = db.select({ status: sentimentWorkItems.status, canceledAt: sentimentJobItems.canceledAt }).from(sentimentJobItems)
+      .innerJoin(sentimentWorkItems, eq(sentimentWorkItems.id, sentimentJobItems.workItemId)).where(eq(sentimentJobItems.jobId, job.id)).all()
+      .map(member => bucketOf(member.status, member.canceledAt))
+    const count = (bucket: string) => buckets.filter(value => value === bucket).length
+    expect({ pending: job.pendingItems, running: job.runningItems, completed: job.completedItems, failed: job.failedItems, canceled: job.canceledItems }, job.idempotencyKey)
+      .toEqual({ pending: count('pending'), running: count('running'), completed: count('completed'), failed: count('failed'), canceled: count('canceled') })
+    if (job.state === 'canceled') continue
+    const expected = buckets.every(bucket => bucket === 'completed') ? 'complete' : buckets.includes('running') ? 'running'
+      : buckets.includes('pending') ? 'pending' : buckets.every(bucket => bucket === 'canceled') ? 'canceled'
+        : buckets.every(bucket => bucket === 'failed') ? 'failed' : 'partial'
+    expect(job.state, job.idempotencyKey).toBe(expected)
+  }
+}
+
+test('job counters and state stay equal to a full recount through retries, sharing, cancellation and replay', () => {
+  const { db, repo, admission, work } = fixture()
+  for (const id of ['s2', 's3']) db.insert(querySnapshots).values({ id, runId: 'r', provider: 'openai', citationState: 'cited', createdAt: NOW }).run()
+  const items = ['s', 's2', 's3'].map(snapshotId => ({ ...work, snapshotId }))
+  repo.admitJob({ ...admission, work: items })
+  repo.admitJob({ ...admission, idempotencyKey: 'shared', work: items.slice(0, 2) })
+  expectJobsMatchMembership(db)
+  const first = repo.claim({ owner: 'w1', now: NOW, leaseMs: 30_000 })!
+  expectJobsMatchMembership(db)
+  repo.failWork({ workItemId: first.id, owner: 'w1', now: NOW, errorCode: 'retry', retryAt: NOW })
+  expectJobsMatchMembership(db)
+  const retried = repo.claim({ owner: 'w2', now: NOW, leaseMs: 30_000 })!
+  repo.completeWork({ workItemId: retried.id, owner: 'w2', outcome: 'favorable', result: {}, returnedModel: 'jev-1.13.0', now: NOW })
+  expectJobsMatchMembership(db)
+  const failing = repo.claim({ owner: 'w3', now: NOW, leaseMs: 30_000 })!
+  repo.failWork({ workItemId: failing.id, owner: 'w3', now: NOW, errorCode: 'exhausted' })
+  expectJobsMatchMembership(db)
+  repo.admitJob({ ...admission, idempotencyKey: 'replay-failed', work: items, allowReplayCanceled: true })
+  expectJobsMatchMembership(db)
+  const inFlight = repo.claim({ owner: 'w4', now: NOW, leaseMs: 30_000 })!
+  repo.configure({ projectId: 'p', enabled: false, evaluationDefinitionId: 'd', configuration: {}, now: LATER })
+  expectJobsMatchMembership(db)
+  repo.completeWork({ workItemId: inFlight.id, owner: 'w4', outcome: 'favorable', result: {}, returnedModel: 'jev-1.13.0', now: LATER })
+  expectJobsMatchMembership(db)
+  repo.configure({ projectId: 'p', enabled: true, evaluationDefinitionId: 'd', configuration: {}, now: LATER })
+  repo.admitJob({ ...admission, idempotencyKey: 'replay-canceled', enablementEpoch: 2, work: items, allowReplayCanceled: true, now: LATER })
+  expectJobsMatchMembership(db)
+  for (let claimed = repo.claim({ owner: 'w5', now: LATER, leaseMs: 30_000 }); claimed; claimed = repo.claim({ owner: 'w5', now: LATER, leaseMs: 30_000 })) {
+    repo.completeWork({ workItemId: claimed.id, owner: 'w5', outcome: 'favorable', result: {}, returnedModel: 'jev-1.13.0', now: LATER })
+    expectJobsMatchMembership(db)
+  }
+  expect(db.select({ key: sentimentJobs.idempotencyKey, state: sentimentJobs.state }).from(sentimentJobs).all().sort((a, b) => a.key.localeCompare(b.key)))
+    .toEqual([
+      { key: 'key', state: 'canceled' }, { key: 'replay-canceled', state: 'complete' },
+      { key: 'replay-failed', state: 'canceled' }, { key: 'shared', state: 'canceled' },
+    ])
+})
+
+test('claim, completion and failure read a bounded number of rows however large the job is', () => {
+  const { db, repo, admission, work } = fixture()
+  const snapshots = Array.from({ length: 200 }, (_, index) => `bulk-${index}`)
+  for (const id of snapshots) db.insert(querySnapshots).values({ id, runId: 'r', provider: 'openai', citationState: 'cited', createdAt: NOW }).run()
+  const job = repo.admitJob({ ...admission, work: snapshots.map(snapshotId => ({ ...work, snapshotId })) })
+  let claimed!: NonNullable<ReturnType<typeof repo.claim>>
+  expect(recordStatements(db, () => { claimed = repo.claim({ owner: 'w', now: NOW, leaseMs: 30_000, maxConcurrent: 2 })! }).rows).toBeLessThan(10)
+  expect(recordStatements(db, () => repo.completeWork({ workItemId: claimed.id, owner: 'w', outcome: 'favorable', result: {}, returnedModel: 'jev-1.13.0', now: NOW })).rows).toBeLessThan(10)
+  const next = repo.claim({ owner: 'w', now: NOW, leaseMs: 30_000 })!
+  expect(recordStatements(db, () => repo.failWork({ workItemId: next.id, owner: 'w', now: NOW, errorCode: 'retry', retryAt: LATER })).rows).toBeLessThan(10)
+  expect(repo.getJob('p', job.id)).toMatchObject({ state: 'pending', pendingItems: 199, completedItems: 1, runningItems: 0 })
+  expectJobsMatchMembership(db)
+})
+
+test('the install concurrency count reads only leased rows through a partial index', () => {
+  const { db, repo, admission } = fixture()
+  repo.admitJob(admission)
+  const { statements } = recordStatements(db, () => repo.claim({ owner: 'w', now: NOW, leaseMs: 30_000, maxConcurrent: 2 }))
+  const count = statements.find(statement => /count\(\*\)/i.test(statement) && statement.includes('lease_owner'))!
+  const plan = db.$client.prepare(`EXPLAIN QUERY PLAN ${count}`).all(...count.split('?').slice(1).map(() => NOW)) as Array<{ detail: string }>
+  expect(plan.map(step => step.detail).join('\n')).toMatch(/USING (COVERING )?INDEX idx_sentiment_work_lease/)
+})
+
+test('every cascading sentiment foreign key has an index for the child lookup', () => {
+  const { db } = fixture()
+  const tables = db.all<{ name: string }>(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'sentiment_%'`)
+  const scanned: string[] = []
+  let checked = 0
+  for (const { name } of tables) {
+    const keys = db.$client.prepare(`PRAGMA foreign_key_list(${name})`).all() as Array<{ id: number; from: string; on_delete: string }>
+    for (const id of new Set(keys.filter(key => key.on_delete === 'CASCADE').map(key => key.id))) {
+      const columns = keys.filter(key => key.id === id).map(key => key.from)
+      const plan = db.$client.prepare(`EXPLAIN QUERY PLAN SELECT 1 FROM ${name} WHERE ${columns.map(column => `${column} = ?`).join(' AND ')}`)
+        .all(...columns.map(() => 'x')) as Array<{ detail: string }>
+      checked++
+      if (plan.some(step => step.detail.startsWith('SCAN'))) scanned.push(`${name}(${columns.join(', ')})`)
+    }
+  }
+  expect(checked).toBeGreaterThanOrEqual(9)
+  expect(scanned).toEqual([])
+})
+
+test('automatic work dispatches ahead of backfills and projects take turns within a tier', () => {
+  const { db, repo, admission, work } = fixture()
+  const LATEST = '2026-09-28T12:02:00.000Z'
+  db.insert(projects).values({ id: 'q', name: 'second', displayName: 'Second', canonicalDomain: 'second.example', country: 'US', language: 'en', createdAt: NOW, updatedAt: NOW }).run()
+  db.insert(runs).values({ id: 'r2', projectId: 'q', status: 'completed', createdAt: NOW }).run()
+  for (const id of ['s-a', 's-b', 's-c']) db.insert(querySnapshots).values({ id, runId: 'r', provider: 'openai', citationState: 'cited', createdAt: NOW }).run()
+  for (const id of ['s2-a', 's2-b']) db.insert(querySnapshots).values({ id, runId: 'r2', provider: 'openai', citationState: 'cited', createdAt: NOW }).run()
+  repo.configure({ projectId: 'q', enabled: true, evaluationDefinitionId: 'd', configuration: {}, now: NOW })
+  repo.admitJob({ ...admission, idempotencyKey: 'history-p', work: ['s', 's-a', 's-b'].map(snapshotId => ({ ...work, snapshotId })), now: NOW })
+  repo.admitJob({ ...admission, projectId: 'q', idempotencyKey: 'history-q', work: ['s2-a', 's2-b'].map(snapshotId => ({ ...work, runId: 'r2', snapshotId })), now: LATER })
+  repo.admitJob({ ...admission, action: 'automatic', origin: 'automatic', idempotencyKey: 'sweep-p', work: [{ ...work, snapshotId: 's-c' }], now: LATEST })
+  const order: string[] = []
+  for (let claimed = repo.claim({ owner: 'w', now: LATEST, leaseMs: 30_000 }); claimed; claimed = repo.claim({ owner: 'w', now: LATEST, leaseMs: 30_000 })) {
+    order.push(order.length ? claimed.projectId : `${claimed.projectId}:${claimed.snapshotId}`)
+    repo.completeWork({ workItemId: claimed.id, owner: 'w', outcome: 'favorable', result: {}, returnedModel: 'jev-1.13.0', now: LATEST })
+  }
+  // Oldest-first would have drained p's three backfill items before q or p's newest sweep.
+  expect(order).toEqual(['p:s-c', 'q', 'p', 'q', 'p', 'p'])
 })

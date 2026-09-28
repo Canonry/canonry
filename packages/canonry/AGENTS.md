@@ -808,16 +808,18 @@ them at all (`scheduledHealthCheckIds`), and a crashed advisory reports `warn`,
 so it never sets a failing exit code. See `api-routes/src/doctor/AGENTS.md`.
 ### Sentiment worker
 
-`sentiment-worker.ts` owns all TypeSafe I/O; classifier calls are single attempts and durable scheduling owns retries. Both `sentiment.enabled` in private install config and project sentiment settings default off. `TYPESAFE_API_KEY` and `CANONRY_SENTIMENT_ENABLED` override the private YAML configuration. `sentiment-config.ts` rereads it immediately before dispatch so disabling does not require restarting the server. Only `jev-1.13.0` is ready. The coordinator only wakes the worker; startup/poll reconciliation reads completion receipts atomically persisted by the initial success and fill transactions, including superseded fills. Install suspension persists cancellation and a resume boundary; reenablement never revives old selections. Shared SQLite leases and attempt reservations bound concurrent requests and input tokens across projects. Each actual attempt has a receipt and reported usage goes directly to `llm_usage_events` as `typesafe`/`sentiment`; unknown remote billing stays unknown. No secret reaches these records. A crash can require another billed attempt; successful result uniqueness is not exactly-once external billing.
+`sentiment-worker.ts` owns all TypeSafe I/O; classifier calls are single attempts and durable scheduling owns retries. Both `sentiment.enabled` in private install config and project sentiment settings default off. `TYPESAFE_API_KEY` and `CANONRY_SENTIMENT_ENABLED` override the private YAML configuration. `sentiment-config.ts` rereads it immediately before dispatch so disabling does not require restarting the server. Only an explicit disable cancels; an invalid or unreadable file holds dispatch as `invalid-config`, and a missing key or unsupported model holds the same way. `saveConfigPatch` never writes `sentiment`, because config.yaml is its only source. A definition frozen under an earlier request template (`hasCurrentSentimentTemplate` in contracts) admits and dispatches nothing until the project is configured again. Only `jev-1.13.0` is ready. The coordinator only wakes the worker; startup/poll reconciliation reads completion receipts atomically persisted by the initial success and fill transactions, including superseded fills. Install suspension persists cancellation and a resume boundary; reenablement never revives old selections. Shared SQLite leases and attempt reservations bound concurrent requests and input tokens across projects. Each actual attempt has a receipt and reported usage goes directly to `llm_usage_events` as `typesafe`/`sentiment`; unknown remote billing stays unknown. No secret reaches these records. A crash can require another billed attempt; successful result uniqueness is not exactly-once external billing. A 429 pauses dispatch for every project for 30-60s, doubling with each further 429 up to 15-30 min (a longer Retry-After wins). A 401/403 pauses it until the configured key changes, with one probe request per hour. Neither refusal counts against `maxAttempts`. When a pause ends, one probe request goes first, and a success releases the pause only if it was sent after the pause began. Reconciliation keeps a per-project receipt cursor, so each completion is selected once. Claims take automatic work before backfills and rotate across projects.
 
 ### Sentiment CLI
 
 `src/commands/sentiment.ts` and `src/cli-commands/sentiment.ts` expose the experimental
 stored sentiment surface through typed ApiClient/SDK calls. `sentiment <project>`
-reads the summary; subcommands are settings, configure, evidence, compare, backfill,
-jobs and job. JSON preserves the API DTO unchanged. Evidence JSONL preserves the
+reads one page of the summary (`--query-limit`, `--query-cursor`; per-engine and
+location detail with `--include assessments,locations`); subcommands are settings,
+configure, evidence, compare, backfill, jobs and job (`--attempt-limit`,
+`--attempt-cursor`). A backfill preview requires `--query-class`. JSON preserves the API DTO unchanged. Evidence JSONL preserves the
 page envelope because empty state, resolved evaluator and cursor belong together;
-jobs JSONL streams project-stamped job receipts.
+jobs JSONL streams project-stamped job summaries.
 
 Configure accepts an explicit enabled boolean; it never accepts credentials or
 retired theme settings. Backfill preview needs explicit run IDs or both ISO date bounds.

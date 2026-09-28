@@ -1,10 +1,11 @@
 import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
-import { and, asc, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
+import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, lte, or, sql } from 'drizzle-orm'
+import type { SQLiteUpdateSetSource } from 'drizzle-orm/sqlite-core'
 import type { DatabaseClient } from './client.js'
 import {
-  auditLog, llmUsageEvents, runs, sentimentAttempts, sentimentCompletionReceipts, sentimentDefinitions,
+  auditLog, llmUsageEvents, runs, sentimentAttempts, sentimentCompletionReceipts, sentimentDefinitions, sentimentDispatchState,
   sentimentJobItems, sentimentJobs, sentimentResults, sentimentSettings, sentimentWorkItems,
 } from './schema.js'
 
@@ -25,6 +26,12 @@ export interface SentimentJobAdmission {
   now: string
   allowReplayCanceled?: boolean
 }
+
+/** Provider refusals that pause dispatch for the whole install rather than spend an assessment's retry budget. */
+export type SentimentDispatchBlock = 'provider-rate-limit' | 'provider-authorization'
+/** open: full concurrency; probe: one request to test whether the provider accepts again; closed: none. */
+export type SentimentDispatchGate = 'open' | 'probe' | 'closed'
+const DISPATCH_STATE_ID = 'install'
 
 export class SentimentIdempotencyConflict extends Error {
   constructor() { super('Sentiment idempotency key already has a different payload'); this.name = 'SentimentIdempotencyConflict' }
@@ -53,10 +60,78 @@ function lookupJob(db: SentimentDb, projectId: string, action: string, key: stri
   return row
 }
 
+type JobBucket = 'pending' | 'running' | 'completed' | 'failed' | 'canceled'
+const JOB_BUCKET_KEYS = {
+  pending: 'pendingItems', running: 'runningItems', completed: 'completedItems', failed: 'failedItems', canceled: 'canceledItems',
+} as const satisfies Record<JobBucket, keyof typeof sentimentJobs.$inferSelect>
+
+function jobBucket(status: string): JobBucket {
+  switch (status) {
+    case 'pending': case 'waiting-to-retry': return 'pending'
+    case 'running': return 'running'
+    case 'completed': return 'completed'
+    case 'failed': return 'failed'
+    case 'canceled': return 'canceled'
+    default: throw new Error(`Unknown sentiment work status: ${status}`)
+  }
+}
+
+const jobItemTotal = sql`(${sentimentJobs.pendingItems} + ${sentimentJobs.runningItems} + ${sentimentJobs.completedItems} + ${sentimentJobs.failedItems} + ${sentimentJobs.canceledItems})`
+/** Precedence over the member counts: all complete, any running, any queued, all canceled, all failed, otherwise partial. */
+const jobStateFromCounts = sql<string>`CASE
+  WHEN ${sentimentJobs.completedItems} = ${jobItemTotal} THEN 'complete'
+  WHEN ${sentimentJobs.runningItems} > 0 THEN 'running'
+  WHEN ${sentimentJobs.pendingItems} > 0 THEN 'pending'
+  WHEN ${sentimentJobs.canceledItems} = ${jobItemTotal} THEN 'canceled'
+  WHEN ${sentimentJobs.failedItems} = ${jobItemTotal} THEN 'failed'
+  ELSE 'partial' END`
+
+/** Canceled jobs keep their state; a canceled selection never resumes implicitly. */
+function settleJobs(db: SentimentDb, jobIds: string[], now: string) {
+  if (!jobIds.length) return
+  db.update(sentimentJobs).set({ state: jobStateFromCounts, updatedAt: now })
+    .where(and(inArray(sentimentJobs.id, jobIds), sql`${sentimentJobs.state} <> 'canceled'`)).run()
+}
+
+/**
+ * Move one assessment between count buckets in every job whose membership still
+ * follows it. The cost is the number of jobs sharing the assessment, never the
+ * size of those jobs.
+ */
+function shiftJobs(db: SentimentDb, workItemId: string, from: string, to: string, now: string) {
+  const jobIds = db.select({ id: sentimentJobItems.jobId }).from(sentimentJobItems)
+    .where(and(eq(sentimentJobItems.workItemId, workItemId), isNull(sentimentJobItems.canceledAt))).all().map(row => row.id)
+  if (!jobIds.length) return
+  const source = JOB_BUCKET_KEYS[jobBucket(from)], target = JOB_BUCKET_KEYS[jobBucket(to)]
+  if (source !== target) {
+    const shift: SQLiteUpdateSetSource<typeof sentimentJobs> = {
+      [source]: sql`${sentimentJobs[source]} - 1`, [target]: sql`${sentimentJobs[target]} + 1`,
+    }
+    db.update(sentimentJobs).set(shift).where(inArray(sentimentJobs.id, jobIds)).run()
+  }
+  settleJobs(db, jobIds, now)
+}
+
+/** Full recount, used once per admission and per cancellation; transitions use shiftJobs. */
+function recountJobs(db: SentimentDb, jobIds: string[], now: string) {
+  if (!jobIds.length) return
+  const bucket = sql<string>`CASE WHEN ${sentimentJobItems.canceledAt} IS NOT NULL THEN 'canceled' ELSE ${sentimentWorkItems.status} END`
+  const rows = db.select({ jobId: sentimentJobItems.jobId, bucket, count: sql<number>`count(*)` })
+    .from(sentimentJobItems).innerJoin(sentimentWorkItems, eq(sentimentWorkItems.id, sentimentJobItems.workItemId))
+    .where(inArray(sentimentJobItems.jobId, jobIds)).groupBy(sentimentJobItems.jobId, bucket).all()
+  const counts = new Map(jobIds.map(id => [id, { pendingItems: 0, runningItems: 0, completedItems: 0, failedItems: 0, canceledItems: 0 }]))
+  for (const row of rows) counts.get(row.jobId)![JOB_BUCKET_KEYS[jobBucket(row.bucket)]] += row.count
+  for (const [id, values] of counts) db.update(sentimentJobs).set(values).where(eq(sentimentJobs.id, id)).run()
+  settleJobs(db, jobIds, now)
+}
+
 function cancelProject(db: SentimentDb, projectId: string, now: string, reason: string) {
   const active = and(eq(sentimentWorkItems.projectId, projectId),
     inArray(sentimentWorkItems.status, ['pending', 'running', 'waiting-to-retry']))
   const activeWork = db.select({ id: sentimentWorkItems.id }).from(sentimentWorkItems).where(active)
+  const affected = db.select({ id: sentimentJobItems.jobId }).from(sentimentJobItems).where(and(
+    eq(sentimentJobItems.projectId, projectId), inArray(sentimentJobItems.workItemId, activeWork), isNull(sentimentJobItems.canceledAt),
+  )).groupBy(sentimentJobItems.jobId).all().map(row => row.id)
   db.update(sentimentJobItems).set({ canceledAt: now, cancellationReason: reason }).where(and(
     eq(sentimentJobItems.projectId, projectId), inArray(sentimentJobItems.workItemId, activeWork), isNull(sentimentJobItems.canceledAt),
   )).run()
@@ -66,28 +141,7 @@ function cancelProject(db: SentimentDb, projectId: string, now: string, reason: 
   db.update(sentimentJobs).set({ state: 'canceled', cancellationReason: reason, updatedAt: now }).where(and(
     eq(sentimentJobs.projectId, projectId), inArray(sentimentJobs.state, ['pending', 'running', 'partial']),
   )).run()
-}
-
-/** Recompute the projection from durable selection rows; canceled selections never resume implicitly. */
-function refreshJobs(db: SentimentDb, workItemId: string, now: string) {
-  const jobs = db.select({ id: sentimentJobItems.jobId }).from(sentimentJobItems)
-    .where(eq(sentimentJobItems.workItemId, workItemId)).all()
-  for (const { id } of jobs) {
-    refreshJob(db, id, now)
-  }
-}
-
-function refreshJob(db: SentimentDb, id: string, now: string) {
-  const items = db.select({ status: sentimentWorkItems.status, canceledAt: sentimentJobItems.canceledAt })
-    .from(sentimentJobItems).innerJoin(sentimentWorkItems, eq(sentimentWorkItems.id, sentimentJobItems.workItemId))
-    .where(eq(sentimentJobItems.jobId, id)).all()
-  const statuses = items.map(item => item.canceledAt ? 'canceled' : item.status)
-  const state = statuses.every(status => status === 'completed') ? 'complete'
-    : statuses.some(status => status === 'running') ? 'running'
-    : statuses.some(status => status === 'pending' || status === 'waiting-to-retry') ? 'pending'
-    : statuses.every(status => status === 'canceled') ? 'canceled'
-    : statuses.every(status => status === 'failed') ? 'failed' : 'partial'
-  db.update(sentimentJobs).set({ state, updatedAt: now }).where(and(eq(sentimentJobs.id, id), sql`${sentimentJobs.state} <> 'canceled'`)).run()
+  recountJobs(db, affected, now)
 }
 
 /** Synchronous transactional storage; no provider or other asynchronous I/O belongs in these methods. */
@@ -180,6 +234,8 @@ export class SentimentRepository {
       const settings = tx.select().from(sentimentSettings).where(eq(sentimentSettings.projectId, input.projectId)).get()
       if (!settings?.enabled || settings.installSuspended || settings.enablementEpoch !== input.enablementEpoch) throw new Error('Sentiment project disabled or enablement epoch changed')
       const id = randomUUID()
+      // Automatic admissions of new sweeps dispatch ahead of backfills of history.
+      const dispatchPriority = input.origin === 'automatic' ? 0 : 1
       tx.insert(sentimentJobs).values({
         id, projectId: input.projectId, action: input.action, origin: input.origin, enablementEpoch: input.enablementEpoch,
         evaluationDefinitionId: input.evaluationDefinitionId, idempotencyKey: input.idempotencyKey, payloadHash: input.payloadHash,
@@ -188,7 +244,7 @@ export class SentimentRepository {
       for (const item of input.work) {
         tx.insert(sentimentWorkItems).values({
           ...item, id: randomUUID(), projectId: input.projectId, evaluationDefinitionId: input.evaluationDefinitionId,
-          enablementEpoch: input.enablementEpoch, createdAt: input.now, updatedAt: input.now,
+          enablementEpoch: input.enablementEpoch, dispatchPriority, createdAt: input.now, updatedAt: input.now,
         }).onConflictDoNothing({ target: [sentimentWorkItems.projectId, sentimentWorkItems.snapshotId, sentimentWorkItems.sourceTextHash, sentimentWorkItems.subjectHash, sentimentWorkItems.evaluationDefinitionId] }).run()
         let work = tx.select().from(sentimentWorkItems).where(and(
           eq(sentimentWorkItems.projectId, input.projectId), eq(sentimentWorkItems.snapshotId, item.snapshotId),
@@ -198,12 +254,18 @@ export class SentimentRepository {
         const result = tx.select().from(sentimentResults).where(eq(sentimentResults.workItemId, work.id)).get()
         if (result || (input.allowReplayCanceled && ['canceled', 'failed'].includes(work.status))) {
           const stillLeased = !result && work.leaseOwner !== null && work.leaseExpiresAt !== null && work.leaseExpiresAt > input.now
+          const previousStatus = work.status
           work = tx.update(sentimentWorkItems).set({
             status: result ? 'completed' : stillLeased ? 'running' : 'pending', enablementEpoch: input.enablementEpoch,
             leaseOwner: stillLeased ? work.leaseOwner : null, leaseExpiresAt: stillLeased ? work.leaseExpiresAt : null,
             attemptBudgetStart: result || stillLeased ? work.attemptBudgetStart : work.attemptCount,
             nextAttemptAt: null, errorCode: null, cancellationReason: null, updatedAt: input.now,
           }).where(eq(sentimentWorkItems.id, work.id)).returning().get()!
+          // Earlier jobs that still follow this assessment see the replayed state.
+          shiftJobs(tx, work.id, previousStatus, work.status, input.now)
+        }
+        if (work.dispatchPriority > dispatchPriority) {
+          work = tx.update(sentimentWorkItems).set({ dispatchPriority }).where(eq(sentimentWorkItems.id, work.id)).returning().get()!
         }
         tx.insert(sentimentJobItems).values({
           projectId: input.projectId, jobId: id, workItemId: work.id, enablementEpoch: input.enablementEpoch,
@@ -211,7 +273,7 @@ export class SentimentRepository {
           cancellationReason: work.status === 'canceled' ? work.cancellationReason : null,
         }).onConflictDoNothing().run()
       }
-      refreshJob(tx, id, input.now)
+      recountJobs(tx, [id], input.now)
       tx.insert(auditLog).values({ id: randomUUID(), projectId: input.projectId, actor: input.actor,
         action: 'sentiment.job-admitted', entityType: 'sentiment-job', entityId: id,
         diff: JSON.stringify({ origin: input.origin, evaluationDefinitionId: input.evaluationDefinitionId, enablementEpoch: input.enablementEpoch }), createdAt: input.now,
@@ -237,13 +299,16 @@ export class SentimentRepository {
           or(and(eq(sentimentWorkItems.status, 'pending'), or(isNull(sentimentWorkItems.leaseExpiresAt), lte(sentimentWorkItems.leaseExpiresAt, input.now))),
             and(eq(sentimentWorkItems.status, 'waiting-to-retry'), lte(sentimentWorkItems.nextAttemptAt, input.now)),
             and(eq(sentimentWorkItems.status, 'running'), lte(sentimentWorkItems.leaseExpiresAt, input.now))),
-        )).orderBy(asc(sentimentWorkItems.createdAt), asc(sentimentWorkItems.id)).get()?.work
+        // Automatic work first; within a tier the project claimed least recently goes next.
+        )).orderBy(asc(sentimentWorkItems.dispatchPriority), asc(sentimentSettings.dispatchTurn), asc(sentimentWorkItems.createdAt), asc(sentimentWorkItems.id)).get()?.work
       if (!row) return undefined
       const claimed = tx.update(sentimentWorkItems).set({
         status: 'running', leaseOwner: input.owner, leaseExpiresAt: new Date(Date.parse(input.now) + input.leaseMs).toISOString(),
         nextAttemptAt: null, updatedAt: input.now,
       }).where(eq(sentimentWorkItems.id, row.id)).returning().get()
-      refreshJobs(tx, row.id, input.now)
+      const lastTurn = tx.select({ turn: sql<number>`coalesce(max(${sentimentSettings.dispatchTurn}), 0)` }).from(sentimentSettings).get()!.turn
+      tx.update(sentimentSettings).set({ dispatchTurn: lastTurn + 1 }).where(eq(sentimentSettings.projectId, row.projectId)).run()
+      shiftJobs(tx, row.id, row.status, 'running', input.now)
       return claimed
     }, { behavior: 'immediate' })
   }
@@ -311,10 +376,11 @@ export class SentimentRepository {
       tx.insert(sentimentResults).values({ workItemId: work.id, projectId: work.projectId, outcome: input.outcome,
         result: input.result, returnedModel: input.returnedModel, completedAt: input.now,
       }).onConflictDoNothing().run()
-      tx.update(sentimentWorkItems).set({ status: work.status === 'canceled' ? 'canceled' : 'completed',
+      const status = work.status === 'canceled' ? 'canceled' : 'completed'
+      tx.update(sentimentWorkItems).set({ status,
         leaseOwner: null, leaseExpiresAt: null, nextAttemptAt: null, updatedAt: input.now,
       }).where(eq(sentimentWorkItems.id, work.id)).run()
-      refreshJobs(tx, work.id, input.now)
+      shiftJobs(tx, work.id, work.status, status, input.now)
       return true
     }, { behavior: 'immediate' })
   }
@@ -324,8 +390,87 @@ export class SentimentRepository {
       const changed = tx.update(sentimentWorkItems).set({ status: input.retryAt ? 'waiting-to-retry' : 'failed',
         leaseOwner: null, leaseExpiresAt: null, nextAttemptAt: input.retryAt ?? null, errorCode: input.errorCode, updatedAt: input.now,
       }).where(and(eq(sentimentWorkItems.id, input.workItemId), eq(sentimentWorkItems.leaseOwner, input.owner), eq(sentimentWorkItems.status, 'running'))).returning().all()
-      if (changed.length > 0) refreshJobs(tx, changed[0].id, input.now)
+      if (changed.length > 0) shiftJobs(tx, changed[0].id, 'running', changed[0].status, input.now)
       return changed.length > 0
     }, { behavior: 'immediate' })
+  }
+
+  /** Mark every receipt through `sequence` as reconciled for this enablement epoch. */
+  markReconciled(projectId: string, enablementEpoch: number, sequence: number) {
+    return this.db.update(sentimentSettings).set({ reconciledSequence: sequence }).where(and(
+      eq(sentimentSettings.projectId, projectId), eq(sentimentSettings.enablementEpoch, enablementEpoch),
+      lt(sentimentSettings.reconciledSequence, sequence),
+    )).run().changes > 0
+  }
+
+  dispatchState() {
+    return this.db.select().from(sentimentDispatchState).where(eq(sentimentDispatchState.id, DISPATCH_STATE_ID)).get()
+  }
+
+  /**
+   * How much this tick may dispatch. An authorization pause lifts at once when the
+   * configured credential no longer matches the one the provider refused, and the
+   * assessments waiting on the refused credential become claimable immediately.
+   */
+  dispatchGate(input: { now: string; credentialFingerprint: string }): SentimentDispatchGate {
+    const state = this.dispatchState()
+    if (!state?.blockedReason || !state.blockedAt) return 'open'
+    const blockedAt = state.blockedAt
+    if (state.blockedReason === 'provider-authorization' && state.credentialFingerprint !== input.credentialFingerprint) {
+      this.db.transaction(tx => {
+        const lifted = tx.update(sentimentDispatchState).set({ blockedReason: null, blockedAt: null, nextDispatchAt: null, rateLimitStreak: 0, credentialFingerprint: null, updatedAt: input.now })
+          .where(and(eq(sentimentDispatchState.id, DISPATCH_STATE_ID), eq(sentimentDispatchState.blockedAt, blockedAt))).run().changes
+        if (lifted) tx.update(sentimentWorkItems).set({ nextAttemptAt: input.now, updatedAt: input.now }).where(and(
+          eq(sentimentWorkItems.status, 'waiting-to-retry'), eq(sentimentWorkItems.errorCode, 'provider-authorization'), gt(sentimentWorkItems.nextAttemptAt, input.now),
+        )).run()
+      }, { behavior: 'immediate' })
+      return 'open'
+    }
+    return state.nextDispatchAt && state.nextDispatchAt > input.now ? 'closed' : 'probe'
+  }
+
+  /**
+   * Requeue a refused attempt outside the retry budget and pause dispatch for the
+   * whole install. A refusal of a request sent before the current pause began
+   * extends that pause without growing the rate-limit streak.
+   */
+  recordProviderRefusal(input: {
+    workItemId: string; owner: string; now: string; dispatchedAt: string; reason: SentimentDispatchBlock
+    /** Pause length for the streak this refusal leaves, which is at least 1. */
+    delayMs: (streak: number) => number
+    credentialFingerprint: string
+  }) {
+    return this.db.transaction(tx => {
+      const prior = tx.select().from(sentimentDispatchState).where(eq(sentimentDispatchState.id, DISPATCH_STATE_ID)).get()
+      const fresh = !prior?.blockedAt || input.dispatchedAt > prior.blockedAt
+      const priorStreak = prior?.rateLimitStreak ?? 0
+      const streak = input.reason === 'provider-rate-limit' && fresh ? priorStreak + 1 : Math.max(priorStreak, 1)
+      const candidate = new Date(Date.parse(input.now) + input.delayMs(streak)).toISOString()
+      const nextDispatchAt = prior?.nextDispatchAt && prior.nextDispatchAt > candidate ? prior.nextDispatchAt : candidate
+      // An authorization pause outranks a rate limit: it lifts only on a new credential or a probe.
+      const blockedReason = prior?.blockedReason === 'provider-authorization' && input.reason === 'provider-rate-limit' ? prior.blockedReason : input.reason
+      const value = {
+        blockedReason, blockedAt: fresh ? input.now : prior!.blockedAt, nextDispatchAt,
+        rateLimitStreak: input.reason === 'provider-rate-limit' ? streak : priorStreak,
+        credentialFingerprint: input.reason === 'provider-authorization' ? input.credentialFingerprint : prior?.credentialFingerprint ?? null,
+        updatedAt: input.now,
+      }
+      tx.insert(sentimentDispatchState).values({ id: DISPATCH_STATE_ID, ...value })
+        .onConflictDoUpdate({ target: sentimentDispatchState.id, set: value }).run()
+      const changed = tx.update(sentimentWorkItems).set({ status: 'waiting-to-retry',
+        leaseOwner: null, leaseExpiresAt: null, nextAttemptAt: nextDispatchAt, errorCode: input.reason,
+        attemptBudgetStart: sql`${sentimentWorkItems.attemptBudgetStart} + 1`, updatedAt: input.now,
+      }).where(and(eq(sentimentWorkItems.id, input.workItemId), eq(sentimentWorkItems.leaseOwner, input.owner), eq(sentimentWorkItems.status, 'running'))).returning().all()
+      if (changed.length > 0) shiftJobs(tx, changed[0].id, 'running', changed[0].status, input.now)
+      return { nextDispatchAt, requeued: changed.length > 0 }
+    }, { behavior: 'immediate' })
+  }
+
+  /** A provider decision on a request sent after the pause began lifts the pause. */
+  releaseDispatchPause(input: { now: string; dispatchedAt: string }) {
+    const state = this.dispatchState()
+    if (!state?.blockedReason || !state.blockedAt || input.dispatchedAt <= state.blockedAt) return false
+    return this.db.update(sentimentDispatchState).set({ blockedReason: null, blockedAt: null, nextDispatchAt: null, rateLimitStreak: 0, credentialFingerprint: null, updatedAt: input.now })
+      .where(and(eq(sentimentDispatchState.id, DISPATCH_STATE_ID), eq(sentimentDispatchState.blockedAt, state.blockedAt))).run().changes > 0
   }
 }

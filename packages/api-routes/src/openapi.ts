@@ -409,6 +409,7 @@ const competitorLandscapeGroupKeyParameter: OpenApiParameter = {
 const sentimentSelectionParameters: OpenApiParameter[] = [
   { name: 'runIds', in: 'query', description: 'Exact group of stored runs, mutually exclusive with runId. Not supported for comparison.', style: 'form', explode: true, schema: { type: 'array', items: stringSchema, minItems: 1, maxItems: 100 } },
   { name: 'queryId', in: 'query', description: 'Exact frozen query identity within the selected query class.', schema: stringSchema },
+  { name: 'executionNodeKey', in: 'query', description: 'Exact frozen Advanced execution node of the selected query. Identity: it narrows the assessed population.', schema: stringSchema },
   { name: 'mode', in: 'query', description: 'Frozen Simple or Advanced source mode.', schema: { type: 'string', enum: ['auto', 'simple', 'advanced'], default: 'auto' } },
   { name: 'queryClass', in: 'query', description: 'One query class per denominator; branded and non-brand are always separate.', schema: { type: 'string', enum: ['branded', 'non-brand'], default: 'branded' } },
   { name: 'scope', in: 'query', description: 'Selected answer-subject population.', schema: { type: 'string', enum: ['project', 'property', 'group', 'market'], default: 'project' } },
@@ -1321,9 +1322,13 @@ const routeCatalog: OpenApiOperation[] = [
     responses: { 200: jsonResponse('Updated project configuration.', 'SentimentSettings'), 400: errorResponse('Invalid configuration or install unavailable.'), 403: errorResponse('Install administrator required.'), 404: errorResponse('Project not found.') },
   },
   {
-    method: 'get', path: '/api/v1/projects/{name}/sentiment', summary: 'Read stored class-separated sentiment and coverage', tags: ['sentiment'], parameters: [nameParameter, ...sentimentSelectionParameters],
-    description: 'Stored reads never call TypeSafe. Favorable rate is favorable divided by favorable plus mixed plus unfavorable. All scope filters are identity-bearing; overlapping usage edges count each answer-subject assessment once. Incomplete source sweeps and probes cannot supply the headline.',
-    responses: { 200: jsonResponse('Stored scores, exclusions, coverage, frozen query/location aggregates, and exact per-engine subject assessments.', 'SentimentSummary'), 400: errorResponse('Invalid selection.'), 404: errorResponse('Project or selected source not found.') },
+    method: 'get', path: '/api/v1/projects/{name}/sentiment', summary: 'Read stored class-separated sentiment and coverage', tags: ['sentiment'],
+    parameters: [nameParameter, ...sentimentSelectionParameters,
+      { name: 'include', in: 'query', description: 'Opt-in per-query detail, repeated or comma-separated. Omitted, query rows are compact unless queryId names one query. Tuning, not identity.', style: 'form', explode: true, schema: { type: 'array', items: { type: 'string', enum: ['assessments', 'locations'] }, maxItems: 2 } },
+      { name: 'queryLimit', in: 'query', description: 'Query rows per page; tuning.', schema: { type: 'integer', minimum: 1, maximum: 500, default: 25 } },
+      { name: 'queryCursor', in: 'query', description: 'Opaque queryPage.nextCursor bound to the resolved selection.', schema: stringSchema }],
+    description: 'Stored reads never call TypeSafe. Favorable rate is favorable divided by favorable plus mixed plus unfavorable. All scope filters are identity-bearing; overlapping usage edges count each answer-subject assessment once. Incomplete source sweeps and probes cannot supply the headline. Query rows are sorted by query text, paged by queryLimit, and are per Advanced execution node; per-engine assessments and per-location aggregates are opt-in through include.',
+    responses: { 200: jsonResponse('Stored scores, exclusions, coverage, and a page of frozen query aggregates, with per-engine subject assessments and location aggregates when included.', 'SentimentSummary'), 400: errorResponse('Invalid selection.'), 404: errorResponse('Project or selected source not found.') },
   },
   {
     method: 'get', path: '/api/v1/projects/{name}/sentiment/evidence', summary: 'Read verbatim sentiment evidence', tags: ['sentiment'],
@@ -1349,11 +1354,14 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get', path: '/api/v1/projects/{name}/sentiment/jobs', summary: 'List automatic and backfill sentiment jobs', tags: ['sentiment'], parameters: [nameParameter],
-    responses: { 200: jsonResponse('Stored durable job receipts.', 'SentimentJobs'), 404: errorResponse('Project not found.') },
+    responses: { 200: jsonResponse('Newest 100 job summaries with SQL-counted outcomes and attemptCount; attempt receipts are paged on the job read.', 'SentimentJobs'), 404: errorResponse('Project not found.') },
   },
   {
-    method: 'get', path: '/api/v1/projects/{name}/sentiment/jobs/{jobId}', summary: 'Read a sentiment job and attempt receipts', tags: ['sentiment'], parameters: [nameParameter, { name: 'jobId', in: 'path', required: true, description: 'Project-owned job identity.', schema: stringSchema }],
-    responses: { 200: jsonResponse('Coverage, cancellation, retries, and reported or unknown usage.', 'SentimentJob'), 404: errorResponse('Project or job not found.') },
+    method: 'get', path: '/api/v1/projects/{name}/sentiment/jobs/{jobId}', summary: 'Read a sentiment job and attempt receipts', tags: ['sentiment'],
+    parameters: [nameParameter, { name: 'jobId', in: 'path', required: true, description: 'Project-owned job identity.', schema: stringSchema },
+      { name: 'attemptLimit', in: 'query', description: 'Attempt receipts per page, newest first; tuning.', schema: { type: 'integer', minimum: 1, maximum: 200, default: 50 } },
+      { name: 'attemptCursor', in: 'query', description: 'Opaque nextAttemptCursor bound to this job.', schema: stringSchema }],
+    responses: { 200: jsonResponse('Coverage, cancellation, attemptCount, and one page of attempt receipts with reported or unknown usage.', 'SentimentJob'), 404: errorResponse('Project or job not found.') },
   },
   {
     method: 'get',
