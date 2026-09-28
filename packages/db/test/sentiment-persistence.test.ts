@@ -4,7 +4,7 @@ import path from 'node:path'
 import { and, eq, sql } from 'drizzle-orm'
 import { expect, onTestFinished, test } from 'vitest'
 import {
-  createClient, migrate, MIGRATION_VERSIONS, projects, runs, querySnapshots,
+  auditLog, createClient, migrate, MIGRATION_VERSIONS, projects, runs, querySnapshots,
   SentimentRepository, SentimentIdempotencyConflict, recordSentimentCompletion,
   sentimentDefinitions, sentimentSettings, sentimentCompletionReceipts, sentimentJobs,
   sentimentWorkItems, sentimentJobItems, sentimentResults, sentimentAttempts, llmUsageEvents,
@@ -256,4 +256,21 @@ test('observed install disable survives restart and resume excludes its completi
   expect(reopened.getSettings('p')).toMatchObject({ enabled: true, installSuspended: false, enablementEpoch: 2, completionBoundary: during.sequence })
   expect(reopened.claim({ owner: 'restarted', now: LATER, leaseMs: 30_000 })).toBeUndefined()
   expect(db.select().from(sentimentJobs).get()).toMatchObject({ state: 'canceled', cancellationReason: 'install-disabled' })
+})
+
+
+test('configuration and admissions audit atomically and duplicate admission adds no audit row', () => {
+  const { db, repo, admission, work } = fixture()
+  const configured = db.select().from(auditLog).where(eq(auditLog.action, 'sentiment.settings-configured')).all()
+  expect(configured).toHaveLength(1)
+  repo.configure({ projectId: 'p', enabled: true, evaluationDefinitionId: 'd', configuration: {}, now: NOW, actor: 'user:admin' })
+  expect(db.select().from(auditLog).where(eq(auditLog.actor, 'user:admin')).get()?.action).toBe('sentiment.settings-configured')
+  expect(() => repo.admitJob({ ...admission, work: [{ ...work, snapshotId: 'missing' }] })).toThrow()
+  expect(db.select().from(auditLog).where(eq(auditLog.action, 'sentiment.job-admitted')).all()).toHaveLength(0)
+  const first = repo.admitJob(admission)
+  repo.admitJob(admission)
+  const audits = db.select().from(auditLog).where(eq(auditLog.action, 'sentiment.job-admitted')).all()
+  expect(audits).toHaveLength(1)
+  expect(audits[0]).toMatchObject({ actor: 'admin', projectId: 'p', entityId: first.id })
+  expect(audits[0].diff).not.toContain('payload')
 })

@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { and, asc, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
 import type { DatabaseClient } from './client.js'
 import {
-  llmUsageEvents, runs, sentimentAttempts, sentimentCompletionReceipts, sentimentDefinitions,
+  auditLog, llmUsageEvents, runs, sentimentAttempts, sentimentCompletionReceipts, sentimentDefinitions,
   sentimentJobItems, sentimentJobs, sentimentResults, sentimentSettings, sentimentWorkItems,
 } from './schema.js'
 
@@ -112,7 +112,7 @@ export class SentimentRepository {
     return this.db.select().from(sentimentSettings).where(eq(sentimentSettings.projectId, projectId)).get()
   }
 
-  configure(input: { projectId: string; enabled: boolean; evaluationDefinitionId: string; configuration: unknown; now: string }) {
+  configure(input: { projectId: string; enabled: boolean; evaluationDefinitionId: string; configuration: unknown; now: string; actor?: string }) {
     return this.db.transaction(tx => {
       const prior = tx.select().from(sentimentSettings).where(eq(sentimentSettings.projectId, input.projectId)).get()
       const enabling = input.enabled && !prior?.enabled
@@ -125,6 +125,10 @@ export class SentimentRepository {
       }
       tx.insert(sentimentSettings).values(value).onConflictDoUpdate({ target: sentimentSettings.projectId, set: value }).run()
       if (!input.enabled) cancelProject(tx, input.projectId, input.now, 'project-disabled')
+      tx.insert(auditLog).values({ id: randomUUID(), projectId: input.projectId, actor: input.actor ?? 'system',
+        action: 'sentiment.settings-configured', entityType: 'sentiment-settings', entityId: input.projectId,
+        diff: JSON.stringify({ enabled: value.enabled, enablementEpoch: value.enablementEpoch, evaluationDefinitionId: value.evaluationDefinitionId }), createdAt: input.now,
+      }).run()
       return tx.select().from(sentimentSettings).where(eq(sentimentSettings.projectId, input.projectId)).get()!
     }, { behavior: 'immediate' })
   }
@@ -206,6 +210,10 @@ export class SentimentRepository {
         }).onConflictDoNothing().run()
       }
       refreshJob(tx, id, input.now)
+      tx.insert(auditLog).values({ id: randomUUID(), projectId: input.projectId, actor: input.actor,
+        action: 'sentiment.job-admitted', entityType: 'sentiment-job', entityId: id,
+        diff: JSON.stringify({ origin: input.origin, evaluationDefinitionId: input.evaluationDefinitionId, enablementEpoch: input.enablementEpoch }), createdAt: input.now,
+      }).run()
       return tx.select().from(sentimentJobs).where(eq(sentimentJobs.id, id)).get()!
     }, { behavior: 'immediate' })
   }
