@@ -261,7 +261,7 @@ function projectContext(event: Record<string, unknown>, nested: Record<string, u
 const ID_FIELDS = [
   ['runId', 256], ['projectId', 256], ['requestId', 256], ['actor', 512], ['credentialId', 512], ['userAgent', 512], ['actorSession', 512],
   ['operationId', 256], ['jobId', 256], ['taskId', 256], ['traceId', 256],
-  ['method', 16], ['route', 256],
+  ['method', 16], ['route', 256], ['provider', 256],
 ] as const
 const NUMBER_FIELDS = ['attempt', 'count', 'total', 'progress', 'httpStatus', 'statusCode', 'durationMs', 'bytes', 'retryAfterMs'] as const
 const BOOLEAN_FIELDS = ['retriable', 'retrying', 'cancelled', 'success'] as const

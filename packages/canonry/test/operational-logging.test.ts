@@ -58,6 +58,27 @@ describe('operational logging', () => {
 })
 
 describe('OperationalLogStore', () => {
+  test('saves which provider a sweep failure came from on the server capture path', () => {
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const db = createClient(':memory:')
+    migrate(db)
+    onTestFinished(() => db.$client.close())
+    const store = new OperationalLogStore(db)
+    const stop = addLogListener(entry => store.append(entry))
+    try {
+      createLogger('JobRunner').error('query.failed', {
+        runId: 'run_1', provider: 'claude', query: 'private query', error: 'HTTP 529 overloaded',
+        providerResponse: { content: [{ type: 'text', text: 'raw-answer-text' }] },
+      })
+    } finally { stop() }
+
+    const [entry] = store.list({ runId: 'run_1' }).entries
+    expect(entry).toMatchObject({ module: 'JobRunner', action: 'query.failed', context: { runId: 'run_1', provider: 'claude' } })
+    expect(JSON.stringify(entry)).not.toMatch(/raw-answer-text|private query/)
+  })
+
+
   test('filters before pagination, bounds retention, and rejects stale cursors', () => {
     const db = createClient(':memory:')
     migrate(db)
