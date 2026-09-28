@@ -916,6 +916,38 @@ describe('analytics routes', () => {
       expect(body.gap.some((k: { query: string }) => k.query === 'who makes the best rank tracker')).toBe(false)
     })
 
+    it('a competitor or project named only in a citation chip is cited, not mentioned', async () => {
+      // Shape of an OpenAI web-search answer: the sources are inline link chips.
+      const q5Id = crypto.randomUUID()
+      db.insert(queries).values({
+        id: q5Id, projectId, query: 'rank tracker pricing', createdAt: new Date().toISOString(),
+      }).run()
+      db.insert(querySnapshots).values({
+        id: crypto.randomUUID(),
+        runId,
+        queryId: q5Id,
+        provider: 'openai',
+        model: 'gpt-5.4',
+        citationState: 'cited',
+        answerText: 'Plans usually start around $30 a month. ([competitor.com](https://competitor.com/pricing?utm_source=chatgpt.com), [example.com](https://example.com/pricing?utm_source=chatgpt.com))',
+        citedDomains: ['competitor.com', 'example.com'],
+        competitorOverlap: [],
+        location: null,
+        rawResponse: JSON.stringify({ model: 'gpt-5.4', groundingSources: [], searchQueries: [] }),
+        createdAt: new Date().toISOString(),
+      }).run()
+
+      const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-site/analytics/gaps' })
+      const body = JSON.parse(res.payload)
+
+      const row = body.notMentioned.find((k: { query: string }) => k.query === 'rank tracker pricing')
+      expect(row).toBeDefined()
+      expect(row.competitorsMentioned).toEqual([])
+      expect(row.competitorsCiting).toEqual(['competitor.com'])
+      expect(body.mentionedQueries.some((k: { query: string }) => k.query === 'rank tracker pricing')).toBe(false)
+      expect(body.cited.some((k: { query: string }) => k.query === 'rank tracker pricing')).toBe(true)
+    })
+
     it('supports window parameter', async () => {
       const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-site/analytics/gaps?window=7d' })
       expect(res.statusCode).toBe(200)

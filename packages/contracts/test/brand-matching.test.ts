@@ -9,6 +9,7 @@ import {
   textContainsBrandAlias,
   textContainsAnyBrandAlias,
 } from '../src/brand-matching.js'
+import { answerProseForMentions } from '../src/answer-prose.js'
 import { determineAnswerMentioned } from '../src/answer-visibility.js'
 
 describe('brand identity matching', () => {
@@ -77,10 +78,11 @@ describe('one segmentation for the whole alias set', () => {
     }
   })
 
-  it('a compiled matcher is the name-only rule of determineAnswerMentioned', () => {
+  it('a compiled matcher over the answer prose is the name-only rule of determineAnswerMentioned', () => {
     // Visibility compare compiles the project's names once and calls
-    // matcherMatchesText instead of determineAnswerMentioned(text, names, []).
-    // Pin the two together so a rule added to one cannot drift from the other.
+    // matcherMatchesText(matcher, answerProseForMentions(text)) instead of
+    // determineAnswerMentioned(text, names, []). Pin the two together so a
+    // rule added to one cannot drift from the other.
     const nameSets: string[][] = [
       [],
       [''],
@@ -104,11 +106,13 @@ describe('one segmentation for the whole alias set', () => {
       'Demo pricing from ｄｅｍｏ and finance hub listings.',
       '東京ホテルは駅の近くです。',
       'Zero​width Demo​Co text.',
+      'Plans start at $20 ([democo.com](https://democo.com/pricing?utm_source=chatgpt.com)).',
+      'Read the [DemoCo pricing guide](https://democo.com/pricing) first.',
     ]
     for (const names of nameSets) {
       const matcher = compileBrandAliases(names)
       for (const text of texts) {
-        expect(matcherMatchesText(matcher, text), `${JSON.stringify(names)} vs ${JSON.stringify(text)}`)
+        expect(matcherMatchesText(matcher, answerProseForMentions(text)), `${JSON.stringify(names)} vs ${JSON.stringify(text)}`)
           .toBe(determineAnswerMentioned(text, names, []))
       }
     }

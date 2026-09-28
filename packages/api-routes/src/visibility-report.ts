@@ -13,6 +13,7 @@ import {
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
   RunKinds,
   RunStatuses,
+  answerProseForMentions,
   compileBrandAliases,
   effectiveBrandNames,
   matcherMatchesText,
@@ -169,10 +170,15 @@ function exactCompetitorMatchers(plan: MeasurementPlanV2): Map<string, ReturnTyp
   return frozenCompetitorMatchers(plan.groups.flatMap(group => group.competitors))
 }
 
+/** A stored answer's prose, prepared once for every brand matcher that reads it. */
+function preparedAnswerProse(answerText: string | null) {
+  return prepareBrandMatchText(answerProseForMentions(answerText))
+}
+
 function competitorSignals(
   snapshot: Pick<VisibilitySnapshot, 'answerText' | 'citedDomains'>,
   matchers: ReadonlyMap<string, ReturnType<typeof compileBrandAliases>>,
-  preparedAnswerText = prepareBrandMatchText(snapshot.answerText),
+  preparedAnswerText = preparedAnswerProse(snapshot.answerText),
 ): { mentioned: string[]; cited: string[] } {
   const mentioned = preparedAnswerText === null
     ? []
@@ -442,7 +448,7 @@ function frozenSimpleRun(
     }
     const slotId = `slot:simple:${query.queryId}:${provider}`
     if (!slotKeys.has(slotId)) throw new Error(`Frozen simple definition has no slot for stored snapshot ${snapshot.id}`)
-    const preparedAnswerText = prepareBrandMatchText(snapshot.answerText)
+    const preparedAnswerText = preparedAnswerProse(snapshot.answerText)
     const mentioned = snapshot.answerText !== null
       ? matcherMatchesText(matcher, preparedAnswerText)
       : snapshot.answerMentioned === true

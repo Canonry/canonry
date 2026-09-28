@@ -1,4 +1,5 @@
 import {
+  answerProseForMentions,
   brandKeyFromText,
   brandLabelFromDomain,
   compileBrandAliases,
@@ -274,7 +275,8 @@ export function buildCompetitorLandscapeHistory(
         for (const candidate of frozen.values()) putCandidate(eligibleCandidates, candidate)
         combined = combineMatchers([...eligibleCandidates.values()].map(candidate => candidate.matcher))
       }
-      const matchedKeys = matchedAliasKeys(combined, text)
+      // The answer's prose only: a competitor's citation chip is a citation.
+      const matchedKeys = matchedAliasKeys(combined, answerProseForMentions(text))
       if (matchedKeys.size > 0) {
         for (const candidate of eligibleCandidates.values()) {
           for (const key of candidate.matcher.keys) {

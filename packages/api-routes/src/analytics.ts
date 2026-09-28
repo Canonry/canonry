@@ -6,7 +6,8 @@ import {
   classifySurfaceFromCategory, surfaceClassFromCompetitorType, surfaceClassLabel,
   effectiveDomains, evaluateModelPointerExposure, normalizeProjectDomain, parseWindow, RunKinds, RunStatuses,
   RunTriggers, windowCutoff, validationError, notFound, compileBrandAliases, hostMatchesAnyDomain, hostMatchesDomain,
-  hostOf, matcherMatchesText, normalizeQueryText, sourceBreakdownQuerySchema,
+  hostOf, matcherMatchesText, normalizeQueryText, sourceBreakdownQuerySchema, answerProseForMentions,
+  prepareBrandMatchText,
 } from '@ainyc/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
@@ -635,9 +636,11 @@ export async function analyticsRoutes(app: FastifyInstance) {
           if (match) competitorsCiting.add(match)
         }
         if (!s.answerText) continue
+        // The answer's prose only: a competitor's citation chip is a citation.
+        const prose = prepareBrandMatchText(answerProseForMentions(s.answerText))
         for (const competitor of competitorDomains) {
           const matcher = competitorMatchers.get(competitor)
-          if (matcher && matcherMatchesText(matcher, s.answerText)) competitorsMentioned.add(competitor)
+          if (matcher && matcherMatchesText(matcher, prose)) competitorsMentioned.add(competitor)
         }
       }
 

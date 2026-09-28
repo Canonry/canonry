@@ -1,5 +1,6 @@
 import { buildMentionShare } from '@ainyc/canonry-intelligence'
 import {
+  answerProseForMentions,
   CitationStates,
   compileBrandAliases,
   compileQueryClassifier,
@@ -265,7 +266,7 @@ function countPeriod(
       // Share uses current identity; named-rate counts above deliberately keep
       // their historical persisted-boolean semantics.
       projectMentioned: s.answerText
-        ? matcherMatchesText(projectMatcher, s.answerText)
+        ? matcherMatchesText(projectMatcher, answerProseForMentions(s.answerText))
         : s.answerMentioned === true,
       answerText: s.answerText,
       queryClass: queryClassOf(s),
@@ -316,8 +317,8 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
   const queryTextById = new Map(input.queries.map((q) => [q.id, q.query]))
   const queryClassOf = (snap: Attributed): QueryClass | null =>
     classifier ? classifier.classify(queryTextById.get(snap.queryId) ?? snap.queryText) : null
-  // Compiled once for every answer; same identity rule as
-  // `determineAnswerMentioned(text, brandNames, [])`.
+  // Compiled once for every answer and matched against the answer's prose;
+  // same identity rule as `determineAnswerMentioned(text, brandNames, [])`.
   const projectMatcher = compileBrandAliases(input.brandNames ?? [])
 
   const fromObs = observed(input.from.snapshots, attribution)

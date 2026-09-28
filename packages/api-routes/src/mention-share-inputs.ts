@@ -1,4 +1,5 @@
 import {
+  answerProseForMentions,
   brandKeyFromText,
   brandLabelFromDomain,
   compileQueryClassifier,
@@ -129,7 +130,11 @@ export function buildMentionShareInputs(opts: {
   competitorDomains: readonly string[]
   snapshots: readonly MentionShareSnapshotRow[]
   queryTextById?: ReadonlyMap<string, string>
-  /** Request-scoped cache shared with other answer-prose readers. */
+  /**
+   * Request-scoped cache shared with other answer-prose readers: raw answer
+   * text to `extractDomainsFromText(answerProseForMentions(text))`. Domains
+   * from the raw text would count a citation chip as a mention.
+   */
   answerDomainsByText?: Map<string, readonly string[]>
 }): MentionShareInputs {
   const classify = projectQueryClassifier(opts.project)
@@ -151,7 +156,7 @@ export function buildMentionShareInputs(opts: {
       const cachedAnswerDomains = !snap.answerText || !opts.answerDomainsByText
         ? undefined
         : opts.answerDomainsByText.get(snap.answerText) ?? (() => {
-            const domains = extractDomainsFromText(snap.answerText)
+            const domains = extractDomainsFromText(answerProseForMentions(snap.answerText))
             opts.answerDomainsByText!.set(snap.answerText!, domains)
             return domains
           })()

@@ -99,7 +99,7 @@ Every (query × provider) snapshot carries two independent signals — a model c
 
 | Term | Meaning | Source field |
 |------|---------|--------------|
-| **mention / mentioned** | The project's brand or domain appears in the LLM's answer text. | `query_snapshots.answer_mentioned` (boolean) |
+| **mention / mentioned** | The project's brand or domain appears in the LLM's answer prose. Citation links written into the text (chips such as `([domain](url))`, links labelled with a URL or a lowercase host, `[1]` markers, bare `http(s)://` URLs) are citations and never count; match through `answerProseForMentions`. | `query_snapshots.answer_mentioned` (boolean) |
 | **cited** | The project's domain appears in the answer's source links / grounding. | `query_snapshots.citation_state` = `'cited'` |
 
 1. Say `mention` / `mentioned` for answer-text presence. `answer`, `visible`, and `visibility` are legacy terms (`visibility_state`, run kind `answer-visibility`, `visibilityStateFromAnswerMentioned`); new APIs, fields, flags, and UI labels say `mentioned` (`mentionRate`, never `answerRate`).

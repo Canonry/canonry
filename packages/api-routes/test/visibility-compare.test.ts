@@ -162,6 +162,19 @@ describe('computeVisibilityCompare — share of voice', () => {
     expect(metricOf(dto, 'mention-rate').queryClass).toBe('all')
   })
 
+  it('does not count a citation chip as a project or competitor mention in named SoV', () => {
+    // Shape of an OpenAI web-search answer: both brands appear only in the
+    // inline source chips, which are citations.
+    const competitors = [{ domain: 'rival.com', brandTokens: ['rival'] }]
+    const chips = 'Plans start at $20 a month. ([demo.com](https://demo.com/pricing?utm_source=chatgpt.com), [Rival](https://rival.com/pricing?utm_source=chatgpt.com))'
+    const chipsOnly = () => snap({ queryId: 'q1', provider: 'openai', answerText: chips })
+    const prose = () => snap({ queryId: 'q2', provider: 'openai', answerText: `Demo is the cheaper option. ${chips}` })
+    const dto = computeVisibilityCompare(build([chipsOnly(), prose()], [chipsOnly(), prose()], { competitors, brandNames: ['demo'] }))
+
+    expect(metricOf(dto, 'mention-share-of-voice').from).toMatchObject({ numerator: 1, denominator: 1, point: 1 })
+    expect(dto.competitors.from).toEqual([])
+  })
+
   it('labels named SoV pooled when no project identity can classify the basket', () => {
     const competitors = [{ domain: 'rival.com', brandTokens: ['rival'] }]
     const s = () => snap({ queryId: 'q1', provider: 'openai', answerText: 'Rival is one option.' })

@@ -434,6 +434,24 @@ describe('visibility report route', () => {
       .toEqual({ numerator: 0, denominator: 1, rate: 0 })
   })
 
+  it('reads frozen Simple project and competitor mentions from the answer prose, not its citation chips', async () => {
+    // Shape of an OpenAI web-search answer: both brands appear only in the
+    // inline source chips, which are citations.
+    seedSimpleRun('simple-chips', SECOND, true)
+    db.update(querySnapshots).set({
+      answerText: 'Rates start at $40 an hour. ([northstar.example](https://northstar.example/pricing?utm_source=chatgpt.com), [Challenger](https://challenger.example/rates?utm_source=chatgpt.com))',
+      answerMentioned: true,
+    }).where(eq(querySnapshots.runId, 'simple-chips')).run()
+
+    const result = await report('mode=simple&runId=simple-chips&queryClass=non-brand')
+    expect(result.status).toBe(200)
+    const population = (result.body as VisibilityReportResponse).populations[0]!
+    expect(population.summary.mentionCoverage).toEqual({ numerator: 0, denominator: 1, rate: 0 })
+    const challenger = population.competitors.find(row => row.domain === 'challenger.example')!
+    expect(challenger.mentionCoverage).toEqual({ numerator: 0, denominator: 1, rate: 0 })
+    expect(challenger.citationCoverage).toEqual({ numerator: 1, denominator: 1, rate: 1 })
+  })
+
   it('compares semantically identical frozen simple captures and breaks only at a requested-model change', async () => {
     seedSimpleRun('simple-first', FIRST, true)
     seedSimpleRun('simple-second', SECOND, true)

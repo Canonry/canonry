@@ -149,6 +149,46 @@ describe('backfill answer-mentions', () => {
     expect(snapshot!.answerMentioned).toBe(true)
   })
 
+  it('recomputes a stored mention that came only from citation chips to not mentioned', async () => {
+    // Shape of an OpenAI web-search answer: the brand is only in the inline
+    // source chips. Rows written before the prose rule stored `true`.
+    const { runId, queryId } = seedAnswerVisibilityRun({ projectName: 'acme-iq-chips', competitorDomains: [] })
+    const now = new Date().toISOString()
+    const chipsOnlyId = crypto.randomUUID()
+    const proseId = crypto.randomUUID()
+    const chips = '([acme-iq.example.com](https://acme-iq.example.com/estimates?utm_source=chatgpt.com), [Acme IQ](https://acme-iq.example.com/about?utm_source=chatgpt.com))'
+    for (const [id, answerText] of [
+      [chipsOnlyId, `Instant roof estimates usually come from satellite measurements. ${chips}`],
+      [proseId, `Acme IQ gives instant roof estimates from satellite measurements. ${chips}`],
+    ] as const) {
+      db.insert(querySnapshots).values({
+        id,
+        runId,
+        queryId,
+        provider: 'openai',
+        model: 'gpt-5',
+        citationState: 'cited',
+        answerMentioned: true,
+        answerText,
+        citedDomains: ['acme-iq.example.com'],
+        competitorOverlap: [],
+        recommendedCompetitors: [],
+        rawResponse: JSON.stringify({ groundingSources: [], searchQueries: [] }),
+        createdAt: now,
+      }).run()
+    }
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    await backfillAnswerMentionsCommand({ project: 'acme-iq-chips', format: 'json' })
+    const result = JSON.parse(String(logSpy.mock.calls.at(-1)?.[0] ?? '{}'))
+
+    expect(result).toMatchObject({ examined: 2, updated: 1, mentioned: 1 })
+    const stored = (id: string) => db.select().from(querySnapshots).where(eq(querySnapshots.id, id)).get()!
+    expect(stored(chipsOnlyId).answerMentioned).toBe(false)
+    expect(stored(chipsOnlyId).citationState).toBe('cited')
+    expect(stored(proseId).answerMentioned).toBe(true)
+  })
+
   it('still flags overlap when the answer text mentions the registrable brand', async () => {
     const { runId, queryId } = seedAnswerVisibilityRun({
       projectName: 'acme-iq-positive',
