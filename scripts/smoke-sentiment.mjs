@@ -185,6 +185,12 @@ try {
     const perQuery = await http(project, `?queryId=${project}-query`)
     assert.deepEqual(await cli([project, '--query-id', `${project}-query`]), perQuery)
     assert.equal(perQuery.coverage.selected, count)
+    assert.equal(perQuery.queries.length, 1)
+    assert.equal(perQuery.queries[0].queryId, `${project}-query`)
+    assert.equal(perQuery.queries[0].queryClass, queryClass)
+    assert.deepEqual(perQuery.queries[0].score, perQuery.score)
+    assert.deepEqual([...perQuery.queries[0].sourceSnapshotIds].sort(), [...new Set(evidence[project].items.map(item => item.sourceSnapshotId))].sort())
+
     const otherClass = await http(project, `?queryClass=${queryClass === 'branded' ? 'non-brand' : 'branded'}`)
     assert.equal(otherClass.coverage.selected, 0)
     assert.equal(otherClass.score.favorableRate, null)

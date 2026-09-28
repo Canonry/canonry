@@ -1392,7 +1392,9 @@ Advanced `--scope property --scope-key <key> --market-key <key>` preserves exact
 frozen usage edges. Keep every selection field and the returned evaluator ID while
 following `--cursor`. Branded and non-brand are supported with separate denominators;
 select the class explicitly (the default remains branded). Summary includes
-server-computed per-query and location scores. JSON equals the HTTP DTO;
+server-computed per-query and location scores. For a grouped read, summary and
+evidence accept `--run-ids <first> --run-ids <second>` instead of `--run-id`.
+Backfill retains repeated `--run-id` for its historical selection. JSON equals the HTTP DTO;
 evidence JSONL is one complete page document so empty state and cursor survive.
 Jobs JSONL streams one project-stamped receipt per line. Favorable rates use judged
 assessments; mixed gets no partial credit, absent subjects are excluded, and

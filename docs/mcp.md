@@ -473,7 +473,8 @@ keeps judged/selected denominators, exclusions, distinct source answers, nullabl
 rates, per-query and location summaries, and comparison refusal reasons. Select
 `queryClass` explicitly; branded and non-brand have separate denominators. An absent
 intended subject is excluded, never unfavorable. Use `queryId` for a specific frozen
-query. Preserve every selection field and the resolved
+query. Summary/evidence can select an exact saved run group with a `runIds` array,
+mutually exclusive with `runId`. Preserve every selection field and the resolved
 `evaluationDefinitionId` when following an evidence cursor.
 
 `canonry_sentiment_configure` and `canonry_sentiment_backfill` are write tools for

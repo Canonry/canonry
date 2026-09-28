@@ -110,11 +110,13 @@ const clients = []
 const cases = []
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 async function http(project, suffix = '', { query = {}, method = 'GET', body, expected = 200, projectRoute = false } = {}) {
-  const response = await fetch(`${base}/api/v1/projects/${project}${projectRoute ? '' : '/sentiment'}${suffix}?${new URLSearchParams(query)}`, { method, signal: AbortSignal.timeout(15000), headers: { authorization: `Bearer ${SMOKE_ADMIN}`, ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) })
+  const parameters = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) for (const entry of Array.isArray(value) ? value : [value]) parameters.append(key, String(entry))
+  const response = await fetch(`${base}/api/v1/projects/${project}${projectRoute ? '' : '/sentiment'}${suffix}?${parameters}`, { method, signal: AbortSignal.timeout(15000), headers: { authorization: `Bearer ${SMOKE_ADMIN}`, ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) })
   const value = await response.json(); safe(value); assert.equal(response.status, expected, JSON.stringify(value)); return value
 }
 function cli(operation, project, query, failure) {
-  const arguments_ = ['sentiment', ...(operation === 'summary' ? [project] : [operation, project]), ...Object.entries(query).flatMap(([key, value]) => [`--${key.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}`, String(value)]), '--format', 'json']
+  const arguments_ = ['sentiment', ...(operation === 'summary' ? [project] : [operation, project]), ...Object.entries(query).flatMap(([key, value]) => (Array.isArray(value) ? value : [value]).flatMap(entry => [`--${key.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}`, String(entry)])), '--format', 'json']
   return new Promise((resolve, reject) => {
     const process_ = spawn(process.execPath, [bin, ...arguments_], { cwd: scratch, env, stdio: ['ignore', 'pipe', 'pipe'] })
     let stdout = ''; let stderr = ''
@@ -160,6 +162,23 @@ try {
     assert.equal(value.verdict, null); assert.equal(value.favorableRateDelta, null); assert(value.refusalReasons.includes(reason))
   }
   mark('S16 source-model, evaluator and population comparison refusals agree across all four installed transports')
+  const grouped = { runIds: ['simple-run', 'population-change'], evaluationDefinitionId: definitions.original.simple }
+  const groupedSummary = await all('summary', 'simple', grouped)
+  assert.equal(groupedSummary.selection.runId, null)
+  assert.deepEqual([...groupedSummary.selection.runIds].sort(), [...grouped.runIds].sort())
+  assert.equal(groupedSummary.coverage.selected, 2)
+  assert.equal(groupedSummary.coverage.distinctSourceAnswers, 2)
+  assert.equal(groupedSummary.coverage.judged, 2)
+  assert.equal(groupedSummary.score.favorableRate, 0.5)
+  assert.equal(groupedSummary.queries.length, 2)
+  assert.deepEqual(groupedSummary.queries.map(row => row.score.favorableRate).sort(), [0, 1])
+  const groupedPage = await all('evidence', 'simple', { ...grouped, limit: '1' })
+  assert(groupedPage.nextCursor)
+  const groupedNext = await all('evidence', 'simple', { ...grouped, limit: '1', cursor: groupedPage.nextCursor })
+  assert.notEqual(groupedPage.items[0].assessmentId, groupedNext.items[0].assessmentId)
+  await all('evidence', 'simple', { ...grouped, runIds: ['simple-run'], limit: '1', cursor: groupedPage.nextCursor }, true)
+  mark('exact grouped run reads, per-query scores and cursor membership agree across all four installed transports')
+
   const selection = { runId: 'advanced-run', scope: 'market', scopeKey: 'market-all', evaluationDefinitionId: definitions.original.advanced, limit: '1' }
   const first = await all('evidence', 'advanced', selection)
   assert(first.nextCursor); assert.equal(first.items.length, 1)
