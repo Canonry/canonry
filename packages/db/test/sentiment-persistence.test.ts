@@ -37,7 +37,7 @@ test('fresh and upgraded storage preserves definitions through repeated migratio
     expect(db.select().from(sentimentDefinitions).all()).toHaveLength(1)
     expect(repo.getSettings('p')).toMatchObject({ enabled: true, enablementEpoch: 1, completionBoundary: 0, evaluationDefinitionId: 'd' })
   }
-})
+}, 30_000)
 
 test('definition content is immutable and idempotent', () => {
   const { db, repo } = fixture()

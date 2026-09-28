@@ -3,6 +3,12 @@ import type { FastifyInstance, FastifyError } from 'fastify'
 import rateLimit from '@fastify/rate-limit'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import fs from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { sentimentRoutes, type SentimentRoutesOptions } from './sentiment.js'
+export { SentimentService } from './sentiment-service.js'
+export type { SentimentServiceOptions, SentimentInstallState } from './sentiment-service.js'
+export { selectSentimentSources } from './sentiment-source.js'
+export { sentimentClassifierInput, sentimentHash } from './sentiment-input.js'
 import { AppError, runtimeStateMissing, describeError } from '@ainyc/canonry-contracts'
 import { authPlugin } from './auth.js'
 import { registerRequestContext, type RequestContextOptions } from './request-context.js'
@@ -241,6 +247,7 @@ export interface ApiRoutesOptions {
   briefPromptVersion?: string
   /** Telemetry status/toggle callbacks */
   getTelemetryStatus?: TelemetryRoutesOptions['getTelemetryStatus']
+  sentiment?: SentimentRoutesOptions
   listOperationalLogs?: NonNullable<Parameters<typeof operationalLogsRoutes>[1]>['listOperationalLogs']
   setTelemetryEnabled?: TelemetryRoutesOptions['setTelemetryEnabled']
   /** Privacy-safe dashboard onboarding milestones. */
@@ -625,6 +632,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(notificationRoutes, {
       allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
     } satisfies NotificationRoutesOptions)
+    await api.register(sentimentRoutes, opts.sentiment ?? { install: () => ({ enabled: false, ready: false, reason: 'install-disabled', model: 'jev-1.13.0' }), previewSecret: randomUUID() })
     await api.register(operationalLogsRoutes, { listOperationalLogs: opts.listOperationalLogs })
     await api.register(telemetryRoutes, {
       getTelemetryStatus: opts.getTelemetryStatus,

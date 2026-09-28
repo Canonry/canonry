@@ -27,6 +27,10 @@ describe('sentiment measurement invariants', () => {
     expect(result.provisional).toBe(true)
     expect(result.themes[0]).toMatchObject({ discussed: 3, praised: 2, criticized: 3, both: 2, unclassified: 7 })
   })
+  it('discloses eligible assessments that have not been admitted without calling them pending', () => {
+    const result = aggregateSentiment([canonical[0]!], [], { eligibleAssessments: 3 })
+    expect(result.coverage).toMatchObject({ selected: 1, eligibleAssessments: 3, unadmittedAssessments: 2, judged: 1, counts: { pending: 0 } })
+  })
   it('deduplicates usage edges, preserving two subjects for one source answer', () => {
     const items = [{ ...canonical[0]!, sourceSnapshotId: 'shared' }, { ...canonical[4]!, sourceSnapshotId: 'shared' }]
     expect(aggregateSentiment([...items, items[0]!]).coverage).toMatchObject({ selected: 2, judged: 2, distinctSourceAnswers: 1 })

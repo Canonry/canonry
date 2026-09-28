@@ -78,7 +78,7 @@ export function canonicalSentimentDefinitionJson(definition: SentimentEvaluation
 }
 export const sentimentSubjectSchema = z.object({ id, displayName: z.string(), aliases: z.array(z.string()), qualifiedAliases: z.array(z.string()).default([]), urls: z.array(z.string()), mentionNotApplicable: z.boolean() }).strict()
 export type SentimentSubject = z.infer<typeof sentimentSubjectSchema>
-export const sentimentUsageEdgeSchema = z.object({ targetId: id, propertyId: id.nullable(), groupId: id.nullable(), marketId: id.nullable(), queryClass: z.enum(['branded', 'non-brand']), location: z.string().nullable() }).strict()
+export const sentimentUsageEdgeSchema = z.object({ queryId: id, executionNodeKey: id.nullable(), targetId: id, propertyId: id.nullable(), groupId: id.nullable(), marketId: id.nullable(), queryClass: z.enum(['branded', 'non-brand']), location: z.string().nullable() }).strict()
 export const sentimentExecutionContextSchema = z.object({
   queryId: id, queryText: z.string(), queryClass: z.enum(['branded', 'non-brand']), provider: id,
   requestedModel: z.string().nullable(), servedModel: z.string().nullable(), location: z.string().nullable(), revision: z.number().int().nullable(),
@@ -126,7 +126,7 @@ export const sentimentResolvedSelectionSchema = sentimentSelectionSchema.extend(
 export type SentimentResolvedSelection = z.infer<typeof sentimentResolvedSelectionSchema>
 export const sentimentCountsSchema = z.object(Object.fromEntries(sentimentOutcomeSchema.options.map(outcome => [outcome, count])) as Record<SentimentOutcome, typeof count>).strict()
 export type SentimentCounts = z.infer<typeof sentimentCountsSchema>
-export const sentimentCoverageSchema = z.object({ selected: count, judged: count, distinctSourceAnswers: count, counts: sentimentCountsSchema, expectedProviderSlots: count, completedProviderSlots: count }).strict()
+export const sentimentCoverageSchema = z.object({ selected: count, eligibleAssessments: count, unadmittedAssessments: count, judged: count, distinctSourceAnswers: count, counts: sentimentCountsSchema, expectedProviderSlots: count, completedProviderSlots: count }).strict()
 export const sentimentScoreSchema = z.object({ favorableRate: rate, mixedRate: rate, unfavorableRate: rate, favorableDisplay: z.string(), mixedDisplay: z.string(), unfavorableDisplay: z.string(), interval: z.object({ low: z.number(), high: z.number() }).strict().nullable(), method: z.literal('wilson-independent-v1'), limitation: z.string() }).strict()
 export const sentimentThemeCountsSchema = z.object({ theme: sentimentThemeSchema, discussed: count, praised: count, criticized: count, both: count, unclassified: count }).strict()
 export const sentimentBreakdownSchema = z.object({ dimension: z.enum(['provider', 'property', 'market']), key: z.string(), label: z.string(), coverage: sentimentCoverageSchema, score: sentimentScoreSchema }).strict()
@@ -186,7 +186,7 @@ export function sentimentRateDisplay(value: number | null): string {
   return `${Math.round(value * 100)}%`
 }
 /** Every selected assessment appears once. Theme polarities intentionally overlap. */
-export function aggregateSentiment(items: readonly SentimentAggregateItem[], themes: readonly SentimentTheme[] = [], options: { disabled?: boolean; expectedProviderSlots?: number; completedProviderSlots?: number } = {}) {
+export function aggregateSentiment(items: readonly SentimentAggregateItem[], themes: readonly SentimentTheme[] = [], options: { disabled?: boolean; eligibleAssessments?: number; expectedProviderSlots?: number; completedProviderSlots?: number } = {}) {
   const unique = [...new Map(items.map(item => [item.assessmentId, item])).values()]
   const counts = emptySentimentCounts()
   for (const item of unique) counts[item.outcome]++
@@ -199,7 +199,7 @@ export function aggregateSentiment(items: readonly SentimentAggregateItem[], the
   const unfavorableRate = judged && !options.disabled ? counts.unfavorable / judged : null
   return {
     state, provisional,
-    coverage: { selected: unique.length, judged, distinctSourceAnswers: new Set(unique.map(item => item.sourceSnapshotId)).size, counts, expectedProviderSlots: options.expectedProviderSlots ?? 0, completedProviderSlots: options.completedProviderSlots ?? 0 },
+    coverage: { selected: unique.length, eligibleAssessments: Math.max(options.eligibleAssessments ?? unique.length, unique.length), unadmittedAssessments: Math.max(0, (options.eligibleAssessments ?? unique.length) - unique.length), judged, distinctSourceAnswers: new Set(unique.map(item => item.sourceSnapshotId)).size, counts, expectedProviderSlots: options.expectedProviderSlots ?? 0, completedProviderSlots: options.completedProviderSlots ?? 0 },
     score: { favorableRate, mixedRate, unfavorableRate, favorableDisplay: sentimentRateDisplay(favorableRate), mixedDisplay: sentimentRateDisplay(mixedRate), unfavorableDisplay: sentimentRateDisplay(unfavorableRate), interval: options.disabled ? null : wilsonInterval(counts.favorable, judged), method: 'wilson-independent-v1' as const, limitation: SENTIMENT_INTERVAL_LIMITATION },
     themes: themes.map(theme => {
       let discussed = 0, praised = 0, criticized = 0, both = 0, unclassified = 0
