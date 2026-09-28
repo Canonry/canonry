@@ -1148,8 +1148,8 @@ const sentimentInputSchema = sentimentSelectionSchema.extend({ project: projectN
 const sentimentEvidenceInputSchema = sentimentEvidenceRequestSchema.extend({ project: projectNameSchema })
 const sentimentCompareInputSchema = sentimentCompareRequestSchema.extend({ project: projectNameSchema })
 const sentimentConfigureInputSchema = sentimentSettingsUpdateSchema.extend({ project: projectNameSchema }).refine(
-  input => input.enabled !== undefined || input.preset !== undefined || input.customThemes !== undefined,
-  'Explicit enabled, preset, or customThemes is required',
+  input => input.enabled !== undefined,
+  'Explicit enabled is required',
 )
 const sentimentPreviewInputSchema = sentimentBackfillSelectionSchema.extend({ project: projectNameSchema }).superRefine((input, ctx) => {
   const hasRuns = Boolean(input.runId || input.runIds?.length)
@@ -1164,28 +1164,28 @@ const sentimentBackfillInputSchema = sentimentBackfillRequestSchema.extend({ pro
 export const canonryMcpTools = [
   defineTool({
     name: 'canonry_sentiment_settings', title: 'Read sentiment readiness and settings',
-    description: 'Read experimental sentiment configuration, effective themes, evaluator identity, readiness and action permissions. No provider calls or credentials. Install administrators alone can configure or submit backfills.',
+    description: 'Read experimental sentiment configuration, evaluator identity, readiness and action permissions. No provider calls or credentials. Install administrators alone can configure or submit backfills.',
     access: 'read', tier: 'monitoring', inputSchema: projectInputSchema, outputSchema: sentimentSettingsSchema, annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/sentiment/settings'],
     handler: (client, input) => client.getSentimentSettings(input.project),
   }),
   defineTool({
     name: 'canonry_sentiment_configure', title: 'Configure project sentiment',
-    description: 'Install administrator only: explicitly enable/disable sentiment, select a preset, or replace custom themes. Both install and project switches default off. Enabling processes future eligible complete runs; historical answers require explicit backfill. TypeSafe receives answer text on dispatch; API keys remain local install configuration and are never accepted here. Custom themes remain Custom, not evaluated.',
+    description: 'Install administrator only: explicitly enable or disable stance-and-evidence sentiment. Both install and project switches default off. Enabling processes future eligible complete runs; historical answers require explicit backfill. TypeSafe receives answer text on dispatch; API keys remain local install configuration and are never accepted here.',
     access: 'write', tier: 'monitoring', inputSchema: sentimentConfigureInputSchema, outputSchema: sentimentSettingsSchema, annotations: writeAnnotations({ idempotentHint: true }),
     openApiOperations: ['PUT /api/v1/projects/{name}/sentiment/settings'],
     handler: (client, input) => { const { project, ...request } = input; return client.configureSentiment(project, request) },
   }),
   defineTool({
-    name: 'canonry_sentiment', title: 'Read branded sentiment and coverage',
-    description: 'Read stored model-classified language about frozen Simple identities or Advanced Properties. Returns favorable/mixed/unfavorable rates, judged and selected counts, distinct answers, exclusions, overlapping theme polarity counts, intervals and method limitations. Partial values are provisional; non-brand is unsupported. Never starts a classifier. Preserve the resolved evaluationDefinitionId and complete selection for later evidence reads.',
+    name: 'canonry_sentiment', title: 'Read sentiment and per-query scores',
+    description: 'Read stored model-classified language about frozen Simple identities or Advanced Properties. Returns headline and per-query favorable/mixed/unfavorable rates, judged and selected counts, distinct answers, exclusions, intervals and method limitations. Favorable % is favorable / (favorable + mixed + unfavorable); factual and unjudged answers do not enter that denominator. Select branded or non-brand explicitly and keep their metrics separate; the default is branded. Optional queryId selects one frozen query. A known subject absent from a non-brand answer is not unfavorable. Partial values are provisional. Never starts a classifier. Preserve the resolved evaluationDefinitionId and complete selection for later evidence reads.',
     access: 'read', tier: 'monitoring', inputSchema: sentimentInputSchema, outputSchema: sentimentSummarySchema, annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/sentiment'],
     handler: (client, input) => { const { project, ...query } = input; return client.getSentiment(project, query) },
   }),
   defineTool({
     name: 'canonry_sentiment_evidence', title: 'Read sentiment evidence',
-    description: 'Page stored answer-subject assessments and exact source quotations. Returns frozen identity/context, source hash, evaluator and engine provenance, exclusions, and optional complaint. Keep every selection field and resolved evaluationDefinitionId unchanged when following nextCursor. Advanced market refinement uses exact frozen usage edges. No provider calls.',
+    description: 'Page stored answer-subject assessments and exact source quotations. Returns frozen identity/context, source hash, evaluator and engine provenance, exclusions, and optional complaint. Keep queryClass, optional frozen queryId, every other selection field and resolved evaluationDefinitionId unchanged when following nextCursor. Advanced market refinement uses exact frozen usage edges. No provider calls.',
     access: 'read', tier: 'monitoring', inputSchema: sentimentEvidenceInputSchema, outputSchema: sentimentEvidencePageSchema, annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/sentiment/evidence'],
     handler: (client, input) => { const { project, ...query } = input; return client.getSentimentEvidence(project, query) },

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { sentimentSummarySchema } from '@ainyc/canonry-contracts'
 import { sentimentFixtureSummary } from '../../contracts/test/fixtures/sentiment.js'
 import { SENTIMENT_CLI_COMMANDS } from '../src/cli-commands/sentiment.js'
 import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
@@ -29,9 +30,9 @@ describe('sentiment CLI transport contract', () => {
     expect(JSON.parse(await invoke(['demo'], fixture, 'getSentiment'))).toEqual(fixture)
   })
   it('passes every identity-bearing Advanced filter to evidence', async () => {
-    await invoke(['evidence', 'demo', '--run-id', 'run', '--revision', '4', '--mode', 'advanced', '--query-class', 'branded', '--scope', 'property', '--scope-key', 'p', '--market-key', 'market', '--provider', 'openai', '--model', 'gpt-test', '--location', 'NY', '--evaluation-definition-id', 'def', '--cursor', 'cursor', '--limit', '12'], { items: [], nextCursor: null }, 'getSentimentEvidence')
+    await invoke(['evidence', 'demo', '--run-id', 'run', '--revision', '4', '--mode', 'advanced', '--query-class', 'branded', '--query-id', 'frozen-query', '--scope', 'property', '--scope-key', 'p', '--market-key', 'market', '--provider', 'openai', '--model', 'gpt-test', '--location', 'NY', '--evaluation-definition-id', 'def', '--cursor', 'cursor', '--limit', '12'], { items: [], nextCursor: null }, 'getSentimentEvidence')
     expect(client.getSentimentEvidence).toHaveBeenLastCalledWith('demo', {
-      runId: 'run', revision: 4, mode: 'advanced', queryClass: 'branded', scope: 'property', scopeKey: 'p', marketKey: 'market', provider: 'openai', model: 'gpt-test', location: 'NY', evaluationDefinitionId: 'def', cursor: 'cursor', limit: 12,
+      runId: 'run', revision: 4, mode: 'advanced', queryClass: 'branded', queryId: 'frozen-query', scope: 'property', scopeKey: 'p', marketKey: 'market', provider: 'openai', model: 'gpt-test', location: 'NY', evaluationDefinitionId: 'def', cursor: 'cursor', limit: 12,
     })
   })
   it('previews an explicit run selection and submits only its token and idempotency key', async () => {
@@ -43,6 +44,7 @@ describe('sentiment CLI transport contract', () => {
   })
   it.each([
     ['configure', 'demo'], ['configure', 'demo', '--enabled', 'maybe'],
+    ['configure', 'demo', '--preset', 'default'], ['configure', 'demo', '--custom-themes', '[]'],
     ['backfill', 'demo', '--preview'], ['backfill', 'demo', '--preview-token', 'token'],
     ['backfill', 'demo', '--preview', '--run-id', 'run', '--preview-token', 'token'],
     ['backfill', 'demo', '--preview-token', 'token', '--idempotency-key', 'key', '--run-id', 'run'],
@@ -50,16 +52,25 @@ describe('sentiment CLI transport contract', () => {
   ])('rejects invalid explicit arguments: %j', async (...argv) => {
     await expect(dispatchRegisteredCommand(['sentiment', ...argv], 'json', SENTIMENT_CLI_COMMANDS)).rejects.toBeInstanceOf(CliError)
   })
-  it('preserves server display values, denominator, uncertainty and overlap in text', async () => {
+  it('preserves server display values, denominator and uncertainty without theme output', async () => {
     const fixture = { ...sentimentFixtureSummary, coverage: { ...sentimentFixtureSummary.coverage, eligibleAssessments: 17, unadmittedAssessments: 7 }, score: { ...sentimentFixtureSummary.score, favorableDisplay: '61%' } }
     const output = await invoke(['demo'], fixture, 'getSentiment', 'text')
     expect(output).toContain('61%')
     expect(output).toContain('5 of 10')
     expect(output).toContain('Branded')
     expect(output).toContain('provisional')
-    expect(output).toContain('both: 2')
+    expect(output).not.toContain('Theme')
+    expect(output).toContain('favorable / (favorable + mixed + unfavorable)')
     expect(output).toContain('17 eligible assessments · 7 not yet admitted')
     expect(output).toContain(fixture.score.limitation)
+  })
+  it.each(['branded', 'non-brand'] as const)('preserves %s per-query JSON and prints the server-owned favorable display', async queryClass => {
+    const query = { queryId: 'frozen-query', queryText: 'Which apartments are good?', queryClass, sourceSnapshotIds: ['frozen-snapshot'], locations: [], state: 'partial', reason: 'Classification is incomplete.', provisional: true, coverage: sentimentFixtureSummary.coverage, score: { ...sentimentFixtureSummary.score, favorableDisplay: '61%' } }
+    const fixture = sentimentSummarySchema.parse({ ...sentimentFixtureSummary, selection: { ...sentimentFixtureSummary.selection, queryClass, queryId: query.queryId }, queries: [query] })
+    expect(JSON.parse(await invoke(['demo', '--query-class', queryClass, '--query-id', query.queryId], fixture, 'getSentiment'))).toEqual(fixture)
+    expect(client.getSentiment).toHaveBeenLastCalledWith('demo', { mode: 'auto', scope: 'project', queryClass, queryId: query.queryId })
+    const output = await invoke(['demo', '--query-class', queryClass], fixture, 'getSentiment', 'text')
+    expect(output).toContain(`frozen-query · Which apartments are good? · ${queryClass}: Favorable 61% · 3 favorable / 5 judged · partial · provisional`)
   })
   it('only prints No evaluative answers for a completed zero-judgment selection', async () => {
     for (const state of ['complete', 'processing', 'canceled'] as const) {

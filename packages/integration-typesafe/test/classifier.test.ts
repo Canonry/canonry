@@ -12,13 +12,17 @@ function classifier(overrides: Record<string, string> = {}) {
   } })
   return { instance, requests }
 }
-describe('subject-specific branded classification', () => {
-  it('keeps a favorable conclusion with a valid criticism theme and original evidence', async () => {
+describe('subject-specific stance and evidence classification', () => {
+  it('keeps a favorable conclusion with a caveat and original evidence', async () => {
     const { instance, requests } = classifier()
     const result = await instance.classify(inputFixture())
-    expect(result).toMatchObject({ kind: 'classified', outcome: 'favorable', conclusion: [inputFixture().sentences[0]], complaint: [inputFixture().sentences[1]], themes: [{ discussed: true, praised: false, criticized: true }] })
+    expect(result).toMatchObject({ kind: 'classified', outcome: 'favorable', conclusion: [inputFixture().sentences[0]], complaint: [inputFixture().sentences[1]] })
     expect(requests).toHaveLength(1)
     expect(requests[0].model).toBe('jev-1.13.0')
+    expect(Object.keys(requests[0].questions)).toEqual(['identity', 'judgment', 'stance', 'conclusion', 'complaint'])
+    expect(requests[0].state).not.toHaveProperty('themes')
+    expect(requests[0].state).not.toHaveProperty('themePolicy')
+    expect(result).not.toHaveProperty('themes')
     expect(requests[0].state).toMatchObject({ subject: inputFixture().subject, execution: inputFixture().context })
   })
   it('does not manufacture a complaint when absent', async () => {
@@ -30,15 +34,10 @@ describe('subject-specific branded classification', () => {
   })
   it('keeps uncertain judgments separate from factual answers', async () => {
     expect(await classifier({ judgment: 'ambiguous' }).instance.classify(inputFixture())).toMatchObject({ kind: 'abstained', outcome: 'ambiguous-judgment' })
-    expect(await classifier({ judgment: 'factual', theme_0_criticized: 'no', theme_0_criticized_evidence: 'absent' }).instance.classify(inputFixture())).toMatchObject({ kind: 'abstained', outcome: 'factual', themes: [{ discussed: true, praised: false, criticized: false }] })
+    expect(await classifier({ judgment: 'factual' }).instance.classify(inputFixture())).toMatchObject({ kind: 'abstained', outcome: 'factual' })
   })
-  it('accepts overlapping praise and criticism and rejects polarity without discussion', async () => {
-    expect(await classifier({ theme_0_praised: 'yes', theme_0_praised_evidence: 's1' }).instance.classify(inputFixture())).toMatchObject({ themes: [{ discussed: true, praised: true, criticized: true }] })
-    expect(await classifier({ theme_0_discussed: 'no' }).instance.classify(inputFixture())).toMatchObject({ kind: 'classified', outcome: 'favorable', themes: [{ discussed: null, praised: null, criticized: null }] })
-  })
-  it('rejects unknown conclusion IDs without throwing away valid unrelated theme decisions', async () => {
+  it('withholds a judgment without an exact conclusion source sentence', async () => {
     expect(await classifier({ conclusion: 's999' }).instance.classify(inputFixture())).toMatchObject({ kind: 'abstained', outcome: 'invalid-conclusion-evidence' })
-    expect(await classifier({ theme_0_criticized_evidence: 's999' }).instance.classify(inputFixture())).toMatchObject({ kind: 'classified', outcome: 'favorable', themes: [{ discussed: null }] })
   })
   it.each(['text', 'start', 'end'])('rejects altered source span %s before dispatch', async field => {
     const input = inputFixture()
@@ -57,20 +56,21 @@ describe('subject-specific branded classification', () => {
     expect(await instance.classify(input)).toMatchObject({ kind: 'abstained', outcome: 'input-too-large' })
     expect(requests).toHaveLength(0)
   })
-  it('consumes the frozen question wording and independently names every theme decision', () => {
+  it('consumes frozen stance-only question wording with a conservative request estimate', () => {
     const input = inputFixture(); input.definition.questions.identity = 'Frozen revised identity question'
     const result = buildJevSentimentRequest(input)
     expect(result.ok, JSON.stringify(result.ok ? result.estimate : result)).toBe(true)
     if (!result.ok) return
     expect(result.request.questions.identity.instructions).toContain(input.definition.questions.identity)
-    expect(Object.keys(result.request.questions)).toContain('theme_0_criticized_evidence')
+    expect(Object.keys(result.request.questions)).toHaveLength(5)
+    expect(Object.keys(result.request.questions).some(key => key.startsWith('theme_'))).toBe(false)
+    expect(result.estimate.inputTokens).toBe(Buffer.byteLength(JSON.stringify(result.request), 'utf8') + 1024)
     expect(result.estimate.method).toBe('utf8-byte-upper-bound-v1')
   })
-  it('does not dispatch unsupported languages, non-brand work, or inapplicable subjects', async () => {
-    for (const mutation of ['language', 'non-brand', 'subject']) {
+  it('does not dispatch unsupported languages or inapplicable subjects', async () => {
+    for (const mutation of ['language', 'subject']) {
       const input = inputFixture()
       if (mutation === 'language') input.language = 'fr'
-      if (mutation === 'non-brand') input.context.queryClass = 'non-brand'
       if (mutation === 'subject') input.subject.mentionNotApplicable = true
       const { instance, requests } = classifier()
       expect((await instance.classify(input)).kind).toBe('abstained')
@@ -80,19 +80,10 @@ describe('subject-specific branded classification', () => {
 })
 
 describe('request budget and evaluator identity', () => {
-  it('fits 24 themes at the configured name and description bounds for a short answer', () => {
+  it.each(['unknown-evidence', 'legacy-schema'] as const)('rejects unsupported evaluator templates before dispatch: %s', async variant => {
     const input = inputFixture()
-    input.definition.themes = Array.from({ length: 24 }, (_, index) => ({ id: `custom-${index}`, name: `Theme ${index} `.padEnd(80, 'x'), description: 'Synthetic custom definition. '.padEnd(400, 'x'), source: 'custom', evaluationStatus: 'custom-not-evaluated' }))
-    const result = buildJevSentimentRequest(input)
-    expect(result.ok, JSON.stringify(result.ok ? result.estimate : result)).toBe(true)
-    if (result.ok) {
-      expect(result.estimate.inputTokens).toBeLessThanOrEqual(64000)
-      expect(result.estimate.stateAndLongestQuestionTokens).toBeLessThanOrEqual(32000)
-      expect(result.estimate.inputTokens).toBeGreaterThan(result.estimate.withoutThemeEvidenceTokens)
-    }
-  })
-  it('rejects unknown evaluator templates before dispatch', async () => {
-    const input = inputFixture(); input.definition.evidenceVersion = 'unimplemented-v2'
+    if (variant === 'unknown-evidence') input.definition.evidenceVersion = 'unimplemented-v2'
+    else input.definition.schemaVersion = 1
     const { instance, requests } = classifier()
     expect(await instance.classify(input)).toMatchObject({ kind: 'abstained', reason: 'The frozen evaluator template version is unsupported.' })
     expect(requests).toHaveLength(0)
@@ -110,5 +101,67 @@ describe('request budget and evaluator identity', () => {
       return Response.json({ ...response, answers: { ...response.answers, conclusion: { ...response.answers.conclusion, quote: 'Fabricated provider quotation' } } })
     } })
     expect(await altered.classify(input)).toMatchObject({ kind: 'classified', conclusion: [input.sentences[0]] })
+  })
+})
+
+
+describe('non-brand intended-subject boundaries', () => {
+  function nonBrand(sourceText?: string) {
+    const input = inputFixture()
+    input.context.queryClass = 'non-brand'
+    input.context.queryText = 'Which apartment buildings are good in Chicago?'
+    if (sourceText !== undefined) {
+      input.sourceText = sourceText
+      input.sourceTextHash = createHash('sha256').update(sourceText).digest('hex')
+      input.sentences = [{ id: 's1', text: sourceText, start: 0, end: sourceText.length }]
+    }
+    return input
+  }
+  it.each(['South Hall is excellent.', 'North Hallmark has poor service.', 'No properties are named in this factual answer.'])('keeps an absent known subject nonjudged with no provider call: %s', async sourceText => {
+    const { instance, requests } = classifier({ stance: 'unfavorable' })
+    expect(await instance.classify(nonBrand(sourceText))).toMatchObject({ kind: 'abstained', outcome: 'subject-not-mentioned', returnedModel: null, usage: { kind: 'unknown' } })
+    expect(requests).toHaveLength(0)
+  })
+  it('distinguishes missing frozen identity from a known absent subject', async () => {
+    const input = nonBrand('South Hall is excellent.')
+    input.subject.aliases = []; input.subject.qualifiedAliases = []; input.subject.urls = []
+    const { instance, requests } = classifier()
+    expect(await instance.classify(input)).toMatchObject({ kind: 'abstained', outcome: 'subject-not-applicable' })
+    expect(requests).toHaveLength(0)
+  })
+  it.each(['wrong', 'ambiguous', 'absent'])('never counts a provider stance when identity is %s', async identity => {
+    const outcomes = { wrong: 'wrong-subject', ambiguous: 'ambiguous-subject', absent: 'subject-not-mentioned' }
+    const { instance, requests } = classifier({ identity, stance: 'unfavorable' })
+    expect(await instance.classify(nonBrand())).toMatchObject({ kind: 'abstained', outcome: outcomes[identity as keyof typeof outcomes] })
+    expect(requests).toHaveLength(1)
+  })
+  it('keeps opposite opinions attached to the frozen intended subject', async () => {
+    const input = nonBrand('South Hall is excellent. North Hall is disappointing.')
+    const secondStart = input.sourceText.indexOf('North Hall')
+    input.sentences = [{ id: 's1', text: input.sourceText.slice(0, secondStart - 1), start: 0, end: secondStart - 1 }, { id: 's2', text: input.sourceText.slice(secondStart), start: secondStart, end: input.sourceText.length }]
+    const { instance, requests } = classifier({ stance: 'unfavorable', conclusion: 's2', complaint: 's2' })
+    expect(await instance.classify(input)).toMatchObject({ kind: 'classified', outcome: 'unfavorable', conclusion: [input.sentences[1]] })
+    expect(requests[0].state).toMatchObject({ subject: input.subject, execution: { queryClass: 'non-brand', queryText: input.context.queryText } })
+  })
+  it('retains factual abstention and a favorable conclusion with a caveat separately', async () => {
+    expect(await classifier({ judgment: 'factual', complaint: 'absent' }).instance.classify(nonBrand('North Hall is located in Chicago.'))).toMatchObject({ kind: 'abstained', outcome: 'factual' })
+    expect(await classifier().instance.classify(nonBrand())).toMatchObject({ kind: 'classified', outcome: 'favorable', complaint: [inputFixture().sentences[1]] })
+  })
+  it.each(['https://www.North.example/path', 'North.Example', 'www.north.example/'])('uses the frozen domain as stored without a name alias: %s', async url => {
+    const domain = nonBrand('north.example is a good choice.')
+    domain.subject.aliases = []; domain.subject.qualifiedAliases = []; domain.subject.urls = [url]
+    expect(await classifier({ complaint: 'absent' }).instance.classify(domain)).toMatchObject({ kind: 'classified', outcome: 'favorable' })
+  })
+  it('uses frozen qualified aliases as known identity candidates', async () => {
+    const qualified = nonBrand('North Hall, Chicago is a good choice.')
+    qualified.subject.aliases = []; qualified.subject.urls = []
+    expect(await classifier({ complaint: 'absent' }).instance.classify(qualified)).toMatchObject({ kind: 'classified', outcome: 'favorable' })
+  })
+  it('refuses prior evaluator semantics instead of silently reclassifying old queued inputs', async () => {
+    const input = nonBrand()
+    input.definition.verdictVersion = 'stance-v1'; input.definition.identityVersion = 'qualified-subject-v1'
+    const { instance, requests } = classifier()
+    expect(await instance.classify(input)).toMatchObject({ kind: 'abstained', outcome: 'ambiguous-judgment' })
+    expect(requests).toHaveLength(0)
   })
 })

@@ -17,8 +17,6 @@ function printSettings(value: SentimentSettings): void {
   console.log(`Sentiment: ${value.enabled ? 'enabled' : 'disabled'} · ${value.ready ? 'ready' : 'unavailable'} · experimental`)
   console.log(`Evaluator: ${value.model} · definition: ${value.evaluationDefinitionId ?? 'not configured'} · epoch: ${value.enablementEpoch}`)
   for (const reason of value.readinessReasons) console.log(reason)
-  console.log(`Preset: ${value.preset}`)
-  for (const theme of value.themes) console.log(`  ${theme.name}: ${theme.description} (${theme.evaluationStatus})`)
   console.log(`Actions: configure ${value.actions.configure ? 'allowed' : 'unavailable'}; backfill ${value.actions.backfill ? 'allowed' : 'unavailable'}`)
   console.log(value.disclosure)
 }
@@ -34,6 +32,7 @@ function printSummary(value: SentimentSummary): void {
   console.log(`${label} sentiment: ${value.state}${value.provisional ? ' · provisional' : ''}`)
   if (value.reason) console.log(value.reason)
   console.log(`Favorable: ${value.score.favorableDisplay} · Mixed: ${value.score.mixedDisplay} · Unfavorable: ${value.score.unfavorableDisplay}`)
+  console.log(`${label} favorable % = favorable / (favorable + mixed + unfavorable).`)
   console.log(`${value.coverage.judged} of ${value.coverage.selected} assessments judged · ${value.coverage.distinctSourceAnswers} distinct source answers`)
   console.log(`${value.coverage.eligibleAssessments} eligible assessments · ${value.coverage.unadmittedAssessments} not yet admitted`)
   console.log(`Source provider slots: ${value.coverage.completedProviderSlots} of ${value.coverage.expectedProviderSlots}`)
@@ -42,8 +41,11 @@ function printSummary(value: SentimentSummary): void {
   for (const [outcome, count] of Object.entries(value.coverage.counts)) if (count > 0) console.log(`  ${outcome}: ${count}`)
   if (value.score.interval) console.log(`Wilson 95% interval (proportion): ${value.score.interval.low}–${value.score.interval.high}`)
   console.log(value.score.limitation)
-  for (const theme of value.themes) console.log(`${theme.theme.name} (${theme.theme.evaluationStatus}): discussed ${theme.discussed}; praised ${theme.praised}; criticized ${theme.criticized}; both: ${theme.both}; unclassified ${theme.unclassified}`)
-  for (const row of value.breakdowns) console.log(`${row.dimension} ${row.label}: ${row.score.favorableDisplay} favorable · ${row.coverage.judged} of ${row.coverage.selected} judged`)
+  for (const row of value.queries) {
+    console.log(`Query ${row.queryId} · ${row.queryText} · ${row.queryClass}: Favorable ${row.score.favorableDisplay} · ${row.coverage.counts.favorable} favorable / ${row.coverage.judged} judged · ${row.state}${row.provisional ? ' · provisional' : ''}`)
+    if (row.reason) console.log(`  ${row.reason}`)
+  }
+  for (const row of value.breakdowns) if (row.dimension !== 'query') console.log(`${row.dimension} ${row.label} · ${row.queryClass}: ${row.score.favorableDisplay} favorable · ${row.coverage.judged} of ${row.coverage.selected} judged`)
 }
 
 export async function showSentimentSettings(project: string, format: CliFormat): Promise<void> {

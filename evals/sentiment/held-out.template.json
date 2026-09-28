@@ -1,8 +1,8 @@
 {
   "manifest": {
-    "evaluatorDefinitionId": "pending-independent-corpus-freeze",
+    "evaluatorDefinitionId": "pending-v2-independent-corpus-freeze",
     "developmentGroups": [],
-    "selectionPolicy": "At least 150 representative branded answers across two or more industries; independently sampled from authorized non-sensitive sources. Keep complaint-enriched, adversarial, and rare-class additions in the challenge sample. Require at least 25 adjudicated examples of each stance across the two samples.",
+    "selectionPolicy": "At least 150 representative answers PER queryClass (branded and non-brand separately), across two or more industries in each population; independently sampled from authorized non-sensitive sources. Keep complaint-enriched, adversarial, and rare-class additions in the challenge sample. Require at least 25 adjudicated examples of each stance within each query class across the two samples. Themes are deferred; label intended-subject presence, stance and conclusion evidence only.",
     "reviewPolicy": "Two independent reviewers label without model predictions. Retain reviewer label records, hashes, adjudication, exact source hashes, split and Property/query-family/sweep identities. Assess semantic support of accepted model evidence separately after blind adjudication.",
     "sourceStatus": "The original 32 development answers and independent human-reviewed held-out answers were not supplied with this implementation plan. Empty examples are intentional; synthetic tests do not substitute for those labels.",
     "releaseStatus": "experimental-off-by-default"

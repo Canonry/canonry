@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { sentimentSummarySchema } from '@ainyc/canonry-contracts'
 import { sentimentFixtureSummary } from '../../contracts/test/fixtures/sentiment.js'
 import type { ApiClient } from '../src/client.js'
 import { CliError } from '../src/cli-error.js'
@@ -36,6 +37,22 @@ describe('sentiment MCP parity', () => {
     expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(sentimentFixtureSummary, null, 2) }])
     expect(spec.tier).toBe('monitoring')
     for (const operation of spec.openApiOperations) expect(MCP_OPENAPI_OPERATION_CLASSIFICATIONS[operation as keyof typeof MCP_OPENAPI_OPERATION_CLASSIFICATIONS]).toBe('included')
+  })
+  it.each(['branded', 'non-brand'] as const)('passes one explicit %s query population and preserves per-query results', async queryClass => {
+    const summary = sentimentSummarySchema.parse({ ...sentimentFixtureSummary, selection: { ...sentimentFixtureSummary.selection, queryClass, queryId: 'frozen-query' }, queries: [{ queryId: 'frozen-query', queryText: 'Which apartments are good?', queryClass, sourceSnapshotIds: ['frozen-snapshot'], locations: [], state: 'partial', reason: null, provisional: true, coverage: sentimentFixtureSummary.coverage, score: sentimentFixtureSummary.score }] })
+    const call = vi.fn().mockResolvedValue(summary)
+    const spec = tool('canonry_sentiment')
+    const result = await withToolErrors(() => spec.handler({ getSentiment: call } as unknown as ApiClient, spec.inputSchema.parse({ project: 'demo', queryClass, queryId: 'frozen-query' })))
+    expect(call).toHaveBeenCalledWith('demo', { mode: 'auto', scope: 'project', queryClass, queryId: 'frozen-query' })
+    expect(result.structuredContent).toEqual(summary)
+    expect(spec.description).toContain('favorable / (favorable + mixed + unfavorable)')
+    expect(spec.description).not.toContain('unsupported')
+  })
+  it('rejects retired theme configuration and pooled sentiment selections', () => {
+    const configure = tool('canonry_sentiment_configure')
+    expect(configure.inputSchema.safeParse({ project: 'demo', preset: 'default' }).success).toBe(false)
+    expect(configure.inputSchema.safeParse({ project: 'demo', enabled: true, customThemes: [] }).success).toBe(false)
+    expect(tool('canonry_sentiment').inputSchema.safeParse({ project: 'demo', queryClass: 'all' }).success).toBe(false)
   })
   it('contains all seven reads and excludes both writes in read-only catalogs', () => {
     const readNames = getCanonryMcpTools('read-only').map(entry => entry.name)

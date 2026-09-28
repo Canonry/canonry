@@ -7,6 +7,7 @@ type Stance = typeof STANCES[number]
 export interface SentimentEvaluationExample {
   id: string
   sample: 'representative' | 'challenge'
+  queryClass: 'branded' | 'non-brand'
   industry: string
   provider: string
   language: string
@@ -16,8 +17,8 @@ export interface SentimentEvaluationExample {
   sourceText: string
   sourceHash: string
   reviewers: Array<{ id: string; labelHash: string; blinded: boolean }>
-  adjudication: { reviewerId: string; correctSubject: boolean; judgeable: boolean; outcome: SentimentOutcome; complaints: Record<string, boolean> }
-  prediction: { outcome: SentimentOutcome; evidence: SentimentEvidence[]; evidenceSupported: boolean | null; complaints: Record<string, boolean | null> }
+  adjudication: { reviewerId: string; correctSubject: boolean; judgeable: boolean; outcome: SentimentOutcome }
+  prediction: { outcome: SentimentOutcome; evidence: SentimentEvidence[]; evidenceSupported: boolean | null }
 }
 export interface SentimentEvaluationOptions { evaluatorDefinitionId: string; developmentGroups: string[] }
 function isStance(outcome: SentimentOutcome): outcome is Stance { return STANCES.some(stance => stance === outcome) }
@@ -57,14 +58,6 @@ function score(rows: SentimentEvaluationExample[]) {
   const judged = eligible.filter(row => isStance(row.prediction.outcome))
   const favorable = rows.filter(row => row.prediction.outcome === SentimentOutcomes.favorable)
   const quotations = rows.flatMap(row => row.prediction.evidence.map(evidence => ({ row, evidence })))
-    const complaints = rows.flatMap(row => [...new Set([...Object.keys(row.adjudication.complaints), ...Object.keys(row.prediction.complaints)])].map(theme => ({ expected: row.adjudication.complaints[theme] === true, predicted: row.prediction.complaints[theme] === true })))
-  const complaintsByTheme = [...new Set(rows.flatMap(row => [...Object.keys(row.adjudication.complaints), ...Object.keys(row.prediction.complaints)]))].map(themeId => {
-    const truePositive = rows.filter(row => row.adjudication.complaints[themeId] === true && row.prediction.complaints[themeId] === true).length
-    const precision = proportion(truePositive, rows.filter(row => row.prediction.complaints[themeId] === true).length)
-    const recall = proportion(truePositive, rows.filter(row => row.adjudication.complaints[themeId] === true).length)
-    return { themeId, precision, recall, passed: precision.value !== null && precision.value >= 0.9 && recall.value !== null && recall.value >= 0.85 }
-  })
-  const complaintTruePositive = complaints.filter(value => value.expected && value.predicted).length
   const expectedShare = proportion(eligible.filter(row => row.adjudication.outcome === SentimentOutcomes.favorable).length, eligible.length)
   const measuredJudgments = rows.filter(row => isStance(row.prediction.outcome))
   const measuredShare = proportion(measuredJudgments.filter(row => row.prediction.outcome === SentimentOutcomes.favorable).length, measuredJudgments.length)
@@ -75,21 +68,40 @@ function score(rows: SentimentEvaluationExample[]) {
     stanceMacroF1: { value: macroF1(rows), interval: bootstrapMacroInterval(rows) },
     coverage: proportion(judged.length, eligible.length),
     evidenceSupport: proportion(quotations.filter(({ row }) => row.prediction.evidenceSupported === true).length, quotations.length),
-    complaintPrecision: proportion(complaintTruePositive, complaints.filter(value => value.predicted).length),
-    complaintRecall: proportion(complaintTruePositive, complaints.filter(value => value.expected).length),
     favorableShareError: { value: expectedShare.value === null || measuredShare.value === null ? null : Math.abs(expectedShare.value - measuredShare.value), expectedShare, measuredShare,
       differenceInterval: expectedShare.interval && measuredShare.interval ? { low: measuredShare.interval.low - expectedShare.interval.high, high: measuredShare.interval.high - expectedShare.interval.low } : null },
   }
   return { count: rows.length, eligible: eligible.length, excludedFromShare: rows.length - measuredJudgments.length,
     abstentionsByStance: Object.fromEntries(STANCES.map(stance => [stance, eligible.filter(row => row.adjudication.outcome === stance && !isStance(row.prediction.outcome)).length])),
-    stances: stanceCounts(rows), complaintsByTheme, metrics }
+    stances: stanceCounts(rows), metrics }
 }
 function metricGates(result: ReturnType<typeof score>) {
-  const targets = { quotationIntegrity: 1, correctSubjectPrecision: 0.95, favorablePrecision: 0.9, stanceMacroF1: 0.85, coverage: 0.9, evidenceSupport: 0.95, complaintPrecision: 0.9, complaintRecall: 0.85 } as const
+  const targets = { quotationIntegrity: 1, correctSubjectPrecision: 0.95, favorablePrecision: 0.9, stanceMacroF1: 0.85, coverage: 0.9, evidenceSupport: 0.95 } as const
   return { ...Object.fromEntries(Object.entries(targets).map(([name, target]) => {
     const value = result.metrics[name as keyof typeof targets].value
     return [name, { target, value, passed: value !== null && value >= target }]
   })), favorableShareError: { target: 0.05, value: result.metrics.favorableShareError.value, passed: result.metrics.favorableShareError.value !== null && result.metrics.favorableShareError.value <= 0.05 } }
+}
+
+function evaluatePopulation(rows: SentimentEvaluationExample[], queryClass: SentimentEvaluationExample['queryClass']) {
+  const members = rows.filter(row => row.queryClass === queryClass)
+  const representativeRows = members.filter(row => row.sample === 'representative')
+  const representative = score(representativeRows)
+  const challenge = score(members.filter(row => row.sample === 'challenge'))
+  const gates = metricGates(representative)
+  const blockers: string[] = []
+  if (representativeRows.length < 150) blockers.push(`${queryClass}: representative sample requires at least 150 independently reviewed answers.`)
+  if (new Set(representativeRows.map(row => row.industry)).size < 2) blockers.push(`${queryClass}: representative sample requires at least two industries.`)
+  for (const stance of STANCES) if (members.filter(row => row.adjudication.outcome === stance).length < 25) blockers.push(`${queryClass}: at least 25 adjudicated ${stance} examples are required across representative and challenge samples.`)
+  const slices = (['industry', 'provider', 'language'] as const).flatMap(dimension => [...new Set(members.map(row => row[dimension]))].flatMap(value => (['representative', 'challenge'] as const).map(sample => {
+    const sliceRows = members.filter(row => row[dimension] === value && row.sample === sample)
+    const result = score(sliceRows)
+    const sliceGates = metricGates(result)
+    const sufficient = sliceRows.length >= 25 && STANCES.every(stance => sliceRows.filter(row => row.adjudication.outcome === stance).length >= 5)
+    return { queryClass, dimension, value, sample, ...result, gates: sliceGates, releaseEligible: sufficient && Object.values(sliceGates).every(gate => gate.passed), limitation: sufficient ? null : 'Sparse slice: at least 25 examples and five examples of each stance are required.' }
+  })))
+  return { queryClass, representative, challenge, gates, slices, blockers,
+    releaseEligible: blockers.length === 0 && Object.values(gates).every(gate => gate.passed) && slices.filter(slice => slice.sample === 'representative').every(slice => slice.releaseEligible) }
 }
 
 /** Offline scoring only. Human labels and semantic evidence reviews must be supplied separately. */
@@ -99,29 +111,20 @@ export function evaluateSentimentCorpus(rows: SentimentEvaluationExample[], opti
   for (const row of rows) {
     if (seen.has(row.id)) blockers.push(`Duplicate example ID: ${row.id}.`)
     seen.add(row.id)
+    if (!(['branded', 'non-brand'] as readonly unknown[]).includes(row.queryClass)) blockers.push(`Example ${row.id} requires an explicit branded or non-brand query class.`)
     if (createHash('sha256').update(row.sourceText).digest('hex') !== row.sourceHash) blockers.push(`Example ${row.id} has a mismatched source hash.`)
     if (new Set(row.reviewers.map(reviewer => reviewer.id)).size < 2 || row.reviewers.some(reviewer => !reviewer.blinded || !reviewer.labelHash) || !row.adjudication.reviewerId) blockers.push(`Example ${row.id} requires two blinded reviewers and retained adjudication.`)
     if (isStance(row.adjudication.outcome) && (!row.adjudication.correctSubject || !row.adjudication.judgeable)) blockers.push(`Example ${row.id} assigns a stance to an ineligible subject or judgment.`)
+    if (isStance(row.prediction.outcome) && !row.prediction.evidence.length) blockers.push(`Example ${row.id} requires conclusion evidence for its predicted stance.`)
     const groups = [`property:${row.propertyId}`, `query-family:${row.queryFamilyId}`, `sweep:${row.sweepId}`]
     if (groups.some(group => options.developmentGroups.includes(group))) blockers.push(`Example ${row.id} overlaps a development group.`)
     if (![row.industry, row.provider, row.language, row.propertyId, row.queryFamilyId, row.sweepId].every(Boolean)) blockers.push(`Example ${row.id} lacks slice or grouping provenance.`)
   }
-  const representativeRows = rows.filter(row => row.sample === 'representative')
-  const representative = score(representativeRows)
-  const challenge = score(rows.filter(row => row.sample === 'challenge'))
-  const gates = metricGates(representative)
-  if (representativeRows.length < 150) blockers.push('Representative sample requires at least 150 independently reviewed answers.')
-  if (new Set(representativeRows.map(row => row.industry)).size < 2) blockers.push('Representative sample requires at least two industries.')
-  for (const stance of STANCES) if (rows.filter(row => row.adjudication.outcome === stance).length < 25) blockers.push(`At least 25 adjudicated ${stance} examples are required across representative and challenge samples.`)
   if (!options.evaluatorDefinitionId) blockers.push('A frozen evaluator definition is required.')
-  const slices = (['industry', 'provider', 'language'] as const).flatMap(dimension => [...new Set(rows.map(row => row[dimension]))].flatMap(value => (['representative', 'challenge'] as const).map(sample => {
-    const members = rows.filter(row => row[dimension] === value && row.sample === sample)
-    const result = score(members)
-    const sliceGates = metricGates(result)
-    const sufficient = members.length >= 25 && STANCES.every(stance => members.filter(row => row.adjudication.outcome === stance).length >= 5)
-    return { dimension, value, sample, ...result, gates: sliceGates, releaseEligible: sufficient && Object.values(sliceGates).every(gate => gate.passed), limitation: sufficient ? null : 'Sparse slice: at least 25 examples and five examples of each stance are required.' }
-  })))
-  return { schemaVersion: 1, evaluatorDefinitionId: options.evaluatorDefinitionId, releaseEligible: blockers.length === 0 && Object.values(gates).every(gate => gate.passed) && representative.complaintsByTheme.every(theme => theme.passed) && slices.filter(slice => slice.sample === 'representative').every(slice => slice.releaseEligible), blockers,
-    representative, challenge, gates, slices,
-    limitations: ['Synthetic fixture labels and live smoke do not establish independent held-out quality.', 'Proportions use Wilson 95% intervals. Macro F1 uses 500 seeded ordinary bootstrap resamples; intervals do not account for Property, query-family, or sweep clustering.', 'Favorable-share difference interval uses independent marginal Wilson bounds; abstentions and excluded cases are disclosed.', 'Vendor confidence is not interpreted as probability of correctness. Custom themes and non-brand sentiment remain unvalidated.'] }
+  const populations = { branded: evaluatePopulation(rows, 'branded'), 'non-brand': evaluatePopulation(rows, 'non-brand') }
+  blockers.push(...Object.values(populations).flatMap(population => population.blockers))
+  return { schemaVersion: 2, evaluatorDefinitionId: options.evaluatorDefinitionId, count: rows.length,
+    releaseEligible: blockers.length === 0 && Object.values(populations).every(population => population.releaseEligible), blockers, populations,
+    scope: 'stance-and-evidence-only', deferredCapabilities: ['themes'],
+    limitations: ['Synthetic fixture labels and live smoke do not establish independent held-out quality.', 'Branded and non-brand populations are evaluated separately; their favorable shares, denominators, and quality gates are never pooled.', 'Proportions use Wilson 95% intervals. Macro F1 uses 500 seeded ordinary bootstrap resamples; intervals do not account for Property, query-family, or sweep clustering.', 'Favorable-share difference interval uses independent marginal Wilson bounds; abstentions and excluded cases are disclosed.', 'Vendor confidence is not interpreted as probability of correctness. Themes are deferred and do not participate in this release gate; non-English sentiment requires separate evaluation.'] }
 }

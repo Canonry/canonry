@@ -95,6 +95,8 @@ Experimental sentiment adds nine monitoring tools: settings, configure, summary,
 evidence, compare, backfill preview, backfill submit, jobs and job detail. Schemas
 reuse contracts; only configure and backfill submit are writes. Both require install
 administrator authority at the API, including delegated credentials. Reads preserve
-nulls, frozen subject/market/evaluator context, overlapping theme counts and refusal
-reasons. Credentials are never accepted. Native Aero defers all nine tools until its
+nulls, frozen query/subject/market/evaluator context, server-owned per-query scores
+and refusal reasons. `queryClass` selects exactly one branded or non-brand
+population; `queryId` retains its frozen identity. Configure accepts only enabled
+state, and no active tool accepts theme settings. Credentials are never accepted. Native Aero defers all nine tools until its
 separate sentiment evaluation and release gate.

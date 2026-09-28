@@ -709,8 +709,11 @@ jobs and job. JSON preserves the API DTO unchanged. Evidence JSONL preserves the
 page envelope because empty state, resolved evaluator and cursor belong together;
 jobs JSONL streams project-stamped job receipts.
 
-Configure accepts explicit enabled/preset/custom theme arguments; it never accepts
-credentials. Backfill preview needs explicit run IDs or both ISO date bounds.
+Configure accepts an explicit enabled boolean; it never accepts credentials or
+retired theme settings. Backfill preview needs explicit run IDs or both ISO date bounds.
 Submission only accepts the returned preview token and idempotency key. Authority
 and idempotency remain server-enforced. No read invokes the classifier, and clients
-display server-owned percentages, intervals, theme overlaps and refusal reasons.
+display server-owned per-query percentages, intervals and refusal reasons. Select
+exactly one branded or non-brand population; `--query-id` preserves the frozen query
+identity. Favorable % uses favorable / (favorable + mixed + unfavorable), excluding
+factual and unjudged assessments.

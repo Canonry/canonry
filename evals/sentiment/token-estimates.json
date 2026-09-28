@@ -1,38 +1,48 @@
 {
-  "default": {
-    "themeCount": 6,
-    "accepted": true,
+  "branded": {
+    "queryClass": "branded",
+    "providerRequestRequired": true,
+    "outcome": null,
+    "questions": [
+      "identity",
+      "judgment",
+      "stance",
+      "conclusion",
+      "complaint"
+    ],
     "estimate": {
       "method": "utf8-byte-upper-bound-v1",
-      "inputTokens": 16003,
-      "stateAndLongestQuestionTokens": 3503,
-      "inputCostUsd": 0.0006721260000000001,
-      "withoutThemeEvidenceTokens": 10795
+      "inputTokens": 3855,
+      "stateAndLongestQuestionTokens": 2395,
+      "inputCostUsd": 0.00016191
     },
     "limitation": "UTF-8 byte upper bound plus 1024 framing allowance, not the vendor tokenizer or returned usage. Official price checked 2026-09-28: USD 0.042/M input tokens."
   },
-  "multifamily": {
-    "themeCount": 12,
-    "accepted": true,
+  "non-brand": {
+    "queryClass": "non-brand",
+    "providerRequestRequired": true,
+    "outcome": null,
+    "questions": [
+      "identity",
+      "judgment",
+      "stance",
+      "conclusion",
+      "complaint"
+    ],
     "estimate": {
       "method": "utf8-byte-upper-bound-v1",
-      "inputTokens": 28213,
-      "stateAndLongestQuestionTokens": 4577,
-      "inputCostUsd": 0.001184946,
-      "withoutThemeEvidenceTokens": 17785
+      "inputTokens": 3884,
+      "stateAndLongestQuestionTokens": 2424,
+      "inputCostUsd": 0.00016312800000000001
     },
     "limitation": "UTF-8 byte upper bound plus 1024 framing allowance, not the vendor tokenizer or returned usage. Official price checked 2026-09-28: USD 0.042/M input tokens."
   },
-  "maximum-custom": {
-    "themeCount": 24,
-    "accepted": true,
-    "estimate": {
-      "method": "utf8-byte-upper-bound-v1",
-      "inputTokens": 62322,
-      "stateAndLongestQuestionTokens": 16318,
-      "inputCostUsd": 0.0026175240000000004,
-      "withoutThemeEvidenceTokens": 41406
-    },
+  "non-brand-subject-absent": {
+    "queryClass": "non-brand",
+    "providerRequestRequired": false,
+    "outcome": "subject-not-mentioned",
+    "questions": [],
+    "estimate": null,
     "limitation": "UTF-8 byte upper bound plus 1024 framing allowance, not the vendor tokenizer or returned usage. Official price checked 2026-09-28: USD 0.042/M input tokens."
   }
 }

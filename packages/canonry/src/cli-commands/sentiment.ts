@@ -12,11 +12,11 @@ import {
 } from '../commands/sentiment.js'
 
 const selectionOptions = {
-  'run-id': stringOption(), revision: stringOption(), mode: stringOption(), 'query-class': stringOption(), scope: stringOption(),
+  'run-id': stringOption(), 'query-id': stringOption(), revision: stringOption(), mode: stringOption(), 'query-class': stringOption(), scope: stringOption(),
   'scope-key': stringOption(), 'market-key': stringOption(), provider: stringOption(), model: stringOption(), location: stringOption(),
   'evaluation-definition-id': stringOption(),
 }
-const selectionHelp = 'Selection: --run-id <id> --revision <n> --mode auto|simple|advanced --query-class branded|non-brand --scope project|property|group|market --scope-key <key> --market-key <key> --provider <provider> --model <id> --location <label> --evaluation-definition-id <id>. Non-brand is an explicit unsupported state in this experimental release. Reads use stored data only.'
+const selectionHelp = 'Selection: --run-id <id> --query-id <frozen-query-id> --revision <n> --mode auto|simple|advanced --query-class branded|non-brand --scope project|property|group|market --scope-key <key> --market-key <key> --provider <provider> --model <id> --location <label> --evaluation-definition-id <id>. Branded and non-brand are separate populations; select exactly one class. Favorable % is favorable / (favorable + mixed + unfavorable), excluding factual and unjudged answers. The summary includes per-query scores. Reads use stored data only.'
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value)
@@ -24,7 +24,7 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   return result.data
 }
 function selection(input: CliCommandInput): Record<string, unknown> {
-  const names = { 'run-id': 'runId', revision: 'revision', mode: 'mode', 'query-class': 'queryClass', scope: 'scope', 'scope-key': 'scopeKey', 'market-key': 'marketKey', provider: 'provider', model: 'model', location: 'location', 'evaluation-definition-id': 'evaluationDefinitionId' }
+  const names = { 'run-id': 'runId', 'query-id': 'queryId', revision: 'revision', mode: 'mode', 'query-class': 'queryClass', scope: 'scope', 'scope-key': 'scopeKey', 'market-key': 'marketKey', provider: 'provider', model: 'model', location: 'location', 'evaluation-definition-id': 'evaluationDefinitionId' }
   return Object.fromEntries(Object.entries(names).flatMap(([flag, field]) => {
     const value = getString(input.values, flag)
     return value === undefined ? [] : [[field, value]]
@@ -41,23 +41,14 @@ export const SENTIMENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     run: input => showSentimentSettings(project(input, 'settings'), input.format),
   },
   {
-    path: ['sentiment', 'configure'], usage: 'canonry sentiment configure <project> [--enabled true|false] [--preset default|multifamily] [--custom-themes <json-array>] [--format json]',
-    help: 'Install administrators can change project settings. Enabling processes future complete runs; historical runs require an explicit backfill. Custom themes replace the custom portion and remain Custom, not evaluated. TypeSafe credentials are configured locally on the install.',
-    options: { enabled: stringOption(), preset: stringOption(), 'custom-themes': stringOption() },
+    path: ['sentiment', 'configure'], usage: 'canonry sentiment configure <project> --enabled true|false [--format json]',
+    help: 'Install administrators can change project settings. Enabling processes future complete runs; historical runs require an explicit backfill. TypeSafe credentials are configured locally on the install.',
+    options: { enabled: stringOption() },
     run: async input => {
       const enabled = getString(input.values, 'enabled')
       if (enabled !== undefined && enabled !== 'true' && enabled !== 'false') throw usageError('--enabled must be true or false')
-      const rawThemes = getString(input.values, 'custom-themes')
-      let customThemes: unknown
-      if (rawThemes !== undefined) {
-        try { customThemes = JSON.parse(rawThemes) } catch { throw usageError('--custom-themes must be a JSON array of {id,name,description}') }
-      }
-      const request = parse(sentimentSettingsUpdateSchema, {
-        ...(enabled === undefined ? {} : { enabled: enabled === 'true' }),
-        ...(getString(input.values, 'preset') === undefined ? {} : { preset: getString(input.values, 'preset') }),
-        ...(rawThemes === undefined ? {} : { customThemes }),
-      })
-      if (Object.keys(request).length === 0) throw usageError('Provide --enabled, --preset, or --custom-themes explicitly')
+      if (enabled === undefined) throw usageError('Provide --enabled true or false explicitly')
+      const request = parse(sentimentSettingsUpdateSchema, { enabled: enabled === 'true' })
       await configureSentiment(project(input, 'configure'), request, input.format)
     },
   },

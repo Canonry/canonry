@@ -13,7 +13,7 @@ describe('sentiment generated SDK client', () => {
       return new Response(JSON.stringify(sentimentFixtureSummary), { headers: { 'content-type': 'application/json' } })
     }))
     const client = new ApiClient('https://canonry.test/prefix', 'cnry_test', { skipProbe: true })
-    const selection = { runId: 'run', revision: 4, mode: 'advanced' as const, queryClass: 'branded' as const, scope: 'property' as const, scopeKey: 'property', marketKey: 'market', provider: 'openai', model: 'vendor/model:v1', location: 'New York', evaluationDefinitionId: 'definition' }
+    const selection = { runId: 'run', queryId: 'frozen-query', revision: 4, mode: 'advanced' as const, queryClass: 'non-brand' as const, scope: 'property' as const, scopeKey: 'property', marketKey: 'market', provider: 'openai', model: 'vendor/model:v1', location: 'New York', evaluationDefinitionId: 'definition' }
     expect(await client.getSentiment('demo', selection)).toEqual(sentimentFixtureSummary)
     const url = new URL(received!.url)
     expect(url.pathname).toBe('/prefix/api/v1/projects/demo/sentiment')
