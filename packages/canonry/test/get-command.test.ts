@@ -3,7 +3,7 @@ import { walkPath } from '../src/commands/get.js'
 
 describe('walkPath', () => {
   const fixture = {
-    project: { name: 'demand-iq', country: 'US' },
+    project: { name: 'acme-iq', country: 'US' },
     scores: {
       mention: { value: '15', tone: 'negative' },
       mentionShare: {
@@ -11,8 +11,8 @@ describe('walkPath', () => {
         progress: 4,
         breakdown: {
           perCompetitor: [
-            { domain: 'roofr.com', mentionSnapshots: 24, shareOfCompetitiveTotal: 22.2 },
-            { domain: 'buildxact.com', mentionSnapshots: 13, shareOfCompetitiveTotal: 12 },
+            { domain: 'quotebird.test', mentionSnapshots: 24, shareOfCompetitiveTotal: 22.2 },
+            { domain: 'bidhammer.test', mentionSnapshots: 13, shareOfCompetitiveTotal: 12 },
           ],
           projectMentionSnapshots: 5,
         },
@@ -28,11 +28,11 @@ describe('walkPath', () => {
   })
 
   it('walks a single-level key', () => {
-    expect(walkPath(fixture, 'project')).toEqual({ name: 'demand-iq', country: 'US' })
+    expect(walkPath(fixture, 'project')).toEqual({ name: 'acme-iq', country: 'US' })
   })
 
   it('walks a nested dot path to a scalar', () => {
-    expect(walkPath(fixture, 'project.name')).toBe('demand-iq')
+    expect(walkPath(fixture, 'project.name')).toBe('acme-iq')
     expect(walkPath(fixture, 'scores.mention.value')).toBe('15')
     expect(walkPath(fixture, 'scores.mentionShare.progress')).toBe(4)
   })
@@ -40,15 +40,15 @@ describe('walkPath', () => {
   it('walks a nested path to an object', () => {
     expect(walkPath(fixture, 'scores.mentionShare.breakdown')).toEqual({
       perCompetitor: [
-        { domain: 'roofr.com', mentionSnapshots: 24, shareOfCompetitiveTotal: 22.2 },
-        { domain: 'buildxact.com', mentionSnapshots: 13, shareOfCompetitiveTotal: 12 },
+        { domain: 'quotebird.test', mentionSnapshots: 24, shareOfCompetitiveTotal: 22.2 },
+        { domain: 'bidhammer.test', mentionSnapshots: 13, shareOfCompetitiveTotal: 12 },
       ],
       projectMentionSnapshots: 5,
     })
   })
 
   it('walks into an array with [index] syntax', () => {
-    expect(walkPath(fixture, 'scores.mentionShare.breakdown.perCompetitor[0].domain')).toBe('roofr.com')
+    expect(walkPath(fixture, 'scores.mentionShare.breakdown.perCompetitor[0].domain')).toBe('quotebird.test')
     expect(walkPath(fixture, 'scores.mentionShare.breakdown.perCompetitor[1].mentionSnapshots')).toBe(13)
   })
 

@@ -1,7 +1,7 @@
 /**
  * End-to-end test that the GSC top-queries categorizer correctly tags
- * brand-name variants. Reproduces the Demand IQ misclassification bug
- * where "demand iq" / "demandiq" / "demand iq login" all landed in
+ * brand-name variants. Reproduces the Harbor IQ misclassification bug
+ * where "harbor iq" / "harboriq" / "harbor iq login" all landed in
  * "other" instead of "brand".
  */
 
@@ -37,7 +37,7 @@ afterEach(async () => {
   fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
 })
 
-function seedDemandIqWithGscQueries(
+function seedHarborIqWithGscQueries(
   db: ReturnType<typeof createClient>,
   queries: Array<[string, number]>,
 ) {
@@ -45,9 +45,9 @@ function seedDemandIqWithGscQueries(
   const now = new Date().toISOString()
   db.insert(projects).values({
     id: projectId,
-    name: 'demand-iq',
-    displayName: 'Demand IQ',
-    canonicalDomain: 'demand-iq.com',
+    name: 'harbor-iq',
+    displayName: 'Harbor IQ',
+    canonicalDomain: 'harbor-iq.test',
     country: 'US',
     language: 'en',
     locations: '[]',
@@ -82,32 +82,32 @@ function seedDemandIqWithGscQueries(
   }
 }
 
-describe('GSC brand classifier — demand-iq.com', () => {
-  test('tags "demand iq", "demandiq", "demand iq login" as brand', async () => {
-    seedDemandIqWithGscQueries(ctx.db, [
-      ['demand iq', 187],
-      ['demandiq', 93],
-      ['demand iq login', 9],
+describe('GSC brand classifier, harbor-iq.test', () => {
+  test('tags "harbor iq", "harboriq", "harbor iq login" as brand', async () => {
+    seedHarborIqWithGscQueries(ctx.db, [
+      ['harbor iq', 187],
+      ['harboriq', 93],
+      ['harbor iq login', 9],
     ])
 
     await ctx.app.ready()
-    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/demand-iq/report' })
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/harbor-iq/report' })
     const body = JSON.parse(res.body) as ProjectReportDto
 
     const byQuery = Object.fromEntries(body.gsc!.topQueries.map(q => [q.query, q.category]))
-    expect(byQuery['demand iq']).toBe('brand')
-    expect(byQuery['demandiq']).toBe('brand')
-    expect(byQuery['demand iq login']).toBe('brand')
+    expect(byQuery['harbor iq']).toBe('brand')
+    expect(byQuery['harboriq']).toBe('brand')
+    expect(byQuery['harbor iq login']).toBe('brand')
   })
 
   test('non-brand queries do not get brand-tagged', async () => {
-    seedDemandIqWithGscQueries(ctx.db, [
+    seedHarborIqWithGscQueries(ctx.db, [
       ['roofing estimate calculator', 100],
       ['hvac contractor near me', 50],
     ])
 
     await ctx.app.ready()
-    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/demand-iq/report' })
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/harbor-iq/report' })
     const body = JSON.parse(res.body) as ProjectReportDto
 
     const categories = body.gsc!.topQueries.map(q => q.category)
@@ -115,13 +115,13 @@ describe('GSC brand classifier — demand-iq.com', () => {
   })
 
   test('brand share appears in categoryBreakdown when brand queries exist', async () => {
-    seedDemandIqWithGscQueries(ctx.db, [
-      ['demand iq', 100], // brand
+    seedHarborIqWithGscQueries(ctx.db, [
+      ['harbor iq', 100], // brand
       ['hvac estimator', 50], // not brand
     ])
 
     await ctx.app.ready()
-    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/demand-iq/report' })
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/harbor-iq/report' })
     const body = JSON.parse(res.body) as ProjectReportDto
 
     const brand = body.gsc!.categoryBreakdown.find(c => c.category === 'brand')

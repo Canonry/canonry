@@ -264,7 +264,7 @@ export function seedCollapseWarning(input: {
  *  - approved brand names match across case, spacing, and punctuation
  *    presentation variants, but never spelling guesses or substrings;
  *  - canonical domains are recognized in prose as full hosts
- *    ("azcoatings.com", "www.azcoatings.com") but NEVER as the bare label —
+ *    ("zyloqcoatings.example.com", "www.zyloqcoatings.example.com") but NEVER as the bare label —
  *    a business at roofing.com must not drop every "roofing" query;
  *  - competitor brand names are untouched (only the customer's identities are
  *    filtered), so comparative queries between competitors survive.
@@ -625,7 +625,7 @@ export function isNavigationalHarvestQuery(query: string): boolean {
  * (`DISCOVERY_HARVEST_MIN_ANCHOR_TERMS`) instead of standing down and flooding
  * the operator with noise exactly where it is needed most. Owned domains matter
  * as much as the canonical one: a project whose canonical domain is an abstract
- * brand (`demand-iq.com`) but which owns a descriptive domain (`solar-leads.com`)
+ * brand (`vexlo-iq.test`) but which owns a descriptive domain (`solar-leads.com`)
  * still gets real subject terms, which is what keeps the anchor from over-dropping
  * on-subject candidates.
  *

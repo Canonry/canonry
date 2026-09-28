@@ -397,7 +397,7 @@ describe('renderReportHtml', () => {
   // Locks in the "smart %" rule for the What's-changed count + traffic tiles.
   // Both surfaces call the SAME shared contracts helpers (formatAverageDelta /
   // formatWindowCountDelta), so the HTML asserted here is byte-identical to the
-	  // SPA subtitle. The gjelina-shaped values: mentioned-query count averages ~3.3
+	  // SPA subtitle. The hotel-fixture-shaped values: mentioned-query count averages ~3.3
 	  // (small base → rounded raw delta) while GSC clicks total ~382 over the prior
   // window (large base → percentage).
   test('whatsChanged count + traffic tiles use the smart-% rule', () => {

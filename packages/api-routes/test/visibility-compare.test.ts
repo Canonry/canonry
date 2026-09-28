@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   computeVisibilityCompare,
   type ComputeVisibilityCompareInput,
@@ -380,6 +380,31 @@ describe('computeVisibilityCompare — model continuity', () => {
     expect(metricOf(dto, 'mention-rate').to).toMatchObject({ numerator: 0, denominator: 1 })
   })
 
+  it('reads model evidence only from pairs present in both months, so a one-month pair cannot flip a provider', () => {
+    // OpenAI answered q1 on gpt-5.4 in May only; June has q1 from Gemini alone.
+    // (q1, openai) is not a common pair, so its gpt-5.4 row says nothing about
+    // the (q2, openai) comparison, which ran on gpt-5.5 in both months.
+    const from = [
+      snap({ queryId: 'q1', provider: 'openai', model: 'gpt-5.4' }),
+      snap({ queryId: 'q2', provider: 'openai', model: 'gpt-5.5' }),
+      snap({ queryId: 'q1', provider: 'gemini', model: 'gemini-2' }),
+    ]
+    const to = [
+      snap({ queryId: 'q2', provider: 'openai', model: 'gpt-5.5' }),
+      snap({ queryId: 'q1', provider: 'gemini', model: 'gemini-2' }),
+    ]
+    const dto = computeVisibilityCompare(build(from, to))
+    expect(dto.continuity).toEqual({
+      status: 'comparable',
+      comparedProviders: ['gemini', 'openai'],
+      providers: [
+        { provider: 'gemini', status: 'included', fromModels: ['gemini-2'], toModels: ['gemini-2'] },
+        { provider: 'openai', status: 'included', fromModels: ['gpt-5.5'], toModels: ['gpt-5.5'] },
+      ],
+    })
+    expect(dto.modelChanges).toEqual([])
+  })
+
   it('excludes a provider whose only snapshots in one period sit on non-basket queries — no phantom rows, no spurious model change', () => {
     // openai is observed in BOTH periods pre-basket, but its `from` snapshots
     // are all on q1, which is not in the query basket (q1 is absent from `to`).
@@ -406,5 +431,211 @@ describe('computeVisibilityCompare — low run count', () => {
     const dto = computeVisibilityCompare(build([snap({ queryId: 'q1', provider: 'openai' })], [snap({ queryId: 'q1', provider: 'openai' })]))
     expect(dto.from.lowRunCount).toBe(false) // May: 7 sweeps
     expect(dto.to.lowRunCount).toBe(true) // June: 2 sweeps
+  })
+})
+
+describe('computeVisibilityCompare — independent query classes', () => {
+  const queries = [{ id: 'brand', query: 'Demo pricing' }, { id: 'category', query: 'best services' }]
+  it('adds exact class rates without changing pooled metrics and excludes unknown mentions only from mention denominators', () => {
+    const from = [
+      snap({ queryId: 'brand', provider: 'openai', answerMentioned: true, citationState: 'cited' }),
+      snap({ queryId: 'category', provider: 'openai', answerMentioned: null }),
+      snap({ queryId: 'category', provider: 'openai', answerMentioned: false }),
+    ]
+    const to = [
+      snap({ queryId: 'brand', provider: 'openai', answerMentioned: true }),
+      snap({ queryId: 'category', provider: 'openai', answerMentioned: true, citationState: 'cited' }),
+    ]
+    const dto = computeVisibilityCompare(build(from, to, { queries, brandNames: ['Demo'] }))
+    expect(metricOf(dto, 'mention-rate')).toMatchObject({ from: { numerator: 1, denominator: 2, point: 0.5 }, to: { numerator: 2, denominator: 2, point: 1 } })
+    expect(metricOf(dto, 'mention-rate-branded')).toMatchObject({ queryClass: 'branded', from: { numerator: 1, denominator: 1, point: 1 }, to: { numerator: 1, denominator: 1, point: 1 }, verdict: 'within-noise' })
+    expect(metricOf(dto, 'mention-rate-non-brand')).toMatchObject({ queryClass: 'non-brand', from: { numerator: 0, denominator: 1, point: 0 }, to: { numerator: 1, denominator: 1, point: 1 } })
+    expect(metricOf(dto, 'cited-rate-branded')).toMatchObject({ from: { numerator: 1, denominator: 1 }, to: { numerator: 0, denominator: 1 } })
+    expect(metricOf(dto, 'cited-rate-non-brand')).toMatchObject({ from: { numerator: 0, denominator: 2 }, to: { numerator: 1, denominator: 1 } })
+  })
+  it('returns classification-unavailable instead of pooling when aliases are absent', () => {
+    const snapshots = [snap({ queryId: 'category', provider: 'openai', answerMentioned: true })]
+    const dto = computeVisibilityCompare(build(snapshots, snapshots, { queries }))
+    for (const key of ['mention-rate-branded', 'cited-rate-branded', 'mention-rate-non-brand', 'cited-rate-non-brand']) {
+      expect(metricOf(dto, key)).toMatchObject({ from: { availability: 'classification-unavailable', point: null, ciLow: null, ciHigh: null, numerator: 0, denominator: 0 }, to: { availability: 'classification-unavailable' }, verdict: 'insufficient-data' })
+    }
+  })
+  it('keeps the common basket and model gate for every class', () => {
+    const from = [snap({ queryId: 'brand', provider: 'openai' }), snap({ queryId: 'category', provider: 'claude', model: 'old' })]
+    const to = [snap({ queryId: 'brand', provider: 'openai', answerMentioned: true }), snap({ queryId: 'category', provider: 'claude', model: 'new', answerMentioned: true })]
+    const dto = computeVisibilityCompare(build(from, to, { queries, brandNames: ['Demo'] }))
+    expect(metricOf(dto, 'mention-rate-branded').from.denominator).toBe(1)
+    expect(metricOf(dto, 'mention-rate-non-brand')).toMatchObject({ from: { denominator: 0, point: null }, to: { denominator: 0, point: null } })
+    expect(dto.continuity.comparedProviders).toEqual(['openai'])
+  })
+})
+
+describe('computeVisibilityCompare — frozen share of voice without classification', () => {
+  it('counts and labels share of voice pooled rather than scoring an empty non-brand class', () => {
+    const competitors = [{ domain: 'rival.io', brandTokens: [] }]
+    const row = (answerMentioned: boolean, competitorMentions: string[]) =>
+      snap({ queryId: 'q1', provider: 'openai', answerMentioned, competitorMentions, competitorDomains: ['rival.io'], queryClass: null })
+    const snapshots = [row(true, ['rival.io']), row(false, ['rival.io']), row(true, [])]
+    const dto = computeVisibilityCompare(build(snapshots, snapshots, { competitors }))
+    // 2 project mentions against 2 Rival mentions across all three answers.
+    expect(metricOf(dto, 'mention-share-of-voice')).toMatchObject({ queryClass: 'pooled', from: { numerator: 2, denominator: 4, point: 0.5 } })
+  })
+})
+
+describe('computeVisibilityCompare — answer matching', () => {
+  const picks = 'For teams, Demo Co and Rival are strong picks.'
+  const pricing = 'Demo Co pricing starts at $10.'
+  const row = (queryId: string | null, over: Partial<VisibilityCompareSnapshotInput> & { provider: string }) =>
+    snap({ queryId: queryId as string, model: over.provider === 'claude' ? 'claude-a' : `${over.provider}-stable`, ...over })
+  const input = (from: VisibilityCompareSnapshotInput[], to: VisibilityCompareSnapshotInput[]): ComputeVisibilityCompareInput => ({
+    project: 'demo',
+    queries: [
+      { id: 'q-cat', query: 'best project tools' },
+      { id: 'q-alt', query: 'project tools for teams' },
+      { id: 'q-brand', query: 'Demo Co pricing' },
+    ],
+    brandNames: ['Demo Co', 'democo'],
+    competitors: [
+      { domain: 'rival.io', brandTokens: ['rival', 'rival.io'] },
+      { domain: 'https://Other-Tool.com/', brandTokens: ['Other Tool', 'other-tool.com'] },
+    ],
+    from: { month: '2026-05', since: '2026-05-01T00:00:00.000Z', until: '2026-05-31T23:59:59.999Z', runCount: 7, snapshots: from },
+    to: { month: '2026-06', since: '2026-06-01T00:00:00.000Z', until: '2026-06-30T23:59:59.999Z', runCount: 5, snapshots: to },
+  })
+
+  it('pins the whole response across brand variants, near-miss words, text-less rows and an excluded provider', () => {
+    const from = [
+      row('q-cat', { provider: 'openai', answerText: picks, answerMentioned: true, citationState: 'cited', citedDomains: ['democo.com', 'rival.io'] }),
+      row('q-cat', { provider: 'gemini', answerText: 'Consider RIVAL.io or other-tool.com for this.', citedDomains: ['www.other-tool.com'] }),
+      // Accent and hyphen are presentation variants of the alias; `Democracy` is not.
+      row('q-alt', { provider: 'openai', answerText: 'Democracy tools are popular; démo-co is listed too.' }),
+      row('q-alt', { provider: 'gemini', answerText: null, answerMentioned: true }),
+      row('q-brand', { provider: 'openai', answerText: pricing, answerMentioned: true }),
+      row('q-brand', { provider: 'gemini', answerText: '', answerMentioned: null }),
+      row('q-cat', { provider: 'claude', answerText: 'Rival leads.' }),
+      row('q-alt', { provider: 'claude', answerText: 'Nothing here.' }),
+      row('q-cat', { provider: 'openai', answerText: 'Other Tool is fine; DemoCo too.', answerMentioned: true }),
+      row('q-cat', { provider: 'gemini', answerText: picks, answerMentioned: true }),
+      // Attributed by preserved text; `rivalry` is not the competitor `rival`.
+      row(null, { queryText: 'project tools for teams', provider: 'openai', answerText: 'A rivalry is not a competitor mention.' }),
+      row('q-brand', { provider: 'openai', answerText: pricing, answerMentioned: true }),
+      row('q-cat', { provider: 'claude', answerText: 'Demo Co.' }),
+      row('q-gone', { provider: 'openai', answerText: 'Rival and Demo Co.', answerMentioned: true }),
+    ]
+    const to = [
+      row('q-cat', { provider: 'openai', answerText: 'Rival and Other Tool lead; Demo Co trails.', answerMentioned: true, citationState: 'cited', citedDomains: ['democo.com'] }),
+      row('q-cat', { provider: 'gemini', answerText: 'Rival only.', citedDomains: ['rival.io'] }),
+      row('q-alt', { provider: 'openai', answerText: 'DEMO CO is recommended for teams.', answerMentioned: true }),
+      row('q-alt', { provider: 'gemini', answerText: 'No brands.' }),
+      row('q-brand', { provider: 'openai', answerText: 'Demo Co pricing is flexible.', answerMentioned: true, citationState: 'cited', citedDomains: ['democo.com'] }),
+      row('q-brand', { provider: 'gemini', answerText: 'Demo Co vs Rival pricing.', answerMentioned: true }),
+      row('q-cat', { provider: 'claude', model: 'claude-b', answerText: 'Demo Co leads.' }),
+      row('q-alt', { provider: 'claude', model: 'claude-b', answerText: 'Rival.' }),
+    ]
+    const dto = computeVisibilityCompare(input(from, to))
+
+    // Non-brand May answers: the project is named in 4 (Demo Co, démo-co,
+    // DemoCo, Demo Co), Rival in 3 and Other Tool in 2, so share is 4 / 9.
+    // June: project 2, Rival 2, Other Tool 1, so 2 / 5. Claude changed model,
+    // so it is excluded from every metric but still reported. Class rates split
+    // the same basket into non-brand (q-cat, q-alt) and branded (q-brand); a
+    // null mention leaves only the mention denominator (excludedUnknown).
+    expect(dto).toEqual({
+      project: 'demo',
+      from: { month: '2026-05', since: '2026-05-01T00:00:00.000Z', until: '2026-05-31T23:59:59.999Z', runCount: 7, lowRunCount: false },
+      to: { month: '2026-06', since: '2026-06-01T00:00:00.000Z', until: '2026-06-30T23:59:59.999Z', runCount: 5, lowRunCount: false },
+      basket: { queryCount: 3, excludedFromOnly: 0, excludedToOnly: 0, providers: ['gemini', 'openai'], excludedProviders: ['claude'] },
+      metrics: [
+        {
+          key: 'mention-share-of-voice', label: 'Named share of voice', queryClass: 'non-brand', driftRobust: true,
+          from: { availability: 'available', point: 0.4444, ciLow: 0.1888, ciHigh: 0.7334, numerator: 4, denominator: 9 },
+          to: { availability: 'available', point: 0.4, ciLow: 0.1176, ciHigh: 0.7693, numerator: 2, denominator: 5 },
+          rateRatio: 0.9, direction: 'down', verdict: 'within-noise',
+        },
+        {
+          key: 'cited-share-of-voice', label: 'Cited share of voice', queryClass: 'all', driftRobust: true,
+          from: { availability: 'available', point: 0.3333, ciLow: 0.0615, ciHigh: 0.7923, numerator: 1, denominator: 3 },
+          to: { availability: 'available', point: 0.6667, ciLow: 0.2077, ciHigh: 0.9385, numerator: 2, denominator: 3 },
+          rateRatio: 2, direction: 'up', verdict: 'within-noise',
+        },
+        {
+          key: 'mention-rate', label: 'Named rate', queryClass: 'all', driftRobust: false,
+          from: { availability: 'available', point: 0.6667, ciLow: 0.3542, ciHigh: 0.8794, numerator: 6, denominator: 9 },
+          to: { availability: 'available', point: 0.6667, ciLow: 0.3, ciHigh: 0.9032, numerator: 4, denominator: 6 },
+          rateRatio: 1, direction: 'flat', verdict: 'within-noise',
+        },
+        {
+          key: 'cited-rate', label: 'Cited rate', queryClass: 'all', driftRobust: false,
+          from: { availability: 'available', point: 0.1, ciLow: 0.0179, ciHigh: 0.4042, numerator: 1, denominator: 10 },
+          to: { availability: 'available', point: 0.3333, ciLow: 0.0968, ciHigh: 0.7, numerator: 2, denominator: 6 },
+          rateRatio: 3.33, direction: 'up', verdict: 'within-noise',
+        },
+        {
+          key: 'mention-rate-branded', label: 'Mention rate', queryClass: 'branded', driftRobust: false,
+          from: { availability: 'available', point: 1, ciLow: 0.3424, ciHigh: 1, numerator: 2, denominator: 2, excludedUnknown: 1 },
+          to: { availability: 'available', point: 1, ciLow: 0.3424, ciHigh: 1, numerator: 2, denominator: 2, excludedUnknown: 0 },
+          rateRatio: 1, direction: 'flat', verdict: 'within-noise',
+        },
+        {
+          key: 'cited-rate-branded', label: 'Cited rate', queryClass: 'branded', driftRobust: false,
+          from: { availability: 'available', point: 0, ciLow: 0, ciHigh: 0.5615, numerator: 0, denominator: 3, excludedUnknown: 0 },
+          to: { availability: 'available', point: 0.5, ciLow: 0.0945, ciHigh: 0.9055, numerator: 1, denominator: 2, excludedUnknown: 0 },
+          rateRatio: null, direction: 'up', verdict: 'within-noise',
+        },
+        {
+          key: 'mention-rate-non-brand', label: 'Mention rate', queryClass: 'non-brand', driftRobust: false,
+          from: { availability: 'available', point: 0.5714, ciLow: 0.2505, ciHigh: 0.8418, numerator: 4, denominator: 7, excludedUnknown: 0 },
+          to: { availability: 'available', point: 0.5, ciLow: 0.15, ciHigh: 0.85, numerator: 2, denominator: 4, excludedUnknown: 0 },
+          rateRatio: 0.88, direction: 'down', verdict: 'within-noise',
+        },
+        {
+          key: 'cited-rate-non-brand', label: 'Cited rate', queryClass: 'non-brand', driftRobust: false,
+          from: { availability: 'available', point: 0.1429, ciLow: 0.0257, ciHigh: 0.5131, numerator: 1, denominator: 7, excludedUnknown: 0 },
+          to: { availability: 'available', point: 0.25, ciLow: 0.0456, ciHigh: 0.6994, numerator: 1, denominator: 4, excludedUnknown: 0 },
+          rateRatio: 1.75, direction: 'up', verdict: 'within-noise',
+        },
+      ],
+      queriesMentioned: { from: { count: 3, of: 3 }, to: { count: 3, of: 3 } },
+      byProvider: [
+        { provider: 'gemini', from: { checked: 3, mentioned: 2, cited: 0 }, to: { checked: 3, mentioned: 1, cited: 0 } },
+        { provider: 'openai', from: { checked: 6, mentioned: 4, cited: 1 }, to: { checked: 3, mentioned: 3, cited: 2 } },
+      ],
+      modelChanges: [{ provider: 'claude', fromModels: ['claude-a'], toModels: ['claude-b'] }],
+      continuity: {
+        status: 'comparable', comparedProviders: ['gemini', 'openai'],
+        providers: [
+          { provider: 'claude', status: 'model-discontinuous', fromModels: ['claude-a'], toModels: ['claude-b'] },
+          { provider: 'gemini', status: 'included', fromModels: ['gemini-stable'], toModels: ['gemini-stable'] },
+          { provider: 'openai', status: 'included', fromModels: ['openai-stable'], toModels: ['openai-stable'] },
+        ],
+      },
+      competitors: {
+        from: [{ domain: 'rival.io', mentions: 3 }, { domain: 'https://Other-Tool.com/', mentions: 2 }],
+        to: [{ domain: 'rival.io', mentions: 2 }, { domain: 'https://Other-Tool.com/', mentions: 1 }],
+      },
+    })
+  })
+
+  it('walks each compared answer at most twice: once for the project, once for every competitor', () => {
+    // Every answer names the project and both competitors, so each match needs
+    // a full word walk. The pre-continuity basket feeds the model gate only,
+    // so Claude's excluded answers are never matched.
+    const answer = (n: number) => `Answer ${n}: Demo Co, Rival and Other Tool are reviewed here.`
+    const month = (offset: number, model: string) => ['q-cat', 'q-alt'].flatMap((queryId, q) =>
+      ['openai', 'gemini'].map((provider, p) => row(queryId, { provider, model: `${provider}-${model}`, answerText: answer(offset + q * 2 + p) })))
+    const from = [...month(0, 'stable'), row('q-cat', { provider: 'claude', answerText: answer(8) })]
+    const to = [...month(4, 'stable'), row('q-cat', { provider: 'claude', model: 'claude-b', answerText: answer(9) })]
+    const segment = vi.spyOn(Intl.Segmenter.prototype, 'segment')
+    try {
+      const dto = computeVisibilityCompare(input(from, to))
+      // 4 project mentions against 4 Rival + 4 Other Tool mentions per month.
+      expect(metricOf(dto, 'mention-share-of-voice').from).toMatchObject({ numerator: 4, denominator: 12 })
+      const walked = segment.mock.calls.map(([text]) => String(text)).filter(text => text.startsWith('answer '))
+      // 8 compared answers (2 queries x 2 engines x 2 months), 2 walks each.
+      expect(walked.length).toBeLessThanOrEqual(16)
+      expect(walked.some(text => text.startsWith('answer 8:') || text.startsWith('answer 9:'))).toBe(false)
+    } finally {
+      segment.mockRestore()
+    }
   })
 })

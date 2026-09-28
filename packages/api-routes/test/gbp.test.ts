@@ -5,7 +5,7 @@ import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpPlaceDetails, auditLog } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, auditLog } from '@ainyc/canonry-db'
 import { AppError, type GoogleConnectionType } from '@ainyc/canonry-contracts'
 import { googleRoutes } from '../src/google.js'
 
@@ -231,7 +231,7 @@ describe('GBP routes (Phase 1)', () => {
       mockGoogleResponses({
         accounts: [{ name: 'accounts/123' }],
         locations: [{
-          name: 'locations/1', title: 'AZ Coatings',
+          name: 'locations/1', title: 'Acme Coatings',
           categories: {
             primaryCategory: { displayName: 'Roofing contractor' },
             additionalCategories: [{ displayName: 'Insulation contractor' }, { displayName: 'Waterproofing service' }],
@@ -239,7 +239,7 @@ describe('GBP routes (Phase 1)', () => {
           profile: { description: 'Commercial roof restoration and protective coatings.' },
           serviceArea: { businessType: 'CUSTOMER_LOCATION_ONLY' },
           regularHours: { periods: [{ openDay: 'MONDAY' }] },
-          phoneNumbers: { primaryPhone: '(248) 925-7414' },
+          phoneNumbers: { primaryPhone: '(248) 555-0142' },
           openInfo: { status: 'OPEN', openingDate: { year: 2021, month: 12, day: 1 } },
         }],
       })
@@ -253,7 +253,7 @@ describe('GBP routes (Phase 1)', () => {
       expect(row.description).toBe('Commercial roof restoration and protective coatings.')
       expect(row.serviceArea).toEqual({ businessType: 'CUSTOMER_LOCATION_ONLY' })
       expect(row.regularHours).toEqual({ periods: [{ openDay: 'MONDAY' }] })
-      expect(row.primaryPhone).toBe('(248) 925-7414')
+      expect(row.primaryPhone).toBe('(248) 555-0142')
       expect(row.openStatus).toBe('OPEN')
       expect(row.openingDate).toBe('2021-12-01')
 
@@ -261,7 +261,7 @@ describe('GBP routes (Phase 1)', () => {
       const dto = (res.json() as { locations: Array<Record<string, unknown>> }).locations[0]!
       expect(dto.additionalCategories).toEqual(['Insulation contractor', 'Waterproofing service'])
       expect(dto.description).toBe('Commercial roof restoration and protective coatings.')
-      expect(dto.primaryPhone).toBe('(248) 925-7414')
+      expect(dto.primaryPhone).toBe('(248) 555-0142')
       expect(dto.openStatus).toBe('OPEN')
     })
 
@@ -286,11 +286,11 @@ describe('GBP routes (Phase 1)', () => {
       mockGoogleResponses({
         accounts: [{ name: 'accounts/123' }],
         locations: [{
-          name: 'locations/1', title: 'AZ Coatings',
+          name: 'locations/1', title: 'Acme Coatings',
           categories: { primaryCategory: { displayName: 'Roofing contractor' }, additionalCategories: [{ displayName: 'Insulation contractor' }] },
           profile: { description: 'Original description.' },
           serviceArea: { businessType: 'CUSTOMER_LOCATION_ONLY' },
-          phoneNumbers: { primaryPhone: '(248) 925-7414' },
+          phoneNumbers: { primaryPhone: '(248) 555-0142' },
           openInfo: { status: 'OPEN' },
         }],
       })
@@ -302,7 +302,7 @@ describe('GBP routes (Phase 1)', () => {
       mockGoogleResponses({
         accounts: [{ name: 'accounts/123' }],
         locations: [{
-          name: 'locations/1', title: 'AZ Coatings',
+          name: 'locations/1', title: 'Acme Coatings',
           categories: { primaryCategory: { displayName: 'Roofing contractor' } },
           profile: { description: 'Updated description.' },
           openInfo: { status: 'CLOSED_TEMPORARILY' },
@@ -497,6 +497,8 @@ describe('GBP routes (Phase 1)', () => {
       ctx.db.insert(gbpKeywordMonthly).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', month: '2026-04', keyword: 'hotel', valueCount: 100, valueThreshold: null, syncRunId: null, syncedAt: '2026-05-01T00:00:00Z' }).run()
       ctx.db.insert(gbpPlaceActions).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', placeActionLinkName: 'locations/1/placeActionLinks/x', placeActionType: 'BOOK', uri: 'https://book.example', isPreferred: true, providerType: 'MERCHANT', syncRunId: null }).run()
       ctx.db.insert(gbpLodgingSnapshots).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', contentHash: 'h1', attributes: {}, populatedGroupCount: 0, syncedAt: '2026-05-01T00:00:00Z', syncRunId: null }).run()
+      ctx.db.insert(gbpAttributesSnapshots).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', contentHash: 'a1', attributes: [{ name: 'attributes/has_wheelchair_accessible_entrance', valueType: 'BOOL', values: [true], unsetValues: [], uris: [] }], attributeCount: 1, syncedAt: '2026-05-01T00:00:00Z', syncRunId: null }).run()
+      ctx.db.insert(gbpPlaceDetails).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', placeId: 'ChIJlocation1', contentHash: 'p1', tier: 'atmosphere', attributes: { servesBreakfast: true }, syncedAt: '2026-05-01T00:00:00Z', syncRunId: null }).run()
 
       // Sanity: both locations persisted
       expect(ctx.db.select().from(gbpLocations).where(eq(gbpLocations.projectId, projectId)).all().length).toBe(2)
@@ -514,6 +516,9 @@ describe('GBP routes (Phase 1)', () => {
       expect(ctx.db.select().from(gbpKeywordMonthly).where(eq(gbpKeywordMonthly.projectId, projectId)).all().length).toBe(0)
       expect(ctx.db.select().from(gbpPlaceActions).where(eq(gbpPlaceActions.projectId, projectId)).all().length).toBe(0)
       expect(ctx.db.select().from(gbpLodgingSnapshots).where(eq(gbpLodgingSnapshots.projectId, projectId)).all().length).toBe(0)
+      // Owner attributes and Places listing snapshots too, or /gbp/attributes and /gbp/places keep serving them.
+      expect(ctx.db.select().from(gbpAttributesSnapshots).where(eq(gbpAttributesSnapshots.projectId, projectId)).all().length).toBe(0)
+      expect(ctx.db.select().from(gbpPlaceDetails).where(eq(gbpPlaceDetails.projectId, projectId)).all().length).toBe(0)
       // Connection store entry is gone
       expect(ctx.connections.find(c => c.domain === 'hotels.example.com' && c.connectionType === 'gbp')).toBeUndefined()
     })
@@ -620,9 +625,9 @@ describe('GBP routes (Phase 1)', () => {
       const now = new Date().toISOString()
       // Selected location with rich owner content.
       ctx.db.insert(gbpLocations).values({
-        id: crypto.randomUUID(), projectId, accountName: 'accounts/1', locationName: 'locations/1', displayName: 'AZ Coatings',
+        id: crypto.randomUUID(), projectId, accountName: 'accounts/1', locationName: 'locations/1', displayName: 'Acme Coatings',
         additionalCategories: ['Insulation contractor', 'Waterproofing service'], description: 'Roof restoration.',
-        serviceArea: { businessType: 'CUSTOMER_LOCATION_ONLY' }, regularHours: { periods: [] }, primaryPhone: '(248) 925-7414', openStatus: 'OPEN',
+        serviceArea: { businessType: 'CUSTOMER_LOCATION_ONLY' }, regularHours: { periods: [] }, primaryPhone: '(248) 555-0142', openStatus: 'OPEN',
         selected: true, createdAt: now, updatedAt: now,
       }).run()
       // DESELECTED location, also rich — must NOT count toward completeness.
@@ -651,7 +656,7 @@ describe('GBP routes (Phase 1)', () => {
       // A DESELECTED location with owner content — addressable by explicit ?locationName.
       ctx.db.insert(gbpLocations).values({
         id: crypto.randomUUID(), projectId, accountName: 'accounts/1', locationName: 'locations/2', displayName: 'Deselected',
-        additionalCategories: ['Event venue'], description: 'Reachable by explicit location.', primaryPhone: '(323) 515-1215', openStatus: 'OPEN',
+        additionalCategories: ['Event venue'], description: 'Reachable by explicit location.', primaryPhone: '(323) 555-0187', openStatus: 'OPEN',
         selected: false, createdAt: now, updatedAt: now,
       }).run()
 

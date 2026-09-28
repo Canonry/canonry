@@ -139,7 +139,7 @@ function performanceDto(overrides: Partial<GoogleAdsPerformanceDto> = {}): Googl
     source: {
       snapshotId: 'snapshot_google_ads_1',
       capturedAt: '2026-08-15T09:30:00.000Z',
-      customerId: '9557525423',
+      customerId: '5550001234',
       currencyCode: 'USD',
       timeZone: 'America/Los_Angeles',
       asOfDate: '2026-08-14',

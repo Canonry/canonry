@@ -706,7 +706,7 @@ export async function verifyConnectionWithToken(
 }
 
 export interface GA4PropertySummary {
-  /** Numeric id, e.g. "375386317". This is what `ga connect --property-id` takes. */
+  /** Numeric id, e.g. "123456789". This is what `ga connect --property-id` takes. */
   propertyId: string
   displayName: string
   /** Display name of the GA4 account that owns the property. */
@@ -793,7 +793,7 @@ export async function listProperties(accessToken: string): Promise<GA4PropertySu
 
     for (const account of body.accountSummaries ?? []) {
       for (const summary of account.propertySummaries ?? []) {
-        // The Admin API returns "properties/375386317"; callers want the id.
+        // The Admin API returns "properties/123456789"; callers want the id.
         const propertyId = (summary.property ?? '').split('/').pop() ?? ''
         if (!propertyId) continue
         properties.push({

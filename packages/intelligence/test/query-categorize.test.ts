@@ -3,7 +3,7 @@ import { buildBrandTokens, categorizeQueryByIntent } from '../src/query-categori
 
 describe('buildBrandTokens', () => {
   test('strips TLD and produces a compact token from the canonical domain', () => {
-    expect(buildBrandTokens('demand-iq.com')).toContain('demandiq')
+    expect(buildBrandTokens('vexlo-iq.test')).toContain('vexloiq')
   })
 
   test('includes brand names as compact tokens when distinct', () => {
@@ -28,22 +28,22 @@ describe('buildBrandTokens', () => {
   })
 
   test('handles empty brand names array', () => {
-    expect(buildBrandTokens('demand-iq.com', [])).toEqual(['demandiq'])
+    expect(buildBrandTokens('vexlo-iq.test', [])).toEqual(['vexloiq'])
   })
 })
 
 describe('categorizeQueryByIntent', () => {
-  const brand = ['demandiq']
+  const brand = ['vexloiq']
 
-  test('matches "demand iq" / "demandiq" / "demand iq login" all as brand', () => {
-    expect(categorizeQueryByIntent('demand iq', brand)).toBe('brand')
-    expect(categorizeQueryByIntent('demandiq', brand)).toBe('brand')
-    expect(categorizeQueryByIntent('demand iq login', brand)).toBe('brand')
-    expect(categorizeQueryByIntent('Demand IQ Pricing', brand)).toBe('brand')
+  test('matches "vexlo iq" / "vexloiq" / "vexlo iq login" all as brand', () => {
+    expect(categorizeQueryByIntent('vexlo iq', brand)).toBe('brand')
+    expect(categorizeQueryByIntent('vexloiq', brand)).toBe('brand')
+    expect(categorizeQueryByIntent('vexlo iq login', brand)).toBe('brand')
+    expect(categorizeQueryByIntent('Vexlo IQ Pricing', brand)).toBe('brand')
   })
 
   test('matches hyphenated brand variants', () => {
-    expect(categorizeQueryByIntent('demand-iq pricing', brand)).toBe('brand')
+    expect(categorizeQueryByIntent('vexlo-iq pricing', brand)).toBe('brand')
   })
 
   test('does not classify non-brand queries as brand', () => {
@@ -69,48 +69,48 @@ describe('categorizeQueryByIntent', () => {
   })
 
   test('brand match takes precedence over lead-gen / industry classifiers', () => {
-    expect(categorizeQueryByIntent('demand iq buy', brand)).toBe('brand')
-    expect(categorizeQueryByIntent('demand iq how to use', brand)).toBe('brand')
+    expect(categorizeQueryByIntent('vexlo iq buy', brand)).toBe('brand')
+    expect(categorizeQueryByIntent('vexlo iq how to use', brand)).toBe('brand')
   })
 
   test('empty brand list never produces a brand match', () => {
-    expect(categorizeQueryByIntent('demand iq', [])).not.toBe('brand')
+    expect(categorizeQueryByIntent('vexlo iq', [])).not.toBe('brand')
   })
 })
 
 describe('approved brand aliases', () => {
-  const withoutAlias = buildBrandTokens('gjelinahotel.com', ['Gjelina Hotel'])
-  const gjelina = buildBrandTokens('gjelinahotel.com', ['Gjelina Hotel', 'Gjelina'])
-  const demandiq = buildBrandTokens('demand-iq.com', ['Demand IQ'])
+  const withoutAlias = buildBrandTokens('vantrellhotel.test', ['Vantrell Hotel'])
+  const vantrell = buildBrandTokens('vantrellhotel.test', ['Vantrell Hotel', 'Vantrell'])
+  const vexloiq = buildBrandTokens('vexlo-iq.test', ['Vexlo IQ'])
 
   test('does not derive an unreviewed category-stripped identity', () => {
-    expect(withoutAlias).toEqual(['gjelinahotel'])
-    expect(categorizeQueryByIntent('gjelina', withoutAlias)).not.toBe('brand')
+    expect(withoutAlias).toEqual(['vantrellhotel'])
+    expect(categorizeQueryByIntent('vantrell', withoutAlias)).not.toBe('brand')
   })
 
   test('classifies an approved shorter alias and its modifiers', () => {
-    expect(gjelina).toEqual(['gjelinahotel', 'gjelina'])
-    expect(categorizeQueryByIntent('gjelina', gjelina)).toBe('brand')
-    expect(categorizeQueryByIntent('gjelina venice', gjelina)).toBe('brand')
-    expect(categorizeQueryByIntent('gjelina los angeles', gjelina)).toBe('brand')
+    expect(vantrell).toEqual(['vantrellhotel', 'vantrell'])
+    expect(categorizeQueryByIntent('vantrell', vantrell)).toBe('brand')
+    expect(categorizeQueryByIntent('vantrell harborview', vantrell)).toBe('brand')
+    expect(categorizeQueryByIntent('vantrell springfield', vantrell)).toBe('brand')
   })
 
   test('does not brand category words, substrings, or edit-distance neighbors', () => {
-    expect(categorizeQueryByIntent('hotel', gjelina)).not.toBe('brand')
-    expect(categorizeQueryByIntent('venice beach hotels', gjelina)).not.toBe('brand')
-    expect(categorizeQueryByIntent('gelina venice', gjelina)).not.toBe('brand')
-    expect(categorizeQueryByIntent('selina venice', gjelina)).not.toBe('brand')
+    expect(categorizeQueryByIntent('hotel', vantrell)).not.toBe('brand')
+    expect(categorizeQueryByIntent('harborview beach hotels', vantrell)).not.toBe('brand')
+    expect(categorizeQueryByIntent('vantell harborview', vantrell)).not.toBe('brand')
+    expect(categorizeQueryByIntent('santell harborview', vantrell)).not.toBe('brand')
     expect(categorizeQueryByIntent('price comparison', ['prime'])).not.toBe('brand')
     expect(categorizeQueryByIntent('apply online', ['apple'])).not.toBe('brand')
-    expect(categorizeQueryByIntent('roofing leads on demand', demandiq)).not.toBe('brand')
-    expect(categorizeQueryByIntent('demand intelligence', demandiq)).not.toBe('brand')
+    expect(categorizeQueryByIntent('roofing leads on vexlo', vexloiq)).not.toBe('brand')
+    expect(categorizeQueryByIntent('vexlo intelligence', vexloiq)).not.toBe('brand')
   })
 
   test('lets an operator approve a high-value misspelling explicitly', () => {
     const withTypoAlias = buildBrandTokens(
-      'gjelinahotel.com',
-      ['Gjelina Hotel', 'Gjelina', 'Gelina'],
+      'vantrellhotel.test',
+      ['Vantrell Hotel', 'Vantrell', 'Vantell'],
     )
-    expect(categorizeQueryByIntent('gelina venice', withTypoAlias)).toBe('brand')
+    expect(categorizeQueryByIntent('vantell harborview', withTypoAlias)).toBe('brand')
   })
 })

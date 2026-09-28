@@ -102,7 +102,7 @@ function seedProjectWithRuns() {
   return { app, db, projectId, latestRunId, previousRunId, queryA, queryB }
 }
 
-// Seeds a 2-location project (azcoatings-test) with one or two fan-out groups
+// Seeds a 2-location project (acme-coatings-test) with one or two fan-out groups
 // of completed answer-visibility runs, each group sharing a single createdAt
 // timestamp across both locations. Used to verify #480 — the /overview endpoint
 // must aggregate across both locations rather than collapsing to one.
@@ -118,9 +118,9 @@ function seedTwoLocationFanOut(opts: { withPreviousGroup: boolean }) {
 
   db.insert(projects).values({
     id: projectId,
-    name: 'azcoatings-test',
-    displayName: 'AZ Coatings (test)',
-    canonicalDomain: 'azcoatings.example',
+    name: 'acme-coatings-test',
+    displayName: 'Acme Coatings (test)',
+    canonicalDomain: 'acmecoatings.test',
     country: 'US',
     language: 'en',
     ownedDomains: [],
@@ -150,8 +150,8 @@ function seedTwoLocationFanOut(opts: { withPreviousGroup: boolean }) {
     ]).run()
     // Previous group: cited in BOTH locations.
     db.insert(querySnapshots).values([
-      { id: crypto.randomUUID(), runId: prevFlId, queryId, provider: 'gemini', citationState: 'cited', answerMentioned: true, location: 'florida',  citedDomains: ['azcoatings.example'], competitorOverlap: [], recommendedCompetitors: [], answerText: null, createdAt: prevCreatedAt },
-      { id: crypto.randomUUID(), runId: prevMiId, queryId, provider: 'gemini', citationState: 'cited', answerMentioned: true, location: 'michigan', citedDomains: ['azcoatings.example'], competitorOverlap: [], recommendedCompetitors: [], answerText: null, createdAt: prevCreatedAt },
+      { id: crypto.randomUUID(), runId: prevFlId, queryId, provider: 'gemini', citationState: 'cited', answerMentioned: true, location: 'florida',  citedDomains: ['acmecoatings.test'], competitorOverlap: [], recommendedCompetitors: [], answerText: null, createdAt: prevCreatedAt },
+      { id: crypto.randomUUID(), runId: prevMiId, queryId, provider: 'gemini', citationState: 'cited', answerMentioned: true, location: 'michigan', citedDomains: ['acmecoatings.test'], competitorOverlap: [], recommendedCompetitors: [], answerText: null, createdAt: prevCreatedAt },
     ]).run()
   }
 
@@ -161,7 +161,7 @@ function seedTwoLocationFanOut(opts: { withPreviousGroup: boolean }) {
   ]).run()
   // Latest group: cited in florida only; not cited in michigan.
   db.insert(querySnapshots).values([
-    { id: crypto.randomUUID(), runId: latestFlId, queryId, provider: 'gemini', citationState: 'cited',     answerMentioned: true,  location: 'florida',  citedDomains: ['azcoatings.example'], competitorOverlap: [], recommendedCompetitors: [], answerText: null, createdAt: latestCreatedAt },
+    { id: crypto.randomUUID(), runId: latestFlId, queryId, provider: 'gemini', citationState: 'cited',     answerMentioned: true,  location: 'florida',  citedDomains: ['acmecoatings.test'], competitorOverlap: [], recommendedCompetitors: [], answerText: null, createdAt: latestCreatedAt },
     { id: crypto.randomUUID(), runId: latestMiId, queryId, provider: 'gemini', citationState: 'not-cited', answerMentioned: false, location: 'michigan', citedDomains: [],                       competitorOverlap: [], recommendedCompetitors: [], answerText: null, createdAt: latestCreatedAt },
   ]).run()
 
@@ -634,7 +634,7 @@ describe('GET /api/v1/projects/:name/overview', () => {
     const { app } = seedTwoLocationFanOut({ withPreviousGroup: true })
     await app.ready()
 
-    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/azcoatings-test/overview' })
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/acme-coatings-test/overview' })
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload) as ProjectOverviewDto
 
@@ -657,7 +657,7 @@ describe('GET /api/v1/projects/:name/overview', () => {
     const { app } = seedTwoLocationFanOut({ withPreviousGroup: true })
     await app.ready()
 
-    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/azcoatings-test/overview' })
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/acme-coatings-test/overview' })
     const body = JSON.parse(res.payload) as ProjectOverviewDto
 
     // Previous group: cited in both locations → project-level cited.
@@ -689,7 +689,7 @@ describe('GET /api/v1/projects/:name/overview', () => {
     const { app } = seedTwoLocationFanOut({ withPreviousGroup: false })
     await app.ready()
 
-    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/azcoatings-test/overview' })
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/acme-coatings-test/overview' })
     const body = JSON.parse(res.payload) as ProjectOverviewDto
 
     expect(body.movementSummary.hasPreviousRun).toBe(false)
