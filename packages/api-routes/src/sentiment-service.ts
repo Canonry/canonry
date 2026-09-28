@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { and, desc, eq, inArray, ne } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, isNull, ne } from 'drizzle-orm'
 import {
   aggregateSentiment, AppError, canonicalSentimentJson, createSentimentEvaluationDefinition,
   emptySentimentCounts, notFound, SENTIMENT_INTERVAL_LIMITATION, SENTIMENT_MODEL,
@@ -11,7 +11,7 @@ import {
   type SentimentSelection, type SentimentSettings, type SentimentSummary,
 } from '@ainyc/canonry-contracts'
 import {
-  measurementPlanVersions, runs, sentimentAttempts, sentimentDefinitions, sentimentJobItems, sentimentJobs,
+  measurementPlanVersions, querySnapshots, runs, sentimentAttempts, sentimentDefinitions, sentimentJobItems, sentimentJobs,
   sentimentResults, sentimentWorkItems, SentimentIdempotencyConflict, SentimentRepository, type DatabaseClient,
 } from '@ainyc/canonry-db'
 import { selectSentimentSources, type SentimentSourceFilter } from './sentiment-source.js'
@@ -89,7 +89,7 @@ export class SentimentService {
       const single = selectSentimentSources(this.db, projectId, { ...sourceFilter(selection), runIds: [runId] })
       return Object.entries(single.skipped).map(([reason, count]) => ({ runId, reason, count }))
     })
-    return { previewToken, expiresAt: previewToken ? expiresAt : null, selection: frozenSelection, evaluationDefinitionId: definitionId, eligibleAssessments: source.assessments.length, alreadyClassified, skipped, estimatedInputTokens, estimatedCostUsd: null, estimateMethod: this.options.estimate ? 'Adapter estimate of the full request including all questions and evidence candidates; final billed usage is recorded per attempt.' : 'Token and cost estimates unavailable on this host.' }
+    return { previewToken, expiresAt: previewToken ? expiresAt : null, selection: frozenSelection, evaluationDefinitionId: definitionId, eligibleAssessments: source.assessments.length, alreadyClassified, skipped, estimatedInputTokens, estimatedCostUsd: this.options.estimate ? estimatedInputTokens * 0.042 / 1_000_000 : null, estimateMethod: this.options.estimate ? 'Adapter estimate of the full request including all questions and evidence candidates; final billed usage is recorded per attempt.' : 'Token and cost estimates unavailable on this host.' }
   }
   submit(projectId: string, previewToken: string, idempotencyKey: string, actor: string): SentimentJob {
     const payloadHash = sentimentHash({ previewToken })
@@ -130,7 +130,22 @@ export class SentimentService {
     return sentimentJobSchema.parse({ id: row.id, projectId: row.projectId, origin: row.origin, state: row.state, enablementEpoch: row.enablementEpoch, evaluationDefinitionId: row.evaluationDefinitionId, selection: row.selection, createdAt: row.createdAt, updatedAt: row.updatedAt, cancellationReason: row.cancellationReason, counts, selected: items.length, attempts: attempts.map(attempt => ({ id: attempt.id, workItemId: attempt.workItemId, dispatchedAt: attempt.dispatchedAt, completedAt: attempt.completedAt, returnedModel: attempt.returnedModel, usage: { kind: attempt.usageStatus, inputTokens: attempt.usage?.inputTokens ?? null, outputTokens: attempt.usage?.outputTokens ?? null }, errorCode: attempt.safeFailure })) })
   }
   private resolve(projectId: string, selection: SentimentSelection): SentimentResolvedSelection {
-    const run = selection.runId ? this.db.select().from(runs).where(and(eq(runs.id, selection.runId), eq(runs.projectId, projectId))).get() : this.db.select().from(runs).where(and(eq(runs.projectId, projectId), eq(runs.kind, 'answer-visibility'), ne(runs.trigger, 'probe'))).orderBy(desc(runs.createdAt)).get()
+    if (selection.scope !== 'project' && !selection.scopeKey) throw validationError('A scopeKey is required for property, group, and market sentiment selections.')
+    if (selection.evaluationDefinitionId && this.repository.getSettings(projectId)?.evaluationDefinitionId !== selection.evaluationDefinitionId) {
+      const admitted = this.db.select({ id: sentimentWorkItems.id }).from(sentimentWorkItems).where(and(eq(sentimentWorkItems.projectId, projectId), eq(sentimentWorkItems.evaluationDefinitionId, selection.evaluationDefinitionId))).get()
+      if (!admitted) throw notFound('Sentiment definition', selection.evaluationDefinitionId)
+    }
+    const conditions = [eq(runs.projectId, projectId), eq(runs.kind, 'answer-visibility'), ne(runs.trigger, 'probe')]
+    if (selection.mode === 'simple') conditions.push(isNull(runs.measurementPlanVersionId))
+    if (selection.mode === 'advanced') conditions.push(isNotNull(runs.measurementPlanVersionId))
+    if (selection.revision !== undefined) {
+      const version = this.db.select({ id: measurementPlanVersions.id }).from(measurementPlanVersions).where(and(eq(measurementPlanVersions.projectId, projectId), eq(measurementPlanVersions.revision, selection.revision))).get()
+      conditions.push(eq(runs.measurementPlanVersionId, version?.id ?? '__missing-revision__'))
+    }
+    if (selection.provider || selection.model || selection.location) {
+      conditions.push(inArray(runs.id, this.db.select({ runId: querySnapshots.runId }).from(querySnapshots).where(and(selection.provider ? eq(querySnapshots.provider, selection.provider) : undefined, selection.model ? eq(querySnapshots.servedModel, selection.model) : undefined, selection.location ? selection.location === 'none' ? isNull(querySnapshots.location) : eq(querySnapshots.location, selection.location) : undefined))))
+    }
+    const run = selection.runId ? this.db.select().from(runs).where(and(eq(runs.id, selection.runId), eq(runs.projectId, projectId))).get() : this.db.select().from(runs).where(and(...conditions)).orderBy(desc(runs.createdAt)).get()
     if (selection.runId && !run) throw notFound('Run', selection.runId)
     const source = run ? selectSentimentSources(this.db, projectId, { ...sourceFilter(selection), runId: run.id }) : null
     const allowedSubjects = new Set(source?.assessments.map(item => `${item.snapshotId}:${item.subject.key}`) ?? [])

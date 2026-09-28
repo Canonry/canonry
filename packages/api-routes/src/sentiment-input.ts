@@ -25,7 +25,7 @@ export function sentimentClassifierInput(source: SentimentSourceAssessment, defi
     subjectHash: sentimentHash({ subject, context: edge.context }), language: source.language, definition,
     sentences: sentimentSentenceSpans(source.sourceText),
     context: { queryId: edge.queryKey, queryText: source.queryText, queryClass: edge.queryClass, provider: edge.provider, requestedModel: edge.sourceModel, servedModel: edge.servedModel, location: edge.context?.label ?? null, locationContext: edge.context, revision: source.revision,
-      usageEdges: source.edges.flatMap(item => (item.groupKeys.length ? item.groupKeys : [null]).flatMap(groupId => (item.marketKeys.length ? item.marketKeys : [null]).map(marketId => ({ targetId: item.propertyKey, propertyId: source.revision === null ? null : item.propertyKey, groupId, marketId, queryClass: item.queryClass, location: item.context?.label ?? null })))),
+      usageEdges: source.edges.flatMap(item => (item.groupKeys.length ? item.groupKeys : [null]).flatMap(groupId => (item.marketKeys.length ? item.marketKeys : [null]).map(marketId => ({ queryId: item.queryKey, executionNodeKey: item.executionNodeKey, targetId: item.propertyKey, propertyId: source.revision === null ? null : item.propertyKey, groupId, marketId, queryClass: item.queryClass, location: item.context?.label ?? null })))),
     },
   }
 }

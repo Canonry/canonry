@@ -1,6 +1,8 @@
+import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createClient, migrate, projects, queries, runs, querySnapshots, simpleMeasurementDefinitions, measurementPlanVersions, type DatabaseClient } from '@ainyc/canonry-db'
-import { buildSimpleMeasurementDefinition, canonicalMeasurementPlanV2Json, createSentimentEvaluationDefinition } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects, queries, runs, querySnapshots, simpleMeasurementDefinitions, measurementPlanVersions, sentimentWorkItems, type DatabaseClient } from '@ainyc/canonry-db'
+import { buildSimpleMeasurementDefinition, canonicalMeasurementPlanV2Json, createSentimentEvaluationDefinition, sentimentClassifierInputSchema } from '@ainyc/canonry-contracts'
+import { SentimentService } from '../src/sentiment-service.js'
 import { selectSentimentSources } from '../src/sentiment-source.js'
 import { sentimentClassifierInput, sentimentHash } from '../src/sentiment-input.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
@@ -23,6 +25,13 @@ function snapshot(id = 's', execution?: string, provider = 'openai') {
   db.insert(querySnapshots).values({ id, runId: 'r', queryId: 'q', queryText: 'Original reviews', provider, model: 'gpt-test', servedModel: 'gpt-test-v1', answerText: 'Original Co provides excellent service. Details at https://Original.Example/about.', citationState: 'cited', createdAt: now, ...(execution ? { measurementExecutionId: execution } : {}) }).run()
 }
 describe('sentiment frozen source selection', () => {
+  it('retains the frozen Simple query after its live query is deleted', () => {
+    simple(); snapshot()
+    db.delete(queries).where(eq(queries.id, 'q')).run()
+    const selected = selectSentimentSources(db, 'p', { runId: 'r' })
+    expect(selected.assessments).toHaveLength(1)
+    expect(selected.assessments[0]!.edges[0]!.queryKey).toBe('q')
+  })
   it('uses frozen identity and language, preserving original URLs and source spans', () => {
     simple(); snapshot()
     const selected = selectSentimentSources(db, 'p', { runId: 'r' })
@@ -46,9 +55,12 @@ describe('sentiment frozen source selection', () => {
   it('selects Advanced markets by exact frozen usage edges and deduplicates shared subjects', () => {
     const plan = measurementPlanV2Fixture()
     plan.assignments.forEach(assignment => { assignment.queryClass = 'branded' })
+    plan.usageEdges.push({ executionNodeKey: 'exec-brand', targetKey: 'harbor', queryId: 'q-second-brand' })
+    plan.assignments.push({ executionNodeKey: 'exec-brand', targetKey: 'harbor', queryId: 'q-second-brand', queryClass: 'branded' })
     plan.reportingScopes = [
       { stableKey: 'nearby-market', label: 'Nearby', kind: 'market', usageEdges: plan.usageEdges.filter(edge => edge.executionNodeKey === 'exec-nearby') },
-      { stableKey: 'brand-market', label: 'Brand', kind: 'market', usageEdges: plan.usageEdges.filter(edge => edge.executionNodeKey === 'exec-brand') },
+      { stableKey: 'brand-market', label: 'Brand', kind: 'market', usageEdges: plan.usageEdges.filter(edge => edge.executionNodeKey === 'exec-brand' && edge.queryId === 'q-brand') },
+      { stableKey: 'second-market', label: 'Second', kind: 'market', usageEdges: plan.usageEdges.filter(edge => edge.queryId === 'q-second-brand') },
     ]
     db.insert(measurementPlanVersions).values({ id: 'v', projectId: 'p', revision: 1, canonicalJson: canonicalMeasurementPlanV2Json(plan), checksum: 'x', schemaVersion: 2, compiledChecksum: plan.compiledChecksum, createdAt: now }).run()
     db.insert(runs).values({ id: 'r', projectId: 'p', kind: 'answer-visibility', status: 'completed', trigger: 'manual', measurementPlanVersionId: 'v', measurementManifest: buildMeasurementPlanV2Manifest(plan), createdAt: now }).run()
@@ -57,7 +69,25 @@ describe('sentiment frozen source selection', () => {
     expect(all.assessments).toHaveLength(6)
     const market = selectSentimentSources(db, 'p', { runId: 'r', marketKey: 'brand-market' })
     expect(market.assessments).toHaveLength(2)
-    expect(market.assessments.every(item => item.edges.every(edge => edge.queryKey === 'q-brand'))).toBe(true)
+    expect(market.assessments.every(item => item.edges.some(edge => edge.queryKey === 'q-brand'))).toBe(true)
+    const second = selectSentimentSources(db, 'p', { runId: 'r', marketKey: 'second-market' })
+    expect(second.assessments).toEqual(market.assessments)
+    expect(market.assessments[0]!.edges.map(edge => edge.queryKey)).toEqual(['q-brand', 'q-second-brand'])
     expect(all.assessments[0]!.language).toBe('unknown')
+    const service = new SentimentService(db, { install: () => ({ enabled: true, ready: true, model: 'jev-1.13.0', reason: null }), previewSecret: 'fixture', now: () => new Date(now) })
+    service.configure('p', { enabled: true })
+    const firstPreview = service.preview('p', { runId: 'r', marketKey: 'brand-market' })
+    service.submit('p', firstPreview.previewToken!, 'first-market', 'fixture')
+    const secondPreview = service.preview('p', { runId: 'r', marketKey: 'second-market' })
+    service.submit('p', secondPreview.previewToken!, 'second-market', 'fixture')
+    const work = db.select().from(sentimentWorkItems).all()
+    expect(work).toHaveLength(2)
+    expect(sentimentClassifierInputSchema.parse(work[0]!.input).context.usageEdges.map(edge => edge.marketId)).toEqual(['brand-market', 'second-market'])
+    expect(sentimentClassifierInputSchema.parse(work[0]!.input).context.usageEdges.map(edge => edge.queryId)).toEqual(['q-brand', 'q-second-brand'])
+    db.insert(measurementPlanVersions).values({ id: 'v2', projectId: 'p', revision: 2, canonicalJson: canonicalMeasurementPlanV2Json(plan), checksum: 'y', schemaVersion: 2, compiledChecksum: plan.compiledChecksum, createdAt: now }).run()
+    db.insert(runs).values({ id: 'later-advanced', projectId: 'p', kind: 'answer-visibility', status: 'partial', trigger: 'manual', measurementPlanVersionId: 'v2', measurementManifest: buildMeasurementPlanV2Manifest(plan), createdAt: '2026-09-29T00:00:00.000Z' }).run()
+    db.insert(runs).values({ id: 'latest-simple', projectId: 'p', kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt: '2026-09-30T00:00:00.000Z' }).run()
+    expect(service.summary('p', { mode: 'advanced', revision: 1, queryClass: 'branded', scope: 'project' }).selection).toMatchObject({ runId: 'r', revision: 1, mode: 'advanced' })
+    expect(service.summary('p', { mode: 'advanced', queryClass: 'branded', scope: 'project' }).selection).toMatchObject({ runId: 'later-advanced', revision: 2, mode: 'advanced' })
   })
 })

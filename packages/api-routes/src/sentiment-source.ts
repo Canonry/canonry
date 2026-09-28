@@ -3,7 +3,7 @@ import { and, desc, eq, gte, inArray, lte } from 'drizzle-orm'
 import {
   measurementV2UsageEdgeKey, parseStoredMeasurementPlanAnyVersion,
   simpleMeasurementDefinitionSchema, validationError,
-  type LocationContext,
+  type LocationContext, type SimpleMeasurementDefinition,
 } from '@ainyc/canonry-contracts'
 import { measurementPlanVersions, querySnapshots, runs, simpleMeasurementDefinitions, sentimentCompletionReceipts, type DatabaseClient } from '@ainyc/canonry-db'
 import { measurementRunSlotState } from './measurement-run-completeness.js'
@@ -14,7 +14,7 @@ export interface SentimentSourceFilter {
   marketKey?: string; provider?: string; sourceModel?: string; location?: string
 }
 export interface SentimentSourceEdge {
-  queryKey: string; queryClass: 'branded' | 'non-brand'; propertyKey: string
+  queryKey: string; executionNodeKey: string | null; queryClass: 'branded' | 'non-brand'; propertyKey: string
   groupKeys: string[]; marketKeys: string[]; provider: string
   sourceModel: string | null; servedModel: string | null; context: LocationContext | null
 }
@@ -60,7 +60,7 @@ export function selectSentimentSources(db: DatabaseClient, projectId: string, fi
           const definition = simpleMeasurementDefinitionSchema.safeParse(stored?.definition)
           if (definition.success) {
             const expected = definition.data.queries.flatMap(query => definition.data.engines.map(engine => `${query.queryId}\0${engine.provider}`))
-            const recorded = new Set(db.select().from(querySnapshots).where(eq(querySnapshots.runId, run.id)).all().map(snapshot => `${snapshot.queryId}\0${snapshot.provider}`))
+            const recorded = new Set(db.select().from(querySnapshots).where(eq(querySnapshots.runId, run.id)).all().map(snapshot => `${simpleSourceQuery(definition.data, snapshot)?.queryId}\0${snapshot.provider}`))
             out.sourceCoverage.expected += expected.length
             out.sourceCoverage.completed += expected.filter(key => recorded.has(key)).length
           }
@@ -89,14 +89,15 @@ export function selectSentimentSources(db: DatabaseClient, projectId: string, fi
             const assignment = plan.assignments.find(item => item.executionNodeKey === edge.executionNodeKey && item.targetKey === edge.targetKey && item.queryId === edge.queryId)
             if (!assignment) { skip('legacy-missing-provenance'); continue }
             const candidate: SentimentSourceEdge = {
-              queryKey: edge.queryId, queryClass: assignment.queryClass, propertyKey: target.stableKey,
+              queryKey: edge.queryId, executionNodeKey: edge.executionNodeKey, queryClass: assignment.queryClass, propertyKey: target.stableKey,
               groupKeys: plan.groups.filter(item => item.targetKeys.includes(target.stableKey)).map(item => item.stableKey),
               marketKeys: (plan.reportingScopes ?? []).filter(item => item.usageEdges.some(member => measurementV2UsageEdgeKey(member) === measurementV2UsageEdgeKey(edge))).map(item => item.stableKey),
               provider: snapshot.provider, sourceModel: snapshot.model, servedModel: snapshot.servedModel, context: node.context.location,
             }
-            if (matchesSentimentEdge(candidate, filters)) edges.push(candidate)
+            edges.push(candidate)
           }
-          if (!edges.length) continue
+          if (!edges.some(edge => matchesSentimentEdge(edge, filters))) continue
+          edges.sort((left, right) => left.queryClass.localeCompare(right.queryClass) || left.queryKey.localeCompare(right.queryKey))
           out.assessments.push({ projectId, runId: run.id, snapshotId: snapshot.id, sourceText: snapshot.answerText ?? '', language: (run.measurementExecutionIdentity as { language?: string } | null)?.language ?? 'unknown', queryText: node.queryText, revision: row.revision,
             subject: { key: target.stableKey, name: target.label, aliases: target.aliases, identityAliases: target.identityAliases ?? [], urls: target.urlMatchers.map(item => item.kind === 'exact' ? item.url : `https://${item.host}${item.kind === 'prefix' ? item.pathPrefix : '/'}`), mentionNotApplicable: target.mentionNotApplicable }, edges })
         }
@@ -108,14 +109,14 @@ export function selectSentimentSources(db: DatabaseClient, projectId: string, fi
       if (!parsed.success) { skip('legacy-missing-provenance'); continue }
       const definition = parsed.data
       const expected = definition.queries.flatMap(query => definition.engines.map(engine => `${query.queryId}\0${engine.provider}`))
-      const recorded = new Set(snapshots.map(snapshot => `${snapshot.queryId}\0${snapshot.provider}`))
+      const recorded = new Set(snapshots.map(snapshot => `${simpleSourceQuery(definition, snapshot)?.queryId}\0${snapshot.provider}`))
       out.sourceCoverage.expected += expected.length
       out.sourceCoverage.completed += expected.filter(key => recorded.has(key)).length
-      if (!expected.length || expected.some(key => !recorded.has(key)) || snapshots.some(snapshot => !expected.includes(`${snapshot.queryId}\0${snapshot.provider}`))) { skip('incomplete-run'); continue }
+      if (!expected.length || expected.some(key => !recorded.has(key)) || snapshots.length !== expected.length || snapshots.some(snapshot => !expected.includes(`${simpleSourceQuery(definition, snapshot)?.queryId}\0${snapshot.provider}`))) { skip('incomplete-run'); continue }
       for (const snapshot of snapshots) {
-        const query = definition.queries.find(item => item.queryId === snapshot.queryId)
+        const query = simpleSourceQuery(definition, snapshot)
         if (!query?.queryClass) { skip('legacy-missing-provenance'); continue }
-        const edge: SentimentSourceEdge = { queryKey: query.queryId, queryClass: query.queryClass, propertyKey: projectId, groupKeys: [], marketKeys: [], provider: snapshot.provider, sourceModel: snapshot.model, servedModel: snapshot.servedModel, context: definition.location }
+        const edge: SentimentSourceEdge = { queryKey: query.queryId, executionNodeKey: null, queryClass: query.queryClass, propertyKey: projectId, groupKeys: [], marketKeys: [], provider: snapshot.provider, sourceModel: snapshot.model, servedModel: snapshot.servedModel, context: definition.location }
         if (!matchesSentimentEdge(edge, filters)) continue
         out.assessments.push({ projectId, runId: run.id, snapshotId: snapshot.id, sourceText: snapshot.answerText ?? '', language: definition.language, queryText: query.queryText, revision: null,
           subject: { key: projectId, name: definition.identity.displayName, aliases: definition.identity.aliases, identityAliases: [], urls: [definition.identity.canonicalDomain, ...definition.identity.ownedDomains], mentionNotApplicable: !definition.identity.displayName.trim() && !definition.identity.aliases.some(alias => alias.trim()) }, edges: [edge] })
@@ -138,4 +139,12 @@ export function matchesSentimentEdge(edge: SentimentSourceEdge, filters: Sentime
     if (filters.scope === 'market' && !edge.marketKeys.includes(filters.scopeKey)) return false
   }
   return true
+}
+
+/** Deleted live queries retain snapshot-time text; only an unambiguous frozen match is usable. */
+function simpleSourceQuery(definition: SimpleMeasurementDefinition, snapshot: { queryId: string | null; queryText: string | null }) {
+  const identified = snapshot.queryId ? definition.queries.find(query => query.queryId === snapshot.queryId) : undefined
+  if (identified) return identified
+  const matches = snapshot.queryText === null ? [] : definition.queries.filter(query => query.queryText === snapshot.queryText)
+  return matches.length === 1 ? matches[0] : undefined
 }

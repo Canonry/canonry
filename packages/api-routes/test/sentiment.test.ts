@@ -34,6 +34,14 @@ function request(method: 'GET' | 'PUT' | 'POST', path: string, key = 'root', pay
 
 describe('sentiment stored API', () => {
 
+  it('refuses evaluator metadata belonging only to another project', async () => {
+    const settings = service.configure('other', { enabled: true, customThemes: [{ id: 'private-topic', name: 'Private topic', description: 'Internal topic definition.' }] })
+    const response = await request('GET', `?evaluationDefinitionId=${settings.evaluationDefinitionId}`, 'scoped')
+    expect(response.statusCode).toBe(404)
+    expect(response.body).not.toContain('Internal topic')
+  })
+
+
   it.each(['admin', 'viewer'] as const)('retains %s authority for named sessions and delegated MCP credentials', async role => {
     db.insert(users).values({ id: role, name: role, nameKey: role, passwordHash: 'unused', role, createdAt: clock }).run()
     db.insert(apiKeys).values({ id: `delegated-${role}`, name: 'delegated', keyHash: hashApiKey(`cnry_delegated-${role}`), keyPrefix: 'cnry_test', scopes: ['*'], delegatedUserId: role, createdAt: clock }).run()
