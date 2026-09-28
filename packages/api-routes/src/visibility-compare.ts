@@ -297,10 +297,13 @@ function countPeriod(
     // Same scope as buildMentionShare: non-brand when classified, pooled (and
     // labelled pooled) only when nothing could be classified.
     const selected = snaps.filter(snapshot => (!classificationAvailable || queryClassOf(snapshot) === 'non-brand') && snapshot.answerMentioned !== null)
+    // Same rows as buildMentionShare: named competitors only, most-named first.
     const perCompetitor = competitors.map(competitor => ({
       domain: competitor.domain,
       mentionSnapshots: selected.filter(snapshot => snapshot.competitorMentions?.includes(competitor.domain)).length,
     }))
+      .filter(row => row.mentionSnapshots > 0)
+      .sort((a, b) => b.mentionSnapshots - a.mentionSnapshots || (a.domain < b.domain ? -1 : 1))
     mentionShare = { ...mentionShare, breakdown: { ...mentionShare.breakdown,
       projectMentionSnapshots: selected.filter(snapshot => snapshot.answerMentioned === true).length,
       competitorMentionSnapshots: perCompetitor.reduce((total, competitor) => total + competitor.mentionSnapshots, 0),

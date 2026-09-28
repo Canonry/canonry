@@ -143,7 +143,10 @@ function printVisibilityCompare(data: VisibilityCompareDto): void {
   if (data.classComparison) {
     const frame = data.classComparison
     console.log(`Class metrics basket (frozen Advanced): ${frame.basket.queryCount} queries; engines: ${frame.basket.providers.join(', ') || 'none'}`)
-    console.log(`Class basket sweeps: ${frame.from.month} ${frame.from.runCount}, ${frame.to.month} ${frame.to.runCount}; continuity: ${frame.continuity.status}`)
+    const classSweeps = `Class basket sweeps: ${frame.from.month} ${frame.from.runCount}, ${frame.to.month} ${frame.to.runCount}; continuity: ${frame.continuity.status}`
+    // The class rates rest on their own sweeps, which can be fewer than the project's.
+    const classLow = frame.from.lowRunCount || frame.to.lowRunCount
+    console.log(classLow ? `${classSweeps}  (below the 5-sweep floor — class intervals are wide, a "moved" verdict is unlikely to be reachable)` : classSweeps)
     for (const provider of frame.continuity.providers) {
       if (provider.status !== 'included') console.log(`Class basket excludes ${provider.provider}: ${provider.fromModels.join('/') || '?'} -> ${provider.toModels.join('/') || '?'} (${provider.status})`)
     }

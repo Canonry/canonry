@@ -10,6 +10,7 @@ import { competitors, createClient, queries, measurementPlans, measurementPlanVe
 import { computeVisibilityCompare } from '../src/visibility-compare.js'
 import { apiRoutes } from '../src/index.js'
 import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
+import { plansAreLabelOnlyVariants } from '../src/measurement-draft-compile.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 
 let directory: string
@@ -32,12 +33,14 @@ function seedVersion(plan: MeasurementPlanV2, revision = 1, comparableToVersionI
   db.insert(measurementPlans).values({ projectId, activeVersionId: id, createdAt: before, updatedAt: before }).onConflictDoUpdate({ target: measurementPlans.projectId, set: { activeVersionId: id } }).run()
   return id
 }
-function seedRun(plan: MeasurementPlanV2, versionId: string, createdAt: string, unknown = false): void {
+type Slot = ReturnType<typeof buildMeasurementPlanV2Manifest>['expectedSlots'][number]
+function seedRun(plan: MeasurementPlanV2, versionId: string, createdAt: string, unknown = false, options: { answer?: (slot: Slot) => string; citedUrls?: (slot: Slot) => string[]; trigger?: 'manual' | 'probe' } = {}): void {
   const id = crypto.randomUUID()
   const manifest = buildMeasurementPlanV2Manifest(plan)
-  db.insert(runs).values({ id, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', measurementPlanVersionId: versionId, measurementManifest: manifest, createdAt, finishedAt: createdAt }).run()
+  db.insert(runs).values({ id, projectId, kind: 'answer-visibility', status: 'completed', trigger: options.trigger ?? 'manual', measurementPlanVersionId: versionId, measurementManifest: manifest, createdAt, finishedAt: createdAt }).run()
   for (const slot of manifest.expectedSlots) {
-    db.insert(querySnapshots).values({ id: crypto.randomUUID(), runId: id, queryId: null, queryText: slot.queryText, provider: slot.provider, model: 'stable-requested-model', servedModel: 'served-model', citationState: 'cited', answerMentioned: true, answerText: unknown ? null : 'Harbor Homes, Rival, and Unrelated live brand are recommended.', citedDomains: ['northstar.example'], citedUrls: ['https://northstar.example/locations/harbor/details'], captureStatus: unknown ? 'partial' : 'complete', measurementExecutionId: slot.executionId, location: slot.context?.label ?? null, requestedContext: slot.context, supportedContext: { status: 'applied', resolved: slot.context }, createdAt }).run()
+    const citedUrls = options.citedUrls?.(slot) ?? ['https://northstar.example/locations/harbor/details']
+    db.insert(querySnapshots).values({ id: crypto.randomUUID(), runId: id, queryId: null, queryText: slot.queryText, provider: slot.provider, model: 'stable-requested-model', servedModel: 'served-model', citationState: 'cited', answerMentioned: true, answerText: unknown ? null : options.answer?.(slot) ?? 'Harbor Homes, Rival, and Unrelated live brand are recommended.', citedDomains: [...new Set(citedUrls.map(url => new URL(url).hostname))], citedUrls, captureStatus: unknown ? 'partial' : 'complete', measurementExecutionId: slot.executionId, location: slot.context?.label ?? null, requestedContext: slot.context, supportedContext: { status: 'applied', resolved: slot.context }, createdAt }).run()
   }
 }
 async function compare(selection = '') {
@@ -160,5 +163,93 @@ describe('Advanced monthly comparison', () => {
     expect(dto.metrics.find(metric => metric.key === 'mention-rate-branded')?.from).toMatchObject({ numerator: 0, denominator: 0, excludedUnknown: 0 })
     // The citation signal is still measured for the same answers.
     expect(dto.metrics.find(metric => metric.key === 'cited-rate-branded')?.from).toMatchObject({ denominator: 2, excludedUnknown: 0 })
+  })
+
+  it('keeps a revision that only adds a market comparable with the months before it', async () => {
+    const base = measurementPlanV2Fixture()
+    const withoutMarket = measurementPlanV2Fixture({ assignments: base.assignments.map(assignment => assignment.targetKey === 'bayside' ? { ...assignment, queryClass: 'branded' } : assignment) })
+    const withMarket = frozenPlan()
+    // Publishing accepts an added market as a display-only revision.
+    expect(plansAreLabelOnlyVariants(withoutMarket, withMarket)).toBe(true)
+    const first = seedVersion(withoutMarket)
+    seedRun(withoutMarket, first, before)
+    seedRun(withMarket, seedVersion(withMarket, 2, first), after)
+    const dto = await compare()
+    expect(dto.classComparison).toMatchObject({ basket: { queryCount: 2, providers: ['gemini', 'openai'] }, continuity: { status: 'comparable' } })
+    expect(dto.metrics.find(metric => metric.key === 'mention-rate-non-brand')).toMatchObject({ from: { numerator: 2, denominator: 2 }, to: { numerator: 2, denominator: 2 } })
+    // August's answers read through the newest definition, which has the market.
+    const market = await compare('&scope=market&scopeKey=harbor-market')
+    expect([market.from.runCount, market.to.runCount]).toEqual([1, 1])
+    for (const key of ['mention-rate-branded', 'mention-rate-non-brand', 'cited-rate-branded', 'cited-rate-non-brand']) {
+      expect(market.metrics.find(metric => metric.key === key), key).toMatchObject({ from: { numerator: 2, denominator: 2 }, to: { numerator: 2, denominator: 2 } })
+    }
+  })
+  it('compares a scope over the runs that measured it when a material revision adds it mid-month', async () => {
+    const base = measurementPlanV2Fixture()
+    const withoutMarket = measurementPlanV2Fixture({ assignments: base.assignments.map(assignment => assignment.targetKey === 'bayside' ? { ...assignment, queryClass: 'branded' } : assignment) })
+    const moved = frozenPlan()
+    const withMarket = measurementPlanV2Fixture({ ...moved, executionNodes: moved.executionNodes.map(node => ({ ...node, context: { ...node.context, location: { label: 'Harbor North', city: 'Harbor', region: 'EX', country: 'US' } } })) })
+    expect(plansAreLabelOnlyVariants(withoutMarket, withMarket)).toBe(false)
+    seedRun(withoutMarket, seedVersion(withoutMarket), '2026-08-05T12:00:00.000Z')
+    const second = seedVersion(withMarket, 2)
+    seedRun(withMarket, second, '2026-08-20T12:00:00.000Z')
+    seedRun(withMarket, second, after)
+    // The 08-05 sweep never measured the market; it leaves August instead of failing the request.
+    const market = await compare('&scope=market&scopeKey=harbor-market')
+    expect([market.from.runCount, market.to.runCount]).toEqual([1, 1])
+    expect(market.metrics.find(metric => metric.key === 'mention-rate-non-brand')).toMatchObject({ from: { numerator: 2, denominator: 2 }, to: { numerator: 2, denominator: 2 } })
+    // A scope that no sweep in either month measured is still refused.
+    const absent = await app.inject({ method: 'GET', url: '/api/v1/projects/monthly/visibility-compare?from=2026-08&to=2026-09&scope=market&scopeKey=nowhere' })
+    expect(absent.statusCode).toBe(400)
+    expect(absent.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR', details: { reason: 'retired-scope', kind: 'market', key: 'nowhere' } } })
+  })
+  it('counts frozen share of voice from named competitors only, most-named first', async () => {
+    const base = frozenPlan()
+    const plan = measurementPlanV2Fixture({ ...base, groups: base.groups.map(group => ({ ...group, competitors: [
+      ...group.competitors,
+      { stableKey: 'other', label: 'Other Co', domain: 'other.example', aliases: ['Other Co'] },
+      { stableKey: 'absent', label: 'Absent Brand', domain: 'absent.example', aliases: ['Absent Brand'] },
+    ] })) })
+    const id = seedVersion(plan)
+    const harborPage = 'https://northstar.example/locations/harbor/details'
+    const challengerPage = 'https://challenger.example/homes'
+    // August: every answer names Harbor Homes and Challenger; OpenAI also names
+    // Other Co and cites Challenger beside Harbor.
+    seedRun(plan, id, before, false, {
+      answer: slot => slot.provider === 'openai' ? 'Harbor Homes, Challenger and Other Co are recommended.' : 'Harbor Homes and Challenger are recommended.',
+      citedUrls: slot => slot.provider === 'openai' ? [harborPage, challengerPage] : [harborPage],
+    })
+    // September: only Challenger is named and cited.
+    seedRun(plan, id, after, false, { answer: () => 'Challenger is recommended.', citedUrls: () => [challengerPage] })
+    const dto = await compare('&scope=group&scopeKey=regional')
+    // Non-brand rows are Harbor's two exec-nearby answers. August: 2 project
+    // mentions against Challenger 2 + Other Co 1; September: 0 against 2.
+    expect(dto.metrics.find(metric => metric.key === 'mention-share-of-voice')).toMatchObject({
+      queryClass: 'non-brand',
+      from: { numerator: 2, denominator: 5, point: 0.4 },
+      to: { numerator: 0, denominator: 2, point: 0 },
+    })
+    expect(dto.competitors).toEqual({
+      from: [{ domain: 'challenger.example', mentions: 2 }, { domain: 'other.example', mentions: 1 }],
+      to: [{ domain: 'challenger.example', mentions: 2 }],
+    })
+    // Cited share of voice pools the group's four answers. August: Harbor is
+    // cited in all 4, Challenger in the 2 OpenAI answers; September: 0 against 4.
+    expect(dto.metrics.find(metric => metric.key === 'cited-share-of-voice')).toMatchObject({
+      from: { numerator: 4, denominator: 6, excludedUnknown: 0 },
+      to: { numerator: 0, denominator: 4, excludedUnknown: 0 },
+    })
+  })
+  it('leaves probe sweeps out of the frozen class frame', async () => {
+    const plan = frozenPlan(); const id = seedVersion(plan)
+    seedRun(plan, id, before); seedRun(plan, id, after)
+    // A September probe names nobody; it must not dilute September.
+    seedRun(plan, id, '2026-09-12T12:00:00.000Z', false, { trigger: 'probe', answer: () => 'Nobody relevant is recommended.' })
+    const dto = await compare()
+    expect([dto.to.runCount, dto.classComparison?.to.runCount]).toEqual([1, 1])
+    expect(dto.metrics.find(metric => metric.key === 'mention-rate-non-brand')?.to).toMatchObject({ numerator: 2, denominator: 2 })
+    const scoped = await compare('&scope=property&scopeKey=harbor')
+    expect(scoped.to.runCount).toBe(1)
+    expect(scoped.metrics.find(metric => metric.key === 'mention-rate-non-brand')?.to).toMatchObject({ numerator: 2, denominator: 2 })
   })
 })
