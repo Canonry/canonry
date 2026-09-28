@@ -1,7 +1,8 @@
+import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildSimpleMeasurementDefinition, type SentimentClassifierInput, type SentimentClassifierOutput } from '@ainyc/canonry-contracts'
-import { createClient, llmUsageEvents, migrate, projects, queries, querySnapshots, recordSentimentCompletion, runs, SentimentRepository, sentimentAttempts, sentimentJobs, simpleMeasurementDefinitions, type DatabaseClient } from '@ainyc/canonry-db'
-import { SentimentService } from '@ainyc/canonry-api-routes'
+import { buildSimpleMeasurementDefinition, createSentimentEvaluationDefinition, type SentimentClassifierInput, type SentimentClassifierOutput } from '@ainyc/canonry-contracts'
+import { createClient, llmUsageEvents, migrate, projects, queries, querySnapshots, recordSentimentCompletion, runs, SentimentRepository, sentimentAttempts, sentimentJobs, sentimentWorkItems, simpleMeasurementDefinitions, type DatabaseClient } from '@ainyc/canonry-db'
+import { SentimentService, sentimentHash } from '@ainyc/canonry-api-routes'
 import { resolveSentimentInstallConfig } from '@ainyc/canonry-config'
 import { SentimentWorker } from '../src/sentiment-worker.js'
 
@@ -11,7 +12,7 @@ let enabled = true
 let time: string
 const now = () => new Date(time)
 const configuration = () => resolveSentimentInstallConfig({}, { enabled, apiKey: 'private-test-key', maxConcurrency: 2 })
-const classified = (input: SentimentClassifierInput): SentimentClassifierOutput => ({ kind: 'classified', outcome: 'favorable', returnedModel: 'jev-1.13.0', usage: { kind: 'reported', inputTokens: 1000, outputTokens: 10 }, conclusion: input.sentences.slice(0, 1), complaint: null, themes: [], confidence: 0.9 })
+const classified = (input: SentimentClassifierInput): SentimentClassifierOutput => ({ kind: 'classified', outcome: 'favorable', returnedModel: 'jev-1.13.0', usage: { kind: 'reported', inputTokens: 1000, outputTokens: 10 }, conclusion: input.sentences.slice(0, 1), complaint: null, confidence: 0.9 })
 beforeEach(() => {
   enabled = true; time = '2026-09-28T00:00:00.000Z'
   db = createClient(':memory:'); migrate(db)
@@ -20,15 +21,62 @@ beforeEach(() => {
   service = new SentimentService(db, { install: () => ({ enabled, ready: enabled, reason: enabled ? null : 'install-disabled', model: 'jev-1.13.0' }), now, previewSecret: 'secret' })
 })
 afterEach(() => { db.$client.close() })
-function source(id: string, receipt = true) {
+function source(id: string, receipt = true, queryText = 'Acme reviews') {
   db.insert(runs).values({ id, projectId: 'p', kind: 'answer-visibility', trigger: 'manual', status: 'completed', createdAt: time }).run()
   db.insert(querySnapshots).values({ id: `s-${id}`, runId: id, queryId: 'q', provider: 'openai', model: 'gpt-test', servedModel: 'gpt-test-v1', answerText: 'Acme is excellent.', citationState: 'cited', createdAt: time }).run()
-  db.insert(simpleMeasurementDefinitions).values({ runId: id, projectId: 'p', checksum: 'x', capturedAt: time, definition: buildSimpleMeasurementDefinition({ capturedAt: time, identity: { displayName: 'Acme', aliases: [], canonicalDomain: 'https://Acme.Example/', ownedDomains: [] }, country: 'US', language: 'en', location: null, engines: [{ provider: 'openai', requestedModel: 'gpt-test' }], queries: [{ queryId: 'q', queryText: 'Acme reviews', provenance: null }] }) }).run()
+  db.insert(simpleMeasurementDefinitions).values({ runId: id, projectId: 'p', checksum: 'x', capturedAt: time, definition: buildSimpleMeasurementDefinition({ capturedAt: time, identity: { displayName: 'Acme', aliases: [], canonicalDomain: 'https://Acme.Example/', ownedDomains: [] }, country: 'US', language: 'en', location: null, engines: [{ provider: 'openai', requestedModel: 'gpt-test' }], queries: [{ queryId: 'q', queryText, provenance: null }] }) }).run()
   if (receipt) recordSentimentCompletion(db, { projectId: 'p', runId: id, completionKey: 'initial', completedAt: time })
 }
 function worker(classify = vi.fn(async (input: SentimentClassifierInput) => classified(input))) { return { classify, runtime: new SentimentWorker(db, { configuration, classifier: () => ({ classify }), now }) } }
 
 describe('durable sentiment worker', () => {
+
+  it('admits both future query classes and persists absent non-brand preflight without a paid attempt', async () => {
+    service.configure('p', { enabled: true }); source('branded'); source('non-brand', true, 'best service options')
+    const classify = vi.fn(async (input: SentimentClassifierInput) => classified(input))
+    const prepare = vi.fn((input: SentimentClassifierInput) => input.context.queryClass === 'non-brand'
+      ? { ok: false as const, outcome: 'subject-not-mentioned' as const, reason: 'Frozen subject absent from this answer.' }
+      : { ok: true as const, estimatedInputTokens: 1000 })
+    const runtime = new SentimentWorker(db, { configuration, classifier: () => ({ classify }), prepare, now })
+    await runtime.tick(); await runtime.tick()
+    expect(classify).toHaveBeenCalledTimes(1)
+    expect(classify.mock.calls[0]![0].context.queryClass).toBe('branded')
+    expect(db.select().from(sentimentAttempts).all()).toHaveLength(1)
+    expect(db.select().from(llmUsageEvents).all()).toHaveLength(1)
+    expect(service.jobs('p').jobs).toHaveLength(2)
+    expect(service.summary('p', { runId: 'non-brand', mode: 'simple', scope: 'project', queryClass: 'non-brand' })).toMatchObject({ state: 'complete', coverage: { selected: 1, judged: 0, counts: { 'subject-not-mentioned': 1, unfavorable: 0 } }, score: { favorableRate: null, favorableDisplay: 'Unavailable' } })
+  })
+  it('upgrades an enabled legacy evaluator at a new future-completion boundary without automatic historical non-brand work', async () => {
+    const old = { ...createSentimentEvaluationDefinition(), schemaVersion: 1, verdictVersion: 'stance-v1', identityVersion: 'qualified-subject-v1', themes: [], questions: { ...createSentimentEvaluationDefinition().questions, theme: 'Archived question' } }
+    const repository = new SentimentRepository(db), id = sentimentHash(old)
+    repository.putDefinition({ id, contentHash: id, requestedModel: old.requestedModel, definition: old, createdAt: time })
+    repository.configure({ projectId: 'p', enabled: true, evaluationDefinitionId: id, configuration: { enabled: true }, now: time })
+    source('historic-nonbrand', true, 'best service options')
+    const before = service.settings('p')
+    const settings = service.configure('p', { enabled: true })
+    expect(settings.enablementEpoch).toBe(before.enablementEpoch + 1)
+    expect(settings.completionBoundary).toBeGreaterThan(before.completionBoundary)
+    const { runtime, classify } = worker()
+    await runtime.tick(); expect(classify).not.toHaveBeenCalled()
+    source('future-nonbrand', true, 'best service options')
+    await runtime.tick(); expect(classify).toHaveBeenCalledTimes(1)
+    const preview = service.preview('p', { runId: 'historic-nonbrand', queryClass: 'non-brand' })
+    service.submit('p', preview.previewToken!, 'explicit-history', 'operator')
+    await runtime.tick(); expect(classify).toHaveBeenCalledTimes(2)
+  })
+
+  it('refuses archived evaluator inputs before preparation, attempt reservation, or transmission', async () => {
+    service.configure('p', { enabled: true }); source('r')
+    const { runtime, classify } = worker(); runtime.reconcile()
+    const work = db.select().from(sentimentWorkItems).get()!
+    const input = work.input as SentimentClassifierInput
+    db.update(sentimentWorkItems).set({ input: { ...input, definition: { ...input.definition, schemaVersion: 1, verdictVersion: 'stance-v1', themes: [], questions: { ...input.definition.questions, theme: 'Archived question' } } } }).where(eq(sentimentWorkItems.id, work.id)).run()
+    await runtime.tick()
+    expect(classify).not.toHaveBeenCalled()
+    expect(db.select().from(sentimentAttempts).all()).toHaveLength(0)
+    expect(db.select().from(llmUsageEvents).all()).toHaveLength(0)
+    expect(db.select().from(sentimentWorkItems).get()).toMatchObject({ status: 'failed', errorCode: 'UNSUPPORTED_EVALUATOR_DEFINITION' })
+  })
 
   it('records two billed retry attempts while storing one successful assessment', async () => {
     service.configure('p', { enabled: true }); source('r')
@@ -77,7 +125,8 @@ describe('durable sentiment worker', () => {
     expect(await runtime.tick()).toBe(1)
     await runtime.tick()
     expect(classify).toHaveBeenCalledTimes(1)
-    expect(classify.mock.calls[0]![0].definition.themes).toHaveLength(6)
+    expect(classify.mock.calls[0]![0].definition).toMatchObject({ schemaVersion: 2, verdictVersion: 'stance-v2' })
+    expect(Object.keys(classify.mock.calls[0]![0].definition.questions)).toHaveLength(5)
     expect(db.select().from(sentimentJobs).all()).toHaveLength(1)
     expect(db.select().from(llmUsageEvents).get()).toMatchObject({ provider: 'typesafe', feature: 'sentiment', inputTokens: 1000, costMillicents: 4 })
   })

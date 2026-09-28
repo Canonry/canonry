@@ -35,10 +35,9 @@ function request(method: 'GET' | 'PUT' | 'POST', path: string, key = 'root', pay
 describe('sentiment stored API', () => {
 
   it('refuses evaluator metadata belonging only to another project', async () => {
-    const settings = service.configure('other', { enabled: true, customThemes: [{ id: 'private-topic', name: 'Private topic', description: 'Internal topic definition.' }] })
+    const settings = service.configure('other', { enabled: true })
     const response = await request('GET', `?evaluationDefinitionId=${settings.evaluationDefinitionId}`, 'scoped')
     expect(response.statusCode).toBe(404)
-    expect(response.body).not.toContain('Internal topic')
   })
 
 
@@ -67,7 +66,7 @@ describe('sentiment stored API', () => {
       service.submit('p', preview.previewToken!, runId, 'test')
       const work = repository.claim({ owner: 'comparison', now: clock, leaseMs: 10_000 })!
       const input = work.input as { sentences: Array<{ id: string; text: string; start: number; end: number }> }
-      repository.completeWork({ workItemId: work.id, owner: 'comparison', now: clock, outcome: 'favorable', returnedModel: 'jev-1.13.0', result: { kind: 'classified', outcome: 'favorable', returnedModel: 'jev-1.13.0', usage: { kind: 'reported', inputTokens: 10, outputTokens: 1 }, conclusion: input.sentences.slice(0, 1), complaint: null, themes: [], confidence: null } })
+      repository.completeWork({ workItemId: work.id, owner: 'comparison', now: clock, outcome: 'favorable', returnedModel: 'jev-1.13.0', result: { kind: 'classified', outcome: 'favorable', returnedModel: 'jev-1.13.0', usage: { kind: 'reported', inputTokens: 10, outputTokens: 1 }, conclusion: input.sentences.slice(0, 1), complaint: null, confidence: null } })
     }
     const query = { mode: 'auto' as const, queryClass: 'branded' as const, scope: 'project' as const }
     expect(service.compare('p', query, 'r', 'r2')).toMatchObject({ verdict: 'no-clear-change', commonUnits: 1, refusalReasons: [] })
@@ -134,11 +133,12 @@ describe('sentiment stored API', () => {
     expect(response.statusCode).toBe(403)
     expect((await request('GET', '/jobs/not-here')).statusCode).toBe(404)
   })
-  it('validates non-project scope and unsupported non-brand state', async () => {
+  it('validates non-project scope and reports unmeasured non-brand separately', async () => {
     expect((await request('GET', '?scope=market')).statusCode).toBe(400)
     service.configure('p', { enabled: true })
     const response = await request('GET', '?queryClass=non-brand')
-    expect(response.json().state).toBe('unsupported')
+    expect(response.json().state).toBe('not-measured')
+    expect(response.json().score.favorableRate).toBeNull()
   })
   it('rejects stale evidence after answer text changes', async () => {
     service.configure('p', { enabled: true })
@@ -146,7 +146,7 @@ describe('sentiment stored API', () => {
     const job = service.submit('p', preview.previewToken!, 'done', 'test')
     const repository = new SentimentRepository(db)
     const work = repository.claim({ owner: 'test', now: clock, leaseMs: 10_000 })!
-    repository.completeWork({ workItemId: work.id, owner: 'test', now: clock, outcome: 'favorable', returnedModel: 'jev-1.13.0', result: { kind: 'classified', outcome: 'favorable', returnedModel: 'jev-1.13.0', usage: { kind: 'reported', inputTokens: 10, outputTokens: 1 }, conclusion: [{ id: 's1', text: 'Acme is excellent.', start: 0, end: 18 }], complaint: null, themes: [], confidence: null } })
+    repository.completeWork({ workItemId: work.id, owner: 'test', now: clock, outcome: 'favorable', returnedModel: 'jev-1.13.0', result: { kind: 'classified', outcome: 'favorable', returnedModel: 'jev-1.13.0', usage: { kind: 'reported', inputTokens: 10, outputTokens: 1 }, conclusion: [{ id: 's1', text: 'Acme is excellent.', start: 0, end: 18 }], complaint: null, confidence: null } })
     expect(service.job('p', job.id).state).toBe('complete')
     const query = { mode: 'auto' as const, queryClass: 'branded' as const, scope: 'project' as const, runId: 'r' }
     expect(service.summary('p', query).coverage.judged).toBe(1)

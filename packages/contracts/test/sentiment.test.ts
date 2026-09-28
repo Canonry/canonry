@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { sentimentFixtureSummary, sentimentCompleteFixtureSummary } from './fixtures/sentiment.js'
 import { sentimentSummarySchema } from '../src/sentiment.js'
-import { aggregateSentiment, canonicalSentimentDefinitionJson, createSentimentEvaluationDefinition, sentimentClassifierOutputSchema, sentimentRateDisplay, sentimentSettingsUpdateSchema, storedSentimentEvaluationDefinitionSchema, storedSentimentClassifierOutputSchema, type SentimentAggregateItem, type SentimentOutcome } from '../src/sentiment.js'
+import { aggregateSentiment, canonicalSentimentDefinitionJson, createSentimentEvaluationDefinition, sentimentClassifierOutputSchema, sentimentRateDisplay, sentimentSettingsUpdateSchema, sentimentSelectionSchema, sentimentCompareRequestSchema, storedSentimentEvaluationDefinitionSchema, storedSentimentClassifierOutputSchema, type SentimentAggregateItem, type SentimentOutcome } from '../src/sentiment.js'
 
 const outcomes: SentimentOutcome[] = ['favorable', 'favorable', 'favorable', 'mixed', 'unfavorable', 'factual', 'wrong-subject', 'invalid-conclusion-evidence', 'failed', 'pending']
 const canonical: SentimentAggregateItem[] = outcomes.map((outcome, index) => ({ assessmentId: `a${index}`, sourceSnapshotId: `s${index}`, outcome }))
@@ -64,6 +64,12 @@ describe('sentiment measurement invariants', () => {
     expect(sentimentSettingsUpdateSchema.parse({ enabled: true })).toEqual({ enabled: true })
     expect(sentimentSettingsUpdateSchema.safeParse({ enabled: true, preset: 'general' }).success).toBe(false)
     expect(sentimentSettingsUpdateSchema.safeParse({ customThemes: [] }).success).toBe(false)
+  })
+  it('accepts exact bounded run groups and rejects ambiguous or duplicate selectors', () => {
+    expect(sentimentSelectionSchema.parse({ runIds: 'one' }).runIds).toEqual(['one'])
+    expect(sentimentSelectionSchema.safeParse({ runId: 'one', runIds: ['two'] }).success).toBe(false)
+    expect(sentimentSelectionSchema.safeParse({ runIds: ['one', 'one'] }).success).toBe(false)
+    expect(sentimentCompareRequestSchema.safeParse({ fromRunId: 'one', toRunId: 'two', runIds: ['one', 'two'] }).success).toBe(false)
   })
   it('displays zero, full, small and rounded proportions honestly', () => {
     expect([null, 0, 1, 0.001, 0.0049, 0.01, 0.599].map(sentimentRateDisplay)).toEqual(['Unavailable', '0%', '100%', '<1%', '<1%', '1%', '60%'])

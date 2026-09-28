@@ -37,6 +37,8 @@ interface OpenApiParameter {
   /** `header` covers the concurrency and idempotency guards on draft mutations. */
   in: 'path' | 'query' | 'header'
   required?: boolean
+  style?: 'form'
+  explode?: boolean
   description: string
   schema: Record<string, unknown>
 }
@@ -389,8 +391,10 @@ const competitorLandscapeGroupKeyParameter: OpenApiParameter = {
 }
 
 const sentimentSelectionParameters: OpenApiParameter[] = [
+  { name: 'runIds', in: 'query', description: 'Exact group of stored runs, mutually exclusive with runId. Not supported for comparison.', style: 'form', explode: true, schema: { type: 'array', items: stringSchema, minItems: 1, maxItems: 100 } },
+  { name: 'queryId', in: 'query', description: 'Exact frozen query identity within the selected query class.', schema: stringSchema },
   { name: 'mode', in: 'query', description: 'Frozen Simple or Advanced source mode.', schema: { type: 'string', enum: ['auto', 'simple', 'advanced'], default: 'auto' } },
-  { name: 'queryClass', in: 'query', description: 'Branded initially. Non-brand returns an explicit unsupported state.', schema: { type: 'string', enum: ['branded', 'non-brand'], default: 'branded' } },
+  { name: 'queryClass', in: 'query', description: 'One query class per denominator; branded and non-brand are always separate.', schema: { type: 'string', enum: ['branded', 'non-brand'], default: 'branded' } },
   { name: 'scope', in: 'query', description: 'Selected answer-subject population.', schema: { type: 'string', enum: ['project', 'property', 'group', 'market'], default: 'project' } },
   ...Object.entries({ runId: 'Exact stored run.', scopeKey: 'Required for a non-project scope.', marketKey: 'Exact frozen market-edge refinement.', provider: 'Exact answer provider.', model: 'Exact served source model.', location: 'Exact execution location label, or none.', evaluationDefinitionId: 'Pinned reusable evaluator. Omission resolves the latest admitted definition for this selection.' }).map(([name, description]) => ({ name, in: 'query' as const, description, schema: stringSchema })),
   { name: 'revision', in: 'query', description: 'Exact frozen measurement revision.', schema: { type: 'integer', minimum: 1 } },
@@ -1301,9 +1305,9 @@ const routeCatalog: OpenApiOperation[] = [
     responses: { 200: jsonResponse('Updated project configuration.', 'SentimentSettings'), 400: errorResponse('Invalid configuration or install unavailable.'), 403: errorResponse('Install administrator required.'), 404: errorResponse('Project not found.') },
   },
   {
-    method: 'get', path: '/api/v1/projects/{name}/sentiment', summary: 'Read stored branded sentiment and coverage', tags: ['sentiment'], parameters: [nameParameter, ...sentimentSelectionParameters],
+    method: 'get', path: '/api/v1/projects/{name}/sentiment', summary: 'Read stored class-separated sentiment and coverage', tags: ['sentiment'], parameters: [nameParameter, ...sentimentSelectionParameters],
     description: 'Stored reads never call TypeSafe. Favorable rate is favorable divided by favorable plus mixed plus unfavorable. All scope filters are identity-bearing; overlapping usage edges count each answer-subject assessment once. Incomplete source sweeps and probes cannot supply the headline.',
-    responses: { 200: jsonResponse('Stored scores, exclusions, coverage, and overlapping themes.', 'SentimentSummary'), 400: errorResponse('Invalid selection.'), 404: errorResponse('Project or selected source not found.') },
+    responses: { 200: jsonResponse('Stored scores, exclusions, coverage, and frozen query and location aggregates.', 'SentimentSummary'), 400: errorResponse('Invalid selection.'), 404: errorResponse('Project or selected source not found.') },
   },
   {
     method: 'get', path: '/api/v1/projects/{name}/sentiment/evidence', summary: 'Read verbatim sentiment evidence', tags: ['sentiment'],
@@ -1318,7 +1322,7 @@ const routeCatalog: OpenApiOperation[] = [
   {
     method: 'get', path: '/api/v1/projects/{name}/sentiment/backfill-preview', summary: 'Preview a bounded stored sentiment backfill', tags: ['sentiment'],
     description: 'No provider calls. Explicit run IDs or a bounded date range are required. All selection and evaluator fields are identity-bearing. Submission pins this preview; changed selection requires a fresh preview.',
-    parameters: [nameParameter, ...sentimentSelectionParameters, { name: 'runIds', in: 'query', description: 'Explicit historical runs, maximum 100.', schema: { type: 'array', items: stringSchema, minItems: 1, maxItems: 100 } }, ...['from', 'to'].map(name => ({ name, in: 'query' as const, description: 'Inclusive ISO date-time bound.', schema: { type: 'string', format: 'date-time' } }))],
+    parameters: [nameParameter, ...sentimentSelectionParameters, ...['from', 'to'].map(name => ({ name, in: 'query' as const, description: 'Inclusive ISO date-time bound.', schema: { type: 'string', format: 'date-time' } }))],
     responses: { 200: jsonResponse('Frozen selection, skipped work, and labeled estimates.', 'SentimentBackfillPreview'), 400: errorResponse('Invalid or unbounded selection.'), 404: errorResponse('Project or selected source not found.') },
   },
   {

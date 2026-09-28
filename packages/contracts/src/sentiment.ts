@@ -6,6 +6,7 @@ export const SENTIMENT_MODEL = 'jev-1.13.0' as const
 export const SENTIMENT_INTERVAL_LIMITATION = 'Wilson 95% intervals assume independent observations. They exclude classifier error and dependence among related queries, Properties, and sweeps.'
 const id = z.string().trim().min(1).max(256)
 const count = z.number().int().nonnegative()
+const runIds = z.preprocess(value => typeof value === 'string' ? [value] : value, z.array(id).min(1).max(100))
 const rate = z.number().min(0).max(1).nullable()
 export const sentimentOutcomeSchema = z.enum([
   'favorable', 'mixed', 'unfavorable', 'factual', 'subject-not-mentioned', 'wrong-subject', 'ambiguous-subject',
@@ -96,22 +97,27 @@ export const sentimentClassifierOutputSchema = z.discriminatedUnion('kind', [
 export const storedSentimentClassifierOutputSchema = z.preprocess(value => typeof value === 'object' && value !== null ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'themes')) : value, sentimentClassifierOutputSchema)
 export type SentimentClassifierOutput = z.infer<typeof sentimentClassifierOutputSchema>
 export interface SentimentClassifier { classify(input: SentimentClassifierInput, options?: { signal?: AbortSignal }): Promise<SentimentClassifierOutput> }
-export const sentimentSelectionSchema = z.object({
-  runId: id.optional(), revision: z.coerce.number().int().positive().optional(), mode: z.enum(['auto', 'simple', 'advanced']).default('auto'),
+const sentimentSelectionBaseSchema = z.object({
+  runId: id.optional(), runIds: runIds.optional(), revision: z.coerce.number().int().positive().optional(), mode: z.enum(['auto', 'simple', 'advanced']).default('auto'),
   queryClass: z.enum(['branded', 'non-brand']).default('branded'), scope: z.enum(['project', 'property', 'group', 'market']).default('project'),
   queryId: id.optional(), scopeKey: id.optional(), marketKey: id.optional(), provider: id.optional(), model: id.optional(), location: z.string().min(1).optional(), evaluationDefinitionId: id.optional(),
 }).strict()
+function exclusiveSentimentRuns(value: { runId?: string; runIds?: string[] }, ctx: z.RefinementCtx) {
+  if (value.runId && value.runIds) ctx.addIssue({ code: 'custom', path: ['runIds'], message: 'Choose runId or runIds, not both.' })
+  if (value.runIds && new Set(value.runIds).size !== value.runIds.length) ctx.addIssue({ code: 'custom', path: ['runIds'], message: 'Run IDs must be unique.' })
+}
+export const sentimentSelectionSchema = sentimentSelectionBaseSchema.superRefine(exclusiveSentimentRuns)
 export type SentimentSelection = z.infer<typeof sentimentSelectionSchema>
-export const sentimentEvidenceRequestSchema = sentimentSelectionSchema.extend({ cursor: z.string().min(1).max(16384).optional(), limit: z.coerce.number().int().min(1).max(100).default(50) })
-export const sentimentCompareRequestSchema = sentimentSelectionSchema.extend({ fromRunId: id, toRunId: id })
-export const sentimentResolvedSelectionSchema = sentimentSelectionSchema.extend({ runId: id.nullable(), revision: z.number().int().nullable(), evaluationDefinitionId: id.nullable(), mode: z.enum(['simple', 'advanced']) })
+export const sentimentEvidenceRequestSchema = sentimentSelectionBaseSchema.extend({ cursor: z.string().min(1).max(16384).optional(), limit: z.coerce.number().int().min(1).max(100).default(50) }).superRefine(exclusiveSentimentRuns)
+export const sentimentCompareRequestSchema = sentimentSelectionBaseSchema.extend({ fromRunId: id, toRunId: id }).superRefine((value, ctx) => { exclusiveSentimentRuns(value, ctx); if (value.runIds) ctx.addIssue({ code: 'custom', path: ['runIds'], message: 'Comparison requires one explicit run per period.' }) })
+export const sentimentResolvedSelectionSchema = sentimentSelectionBaseSchema.extend({ runId: id.nullable(), revision: z.number().int().nullable(), evaluationDefinitionId: id.nullable(), mode: z.enum(['simple', 'advanced']) })
 export type SentimentResolvedSelection = z.infer<typeof sentimentResolvedSelectionSchema>
 export const sentimentCountsSchema = z.object(Object.fromEntries(sentimentOutcomeSchema.options.map(outcome => [outcome, count])) as Record<SentimentOutcome, typeof count>).strict()
 export type SentimentCounts = z.infer<typeof sentimentCountsSchema>
 export const sentimentCoverageSchema = z.object({ selected: count, eligibleAssessments: count, unadmittedAssessments: count, judged: count, distinctSourceAnswers: count, counts: sentimentCountsSchema, expectedProviderSlots: count, completedProviderSlots: count }).strict()
 export const sentimentScoreSchema = z.object({ favorableRate: rate, mixedRate: rate, unfavorableRate: rate, favorableDisplay: z.string(), mixedDisplay: z.string(), unfavorableDisplay: z.string(), interval: z.object({ low: z.number(), high: z.number() }).strict().nullable(), method: z.literal('wilson-independent-v1'), limitation: z.string() }).strict()
 const headlineFields = { state: sentimentStateSchema, reason: z.string().nullable(), provisional: z.boolean(), coverage: sentimentCoverageSchema, score: sentimentScoreSchema }
-export const sentimentHeadlineSchema = z.object({ ...headlineFields, selection: sentimentResolvedSelectionSchema }).strict()
+export const sentimentHeadlineSchema = z.object({ ...headlineFields, selection: sentimentResolvedSelectionSchema, runIds: z.array(id) }).strict()
 export type SentimentHeadline = z.infer<typeof sentimentHeadlineSchema>
 export const sentimentOverviewSchema = z.object({ configured: z.boolean(), branded: sentimentHeadlineSchema, nonBrand: sentimentHeadlineSchema }).strict()
 export type SentimentOverview = z.infer<typeof sentimentOverviewSchema>
@@ -132,7 +138,7 @@ export const sentimentSettingsSchema = z.object({
   experimental: z.literal(true), disclosure: z.string(),
 }).strict()
 export type SentimentSettings = z.infer<typeof sentimentSettingsSchema>
-export const sentimentBackfillSelectionSchema = sentimentSelectionSchema.extend({ runIds: z.array(id).min(1).max(100).optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional() })
+export const sentimentBackfillSelectionSchema = sentimentSelectionBaseSchema.extend({ runIds: runIds.optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional() }).superRefine(exclusiveSentimentRuns)
 export type SentimentBackfillSelection = z.infer<typeof sentimentBackfillSelectionSchema>
 export const sentimentBackfillRequestSchema = z.object({ previewToken: z.string().min(1).max(65536), idempotencyKey: z.string().trim().min(1).max(128) }).strict()
 export const sentimentBackfillPreviewSchema = z.object({

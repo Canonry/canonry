@@ -112,10 +112,10 @@ export class SentimentRepository {
     return this.db.select().from(sentimentSettings).where(eq(sentimentSettings.projectId, projectId)).get()
   }
 
-  configure(input: { projectId: string; enabled: boolean; evaluationDefinitionId: string; configuration: unknown; now: string; actor?: string }) {
+  configure(input: { projectId: string; enabled: boolean; evaluationDefinitionId: string; configuration: unknown; now: string; actor?: string; forceNewEpoch?: boolean }) {
     return this.db.transaction(tx => {
       const prior = tx.select().from(sentimentSettings).where(eq(sentimentSettings.projectId, input.projectId)).get()
-      const enabling = input.enabled && !prior?.enabled
+      const enabling = input.enabled && (!prior?.enabled || input.forceNewEpoch === true)
       // sqlite_sequence retains its high-water mark across source deletion; MAX(receipts) does not.
       const boundary = tx.all<{ seq: number }>(sql`SELECT seq FROM sqlite_sequence WHERE name = 'sentiment_completion_receipts'`)[0]?.seq ?? 0
       const value = {
@@ -125,6 +125,7 @@ export class SentimentRepository {
       }
       tx.insert(sentimentSettings).values(value).onConflictDoUpdate({ target: sentimentSettings.projectId, set: value }).run()
       if (!input.enabled) cancelProject(tx, input.projectId, input.now, 'project-disabled')
+      else if (input.forceNewEpoch && prior) cancelProject(tx, input.projectId, input.now, 'evaluator-upgraded')
       tx.insert(auditLog).values({ id: randomUUID(), projectId: input.projectId, actor: input.actor ?? 'system',
         action: 'sentiment.settings-configured', entityType: 'sentiment-settings', entityId: input.projectId,
         diff: JSON.stringify({ enabled: value.enabled, enablementEpoch: value.enablementEpoch, evaluationDefinitionId: value.evaluationDefinitionId }), createdAt: input.now,

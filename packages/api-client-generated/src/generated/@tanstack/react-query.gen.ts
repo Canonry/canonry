@@ -1203,7 +1203,7 @@ export const putApiV1ProjectsByNameSentimentSettingsMutation = (options?: Partia
 export const getApiV1ProjectsByNameSentimentQueryKey = (options: Options<GetApiV1ProjectsByNameSentimentData>) => createQueryKey('getApiV1ProjectsByNameSentiment', options);
 
 /**
- * Read stored branded sentiment and coverage
+ * Read stored class-separated sentiment and coverage
  *
  * Stored reads never call TypeSafe. Favorable rate is favorable divided by favorable plus mixed plus unfavorable. All scope filters are identity-bearing; overlapping usage edges count each answer-subject assessment once. Incomplete source sweeps and probes cannot supply the headline.
  */

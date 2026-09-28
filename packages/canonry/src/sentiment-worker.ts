@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { and, asc, eq, gt } from 'drizzle-orm'
 import {
-  backoffDelayMs, canonicalSentimentJson, sentimentClassifierInputSchema, sentimentClassifierOutputSchema,
+  backoffDelayMs, canonicalSentimentJson, storedSentimentClassifierInputSchema, sentimentClassifierOutputSchema,
   sentimentSelectionSchema, type SentimentClassifier, type SentimentClassifierInput, type SentimentClassifierOutput, type SentimentOutcome,
 } from '@ainyc/canonry-contracts'
 import { SentimentRepository, sentimentCompletionReceipts, sentimentSettings, type DatabaseClient } from '@ainyc/canonry-db'
@@ -31,17 +31,18 @@ export class SentimentWorker {
     const service = this.service()
     for (const settings of this.db.select().from(sentimentSettings).where(eq(sentimentSettings.enabled, true)).all()) {
       const receipts = this.db.select().from(sentimentCompletionReceipts).where(and(eq(sentimentCompletionReceipts.projectId, settings.projectId), gt(sentimentCompletionReceipts.sequence, settings.completionBoundary))).orderBy(asc(sentimentCompletionReceipts.sequence)).all()
-      for (const receipt of receipts) {
-        const key = `${settings.enablementEpoch}:${receipt.sequence}`
-        const payloadHash = sentimentHash({ receipt: receipt.sequence, definition: settings.evaluationDefinitionId })
+      const definition = service.definition(settings.evaluationDefinitionId)
+      if (definition.schemaVersion !== 2) continue
+      for (const receipt of receipts) for (const queryClass of ['branded', 'non-brand'] as const) {
+        const key = `${settings.enablementEpoch}:${receipt.sequence}${queryClass === 'branded' ? '' : ':non-brand'}`
+        const payloadHash = sentimentHash({ receipt: receipt.sequence, definition: settings.evaluationDefinitionId, ...(queryClass === 'non-brand' ? { queryClass } : {}) })
         // A definition edit cannot retroactively start another automatic assessment series.
         try {
           if (this.repository.lookupJob(settings.projectId, 'automatic', key, payloadHash)) continue
         } catch { continue }
-        const source = selectSentimentSources(this.db, settings.projectId, { runId: receipt.runId })
+        const source = selectSentimentSources(this.db, settings.projectId, { runId: receipt.runId, queryClass })
         if (!source.assessments.length) continue
-        const definition = service.definition(settings.evaluationDefinitionId)
-        this.repository.admitJob({ projectId: settings.projectId, action: 'automatic', origin: 'automatic', enablementEpoch: settings.enablementEpoch, evaluationDefinitionId: settings.evaluationDefinitionId, idempotencyKey: key, payloadHash, selection: sentimentSelectionSchema.parse({ runId: receipt.runId }), actor: 'system', now: this.now(), work: source.assessments.map(item => { const input = sentimentClassifierInput(item, definition); return { runId: item.runId, snapshotId: item.snapshotId, sourceTextHash: input.sourceTextHash, subjectHash: input.subjectHash, input, edges: item.edges } }) })
+        this.repository.admitJob({ projectId: settings.projectId, action: 'automatic', origin: 'automatic', enablementEpoch: settings.enablementEpoch, evaluationDefinitionId: settings.evaluationDefinitionId, idempotencyKey: key, payloadHash, selection: sentimentSelectionSchema.parse({ runId: receipt.runId, queryClass }), actor: 'system', now: this.now(), work: source.assessments.map(item => { const input = sentimentClassifierInput(item, definition); return { runId: item.runId, snapshotId: item.snapshotId, sourceTextHash: input.sourceTextHash, subjectHash: input.subjectHash, input, edges: item.edges } }) })
         admitted++
       }
     }
@@ -63,13 +64,14 @@ export class SentimentWorker {
   }
   private async execute(work: NonNullable<ReturnType<SentimentRepository['claim']>>): Promise<void> {
     const owner = work.leaseOwner!
-    const parsed = sentimentClassifierInputSchema.safeParse(work.input)
+    const parsed = storedSentimentClassifierInputSchema.safeParse(work.input)
     if (!parsed.success) { this.repository.failWork({ workItemId: work.id, owner, now: this.now(), errorCode: 'INVALID_FROZEN_INPUT' }); return }
     const input = parsed.data
+    if (input.definition.schemaVersion !== 2) { this.repository.failWork({ workItemId: work.id, owner, now: this.now(), errorCode: 'UNSUPPORTED_EVALUATOR_DEFINITION' }); return }
     const unavailable = input.subject.mentionNotApplicable ? 'subject-not-applicable' : !input.sourceText.trim() ? 'missing-source-text' : !/^en(?:[-_]|$)/i.test(input.language) ? 'unsupported-language' : null
     const prepared = this.options.prepare?.(input)
     if (unavailable || prepared?.ok === false) {
-      const result: SentimentClassifierOutput = { kind: 'abstained', outcome: unavailable ?? (prepared!.ok === false ? prepared!.outcome : 'input-too-large'), reason: unavailable ?? (prepared!.ok === false ? prepared!.reason : 'Input unavailable'), themes: [], returnedModel: null, usage: { kind: 'unknown', inputTokens: null, outputTokens: null } }
+      const result: SentimentClassifierOutput = { kind: 'abstained', outcome: unavailable ?? (prepared!.ok === false ? prepared!.outcome : 'input-too-large'), reason: unavailable ?? (prepared!.ok === false ? prepared!.reason : 'Input unavailable'), returnedModel: null, usage: { kind: 'unknown', inputTokens: null, outputTokens: null } }
       this.repository.completeWork({ workItemId: work.id, owner, outcome: result.outcome, result, returnedModel: null, now: this.now() })
       return
     }

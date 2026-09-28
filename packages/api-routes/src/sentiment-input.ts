@@ -24,8 +24,8 @@ export function sentimentClassifierInput(source: SentimentSourceAssessment, defi
     sourceSnapshotId: source.snapshotId, sourceText: source.sourceText, sourceTextHash: sentimentHash(source.sourceText), subject,
     subjectHash: sentimentHash({ subject, context: edge.context }), language: source.language, definition,
     sentences: sentimentSentenceSpans(source.sourceText),
-    context: { queryId: edge.queryKey, queryText: source.queryText, queryClass: edge.queryClass, provider: edge.provider, requestedModel: edge.sourceModel, servedModel: edge.servedModel, location: edge.context?.label ?? null, locationContext: edge.context, revision: source.revision,
-      usageEdges: source.edges.flatMap(item => (item.groupKeys.length ? item.groupKeys : [null]).flatMap(groupId => (item.marketKeys.length ? item.marketKeys : [null]).map(marketId => ({ queryId: item.queryKey, executionNodeKey: item.executionNodeKey, targetId: item.propertyKey, propertyId: source.revision === null ? null : item.propertyKey, groupId, marketId, queryClass: item.queryClass, location: item.context?.label ?? null })))),
+    context: { queryId: edge.queryKey, queryText: edge.queryText, queryClass: edge.queryClass, provider: edge.provider, requestedModel: edge.sourceModel, servedModel: edge.servedModel, location: edge.context?.label ?? null, locationContext: edge.context, revision: source.revision,
+      usageEdges: source.edges.flatMap(item => (item.groupKeys.length ? item.groupKeys : [null]).flatMap(groupId => (item.marketKeys.length ? item.marketKeys : [null]).map(marketId => ({ queryId: item.queryKey, queryText: item.queryText, executionNodeKey: item.executionNodeKey, targetId: item.propertyKey, propertyId: source.revision === null ? null : item.propertyKey, groupId, marketId, queryClass: item.queryClass, location: item.context?.label ?? null })))),
     },
   }
 }
