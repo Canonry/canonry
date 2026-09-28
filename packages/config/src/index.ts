@@ -63,6 +63,13 @@ const envSchema = z.object({
   PERPLEXITY_MAX_CONCURRENCY: z.coerce.number().int().positive().default(2),
   PERPLEXITY_MAX_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(10),
   PERPLEXITY_MAX_REQUESTS_PER_DAY: z.coerce.number().int().positive().default(1000),
+  // Meta Muse
+  MUSE_API_KEY: z.string().optional(),
+  MUSE_MODEL: z.string().optional(),
+  MUSE_BASE_URL: z.string().optional(),
+  MUSE_MAX_CONCURRENCY: z.coerce.number().int().positive().default(2),
+  MUSE_MAX_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(10),
+  MUSE_MAX_REQUESTS_PER_DAY: z.coerce.number().int().positive().default(1000),
   // Secret for HMAC-signing Google OAuth state parameters. Required for
   // cloud deployments that mount googleRoutes; the plugin refuses to register
   // without it (see packages/api-routes/src/google.ts).
@@ -104,6 +111,7 @@ export interface BootstrapEnv {
     openai?: ProviderEnvConfig
     claude?: ProviderEnvConfig
     perplexity?: ProviderEnvConfig
+    muse?: ProviderEnvConfig
     local?: LocalBootstrapProviderConfig
   }
 }
@@ -131,6 +139,7 @@ export interface PlatformEnv {
     openai?: ProviderEnvConfig
     claude?: ProviderEnvConfig
     perplexity?: ProviderEnvConfig
+    muse?: ProviderEnvConfig
   }
 }
 
@@ -151,6 +160,9 @@ const bootstrapEnvSchema = z.object({
   ANTHROPIC_MODEL: z.string().optional(),
   PERPLEXITY_API_KEY: z.string().optional(),
   PERPLEXITY_MODEL: z.string().optional(),
+  MUSE_API_KEY: z.string().optional(),
+  MUSE_MODEL: z.string().optional(),
+  MUSE_BASE_URL: z.string().optional(),
   LOCAL_BASE_URL: z.string().optional(),
   LOCAL_API_KEY: z.string().optional(),
   LOCAL_MODEL: z.string().optional(),
@@ -213,6 +225,20 @@ export function getPlatformEnv(source: NodeJS.ProcessEnv): PlatformEnv {
         maxConcurrency: parsed.PERPLEXITY_MAX_CONCURRENCY,
         maxRequestsPerMinute: parsed.PERPLEXITY_MAX_REQUESTS_PER_MINUTE,
         maxRequestsPerDay: parsed.PERPLEXITY_MAX_REQUESTS_PER_DAY,
+      }),
+    }
+  }
+
+  const museKey = parsed.MUSE_API_KEY?.trim()
+  if (museKey) {
+    providers.muse = {
+      apiKey: museKey,
+      model: parsed.MUSE_MODEL?.trim() || undefined,
+      baseUrl: parsed.MUSE_BASE_URL?.trim() || undefined,
+      quota: providerQuotaPolicySchema.parse({
+        maxConcurrency: parsed.MUSE_MAX_CONCURRENCY,
+        maxRequestsPerMinute: parsed.MUSE_MAX_REQUESTS_PER_MINUTE,
+        maxRequestsPerDay: parsed.MUSE_MAX_REQUESTS_PER_DAY,
       }),
     }
   }
@@ -296,6 +322,20 @@ export function getBootstrapEnv(
     providers.perplexity = {
       apiKey: parsed.PERPLEXITY_API_KEY,
       model: resolveProviderModel('perplexity', parsed.PERPLEXITY_MODEL || 'fast'),
+      quota: providerQuotaPolicySchema.parse({
+        maxConcurrency: 2,
+        maxRequestsPerMinute: 10,
+        maxRequestsPerDay: 500,
+      }),
+    }
+  }
+
+  const museKey = parsed.MUSE_API_KEY?.trim()
+  if (museKey) {
+    providers.muse = {
+      apiKey: museKey,
+      model: parsed.MUSE_MODEL?.trim() || 'muse-spark-1.3',
+      baseUrl: parsed.MUSE_BASE_URL?.trim() || undefined,
       quota: providerQuotaPolicySchema.parse({
         maxConcurrency: 2,
         maxRequestsPerMinute: 10,

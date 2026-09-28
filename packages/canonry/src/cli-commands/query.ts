@@ -136,7 +136,7 @@ export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const provider = requireStringOption(input, 'provider', {
         command: 'query.generate',
         usage: 'canonry query generate <project> --provider <name> [--count <n>] [--save] [--format json]',
-        message: '--provider is required (e.g. gemini, openai, claude, perplexity, local)',
+        message: '--provider is required (e.g. gemini, openai, claude, perplexity, muse, local)',
       })
       await generateQueries(project, provider, {
         count: parseIntegerOption(input, 'count', {

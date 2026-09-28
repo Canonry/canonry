@@ -177,7 +177,7 @@ canonry serve
 
 ## Provider Tests
 
-The provider packages (`packages/provider-gemini`, `provider-openai`, `provider-claude`, `provider-perplexity`, `provider-local`, `provider-cdp`) have unit tests that validate:
+The provider packages (`packages/provider-gemini`, `provider-openai`, `provider-muse`, `provider-claude`, `provider-perplexity`, `provider-local`, `provider-cdp`) have unit tests that validate:
 
 - Config validation (accepts valid keys, rejects empty)
 - Custom model passthrough
@@ -191,6 +191,7 @@ These tests do **not** make real API calls. They test `normalizeResult` against 
 
 - **Gemini**: `candidates[].content.parts[].text` + `groundingMetadata.groundingChunks`
 - **OpenAI**: `output[].content[].text` + `output[].content[].annotations[]` (URL citations)
+- **Muse**: final `message` → `output_text` blocks + their `url_citation` annotations; `web_search_call` items set retrieval status
 - **Claude**: `content[].text` + `web_search_tool_result` blocks with `search_results`
 - **Perplexity**: Agent API `output[]` (`message` text + `search_results` item); stored Sonar rows keep the `search_results` / `citations` parser
 - **Local**: heuristic URL/domain scan over the raw answer text (no native web search)

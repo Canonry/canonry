@@ -24,6 +24,7 @@ export const ProviderIds = {
   openai: 'openai',
   gemini: 'gemini',
   perplexity: 'perplexity',
+  muse: 'muse',
   local: 'local',
   cdpChatgpt: 'cdp:chatgpt',
   zai: 'zai',
@@ -40,6 +41,7 @@ export const SweepProviderIds = {
   openai: ProviderIds.openai,
   gemini: ProviderIds.gemini,
   perplexity: ProviderIds.perplexity,
+  muse: ProviderIds.muse,
   local: ProviderIds.local,
   cdpChatgpt: ProviderIds.cdpChatgpt,
 } as const

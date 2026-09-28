@@ -118,8 +118,8 @@ describe('results toolbar copy', () => {
     expect(VISIBILITY_TOOLBAR_COPY.removeFilter('Engine: gemini')).toBe('Remove filter Engine: gemini')
     expect(VISIBILITY_TOOLBAR_COPY.engine('gemini')).toBe('Engine: gemini')
     expect(VISIBILITY_TOOLBAR_COPY.model('gpt-5')).toBe('Model: gpt-5')
-    expect(VISIBILITY_TOOLBAR_COPY.location('Portland, ME')).toBe('Location: Portland, ME')
-    expect(VISIBILITY_TOOLBAR_COPY.noLocation).toBe('No location')
+    expect(VISIBILITY_TOOLBAR_COPY.location('Portland, ME')).toBe('Requested search location: Portland, ME')
+    expect(VISIBILITY_TOOLBAR_COPY.noLocation).toBe('No location requested')
     expect(VISIBILITY_TOOLBAR_COPY.dateRange('Sep 1', 'Sep 8, 2026')).toBe('Sep 1 to Sep 8, 2026 (UTC)')
     expect(VISIBILITY_TOOLBAR_COPY.dateFrom('Sep 1, 2026')).toBe('From Sep 1, 2026 (UTC)')
     expect(VISIBILITY_TOOLBAR_COPY.dateThrough('Sep 8, 2026')).toBe('Through Sep 8, 2026 (UTC)')
@@ -229,7 +229,7 @@ describe('URL-bound toolbar controls', () => {
 
   it('labels one removable token for each non-default URL filter', () => {
     renderToolbar(FILTERED)
-    const labels = ['Engine: gemini', 'Model: gpt-5', 'Location: Portland, ME', 'Sep 1 to Sep 8, 2026 (UTC)', 'Results from: Sep 6, 2026']
+    const labels = ['Engine: gemini', 'Model: gpt-5', 'Requested search location: Portland, ME', 'Sep 1 to Sep 8, 2026 (UTC)', 'Results from: Sep 6, 2026']
     expect(tokenLabels()).toEqual(labels)
     expect(filterTokens().map(token => token.getAttribute('aria-label'))).toEqual(labels.map(label => `Remove filter ${label}`))
     for (const token of filterTokens()) expect(token.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
@@ -238,7 +238,7 @@ describe('URL-bound toolbar controls', () => {
 
   it.each([
     { filters: {}, labels: [] },
-    { filters: { measurementLocation: 'none' }, labels: ['No location'] },
+    { filters: { measurementLocation: 'none' }, labels: ['No location requested'] },
     { filters: { measurementFrom: '2026-09-01T00:00:00.000Z' }, labels: ['From Sep 1, 2026 (UTC)'] },
     { filters: { measurementTo: '2026-09-08T23:59:59.999Z' }, labels: ['Through Sep 8, 2026 (UTC)'] },
     { filters: { measurementFrom: '2025-12-28T00:00:00.000Z', measurementTo: '2026-01-04T23:59:59.999Z' }, labels: ['Dec 28, 2025 to Jan 4, 2026 (UTC)'] },
@@ -260,7 +260,7 @@ describe('URL-bound toolbar controls', () => {
   it.each([
     ['Engine: gemini', { measurementProvider: undefined }],
     ['Model: gpt-5', { measurementModel: undefined }],
-    ['Location: Portland, ME', { measurementLocation: undefined }],
+    ['Requested search location: Portland, ME', { measurementLocation: undefined }],
     ['Sep 1 to Sep 8, 2026 (UTC)', { measurementFrom: undefined, measurementTo: undefined }],
     ['Results from: Sep 6, 2026', { measurementRunId: undefined }],
   ])('removing %s patches only its own keys and moves focus to Filters', (label, patch) => {
@@ -314,7 +314,7 @@ describe('URL-bound toolbar controls', () => {
     expect([button.getAttribute('aria-expanded'), panel.hidden]).toEqual(['true', false])
     expect(screen.getByRole('group', { name: 'Visibility filters' })).toBe(panel)
     const controls = [...panel.querySelectorAll<HTMLSelectElement | HTMLInputElement>('select, input')]
-    expect(controls.map(control => control.labels?.[0]?.textContent)).toEqual(['Answer engine', 'Search location', 'AI model', 'Start date (UTC)', 'End date (UTC)', 'Results from'])
+    expect(controls.map(control => control.labels?.[0]?.textContent)).toEqual(['Answer engine', 'Requested search location', 'AI model', 'Start date (UTC)', 'End date (UTC)', 'Results from'])
     expect(within(panel).getAllByRole('button').map(control => control.getAttribute('aria-label') ?? control.textContent)).toEqual([
       'Filter by the AI model recorded with each answer. This does not change the model used by future sweeps.',
       'Choose a saved AI sweep to view its results. No new sweep starts.',
@@ -422,7 +422,7 @@ describe('URL-bound toolbar controls', () => {
       return { value: select.value, options: [...select.options].map(option => [option.value, option.text]) }
     }
     expect(control('Answer engine')).toEqual({ value: 'claude', options: [['', 'All engines'], ['gemini', 'gemini'], ['openai', 'openai'], ['claude', 'claude']] })
-    expect(control('Search location')).toEqual({ value: 'Bangor, ME', options: [['', 'All locations'], ['Portland, ME', 'Portland, ME'], ['none', 'No location'], ['Bangor, ME', 'Bangor, ME']] })
+    expect(control('Requested search location')).toEqual({ value: 'Bangor, ME', options: [['', 'All requested locations'], ['Portland, ME', 'Portland, ME'], ['none', 'No location requested'], ['Bangor, ME', 'Bangor, ME']] })
     // Model choices follow the URL engine, which the report has no models for.
     expect(control('AI model')).toEqual({ value: 'claude-sonnet', options: [['', 'All models'], ['claude-sonnet', 'claude-sonnet']] })
     expect(control('Results from')).toEqual({
