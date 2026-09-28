@@ -90,3 +90,11 @@ Aero history is exposed through five `canonry_agent_conversations_*` tools in th
 agent toolkit. API/CLI implement the same operations. New requires a UUID for
 retry identity. The native agent excludes new/resume/delete; HTTP enforces
 instance-administrator authority on reads and writes alike.
+
+Experimental sentiment adds nine monitoring tools: settings, configure, summary,
+evidence, compare, backfill preview, backfill submit, jobs and job detail. Schemas
+reuse contracts; only configure and backfill submit are writes. Both require install
+administrator authority at the API, including delegated credentials. Reads preserve
+nulls, frozen subject/market/evaluator context, overlapping theme counts and refusal
+reasons. Credentials are never accepted. Native Aero defers all nine tools until its
+separate sentiment evaluation and release gate.

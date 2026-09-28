@@ -341,3 +341,7 @@ canonry agent memory list <project>                  # list Aero's durable proje
 canonry agent memory set <project> --key <k> --value <v>    # upsert a note (2 KB max)
 canonry agent memory forget <project> --key <k>      # delete a note
 ```
+
+All nine experimental `canonry_sentiment*` capabilities are excluded from native
+Aero through `AERO_EXCLUDED_MCP_TOOLS`. API, CLI and external MCP remain available;
+Aero interpretation and actions require their separate sentiment release gate.

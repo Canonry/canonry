@@ -13,6 +13,17 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/sentiment/jobs': 'deferred',
   'GET /api/v1/projects/{name}/sentiment/jobs/{jobId}': 'deferred',
   'GET /api/v1/projects/{name}/traffic/referral-assessment': 'included',
+
+  'GET /api/v1/projects/{name}/sentiment/settings': 'included',
+  'PUT /api/v1/projects/{name}/sentiment/settings': 'included',
+  'GET /api/v1/projects/{name}/sentiment': 'included',
+  'GET /api/v1/projects/{name}/sentiment/evidence': 'included',
+  'GET /api/v1/projects/{name}/sentiment/compare': 'included',
+  'GET /api/v1/projects/{name}/sentiment/backfill-preview': 'included',
+  'POST /api/v1/projects/{name}/sentiment/backfills': 'included',
+  'GET /api/v1/projects/{name}/sentiment/jobs': 'included',
+  'GET /api/v1/projects/{name}/sentiment/jobs/{jobId}': 'included',
+
   'GET /api/v1/operations/logs': 'included',
   'GET /api/v1/openapi.json': 'excluded-protocol',
   // The browser launchpad needs create-only collision semantics. Agents already
