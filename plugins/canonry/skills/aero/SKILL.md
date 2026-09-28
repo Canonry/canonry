@@ -73,7 +73,11 @@ Before you quote GA4 data, make sure that `cnry ga status` has a recent
 `lastSyncedAt`. If it is stale, get approval before you run `cnry ga sync`.
 
 For Cloud Run, WordPress, Vercel, or Cloudflare, use `cnry traffic status` and
-`cnry traffic events` for crawler and AI-referral evidence. Read the Cloudflare
+`cnry traffic events` for crawler and AI-referral evidence. Before you quote a
+server-side AI referral total, run `cnry traffic referral-assessment` for the
+same dates (`canonry_traffic_referral_assessment` over MCP) and review its
+candidate bursts. Quote the unchanged headline beside the separate adjusted
+estimate; a candidate burst is not confirmed automation. Read the Cloudflare
 `deliveryMode` before you recommend an action. Direct push does not use
 `traffic sync`. Queue pull freshness requires an enabled `traffic-sync`
 schedule. Run the `traffic.source.*` doctor checks. Inspect

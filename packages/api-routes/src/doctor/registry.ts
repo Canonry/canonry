@@ -2,6 +2,7 @@ import { CheckNotificationPolicies, CheckScopes } from '@ainyc/canonry-contracts
 import { reportSweepsCheck } from './checks/report-sweeps.js'
 import { reportModelsCheck } from './checks/report-models.js'
 import { reportDailyDataCheck } from './checks/report-daily-data.js'
+import { REFERRAL_ASSESSMENT_CHECKS } from './checks/referral-assessment.js'
 import { AGENT_CHECKS } from './checks/agent.js'
 import { BACKLINKS_CHECKS } from './checks/backlinks.js'
 import { BING_AUTH_CHECKS } from './checks/bing-auth.js'
@@ -36,6 +37,7 @@ export const ALL_CHECKS: readonly CheckDefinition[] = [
   reportSweepsCheck,
   reportModelsCheck,
   reportDailyDataCheck,
+  ...REFERRAL_ASSESSMENT_CHECKS,
   ...ADS_CHECKS,
   ...GOOGLE_MARKETING_DOCTOR_CHECKS,
   ...PROVIDERS_CHECKS,

@@ -97,6 +97,10 @@ File-level rules for the MCP pieces in this package:
 - `src/mcp/operations-guide.ts` — compact intent routing filtered against the connection's loaded tools; generated source is `docs/agent-operations/v1.md`. No provider calls or permission grants.
 - `src/commands/mcp.ts` — MCP client install helpers: `mcp install`, `mcp config` (writes to client config files only — separate from the `canonry-mcp` stdio bin). `src/mcp-clients.ts` is the registry of supported MCP clients (Claude Desktop, Cursor, Codex) — config-path resolvers and format hints used by `mcp install`/`mcp config`.
 
+### Referral assessment
+
+`traffic referral-assessment` reads `/projects/:name/traffic/referral-assessment` through the SDK. UTC date bounds and source select stored evidence; thresholds and detail limit tune only this read. JSON and MCP preserve the full response. Raw traffic/report headlines stay unchanged. Server rows have no Property, Target or market attribution, so Simple and Advanced projects share the explicitly project/source-only diagnostic.
+
 ### Command output
 
 All commands that produce output must support `--format json` for machine-parseable output. Use the format flag to switch between human-friendly tables and JSON.

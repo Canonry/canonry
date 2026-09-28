@@ -6,6 +6,7 @@ import {
   trafficConnectVercel,
   trafficConnectWordpress,
   trafficEvents,
+  trafficReferralAssessment,
   trafficReset,
   trafficSources,
   trafficStatus,
@@ -16,6 +17,23 @@ import { getBoolean, getString, parseIntegerOption, requireProject, stringOption
 import { DEFAULT_CLOUDFLARE_QUEUE_RETENTION_SECONDS } from '../commands/traffic.js'
 
 export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
+  {
+    path: ['traffic', 'referral-assessment'],
+    usage: 'canonry traffic referral-assessment <project> --start-date YYYY-MM-DD --end-date YYYY-MM-DD [--source <id>] [--burst-threshold 100] [--ratio-threshold 3] [--limit 100] [--format json]',
+    help: 'DB-only diagnostic. Raw headlines stay unchanged. Candidate bursts are not confirmed automation; adjusted counts are estimates. Property, Target and market attribution are unavailable. The observed GA quotient has unknown comparable coverage.',
+    options: { 'start-date': stringOption(), 'end-date': stringOption(), source: stringOption(), 'burst-threshold': stringOption(), 'ratio-threshold': stringOption(), limit: stringOption() },
+    run: async input => {
+      const project = requireProject(input, 'traffic.referral-assessment', 'canonry traffic referral-assessment <project> --start-date YYYY-MM-DD --end-date YYYY-MM-DD')
+      await trafficReferralAssessment(project, {
+        startDate: getString(input.values, 'start-date'), endDate: getString(input.values, 'end-date'), sourceId: getString(input.values, 'source'),
+        burstThreshold: getString(input.values, 'burst-threshold') === undefined ? undefined : Number(getString(input.values, 'burst-threshold')),
+        ratioThreshold: getString(input.values, 'ratio-threshold') === undefined ? undefined : Number(getString(input.values, 'ratio-threshold')),
+        limit: getString(input.values, 'limit') === undefined ? undefined : Number(getString(input.values, 'limit')),
+        format: input.format,
+      })
+    },
+  },
+
   {
     path: ['traffic', 'connect', 'cloudflare'],
     usage: 'canonry traffic connect cloudflare <project> [--delivery-mode direct-push|queue-pull] [--display-name <name>] [--zone-id <id>] [--account-id <id>] [--queue-id <id> --queue-name <name> --api-token-file <path> --retention-seconds 345600] [--output-dir <dir>] [--deploy --confirm-route --confirm-fail-open] [--format json]',

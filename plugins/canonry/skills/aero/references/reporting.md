@@ -73,6 +73,7 @@ Behaviors worth knowing before narrating numbers from the report:
 - `citationsTrend` excludes partial runs. A project with only one completed run shows `trend: "unknown"` — never claim a comparison that isn't there.
 - Project ownership and competitor tagging use subdomain-aware matching: `blog.example.com` counts as the project when `example.com` is the canonical domain or in `ownedDomains`; `blog.rival.com` is tagged `isCompetitor: true` when `rival.com` is tracked.
 - AI referral totals dedupe overlapping GA4 attribution dimensions (`session` / `first_user` / `manual_utm`).
+- Server-side AI referral sessions (the "AI Visibility — Server-Side" section) are server-log counts, not GA sessions. Before quoting one, run `cnry traffic referral-assessment <project> --start-date YYYY-MM-DD --end-date YYYY-MM-DD --format json` for the same dates (or read the silent `report.ai-referral-bursts` doctor check for the report month) and review any candidate bursts. Quote the unchanged headline (the assessment's `totals.countable`) beside the separate `totals.adjustedEstimate`; a candidate burst is not confirmed automation, and neither figure replaces GA.
 
 The hand-rolled templates below are still the right call when the user wants a focused weekly/monthly digest with custom regression and gain narratives that the bundled report doesn't surface.
 

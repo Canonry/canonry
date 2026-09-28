@@ -90,3 +90,5 @@ export * from './log-redaction.js'
 export * from './semver.js'
 export * from './update-notice.js'
 export * from './shell.js'
+
+export * from './referral-assessment.js'

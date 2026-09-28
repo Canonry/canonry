@@ -32,7 +32,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "aero skill",
     description: "Diagnose AEO regressions and interpret Canonry AI visibility, Advanced multi-property portfolios, and Site Health evidence. Use when a mention or citation coverage number moved and needs explaining, when comparing Properties or markets, diagnosing crawl or page findings, preparing a client report or month-over-month comparison, or analyzing a completed `cnry` sweep or site audit. Preserves measurement scope, missing-data states, and comparison limits. Use the canonry skill for setup and operations.",
     entryPoint: true,
-    characters: 12139,
+    characters: 12444,
     content: aeroSkillPart0,
   },
   {
@@ -102,7 +102,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Reporting Templates",
     description: "Weekly and monthly report templates with metric tables, regression/gain sections, and recommended-actions structure. Read when asked to produce a client-facing summary.",
     entryPoint: false,
-    characters: 11469,
+    characters: 12045,
     content: aeroReferencesReportingPart0,
   },
   {
@@ -162,7 +162,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry CLI Reference",
     description: "canonry skill reference: references/canonry-cli.md",
     entryPoint: false,
-    characters: 111058,
+    characters: 112877,
     content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1].join(''),
   },
   {
@@ -202,7 +202,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Server-side traffic (AI Visibility — Server-Side)",
     description: "canonry skill reference: references/server-side-traffic.md",
     entryPoint: false,
-    characters: 53542,
+    characters: 55285,
     content: canonryReferencesServerSideTrafficPart0,
   },
   {
