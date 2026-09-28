@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { and, eq, inArray, ne, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { parseJsonColumn, runFills, runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
+import { recordSentimentCompletion, parseJsonColumn, runFills, runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
 import type { ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto } from '@ainyc/canonry-contracts'
 import { RUN_FILL_PROVIDER_BREAKER, formatRunErrorOneLine, parseRunError, resolveProviderModel } from '@ainyc/canonry-contracts'
 import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunTriggers, brandLabelFromDomain, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
@@ -378,6 +378,11 @@ export class JobRunner {
         throw new Error(`Project ${projectId} not found`)
       }
       canonicalDomain = project.canonicalDomain
+      // Language is execution input. Historical sentiment must not borrow today's project language.
+      const sourceIdentity = this.db.select({ identity: runs.measurementExecutionIdentity }).from(runs).where(eq(runs.id, runId)).get()?.identity
+      if (sourceIdentity && !sourceIdentity.language) {
+        this.db.update(runs).set({ measurementExecutionIdentity: { ...sourceIdentity, language: project.language } }).where(eq(runs.id, runId)).run()
+      }
 
       // Resolve location: explicit override > project default > none
       // locationOverride === null means explicitly no location (--no-location)
@@ -827,11 +832,11 @@ export class JobRunner {
           .where(eq(runs.id, runId))
           .run()
       } else {
-        this.db
-          .update(runs)
-          .set({ status: 'completed', finishedAt: new Date().toISOString() })
-          .where(eq(runs.id, runId))
-          .run()
+        this.db.transaction(tx => {
+          const completedAt = new Date().toISOString()
+          tx.update(runs).set({ status: 'completed', finishedAt: completedAt }).where(eq(runs.id, runId)).run()
+          recordSentimentCompletion(tx, { projectId, runId, completionKey: 'initial', completedAt })
+        })
       }
 
       this.flushProviderUsage(providerDispatchCounts, providerReservations)
@@ -1214,6 +1219,7 @@ export class JobRunner {
           .set({ status: 'completed', error: null })
           .where(and(eq(runs.id, input.runId), eq(runs.status, 'partial')))
           .run().changes === 1
+        if (justCompleted && parent) recordSentimentCompletion(tx, { projectId: parent.projectId, runId: input.runId, completionKey: input.fillId, completedAt: finishedAt, fillOrigin: input.fillId })
       } else if (state.readable && !input.fatal) {
         // The run's error names only providers that still have gaps. A
         // provider this fill tried carries its new reason; any other keeps

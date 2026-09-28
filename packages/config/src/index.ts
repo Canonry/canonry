@@ -326,3 +326,6 @@ export function getBootstrapEnv(
     providers,
   }
 }
+
+export { sentimentInstallConfigSchema, resolveSentimentInstallConfig, sentimentInstallReadiness } from './sentiment.js'
+export type { SentimentInstallConfig, SentimentInstallConfigInput } from './sentiment.js'

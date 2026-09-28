@@ -23,6 +23,7 @@ import {
   querySnapshots,
   runs,
   simpleMeasurementDefinitions,
+  sentimentCompletionReceipts,
   usageCounters,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
@@ -295,6 +296,7 @@ test.each(['acme roofing', ' ', '', ' https://Peer.example/path '])('preserves l
     })).executeRun(fixture.runId, fixture.projectId)
 
     expect(db.select().from(runs).where(eq(runs.id, fixture.runId)).get()?.status).toBe(RunStatuses.completed)
+    expect(db.select().from(sentimentCompletionReceipts).where(eq(sentimentCompletionReceipts.runId, fixture.runId)).all()).toMatchObject([{ completionKey: 'initial' }])
     expect(calls).toHaveLength(4)
     expect(capturedBeforeDispatch).toEqual([true, true, true, true])
     expect(db.select().from(querySnapshots).where(eq(querySnapshots.runId, fixture.runId)).all()).toHaveLength(4)
