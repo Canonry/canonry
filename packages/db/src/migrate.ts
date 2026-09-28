@@ -4283,7 +4283,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
         source_text_hash TEXT NOT NULL, subject_hash TEXT NOT NULL,
         evaluation_definition_id TEXT NOT NULL REFERENCES sentiment_definitions(id), enablement_epoch INTEGER NOT NULL,
         input TEXT NOT NULL, edges TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
-        lease_owner TEXT, lease_expires_at TEXT, attempt_count INTEGER NOT NULL DEFAULT 0,
+        lease_owner TEXT, lease_expires_at TEXT, attempt_count INTEGER NOT NULL DEFAULT 0, attempt_budget_start INTEGER NOT NULL DEFAULT 0,
         next_attempt_at TEXT, error_code TEXT, cancellation_reason TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
         FOREIGN KEY (project_id, run_id) REFERENCES runs(project_id, id) ON DELETE CASCADE,
         FOREIGN KEY (run_id, snapshot_id) REFERENCES query_snapshots(run_id, id) ON DELETE CASCADE

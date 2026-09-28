@@ -189,6 +189,7 @@ test('explicit backfill after reenable retains the transmitted request lease and
   repo.configure({ projectId: 'p', enabled: false, evaluationDefinitionId: 'd', configuration: {}, now: NOW })
   repo.configure({ projectId: 'p', enabled: true, evaluationDefinitionId: 'd', configuration: {}, now: LATER })
   const replay = repo.admitJob({ ...admission, idempotencyKey: 'explicit-retry', enablementEpoch: 2, now: LATER, allowReplayCanceled: true })
+  expect(db.select().from(sentimentWorkItems).get()).toMatchObject({ attemptCount: 1, attemptBudgetStart: 0 })
   expect(repo.claim({ owner: 'second-attempt', now: LATER, leaseMs: 30_000 })).toBeUndefined()
   expect(repo.completeWork({ workItemId: claimed.id, owner: 'original-attempt', outcome: 'favorable', result: { outcome: 'favorable' }, returnedModel: 'jev-1.13.0', now: LATER })).toBe(true)
   expect(repo.getJob('p', replay.id)?.state).toBe('complete')
@@ -273,4 +274,29 @@ test('configuration and admissions audit atomically and duplicate admission adds
   expect(audits).toHaveLength(1)
   expect(audits[0]).toMatchObject({ actor: 'admin', projectId: 'p', entityId: first.id })
   expect(audits[0].diff).not.toContain('payload')
+})
+
+
+test('crash recovery preserves the started attempt budget and explicit replay renews it without losing receipts', () => {
+  const { db, repo, admission, dir } = fixture()
+  repo.admitJob(admission)
+  const claimed = repo.claim({ owner: 'crashed', now: NOW, leaseMs: 30_000 })!
+  const first = repo.startAttempt({ workItemId: claimed.id, owner: 'crashed', requestedModel: 'jev-1.13.0', now: NOW, maxAttempts: 1 })!
+  // A process loss leaves the transmitted attempt's completion and billing unknown.
+  const secondDb = createClient(path.join(dir, 'test.db'))
+  onTestFinished(() => secondDb.$client.close())
+  const restarted = new SentimentRepository(secondDb)
+  const recovered = restarted.claim({ owner: 'restarted', now: LATER, leaseMs: 30_000 })!
+  expect(recovered).toMatchObject({ attemptCount: 1, attemptBudgetStart: 0 })
+  expect(restarted.startAttempt({ workItemId: claimed.id, owner: 'restarted', requestedModel: 'jev-1.13.0', now: LATER, maxAttempts: 1 })).toBeUndefined()
+  restarted.failWork({ workItemId: claimed.id, owner: 'restarted', now: LATER, errorCode: 'retry-budget-exhausted' })
+  restarted.admitJob({ ...admission, idempotencyKey: 'ordinary', now: LATER })
+  expect(restarted.claim({ owner: 'ordinary', now: LATER, leaseMs: 30_000 })).toBeUndefined()
+  restarted.admitJob({ ...admission, idempotencyKey: 'explicit', now: LATER, allowReplayCanceled: true })
+  expect(restarted.claim({ owner: 'authorized', now: LATER, leaseMs: 30_000 })).toMatchObject({ attemptCount: 1, attemptBudgetStart: 1 })
+  const second = restarted.startAttempt({ workItemId: claimed.id, owner: 'authorized', requestedModel: 'jev-1.13.0', now: LATER, maxAttempts: 1 })!
+  expect(second.attemptNumber).toBe(2)
+  expect(db.select().from(sentimentAttempts).all()).toHaveLength(2)
+  expect(db.select().from(sentimentAttempts).where(eq(sentimentAttempts.id, first.id)).get()).toMatchObject({ completedAt: null, usageStatus: 'unknown' })
+  expect(db.select().from(llmUsageEvents).all()).toHaveLength(0)
 })

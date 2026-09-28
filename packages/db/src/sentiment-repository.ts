@@ -200,6 +200,7 @@ export class SentimentRepository {
           work = tx.update(sentimentWorkItems).set({
             status: result ? 'completed' : stillLeased ? 'running' : 'pending', enablementEpoch: input.enablementEpoch,
             leaseOwner: stillLeased ? work.leaseOwner : null, leaseExpiresAt: stillLeased ? work.leaseExpiresAt : null,
+            attemptBudgetStart: result || stillLeased ? work.attemptBudgetStart : work.attemptCount,
             nextAttemptAt: null, errorCode: null, cancellationReason: null, updatedAt: input.now,
           }).where(eq(sentimentWorkItems.id, work.id)).returning().get()!
         }
@@ -248,7 +249,7 @@ export class SentimentRepository {
 
   startAttempt(input: {
     workItemId: string; owner: string; requestedModel: string; now: string; estimatedInputTokens?: number
-    maxRequestsPerMinute?: number; maxInputTokensPerMinute?: number
+    maxRequestsPerMinute?: number; maxInputTokensPerMinute?: number; maxAttempts?: number
   }) {
     return this.db.transaction(tx => {
       const work = tx.select().from(sentimentWorkItems).where(and(
@@ -258,6 +259,7 @@ export class SentimentRepository {
       if (!work) return undefined
       const settings = tx.select().from(sentimentSettings).where(eq(sentimentSettings.projectId, work.projectId)).get()
       if (!settings?.enabled || settings.installSuspended || settings.enablementEpoch !== work.enablementEpoch) return undefined
+      if (input.maxAttempts !== undefined && work.attemptCount - work.attemptBudgetStart >= input.maxAttempts) return undefined
       const estimate = input.estimatedInputTokens ?? 0
       if (!Number.isSafeInteger(estimate) || estimate < 0) throw new Error('Invalid sentiment token estimate')
       const since = new Date(Date.parse(input.now) - 60_000).toISOString()

@@ -3204,6 +3204,8 @@ export const sentimentWorkItems = sqliteTable('sentiment_work_items', {
   leaseOwner: text('lease_owner'),
   leaseExpiresAt: text('lease_expires_at'),
   attemptCount: integer('attempt_count').notNull().default(0),
+  /** Count at the last explicit replay; lifetime attempt numbers remain monotonic. */
+  attemptBudgetStart: integer('attempt_budget_start').notNull().default(0),
   nextAttemptAt: text('next_attempt_at'),
   errorCode: text('error_code'),
   cancellationReason: text('cancellation_reason'),
