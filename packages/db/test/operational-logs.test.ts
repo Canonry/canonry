@@ -134,6 +134,20 @@ test('paginates stable same-timestamp filters and rejects foreign or changed-fil
   expect(() => store.list({ limit: 10, cursor: foreignCursor })).toThrow(/different database/)
 })
 
+test('saves which provider an entry came from, and only its name', () => {
+  const { db } = fixture()
+  const store = new OperationalLogStore(db)
+  append(store, 1, { provider: 'claude', providerResponse: { content: [{ type: 'text', text: 'raw-answer-text' }] } })
+  append(store, 2, { context: { provider: 'gemini' } })
+  append(store, 3, { provider: { name: 'openai', apiResponse: 'raw-provider-payload' } })
+  append(store, 4, { provider: 'x'.repeat(300) })
+  append(store, 5)
+  const entries = store.list({ limit: 10 }).entries
+  expect(entries.map(entry => entry.context.provider)).toEqual(['claude', 'gemini', '[OMITTED]', 'x'.repeat(256), undefined])
+  expect(entries[4]!.context).not.toHaveProperty('provider')
+  expect(JSON.stringify(db.all(sql.raw('SELECT context FROM runtime_logs')))).not.toMatch(/raw-answer-text|raw-provider-payload/)
+})
+
 test('persists redacted bytes, validates filters, and exposes nonrecursive write capture failures', () => {
   const { db } = fixture()
   const store = new OperationalLogStore(db)
