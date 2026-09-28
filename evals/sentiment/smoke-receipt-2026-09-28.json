@@ -1,0 +1,34 @@
+{
+  "date": "2026-09-28",
+  "data": "synthetic only",
+  "requestedModel": "jev-1.13.0",
+  "returnedModels": [
+    "jev-1.13.0"
+  ],
+  "providerAttempts": 3,
+  "uniqueAssessments": 3,
+  "estimatedInputTokenUpperBound": 51828,
+  "reportedInputTokens": 16892,
+  "reportedOutputTokens": 6026,
+  "additionalCallsOnReads": 0,
+  "observedOutcomes": {
+    "Aurora Service": "favorable",
+    "Bayside Homes": "unfavorable",
+    "Harbor Homes": "favorable"
+  },
+  "transportChecks": [
+    "installed tarball serves non-root /smoke/ path",
+    "default-off reads and REST/CLI permission denials spend nothing",
+    "explicit frozen backfill admits exactly three assessments and replays receipts",
+    "persisted HTTP/CLI summaries and exact evidence agree; shared Advanced answer deduplicates",
+    "HTTP MCP and installed stdio MCP match persisted results and enforce read/scoped credentials",
+    "repeated reads and disabled receipt replay make zero additional provider calls"
+  ],
+  "independentQualityGate": "unmet",
+  "productionEnabled": false,
+  "liveArtifact": {
+    "packageVersion": "5.21.0",
+    "tarballSha256": "c1a08080e4943cc70387e5f4216c5a7e595676180a61ad591ac426af93b9f34b",
+    "scope": "Isolated feature-complete development tarball; final rebased stack receives deterministic smoke."
+  }
+}
