@@ -2,10 +2,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { listReviews, classifyReviewsError, normalizeGoogleTimestamp } from '../src/reviews-client.js'
 import { GbpApiError } from '../src/types.js'
 
-// Shapes follow the v4 reference for accounts.locations.reviews.list. Google
-// gates that API per Cloud project, so no live capture exists yet; the
-// SERVICE_DISABLED body below is the standard google.rpc.ErrorInfo envelope
-// the gated call returns.
+// Review shapes follow the v4 reference for accounts.locations.reviews.list:
+// Google gates that API per Cloud project, so no successful response has been
+// captured. The SERVICE_DISABLED body mirrors the live error a gated project
+// got on 2026-09-28, with the project number replaced.
 function review(id: string, star: string, updateTime: string, extra: Record<string, unknown> = {}) {
   return {
     name: `accounts/111/locations/222/reviews/${id}`,
@@ -154,14 +154,32 @@ describe('listReviews', () => {
       text: async () => JSON.stringify({
         error: {
           code: 403,
-          message: 'Google My Business API has not been used in project 123 before or it is disabled.',
+          message: 'Google My Business API has not been used in project 123456789012 before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/mybusiness.googleapis.com/overview?project=123456789012 then retry. If you enabled this API recently, wait a few minutes for the action to propagate to our systems and retry.',
           status: 'PERMISSION_DENIED',
           details: [
             {
               '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
               reason: 'SERVICE_DISABLED',
               domain: 'googleapis.com',
-              metadata: { service: 'mybusiness.googleapis.com', consumer: 'projects/123' },
+              metadata: {
+                consumer: 'projects/123456789012',
+                activationUrl: 'https://console.developers.google.com/apis/api/mybusiness.googleapis.com/overview?project=123456789012',
+                serviceTitle: 'Google My Business API',
+                containerInfo: '123456789012',
+                service: 'mybusiness.googleapis.com',
+              },
+            },
+            {
+              '@type': 'type.googleapis.com/google.rpc.LocalizedMessage',
+              locale: 'en-US',
+              message: 'Google My Business API has not been used in project 123456789012 before or it is disabled.',
+            },
+            {
+              '@type': 'type.googleapis.com/google.rpc.Help',
+              links: [{
+                description: 'Google developers console API activation',
+                url: 'https://console.developers.google.com/apis/api/mybusiness.googleapis.com/overview?project=123456789012',
+              }],
             },
           ],
         },
