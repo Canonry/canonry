@@ -215,3 +215,7 @@ Canonry ships a built-in AI agent (Aero) backed by `@mariozechner/pi-agent-core`
 - **External agents:** `canonry agent attach <project> --url <webhook-url>` registers a webhook for `run.completed`, `insight.critical`, `insight.high`, `citation.gained`.
 
 The agent layer is a consumer of the same CLI/API surface — nothing in it is privileged. Per AGENTS.md, "If an AI agent can't do something with `canonry <command> --format json` or an HTTP call, it's a bug."
+
+### Experimental sentiment integration
+
+`packages/canonry` bundles `@ainyc/canonry-integration-typesafe`, whose only internal dependency is contracts. The adapter owns pinned Jev request construction and parsing; the host owns credentials and scheduling. Evidence is resolved to exact original sentence spans. Offline corpus scoring and unmet independent-evaluation release gates live under `evals/sentiment/`.

@@ -78,6 +78,7 @@ export default defineConfig({
     '@ainyc/canonry-integration-google-ads',
     '@ainyc/canonry-integration-google-tag-manager',
     '@ainyc/canonry-integration-bing',
+    '@ainyc/canonry-integration-typesafe',
     '@ainyc/canonry-integration-cloudflare-queue',
     '@ainyc/canonry-integration-cloudflare-worker',
     '@ainyc/canonry-integration-commoncrawl',

@@ -44,6 +44,7 @@ const NODE_PACKAGES = [
   'integration-google-tag-manager',
   'integration-openai-ads',
   'integration-traffic',
+  'integration-typesafe',
   'integration-vercel',
   'integration-wordpress',
   'integration-wordpress-traffic',
