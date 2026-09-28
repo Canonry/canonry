@@ -18,6 +18,7 @@ import { part as canonrySkillPart0 } from './canonry-skill.0.js'
 import { part as canonryReferencesAeoAnalysisPart0 } from './canonry-references-aeo-analysis.0.js'
 import { part as canonryReferencesCanonryCliPart0 } from './canonry-references-canonry-cli.0.js'
 import { part as canonryReferencesCanonryCliPart1 } from './canonry-references-canonry-cli.1.js'
+import { part as canonryReferencesCanonryCliPart2 } from './canonry-references-canonry-cli.2.js'
 import { part as canonryReferencesGoogleBusinessProfilePart0 } from './canonry-references-google-business-profile.0.js'
 import { part as canonryReferencesGoogleMarketingPart0 } from './canonry-references-google-marketing.0.js'
 import { part as canonryReferencesIndexingPart0 } from './canonry-references-indexing.0.js'
@@ -32,7 +33,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "aero skill",
     description: "Diagnose AEO regressions and interpret Canonry AI visibility, Advanced multi-property portfolios, and Site Health evidence. Use when a mention or citation coverage number moved and needs explaining, when comparing Properties or markets, diagnosing crawl or page findings, preparing a client report or month-over-month comparison, or analyzing a completed `cnry` sweep or site audit. Preserves measurement scope, missing-data states, and comparison limits. Use the canonry skill for setup and operations.",
     entryPoint: true,
-    characters: 12444,
+    characters: 14416,
     content: aeroSkillPart0,
   },
   {
@@ -82,7 +83,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Portfolio analysis",
     description: "Interpret Simple and Advanced portfolios, compare Properties and markets, trace answer evidence, and qualify missing or incompatible measurements.",
     entryPoint: false,
-    characters: 7349,
+    characters: 9156,
     content: aeroReferencesPortfolioAnalysisPart0,
   },
   {
@@ -162,8 +163,8 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry CLI Reference",
     description: "canonry skill reference: references/canonry-cli.md",
     entryPoint: false,
-    characters: 112877,
-    content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1].join(''),
+    characters: 120292,
+    content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1, canonryReferencesCanonryCliPart2].join(''),
   },
   {
     uri: "canonry-skill://canonry/references/google-business-profile.md",
@@ -172,7 +173,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Google Business Profile Integration",
     description: "canonry skill reference: references/google-business-profile.md",
     entryPoint: false,
-    characters: 32632,
+    characters: 35976,
     content: canonryReferencesGoogleBusinessProfilePart0,
   },
   {
@@ -192,7 +193,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Indexing Workflows for AEO",
     description: "canonry skill reference: references/indexing.md",
     entryPoint: false,
-    characters: 6438,
+    characters: 6542,
     content: canonryReferencesIndexingPart0,
   },
   {

@@ -4,6 +4,7 @@ import { claudeAdapter } from '@ainyc/canonry-provider-claude'
 import { openaiAdapter } from '@ainyc/canonry-provider-openai'
 import { geminiAdapter } from '@ainyc/canonry-provider-gemini'
 import { perplexityAdapter } from '@ainyc/canonry-provider-perplexity'
+import { museAdapter } from '@ainyc/canonry-provider-muse'
 import { localAdapter } from '@ainyc/canonry-provider-local'
 import { cdpChatgptAdapter } from '@ainyc/canonry-provider-cdp'
 
@@ -15,6 +16,7 @@ import { cdpChatgptAdapter } from '@ainyc/canonry-provider-cdp'
  *   claude      normalize.ts sets `user_location` on the web_search tool
  *   gemini      normalize.ts appends the location to the prompt text
  *   perplexity  normalize.ts sets `user_location` on the web_search tool
+ *   muse        normalize.ts sets `user_location` on the web_search tool
  *   local       normalize.ts appends the location to the system message
  *   cdp:chatgpt sends nothing; the browser session's own geolocation decides
  */
@@ -23,6 +25,7 @@ const ADAPTERS: Array<{ adapter: ProviderAdapter; supports: boolean }> = [
   { adapter: claudeAdapter, supports: true },
   { adapter: geminiAdapter, supports: true },
   { adapter: perplexityAdapter, supports: true },
+  { adapter: museAdapter, supports: true },
   { adapter: localAdapter, supports: true },
   { adapter: cdpChatgptAdapter, supports: false },
 ]

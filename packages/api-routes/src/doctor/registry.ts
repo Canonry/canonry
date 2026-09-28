@@ -13,6 +13,7 @@ import { DATA_FRESHNESS_CHECKS } from './checks/data-freshness.js'
 import { SITE_REACHABILITY_CHECKS } from './checks/site-reachability.js'
 import { GBP_AUTH_CHECKS } from './checks/gbp-auth.js'
 import { PLACES_CHECKS } from './checks/places.js'
+import { GBP_REVIEWS_CHECKS } from './checks/gbp-reviews.js'
 import { GOOGLE_AUTH_CHECKS } from './checks/google-auth.js'
 import { PROVIDERS_CHECKS } from './checks/providers.js'
 import { RUNTIME_STATE_CHECKS } from './checks/runtime-state.js'
@@ -30,6 +31,7 @@ export const ALL_CHECKS: readonly CheckDefinition[] = [
   ...GOOGLE_AUTH_CHECKS,
   ...GBP_AUTH_CHECKS,
   ...PLACES_CHECKS,
+  ...GBP_REVIEWS_CHECKS,
   ...BING_AUTH_CHECKS,
   ...WORDPRESS_PUBLISH_CHECKS,
   ...GA_AUTH_CHECKS,

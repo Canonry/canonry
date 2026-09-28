@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { fraction, percent } from './ratio-unit.js'
 import { citationStateSchema, latestProjectRunDtoSchema } from './run.js'
 import type { LatestProjectRunDto } from './run.js'
 import { projectDtoSchema } from './project.js'
@@ -44,10 +45,12 @@ export interface ProjectOverviewTransitionsDto {
 export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 
 // One score gauge — used for visibility, gap queries, index coverage,
-// competitor pressure, and run status. `value` is presentational (e.g. "67",
-// "No data") so the same string renders in CLI, dashboard gauges, and report
-// HTML. `progress` is the 0–100 numeric used by progress rings; absent for
-// gauges that aren't ratio-based.
+// competitor pressure, and run status. `value` is presentational so the same
+// string renders in CLI, dashboard gauges, and report HTML: a ratio gauge
+// sends its share already formatted with `formatPercent` ("66.7%"), a count
+// gauge sends the count ("3"), and a gauge with nothing to measure sends a
+// label ("No data"). `progress` is the 0–100 numeric used by progress rings,
+// at wire precision; absent for gauges that aren't ratio-based.
 export interface ScoreSummaryDto {
   label: string
   value: string
@@ -89,17 +92,35 @@ export interface ProjectOverviewScoresDto {
 export interface MentionShareCompetitorRowDto {
   domain: string
   mentionSnapshots: number
-  /** % of competitive total — rounded to one decimal. Sums to ~100 across rows. */
+  /** % of competitive total, 0..100 at wire precision. Sums to ~100 across rows. */
   shareOfCompetitiveTotal: number
+}
+
+/** One brand in the head-to-head: the project's row or one tracked competitor. */
+export interface MentionShareRankingRowDto {
+  kind: 'project' | 'competitor'
+  /** The tracked competitor's domain. Null on the project's row. */
+  domain: string | null
+  mentionSnapshots: number
+  /** `mentionSnapshots / combinedMentionSnapshots` as a 0..1 fraction. Sums to 1 across a ranking. */
+  share: number
 }
 
 export interface MentionShareBreakdownDto {
   projectMentionSnapshots: number
   competitorMentionSnapshots: number
+  /** `project + competitor` mention snapshots: the denominator of `score` and of every `ranking` share. */
+  combinedMentionSnapshots: number
   perCompetitor: MentionShareCompetitorRowDto[]
+  /**
+   * The project and every tracked competitor (zero-mention ones included),
+   * most mentioned first, ties listing the project first. Empty when there is
+   * no head-to-head: no tracked competitors, or no brand named in this class.
+   */
+  ranking: MentionShareRankingRowDto[]
   snapshotsWithAnswerText: number
   snapshotsTotal: number
-  /** `project / (project + competitor)` as 0..100, or null when nothing in this class was named. */
+  /** `project / (project + competitor)` as 0..100 at wire precision, or null when nothing in this class was named. */
   score: number | null
 }
 
@@ -173,10 +194,11 @@ export interface ProjectOverviewCompetitorDto {
 export interface ProjectOverviewProviderScoreDto {
   provider: string
   model: string | null
+  /** `cited / total` snapshots in the latest run as 0..100 at wire precision. */
   score: number
   cited: number
   total: number
-  /** Per-recent-run citation rate (0-100) for this (provider, model), oldest first. Up to 12 points. Omitted when only a single run exists. */
+  /** Per-recent-run citation rate (0-100, at wire precision) for this (provider, model), oldest first. Up to 12 points. Omitted when only a single run exists. */
   trend?: number[]
 }
 
@@ -233,11 +255,37 @@ export interface SuggestedQueriesSummaryDto {
   skippedAlreadyTracked: number
 }
 
+/**
+ * Class label for the overview's query-level figures. They count tracked
+ * queries with branded and non-brand in one denominator, so none of them is a
+ * non-brand (or branded) figure. `scores.mentionShare` is the one class-split
+ * figure and is not listed.
+ */
+export interface ProjectOverviewQueryClassScopeDto {
+  queryClass: 'all'
+  /** The overview fields that pool both classes. */
+  figures: string[]
+  note: string
+}
+
+export const PROJECT_OVERVIEW_QUERY_CLASS_SCOPE: ProjectOverviewQueryClassScopeDto = {
+  queryClass: 'all',
+  figures: [
+    'queryCounts', 'providers', 'transitions',
+    'scores.mention', 'scores.visibility', 'scores.gapQueries', 'scores.mentionGaps', 'scores.competitorPressure',
+    'movementSummary', 'citationMovement', 'mentionMovement', 'movementComparison',
+    'competitors', 'providerScores', 'runHistory',
+  ],
+  note: 'These figures pool branded and non-brand queries in one denominator. Only scores.mentionShare splits the classes. For one class, use a read filtered by queryClass.',
+}
+
 export interface ProjectOverviewDto {
   project: ProjectDto
   latestRun: LatestProjectRunDto
   health: HealthSnapshotDto | null
   topInsights: InsightDto[]
+  /** Which query class `figures` cover: always `all`. Optional only so an older server's response still parses. */
+  queryClassScope?: ProjectOverviewQueryClassScopeDto
   queryCounts: ProjectOverviewQueryCountsDto
   providers: ProjectOverviewProviderEntryDto[]
   transitions: ProjectOverviewTransitionsDto
@@ -276,22 +324,38 @@ const scoreSummarySchema = z.object({
   tone: metricToneSchema,
   description: z.string(),
   tooltip: z.string().optional(),
-  trend: z.array(z.number()),
-  progress: z.number().optional(),
+  trend: z.array(percent()),
+  progress: percent().optional(),
   providerCoverage: z.string().optional(),
 })
 
 const mentionShareBreakdownSchema = z.object({
   projectMentionSnapshots: z.number().int().nonnegative(),
   competitorMentionSnapshots: z.number().int().nonnegative(),
+  /** `projectMentionSnapshots + competitorMentionSnapshots`, the denominator of `score` and every `ranking` share. */
+  combinedMentionSnapshots: z.number().int().nonnegative(),
   perCompetitor: z.array(z.object({
     domain: z.string(),
     mentionSnapshots: z.number().int().nonnegative(),
-    shareOfCompetitiveTotal: z.number(),
+    shareOfCompetitiveTotal: percent(),
+  })),
+  /**
+   * The project and every tracked competitor, zero-mention ones included,
+   * most mentioned first (ties list the project first). Each share is the
+   * row's mentions over `combinedMentionSnapshots`, so the shares sum to 1.
+   * Empty when there is no head-to-head: no tracked competitors, or no brand
+   * named in this class.
+   */
+  ranking: z.array(z.object({
+    kind: z.enum(['project', 'competitor']),
+    /** The tracked competitor's domain. Null on the project's row. */
+    domain: z.string().nullable(),
+    mentionSnapshots: z.number().int().nonnegative(),
+    share: fraction(z.number().min(0).max(1)),
   })),
   snapshotsWithAnswerText: z.number().int().nonnegative(),
   snapshotsTotal: z.number().int().nonnegative(),
-  score: z.number().int().min(0).max(100).nullable(),
+  score: percent(z.number().min(0).max(100)).nullable(),
 })
 
 const mentionShareSchema = scoreSummarySchema.extend({
@@ -367,14 +431,14 @@ const projectOverviewHealthSchema = z.object({
   id: z.string(),
   projectId: z.string(),
   runId: z.string().nullable(),
-  overallCitedRate: z.number(),
-  overallMentionRate: z.number(),
+  overallCitedRate: fraction(),
+  overallMentionRate: fraction(),
   totalPairs: z.number().int().nonnegative(),
   citedPairs: z.number().int().nonnegative(),
   mentionedPairs: z.number().int().nonnegative(),
   providerBreakdown: z.record(z.string(), z.object({
-    citedRate: z.number(),
-    mentionRate: z.number(),
+    citedRate: fraction(),
+    mentionRate: fraction(),
     cited: z.number().int().nonnegative(),
     mentioned: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
@@ -390,18 +454,23 @@ export const projectOverviewDtoSchema = z.object({
   latestRun: latestProjectRunDtoSchema,
   health: projectOverviewHealthSchema.nullable(),
   topInsights: z.array(projectOverviewInsightSchema),
+  queryClassScope: z.object({
+    queryClass: z.literal('all'),
+    figures: z.array(z.string()),
+    note: z.string(),
+  }).optional(),
   queryCounts: z.object({
     totalQueries: z.number().int().nonnegative(),
     citedQueries: z.number().int().nonnegative(),
     notCitedQueries: z.number().int().nonnegative(),
-    citedRate: z.number(),
+    citedRate: fraction(),
     mentionedQueries: z.number().int().nonnegative(),
     notMentionedQueries: z.number().int().nonnegative(),
-    mentionRate: z.number(),
+    mentionRate: fraction(),
   }),
   providers: z.array(z.object({
     provider: z.string(),
-    citedRate: z.number(),
+    citedRate: fraction(),
     cited: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
   })),
@@ -436,10 +505,10 @@ export const projectOverviewDtoSchema = z.object({
   providerScores: z.array(z.object({
     provider: z.string(),
     model: z.string().nullable(),
-    score: z.number(),
+    score: percent(),
     cited: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
-    trend: z.array(z.number()).optional(),
+    trend: z.array(percent()).optional(),
   })),
   attentionItems: z.array(z.object({
     id: z.string(),
@@ -454,9 +523,9 @@ export const projectOverviewDtoSchema = z.object({
     createdAt: z.string(),
     citedCount: z.number().int().nonnegative(),
     totalCount: z.number().int().nonnegative(),
-    citationRate: z.number(),
+    citationRate: percent(),
     mentionedCount: z.number().int().nonnegative(),
-    mentionRate: z.number(),
+    mentionRate: percent(),
     status: z.string(),
   })),
   suggestedQueries: z.object({

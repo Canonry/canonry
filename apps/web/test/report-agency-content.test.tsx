@@ -225,12 +225,12 @@ describe('content opportunities', () => {
 })
 
 describe('content gaps', () => {
-  test('a gap lists its first five competitor domains then +N more, and rounds its miss rate to a whole percent', () => {
+  test('a gap lists its first five competitor domains then +N more, and shows its miss rate to one decimal', () => {
     renderReportPage(fullReport(), { audience: 'agency' })
     const table = sectionTable(ReportSectionIds['content-gaps'])
     expect(bodyRows(table).map(row => cellTexts(row))).toEqual([
       ['best aeo platform', '1', 'rival.com', '100%'],
-      ['aeo software comparison', '6', 'a.com, b.com, c.com, d.com, e.com, +1 more', '50%'],
+      ['aeo software comparison', '6', 'a.com, b.com, c.com, d.com, e.com, +1 more', '50.0%'],
     ])
     expect(headerCells(table).map(cell => cell.classList.contains('text-right'))).toEqual([false, true, false, true])
   })
@@ -247,6 +247,6 @@ describe('content gaps', () => {
     renderReportPage(report, { audience: 'agency' })
     const rows = bodyRows(sectionTable(ReportSectionIds['content-gaps']))
     expect(rows.map(row => row.cells[0].textContent)).toEqual(Array.from({ length: 10 }, (_, index) => `gap ${index + 1}`))
-    expect(rows[0].cells[3].textContent).toBe('33%')
+    expect(rows[0].cells[3].textContent).toBe('33.4%')
   })
 })

@@ -54,3 +54,14 @@ export const PLACES_ATMOSPHERE_FIELDS = [
   'outdoorSeating',
   'reservable',
 ] as const
+
+/**
+ * Review signals for negative-review alerts on locations that have no Business
+ * Profile reviews access: the overall rating, the review count, and the reviews
+ * the public listing shows (at most five, chosen by relevance, so this can miss
+ * a review). `reviews` is an Enterprise + Atmosphere field and `rating` /
+ * `userRatingCount` are Enterprise fields, so the call bills at Place Details
+ * Enterprise + Atmosphere, the same SKU as the `atmosphere` tier. The sync only
+ * makes it on that tier.
+ */
+export const PLACES_REVIEW_SIGNAL_FIELDS = ['id', 'rating', 'userRatingCount', 'reviews'] as const

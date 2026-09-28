@@ -1,8 +1,8 @@
-import type { GaConnectResponse, GA4PropertiesDto, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GaMeasurementAnalysisDto, GaSocialReferralTrendResponse, GaAttributionTrendResponse, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '@ainyc/canonry-contracts'
+import type { GaConnectResponse, GA4PropertiesDto, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GaMeasurementAnalysisDto, GaSocialReferralTrendResponse, GaAttributionTrendResponse, GaSourceMover, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { GaMoverChangeBases, describeError, formatPercent } from '@ainyc/canonry-contracts'
 
 function getClient() {
   return createApiClient()
@@ -226,8 +226,7 @@ export async function gaTraffic(project: string, opts?: GaRangeOptions & { limit
   console.log(`  Organic Sessions:        ${result.totalOrganicSessions}`)
   console.log(`  Total Users:             ${result.totalUsers ?? 'unavailable for this range'}`)
   if (result.aiSessionsDeduped > 0) {
-    const share = result.totalSessions > 0 ? Math.round((result.aiSessionsDeduped / result.totalSessions) * 100) : 0
-    console.log(`  AI Sessions (deduped):   ${result.aiSessionsDeduped} (${share}% of total)`)
+    console.log(`  AI Sessions (deduped):   ${result.aiSessionsDeduped} (${result.aiSharePctDisplay} of total)`)
     if (result.paidAiSessionsDeduped > 0) {
       console.log(`    Paid AI:               ${result.paidAiSessionsDeduped} (${result.paidAiSharePctDisplay} of total)`)
     }
@@ -238,16 +237,17 @@ export async function gaTraffic(project: string, opts?: GaRangeOptions & { limit
     const attrWidth = 12
     const classWidth = 8
     // Sessions only. GA counts users DISTINCT at the grain it was asked for,
-    // so these rows carry no user figure to print.
+    // so these rows carry no user figure to print. SHARE is the server's share
+    // of this table's sessions, the same value the dashboard shows.
     console.log('  AI REFERRAL SOURCES')
-    console.log(`  ${'SOURCE'.padEnd(25)}  ${'MEDIUM'.padEnd(15)}  ${'CLASS'.padEnd(classWidth)}  ${'ATTRIBUTION'.padEnd(attrWidth)}  ${'SESSIONS'.padEnd(10)}`)
-    console.log(`  ${'─'.repeat(25)}  ${'─'.repeat(15)}  ${'─'.repeat(classWidth)}  ${'─'.repeat(attrWidth)}  ${'─'.repeat(10)}`)
+    console.log(`  ${'SOURCE'.padEnd(25)}  ${'MEDIUM'.padEnd(15)}  ${'CLASS'.padEnd(classWidth)}  ${'ATTRIBUTION'.padEnd(attrWidth)}  ${'SESSIONS'.padEnd(10)}  SHARE`)
+    console.log(`  ${'─'.repeat(25)}  ${'─'.repeat(15)}  ${'─'.repeat(classWidth)}  ${'─'.repeat(attrWidth)}  ${'─'.repeat(10)}  ${'─'.repeat(6)}`)
 
     for (const ref of result.aiReferrals) {
       const dimLabel = ref.sourceDimension === 'first_user' ? 'first-visit' : ref.sourceDimension === 'manual_utm' ? 'utm' : 'session'
       const classLabel = ref.trafficClass === 'paid' ? 'paid' : 'organic'
       console.log(
-        `  ${ref.source.padEnd(25)}  ${ref.medium.padEnd(15)}  ${classLabel.padEnd(classWidth)}  ${dimLabel.padEnd(attrWidth)}  ${String(ref.sessions).padEnd(10)}`,
+        `  ${ref.source.padEnd(25)}  ${ref.medium.padEnd(15)}  ${classLabel.padEnd(classWidth)}  ${dimLabel.padEnd(attrWidth)}  ${String(ref.sessions).padEnd(10)}  ${formatPercent(ref.share)}`,
       )
     }
     console.log()
@@ -273,17 +273,16 @@ export async function gaTraffic(project: string, opts?: GaRangeOptions & { limit
   if (result.socialReferrals.length > 0) {
     const chanWidth = 12
     if (result.socialSessions > 0) {
-      const share = result.totalSessions > 0 ? Math.round((result.socialSessions / result.totalSessions) * 100) : 0
-      console.log(`  Social Sessions:         ${result.socialSessions} (${share}% of total)`)
+      console.log(`  Social Sessions:         ${result.socialSessions} (${result.socialSharePctDisplay} of total)`)
     }
     console.log('  SOCIAL REFERRAL SOURCES')
-    console.log(`  ${'SOURCE'.padEnd(25)}  ${'MEDIUM'.padEnd(15)}  ${'CHANNEL'.padEnd(chanWidth)}  ${'SESSIONS'.padEnd(10)}`)
-    console.log(`  ${'─'.repeat(25)}  ${'─'.repeat(15)}  ${'─'.repeat(chanWidth)}  ${'─'.repeat(10)}`)
+    console.log(`  ${'SOURCE'.padEnd(25)}  ${'MEDIUM'.padEnd(15)}  ${'CHANNEL'.padEnd(chanWidth)}  ${'SESSIONS'.padEnd(10)}  SHARE`)
+    console.log(`  ${'─'.repeat(25)}  ${'─'.repeat(15)}  ${'─'.repeat(chanWidth)}  ${'─'.repeat(10)}  ${'─'.repeat(6)}`)
 
     for (const ref of result.socialReferrals) {
       const chanLabel = ref.channelGroup === 'Paid Social' ? 'paid' : 'organic'
       console.log(
-        `  ${ref.source.padEnd(25)}  ${ref.medium.padEnd(15)}  ${chanLabel.padEnd(chanWidth)}  ${String(ref.sessions).padEnd(10)}`,
+        `  ${ref.source.padEnd(25)}  ${ref.medium.padEnd(15)}  ${chanLabel.padEnd(chanWidth)}  ${String(ref.sessions).padEnd(10)}  ${formatPercent(ref.share)}`,
       )
     }
     console.log()
@@ -292,13 +291,13 @@ export async function gaTraffic(project: string, opts?: GaRangeOptions & { limit
   if (result.topPages.length > 0) {
     const pageWidth = Math.min(60, Math.max(15, ...result.topPages.map((r) => r.landingPage.length)))
     console.log(`  TOP LANDING PAGES`)
-    console.log(`  ${'PAGE'.padEnd(pageWidth)}  ${'SESSIONS'.padEnd(10)}${'ORGANIC'.padEnd(10)}`)
-    console.log(`  ${'─'.repeat(pageWidth)}  ${'─'.repeat(10)}${'─'.repeat(10)}`)
+    console.log(`  ${'PAGE'.padEnd(pageWidth)}  ${'SESSIONS'.padEnd(10)}${'ORGANIC'.padEnd(10)}ORGANIC %`)
+    console.log(`  ${'─'.repeat(pageWidth)}  ${'─'.repeat(10)}${'─'.repeat(10)}${'─'.repeat(9)}`)
 
     for (const row of result.topPages) {
       const page = row.landingPage.length > pageWidth ? row.landingPage.slice(0, pageWidth - 3) + '...' : row.landingPage
       console.log(
-        `  ${page.padEnd(pageWidth)}  ${String(row.sessions).padEnd(10)}${String(row.organicSessions).padEnd(10)}`,
+        `  ${page.padEnd(pageWidth)}  ${String(row.sessions).padEnd(10)}${String(row.organicSessions).padEnd(10)}${formatPercent(row.organicShare)}`,
       )
     }
   }
@@ -534,6 +533,31 @@ export async function gaCoverage(project: string, format?: string): Promise<void
 }
 
 /**
+ * A server trend change, a 0..100 relative change (`15` = +15%), with its
+ * sign; `n/a` when there was no prior period to compare.
+ */
+function fmtTrend(pct: number | null): string {
+  return pct === null ? 'n/a' : `${pct >= 0 ? '+' : ''}${formatPercent(pct, 'percent')}`
+}
+
+/**
+ * A biggest mover's change, stated the way the server's `changeBasis` says: a
+ * source with no prior sessions is `new` (a change from zero has no
+ * percentage, so never "+100%"), a base too small for a percentage shows the
+ * signed session change, and otherwise the percent change.
+ */
+function fmtMoverChange(mover: GaSourceMover): string {
+  switch (mover.changeBasis) {
+    case GaMoverChangeBases.new:
+      return 'new'
+    case GaMoverChangeBases['small-base']:
+      return `${mover.changeSessions > 0 ? '+' : ''}${mover.changeSessions} sessions`
+    case GaMoverChangeBases.percent:
+      return fmtTrend(mover.changePct)
+  }
+}
+
+/**
  * The one line that makes every percentage below it readable.
  *
  * Printed ABOVE the numbers, never as a footer: a reader who meets "Direct 69%"
@@ -570,15 +594,14 @@ export async function gaSocialReferralSummary(project: string, opts?: { trend?: 
     console.log(`Social Traffic Summary for "${project}"\n`)
     const trendWindow = windowLine(traffic)
     if (trendWindow) console.log(`${trendWindow}\n`)
-    console.log(`  Sessions: ${traffic.socialSessions} (${traffic.socialSharePct}% of ${traffic.totalSessions} total)`)
+    console.log(`  Sessions: ${traffic.socialSessions} (${traffic.socialSharePctDisplay} of ${traffic.totalSessions} total)`)
     console.log()
 
-    const fmtTrend = (pct: number | null) => pct === null ? 'n/a' : `${pct >= 0 ? '+' : ''}${pct}%`
     console.log(`  7d trend:  ${fmtTrend(trend.trend7dPct)} (${trend.socialSessions7d} vs ${trend.socialSessionsPrev7d})`)
     console.log(`  30d trend: ${fmtTrend(trend.trend30dPct)} (${trend.socialSessions30d} vs ${trend.socialSessionsPrev30d})`)
     if (trend.biggestMover) {
       const m = trend.biggestMover
-      console.log(`  Mover:     ${m.source} (${m.changePct >= 0 ? '+' : ''}${m.changePct}%, ${m.sessionsPrev7d}→${m.sessions7d})`)
+      console.log(`  Mover:     ${m.source} (${fmtMoverChange(m)}, ${m.sessionsPrev7d}→${m.sessions7d})`)
     }
     console.log()
 
@@ -608,7 +631,7 @@ export async function gaSocialReferralSummary(project: string, opts?: { trend?: 
   console.log(`Social Traffic Summary for "${project}"\n`)
   const socialWindow = windowLine(traffic)
   if (socialWindow) console.log(`${socialWindow}\n`)
-  console.log(`  Sessions: ${traffic.socialSessions} (${traffic.socialSharePct}% of ${traffic.totalSessions} total)`)
+  console.log(`  Sessions: ${traffic.socialSessions} (${traffic.socialSharePctDisplay} of ${traffic.totalSessions} total)`)
   if (traffic.socialReferrals.length > 0) {
     console.log()
     console.log('  TOP SOURCES')
@@ -622,8 +645,6 @@ export async function gaSocialReferralSummary(project: string, opts?: { trend?: 
 export async function gaAttribution(project: string, opts?: { trend?: boolean; format?: string }): Promise<void> {
   const client = getClient()
   const traffic: GaTrafficResponse = await client.gaTraffic(project)
-
-  const fmtTrend = (pct: number | null) => pct === null ? 'n/a' : `${pct >= 0 ? '+' : ''}${pct}%`
 
   if (opts?.trend) {
     const trend: GaAttributionTrendResponse = await client.gaAttributionTrend(project)
@@ -685,25 +706,27 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
     console.log(`  Total Sessions:   ${traffic.totalSessions}`)
     console.log(`  Total Users:      ${traffic.totalUsers ?? 'unavailable for this range'}`)
     console.log()
-    console.log('  CHANNEL BREAKDOWN                  7d trend     30d trend')
-    console.log(`    Organic Search: ${String(traffic.channelBreakdown.organic.sessions).padEnd(6)} (${traffic.channelBreakdown.organic.sharePctDisplay.padStart(4)})    ${fmtTrend(trend.organic.trend7dPct).padEnd(12)} ${fmtTrend(trend.organic.trend30dPct)}`)
-    console.log(`    Social:         ${String(traffic.channelBreakdown.social.sessions).padEnd(6)} (${traffic.channelBreakdown.social.sharePctDisplay.padStart(4)})    ${fmtTrend(trend.social.trend7dPct).padEnd(12)} ${fmtTrend(trend.social.trend30dPct)}`)
-    console.log(`    Direct:         ${String(traffic.channelBreakdown.direct.sessions).padEnd(6)} (${traffic.channelBreakdown.direct.sharePctDisplay.padStart(4)})    ${fmtTrend(trend.direct.trend7dPct).padEnd(12)} ${fmtTrend(trend.direct.trend30dPct)}`)
-    console.log(`    AI Referrals:   ${String(traffic.channelBreakdown.ai.sessions).padEnd(6)} (${traffic.channelBreakdown.ai.sharePctDisplay.padStart(4)})    ${fmtTrend(trend.ai.trend7dPct).padEnd(12)} ${fmtTrend(trend.ai.trend30dPct)}  (lower bound — sessionSource only; referrer-stripped traffic falls under Direct)`)
+    // Share cells are six wide, the widest formatPercent value (`>99.9%`), so every row
+    // starts its trend columns under these headings, the Total row included.
+    console.log(`  CHANNEL BREAKDOWN${' '.repeat(20)}7d trend     30d trend`)
+    console.log(`    Organic Search: ${String(traffic.channelBreakdown.organic.sessions).padEnd(6)} (${traffic.channelBreakdown.organic.sharePctDisplay.padStart(6)})    ${fmtTrend(trend.organic.trend7dPct).padEnd(12)} ${fmtTrend(trend.organic.trend30dPct)}`)
+    console.log(`    Social:         ${String(traffic.channelBreakdown.social.sessions).padEnd(6)} (${traffic.channelBreakdown.social.sharePctDisplay.padStart(6)})    ${fmtTrend(trend.social.trend7dPct).padEnd(12)} ${fmtTrend(trend.social.trend30dPct)}`)
+    console.log(`    Direct:         ${String(traffic.channelBreakdown.direct.sessions).padEnd(6)} (${traffic.channelBreakdown.direct.sharePctDisplay.padStart(6)})    ${fmtTrend(trend.direct.trend7dPct).padEnd(12)} ${fmtTrend(trend.direct.trend30dPct)}`)
+    console.log(`    AI Referrals:   ${String(traffic.channelBreakdown.ai.sessions).padEnd(6)} (${traffic.channelBreakdown.ai.sharePctDisplay.padStart(6)})    ${fmtTrend(trend.ai.trend7dPct).padEnd(12)} ${fmtTrend(trend.ai.trend30dPct)}  (lower bound — sessionSource only; referrer-stripped traffic falls under Direct)`)
     if (traffic.paidAiSessionsBySession > 0) {
-      console.log(`      Paid AI:      ${String(traffic.paidAiSessionsBySession).padEnd(6)} (${traffic.paidAiSharePctBySessionDisplay.padStart(4)})`)
+      console.log(`      Paid AI:      ${String(traffic.paidAiSessionsBySession).padEnd(6)} (${traffic.paidAiSharePctBySessionDisplay.padStart(6)})`)
     }
-    console.log(`    Other:          ${String(traffic.channelBreakdown.other.sessions).padEnd(6)} (${traffic.channelBreakdown.other.sharePctDisplay.padStart(4)})`)
+    console.log(`    Other:          ${String(traffic.channelBreakdown.other.sessions).padEnd(6)} (${traffic.channelBreakdown.other.sharePctDisplay.padStart(6)})`)
     console.log(`    ─────────────────────────────────────────────────────`)
-    console.log(`    Total:          ${String(traffic.totalSessions).padEnd(6)}         ${fmtTrend(trend.total.trend7dPct).padEnd(12)} ${fmtTrend(trend.total.trend30dPct)}`)
+    console.log(`    Total:          ${String(traffic.totalSessions).padEnd(6)}${' '.repeat(13)}${fmtTrend(trend.total.trend7dPct).padEnd(12)} ${fmtTrend(trend.total.trend30dPct)}`)
 
     if (trend.aiBiggestMover) {
       const m = trend.aiBiggestMover
-      console.log(`\n  AI Mover:     ${m.source} (${m.changePct >= 0 ? '+' : ''}${m.changePct}%, ${m.sessionsPrev7d}→${m.sessions7d} sessions/7d)`)
+      console.log(`\n  AI Mover:     ${m.source} (${fmtMoverChange(m)}, ${m.sessionsPrev7d}→${m.sessions7d} sessions/7d)`)
     }
     if (trend.socialBiggestMover) {
       const m = trend.socialBiggestMover
-      console.log(`  Social Mover: ${m.source} (${m.changePct >= 0 ? '+' : ''}${m.changePct}%, ${m.sessionsPrev7d}→${m.sessions7d} sessions/7d)`)
+      console.log(`  Social Mover: ${m.source} (${fmtMoverChange(m)}, ${m.sessionsPrev7d}→${m.sessions7d} sessions/7d)`)
     }
 
     if (traffic.lastSyncedAt) {

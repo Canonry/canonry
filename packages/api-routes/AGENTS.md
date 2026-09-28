@@ -25,6 +25,7 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/google.ts` | Google Search Console and Google Business Profile (GBP) routes |
 | `src/gsc-period-comparison.ts` / `src/gbp-summary.ts` | Pure calculations behind the GSC performance tiles and `/gbp/summary` |
 | `src/ga.ts` | Google Analytics 4 routes |
+| `src/ga-source-mover.ts` | Pure biggest-mover calculation behind `/ga/social-referral-trend` and `/ga/attribution-trend` (see "GA4 trend movers") |
 | `src/ads.ts` / `src/ads-live-delivery.ts` | OpenAI ads (ChatGPT ads) routes; pure live-vs-stored comparison engine |
 | `src/traffic.ts` / `src/ai-referral-status.ts` | Server-side traffic ingestion routes; shared `ai_referral_events_hourly` read conditions |
 | `src/referral-assessment.ts` | DB-only project/source burst diagnostic. Raw headlines unchanged; grouped candidate counts and separate adjusted estimate, with GA quotient coverage limits. |
@@ -36,6 +37,8 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/bing.ts` / `src/wordpress.ts` / `src/intelligence.ts` / `src/backlinks.ts` | Bing Webmaster Tools, WordPress, intelligence insight + health snapshot, and Common Crawl backlinks routes |
 | `src/visibility-report.ts` | Stored-evidence `GET /projects/:name/visibility-report`. `previousEligibleVisibilityRun` uses `notProbeRun()` and ignores the date window and pinned run. An unreadable predecessor omits `comparison`. |
 | `src/measurement-scope-options.ts` | `planScopeOptions` is the single scope-option builder. The visibility report calls it with `marketLinks: true`; the query-tracking workspace calls it with `marketLinks: false`. |
+| `src/provider-batches.ts` | Reads over `provider_batches`: the run detail's `providerBatches`, `runHadProviderBatch` (fill age), `hasOutstandingProviderBatch` (scheduler `batch-pending`). Writes belong to the job runner and the poller. |
+| `src/snapshot-evidence-fingerprint.ts` | The one evidence fingerprint measurement cursors pin. It excludes the dispatch provenance columns so their addition never invalidates a cursor. |
 
 ## Patterns
 
@@ -46,6 +49,10 @@ and the all-locations transaction. Unrelated run kinds may overlap. A location
 fan-out remains one atomic admission; a second visibility sweep is refused until
 all its active siblings finish. `RUN_IN_PROGRESS` includes the kind and blocking
 run ID. Keep existing per-kind deduplication and shared provider limits.
+
+### Batch dispatch (queue time)
+
+`queueRunIfProjectIdle` freezes which providers batch into `runs.provider_dispatch_modes` inside the queue transaction, after the stamp. The rules are `resolveRunDispatchModes` in contracts; do not re-derive them. A scheduled run reads the project's `providerDispatchModes`. A manual or API run batches only on `dispatchMode: 'batch'`, and a batch request no provider can honour is a 400 whose `details.ineligible` names each reason. `POST /runs` runs the same check in its pre-pass, so one project's refusal is its own error row. `dispatchMode` is TUNING, not identity: it stays out of `measurementExecutionIdentity`, and the trigger routes never reuse an in-flight run. `providerDispatchModes` on project writes follows `providerModels` (key validation, pruning), except that `pruneProviderDispatchModes` also keeps the engines an Advanced project's active v2 revision measures (`activeRevisionProviders`): its runs measure those whatever `providers` lists, so simple and custom portfolios both keep a preference for every engine their runs measure. An omitted value leaves the stored preference untouched on PUT and apply. Fill age counts from `finishedAt` for a run with any `provider_batches` row (`runFillAgeAnchor`). The run detail's `usage` comes from `summarizeRunUsage`. `DELETE /projects/:name` awaits `cancelRunProviderBatches` for each run with a `submitted`/`ended` batch FIRST, before `onProjectDeleting` and its transaction, because the cascade removes the only rows holding the provider's batch id. It is best effort and never blocks the delete. Those awaits are the handler's only suspension point, so it re-reads the project by id after them: when a concurrent DELETE committed meanwhile, it answers the missing-project 404 without calling `onProjectDeleting`, writing an audit row or running a rollback (test: `test/project-delete-provider-batches.test.ts`). Keep every other side effect after that re-read, with no await before the commit. See `docs/batch-mode.md`.
 
 ### Simple measurement provenance
 
@@ -276,7 +283,7 @@ Constraints:
   `operator`; MCP discovery fails closed when it is missing/false. Ordinary audit
   history excludes internal telemetry state. Do not add an API that self-grants this
   host authority.
-- `src/operational-logs.ts`: `GET /operations/logs` is the host-provided bounded runtime log reader, guarded by instance-wide `logs.read` and user admin role. Project-scoped keys are refused. A strict shared DTO prevents accidental payload widening; unwired hosts return 501.
+- `src/operational-logs.ts`: `GET /operations/logs` is the host-provided bounded runtime log reader, guarded by instance-wide `logs.read` and user admin role. Project-scoped keys are refused. A strict shared DTO prevents accidental payload widening; unwired hosts return 501. Opt-in context fields (`provider`) are stripped from every entry unless the request names them in `x-canonry-log-fields` (comma list, unknown names ignored): an older stdio adapter validates the page with its strict schema and would reject the whole page on an unrecognized key. A new context field added to the strict DTO must join that opt-in list. The response sends `Vary: x-canonry-log-fields`, since the page depends on that header.
 
 #### Auth plugin gates (`src/auth.ts`)
 
@@ -400,7 +407,7 @@ The dimensioned search-data table is valid for RANKING and invalid for TOTALS. R
 
 `src/google.ts` (GSC):
 
-- GSC routes: OAuth connect/callback, property selection, sync, coverage, plus `GET /gsc/top-pages` (one row per page, `GROUP BY page` + `SUM(clicks)` in SQL so the response is bounded by distinct pages, not by the dimensioned rows behind them).
+- GSC routes: OAuth connect/callback, property selection, sync, coverage, plus `GET /gsc/top-pages` (one row per page, `GROUP BY page` + `SUM(clicks)` in SQL so the response is bounded by distinct pages, not by the dimensioned rows behind them), and `GET /gsc/query-totals` (one row per named query over a window, folded, ordered and paged in SQL by `readGscQueryTotalsPage`, which a parity test holds to `mergeGscQueryTotalsWithFallback` so it matches the report; a page reads only its own rows; read-only, no Google call).
 - **The dimensioned `gsc_search_data` table is valid for RANKING and invalid for TOTALS**: Google withholds rare/anonymised queries so its sum under-counts clicks, and one impression fans out across every query x page x country x device combination so its sum over-counts impressions (792 vs 1,142 clicks and 45,266 vs 34,916 impressions on one real property-month).
 - `top-pages` therefore sources `totals` from the un-dimensioned `gsc_daily_totals` table, labels it `totalsSource: 'property-daily'`, and returns `null` when no property figure covers the window rather than falling back to the sum; `/gsc/performance/daily` reads the same table through `readGscDailyTotals`.
 - Guarded by `test/gsc-top-pages.test.ts`, whose fixture makes the two sources deliberately disagree.
@@ -432,7 +439,8 @@ The dimensioned search-data table is valid for RANKING and invalid for TOTALS. R
 - `POST /gbp/locations/discover` (resolves the account: explicit `accountName` > the account the project already tracks > first visible; re-pointing a project at a different account is destructive and requires `switchAccount: true`, which clears the old account's footprint via the shared `clearGbpProjectData` helper) + select/deselect.
 - `POST /gbp/sync` (creates the `gbp-sync` run, fires `onGbpSyncRequested`).
 - The read endpoints `GET /gbp/locations`, `/gbp/metrics`, `/gbp/keywords`, `/gbp/place-actions`, `/gbp/lodging` (collapses to the latest snapshot per location), and `/gbp/summary` (scopes to the project's SELECTED locations — deselected/stale rows never pollute the aggregate, and `locationCount` matches the data covered — passes the server `asOfDate` to `buildGbpSummary`, which derives the complete-day anchor + freshness + daily timeseries from the data).
-- `DELETE /gbp/connection` clears the project's whole GBP footprint (locations + all synced surfaces), not just the connection.
+- `GET /gbp/reviews` (stored reviews newest first, `locationName` / `negative` / `limit` filters, `total` counted before the limit; plus each selected location's v4 `reviewsAccess` and its latest rating from whichever origin was observed most recently). `negative` and `replied` are derived here, with the project's `negativeReviewMaxStars` (echoed as `negativeMaxStars`) through `isNegativeReviewRating` in contracts, so no client re-derives them.
+- `DELETE /gbp/connection` clears the project's whole GBP footprint (locations + all synced surfaces, including reviews and rating history), not just the connection.
 
 `src/gbp-summary.ts` — pure GBP summary calculation module (no DB, no I/O):
 
@@ -453,6 +461,15 @@ The dimensioned search-data table is valid for RANKING and invalid for TOTALS. R
 - `all` and an omitted window mean full retained history: totals and sibling history routes stay unbounded.
 - The latest sync summary may supply deduplicated users only when its dates cover every retained detail row; otherwise `totalUsers` is null. Never use that summary to narrow `all`.
 - Any new figure added to `/ga/traffic`, and any new route whose numbers are read beside it, must use the same resolved range.
+- Row shares are computed here, never in a surface: each `aiReferrals` / `socialReferrals` row's `share` comes from `breakdownShares`, so a table adds up to 1 (AI rows over their own sum, which can sit below `aiSessionsDeduped` because that total picks the winning lens per day), and each top page's `organicShare` from `shareOf`.
+
+### GA4 trend movers
+
+`src/ga-source-mover.ts`: `findBiggestMover` picks the source whose sessions changed most, in either direction, over the last 7 days against the 7 before.
+
+- Every source seen in EITHER period is a candidate, so a source that stopped sending sessions is a -100% mover.
+- `changePct` comes from `deltaPercent` and is null from a zero prior; `changeBasis` is then `new`. Never fall back to a number: growth from nothing is not +100%.
+- Below `MIN_PCT_BASE` prior sessions `changeBasis` is `small-base`, and surfaces state `changeSessions`, not the percent.
 
 ### OpenAI ads writes (Critical)
 
@@ -612,6 +629,7 @@ WordPress backfill is forbidden while either continuation field is set.
 - The dashboard graph reads only the persisted 20k-node / 50k-edge projection; agent reads traverse canonical page/edge rows without layout coordinates and return bounded/truncated states.
 - Every link-bearing read tags each edge `isTemplate` (nav, header, or footer chrome) plus `templateSource` and `placementOccurrences` (which rule decided it and the DOM evidence behind it), accepts a `linkKind` filter (`all` by default, so an existing caller's counts do not move), and reports `templateDetection`, so an empty content-only list can never be mistaken for a real zero and no count silently mixes the placement and ubiquity rules.
 - `templateSource` is derived at read time from the row plus ITS OWN scan's detection state, which is why `mapCrawlEdge` takes the detection: a scan that never recorded placement cannot report `placement`. It also reads the stored `templateRatio`, so an edge the fallback could not measure (a redirect, a canonical, an unresolved target) reports `unmeasured` instead of being credited to a rule that produced no number.
+- Every audit factor on the score, pages, and page-audit reads carries `sharePct` (its share of the score, 0..100) beside its relative `weight`. Factor JSON stored before the field existed reads `sharePct: null` (`withRecordedShare`, and the schema default on the page-audit parse), never 0 and never the weight, and a complete evidence row without it stays `complete`.
 - `isTemplate` is a strict boolean on every classified row, so `linkKind=content` returns the same set on the graph read, the link list, and the neighbour read.
 - The graph read adds `totalTemplateEdges` / `totalContentEdges` beside the unchanged `totalEdges`, and its ready layout says whether template links were excluded from the physics.
 

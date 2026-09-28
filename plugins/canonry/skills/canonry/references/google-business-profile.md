@@ -11,7 +11,8 @@ Canonry integrates with the Google Business Profile (GBP) API to surface local A
 - Sync daily performance metrics — impressions, website clicks, call clicks, direction requests (all 11 `DailyMetric`s)
 - For hotels: sync lodging attributes (amenities, accessibility, pets, etc.) and place action links (booking CTAs)
 - Roll the above into a composite summary scorecard (`canonry gbp summary`)
-- Sync reviews per location — **only where Google has granted v4 access** (gated; unavailable on most projects — see below)
+- Sync reviews per location from the v4 API **where Google has granted v4 access** (gated; unavailable on most projects, see below). Elsewhere, fall back to the public Places listing: the overall rating and at most five reviews by relevance (`atmosphere` Places tier with a key)
+- Alert on negative reviews: `review.negative` webhooks for new or edited reviews at or below the project's threshold (1-3 stars by default), `review.rating-dropped` when the public rating falls (see "Review alerts" below)
 
 ## What Stays Manual
 
@@ -82,6 +83,28 @@ What we confirmed, with a project approved and running the v1 family at 300 QPM,
 - Per Google's [Basic setup](https://developers.google.com/my-business/content/basic-setup) doc: *"The Google My Business API is only visible in the Google API Console to users who submit and receive approval for their Google Account through the access request form."*
 
 **Conclusion:** the v4 GMB API is gated independently of the v1 approval and Google controls the switch. The only routes are (1) the **shortcut "enable" link from the access-approval email**, opened as the approved account in the browser, or (2) replying to the access-request thread asking Google to enable `mybusiness.googleapis.com` for your project number. Self-service (library, gcloud) does not work. Build reviews behind this gate and ship the rest without it.
+
+### Review alerts
+
+`cnry gbp sync` tries v4 reviews for every selected location. The outcome is stored per location and shown by `cnry gbp reviews <project>` and the `gbp.reviews.access` doctor check; a `403 SERVICE_DISABLED` never fails the sync. Until Google enables v4, locations fall back to the public Places listing when Places runs on the `atmosphere` tier with an API key and the location has a Maps place id. That fallback costs at most one Place Details call per location per day (Enterprise + Atmosphere SKU) and stops by itself once v4 works.
+
+| | Business Profile v4 | Places fallback |
+|---|---|---|
+| Reviews seen | Every review, including edits and owner replies | At most five, chosen by relevance, no replies |
+| `review.negative` | Each new or edited review at or below the threshold | A review at or below the threshold that appears among the five |
+| `review.rating-dropped` | Never (each review alerts on its own) | When the one-decimal public rating falls |
+
+The threshold is per project: 3 stars by default, set with `cnry project update <project> --negative-review-max-stars <1-4|default>` or `spec.negativeReviewMaxStars` in `canonry apply`. A hotel with hundreds of reviews may want 2; a small business may want every 3-star review.
+
+Rules that hold for both sources:
+
+- A location's first sync per source records a baseline and sends nothing, so connecting never replays old reviews.
+- A review older than 30 days never alerts. This keeps an old review that the Places listing surfaces by relevance from reading as new, and keeps a webhook that was broken for weeks from replaying a month of reviews once fixed.
+- A rating or text edit re-alerts; a new timestamp or an owner reply alone does not.
+- An alert is marked sent only after a destination accepts it, and retried on the next sync when every delivery failed. With no subscribed webhook it is skipped, not held.
+- Once v4 covers a location, queued Places alerts for it are suppressed so nothing is sent twice.
+
+Subscribe: `cnry notify add <project> --webhook <url> --events review.negative,review.rating-dropped`. Discord and Slack webhook URLs get a formatted message; any other URL gets the signed JSON payload. The doctor check warns only when a project subscribes to review events and some location has no review source at all; missing v4 access alone reports as skipped, since it is the normal state.
 
 **Account-credential gotcha:** API calls use your **Application Default Credentials** (`gcloud auth application-default login` → `print-access-token`), while `gcloud services enable` uses the separate **gcloud CLI account** (`gcloud config get-value account`). These can be different identities. Verify the token's real account with `curl "https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=$TOKEN"` before concluding anything about access — a "wrong account" symptom is often just the two credential stores disagreeing.
 
@@ -262,7 +285,7 @@ Every GBP number belongs to one of three planes. **Tag each figure by plane befo
 
 ## Real-World Data Shapes & Signal Patterns
 
-Validated against three live businesses of different types (a computer-support shop, a roofing contractor, and a beachfront boutique hotel). Bake these into any parsing or analysis code.
+Validated against three live businesses of different types (a computer-support shop, a roofing contractor, and a beachfront boutique hotel). Bake these into any parsing or analysis code. Counts marked illustrative below are stand-ins for the observed values; the patterns are what was observed.
 
 ### Response-shape quirks (the parser MUST handle these)
 
@@ -272,10 +295,10 @@ Validated against three live businesses of different types (a computer-support s
 
 ### Signal patterns (what the data actually looks like)
 
-- **`BUSINESS_DIRECTION_REQUESTS` is the most reliably-populated conversion signal** across every business type — even a tiny roofing contractor logged 58/30d while its website-clicks (2) and call-clicks (1) were near-zero. For local/service businesses it's the headline AEO-conversion proxy, not website clicks.
+- **`BUSINESS_DIRECTION_REQUESTS` is the most reliably-populated conversion signal** across every business type — even a tiny roofing contractor logged 58/30d (illustrative) while its website-clicks (2) and call-clicks (1) were near-zero. For local/service businesses it's the headline AEO-conversion proxy, not website clicks.
 - **Most of the 11 daily metrics are all-zero** for non-retail businesses (`BUSINESS_CONVERSATIONS`, `BUSINESS_BOOKINGS`, `BUSINESS_FOOD_*` were 0 for all three). Syncing all 11 is fine (zeros are cheap) but the dashboard should hide all-zero series.
-- **Impressions skew to Maps for physical-destination businesses.** The hotel pulled 7,150 desktop-maps impressions vs 2,180 desktop-search in 30 days — people find it on Maps.
-- **Keyword thresholding scales with volume.** A busy hotel was ~89% thresholded (its head terms like `hotels`→10,412 had exact values); both small businesses were **100% thresholded** (every keyword redacted). For the typical SMB location, expect zero exact keyword values — design the UI to lead with the `<N` floor, not exact counts.
+- **Impressions skew to Maps for physical-destination businesses.** The hotel pulled about three times as many desktop-maps impressions as desktop-search in 30 days (illustrative: 7,150 vs 2,180) — people find it on Maps.
+- **Keyword thresholding scales with volume.** A busy hotel was ~89% thresholded (its head terms like `hotels`, at an illustrative 10,412, had exact values); both small businesses were **100% thresholded** (every keyword redacted). For the typical SMB location, expect zero exact keyword values — design the UI to lead with the `<N` floor, not exact counts.
 - **An empty Lodging resource is the norm, but it does NOT prove the owner set no amenities.** A real operating hotel returned a lodging resource with only `{ "name": ... }` and zero place-action links, yet its GBP "Hotel details" panel had amenities filled in (breakfast, wifi, parking, accessibility). So `populatedGroupCount === 0` means "canonry can't read structured attributes via this API response", not "the hotel has none". Surface the lodging signal as a **verify** (check the "Hotel details" panel), not a confirmed gap. The place-action emptiness is a separate, genuinely owner-readable signal.
 - **The Places cross-reference is a thin slice for hotels, not the full rendered listing.** Run live against the beachfront hotel at the Atmosphere tier, Place Details surfaced exactly one structured amenity, `wheelchair accessibility`, even though the rendered Google hotel module advertises far more (wifi, pool, room service, room rates). Those richer fields come from **Hotel Center**, which the Places API does not expose. So a thin or empty `gbp places` amenity list is NOT evidence the public listing is sparse; Places only carries a narrow, schema-bound subset (breakfast, dining, parking, pet-friendly, accessibility, restroom, family-friendly, outdoor seating, reservations). Read `gbp-listing-discrepancy` as a **floor** on the public-vs-owner gap (proof the listing advertises *at least* the named amenities), never a complete inventory. The owner-control point still stands at any size: even one amenity the profile fails to assert is a structured-data gap the operator can close.
 
@@ -290,7 +313,8 @@ Validated against three live businesses of different types (a computer-support s
 | Lodging endpoint returns 400 `FAILED_PRECONDITION` | Location primary category is not a lodging category | Update the primary category in the GBP UI to `Hotel`, `Resort`, `Motel`, etc. |
 | Lodging returns 200 with only `{ "name": ... }` | The GBP Lodging API returned no readable structured groups. In live testing this happened even when the "Hotel details" panel had amenities set | Not an error, and not proof of a gap. Surface as a verify: have the operator check the "Hotel details" panel; flag only if genuinely unset there |
 | Place action links empty | No CTAs configured | Set them up in the GBP UI; for many local businesses this is genuinely empty (an AEO gap) |
-| Reviews 403 `SERVICE_DISABLED` while v1 APIs work | Legacy v4 `mybusiness.googleapis.com` not enabled for this account/project | See "The legacy Google My Business API" above — enable via the approval-email shortcut as the approved account; can't be done via library or gcloud |
+| Reviews 403 `SERVICE_DISABLED` while v1 APIs work (`gbp reviews` shows `unavailable (SERVICE_DISABLED)`) | Legacy v4 `mybusiness.googleapis.com` not enabled for this account/project | See "The legacy Google My Business API" above — enable via the approval-email shortcut as the approved account; can't be done via library or gcloud. Meanwhile, the Places fallback covers review alerts partially |
+| No review alerts arrive | No webhook subscribes to `review.negative`, the location is still on its first (baseline) sync, or it has no review source | `cnry notify list <project>`, then `cnry doctor <project> --check gbp.reviews.access` for per-location coverage |
 | Q&A API unreachable | Google retired the Q&A API on 2025-11-03 | Permanent. Q&A is not available programmatically |
 | Keyword impressions mostly `threshold` instead of `value` | Low-volume keywords are privacy-redacted by Google | Expected — even a busy hotel can be ~89% thresholded; tiny businesses are 100%. Surfaced as `thresholdedKeywordPct` in the summary |
 

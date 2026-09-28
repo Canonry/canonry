@@ -2,7 +2,9 @@ import {
   answerProseForMentions,
   brandKeyFromText,
   compileBrandAliases,
+  formatPercent,
   matcherMatchesText,
+  percentOf,
   prepareBrandMatchText,
   type BrandAliasMatcher,
   type MetricTone,
@@ -67,21 +69,49 @@ export interface MentionShareOptions {
 export interface MentionShareCompetitorRow {
   domain: string
   mentionSnapshots: number
-  /** % of competitive total — sums to 100 across rows when there are any
-   *  competitor mentions; 0 otherwise. */
+  /** % of competitive total, 0..100 at wire precision — sums to ~100 across
+   *  rows when there are any competitor mentions; 0 otherwise. */
   shareOfCompetitiveTotal: number
+}
+
+/**
+ * One brand in the head-to-head: the project's own row, or one tracked
+ * competitor. `share` is this brand's cut of every brand naming in the class,
+ * so across a ranking the shares sum to 1.
+ */
+export interface MentionShareRankingRow {
+  kind: 'project' | 'competitor'
+  /** The tracked competitor's domain. Null on the project's row. */
+  domain: string | null
+  mentionSnapshots: number
+  /** `mentionSnapshots / combinedMentionSnapshots`, 0..1. */
+  share: number
 }
 
 export interface MentionShareBreakdown {
   projectMentionSnapshots: number
   competitorMentionSnapshots: number
+  /**
+   * `projectMentionSnapshots + competitorMentionSnapshots`: every brand naming
+   * in this class, the denominator of `score` and of each `ranking` share. A
+   * snapshot naming two competitors counts once for each.
+   */
+  combinedMentionSnapshots: number
   perCompetitor: MentionShareCompetitorRow[]
+  /**
+   * The project and EVERY tracked competitor, zero-mention competitors
+   * included, most mentioned first (ties: the project, then competitors by
+   * domain), each with its share of `combinedMentionSnapshots`. Empty when
+   * there is no head-to-head to rank: no tracked competitors (a project-only
+   * denominator would read as a 100% share) or no brand named in this class.
+   */
+  ranking: MentionShareRankingRow[]
   snapshotsWithAnswerText: number
   snapshotsTotal: number
   /**
-   * `projectMentionSnapshots / (project + competitor)` as a 0..100 integer, or
-   * `null` when nothing in this class was mentioned at all. Null rather than 0
-   * because "no brand was named" is not "you lost every naming".
+   * `projectMentionSnapshots / (project + competitor)` as 0..100 to two
+   * decimals, or `null` when nothing in this class was mentioned at all. Null
+   * rather than 0 because "no brand was named" is not "you lost every naming".
    */
   score: number | null
 }
@@ -132,9 +162,7 @@ function toBreakdown(tally: ClassTally, competitors: readonly MentionShareCompet
     .map(c => ({
       domain: c.domain,
       mentionSnapshots: tally.competitorCounts.get(c.domain) ?? 0,
-      shareOfCompetitiveTotal: competitorMentionSnapshots > 0
-        ? Math.round(((tally.competitorCounts.get(c.domain) ?? 0) / competitorMentionSnapshots) * 1000) / 10
-        : 0,
+      shareOfCompetitiveTotal: percentOf(tally.competitorCounts.get(c.domain) ?? 0, competitorMentionSnapshots) ?? 0,
     }))
     .filter(row => row.mentionSnapshots > 0)
     .sort((a, b) => b.mentionSnapshots - a.mentionSnapshots || (a.domain < b.domain ? -1 : 1))
@@ -142,11 +170,47 @@ function toBreakdown(tally: ClassTally, competitors: readonly MentionShareCompet
   return {
     projectMentionSnapshots: tally.projectMentionSnapshots,
     competitorMentionSnapshots,
+    combinedMentionSnapshots: denom,
     perCompetitor,
+    ranking: rankMentionShare(tally, competitors, denom),
     snapshotsWithAnswerText: tally.snapshotsWithAnswerText,
     snapshotsTotal: tally.snapshotsTotal,
-    score: denom > 0 ? Math.round((tally.projectMentionSnapshots / denom) * 100) : null,
+    score: percentOf(tally.projectMentionSnapshots, denom),
   }
+}
+
+/**
+ * The head-to-head table: the project plus every tracked competitor, each
+ * with its share of all brand namings. A competitor nobody named keeps its row
+ * at zero, so "no competitor was named here" is a stated result rather than an
+ * absent row. Shares are left unrounded so a sliver reads `<0.1%` and only an
+ * exact whole reads `100%`.
+ */
+function rankMentionShare(
+  tally: ClassTally,
+  competitors: readonly MentionShareCompetitor[],
+  denom: number,
+): MentionShareRankingRow[] {
+  if (competitors.length === 0 || denom === 0) return []
+  const project: MentionShareRankingRow = {
+    kind: 'project',
+    domain: null,
+    mentionSnapshots: tally.projectMentionSnapshots,
+    share: tally.projectMentionSnapshots / denom,
+  }
+  const rivals = competitors
+    .map(c => ({ domain: c.domain, mentionSnapshots: tally.competitorCounts.get(c.domain) ?? 0 }))
+    .sort((a, b) => b.mentionSnapshots - a.mentionSnapshots || (a.domain < b.domain ? -1 : 1))
+    .map((c): MentionShareRankingRow => ({
+      kind: 'competitor',
+      domain: c.domain,
+      mentionSnapshots: c.mentionSnapshots,
+      share: c.mentionSnapshots / denom,
+    }))
+  // The project sorts ahead of every competitor it ties with.
+  const firstNotAbove = rivals.findIndex(row => row.mentionSnapshots <= project.mentionSnapshots)
+  const at = firstNotAbove === -1 ? rivals.length : firstNotAbove
+  return [...rivals.slice(0, at), project, ...rivals.slice(at)]
 }
 
 /**
@@ -307,7 +371,7 @@ export function buildMentionShare(
       value: 'No mentions',
       delta: scopeLabel(scope, 'No brand mentions in this run'),
       tone: 'neutral',
-      description: describe({ scope, score, breakdown: headline, branded: brandedBreakdown }),
+      description: describe({ scope, breakdown: headline, branded: brandedBreakdown }),
       tooltip,
       trend: [],
       scope,
@@ -318,10 +382,10 @@ export function buildMentionShare(
 
   return {
     label: 'Mention Share',
-    value: `${score}`,
+    value: formatPercent(headline.projectMentionSnapshots / denom),
     delta: scopeLabel(scope, `${headline.projectMentionSnapshots} of ${denom} brand mentions`),
     tone: mentionShareTone(score),
-    description: describe({ scope, score, breakdown: headline, branded: brandedBreakdown }),
+    description: describe({ scope, breakdown: headline, branded: brandedBreakdown }),
     tooltip,
     trend: [],
     progress: score,
@@ -358,11 +422,10 @@ function mentionShareTone(score: number): MetricTone {
 
 function describe(parts: {
   scope: MentionShareScope
-  score: number | null
   breakdown: MentionShareBreakdown
   branded: MentionShareBreakdown
 }): string {
-  const { scope, score, breakdown, branded } = parts
+  const { scope, breakdown, branded } = parts
   const { projectMentionSnapshots, competitorMentionSnapshots, perCompetitor } = breakdown
   const where = scope === 'non-brand' ? 'on non-brand queries' : 'across your tracked queries'
   // Branded recall is the sentence that stops a 3% category number reading as a
@@ -380,8 +443,10 @@ function describe(parts: {
   }
   const top = perCompetitor[0]
   const total = projectMentionSnapshots + competitorMentionSnapshots
+  // The unrounded share, so the sentence and the gauge's `value` read alike.
+  const share = formatPercent(projectMentionSnapshots / total)
   if (!top) {
-    return `${score}% of brand mentions ${where} are you (${projectMentionSnapshots} of ${total}).${brandedNote}`
+    return `${share} of brand mentions ${where} are you (${projectMentionSnapshots} of ${total}).${brandedNote}`
   }
-  return `${score}% of brand mentions ${where} are you. Top competitor: ${top.domain} (${top.mentionSnapshots} mentions).${brandedNote}`
+  return `${share} of brand mentions ${where} are you. Top competitor: ${top.domain} (${top.mentionSnapshots} mentions).${brandedNote}`
 }

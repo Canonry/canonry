@@ -6,7 +6,6 @@ import {
   filterTrackedSnapshots,
   groupRunsByCreatedAt,
   gscCoverageSnapshots,
-  gscSearchData,
   gscUrlInspections,
   insights,
   healthSnapshots,
@@ -15,12 +14,17 @@ import {
   queries,
   projects,
   querySnapshots,
+  readNegativeReviewMaxStars,
   runs,
 } from '@ainyc/canonry-db'
 import { buildMentionShareInputs } from './mention-share-inputs.js'
 import {
   CitationStates,
+  formatPercent,
+  PROJECT_OVERVIEW_QUERY_CLASS_SCOPE,
   parseRunError,
+  RatioUnits,
+  roundRatio,
   RunKinds,
   RunStatuses,
   type AttentionItemDto,
@@ -74,7 +78,7 @@ import {
 } from '@ainyc/canonry-intelligence'
 import { notProbeRun, resolveProject } from './helpers.js'
 import {
-  mergeGscQueryTotalsWithFallback, readGscQueryDailyRows,
+  mergeGscQueryTotalsWithFallback, readGscQueryDailyFallbackRows, readGscQueryDailyRows,
   readLatestGscDataDate, resolveGscWindowDays,
 } from './gsc-totals.js'
 
@@ -324,10 +328,13 @@ export async function compositeRoutes(app: FastifyInstance) {
     )
 
     const result: ProjectOverviewDto = {
-      project: formatProject(project),
+      project: formatProject(project, readNegativeReviewMaxStars(app.db, project.id)),
       latestRun,
       health,
       topInsights,
+      // The counts, scores, and movement below pool branded and non-brand
+      // queries. The label says so; the numbers are unchanged.
+      queryClassScope: PROJECT_OVERVIEW_QUERY_CLASS_SCOPE,
       queryCounts,
       providers,
       transitions,
@@ -741,39 +748,13 @@ function buildSuggestedQueriesFromGsc(
   // Grouped by (date, query), NOT query: the merge decides source per day, so a
   // query whose backfill has only reached the recent days keeps its legacy days
   // instead of having the whole window replaced by the short accurate one.
-  const dimensionedRows = app.db
-    .select({
-      date: gscSearchData.date,
-      query: gscSearchData.query,
-      impressions: sql<number>`COALESCE(SUM(${gscSearchData.impressions}), 0)`,
-      clicks: sql<number>`COALESCE(SUM(${gscSearchData.clicks}), 0)`,
-      // Weighted average: SUM(position * impressions) / SUM(impressions).
-      // NULLIF guards the degenerate impressions=0 case (SQLite returns NULL,
-      // which the JS coerces to 0 — caught by the impression floor anyway).
-      avgPosition: sql<number>`COALESCE(SUM(${gscSearchData.position} * ${gscSearchData.impressions}) * 1.0 / NULLIF(SUM(${gscSearchData.impressions}), 0), 0)`,
-    })
-    .from(gscSearchData)
-    .where(and(
-      eq(gscSearchData.projectId, projectId),
-      sql`${gscSearchData.date} >= ${cutoff}`,
-      // Same upper bound as the accurate source below. The merge picks a source
-      // PER DAY, so an asymmetric range would let a dimensioned-only day past
-      // the window's end into a basket the other source cannot balance.
-      sql`${gscSearchData.date} <= ${suggestionWindow.endDate ?? '9999-12-31'}`,
-      sql`${gscSearchData.impressions} > 0`,
-    ))
-    .groupBy(gscSearchData.date, gscSearchData.query)
-    .all()
-
+  // Same upper bound on both sources. The merge picks a source PER DAY, so an
+  // asymmetric range would let a dimensioned-only day past the window's end
+  // into a basket the other source cannot balance.
+  const windowEnd = suggestionWindow.endDate ?? '9999-12-31'
   const merged = mergeGscQueryTotalsWithFallback(
-    readGscQueryDailyRows(app.db, projectId, cutoff, suggestionWindow.endDate ?? '9999-12-31'),
-    dimensionedRows.map(r => ({
-      date: r.date,
-      query: r.query,
-      impressions: Number(r.impressions),
-      clicks: Number(r.clicks),
-      position: Number(r.avgPosition),
-    })),
+    readGscQueryDailyRows(app.db, projectId, cutoff, windowEnd),
+    readGscQueryDailyFallbackRows(app.db, projectId, cutoff, windowEnd),
   )
 
   const gscRows: SuggestedQueryGscRow[] = merged
@@ -842,7 +823,7 @@ function buildIndexCoverageScore(app: FastifyInstance, projectId: string): Score
 
   return {
     label: 'Index Coverage',
-    value: `${Math.round(percentage)}`,
+    value: formatPercent(chosen.indexed / total),
     delta: `${chosen.provider} · ${chosen.indexed} of ${total} indexed`,
     tone,
     description: deindexed > 0
@@ -850,7 +831,7 @@ function buildIndexCoverageScore(app: FastifyInstance, projectId: string): Score
       : `${chosen.notIndexed} ${notIndexedLabel} not indexed in ${chosen.provider === 'Google' ? 'Google Search Console' : 'Bing Webmaster Tools'}.`,
     tooltip,
     trend: [],
-    progress: Math.round(percentage),
+    progress: roundRatio(percentage, RatioUnits.percent),
   }
 }
 
@@ -1055,7 +1036,7 @@ function mapHealthRow(r: typeof healthSnapshots.$inferSelect): HealthSnapshotDto
   }
 }
 
-function formatProject(row: typeof projects.$inferSelect): ProjectDto {
+function formatProject(row: typeof projects.$inferSelect, negativeReviewMaxStars: number | null): ProjectDto {
   return {
     id: row.id,
     name: row.name,
@@ -1069,10 +1050,12 @@ function formatProject(row: typeof projects.$inferSelect): ProjectDto {
     labels: row.labels,
     providers: row.providers,
     providerModels: row.providerModels,
+    providerDispatchModes: row.providerDispatchModes,
     measurement: row.measurement,
     locations: row.locations,
     defaultLocation: row.defaultLocation,
     autoExtractBacklinks: row.autoExtractBacklinks,
+    negativeReviewMaxStars,
     configSource: row.configSource as ProjectDto['configSource'],
     configRevision: row.configRevision,
     createdAt: row.createdAt,

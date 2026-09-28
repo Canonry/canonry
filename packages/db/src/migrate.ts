@@ -4239,6 +4239,132 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE ads_ads ADD COLUMN landing_page_query_string_template TEXT`,
     ],
   },
+  {
+    // Batch dispatch for scheduled sweeps (#1201). Every change is a new table
+    // or a nullable/defaulted column, so rows written before it read exactly
+    // as they did: a project prefers sync, a run froze no batch, and a
+    // snapshot records no dispatch mode, usage, or stop reason.
+    //
+    // `provider_batches` comes first because `query_snapshots.provider_batch_id`
+    // references it. The batch row carries its own quota reservation: a batch
+    // can outlive the process that reserved it, so the release has to be
+    // recoverable from the database alone.
+    version: 162,
+    name: 'provider-batch-dispatch',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS provider_batches (
+        id                  TEXT PRIMARY KEY,
+        project_id          TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        run_id              TEXT NOT NULL,
+        fill_id             TEXT,
+        provider            TEXT NOT NULL,
+        model               TEXT NOT NULL,
+        provider_batch_id   TEXT,
+        status              TEXT NOT NULL,
+        request_count       INTEGER NOT NULL,
+        ingested_count      INTEGER NOT NULL DEFAULT 0,
+        recorded_count      INTEGER NOT NULL DEFAULT 0,
+        error               TEXT,
+        quota_scope         TEXT NOT NULL,
+        quota_period        TEXT NOT NULL,
+        quota_reserved      INTEGER NOT NULL,
+        quota_released      INTEGER NOT NULL DEFAULT 0,
+        deadline_at         TEXT NOT NULL,
+        cancel_requested_at TEXT,
+        submitted_at        TEXT,
+        ended_at            TEXT,
+        ingested_at         TEXT,
+        results_expire_at   TEXT,
+        created_at          TEXT NOT NULL,
+        updated_at          TEXT NOT NULL,
+        FOREIGN KEY (project_id, run_id) REFERENCES runs(project_id, id) ON DELETE CASCADE
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_provider_batches_status ON provider_batches(status)`,
+      `CREATE INDEX IF NOT EXISTS idx_provider_batches_run ON provider_batches(run_id)`,
+      `CREATE TABLE IF NOT EXISTS provider_batch_requests (
+        id                TEXT PRIMARY KEY,
+        batch_id          TEXT NOT NULL REFERENCES provider_batches(id) ON DELETE CASCADE,
+        execution_id      TEXT NOT NULL,
+        query_id          TEXT REFERENCES queries(id) ON DELETE SET NULL,
+        query_text        TEXT NOT NULL,
+        requested_model   TEXT NOT NULL,
+        requested_context TEXT,
+        outcome           TEXT,
+        error             TEXT
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_batch_requests_slot ON provider_batch_requests(batch_id, execution_id)`,
+      // Both SET NULL foreign keys index their child column; without it every
+      // parent delete scans the whole (ever-growing) child table.
+      `CREATE INDEX IF NOT EXISTS idx_provider_batch_requests_query ON provider_batch_requests(query_id)`,
+      `ALTER TABLE projects ADD COLUMN provider_dispatch_modes TEXT NOT NULL DEFAULT '{}'`,
+      `ALTER TABLE runs ADD COLUMN provider_dispatch_modes TEXT`,
+      `ALTER TABLE runs ADD COLUMN pending_provider_errors TEXT`,
+      `ALTER TABLE query_snapshots ADD COLUMN dispatch_mode TEXT`,
+      `ALTER TABLE query_snapshots ADD COLUMN provider_batch_id TEXT REFERENCES provider_batches(id) ON DELETE SET NULL`,
+      `CREATE INDEX IF NOT EXISTS idx_snapshots_provider_batch ON query_snapshots(provider_batch_id)`,
+      `ALTER TABLE query_snapshots ADD COLUMN stop_reason TEXT`,
+      `ALTER TABLE query_snapshots ADD COLUMN usage TEXT`,
+    ],
+  },
+  {
+    // Negative-review webhooks for Google Business Profile: every review seen
+    // per location and origin (Business Profile v4 or the public Places
+    // listing), the rating history that marks each location's baseline, the
+    // v4 access state the doctor check reads without a live call, and each
+    // project's negative-review threshold (no row = the default of 3 stars).
+    version: 163,
+    name: 'gbp-review-alerts',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS gbp_reviews (
+        id                TEXT PRIMARY KEY,
+        project_id        TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        location_name     TEXT NOT NULL,
+        origin            TEXT NOT NULL,
+        review_name       TEXT NOT NULL,
+        star_rating       INTEGER,
+        comment           TEXT,
+        reviewer_name     TEXT,
+        create_time       TEXT,
+        update_time       TEXT NOT NULL,
+        reply_comment     TEXT,
+        reply_update_time TEXT,
+        review_uri        TEXT,
+        first_seen_at     TEXT NOT NULL,
+        last_seen_at      TEXT NOT NULL,
+        sync_run_id       TEXT REFERENCES runs(id) ON DELETE SET NULL,
+        alert_state       TEXT NOT NULL DEFAULT 'none',
+        alert_state_at    TEXT
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS uniq_gbp_reviews_name ON gbp_reviews(project_id, origin, review_name)`,
+      `CREATE INDEX IF NOT EXISTS idx_gbp_reviews_loc ON gbp_reviews(project_id, location_name, update_time)`,
+      `CREATE INDEX IF NOT EXISTS idx_gbp_reviews_alert ON gbp_reviews(project_id, alert_state)`,
+      `CREATE TABLE IF NOT EXISTS gbp_review_ratings (
+        id                    TEXT PRIMARY KEY,
+        project_id            TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        location_name         TEXT NOT NULL,
+        origin                TEXT NOT NULL,
+        rating                REAL,
+        review_count          INTEGER,
+        previous_rating       REAL,
+        previous_review_count INTEGER,
+        first_observed_at     TEXT NOT NULL,
+        observed_at           TEXT NOT NULL,
+        sync_run_id           TEXT REFERENCES runs(id) ON DELETE SET NULL,
+        alert_state           TEXT NOT NULL DEFAULT 'none',
+        alert_state_at        TEXT
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_gbp_review_ratings_loc ON gbp_review_ratings(project_id, location_name, origin, observed_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_gbp_review_ratings_alert ON gbp_review_ratings(project_id, alert_state)`,
+      `ALTER TABLE gbp_locations ADD COLUMN reviews_access TEXT`,
+      `ALTER TABLE gbp_locations ADD COLUMN reviews_access_reason TEXT`,
+      `ALTER TABLE gbp_locations ADD COLUMN reviews_checked_at TEXT`,
+      `CREATE TABLE IF NOT EXISTS gbp_review_settings (
+        project_id                TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+        negative_review_max_stars INTEGER NOT NULL,
+        updated_at                TEXT NOT NULL
+      )`,
+    ],
+  },
 ]
 
 function addRunsMeasurementPlanVersionForeignKey(tx: MigrationDb): void {

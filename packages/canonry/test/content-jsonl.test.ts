@@ -244,4 +244,21 @@ describe('listContentGaps jsonl', () => {
     const logs = await captureLog(() => listContentGaps('demo', { format: 'json' }))
     expect(JSON.parse(logs.join('\n'))).toEqual(gapsResponse)
   })
+
+  it('human output prints each 0..1 miss rate through formatPercent in one aligned column', async () => {
+    mockGetContentGaps.mockResolvedValue({
+      ...gapsResponse,
+      gaps: [
+        ...gapsResponse.gaps,
+        { query: 'crm pricing', competitorDomains: ['rival.com'], competitorCount: 1, missRate: 1, lastSeenInRunId: 'run_g3' },
+        { query: 'crm api', competitorDomains: ['other.com'], competitorCount: 1, missRate: 0.9996, lastSeenInRunId: 'run_g4' },
+      ],
+    })
+    const logs = (await captureLog(() => listContentGaps('demo', {}))).flatMap(line => line.split('\n'))
+    expect(logs).toContain(' 75.0%  2 competitor(s)  crm for nonprofits')
+    expect(logs).toContain('        competitors: rival.com, other.com')
+    expect(logs).toContain(' 50.0%  1 competitor(s)  free crm software')
+    expect(logs).toContain('  100%  1 competitor(s)  crm pricing')
+    expect(logs).toContain('>99.9%  1 competitor(s)  crm api')
+  })
 })

@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import { parse } from 'yaml'
 import {
   MeasurementEvidenceShapes,
+  formatPercent,
   measurementChangesQuerySchema,
   measurementDataQualityQuerySchema,
   measurementDraftCollectionQuerySchema,
@@ -440,7 +441,7 @@ function unattributedText(metric: MetricValue): string | null {
 
 function metricText(metric: MetricValue): string {
   if (metric.state === 'unavailable') return METRIC_REASONS[metric.reason] ?? `not measured (${metric.reason})`
-  const percent = `${Math.round(metric.value * 100)}%`
+  const percent = formatPercent(metric.value)
   return metric.numerator === undefined || metric.denominator === undefined
     ? percent
     : `${metric.numerator} of ${metric.denominator} (${percent})`

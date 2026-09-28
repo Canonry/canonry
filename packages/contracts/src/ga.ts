@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { AiReferralTrafficClass } from './traffic-class.js'
+import { fraction, percent } from './ratio-unit.js'
 import { aiReferralTrafficClassSchema } from './traffic-class.js'
 
 export const ga4ConnectionDtoSchema = z.object({
@@ -54,6 +54,14 @@ export const ga4AiReferralDtoSchema = z.object({
    * not inflated.
    */
   sourceDimension: ga4SourceDimensionSchema,
+  /**
+   * This row's sessions as a 0..1 share of every `aiReferrals` row's sessions,
+   * so the rows' shares add up to 1 (all 0 when the rows carry no sessions).
+   * The denominator is the rows' own sum, not `aiSessionsDeduped`: that total
+   * keeps the winning lens per day and source, these rows keep one lens per
+   * source over the whole window, so it can run higher than the rows add up to.
+   */
+  share: fraction(),
 })
 export type GA4AiReferralDto = z.infer<typeof ga4AiReferralDtoSchema>
 
@@ -77,15 +85,27 @@ export const ga4SocialReferralDtoSchema = z.object({
   source: z.string(),
   medium: z.string(),
   sessions: z.number(),
-  users: z.number(),
+  /**
+   * @deprecated Never emitted by `/ga/traffic`. ga_social_referrals stores
+   * users as GA's COUNT DISTINCT at (date, source, medium, channel group), so
+   * summing it across the window counts a returning visitor once per day.
+   * Optional so existing consumers keep parsing.
+   */
+  users: z.number().optional(),
   /** GA4 default channel group (e.g. 'Organic Social', 'Paid Social') */
   channelGroup: z.string(),
+  /**
+   * This row's sessions as a 0..1 share of the window's social sessions
+   * (`socialSessions`, which is the sum of these rows), so the rows' shares add
+   * up to 1 (all 0 when there are no social sessions).
+   */
+  share: fraction(),
 })
 export type GA4SocialReferralDto = z.infer<typeof ga4SocialReferralDtoSchema>
 
 export const ga4ChannelBucketDtoSchema = z.object({
   sessions: z.number(),
-  sharePct: z.number(),
+  sharePct: percent(),
   sharePctDisplay: z.string(),
 })
 export type GA4ChannelBucketDto = z.infer<typeof ga4ChannelBucketDtoSchema>
@@ -120,6 +140,12 @@ export const ga4TrafficSummaryDtoSchema = z.object({
     /** Per-page Direct-channel sessions. 0 for legacy rows. */
     directSessions: z.number(),
     users: z.number(),
+    /**
+     * Organic search sessions as a 0..1 share of this page's sessions. 0 when
+     * the page has no organic sessions; null when organic sessions exist with
+     * no session count to divide them by, a share that cannot be known.
+     */
+    organicShare: fraction().nullable(),
   })),
   aiReferrals: z.array(ga4AiReferralDtoSchema),
   aiReferralLandingPages: z.array(ga4AiReferralLandingPageDtoSchema),
@@ -159,29 +185,29 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   socialUsers: z.number().optional(),
   /** Five disjoint buckets used for the channel breakdown. Known AI session-source matches are removed from their native GA4 bucket before shares are computed. */
   channelBreakdown: ga4ChannelBreakdownDtoSchema,
-  /** Organic sessions as a percentage of total sessions (0–100, rounded). */
-  organicSharePct: z.number(),
-  /** Deduped AI sessions as a percentage of total sessions (0–100, rounded). Cross-cutting: can overlap with Direct/Organic/Social. */
-  aiSharePct: z.number(),
-  /** Session-source-only AI sessions as a percentage of total sessions (0–100, rounded). Can overlap with raw Organic/Social/Direct totals. */
-  aiSharePctBySession: z.number(),
-  /** Paid AI sessions as a percentage of total sessions (0–100, rounded). */
-  paidAiSharePct: z.number(),
-  /** Session-source paid AI sessions as a percentage of total sessions (0–100, rounded). */
-  paidAiSharePctBySession: z.number(),
-  /** Organic/non-paid AI sessions as a percentage of total sessions (0–100, rounded). */
-  organicAiSharePct: z.number(),
-  /** Session-source organic/non-paid AI sessions as a percentage of total sessions (0–100, rounded). */
-  organicAiSharePctBySession: z.number(),
-  /** Direct-channel sessions as a percentage of total sessions (0–100, rounded). */
-  directSharePct: z.number(),
-  /** Social sessions as a percentage of total sessions (0–100, rounded). */
-  socialSharePct: z.number(),
-  /** Display string for organicSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
+  /** Organic sessions as a percentage of total sessions (0–100, at wire precision). */
+  organicSharePct: percent(),
+  /** Deduped AI sessions as a percentage of total sessions (0–100, at wire precision). Cross-cutting: can overlap with Direct/Organic/Social. */
+  aiSharePct: percent(),
+  /** Session-source-only AI sessions as a percentage of total sessions (0–100, at wire precision). Can overlap with raw Organic/Social/Direct totals. */
+  aiSharePctBySession: percent(),
+  /** Paid AI sessions as a percentage of total sessions (0–100, at wire precision). */
+  paidAiSharePct: percent(),
+  /** Session-source paid AI sessions as a percentage of total sessions (0–100, at wire precision). */
+  paidAiSharePctBySession: percent(),
+  /** Organic/non-paid AI sessions as a percentage of total sessions (0–100, at wire precision). */
+  organicAiSharePct: percent(),
+  /** Session-source organic/non-paid AI sessions as a percentage of total sessions (0–100, at wire precision). */
+  organicAiSharePctBySession: percent(),
+  /** Direct-channel sessions as a percentage of total sessions (0–100, at wire precision). */
+  directSharePct: percent(),
+  /** Social sessions as a percentage of total sessions (0–100, at wire precision). */
+  socialSharePct: percent(),
+  /** Display string for organicSharePct: the unrounded share through formatPercent ('12.5%', '<0.1%' for a non-zero share below one decimal), '0%' with no sessions, or '—' when sessions exist but total is unknown (partial sync). */
   organicSharePctDisplay: z.string(),
-  /** Display string for aiSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
+  /** Display string for aiSharePct: the unrounded share through formatPercent ('12.5%', '<0.1%' for a non-zero share below one decimal), '0%' with no sessions, or '—' when sessions exist but total is unknown (partial sync). */
   aiSharePctDisplay: z.string(),
-  /** Display string for aiSharePctBySession: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
+  /** Display string for aiSharePctBySession: the unrounded share through formatPercent ('12.5%', '<0.1%' for a non-zero share below one decimal), '0%' with no sessions, or '—' when sessions exist but total is unknown (partial sync). */
   aiSharePctBySessionDisplay: z.string(),
   /** Display string for paidAiSharePct. */
   paidAiSharePctDisplay: z.string(),
@@ -191,15 +217,15 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   organicAiSharePctDisplay: z.string(),
   /** Display string for organicAiSharePctBySession. */
   organicAiSharePctBySessionDisplay: z.string(),
-  /** Display string for directSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
+  /** Display string for directSharePct: the unrounded share through formatPercent ('12.5%', '<0.1%' for a non-zero share below one decimal), '0%' with no sessions, or '—' when sessions exist but total is unknown (partial sync). */
   directSharePctDisplay: z.string(),
-  /** Display string for socialSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
+  /** Display string for socialSharePct: the unrounded share through formatPercent ('12.5%', '<0.1%' for a non-zero share below one decimal), '0%' with no sessions, or '—' when sessions exist but total is unknown (partial sync). */
   socialSharePctDisplay: z.string(),
   /** Sessions not covered by Organic, Social, Direct, or AI (session) channels — e.g. Referral, Email, Paid Search, Display. Always non-negative; clamped to 0 when the four disjoint channels sum above total (rounding edge). */
   otherSessions: z.number(),
-  /** Other sessions as a percentage of total sessions (0–100, rounded). */
-  otherSharePct: z.number(),
-  /** Display string for otherSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
+  /** Other sessions as a percentage of total sessions (0–100, at wire precision). */
+  otherSharePct: percent(),
+  /** Display string for otherSharePct: the unrounded share through formatPercent ('12.5%', '<0.1%' for a non-zero share below one decimal), '0%' with no sessions, or '—' when sessions exist but total is unknown (partial sync). */
   otherSharePctDisplay: z.string(),
   lastSyncedAt: z.string().nullable(),
 })
@@ -291,135 +317,86 @@ export type GA4SyncResponseDto = z.infer<typeof ga4SyncResponseDtoSchema>
 /** Legacy alias retained for callers that still import `GaSyncResponse`. */
 export type GaSyncResponse = GA4SyncResponseDto
 
-export interface GaSocialReferralTrendResponse {
-  socialSessions7d: number
-  socialSessionsPrev7d: number
-  trend7dPct: number | null
-  socialSessions30d: number
-  socialSessionsPrev30d: number
-  trend30dPct: number | null
-  biggestMover: { source: string; sessions7d: number; sessionsPrev7d: number; changePct: number } | null
-}
+/**
+ * How a mover's change against the prior 7 days is stated. The server decides
+ * it once, so the CLI, MCP and Aero read the same answer.
+ *
+ * - `new`: the source sent no sessions in the prior 7 days. A change from zero
+ *   has no percentage, so `changePct` is null and the source reads as new,
+ *   never as "+100%".
+ * - `small-base`: the prior 7 days sent fewer than `MIN_PCT_BASE` sessions, a
+ *   base too small for a percentage to mean much ("+150%" off 2 sessions), so
+ *   state `changeSessions` instead. The same rule the report's count tiles use.
+ * - `percent`: the prior base is large enough; state `changePct`.
+ */
+export const gaMoverChangeBasisSchema = z.enum(['new', 'small-base', 'percent'])
+export type GaMoverChangeBasis = z.infer<typeof gaMoverChangeBasisSchema>
+export const GaMoverChangeBases = gaMoverChangeBasisSchema.enum
 
-export interface GaChannelTrend {
-  sessions7d: number
-  sessionsPrev7d: number
-  trend7dPct: number | null
-  sessions30d: number
-  sessionsPrev30d: number
-  trend30dPct: number | null
-}
-
-export interface GaAttributionTrendResponse {
-  organic: GaChannelTrend
-  /** AI session trend, scoped to sessionSource-only matches so it lines up with the disjoint AI cell in the channel breakdown. */
-  ai: GaChannelTrend
-  social: GaChannelTrend
-  direct: GaChannelTrend
-  total: GaChannelTrend
-  /** AI source with largest absolute session change in 7d vs prev 7d (sessionSource only). */
-  aiBiggestMover: { source: string; sessions7d: number; sessionsPrev7d: number; changePct: number } | null
-  /** Social source with largest absolute session change in 7d vs prev 7d */
-  socialBiggestMover: { source: string; sessions7d: number; sessionsPrev7d: number; changePct: number } | null
-}
-
-export interface GaTrafficResponse {
-  totalSessions: number
-  totalOrganicSessions: number
-  /** Direct-channel sessions (sessions with no source — bookmarks, typed URLs, AI-driven traffic with stripped referrer). 0 for legacy rows from before the column was added. */
-  totalDirectSessions: number
-  /** Deduplicated users, or null when no stored un-dimensioned aggregate covers the complete selected range. */
-  totalUsers: number | null
-  topPages: Array<{ landingPage: string; sessions: number; organicSessions: number; directSessions: number; users: number }>
-  /** Deduped to the winning attribution dimension (highest sessions) per (source, medium). `users` is deprecated — see `GA4AiReferralDto.users`; never emitted since 4.135.0. */
-  aiReferrals: Array<{ source: string; medium: string; trafficClass: AiReferralTrafficClass; sessions: number; users?: number; sourceDimension: GA4SourceDimension }>
-  /** Deduped to the winning attribution dimension (highest sessions) per (source, medium, landingPage). `users` is deprecated — see `GA4AiReferralDto.users`; never emitted since 4.135.0. */
-  aiReferralLandingPages: Array<{ source: string; medium: string; trafficClass: AiReferralTrafficClass; sourceDimension: GA4SourceDimension; landingPage: string; sessions: number; users?: number }>
-  /** Deduped AI session total: MAX(sessions) per date+source across attribution dimensions, then summed. Cross-cutting: can overlap with Direct/Organic/Social via firstUserSource. */
-  aiSessionsDeduped: number
-  /** @deprecated See `GA4AiReferralDto.users`. Never emitted since 4.135.0. */
-  aiUsersDeduped?: number
-  /** Deduped AI sessions whose attribution carries paid intent. */
-  paidAiSessionsDeduped: number
-  /** @deprecated See `GA4AiReferralDto.users`. Never emitted since 4.135.0. */
-  paidAiUsersDeduped?: number
-  /** Deduped AI sessions without paid intent evidence. */
-  organicAiSessionsDeduped: number
-  /** @deprecated See `GA4AiReferralDto.users`. Never emitted since 4.135.0. */
-  organicAiUsersDeduped?: number
-  /** AI sessions whose CURRENT sessionSource matched an AI engine. Can overlap with raw Organic/Social/Direct totals; `channelBreakdown` removes those overlaps for display. */
-  aiSessionsBySession: number
-  /** @deprecated See `GA4AiReferralDto.users`. Never emitted since 4.135.0. */
-  aiUsersBySession?: number
-  /** Session-source-only paid AI sessions. */
-  paidAiSessionsBySession: number
-  /** @deprecated See `GA4AiReferralDto.users`. Never emitted since 4.135.0. */
-  paidAiUsersBySession?: number
-  /** Session-source-only organic/non-paid AI sessions. */
-  organicAiSessionsBySession: number
-  /** @deprecated See `GA4AiReferralDto.users`. Never emitted since 4.135.0. */
-  organicAiUsersBySession?: number
-  socialReferrals: Array<{ source: string; medium: string; sessions: number; users?: number; channelGroup: string }>
-  /** Total social sessions (session-scoped via sessionDefaultChannelGroup). */
-  socialSessions: number
+/** The source whose sessions moved the most, in either direction, over the last 7 days against the 7 before. */
+export const gaSourceMoverSchema = z.object({
+  source: z.string(),
+  /** Sessions from this source in the last 7 days. */
+  sessions7d: z.number(),
+  /** Sessions from this source in the 7 days before that. */
+  sessionsPrev7d: z.number(),
+  /** Signed session change, `sessions7d - sessionsPrev7d`. The mover is the source whose change is largest in size. */
+  changeSessions: z.number(),
   /**
-   * @deprecated Never emitted. ga_social_referrals stores users as GA's COUNT
-   * DISTINCT at (date, source, medium, channel group), so summing it across a
-   * window counts a returning visitor once per day. Same reasoning that
-   * withdrew `GA4AiReferralDto.users` in 4.135.0.
+   * Signed whole-percent change against the prior 7 days (`150` = +150%, `-100`
+   * = the source stopped sending sessions). Null when the prior 7 days had no
+   * sessions (`changeBasis: 'new'`), since a change from zero has no percentage.
    */
-  socialUsers?: number
-  /** Five disjoint buckets used for the channel breakdown. Known AI session-source matches are removed from their native GA4 bucket before shares are computed. */
-  channelBreakdown: {
-    organic: GA4ChannelBucketDto
-    social: GA4ChannelBucketDto
-    direct: GA4ChannelBucketDto
-    ai: GA4ChannelBucketDto
-    other: GA4ChannelBucketDto
-  }
-  /** Organic sessions as a percentage of total sessions (0–100, rounded). */
-  organicSharePct: number
-  /** Deduped AI sessions as a percentage of total sessions (0–100, rounded). Cross-cutting: can overlap with Direct/Organic/Social. */
-  aiSharePct: number
-  /** Session-source-only AI sessions as a percentage of total sessions (0–100, rounded). Can overlap with raw Organic/Social/Direct totals. */
-  aiSharePctBySession: number
-  /** Paid AI sessions as a percentage of total sessions (0–100, rounded). */
-  paidAiSharePct: number
-  /** Session-source paid AI sessions as a percentage of total sessions (0–100, rounded). */
-  paidAiSharePctBySession: number
-  /** Organic/non-paid AI sessions as a percentage of total sessions (0–100, rounded). */
-  organicAiSharePct: number
-  /** Session-source organic/non-paid AI sessions as a percentage of total sessions (0–100, rounded). */
-  organicAiSharePctBySession: number
-  /** Direct-channel sessions as a percentage of total sessions (0–100, rounded). */
-  directSharePct: number
-  /** Social sessions as a percentage of total sessions (0–100, rounded). */
-  socialSharePct: number
-  /** Display string for organicSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
-  organicSharePctDisplay: string
-  /** Display string for aiSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
-  aiSharePctDisplay: string
-  /** Display string for aiSharePctBySession: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
-  aiSharePctBySessionDisplay: string
-  /** Display string for paidAiSharePct. */
-  paidAiSharePctDisplay: string
-  /** Display string for paidAiSharePctBySession. */
-  paidAiSharePctBySessionDisplay: string
-  /** Display string for organicAiSharePct. */
-  organicAiSharePctDisplay: string
-  /** Display string for organicAiSharePctBySession. */
-  organicAiSharePctBySessionDisplay: string
-  /** Display string for directSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
-  directSharePctDisplay: string
-  /** Display string for socialSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
-  socialSharePctDisplay: string
-  /** Sessions not covered by Organic, Social, Direct, or AI (session) channels — e.g. Referral, Email, Paid Search, Display. Always non-negative; clamped to 0 when the four disjoint channels sum above total (rounding edge). */
-  otherSessions: number
-  /** Other sessions as a percentage of total sessions (0–100, rounded). */
-  otherSharePct: number
-  /** Display string for otherSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
-  otherSharePctDisplay: string
-  lastSyncedAt: string | null
+  changePct: percent().nullable(),
+  changeBasis: gaMoverChangeBasisSchema,
+})
+export type GaSourceMover = z.infer<typeof gaSourceMoverSchema>
+
+export const gaSocialReferralTrendResponseSchema = z.object({
+  socialSessions7d: z.number(),
+  socialSessionsPrev7d: z.number(),
+  /** Signed whole-percent change of the last 7 days against the 7 before. Null when the prior 7 days had no sessions. */
+  trend7dPct: percent().nullable(),
+  socialSessions30d: z.number(),
+  socialSessionsPrev30d: z.number(),
+  /** Signed whole-percent change of the last 30 days against the 30 before. Null when the prior 30 days had no sessions. */
+  trend30dPct: percent().nullable(),
+  /** Social source with the largest session change in the last 7 days against the 7 before. Null when no source moved. */
+  biggestMover: gaSourceMoverSchema.nullable(),
+})
+export type GaSocialReferralTrendResponse = z.infer<typeof gaSocialReferralTrendResponseSchema>
+
+export const gaChannelTrendSchema = z.object({
+  sessions7d: z.number(),
+  sessionsPrev7d: z.number(),
+  /** Signed whole-percent change of the last 7 days against the 7 before. Null when the prior 7 days had no sessions. */
+  trend7dPct: percent().nullable(),
+  sessions30d: z.number(),
+  sessionsPrev30d: z.number(),
+  /** Signed whole-percent change of the last 30 days against the 30 before. Null when the prior 30 days had no sessions. */
+  trend30dPct: percent().nullable(),
+})
+export type GaChannelTrend = z.infer<typeof gaChannelTrendSchema>
+
+export const gaAttributionTrendResponseSchema = z.object({
+  organic: gaChannelTrendSchema,
+  /** AI session trend, scoped to sessionSource-only matches so it lines up with the disjoint AI cell in the channel breakdown. */
+  ai: gaChannelTrendSchema,
+  social: gaChannelTrendSchema,
+  direct: gaChannelTrendSchema,
+  total: gaChannelTrendSchema,
+  /** AI source with the largest session change in the last 7 days against the 7 before (sessionSource only). Null when no source moved. */
+  aiBiggestMover: gaSourceMoverSchema.nullable(),
+  /** Social source with the largest session change in the last 7 days against the 7 before. Null when no source moved. */
+  socialBiggestMover: gaSourceMoverSchema.nullable(),
+})
+export type GaAttributionTrendResponse = z.infer<typeof gaAttributionTrendResponseSchema>
+
+/**
+ * Response of `GET /projects/:name/ga/traffic`: the traffic summary plus the
+ * one window every figure in it was measured over.
+ */
+export const gaTrafficResponseSchema = ga4TrafficSummaryDtoSchema.extend({
   /**
    * Inclusive start (YYYY-MM-DD) of the window EVERY figure in this response
    * was measured over — totals, channel counts, top pages, and every share
@@ -428,20 +405,21 @@ export interface GaTrafficResponse {
    * Read every share against this window. The share fields divide a channel
    * count by `totalSessions`; both come from these dates and only these dates.
    */
-  windowStart: string | null
+  windowStart: z.string().nullable(),
   /** Inclusive end (YYYY-MM-DD) of the measured window. `null` when open-ended. */
-  windowEnd: string | null
+  windowEnd: z.string().nullable(),
   /**
    * Calendar days the measured window covers, counting both ends. `null` when
    * either bound is open — an unknown span is reported as unknown rather than
    * guessed.
    */
-  windowDays: number | null
+  windowDays: z.number().nullable(),
   /** Alias of `windowStart`, retained for callers that predate it. */
-  periodStart: string | null
+  periodStart: z.string().nullable(),
   /** Alias of `windowEnd`, retained for callers that predate it. */
-  periodEnd: string | null
-}
+  periodEnd: z.string().nullable(),
+})
+export type GaTrafficResponse = z.infer<typeof gaTrafficResponseSchema>
 
 export interface GaCoverageResponse {
   pages: Array<{ landingPage: string; sessions: number; organicSessions: number; users: number }>

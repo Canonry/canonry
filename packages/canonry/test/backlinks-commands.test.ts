@@ -100,6 +100,29 @@ describe('backlinks formatters', () => {
     expect(out).toContain('reddit.com')
     expect(out).toContain('1000')
     expect(out).toContain('500')
+    expect(out.split('\n')).toContain('Top-10 share:    100%')
+  })
+
+  it('renders the top-10 host share (a six-decimal fraction string) as a percent', () => {
+    const summaryFor = (top10HostsShare: string) => formatSummaryAndDomains('roots', {
+      source: 'commoncrawl',
+      summary: {
+        projectId: 'p1',
+        source: 'commoncrawl',
+        release: 'cc-main-2026-jan-feb-mar',
+        targetDomain: 'roots.io',
+        totalLinkingDomains: 40,
+        totalHosts: 1500,
+        top10HostsShare,
+        queriedAt: '2026-04-01T00:00:00.000Z',
+      },
+      total: 0,
+      rows: [],
+    }).split('\n')
+    expect(summaryFor('0.734512')).toContain('Top-10 share:    73.5%')
+    expect(summaryFor('0.000400')).toContain('Top-10 share:    <0.1%')
+    // An unreadable value is shown as missing rather than as a share.
+    expect(summaryFor('n/a')).toContain('Top-10 share:    —')
   })
 
   it('renders "no cached releases" placeholder', () => {

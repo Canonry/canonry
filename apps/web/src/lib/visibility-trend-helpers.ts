@@ -8,6 +8,7 @@ import type {
   QueryChangeEvent,
   ServedModelAttribution,
   TrendDirection,
+  WindowRateChange,
 } from '@ainyc/canonry-contracts'
 import type { MetricTone } from '../view-models.js'
 import {
@@ -400,16 +401,50 @@ export function buildSelectedTrendRows(
 }
 
 /**
- * The most recent plotted value for a series — the value at the right end of
- * its line. A direct read of the rows the chart already draws (skips the
- * trailing `null`s `connectNulls` bridges over), used to label the per-engine
- * legend without recomputing any rate. Returns null when the series never
- * appears.
+ * The API's own 0-1 rate behind each plotted point of the selected metric,
+ * oldest first: the overall rate of every bucket, or each bucket's mention
+ * share where it has one. The chart rows are rounded to the axis, so any figure
+ * a reader sees is formatted from these instead; a rate that rounds to 0.0
+ * still reads `<0.1%`. Selects values only, never recomputes one.
  */
-export function latestSeriesValue(rows: TrendRow[], key: string): number | null {
-  for (let i = rows.length - 1; i >= 0; i--) {
-    const v = rows[i]![key]
-    if (typeof v === 'number' && Number.isFinite(v)) return v
+export function plottedMetricRates(dto: BrandMetricsDto, metric: MetricChoice): number[] {
+  if (metric === 'mentionShare') {
+    return dto.buckets.flatMap(b => {
+      const rate = (b as { mentionShare?: BrandMetricsDto['buckets'][number]['mentionShare'] }).mentionShare?.rate
+      return typeof rate === 'number' && Number.isFinite(rate) ? [rate] : []
+    })
+  }
+  const field: 'citationRate' | 'mentionRate' = metric === 'cited' ? 'citationRate' : 'mentionRate'
+  return dto.buckets.map(b => b[field])
+}
+
+/**
+ * The server's change across the window for the selected metric: its first
+ * and latest bucket rates and the difference between them, or null when fewer
+ * than two buckets carry the rate. Selects the API's value, never subtracts.
+ */
+export function metricWindowChange(dto: BrandMetricsDto, metric: MetricChoice): WindowRateChange | null {
+  // A response that predates the field has no change to show, never a zero.
+  const windowChange = (dto as { windowChange?: BrandMetricsDto['windowChange'] }).windowChange
+  if (!windowChange) return null
+  switch (metric) {
+    case 'cited': return windowChange.citationRate
+    case 'mentioned': return windowChange.mentionRate
+    case 'mentionShare': return windowChange.mentionShare
+  }
+}
+
+/**
+ * One engine's most recent 0-1 rate: the bucket the right end of its line is
+ * drawn from, skipping the buckets it is missing from (the gaps `connectNulls`
+ * bridges). Same field choice as `buildTrendRows` in by-engine mode, so it is
+ * the unrounded value of that point. Returns null when the engine never appears.
+ */
+export function latestProviderRate(dto: BrandMetricsDto, provider: string, metric: PresenceMetricChoice): number | null {
+  const field: 'citationRate' | 'mentionRate' = metric === 'mentioned' ? 'mentionRate' : 'citationRate'
+  for (let i = dto.buckets.length - 1; i >= 0; i--) {
+    const metricRow = bucketProviders(dto.buckets[i]!)[provider]
+    if (metricRow) return metricRow[field]
   }
   return null
 }

@@ -36,6 +36,9 @@ test('public demo retains stored backlinks without administrator controls', asyn
   render(<BacklinksSection projectName="test-project" />)
 
   await waitFor(() => expect(screen.getByText('linker.com')).not.toBeNull())
+  // The stored share travels as a decimal string ('0.5') and reads as a percent.
+  const concentration = screen.getByText('Top-10 concentration').closest('.metric-card')!
+  expect(concentration.querySelector('.metric-card-big-value')?.textContent).toBe('50.0%')
   expect(screen.queryByRole('button', { name: 'Open admin' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Re-run extract' })).toBeNull()
 })

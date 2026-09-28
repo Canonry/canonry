@@ -3,6 +3,9 @@ import {
   AdsAdGroupBillingEventTypes,
   AdsCampaignBiddingTypes,
   AdsOperationStates,
+  MIN_PCT_BASE,
+  OPERATIONAL_LOG_FIELDS_HEADER,
+  providerDispatchModeSchema,
   runKindSchema,
   runStatusSchema,
 } from '@ainyc/canonry-contracts'
@@ -15,6 +18,11 @@ import {
   rawJsonResponse,
   type RegisteredSchemaName,
 } from './openapi-schemas.js'
+
+/** How the two GA trend reads pick and state a biggest mover (`findBiggestMover`). */
+const GA_MOVER_DESCRIPTION = 'A biggest mover is the source whose sessions changed most, in either direction, over the last 7 days against the 7 before. '
+  + 'A source with no sessions in the prior 7 days has changeBasis new and a null changePct: a change from zero has no percentage. '
+  + `Below ${MIN_PCT_BASE} prior sessions changeBasis is small-base and changeSessions is the figure to state.`
 
 export interface OpenApiInfo {
   title?: string
@@ -131,6 +139,14 @@ const adsCreativeRequestSchema = {
   },
 }
 const googleConnectionTypeSchema = { type: 'string', enum: ['gsc', 'ga4', 'gbp'] }
+const dispatchModeRequestSchema = {
+  type: 'string',
+  enum: providerDispatchModeSchema.options,
+  description: 'How to dispatch the providers. Omitted or `sync` calls each provider per answer. `batch` sends every provider '
+    + 'that can (a full sweep of a published plan, a batch-capable provider enabled in config.yaml, every answer\'s model '
+    + 'frozen) to its asynchronous batch API; the rest run sync. Tuning, not identity: it changes cost and latency, never '
+    + 'what is measured, and is frozen on the run as `dispatchModes`.',
+}
 const locationSchema = {
   type: 'object',
   required: ['label', 'city', 'region', 'country'],
@@ -228,7 +244,7 @@ const providerNameParameter: OpenApiParameter = {
   in: 'path',
   required: true,
   description: 'Provider name.',
-  schema: { type: 'string', enum: ['gemini', 'openai', 'claude', 'perplexity', 'local'] },
+  schema: { type: 'string', enum: ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local'] },
 }
 
 const locationLabelParameter: OpenApiParameter = {
@@ -433,14 +449,14 @@ const competitorLandscapeLocationParameter: OpenApiParameter = {
 const competitorLandscapeRunIdParameter: OpenApiParameter = {
   name: 'runId',
   in: 'query',
-  description: 'Restrict evidence to one stored answer-visibility run.',
+  description: 'Restrict evidence to one stored answer-visibility run, or pass latest for the latest sweep (same rule as analytics/sources).',
   schema: stringSchema,
 }
 
 const sourcesRunIdParameter: OpenApiParameter = {
   name: 'runId',
   in: 'query',
-  description: 'Read one stored answer-visibility run instead of pooling every run in the window. An unknown id is 404; a probe, unfinished, partially measured, or out-of-window run is 400.',
+  description: 'Read one stored answer-visibility run instead of pooling every run in the window. An unknown id is 404; a probe, unfinished, partially measured, or out-of-window run is 400. Pass latest to read the latest sweep: with an active measurement plan, the run the measurement reads display; otherwise the newest completed or partial sweep, every location included. A latest sweep older than the window is 400.',
   schema: stringSchema,
 }
 
@@ -1257,7 +1273,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-overview',
     summary: 'Get the scoped measurement overview',
-    description: 'Aggregates one revision-pinned run snapshot for All Properties, a group, or a single Property. This is snapshot ranking only: it never infers a trend or compares evidence across revisions. Without runId the most recent completed run pinned to the active revision is used; once paging begins, the cursor pins that revision, displayed run, evidence snapshot, and result filters. A run pinned to another revision is refused rather than joined, and appended evidence on a mutable named run invalidates its cursor. Metrics are computed before search is applied, and a metric with no evidence is unavailable rather than zero. For coverage sorts, unavailable rows form the first bucket in either direction before available numeric rates follow the requested direction.',
+    description: 'Aggregates one revision-pinned run snapshot for All Properties, a group, or a single Property. This is snapshot ranking only: it never infers a trend or compares evidence across revisions. Without runId the most recent completed run pinned to the active revision is used; once paging begins, the cursor pins that revision, displayed run, evidence snapshot, and result filters. A run pinned to another revision is refused rather than joined, and appended evidence on a mutable named run invalidates its cursor. On a schema v2 plan every Property row carries its metro (the top-level group holding it, or null) and, when it sits in several top-level groups, otherMetros. Metrics are computed before search is applied, and a metric with no evidence is unavailable rather than zero. For coverage sorts, unavailable rows form the first bucket in either direction before available numeric rates follow the requested direction.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
@@ -1300,7 +1316,7 @@ const routeCatalog: OpenApiOperation[] = [
     ],
     responses: {
       200: jsonResponse('Scoped report and frozen provenance.', 'VisibilityReportResponse'),
-      400: errorResponse('Invalid selection.'),
+      400: errorResponse('Invalid selection. mode=simple without runId on a project with an active v2 plan is 400; use mode advanced or omit mode.'),
       404: errorResponse('Project, scope, revision, or run not found.'),
       409: errorResponse('The evidence changed while paging.'),
     },
@@ -1333,7 +1349,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-portfolio-summary',
     summary: 'Get the weakest measured Properties',
-    description: 'Returns a compact, revision-pinned portfolio ranking from stored results, plus a worst-first market roll-up. It defaults to non-brand queries, ranks measured mention coverage before citation coverage, and keeps unavailable rows separate from measured weakness. Every Property row carries its metro, submarkets and query count; weakest rows also carry namedInsteadInAnswerText (names written in the answer text of answers that neither named nor cited the Property, counted by answer) and citedDomains (domains cited by the Property\'s answers, counted by answer, every engine included). tiedAtWeakest reports Properties sharing the weakest rates, and weakestAnswerSources ranks the domains cited across the weakest and tied Properties, each answer once. markets holds one level by default (top-level markets, or the selected group\'s direct children), worst-first and capped at limit; includeNestedMarkets returns every level. Every market is scoped to the displayed run, so a market row matches that market read with groupKey; markets may share Properties and never sum to the portfolio totals. It never starts provider work.',
+    description: 'Returns a compact, revision-pinned portfolio ranking from stored results, plus a worst-first market roll-up. It defaults to non-brand queries, ranks measured mention coverage before citation coverage, and keeps unavailable rows separate from measured weakness. Every Property row carries its metro, submarkets and query count; weakest rows also carry namedInsteadInAnswerText (names written in the answer text of answers that neither named nor cited the Property, counted by answer) and citedDomains (domains cited by the Property\'s answers, counted by answer, every engine included). tiedAtWeakest reports Properties sharing the weakest rates; over the whole tie, not just the returned rows, byMetro counts the tied Properties per metro label (a Property in two metros counts in both) and namedInstead ranks the names written in the answer text of the tie\'s answers that neither named nor cited the Property (distinct answers, never citations). weakestAnswerSources ranks the domains cited across the weakest and tied Properties, each answer once. markets holds one level by default (every top-level market, or every direct child of the selected group), worst-first and never capped by limit; includeNestedMarkets returns every level. Every market is scoped to the displayed run, so a market row matches that market read with groupKey; markets may share Properties and never sum to the portfolio totals. It never starts provider work.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
@@ -1342,8 +1358,8 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'provider', in: 'query', description: 'Restrict to one answer provider.', schema: stringSchema },
       { name: 'location', in: 'query', description: 'Restrict to one execution location label.', schema: stringSchema },
       { name: 'runId', in: 'query', description: 'Read this completed or partial active-revision run, including a named spot check.', schema: stringSchema },
-      { name: 'limit', in: 'query', description: 'Rows per list (weakest Properties, both mention rankings, markets). Defaults to 4, maximum 50.', schema: { type: 'integer', minimum: 1, maximum: 50 } },
-      { name: 'includeNestedMarkets', in: 'query', description: 'Return every market in scope at every level, uncapped. Defaults to false: one level (top-level markets, or the selected group\'s direct children), capped at limit.', schema: { type: 'boolean' } },
+      { name: 'limit', in: 'query', description: 'Caps the Property lists only: weakest Properties and both mention rankings. Markets are never capped. Defaults to 4, maximum 50.', schema: { type: 'integer', minimum: 1, maximum: 50 } },
+      { name: 'includeNestedMarkets', in: 'query', description: 'Return every market in scope at every level. Defaults to false: one level (every top-level market, or every direct child of the selected group).', schema: { type: 'boolean' } },
     ],
     responses: {
       200: jsonResponse('Compact portfolio summary returned.', 'MeasurementPortfolioSummaryResponse'),
@@ -1397,7 +1413,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-property-competitors',
     summary: 'Get repeated replacements for one Property',
-    description: 'Counts stored recommended names only for answered slots where the Property was neither mentioned nor assigned a complete citation. It never reparses an answer or starts provider work.',
+    description: 'Counts stored recommended names only for answered slots where the Property was neither mentioned nor assigned a complete citation. citedDomains, citedDomainsTotal and citedDomainsAnswers are the domains cited by the Property\'s own measured answers in the requested run, class and filters, counted by answer; they are sources, never names written instead, and are left out when nothing was measured. It never reparses an answer or starts provider work.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
@@ -1419,7 +1435,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-changes',
     summary: 'Compare the latest two comparable measurements',
-    description: 'Compares stored runs only when plan revision, execution identity, and full-or-spot-check scope agree. Deltas are current minus previous; it never crosses a revision or silently joins an engine/model change.',
+    description: 'Compares stored runs only when plan revision, execution identity, and full-or-spot-check scope agree. Deltas are current minus previous; it never crosses a revision or silently joins an engine/model change. changedProperties is ordered by the size of each move unless sort=label, and each row carries signed answer-count deltas, denominatorChanged (a metric was taken over a different number of answers, so its delta is not like for like) and withinNoise (every move is at most 2 answers). A move is the rate change times the larger of the two answer counts, the answer-count delta whenever the denominator held, so a falling rate never reads as a gain and a collapse never reads as noise. distribution buckets every Property in scope, not just the returned rows. With queryClass all, metricsByClass reports branded and non-brand beside the pooled metrics.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
@@ -1430,6 +1446,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'provider', in: 'query', description: 'Restrict both runs to one answer provider.', schema: stringSchema },
       { name: 'location', in: 'query', description: 'Restrict both runs to one execution location label.', schema: stringSchema },
       { name: 'runId', in: 'query', description: 'Use this completed or partial run as the current side.', schema: stringSchema },
+      { name: 'sort', in: 'query', description: 'Changed-row order. magnitude (default): moves beyond noise first, then the larger of the mention and citation moves in answers (rate change times the larger answer count), then the other, then label. label: alphabetical.', schema: { type: 'string', enum: ['magnitude', 'label'], default: 'magnitude' } },
       { name: 'limit', in: 'query', description: 'Maximum changed Property rows. Defaults to 10, maximum 50.', schema: { type: 'integer', minimum: 1, maximum: 50 } },
     ],
     responses: {
@@ -1443,7 +1460,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-data-quality',
     summary: 'Inspect measurement completeness and comparability',
-    description: 'Returns exact expected, executed, answer, citation-capture, and retrieval counts plus full-versus-spot-check scope and same-series predecessor availability. It invents no statistical sample threshold and never starts provider work.',
+    description: 'Returns exact expected, executed, answer, citation-capture, and retrieval counts plus full-versus-spot-check scope and same-series predecessor availability. unattributedByClass counts, per question class, the answers the mention rates leave out because they name the Property only ambiguously; latestFill describes the newest in-place fill of the run, whose answers are already counted. It invents no statistical sample threshold and never starts provider work.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
@@ -1949,7 +1966,7 @@ const routeCatalog: OpenApiOperation[] = [
             type: 'object',
             required: ['provider'],
             properties: {
-              provider: { type: 'string', enum: ['gemini', 'openai', 'claude', 'perplexity', 'local'] },
+              provider: { type: 'string', enum: ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local'] },
               count: integerSchema,
             },
           },
@@ -2058,7 +2075,7 @@ const routeCatalog: OpenApiOperation[] = [
             type: 'object',
             required: ['provider'],
             properties: {
-              provider: { type: 'string', enum: ['gemini', 'openai', 'claude', 'perplexity', 'local'] },
+              provider: { type: 'string', enum: ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local'] },
               count: integerSchema,
             },
           },
@@ -2170,7 +2187,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/analytics/competitors',
     summary: 'Get the stored competitor landscape',
-    description: 'Returns project pins first, then stored-discovery direct competitors and non-competitive cited sources. Mention share uses answer text only; citations remain a separate source-list signal. This is a stored-evidence read: it never calls a provider or classifier. Probe and non-terminal observations are excluded and counted explicitly. A groupKey scopes an Advanced Measurement market to its frozen v2 execution nodes and usage edges. Optional model filtering and groupBy=model apply to project, selected-market, and all-markets scopes; frozen competitor identities stay bound to their historical runs. The default response remains the combined landscape.',
+    description: 'Returns project pins first, then stored-discovery direct competitors and non-competitive cited sources. Mention share uses answer text only; citations remain a separate source-list signal. This is a stored-evidence read: it never calls a provider or classifier. Probe and non-terminal observations are excluded and counted explicitly. A groupKey scopes an Advanced Measurement market to its frozen v2 execution nodes and usage edges. Optional model filtering and groupBy=model apply to project, selected-market, and all-markets scopes; frozen competitor identities stay bound to their historical runs. The default response remains the combined landscape. runCount and runIds name the runs whose answers are counted; countUnits marks observedNamesTotal as distinct names, not answers.',
     tags: ['analytics', 'competitors'],
     parameters: [
       nameParameter,
@@ -2217,6 +2234,7 @@ const routeCatalog: OpenApiOperation[] = [
               location: stringSchema,
               allLocations: booleanSchema,
               noLocation: booleanSchema,
+              dispatchMode: dispatchModeRequestSchema,
             },
           },
         },
@@ -2226,7 +2244,8 @@ const routeCatalog: OpenApiOperation[] = [
       201: jsonResponse('Run queued.', 'RunDto'),
       400: errorResponse(
         'Invalid request: an untracked query, a measurement scope naming a group/target/question the published plan does not contain, '
-        + 'a scope combined with a query list, a per-run location on a plan project, or a provider roster the plan was not published for.',
+        + 'a scope combined with a query list, a per-run location on a plan project, a provider roster the plan was not published for, '
+        + 'or `dispatchMode: "batch"` when no provider of the run can batch (`details.ineligible` names each provider\'s reason).',
       ),
       422: errorResponse('Project has no tracked queries.'),
       409: errorResponse('Run already in progress.'),
@@ -2282,6 +2301,7 @@ const routeCatalog: OpenApiOperation[] = [
             properties: {
               kind: stringSchema,
               providers: stringArraySchema,
+              dispatchMode: dispatchModeRequestSchema,
             },
           },
         },
@@ -2475,7 +2495,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/analytics/sources',
     summary: 'Get source origin analytics',
     description:
-      'Cited domains ranked by how many answers cite them, read from each answer\'s stored source list (citedDomains plus citedUrls), so every provider is counted, Gemini included. A domain counts at most once per answer. Without runId the response pools every run in the window (runCount says how many); without queryClass it pools branded and non-brand answers.',
+      'Cited domains ranked by how many answers cite them, read from each answer\'s stored source list (citedDomains plus citedUrls), so every provider is counted, Gemini included. A domain counts at most once per answer. Without runId the response pools every run in the window (runCount says how many); without queryClass it pools branded and non-brand answers. pooledAcrossRuns and runIds name the pooled runs; runId is the latest run in the window, not the scope of a pooled read. countUnits says which counts are answers, distinct domains or answer-domain pairs.',
     tags: ['analytics'],
     parameters: [
       nameParameter,
@@ -3037,6 +3057,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'level', in: 'query', required: false, description: 'Exact log level.', schema: { type: 'string', enum: ['trace', 'debug', 'info', 'warn', 'error', 'fatal'] } },
       ...['module', 'runId', 'projectId', 'actor', 'requestId'].map(name => ({ name, in: 'query' as const, required: false, description: `Exact ${name} filter (does not grant project-scoped log access).`, schema: { type: 'string', minLength: 1, maxLength: name === 'actor' ? 512 : 256 } })),
       ...['since', 'until'].map(name => ({ name, in: 'query' as const, required: false, description: `Inclusive ${name} event timestamp.`, schema: { type: 'string', format: 'date-time' } })),
+      { name: OPERATIONAL_LOG_FIELDS_HEADER, in: 'header', required: false, description: 'Comma-separated opt-in context fields to return. `provider` adds `context.provider`, the answer engine an entry came from. Unknown names are ignored. Without this header, entries omit opt-in fields, so a client built before a field existed can still read the page with its strict schema.', schema: { type: 'string' } },
     ],
     responses: {
       200: jsonResponse('Runtime log page with retention and capture-loss metadata.', 'OperationalLogListDto'),
@@ -3824,6 +3845,26 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/projects/{name}/google/gsc/query-totals',
+    summary: 'Get GSC totals per query for a date window',
+    description: 'One row per search query over the window, read from stored sync data (no call to Google, no writes): clicks, impressions, CTR, impression-weighted average position (sum(position*impressions)/sum(impressions)) and the number of days the query appeared. Rows are ordered by clicks desc, impressions desc, then query ascending by code point, and paged with `limit` / `offset`; `totalMatching` counts every query and `truncated` says more rows follow. The rows cover the queries Google names only: Google leaves rare and anonymised queries out of per-query data, so their sum is below the property total (read `/google/gsc/performance/daily` for that). Each row carries `source`: `google` when every day came from Google\'s per-query fetch, `page-summed` when every day came from the legacy page-dimensioned table (impressions over-count), `mixed` when the window spans both.',
+    tags: ['google'],
+    parameters: [
+      nameParameter,
+      { name: 'startDate', in: 'query', description: 'Inclusive start date (YYYY-MM-DD). Replaces the window\'s lower bound; the window still ends on the last published day unless endDate is given.', schema: stringSchema },
+      { name: 'endDate', in: 'query', description: 'Inclusive end date (YYYY-MM-DD). With a window and no startDate, the window\'s span ends on this date (window=30d&endDate=2026-06-30 reads 2026-06-01 to 2026-06-30). The response `window` is the range read.', schema: stringSchema },
+      limitQueryParameter,
+      offsetQueryParameter,
+      analyticsWindowParameter,
+    ],
+    responses: {
+      200: jsonResponse('Per-query Search Console totals for the window.', 'GscQueryTotalsDto'),
+      400: errorResponse('Invalid date, range or window.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
     method: 'post',
     path: '/api/v1/projects/{name}/google/gsc/inspect',
     summary: 'Inspect a URL through Google Search Console',
@@ -4176,6 +4217,23 @@ const routeCatalog: OpenApiOperation[] = [
     ],
     responses: {
       200: jsonResponse('Place Details snapshots returned.', 'GbpPlaceDetailsListResponse'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/gbp/reviews',
+    summary: 'List stored Google Business Profile reviews and each location\'s review access and rating',
+    tags: ['gbp'],
+    parameters: [
+      nameParameter,
+      { in: 'query', name: 'locationName', required: false, description: 'Filter to one location resource name', schema: stringSchema },
+      { in: 'query', name: 'negative', required: false, description: 'Only reviews at or below the project negative-review threshold (negativeReviewMaxStars, 3 stars by default), the one the review.negative webhook uses', schema: booleanSchema },
+      { in: 'query', name: 'limit', required: false, description: 'Max reviews, newest first. Default 50, maximum 500.', schema: integerSchema },
+    ],
+    responses: {
+      200: jsonResponse('Reviews returned.', 'GbpReviewListResponse'),
+      400: errorResponse('Invalid negative or limit.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -5713,11 +5771,11 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/ga/traffic',
     summary: 'Get GA4 landing page traffic, channel breakdown, and AI referral landing pages',
+    description: 'Every figure is measured over one window (windowStart to windowEnd). Each AI and social referral row carries share, its fraction of that table\'s sessions, so a table\'s shares add up to 1; each top page carries organicShare, its organic sessions over its own sessions.',
     tags: ['ga4'],
     parameters: [nameParameter, limitQueryParameter, analyticsWindowParameter, analyticsStartDateParameter, analyticsEndDateParameter],
     responses: {
-      // TODO: Add `GaTrafficResponse` Zod schema in contracts.
-      200: rawJsonResponse('GA4 traffic data returned.', looseObjectSchema),
+      200: jsonResponse('GA4 traffic data returned.', 'GaTrafficResponse'),
       400: errorResponse('GA4 is not connected.'),
       404: errorResponse('Project not found.'),
     },
@@ -5764,11 +5822,11 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/ga/social-referral-trend',
     summary: 'Get social referral trend (7d/30d) with biggest mover',
+    description: GA_MOVER_DESCRIPTION,
     tags: ['ga4'],
     parameters: [nameParameter],
     responses: {
-      // TODO: Add `GaSocialReferralTrendResponse` Zod schema in contracts.
-      200: rawJsonResponse('Social referral trend returned.', looseObjectSchema),
+      200: jsonResponse('Social referral trend returned.', 'GaSocialReferralTrendResponse'),
       400: errorResponse('GA4 is not connected.'),
       404: errorResponse('Project not found.'),
     },
@@ -5777,11 +5835,11 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/ga/attribution-trend',
     summary: 'Get per-channel attribution trends (7d/30d) for organic, AI, and social',
+    description: GA_MOVER_DESCRIPTION,
     tags: ['ga4'],
     parameters: [nameParameter],
     responses: {
-      // TODO: Add `GaAttributionTrendResponse` Zod schema in contracts.
-      200: rawJsonResponse('Attribution trend returned.', looseObjectSchema),
+      200: jsonResponse('Attribution trend returned.', 'GaAttributionTrendResponse'),
       400: errorResponse('GA4 is not connected.'),
       404: errorResponse('Project not found.'),
     },
@@ -6165,7 +6223,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/overview',
     summary: 'Get a composite overview of project health',
     description:
-      'Bundles project info, latest run, top undismissed insights, health, independent mention and citation coverage, query-basket comparability, and separate mention/citation movement over the shared query cohort. Designed for the "how is project X doing?" question so agents can answer in one call.',
+      'Bundles project info, latest run, top undismissed insights, health, independent mention and citation coverage, query-basket comparability, and separate mention/citation movement over the shared query cohort. queryClassScope labels queryCounts, scores (except mentionShare), transitions and the movement fields as pooling branded and non-brand. Designed for the "how is project X doing?" question so agents can answer in one call.',
     tags: ['intelligence'],
     parameters: [nameParameter],
     responses: {

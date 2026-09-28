@@ -3,10 +3,15 @@ import { and, eq, asc, desc, inArray, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { runs, querySnapshots, queries, projects, competitors, parseJsonColumn } from '@ainyc/canonry-db'
 import { compileCompetitiveSignalResolver } from '@ainyc/canonry-intelligence'
-import type { LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, RunListFilterQuery } from '@ainyc/canonry-contracts'
+import type { LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, ProviderDispatchMode, RunDispatchModes, RunListFilterQuery } from '@ainyc/canonry-contracts'
 import {
   AppError as AppErrorClass,
   type AppError,
+  batchDispatchRefusalMessage,
+  ProviderDispatchModes,
+  providerDispatchModeSchema,
+  resolveRunDispatchModes,
+  summarizeRunUsage,
   measurementRunScopeIsEmpty,
   RunKinds,
   RunTriggers,
@@ -32,6 +37,7 @@ import { assertProjectScope } from './auth.js'
 import { gte } from 'drizzle-orm'
 import { assertMeasurementRunStampable, hasActiveMeasurementPlan, queueRunIfProjectIdle, resolveRunnableProviderSelection } from './run-queue.js'
 import { queueRunFill, readRunCompleteness } from './run-fill.js'
+import { readRunProviderBatches } from './provider-batches.js'
 
 export interface RunRoutesOptions {
   onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: LocationContext | null) => void
@@ -50,6 +56,12 @@ export interface RunRoutesOptions {
   onRunFillCreated?: (fillId: string, runId: string, projectId: string) => void
   /** Provider → requests allowed per UTC day, so fill admission can refuse what quota would. */
   getProviderDailyLimits?: () => Readonly<Record<string, number>>
+  /**
+   * Providers this host can dispatch to a provider batch API right now: the
+   * adapter has a batch capability AND `providers.<name>.batch.enabled` is
+   * true. Omitted means none can, so every run is sync.
+   */
+  getBatchEligibleProviderNames?: () => readonly string[]
 }
 
 export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
@@ -191,6 +203,24 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       if (projectLocations.length === 0) {
         throw validationError('No locations configured for this project')
       }
+      // A location fan-out only exists for planless projects (a plan sets the
+      // location per question, and is refused above), and planless runs never
+      // batch. Refuse here, since this branch bypasses the queue helper.
+      if (body.dispatchMode === ProviderDispatchModes.batch) {
+        const { ineligible } = resolveRunDispatchModes({
+          trigger,
+          requestedMode: body.dispatchMode,
+          providers: resolveRunnableProviderSelection({
+            requestedProviders: providers,
+            projectProviders: project.providers,
+            runnableProviders: opts.getRunnableProviderNames?.(),
+          }).selectedProviders,
+          expectedSlots: null,
+          scoped: queriesColumn !== null,
+          batchEligibleProviders: opts.getBatchEligibleProviderNames?.() ?? null,
+        })
+        throw validationError(batchDispatchRefusalMessage(ineligible), { ineligible })
+      }
 
       const result = app.db.transaction((tx) => {
         const activeRun = tx
@@ -247,6 +277,12 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     }
 
     const locationLabel = resolvedLocation?.label ?? null
+    // `dispatchMode` is TUNING, not identity (api-routes AGENTS.md, "Request
+    // parameters"): it changes how the providers are called and what the
+    // answers cost, never what is measured, so it stays out of the execution
+    // identity and every series. It is frozen on the run row regardless. This
+    // route never reuses an in-flight run (a second sweep is a 409), so the
+    // parameter can never be dropped onto another request's run.
     const queueResult = queueRunIfProjectIdle(app.db, {
       createdAt: now,
       kind,
@@ -258,6 +294,8 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       runnableProviders: opts.getRunnableProviderNames?.(),
       providerModels: opts.getEffectiveProviderModels?.(),
       measurementScope: body.measurementScope ?? null,
+      dispatchMode: body.dispatchMode ?? null,
+      batchEligibleProviders: opts.getBatchEligibleProviderNames?.() ?? null,
     })
 
     if (queueResult.conflict) throw runInProgress(project.name, kind, queueResult.activeRunId)
@@ -408,7 +446,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
 
   // POST /runs — trigger a run for all projects
   app.post<{
-    Body: { kind?: string; providers?: string[] }
+    Body: { kind?: string; providers?: string[]; dispatchMode?: string }
   }>('/runs', async (request, reply) => {
     // A project-scoped key may only trigger runs for ITS project — restrict the
     // batch to that project so it can never queue runs for a sibling.
@@ -422,6 +460,13 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
 
     const kind = request.body?.kind ?? 'answer-visibility'
     if (kind !== 'answer-visibility') throw unsupportedKind(kind)
+    const parsedDispatchMode = providerDispatchModeSchema.optional().safeParse(request.body?.dispatchMode)
+    if (!parsedDispatchMode.success) {
+      throw validationError(`"dispatchMode" must be one of: ${providerDispatchModeSchema.options.join(', ')}`)
+    }
+    // Tuning, like the single-project route: frozen per run, never identity.
+    const dispatchMode: ProviderDispatchMode | null = parsedDispatchMode.data ?? null
+    const batchEligibleProviders = opts.getBatchEligibleProviderNames?.() ?? null
 
     const rawProviders = request.body?.providers
     if (rawProviders?.length) {
@@ -507,6 +552,8 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
           providers,
           runnableProviders: runnableProviderNames,
           providerModels: opts.getEffectiveProviderModels?.(),
+          dispatchMode,
+          batchEligibleProviders,
         })
         dispatchable.push(entry)
       } catch (error) {
@@ -533,6 +580,8 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
         providers,
         runnableProviders: runnableProviderNames,
         providerModels: opts.getEffectiveProviderModels?.(),
+        dispatchMode,
+        batchEligibleProviders,
       })
 
       if (queueResult.conflict) {
@@ -777,6 +826,7 @@ export function formatRun(row: {
   measurementManifest?: unknown
   measurementScope?: MeasurementRunScope | null
   measurementExecutionIdentity?: MeasurementExecutionIdentity | null
+  providerDispatchModes?: RunDispatchModes | null
 }) {
   const measurementManifest = row.measurementManifest !== null
     && typeof row.measurementManifest === 'object'
@@ -804,6 +854,8 @@ export function formatRun(row: {
           measurementManifest,
           measurementScope: row.measurementScope ?? null,
           measurementExecutionIdentity: row.measurementExecutionIdentity ?? null,
+          // Only plan runs can batch, so only they carry the frozen modes.
+          dispatchModes: row.providerDispatchModes ?? {},
         }
       : {}),
     createdAt: row.createdAt,
@@ -869,6 +921,9 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
       // requested and ignored" — `location` alone reads the same either way.
       requestedContext: querySnapshots.requestedContext,
       supportedContext: querySnapshots.supportedContext,
+      dispatchMode: querySnapshots.dispatchMode,
+      stopReason: querySnapshots.stopReason,
+      usage: querySnapshots.usage,
       rawResponse: querySnapshots.rawResponse,
       createdAt: querySnapshots.createdAt,
     })
@@ -879,6 +934,8 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
 
   return {
     ...formatRun(run),
+    providerBatches: readRunProviderBatches(app.db, run.id),
+    usage: summarizeRunUsage(snapshots),
     snapshots: snapshots.map(s => {
       const rawParsed = parseSnapshotRawResponse(s.rawResponse)
       const signalGroundingSources = rawParsed.groundingSources.filter(
@@ -931,6 +988,9 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
         location: s.location,
         requestedContext: s.requestedContext,
         supportedContext: s.supportedContext,
+        dispatchMode: s.dispatchMode,
+        stopReason: s.stopReason,
+        usage: s.usage,
         groundingSources: rawParsed.groundingSources,
         searchQueries: rawParsed.searchQueries,
         createdAt: s.createdAt,

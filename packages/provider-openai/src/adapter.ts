@@ -4,6 +4,7 @@ import type {
   ProviderConfig,
   ProviderHealthcheckResult,
   TrackedQueryInput,
+  TrackedQueryRequest,
   RawQueryResult,
   NormalizedQueryResult,
 } from '@ainyc/canonry-contracts'
@@ -11,12 +12,14 @@ import { RetrievalStatuses } from '@ainyc/canonry-contracts'
 import {
   validateConfig as openaiValidateConfig,
   healthcheck as openaiHealthcheck,
+  buildTrackedQueryRequest as openaiBuildTrackedQueryRequest,
   executeTrackedQuery as openaiExecuteTrackedQuery,
+  parseTrackedQueryResponse as openaiParseTrackedQueryResponse,
   normalizeResult as openaiNormalizeResult,
   generateText as openaiGenerateText,
   OPENAI_RETRIEVAL_CONTRACT,
 } from './normalize.js'
-import type { OpenAIConfig } from './types.js'
+import type { OpenAIConfig, OpenAIRawResult, OpenAITrackedQueryInput } from './types.js'
 
 export function toOpenAIConfig(config: ProviderConfig): OpenAIConfig {
   return {
@@ -24,6 +27,35 @@ export function toOpenAIConfig(config: ProviderConfig): OpenAIConfig {
     model: config.model,
     baseUrl: config.baseUrl,
     quotaPolicy: config.quotaPolicy,
+  }
+}
+
+function toOpenAIInput(input: TrackedQueryInput, config: ProviderConfig): OpenAITrackedQueryInput {
+  return {
+    query: input.query,
+    canonicalDomains: input.canonicalDomains,
+    competitorDomains: input.competitorDomains,
+    config: toOpenAIConfig(config),
+    location: input.location,
+  }
+}
+
+function toRawQueryResult(raw: OpenAIRawResult): RawQueryResult {
+  return {
+    provider: 'openai',
+    rawResponse: raw.rawResponse,
+    model: raw.model,
+    servedModel: raw.servedModel,
+    groundingSources: raw.groundingSources,
+    searchQueries: raw.searchQueries,
+    // Read from the response's `web_search_call` items. Under forced search
+    // nearly every row reads `used`; that is the contract holding, and a
+    // `not-used` row is the visible breach, so the observation still
+    // discriminates. The contract declares how the request was built.
+    retrievalStatus: raw.retrievalStatus,
+    retrievalContract: raw.retrievalContract,
+    usage: raw.usage,
+    stopReason: raw.stopReason,
   }
 }
 
@@ -71,28 +103,16 @@ export const openaiAdapter: ProviderAdapter = {
     }
   },
 
+  buildTrackedQueryRequest(input: TrackedQueryInput, config: ProviderConfig): TrackedQueryRequest {
+    return openaiBuildTrackedQueryRequest(toOpenAIInput(input, config))
+  },
+
   async executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult> {
-    const raw = await openaiExecuteTrackedQuery({
-      query: input.query,
-      canonicalDomains: input.canonicalDomains,
-      competitorDomains: input.competitorDomains,
-      config: toOpenAIConfig(config),
-      location: input.location,
-    })
-    return {
-      provider: 'openai',
-      rawResponse: raw.rawResponse,
-      model: raw.model,
-      servedModel: raw.servedModel,
-      groundingSources: raw.groundingSources,
-      searchQueries: raw.searchQueries,
-      // Read from the response's `web_search_call` items. Under forced search
-      // nearly every row reads `used`; that is the contract holding, and a
-      // `not-used` row is the visible breach, so the observation still
-      // discriminates. The contract declares how the request was built.
-      retrievalStatus: raw.retrievalStatus,
-      retrievalContract: raw.retrievalContract,
-    }
+    return toRawQueryResult(await openaiExecuteTrackedQuery(toOpenAIInput(input, config)))
+  },
+
+  parseTrackedQueryResponse(body: Record<string, unknown>, model: string): RawQueryResult {
+    return toRawQueryResult(openaiParseTrackedQueryResponse(body, model))
   },
 
   normalizeResult(raw: RawQueryResult): NormalizedQueryResult {

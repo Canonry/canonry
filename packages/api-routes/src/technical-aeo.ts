@@ -266,6 +266,15 @@ function mapCrawlPage(row: typeof siteCrawlPages.$inferSelect): SiteCrawlPageDto
   }
 }
 
+/**
+ * A scan stored before canonry kept the audit engine's per-factor share has no
+ * `sharePct` in its JSON. That reads as not recorded (`null`), never as 0 and
+ * never as the weight: weights are relative and do not add up to 100.
+ */
+function withRecordedShare<T extends { sharePct: number | null }>(factor: T): T {
+  return { ...factor, sharePct: typeof factor.sharePct === 'number' ? factor.sharePct : null }
+}
+
 function mapCrawlPageAuditEvidence(row: typeof siteCrawlPages.$inferSelect): Pick<
   Extract<SiteCrawlPageAuditDto, { state: 'ready' }>,
   'evidenceState' | 'factors' | 'criticalDefects'
@@ -738,7 +747,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       trend,
       previousScore: previous?.aggregateScore ?? null,
       previousAuditedAt: previous?.auditedAt ?? null,
-      factors: snap.factorAverages,
+      factors: snap.factorAverages.map(withRecordedShare),
       crossCuttingIssues: snap.crossCuttingIssues,
       prioritizedFixes: snap.prioritizedFixes,
     }
@@ -808,7 +817,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       overallScore: row.overallScore,
       status: row.status === 'error' ? 'error' : 'success',
       error: row.error,
-      factors: row.factors,
+      factors: row.factors.map(withRecordedShare),
     }))
 
     return { project: project.name, runId: latest.runId, auditedAt: latest.auditedAt, total, pages }

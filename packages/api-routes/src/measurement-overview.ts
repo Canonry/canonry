@@ -29,6 +29,7 @@ import {
   type MeasurementOverviewResponse,
   type MeasurementOverviewSort,
   type MeasurementPlanV2,
+  type MeasurementPropertyMetro,
   type MeasurementPropertyProviderRow,
   type MeasurementOutcomeCounts,
   type MeasurementPropertyRow,
@@ -63,6 +64,7 @@ import {
   runVersionServesActiveVersion,
 } from './measurement-report-adapter.js'
 import { measurementRunCompleteness } from './measurement-run-completeness.js'
+import { snapshotEvidenceFingerprint } from './snapshot-evidence-fingerprint.js'
 
 /** Every state a run can be in and still be the current one. Cancelled runs never are. */
 const CURRENT_RUN_STATUSES: readonly RunStatus[] = [
@@ -274,14 +276,6 @@ function overviewAggregateFingerprint(query: MeasurementOverviewQuery): string {
     to: query.to ?? null,
   }
   return createHash('sha256').update(JSON.stringify(filters)).digest('base64url')
-}
-
-function overviewEvidenceFingerprint(snapshots: readonly typeof querySnapshots.$inferSelect[]): string {
-  const canonical = [...snapshots]
-    .sort((left, right) => left.id.localeCompare(right.id))
-    .map(snapshot => JSON.stringify(snapshot))
-    .join('\n')
-  return createHash('sha256').update(canonical).digest('base64url')
 }
 
 function compareLabels(left: PropertyLabel, right: PropertyLabel): number {
@@ -678,6 +672,71 @@ function matchesSearch(row: PropertyLabel, search: string | undefined): boolean 
   return normalizedText(row.label).includes(needle) || normalizedText(row.targetKey).includes(needle)
 }
 
+export interface PropertyLocation {
+  metro: MeasurementPropertyMetro | null
+  otherMetros?: MeasurementPropertyMetro[]
+  submarkets: string[]
+}
+
+function compareGroupText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
+/**
+ * Each Property's place in the plan's reporting groups. A Property is only
+ * ever placed by the groups that hold it: grouping by a label is how a Property
+ * ends up filed under a metro it is not in.
+ */
+export function propertyLocations(plan: MeasurementPlanV2): (targetKey: string) => PropertyLocation {
+  const groupsByKey = new Map(plan.groups.map(group => [group.stableKey, group]))
+  const depth = (group: MeasurementPlanV2['groups'][number]): number => {
+    let levels = 0
+    const seen = new Set([group.stableKey])
+    let parentKey = group.parentGroupKey
+    while (parentKey !== undefined && !seen.has(parentKey)) {
+      const parent = groupsByKey.get(parentKey)
+      if (!parent) break
+      seen.add(parentKey)
+      levels++
+      parentKey = parent.parentGroupKey
+    }
+    return levels
+  }
+  const byLabel = (left: { label: string; stableKey: string }, right: { label: string; stableKey: string }) =>
+    compareGroupText(left.label, right.label) || compareGroupText(left.stableKey, right.stableKey)
+  const metros = new Map<string, MeasurementPlanV2['groups'][number][]>()
+  const submarkets = new Map<string, Array<{ group: MeasurementPlanV2['groups'][number]; depth: number }>>()
+  const push = <V>(map: Map<string, V[]>, key: string, value: V) => {
+    const existing = map.get(key)
+    if (existing) existing.push(value)
+    else map.set(key, [value])
+  }
+  for (const group of plan.groups) {
+    const level = depth(group)
+    for (const targetKey of new Set(group.targetKeys)) {
+      if (level === 0) push(metros, targetKey, group)
+      else push(submarkets, targetKey, { group, depth: level })
+    }
+  }
+  const metroDto = (group: MeasurementPlanV2['groups'][number]): MeasurementPropertyMetro =>
+    ({ groupKey: group.stableKey, label: group.label })
+  return targetKey => {
+    const own = [...(metros.get(targetKey) ?? [])].sort(byLabel)
+    const nested = [...(submarkets.get(targetKey) ?? [])]
+      .sort((left, right) => left.depth - right.depth || byLabel(left.group, right.group))
+    return {
+      metro: own.length === 0 ? null : metroDto(own[0]!),
+      ...(own.length > 1 ? { otherMetros: own.slice(1).map(metroDto) } : {}),
+      submarkets: nested.map(row => row.group.label),
+    }
+  }
+}
+
+/** A v2 row's top-level placement: `metro`, plus `otherMetros` only when there are any. */
+function metroFields(location: PropertyLocation): Pick<MeasurementPropertyRow, 'metro' | 'otherMetros'> {
+  return { metro: location.metro, ...(location.otherMetros === undefined ? {} : { otherMetros: location.otherMetros }) }
+}
+
 function propertyLabels(plan: StoredMeasurementPlan, scope: ScopeSelection): PropertyLabel[] {
   const labels = new Map(plan.targets.map(target => [target.stableKey, target.label]))
   return scope.targetKeys
@@ -726,7 +785,7 @@ function planV1Overview(
     active.version.id,
     // V1 rows are always plan_v1-unavailable and label/key ordered. Evidence
     // cannot change this page, so avoid materializing a full run merely to hash it.
-    overviewEvidenceFingerprint([]),
+    snapshotEvidenceFingerprint([]),
   )
 
   return {
@@ -766,6 +825,7 @@ function planV2Overview(
   const displayed = selectDisplayedRun(db, projectId, active, query)
   const current = latestMeasurementRun(db, projectId, active.version.id, CURRENT_RUN_STATUSES)
   const currentDto = current ? { currentRunId: current.id } : {}
+  const locate = propertyLocations(plan)
 
   if (!displayed) {
     const { page, outcomes } = pageOf(
@@ -773,6 +833,7 @@ function planV2Overview(
         .filter(row => matchesSearch(row, query.search))
         .map(row => ({
           ...row,
+          ...metroFields(locate(row.targetKey)),
           mentionCoverage: unavailable('no_completed_run'),
           citationCoverage: unavailable('no_completed_run'),
           providers: [],
@@ -781,7 +842,7 @@ function planV2Overview(
       query,
       null,
       active.version.id,
-      overviewEvidenceFingerprint([]),
+      snapshotEvidenceFingerprint([]),
     )
     return {
       mode: 'active-v2',
@@ -808,7 +869,7 @@ function planV2Overview(
   }
 
   const snapshots = db.select().from(querySnapshots).where(eq(querySnapshots.runId, displayed.id)).all()
-  const evidenceFingerprint = overviewEvidenceFingerprint(snapshots)
+  const evidenceFingerprint = snapshotEvidenceFingerprint(snapshots)
   const identities = namedIdentitiesFor(plan, scope, queryClass)
   const overview = cache.getOrBuild({
     planVersionId: active.version.id,
@@ -850,6 +911,7 @@ function planV2Overview(
         const property = measured.get(row.targetKey)
         return {
           ...row,
+          ...metroFields(locate(row.targetKey)),
           mentionCoverage: property ? coverageMetric(property.mentionCoverage) : unavailable('no_population'),
           citationCoverage: property ? coverageMetric(property.citationCoverage) : unavailable('no_population'),
           providers: property ? providerRows(property) : [],

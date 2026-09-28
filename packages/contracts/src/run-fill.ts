@@ -17,6 +17,24 @@ import { runStatusSchema } from './run.js'
 export const RUN_FILL_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
 /**
+ * The instant `RUN_FILL_MAX_AGE_MS` is measured from.
+ *
+ * An ordinary run is measured from when it started (or was created, when it
+ * never recorded a start). A run that dispatched a provider batch is measured
+ * from when it finalized instead: a batch may take up to its deadline (24h by
+ * default) to end, and measuring from the start would leave a run whose batch
+ * expired already too old to fill at the moment it becomes fillable. A batch
+ * run with no finish time falls back to the ordinary anchor.
+ */
+export function runFillAgeAnchor(
+  run: { createdAt: string; startedAt: string | null; finishedAt: string | null },
+  opts: { hadProviderBatch: boolean },
+): { anchor: string; basis: 'started' | 'finished' } {
+  if (opts.hadProviderBatch && run.finishedAt) return { anchor: run.finishedAt, basis: 'finished' }
+  return { anchor: run.startedAt ?? run.createdAt, basis: 'started' }
+}
+
+/**
  * Consecutive failures after which a fill stops dispatching to a provider.
  * A provider still over its cap would otherwise be paid for, or fail, on
  * every remaining slot.

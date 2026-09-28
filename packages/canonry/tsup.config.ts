@@ -74,6 +74,7 @@ export default defineConfig({
     '@ainyc/canonry-provider-local',
     '@ainyc/canonry-provider-cdp',
     '@ainyc/canonry-provider-perplexity',
+    '@ainyc/canonry-provider-muse',
     '@ainyc/canonry-integration-google',
     '@ainyc/canonry-integration-google-ads',
     '@ainyc/canonry-integration-google-tag-manager',

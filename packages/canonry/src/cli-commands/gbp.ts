@@ -13,6 +13,7 @@ import {
   gbpLodging,
   gbpAttributes,
   gbpPlaces,
+  gbpReviews,
   gbpSummary,
 } from '../commands/gbp.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
@@ -207,6 +208,25 @@ export const GBP_CLI_COMMANDS: readonly CliCommandSpec[] = [
     run: async (input) => {
       const project = requireProject(input, 'gbp.places', 'canonry gbp places <project> [--location <name>] [--format json]')
       await gbpPlaces(project, { location: getString(input.values, 'location'), format: input.format })
+    },
+  },
+  {
+    path: ['gbp', 'reviews'],
+    usage: 'canonry gbp reviews <project> [--location <name>] [--negative] [--limit N] [--format json]',
+    options: {
+      location: stringOption(),
+      negative: { type: 'boolean' as const },
+      limit: stringOption(),
+    },
+    run: async (input) => {
+      const usage = 'canonry gbp reviews <project> [--location <name>] [--negative] [--limit N] [--format json]'
+      const project = requireProject(input, 'gbp.reviews', usage)
+      await gbpReviews(project, {
+        location: getString(input.values, 'location'),
+        negative: getBoolean(input.values, 'negative') ?? false,
+        limit: parseIntegerOption(input, 'limit', { message: '--limit must be an integer', usage, command: 'gbp.reviews' }),
+        format: input.format,
+      })
     },
   },
   {

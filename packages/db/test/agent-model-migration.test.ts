@@ -3,7 +3,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
-import { agentSessions, createClient, migrate, MIGRATION_VERSIONS, projects } from '../src/index.js'
+import { agentSessions, createClient, migrate, MIGRATION_VERSIONS } from '../src/index.js'
+import { insertLegacyProject } from './legacy-rows.js'
 
 let tmpDir: string
 let db: ReturnType<typeof createClient>
@@ -21,10 +22,7 @@ afterEach(() => {
 })
 
 function seed(id: string, modelProvider: string, modelId: string): void {
-  db.insert(projects).values({
-    id, name: id, displayName: id, canonicalDomain: `${id}.example.com`,
-    country: 'US', language: 'en', createdAt: now, updatedAt: now,
-  }).run()
+  insertLegacyProject(db, { id, canonicalDomain: `${id}.example.com`, createdAt: now })
   db.insert(agentSessions).values({
     id, projectId: id, modelProvider, modelId, systemPrompt: 'operator instructions',
     messages: JSON.stringify([{ role: 'user', content: 'saved conversation', timestamp: 1 }]),

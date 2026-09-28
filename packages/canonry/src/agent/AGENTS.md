@@ -161,15 +161,44 @@ prompt is mounted, not crammed into a single `-e` arg.
 
 ## Evidence-safe tool-result truncation (OSS-C)
 
-`truncateToolResult` (`mcp-to-agent-tool.ts`) renders a tool result under the
-20 KB cap WITHOUT cutting a row mid-structure. The previous guard blind-sliced
-the serialized JSON, which could split an array element halfway (invalid JSON)
-and silently drop a cited evidence row mid-object. Now: an object whose largest
-field is an array drops WHOLE trailing rows and stamps `__truncated` +
-`__omittedRows`; a top-level array is wrapped as `{ items, __truncated,
-__omittedRows }`; only a giant scalar with nothing structured to drop falls back
-to a marked string slice. Every retained row stays byte-intact; the programmatic
-`details` envelope is never trimmed, only the model-facing text.
+`truncateToolResult` (`mcp-to-agent-tool.ts`) renders a tool result as
+COMPACT JSON (no indent: indenting cost about 40% more characters for the same
+rows) under the 20 KB cap WITHOUT cutting a row mid-structure. The previous
+guard blind-sliced the serialized JSON, which could split an array element
+halfway (invalid JSON) and silently drop a cited evidence row mid-object. Now:
+an object whose largest field is an array drops WHOLE trailing rows and stamps
+`__truncated` + `__omittedRows`; a top-level array is wrapped as `{ items,
+__truncated, __omittedRows }`; only a giant scalar with nothing structured to
+drop falls back to a marked string slice. Every retained row stays byte-intact;
+the programmatic `details` envelope is never trimmed, only the model-facing
+text.
+
+When other lists sit beside or inside the largest one, a staged fair-share trim
+competes with the largest-array cut, and whichever keeps more outer rows wins.
+It shrinks lists evenly (longest first) in stages: lists over 25 rows down to
+25, then per-row detail lists down to 1 entry per row, then every top-level
+list (rollups such as markets and rankings included) down to 1 row, then detail
+to 0, then top-level lists to 0, scalar lists last. A refill pass then hands
+rows back to earlier stages, so a short rollup is never emptied or cut below a
+longer list. Omission markers (`__truncated`, `__omittedRowsByField`) sit on
+each owning object.
+
+Every cut is named under `__truncation` (`keptItems` "<kept> of <total>" for
+paths that lost rows, `droppedKeys` for paths emptied). When rows are cut from
+a list whose owner carries a page cursor (`nextCursor`, `nextOffset`,
+`nextPageToken`, `next_cursor`), the cursor is left as the tool sent it and
+`__truncation.cursors` says it skips the cut rows and what `limit` to re-request
+with. Lists the TOOL itself returned partially (its own total above the rows,
+or `truncated: true`) are named under `__partialLists`, always the FIRST key,
+whether or not the cap cut anything; a result with nothing partial serializes
+byte-identical to plain compact JSON.
+
+A misspelled tool name is corrected before pi prepares the call: the
+`agent.streamFn` wrapper (`runtime.ts`) renames a tool call to the one VISIBLE
+tool within a small edit distance (never toward a hidden or disallowed tool),
+and the tool-result message records the name the model wrote as
+`aeroRequestedToolName`. Without a unique visible match, the refusal names the
+likely tool ("Did you mean ...?"), including which toolkit to load first.
 
 System prompt is composed from `skills/aero/soul.md` (identity/voice/values)
 + `skills/aero/SKILL.md` (task rules). Soul is prepended so identity frames
@@ -315,6 +344,7 @@ Aero's rules live in `src/agent/AGENTS.md` (see "Agent layer (Aero)" below). The
 - `src/agent/token-counter.ts` — `estimateMessageTokens` / `estimateTranscriptTokens`: chars/4 heuristic handling user/assistant/toolResult content shapes. Used only to decide when to compact, not to enforce provider limits.
 - `src/agent/tools.ts` — thin wrapper around `mcp-to-agent-tool.ts`: `buildReadTools(ctx)` and `buildAllTools(ctx)` delegate to `buildMcpAgentTools(canonryMcpTools, ctx)`. Adding a new tool to `mcp/tool-registry.ts` automatically exposes it to Aero — no separate registration in this file.
 - `src/agent/mcp-to-agent-tool.ts` — adapter that converts every `CanonryMcpTool` into a pi-agent-core `AgentTool`. Strips `project` from the LLM-visible schema and injects `ctx.projectName` at call time. `AERO_EXCLUDED_MCP_TOOLS` lists tools that ride the registry but should not reach Aero (e.g. `canonry_agent_clear` — Aero must not erase the operator's transcript). `AERO_MANAGED_SWEEP_MCP_TOOLS` is withheld as well when `managedSweeps` is set, and on those installs `canonry_run_cancel` looks the run up and refuses answer-visibility sweeps.
+- `src/agent/tool-result-units.ts` — before truncation, renders every number a tool's OpenAPI response schema declares a ratio (`x-unit`) as `formatPercent` text, so Aero never reads a bare 0..1 value as a percent (a 0.0207 share once came out as "0.02%"). Only `content` changes; `details` keeps the raw value.
 - `src/agent/viewer-sessions.ts` — `ViewerAeroSessions`, the viewer lane behind `agent.allowViewers`. One in-memory conversation per (project, viewer), never the operator's `agent_sessions` row, memory or compaction. Each turn mints a read-only key delegated to the viewer (`mintViewerAeroKey`, revoked on release, orphans revoked at boot), so tool calls carry the viewer's authority rather than the root key. `buildViewerAeroTools` drops write tools, live paid reads (`AERO_VIEWER_EXCLUDED_MCP_TOOLS`), the `agent` tier and `requiresOperator` tools, and the managed-sweep set. Viewer turns load toolkits on demand like operator turns, with the tools the project shape names (`project-shape.ts`) pinned visible, and the operator's default turn limits. Loading a toolkit unloads the oldest others rather than exceed `MAX_VISIBLE_TOOLS` (128, a common provider function limit). The routes in `agent-routes.ts` serve a signed-in viewer from this lane only when it is constructed; every other caller still meets `requireInstanceAdministrator`.
 - `src/agent/remote-mcp.ts` — `loadExternalMcpTools(servers, opts)`, the injected remote-MCP load path. For each configured `{ url, token, label? }` it connects to a REMOTE MCP server over the FROZEN transport (bearer-gated MCP Streamable HTTP, `connectStreamableHttp`), `listTools()`, and adapts each tool into an `AgentTool` (mirroring `mcp-to-agent-tool.ts`). Read-only filter: a remote tool is adopted ONLY when `annotations.readOnlyHint === true` AND its name is not in the local `AERO_EXCLUDED_MCP_TOOLS` set. Fail-soft: a server that fails to connect/list is logged and skipped, never throwing the whole load; no servers configured returns `[]`. The transport is the contract a remote MCP server must speak (see "Injected remote-MCP load path" in `src/agent/AGENTS.md`).
 - `src/agent/skill-tools.ts` — 2 skill-doc tools (`list_skill_docs`, `read_skill_doc`): progressive disclosure of bundled reference playbooks. Ride in every scope.

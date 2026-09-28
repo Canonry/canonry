@@ -16,6 +16,7 @@ The publishable npm package (`@canonry/canonry`, plus compatibility publish as `
 | `src/embed.ts` | `resolveEmbedConfig(env, config)` — resolves embed mode (see "Embed mode (#716)") |
 | `src/agent-config.ts` | `resolveAgentEnabled(env, config)` — the Aero kill-switch (rules: `src/agent/AGENTS.md`) |
 | `src/job-runner.ts` | In-process job runner for visibility sweeps (see "Run completion pipeline") |
+| `src/provider-batch-poller.ts` | Polls submitted provider batches, enforces their deadlines, drives ingest and batch-run finalization (see "Run completion pipeline") |
 | `src/scheduler.ts` | Cron runner for all schedule kinds |
 | `src/provider-registry.ts` | `ProviderRegistry` — manages provider adapters (see "Provider registration") |
 | `src/run-coordinator.ts` | Post-run orchestrator — dispatches to intelligence + notifications |
@@ -126,6 +127,16 @@ Conventions when adding `jsonl` to a command:
 
 The stable, machine-readable formats are `json` and `jsonl`; `text` is decorated and not a parse target. `isMachineFormat(format)` distinguishes them.
 
+### Run `--wait` exit code
+
+`src/commands/run.ts` → `throwIfWaitedRunFailed` decides the exit code of `run <project> --wait`, `--all-locations --wait`, and `run --all --wait`. It runs only after the full output is printed, so stdout is the same for every final status.
+
+- A waited run that ended `failed` throws `CliError` `RUN_FAILED` with exit 2. With `--all` or `--all-locations`, one failed run is enough.
+- Machine formats suppress wait progress so stderr keeps its JSON error envelope parseable; text mode keeps its progress messages.
+- `partial` exits 0: its answers are saved, and `run fill --wait` is the command that exits 2 while answers are still missing. `cancelled` exits 0 because an operator stopped the run. A run the wait stops at while it is still `running` also exits 0.
+- An `--all` row with `status: 'error'` (the trigger failed, so no run exists) is not a waited run and does not change the exit code.
+- `test/cli-run-wait-exit.test.ts` pins stdout and the exit code for each case.
+
 The update notice is the one piece of chrome that reaches agents as well as people, because an agent is usually the one running an outdated install. `cli.ts` prints it synchronously from the on-disk cache (`readCachedUpdateAvailable`) BEFORE dispatch, so it is always the first stderr line and never interleaves with output; stdout is untouched, and the registry refresh only rewrites the cache in the background. `formatUpdateNotice` picks the shape: the human banner on a terminal, one plain `[canonry] UPDATE_AVAILABLE: ...` line when stderr is captured, and one compact `{"notice":{"code":"UPDATE_AVAILABLE",...}}` line for `--format json|jsonl` (so `2>&1` still yields a valid JSON stream). The upgrade command follows `detectInstallMethod` (`CANONRY_INSTALL_METHOD`, which the published image sets to `docker`; then Homebrew `Cellar/canonry/`; then a container marker; else npm) and comes from `upgradeCommandFor` in contracts, with `upgradeCaveatFor` adding the Homebrew-lags-npm note, and the registry value must pass `isStrictSemver` (contracts) before it is cached or printed, because agents act on this text. Skipped for help and `telemetry`; silenced by the update-check opt-outs. The server-side counterpart is the `canonry.version.current` doctor check (`getServerUpdateStatus`). MCP-only agents never run the CLI, so `canonry-mcp` fetches the connected server's `/health` notice at startup (`createUpdateNoticeSource` in `src/mcp/update-notice.ts`: honours the env opt-outs in the adapter's own environment and refreshes hourly; `ApiClient.getServerUpdateAvailable` reads `/health` and `parseServerUpdateAvailable` keeps only the strict-semver versions and the install-method enum, rebuilding the command and URL from contracts so no server text reaches the initialize instructions, which clients load into the system prompt) and hosted MCP reads the server cache (`McpHttpOptions.getUpdateAvailable`); both append it to the initialize instructions and add `updateAvailable` to every `canonry_help` result. Other interactive chrome (skills auto-sync notice, setup nudge) stays gated on `process.stderr.isTTY`. Errors still go to stderr.
 
 Chrome helpers:
@@ -144,7 +155,7 @@ The event catalog and envelope are under "Telemetry events" below.
 ### Logging and runtime diagnostics
 
 - `src/logger.ts` — compatibility exports of the shared runtime logger in api-routes. Application and Fastify logging use the same pure redaction policy before stdout/stderr and durable capture. Do not add a second sanitizer or raw request logger.
-- `src/commands/logs.ts` — `canonry logs`: API-backed runtime diagnostics, with identity/time filters and retention/loss metadata. JSONL preserves the complete paginated envelope. Requires host-approved operator authority plus instance-wide `logs.read`; customer admin roles and project scope are insufficient.
+- `src/commands/logs.ts` — `canonry logs`: API-backed runtime diagnostics, with identity/time filters and retention/loss metadata. JSONL preserves the complete paginated envelope. Requires host-approved operator authority plus instance-wide `logs.read`; customer admin roles and project scope are insufficient. `ApiClient.listOperationalLogs` (shared with `canonry_logs_list`) asks for the opt-in context fields through `x-canonry-log-fields` and reads the page with the tolerant `operationalLogListReadSchema`, so a newer server's extra fields are dropped rather than failing the page.
 
 ### API key commands
 
@@ -178,7 +189,8 @@ Different run kinds may overlap on one project. Preserve shared provider gates
 and same-kind admission guards. Project-only cancellation requires exactly one
 active run; otherwise the CLI lists the candidates and requires a run ID.
 Boot recovery fails every queued/running run and its active crawl attempts;
-it does not resume interrupted work.
+it does not resume interrupted work. The one exception is a running sweep that
+wrote provider batches (see "Finalizing a sweep" below).
 
 Before provider dispatch, `JobRunner` captures the resolved inputs of each official simple run.
 The frozen definition records exact query text, identity, classification, location, and requested models.
@@ -186,9 +198,96 @@ Capture failure prevents provider calls. Probe and advanced runs retain their ex
 Queue-time configuration does not define simple runs because their inputs resolve at dispatch.
 This capture does not change current report calculations or reconstruct historical definitions.
 
+Simple and Advanced snapshots use `isSearchLocationIgnored` to clear a search-tool location when retrieval is `not-used`. Preserve the requested location in `requestedContext` and record `supportedContext.status: 'ignored'` for these answers.
+
 When a sweep finishes, the flow is: `JobRunner` → `RunCoordinator.onRunCompleted()` → `IntelligenceService.analyzeAndPersist()` then `Notifier.onRunCompleted()`. The coordinator runs intelligence first (synchronous) so insights are persisted before webhooks fire. Each subscriber is wrapped in an independent try/catch — one failing must not block the others.
 
 `IntelligenceService` reads query snapshots from the DB, calls the pure analysis functions in `packages/intelligence/`, and persists insights + health snapshots. It also provides `backfill()` for reprocessing historical runs chronologically.
+
+#### Finalizing a sweep (Critical)
+
+A sweep that measured ends through one compare-and-set on `running`:
+`finalizeRun` (from the sweep's own counts) or `finalizeBatchRun` (a run that
+wrote provider batches, from the database). Only the winner writes the
+status from those counts (`completed`, `partial` or `failed`), emits
+`run.completed` / `activation.completed`, counts the run and calls
+`onRunCompleted`, so a late or repeated attempt reports nothing. A new path
+that ends a sweep from what it recorded goes through one of them; never write
+that status directly.
+
+Four other writes end a sweep or change how it ended, each with its own guard:
+
+- Thrown: `executeRun`'s catch writes `failed` (compare-and-set on
+  `queued|running`, so a finished run is never overwritten) and cancels the
+  batches the sweep submitted. It reports from that execution whether or not
+  its write matched (`run.completed` failed, or `run.aborted` for a setup
+  abort, then `onRunCompleted`), so a stray dispatch of a run that already
+  ended reports again.
+- Cancelled: `POST /runs/:id/cancel` writes `cancelled` (compare-and-set on
+  `queued|running`) and reports nothing itself. `handleCancelledRun` reports
+  it (`run.completed` with status `cancelled`, then `onRunCompleted`).
+  `executeRun` calls it when the sweep sees the cancel while executing, and
+  when a run is dispatched already cancelled. Once the sweep has handed off,
+  `cancelRunBatches` calls it only after winning the claim (clearing
+  `pending_provider_errors`), so that path reports at most once.
+  `handleCancelledRun` itself has no guard (only its `finishedAt` write is
+  conditional): as with Thrown, a stray dispatch of an already-cancelled run
+  reports it again, even one `cancelRunBatches` already reported.
+- Restarted: `recoverStaleRuns` writes `failed` (compare-and-set on the status
+  it read) and reports no `run.completed` or `onRunCompleted`. A running sweep
+  with batch rows is handed to the poller instead (see below).
+- Filled: `finalizeRunFill` moves a `partial` run to `completed`
+  (compare-and-set on `partial`). Only that winner, unless a newer sweep
+  superseded it, calls `onRunCompleted` (`fill` origin); no second
+  `run.completed` is emitted.
+
+Provider batch lifecycle (`docs/batch-mode.md`):
+
+- `executeRun` submits each batch provider's slots (frozen
+  `runs.provider_dispatch_modes` AND `adapterSupportsBatch`), grouped by frozen
+  model and chunked to the request and byte limits. The `provider_batches` row
+  (`submitting`) and its `provider_batch_requests` ledger (inserted in slices,
+  under SQLite's variable limit) commit in one transaction BEFORE `submit`; if
+  that transaction fails, nothing was sent and the slots run sync. The lines
+  count as sent before `submit`, so a sweep that aborts mid-submit keeps their
+  reservation. A definite refusal (nothing was created) sets the row's
+  `quota_released` to its line count and moves it from `submitting` to
+  `failed` (compare-and-set, so a row already cancelled with its run stays
+  `cancelled`). If the sweep is still live, holding the provider's
+  reservation, the lines are uncounted and those slots run sync in the same
+  sweep. If it returns after the sweep aborted (whose catch settled the
+  reservation and cancelled the row), the row stays `cancelled`, the lines go
+  back to the day's quota and no slot is answered. Any other failure moves a
+  still-`submitting` row to `unknown`, never resubmitted.
+- A sweep that wrote a batch row never finalizes from its own count. It writes
+  its sync errors to `runs.pending_provider_errors` (`{}` when none: the marker
+  that the sweep is done), settles only its own reservation (what a batch
+  carries stays reserved on the row until ingest), leaves the run `running`,
+  and calls `finalizeBatchRun`. That finalizes only when the marker is set, no
+  batch is `submitting|submitted|ended`, and no `executeRun` in this process
+  holds the run. The marker covers a restart; the in-memory set covers the live
+  race in which a batch ends before the sync providers do.
+- `src/provider-batch-poller.ts` polls with a per-batch backoff, cancels at the
+  deadline (then waits an hour for the batch to end), and drives
+  `ingestProviderBatch`: lines map by `custom_id` → `parseTrackedQueryResponse`
+  → `recordSlot` (idempotent, `dispatch_mode: batch`, batch price tier).
+  Unbilled lines (`errored|expired|canceled`) release their reservation under
+  `quota_released`. Ingest scores answers against the project's identity at
+  ingest time, as a fill does. An ended batch whose results stay unreadable is
+  given up by `abandonUnreadableProviderBatch`: `cancelled`, with the counts of
+  what was read and the unbilled part of that released; unread lines keep their
+  reservation. A batch cancelled mid-ingest keeps its counts too.
+- `onRunCancelled` calls `cancelRunBatches`: batches are cancelled at the
+  provider and never ingested. A handed-off run's cancellation is reported
+  there at most once (clearing the marker is the claim; a later stray
+  dispatch still reports it again, see "Cancelled" above); a live sweep
+  reports its own.
+  A sweep that throws after submitting cancels its batches before failing the
+  run, so no failed run keeps a batch working for it.
+- Boot recovery exception: `submitting` rows become `unknown`, and a running run
+  with batch rows is not failed. Its sync gaps get "Server restarted while run
+  was in progress", the marker is set, and the poller finalizes it (on its first
+  pass when nothing is outstanding, by which time `onRunCompleted` is wired).
 
 The notification system supports `citation.lost`, `citation.gained`, `run.completed`,
 `run.failed`, `insight.critical`, `insight.high`. `insight.critical` and
@@ -286,7 +385,7 @@ That is not a style preference. The gate used to be a `let` inside `inspectUrlsP
 
 ### Backfill behavior
 
-`canonry backfill answer-visibility` does more than recompute `answerMentioned`. It also reparses stored provider `raw_response` payloads for supported API providers (OpenAI, Claude, Gemini, Perplexity) and refreshes derived snapshot fields such as `citationState`, `citedDomains`, `groundingSources`, and `searchQueries`.
+`canonry backfill answer-visibility` does more than recompute `answerMentioned`. It also reparses stored provider `raw_response` payloads for supported API providers (OpenAI, Claude, Gemini, Perplexity, Muse) and refreshes derived snapshot fields such as `citationState`, `citedDomains`, `groundingSources`, and `searchQueries`.
 
 It writes retrieval fields in exactly one case: OpenAI rows labelled `native-auto-v1` (written by 4.139.0 through 5.19.0, which all sent a forced-search request) become `search-required-v1`, with `retrievalStatus` re-derived from the stored `apiResponse` (`correctStoredOpenAIRetrieval`, counted as `retrievalRelabeled`). NULL contracts predate the field and stay NULL; no other provider's retrieval fields are touched. Never widen this into "set every row to the adapter's current contract": a future contract change would then relabel history.
 
@@ -301,6 +400,8 @@ The command lives in `src/commands/backfill.ts` (historical recomputation for an
 ### Provider registration
 
 Providers are registered at server startup in `server.ts`. Each provider adapter (from `packages/provider-*`) is imported and added to the `ProviderRegistry`. Projects reference providers by name.
+
+`src/provider-batch-config.ts` owns batch dispatch configuration (`docs/batch-mode.md`). `loadConfig` validates `providers.<name>.batch` / `.pricing` with the contracts schemas and refuses a malformed block. `providerConfigFromEntry` builds every registered `ProviderConfig`, carrying both blocks, and is used by boot and the provider-update path, so a dashboard key rotation keeps them. `batchEligibleProviderNames` (adapter capability AND `batch.enabled`) is the one rule behind `getBatchEligibleProviderNames`. `server.ts` passes it to the API routes and the scheduler. Boot logs `provider.batch.unsupported` once per provider whose config enables batch but whose adapter has none. Log a provider name as `providerName`: the redactor omits a `provider` key. `canonry run --dispatch-mode` and `canonry project create|update --dispatch-mode provider=sync|batch` / `--clear-dispatch-mode` are the CLI surfaces. `run show` prints batch state lines and the usage table from the run detail, and `--format json` prints the response verbatim.
 
 ### Health endpoint
 
@@ -353,6 +454,12 @@ Every field after `version` is optional and is omitted rather than nulled, so co
 - The engine (>= 7.1.0) derives `maxFetches`/`maxDurationMs`/`maxBytes`/`maxEdges` from the page budget natively and honours explicit values exactly, so this file passes ONLY `maxPages`/`maxEdges` (the operator-facing limits) and never a fetch-side budget — setting one would pin it and fight the derivation.
 - The engine also makes the dead-link split itself (6.0.0+): `deadLinks.findings` always carry a real 4xx/5xx status and `deadLinks.unverified` carries the targets the crawl could not check (timeout, reset socket, throttled 429), and ONLY findings are written to `site_crawl_findings` — every reader of that table renders a row as a broken link, and a crawl timeout is not evidence of one.
 - `deadLinkCheckedCount` excludes unfetchable targets for the same reason — a URL that never answered was attempted, not checked.
+
+`src/site-audit-factors.ts` — `computeFactorAverages`, the site factor rollup the executor publishes and the demo seed reuses (one implementation, so the example scorecard is computed, not copied):
+
+- A factor's `weight` is RELATIVE (the sixteen core weights sum to 111), so it is never shown with a percent sign. The percentage is `sharePct`, which the engine records per page; `toPageFactor` in the executor carries it onto every stored factor.
+- The site `sharePct` is the mean of a factor's page shares over the audited pages, 0 on a page where it did not apply, apportioned to tenths by `roundPreservingTotal` so the rollup adds up to exactly 100. If any audited page recorded no share, every site share is `null`; nothing is derived from `weight`.
+- Display it with `formatPercent(sharePct, 'percent')` (dashboard, `technical-aeo score`, `technical-aeo page-audit`); a `null` share shows a dash in a table and no share line in prose.
 
 `src/site-crawl-template-links.ts` — template-link classification:
 
@@ -453,6 +560,7 @@ Direct and reviewed requests submit final query text: a scope only records a mar
 - `ga ai-referral-daily` (AI sessions per day and per source, landing pages summed inside ONE attribution dimension so the totals match `ga traffic`; sessions only, since GA counts users distinct per grain and no un-dimensioned AI-referral fetch exists)
 - `ga ai-referral-history` (raw per-landing-page detail rows, never a total)
 - `ga social-referral-history`, `ga social-referral-summary`, `ga attribution`
+- `ga traffic` prints each referral row's `share` and each top page's `organicShare` as the API sent them (the dashboard's Share and Organic % columns).
 
 Date windows and headers:
 
@@ -474,7 +582,8 @@ Date windows and headers:
   - `gbp lodging` (latest Lodging API snapshot per hotel location — readable-group count + sync time; 0 groups is a Hotel details verify signal, not proof amenities are absent)
   - `gbp places` (latest Places-API rendered-listing snapshot per location with the server-derived `amenities` list — the GBP-vs-public-listing cross-reference, #648)
   - `gbp summary` (composite scorecard over the project's SELECTED locations: performance totals + recent-vs-prior 7d deltas computed over complete days only with a `data through <date> · Nd pending` freshness line, keyword coverage, place-action CTA presence, Lodging API readable-group counts — human-readable metric labels via `formatGbpMetricLabel`, no raw `BUSINESS_*` keys; `--format json` also carries the daily `timeseries` + `freshness` the dashboard charts consume (#658). All numbers come from `GET /gbp/summary`, the command only renders)
-- Reviews are NOT here — the v4 reviews API is separately access-gated by Google; Q&A was retired.
+  - `gbp reviews` (stored reviews newest first plus each location's v4 access and latest rating; `--negative` keeps reviews at or below the project's threshold, `--limit N` caps the list. All from `GET /gbp/reviews`)
+- Q&A is not here: Google retired the API.
 
 `src/gbp-sync.ts`:
 
@@ -483,7 +592,8 @@ Date windows and headers:
 - It also fetches the last `KEYWORD_TREND_MONTHS` (3) **complete** months of per-month keyword impressions (one call per month, since the API aggregates a range into a single figure) and **accumulates** them into `gbp_keyword_monthly` (upsert the fetched months, preserve older in-retention months, prune beyond 18 months) — this is the month-over-month series the `gbp-keyword-drop` insight reads, separate from the range-replaced trailing-window snapshot. `monthMinus` anchors to day 1 before shifting months so 29th–31st syncs don't produce duplicate/skipped months.
 - Non-lodging locations (HTTP 400 → null) are skipped.
 - For lodging locations that carry a Maps `placeId`, when a Places API key is configured (top-level `places` config) it also fetches Place Details (New) and snapshot-on-changes them into `gbp_place_details` — gated by a refresh-cadence age check (`refreshIntervalDays`, default 7; the latest snapshot's `syncedAt` is re-stamped on every fetch, even when content is unchanged, so the gate throttles re-fetches of stable listings) to control cost, and best-effort (a Places error is logged, never failing the run; #648).
-- Captures per-location errors → run status completed / partial / failed. Run completion flows through `runGbpSync` (server.ts) → `RunCoordinator.onRunCompleted` for both manual and scheduled (`gbp-sync` kind) triggers.
+- Reviews (`src/gbp-reviews.ts`): each location reads the v4 reviews API (`fetchLocationReviews`), which Google enables per Cloud project only on request, so `403 SERVICE_DISABLED` is the normal case. It never fails the location: the result lands on `gbp_locations.reviews_access` / `reviews_access_reason`, and a project-wide reason is learned once per run so the remaining locations skip the call. Without v4 coverage (`businessProfileReviewsCover` in contracts: v4 works, or failed transiently where it has worked), locations on the `atmosphere` Places tier with a key and a `placeId` fall back to the public listing (`getPlaceReviewSignals`: rating, count, at most five reviews by relevance), at most once per location per `PLACES_REVIEW_MIN_INTERVAL_HOURS` (20) since it bills at Enterprise + Atmosphere; the latest Places rating row's `observed_at` is the last-fetched stamp. `persistReviewObservation` upserts `gbp_reviews`, snapshots `gbp_review_ratings` on change, and sets `alert_state`: a location's first observation per origin is a silent `baseline`; after that a new or edited (rating or text changed) review at or below the project's `negativeReviewMaxStars` (default 3, `resolveNegativeReviewMaxStars`) within 30 days is `pending`, older is `stale`; a falling Places rating is `pending`. The dispatcher re-checks the threshold, so lowering it also retires queued alerts. v4 paging stops a week before the newest stored review.
+- Captures per-location errors → run status completed / partial / failed. Run completion flows through `runGbpSync` (server.ts) → `RunCoordinator.onRunCompleted` for both manual and scheduled (`gbp-sync` kind) triggers. For `gbp-sync` runs the coordinator calls `Notifier.dispatchReviewAlerts`, which sends queued rows as `review.negative` / `review.rating-dropped` and settles each one: `sent` after a destination accepted it, `pending` again when every delivery failed, `skipped` with no subscriber, `suppressed` for a Places signal once v4 covers the location, `stale` past the 30-day window.
 
 ### OpenAI ads commands
 

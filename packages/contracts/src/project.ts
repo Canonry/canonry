@@ -2,8 +2,10 @@ import { z } from 'zod'
 import { validationError } from './errors.js'
 import { locationContextSchema, providerModelsSchema, providerNameSchema, type LocationContext } from './provider.js'
 import { measurementConfigSchema, defaultMeasurementConfig } from './measurement.js'
+import { providerDispatchModesSchema } from './provider-batch.js'
 import { brandLabelFromDomain, hostOf } from './url-normalize.js'
 import { brandKeyFromText } from './brand-matching.js'
+import { gbpNegativeReviewMaxStarsSchema } from './gbp.js'
 import { MIN_DOMAIN_BRAND_KEY_LENGTH } from './answer-visibility.js'
 
 export const configSourceSchema = z.enum(['cli', 'api', 'config-file'])
@@ -98,10 +100,21 @@ export const projectUpsertRequestSchema = z.object({
   labels: z.record(z.string(), z.string()).optional(),
   providers: z.array(providerNameSchema).optional(),
   providerModels: providerModelsSchema.optional(),
+  /**
+   * Provider -> `sync` or `batch` for SCHEDULED sweeps. Omitted leaves the
+   * stored preference unchanged; `{}` clears it.
+   */
+  providerDispatchModes: providerDispatchModesSchema.optional(),
   locations: z.array(locationContextSchema).optional(),
   defaultLocation: z.string().nullable().optional(),
   measurement: measurementConfigSchema.optional(),
   autoExtractBacklinks: z.boolean().optional(),
+  /**
+   * Highest star rating that counts as a negative Google review for this
+   * project's `review.negative` webhook (1-4). Omit to keep the stored value;
+   * null resets to the default of 3.
+   */
+  negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.nullable().optional(),
   configSource: configSourceSchema.optional(),
 })
 
@@ -155,10 +168,18 @@ export const projectDtoSchema = z.object({
   providers: z.array(z.string()).default([]),
   /** Per-project model overrides; an empty map inherits instance settings. */
   providerModels: providerModelsSchema.default({}),
+  /**
+   * How scheduled sweeps dispatch each provider. An unlisted provider runs
+   * `sync`. A `batch` entry takes effect only on a full plan sweep, for a
+   * provider this instance can batch; otherwise that provider runs sync.
+   */
+  providerDispatchModes: providerDispatchModesSchema.default({}),
   locations: z.array(locationContextSchema).default([]),
   defaultLocation: z.string().nullable().optional(),
   measurement: measurementConfigSchema.default(defaultMeasurementConfig),
   autoExtractBacklinks: z.boolean().default(false),
+  /** Negative Google review threshold in stars; null means the default of 3. */
+  negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.nullable().optional(),
   configSource: configSourceSchema.default('cli'),
   configRevision: z.number().int().positive().default(1),
   createdAt: z.string().optional(),

@@ -3,6 +3,8 @@ import type {
   HealthWebhookPayload,
   InsightWebhookPayload,
   NotificationEvent,
+  RatingWebhookPayload,
+  ReviewWebhookPayload,
   WebhookPayload,
 } from '@ainyc/canonry-contracts'
 
@@ -34,6 +36,11 @@ export const AlertFieldLabels = {
   run: 'Run',
   changes: 'Changes',
   insights: 'Insights',
+  location: 'Location',
+  rating: 'Rating',
+  reviewer: 'Reviewer',
+  replied: 'Replied',
+  source: 'Source',
 } as const
 export type AlertFieldLabel = (typeof AlertFieldLabels)[keyof typeof AlertFieldLabels]
 
@@ -57,11 +64,17 @@ export interface AlertView {
   timestamp?: string
 }
 
+/** Every payload shape a notification can carry. */
+export type AnyNotificationPayload =
+  | WebhookPayload
+  | InsightWebhookPayload
+  | HealthWebhookPayload
+  | ReviewWebhookPayload
+  | RatingWebhookPayload
+
 const HEALTH_EVENTS: ReadonlySet<NotificationEvent> = new Set(['health.degraded', 'health.recovered'])
 
-function isHealth(
-  payload: WebhookPayload | InsightWebhookPayload | HealthWebhookPayload,
-): payload is HealthWebhookPayload {
+function isHealth(payload: AnyNotificationPayload): payload is HealthWebhookPayload {
   return HEALTH_EVENTS.has(payload.event as NotificationEvent)
 }
 
@@ -156,9 +169,100 @@ function runView(payload: WebhookPayload | InsightWebhookPayload): AlertView {
   }
 }
 
+function stars(rating: number): string {
+  const filled = Math.max(0, Math.min(5, Math.round(rating)))
+  return `${'★'.repeat(filled)}${'☆'.repeat(5 - filled)}`
+}
+
+/** Short enough for a list line; renderers clamp the whole field again. */
+function snippet(text: string, max = 160): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat
+}
+
+// Places shows at most five reviews, so an alert from it says so.
+const SOURCE_LABELS = {
+  gbp: 'Business Profile',
+  places: 'Public listing (Places, partial)',
+} as const
+
+function reviewView(payload: ReviewWebhookPayload): AlertView {
+  const { project, reviews } = payload
+  const newest = reviews.reduce<string | undefined>((latest, r) => (!latest || r.updateTime > latest ? r.updateTime : latest), undefined)
+  const origins = [...new Set(reviews.map(r => r.origin))]
+  const sourceField: AlertField = {
+    label: AlertFieldLabels.source,
+    value: origins.map(origin => SOURCE_LABELS[origin]).join(', '),
+    compact: true,
+  }
+
+  if (reviews.length === 1) {
+    const review = reviews[0]!
+    const fields: AlertField[] = [
+      { label: AlertFieldLabels.location, value: review.location.displayName, compact: true },
+      { label: AlertFieldLabels.rating, value: `${stars(review.starRating)} (${review.starRating}/5)`, compact: true },
+    ]
+    if (review.reviewerName) fields.push({ label: AlertFieldLabels.reviewer, value: review.reviewerName, compact: true })
+    if (review.replied !== null) fields.push({ label: AlertFieldLabels.replied, value: review.replied ? 'yes' : 'no', compact: true })
+    fields.push(sourceField)
+    return {
+      severity: AlertSeverities.warning,
+      title: `${project.name}: new ${review.starRating}-star review`,
+      body: review.comment ?? 'Rating only, no text.',
+      fields,
+      url: review.reviewUri ?? review.location.mapsUri ?? payload.dashboardUrl,
+      footer: project.canonicalDomain,
+      timestamp: review.updateTime,
+    }
+  }
+
+  return {
+    severity: AlertSeverities.warning,
+    title: `${project.name}: ${reviews.length} new negative reviews`,
+    body: bulletList(reviews.map(r => {
+      const text = r.comment ? ` "${snippet(r.comment)}"` : ''
+      const by = r.reviewerName ? ` (${r.reviewerName})` : ''
+      return `${stars(r.starRating)} ${r.location.displayName}:${text}${by}`
+    })),
+    fields: [sourceField],
+    url: payload.dashboardUrl,
+    footer: project.canonicalDomain,
+    ...(newest ? { timestamp: newest } : {}),
+  }
+}
+
+function ratingView(payload: RatingWebhookPayload): AlertView {
+  const { project, ratings } = payload
+  const line = (r: RatingWebhookPayload['ratings'][number]): string => {
+    const counts = r.previousReviewCount !== null && r.reviewCount !== null
+      ? ` (${r.previousReviewCount} → ${r.reviewCount} reviews)`
+      : ''
+    return `${r.location.displayName}: ${r.previousRating} → ${r.rating}${counts}`
+  }
+  const single = ratings.length === 1 ? ratings[0]! : null
+  return {
+    severity: AlertSeverities.warning,
+    title: single
+      ? `${project.name}: Google rating fell to ${single.rating}`
+      : `${project.name}: Google rating fell at ${ratings.length} locations`,
+    body: single ? line(single) : bulletList(ratings.map(line)),
+    fields: [
+      { label: AlertFieldLabels.source, value: SOURCE_LABELS.places, compact: true },
+      {
+        label: AlertFieldLabels.remediation,
+        value: 'Read the newest reviews on Google Maps. Without Business Profile review access, Canonry sees at most five of them.',
+      },
+    ],
+    url: single?.location.mapsUri ?? payload.dashboardUrl,
+    footer: project.canonicalDomain,
+    timestamp: ratings.reduce((latest, r) => (r.observedAt > latest ? r.observedAt : latest), ratings[0]?.observedAt ?? ''),
+  }
+}
+
 /** Project any notification payload onto the neutral view. */
-export function toAlertView(
-  payload: WebhookPayload | InsightWebhookPayload | HealthWebhookPayload,
-): AlertView {
-  return isHealth(payload) ? healthView(payload) : runView(payload)
+export function toAlertView(payload: AnyNotificationPayload): AlertView {
+  if (isHealth(payload)) return healthView(payload)
+  if (payload.event === 'review.negative') return reviewView(payload as ReviewWebhookPayload)
+  if (payload.event === 'review.rating-dropped') return ratingView(payload as RatingWebhookPayload)
+  return runView(payload as WebhookPayload | InsightWebhookPayload)
 }

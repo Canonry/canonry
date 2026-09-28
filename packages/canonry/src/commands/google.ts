@@ -1,5 +1,6 @@
 import type {
   GscPerformanceDailyDto,
+  GscQueryTotalsDto,
   GscSubmitSitemapsResponseDto,
   GscUrlInspectionDto,
   IndexingRequestResultDto,
@@ -7,7 +8,7 @@ import type {
 import { type ApiClient, createApiClient } from '../client.js'
 import { CliError, EXIT_SYSTEM_ERROR, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError, formatPercent } from '@ainyc/canonry-contracts'
 
 const INDEXING_API_SCOPE_NOTICE =
   "Note: Google's Indexing API officially supports only pages with JobPosting or BroadcastEvent (livestream VideoObject) structured data. " +
@@ -299,7 +300,7 @@ export async function googlePerformanceDaily(project: string, opts: {
   }
   console.log(`  Clicks:      ${clicks.toLocaleString()}`)
   console.log(`  Impressions: ${impressions.toLocaleString()}`)
-  console.log(`  CTR:         ${(ctr * 100).toFixed(2)}%`)
+  console.log(`  CTR:         ${formatPercent(ctr)}`)
   console.log(`  Position:    ${position == null ? '—' : position.toFixed(1)}`)
 
   // The same fit the dashboard chart draws, so the two surfaces can never
@@ -360,9 +361,7 @@ export async function googlePerformanceDaily(project: string, opts: {
       }
       if (ratio === 0) return 'no change'
       const better = inverted ? ratio < 0 : ratio > 0
-      const magnitude = Math.abs(ratio * 100)
-      const shown = magnitude < 0.1 ? '<0.1' : magnitude.toFixed(1)
-      return `${ratio > 0 ? '+' : '-'}${shown}%  ${better ? 'better' : 'worse'}`
+      return `${ratio > 0 ? '+' : '-'}${formatPercent(Math.abs(ratio))}  ${better ? 'better' : 'worse'}`
     }
     console.log(
       `\nLast ${cmp.days} day${cmp.days === 1 ? '' : 's'} (${cmp.trailing.startDate} to ${cmp.trailing.endDate})`
@@ -394,7 +393,7 @@ export async function googlePerformanceDaily(project: string, opts: {
   console.log(`  ${'─'.repeat(12)}${'─'.repeat(10)}${'─'.repeat(12)}${'─'.repeat(10)}${'─'.repeat(9)}`)
   for (const row of data.daily) {
     console.log(
-      `  ${row.date.padEnd(12)}${row.clicks.toLocaleString().padStart(10)}${row.impressions.toLocaleString().padStart(12)}${(row.ctr * 100).toFixed(2).padStart(9)}%${(row.position == null ? '—' : row.position.toFixed(1)).padStart(9)}`,
+      `  ${row.date.padEnd(12)}${row.clicks.toLocaleString().padStart(10)}${row.impressions.toLocaleString().padStart(12)}${formatPercent(row.ctr).padStart(10)}${(row.position == null ? '—' : row.position.toFixed(1)).padStart(9)}`,
     )
   }
 }
@@ -435,7 +434,7 @@ export async function googleTopPages(project: string, opts: {
   for (const row of data.rows) {
     const page = row.page.length > pageWidth ? row.page.slice(0, pageWidth - 3) + '...' : row.page
     console.log(
-      `  ${page.padEnd(pageWidth)}${row.clicks.toLocaleString().padStart(10)}${row.impressions.toLocaleString().padStart(12)}${(row.ctr * 100).toFixed(2).padStart(9)}%`,
+      `  ${page.padEnd(pageWidth)}${row.clicks.toLocaleString().padStart(10)}${row.impressions.toLocaleString().padStart(12)}${formatPercent(row.ctr).padStart(10)}`,
     )
   }
 
@@ -445,7 +444,7 @@ export async function googleTopPages(project: string, opts: {
     console.log(`Property total (${days} day${days === 1 ? '' : 's'}, source: ${data.totalsSource}):`)
     console.log(`  Clicks:      ${clicks.toLocaleString()}`)
     console.log(`  Impressions: ${impressions.toLocaleString()}`)
-    console.log(`  CTR:         ${(ctr * 100).toFixed(2)}%`)
+    console.log(`  CTR:         ${formatPercent(ctr)}`)
     console.log()
     console.log('  The page rows above are a ranking. They do not add up to this total:')
     console.log('  Google withholds rare queries and repeats an impression per page.')
@@ -453,6 +452,76 @@ export async function googleTopPages(project: string, opts: {
     console.log('Property total: not available for this window.')
     console.log('  Adding up the page rows would not give it. Run "canonry google sync" to fetch it.')
   }
+}
+
+export async function googleQueryTotals(project: string, opts: {
+  window?: string
+  startDate?: string
+  endDate?: string
+  limit?: number
+  offset?: number
+  format?: string
+}): Promise<void> {
+  const client = getClient()
+  const params: Record<string, string> = {}
+  if (opts.startDate) params.startDate = opts.startDate
+  if (opts.endDate) params.endDate = opts.endDate
+  if (opts.window) params.window = opts.window
+  if (opts.limit !== undefined) params.limit = String(opts.limit)
+  if (opts.offset !== undefined) params.offset = String(opts.offset)
+
+  const data: GscQueryTotalsDto = await client.gscQueryTotals(project, Object.keys(params).length > 0 ? params : undefined)
+  const { rows, totalMatching, truncated, window } = data
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(data, null, 2))
+    return
+  } else if (opts.format === 'jsonl') {
+    emitJsonl(rows.map((row) => ({ project, window, ...row })))
+    return
+  }
+
+  if (rows.length === 0) {
+    // Queries exist, this page just starts past the end of them. The fix is a
+    // smaller offset, not a sync.
+    if (totalMatching > 0) {
+      console.log(
+        `Offset ${opts.offset ?? 0} is past the end of the result set (${totalMatching.toLocaleString()} queries). Lower --offset to page through them.`,
+      )
+      return
+    }
+    console.log('No GSC query data found in this window. Run "canonry google sync" first.')
+    return
+  }
+
+  const range = `${window.startDate ?? 'earliest'} to ${window.endDate ?? 'latest'}`
+  console.log(`GSC query totals (${rows.length.toLocaleString()} of ${totalMatching.toLocaleString()} queries, ${range}):\n`)
+  const showSource = rows.some((row) => row.source !== 'google')
+  console.log(
+    `  ${'QUERY'.padEnd(40)}${'CLICKS'.padStart(8)}${'IMPR'.padStart(10)}${'CTR'.padStart(8)}${'POS'.padStart(7)}${'DAYS'.padStart(6)}${showSource ? '  SOURCE' : ''}`,
+  )
+  console.log(`  ${'─'.repeat(40)}${'─'.repeat(8)}${'─'.repeat(10)}${'─'.repeat(8)}${'─'.repeat(7)}${'─'.repeat(6)}${showSource ? `  ${'─'.repeat(11)}` : ''}`)
+  for (const row of rows.slice(0, 50)) {
+    const query = row.query.length > 38 ? row.query.slice(0, 35) + '...' : row.query
+    console.log(
+      `  ${query.padEnd(40)}${row.clicks.toLocaleString().padStart(8)}${row.impressions.toLocaleString().padStart(10)}${formatPercent(row.ctr).padStart(8)}${row.position.toFixed(1).padStart(7)}${String(row.days).padStart(6)}${showSource ? `  ${row.source}` : ''}`,
+    )
+  }
+  if (rows.length > 50) {
+    console.log(`\n  ... and ${rows.length - 50} more rows on this page (use --format json for full output)`)
+  }
+  if (truncated) {
+    const nextOffset = (opts.offset ?? 0) + rows.length
+    console.log(`\n  This is one page. Use --offset ${nextOffset} (with the same --limit) to read the next.`)
+  }
+  console.log()
+  if (showSource) {
+    console.log('  Rows marked page-summed or mixed use the legacy page table for some days. Their impressions')
+    console.log('  over-count, because one search showing several of your pages was stored once per page.')
+    console.log('  Run "canonry google sync" over the window to replace them with Google\'s per-query totals.')
+  }
+  console.log('  These are the queries Google names. Google leaves rare queries out, so the rows do not add up')
+  console.log('  to the property total. Use "canonry google performance-daily" for that.')
 }
 
 export async function googlePerformance(project: string, opts: {
@@ -528,7 +597,7 @@ export async function googlePerformance(project: string, opts: {
   for (const row of rows.slice(0, 50)) {
     const query = row.query.length > 28 ? row.query.slice(0, 25) + '...' : row.query
     console.log(
-      `  ${row.date.padEnd(12)}${query.padEnd(30)}${String(row.clicks).padEnd(8)}${String(row.impressions).padEnd(8)}${(row.ctr * 100).toFixed(1).padStart(5)}%  ${row.position.toFixed(1).padStart(5)}`,
+      `  ${row.date.padEnd(12)}${query.padEnd(30)}${String(row.clicks).padEnd(8)}${String(row.impressions).padEnd(8)}${formatPercent(row.ctr).padStart(6)}  ${row.position.toFixed(1).padStart(5)}`,
     )
   }
   if (rows.length > 50) {
@@ -617,13 +686,7 @@ export async function googleInspections(project: string, opts: { url?: string; f
 
 export async function googleCoverage(project: string, format?: string): Promise<void> {
   const client = getClient()
-  const result = await client.gscCoverage(project) as {
-    summary: { total: number; indexed: number; notIndexed: number; deindexed: number; percentage: number }
-    lastInspectedAt: string | null
-    indexed: Array<{ url: string; indexingState: string | null; crawlTime: string | null }>
-    notIndexed: Array<{ url: string; indexingState: string | null; coverageState: string | null }>
-    deindexed: Array<{ url: string; previousState: string | null; currentState: string | null; transitionDate: string }>
-  }
+  const result = await client.gscCoverage(project)
 
   if (isMachineFormat(format)) {
     console.log(JSON.stringify(result, null, 2))
@@ -636,11 +699,18 @@ export async function googleCoverage(project: string, format?: string): Promise<
     return
   }
 
+  // `percentage` is the indexed share rounded to a tenth: coarse enough to pick
+  // the colour band, and all a server that predates the unrounded shares sends.
   const pctColor = summary.percentage >= 80 ? '\x1b[32m' : summary.percentage >= 50 ? '\x1b[33m' : '\x1b[31m'
   const reset = '\x1b[0m'
+  // The server's own shares, the same two the dashboard donut draws.
+  const legacyServer = (summary as { indexedShare?: number | null }).indexedShare === undefined
+  const shareText = legacyServer
+    ? `(${formatPercent(summary.percentage, 'percent')})`
+    : `(${formatPercent(summary.indexedShare)}) · ${summary.notIndexed} not indexed (${formatPercent(summary.notIndexedShare)})`
 
   console.log(`\nIndex Coverage for "${project}"\n`)
-  console.log(`  SUMMARY: ${pctColor}${summary.indexed} / ${summary.total} pages indexed (${summary.percentage}%)${reset}\n`)
+  console.log(`  SUMMARY: ${pctColor}${summary.indexed} / ${summary.total} pages indexed ${shareText}${reset}\n`)
 
   if (result.indexed.length > 0) {
     console.log(`  INDEXED (${result.indexed.length}):`)

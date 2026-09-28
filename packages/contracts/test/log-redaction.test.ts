@@ -41,6 +41,55 @@ describe('log redaction', () => {
     expect(serialized).toContain('safe=yes')
   })
 
+  it('keeps the provider name at any depth and in any letter case', () => {
+    expect(redactLogValue({
+      provider: 'claude',
+      run: { provider: 'gemini' },
+      Provider: 'openai',
+      PROVIDER: 'perplexity',
+    })).toEqual({
+      provider: 'claude',
+      run: { provider: 'gemini' },
+      Provider: 'openai',
+      PROVIDER: 'perplexity',
+    })
+  })
+
+  it('omits raw provider payloads whatever their case or shape', () => {
+    expect(redactLogValue({
+      providerBody: { model: 'claude-sonnet-4-6', messages: [] },
+      providerResponse: { content: [{ type: 'text', text: 'raw answer' }] },
+      ProviderResponse: 'raw answer',
+      PROVIDERBODY: 'raw body',
+    })).toEqual({
+      providerBody: '[OMITTED]',
+      providerResponse: '[OMITTED]',
+      ProviderResponse: '[OMITTED]',
+      PROVIDERBODY: '[OMITTED]',
+    })
+  })
+
+  it('omits an object logged under provider, since only a name belongs there', () => {
+    expect(redactLogValue({ provider: { name: 'claude', apiResponse: { content: [] } } })).toEqual({ provider: '[OMITTED]' })
+    expect(redactLogValue({ provider: ['claude', 'gemini'] })).toEqual({ provider: '[OMITTED]' })
+  })
+
+  it('still scrubs credentials out of a provider name string', () => {
+    const { provider } = redactLogValue({ provider: 'claude api_key=fixture-secret' }) as { provider: string }
+    expect(provider).toBe('claude api_key=[REDACTED]')
+  })
+
+  it('still omits the other raw request and response graphs', () => {
+    const graph = { nested: 'raw' }
+    expect(redactLogValue({
+      req: graph, res: graph, request: graph, reply: graph, raw: graph, socket: graph,
+      headers: graph, header: graph, body: graph, responseBody: graph, apiResponse: graph, rawResponse: graph,
+    })).toEqual({
+      req: '[OMITTED]', res: '[OMITTED]', request: '[OMITTED]', reply: '[OMITTED]', raw: '[OMITTED]', socket: '[OMITTED]',
+      headers: '[OMITTED]', header: '[OMITTED]', body: '[OMITTED]', responseBody: '[OMITTED]', apiResponse: '[OMITTED]', rawResponse: '[OMITTED]',
+    })
+  })
+
   it('never throws for circular values, throwing getters, and malformed URLs', () => {
     const circular: Record<string, unknown> = {}
     circular.self = circular

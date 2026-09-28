@@ -1,4 +1,4 @@
-import type { MentionShareDto, ProjectOverviewDto, ScoreSummaryDto } from '@ainyc/canonry-contracts'
+import { formatPercent, type MentionShareDto, type ProjectOverviewDto, type ScoreSummaryDto } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 
@@ -140,8 +140,8 @@ export function renderHuman(overview: ProjectOverviewDto): void {
   printScore('Competitor press.', scores.competitorPressure)
   printScore('Run status       ', scores.runStatus)
 
-  console.log(`\n  Queries cited:     ${queryCounts.citedQueries}/${queryCounts.totalQueries} (${pct(queryCounts.citedRate)})`)
-  console.log(`  Queries mentioned: ${queryCounts.mentionedQueries}/${queryCounts.totalQueries} (${pct(queryCounts.mentionRate)})`)
+  console.log(`\n  Queries cited:     ${queryCounts.citedQueries}/${queryCounts.totalQueries} (${formatPercent(queryCounts.citedRate)})`)
+  console.log(`  Queries mentioned: ${queryCounts.mentionedQueries}/${queryCounts.totalQueries} (${formatPercent(queryCounts.mentionRate)})`)
 
   if (movementComparison.hasPreviousRun) {
     const comparisonLabel = movementComparison.querySetChanged
@@ -157,7 +157,7 @@ export function renderHuman(overview: ProjectOverviewDto): void {
   if (providers.length > 0) {
     console.log('\n  Providers:')
     for (const p of providers) {
-      console.log(`    ${p.provider.padEnd(12)} ${p.cited}/${p.total} (${pct(p.citedRate)})`)
+      console.log(`    ${p.provider.padEnd(12)} ${p.cited}/${p.total} (${formatPercent(p.citedRate)})`)
     }
   }
 
@@ -165,7 +165,7 @@ export function renderHuman(overview: ProjectOverviewDto): void {
     console.log('\n  Models:')
     for (const m of providerScores) {
       const label = `${m.provider}/${m.model ?? 'unknown'}`.padEnd(28)
-      console.log(`    ${label} ${m.cited}/${m.total} (${m.score}%)`)
+      console.log(`    ${label} ${m.cited}/${m.total} (${formatPercent(m.score, 'percent')})`)
     }
   }
 
@@ -189,7 +189,7 @@ export function renderHuman(overview: ProjectOverviewDto): void {
   }
 
   if (health) {
-    console.log(`\n  Health: ${pct(health.overallCitedRate)} cited (${health.citedPairs}/${health.totalPairs} pairs)`)
+    console.log(`\n  Health: ${formatPercent(health.overallCitedRate)} cited (${health.citedPairs}/${health.totalPairs} pairs)`)
   }
 
   if (topInsights.length > 0) {
@@ -203,7 +203,7 @@ export function renderHuman(overview: ProjectOverviewDto): void {
     console.log(`\n  Run history (last ${runHistory.length}):`)
     for (const point of runHistory) {
       const bar = '█'.repeat(Math.round(point.citationRate / 10))
-      console.log(`    ${point.createdAt.slice(0, 10)} ${String(point.citationRate).padStart(3)}% ${bar}`)
+      console.log(`    ${point.createdAt.slice(0, 10)} ${formatPercent(point.citationRate, 'percent').padStart(6)} ${bar}`)
     }
   }
 
@@ -226,25 +226,22 @@ function printScore(prefix: string, score: ScoreSummaryDto): void {
   console.log(`  ${prefix} ${tone} ${value} ${score.delta}`)
 }
 
-/** Per-competitor split of Mention Share — the same data the dashboard
- *  hero renders inline beneath the gauge. Top 3 competitors keeps the CLI
- *  output tight; the full breakdown is in the `--format json` payload. */
+/** The Mention Share head-to-head — the same server `ranking` the dashboard
+ *  table renders beneath the figure, each share as the server computed it.
+ *  The project's row always prints; the top 3 competitors keep the CLI output
+ *  tight, and the full ranking is in the `--format json` payload. */
 function printMentionShareBreakdown(mentionShare: MentionShareDto): void {
-  const { breakdown } = mentionShare
-  if (breakdown.perCompetitor.length === 0) return
-  const total = breakdown.projectMentionSnapshots + breakdown.competitorMentionSnapshots
-  if (total === 0) return
-  const youPct = ((breakdown.projectMentionSnapshots / total) * 100).toFixed(1)
-  console.log(`      you${' '.repeat(28)} ${breakdown.projectMentionSnapshots} mentions (${youPct}% of combined)`)
-  for (const row of breakdown.perCompetitor.slice(0, 3)) {
-    const pct = ((row.mentionSnapshots / total) * 100).toFixed(1)
-    console.log(`      ${row.domain.padEnd(30)} ${row.mentionSnapshots} mentions (${pct}% of combined)`)
+  // A newer CLI can be pointed at an older server that predates `ranking`.
+  const legacyCompatible = mentionShare.breakdown as { ranking?: MentionShareDto['breakdown']['ranking'] }
+  const ranking = legacyCompatible.ranking ?? []
+  const project = ranking.find(row => row.kind === 'project')
+  if (!project) return
+  const competitors = ranking.filter(row => row.kind === 'competitor')
+  console.log(`      you${' '.repeat(28)} ${project.mentionSnapshots} mentions (${formatPercent(project.share)} of combined)`)
+  for (const row of competitors.slice(0, 3)) {
+    console.log(`      ${(row.domain ?? '').padEnd(30)} ${row.mentionSnapshots} mentions (${formatPercent(row.share)} of combined)`)
   }
-  if (breakdown.perCompetitor.length > 3) {
-    console.log(`      + ${breakdown.perCompetitor.length - 3} more competitor${breakdown.perCompetitor.length - 3 === 1 ? '' : 's'} (--format json for full breakdown)`)
+  if (competitors.length > 3) {
+    console.log(`      + ${competitors.length - 3} more competitor${competitors.length - 3 === 1 ? '' : 's'} (--format json for full breakdown)`)
   }
-}
-
-function pct(value: number): string {
-  return `${(value * 100).toFixed(1)}%`
 }

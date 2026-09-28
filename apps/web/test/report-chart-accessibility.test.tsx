@@ -10,7 +10,11 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { fullReport } from '../../../packages/contracts/test/fixtures/report-dto.js'
+import { formatObservedInstantLabel, observedInstant } from '../src/components/shared/ChartPrimitives.js'
 import { cleanupReportPage, renderReportPage } from './report-page-harness.js'
+
+// A check's date is a real instant, labelled in the viewer's timezone.
+const [firstCheck, secondCheck] = fullReport().citationsTrend.map(point => formatObservedInstantLabel(observedInstant(point.date)))
 
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', class {
@@ -51,6 +55,8 @@ test.each([
   ['Clicks over time', 'Apr 1, 2026', '0', 'Apr 2, 2026', '200'],
   ['AI referral sessions over time', 'Apr 15, 2026', '100', 'Apr 16, 2026', '100'],
   ['Verified crawler hits over time (last 7 days)', 'Apr 29, 2026', '30', 'Apr 30, 2026', '45'],
+  // Citation rates are 0..100 on the wire and read through the shared percent rule.
+  ['Overall citation rate', firstCheck!, '50.0%', secondCheck!, '55.0%'],
 ])('%s exposes dated values through keyboard navigation', async (title, firstDate, firstValue, secondDate, secondValue) => {
   const report = fullReport()
   report.gsc!.trend[0]!.clicks = 0

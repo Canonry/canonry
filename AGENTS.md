@@ -209,6 +209,8 @@ The CLI and API **are** the agent interface. If an agent can't do something with
 5. Test the helper in `packages/contracts/test/<name>.test.ts`, not in its callers.
 6. When you find an inline helper that should be shared, migrate it and every caller in the same change.
 
+Show every percentage with `formatPercent(value, unit)`, never `(x * 100).toFixed(…)`: each ratio field declares its wire unit on its schema (`fraction()` / `percent()`, checked by `ratio-units.test.ts`), and `canonry-guards/no-inline-percent` flags inline percent formatting.
+
 Fit trends and other statistics server-side (`linearTrend`, `wilsonInterval`) and put them in the DTO; a regression computed in a chart component is invisible to the CLI. Render a caught `unknown` with `describeError`, never `err instanceof Error ? err.message : String(err)`.
 
 ## Backend rules at a glance

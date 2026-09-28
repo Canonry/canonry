@@ -30,11 +30,12 @@ function makeOverview(overrides: Partial<ProjectOverviewDto> = {}): ProjectOverv
     providers: [],
     transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
     scores: {
-      mention: { label: 'Mention Coverage', value: '75', delta: '6 of 8 queries mentioned', tone: 'positive', description: '', trend: [], progress: 75 },
-      visibility: { label: 'Citation Coverage', value: '50', delta: '4 of 8 queries cited', tone: 'caution', description: '', trend: [], progress: 50 },
+      // A ratio gauge's value arrives formatted by the API (formatPercent), a count gauge's as the count.
+      mention: { label: 'Mention Coverage', value: '75.0%', delta: '6 of 8 queries mentioned', tone: 'positive', description: '', trend: [], progress: 75 },
+      visibility: { label: 'Citation Coverage', value: '50.0%', delta: '4 of 8 queries cited', tone: 'caution', description: '', trend: [], progress: 50 },
       mentionShare: {
         label: 'Mention Share',
-        value: '60',
+        value: '60.0%',
         delta: '6 of 10 brand mentions',
         tone: 'positive',
         description: '',
@@ -43,9 +44,15 @@ function makeOverview(overrides: Partial<ProjectOverviewDto> = {}): ProjectOverv
         breakdown: {
           projectMentionSnapshots: 6,
           competitorMentionSnapshots: 4,
+          combinedMentionSnapshots: 10,
           perCompetitor: [
             { domain: 'rival-a.com', mentionSnapshots: 3, shareOfCompetitiveTotal: 75 },
             { domain: 'rival-b.com', mentionSnapshots: 1, shareOfCompetitiveTotal: 25 },
+          ],
+          ranking: [
+            { kind: 'project', domain: null, mentionSnapshots: 6, share: 0.6 },
+            { kind: 'competitor', domain: 'rival-a.com', mentionSnapshots: 3, share: 0.3 },
+            { kind: 'competitor', domain: 'rival-b.com', mentionSnapshots: 1, share: 0.1 },
           ],
           snapshotsWithAnswerText: 8,
           snapshotsTotal: 10,
@@ -131,7 +138,41 @@ describe('canonry overview — human output', () => {
     expect(output).toMatch(/rival-b\.com[^\n]*1 mentions \(10\.0% of combined\)/)
   })
 
-  it('omits Mention Share breakdown when no competitors are mentioned', () => {
+  it('prints each share exactly as the server ranked it, never re-derived from the counts', () => {
+    const overview = makeOverview()
+    // Deliberately not mentions / combined: the CLI must print the server's own
+    // fraction through formatPercent, so a sliver keeps its <0.1% edge.
+    overview.scores.mentionShare.breakdown.ranking = [
+      { kind: 'competitor', domain: 'rival-a.com', mentionSnapshots: 3, share: 0.9996 },
+      { kind: 'project', domain: null, mentionSnapshots: 6, share: 0.0004 },
+      { kind: 'competitor', domain: 'rival-b.com', mentionSnapshots: 1, share: 0 },
+    ]
+    output = captureOutput(() => renderHuman(overview))
+    expect(output).toMatch(/you[^\n]*6 mentions \(<0\.1% of combined\)/)
+    expect(output).toMatch(/rival-a\.com[^\n]*3 mentions \(>99\.9% of combined\)/)
+    expect(output).toMatch(/rival-b\.com[^\n]*1 mentions \(0% of combined\)/)
+  })
+
+  it('lists a tracked competitor nobody named at 0%, as the dashboard table does', () => {
+    const overview = makeOverview()
+    overview.scores.mentionShare.breakdown.ranking = [
+      { kind: 'project', domain: null, mentionSnapshots: 6, share: 1 },
+      { kind: 'competitor', domain: 'quiet.example', mentionSnapshots: 0, share: 0 },
+    ]
+    output = captureOutput(() => renderHuman(overview))
+    expect(output).toMatch(/you[^\n]*6 mentions \(100% of combined\)/)
+    expect(output).toMatch(/quiet\.example[^\n]*0 mentions \(0% of combined\)/)
+  })
+
+  it('prints no breakdown for a server that predates the ranking', () => {
+    const overview = makeOverview()
+    delete (overview.scores.mentionShare.breakdown as { ranking?: unknown }).ranking
+    output = captureOutput(() => renderHuman(overview))
+    expect(output).toContain('Mention share')
+    expect(output).not.toContain('of combined')
+  })
+
+  it('omits Mention Share breakdown when the server ranked no head-to-head', () => {
     const overview = makeOverview()
     overview.scores.mentionShare = {
       ...overview.scores.mentionShare,
@@ -140,7 +181,9 @@ describe('canonry overview — human output', () => {
       breakdown: {
         projectMentionSnapshots: 0,
         competitorMentionSnapshots: 0,
+        combinedMentionSnapshots: 0,
         perCompetitor: [],
+        ranking: [],
         snapshotsWithAnswerText: 0,
         snapshotsTotal: 0,
       },
@@ -153,15 +196,20 @@ describe('canonry overview — human output', () => {
 
   it('caps Mention Share breakdown at top-3 competitors with a "+N more" line', () => {
     const overview = makeOverview()
-    overview.scores.mentionShare.breakdown.perCompetitor = [
-      { domain: 'a.com', mentionSnapshots: 10, shareOfCompetitiveTotal: 33 },
-      { domain: 'b.com', mentionSnapshots: 9, shareOfCompetitiveTotal: 30 },
-      { domain: 'c.com', mentionSnapshots: 8, shareOfCompetitiveTotal: 27 },
-      { domain: 'd.com', mentionSnapshots: 3, shareOfCompetitiveTotal: 10 },
+    overview.scores.mentionShare.breakdown.ranking = [
+      { kind: 'competitor', domain: 'a.com', mentionSnapshots: 10, share: 10 / 36 },
+      { kind: 'competitor', domain: 'b.com', mentionSnapshots: 9, share: 9 / 36 },
+      { kind: 'competitor', domain: 'c.com', mentionSnapshots: 8, share: 8 / 36 },
+      { kind: 'project', domain: null, mentionSnapshots: 6, share: 6 / 36 },
+      { kind: 'competitor', domain: 'd.com', mentionSnapshots: 3, share: 3 / 36 },
     ]
+    overview.scores.mentionShare.breakdown.combinedMentionSnapshots = 36
     overview.scores.mentionShare.breakdown.competitorMentionSnapshots = 30
     overview.scores.mentionShare.breakdown.projectMentionSnapshots = 6
     output = captureOutput(() => renderHuman(overview))
+    // The project's row always prints, whatever its rank.
+    expect(output).toMatch(/you[^\n]*6 mentions \(16\.7% of combined\)/)
+    expect(output).toMatch(/a\.com[^\n]*10 mentions \(27\.8% of combined\)/)
     expect(output).toContain('a.com')
     expect(output).toContain('b.com')
     expect(output).toContain('c.com')
@@ -193,6 +241,21 @@ describe('canonry overview — human output', () => {
     expect(output).not.toContain('Suggested queries')
   })
 
+  it('prints each gauge value as the API sent it, with no sign of its own', () => {
+    const overview = makeOverview()
+    // 2 of 3 is 66.666667% on the wire and "66.7%" in the gauge's value.
+    overview.scores.mention = { ...overview.scores.mention, value: '66.7%', delta: '2 of 3 queries mentioned', progress: 66.666667 }
+    const lines = captureOutput(() => renderHuman(overview)).split('\n')
+    const scoreLine = (prefix: string, tone: string, value: string, delta: string) =>
+      `  ${prefix} ${`[${tone}]`.padEnd(11)} ${value.padEnd(8)} ${delta}`
+    expect(lines).toContain(scoreLine('Mention          ', 'positive', '66.7%', '2 of 3 queries mentioned'))
+    expect(lines).toContain(scoreLine('Visibility       ', 'caution', '50.0%', '4 of 8 queries cited'))
+    expect(lines).toContain(scoreLine('Mention share    ', 'positive', '60.0%', '6 of 10 brand mentions'))
+    // A count gauge stays a count, and nothing gains a second sign.
+    expect(lines).toContain(scoreLine('Gap queries      ', 'caution', '2', '2 of 8 queries at risk'))
+    expect(lines.join('\n')).not.toContain('%%')
+  })
+
   it('shows all 8 scores (no SoV — that field is gone)', () => {
     output = captureOutput(() => renderHuman(makeOverview()))
     expect(output).toContain('Mention   ')
@@ -214,6 +277,32 @@ describe('canonry overview — human output', () => {
     // Two independent lines — the mentioned line (6/8) must not borrow the cited count (4/8).
     expect(output).toMatch(/Queries cited:\s+4\/8 \(50\.0%\)/)
     expect(output).toMatch(/Queries mentioned:\s+6\/8 \(75\.0%\)/)
+  })
+
+  /**
+   * The overview mixes units: provider and health rates are 0..1 fractions,
+   * while a model score and a run-history rate arrive as 0..100 percents.
+   */
+  it('prints each rate through formatPercent in the unit its field carries', () => {
+    const overview = makeOverview({
+      providers: [{ provider: 'gemini', citedRate: 0.0004, cited: 1, total: 2500 }],
+      providerScores: [{ provider: 'openai', model: 'gpt-5', score: 75, cited: 3, total: 4 }],
+      health: {
+        id: 'h-1', projectId: 'p-1', runId: 'r-2',
+        overallCitedRate: 1, overallMentionRate: 1, totalPairs: 12, citedPairs: 12, mentionedPairs: 12,
+        providerBreakdown: {}, createdAt: '2026-05-02T00:00:00.000Z', status: 'ready',
+      },
+      runHistory: [
+        { runId: 'r-1', createdAt: '2026-05-01T00:00:00.000Z', citedCount: 1, totalCount: 2, citationRate: 50, mentionedCount: 1, mentionRate: 50, status: 'completed' },
+        { runId: 'r-2', createdAt: '2026-05-02T00:00:00.000Z', citedCount: 2, totalCount: 2, citationRate: 100, mentionedCount: 2, mentionRate: 100, status: 'completed' },
+      ],
+    })
+    const lines = captureOutput(() => renderHuman(overview)).split('\n')
+    expect(lines).toContain('    gemini       1/2500 (<0.1%)')
+    expect(lines).toContain(`    ${'openai/gpt-5'.padEnd(28)} 3/4 (75.0%)`)
+    expect(lines).toContain('  Health: 100% cited (12/12 pairs)')
+    expect(lines).toContain(`    2026-05-01  50.0% ${'█'.repeat(5)}`)
+    expect(lines).toContain(`    2026-05-02   100% ${'█'.repeat(10)}`)
   })
 
   it('renders citation and mention movement separately with query-basket comparability', () => {

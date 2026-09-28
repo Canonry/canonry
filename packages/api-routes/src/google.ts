@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, and, desc, sql, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, runs, projects, type DatabaseClient } from '@ainyc/canonry-db'
+import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, gbpReviews, gbpReviewRatings, readNegativeReviewMaxStars, runs, projects, type DatabaseClient } from '@ainyc/canonry-db'
 import {
   validationError, notFound, normalizeProjectDomain, parseWindow,
   authRequired, forbidden, quotaExceeded, providerError, escapeLikePattern, AppError,
@@ -11,6 +11,9 @@ import {
   gbpDiscoverRequestSchema, gbpLocationSelectionRequestSchema, gbpSyncRequestSchema,
   type GbpLocationDto, type GbpLocationListResponse, type GbpAccountListResponse,
   type GbpPlaceDetailsListResponse,
+  type GbpReviewListResponse,
+  isNegativeReviewRating,
+  resolveNegativeReviewMaxStars,
   gscSubmitSitemapsRequestDtoSchema,
   gscPerformanceOrderBySchema,
   formatIsoDateInTimeZone,
@@ -18,6 +21,7 @@ import {
   calendarDateRange,
   describeError,
   inclusiveDayCount,
+  percentOf,
   shiftIsoCalendarDate,
 } from '@ainyc/canonry-contracts'
 import { extractPlaceAmenities, type PlaceDetails } from '@ainyc/canonry-integration-google-places'
@@ -25,8 +29,9 @@ import { computeGscPeriodComparison, type GscComparisonBasis } from './gsc-perio
 import { buildGbpSummary } from './gbp-summary.js'
 import {
   mergeGscDailyTotalsWithFallback, readGscDailyTotals,
+  readGscQueryTotalsPage,
   readEarliestGscDataDate, readLatestGscDataDate,
-  resolveGscWindowRange, resolveGscWindowDays, type GscWindowRange,
+  resolveGscRequestWindow, resolveGscWindowRange, resolveGscWindowDays, type GscWindowRange,
 } from './gsc-totals.js'
 import { assertNotProjectScoped } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
@@ -1233,6 +1238,62 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     }
   })
 
+  // GET /projects/:name/google/gsc/query-totals
+  //
+  // One row per query over the window, read from stored rows only: no call to
+  // Google and no writes. The fold is `readGscQueryTotalsPage`, the SQL form of
+  // `mergeGscQueryTotalsWithFallback` (which the report, suggested queries and
+  // content data use), held to identical numbers by a parity test: the accurate
+  // `['date','query']` table wins per day and the legacy page-dimensioned table
+  // fills days it does not cover.
+  //
+  // The rows are the queries Google NAMES. Their sum is not the property total
+  // (Google leaves rare queries out); `performance/daily` carries that.
+  app.get<{
+    Params: { name: string }
+    Querystring: { startDate?: string; endDate?: string; window?: string; limit?: string; offset?: string }
+  }>('/projects/:name/google/gsc/query-totals', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const { startDate, endDate, limit, offset } = request.query
+    assertForwardRange(startDate, endDate)
+    // One range for the read AND the report: a label paired with an explicit
+    // end is anchored on that end, so the SQL never applies a bound the
+    // response leaves out. See `resolveGscRequestWindow`.
+    const window = resolveGscRequestWindow(
+      parseWindow(request.query.window),
+      readLatestGscDataDate(app.db, project.id),
+      gscToday(),
+      startDate,
+      endDate,
+    )
+
+    const limitVal = Math.max(parseInt(limit ?? '500', 10) || 0, 1)
+    const offsetVal = Math.max(parseInt(offset ?? '0', 10) || 0, 0)
+    // Merged, aggregated, ordered and paged in SQLite, so a page reads only its
+    // own rows. Ties break on the query by code point, so a page boundary never
+    // moves between calls and never depends on the server's locale.
+    const { rows, totalMatching } = readGscQueryTotalsPage(
+      app.db, project.id, window.startDate, window.endDate, limitVal, offsetVal,
+    )
+
+    return {
+      rows: rows.map((r) => ({
+        query: r.query,
+        clicks: r.clicks,
+        impressions: r.impressions,
+        ctr: r.impressions > 0 ? r.clicks / r.impressions : 0,
+        position: r.position,
+        days: r.days,
+        source: r.source,
+      })),
+      totalMatching,
+      // Measured from where this page ends, so a page past the end is not
+      // reported as truncated.
+      truncated: offsetVal + rows.length < totalMatching,
+      window,
+    }
+  })
+
   // POST /projects/:name/google/gsc/inspect
   app.post<{
     Params: { name: string }
@@ -1521,7 +1582,12 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         indexed,
         notIndexed,
         deindexed: deindexedUrls.length,
-        percentage: total > 0 ? Math.round((indexed / total) * 1000) / 10 : 0,
+        percentage: percentOf(indexed, total) ?? 0,
+        // The coverage donut's two arcs and the CLI summary. Every latest
+        // inspection lands in exactly one bucket, so the two shares sum to 1.
+        // Unrounded, so the two arcs add up to 1.
+        indexedShare: total > 0 ? indexed / total : null,
+        notIndexedShare: total > 0 ? notIndexed / total : null,
       },
       lastInspectedAt,
       lastSyncedAt,
@@ -2023,6 +2089,8 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     tx.delete(gbpLodgingSnapshots).where(eq(gbpLodgingSnapshots.projectId, projectId)).run()
     tx.delete(gbpAttributesSnapshots).where(eq(gbpAttributesSnapshots.projectId, projectId)).run()
     tx.delete(gbpPlaceDetails).where(eq(gbpPlaceDetails.projectId, projectId)).run()
+    tx.delete(gbpReviews).where(eq(gbpReviews.projectId, projectId)).run()
+    tx.delete(gbpReviewRatings).where(eq(gbpReviewRatings.projectId, projectId)).run()
     tx.delete(gbpLocations).where(eq(gbpLocations.projectId, projectId)).run()
   }
 
@@ -2373,7 +2441,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         valueThreshold: r.valueThreshold ?? null,
       })),
       total: rows.length,
-      thresholdedPct: rows.length ? Math.round((thresholded / rows.length) * 100) : 0,
+      thresholdedPct: percentOf(thresholded, rows.length) ?? 0,
     }
   })
 
@@ -2493,6 +2561,85 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     return { places, total: places.length }
   })
 
+  // GET /projects/:name/gbp/reviews — stored reviews newest first, from the
+  // Business Profile v4 API or the public Places fallback, plus each location's
+  // v4 access state and latest rating. `negative` means at or below the
+  // project's threshold (`negativeReviewMaxStars`, 3 by default), the one the
+  // `review.negative` webhook uses, so reads and alerts never disagree.
+  app.get<{
+    Params: { name: string }
+    Querystring: { locationName?: string; negative?: string; limit?: string }
+  }>('/projects/:name/gbp/reviews', async (request): Promise<GbpReviewListResponse> => {
+    const project = resolveProject(app.db, request.params.name)
+    const { locationName } = request.query
+    const negativeOnly = parseReviewNegativeFlag(request.query.negative)
+    const limit = parseReviewLimit(request.query.limit)
+    const negativeMaxStars = resolveNegativeReviewMaxStars(readNegativeReviewMaxStars(app.db, project.id))
+
+    // Selected locations, or the one asked for even if it is no longer selected.
+    const locationRows = app.db.select().from(gbpLocations)
+      .where(and(
+        eq(gbpLocations.projectId, project.id),
+        locationName ? eq(gbpLocations.locationName, locationName) : eq(gbpLocations.selected, true),
+      ))
+      .orderBy(gbpLocations.displayName)
+      .all()
+    // Only the source still being fetched keeps advancing `observed_at`, so the
+    // most recent row per location is the current rating.
+    const latestRating = new Map<string, typeof gbpReviewRatings.$inferSelect>()
+    for (const row of app.db.select().from(gbpReviewRatings)
+      .where(eq(gbpReviewRatings.projectId, project.id))
+      .orderBy(desc(gbpReviewRatings.observedAt))
+      .all()) {
+      if (!latestRating.has(row.locationName)) latestRating.set(row.locationName, row)
+    }
+    const locations = locationRows.map((loc) => {
+      const rating = latestRating.get(loc.locationName)
+      return {
+        locationName: loc.locationName,
+        displayName: loc.displayName,
+        reviewsAccess: loc.reviewsAccess ?? null,
+        reviewsAccessReason: loc.reviewsAccessReason ?? null,
+        reviewsCheckedAt: loc.reviewsCheckedAt ?? null,
+        rating: rating?.rating ?? null,
+        reviewCount: rating?.reviewCount ?? null,
+        ratingOrigin: rating?.origin ?? null,
+        ratingObservedAt: rating?.observedAt ?? null,
+      }
+    })
+
+    const conditions = [eq(gbpReviews.projectId, project.id)]
+    if (locationName) conditions.push(eq(gbpReviews.locationName, locationName))
+    if (negativeOnly) conditions.push(sql`${gbpReviews.starRating} BETWEEN 1 AND ${negativeMaxStars}`)
+    const total = app.db.select({ n: sql<number>`count(*)` }).from(gbpReviews).where(and(...conditions)).get()?.n ?? 0
+    const reviews = app.db.select().from(gbpReviews)
+      .where(and(...conditions))
+      .orderBy(desc(gbpReviews.updateTime), gbpReviews.reviewName)
+      .limit(limit)
+      .all()
+      .map((r) => ({
+        locationName: r.locationName,
+        origin: r.origin,
+        reviewName: r.reviewName,
+        starRating: r.starRating,
+        negative: isNegativeReviewRating(r.starRating, negativeMaxStars),
+        comment: r.comment,
+        reviewerName: r.reviewerName,
+        createTime: r.createTime,
+        updateTime: r.updateTime,
+        // Places does not expose owner replies, so "no reply stored" means unknown there.
+        replied: r.origin === 'places' ? null : r.replyComment !== null,
+        replyComment: r.replyComment,
+        replyUpdateTime: r.replyUpdateTime,
+        reviewUri: r.reviewUri,
+        firstSeenAt: r.firstSeenAt,
+        lastSeenAt: r.lastSeenAt,
+        alertState: r.alertState,
+        alertStateAt: r.alertStateAt,
+      }))
+    return { negativeMaxStars, locations, reviews, total }
+  })
+
   // GET /projects/:name/gbp/summary — composite, all derived numbers server-side.
   app.get<{
     Params: { name: string }
@@ -2564,4 +2711,22 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     })
   })
 
+}
+
+const REVIEW_LIST_DEFAULT_LIMIT = 50
+const REVIEW_LIST_MAX_LIMIT = 500
+
+function parseReviewNegativeFlag(value: string | undefined): boolean {
+  if (value === undefined || value === '' || value === 'false' || value === '0') return false
+  if (value === 'true' || value === '1') return true
+  throw validationError('"negative" must be "true" or "false"')
+}
+
+function parseReviewLimit(value: string | undefined): number {
+  if (value === undefined || value === '') return REVIEW_LIST_DEFAULT_LIMIT
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > REVIEW_LIST_MAX_LIMIT) {
+    throw validationError(`"limit" must be an integer from 1 to ${REVIEW_LIST_MAX_LIMIT}`)
+  }
+  return parsed
 }

@@ -1,0 +1,23 @@
+{
+  "name": "@ainyc/canonry-provider-muse",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run --config ../../vitest.package.config.ts",
+    "lint": "eslint src/ test/"
+  },
+  "dependencies": {
+    "@ainyc/canonry-contracts": "workspace:*",
+    "openai": "^6.0.0"
+  }
+}

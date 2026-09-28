@@ -51,7 +51,7 @@ function performanceDaily(overrides: Record<string, unknown> = {}) {
     },
     // Derived from DAILY: prior = 07-01..07-02, trailing = 07-03..07-04.
     // clicks 15 -> 35 (+133.3%), impressions 1800 -> 1000 (-44.4%),
-    // ctr 15/1800 -> 35/1000 (+320%), position 11.556 -> 9.6 (-16.9%, BETTER).
+    // ctr 15/1800 -> 35/1000 (+320.0%), position 11.556 -> 9.6 (-16.9%, BETTER).
     periodComparison: {
       days: 2,
       comparable: true,
@@ -154,7 +154,7 @@ test('compares the trailing period against the prior equal period', async () => 
   // totals; nothing is read off the fitted line.
   expect(tile('Clicks').textContent).toContain('↑ 133.3% vs prior 2d')
   expect(tile('Impressions').textContent).toContain('↓ 44.4% vs prior 2d')
-  expect(tile('CTR').textContent).toContain('↑ 320% vs prior 2d')
+  expect(tile('CTR').textContent).toContain('↑ 320.0% vs prior 2d')
   // Position FALLING is an improvement — the one metric where a negative
   // change is good news, and the case a naive `change > 0` arrow gets
   // backwards.
@@ -242,7 +242,7 @@ test('preserves tiny movement and marks a rising average position as worse', asy
   await waitFor(() => expect(tile('Clicks')).not.toBeNull())
   expect(tile('Clicks').textContent).toContain('↑ <0.1% vs prior 2d')
   // Position ROSE, which is a worse rank, so the arrow points down.
-  expect(tile('Avg position').textContent).toContain('↓ 25% vs prior 2d')
+  expect(tile('Avg position').textContent).toContain('↓ 25.0% vs prior 2d')
 })
 
 test('toggles a metric on and off but refuses to leave the chart empty', async () => {

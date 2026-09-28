@@ -65,6 +65,13 @@ describe('canonry run trigger', () => {
     expect(lastBody()).not.toHaveProperty('measurementScope')
   })
 
+  it('dispatches Muse as the selected provider for a probe run', async () => {
+    await dispatch(['run', 'trigger', 'planned', '--provider', 'muse', '--probe'])
+    expect(mockTriggerRun).toHaveBeenCalledTimes(1)
+    expect(mockTriggerRun.mock.calls[0]![0]).toBe('planned')
+    expect(lastBody()).toMatchObject({ providers: ['muse'], trigger: 'probe' })
+  })
+
   it('accepts the same scope flags on the bare `canonry run` form', async () => {
     await dispatch(['run', 'planned', '--group', 'metro-group'])
     expect(lastBody().measurementScope).toEqual({ groups: ['metro-group'] })

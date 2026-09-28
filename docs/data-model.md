@@ -34,6 +34,10 @@ erDiagram
   projects ||--o{ health_snapshots : has
 
   runs ||--o{ query_snapshots : contains
+  runs ||--o{ run_fills : "completed by"
+  runs ||--o{ provider_batches : "dispatches"
+  provider_batches ||--o{ provider_batch_requests : "maps custom_id to slot"
+  provider_batches ||--o{ query_snapshots : "recorded"
   runs ||--o{ insights : "analyzed in"
   runs ||--o{ health_snapshots : "scored in"
   queries ||--o{ query_snapshots : "tracked in"
@@ -64,6 +68,9 @@ erDiagram
   projects ||--o{ gbp_lodging_snapshots : has
   projects ||--o{ gbp_attributes_snapshots : has
   projects ||--o{ gbp_place_details : has
+  projects ||--o{ gbp_reviews : has
+  projects ||--o{ gbp_review_ratings : has
+  projects ||--o| gbp_review_settings : has
 
   projects ||--o{ gsc_search_data : has
   projects ||--o{ gsc_daily_totals : has
@@ -99,14 +106,17 @@ erDiagram
 
 | Table | Purpose | Key Constraints |
 |-------|---------|----------------|
-| **projects** | Root entity — domain, location config, provider list, per-project `provider_models` overrides, `measurement_config` (JSON: marketing hosts, brand terms, and GA4 lead-event names), optional `icp_description` (free-text ICP used by discovery seed phase) | Unique: `name` |
+| **projects** | Root entity — domain, location config, provider list, per-project `provider_models` overrides, `provider_dispatch_modes` (JSON: provider → `sync`/`batch`, read by scheduled sweeps only), `measurement_config` (JSON: marketing hosts, brand terms, and GA4 lead-event names), optional `icp_description` (free-text ICP used by discovery seed phase) | Unique: `name` |
 | **queries** | Tracked queries per project. `provenance` tags where the entry came from (e.g. `cli`, `discovery:<session_id>`) so adopted basket entries can be traced back to a discovery run. | Unique: `(projectId, query)` |
 | **competitors** | Competitor domains per project. `provenance` tags origin (`cli`, `discovery:<session_id>`) for the same traceability reason. | Unique: `(projectId, domain)` |
 | **measurement_plans** | Optional active-plan pointer for a project. | PK: `projectId`; composite FK `(projectId, activeVersionId)` → plan version |
 | **measurement_plan_versions** | Immutable canonical Target-model revisions. A revision freezes project brand identity, Targets, optional reporting groups, URL matchers, query snapshots, deduplicated execution nodes with expected snapshot counts, and baseline/Target usage edges. Groups never own queries or execution edges. | Unique: `(projectId, revision)` |
 | **measurement_segments** | Stable project-local identity for a Target or group, including its immutable `kind`. Only explicit retirement permanently prevents key reuse; omission from a revision does not. First publish a revision without the key, then run `canonry measurement-plan retire <project> <stable-key>` (or the matching API/MCP mutation). Retirement is idempotent and irreversible. Labels, memberships, aliases, and URL matchers remain versioned in canonical plan JSON. | Unique: `(projectId, stableKey)` |
-| **runs** | Existing sweep executions. A run queued for a project with an active plan pins `measurement_plan_version_id` and freezes its execution graph, provider list, and any group/target scope in `measurement_manifest`; planless runs keep both null. | FK: projectId → projects; optional composite FK `(projectId, measurementPlanVersionId)` → plan version |
-| **query_snapshots** | Per-query per-provider results. A row written by a plan-aware run also records `measurement_execution_id`, the `requested_context` it was measured under, and `supported_context` — filled only when the provider actually forwards the location, null otherwise. Historical and planless rows keep all three null. | FK: runId → runs, queryId → queries |
+| **runs** | Existing sweep executions. A run queued for a project with an active plan pins `measurement_plan_version_id` and freezes its execution graph, provider list, and any group/target scope in `measurement_manifest`; planless runs keep both null. `provider_dispatch_modes` freezes which providers go to a batch API (null = all sync); `pending_provider_errors` holds sync-provider errors while finalization waits on a batch. | FK: projectId → projects; optional composite FK `(projectId, measurementPlanVersionId)` → plan version |
+| **query_snapshots** | Per-query per-provider results. A row written by a plan-aware run also records `measurement_execution_id`, the `requested_context` it was measured under, and `supported_context` — filled only when the provider actually forwards the location, null otherwise. Historical and planless rows keep all three null. `dispatch_mode` (`sync`/`batch`), `provider_batch_id`, `stop_reason`, and `usage` (tokens, searches, estimated cost) are null on rows that predate batch dispatch. | FK: runId → runs, queryId → queries, providerBatchId → provider_batches (SET NULL, indexed) |
+| **run_fills** | One attempt to complete a partial plan run in place; its answers land in the parent run's own snapshot rows. | Composite FK `(projectId, runId)` → runs |
+| **provider_batches** | One batch submitted to a provider's asynchronous batch API for a run (see `docs/batch-mode.md`). Written as `submitting` before the submit call; carries the provider's batch id, status, counts, deadline, and the stored daily-quota reservation. | Composite FK `(projectId, runId)` → runs (CASCADE); indexes on `status`, `run_id` |
+| **provider_batch_requests** | Maps each batch line's short `custom_id` (the row id) to its slot: execution id, query, requested model and location, and the ingest `outcome`. | FK: batchId → provider_batches (CASCADE), queryId → queries (SET NULL, indexed); unique `(batchId, executionId)` |
 | **research_runs** | Saved batch header for ad-hoc model research. Isolated from tracked monitoring; `initiatedBy` records the account or API key that started new runs. Historical rows can be null. | FK: projectId → projects, unique `(projectId, idempotencyKey)` |
 | **research_run_queries** | One persisted answer/evidence result per research batch query. | FK: researchRunId → research_runs, unique `(researchRunId, position)` |
 | **schedules** | Cron schedules (1:1 with project) | Unique: projectId |
@@ -298,7 +308,7 @@ Local-AEO signals. The OAuth connection reuses `google_connections` with `connec
 
 | Table | Purpose |
 |-------|---------|
-| **gbp_locations** | Discovered locations per project; `selected` flags which feed sync + analytics. `place_id` / `maps_uri` (from location metadata) link a location to the Places API. FK: projectId → projects |
+| **gbp_locations** | Discovered locations per project; `selected` flags which feed sync + analytics. `place_id` / `maps_uri` (from location metadata) link a location to the Places API. `reviews_access` / `reviews_access_reason` / `reviews_checked_at` record the last v4 reviews attempt (`ok`, `unavailable` with Google's reason such as `SERVICE_DISABLED`, or `error`). FK: projectId → projects |
 | **gbp_daily_metrics** | Daily performance metrics per (location, date, metric). Range-replaced each sync. |
 | **gbp_keyword_impressions** | Search-keyword impressions over the trailing synced window (one aggregate per keyword; `period_start`/`period_end` are YYYY-MM). Range-replaced each sync. Unique: `(projectId, locationName, periodEnd, keyword)` |
 | **gbp_keyword_monthly** | Per-month keyword impressions series — **accumulates** across syncs (recent complete months upserted, older in-retention months preserved) so intelligence can detect month-over-month keyword drops. Unique: `(projectId, locationName, month, keyword)` |
@@ -306,6 +316,9 @@ Local-AEO signals. The OAuth connection reuses `google_connections` with `connec
 | **gbp_lodging_snapshots** | Hotel Lodging API resource, snapshot-on-change. `populated_group_count = 0` means the Lodging API returned no readable structured groups; live testing found this can happen even when the owner-facing "Hotel details" panel has amenities set, so it is a verify signal, not a confirmed gap. |
 | **gbp_attributes_snapshots** | Owner-set Business Profile attributes (Business Information API `getAttributes`), snapshot-on-change. The generic, any-category amenity / service / accessibility / identity / social-URL tags the owner has set (e.g. `has_onsite_services`, `offers_online_estimates`, `is_owned_by_women`, `url_instagram`). `attribute_count` is the count of set attributes (the API returns only set ones), so unlike lodging this is a reliable owner-readable completeness signal. Works for every business type, not just hotels. |
 | **gbp_place_details** | Places (New) rendered-listing snapshots (amenities, accessibility, editorial summary) for lodging locations, fetched via the Places API key and snapshot-on-changed. `tier` records the field-mask SKU. Cross-referenced against the lodging profile for the `gbp-listing-discrepancy` insight (#648). |
+| **gbp_reviews** | One row per review per origin: `gbp` (Business Profile v4, every review) or `places` (public listing, at most five by relevance). Upserted on `(project_id, origin, review_name)`; timestamps normalized to millisecond ISO. `alert_state` (`none`, `baseline`, `stale`, `pending`, `sent`, `skipped`, `suppressed`) is the `review.negative` webhook queue. |
+| **gbp_review_settings** | Per-project review alert settings: `negative_review_max_stars`, the highest star rating that counts as negative for `review.negative` (1-4). A row exists only while a project overrides the default of 3; served as `ProjectDto.negativeReviewMaxStars`. Kept off `projects` so the root table stays unchanged. PK and cascade FK: `project_id`. |
+| **gbp_review_ratings** | Average rating and review count per location and origin, snapshot-on-change (`observed_at` re-stamped when unchanged), with the replaced values in `previous_*`. The first row per location and origin is the baseline marker for review alerts; a falling Places rating queues `review.rating-dropped` through `alert_state`. |
 
 ### Integrations — OpenAI Ads (ChatGPT ads)
 
@@ -388,6 +401,11 @@ Several text columns store serialized JSON. Always use `parseJsonColumn()` from 
 | `projects.ownedDomains` | `string[]` |
 | `measurement_plan_versions.canonicalJson` | `MeasurementPlan` (native `mode: 'json'`) |
 | `runs.measurementManifest` | `MeasurementRunManifest` (native `mode: 'json'`) |
+| `runs.providerDispatchModes` | `Record<provider, 'batch'>` (native `mode: 'json'`; null = every provider sync) |
+| `runs.pendingProviderErrors` | `Record<provider, message>` (native `mode: 'json'`) |
+| `projects.providerDispatchModes` | `ProviderDispatchModesMap` (native `mode: 'json'`) |
+| `query_snapshots.usage` | `SnapshotUsage` (native `mode: 'json'`) |
+| `provider_batch_requests.requestedContext` | `LocationContext` (native `mode: 'json'`) |
 | `query_snapshots.citedDomains` | `string[]` |
 | `query_snapshots.groundingSources` | `GroundingSource[]` |
 | `query_snapshots.competitorOverlap` | `string[]` (legacy mixed mention/citation evidence; never a metric source by itself) |

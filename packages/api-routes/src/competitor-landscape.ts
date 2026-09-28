@@ -1,8 +1,9 @@
-import { and, eq, gte, inArray } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNull } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   competitors,
   domainClassifications,
+  groupRunsByCreatedAt,
   measurementPlanVersions,
   querySnapshots,
   queries,
@@ -12,11 +13,14 @@ import {
 import {
   brandLabelFromDomain,
   competitorLandscapeQuerySchema,
+  COMPETITOR_LANDSCAPE_COUNT_UNITS,
   COMPETITOR_LANDSCAPE_MODEL_GROUP_LIMIT,
   COMPETITOR_LANDSCAPE_OBSERVED_NAME_LIMIT,
   hostOf,
+  LATEST_RUN_ID,
   parseStoredMeasurementPlanAnyVersion,
   parseWindow,
+  POOLED_RUN_ID_LIMIT,
   registrableDomain,
   RunKinds,
   RunStatuses,
@@ -29,10 +33,12 @@ import {
   type CompetitorLandscapeResponse,
 } from '@ainyc/canonry-contracts'
 import { buildCompetitorLandscapeHistory, type CompetitorLandscapeIdentity, type CompetitorLandscapeSurfaceClass } from '@ainyc/canonry-intelligence'
-import { resolveProject } from './helpers.js'
+import { notProbeRun, resolveProject } from './helpers.js'
 import { buildMentionShareInputs, observedCompetitorNames, projectQueryClassifier } from './mention-share-inputs.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
 import { draftRow, parseStoredAuthoring } from './measurement-draft-repo.js'
+import { latestMeasurementRun } from './measurement-report-adapter.js'
+import { measurementRunCompleteness } from './measurement-run-completeness.js'
 import { classifyModelEvidence } from './model-evidence.js'
 
 type RawQuery = {
@@ -84,6 +90,45 @@ export async function competitorLandscapeRoutes(app: FastifyInstance) {
   })
 }
 
+/**
+ * The runs of the project's latest sweep: what `runId=latest` reads. With an
+ * active measurement plan it is the run the measurement reads display, the
+ * newest completed whole-project run of the active revision (or a comparable
+ * one). Without a plan it is the newest completed or partial sweep that filled
+ * every slot it promised, with one run per location when the sweep fanned out
+ * across locations. Empty when no sweep qualifies.
+ */
+export function latestSweepRuns(db: DatabaseClient, projectId: string): Array<typeof runs.$inferSelect> {
+  const active = activeMeasurementPlan(db, projectId)
+  if (active) {
+    const run = latestMeasurementRun(db, projectId, active.version.id, [RunStatuses.completed])
+    return run ? [run] : []
+  }
+  const candidates = db.select().from(runs).where(and(
+    eq(runs.projectId, projectId),
+    eq(runs.kind, RunKinds['answer-visibility']),
+    inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
+    notProbeRun(),
+    // A scoped spot check is never the latest sweep.
+    isNull(runs.measurementScope),
+  )).orderBy(desc(runs.createdAt), desc(runs.id)).all()
+  for (const group of groupRunsByCreatedAt(candidates)) {
+    const whole = group.filter(run => measurementRunCompleteness(db, run.id).complete)
+    if (whole.length > 0) return whole
+  }
+  return []
+}
+
+/** Run ids newest first (id DESC within one timestamp), capped for the response. */
+export function pooledRunIds(pooled: ReadonlyArray<Pick<typeof runs.$inferSelect, 'id' | 'createdAt'>>): string[] {
+  return [...pooled]
+    .sort((left, right) => (
+      left.createdAt === right.createdAt ? compareStoredIds(right.id, left.id) : compareStoredIds(right.createdAt, left.createdAt)
+    ))
+    .slice(0, POOLED_RUN_ID_LIMIT)
+    .map(run => run.id)
+}
+
 /** Internal readers may pin a run/answer population without changing scope rules. */
 export function readCompetitorLandscape(
   app: Pick<FastifyInstance, 'db'>,
@@ -108,6 +153,11 @@ export function readCompetitorLandscape(
       && activeMeasurementPlan(app.db, project.id)?.plan.schemaVersion === 2) filters.scope = 'all-markets'
     const window = parseWindow(filters.window)
     const cutoff = windowCutoff(window)
+    // `latest` names the sweep the measurement reads display, so a class read
+    // no longer has to pool every sweep in the window to avoid guessing an id.
+    const latestRunIds = filters.runId === LATEST_RUN_ID
+      ? latestSweepRuns(app.db, project.id).map(run => run.id)
+      : null
 
     // Pull the selected run population before deciding which observations count.
     // The explicit excluded counts below make probe and non-terminal omission
@@ -116,7 +166,7 @@ export function readCompetitorLandscape(
       eq(runs.projectId, project.id),
       eq(runs.kind, RunKinds['answer-visibility']),
       selection ? inArray(runs.id, [...selection.runIds]) : undefined,
-      filters.runId ? eq(runs.id, filters.runId) : undefined,
+      latestRunIds ? inArray(runs.id, latestRunIds) : filters.runId ? eq(runs.id, filters.runId) : undefined,
       cutoff ? gte(runs.createdAt, cutoff) : undefined,
     )).all()
     const advanced = filters.groupKey || filters.scope === 'all-markets'
@@ -178,6 +228,10 @@ export function readCompetitorLandscape(
         && run.status !== RunStatuses.completed && run.status !== RunStatuses.partial
     }).length
     const snapshots = inScope.filter(snapshot => eligibleRuns.has(snapshot.runId))
+    // The runs whose answers are counted, not every run the window touched: a
+    // run with no answer in scope pools nothing.
+    const countedRunIds = new Set(snapshots.map(snapshot => snapshot.runId))
+    const countedRuns = candidateRuns.filter(run => countedRunIds.has(run.id))
 
     const classificationRows = app.db.select({
       domain: domainClassifications.domain,
@@ -344,6 +398,9 @@ export function readCompetitorLandscape(
         runId: filters.runId ?? null,
       },
       truncated,
+      runCount: countedRuns.length,
+      runIds: pooledRunIds(countedRuns),
+      countUnits: COMPETITOR_LANDSCAPE_COUNT_UNITS,
       ...(modelComparison ? { modelComparison } : {}),
     }
     return response

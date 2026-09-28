@@ -32,7 +32,7 @@ import { AiTrafficHistoryPanel } from './AiTrafficHistoryPanel.js'
 import { MetricsWindowPicker } from '../shared/MetricsWindowPicker.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
-import type { MetricsWindow } from '@ainyc/canonry-contracts'
+import { formatPercent, type MetricsWindow } from '@ainyc/canonry-contracts'
 import type { MetricTone } from '../../view-models.js'
 import {
   toneFromTrafficSourceStatus,
@@ -327,17 +327,14 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
       // `window === 'all'` collapses to omitting the param; helper-level
       // contracts treat unset / 'all' identically.
       const windowParam = trafficWindow === 'all' ? undefined : trafficWindow
-      // `/ga/traffic` still returns a loose-object response in the spec —
-      // cast through `ApiGaTraffic` until `GaTrafficResponse` gains a Zod
-      // schema and gets registered. SDK type is `{[k: string]: unknown}`.
-      const trafficData = await queryClient.fetchQuery({
+      const trafficData: ApiGaTraffic = await queryClient.fetchQuery({
         ...getApiV1ProjectsByNameGaTrafficOptions({
           client: heyClient,
           path: { name: projectName },
           query: windowParam ? { window: windowParam } : undefined,
         }),
         staleTime: TRAFFIC_STALE_MS,
-      }).then((data) => data as unknown as ApiGaTraffic)
+      })
 
       // A window token is rolling for direct API/CLI callers, while the
       // traffic response may use a stored aggregate's exact measured dates.
@@ -585,7 +582,6 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
   const organicPctDisplay = traffic?.organicSharePctDisplay ?? '0%'
   const breakdownOrganicPctDisplay = traffic?.channelBreakdown?.organic.sharePctDisplay ?? organicPctDisplay
   const breakdownOrganicSessions = traffic?.channelBreakdown?.organic.sessions ?? traffic?.totalOrganicSessions ?? 0
-  const aiSessions = traffic?.aiSessionsDeduped ?? 0
   const aiSessionsBySession = traffic?.channelBreakdown?.ai.sessions ?? traffic?.aiSessionsBySession ?? 0
   const aiSharePctBySessionDisplay = traffic?.channelBreakdown?.ai.sharePctDisplay ?? traffic?.aiSharePctBySessionDisplay ?? '0%'
   const paidAiSessionsBySession = traffic?.paidAiSessionsBySession ?? 0
@@ -887,7 +883,7 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
                     </thead>
                     <tbody>
                       {sortedAiReferrals.map((referral) => (
-                        <AiReferralRow key={`${referral.source}:${referral.medium}:${referral.sourceDimension}`} referral={referral} totalSessions={aiSessions} />
+                        <AiReferralRow key={`${referral.source}:${referral.medium}:${referral.sourceDimension}`} referral={referral} />
                       ))}
                     </tbody>
                   </table>
@@ -1182,7 +1178,7 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
                             ? sortedSocialReferrals
                             : sortedSocialReferrals.slice(0, SOCIAL_TABLE_DEFAULT_LIMIT)
                           ).map((referral) => (
-                            <SocialReferralRow key={`${referral.source}:${referral.medium}:${referral.channelGroup}`} referral={referral} totalSessions={socialSessions} />
+                            <SocialReferralRow key={`${referral.source}:${referral.medium}:${referral.channelGroup}`} referral={referral} />
                           ))}
                         </tbody>
                       </table>
@@ -1506,9 +1502,7 @@ function AttributionStat({
 }
 
 function LandingPageRow({ page }: { page: ApiGaTrafficPage }) {
-  const organicPct = page.sessions > 0
-    ? ((page.organicSessions / page.sessions) * 100).toFixed(1)
-    : '0.0'
+  const organicShare = formatPercent(page.organicShare)
 
   return (
     <tr className="border-t border-subtle">
@@ -1522,7 +1516,7 @@ function LandingPageRow({ page }: { page: ApiGaTrafficPage }) {
         {page.organicSessions.toLocaleString()}
       </td>
       <td className="py-1.5 text-right text-secondary tabular-nums">
-        {organicPct}%
+        {organicShare}
       </td>
     </tr>
   )
@@ -1540,14 +1534,8 @@ const DIMENSION_TOOLTIPS: Record<string, string> = {
   manual_utm: 'Detected via GA4 sessionManualSource (explicit utm_source parameter for the session)',
 }
 
-function AiReferralRow({
-  referral,
-  totalSessions,
-}: {
-  referral: ApiGaTrafficReferral
-  totalSessions: number
-}) {
-  const share = totalSessions > 0 ? ((referral.sessions / totalSessions) * 100).toFixed(1) : '0.0'
+function AiReferralRow({ referral }: { referral: ApiGaTrafficReferral }) {
+  const share = formatPercent(referral.share)
   const dimLabel = DIMENSION_LABELS[referral.sourceDimension] ?? referral.sourceDimension
   const dimTooltip = DIMENSION_TOOLTIPS[referral.sourceDimension] ?? ''
   const trafficClassLabel = referral.trafficClass === 'paid' ? 'Paid' : 'Organic'
@@ -1587,7 +1575,7 @@ function AiReferralRow({
         {referral.sessions.toLocaleString()}
       </td>
       <td className="py-1.5 text-right text-secondary tabular-nums">
-        {share}%
+        {share}
       </td>
     </tr>
   )
@@ -1620,14 +1608,8 @@ function AiReferralLandingPageRow({ row }: { row: ApiGaTrafficAiLandingPage }) {
   )
 }
 
-function SocialReferralRow({
-  referral,
-  totalSessions,
-}: {
-  referral: ApiGaSocialReferral
-  totalSessions: number
-}) {
-  const share = totalSessions > 0 ? ((referral.sessions / totalSessions) * 100).toFixed(1) : '0.0'
+function SocialReferralRow({ referral }: { referral: ApiGaSocialReferral }) {
+  const share = formatPercent(referral.share)
   const channelLabel = referral.channelGroup === 'Paid Social' ? 'Paid' : 'Organic'
   const sourceDisplay = decodeSocialSourceLabel(referral.source)
   const mediumDisplay = decodeSocialSourceLabel(referral.medium)
@@ -1652,7 +1634,7 @@ function SocialReferralRow({
         {referral.sessions.toLocaleString()}
       </td>
       <td className="py-1.5 text-right text-secondary tabular-nums">
-        {share}%
+        {share}
       </td>
     </tr>
   )

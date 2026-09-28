@@ -2081,6 +2081,23 @@ export type BrandMetricsDto = {
     };
     trend: 'improving' | 'declining' | 'stable';
     mentionTrend: 'improving' | 'declining' | 'stable';
+    windowChange: {
+        citationRate: {
+            first: number;
+            latest: number;
+            delta: number;
+        } | null;
+        mentionRate: {
+            first: number;
+            latest: number;
+            delta: number;
+        } | null;
+        mentionShare: {
+            first: number;
+            latest: number;
+            delta: number;
+        } | null;
+    };
     queryChanges: Array<{
         date: string;
         delta: number;
@@ -2531,6 +2548,13 @@ export type CompetitorLandscapeResponse = {
         runId: string | null;
     };
     truncated: boolean;
+    runCount?: number;
+    runIds?: Array<string>;
+    countUnits?: {
+        answers: Array<string>;
+        distinctNames: Array<string>;
+        runs: Array<string>;
+    };
 };
 
 export type ContentGapsResponseDto = {
@@ -3518,6 +3542,191 @@ export type Ga4SyncResponseDto = {
     syncedComponents?: Array<string>;
 };
 
+export type GaAttributionTrendResponse = {
+    organic: {
+        sessions7d: number;
+        sessionsPrev7d: number;
+        trend7dPct: number | null;
+        sessions30d: number;
+        sessionsPrev30d: number;
+        trend30dPct: number | null;
+    };
+    ai: {
+        sessions7d: number;
+        sessionsPrev7d: number;
+        trend7dPct: number | null;
+        sessions30d: number;
+        sessionsPrev30d: number;
+        trend30dPct: number | null;
+    };
+    social: {
+        sessions7d: number;
+        sessionsPrev7d: number;
+        trend7dPct: number | null;
+        sessions30d: number;
+        sessionsPrev30d: number;
+        trend30dPct: number | null;
+    };
+    direct: {
+        sessions7d: number;
+        sessionsPrev7d: number;
+        trend7dPct: number | null;
+        sessions30d: number;
+        sessionsPrev30d: number;
+        trend30dPct: number | null;
+    };
+    total: {
+        sessions7d: number;
+        sessionsPrev7d: number;
+        trend7dPct: number | null;
+        sessions30d: number;
+        sessionsPrev30d: number;
+        trend30dPct: number | null;
+    };
+    aiBiggestMover: {
+        source: string;
+        sessions7d: number;
+        sessionsPrev7d: number;
+        changeSessions: number;
+        changePct: number | null;
+        changeBasis: 'new' | 'small-base' | 'percent';
+    } | null;
+    socialBiggestMover: {
+        source: string;
+        sessions7d: number;
+        sessionsPrev7d: number;
+        changeSessions: number;
+        changePct: number | null;
+        changeBasis: 'new' | 'small-base' | 'percent';
+    } | null;
+};
+
+export type GaSocialReferralTrendResponse = {
+    socialSessions7d: number;
+    socialSessionsPrev7d: number;
+    trend7dPct: number | null;
+    socialSessions30d: number;
+    socialSessionsPrev30d: number;
+    trend30dPct: number | null;
+    biggestMover: {
+        source: string;
+        sessions7d: number;
+        sessionsPrev7d: number;
+        changeSessions: number;
+        changePct: number | null;
+        changeBasis: 'new' | 'small-base' | 'percent';
+    } | null;
+};
+
+export type GaTrafficResponse = {
+    totalSessions: number;
+    totalOrganicSessions: number;
+    totalDirectSessions: number;
+    totalUsers: number | null;
+    topPages: Array<{
+        landingPage: string;
+        sessions: number;
+        organicSessions: number;
+        directSessions: number;
+        users: number;
+        organicShare: number | null;
+    }>;
+    aiReferrals: Array<{
+        source: string;
+        medium: string;
+        trafficClass: 'organic' | 'paid';
+        sessions: number;
+        users?: number;
+        sourceDimension: 'session' | 'first_user' | 'manual_utm';
+        share: number;
+    }>;
+    aiReferralLandingPages: Array<{
+        source: string;
+        medium: string;
+        trafficClass: 'organic' | 'paid';
+        sourceDimension: 'session' | 'first_user' | 'manual_utm';
+        landingPage: string;
+        sessions: number;
+        users?: number;
+    }>;
+    aiSessionsDeduped: number;
+    aiUsersDeduped?: number;
+    paidAiSessionsDeduped: number;
+    paidAiUsersDeduped?: number;
+    organicAiSessionsDeduped: number;
+    organicAiUsersDeduped?: number;
+    aiSessionsBySession: number;
+    aiUsersBySession?: number;
+    paidAiSessionsBySession: number;
+    paidAiUsersBySession?: number;
+    organicAiSessionsBySession: number;
+    organicAiUsersBySession?: number;
+    socialReferrals: Array<{
+        source: string;
+        medium: string;
+        sessions: number;
+        users?: number;
+        channelGroup: string;
+        share: number;
+    }>;
+    socialSessions: number;
+    socialUsers?: number;
+    channelBreakdown: {
+        organic: {
+            sessions: number;
+            sharePct: number;
+            sharePctDisplay: string;
+        };
+        social: {
+            sessions: number;
+            sharePct: number;
+            sharePctDisplay: string;
+        };
+        direct: {
+            sessions: number;
+            sharePct: number;
+            sharePctDisplay: string;
+        };
+        ai: {
+            sessions: number;
+            sharePct: number;
+            sharePctDisplay: string;
+        };
+        other: {
+            sessions: number;
+            sharePct: number;
+            sharePctDisplay: string;
+        };
+    };
+    organicSharePct: number;
+    aiSharePct: number;
+    aiSharePctBySession: number;
+    paidAiSharePct: number;
+    paidAiSharePctBySession: number;
+    organicAiSharePct: number;
+    organicAiSharePctBySession: number;
+    directSharePct: number;
+    socialSharePct: number;
+    organicSharePctDisplay: string;
+    aiSharePctDisplay: string;
+    aiSharePctBySessionDisplay: string;
+    paidAiSharePctDisplay: string;
+    paidAiSharePctBySessionDisplay: string;
+    organicAiSharePctDisplay: string;
+    organicAiSharePctBySessionDisplay: string;
+    directSharePctDisplay: string;
+    socialSharePctDisplay: string;
+    otherSessions: number;
+    otherSharePct: number;
+    otherSharePctDisplay: string;
+    lastSyncedAt: string | null;
+    windowStart: string | null;
+    windowEnd: string | null;
+    windowDays: number | null;
+    periodStart: string | null;
+    periodEnd: string | null;
+};
+
 export type GbpAccountListResponse = {
     accounts: Array<{
         name: string;
@@ -3661,6 +3870,41 @@ export type GbpPlaceDetailsListResponse = {
         place: {
             [key: string]: unknown;
         };
+    }>;
+    total: number;
+};
+
+export type GbpReviewListResponse = {
+    negativeMaxStars: number;
+    locations: Array<{
+        locationName: string;
+        displayName: string;
+        reviewsAccess: 'ok' | 'unavailable' | 'error';
+        reviewsAccessReason: string | null;
+        reviewsCheckedAt: string | null;
+        rating: number | null;
+        reviewCount: number | null;
+        ratingOrigin: 'gbp' | 'places';
+        ratingObservedAt: string | null;
+    }>;
+    reviews: Array<{
+        locationName: string;
+        origin: 'gbp' | 'places';
+        reviewName: string;
+        starRating: number | null;
+        negative: boolean;
+        comment: string | null;
+        reviewerName: string | null;
+        createTime: string | null;
+        updateTime: string;
+        replied: boolean | null;
+        replyComment: string | null;
+        replyUpdateTime: string | null;
+        reviewUri: string | null;
+        firstSeenAt: string;
+        lastSeenAt: string;
+        alertState: 'none' | 'baseline' | 'stale' | 'pending' | 'sent' | 'skipped' | 'suppressed';
+        alertStateAt: string | null;
     }>;
     total: number;
 };
@@ -4131,6 +4375,8 @@ export type GscCoverageSummaryDto = {
         notIndexed: number;
         deindexed: number;
         percentage: number;
+        indexedShare: number | null;
+        notIndexedShare: number | null;
     };
     lastInspectedAt: string | null;
     lastSyncedAt: string | null;
@@ -4329,6 +4575,26 @@ export type GscTopPagesDto = {
     totalsSource: 'property-daily';
     rankedFrom: string | null;
     rankedThrough: string | null;
+};
+
+export type GscQueryTotalsDto = {
+    rows: Array<{
+        query: string;
+        clicks: number;
+        impressions: number;
+        ctr: number;
+        position: number;
+        days: number;
+        source: 'google' | 'page-summed' | 'mixed';
+    }>;
+    totalMatching: number;
+    truncated: boolean;
+    window: {
+        startDate: string | null;
+        endDate: string | null;
+        latestDataDate: string | null;
+        daysSinceLatestData: number | null;
+    };
 };
 
 export type GscDiscoverSitemapsResponseDto = {
@@ -5350,6 +5616,9 @@ export type LatestProjectRunDto = {
             };
         } | null;
         queryBasketRevision?: number | null;
+        dispatchModes?: {
+            [key: string]: 'batch';
+        };
         createdAt: string;
         snapshots?: Array<{
             id: string;
@@ -5401,7 +5670,44 @@ export type LatestProjectRunDto = {
                     timezone?: string;
                 } | null;
             } | null;
+            dispatchMode?: 'sync' | 'batch' | null;
+            stopReason?: string | null;
+            usage?: {
+                inputTokens: number;
+                cachedInputTokens: number;
+                cacheWriteTokens: number;
+                outputTokens: number;
+                searchCount: number;
+                pricingTier: 'standard' | 'batch';
+                estimatedCostMicros: number | null;
+                priceSource: 'default' | 'override' | null;
+            } | null;
             createdAt: string;
+        }>;
+        providerBatches?: Array<{
+            id: string;
+            provider: string;
+            model: string;
+            status: 'submitting' | 'submitted' | 'ended' | 'ingested' | 'cancelled' | 'failed' | 'unknown';
+            requestCount: number;
+            ingestedCount: number;
+            recordedCount: number;
+            submittedAt: string | null;
+            endedAt: string | null;
+            deadlineAt: string;
+            error: string | null;
+        }>;
+        usage?: Array<{
+            provider: string;
+            pricingTier: 'standard' | 'batch';
+            answers: number;
+            inputTokens: number;
+            cachedInputTokens: number;
+            cacheWriteTokens: number;
+            outputTokens: number;
+            searchCount: number;
+            estimatedCostMicros: number | null;
+            unpricedAnswers: number;
         }>;
     } | null;
 };
@@ -6218,6 +6524,7 @@ export type MeasurementChangesResponse = {
         executionIdentity: string | null;
         measurementScope: 'full' | 'spot_check' | null;
     };
+    queryClass?: 'all' | 'branded' | 'non-brand';
     comparison: {
         state: 'available';
         previous: {
@@ -6235,7 +6542,6 @@ export type MeasurementChangesResponse = {
                     value: number;
                     numerator?: number;
                     denominator?: number;
-                    unattributed?: number;
                 } | {
                     state: 'unavailable';
                     reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -6245,7 +6551,6 @@ export type MeasurementChangesResponse = {
                     value: number;
                     numerator?: number;
                     denominator?: number;
-                    unattributed?: number;
                 } | {
                     state: 'unavailable';
                     reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -6309,6 +6614,181 @@ export type MeasurementChangesResponse = {
                 state: 'unavailable';
                 reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
             };
+        };
+        metricsByClass?: {
+            branded: {
+                propertiesMentioned: {
+                    state: 'available';
+                    previous: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    current: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    delta: number;
+                } | {
+                    state: 'unavailable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                };
+                mentionCoverage: {
+                    state: 'available';
+                    previous: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                        unattributed?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    current: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                        unattributed?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    delta: number;
+                } | {
+                    state: 'unavailable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                };
+                citationCoverage: {
+                    state: 'available';
+                    previous: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                        unattributed?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    current: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                        unattributed?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    delta: number;
+                } | {
+                    state: 'unavailable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                };
+            };
+            nonBrand: {
+                propertiesMentioned: {
+                    state: 'available';
+                    previous: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    current: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    delta: number;
+                } | {
+                    state: 'unavailable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                };
+                mentionCoverage: {
+                    state: 'available';
+                    previous: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                        unattributed?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    current: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                        unattributed?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    delta: number;
+                } | {
+                    state: 'unavailable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                };
+                citationCoverage: {
+                    state: 'available';
+                    previous: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                        unattributed?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    current: {
+                        state: 'available';
+                        value: number;
+                        numerator?: number;
+                        denominator?: number;
+                        unattributed?: number;
+                    } | {
+                        state: 'unavailable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    };
+                    delta: number;
+                } | {
+                    state: 'unavailable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                };
+            };
+        };
+        sort?: 'magnitude' | 'label';
+        distribution?: {
+            improved: number;
+            declined: number;
+            mixed: number;
+            withinNoise: number;
+            unchanged: number;
+            notComparable: number;
+            total: number;
+            noiseAnswers: 2;
         };
         changedProperties: Array<{
             targetKey: string;
@@ -6368,6 +6848,10 @@ export type MeasurementChangesResponse = {
                 reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
             };
             flags: number;
+            mentionAnswersDelta?: number | null;
+            citationAnswersDelta?: number | null;
+            denominatorChanged?: boolean;
+            withinNoise?: boolean;
         }>;
         totalProperties: number;
         truncated: boolean;
@@ -6434,6 +6918,32 @@ export type MeasurementDataQualityResponse = {
         state: 'unavailable';
         reason: 'no_previous_run' | 'execution_identity_changed' | 'incomplete' | 'not_comparable';
     };
+    unattributedByClass?: {
+        branded: {
+            state: 'available';
+            answered: number;
+            unattributed: number;
+        } | {
+            state: 'unavailable';
+            reason: 'no_completed_run' | 'incomplete' | 'evidence_incomplete' | 'no_population' | 'not_applicable';
+        };
+        nonBrand: {
+            state: 'available';
+            answered: number;
+            unattributed: number;
+        } | {
+            state: 'unavailable';
+            reason: 'no_completed_run' | 'incomplete' | 'evidence_incomplete' | 'no_population' | 'not_applicable';
+        };
+    };
+    latestFill?: {
+        status: 'queued' | 'running' | 'completed' | 'partial' | 'failed';
+        providers: Array<string>;
+        expected: number;
+        filled: number;
+        createdAt: string;
+        finishedAt: string | null;
+    } | null;
 };
 
 export type MeasurementDraftResponse = {
@@ -6660,7 +7170,6 @@ export type MeasurementOverviewResponse = {
             value: number;
             numerator?: number;
             denominator?: number;
-            unattributed?: number;
         } | {
             state: 'unavailable';
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -6713,6 +7222,14 @@ export type MeasurementOverviewResponse = {
         items: Array<{
             targetKey: string;
             label: string;
+            metro?: {
+                groupKey: string;
+                label: string;
+            } | null;
+            otherMetros?: Array<{
+                groupKey: string;
+                label: string;
+            }>;
             mentionCoverage: {
                 state: 'available';
                 value: number;
@@ -6807,7 +7324,6 @@ export type MeasurementPortfolioSummaryResponse = {
             value: number;
             numerator?: number;
             denominator?: number;
-            unattributed?: number;
         } | {
             state: 'unavailable';
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -6904,6 +7420,15 @@ export type MeasurementPortfolioSummaryResponse = {
         mentionRate: number;
         citationRate: number;
         note: 'tied Properties are ordered by name, not ranked';
+        byMetro?: Array<{
+            metro: string | null;
+            count: number;
+        }>;
+        namedInstead?: Array<{
+            name: string;
+            answers: number;
+        }>;
+        namedInsteadTotal?: number;
     } | null;
     weakestAnswerSources: {
         properties: number;
@@ -6996,7 +7521,6 @@ export type MeasurementPortfolioSummaryResponse = {
             value: number;
             numerator?: number;
             denominator?: number;
-            unattributed?: number;
         } | {
             state: 'unavailable';
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -8222,6 +8746,12 @@ export type MeasurementPropertyCompetitorsResponse = {
     }>;
     total: number;
     truncated: boolean;
+    citedDomains?: Array<{
+        domain: string;
+        answers: number;
+    }>;
+    citedDomainsTotal?: number;
+    citedDomainsAnswers?: number;
 };
 
 export type MeasurementPropertyEvidenceResponse = {
@@ -8668,7 +9198,7 @@ export type NotificationDto = {
     url: string;
     urlDisplay: string;
     urlHost: string;
-    events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered'>;
+    events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'review.negative' | 'review.rating-dropped'>;
     enabled: boolean;
     source?: string;
     webhookSecret?: string;
@@ -8988,6 +9518,9 @@ export type ProjectCreateRequest = {
     providerModels?: {
         [key: string]: string;
     };
+    providerDispatchModes?: {
+        [key: string]: 'sync' | 'batch';
+    };
     locations?: Array<{
         label: string;
         city: string;
@@ -9002,6 +9535,7 @@ export type ProjectCreateRequest = {
         leadEventNames: Array<string>;
     };
     autoExtractBacklinks?: boolean;
+    negativeReviewMaxStars?: number | null;
     configSource?: 'cli' | 'api' | 'config-file';
     name: string;
 };
@@ -9023,6 +9557,9 @@ export type ProjectDto = {
     providerModels: {
         [key: string]: string;
     };
+    providerDispatchModes: {
+        [key: string]: 'sync' | 'batch';
+    };
     locations: Array<{
         label: string;
         city: string;
@@ -9037,6 +9574,7 @@ export type ProjectDto = {
         leadEventNames: Array<string>;
     };
     autoExtractBacklinks: boolean;
+    negativeReviewMaxStars?: number | null;
     configSource: 'cli' | 'api' | 'config-file';
     configRevision: number;
     createdAt?: string;
@@ -9058,6 +9596,9 @@ export type ProjectUpsertRequest = {
     providerModels?: {
         [key: string]: string;
     };
+    providerDispatchModes?: {
+        [key: string]: 'sync' | 'batch';
+    };
     locations?: Array<{
         label: string;
         city: string;
@@ -9072,6 +9613,7 @@ export type ProjectUpsertRequest = {
         leadEventNames: Array<string>;
     };
     autoExtractBacklinks?: boolean;
+    negativeReviewMaxStars?: number | null;
     configSource?: 'cli' | 'api' | 'config-file';
 };
 
@@ -9097,6 +9639,9 @@ export type ProjectConfig = {
         providers: Array<string>;
         providerModels: {
             [key: string]: string;
+        };
+        providerDispatchModes?: {
+            [key: string]: 'sync' | 'batch';
         };
         locations: Array<{
             label: string;
@@ -9126,7 +9671,7 @@ export type ProjectConfig = {
         notifications: Array<{
             channel: 'webhook';
             url: string;
-            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered'>;
+            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'review.negative' | 'review.rating-dropped'>;
         }>;
         google?: {
             gsc?: {
@@ -9138,6 +9683,7 @@ export type ProjectConfig = {
             };
         };
         autoExtractBacklinks: boolean;
+        negativeReviewMaxStars?: number;
     };
 };
 
@@ -9159,6 +9705,9 @@ export type ProjectOverviewDto = {
         providerModels: {
             [key: string]: string;
         };
+        providerDispatchModes: {
+            [key: string]: 'sync' | 'batch';
+        };
         locations: Array<{
             label: string;
             city: string;
@@ -9173,6 +9722,7 @@ export type ProjectOverviewDto = {
             leadEventNames: Array<string>;
         };
         autoExtractBacklinks: boolean;
+        negativeReviewMaxStars?: number | null;
         configSource: 'cli' | 'api' | 'config-file';
         configRevision: number;
         createdAt?: string;
@@ -9218,6 +9768,9 @@ export type ProjectOverviewDto = {
                 };
             } | null;
             queryBasketRevision?: number | null;
+            dispatchModes?: {
+                [key: string]: 'batch';
+            };
             createdAt: string;
             snapshots?: Array<{
                 id: string;
@@ -9269,7 +9822,44 @@ export type ProjectOverviewDto = {
                         timezone?: string;
                     } | null;
                 } | null;
+                dispatchMode?: 'sync' | 'batch' | null;
+                stopReason?: string | null;
+                usage?: {
+                    inputTokens: number;
+                    cachedInputTokens: number;
+                    cacheWriteTokens: number;
+                    outputTokens: number;
+                    searchCount: number;
+                    pricingTier: 'standard' | 'batch';
+                    estimatedCostMicros: number | null;
+                    priceSource: 'default' | 'override' | null;
+                } | null;
                 createdAt: string;
+            }>;
+            providerBatches?: Array<{
+                id: string;
+                provider: string;
+                model: string;
+                status: 'submitting' | 'submitted' | 'ended' | 'ingested' | 'cancelled' | 'failed' | 'unknown';
+                requestCount: number;
+                ingestedCount: number;
+                recordedCount: number;
+                submittedAt: string | null;
+                endedAt: string | null;
+                deadlineAt: string;
+                error: string | null;
+            }>;
+            usage?: Array<{
+                provider: string;
+                pricingTier: 'standard' | 'batch';
+                answers: number;
+                inputTokens: number;
+                cachedInputTokens: number;
+                cacheWriteTokens: number;
+                outputTokens: number;
+                searchCount: number;
+                estimatedCostMicros: number | null;
+                unpricedAnswers: number;
             }>;
         } | null;
     };
@@ -9317,6 +9907,11 @@ export type ProjectOverviewDto = {
         dismissed: boolean;
         createdAt: string;
     }>;
+    queryClassScope?: {
+        queryClass: 'all';
+        figures: Array<string>;
+        note: string;
+    };
     queryCounts: {
         totalQueries: number;
         citedQueries: number;
@@ -9374,10 +9969,17 @@ export type ProjectOverviewDto = {
             breakdown: {
                 projectMentionSnapshots: number;
                 competitorMentionSnapshots: number;
+                combinedMentionSnapshots: number;
                 perCompetitor: Array<{
                     domain: string;
                     mentionSnapshots: number;
                     shareOfCompetitiveTotal: number;
+                }>;
+                ranking: Array<{
+                    kind: 'project' | 'competitor';
+                    domain: string | null;
+                    mentionSnapshots: number;
+                    share: number;
                 }>;
                 snapshotsWithAnswerText: number;
                 snapshotsTotal: number;
@@ -9387,10 +9989,17 @@ export type ProjectOverviewDto = {
             branded: {
                 projectMentionSnapshots: number;
                 competitorMentionSnapshots: number;
+                combinedMentionSnapshots: number;
                 perCompetitor: Array<{
                     domain: string;
                     mentionSnapshots: number;
                     shareOfCompetitiveTotal: number;
+                }>;
+                ranking: Array<{
+                    kind: 'project' | 'competitor';
+                    domain: string | null;
+                    mentionSnapshots: number;
+                    share: number;
                 }>;
                 snapshotsWithAnswerText: number;
                 snapshotsTotal: number;
@@ -10529,6 +11138,9 @@ export type RunDetailDto = {
         };
     } | null;
     queryBasketRevision?: number | null;
+    dispatchModes?: {
+        [key: string]: 'batch';
+    };
     createdAt: string;
     snapshots?: Array<{
         id: string;
@@ -10580,7 +11192,44 @@ export type RunDetailDto = {
                 timezone?: string;
             } | null;
         } | null;
+        dispatchMode?: 'sync' | 'batch' | null;
+        stopReason?: string | null;
+        usage?: {
+            inputTokens: number;
+            cachedInputTokens: number;
+            cacheWriteTokens: number;
+            outputTokens: number;
+            searchCount: number;
+            pricingTier: 'standard' | 'batch';
+            estimatedCostMicros: number | null;
+            priceSource: 'default' | 'override' | null;
+        } | null;
         createdAt: string;
+    }>;
+    providerBatches?: Array<{
+        id: string;
+        provider: string;
+        model: string;
+        status: 'submitting' | 'submitted' | 'ended' | 'ingested' | 'cancelled' | 'failed' | 'unknown';
+        requestCount: number;
+        ingestedCount: number;
+        recordedCount: number;
+        submittedAt: string | null;
+        endedAt: string | null;
+        deadlineAt: string;
+        error: string | null;
+    }>;
+    usage?: Array<{
+        provider: string;
+        pricingTier: 'standard' | 'batch';
+        answers: number;
+        inputTokens: number;
+        cachedInputTokens: number;
+        cacheWriteTokens: number;
+        outputTokens: number;
+        searchCount: number;
+        estimatedCostMicros: number | null;
+        unpricedAnswers: number;
     }>;
 };
 
@@ -10669,6 +11318,9 @@ export type RunDto = {
         };
     } | null;
     queryBasketRevision?: number | null;
+    dispatchModes?: {
+        [key: string]: 'batch';
+    };
     createdAt: string;
 };
 
@@ -10773,6 +11425,7 @@ export type SiteAuditPagesResponseDto = {
             name: string;
             weight: number;
             score: number;
+            sharePct: number | null;
         }>;
     }>;
 };
@@ -10829,6 +11482,7 @@ export type SiteAuditScoreDto = {
         id: string;
         name: string;
         weight: number;
+        sharePct: number | null;
         avgScore: number;
         status: 'pass' | 'partial' | 'fail';
         pagesPassing: number;
@@ -11081,6 +11735,7 @@ export type SiteCrawlPageAuditDto = {
         name: string;
         weight: number;
         score: number;
+        sharePct: number | null;
         status: 'pass' | 'partial' | 'fail';
         applicable: boolean | null;
         findings: Array<{
@@ -11112,6 +11767,7 @@ export type SiteCrawlPageAuditDto = {
         name: string;
         weight: number;
         score: number;
+        sharePct: number | null;
         status: 'pass' | 'partial' | 'fail';
         applicable: boolean | null;
         findings: Array<{
@@ -11583,6 +12239,18 @@ export type SnapshotListResponse = {
                 timezone?: string;
             } | null;
         } | null;
+        dispatchMode?: 'sync' | 'batch' | null;
+        stopReason?: string | null;
+        usage?: {
+            inputTokens: number;
+            cachedInputTokens: number;
+            cacheWriteTokens: number;
+            outputTokens: number;
+            searchCount: number;
+            pricingTier: 'standard' | 'batch';
+            estimatedCostMicros: number | null;
+            priceSource: 'default' | 'override' | null;
+        } | null;
         createdAt: string;
     }>;
     total: number;
@@ -11726,6 +12394,7 @@ export type SourceBreakdownDto = {
     providersWithoutSources?: Array<string>;
     answerTotal?: number;
     runCount?: number;
+    pooledAcrossRuns?: boolean;
     unclassifiedAnswers?: number;
     filters?: {
         runId: string | null;
@@ -11734,6 +12403,13 @@ export type SourceBreakdownDto = {
         includeByQuery: boolean;
     };
     runId: string;
+    runIds?: Array<string>;
+    countUnits?: {
+        answers: Array<string>;
+        distinctDomains: Array<string>;
+        answerDomainPairs: Array<string>;
+        runs: Array<string>;
+    };
     window: '7d' | '30d' | '90d' | 'all';
     limit: number | null;
     overall: Array<{
@@ -11796,6 +12472,7 @@ export type OperationalLogListDto = {
             jobId?: string;
             taskId?: string;
             traceId?: string;
+            provider?: string;
             errorCode?: string;
             attempt?: number;
             count?: number;
@@ -15107,7 +15784,7 @@ export type GetApiV1ProjectsByNameVisibilityReportData = {
 
 export type GetApiV1ProjectsByNameVisibilityReportErrors = {
     /**
-     * Invalid selection.
+     * Invalid selection. mode=simple without runId on a project with an active v2 plan is 400; use mode advanced or omit mode.
      */
     400: ErrorEnvelope;
     /**
@@ -15232,11 +15909,11 @@ export type GetApiV1ProjectsByNameMeasurementPortfolioSummaryData = {
          */
         runId?: string;
         /**
-         * Rows per list (weakest Properties, both mention rankings, markets). Defaults to 4, maximum 50.
+         * Caps the Property lists only: weakest Properties and both mention rankings. Markets are never capped. Defaults to 4, maximum 50.
          */
         limit?: number;
         /**
-         * Return every market in scope at every level, uncapped. Defaults to false: one level (top-level markets, or the selected group's direct children), capped at limit.
+         * Return every market in scope at every level. Defaults to false: one level (every top-level market, or every direct child of the selected group).
          */
         includeNestedMarkets?: boolean;
     };
@@ -15483,6 +16160,10 @@ export type GetApiV1ProjectsByNameMeasurementChangesData = {
          * Use this completed or partial run as the current side.
          */
         runId?: string;
+        /**
+         * Changed-row order. magnitude (default): moves beyond noise first, then the larger of the mention and citation moves in answers (rate change times the larger answer count), then the other, then label. label: alphabetical.
+         */
+        sort?: 'magnitude' | 'label';
         /**
          * Maximum changed Property rows. Defaults to 10, maximum 50.
          */
@@ -16639,7 +17320,7 @@ export type PostApiV1ProjectsByNameQueriesReplacePreviewResponse = PostApiV1Proj
 
 export type PostApiV1ProjectsByNameQueriesGenerateData = {
     body: {
-        provider: 'gemini' | 'openai' | 'claude' | 'perplexity' | 'local';
+        provider: 'gemini' | 'openai' | 'claude' | 'perplexity' | 'muse' | 'local';
         count?: number;
     };
     path: {
@@ -16773,7 +17454,7 @@ export type PutApiV1ProjectsByNameKeywordsResponse = PutApiV1ProjectsByNameKeywo
 
 export type PostApiV1ProjectsByNameKeywordsGenerateData = {
     body: {
-        provider: 'gemini' | 'openai' | 'claude' | 'perplexity' | 'local';
+        provider: 'gemini' | 'openai' | 'claude' | 'perplexity' | 'muse' | 'local';
         count?: number;
     };
     path: {
@@ -16990,7 +17671,7 @@ export type GetApiV1ProjectsByNameAnalyticsCompetitorsData = {
          */
         location?: string;
         /**
-         * Restrict evidence to one stored answer-visibility run.
+         * Restrict evidence to one stored answer-visibility run, or pass latest for the latest sweep (same rule as analytics/sources).
          */
         runId?: string;
     };
@@ -17069,6 +17750,10 @@ export type PostApiV1ProjectsByNameRunsData = {
         location?: string;
         allLocations?: boolean;
         noLocation?: boolean;
+        /**
+         * How to dispatch the providers. Omitted or `sync` calls each provider per answer. `batch` sends every provider that can (a full sweep of a published plan, a batch-capable provider enabled in config.yaml, every answer's model frozen) to its asynchronous batch API; the rest run sync. Tuning, not identity: it changes cost and latency, never what is measured, and is frozen on the run as `dispatchModes`.
+         */
+        dispatchMode?: 'sync' | 'batch';
     };
     path: {
         /**
@@ -17082,7 +17767,7 @@ export type PostApiV1ProjectsByNameRunsData = {
 
 export type PostApiV1ProjectsByNameRunsErrors = {
     /**
-     * Invalid request: an untracked query, a measurement scope naming a group/target/question the published plan does not contain, a scope combined with a query list, a per-run location on a plan project, or a provider roster the plan was not published for.
+     * Invalid request: an untracked query, a measurement scope naming a group/target/question the published plan does not contain, a scope combined with a query list, a per-run location on a plan project, a provider roster the plan was not published for, or `dispatchMode: "batch"` when no provider of the run can batch (`details.ineligible` names each provider's reason).
      */
     400: ErrorEnvelope;
     /**
@@ -17172,6 +17857,10 @@ export type PostApiV1RunsData = {
     body?: {
         kind?: string;
         providers?: Array<string>;
+        /**
+         * How to dispatch the providers. Omitted or `sync` calls each provider per answer. `batch` sends every provider that can (a full sweep of a published plan, a batch-capable provider enabled in config.yaml, every answer's model frozen) to its asynchronous batch API; the rest run sync. Tuning, not identity: it changes cost and latency, never what is measured, and is frozen on the run as `dispatchModes`.
+         */
+        dispatchMode?: 'sync' | 'batch';
     };
     path?: never;
     query?: never;
@@ -17614,7 +18303,7 @@ export type GetApiV1ProjectsByNameAnalyticsSourcesData = {
          */
         limit?: number;
         /**
-         * Read one stored answer-visibility run instead of pooling every run in the window. An unknown id is 404; a probe, unfinished, partially measured, or out-of-window run is 400.
+         * Read one stored answer-visibility run instead of pooling every run in the window. An unknown id is 404; a probe, unfinished, partially measured, or out-of-window run is 400. Pass latest to read the latest sweep: with an active measurement plan, the run the measurement reads display; otherwise the newest completed or partial sweep, every location included. A latest sweep older than the window is 400.
          */
         runId?: string;
         /**
@@ -17845,7 +18534,7 @@ export type PutApiV1SettingsProvidersByNameData = {
         /**
          * Provider name.
          */
-        name: 'gemini' | 'openai' | 'claude' | 'perplexity' | 'local';
+        name: 'gemini' | 'openai' | 'claude' | 'perplexity' | 'muse' | 'local';
     };
     query?: never;
     url: '/api/v1/settings/providers/{name}';
@@ -18629,6 +19318,12 @@ export type PostApiV1ProjectsByNameNotificationsByIdTestResponse = PostApiV1Proj
 
 export type GetApiV1OperationsLogsData = {
     body?: never;
+    headers?: {
+        /**
+         * Comma-separated opt-in context fields to return. `provider` adds `context.provider`, the answer engine an entry came from. Unknown names are ignored. Without this header, entries omit opt-in fields, so a client built before a field existed can still read the page with its strict schema.
+         */
+        'x-canonry-log-fields'?: string;
+    };
     path?: never;
     query?: {
         /**
@@ -20527,6 +21222,61 @@ export type GetApiV1ProjectsByNameGoogleGscTopPagesResponses = {
 
 export type GetApiV1ProjectsByNameGoogleGscTopPagesResponse = GetApiV1ProjectsByNameGoogleGscTopPagesResponses[keyof GetApiV1ProjectsByNameGoogleGscTopPagesResponses];
 
+export type GetApiV1ProjectsByNameGoogleGscQueryTotalsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Inclusive start date (YYYY-MM-DD). Replaces the window's lower bound; the window still ends on the last published day unless endDate is given.
+         */
+        startDate?: string;
+        /**
+         * Inclusive end date (YYYY-MM-DD). With a window and no startDate, the window's span ends on this date (window=30d&endDate=2026-06-30 reads 2026-06-01 to 2026-06-30). The response `window` is the range read.
+         */
+        endDate?: string;
+        /**
+         * Maximum number of records to return.
+         */
+        limit?: number;
+        /**
+         * Number of records to skip.
+         */
+        offset?: number;
+        /**
+         * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
+         */
+        window?: '7d' | '30d' | '90d' | 'all';
+    };
+    url: '/api/v1/projects/{name}/google/gsc/query-totals';
+};
+
+export type GetApiV1ProjectsByNameGoogleGscQueryTotalsErrors = {
+    /**
+     * Invalid date, range or window.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGoogleGscQueryTotalsError = GetApiV1ProjectsByNameGoogleGscQueryTotalsErrors[keyof GetApiV1ProjectsByNameGoogleGscQueryTotalsErrors];
+
+export type GetApiV1ProjectsByNameGoogleGscQueryTotalsResponses = {
+    /**
+     * Per-query Search Console totals for the window.
+     */
+    200: GscQueryTotalsDto;
+};
+
+export type GetApiV1ProjectsByNameGoogleGscQueryTotalsResponse = GetApiV1ProjectsByNameGoogleGscQueryTotalsResponses[keyof GetApiV1ProjectsByNameGoogleGscQueryTotalsResponses];
+
 export type PostApiV1ProjectsByNameGoogleGscInspectData = {
     body: {
         url: string;
@@ -21283,6 +22033,53 @@ export type GetApiV1ProjectsByNameGbpPlacesResponses = {
 };
 
 export type GetApiV1ProjectsByNameGbpPlacesResponse = GetApiV1ProjectsByNameGbpPlacesResponses[keyof GetApiV1ProjectsByNameGbpPlacesResponses];
+
+export type GetApiV1ProjectsByNameGbpReviewsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Filter to one location resource name
+         */
+        locationName?: string;
+        /**
+         * Only reviews at or below the project negative-review threshold (negativeReviewMaxStars, 3 stars by default), the one the review.negative webhook uses
+         */
+        negative?: boolean;
+        /**
+         * Max reviews, newest first. Default 50, maximum 500.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/gbp/reviews';
+};
+
+export type GetApiV1ProjectsByNameGbpReviewsErrors = {
+    /**
+     * Invalid negative or limit.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGbpReviewsError = GetApiV1ProjectsByNameGbpReviewsErrors[keyof GetApiV1ProjectsByNameGbpReviewsErrors];
+
+export type GetApiV1ProjectsByNameGbpReviewsResponses = {
+    /**
+     * Reviews returned.
+     */
+    200: GbpReviewListResponse;
+};
+
+export type GetApiV1ProjectsByNameGbpReviewsResponse = GetApiV1ProjectsByNameGbpReviewsResponses[keyof GetApiV1ProjectsByNameGbpReviewsResponses];
 
 export type GetApiV1ProjectsByNameGbpSummaryData = {
     body?: never;
@@ -24389,9 +25186,7 @@ export type GetApiV1ProjectsByNameGaTrafficResponses = {
     /**
      * GA4 traffic data returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: GaTrafficResponse;
 };
 
 export type GetApiV1ProjectsByNameGaTrafficResponse = GetApiV1ProjectsByNameGaTrafficResponses[keyof GetApiV1ProjectsByNameGaTrafficResponses];
@@ -24566,9 +25361,7 @@ export type GetApiV1ProjectsByNameGaSocialReferralTrendResponses = {
     /**
      * Social referral trend returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: GaSocialReferralTrendResponse;
 };
 
 export type GetApiV1ProjectsByNameGaSocialReferralTrendResponse = GetApiV1ProjectsByNameGaSocialReferralTrendResponses[keyof GetApiV1ProjectsByNameGaSocialReferralTrendResponses];
@@ -24602,9 +25395,7 @@ export type GetApiV1ProjectsByNameGaAttributionTrendResponses = {
     /**
      * Attribution trend returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: GaAttributionTrendResponse;
 };
 
 export type GetApiV1ProjectsByNameGaAttributionTrendResponse = GetApiV1ProjectsByNameGaAttributionTrendResponses[keyof GetApiV1ProjectsByNameGaAttributionTrendResponses];

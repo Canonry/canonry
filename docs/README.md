@@ -34,10 +34,12 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | [`competitor-landscape.md`](competitor-landscape.md) | current | operators, engineers | Pinned-first historical competitor evidence for Simple and Advanced Measurement scopes |
 | [`query-visibility.md`](query-visibility.md) | current | operators, contributors | Query assignments, research promotion, market scopes, and frozen visibility results |
 | [`google-marketing.md`](google-marketing.md) | current | operators, agents | Google Ads and GTM setup, conversion evidence, integrity states, live-read authority, and v1 safety boundary |
+| [`batch-mode.md`](batch-mode.md) | current | operators, agents, engineers | Provider batch dispatch for scheduled sweeps: config, eligibility, run lifecycle, fills, cost accounting, and risks (ZDR, spend limits) |
 | [`providers/README.md`](providers/README.md) | current | engineers | Provider system overview, ProviderAdapter interface, how to add a provider |
 | [`providers/model-selection.md`](providers/model-selection.md) | current | operators, engineers | Direct-model selection, answer and citation evidence, and model router trade-offs |
 | [`providers/gemini.md`](providers/gemini.md) | current | engineers | Gemini provider behavior and constraints |
 | [`providers/openai.md`](providers/openai.md) | current | engineers | OpenAI provider behavior and constraints |
+| [`providers/muse.md`](providers/muse.md) | current | operators, engineers | Muse setup, search evidence, and model tier choice |
 | [`providers/claude.md`](providers/claude.md) | current | engineers | Claude provider behavior and constraints |
 | [`providers/local.md`](providers/local.md) | current | engineers | Local provider behavior and constraints |
 | [`providers/perplexity.md`](providers/perplexity.md) | current | engineers | Perplexity provider behavior and constraints |
@@ -53,6 +55,7 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | Document | Label | Audience | Purpose |
 | --- | --- | --- | --- |
 | [`oss-onboarding-evaluation.md`](oss-onboarding-evaluation.md) | implemented | product, design, engineers | Source-based evaluation and decisions for the OSS onboarding rework |
+| [`technical-scopes/muse-web-search.md`](technical-scopes/muse-web-search.md) | implementation scope | engineers | Muse web search boundaries and validation plan |
 
 New plans, product direction, and design rationale live in PR descriptions.
 The implementation record above preserves context, but it does not define

@@ -7,7 +7,7 @@ import {
   effectiveDomains, evaluateModelPointerExposure, normalizeProjectDomain, parseWindow, RunKinds, RunStatuses,
   RunTriggers, windowCutoff, validationError, notFound, compileBrandAliases, hostMatchesAnyDomain, hostMatchesDomain,
   hostOf, matcherMatchesText, normalizeQueryText, sourceBreakdownQuerySchema, answerProseForMentions,
-  prepareBrandMatchText,
+  prepareBrandMatchText, LATEST_RUN_ID, SOURCE_BREAKDOWN_COUNT_UNITS, RatioUnits, roundRatio,
 } from '@ainyc/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
@@ -15,10 +15,11 @@ import type {
   SourceCategory, SourceCategoryCount, ProviderMetric, QueryChangeEvent, QueryClass,
   RankedSourceList, SourceRankEntry, SurfaceClass, SurfaceClassCount, ModelEvidenceState,
   ModelExposureWindow, ModelPointerChangeDisclosure, ModelServiceMismatch, ExecutionIdentityChangeEvent,
+  WindowChange, WindowRateChange,
 } from '@ainyc/canonry-contracts'
 import { buildMentionShare, type MentionShareCompetitor } from '@ainyc/canonry-intelligence'
 import { mentionShareCompetitorsFromDomains, projectQueryClassifier } from './mention-share-inputs.js'
-import { planQueryClassesByRun } from './competitor-landscape.js'
+import { latestSweepRuns, planQueryClassesByRun, pooledRunIds } from './competitor-landscape.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned } from './helpers.js'
 import { buildModelAttribution, buildServedModelAttribution } from './analytics-model-attribution.js'
@@ -74,6 +75,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         byProvider: {},
         trend: 'stable',
         mentionTrend: 'stable',
+        windowChange: { citationRate: null, mentionRate: null, mentionShare: null },
         queryChanges: [],
         basketChanges: [],
         executionIdentityChanges: [],
@@ -439,6 +441,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     // Trends
     const trend = computeTrend(buckets, 'citationRate')
     const mentionTrend = computeTrend(buckets, 'mentionRate')
+    const windowChange = computeWindowChange(buckets)
 
     // Query change annotations
     const queryChanges = computeQueryChanges(projectQueries, cutoff)
@@ -479,7 +482,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       previousExecutionChecksum = identity.checksum
     }
 
-    return reply.send({ window, mentionShareScope, buckets, overall, byProvider, trend, mentionTrend, queryChanges, basketChanges, executionIdentityChanges, referenceBasketRevision: latestBasket?.revision ?? null, modelAttribution, servedModelAttribution, modelServiceMismatch, modelPointerChanges } satisfies BrandMetricsDto)
+    return reply.send({ window, mentionShareScope, buckets, overall, byProvider, trend, mentionTrend, windowChange, queryChanges, basketChanges, executionIdentityChanges, referenceBasketRevision: latestBasket?.revision ?? null, modelAttribution, servedModelAttribution, modelServiceMismatch, modelPointerChanges } satisfies BrandMetricsDto)
   })
 
   // GET /projects/:name/analytics/gaps — brand gap analysis
@@ -712,8 +715,8 @@ export async function analyticsRoutes(app: FastifyInstance) {
   // GET /projects/:name/analytics/sources — source origin breakdown.
   // `?limit=N` caps the ranked / per-provider lists to the top N domains
   // (with an explicit long-tail rollup); omitted = the full ranked list.
-  // `?runId=` reads one run, `?queryClass=` one query class, and
-  // `?includeByQuery=false` drops the large per-query breakdown.
+  // `?runId=` reads one run (`latest` = the latest sweep), `?queryClass=` one
+  // query class, and `?includeByQuery=false` drops the large per-query breakdown.
   app.get<{
     Params: { name: string }
     Querystring: { window?: string; limit?: string; runId?: string; queryClass?: string; includeByQuery?: string }
@@ -738,7 +741,11 @@ export async function analyticsRoutes(app: FastifyInstance) {
     if (!parsedFilters.success) {
       throw validationError('Invalid source breakdown query', { issues: parsedFilters.error.issues })
     }
-    const requestedRunId = parsedFilters.data.runId ?? null
+    // `latest` resolves to the sweep the measurement reads display, so a
+    // class-scoped read can name the current sweep without knowing its id.
+    const latestRequested = parsedFilters.data.runId === LATEST_RUN_ID
+    const latestRuns = latestRequested ? latestSweepRuns(app.db, project.id) : null
+    const requestedRunId = latestRequested ? null : parsedFilters.data.runId ?? null
     const queryClass = parsedFilters.data.queryClass ?? 'all'
     const includeByQuery = parsedFilters.data.includeByQuery !== 'false' && parsedFilters.data.includeByQuery !== '0'
 
@@ -754,7 +761,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       )
     }
     const filters = {
-      runId: requestedRunId,
+      runId: parsedFilters.data.runId ?? null,
       queryClass,
       queryClassBasis: !splitByClass ? null : planClassified ? 'measurement-plan' as const : 'query-text' as const,
       includeByQuery,
@@ -814,6 +821,12 @@ export async function analyticsRoutes(app: FastifyInstance) {
         throw validationError(`Run "${requestedRunId}" is older than the ${window} window. Omit window, or widen it, to read this run.`)
       }
     }
+    const latestOutsideWindow = latestRuns?.find(run => cutoff && run.createdAt < cutoff)
+    if (latestOutsideWindow) {
+      throw validationError(
+        `The latest sweep (run "${latestOutsideWindow.id}") is older than the ${window} window. Omit window, or widen it, to read it.`,
+      )
+    }
 
     // All sweep runs in window (or the one requested run)
     const windowRuns = app.db
@@ -823,7 +836,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         eq(runs.projectId, project.id),
         eq(runs.kind, RunKinds['answer-visibility']),
         notProbeRun(),
-        requestedRunId ? eq(runs.id, requestedRunId) : undefined,
+        latestRuns ? inArray(runs.id, latestRuns.map(run => run.id)) : requestedRunId ? eq(runs.id, requestedRunId) : undefined,
       ))
       .orderBy(desc(runs.createdAt), desc(runs.id))
       .all()
@@ -838,9 +851,13 @@ export async function analyticsRoutes(app: FastifyInstance) {
         providersWithoutSources: [],
         answerTotal: 0,
         runCount: 0,
+        pooledAcrossRuns: false,
         unclassifiedAnswers: 0,
         filters,
-        runId: '', window, limit,
+        runId: '',
+        runIds: [],
+        countUnits: SOURCE_BREAKDOWN_COUNT_UNITS,
+        window, limit,
         overall: [],
         ...(includeByQuery ? { byQuery: {} } : {}),
       } satisfies SourceBreakdownDto)
@@ -972,9 +989,14 @@ export async function analyticsRoutes(app: FastifyInstance) {
       providersWithoutSources,
       answerTotal: snapshots.length,
       runCount: windowRuns.length,
+      pooledAcrossRuns: windowRuns.length > 1,
       unclassifiedAnswers,
       filters,
+      // Compatibility field: the requested run, else the newest sweep's
+      // representative. A pooled read is scoped by `runIds`, never by this.
       runId: requestedRunId ?? latestRunId,
+      runIds: pooledRunIds(windowRuns),
+      countUnits: SOURCE_BREAKDOWN_COUNT_UNITS,
       window,
       limit,
       overall: buildCategoryCounts(overallCounts),
@@ -1150,7 +1172,7 @@ function computeBuckets(
       const basketRevision = revisions.size === 1 ? [...revisions][0]! : null
       // Per-provider breakdown over the SAME normalized `usable` set, so the
       // dashboard can plot a line per provider over time. Reusing
-      // computeProviderMetric inherits the 4dp rounding and probe exclusion,
+      // computeProviderMetric inherits the wire rounding and probe exclusion,
       // so a provider line can never drift from the bucket overall.
       const byProvider: Record<string, ProviderMetric> = {}
       const modelEvidenceByProvider: TimeBucket['modelEvidenceByProvider'] = {}
@@ -1226,7 +1248,7 @@ function computeMentionShareBucketMetric(
     // A project-only denominator is recognition evidence, not competitive
     // share. Preserve the count but leave the rate undefined without a frame.
     rate: mentionShareCompetitors.length > 0 && denominator > 0
-      ? round4(projectMentionSnapshots / denominator)
+      ? roundRatio(projectMentionSnapshots / denominator, RatioUnits.fraction)
       : null,
     projectMentionSnapshots,
     competitorMentionSnapshots,
@@ -1280,6 +1302,30 @@ export function pooledRate(buckets: TimeBucket[], rateKey: 'citationRate' | 'men
   return denominator > 0 ? numerator / denominator : 0
 }
 
+function windowRateChange(rates: readonly number[]): WindowRateChange | null {
+  const first = rates[0]
+  const latest = rates.at(-1)
+  if (rates.length < 2 || first === undefined || latest === undefined) return null
+  return { first, latest, delta: roundRatio(latest - first, RatioUnits.fraction) }
+}
+
+/**
+ * Each overall series' change across the window: the latest bucket's rate
+ * minus the first bucket's, the change the dashboard's trend head prints.
+ * Citation and mention read every bucket that measured a snapshot; mention
+ * share reads only the buckets whose share is defined, which are the points
+ * its line plots. The rates are already at wire precision, so rounding the
+ * difference to it removes float error and nothing else.
+ */
+export function computeWindowChange(buckets: readonly TimeBucket[]): WindowChange {
+  const measured = buckets.filter(b => b.total > 0)
+  return {
+    citationRate: windowRateChange(measured.map(b => b.citationRate)),
+    mentionRate: windowRateChange(measured.map(b => b.mentionRate)),
+    mentionShare: windowRateChange(buckets.flatMap(b => b.mentionShare.rate === null ? [] : [b.mentionShare.rate])),
+  }
+}
+
 export function computeTrend(buckets: TimeBucket[], rateKey: 'citationRate' | 'mentionRate'): TrendDirection {
   const nonEmpty = buckets.filter(b => b.total > 0)
   if (nonEmpty.length < 2) return 'stable'
@@ -1296,10 +1342,6 @@ export function computeTrend(buckets: TimeBucket[], rateKey: 'citationRate' | 'm
   if (diff > 0.05) return 'improving'
   if (diff < -0.05) return 'declining'
   return 'stable'
-}
-
-function round4(ratio: number): number {
-  return Math.round(ratio * 10000) / 10000
 }
 
 function bumpDomain(
@@ -1341,8 +1383,8 @@ function buildRankedList(
   const entries: SourceRankEntry[] = shownEntries.map(d => ({
     domain: d.domain,
     count: d.count,
-    percentage: totalCitedSlots > 0 ? round4(d.count / totalCitedSlots) : 0,
-    answerShare: answerTotal > 0 ? round4(d.count / answerTotal) : 0,
+    percentage: totalCitedSlots > 0 ? roundRatio(d.count / totalCitedSlots, RatioUnits.fraction) : 0,
+    answerShare: answerTotal > 0 ? roundRatio(d.count / answerTotal, RatioUnits.fraction) : 0,
     category: d.category,
     label: d.label,
     surfaceClass: d.surfaceClass,
@@ -1363,7 +1405,7 @@ function buildRankedList(
       surfaceClass,
       label: surfaceClassLabel(surfaceClass),
       count: v.count,
-      percentage: totalCitedSlots > 0 ? round4(v.count / totalCitedSlots) : 0,
+      percentage: totalCitedSlots > 0 ? roundRatio(v.count / totalCitedSlots, RatioUnits.fraction) : 0,
       domainCount: v.domainCount,
     }))
     .sort((a, b) => b.count - a.count || a.surfaceClass.localeCompare(b.surfaceClass))

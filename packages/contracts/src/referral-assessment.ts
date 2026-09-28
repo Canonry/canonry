@@ -59,8 +59,9 @@ export const referralAssessmentSchema = z.object({
     gaSessions: z.number().int().nonnegative().nullable(),
     gaObservation: z.enum(['missing', 'observed-zero', 'observed-positive']),
     /**
-     * Descriptive quotient only, rounded to 2 decimals. Not a matched,
-     * coverage-complete comparison.
+     * Descriptive quotient only (`serverCountable / gaSessions`, a multiplier
+     * where 3 is three times as many, never a percent), rounded to 2
+     * decimals. Not a matched, coverage-complete comparison.
      */
     observedRatio: z.number().nonnegative().nullable(),
     /** Compares the rounded `observedRatio` with `rule.ratioThreshold`. */

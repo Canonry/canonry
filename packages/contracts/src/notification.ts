@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { GbpReviewOrigin } from './gbp.js'
 
 export const notificationEventSchema = z.enum([
   'citation.lost',
@@ -19,6 +20,16 @@ export const notificationEventSchema = z.enum([
    */
   'health.degraded',
   'health.recovered',
+  /**
+   * Google Business Profile reviews. `review.negative` is sent once for each
+   * new or edited review at or below the project's `negativeReviewMaxStars`
+   * (1-3 stars by default). `review.rating-dropped` is sent when
+   * a location's public Google rating falls, a fallback signal for locations
+   * without Business Profile reviews access. A location's first sync records a
+   * baseline and sends neither, so connecting never replays old reviews.
+   */
+  'review.negative',
+  'review.rating-dropped',
 ])
 export type NotificationEvent = z.infer<typeof notificationEventSchema>
 
@@ -108,6 +119,61 @@ export interface WebhookPayload {
      * canonry post-#480 when the underlying snapshot carries a location.
      */
     location?: string | null
+  }>
+  dashboardUrl: string
+}
+
+/** A location as named in a review webhook. */
+export interface ReviewAlertLocation {
+  /** Business Profile resource name, "locations/{n}". */
+  name: string
+  displayName: string
+  /** Public Google Maps link for the location, when Google provides one. */
+  mapsUri: string | null
+}
+
+/**
+ * Review events carry no `run`: they report on the business listing, not on a
+ * sweep, for the same reason health payloads omit it.
+ */
+export interface ReviewWebhookPayload {
+  source: 'canonry'
+  event: 'review.negative'
+  project: { name: string; canonicalDomain: string }
+  /** Oldest first, so a receiver that posts one message per review keeps the order they arrived in. */
+  reviews: Array<{
+    location: ReviewAlertLocation
+    /** `gbp`: Business Profile reviews (every review). `places`: the public listing (at most five, by relevance). */
+    origin: GbpReviewOrigin
+    /** Provider resource name, stable per origin. */
+    reviewName: string
+    /** At or below the project's negative-review threshold (3 by default). */
+    starRating: number
+    comment: string | null
+    reviewerName: string | null
+    createTime: string | null
+    /** Last edit by the reviewer (Places: when it was posted). */
+    updateTime: string
+    /** Whether the owner has replied. Null for Places, which does not expose replies. */
+    replied: boolean | null
+    /** Link to the review on Google Maps, when the origin provides one. */
+    reviewUri: string | null
+  }>
+  dashboardUrl: string
+}
+
+export interface RatingWebhookPayload {
+  source: 'canonry'
+  event: 'review.rating-dropped'
+  project: { name: string; canonicalDomain: string }
+  ratings: Array<{
+    location: ReviewAlertLocation
+    origin: GbpReviewOrigin
+    previousRating: number
+    rating: number
+    previousReviewCount: number | null
+    reviewCount: number | null
+    observedAt: string
   }>
   dashboardUrl: string
 }

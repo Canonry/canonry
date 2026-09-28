@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { fraction } from './ratio-unit.js'
 import { runStatusSchema } from './run.js'
 
 /** Provider review values that gate any live-spend transition. Unknown values remain strings on reads and fail closed. */
@@ -282,7 +283,7 @@ export const adsInsightRowDtoSchema = z.object({
    *  field is not yet captured against a live conversion-tracking account. */
   conversions: z.number().int(),
   /** clicks / impressions; null when impressions is 0. */
-  ctr: z.number().nullable(),
+  ctr: fraction().nullable(),
   /** spendMicros / clicks, rounded to integer micros; null when clicks is 0. */
   cpcMicros: z.number().int().nullable(),
   /**
@@ -332,7 +333,7 @@ export const adsTotalsDtoSchema = z.object({
   clicks: z.number().int(),
   spendMicros: z.number().int(),
   conversions: z.number().int(),
-  ctr: z.number().nullable(),
+  ctr: fraction().nullable(),
   cpcMicros: z.number().int().nullable(),
 })
 export type AdsTotalsDto = z.infer<typeof adsTotalsDtoSchema>
@@ -1234,7 +1235,7 @@ export const adsLiveMetricRowSchema = z.object({
   clicks: z.number().nullable(),
   spend: z.number().nullable(),
   conversions: z.number().nullable(),
-  ctr: z.number().nullable(),
+  ctr: fraction().nullable(),
   cpc: z.number().nullable(),
   cpm: z.number().nullable(),
 })

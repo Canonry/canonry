@@ -1,4 +1,4 @@
-import { buildModelChangeNotice, type ModelPointerChangeDisclosure } from '@ainyc/canonry-contracts'
+import { buildModelChangeNotice, formatPercent, formatSignedPointDelta, type ModelPointerChangeDisclosure, type WindowRateChange } from '@ainyc/canonry-contracts'
 import { createApiClient, type BrandMetricsDto, type GapAnalysisDto, type SourceBreakdownDto } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 
@@ -82,8 +82,6 @@ function printMetrics(data: BrandMetricsDto): void {
   console.log(`\nCitation Rate Trends (${data.window})`)
   console.log('─'.repeat(50))
 
-  const pct = (n: number) => `${(n * 100).toFixed(1)}%`
-
   // BEFORE the first number, not after the last one. This is the note that
   // changes how everything below it should be read, and an operator who has
   // already scrolled past the rates has already formed the reading it is trying
@@ -95,13 +93,14 @@ function printMetrics(data: BrandMetricsDto): void {
     console.log('')
   }
 
-  console.log(`  Overall: ${pct(data.overall.citationRate)} (${data.overall.cited}/${data.overall.total})`)
+  console.log(`  Overall: ${formatPercent(data.overall.citationRate)} (${data.overall.cited}/${data.overall.total})`)
   console.log(`  Trend:   ${data.trend}`)
+  printWindowChange(data)
 
   if (Object.keys(data.byProvider).length > 0) {
     console.log(`\n  By Provider:`)
     for (const [provider, metric] of Object.entries(data.byProvider) as [string, { cited: number; total: number; citationRate: number }][]) {
-      console.log(`    ${provider.padEnd(10)} ${pct(metric.citationRate).padStart(6)} (${metric.cited}/${metric.total})`)
+      console.log(`    ${provider.padEnd(10)} ${formatPercent(metric.citationRate).padStart(6)} (${metric.cited}/${metric.total})`)
     }
   }
 
@@ -109,7 +108,7 @@ function printMetrics(data: BrandMetricsDto): void {
     console.log(`\n  Timeline (dates in UTC):`)
     for (const bucket of data.buckets) {
       const bar = bucket.total > 0 ? '█'.repeat(Math.round(bucket.citationRate * 20)) : ''
-      console.log(`    ${bucketDates(bucket).padEnd(BUCKET_DATE_WIDTH)}  ${pct(bucket.citationRate).padStart(6)}  ${bar}`)
+      console.log(`    ${bucketDates(bucket).padEnd(BUCKET_DATE_WIDTH)}  ${formatPercent(bucket.citationRate).padStart(6)}  ${bar}`)
     }
   }
 
@@ -124,7 +123,7 @@ function printMetrics(data: BrandMetricsDto): void {
         const metric = bucket.byProvider?.[provider]
         if (!metric) continue // provider absent from this bucket
         const bar = metric.total > 0 ? '█'.repeat(Math.round(metric.citationRate * 20)) : ''
-        console.log(`      ${bucketDates(bucket).padEnd(BUCKET_DATE_WIDTH)}  ${pct(metric.citationRate).padStart(6)}  ${bar}`)
+        console.log(`      ${bucketDates(bucket).padEnd(BUCKET_DATE_WIDTH)}  ${formatPercent(metric.citationRate).padStart(6)}  ${bar}`)
       }
     }
   }
@@ -186,6 +185,33 @@ function printMetrics(data: BrandMetricsDto): void {
         console.log(`      ${event.observedAt}${dating}  ${formatModelEvidence(event.from)} → ${formatModelEvidence(event.to)}`)
       }
     }
+  }
+}
+
+/**
+ * Each series' change from its first to its latest bucket: the server's
+ * `windowChange`, the figure the dashboard's trend head prints beside the
+ * latest rate. Mention share names its query class, because a non-brand share
+ * and a pooled one answer different questions.
+ */
+function printWindowChange(data: BrandMetricsDto): void {
+  // A newer CLI can be pointed at an older server that predates the field.
+  const windowChange = (data as { windowChange?: BrandMetricsDto['windowChange'] }).windowChange
+  if (!windowChange) return
+  const shareScope = data.mentionShareScope === 'non-brand'
+    ? 'non-brand queries'
+    : 'pooled queries · classification unavailable'
+  const series: Array<[string, WindowRateChange | null]> = [
+    ['Mentioned', windowChange.mentionRate],
+    ['Cited', windowChange.citationRate],
+    [`Mention share · ${shareScope}`, windowChange.mentionShare],
+  ]
+  console.log(`\n  Change Across the Window (first → latest bucket):`)
+  for (const [label, change] of series) {
+    const text = change
+      ? `${formatPercent(change.first)} → ${formatPercent(change.latest)} (${formatSignedPointDelta(change.delta)})`
+      : 'fewer than two buckets to compare'
+    console.log(`    ${label}: ${text}`)
   }
 }
 
@@ -265,8 +291,7 @@ function printSources(data: SourceBreakdownDto): void {
   }
 
   for (const cat of data.overall) {
-    const pct = `${(cat.percentage * 100).toFixed(1)}%`
     const domains = cat.topDomains.slice(0, 3).map((d: { domain: string }) => d.domain).join(', ')
-    console.log(`  ${cat.label.padEnd(20)} ${pct.padStart(6)}  (${cat.count})  ${domains}`)
+    console.log(`  ${cat.label.padEnd(20)} ${formatPercent(cat.percentage).padStart(6)}  (${cat.count})  ${domains}`)
   }
 }

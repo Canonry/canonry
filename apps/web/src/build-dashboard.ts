@@ -42,6 +42,7 @@ function toProjectDto(p: ApiProject): ProjectDto {
     labels: p.labels,
     providers: p.providers ?? [],
     providerModels: p.providerModels ?? {},
+    providerDispatchModes: p.providerDispatchModes ?? {},
     measurement: p.measurement,
     locations: p.locations ?? [],
     defaultLocation: p.defaultLocation ?? null,
@@ -596,7 +597,9 @@ function emptyMentionShareBreakdown(): MentionShareBreakdownDto {
   return {
     projectMentionSnapshots: 0,
     competitorMentionSnapshots: 0,
+    combinedMentionSnapshots: 0,
     perCompetitor: [],
+    ranking: [],
     snapshotsWithAnswerText: 0,
     snapshotsTotal: 0,
     score: null,
@@ -703,8 +706,9 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
 
   // Mention Coverage is the headline portfolio metric (did the AI actually say
   // the brand?), not the cited/source signal. Both ride on the overview; we
-  // read `mention`. The gauge's `value` is presentational ("67"/"No data");
-  // `progress` is the same number as 0–100, so we read that for the score.
+  // read `mention`. The gauge's `value` is presentational ("66.7%"/"No data");
+  // `progress` is the same share as 0–100 (at wire precision), so we read that for
+  // the score and the view formats it.
   const mention = overview.scores.mention
   const mentionScore = mention.progress ?? 0
   const mentioned = overview.queryCounts.mentionedQueries

@@ -15,6 +15,25 @@ describe('runtime logger', () => {
     } finally { stop() }
   })
 
+  it('keeps which provider failed on a sweep failure log and omits its raw response', () => {
+    const entries: Record<string, unknown>[] = []
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const stop = addLogListener(entry => entries.push(entry))
+    try {
+      createLogger('JobRunner').error('query.failed', {
+        provider: 'claude',
+        query: 'best crm',
+        error: 'HTTP 529 overloaded',
+        providerResponse: { content: [{ type: 'text', text: 'raw answer' }] },
+      })
+      expect(entries[0]).toMatchObject({
+        action: 'query.failed',
+        provider: 'claude',
+        providerResponse: '[OMITTED]',
+      })
+    } finally { stop() }
+  })
+
   it('honors level thresholds on the root logger and inherited child loggers', () => {
     const entries: Record<string, unknown>[] = []
     const stop = addLogListener(entry => entries.push(entry))

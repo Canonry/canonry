@@ -1,5 +1,6 @@
 import { shareOfVoiceContextFields } from './share-of-voice.js'
 import { z } from 'zod'
+import { fraction, percent } from './ratio-unit.js'
 import { validationError } from './errors.js'
 import { measurementExecutionIdentitySchema } from './measurement-plan.js'
 import { modelPointerChangeDisclosureSchema } from './model-pointers.js'
@@ -22,10 +23,10 @@ export const VisibilityMetricModes = visibilityMetricModeSchema.enum
 
 /** Citation + mention rates for one provider (or the overall roll-up) within a window or bucket. */
 export const providerMetricSchema = z.object({
-  citationRate: z.number(),
+  citationRate: fraction(),
   cited: z.number().int(),
   total: z.number().int(),
-  mentionRate: z.number(),
+  mentionRate: fraction(),
   mentionedCount: z.number().int(),
 })
 export type ProviderMetric = z.infer<typeof providerMetricSchema>
@@ -201,7 +202,7 @@ export type ModelServiceMismatch = z.infer<typeof modelServiceMismatchSchema>
 export const mentionShareBucketMetricSchema = z.object({
   /** Query scope behind this number. `pooled` means the project had no usable identity for a split. */
   scope: z.enum(['non-brand', 'pooled']),
-  rate: z.number().nullable(),
+  rate: fraction().nullable(),
   projectMentionSnapshots: z.number().int().nonnegative(),
   competitorMentionSnapshots: z.number().int().nonnegative(),
 })
@@ -238,11 +239,11 @@ export const timeBucketSchema = z.object({
    * — surface that rather than implying a single reading.
    */
   sweepCount: z.number().int().nonnegative(),
-  citationRate: z.number(),
+  citationRate: fraction(),
   cited: z.number().int(),
   total: z.number().int(),
   queryCount: z.number().int(),
-  mentionRate: z.number(),
+  mentionRate: fraction(),
   mentionedCount: z.number().int(),
   mentionShare: mentionShareBucketMetricSchema,
   byProvider: z.record(z.string(), providerMetricSchema),
@@ -257,6 +258,36 @@ export const timeBucketSchema = z.object({
   basketRevision: z.number().int().nullable().default(null),
 })
 export type TimeBucket = z.infer<typeof timeBucketSchema>
+
+/**
+ * One overall trend series' change across the window: the latest bucket's
+ * rate minus the first bucket's, each the bucket's own 0..1 rate. This is the
+ * change the dashboard's trend head prints beside the latest rate, computed
+ * here so the CLI, MCP and Aero read the same number.
+ */
+export const windowRateChangeSchema = z.object({
+  /** The rate of the first bucket that carries this series. */
+  first: fraction(z.number().min(0).max(1)),
+  /** The rate of the latest bucket that carries this series. */
+  latest: fraction(z.number().min(0).max(1)),
+  /** `latest - first` in fraction points, rounded to wire precision like the rates it subtracts. */
+  delta: fraction(z.number().min(-1).max(1)),
+})
+export type WindowRateChange = z.infer<typeof windowRateChangeSchema>
+
+/**
+ * Change across the window for each overall trend series, keyed by the bucket
+ * field it reads. A series is null when fewer than two buckets carry its rate,
+ * because one point is not a change. `mentionShare` reads `mentionShare.rate`
+ * and skips the buckets where that share is undefined (null), exactly as the
+ * chart leaves them unplotted.
+ */
+export const windowChangeSchema = z.object({
+  citationRate: windowRateChangeSchema.nullable(),
+  mentionRate: windowRateChangeSchema.nullable(),
+  mentionShare: windowRateChangeSchema.nullable(),
+})
+export type WindowChange = z.infer<typeof windowChangeSchema>
 
 /**
  * A point where the measured query set actually changed, derived from recorded
@@ -305,6 +336,11 @@ export const brandMetricsDtoSchema = z.object({
   byProvider: z.record(z.string(), providerMetricSchema),
   trend: trendDirectionSchema,
   mentionTrend: trendDirectionSchema,
+  /**
+   * Each overall series' change from its first to its latest bucket in this
+   * window. A server that predates the field reads as no change to compare.
+   */
+  windowChange: windowChangeSchema.default(() => ({ citationRate: null, mentionRate: null, mentionShare: null })),
   queryChanges: z.array(queryChangeEventSchema),
   /**
    * Recorded changes to the measured query set inside this window, newest last.
@@ -398,8 +434,8 @@ export const sourceCategoryCountSchema = z.object({
   category: sourceCategorySchema,
   label: z.string(),
   count: z.number().int(),
-  /** Share of all cited slots in scope, 0..1 (4dp). */
-  percentage: z.number(),
+  /** Share of all cited slots in scope, 0..1 (at wire precision). */
+  percentage: fraction(),
   topDomains: z.array(z.object({ domain: z.string(), count: z.number().int() })),
 })
 export type SourceCategoryCount = z.infer<typeof sourceCategoryCountSchema>
@@ -414,14 +450,14 @@ export type SourceCategoryCount = z.infer<typeof sourceCategoryCountSchema>
 export const sourceRankEntrySchema = z.object({
   domain: z.string(),
   count: z.number().int(),
-  /** Share of the list's `totalCitedSlots`, 0..1 (4dp). */
-  percentage: z.number(),
+  /** Share of the list's `totalCitedSlots`, 0..1 (at wire precision). */
+  percentage: fraction(),
   /**
    * Share of the list's `answerTotal` (every answer in scope, including answers
-   * that cited nothing) that cite this domain, 0..1 (4dp). Optional only so an
+   * that cited nothing) that cite this domain, 0..1 (at wire precision). Optional only so an
    * older server's response still parses.
    */
-  answerShare: z.number().optional(),
+  answerShare: fraction().optional(),
   category: sourceCategorySchema,
   label: z.string(),
   surfaceClass: surfaceClassSchema,
@@ -433,8 +469,8 @@ export const surfaceClassCountSchema = z.object({
   surfaceClass: surfaceClassSchema,
   label: z.string(),
   count: z.number().int(),
-  /** Share of the list's `totalCitedSlots`, 0..1 (4dp). */
-  percentage: z.number(),
+  /** Share of the list's `totalCitedSlots`, 0..1 (at wire precision). */
+  percentage: fraction(),
   domainCount: z.number().int(),
 })
 export type SurfaceClassCount = z.infer<typeof surfaceClassCountSchema>
@@ -466,6 +502,43 @@ export const rankedSourceListSchema = z.object({
 })
 export type RankedSourceList = z.infer<typeof rankedSourceListSchema>
 
+/**
+ * The `runId` value that reads the project's latest sweep instead of naming a
+ * run. With an active measurement plan it is the run the measurement reads
+ * display: the newest completed whole-project sweep of the active revision.
+ * Without a plan it is the newest completed or partial sweep, every location
+ * of a multi-location sweep included.
+ */
+export const LATEST_RUN_ID = 'latest'
+
+/** Pooled run ids listed per response, newest first. `runCount` always carries the full count. */
+export const POOLED_RUN_ID_LIMIT = 50
+
+/** Field paths grouped by what each counts. */
+export const sourceBreakdownCountUnitsSchema = z.object({
+  /** Answers: one per stored answer in scope. */
+  answers: z.array(z.string()),
+  /** Distinct domains: one per domain, however many answers cite it. */
+  distinctDomains: z.array(z.string()),
+  /** One per answer per cited domain. */
+  answerDomainPairs: z.array(z.string()),
+  runs: z.array(z.string()),
+})
+export type SourceBreakdownCountUnits = z.infer<typeof sourceBreakdownCountUnitsSchema>
+
+/**
+ * What each count in a source breakdown counts. Static, so a total of distinct
+ * domains is never read as answers or citations. Field paths are relative to
+ * each ranked list (`ranked` and every `byProvider` entry) unless they name the
+ * envelope.
+ */
+export const SOURCE_BREAKDOWN_COUNT_UNITS: SourceBreakdownCountUnits = {
+  answers: ['answerTotal', 'unclassifiedAnswers', 'answersWithSources', 'entries[].count', 'overall[].topDomains[].count'],
+  distinctDomains: ['domainTotal', 'truncatedDomainCount', 'bySurfaceClass[].domainCount'],
+  answerDomainPairs: ['totalCitedSlots', 'truncatedCitedSlots', 'bySurfaceClass[].count', 'overall[].count'],
+  runs: ['runCount'],
+}
+
 /** How `queryClass` placed each answer in a class. */
 export const sourceBreakdownQueryClassBasisSchema = z.enum(['measurement-plan', 'query-text'])
 export type SourceBreakdownQueryClassBasis = z.infer<typeof sourceBreakdownQueryClassBasisSchema>
@@ -475,7 +548,10 @@ export type SourceBreakdownQueryClassBasis = z.infer<typeof sourceBreakdownQuery
  * `limit` keep their own long-standing parsing (`parseWindow`, positive int).
  */
 export const sourceBreakdownQuerySchema = z.object({
-  /** One stored answer-visibility run. Omit to pool every run in the window. */
+  /**
+   * One stored answer-visibility run, or `latest` (`LATEST_RUN_ID`) for the
+   * project's latest sweep. Omit to pool every run in the window.
+   */
   runId: z.string().trim().min(1).optional(),
   /**
    * Branded or non-brand answers only. With an active v2 measurement plan the
@@ -512,12 +588,18 @@ export const sourceBreakdownDtoSchema = z.object({
   /** Runs pooled into this response. More than one means several sweeps are pooled. */
   runCount: z.number().int().optional(),
   /**
+   * True when more than one run is pooled: several sweeps, or the per-location
+   * runs of one multi-location sweep (they share a timestamp). Every count then
+   * sums over all of them, so no single `runId` is the scope.
+   */
+  pooledAcrossRuns: z.boolean().optional(),
+  /**
    * Answers the `queryClass` filter could not place in either class (a run with
    * no frozen v2 plan, an answer with no plan execution, or no query text).
    * They are excluded from every count. Zero when no class filter is applied.
    */
   unclassifiedAnswers: z.number().int().optional(),
-  /** Echo of the applied filters. */
+  /** Echo of the applied filters. `runId` is echoed as requested, `latest` included; `runIds` holds what it resolved to. */
   filters: z.object({
     runId: z.string().nullable(),
     queryClass: queryClassFilterSchema,
@@ -525,7 +607,17 @@ export const sourceBreakdownDtoSchema = z.object({
     queryClassBasis: z.union([sourceBreakdownQueryClassBasisSchema, z.null()]),
     includeByQuery: z.boolean(),
   }).optional(),
+  /**
+   * The requested run, or else the latest run in the window (the
+   * representative of the newest sweep). Kept for compatibility: on a pooled
+   * read (`pooledAcrossRuns`) it is NOT the scope of the counts; `runIds` is.
+   * Empty when no run is in scope.
+   */
   runId: z.string(),
+  /** Every run pooled into the counts, newest first, capped at `POOLED_RUN_ID_LIMIT`; `runCount` is the full count. */
+  runIds: z.array(z.string()).optional(),
+  /** What each count counts: answers, distinct domains, or answer-domain pairs. See `SOURCE_BREAKDOWN_COUNT_UNITS`. */
+  countUnits: sourceBreakdownCountUnitsSchema.optional(),
   window: metricsWindowSchema,
   /** Applied ranked-list limit; null when the full list is returned. */
   limit: z.number().int().nullable(),
@@ -577,6 +669,7 @@ export const competitorLandscapeQuerySchema = z.object({
   groupBy: z.literal('model').optional(),
   queryClass: competitorLandscapeQueryClassSchema.optional(),
   location: z.string().trim().min(1).optional(),
+  /** One stored answer-visibility run, or `latest` (`LATEST_RUN_ID`) for the project's latest sweep. Omit to pool every run in the window. */
   runId: z.string().trim().min(1).optional(),
 }).strict().superRefine((value, context) => {
   if (value.scope === 'all-markets' && value.groupKey !== undefined) {
@@ -610,7 +703,7 @@ export const competitorLandscapeRowSchema = z.object({
    * branded queries by definition, so a pooled ratio flatters the project and
    * buries every competitor. Counts stay populated either way.
    */
-  shareOfVoice: z.number().min(0).max(100).nullable(),
+  shareOfVoice: percent(z.number().min(0).max(100)).nullable(),
   /** One source-list credit at most per result. Independent of mentions. */
   citationCount: z.number().int().nonnegative(),
   /** Answer-text result count behind the mention field. */
@@ -635,6 +728,27 @@ export const competitorLandscapeEvidenceSchema = z.object({
   excludedNonCompletedResults: z.number().int().nonnegative(),
 }).strict()
 export type CompetitorLandscapeEvidence = z.infer<typeof competitorLandscapeEvidenceSchema>
+
+/** Field paths grouped by what each counts. */
+export const competitorLandscapeCountUnitsSchema = z.object({
+  /** Answers: one per stored answer in scope. */
+  answers: z.array(z.string()),
+  /** Distinct names written in answer text, however many answers name each. */
+  distinctNames: z.array(z.string()),
+  runs: z.array(z.string()),
+}).strict()
+export type CompetitorLandscapeCountUnits = z.infer<typeof competitorLandscapeCountUnitsSchema>
+
+/**
+ * What each landscape count counts. Static, so a total of distinct names is
+ * never read as answers. Field paths are relative to each row, `evidence`, or
+ * the envelope (and each model group).
+ */
+export const COMPETITOR_LANDSCAPE_COUNT_UNITS: CompetitorLandscapeCountUnits = {
+  answers: ['mentionCount', 'citationCount', 'answeredResults', 'evidence.sourceResults', 'observedNames[].answerCount'],
+  distinctNames: ['observedNamesTotal'],
+  runs: ['runCount'],
+}
 
 export const COMPETITOR_LANDSCAPE_MODEL_GROUP_LIMIT = 50
 /** Observed answer-text names returned per landscape (and per model group); `observedNamesTotal` carries the full count. */
@@ -714,6 +828,12 @@ export const competitorLandscapeResponseSchema = z.object({
   }).strict(),
   /** True when ranked observed/source lists exceed the server cap; pinned rows are never dropped. */
   truncated: z.boolean(),
+  /** Runs whose answers are counted here. More than one means the counts pool several runs. */
+  runCount: z.number().int().nonnegative().optional(),
+  /** The runs behind `runCount`, newest first, capped at `POOLED_RUN_ID_LIMIT`. */
+  runIds: z.array(z.string()).optional(),
+  /** What each count counts: answers or distinct names. See `COMPETITOR_LANDSCAPE_COUNT_UNITS`. */
+  countUnits: competitorLandscapeCountUnitsSchema.optional(),
 }).strict()
 export type CompetitorLandscapeResponse = z.infer<typeof competitorLandscapeResponseSchema>
 

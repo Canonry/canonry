@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import type { GroundingSource } from './run.js'
 import type { ModelDefinition, ProviderModelRegistry } from './models.js'
-import type { RetrievalContract, RetrievalStatus } from './retrieval.js'
+import { RetrievalStatuses, type RetrievalContract, type RetrievalStatus } from './retrieval.js'
+import type { ProviderBatchCapability, ProviderBatchConfig, ProviderPricing, ProviderUsage, TrackedQueryRequest } from './provider-batch.js'
 
 export const providerQuotaPolicySchema = z.object({
   maxConcurrency: z.number().int().positive(),
@@ -16,12 +17,13 @@ export type ProviderQuotaPolicy = z.infer<typeof providerQuotaPolicySchema>
  * registered adapters. These constants are kept for backward compatibility
  * but are NOT the source of truth — each adapter self-declares its name.
  */
-export const PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'perplexity', 'local', 'cdp:chatgpt'] as const
+export const PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local', 'cdp:chatgpt'] as const
 export const ProviderNames = {
   gemini: 'gemini',
   openai: 'openai',
   claude: 'claude',
   perplexity: 'perplexity',
+  muse: 'muse',
   local: 'local',
   cdpChatgpt: 'cdp:chatgpt',
 } as const
@@ -36,7 +38,7 @@ export type ProviderName = string
 export const providerModelsSchema = z.record(z.string(), z.string().trim().min(1))
 export type ProviderModels = z.infer<typeof providerModelsSchema>
 
-export const API_PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'perplexity', 'local'] as const
+export const API_PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local'] as const
 export const apiProviderNameSchema = z.string().min(1)
 export type ApiProviderName = string
 
@@ -87,6 +89,10 @@ export interface ProviderConfig {
   vertexRegion?: string
   /** Path to service account JSON for Vertex AI auth (falls back to ADC) */
   vertexCredentials?: string
+  /** Instance batch settings (config.yaml `providers.<name>.batch`). Absent = batch off. */
+  batch?: ProviderBatchConfig
+  /** Operator price overrides (config.yaml `providers.<name>.pricing`). */
+  pricing?: ProviderPricing
 }
 
 export interface LocationContext {
@@ -157,6 +163,11 @@ const PROVIDER_LOCATION_HANDLING: Record<string, ProviderLocationHandling> = {
     supportsLocationContext: true,
     description: 'Location sent as a structured `user_location` field on Perplexity’s web_search tool.',
   },
+  muse: {
+    treatment: 'request-param',
+    supportsLocationContext: true,
+    description: 'Location sent as a structured `user_location` field on Muse’s web_search tool.',
+  },
   'cdp:chatgpt': {
     treatment: 'browser-geo',
     supportsLocationContext: false,
@@ -172,6 +183,12 @@ const UNKNOWN_PROVIDER_HANDLING: ProviderLocationHandling = {
 
 export function getProviderLocationHandling(provider: string): ProviderLocationHandling {
   return PROVIDER_LOCATION_HANDLING[provider] ?? UNKNOWN_PROVIDER_HANDLING
+}
+
+/** A search-tool location cannot apply when the provider reports no search. */
+export function isSearchLocationIgnored(provider: ProviderName, retrievalStatus: RetrievalStatus): boolean {
+  return retrievalStatus === RetrievalStatuses['not-used']
+    && getProviderLocationHandling(provider).treatment === 'request-param'
 }
 
 /**
@@ -218,6 +235,18 @@ export interface RawQueryResult {
   retrievalContract: RetrievalContract
   /** Filesystem path to cropped screenshot PNG (CDP providers only) */
   screenshotPath?: string
+  /**
+   * Billable usage the provider reported for this answer. Undefined when the
+   * response carries none (CDP, or a reconstruction from a stored row).
+   */
+  usage?: ProviderUsage
+  /**
+   * Why the provider stopped generating, verbatim from the response (Claude
+   * `stop_reason`, OpenAI `status` / `incomplete_details.reason`, Gemini
+   * `candidates[0].finishReason`). Stored so answers cut short (for example
+   * Claude `pause_turn`) can be found later; never used to drop an answer.
+   */
+  stopReason?: string
 }
 
 /**
@@ -275,6 +304,21 @@ export interface ProviderAdapter {
   validateConfig(config: ProviderConfig): ProviderHealthcheckResult
   healthcheck(config: ProviderConfig): Promise<ProviderHealthcheckResult>
   executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult>
+  /**
+   * The first half of `executeTrackedQuery`: the exact request it sends. An
+   * adapter that implements it must make `executeTrackedQuery` equal to
+   * build, call, `parseTrackedQueryResponse`, so a batch line and a sync call
+   * ask the identical question and are read back the identical way.
+   */
+  buildTrackedQueryRequest?(input: TrackedQueryInput, config: ProviderConfig): TrackedQueryRequest
+  /**
+   * The second half: read one response body (in the shape the sync path
+   * stores as `apiResponse`) into a result. `model` is the model the request
+   * asked for. Throws where the sync path throws for the same body.
+   */
+  parseTrackedQueryResponse?(body: Record<string, unknown>, model: string): RawQueryResult
+  /** Asynchronous batch dispatch, for providers whose API has one. */
+  batch?: ProviderBatchCapability
   normalizeResult(raw: RawQueryResult): NormalizedQueryResult
   generateText(prompt: string, config: ProviderConfig): Promise<string>
 }

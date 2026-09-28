@@ -17,6 +17,7 @@ import {
   rawEventSamples,
 } from '../src/index.js'
 import { MIGRATION_VERSIONS } from '../src/migrate.js'
+import { insertLegacyProject } from './legacy-rows.js'
 
 function createTempDb() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-traffic-test-'))
@@ -31,17 +32,14 @@ function cleanup(tmpDir: string) {
 }
 
 function seedProject(db: ReturnType<typeof createTempDb>['db']) {
-  const now = new Date().toISOString()
-  db.insert(projects).values({
+  // Several tests below seed a database migrated to an older version, so the
+  // project names only the columns every such version has.
+  insertLegacyProject(db, {
     id: 'proj_1',
     name: 'test-project',
     displayName: 'Test Project',
-    canonicalDomain: 'example.com',
-    country: 'US',
-    language: 'en',
-    createdAt: now,
-    updatedAt: now,
-  }).run()
+    createdAt: new Date().toISOString(),
+  })
 }
 
 test('traffic_sources round-trips a connected cloud-run source', () => {

@@ -12,6 +12,7 @@ import { PACKAGE_VERSION } from './package-version.js'
 import { getApiV1ProjectsByNameSchedules, getApiV1NotificationsEvents } from '@ainyc/canonry-api-client'
 import type { LogQuery, OperationalLogListDto, NotificationEvent } from '@ainyc/canonry-contracts'
 import { normalizeTelemetryStatus, type TelemetryStatusInput } from '@ainyc/canonry-contracts'
+import { OPERATIONAL_LOG_FIELDS_HEADER, OPERATIONAL_LOG_OPT_IN_CONTEXT_FIELDS, operationalLogListReadSchema } from '@ainyc/canonry-contracts'
 import { getApiV1OperationsLogs } from '@ainyc/canonry-api-client'
 import type {
   VisibilityReportRequest, VisibilityReportResponse,
@@ -192,10 +193,12 @@ import type {
   GbpLodgingListResponse,
   GbpAttributesListResponse,
   GbpPlaceDetailsListResponse,
+  GbpReviewListResponse,
   GbpSummaryDto,
   GscPerformanceResponseDto,
   GscPerformanceDailyDto,
   GscTopPagesDto,
+  GscQueryTotalsDto,
   GscUrlInspectionDto,
   GscCoverageSummaryDto,
   GscCoverageSnapshotDto,
@@ -439,12 +442,14 @@ import {
   getApiV1ProjectsByNameGbpLodging,
   getApiV1ProjectsByNameGbpAttributes,
   getApiV1ProjectsByNameGbpPlaces,
+  getApiV1ProjectsByNameGbpReviews,
   getApiV1ProjectsByNameGbpSummary,
   // GSC
   postApiV1ProjectsByNameGoogleGscSync,
   getApiV1ProjectsByNameGoogleGscPerformance,
   getApiV1ProjectsByNameGoogleGscPerformanceDaily,
   getApiV1ProjectsByNameGoogleGscTopPages,
+  getApiV1ProjectsByNameGoogleGscQueryTotals,
   postApiV1ProjectsByNameGoogleGscInspect,
   getApiV1ProjectsByNameGoogleGscInspections,
   getApiV1ProjectsByNameGoogleGscDeindexed,
@@ -2399,8 +2404,18 @@ export class ApiClient {
     return normalizeTelemetryStatus(await this.invoke<TelemetryStatusInput>(() => getApiV1Telemetry({ client: this.heyClient })))
   }
 
+  /**
+   * Asks for every opt-in context field this build can read (older servers
+   * ignore the header), then reads the page with the tolerant schema, so a
+   * field added by a newer server is dropped rather than rejecting the page.
+   */
   async listOperationalLogs(query: Partial<LogQuery> = {}): Promise<OperationalLogListDto> {
-    return this.invoke<OperationalLogListDto>(() => getApiV1OperationsLogs({ client: this.heyClient, query }))
+    const page = await this.invoke<unknown>(() => getApiV1OperationsLogs({
+      client: this.heyClient,
+      query,
+      headers: { [OPERATIONAL_LOG_FIELDS_HEADER]: OPERATIONAL_LOG_OPT_IN_CONTEXT_FIELDS.join(',') },
+    }))
+    return operationalLogListReadSchema.parse(page)
   }
 
   async updateTelemetry(enabled: boolean): Promise<TelemetryDto> {
@@ -3252,6 +3267,23 @@ export class ApiClient {
     )
   }
 
+  async listGbpReviews(
+    project: string,
+    opts?: { locationName?: string; negative?: boolean | string; limit?: number | string },
+  ): Promise<GbpReviewListResponse> {
+    const query: Record<string, string> = {}
+    if (opts?.locationName) query.locationName = opts.locationName
+    if (opts?.negative !== undefined) query.negative = String(opts.negative)
+    if (opts?.limit !== undefined) query.limit = String(opts.limit)
+    return this.invoke<GbpReviewListResponse>(() =>
+      getApiV1ProjectsByNameGbpReviews({
+        client: this.heyClient,
+        path: { name: project },
+        query: Object.keys(query).length > 0 ? query as never : undefined,
+      }),
+    )
+  }
+
   async getGbpSummary(project: string, opts?: { locationName?: string }): Promise<GbpSummaryDto> {
     return this.invoke<GbpSummaryDto>(() =>
       getApiV1ProjectsByNameGbpSummary({
@@ -3296,6 +3328,16 @@ export class ApiClient {
   async gscTopPages(project: string, params?: Record<string, string>): Promise<GscTopPagesDto> {
     return this.invoke<GscTopPagesDto>(() =>
       getApiV1ProjectsByNameGoogleGscTopPages({
+        client: this.heyClient,
+        path: { name: project },
+        query: params as never,
+      }),
+    )
+  }
+
+  async gscQueryTotals(project: string, params?: Record<string, string>): Promise<GscQueryTotalsDto> {
+    return this.invoke<GscQueryTotalsDto>(() =>
+      getApiV1ProjectsByNameGoogleGscQueryTotals({
         client: this.heyClient,
         path: { name: project },
         query: params as never,

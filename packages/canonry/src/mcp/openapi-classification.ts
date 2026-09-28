@@ -202,6 +202,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/google/gsc/performance': 'included',
   'GET /api/v1/projects/{name}/google/gsc/performance/daily': 'included',
   'GET /api/v1/projects/{name}/google/gsc/top-pages': 'included',
+  'GET /api/v1/projects/{name}/google/gsc/query-totals': 'included',
   'POST /api/v1/projects/{name}/google/gsc/inspect': 'deferred',
   'GET /api/v1/projects/{name}/google/gsc/inspections': 'included',
   'GET /api/v1/projects/{name}/google/gsc/deindexed': 'included',
@@ -264,6 +265,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/gbp/lodging': 'included',
   'GET /api/v1/projects/{name}/gbp/attributes': 'included',
   'GET /api/v1/projects/{name}/gbp/places': 'included',
+  'GET /api/v1/projects/{name}/gbp/reviews': 'included',
   'GET /api/v1/projects/{name}/gbp/summary': 'included',
   // Google Marketing is split into explicit Google Ads and GTM namespaces.
   // It is deliberately separate from `ads`, which means OpenAI / ChatGPT Ads.

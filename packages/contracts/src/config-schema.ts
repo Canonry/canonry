@@ -4,6 +4,8 @@ import { providerModelsSchema, providerNameSchema, locationContextSchema } from 
 import { notificationEventSchema } from './notification.js'
 import { findDuplicateLocationLabels, hasLocationLabel } from './project.js'
 import { measurementConfigSchema, defaultMeasurementConfig } from './measurement.js'
+import { providerDispatchModesSchema } from './provider-batch.js'
+import { gbpNegativeReviewMaxStarsSchema } from './gbp.js'
 
 export const configMetadataSchema = z.object({
   name: z.string().min(1).max(63).regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, {
@@ -61,6 +63,9 @@ export const configSpecSchema = z.object({
   competitors: z.array(z.string().min(1)).optional().default([]),
   providers: z.array(providerNameSchema).optional().default([]),
   providerModels: providerModelsSchema.optional().default({}),
+  // No default on purpose: an apply that omits it leaves the project's stored
+  // preference alone, the same rule as `queries`.
+  providerDispatchModes: providerDispatchModesSchema.optional(),
   locations: z.array(locationContextSchema).optional().default([]),
   defaultLocation: z.string().optional(),
   measurement: measurementConfigSchema.optional().default(defaultMeasurementConfig),
@@ -68,6 +73,8 @@ export const configSpecSchema = z.object({
   notifications: z.array(configNotificationSchema).optional().default([]),
   google: configGoogleSchema,
   autoExtractBacklinks: z.boolean().optional().default(false),
+  /** Highest star rating that counts as a negative Google review (1-4). Omitted means the default of 3. */
+  negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.optional(),
 }).superRefine((spec, ctx) => {
   if (spec.queries !== undefined && spec.keywords !== undefined) {
     ctx.addIssue({

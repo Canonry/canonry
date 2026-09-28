@@ -13,6 +13,7 @@ import {
   type MeasurementPlanV2,
   type MeasurementPortfolioSummaryResponse,
   type MeasurementPropertyCompetitorsResponse,
+  type MetricValue,
   type ProjectReportDto,
   type VisibilityReportResponse,
 } from '@ainyc/canonry-contracts'
@@ -23,6 +24,7 @@ import {
   migrate,
   projects,
   querySnapshots,
+  runFills,
   runs,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
@@ -47,7 +49,7 @@ vi.mock('../src/measurement-report.js', async importOriginal => {
 })
 
 import { apiRoutes } from '../src/index.js'
-import { compareWeakestMarket } from '../src/measurement-portfolio-reads.js'
+import { classifyPropertyMove, compareChangeMagnitude, compareWeakestMarket } from '../src/measurement-portfolio-reads.js'
 import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 
@@ -726,18 +728,30 @@ describe('measurement portfolio reads', () => {
     expect((await portfolio('includeNestedMarkets=yes')).status).toBe(400)
   })
 
-  it('caps the default market level at the row limit and says how many were cut', async () => {
+  it('lists every market at the returned level whatever the row limit', async () => {
     plan = {
       ...plan,
-      groups: ['north', 'south', 'east'].map(name => ({
-        stableKey: `${name}-metro`, label: `${name} metro`, targetKeys: ['harbor', 'bayside'], competitors: [],
-      })),
+      groups: [
+        ...['north', 'south', 'east'].map(name => ({
+          stableKey: `${name}-metro`, label: `${name} metro`, targetKeys: ['harbor', 'bayside'], competitors: [],
+        })),
+        ...['pier', 'dock', 'wharf'].map(name => ({
+          stableKey: `${name}-district`, label: `${name} district`, parentGroupKey: 'north-metro', targetKeys: ['harbor'], competitors: [],
+        })),
+      ],
     }
     activate(seedVersion(1))
-    const { body } = await portfolio('limit=2')
-    expect(body.markets).toHaveLength(2)
-    expect(body).toMatchObject({ totalMarkets: 3, marketsTruncated: true })
-    expect((await portfolio('limit=2&includeNestedMarkets=true')).body.markets).toHaveLength(3)
+    // A comparison that stops at the row limit sends the reader after the
+    // missing metros one at a time.
+    const { body } = await portfolio('limit=1')
+    expect(body.weakestProperties).toHaveLength(1)
+    expect(body.markets.map(market => market.groupKey).sort()).toEqual(['east-metro', 'north-metro', 'south-metro'])
+    expect(body).toMatchObject({ totalMarkets: 3, marketsTruncated: false })
+    // A metro's own submarkets are one level too, and just as complete.
+    const children = (await portfolio('groupKey=north-metro&limit=1')).body
+    expect(children.markets).toHaveLength(3)
+    expect(children).toMatchObject({ totalMarkets: 3, marketsTruncated: false })
+    expect((await portfolio('limit=1&includeNestedMarkets=true')).body.markets).toHaveLength(6)
   })
 
   it('reports a tie at the weakest rate and where engines got the tied answers, each answer counted once', async () => {
@@ -755,7 +769,12 @@ describe('measurement portfolio reads', () => {
 
     const { body } = await portfolio('limit=1')
     // Both Properties missed both answers. Their order is the label tie-break.
-    expect(body.tiedAtWeakest).toEqual({ count: 2, mentionRate: 0, citationRate: 0, note: 'tied Properties are ordered by name, not ranked' })
+    expect(body.tiedAtWeakest).toEqual({
+      count: 2, mentionRate: 0, citationRate: 0, note: 'tied Properties are ordered by name, not ranked',
+      byMetro: [{ metro: 'Regional comparison', count: 2 }],
+      namedInstead: [],
+      namedInsteadTotal: 0,
+    })
     expect(body.weakestProperties.map(row => row.targetKey)).toEqual(['bayside'])
     expect(body.weakestProperties[0]).toMatchObject({
       citedDomains: [{ domain: 'listings.example', answers: 2 }, { domain: 'rentals.example', answers: 1 }, { domain: 'reviews.example', answers: 1 }],
@@ -776,6 +795,51 @@ describe('measurement portfolio reads', () => {
     expect(untied.tiedAtWeakest).toBeNull()
     expect(untied.weakestProperties.map(row => row.targetKey)).toEqual(['bayside'])
     expect(untied.weakestAnswerSources).toMatchObject({ properties: 1, answers: 2 })
+  })
+
+  it('places and characterizes the whole tie, not only the rows the limit returns', async () => {
+    // Three Properties tie at zero. One sits in two metros and one in none.
+    const cedar = { ...structuredClone(plan.targets[1]!), stableKey: 'cedar', label: 'Cedar Court', aliases: ['Cedar Court'], urlMatchers: [] }
+    plan.targets.push(cedar)
+    plan.assignments.push({ targetKey: 'cedar', queryId: 'q-nearby', queryClass: 'non-brand', executionNodeKey: 'exec-nearby' })
+    plan.usageEdges.push({ executionNodeKey: 'exec-nearby', targetKey: 'cedar', queryId: 'q-nearby' })
+    plan = {
+      ...plan,
+      groups: [
+        { stableKey: 'coastal-metro', label: 'Coastal Metro', targetKeys: ['harbor', 'bayside'], competitors: [] },
+        { stableKey: 'inland-metro', label: 'Inland Metro', targetKeys: ['harbor'], competitors: [] },
+      ],
+    }
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedFullRun(versionId)
+    const nearby = (provider: string) => and(
+      eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'), eq(querySnapshots.provider, provider),
+    )
+    db.update(querySnapshots).set({ recommendedCompetitors: ['Rival One', 'Harbor Homes', 'Rival Two'] }).where(nearby('openai')).run()
+    db.update(querySnapshots).set({ recommendedCompetitors: ['Rival One', 'RIVAL ONE'] }).where(nearby('gemini')).run()
+    // Branded, and naming Harbor: outside the default non-brand read.
+    db.update(querySnapshots).set({ answerText: 'Harbor Homes is well reviewed.', recommendedCompetitors: ['Rival Three'] }).where(and(
+      eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-brand'),
+    )).run()
+
+    const { body } = await portfolio('limit=1')
+    expect(body.weakestProperties.map(row => row.targetKey)).toEqual(['bayside'])
+    expect(body.tiedAtWeakest).toMatchObject({
+      count: 3,
+      // Harbor counts in both of its metros; Cedar Court is in none.
+      byMetro: [{ metro: 'Coastal Metro', count: 2 }, { metro: 'Inland Metro', count: 1 }, { metro: null, count: 1 }],
+      // Two stored answers serve all three tied Properties: each counts once
+      // per name, however many tied Properties it missed or spellings it used.
+      // Harbor Homes is written instead of the other two, never of itself.
+      namedInstead: [{ name: 'RIVAL ONE', answers: 2 }, { name: 'Harbor Homes', answers: 1 }, { name: 'Rival Two', answers: 1 }],
+      namedInsteadTotal: 3,
+    })
+
+    const everyClass = (await portfolio('limit=1&queryClass=all')).body
+    // Harbor's branded mentions lift it out of the tie: only Bayside and Cedar Court share the weakest rates.
+    expect(everyClass.tiedAtWeakest).toMatchObject({ count: 2, byMetro: [{ metro: 'Coastal Metro', count: 1 }, { metro: null, count: 1 }] })
+    expect(everyClass.tiedAtWeakest?.namedInstead?.map(row => row.name)).not.toContain('Rival Three')
   })
 
   it('counts the hosts of captured citation URLs when the stored domain list is empty', async () => {
@@ -905,6 +969,50 @@ describe('measurement portfolio reads', () => {
     expect(body.truncated).toBe(false)
   })
 
+  it('returns the domains a Property\'s own answers cited, over every measured answer in the requested class', async () => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedFullRun(versionId)
+    const slot = (execution: string, provider: string) => and(
+      eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, execution), eq(querySnapshots.provider, provider),
+    )
+    db.update(querySnapshots).set({
+      citedDomains: ['listings.example', 'rentals.example'],
+      citedUrls: ['https://www.listings.example/harbor'],
+    }).where(slot('exec-nearby', 'openai')).run()
+    // Its text did not land, but its sources did: it still counts, as it does for citation coverage.
+    db.update(querySnapshots).set({ answerText: null, citedDomains: ['listings.example'] }).where(slot('exec-nearby', 'gemini')).run()
+    db.update(querySnapshots).set({ citedDomains: ['reviews.example'] }).where(slot('exec-brand', 'openai')).run()
+
+    const nonBrand = await competitors('targetKey=harbor&queryClass=non-brand')
+    expect(nonBrand.status).toBe(200)
+    expect(nonBrand.body).toMatchObject({
+      citedDomains: [{ domain: 'listings.example', answers: 2 }, { domain: 'rentals.example', answers: 1 }],
+      citedDomainsTotal: 2,
+      citedDomainsAnswers: 2,
+    })
+    // Names written instead still read only answers with text.
+    expect(nonBrand.body.basis).toMatchObject({ state: 'available', answeredResults: 1 })
+
+    const everyClass = await competitors('targetKey=harbor&queryClass=all&limit=1')
+    expect(everyClass.body).toMatchObject({
+      citedDomains: [{ domain: 'listings.example', answers: 2 }, { domain: 'rentals.example', answers: 1 }, { domain: 'reviews.example', answers: 1 }],
+      citedDomainsTotal: 3,
+      citedDomainsAnswers: 4,
+    })
+
+    // No answer text anywhere: no names to read, but the sources are still there.
+    db.update(querySnapshots).set({ answerText: null }).where(eq(querySnapshots.runId, runId)).run()
+    const textless = await competitors('targetKey=bayside&queryClass=non-brand')
+    expect(textless.body.basis).toEqual({ state: 'unavailable', reason: 'evidence_incomplete' })
+    expect(textless.body).toMatchObject({ citedDomainsTotal: 2, citedDomainsAnswers: 2 })
+
+    // Nothing measured for the class: no list, rather than an empty one that reads as no sources.
+    const unmeasured = await competitors('targetKey=bayside&queryClass=branded')
+    expect(unmeasured.body.basis).toEqual({ state: 'unavailable', reason: 'no_population' })
+    expect(unmeasured.body).not.toHaveProperty('citedDomains')
+  })
+
   it('uses the same brand identity as question reads for self recommendations', async () => {
     const versionId = seedVersion(1)
     activate(versionId)
@@ -1000,6 +1108,143 @@ describe('measurement portfolio reads', () => {
     expect(body.comparison.changedProperties).toHaveLength(1)
   })
 
+  it('orders changes by the size of the move, flags moves within noise and splits every Property by how it moved', async () => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    seedFullRun(versionId, { createdAt: '2026-08-02T08:00:00.000Z' })
+    const current = seedFullRun(versionId, { createdAt: '2026-08-02T09:00:00.000Z' })
+    // Harbor goes from 0 to 4 named answers (2 non-brand, 2 branded); Bayside
+    // from 0 to 2, its every answer: two answers is still within noise.
+    db.update(querySnapshots).set({ answerText: 'Harbor Homes and Bayside Homes are both listed.' }).where(and(
+      eq(querySnapshots.runId, current), eq(querySnapshots.measurementExecutionId, 'exec-nearby'),
+    )).run()
+    db.update(querySnapshots).set({ answerText: 'Harbor Homes is well reviewed.' }).where(and(
+      eq(querySnapshots.runId, current), eq(querySnapshots.measurementExecutionId, 'exec-brand'),
+    )).run()
+
+    const { status, body } = await changes('limit=1')
+    expect(status).toBe(200)
+    expect(body.queryClass).toBe('all')
+    if (body.comparison.state !== 'available') throw new Error('Expected a comparable measurement run.')
+    // Largest move first, not the alphabetical first.
+    expect(body.comparison.sort).toBe('magnitude')
+    expect(body.comparison.changedProperties).toEqual([expect.objectContaining({
+      targetKey: 'harbor', mentionAnswersDelta: 4, citationAnswersDelta: 0, withinNoise: false,
+    })])
+    expect(body.comparison).toMatchObject({ totalProperties: 2, truncated: true })
+    // Over every Property in scope, not the one row returned.
+    expect(body.comparison.distribution).toEqual({
+      improved: 1, declined: 0, mixed: 0, withinNoise: 1, unchanged: 0, notComparable: 0, total: 2, noiseAnswers: 2,
+    })
+    // The pooled block mixes both classes, so each class rides beside it.
+    expect(body.comparison.metricsByClass?.branded.mentionCoverage).toMatchObject({
+      state: 'available', previous: { numerator: 0, denominator: 2 }, current: { numerator: 2, denominator: 2 }, delta: 1,
+    })
+    expect(body.comparison.metricsByClass?.nonBrand.mentionCoverage).toMatchObject({
+      state: 'available', previous: { numerator: 0, denominator: 2 }, current: { numerator: 2, denominator: 2 }, delta: 1,
+    })
+
+    const byLabel = await changes('sort=label')
+    if (byLabel.body.comparison.state !== 'available') throw new Error('Expected a comparable measurement run.')
+    expect(byLabel.body.comparison.sort).toBe('label')
+    expect(byLabel.body.comparison.changedProperties.map(row => [row.targetKey, row.mentionAnswersDelta, row.withinNoise]))
+      .toEqual([['bayside', 2, true], ['harbor', 4, false]])
+    expect((await changes('sort=size')).status).toBe(400)
+
+    // One class: no per-class block, and Harbor's 2 non-brand answers are within noise too.
+    const nonBrand = await changes('queryClass=non-brand')
+    expect(nonBrand.body.queryClass).toBe('non-brand')
+    if (nonBrand.body.comparison.state !== 'available') throw new Error('Expected a comparable measurement run.')
+    expect(nonBrand.body.comparison).not.toHaveProperty('metricsByClass')
+    expect(nonBrand.body.comparison.distribution).toMatchObject({ improved: 0, withinNoise: 2, total: 2 })
+  })
+
+  it('puts a large citation-only move ahead of every mention move within noise', async () => {
+    // Two more Properties share the non-brand question, so three can wobble.
+    for (const [stableKey, label] of [['cedar', 'Cedar Court'], ['dune', 'Dune Lofts']] as const) {
+      plan.targets.push({
+        ...structuredClone(plan.targets[1]!),
+        stableKey,
+        label,
+        aliases: [label],
+        urlMatchers: [{ kind: 'prefix', host: 'northstar.example', pathPrefix: `/locations/${stableKey}`, pathCase: 'insensitive' }],
+      })
+      plan.assignments.push({ targetKey: stableKey, queryId: 'q-nearby', queryClass: 'non-brand', executionNodeKey: 'exec-nearby' })
+      plan.usageEdges.push({ executionNodeKey: 'exec-nearby', targetKey: stableKey, queryId: 'q-nearby' })
+    }
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const previous = seedFullRun(versionId, { createdAt: '2026-08-02T08:00:00.000Z' })
+    const current = seedFullRun(versionId, { createdAt: '2026-08-02T09:00:00.000Z' })
+    const nearby = (runId: string, provider: string) => and(
+      eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'), eq(querySnapshots.provider, provider),
+    )
+    // Harbor is never named, but every previous answer cited it and no current one does.
+    db.update(querySnapshots).set({
+      citationState: 'cited',
+      citedUrls: ['https://northstar.example/locations/harbor/details'],
+    }).where(eq(querySnapshots.runId, previous)).run()
+    // Mention wobbles of one or two answers: Dune -2, Bayside +2, Cedar +1.
+    db.update(querySnapshots).set({ answerText: 'Dune Lofts is listed.' }).where(eq(querySnapshots.measurementExecutionId, 'exec-nearby')).run()
+    db.update(querySnapshots).set({ answerText: 'Bayside Homes and Cedar Court are listed.' }).where(nearby(current, 'openai')).run()
+    db.update(querySnapshots).set({ answerText: 'Bayside Homes is listed.' }).where(nearby(current, 'gemini')).run()
+
+    const { status, body } = await changes()
+    expect(status).toBe(200)
+    if (body.comparison.state !== 'available') throw new Error('Expected a comparable measurement run.')
+    expect(body.comparison.sort).toBe('magnitude')
+    // Harbor's label sorts last and its mention count never moved, yet it leads.
+    expect(body.comparison.changedProperties.map(row => [row.targetKey, row.mentionAnswersDelta, row.citationAnswersDelta, row.withinNoise]))
+      .toEqual([
+        ['harbor', 0, -4, false],
+        ['bayside', 2, 0, true],
+        ['dune', -2, 0, true],
+        ['cedar', 1, 0, true],
+      ])
+    expect(body.comparison.distribution).toMatchObject({ declined: 1, withinNoise: 3, total: 4 })
+
+    // The one row an agent reads first is the real loss, not a wobble.
+    const first = await changes('limit=1')
+    if (first.body.comparison.state !== 'available') throw new Error('Expected a comparable measurement run.')
+    expect(first.body.comparison.changedProperties.map(row => row.targetKey)).toEqual(['harbor'])
+    expect(first.body.comparison).toMatchObject({ totalProperties: 4, truncated: true })
+  })
+
+  it('sizes a move on the larger denominator when unresolved answers shrank the previous one', async () => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const previous = seedFullRun(versionId, { createdAt: '2026-08-02T08:00:00.000Z' })
+    const current = seedFullRun(versionId, { createdAt: '2026-08-02T09:00:00.000Z' })
+    const answer = (runId: string, executionKey: string, provider?: string) => and(
+      eq(querySnapshots.runId, runId),
+      eq(querySnapshots.measurementExecutionId, executionKey),
+      ...(provider === undefined ? [] : [eq(querySnapshots.provider, provider)]),
+    )
+    // Previously Harbor was named once and three answers asked which Harbor
+    // Homes was meant, so it read 1 of 1. Now it is named once in 4: the same
+    // count on a rate down from 100% to 25%.
+    db.update(querySnapshots).set({ answerText: 'Which Harbor Homes do you mean?' }).where(eq(querySnapshots.runId, previous)).run()
+    db.update(querySnapshots).set({ answerText: 'Harbor Homes is listed.' }).where(answer(previous, 'exec-nearby', 'openai')).run()
+    // Bayside goes from 0 to 2 of its 2 answers, a wobble within noise.
+    db.update(querySnapshots).set({ answerText: 'Harbor Homes and Bayside Homes are listed.' }).where(answer(current, 'exec-nearby', 'openai')).run()
+    db.update(querySnapshots).set({ answerText: 'Bayside Homes is listed.' }).where(answer(current, 'exec-nearby', 'gemini')).run()
+
+    const { status, body } = await changes()
+    expect(status).toBe(200)
+    if (body.comparison.state !== 'available') throw new Error('Expected a comparable measurement run.')
+    const [harbor, bayside] = body.comparison.changedProperties
+    expect(harbor).toMatchObject({
+      targetKey: 'harbor', mentionAnswersDelta: 0, citationAnswersDelta: 0, denominatorChanged: true, withinNoise: false,
+      mentionCoverage: {
+        state: 'available',
+        previous: { value: 1, numerator: 1, denominator: 1, unattributed: 3 },
+        current: { value: 0.25, numerator: 1, denominator: 4 },
+      },
+    })
+    expect(bayside).toMatchObject({ targetKey: 'bayside', mentionAnswersDelta: 2, denominatorChanged: false, withinNoise: true })
+    expect(body.comparison.distribution).toMatchObject({ declined: 1, withinNoise: 1, improved: 0, total: 2 })
+  })
+
   it('does not report a Property changed when its unavailable metrics remain unavailable for the same reason', async () => {
     plan.targets.find(target => target.stableKey === 'bayside')!.mentionNotApplicable = true
     const versionId = seedVersion(1)
@@ -1015,6 +1260,25 @@ describe('measurement portfolio reads', () => {
     expect(body.comparison.changedProperties).toEqual([])
     expect(body.comparison.totalProperties).toBe(0)
     expect(body.comparison.truncated).toBe(false)
+  })
+
+  it('counts an unmoved Property as unchanged in the distribution without listing it', async () => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    seedFullRun(versionId, { createdAt: '2026-08-02T08:00:00.000Z' })
+    const current = seedFullRun(versionId, { createdAt: '2026-08-02T09:00:00.000Z' })
+    // Only the branded answers change, and only Harbor carries the branded query.
+    db.update(querySnapshots).set({ answerText: 'Harbor Homes is well reviewed.' }).where(and(
+      eq(querySnapshots.runId, current), eq(querySnapshots.measurementExecutionId, 'exec-brand'),
+    )).run()
+
+    const { body } = await changes()
+    if (body.comparison.state !== 'available') throw new Error('Expected a comparable measurement run.')
+    expect(body.comparison.changedProperties.map(row => row.targetKey)).toEqual(['harbor'])
+    expect(body.comparison.distribution).toMatchObject({ withinNoise: 1, unchanged: 1, total: 2 })
+    // Non-brand did not move at all; the pooled block alone would not say which class did.
+    expect(body.comparison.metricsByClass?.nonBrand.mentionCoverage).toMatchObject({ state: 'available', delta: 0 })
+    expect(body.comparison.metricsByClass?.branded.mentionCoverage).toMatchObject({ state: 'available', delta: 1 })
   })
 
   it('does not bridge changes across an execution identity boundary', async () => {
@@ -1101,6 +1365,92 @@ describe('measurement portfolio reads', () => {
     expect(body.retrieval).toEqual({ state: 'available', used: 1, notUsed: 0, unknown: 1, notApplicable: 0, notRecorded: 0 })
     expect(body.population).toEqual({ state: 'available', expectedQuestions: 1, answeredQuestions: 1, missingQuestions: 0 })
     expect(body).not.toHaveProperty('quality')
+  })
+
+  it('reports unattributed answers per question class and the newest fill of the run', async () => {
+    // Cedar Court shares Harbor's questions, so an answer asking which Cedar
+    // Court was meant cannot be attributed in either class it lands in.
+    const cedar = { ...structuredClone(plan.targets[0]!), stableKey: 'cedar', label: 'Cedar Court', aliases: ['Cedar Court'], urlMatchers: [] }
+    plan.targets.push(cedar)
+    for (const assignment of plan.assignments.filter(row => row.targetKey === 'harbor')) {
+      plan.assignments.push({ ...assignment, targetKey: cedar.stableKey })
+      plan.usageEdges.push({ targetKey: cedar.stableKey, queryId: assignment.queryId, executionNodeKey: assignment.executionNodeKey })
+    }
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedFullRun(versionId)
+    const slot = (execution: string, provider: string) => and(
+      eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, execution), eq(querySnapshots.provider, provider),
+    )
+    db.update(querySnapshots).set({ answerText: `Which ${cedar.label} do you mean?` }).where(slot('exec-brand', 'openai')).run()
+    db.update(querySnapshots).set({ answerText: 'Harbor Homes is well reviewed.' }).where(slot('exec-brand', 'gemini')).run()
+
+    const before = await quality()
+    expect(before.status).toBe(200)
+    expect(before.body.unattributedByClass).toEqual({
+      branded: { state: 'available', answered: 2, unattributed: 1 },
+      nonBrand: { state: 'available', answered: 2, unattributed: 0 },
+    })
+    expect(before.body.latestFill).toBeNull()
+
+    // Every branded answer unattributed: the class's rate is withheld, but the count is not.
+    db.update(querySnapshots).set({ answerText: `Which ${cedar.label} do you mean?` }).where(slot('exec-brand', 'gemini')).run()
+    for (const [id, createdAt, status, filled] of [['fill-old', '2026-08-02T12:10:00.000Z', 'failed', 0], ['fill-new', '2026-08-02T12:30:00.000Z', 'completed', 1]] as const) {
+      db.insert(runFills).values({
+        id, projectId, runId, status, providers: '["gemini"]', expected: 1, filled,
+        createdAt, startedAt: createdAt, finishedAt: createdAt,
+      }).run()
+    }
+    const after = await quality()
+    expect(after.body.unattributedByClass?.branded).toEqual({ state: 'available', answered: 2, unattributed: 2 })
+    expect(after.body.latestFill).toEqual({
+      status: 'completed', providers: ['gemini'], expected: 1, filled: 1,
+      createdAt: '2026-08-02T12:30:00.000Z', finishedAt: '2026-08-02T12:30:00.000Z',
+    })
+  })
+
+  it('withholds a class it cannot count and keeps the fill readable when the answers are not', async () => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    // A spot check of the non-brand question only: nothing branded was asked.
+    const runId = seedRun(versionId, {
+      measurementScope: { groups: [], targets: [], queries: ['q-nearby'], resolvedTargets: [] },
+      measurementManifest: manifestFor(['exec-nearby']),
+    })
+    for (const provider of ['openai', 'gemini']) seedSnapshot(runId, 'exec-nearby', provider)
+    const scoped = await quality(`runId=${runId}`)
+    expect(scoped.body.unattributedByClass).toEqual({
+      branded: { state: 'unavailable', reason: 'no_population' },
+      nonBrand: { state: 'available', answered: 2, unattributed: 0 },
+    })
+
+    // Two stored results for one slot: nothing about the answers can be trusted.
+    const broken = seedRun(versionId, {
+      measurementScope: { groups: [], targets: ['harbor'], queries: [], resolvedTargets: ['harbor'] },
+      measurementManifest: manifestFor(['exec-nearby']),
+    })
+    seedSnapshot(broken, 'exec-nearby', 'openai')
+    seedSnapshot(broken, 'exec-nearby', 'OpenAI')
+    db.insert(runFills).values({
+      id: 'fill-1', projectId, runId: broken, status: 'partial', providers: '["gemini"]', expected: 1, filled: 0,
+      createdAt: NOW, startedAt: NOW, finishedAt: null,
+    }).run()
+    const inspected = await quality(`runId=${broken}`)
+    expect(inspected.body.unattributedByClass).toEqual({
+      branded: { state: 'unavailable', reason: 'evidence_incomplete' },
+      nonBrand: { state: 'unavailable', reason: 'evidence_incomplete' },
+    })
+    expect(inspected.body.latestFill).toMatchObject({ status: 'partial', expected: 1, filled: 0, finishedAt: null })
+
+    activate(seedVersion(2))
+    const unmeasured = await quality()
+    expect(unmeasured.body).toMatchObject({
+      unattributedByClass: {
+        branded: { state: 'unavailable', reason: 'no_completed_run' },
+        nonBrand: { state: 'unavailable', reason: 'no_completed_run' },
+      },
+      latestFill: null,
+    })
   })
 
   it('does not call an unsupported location-context answer usable evidence', async () => {
@@ -1254,5 +1604,141 @@ describe('compareWeakestMarket', () => {
       market('alpha', 'Same label', gone, gone),
       market('mid', 'Another label', gone, gone),
     )).toEqual(['mid', 'alpha', 'zulu'])
+  })
+})
+
+describe('classifyPropertyMove', () => {
+  const answers = (numerator: number, denominator = 10) =>
+    ({ state: 'available' as const, value: numerator / denominator, numerator, denominator })
+  const gone = { state: 'unavailable' as const, reason: 'evidence_incomplete' as const }
+  const move = (mention: [MetricValue, MetricValue], citation: [MetricValue, MetricValue]) =>
+    classifyPropertyMove({ previous: mention[0], current: mention[1] }, { previous: citation[0], current: citation[1] })
+
+  it('sizes moves in answers and holds two answers each way within noise', () => {
+    expect(move([answers(4), answers(6)], [answers(3), answers(1)])).toMatchObject({
+      mentionAnswersDelta: 2, citationAnswersDelta: -2, withinNoise: true, bucket: 'withinNoise', mentionSize: 2, citationSize: 2,
+    })
+    expect(move([answers(4), answers(7)], [answers(3), answers(3)])).toMatchObject({ withinNoise: false, bucket: 'improved', mentionSize: 3 })
+  })
+
+  it('sizes a move on the larger denominator, so a falling rate never reads as a gain', () => {
+    // 1 of 1 to 4 of 8: three more answers, but the rate halved. At the old
+    // rate the 8 answers would all have named it, so it is four down.
+    expect(move([answers(1, 1), answers(4, 8)], [answers(0, 1), answers(0, 8)])).toEqual({
+      mentionAnswersDelta: 3, citationAnswersDelta: 0, denominatorChanged: true,
+      withinNoise: false, bucket: 'declined', mentionSize: 4, citationSize: 0,
+    })
+    // 2 of 10 to 5 of 40: three more answers on a rate down from 20% to 12.5%.
+    expect(move([answers(2), answers(5, 40)], [answers(1), answers(4, 40)])).toMatchObject({
+      mentionAnswersDelta: 3, denominatorChanged: true, bucket: 'declined', mentionSize: 3,
+    })
+    // 8 of 20 to 5 of 5: three fewer answers on a rate up from 40% to 100%,
+    // 60 points of the previous run's 20 answers.
+    expect(move([answers(8, 20), answers(5, 5)], [answers(0, 20), answers(0, 5)])).toMatchObject({
+      mentionAnswersDelta: -3, denominatorChanged: true, bucket: 'improved', mentionSize: 12,
+    })
+  })
+
+  it('never shrinks a collapse into noise when the current denominator shrank', () => {
+    // 10 of 12 to 0 of 2: ten answers stopped naming it while most went
+    // unresolved. Sized on the 2 current answers this would read as noise.
+    expect(move([answers(10, 12), answers(0, 2)], [answers(0, 12), answers(0, 2)])).toEqual({
+      mentionAnswersDelta: -10, citationAnswersDelta: 0, denominatorChanged: true,
+      withinNoise: false, bucket: 'declined', mentionSize: 10, citationSize: 0,
+    })
+    // The same pair the other way round is the same size, rising.
+    expect(move([answers(0, 2), answers(10, 12)], [answers(0, 2), answers(0, 12)])).toMatchObject({
+      bucket: 'improved', mentionSize: 10,
+    })
+  })
+
+  it('keeps the answer delta as the move when the denominator held', () => {
+    expect(move([answers(4), answers(7)], [answers(3), answers(1)])).toEqual({
+      mentionAnswersDelta: 3, citationAnswersDelta: -2, denominatorChanged: false,
+      withinNoise: false, bucket: 'improved', mentionSize: 3, citationSize: 2,
+    })
+  })
+
+  it('holds a small rate-adjusted move within noise whichever way the raw count went', () => {
+    // 2 of 10 to 3 of 20: one more answer, but 20% to 15% is one answer down.
+    expect(move([answers(2), answers(3, 20)], [answers(1), answers(2, 20)])).toEqual({
+      mentionAnswersDelta: 1, citationAnswersDelta: 1, denominatorChanged: true,
+      withinNoise: true, bucket: 'withinNoise', mentionSize: 1, citationSize: 0,
+    })
+  })
+
+  it('never sizes a signal over no answers or an unknown number of them', () => {
+    const empty = { state: 'available' as const, value: 0, numerator: 0, denominator: 0 }
+    expect(move([empty, answers(2)], [answers(3), answers(3)])).toMatchObject({
+      withinNoise: false, bucket: 'notComparable', mentionSize: -1,
+    })
+    const unsized = { state: 'available' as const, value: 0.5, numerator: 1 }
+    expect(move([answers(2), unsized], [answers(3), answers(3)])).toMatchObject({
+      mentionAnswersDelta: -1, denominatorChanged: true, withinNoise: false, bucket: 'notComparable', mentionSize: -1,
+    })
+  })
+
+  it('orders and buckets by the rate-adjusted move, not the raw count', () => {
+    const rows = [
+      // Raw +3 looks like a gain; 50% to 40% is two answers down, within noise.
+      { targetKey: 'a-grown', move: move([answers(5), answers(8, 20)], [answers(0), answers(0, 20)]) },
+      // Raw 0 looks like noise; 10% to 3.3% is four answers down.
+      { targetKey: 'b-diluted', move: move([answers(2, 20), answers(2, 60)], [answers(0, 20), answers(0, 60)]) },
+    ]
+    expect(rows.map(row => row.move.bucket)).toEqual(['withinNoise', 'declined'])
+    expect(rows.map(row => ({ row: { targetKey: row.targetKey, label: row.targetKey }, move: row.move }))
+      .sort(compareChangeMagnitude).map(row => row.row.targetKey)).toEqual(['b-diluted', 'a-grown'])
+  })
+
+  it('calls a move beyond noise improved, declined or mixed by the signals that moved beyond noise', () => {
+    expect(move([answers(7), answers(4)], [answers(3), answers(2)]).bucket).toBe('declined')
+    // Three more named, one fewer cited: the citation wobble is noise, so a gain.
+    expect(move([answers(1), answers(4)], [answers(3), answers(2)])).toMatchObject({ withinNoise: false, bucket: 'improved' })
+    // Three fewer named, two more cited: two answers is still noise, so a loss.
+    expect(move([answers(7), answers(4)], [answers(1), answers(3)]).bucket).toBe('declined')
+    // Three more named, three fewer cited: both beyond noise, neither a gain nor a loss.
+    expect(move([answers(1), answers(4)], [answers(5), answers(2)]).bucket).toBe('mixed')
+    expect(move([answers(5), answers(5)], [answers(0), answers(5)]).bucket).toBe('improved')
+  })
+
+  it('never sizes a signal measured in one run only', () => {
+    expect(move([answers(2), gone], [answers(3), answers(3)])).toMatchObject({
+      mentionAnswersDelta: null, citationAnswersDelta: 0, withinNoise: false, bucket: 'notComparable', mentionSize: -1,
+    })
+  })
+
+  it('treats a signal unmeasured in both runs as unmoved rather than unknown', () => {
+    expect(move([answers(2), answers(3)], [gone, gone])).toMatchObject({
+      mentionAnswersDelta: 1, citationAnswersDelta: null, withinNoise: true, bucket: 'withinNoise', citationSize: 0,
+    })
+    expect(move([answers(2), answers(2)], [gone, gone])).toMatchObject({ withinNoise: false, bucket: 'unchanged' })
+  })
+})
+
+describe('compareChangeMagnitude', () => {
+  const row = (targetKey: string, mentionSize: number, citationSize: number, withinNoise: boolean) =>
+    ({ row: { targetKey, label: targetKey }, move: { withinNoise, mentionSize, citationSize } })
+  const order = (...rows: ReturnType<typeof row>[]) =>
+    [...rows].sort(compareChangeMagnitude).map(entry => entry.row.targetKey)
+
+  it('leads with every move beyond noise, sized by its larger signal whichever it is', () => {
+    expect(order(
+      row('a-wobble', 2, 2, true),
+      row('b-wobble', 0, 2, true),
+      row('c-wobble', 1, 0, true),
+      row('m-named', 3, 0, false),
+      row('n-both', 3, 3, false),
+      row('p-cited', 0, 3, false),
+      row('z-cited', 0, 25, false),
+    )).toEqual(['z-cited', 'n-both', 'm-named', 'p-cited', 'a-wobble', 'b-wobble', 'c-wobble'])
+  })
+
+  it('ranks a signal measured in one run only by the other signal, ahead of every row within noise', () => {
+    expect(order(
+      row('a-wobble', 2, 1, true),
+      row('b-unsized', -1, 0, false),
+      row('c-unsized', 4, -1, false),
+      row('d-named', 3, 0, false),
+    )).toEqual(['c-unsized', 'd-named', 'b-unsized', 'a-wobble'])
   })
 })

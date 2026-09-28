@@ -36,6 +36,7 @@ import {
   gbpLodgingDtoSchema,
   gbpAttributesDtoSchema,
   gbpPlaceDetailsDtoSchema,
+  gbpReviewDtoSchema,
   googleConnectionDtoSchema,
   googleAdsConnectionMetadataDtoSchema,
   googleAdsRawSnapshotMetadataDtoSchema,
@@ -44,6 +45,7 @@ import {
   gscUrlInspectionDtoSchema,
   notificationDtoSchema,
   projectDtoSchema,
+  providerBatchSummaryDtoSchema,
   queryDtoSchema,
   querySnapshotDtoSchema,
   recommendationExplanationDtoSchema,
@@ -165,12 +167,37 @@ const COVERAGE: Record<string, CoverageEntry> = {
     dto: runDtoSchema,
     internal: {
       sourceId: 'Set for traffic-sync runs; consumed by traffic routes, not the user-facing run DTO.',
+      providerDispatchModes: 'Exposed as `dispatchModes` on the run DTO ({} when null).',
+      pendingProviderErrors: 'Sync-provider errors held while finalization waits on a provider batch; folded into `error` at finalize.',
     },
   },
   runFills: {
     kind: 'dto',
     dto: runFillDtoSchema,
     internal: {},
+  },
+  providerBatches: {
+    kind: 'dto',
+    dto: providerBatchSummaryDtoSchema,
+    internal: {
+      projectId: 'Implied by the run the batch belongs to.',
+      runId: 'Implied by the run detail that lists it.',
+      fillId: 'Reserved for batch-dispatched fills; fills read through run_fills.',
+      providerBatchId: 'The provider\'s own batch id; an operational handle for the poller, not user data.',
+      quotaScope: 'Stored daily-quota reservation, released by the poller.',
+      quotaPeriod: 'Stored daily-quota reservation, released by the poller.',
+      quotaReserved: 'Stored daily-quota reservation, released by the poller.',
+      quotaReleased: 'Guards against a double release on re-ingest.',
+      cancelRequestedAt: 'Poller bookkeeping for a deadline cancel.',
+      ingestedAt: 'Poller bookkeeping; ingestion progress is ingestedCount/status.',
+      resultsExpireAt: 'When the provider deletes results; poller bookkeeping.',
+      createdAt: 'Row insert time; the run detail orders by it.',
+      updatedAt: 'Row bookkeeping.',
+    },
+  },
+  providerBatchRequests: {
+    kind: 'internal-only',
+    reason: 'Maps each batch line\'s custom_id to its slot for ingest; answers surface as query snapshots.',
   },
   querySnapshots: {
     kind: 'dto',
@@ -180,6 +207,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
       measurementExecutionId: 'Plan-run attribution; read through the measurement report, not the snapshot DTO.',
       screenshotPath: 'Debug-only artifact path; not surfaced on the snapshot DTO.',
       rawResponse: 'Raw provider payload; exposed via a separate endpoint, not the snapshot DTO.',
+      providerBatchId: 'Links the answer to its provider_batches row; the run detail lists the batches.',
     },
   },
   schedules: {
@@ -379,7 +407,11 @@ const COVERAGE: Record<string, CoverageEntry> = {
   gbpLocations: {
     kind: 'dto',
     dto: gbpLocationDtoSchema,
-    internal: {},
+    internal: {
+      reviewsAccess: 'Served per location on GET /gbp/reviews (locations[].reviewsAccess), next to the reviews it governs.',
+      reviewsAccessReason: 'Served per location on GET /gbp/reviews (locations[].reviewsAccessReason).',
+      reviewsCheckedAt: 'Served per location on GET /gbp/reviews (locations[].reviewsCheckedAt).',
+    },
   },
   gbpDailyMetrics: {
     kind: 'dto',
@@ -515,6 +547,23 @@ const COVERAGE: Record<string, CoverageEntry> = {
       syncRunId: 'Internal join key.',
       contentHash: 'Snapshot-on-change dedupe key; internal.',
     },
+  },
+  gbpReviews: {
+    kind: 'dto',
+    dto: gbpReviewDtoSchema,
+    internal: {
+      id: 'Surrogate key.',
+      projectId: 'Implied by the route scope.',
+      syncRunId: 'Internal join key.',
+    },
+  },
+  gbpReviewSettings: {
+    kind: 'internal-only',
+    reason: 'Per-project GBP review alert settings, one row only while a project overrides a default. Served as ProjectDto.negativeReviewMaxStars (and echoed as negativeMaxStars on GET /gbp/reviews); stored off the projects table so the root row stays unchanged.',
+  },
+  gbpReviewRatings: {
+    kind: 'internal-only',
+    reason: 'Rating history per location and origin, snapshotted on change. The newest row per location is served on GET /gbp/reviews as locations[].rating, reviewCount, ratingOrigin and ratingObservedAt. The first row is the baseline marker the review sync reads, and alert_state is review.rating-dropped webhook bookkeeping, neither of which is a measurement.',
   },
   gbpAttributesSnapshots: {
     kind: 'dto',

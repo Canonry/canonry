@@ -48,22 +48,22 @@
       ],
       "content": [
         {
-          "text": "Latest AI visibility check 3 of 5 tracked queries cite Rich Project 65% citation coverage and 40% mention coverage across 2 providers."
+          "text": "Latest AI visibility check 3 of 5 tracked queries cite Rich Project 65.0% citation coverage and 40.0% mention coverage across 2 providers."
         },
         {
           "tile": "Citation trend «positive|↑ Up» 3/5 queries cited"
         },
         {
-          "tile": "Mention coverage 40% 2/5 queries mentioned"
+          "tile": "Mention coverage 40.0% 2/5 queries mentioned"
         },
         {
           "tile": "Prioritized actions 2 Sorted for agency follow-up."
         },
         {
-          "tile": "Citation rate 65% «positive|↑ Up» · 3/5 queries cited · 2 providers"
+          "tile": "Citation rate 65.0% «positive|↑ Up» · 3/5 queries cited · 2 providers"
         },
         {
-          "tile": "Mention rate 40% 2/5 queries mentioned"
+          "tile": "Mention rate 40.0% 2/5 queries mentioned"
         },
         {
           "tile": "Queries tracked 5 3 competitors tracked"
@@ -75,7 +75,7 @@
           "tile": "GA sessions 12.0K 9.0K users · Apr 1, 2026 → Apr 30, 2026"
         },
         {
-          "text": "«positive|Citation rate at 65% Up from previous run.» «negative|1 critical regression Lost citation»"
+          "text": "«positive|Citation rate at 65.0% Up from previous run.» «negative|1 critical regression Lost citation»"
         },
         {
           "text": "Market Scope"
@@ -163,19 +163,19 @@
       ],
       "content": [
         {
-          "tile": "Citation rate «positive|65% ↑» +15.0% vs 50%"
+          "tile": "Citation rate «positive|65.0% ↑» +15.0 pts vs 50.0%"
         },
         {
-          "tile": "Mention rate «positive|40% ↑» +7.0% vs 33%"
+          "tile": "Mention rate «positive|40.0% ↑» +7.0 pts vs 33.0%"
         },
         {
           "tile": "Cited queries «positive|3.3 ↑» +0.6 vs 2.7"
         },
         {
-          "tile": "GSC clicks «positive|520 ↑» +8% vs prior 14 days"
+          "tile": "GSC clicks «positive|520 ↑» +8.3% vs prior 14 days"
         },
         {
-          "tile": "AI referral sessions «positive|110 ↑» +22% vs prior 14 days"
+          "tile": "AI referral sessions «positive|110 ↑» +22.2% vs prior 14 days"
         },
         {
           "text": "AI engine movements"
@@ -183,9 +183,9 @@
         {
           "row": [
             "gemini",
-            "50%",
-            "65%",
-            "«positive|+15.0% ↑»"
+            "50.0%",
+            "65.0%",
+            "«positive|+15.0 pts ↑»"
           ]
         },
         {
@@ -440,7 +440,7 @@
       "intro": "External domains AI engines cited most in the latest check.",
       "items": [
         {
-          "note": "20% of citations went to tracked competitors (2 of 10)."
+          "note": "20.0% of citations went to tracked competitors (2 of 10)."
         },
         {
           "heading": "Top sources"
@@ -458,7 +458,7 @@
       ],
       "content": [
         {
-          "text": "20% of citations went to tracked competitors (2 of 10)."
+          "text": "20.0% of citations went to tracked competitors (2 of 10)."
         },
         {
           "text": "Top sources"
@@ -516,7 +516,7 @@
           "text": "By source type"
         },
         {
-          "text": "Forums & Q&A 5 (50%) News & Media 3 (30%) Tracked competitors 2 (20%)"
+          "text": "Forums & Q&A 5 (50.0%) News & Media 3 (30.0%) Tracked competitors 2 (20.0%)"
         }
       ]
     },
@@ -663,7 +663,7 @@
           "text": "Search demand by intent"
         },
         {
-          "text": "brand 800 clicks · 80% industry 200 clicks · 20%"
+          "text": "brand 800 clicks · 80.0% industry 200 clicks · 20.0%"
         },
         {
           "text": "AEO queries without search demand"
@@ -745,7 +745,7 @@
           "text": "Channel mix"
         },
         {
-          "text": "Organic Search 8.0K sessions · 67% Direct 4.0K sessions · 33%"
+          "text": "Organic Search 8.0K sessions · 66.7% Direct 4.0K sessions · 33.3%"
         }
       ]
     },
@@ -792,7 +792,7 @@
           "text": "Social channel mix"
         },
         {
-          "text": "Organic Social 1.0K sessions · 67% Paid Social 500 sessions · 33%"
+          "text": "Organic Social 1.0K sessions · 66.7% Paid Social 500 sessions · 33.3%"
         },
         {
           "text": "Top campaigns"
@@ -842,7 +842,7 @@
           "text": "AI sessions by source"
         },
         {
-          "text": "chatgpt.com 150 sessions · 75% gemini.google.com 50 sessions · 25%"
+          "text": "chatgpt.com 150 sessions · 75.0% gemini.google.com 50 sessions · 25.0%"
         },
         {
           "text": "Top AI landing pages"
@@ -935,10 +935,10 @@
           "tile": "Verified crawler hits (7d) 234 «positive|Up 100% vs prior 7 days (117 hits)»"
         },
         {
-          "tile": "Unverified crawler hits (7d) 15 «positive|Up 200% vs prior 7 days (5 hits)»"
+          "tile": "Unverified crawler hits (7d) 15 «positive|Up 200.0% vs prior 7 days (5 hits)»"
         },
         {
-          "tile": "AI user-fetch hits (7d) 42 «positive|Up 133% vs prior 7 days (18 hits)»"
+          "tile": "AI user-fetch hits (7d) 42 «positive|Up 133.3% vs prior 7 days (18 hits)»"
         },
         {
           "tile": "AI-referral sessions (7d) 12 «positive|Up 100% vs prior 7 days (6 sessions)» · Paid 9 · Organic 2 · Unclassified 1 · 120 blocked by redirects"
@@ -959,7 +959,7 @@
             "0",
             "30",
             "8",
-            "«positive|+75%»"
+            "«positive|+75.0%»"
           ]
         },
         {
@@ -1103,7 +1103,7 @@
           "tile": "Total inspected 100"
         },
         {
-          "tile": "Indexed share 80%"
+          "tile": "Indexed share 80.0%"
         },
         {
           "text": "Coverage breakdown"
@@ -1146,29 +1146,29 @@
         {
           "row": [
             "Apr 1, 2026",
-            "50% (2/4)",
-            "gemini: 50% · openai: 25%"
+            "50.0% (2/4)",
+            "gemini: 50.0% · openai: 25.0%"
           ]
         },
         {
           "row": [
             "Apr 8, 2026",
-            "55% (2/4)",
-            "gemini: 55% · openai: 30%"
+            "55.0% (2/4)",
+            "gemini: 55.0% · openai: 30.0%"
           ]
         },
         {
           "row": [
             "Apr 15, 2026",
-            "60% (3/5)",
-            "gemini: 60% · openai: 40%"
+            "60.0% (3/5)",
+            "gemini: 60.0% · openai: 40.0%"
           ]
         },
         {
           "row": [
             "Apr 22, 2026",
-            "65% (3/5)",
-            "gemini: 65% · openai: 50%"
+            "65.0% (3/5)",
+            "gemini: 65.0% · openai: 50.0%"
           ]
         }
       ]

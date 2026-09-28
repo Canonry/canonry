@@ -4,7 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { sql } from 'drizzle-orm'
-import { createClient, migrate, MIGRATION_VERSIONS, projects } from '../src/index.js'
+import { createClient, migrate, MIGRATION_VERSIONS } from '../src/index.js'
+import { insertLegacyProject } from './legacy-rows.js'
 
 const V111 = 111
 
@@ -18,7 +19,7 @@ test('v111 adds nullable cited-URL capture columns without backfilling historica
   const runId = crypto.randomUUID()
   const snapshotId = crypto.randomUUID()
   const now = new Date().toISOString()
-  db.insert(projects).values({ id: projectId, name: 'legacy-capture', displayName: 'Legacy capture', canonicalDomain: 'example.com', country: 'US', language: 'en', createdAt: now, updatedAt: now }).run()
+  insertLegacyProject(db, { id: projectId, name: 'legacy-capture', displayName: 'Legacy capture', createdAt: now })
   // Raw SQL like the snapshot insert below: drizzle's `runs` names every
   // declared column, including query-basket and measurement-plan columns added
   // after the version under test here.
