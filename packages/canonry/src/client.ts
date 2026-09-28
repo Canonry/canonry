@@ -1,5 +1,17 @@
 import type { ReferralAssessment, ReferralAssessmentQuery } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameTrafficReferralAssessment } from '@ainyc/canonry-api-client'
+
+import type { z } from 'zod'
+import type {
+  SentimentSummary, SentimentSettings, SentimentSelection, SentimentBackfillSelection, SentimentBackfillPreview,
+  SentimentComparison, SentimentJob, sentimentSettingsUpdateSchema, sentimentEvidenceRequestSchema,
+  sentimentCompareRequestSchema, sentimentBackfillRequestSchema, sentimentEvidencePageSchema, sentimentJobsSchema,
+} from '@ainyc/canonry-contracts'
+import {
+  getApiV1ProjectsByNameSentiment, getApiV1ProjectsByNameSentimentSettings, putApiV1ProjectsByNameSentimentSettings,
+  getApiV1ProjectsByNameSentimentEvidence, getApiV1ProjectsByNameSentimentCompare, getApiV1ProjectsByNameSentimentBackfillPreview,
+  postApiV1ProjectsByNameSentimentBackfills, getApiV1ProjectsByNameSentimentJobs, getApiV1ProjectsByNameSentimentJobsByJobId,
+} from '@ainyc/canonry-api-client'
 import type { AgentConversation, AgentConversationList, AgentConversationDelete } from '@ainyc/canonry-contracts'
 import type { RunCompletenessDto, RunFillRequest, RunFillResponseDto } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@ainyc/canonry-api-client'
@@ -886,6 +898,42 @@ type MeasurementQueryTemplateUpsertRequest = Parameters<typeof putApiV1ProjectsB
 type MeasurementQueryTemplateApplyRequest = Parameters<typeof postApiV1ProjectsByNameMeasurementQueryTemplatesByTemplateIdApply>[0]['body']
 
 export class ApiClient {
+  async getSentiment(name: string, query: Partial<SentimentSelection> = {}): Promise<SentimentSummary> {
+    return this.invoke<SentimentSummary>(() => getApiV1ProjectsByNameSentiment({ client: this.heyClient, path: { name }, query }))
+  }
+
+  async getSentimentSettings(name: string): Promise<SentimentSettings> {
+    return this.invoke<SentimentSettings>(() => getApiV1ProjectsByNameSentimentSettings({ client: this.heyClient, path: { name } }))
+  }
+
+  async configureSentiment(name: string, body: z.infer<typeof sentimentSettingsUpdateSchema>): Promise<SentimentSettings> {
+    return this.invoke<SentimentSettings>(() => putApiV1ProjectsByNameSentimentSettings({ client: this.heyClient, path: { name }, body }))
+  }
+
+  async getSentimentEvidence(name: string, query: Partial<z.infer<typeof sentimentEvidenceRequestSchema>> = {}): Promise<z.infer<typeof sentimentEvidencePageSchema>> {
+    return this.invoke<z.infer<typeof sentimentEvidencePageSchema>>(() => getApiV1ProjectsByNameSentimentEvidence({ client: this.heyClient, path: { name }, query }))
+  }
+
+  async compareSentiment(name: string, query: z.infer<typeof sentimentCompareRequestSchema>): Promise<SentimentComparison> {
+    return this.invoke<SentimentComparison>(() => getApiV1ProjectsByNameSentimentCompare({ client: this.heyClient, path: { name }, query }))
+  }
+
+  async previewSentimentBackfill(name: string, query: SentimentBackfillSelection): Promise<SentimentBackfillPreview> {
+    return this.invoke<SentimentBackfillPreview>(() => getApiV1ProjectsByNameSentimentBackfillPreview({ client: this.heyClient, path: { name }, query }))
+  }
+
+  async submitSentimentBackfill(name: string, body: z.infer<typeof sentimentBackfillRequestSchema>): Promise<SentimentJob> {
+    return this.invoke<SentimentJob>(() => postApiV1ProjectsByNameSentimentBackfills({ client: this.heyClient, path: { name }, body }))
+  }
+
+  async listSentimentJobs(name: string): Promise<z.infer<typeof sentimentJobsSchema>> {
+    return this.invoke<z.infer<typeof sentimentJobsSchema>>(() => getApiV1ProjectsByNameSentimentJobs({ client: this.heyClient, path: { name } }))
+  }
+
+  async getSentimentJob(name: string, jobId: string): Promise<SentimentJob> {
+    return this.invoke<SentimentJob>(() => getApiV1ProjectsByNameSentimentJobsByJobId({ client: this.heyClient, path: { name, jobId } }))
+  }
+
   private originUrl: string
   private apiKey: string
   private probePromise: Promise<void> | null = null

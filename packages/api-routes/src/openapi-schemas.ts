@@ -23,6 +23,7 @@
  *       hatch and TODO it for migration.
  */
 import { z, type ZodType } from 'zod'
+import { sentimentSummarySchema, sentimentSettingsSchema, sentimentSettingsUpdateSchema, sentimentEvidencePageSchema, sentimentComparisonSchema, sentimentBackfillPreviewSchema, sentimentBackfillRequestSchema, sentimentJobsSchema, sentimentJobSchema } from '@ainyc/canonry-contracts'
 import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
 import { queryTrackingWorkspaceResponseSchema, queryTrackingPreviewRequestSchema, queryTrackingPreviewResponseSchema, queryTrackingCommitRequestSchema, queryTrackingCommitResponseSchema } from '@ainyc/canonry-contracts'
 import {
@@ -309,6 +310,15 @@ import {
  * obvious in review.
  */
 const SCHEMA_TABLE = {
+  SentimentSummary: sentimentSummarySchema,
+  SentimentSettings: sentimentSettingsSchema,
+  SentimentSettingsUpdate: sentimentSettingsUpdateSchema,
+  SentimentEvidencePage: sentimentEvidencePageSchema,
+  SentimentComparison: sentimentComparisonSchema,
+  SentimentBackfillPreview: sentimentBackfillPreviewSchema,
+  SentimentBackfillRequest: sentimentBackfillRequestSchema,
+  SentimentJobs: sentimentJobsSchema,
+  SentimentJob: sentimentJobSchema,
   VisibilityReportResponse: visibilityReportResponseSchema,
   QueryTrackingWorkspaceResponse: queryTrackingWorkspaceResponseSchema,
   QueryTrackingPreviewRequest: queryTrackingPreviewRequestSchema,

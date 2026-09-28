@@ -420,6 +420,9 @@ importers:
       '@ainyc/canonry-integration-traffic':
         specifier: workspace:*
         version: link:../integration-traffic
+      '@ainyc/canonry-integration-typesafe':
+        specifier: workspace:*
+        version: link:../integration-typesafe
       '@ainyc/canonry-integration-wordpress':
         specifier: workspace:*
         version: link:../integration-wordpress
@@ -581,6 +584,12 @@ importers:
         version: link:../contracts
 
   packages/integration-traffic:
+    dependencies:
+      '@ainyc/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
+  packages/integration-typesafe:
     dependencies:
       '@ainyc/canonry-contracts':
         specifier: workspace:*

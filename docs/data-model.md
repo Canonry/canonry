@@ -33,6 +33,16 @@ erDiagram
   projects ||--o{ insights : has
   projects ||--o{ health_snapshots : has
 
+  projects ||--o| sentiment_settings : "opts in"
+  runs ||--o{ sentiment_completion_receipts : "durably completes"
+  sentiment_definitions ||--o{ sentiment_jobs : "freezes evaluator"
+  projects ||--o{ sentiment_jobs : "admits"
+  sentiment_jobs ||--o{ sentiment_job_items : "selects"
+  sentiment_work_items ||--o{ sentiment_job_items : "shares assessment"
+  query_snapshots ||--o{ sentiment_work_items : "assesses subjects"
+  sentiment_work_items ||--o| sentiment_results : "stores once"
+  sentiment_work_items ||--o{ sentiment_attempts : "records dispatches"
+
   runs ||--o{ query_snapshots : contains
   runs ||--o{ run_fills : "completed by"
   runs ||--o{ provider_batches : "dispatches"
@@ -343,6 +353,20 @@ Local-AEO signals. The OAuth connection reuses `google_connections` with `connec
 | **ai_user_fetch_events_hourly** | Hourly rollup of on-demand per-user fetches from AI surfaces (ChatGPT-User, Perplexity-User, MistralAI-User). UA-evidenced like a crawler, but each hit was initiated by a real user inside an AI surface — kept disjoint from `crawler_events_hourly` so dashboard / API totals don't conflate machine crawl with human-in-the-loop fetch. Composite PK matches `crawler_events_hourly`. |
 | **ai_referral_events_hourly** | Hourly rollup of server-observed human AI-referral clicks (UTM or referer evidence). Composite PK matches the crawler bucket pattern. `paid_sessions_or_hits` / `organic_sessions_or_hits` split `sessions_or_hits` by traffic class; unclassified is the residual `sessions_or_hits - paid - organic`. The split rides the measure (not the PK) because the paid marker lives in the query string that `landing_path_normalized` strips, so one bucket can hold both classes. Rows written before the ingest classifier (both counters 0) surface as unclassified rather than organic. |
 | **raw_event_samples** | Bounded sample tail for classifier debugging. Source writes reject already-expired samples and prune source-local rows; a startup and daily global sweep removes expired rows from dormant sources. Timestamps are canonical UTC, and the 30-day boundary is inclusive. FK: sourceId → traffic_sources. |
+
+### Experimental Sentiment
+
+| Table | Purpose |
+| --- | --- |
+| **sentiment_definitions** | Immutable evaluator content, content hash, and requested Jev model. A source answer changes assessment identity without changing the reusable definition. |
+| **sentiment_settings** | Default-off project opt-in, effective sentiment enablement configuration, enablement epoch, completion-sequence boundary, and persisted install suspension. No credentials. |
+| **sentiment_completion_receipts** | Monotonic AUTOINCREMENT completion order, including fills. Enablement uses the sequence high-water mark, which survives source deletion. |
+| **sentiment_jobs / sentiment_job_items** | Project/action/idempotency-key admissions and frozen selections. Per-selection cancellation remains visible when a later explicit backfill reuses the assessment. |
+| **sentiment_work_items** | One leased work identity per project, snapshot, source-text hash, subject hash, and evaluator definition. Exact frozen inputs and usage edges, durable retry time, and attempt count. |
+| **sentiment_results** | One stored result per assessment work item. Composite foreign keys prevent cross-project source/result links and cascade evidence cleanup with source deletion. |
+| **sentiment_attempts** | Each external dispatch, requested/returned model, reported or unknown usage, safe failure, and estimated rate-limit tokens. Reported tokens also enter `llm_usage_events` as provider `typesafe`. Result uniqueness does not guarantee exactly-once remote billing after a crash. |
+
+Sentiment JSON columns use native Drizzle JSON mode. Provider calls run outside database transactions. Migration 164 creates the tables, supporting composite indexes, and an immutable-definition update trigger; it does not enable projects or admit historical work.
 
 ### Intelligence
 

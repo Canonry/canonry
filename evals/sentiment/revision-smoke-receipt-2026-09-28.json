@@ -1,0 +1,125 @@
+{
+  "date": "2026-09-28",
+  "data": "synthetic only",
+  "evaluatorSchemaVersion": 2,
+  "requestedModel": "jev-1.13.0",
+  "artifact": {
+    "packageVersion": "5.25.0",
+    "sourceCommit": "8594b6df9544af2992ff24e9c70b591e4d17e6bd",
+    "tarballSha256": "8388cedd2b134d36c8edda74060072b70c747a7a1f5553f48b5e90b8ce27be27"
+  },
+  "liveProviderCalls": 0,
+  "transports": [
+    "HTTP",
+    "spawned CLI",
+    "hosted MCP",
+    "spawned stdio MCP"
+  ],
+  "transportSmokes": {
+    "branded": {
+      "queryClass": "branded",
+      "checks": 8,
+      "providerStubCalls": 3,
+      "status": "passed"
+    },
+    "nonBrand": {
+      "queryClass": "non-brand",
+      "checks": 8,
+      "providerStubCalls": 3,
+      "status": "passed"
+    },
+    "zeroJudgment": {
+      "queryClass": "branded",
+      "checks": 9,
+      "providerStubCalls": 3,
+      "status": "passed"
+    },
+    "absentSubject": {
+      "queryClass": "non-brand",
+      "checks": 9,
+      "providerStubCalls": 0,
+      "status": "passed",
+      "outcomes": {
+        "simple": {
+          "selected": 1,
+          "judged": 0,
+          "notMentioned": 1,
+          "unfavorable": 0,
+          "favorableDisplay": "Unavailable"
+        },
+        "advanced": {
+          "selected": 2,
+          "judged": 0,
+          "notMentioned": 2,
+          "unfavorable": 0,
+          "favorableDisplay": "Unavailable"
+        }
+      }
+    }
+  },
+  "boundarySmoke": {
+    "checks": 5,
+    "cases": 19,
+    "classifierAttempts": 0,
+    "providerRequests": 0,
+    "status": "passed"
+  },
+  "recoverySmoke": {
+    "checks": 3,
+    "providerStubCalls": 6,
+    "scenarios": [
+      {
+        "name": "retry-disable",
+        "providerStubCalls": 1,
+        "attemptReceipts": 1,
+        "unknownReceipts": 1,
+        "storedResults": 0
+      },
+      {
+        "name": "started-attempt-crash",
+        "providerStubCalls": 2,
+        "attemptReceipts": 2,
+        "unknownReceipts": 1,
+        "storedResults": 1
+      },
+      {
+        "name": "missed-superseded-fill",
+        "providerStubCalls": 3,
+        "attemptReceipts": 3,
+        "unknownReceipts": 0,
+        "storedResults": 3
+      }
+    ],
+    "status": "passed"
+  },
+  "browserSmoke": {
+    "branded": {
+      "checks": 10,
+      "screenshots": 12,
+      "unexpectedHttpErrors": 0,
+      "consoleErrors": 0,
+      "pageErrors": 0,
+      "externalRequests": 0,
+      "providerAttempts": 0,
+      "serverStopped": true,
+      "status": "passed"
+    },
+    "nonBrand": {
+      "checks": 10,
+      "screenshots": 12,
+      "unexpectedHttpErrors": 0,
+      "consoleErrors": 0,
+      "pageErrors": 0,
+      "externalRequests": 0,
+      "providerAttempts": 0,
+      "serverStopped": true,
+      "status": "passed"
+    }
+  },
+  "independentQualityGates": {
+    "branded": "unmet",
+    "nonBrand": "unmet"
+  },
+  "productionEnabled": false,
+  "limitation": "Deterministic transport, lifecycle, and UI checks only. Original schema 1 live receipt is historical and does not establish schema 2 or non-brand classifier accuracy."
+}

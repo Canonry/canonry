@@ -2354,6 +2354,120 @@
     @apply px-4 py-3 text-neutral;
   }
 
+  .query-evidence-view-row {
+    @apply mb-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-default;
+  }
+
+  .query-evidence-tabs {
+    @apply flex gap-6;
+  }
+
+  .query-evidence-tabs > button {
+    @apply min-h-11 border-b-2 border-transparent py-3 text-sm font-medium text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
+  }
+
+  .query-evidence-tabs > button[aria-selected='true'] {
+    @apply border-strong text-heading;
+  }
+
+  .query-evidence-display-controls {
+    @apply flex flex-wrap items-center gap-x-5 gap-y-1;
+  }
+
+  .query-evidence-preview-toggle {
+    @apply flex min-h-11 items-center gap-2 text-sm text-secondary;
+  }
+
+  .query-evidence-preview-toggle > input {
+    @apply size-4 accent-accent;
+  }
+
+  .query-evidence-filters {
+    @apply mb-4 flex flex-wrap items-center gap-2;
+  }
+
+  .query-evidence-search {
+    @apply min-w-0 flex-1 basis-full sm:basis-64 sm:max-w-sm;
+  }
+
+  .query-evidence-search input {
+    @apply min-h-11 bg-surface text-sm;
+  }
+
+  .query-evidence-filter {
+    @apply min-w-0 flex-1 sm:flex-none;
+  }
+
+  .query-evidence-filter > select {
+    @apply min-h-11 w-full rounded-md border border-default bg-surface px-3 text-sm text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
+  }
+
+  .query-evidence-table-wrap {
+    @apply relative overflow-x-auto;
+  }
+
+  .query-evidence-table {
+    min-width: 760px;
+  }
+
+  .query-evidence-table thead {
+    @apply bg-transparent;
+  }
+
+  .query-evidence-table th {
+    @apply py-3 text-[13px] font-medium normal-case tracking-normal text-secondary;
+  }
+
+  .query-evidence-table td {
+    @apply py-3 align-top;
+  }
+
+  .query-evidence-table .evidence-query-cell {
+    min-width: 280px;
+    width: 42%;
+  }
+
+  .query-evidence-row {
+    @apply cursor-pointer;
+  }
+
+  .query-evidence-query {
+    @apply flex min-h-11 w-full items-start gap-2 rounded-sm text-left text-sm font-medium leading-6 text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
+  }
+
+  .query-evidence-query > svg {
+    @apply mt-1 shrink-0 text-secondary transition-transform motion-reduce:transition-none;
+  }
+
+  .query-evidence-meta {
+    @apply mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] font-normal leading-5 text-secondary;
+  }
+
+  .query-evidence-meta > span + span::before {
+    content: '·';
+    @apply mr-2 text-muted;
+  }
+
+  .query-evidence .evidence-change-cell {
+    @apply text-[13px] leading-5 text-secondary;
+  }
+
+  .query-evidence-signals {
+    @apply grid gap-y-1 text-[13px] leading-5;
+  }
+
+  .query-evidence-signals > span {
+    @apply whitespace-nowrap;
+  }
+
+  .query-evidence-engine-row > td:first-child {
+    @apply pl-10;
+  }
+
+  .query-evidence-preview-row > td {
+    @apply bg-surface-subtle px-10 pb-6 pt-2;
+  }
+
   /* Keep row actions reachable when a measurement table is wider than its pane. */
   .measurement-responsive-table {
     border-collapse: separate;
@@ -2530,6 +2644,10 @@
 
   .project-row {
     @apply grid gap-3 rounded-xl border border-subtle bg-bg-elevated/15 px-4 py-3.5 transition hover:border-mono-700/60 hover:bg-bg-elevated/35 lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_9rem_auto] lg:items-center no-underline text-inherit;
+  }
+
+  .project-row-with-sentiment {
+    @apply lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_10rem_auto];
   }
 
   .project-row-primary {

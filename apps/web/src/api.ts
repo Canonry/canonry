@@ -2293,3 +2293,37 @@ export async function resumeAgentConversation(project: string, id: string): Prom
 export async function deleteAgentConversation(project: string, id: string): Promise<AgentConversationDelete> {
   return invokeWeb<AgentConversationDelete>(() => deleteApiV1ProjectsByNameAgentConversationsById({ client: heyClient, path: { name: project, id } }))
 }
+
+// Sentiment reads are stored results; provider spend requires explicit preview and admission.
+import {
+  getApiV1ProjectsByNameSentiment, getApiV1ProjectsByNameSentimentSettings,
+  putApiV1ProjectsByNameSentimentSettings, getApiV1ProjectsByNameSentimentEvidence,
+  getApiV1ProjectsByNameSentimentBackfillPreview, postApiV1ProjectsByNameSentimentBackfills,
+  getApiV1ProjectsByNameSentimentJobs, getApiV1ProjectsByNameSentimentCompare,
+} from '@ainyc/canonry-api-client'
+import type { SentimentSelection, SentimentSummary, SentimentSettings, SentimentBackfillSelection, SentimentBackfillPreview, SentimentJob, SentimentEvidenceSelection, SentimentEvidencePage, SentimentComparison } from '@ainyc/canonry-contracts'
+
+export function fetchSentiment(project: string, selection: SentimentSelection): Promise<SentimentSummary> {
+  return invokeWeb(() => getApiV1ProjectsByNameSentiment({ client: heyClient, path: { name: project }, query: selection }))
+}
+export function fetchSentimentSettings(project: string): Promise<SentimentSettings> {
+  return invokeWeb(() => getApiV1ProjectsByNameSentimentSettings({ client: heyClient, path: { name: project } }))
+}
+export function updateSentimentSettings(project: string, body: { enabled?: boolean }): Promise<SentimentSettings> {
+  return invokeWeb(() => putApiV1ProjectsByNameSentimentSettings({ client: heyClient, path: { name: project }, body }))
+}
+export function fetchSentimentEvidence(project: string, selection: SentimentEvidenceSelection, cursor?: string): Promise<SentimentEvidencePage> {
+  return invokeWeb(() => getApiV1ProjectsByNameSentimentEvidence({ client: heyClient, path: { name: project }, query: { ...selection, cursor, limit: 50 } }))
+}
+export function previewSentimentBackfill(project: string, selection: SentimentBackfillSelection): Promise<SentimentBackfillPreview> {
+  return invokeWeb(() => getApiV1ProjectsByNameSentimentBackfillPreview({ client: heyClient, path: { name: project }, query: selection }))
+}
+export function submitSentimentBackfill(project: string, previewToken: string, idempotencyKey: string): Promise<SentimentJob> {
+  return invokeWeb(() => postApiV1ProjectsByNameSentimentBackfills({ client: heyClient, path: { name: project }, body: { previewToken, idempotencyKey } }))
+}
+export function fetchSentimentJobs(project: string): Promise<{ jobs: SentimentJob[] }> {
+  return invokeWeb(() => getApiV1ProjectsByNameSentimentJobs({ client: heyClient, path: { name: project } }))
+}
+export function fetchSentimentComparison(project: string, selection: SentimentSelection, fromRunId: string, toRunId: string): Promise<SentimentComparison> {
+  return invokeWeb(() => getApiV1ProjectsByNameSentimentCompare({ client: heyClient, path: { name: project }, query: { ...selection, fromRunId, toRunId } }))
+}

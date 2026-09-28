@@ -826,6 +826,17 @@ export function mcpToAgentTool(
  * a foot-gun (it would erase the user's context mid-turn).
  */
 export const AERO_EXCLUDED_MCP_TOOLS: ReadonlySet<CanonryMcpToolName> = new Set([
+  // Experimental sentiment remains API/CLI/external MCP only until its separate Aero release gate.
+  'canonry_sentiment_settings',
+  'canonry_sentiment_configure',
+  'canonry_sentiment',
+  'canonry_sentiment_evidence',
+  'canonry_sentiment_compare',
+  'canonry_sentiment_backfill_preview',
+  'canonry_sentiment_backfill',
+  'canonry_sentiment_jobs',
+  'canonry_sentiment_job',
+
   CanonryMcpToolNames.canonry_agent_clear,
   CanonryMcpToolNames.canonry_agent_conversations_new,
   CanonryMcpToolNames.canonry_agent_conversations_resume,

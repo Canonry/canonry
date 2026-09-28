@@ -125,7 +125,7 @@ test('resets the selected query when switching research history batches', async 
   expect(await screen.findByText('Second run first query answer')).toBeTruthy()
 })
 
-function renderSavedResearch(answerText: string) {
+function renderSavedResearch(answerText: string, groundingSources: Array<{ uri: string; title?: string }> = []) {
   const run = {
     id: 'saved-run', projectId: 'project_demo', status: 'completed', provider: 'openai',
     requestedModel: 'saved-model', resolvedModel: 'saved-model',
@@ -140,7 +140,7 @@ function renderSavedResearch(answerText: string) {
     if (path === '/api/v1/projects/demo/research/runs/saved-run') return jsonResponse({ ...run, queries: [{
       id: 'saved-query', position: 0, query: 'Demo building reviews', status: 'completed',
       requestedModel: 'saved-model', resolvedModel: 'saved-model', servedModel: 'served-model', answerText,
-      groundingSources: [], citedDomains: [], searchQueries: [], namedCompetitors: [], citedCompetitorDomains: [],
+      groundingSources, citedDomains: [], searchQueries: [], namedCompetitors: [], citedCompetitorDomains: [],
       answerMentioned: true, citationState: 'not-cited', error: null,
       startedAt: run.startedAt, finishedAt: run.finishedAt, createdAt: run.createdAt,
     }] })
@@ -191,6 +191,15 @@ test('saved answers render readable Markdown with safe links and no active HTML 
   expect(results.queryByRole('img')).toBeNull()
   expect(results.getAllByRole('listitem')).toHaveLength(2)
   expect(results.queryByText('[Source](https://example.com/source)')).toBeNull()
+})
+
+test('saved research sources show their titles and full URLs', async () => {
+  const url = 'https://hotel.example/rooms/ocean-view?guests=2#availability'
+  renderSavedResearch('Saved hotel recommendation.', [{ uri: url, title: 'Rooms and rates' }])
+  await screen.findByText('Saved hotel recommendation.')
+  const results = within(screen.getByRole('region', { name: 'Research results' }))
+  expect(results.getByText('Rooms and rates')).toBeTruthy()
+  expect(results.getByRole('link', { name: url }).getAttribute('href')).toBe(url)
 })
 
 

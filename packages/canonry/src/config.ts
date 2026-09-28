@@ -4,6 +4,7 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import { parse, stringify } from 'yaml'
 import { agentAllowViewersSchema, agentModelSchema, agentProviderSchema, dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@ainyc/canonry-config'
+import type { SentimentInstallConfigInput } from '@ainyc/canonry-config'
 import { AGENT_PROVIDER_IDS } from '@ainyc/canonry-contracts'
 import type { AgentProviderId, EmbedConfigEntry, ProviderBatchConfig, ProviderPricing, ProviderQuotaPolicy, SchedulableRunKind } from '@ainyc/canonry-contracts'
 import { CliError } from './cli-error.js'
@@ -439,6 +440,8 @@ export interface PlacesConfigEntry {
 }
 
 export interface CanonryConfig {
+  /** Private opt-in TypeSafe classifier credentials and limits. Reloaded before dispatch. */
+  sentiment?: SentimentInstallConfigInput
   apiUrl: string
   publicUrl?: string
   /** Sub-path prefix when canonry is served behind a reverse proxy (e.g. "/canonry/"). */

@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { and, asc, count, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { parseJsonColumn, providerBatches, providerBatchRequests, runFills, runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
+import { recordSentimentCompletion, parseJsonColumn, providerBatches, providerBatchRequests, runFills, runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
 import type { PricingTier, ProviderBatchRequestOutcome, ProviderBatchResultLine, ProviderBatchStatus, ProviderBatchSubmitResult, ProviderDispatchMode, ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RawQueryResult, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto, RunStatus, TrackedQueryRequest } from '@ainyc/canonry-contracts'
 import { PricingTiers, ProviderBatchRequestOutcomes, ProviderBatchStatuses, ProviderBatchSubmitError, ProviderDispatchModes, RUN_FILL_PROVIDER_BREAKER, buildSnapshotUsage, formatRunErrorOneLine, parseRunError, resolveProviderModel } from '@ainyc/canonry-contracts'
 import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, brandLabelFromDomain, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isSearchLocationIgnored, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
@@ -746,6 +746,11 @@ export class JobRunner {
         throw new Error(`Project ${projectId} not found`)
       }
       canonicalDomain = project.canonicalDomain
+      // Language is execution input. Historical sentiment must not borrow today's project language.
+      const sourceIdentity = this.db.select({ identity: runs.measurementExecutionIdentity }).from(runs).where(eq(runs.id, runId)).get()?.identity
+      if (sourceIdentity && !sourceIdentity.language) {
+        this.db.update(runs).set({ measurementExecutionIdentity: { ...sourceIdentity, language: project.language } }).where(eq(runs.id, runId)).run()
+      }
 
       // Resolve location: explicit override > project default > none
       // locationOverride === null means explicitly no location (--no-location)
@@ -1346,16 +1351,23 @@ export class JobRunner {
   finalizeRun(input: RunFinalization): boolean {
     const { runId, providerErrors } = input
     const outcome = runOutcome(input.inserted, providerErrors, input.planShortfall)
-    const won = this.db
-      .update(runs)
-      .set({
-        status: outcome.status,
-        finishedAt: new Date().toISOString(),
-        ...(outcome.error !== null ? { error: outcome.error } : {}),
-      })
-      .where(and(eq(runs.id, runId), eq(runs.status, RunStatuses.running)))
-      .run()
-      .changes === 1
+    const finishedAt = new Date().toISOString()
+    // The sentiment completion receipt commits with the winning status write,
+    // so a completed sweep gets exactly one and a losing attempt none.
+    const won = this.db.transaction((tx) => {
+      const changed = tx
+        .update(runs)
+        .set({
+          status: outcome.status,
+          finishedAt,
+          ...(outcome.error !== null ? { error: outcome.error } : {}),
+        })
+        .where(and(eq(runs.id, runId), eq(runs.status, RunStatuses.running)))
+        .run()
+        .changes === 1
+      if (changed) recordSentimentCompletion(tx, { projectId: input.projectId, runId, completionKey: 'initial', completedAt: finishedAt })
+      return changed
+    })
 
     if (input.quota) this.flushProviderUsage(input.quota.dispatched, input.quota.reservations)
 
@@ -1514,7 +1526,9 @@ export class JobRunner {
         .where(and(eq(runs.id, runId), eq(runs.status, RunStatuses.running), isNotNull(runs.pendingProviderErrors)))
         .run()
         .changes === 1
-      return won ? { kind: run.kind, inserted, providerErrors, status: outcome.status } : null
+      if (!won) return null
+      recordSentimentCompletion(tx, { projectId, runId, completionKey: 'initial', completedAt: finishedAt })
+      return { kind: run.kind, inserted, providerErrors, status: outcome.status }
     })
     if (!decided) return false
 
@@ -2336,6 +2350,7 @@ export class JobRunner {
           .set({ status: 'completed', error: null })
           .where(and(eq(runs.id, input.runId), eq(runs.status, 'partial')))
           .run().changes === 1
+        if (justCompleted && parent) recordSentimentCompletion(tx, { projectId: parent.projectId, runId: input.runId, completionKey: input.fillId, completedAt: finishedAt, fillOrigin: input.fillId })
       } else if (state.readable && !input.fatal) {
         // The run's error names only providers that still have gaps. A
         // provider this fill tried carries its new reason; any other keeps

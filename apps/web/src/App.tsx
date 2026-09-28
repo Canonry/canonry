@@ -60,7 +60,7 @@ import { ProviderBadge } from './components/shared/ProviderBadge.js'
 import { StatusBadge } from './components/shared/StatusBadge.js'
 import { Drawer } from './components/layout/Drawer.js'
 import { EvidenceDetailModal } from './components/layout/EvidenceDetailModal.js'
-import { safeExternalUrl } from './lib/safe-url.js'
+import { SourceLink } from './components/shared/SourceLink.js'
 import { resolveProjectNameFromPathname } from './lib/project-route.js'
 import { findEvidenceForModal, findRunById } from './mock-data.js'
 import { useDashboardOverview as useDashboard } from './queries/use-dashboard-overview.js'
@@ -1009,22 +1009,10 @@ export function RootLayout() {
                         <summary className="text-xs text-muted cursor-pointer hover:text-secondary">
                           {snap.groundingSources.length} grounding source{snap.groundingSources.length !== 1 ? 's' : ''}
                         </summary>
-                        <ul className="mt-1 space-y-0.5">
-                          {snap.groundingSources.map((src: { uri: string; title: string }, i: number) => {
-                            // Grounding URIs come from LLM output — guard against
-                            // javascript:/data: links before rendering an anchor.
-                            const href = safeExternalUrl(src.uri)
-                            const label = src.title || src.uri
-                            return (
-                              <li key={i} className="text-xs text-muted truncate">
-                                {href ? (
-                                  <a href={href} target="_blank" rel="noopener noreferrer" className="hover:text-neutral">{label}</a>
-                                ) : (
-                                  <span>{label}</span>
-                                )}
-                              </li>
-                            )
-                          })}
+                        <ul className="mt-2 space-y-3">
+                          {snap.groundingSources.map((src, i) => (
+                            <li key={i} className="min-w-0"><SourceLink url={src.uri} title={src.title} /></li>
+                          ))}
                         </ul>
                       </details>
                     )}

@@ -1,0 +1,89 @@
+{
+  "date": "2026-09-28",
+  "scope": "Per-engine sentiment verdicts and exact evidence on the query-evidence UI from PR1235",
+  "data": "synthetic only",
+  "artifact": {
+    "packageVersion": "5.26.0",
+    "sourceCommit": "b7e925ad03b6ee00bb024e70b5137810578f4161",
+    "tarballSha256": "7aa807997b331918ef40f16d52e76132588924a9164d2a2614fa8e661f916ebc",
+    "dependencies": "Unchanged runtime dependencies copied from prior isolated schema 2 installed smoke; CLI and web rebuilt from source."
+  },
+  "rebaseDependency": {
+    "pullRequest": 1235,
+    "headCommit": "08a025b49a4d33b9850a48bd8b895e314fa4f13a"
+  },
+  "focusedTests": {
+    "web": 274,
+    "api": 100,
+    "contracts": 13,
+    "generatedSdk": 12,
+    "cliAndMcp": 65
+  },
+  "verification": {
+    "webApiContractsSdkCliAndScriptsTypechecks": "passed",
+    "changedFileLint": "passed",
+    "generatedClientPluginValGuards": "passed",
+    "cliAndWebBuilds": "passed"
+  },
+  "installedSmoke": {
+    "status": "passed",
+    "checks": 7,
+    "assertions": [
+      "Default-off reads and read-only configuration denial make no provider calls",
+      "Seven assessments complete through six deterministic loopback calls; absent subject abstains locally, fourth engine remains unadmitted",
+      "Batched engine outcomes preserve exact sources/models and truthful absent/unmeasured states; class populations remain separate",
+      "Provider/served-model/location/property/market filters produce exact scores and single-assessment evidence without widening scope",
+      "Installed CLI and both read-only MCP transports preserve batched verdict JSON and exact assessment evidence",
+      "Installed browser engine filters, verdicts, exact evidence, mobile layout, permissions and batched reads pass",
+      "Repeated reads, filtering, evidence and disabled views add zero provider attempts"
+    ],
+    "completedAssessments": 7,
+    "deterministicLoopbackRequests": 6,
+    "liveProviderRequests": 0,
+    "readTriggeredProviderAttempts": 0,
+    "serverStopped": true
+  },
+  "browser": {
+    "status": "passed",
+    "checks": 6,
+    "screenshots": 14,
+    "assertions": [
+      "One batched read per class renders opposite engine verdicts plus absent/unclassified states; expansion adds zero sentiment reads",
+      "Simple engine filter changes headline/query scores, visible engine verdicts and exact assessment evidence together; excluded sources remain Unavailable",
+      "Mobile engine verdict and drawer remain reachable; Escape restores the exact row opener",
+      "Advanced shared answers retain separate opposite subject verdicts and opening one never blends its sibling",
+      "Advanced engine filtering preserves frozen Property/market/model/location/source identity and exact subject verdicts on desktop and mobile",
+      "Read-only users can inspect filtered stored verdicts but cannot configure; disabling hides row sentiment"
+    ],
+    "additionalAssertions": [
+      "Same-query Advanced location groups display server-owned Harbor 100% and Marina 0% with one judged answer each in Property scope.",
+      "Compact query evidence uses the existing answer-preview toggle and keeps each engine verdict distinct."
+    ],
+    "unexpectedHttpErrors": 0,
+    "consoleErrors": 0,
+    "pageErrors": 0,
+    "externalRequests": 0,
+    "providerAttempts": 0
+  },
+  "earlierDiagnosticAttempts": [
+    {
+      "artifactSha256": "9836ece28a8c72afffc7edcf6f44436e3a398c37e961fa9d2412fefa9b3266a0",
+      "reason": "Synthetic query was canonically branded; corrected fixture and added a seed assertion.",
+      "deterministicLoopbackRequests": 0,
+      "serverStopped": true
+    },
+    {
+      "artifactSha256": "9836ece28a8c72afffc7edcf6f44436e3a398c37e961fa9d2412fefa9b3266a0",
+      "reason": "Repeated Advanced query groups exposed location scope omission; corrected product header and browser selectors.",
+      "deterministicLoopbackRequests": 6,
+      "serverStopped": true
+    },
+    {
+      "artifactSha256": "7aa807997b331918ef40f16d52e76132588924a9164d2a2614fa8e661f916ebc",
+      "reason": "Browser checked a disclosure before reopening after an engine filter change; corrected harness ordering only.",
+      "deterministicLoopbackRequests": 6,
+      "serverStopped": true
+    }
+  ],
+  "limitation": "The loopback evaluator returns deterministic fixture choices. This validates stored scope, transports and presentation, not classifier accuracy. No additional live Jev requests were made."
+}

@@ -1,4 +1,10 @@
 import { visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema } from '@ainyc/canonry-contracts'
+
+import {
+  sentimentSelectionSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentSettingsUpdateSchema,
+  sentimentBackfillSelectionSchema, sentimentBackfillRequestSchema, sentimentSummarySchema, sentimentSettingsSchema,
+  sentimentEvidencePageSchema, sentimentComparisonSchema, sentimentBackfillPreviewSchema, sentimentJobsSchema, sentimentJobSchema,
+} from '@ainyc/canonry-contracts'
 import { agentConversationCreateSchema } from '@ainyc/canonry-contracts'
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import {
@@ -1227,7 +1233,88 @@ const AGENT_WEBHOOK_EVENTS = [
   notificationEventSchema.enum['citation.gained'],
 ] satisfies NotificationEvent[]
 
+const sentimentInputSchema = sentimentSelectionSchema.safeExtend({ project: projectNameSchema })
+const sentimentEvidenceInputSchema = sentimentEvidenceRequestSchema.safeExtend({ project: projectNameSchema })
+const sentimentCompareInputSchema = sentimentCompareRequestSchema.safeExtend({ project: projectNameSchema })
+const sentimentConfigureInputSchema = sentimentSettingsUpdateSchema.extend({ project: projectNameSchema }).refine(
+  input => input.enabled !== undefined,
+  'Explicit enabled is required',
+)
+const sentimentPreviewInputSchema = sentimentBackfillSelectionSchema.safeExtend({ project: projectNameSchema }).superRefine((input, ctx) => {
+  const hasRuns = Boolean(input.runId || input.runIds?.length)
+  const hasDates = Boolean(input.from || input.to)
+  if ((!hasRuns && (!input.from || !input.to)) || (hasRuns && hasDates) || (input.runId && input.runIds?.length)) {
+    ctx.addIssue({ code: 'custom', message: 'Select explicit runIds or runId, or a bounded from/to date range' })
+  }
+  if (input.from && input.to && Date.parse(input.from) > Date.parse(input.to)) ctx.addIssue({ code: 'custom', message: 'from must be at or before to' })
+})
+const sentimentBackfillInputSchema = sentimentBackfillRequestSchema.extend({ project: projectNameSchema })
+
 export const canonryMcpTools = [
+  defineTool({
+    name: 'canonry_sentiment_settings', title: 'Read sentiment readiness and settings',
+    description: 'Read experimental sentiment configuration, evaluator identity, readiness and action permissions. No provider calls or credentials. Install administrators alone can configure or submit backfills.',
+    access: 'read', tier: 'monitoring', inputSchema: projectInputSchema, outputSchema: sentimentSettingsSchema, annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/sentiment/settings'],
+    handler: (client, input) => client.getSentimentSettings(input.project),
+  }),
+  defineTool({
+    name: 'canonry_sentiment_configure', title: 'Configure project sentiment',
+    description: 'Install administrator only: explicitly enable or disable stance-and-evidence sentiment. Both install and project switches default off. Enabling processes future eligible complete runs; historical answers require explicit backfill. TypeSafe receives answer text on dispatch; API keys remain local install configuration and are never accepted here.',
+    access: 'write', tier: 'monitoring', inputSchema: sentimentConfigureInputSchema, outputSchema: sentimentSettingsSchema, annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['PUT /api/v1/projects/{name}/sentiment/settings'],
+    handler: (client, input) => { const { project, ...request } = input; return client.configureSentiment(project, request) },
+  }),
+  defineTool({
+    name: 'canonry_sentiment', title: 'Read sentiment and per-query scores',
+    description: 'Read stored model-classified language about frozen Simple identities or Advanced Properties. Returns headline and per-query favorable/mixed/unfavorable rates, judged and selected counts, distinct answers, exclusions, intervals and method limitations. Favorable % is favorable / (favorable + mixed + unfavorable); factual and unjudged answers do not enter that denominator. Select branded or non-brand explicitly and keep their metrics separate; the default is branded. Optional queryId selects one frozen query. Each query includes batched engine assessment verdicts and exact source identities. Optional runIds selects the exact grouped location runs instead of runId. A known subject absent from a non-brand answer is not unfavorable. Partial values are provisional. Never starts a classifier. Preserve the resolved evaluationDefinitionId and complete selection for later evidence reads.',
+    access: 'read', tier: 'monitoring', inputSchema: sentimentInputSchema, outputSchema: sentimentSummarySchema, annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/sentiment'],
+    handler: (client, input) => { const { project, ...query } = input; return client.getSentiment(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_sentiment_evidence', title: 'Read sentiment evidence',
+    description: 'Page stored answer-subject assessments and exact source quotations. Returns frozen identity/context, source hash, evaluator and engine provenance, exclusions, and optional complaint. Optional assessmentId selects the exact stored answer-subject verdict from query assessments without widening its scope. Keep assessmentId, queryClass, optional frozen queryId, exact runId or runIds, every other selection field and resolved evaluationDefinitionId unchanged when following nextCursor. Advanced market refinement uses exact frozen usage edges. No provider calls.',
+    access: 'read', tier: 'monitoring', inputSchema: sentimentEvidenceInputSchema, outputSchema: sentimentEvidencePageSchema, annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/sentiment/evidence'],
+    handler: (client, input) => { const { project, ...query } = input; return client.getSentimentEvidence(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_sentiment_compare', title: 'Compare matched sentiment periods',
+    description: 'Compare stored periods under compatible frozen scope, answer-engine identity and evaluator, with complete classification coverage. Returns matched/excluded units, each denominator, all refusal reasons and a nullable direction. Overlapping Wilson intervals mean no clear change detected; they do not establish equivalence. No provider calls.',
+    access: 'read', tier: 'monitoring', inputSchema: sentimentCompareInputSchema, outputSchema: sentimentComparisonSchema, annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/sentiment/compare'],
+    handler: (client, input) => { const { project, ...query } = input; return client.compareSentiment(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_sentiment_backfill_preview', title: 'Preview a stored sentiment backfill',
+    description: 'Select explicit historical runs or a bounded date range. Returns eligible/already classified/skipped assessments, evaluator identity, estimated volume/cost and a frozen expiring preview token. Stored-only read; never calls TypeSafe or schedules classification. Submission is a separate administrator action.',
+    access: 'read', tier: 'monitoring', inputSchema: sentimentPreviewInputSchema, outputSchema: sentimentBackfillPreviewSchema, annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/sentiment/backfill-preview'],
+    handler: (client, input) => { const { project, ...query } = input; return client.previewSentimentBackfill(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_sentiment_backfill', title: 'Submit an explicit sentiment backfill',
+    description: 'Install administrator only: submit the exact stored previewToken with an explicit idempotencyKey. Pins source selection and evaluator, persists a durable job, and can transmit answer text to TypeSafe and incur cost. The same project/key/token returns the same receipt; a changed payload conflicts. Poll canonry_sentiment_job for progress.',
+    access: 'write', tier: 'monitoring', inputSchema: sentimentBackfillInputSchema, outputSchema: sentimentJobSchema, annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/sentiment/backfills'],
+    handler: (client, input) => { const { project, ...request } = input; return client.submitSentimentBackfill(project, request) },
+  }),
+  defineTool({
+    name: 'canonry_sentiment_jobs', title: 'List sentiment jobs',
+    description: 'Read stored automatic and backfill jobs, including progress, exclusions, failures, cancellations and safe attempt receipts. No provider calls.',
+    access: 'read', tier: 'monitoring', inputSchema: projectInputSchema, outputSchema: sentimentJobsSchema, annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/sentiment/jobs'],
+    handler: (client, input) => client.listSentimentJobs(input.project),
+  }),
+  defineTool({
+    name: 'canonry_sentiment_job', title: 'Read a sentiment job receipt',
+    description: 'Read one project-owned durable sentiment job, selected outcome partition, cancellation epoch and attempt usage/failures. Read-only polling never resumes or retries canceled work.',
+    access: 'read', tier: 'monitoring', inputSchema: projectInputSchema.extend({ jobId: z.string().min(1).max(256) }), outputSchema: sentimentJobSchema, annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/sentiment/jobs/{jobId}'],
+    handler: (client, input) => client.getSentimentJob(input.project, input.jobId),
+  }),
+
   defineTool({
     name: 'canonry_visibility_report',
     title: 'Read scoped AI visibility',

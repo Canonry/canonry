@@ -1,0 +1,54 @@
+{
+  "date": "2026-09-28",
+  "scope": "Final engine evidence artifact with intact mobile verdict labels",
+  "data": "synthetic only",
+  "artifact": {
+    "packageVersion": "5.26.0",
+    "sourceCommit": "75d1506e812c8d858e5ff997967c0c5e9a1fae40",
+    "tarballSha256": "a45bc031713cdb1174985b8242b864172cefff1cfefc7e3896e182e7199eb9bb",
+    "dependencies": "Unchanged runtime dependencies copied from prior isolated schema 2 installed smoke; CLI unchanged from the engine build, dashboard rebuilt after mobile presentation fix."
+  },
+  "previousReceipt": "engine-smoke-receipt-2026-09-28.json",
+  "focusedUiTests": 33,
+  "changedFileLint": "passed",
+  "webBuild": "passed",
+  "installedSmoke": {
+    "status": "passed",
+    "checks": 7,
+    "assertions": [
+      "Default-off reads and read-only configuration denial make no provider calls",
+      "Seven assessments complete through six deterministic loopback calls; absent subject abstains locally, fourth engine remains unadmitted",
+      "Batched engine outcomes preserve exact sources/models and truthful absent/unmeasured states; class populations remain separate",
+      "Provider/served-model/location/property/market filters produce exact scores and single-assessment evidence without widening scope",
+      "Installed CLI and both read-only MCP transports preserve batched verdict JSON and exact assessment evidence",
+      "Installed browser engine filters, verdicts, exact evidence, mobile layout, permissions and batched reads pass",
+      "Repeated reads, filtering, evidence and disabled views add zero provider attempts"
+    ],
+    "completedAssessments": 7,
+    "deterministicLoopbackRequests": 6,
+    "liveProviderRequests": 0,
+    "readTriggeredProviderAttempts": 0,
+    "serverStopped": true
+  },
+  "browser": {
+    "status": "passed",
+    "checks": 6,
+    "screenshots": 14,
+    "assertions": [
+      "One batched read per class renders opposite engine verdicts plus absent/unclassified states; expansion adds zero sentiment reads",
+      "Simple engine filter changes headline/query scores, visible engine verdicts and exact assessment evidence together; excluded sources remain Unavailable",
+      "Mobile engine verdict and drawer remain reachable; Escape restores the exact row opener",
+      "Advanced shared answers retain separate opposite subject verdicts and opening one never blends its sibling",
+      "Advanced engine filtering preserves frozen Property/market/model/location/source identity and exact subject verdicts on desktop and mobile",
+      "Read-only users can inspect filtered stored verdicts but cannot configure; disabling hides row sentiment"
+    ],
+    "mobileVerdictAssertion": "The Unfavorable text occupies one line and remains fully inside its evidence button.",
+    "advancedMobileScreenshotWidth": 390,
+    "unexpectedHttpErrors": 0,
+    "consoleErrors": 0,
+    "pageErrors": 0,
+    "externalRequests": 0,
+    "providerAttempts": 0
+  },
+  "limitation": "Uses deterministic loopback judgments, not a classifier accuracy evaluation. Prior transport and source tests remain recorded against their original artifact; this final artifact repeats the complete engine/browser command."
+}

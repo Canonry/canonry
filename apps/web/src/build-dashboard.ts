@@ -300,6 +300,9 @@ function buildEvidenceFromTimeline(
           results.push({
             id: `evidence_${projectName}_${idx++}`,
             query: entry.query,
+            queryId: snap?.queryId ?? null,
+            sourceSnapshotId: snap?.id ?? null,
+            sourceRunId: snap?.runId ?? null,
             queryClass: queryClassifier?.classify(entry.query) ?? null,
             provider: snap?.provider ?? provider,
             model: snap?.model ?? null,
@@ -315,7 +318,7 @@ function buildEvidenceFromTimeline(
             changeLabel: changeLabel(effectiveTransition, streak),
             answerSnippet: snap?.answerText ?? '',
             citedDomains: snap?.citedDomains ?? [],
-            evidenceUrls: [],
+            evidenceUrls: snap?.citedUrls ?? [],
             citedCompetitorDomains,
             mentionedCompetitorDomains,
             competitorDomains,
@@ -341,6 +344,9 @@ function buildEvidenceFromTimeline(
     results.push({
       id: `evidence_${projectName}_${idx++}`,
       query: q.query,
+      queryId: q.id,
+      sourceSnapshotId: null,
+      sourceRunId: null,
       queryClass: queryClassifier?.classify(q.query) ?? null,
       provider: '',
       model: null,
@@ -733,6 +739,7 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
     // trend tracks the same signal as the headline number.
     trend: mention.trend ?? [],
     competitorPressureLabel: overview.scores.competitorPressure.value,
+    sentiment: overview.sentiment,
   }
 }
 

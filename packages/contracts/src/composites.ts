@@ -1,3 +1,4 @@
+import { sentimentOverviewSchema, type SentimentOverview } from './sentiment.js'
 import { z } from 'zod'
 import { fraction, percent } from './ratio-unit.js'
 import { citationStateSchema, latestProjectRunDtoSchema } from './run.js'
@@ -280,6 +281,8 @@ export const PROJECT_OVERVIEW_QUERY_CLASS_SCOPE: ProjectOverviewQueryClassScopeD
 }
 
 export interface ProjectOverviewDto {
+  /** Frozen favorable scores retain separate branded and non-brand populations. */
+  sentiment?: SentimentOverview
   project: ProjectDto
   latestRun: LatestProjectRunDto
   health: HealthSnapshotDto | null
@@ -450,6 +453,7 @@ const projectOverviewHealthSchema = z.object({
 
 /** Runtime and OpenAPI schema for the agent-first composite overview. */
 export const projectOverviewDtoSchema = z.object({
+  sentiment: sentimentOverviewSchema.optional(),
   project: projectDtoSchema,
   latestRun: latestProjectRunDtoSchema,
   health: projectOverviewHealthSchema.nullable(),

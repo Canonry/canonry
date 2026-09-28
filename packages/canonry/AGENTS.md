@@ -806,3 +806,26 @@ JSONL records keep their check's `details.months`. Report advisories have
 produce degraded/recovered notifications; the scheduled health pass does not run
 them at all (`scheduledHealthCheckIds`), and a crashed advisory reports `warn`,
 so it never sets a failing exit code. See `api-routes/src/doctor/AGENTS.md`.
+### Sentiment worker
+
+`sentiment-worker.ts` owns all TypeSafe I/O; classifier calls are single attempts and durable scheduling owns retries. Both `sentiment.enabled` in private install config and project sentiment settings default off. `TYPESAFE_API_KEY` and `CANONRY_SENTIMENT_ENABLED` override the private YAML configuration. `sentiment-config.ts` rereads it immediately before dispatch so disabling does not require restarting the server. Only `jev-1.13.0` is ready. The coordinator only wakes the worker; startup/poll reconciliation reads completion receipts atomically persisted by the initial success and fill transactions, including superseded fills. Install suspension persists cancellation and a resume boundary; reenablement never revives old selections. Shared SQLite leases and attempt reservations bound concurrent requests and input tokens across projects. Each actual attempt has a receipt and reported usage goes directly to `llm_usage_events` as `typesafe`/`sentiment`; unknown remote billing stays unknown. No secret reaches these records. A crash can require another billed attempt; successful result uniqueness is not exactly-once external billing.
+
+### Sentiment CLI
+
+`src/commands/sentiment.ts` and `src/cli-commands/sentiment.ts` expose the experimental
+stored sentiment surface through typed ApiClient/SDK calls. `sentiment <project>`
+reads the summary; subcommands are settings, configure, evidence, compare, backfill,
+jobs and job. JSON preserves the API DTO unchanged. Evidence JSONL preserves the
+page envelope because empty state, resolved evaluator and cursor belong together;
+jobs JSONL streams project-stamped job receipts.
+
+Configure accepts an explicit enabled boolean; it never accepts credentials or
+retired theme settings. Backfill preview needs explicit run IDs or both ISO date bounds.
+Submission only accepts the returned preview token and idempotency key. Authority
+and idempotency remain server-enforced. No read invokes the classifier, and clients
+display server-owned per-query percentages, intervals and refusal reasons. Select
+exactly one branded or non-brand population; `--query-id` preserves the frozen query
+identity. Summary and evidence accept repeatable `--run-ids` for the exact grouped
+location runs, mutually exclusive with `--run-id`; backfill keeps its existing
+repeatable `--run-id` syntax. Favorable % uses favorable / (favorable + mixed + unfavorable), excluding
+factual and unjudged assessments.

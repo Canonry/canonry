@@ -98,3 +98,4 @@ export * from './shell.js'
 export * from './record.js'
 
 export * from './referral-assessment.js'
+export * from './sentiment.js'

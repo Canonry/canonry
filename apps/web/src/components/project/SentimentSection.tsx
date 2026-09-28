@@ -1,0 +1,259 @@
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
+import type { SentimentEvidenceItem, SentimentJob, SentimentSettings, SentimentSummary, SentimentSelection, SentimentBackfillPreview, SentimentOverview, SentimentHeadline, SentimentAssessmentSummary, SentimentEvidenceSelection } from '@ainyc/canonry-contracts'
+import { describeError } from '@ainyc/canonry-contracts'
+import { Button } from '../ui/button.js'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet.js'
+import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { ToneBadge } from '../shared/ToneBadge.js'
+import { WriteButton } from '../shared/AccessControls.js'
+import { formatTimestamp } from '../../lib/format-helpers.js'
+import { fetchSentimentEvidence, fetchSentimentSettings, previewSentimentBackfill, submitSentimentBackfill, updateSentimentSettings } from '../../api.js'
+import { sentimentQueryKey, useSentiment } from '../../queries/sentiment.js'
+
+type QueryClass = 'branded' | 'non-brand'
+type QueryClassView = QueryClass | 'all' | 'unclassified' | 'unknown'
+type RunOption = { id: string; label: string }
+const CLASS_LABEL: Record<QueryClass, string> = { branded: 'Branded', 'non-brand': 'Non-brand' }
+export const SENTIMENT_COPY = {
+  states: { disabled: 'Sentiment is disabled.', 'not-measured': 'No sentiment assessments yet.', processing: 'Sentiment classification is in progress.', canceled: 'Sentiment work was canceled.', partial: 'Sentiment results are partial.', failed: 'Sentiment classification failed.', complete: 'Sentiment classification is complete.', unsupported: 'Sentiment is unavailable for this selection.' },
+  noJudgments: 'No evaluative answers were classified.',
+  favorable: 'Favorable answers divided by favorable, mixed, and unfavorable judgments. Factual, unmentioned, unsupported, and unclassified answers are not judgments. Branded and non-brand queries are measured separately.',
+} as const
+function outcomeLabel(value: string) { return value.replaceAll('-', ' ').replace(/^./, character => character.toUpperCase()) }
+
+function FavorableValue({ value, label }: { value: Pick<SentimentHeadline, 'score' | 'coverage' | 'provisional'>; label: string }) {
+  return <div aria-label={`${label} favorable share`}>
+    <span className="font-mono text-lg text-primary">{value.score.favorableDisplay}</span>
+    <span className="ml-2 text-sm text-secondary">{value.coverage.judged} judged</span>
+    {value.provisional && <span className="ml-2 text-sm text-secondary">Provisional</span>}
+  </div>
+}
+
+/** Portfolio values come from the existing overview response, never separate per-card requests. */
+export function SentimentOverviewMetric({ value }: { value?: SentimentOverview }) {
+  if (!value?.configured) return null
+  const classes = [['non-brand', value.nonBrand], ['branded', value.branded]] as const
+  const detail = [SENTIMENT_COPY.favorable, ...classes.map(([queryClass, headline]) => `${CLASS_LABEL[queryClass]}: ${headline.coverage.judged} of ${headline.coverage.selected} judged. ${headline.provisional ? 'Provisional. ' : ''}${SENTIMENT_COPY.states[headline.state]}${headline.reason ? ` ${headline.reason}` : ''}`)].join(' ')
+  return <div className="project-row-stat" data-sentiment-score>
+    <div className="metric-inline-block">
+      <div className="flex items-center"><p className="metric-inline-label">Favorable</p><span className="relative z-10"><InfoTooltip text={detail} placement="bottom" /></span></div>
+      {classes.map(([queryClass, headline]) => <p key={queryClass} role="group" aria-label={`${CLASS_LABEL[queryClass]} favorable share`} className="flex items-center justify-between gap-1 text-[13px] leading-4 text-secondary">
+        <span className="whitespace-nowrap">{CLASS_LABEL[queryClass]}</span><span className="whitespace-nowrap font-mono text-primary">{headline.score.favorableDisplay}{headline.provisional && <span role="img" aria-label="Provisional" className="ml-0.5 text-caution">*</span>}</span>
+      </p>)}
+    </div>
+  </div>
+}
+
+interface ScopeValue {
+  projectName: string
+  selection: SentimentSelection
+  settings: ReturnType<typeof useSentiment>['settings']
+  summaries: Record<QueryClass, UseQueryResult<SentimentSummary>>
+  configured: boolean
+  hasSourceEvidence: boolean
+  resolveSource: (source: { runId: string; revision?: number } | null) => void
+  openManage: (opener: HTMLButtonElement) => void
+  openEvidence: (selection: SentimentEvidenceSelection, label: string, opener: HTMLButtonElement) => void
+}
+const SentimentContext = createContext<ScopeValue | null>(null)
+export function useSentimentConfigured() { return useContext(SentimentContext)?.configured ?? false }
+
+export function SentimentScopeProvider({ projectName, selection, runOptions = [], waitForResolvedRun = false, evidenceReady = true, hasSourceEvidence = true, children }: {
+  projectName: string; selection: SentimentSelection; runOptions?: RunOption[]; waitForResolvedRun?: boolean; evidenceReady?: boolean; hasSourceEvidence?: boolean; children: ReactNode
+}) {
+  return <SentimentScope projectName={projectName} selection={selection} runOptions={runOptions} waitForResolvedRun={waitForResolvedRun} evidenceReady={evidenceReady} hasSourceEvidence={hasSourceEvidence}>{children}</SentimentScope>
+}
+function SentimentScope({ projectName, selection, runOptions, waitForResolvedRun, evidenceReady, hasSourceEvidence, children }: {
+  projectName: string; selection: SentimentSelection; runOptions: RunOption[]; waitForResolvedRun: boolean; evidenceReady: boolean; hasSourceEvidence: boolean; children: ReactNode
+}) {
+  const selectionKey = JSON.stringify([projectName, selection])
+  const [resolvedSource, setResolvedSource] = useState<{ key: string; runId: string; revision?: number } | null>(null)
+  const resolveSource = useCallback((value: { runId: string; revision?: number } | null) => setResolvedSource(previous => previous?.key === selectionKey && previous?.runId === value?.runId && previous?.revision === value?.revision ? previous : value ? { ...value, key: selectionKey } : null), [selectionKey])
+  const sourceReady = evidenceReady && (!waitForResolvedRun || resolvedSource?.key === selectionKey)
+  const activeSelection = waitForResolvedRun && sourceReady && resolvedSource ? { ...selection, runId: resolvedSource.runId, revision: resolvedSource.revision } : selection
+  const activeSelectionKey = JSON.stringify([projectName, activeSelection])
+  const { settings, branded, nonBrand, jobs } = useSentiment(projectName, activeSelection, sourceReady && hasSourceEvidence)
+  const [manageOpen, setManageOpen] = useState(false)
+  const [evidence, setEvidence] = useState<{ selection: SentimentEvidenceSelection; label: string } | null>(null)
+  const opener = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => { setManageOpen(false); setEvidence(null) }, [activeSelectionKey])
+  const configured = sourceReady && Boolean(settings.data?.enabled && settings.data.installEnabled)
+  const selected = selection.queryClass === 'non-brand' ? nonBrand.data : branded.data
+  const effective = selected?.selection
+  const resolved: SentimentSelection = { ...activeSelection, ...(effective ? { ...effective, runId: effective.runId ?? undefined, runIds: effective.runId ? undefined : effective.runIds, revision: effective.revision ?? undefined, evaluationDefinitionId: effective.evaluationDefinitionId ?? undefined } : {}) }
+  const options = resolved.runId && !runOptions.some(run => run.id === resolved.runId) ? [{ id: resolved.runId, label: 'Displayed sweep' }, ...runOptions] : runOptions
+  const restoreFocus = (event: Event) => { event.preventDefault(); opener.current?.focus() }
+  return <SentimentContext.Provider value={{ projectName, selection: activeSelection, resolveSource, settings, summaries: { branded, 'non-brand': nonBrand }, configured, hasSourceEvidence,
+    openManage: element => { opener.current = element; setManageOpen(true) },
+    openEvidence: (value, label, element) => { opener.current = element; setEvidence({ selection: value, label }) },
+  }}>
+    {children}
+    <Sheet open={manageOpen && Boolean(settings.data?.actions.configure)} onOpenChange={setManageOpen}>
+      <SheetContent onCloseAutoFocus={restoreFocus} className="overflow-y-auto"><SheetHeader><SheetTitle>Manage sentiment</SheetTitle><SheetDescription>Classify saved answers and review the cost before submitting a backfill.</SheetDescription></SheetHeader>
+        {settings.data?.actions.configure && <SentimentSettingsEditor key={JSON.stringify([settings.data.evaluationDefinitionId, settings.data.enabled, settings.data.enablementEpoch])} projectName={projectName} settings={settings.data} selection={resolved} runOptions={options} />}
+        {jobs.data && <SentimentJobs jobs={jobs.data.jobs} />}
+      </SheetContent>
+    </Sheet>
+    <Sheet open={evidence !== null} onOpenChange={open => { if (!open) setEvidence(null) }}>
+      <SheetContent onCloseAutoFocus={restoreFocus} className="overflow-y-auto"><SheetHeader><SheetTitle>Sentiment evidence{evidence ? `: ${evidence.label}` : ''}</SheetTitle><SheetDescription>Stored judgments and exact quotations for the selected query and scope.</SheetDescription></SheetHeader>
+        {evidence && <SentimentQueryEvidence key={JSON.stringify(evidence.selection)} projectName={projectName} selection={evidence.selection} />}
+      </SheetContent>
+    </Sheet>
+  </SentimentContext.Provider>
+}
+
+/** Advanced date/run filters must resolve before the two stored class summaries are read. */
+export function useSentimentResolvedSource(runId: string | null | undefined, revision: number | null | undefined) {
+  const resolveSource = useContext(SentimentContext)?.resolveSource
+  useEffect(() => { resolveSource?.(runId ? { runId, revision: revision ?? undefined } : null) }, [resolveSource, runId, revision])
+}
+
+/** Controls remain reachable while classification is off; API action permissions govern them. */
+export function SentimentControls() {
+  const scope = useContext(SentimentContext)
+  if (!scope?.settings.data?.actions.configure) return null
+  return <WriteButton type="button" variant="outline" size="sm" onClick={event => scope.openManage(event.currentTarget)}>{scope.settings.data.enabled ? 'Manage sentiment' : 'Enable sentiment'}</WriteButton>
+}
+
+export function SentimentHeadlines({ queryClass = 'all' }: { queryClass?: QueryClassView }) {
+  const scope = useContext(SentimentContext)
+  if (!scope?.configured || queryClass === 'unknown' || queryClass === 'unclassified') return null
+  const classes: QueryClass[] = queryClass === 'all' ? ['non-brand', 'branded'] : [queryClass]
+  return <div className="mb-4 flex flex-wrap items-start gap-x-8 gap-y-3" aria-label="Favorable answer scores">
+    {classes.map(value => {
+      const query = scope.summaries[value]
+      return <div key={value}>
+        <div className="mb-1 flex items-center gap-2"><span className="text-sm text-secondary">Favorable · {CLASS_LABEL[value]}</span><InfoTooltip text={SENTIMENT_COPY.favorable} /></div>
+        {!scope.hasSourceEvidence ? <p className="text-sm text-secondary">Unavailable</p> : query.data ? <>
+          <FavorableValue value={query.data} label={CLASS_LABEL[value]} />
+          <details className="mt-1 text-sm text-secondary"><summary className="cursor-pointer">Coverage and method</summary>
+            <p>{query.data.coverage.judged} judged of {query.data.coverage.selected} selected assessments; {query.data.coverage.distinctSourceAnswers} distinct source answers.</p>
+            <p>{query.data.coverage.eligibleAssessments} eligible; {query.data.coverage.unadmittedAssessments} awaiting admission.</p>
+            <p>{query.data.state === 'complete' && query.data.coverage.judged === 0 ? SENTIMENT_COPY.noJudgments : SENTIMENT_COPY.states[query.data.state]}</p>
+            {query.data.reason && <p>{query.data.reason}</p>}
+            {Object.entries(query.data.coverage.counts).filter(([outcome, count]) => count > 0 && !['favorable', 'mixed', 'unfavorable'].includes(outcome)).map(([outcome, count]) => <p key={outcome}>{outcomeLabel(outcome)}: {count}</p>)}
+            <p>{scope.settings.data?.disclosure}</p>
+            <p>95% Wilson interval: {query.data.score.interval ? `${query.data.score.interval.low} to ${query.data.score.interval.high}` : 'Unavailable'}</p><p>{query.data.score.limitation}</p>
+          </details>
+        </> : query.isError ? <p role="alert" className="text-sm text-secondary">Favorable score unavailable. <Button variant="ghost" onClick={() => { void query.refetch() }}>Retry score</Button></p> : <p role="status" className="text-sm text-secondary">Loading favorable score…</p>}
+      </div>
+    })}
+  </div>
+}
+
+export function SentimentQueryScore({ queryId, sourceSnapshotIds = [], queryClass, location, showLabel = false }: { queryId?: string | null; sourceSnapshotIds?: string[]; queryClass?: QueryClass | null; location?: string | null; showLabel?: boolean }) {
+  const scope = useContext(SentimentContext)
+  if (!scope?.configured) return null
+  const parent = queryClass ? scope.summaries[queryClass] : undefined
+  const summary = scope.hasSourceEvidence ? parent?.data : undefined
+  // Deleted queries retain exact source membership. Never join different saved queries by text.
+  const matches = summary?.queries.filter(item => item.queryClass === queryClass && (queryId ? item.queryId === queryId : sourceSnapshotIds.length > 0) && sourceSnapshotIds.every(id => item.sourceSnapshotIds.includes(id))) ?? []
+  const row = matches.length === 1 ? matches[0] : undefined
+  const value = location === undefined ? row : row?.locations.find(item => item.location === location)
+  if (!row || !value) return <span className="text-sm text-secondary">{parent?.isPending && (queryId || sourceSnapshotIds.length) ? 'Loading…' : 'Unavailable'}</span>
+  const selection: SentimentSelection = { ...scope.selection, ...summary!.selection, runId: summary!.selection.runId ?? undefined, runIds: summary!.selection.runId ? undefined : summary!.selection.runIds, revision: summary!.selection.revision ?? undefined, evaluationDefinitionId: summary!.selection.evaluationDefinitionId ?? undefined, queryClass: row.queryClass, queryId: row.queryId, ...(location === undefined ? {} : { location: location ?? 'none' }) }
+  return <Button type="button" variant="ghost" className="h-auto min-h-11 flex-col items-start gap-0 px-1" aria-label={`View ${CLASS_LABEL[row.queryClass]} sentiment evidence for ${row.queryText}`} onKeyDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); scope.openEvidence(selection, row.queryText, event.currentTarget) }}>
+    {showLabel && <span className="text-sm font-normal text-secondary">Favorable</span>}<span className="font-mono text-primary">{value.score.favorableDisplay}</span><span className="text-sm font-normal text-secondary">{value.coverage.judged} judged</span>{value.provisional && <span className="text-xs font-normal text-caution">Provisional</span>}
+  </Button>
+}
+
+function assessmentLabel(item: SentimentAssessmentSummary): string {
+  if (item.outcome === 'subject-not-mentioned') return 'Not mentioned'
+  if (item.outcome === 'running') return 'Classifying'
+  if (item.outcome === 'waiting-to-retry') return 'Retrying'
+  if (item.outcome) return outcomeLabel(item.outcome)
+  if (item.state === 'not-measured') return 'Not classified'
+  if (item.state === 'processing') return 'Classifying'
+  if (item.state === 'failed') return 'Failed'
+  if (item.state === 'canceled') return 'Canceled'
+  return 'Unavailable'
+}
+
+/** Read exact source/subject assessments from the two shared class summaries, never per row. */
+export function SentimentAnswerOutcome({ queryId, sourceSnapshotIds, queryClass, provider, model, location, showSubjects = false, showLabel = false }: {
+  queryId?: string | null; sourceSnapshotIds: string[]; queryClass?: QueryClass | null
+  provider: string; model?: string | null; location: string | null; showSubjects?: boolean; showLabel?: boolean
+}) {
+  const scope = useContext(SentimentContext)
+  if (!scope?.configured) return null
+  const query = queryClass ? scope.summaries[queryClass] : undefined
+  const summary = scope.hasSourceEvidence ? query?.data : undefined
+  const rows = summary?.queries.filter(row => row.queryClass === queryClass && (!queryId || row.queryId === queryId)
+    && sourceSnapshotIds.length > 0 && sourceSnapshotIds.every(id => row.sourceSnapshotIds.includes(id))) ?? []
+  const row = rows.length === 1 ? rows[0] : undefined
+  const assessments = row?.assessments?.filter(item => sourceSnapshotIds.includes(item.sourceSnapshotId)
+    && item.provider === provider && item.location === location && (model === undefined || item.servedModel === model)) ?? []
+  return <div role="group" className="text-sm text-secondary" aria-label={`${provider || 'Saved answer'} sentiment`}>
+    {showLabel && <span className="block text-sm text-secondary">Sentiment</span>}
+    {!assessments.length ? <span>{query?.isPending && sourceSnapshotIds.length ? 'Loading…' : 'Unavailable'}</span> : assessments.map(item => {
+      const label = assessmentLabel(item)
+      const tone = item.outcome === 'favorable' ? 'positive' : item.outcome === 'unfavorable' ? 'negative' : item.outcome === 'mixed' ? 'caution' : 'neutral'
+      const content = <>{showSubjects && <span>{item.subjectLabel} · </span>}<ToneBadge tone={tone} className="max-w-full shrink-0 rounded-none border-0 bg-transparent p-0 text-sm font-normal tracking-normal [overflow-wrap:normal]">{label}</ToneBadge></>
+      const selection: SentimentEvidenceSelection = { ...scope.selection, ...summary!.selection, runId: summary!.selection.runId ?? undefined, runIds: summary!.selection.runId ? undefined : summary!.selection.runIds, revision: summary!.selection.revision ?? undefined, evaluationDefinitionId: summary!.selection.evaluationDefinitionId ?? undefined, queryClass: row!.queryClass, queryId: row!.queryId, assessmentId: item.assessmentId ?? undefined }
+      return <div key={JSON.stringify([item.sourceSnapshotId, item.subjectId, item.assessmentId])} className="flex items-center gap-1">
+        {item.assessmentId ? <Button type="button" variant="ghost" className="h-auto min-h-11 flex-wrap justify-start whitespace-normal px-1 text-left text-sm" aria-label={`View ${item.provider} sentiment evidence for ${item.subjectLabel}: ${label}`} onKeyDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); scope.openEvidence(selection, `${row!.queryText} · ${item.provider} · ${item.subjectLabel}`, event.currentTarget) }}>{content}</Button> : <span>{content}</span>}
+        {item.reason && <InfoTooltip text={item.reason} />}
+      </div>
+    })}
+  </div>
+}
+
+function SentimentEvidenceContent({ item }: { item: SentimentEvidenceItem }) {
+  return <article className="space-y-4 border-b border-default py-5 text-sm text-secondary">
+    <div className="flex flex-wrap items-center gap-2"><strong className="text-primary">{item.subject.displayName}</strong><ToneBadge tone="neutral">{outcomeLabel(item.outcome)}</ToneBadge><span>{CLASS_LABEL[item.context.queryClass]}</span><span>{item.context.provider}</span><span>{item.context.servedModel ?? 'Source model unavailable'}</span><span>{item.context.location ?? 'No location'}</span></div>
+    {item.reason && <p>{item.reason}</p>}
+    <section><h3 className="mb-2 text-heading">Conclusion evidence</h3>{item.conclusion.length ? item.conclusion.map(span => <blockquote className="mb-2 border-l border-strong pl-3 text-primary" key={`${span.id}:${span.start}`}>{span.text}</blockquote>) : <p>No valid conclusion evidence is available.</p>}</section>
+    <section><h3 className="mb-2 text-heading">Complaint evidence</h3>{item.complaint?.length ? item.complaint.map(span => <blockquote className="mb-2 border-l border-strong pl-3 text-primary" key={`${span.id}:${span.start}`}>{span.text}</blockquote>) : <p>No complaint was identified.</p>}</section>
+    <details><summary className="cursor-pointer">Original source answer</summary><p className="mt-2 whitespace-pre-wrap break-words text-primary">{item.sourceText}</p></details>
+    <details><summary className="cursor-pointer">Assessment provenance</summary><dl className="mt-3 space-y-2 break-all"><dt>Query</dt><dd>{item.context.queryText}</dd><dt>Subject</dt><dd>{item.subject.displayName} ({item.subject.id})</dd><dt>Run</dt><dd>{item.runId}</dd><dt>Revision</dt><dd>{item.context.revision ?? 'Unavailable'}</dd><dt>Evaluator</dt><dd>{item.returnedModel ?? 'Unavailable'}</dd><dt>Evaluation definition</dt><dd>{item.evaluationDefinitionId}</dd><dt>Source snapshot</dt><dd>{item.sourceSnapshotId}</dd><dt>Source hash</dt><dd>{item.sourceTextHash}</dd>{item.context.usageEdges.map((edge, index) => <div key={index}><dt>Assignment</dt><dd>Target {edge.targetId}; Property {edge.propertyId ?? 'None'}; market {edge.marketId ?? 'None'}; {edge.queryClass}</dd></div>)}</dl></details>
+  </article>
+}
+export function SentimentEvidenceDrawer({ item, onClose, onRestoreFocus }: { item: SentimentEvidenceItem | null; onClose: () => void; onRestoreFocus?: () => void }) {
+  return <Sheet open={item !== null} onOpenChange={open => { if (!open) onClose() }}><SheetContent className="overflow-y-auto" onCloseAutoFocus={event => { if (onRestoreFocus) { event.preventDefault(); onRestoreFocus() } }}><SheetHeader><SheetTitle>Sentiment evidence: {item?.subject.displayName}</SheetTitle><SheetDescription>Stored answer and verbatim quotations for this assessment.</SheetDescription></SheetHeader>{item && <SentimentEvidenceContent item={item} />}</SheetContent></Sheet>
+}
+function SentimentQueryEvidence({ projectName, selection }: { projectName: string; selection: SentimentEvidenceSelection }) {
+  const [cursor, setCursor] = useState<string | undefined>()
+  const query = useQuery({ queryKey: sentimentQueryKey(projectName, 'evidence', selection, cursor), queryFn: () => fetchSentimentEvidence(projectName, selection, cursor), retry: false })
+  if (query.isPending) return <p role="status" className="mt-4 text-sm text-secondary">Loading sentiment evidence…</p>
+  if (query.isError) return <p role="alert" className="mt-4 text-sm text-secondary">Could not load sentiment evidence. <Button variant="outline" onClick={() => { void query.refetch() }}>Retry evidence</Button></p>
+  return <>{query.data.items.length ? query.data.items.map(item => <SentimentEvidenceContent key={item.assessmentId} item={item} />) : <p className="mt-4 text-sm text-secondary">No stored sentiment evidence for this query and scope.</p>}
+    <div className="mt-3 flex gap-2">{cursor && <Button variant="outline" onClick={() => setCursor(undefined)}>First evidence page</Button>}{query.data.nextCursor && <Button variant="outline" onClick={() => setCursor(query.data.nextCursor ?? undefined)}>Next evidence page</Button>}</div>
+  </>
+}
+export function SentimentJobs({ jobs }: { jobs: SentimentJob[] }) {
+  return <details className="mt-6 text-sm text-secondary"><summary className="cursor-pointer">Recent sentiment jobs</summary>{jobs.length === 0 ? <p className="mt-2">No sentiment jobs have been submitted.</p> : <div className="data-table-wrapper mt-3"><table className="data-table" aria-label="Sentiment jobs"><thead><tr><th>Submitted</th><th>State</th><th>Selected</th><th>Details</th></tr></thead><tbody>{jobs.map(job => <tr key={job.id}><td>{formatTimestamp(job.createdAt)}</td><td>{outcomeLabel(job.state)}</td><td>{job.selected}</td><td><details><summary>Job details</summary>{job.cancellationReason && <p>{job.cancellationReason}</p>}{Object.entries(job.counts).filter(([, count]) => count > 0).map(([state, count]) => <p key={state}>{outcomeLabel(state)}: {count}</p>)}{job.attempts.map(attempt => <p key={attempt.id}>{attempt.errorCode ?? 'Request complete'}; {attempt.usage.kind === 'unknown' ? 'Usage unknown' : `${attempt.usage.inputTokens ?? 'Unknown'} input tokens (${attempt.usage.kind})`}</p>)}</details></td></tr>)}</tbody></table></div>}</details>
+}
+function SentimentSettingsEditor({ projectName, settings, selection, runOptions }: { projectName: string; settings: SentimentSettings; selection: SentimentSelection; runOptions: RunOption[] }) {
+  const client = useQueryClient()
+  const [enabled, setEnabled] = useState(settings.enabled)
+  const [runId, setRunId] = useState(selection.runId ?? '')
+  const [queryClass, setQueryClass] = useState<QueryClass>(selection.queryClass)
+  const [preview, setPreview] = useState<SentimentBackfillPreview | null>(null)
+  const key = useRef<string | null>(null)
+  const refresh = () => client.invalidateQueries({ queryKey: ['sentiment', projectName] })
+  const reset = () => { setPreview(null); key.current = null }
+  const save = useMutation({ mutationFn: async () => {
+    if (!(await fetchSentimentSettings(projectName)).actions.configure) throw new Error('Administrator permission is required to configure sentiment.')
+    return updateSentimentSettings(projectName, { enabled })
+  }, onSuccess: async () => { reset(); await refresh(); await client.invalidateQueries({ queryKey: ['project-overview-slim'] }) }, onError: refresh })
+  const inspect = useMutation({ mutationFn: async () => {
+    if (!(await fetchSentimentSettings(projectName)).actions.backfill) throw new Error('Administrator permission is required to backfill sentiment.')
+    return previewSentimentBackfill(projectName, { ...selection, queryClass, queryId: undefined, runIds: undefined, runId })
+  }, onSuccess: value => { setPreview(value); key.current = crypto.randomUUID() }, onError: refresh })
+  const submit = useMutation({ mutationFn: async () => {
+    if (!preview?.previewToken || !key.current) throw new Error('Create and review a backfill preview first.')
+    if (!(await fetchSentimentSettings(projectName)).actions.backfill) throw new Error('Administrator permission is required to backfill sentiment.')
+    return submitSentimentBackfill(projectName, preview.previewToken, key.current)
+  }, onSuccess: async () => { reset(); await refresh() }, onError: refresh })
+  const pending = save.isPending || inspect.isPending || submit.isPending
+  return <div className="mt-5 space-y-5 text-sm text-secondary">
+    <p>{settings.disclosure}</p>{!settings.ready && <p>{settings.readinessReasons.join('; ') || 'An operator must configure sentiment on this installation.'}</p>}
+    <form className="space-y-3" onSubmit={event => { event.preventDefault(); save.mutate() }}><label className="flex items-center gap-2"><input type="checkbox" checked={enabled} disabled={pending} onChange={event => { setEnabled(event.target.checked); reset() }} />Enable project sentiment</label><p>Enabling applies to future completed sweeps. Past sweeps require an explicit backfill.</p><WriteButton type="submit" disabled={pending}>{save.isPending ? 'Saving…' : 'Save sentiment settings'}</WriteButton>{save.isError && <p role="alert">{describeError(save.error)}</p>}{save.isSuccess && <p role="status">Sentiment settings saved.</p>}</form>
+    {settings.actions.backfill && <section className="space-y-3"><h3>Backfill a saved sweep</h3><label className="block">Saved sweep<select className="mt-1 block w-full rounded-md border border-default bg-bg p-2 text-primary" value={runId} disabled={pending} onChange={event => { setRunId(event.target.value); reset() }}><option value="">Select a saved sweep</option>{runOptions.map(run => <option key={run.id} value={run.id}>{run.label}</option>)}</select></label><label className="block">Query class<select className="mt-1 block w-full rounded-md border border-default bg-bg p-2 text-primary" value={queryClass} disabled={pending} onChange={event => { setQueryClass(event.target.value as QueryClass); reset() }}><option value="non-brand">Non-brand</option><option value="branded">Branded</option></select></label>
+      <Button variant="outline" disabled={pending || !runId || !settings.enabled || !settings.ready} onClick={() => { reset(); inspect.mutate() }}>{inspect.isPending ? 'Preparing preview…' : 'Preview sentiment backfill'}</Button>{inspect.isError && <p role="alert">{describeError(inspect.error)}</p>}
+      {preview && <div className="space-y-3"><dl className="grid grid-cols-[1fr_auto] gap-2"><dt>Eligible assessments</dt><dd>{preview.eligibleAssessments}</dd><dt>Already classified</dt><dd>{preview.alreadyClassified}</dd><dt>Estimated input tokens</dt><dd>{preview.estimatedInputTokens}</dd><dt>Estimated cost (USD)</dt><dd>{preview.estimatedCostUsd ?? 'Unavailable'}</dd></dl><InfoTooltip text={preview.estimateMethod} /><WriteButton disabled={pending || !preview.previewToken || preview.eligibleAssessments === 0} onClick={() => submit.mutate()}>{submit.isPending ? 'Submitting…' : 'Confirm sentiment backfill'}</WriteButton></div>}
+      {submit.isError && <p role="alert">{describeError(submit.error)} Retry uses the same request key.</p>}{submit.isSuccess && <p role="status">Backfill submitted. Progress is available in Recent jobs.</p>}
+    </section>}
+  </div>
+}
