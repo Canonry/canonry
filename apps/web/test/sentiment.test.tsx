@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { aggregateSentiment, createSentimentEvaluationDefinition, emptySentimentCounts } from '@ainyc/canonry-contracts'
 import type { SentimentEvidenceItem, SentimentSettings, SentimentSummary } from '@ainyc/canonry-contracts'
 import { SentimentScopeProvider, SentimentControls, SentimentHeadlines, SentimentQueryScore, SentimentOverviewMetric, SentimentEvidenceDrawer, useSentimentResolvedSource, SENTIMENT_COPY } from '../src/components/project/SentimentSection.js'
-import { sentimentSelectionFromVisibility, sentimentQueryKey } from '../src/queries/sentiment.js'
+import { sentimentSelectionFromVisibility, sentimentSelectionForSimpleEvidence, sentimentQueryKey } from '../src/queries/sentiment.js'
 import { EvidenceTable } from '../src/components/project/EvidenceTable.js'
 import { createDashboardFixture } from '../src/mock-data.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
@@ -105,12 +105,12 @@ describe('sentiment presentation', () => {
     const dto = summary()
     const { state, reason, provisional, coverage, score } = dto
     dto.queries = [{ queryId: 'deleted-query', queryText: 'Is North Hall good?', queryClass: 'branded', sourceSnapshotIds: ['snapshot'], state, reason, provisional, coverage, score, locations: [{ location: 'Chicago', sourceSnapshotIds: ['snapshot'], state, reason, provisional, coverage, score: { ...score, favorableDisplay: '31.7%' } }] }]
-    const page = renderScope(<><SentimentQueryScore sourceSnapshotIds={['snapshot']} queryClass="branded" location="Chicago" /><SentimentQueryScore queryId="different-query" queryClass="branded" /></>, { branded: dto })
+    const page = renderScope(<><SentimentQueryScore sourceSnapshotIds={['snapshot']} queryClass="branded" location="Chicago" /><SentimentQueryScore queryId="different-query" queryClass="branded" /><SentimentQueryScore queryId="deleted-query" sourceSnapshotIds={['newer-snapshot']} queryClass="branded" /></>, { branded: dto })
     try {
       const button = await screen.findByRole('button', { name: 'View Branded sentiment evidence for Is North Hall good?' })
       expect(button.textContent).toContain('31.7%')
       expect(button.textContent).toContain('5 judged')
-      expect(screen.getByText('Unavailable')).toBeTruthy()
+      expect(screen.getAllByText('Unavailable')).toHaveLength(2)
       fireEvent.click(button)
       await screen.findByText('No stored sentiment evidence for this query and scope.')
       expect(page.requests.filter(url => url.pathname.endsWith('/sentiment'))).toHaveLength(2)
@@ -128,6 +128,11 @@ describe('sentiment presentation', () => {
   })
 })
 describe('sentiment cache identity', () => {
+  it('uses the displayed Simple snapshot group instead of a stale Advanced URL run', () => {
+    const previous = { mode: 'advanced' as const, scope: 'project' as const, queryClass: 'branded' as const, runId: 'older-run', runIds: ['stale-group'], revision: 7 }
+    expect(sentimentSelectionForSimpleEvidence(previous, ['west-run', 'east-run', 'west-run'])).toEqual({ ...previous, mode: 'simple', runId: undefined, runIds: ['east-run', 'west-run'], revision: undefined })
+    expect(sentimentSelectionForSimpleEvidence(previous, ['latest-run'])).toEqual({ ...previous, mode: 'simple', runId: 'latest-run', runIds: undefined, revision: undefined })
+  })
   it('carries full Advanced selection and separates market and evaluator caches', () => {
     const selection = sentimentSelectionFromVisibility({ measurementScope: 'property', measurementScopeKey: 'north', marketKey: 'chicago', queryClass: 'branded', model: 'source-model', provider: 'openai', location: 'Chicago', measurementRunId: 'run', revision: 3 }, 'advanced', 'definition-a')
     expect(selection).toEqual({ mode: 'advanced', scope: 'property', scopeKey: 'north', marketKey: 'chicago', queryClass: 'branded', model: 'source-model', provider: 'openai', location: 'Chicago', runId: 'run', revision: 3, evaluationDefinitionId: 'definition-a' })

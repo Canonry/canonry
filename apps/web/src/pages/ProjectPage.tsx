@@ -35,7 +35,7 @@ import { ProviderBadge } from '../components/shared/ProviderBadge.js'
 import { RunRow } from '../components/shared/RunRow.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { SentimentScopeProvider, SentimentControls } from '../components/project/SentimentSection.js'
-import { sentimentSelectionFromVisibility } from '../queries/sentiment.js'
+import { sentimentSelectionFromVisibility, sentimentSelectionForSimpleEvidence } from '../queries/sentiment.js'
 import { EvidenceTable } from '../components/project/EvidenceTable.js'
 import { BingSummaryMetric } from '../components/project/BingSummaryMetric.js'
 import { ActivitySection } from '../components/project/ActivitySection.js'
@@ -2736,16 +2736,12 @@ function ProjectPageContent({
       />
     )
     if (isEmbed()) return content
-    const sentimentSelection = sentimentSelectionFromVisibility(visibilitySelection, isSimpleOverview ? 'simple' : 'advanced', typeof projectSearchParams.sentimentEvaluationDefinitionId === 'string' ? projectSearchParams.sentimentEvaluationDefinitionId : undefined)
+    let sentimentSelection = sentimentSelectionFromVisibility(visibilitySelection, isSimpleOverview ? 'simple' : 'advanced', typeof projectSearchParams.sentimentEvaluationDefinitionId === 'string' ? projectSearchParams.sentimentEvaluationDefinitionId : undefined)
     if (isSimpleOverview) {
       sentimentSelection.location = locationFilter === '' ? 'none' : locationFilter
-      if (!sentimentSelection.runId) {
-        const runIds = [...new Set(filteredEvidence.map(item => item.sourceRunId).filter((id): id is string => Boolean(id)))].sort()
-        if (runIds.length > 1) sentimentSelection.runIds = runIds
-        else if (runIds.length === 1) sentimentSelection.runId = runIds[0]
-      }
+      sentimentSelection = sentimentSelectionForSimpleEvidence(sentimentSelection, filteredEvidence.map(item => item.sourceRunId).filter((id): id is string => Boolean(id)))
     }
-    return <SentimentScopeProvider waitForResolvedRun={!isSimpleOverview} projectName={projectName} runOptions={model.recentRuns.filter(run => run.kind === RunKinds['answer-visibility'] && run.trigger !== RunTriggers.probe && (run.status === RunStatuses.completed || run.status === RunStatuses.partial)).map(run => ({ id: run.id, label: formatTimestamp(run.finishedAt ?? run.createdAt) }))} selection={sentimentSelection}>{content}</SentimentScopeProvider>
+    return <SentimentScopeProvider evidenceReady={!isSimpleOverview || !(evidenceDashboard.isLoading || evidenceDashboard.evidenceLoading || evidenceDashboard.evidenceError)} waitForResolvedRun={!isSimpleOverview} projectName={projectName} runOptions={model.recentRuns.filter(run => run.kind === RunKinds['answer-visibility'] && run.trigger !== RunTriggers.probe && (run.status === RunStatuses.completed || run.status === RunStatuses.partial)).map(run => ({ id: run.id, label: formatTimestamp(run.finishedAt ?? run.createdAt) }))} selection={sentimentSelection}>{content}</SentimentScopeProvider>
   }
 
   // The context row's measurement scope slot. Each tab owns recovery for a

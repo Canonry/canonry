@@ -56,18 +56,18 @@ interface ScopeValue {
 const SentimentContext = createContext<ScopeValue | null>(null)
 export function useSentimentConfigured() { return useContext(SentimentContext)?.configured ?? false }
 
-export function SentimentScopeProvider({ projectName, selection, runOptions = [], waitForResolvedRun = false, children }: {
-  projectName: string; selection: SentimentSelection; runOptions?: RunOption[]; waitForResolvedRun?: boolean; children: ReactNode
+export function SentimentScopeProvider({ projectName, selection, runOptions = [], waitForResolvedRun = false, evidenceReady = true, children }: {
+  projectName: string; selection: SentimentSelection; runOptions?: RunOption[]; waitForResolvedRun?: boolean; evidenceReady?: boolean; children: ReactNode
 }) {
-  return <SentimentScope projectName={projectName} selection={selection} runOptions={runOptions} waitForResolvedRun={waitForResolvedRun}>{children}</SentimentScope>
+  return <SentimentScope projectName={projectName} selection={selection} runOptions={runOptions} waitForResolvedRun={waitForResolvedRun} evidenceReady={evidenceReady}>{children}</SentimentScope>
 }
-function SentimentScope({ projectName, selection, runOptions, waitForResolvedRun, children }: {
-  projectName: string; selection: SentimentSelection; runOptions: RunOption[]; waitForResolvedRun: boolean; children: ReactNode
+function SentimentScope({ projectName, selection, runOptions, waitForResolvedRun, evidenceReady, children }: {
+  projectName: string; selection: SentimentSelection; runOptions: RunOption[]; waitForResolvedRun: boolean; evidenceReady: boolean; children: ReactNode
 }) {
   const selectionKey = JSON.stringify([projectName, selection])
   const [resolvedSource, setResolvedSource] = useState<{ key: string; runId: string; revision?: number } | null>(null)
   const resolveSource = useCallback((value: { runId: string; revision?: number } | null) => setResolvedSource(previous => previous?.key === selectionKey && previous?.runId === value?.runId && previous?.revision === value?.revision ? previous : value ? { ...value, key: selectionKey } : null), [selectionKey])
-  const sourceReady = !waitForResolvedRun || resolvedSource?.key === selectionKey
+  const sourceReady = evidenceReady && (!waitForResolvedRun || resolvedSource?.key === selectionKey)
   const activeSelection = waitForResolvedRun && sourceReady && resolvedSource ? { ...selection, runId: resolvedSource.runId, revision: resolvedSource.revision } : selection
   const { settings, branded, nonBrand, jobs } = useSentiment(projectName, activeSelection, sourceReady)
   const [manageOpen, setManageOpen] = useState(false)
@@ -144,7 +144,7 @@ export function SentimentQueryScore({ queryId, sourceSnapshotIds = [], queryClas
   const parent = queryClass ? scope.summaries[queryClass] : undefined
   const summary = parent?.data
   // Deleted queries retain exact source membership. Never join different saved queries by text.
-  const matches = summary?.queries.filter(item => item.queryClass === queryClass && (queryId ? item.queryId === queryId : sourceSnapshotIds.length > 0 && sourceSnapshotIds.every(id => item.sourceSnapshotIds.includes(id)))) ?? []
+  const matches = summary?.queries.filter(item => item.queryClass === queryClass && (queryId ? item.queryId === queryId : sourceSnapshotIds.length > 0) && sourceSnapshotIds.every(id => item.sourceSnapshotIds.includes(id))) ?? []
   const row = matches.length === 1 ? matches[0] : undefined
   const value = location === undefined ? row : row?.locations.find(item => item.location === location)
   if (!row || !value) return <span className="text-sm text-secondary">{parent?.isPending && (queryId || sourceSnapshotIds.length) ? 'Loading…' : 'Unavailable'}</span>

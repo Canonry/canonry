@@ -6,6 +6,11 @@ export function sentimentSelectionFromVisibility(selection: VisibilitySelectionS
     queryClass: selection.queryClass === 'non-brand' ? 'non-brand' : 'branded', provider: selection.provider, model: selection.model, location: selection.location,
     runId: selection.measurementRunId, revision: selection.revision, evaluationDefinitionId }
 }
+/** Simple renders its saved snapshot group; stale Advanced URL run/revision filters do not select its evidence. */
+export function sentimentSelectionForSimpleEvidence(selection: SentimentSelection, sourceRunIds: readonly string[]): SentimentSelection {
+  const ids = [...new Set(sourceRunIds)].sort()
+  return { ...selection, mode: 'simple', revision: undefined, runId: ids.length === 1 ? ids[0] : undefined, runIds: ids.length > 1 ? ids : undefined }
+}
 /** Includes every source, subject/scope and evaluator dimension; cursors never cross this key. */
 export function sentimentQueryKey(projectName: string, surface: string, selection?: SentimentSelection, cursor?: string) {
   return ['sentiment', projectName, surface, selection ?? null, cursor ?? null] as const
