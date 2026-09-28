@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import type { HealthWebhookPayload, WebhookPayload } from '@ainyc/canonry-contracts'
+import type { HealthWebhookPayload, RatingWebhookPayload, ReviewWebhookPayload, WebhookPayload } from '@ainyc/canonry-contracts'
 import { AlertSeverities, AlertFieldLabels, toAlertView } from '../src/notifications/alert.js'
 import {
   DESTINATION_ADAPTERS,
@@ -201,3 +201,98 @@ test('an unusable link is dropped, never allowed to fail the whole message', () 
 function healthPayloadFor(dashboardUrl: string): HealthWebhookPayload {
   return { ...health(), dashboardUrl }
 }
+
+const location = { name: 'locations/1', displayName: 'Harborline Bayport', mapsUri: 'https://maps.google.com/?cid=1' }
+
+const oneReview = (over: Partial<ReviewWebhookPayload['reviews'][number]> = {}): ReviewWebhookPayload => ({
+  source: 'canonry',
+  event: 'review.negative',
+  project: { name: 'harborline-hotel', canonicalDomain: 'harborline.test' },
+  reviews: [{
+    location,
+    origin: 'gbp',
+    reviewName: 'accounts/1/locations/1/reviews/r1',
+    starRating: 2,
+    comment: 'The room was not ready at check-in.',
+    reviewerName: 'Sam Rivera',
+    createTime: '2026-09-24T18:03:11.482Z',
+    updateTime: '2026-09-24T18:03:11.482Z',
+    replied: false,
+    reviewUri: null,
+    ...over,
+  }],
+  dashboardUrl: 'https://canonry.test/projects/harborline-hotel',
+})
+
+test('a single negative review leads with the rating and quotes the review', () => {
+  const view = toAlertView(oneReview())
+  expect(view.severity).toBe(AlertSeverities.warning)
+  expect(view.title).toBe('harborline-hotel: new 2-star review')
+  expect(view.body).toBe('The room was not ready at check-in.')
+  expect(view.fields).toEqual([
+    { label: AlertFieldLabels.location, value: 'Harborline Bayport', compact: true },
+    { label: AlertFieldLabels.rating, value: '★★☆☆☆ (2/5)', compact: true },
+    { label: AlertFieldLabels.reviewer, value: 'Sam Rivera', compact: true },
+    { label: AlertFieldLabels.replied, value: 'no', compact: true },
+    { label: AlertFieldLabels.source, value: 'Business Profile', compact: true },
+  ])
+  // With no per-review link, the location's Maps page is where to reply.
+  expect(view.url).toBe('https://maps.google.com/?cid=1')
+  expect(view.timestamp).toBe('2026-09-24T18:03:11.482Z')
+
+  const discord = renderDiscord(view)
+  expect(discord.embeds[0]!.title).toContain('harborline-hotel: new 2-star review')
+  expect(discord.embeds[0]!.description).toBe('The room was not ready at check-in.')
+})
+
+test('a Places review says its source is partial, links the review, and shows no reply state', () => {
+  const view = toAlertView(oneReview({
+    origin: 'places',
+    replied: null,
+    comment: null,
+    reviewUri: 'https://www.google.com/maps/reviews/abc',
+  }))
+  expect(view.body).toBe('Rating only, no text.')
+  expect(view.url).toBe('https://www.google.com/maps/reviews/abc')
+  expect(view.fields.map(f => f.label)).not.toContain(AlertFieldLabels.replied)
+  expect(view.fields.at(-1)).toEqual({ label: AlertFieldLabels.source, value: 'Public listing (Places, partial)', compact: true })
+})
+
+test('several negative reviews render as one list', () => {
+  const payload = oneReview()
+  payload.reviews.push({ ...payload.reviews[0]!, reviewName: 'r2', starRating: 1, comment: 'Noisy   all\nnight.', reviewerName: null, updateTime: '2026-09-25T08:00:00.000Z' })
+  const view = toAlertView(payload)
+  expect(view.title).toBe('harborline-hotel: 2 new negative reviews')
+  expect(view.body).toBe([
+    '• ★★☆☆☆ Harborline Bayport: "The room was not ready at check-in." (Sam Rivera)',
+    '• ★☆☆☆☆ Harborline Bayport: "Noisy all night."',
+  ].join('\n'))
+  expect(view.url).toBe('https://canonry.test/projects/harborline-hotel')
+  expect(view.timestamp).toBe('2026-09-25T08:00:00.000Z')
+})
+
+test('a rating drop names both values and what to do about it', () => {
+  const payload: RatingWebhookPayload = {
+    source: 'canonry',
+    event: 'review.rating-dropped',
+    project: { name: 'harborline-hotel', canonicalDomain: 'harborline.test' },
+    ratings: [{
+      location,
+      origin: 'places',
+      previousRating: 4.6,
+      rating: 4.5,
+      previousReviewCount: 100,
+      reviewCount: 101,
+      observedAt: '2026-09-26T09:00:00.000Z',
+    }],
+    dashboardUrl: 'https://canonry.test/projects/harborline-hotel',
+  }
+  const view = toAlertView(payload)
+  expect(view.title).toBe('harborline-hotel: Google rating fell to 4.5')
+  expect(view.body).toBe('Harborline Bayport: 4.6 → 4.5 (100 → 101 reviews)')
+  expect(view.url).toBe('https://maps.google.com/?cid=1')
+  expect(view.fields.map(f => f.label)).toEqual([AlertFieldLabels.source, AlertFieldLabels.remediation])
+  const slack = renderSlack(view)
+  expect(slack.text).toContain('Google rating fell to 4.5')
+})
+

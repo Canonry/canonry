@@ -233,6 +233,117 @@ export const gbpPlaceDetailsListResponseSchema = z.object({
 })
 export type GbpPlaceDetailsListResponse = z.infer<typeof gbpPlaceDetailsListResponseSchema>
 
+// Reviews. `gbp` is the Business Profile v4 reviews API: owner access, every
+// review, but Google enables it per Cloud project only on request. `places` is
+// the public Places listing: at most five reviews chosen by relevance plus the
+// overall rating, the fallback for locations without v4 access.
+export const gbpReviewOriginSchema = z.enum(['gbp', 'places'])
+export type GbpReviewOrigin = z.infer<typeof gbpReviewOriginSchema>
+
+/**
+ * Reviews rated this many stars or fewer are negative: the `review.negative`
+ * threshold when a project has not set its own `negativeReviewMaxStars`.
+ */
+export const GBP_NEGATIVE_REVIEW_MAX_STARS = 3
+
+/**
+ * A project's own threshold. 5 is excluded: it would make every review
+ * "negative", which is a different alert from the one this event promises.
+ */
+export const gbpNegativeReviewMaxStarsSchema = z.number().int().min(1).max(4)
+
+/** The threshold in force for a project, from its stored setting (null = default). */
+export function resolveNegativeReviewMaxStars(setting: number | null | undefined): number {
+  return setting ?? GBP_NEGATIVE_REVIEW_MAX_STARS
+}
+
+export function isNegativeReviewRating(starRating: number | null, maxStars: number = GBP_NEGATIVE_REVIEW_MAX_STARS): boolean {
+  return starRating !== null && starRating >= 1 && starRating <= maxStars
+}
+
+/** Business Profile v4 reviews access for a location, as of its last sync. */
+export const gbpReviewsAccessSchema = z.enum(['ok', 'unavailable', 'error'])
+export type GbpReviewsAccess = z.infer<typeof gbpReviewsAccessSchema>
+
+/**
+ * Whether Business Profile reviews cover a location: v4 works there, or it
+ * failed transiently where it has worked before. After a transient failure
+ * the next sync pages back past the gap, so alerts are delayed, not lost, and
+ * switching to the Places fallback would only send the same review twice.
+ */
+export function businessProfileReviewsCover(access: GbpReviewsAccess | null, v4HasWorked: boolean): boolean {
+  return access === 'ok' || (access === 'error' && v4HasWorked)
+}
+
+/**
+ * Where a review or rating change stands with the review webhooks.
+ *
+ *   - none: not an alert (a 4-5 star review, or a rating that did not drop)
+ *   - baseline: seen on the first sync of its location and origin, recorded without alerting
+ *   - stale: negative, but older than the alert window by the time it was seen or delivered
+ *   - pending: queued for the next dispatch
+ *   - sent: delivered to at least one subscribed webhook
+ *   - skipped: no enabled webhook subscribes to the event
+ *   - suppressed: a Places signal for a location that Business Profile reviews already cover
+ */
+export const gbpReviewAlertStateSchema = z.enum(['none', 'baseline', 'stale', 'pending', 'sent', 'skipped', 'suppressed'])
+export type GbpReviewAlertState = z.infer<typeof gbpReviewAlertStateSchema>
+export const GbpReviewAlertStates = gbpReviewAlertStateSchema.enum
+
+export const gbpReviewDtoSchema = z.object({
+  locationName: z.string(),
+  origin: gbpReviewOriginSchema,
+  /** Provider resource name, stable per origin. */
+  reviewName: z.string(),
+  /** 1-5, or null when Google reports no rating. */
+  starRating: z.number().int().min(1).max(5).nullable(),
+  /** At or below the project's negative-review threshold, the one the `review.negative` webhook uses. */
+  negative: z.boolean(),
+  comment: z.string().nullable(),
+  reviewerName: z.string().nullable(),
+  createTime: z.string().nullable(),
+  /** Last edit by the reviewer (Places: when it was posted). */
+  updateTime: z.string(),
+  /** Whether the owner has replied. Null for Places, which does not expose replies. */
+  replied: z.boolean().nullable(),
+  replyComment: z.string().nullable(),
+  replyUpdateTime: z.string().nullable(),
+  /** Link to the review on Google Maps, when the origin provides one. */
+  reviewUri: z.string().nullable(),
+  firstSeenAt: z.string(),
+  lastSeenAt: z.string(),
+  alertState: gbpReviewAlertStateSchema,
+  alertStateAt: z.string().nullable(),
+})
+export type GbpReviewDto = z.infer<typeof gbpReviewDtoSchema>
+
+export const gbpReviewLocationDtoSchema = z.object({
+  locationName: z.string(),
+  displayName: z.string(),
+  /** Business Profile v4 reviews access on the last sync; null before the first check. */
+  reviewsAccess: gbpReviewsAccessSchema.nullable(),
+  /** Why access is not `ok`, e.g. "SERVICE_DISABLED". */
+  reviewsAccessReason: z.string().nullable(),
+  reviewsCheckedAt: z.string().nullable(),
+  /** Latest average rating Google reported, from whichever origin was observed most recently. */
+  rating: z.number().nullable(),
+  reviewCount: z.number().int().nonnegative().nullable(),
+  ratingOrigin: gbpReviewOriginSchema.nullable(),
+  ratingObservedAt: z.string().nullable(),
+})
+export type GbpReviewLocationDto = z.infer<typeof gbpReviewLocationDtoSchema>
+
+export const gbpReviewListResponseSchema = z.object({
+  /** The project's negative-review threshold in stars: what `negative` and the `negative` filter mean. */
+  negativeMaxStars: z.number().int().min(1).max(4),
+  locations: z.array(gbpReviewLocationDtoSchema),
+  /** Newest update first. */
+  reviews: z.array(gbpReviewDtoSchema),
+  /** Reviews matching the filters before `limit` applied. */
+  total: z.number().int().nonnegative(),
+})
+export type GbpReviewListResponse = z.infer<typeof gbpReviewListResponseSchema>
+
 // Composite summary — every field is computed server-side by gbp-summary.ts so
 // the dashboard renders without doing math (UI/CLI parity).
 export const gbpSummaryDtoSchema = z.object({

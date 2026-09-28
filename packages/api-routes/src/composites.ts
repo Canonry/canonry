@@ -14,6 +14,7 @@ import {
   queries,
   projects,
   querySnapshots,
+  readNegativeReviewMaxStars,
   runs,
 } from '@ainyc/canonry-db'
 import { buildMentionShareInputs } from './mention-share-inputs.js'
@@ -321,7 +322,7 @@ export async function compositeRoutes(app: FastifyInstance) {
     )
 
     const result: ProjectOverviewDto = {
-      project: formatProject(project),
+      project: formatProject(project, readNegativeReviewMaxStars(app.db, project.id)),
       latestRun,
       health,
       topInsights,
@@ -1026,7 +1027,7 @@ function mapHealthRow(r: typeof healthSnapshots.$inferSelect): HealthSnapshotDto
   }
 }
 
-function formatProject(row: typeof projects.$inferSelect): ProjectDto {
+function formatProject(row: typeof projects.$inferSelect, negativeReviewMaxStars: number | null): ProjectDto {
   return {
     id: row.id,
     name: row.name,
@@ -1045,6 +1046,7 @@ function formatProject(row: typeof projects.$inferSelect): ProjectDto {
     locations: row.locations,
     defaultLocation: row.defaultLocation,
     autoExtractBacklinks: row.autoExtractBacklinks,
+    negativeReviewMaxStars,
     configSource: row.configSource as ProjectDto['configSource'],
     configRevision: row.configRevision,
     createdAt: row.createdAt,

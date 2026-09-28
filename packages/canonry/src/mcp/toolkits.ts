@@ -68,7 +68,7 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
   {
     name: 'gbp',
     title: 'Google Business Profile',
-    description: 'Local AEO signals: discover GBP locations under a connected account and toggle which ones sync. Future phases will add reviews, keyword impressions, daily performance metrics, and hotel attributes.',
+    description: 'Local AEO signals: discover GBP locations under a connected account and toggle which ones sync, then read daily performance metrics, search keywords, booking links, hotel and owner-set attributes, the public Places listing, and reviews with their alert state.',
     whenToLoad: 'Load when the project tracks local search visibility or has connected Google Business Profile.',
   },
   {

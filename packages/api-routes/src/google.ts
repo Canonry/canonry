@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, and, desc, sql, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, runs, projects, type DatabaseClient } from '@ainyc/canonry-db'
+import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, gbpReviews, gbpReviewRatings, readNegativeReviewMaxStars, runs, projects, type DatabaseClient } from '@ainyc/canonry-db'
 import {
   validationError, notFound, normalizeProjectDomain, parseWindow,
   authRequired, forbidden, quotaExceeded, providerError, escapeLikePattern, AppError,
@@ -11,6 +11,9 @@ import {
   gbpDiscoverRequestSchema, gbpLocationSelectionRequestSchema, gbpSyncRequestSchema,
   type GbpLocationDto, type GbpLocationListResponse, type GbpAccountListResponse,
   type GbpPlaceDetailsListResponse,
+  type GbpReviewListResponse,
+  isNegativeReviewRating,
+  resolveNegativeReviewMaxStars,
   gscSubmitSitemapsRequestDtoSchema,
   gscPerformanceOrderBySchema,
   formatIsoDateInTimeZone,
@@ -2080,6 +2083,8 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     tx.delete(gbpLodgingSnapshots).where(eq(gbpLodgingSnapshots.projectId, projectId)).run()
     tx.delete(gbpAttributesSnapshots).where(eq(gbpAttributesSnapshots.projectId, projectId)).run()
     tx.delete(gbpPlaceDetails).where(eq(gbpPlaceDetails.projectId, projectId)).run()
+    tx.delete(gbpReviews).where(eq(gbpReviews.projectId, projectId)).run()
+    tx.delete(gbpReviewRatings).where(eq(gbpReviewRatings.projectId, projectId)).run()
     tx.delete(gbpLocations).where(eq(gbpLocations.projectId, projectId)).run()
   }
 
@@ -2550,6 +2555,85 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     return { places, total: places.length }
   })
 
+  // GET /projects/:name/gbp/reviews — stored reviews newest first, from the
+  // Business Profile v4 API or the public Places fallback, plus each location's
+  // v4 access state and latest rating. `negative` means at or below the
+  // project's threshold (`negativeReviewMaxStars`, 3 by default), the one the
+  // `review.negative` webhook uses, so reads and alerts never disagree.
+  app.get<{
+    Params: { name: string }
+    Querystring: { locationName?: string; negative?: string; limit?: string }
+  }>('/projects/:name/gbp/reviews', async (request): Promise<GbpReviewListResponse> => {
+    const project = resolveProject(app.db, request.params.name)
+    const { locationName } = request.query
+    const negativeOnly = parseReviewNegativeFlag(request.query.negative)
+    const limit = parseReviewLimit(request.query.limit)
+    const negativeMaxStars = resolveNegativeReviewMaxStars(readNegativeReviewMaxStars(app.db, project.id))
+
+    // Selected locations, or the one asked for even if it is no longer selected.
+    const locationRows = app.db.select().from(gbpLocations)
+      .where(and(
+        eq(gbpLocations.projectId, project.id),
+        locationName ? eq(gbpLocations.locationName, locationName) : eq(gbpLocations.selected, true),
+      ))
+      .orderBy(gbpLocations.displayName)
+      .all()
+    // Only the source still being fetched keeps advancing `observed_at`, so the
+    // most recent row per location is the current rating.
+    const latestRating = new Map<string, typeof gbpReviewRatings.$inferSelect>()
+    for (const row of app.db.select().from(gbpReviewRatings)
+      .where(eq(gbpReviewRatings.projectId, project.id))
+      .orderBy(desc(gbpReviewRatings.observedAt))
+      .all()) {
+      if (!latestRating.has(row.locationName)) latestRating.set(row.locationName, row)
+    }
+    const locations = locationRows.map((loc) => {
+      const rating = latestRating.get(loc.locationName)
+      return {
+        locationName: loc.locationName,
+        displayName: loc.displayName,
+        reviewsAccess: loc.reviewsAccess ?? null,
+        reviewsAccessReason: loc.reviewsAccessReason ?? null,
+        reviewsCheckedAt: loc.reviewsCheckedAt ?? null,
+        rating: rating?.rating ?? null,
+        reviewCount: rating?.reviewCount ?? null,
+        ratingOrigin: rating?.origin ?? null,
+        ratingObservedAt: rating?.observedAt ?? null,
+      }
+    })
+
+    const conditions = [eq(gbpReviews.projectId, project.id)]
+    if (locationName) conditions.push(eq(gbpReviews.locationName, locationName))
+    if (negativeOnly) conditions.push(sql`${gbpReviews.starRating} BETWEEN 1 AND ${negativeMaxStars}`)
+    const total = app.db.select({ n: sql<number>`count(*)` }).from(gbpReviews).where(and(...conditions)).get()?.n ?? 0
+    const reviews = app.db.select().from(gbpReviews)
+      .where(and(...conditions))
+      .orderBy(desc(gbpReviews.updateTime), gbpReviews.reviewName)
+      .limit(limit)
+      .all()
+      .map((r) => ({
+        locationName: r.locationName,
+        origin: r.origin,
+        reviewName: r.reviewName,
+        starRating: r.starRating,
+        negative: isNegativeReviewRating(r.starRating, negativeMaxStars),
+        comment: r.comment,
+        reviewerName: r.reviewerName,
+        createTime: r.createTime,
+        updateTime: r.updateTime,
+        // Places does not expose owner replies, so "no reply stored" means unknown there.
+        replied: r.origin === 'places' ? null : r.replyComment !== null,
+        replyComment: r.replyComment,
+        replyUpdateTime: r.replyUpdateTime,
+        reviewUri: r.reviewUri,
+        firstSeenAt: r.firstSeenAt,
+        lastSeenAt: r.lastSeenAt,
+        alertState: r.alertState,
+        alertStateAt: r.alertStateAt,
+      }))
+    return { negativeMaxStars, locations, reviews, total }
+  })
+
   // GET /projects/:name/gbp/summary — composite, all derived numbers server-side.
   app.get<{
     Params: { name: string }
@@ -2621,4 +2705,22 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     })
   })
 
+}
+
+const REVIEW_LIST_DEFAULT_LIMIT = 50
+const REVIEW_LIST_MAX_LIMIT = 500
+
+function parseReviewNegativeFlag(value: string | undefined): boolean {
+  if (value === undefined || value === '' || value === 'false' || value === '0') return false
+  if (value === 'true' || value === '1') return true
+  throw validationError('"negative" must be "true" or "false"')
+}
+
+function parseReviewLimit(value: string | undefined): number {
+  if (value === undefined || value === '') return REVIEW_LIST_DEFAULT_LIMIT
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > REVIEW_LIST_MAX_LIMIT) {
+    throw validationError(`"limit" must be an integer from 1 to ${REVIEW_LIST_MAX_LIMIT}`)
+  }
+  return parsed
 }

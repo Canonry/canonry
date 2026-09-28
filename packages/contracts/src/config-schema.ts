@@ -5,6 +5,7 @@ import { notificationEventSchema } from './notification.js'
 import { findDuplicateLocationLabels, hasLocationLabel } from './project.js'
 import { measurementConfigSchema, defaultMeasurementConfig } from './measurement.js'
 import { providerDispatchModesSchema } from './provider-batch.js'
+import { gbpNegativeReviewMaxStarsSchema } from './gbp.js'
 
 export const configMetadataSchema = z.object({
   name: z.string().min(1).max(63).regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, {
@@ -72,6 +73,8 @@ export const configSpecSchema = z.object({
   notifications: z.array(configNotificationSchema).optional().default([]),
   google: configGoogleSchema,
   autoExtractBacklinks: z.boolean().optional().default(false),
+  /** Highest star rating that counts as a negative Google review (1-4). Omitted means the default of 3. */
+  negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.optional(),
 }).superRefine((spec, ctx) => {
   if (spec.queries !== undefined && spec.keywords !== undefined) {
     ctx.addIssue({

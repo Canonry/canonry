@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 import type { ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, SnapshotUsage } from '@ainyc/canonry-contracts'
-import type { CalendarRecurrence, AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@ainyc/canonry-contracts'
+import type { CalendarRecurrence, AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, GbpReviewAlertState, GbpReviewOrigin, GbpReviewsAccess, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@ainyc/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -2713,6 +2713,12 @@ export const gbpLocations = sqliteTable('gbp_locations', {
   openingDate: text('opening_date'),
   selected: integer('selected', { mode: 'boolean' }).notNull().default(true),
   syncedAt: text('synced_at'),
+  // Business Profile v4 reviews access as of the last sync: 'ok',
+  // 'unavailable' (Google has not granted it; `reviewsAccessReason` says why,
+  // e.g. SERVICE_DISABLED), or 'error' (transient). Null before the first try.
+  reviewsAccess: text('reviews_access').$type<GbpReviewsAccess>(),
+  reviewsAccessReason: text('reviews_access_reason'),
+  reviewsCheckedAt: text('reviews_checked_at'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
@@ -2862,6 +2868,73 @@ export const gbpAttributesSnapshots = sqliteTable('gbp_attributes_snapshots', {
   syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
 }, (table) => [
   index('idx_gbp_attributes_loc').on(table.projectId, table.locationName, table.syncedAt),
+])
+
+// GBP reviews, one row per review per origin. `origin` 'gbp' is the Business
+// Profile v4 reviews API (owner access, every review, gated by Google per Cloud
+// project); 'places' is the public Places listing (at most five reviews chosen
+// by relevance), the fallback for locations without v4 access. Upserted on
+// (project, origin, review_name). Timestamps are normalized millisecond ISO so
+// they sort as strings. `alert_state` drives the `review.negative` webhook; the
+// state machine lives in packages/canonry/src/gbp-reviews.ts.
+export const gbpReviews = sqliteTable('gbp_reviews', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  locationName: text('location_name').notNull(),
+  origin: text('origin').$type<GbpReviewOrigin>().notNull(),
+  reviewName: text('review_name').notNull(),
+  starRating: integer('star_rating'),     // 1-5, null when Google reports none
+  comment: text('comment'),
+  reviewerName: text('reviewer_name'),
+  createTime: text('create_time'),
+  updateTime: text('update_time').notNull(), // last reviewer edit (Places: publish time)
+  replyComment: text('reply_comment'),
+  replyUpdateTime: text('reply_update_time'),
+  reviewUri: text('review_uri'),
+  firstSeenAt: text('first_seen_at').notNull(),
+  lastSeenAt: text('last_seen_at').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
+  alertState: text('alert_state').$type<GbpReviewAlertState>().notNull().default('none'),
+  alertStateAt: text('alert_state_at'),
+}, (table) => [
+  uniqueIndex('uniq_gbp_reviews_name').on(table.projectId, table.origin, table.reviewName),
+  index('idx_gbp_reviews_loc').on(table.projectId, table.locationName, table.updateTime),
+  index('idx_gbp_reviews_alert').on(table.projectId, table.alertState),
+])
+
+// Per-project settings for Google Business Profile review alerts. A row exists
+// only while a project overrides a default; no row means the default (3 stars
+// for `review.negative`). Kept off `projects` on purpose: the root table stays
+// unchanged, so code that writes projects rows on an older schema keeps working.
+export const gbpReviewSettings = sqliteTable('gbp_review_settings', {
+  projectId: text('project_id').primaryKey().references(() => projects.id, { onDelete: 'cascade' }),
+  negativeReviewMaxStars: integer('negative_review_max_stars').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
+// GBP review ratings: a location's average rating and review count per origin,
+// snapshotted on change (a repeat of the same values re-stamps `observed_at`).
+// The first row for a (location, origin) is the baseline marker: the review
+// sync treats a location with no row as never observed, so its existing
+// reviews are recorded without alerting. A drop in the public Places rating
+// queues the `review.rating-dropped` webhook through `alert_state`.
+export const gbpReviewRatings = sqliteTable('gbp_review_ratings', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  locationName: text('location_name').notNull(),
+  origin: text('origin').$type<GbpReviewOrigin>().notNull(),
+  rating: real('rating'),
+  reviewCount: integer('review_count'),
+  previousRating: real('previous_rating'),
+  previousReviewCount: integer('previous_review_count'),
+  firstObservedAt: text('first_observed_at').notNull(),
+  observedAt: text('observed_at').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
+  alertState: text('alert_state').$type<GbpReviewAlertState>().notNull().default('none'),
+  alertStateAt: text('alert_state_at'),
+}, (table) => [
+  index('idx_gbp_review_ratings_loc').on(table.projectId, table.locationName, table.origin, table.observedAt),
+  index('idx_gbp_review_ratings_alert').on(table.projectId, table.alertState),
 ])
 
 // --- OpenAI Advertiser API (ChatGPT ads) ---

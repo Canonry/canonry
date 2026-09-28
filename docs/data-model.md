@@ -68,6 +68,9 @@ erDiagram
   projects ||--o{ gbp_lodging_snapshots : has
   projects ||--o{ gbp_attributes_snapshots : has
   projects ||--o{ gbp_place_details : has
+  projects ||--o{ gbp_reviews : has
+  projects ||--o{ gbp_review_ratings : has
+  projects ||--o| gbp_review_settings : has
 
   projects ||--o{ gsc_search_data : has
   projects ||--o{ gsc_daily_totals : has
@@ -305,7 +308,7 @@ Local-AEO signals. The OAuth connection reuses `google_connections` with `connec
 
 | Table | Purpose |
 |-------|---------|
-| **gbp_locations** | Discovered locations per project; `selected` flags which feed sync + analytics. `place_id` / `maps_uri` (from location metadata) link a location to the Places API. FK: projectId → projects |
+| **gbp_locations** | Discovered locations per project; `selected` flags which feed sync + analytics. `place_id` / `maps_uri` (from location metadata) link a location to the Places API. `reviews_access` / `reviews_access_reason` / `reviews_checked_at` record the last v4 reviews attempt (`ok`, `unavailable` with Google's reason such as `SERVICE_DISABLED`, or `error`). FK: projectId → projects |
 | **gbp_daily_metrics** | Daily performance metrics per (location, date, metric). Range-replaced each sync. |
 | **gbp_keyword_impressions** | Search-keyword impressions over the trailing synced window (one aggregate per keyword; `period_start`/`period_end` are YYYY-MM). Range-replaced each sync. Unique: `(projectId, locationName, periodEnd, keyword)` |
 | **gbp_keyword_monthly** | Per-month keyword impressions series — **accumulates** across syncs (recent complete months upserted, older in-retention months preserved) so intelligence can detect month-over-month keyword drops. Unique: `(projectId, locationName, month, keyword)` |
@@ -313,6 +316,9 @@ Local-AEO signals. The OAuth connection reuses `google_connections` with `connec
 | **gbp_lodging_snapshots** | Hotel Lodging API resource, snapshot-on-change. `populated_group_count = 0` means the Lodging API returned no readable structured groups; live testing found this can happen even when the owner-facing "Hotel details" panel has amenities set, so it is a verify signal, not a confirmed gap. |
 | **gbp_attributes_snapshots** | Owner-set Business Profile attributes (Business Information API `getAttributes`), snapshot-on-change. The generic, any-category amenity / service / accessibility / identity / social-URL tags the owner has set (e.g. `has_onsite_services`, `offers_online_estimates`, `is_owned_by_women`, `url_instagram`). `attribute_count` is the count of set attributes (the API returns only set ones), so unlike lodging this is a reliable owner-readable completeness signal. Works for every business type, not just hotels. |
 | **gbp_place_details** | Places (New) rendered-listing snapshots (amenities, accessibility, editorial summary) for lodging locations, fetched via the Places API key and snapshot-on-changed. `tier` records the field-mask SKU. Cross-referenced against the lodging profile for the `gbp-listing-discrepancy` insight (#648). |
+| **gbp_reviews** | One row per review per origin: `gbp` (Business Profile v4, every review) or `places` (public listing, at most five by relevance). Upserted on `(project_id, origin, review_name)`; timestamps normalized to millisecond ISO. `alert_state` (`none`, `baseline`, `stale`, `pending`, `sent`, `skipped`, `suppressed`) is the `review.negative` webhook queue. |
+| **gbp_review_settings** | Per-project review alert settings: `negative_review_max_stars`, the highest star rating that counts as negative for `review.negative` (1-4). A row exists only while a project overrides the default of 3; served as `ProjectDto.negativeReviewMaxStars`. Kept off `projects` so the root table stays unchanged. PK and cascade FK: `project_id`. |
+| **gbp_review_ratings** | Average rating and review count per location and origin, snapshot-on-change (`observed_at` re-stamped when unchanged), with the replaced values in `previous_*`. The first row per location and origin is the baseline marker for review alerts; a falling Places rating queues `review.rating-dropped` through `alert_state`. |
 
 ### Integrations — OpenAI Ads (ChatGPT ads)
 

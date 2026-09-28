@@ -67,9 +67,10 @@ function seedFixture(db: ReturnType<typeof createClient>) {
   return { projectId, runId }
 }
 
-function createMockNotifier(): Pick<Notifier, 'onRunCompleted'> {
+function createMockNotifier(): Pick<Notifier, 'onRunCompleted' | 'dispatchReviewAlerts'> {
   return {
     onRunCompleted: vi.fn().mockResolvedValue(undefined),
+    dispatchReviewAlerts: vi.fn().mockResolvedValue({ reviews: 0, ratingDrops: 0, delivered: 0 }),
   }
 }
 
@@ -181,6 +182,8 @@ describe('incomplete plan runs', () => {
 
     expect(analyze).toHaveBeenCalled()
     expect(notifier.onRunCompleted).toHaveBeenCalledWith(runId, projectId)
+    // Review alerts belong to GBP syncs only.
+    expect(notifier.dispatchReviewAlerts).not.toHaveBeenCalled()
   })
 })
 
@@ -458,6 +461,8 @@ describe('RunCoordinator', () => {
     // The insight was persisted and the run notifier fired.
     expect(db.select().from(insights).where(eq(insights.runId, runId)).all()).toHaveLength(1)
     expect(notifier.onRunCompleted).toHaveBeenCalledWith(runId, projectId)
+    // Review alerts the sync queued are dispatched for gbp-sync runs.
+    expect(notifier.dispatchReviewAlerts).toHaveBeenCalledWith(projectId)
     // The only insight is a low-severity lodging verify-nudge, so the
     // critical/high insight-notification callback does NOT fire (it gates on
     // criticalOrHigh > 0). The insight is still persisted and surfaces in Aero's count.
