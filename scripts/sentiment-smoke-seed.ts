@@ -12,7 +12,7 @@ export const SMOKE_SCOPED = 'cnry_sentiment_synthetic_simple_scope'
 export const SMOKE_NOW = '2026-09-28T00:00:00.000Z'
 export function seedSentimentSmoke(database: string, options: { queryClass?: 'branded' | 'non-brand'; absentSubject?: boolean } = {}): void {
   const queryClass = options.queryClass ?? 'branded'
-  const simpleQuery = queryClass === 'branded' ? 'Aurora Service reviews' : 'Reliable repair services in Aurora City'
+  const simpleQuery = queryClass === 'branded' ? 'Aurora Service reviews' : 'Reliable local repair services'
   const advancedQuery = queryClass === 'branded' ? 'Compare Harbor Homes and Bayside Homes in Harbor' : 'Best apartments in Harbor'
   const db = createClient(database)
   migrate(db)
@@ -24,6 +24,7 @@ export function seedSentimentSmoke(database: string, options: { queryClass?: 'br
   db.insert(queries).values({ id: 'simple-query', projectId: 'simple', query: simpleQuery, createdAt: now }).run()
   db.insert(runs).values({ id: 'simple-run', projectId: 'simple', kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt: now, finishedAt: now }).run()
   const simple = buildSimpleMeasurementDefinition({ capturedAt: now, identity: { displayName: 'Aurora Service', aliases: ['Aurora Service'], canonicalDomain: 'https://aurora.example', ownedDomains: [] }, country: 'US', language: 'en', location: null, engines: [{ provider: 'openai', requestedModel: 'source-model' }], queries: [{ queryId: 'simple-query', queryText: simpleQuery, provenance: null }] })
+  if (simple.queries[0]?.queryClass !== queryClass) throw new Error('Synthetic query must freeze the intended query class.')
   db.insert(simpleMeasurementDefinitions).values({ runId: 'simple-run', projectId: 'simple', definition: simple, checksum: createHash('sha256').update(JSON.stringify(simple)).digest('hex'), capturedAt: now }).run()
   db.insert(querySnapshots).values({ id: 'simple-answer', runId: 'simple-run', queryId: 'simple-query', queryText: simpleQuery, provider: 'openai', model: 'source-model', servedModel: 'source-model-v1', answerText: options.absentSubject ? 'Beacon Repairs provides dependable repairs. Customers recommend Beacon Repairs.' : 'Aurora Service at aurora.example provides excellent customer service and dependable repairs. Customers strongly recommend Aurora Service for its reliable quality.', citationState: options.absentSubject ? 'not-cited' : 'cited', answerMentioned: !options.absentSubject, createdAt: now }).run()
   const location = { label: 'Harbor', city: 'Harbor', region: 'EX', country: 'US' }
