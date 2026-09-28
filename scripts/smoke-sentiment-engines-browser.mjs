@@ -19,7 +19,7 @@ function observe(page) {
   page.on('pageerror', error => report.pageErrors.push(error.message))
 }
 observe(page)
-const simpleQuery = 'Reliable repair services in Aurora City'
+const simpleQuery = 'Reliable repair services in Cedar City'
 const advancedQuery = 'Best apartments in Harbor and Marina'
 const labels = { favorable: 'Favorable', unfavorable: 'Unfavorable', 'subject-not-mentioned': 'Not mentioned' }
 const mark = message => report.checks.push(message)
@@ -37,9 +37,22 @@ async function visit(project, extra = '') {
 }
 async function checkScore(value, queryText) {
   await page.getByLabel('Non-brand favorable share', { exact: true }).getByText(value.score.favorableDisplay, { exact: true }).waitFor()
-  const button = page.getByRole('button', { name: `View Non-brand sentiment evidence for ${queryText}`, exact: true })
-  await button.waitFor()
-  assert((await button.innerText()).includes(value.queries[0].score.favorableDisplay))
+  const buttons = page.getByRole('button', { name: `View Non-brand sentiment evidence for ${queryText}`, exact: true })
+  await buttons.first().waitFor()
+  const count = await buttons.count()
+  for (let index = 0; index < count; index++) {
+    const button = buttons.nth(index)
+    let expected = value.queries[0]
+    if (count > 1) {
+      const heading = await button.locator('xpath=ancestor::th[1]').innerText()
+      const members = expected.locations.filter(location => heading.includes(location.location === null ? 'No location targeting' : `Search location: ${location.location}`))
+      assert.equal(members.length, 1, 'Repeated query headers must bind one exact frozen location')
+      expected = members[0]
+    }
+    const shown = await button.innerText()
+    assert(shown.includes(expected.score.favorableDisplay), `Query group differs from server location score ${expected.score.favorableDisplay}: ${shown}`)
+    assert(shown.includes(`${expected.coverage.judged} judged`), 'Query group must retain the exact location denominator')
+  }
 }
 async function expandSimple() {
   const button = page.getByRole('button', { name: simpleQuery, exact: true })
@@ -74,7 +87,7 @@ async function exactEvidence(row, scope, queryText, checkKeyboard = false) {
     await page.keyboard.press('Tab')
     assert(await dialog.evaluate(node => node.contains(node.ownerDocument.activeElement)), 'Drawer must contain keyboard focus')
   }
-  await screenshot(`evidence-${row.sourceSnapshotId}-${row.subjectId}`)
+  await screenshot(`${page.viewportSize().width < 600 ? 'mobile' : 'desktop'}-evidence-${row.sourceSnapshotId}-${row.subjectId}`)
   await page.keyboard.press('Escape')
   await dialog.waitFor({ state: 'hidden' })
   const opener = await button.elementHandle()
@@ -103,6 +116,13 @@ try {
   const panelScreenshot = `${output}/simple-query-evidence-panel.png`
   await page.locator('#evidence-section').screenshot({ path: panelScreenshot })
   report.screenshots.push(panelScreenshot)
+  const previews = page.getByRole('checkbox', { name: 'Show answer previews', exact: true })
+  await previews.setChecked(false)
+  const compactPanelScreenshot = `${output}/simple-query-evidence-panel-compact.png`
+  await page.locator('#evidence-section').screenshot({ path: compactPanelScreenshot })
+  report.screenshots.push(compactPanelScreenshot)
+  await previews.setChecked(true)
+  assert.equal(report.reads.length, beforeExpand, 'Changing answer preview density must remain a local display action')
   mark('One batched read per class renders opposite engine verdicts plus absent/unclassified states; expansion adds zero sentiment reads')
   for (const provider of ['openai', 'gemini', 'claude', 'perplexity']) {
     const start = report.reads.length

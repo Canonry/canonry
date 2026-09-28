@@ -8,7 +8,7 @@ import { buildSimpleMeasurementDefinition, canonicalMeasurementPlanV2Json, measu
 import { buildMeasurementPlanV2Manifest } from '../packages/api-routes/src/measurement-report-adapter.js'
 import { SMOKE_ADMIN, SMOKE_READ, SMOKE_SCOPED, SMOKE_NOW } from './sentiment-smoke-seed.js'
 
-export const ENGINE_SIMPLE_QUERY = 'Reliable repair services in Aurora City'
+export const ENGINE_SIMPLE_QUERY = 'Reliable repair services in Cedar City'
 export const ENGINE_ADVANCED_QUERY = 'Best apartments in Harbor and Marina'
 const engines = ['openai', 'gemini', 'claude', 'perplexity'] as const
 const model = (provider: string) => `synthetic-${provider}-requested`
@@ -26,6 +26,7 @@ export function seedSentimentEngineSmoke(database: string): void {
     db.insert(queries).values({ id: 'simple-query', projectId: 'simple', query: ENGINE_SIMPLE_QUERY, createdAt: now }).run()
     db.insert(runs).values({ id: 'simple-run', projectId: 'simple', kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt: now, finishedAt: now }).run()
     const definition = buildSimpleMeasurementDefinition({ capturedAt: now, identity: { displayName: 'Aurora Service', aliases: ['Aurora Service'], canonicalDomain: 'https://aurora.example', ownedDomains: [] }, country: 'US', language: 'en', location: null, engines: engines.map(provider => ({ provider, requestedModel: model(provider) })), queries: [{ queryId: 'simple-query', queryText: ENGINE_SIMPLE_QUERY, provenance: null }] })
+    if (definition.queries[0]?.queryClass !== 'non-brand') throw new Error('Synthetic engine query must remain canonically non-brand')
     db.insert(simpleMeasurementDefinitions).values({ runId: 'simple-run', projectId: 'simple', definition, checksum: createHash('sha256').update(JSON.stringify(definition)).digest('hex'), capturedAt: now }).run()
     for (const provider of engines) db.insert(querySnapshots).values({ id: `simple-${provider}`, runId: 'simple-run', queryId: 'simple-query', queryText: ENGINE_SIMPLE_QUERY, provider, model: model(provider), servedModel: served(provider), answerText: provider === 'claude' ? 'Beacon Repairs provides dependable service. Customers recommend Beacon Repairs.' : provider === 'gemini' ? 'Aurora Service at aurora.example provides poor service and unreliable repairs. I recommend avoiding Aurora Service.' : 'Aurora Service at aurora.example provides excellent service and reliable repairs. I strongly recommend Aurora Service.', citationState: provider === 'claude' ? 'not-cited' : 'cited', answerMentioned: provider !== 'claude', createdAt: now }).run()
 

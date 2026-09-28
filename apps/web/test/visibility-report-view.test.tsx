@@ -1,11 +1,11 @@
-import { REPORT_VISIBILITY_COPY, reportQueryClassLabel, reportVisibilityEvidence, reportVisibilityRate, reportVisibilityMeasurementLabel, reportVisibilityHistoryLabel } from '@ainyc/canonry-contracts'
+import { aggregateSentiment, createSentimentEvaluationDefinition, REPORT_VISIBILITY_COPY, reportQueryClassLabel, reportVisibilityEvidence, reportVisibilityRate, reportVisibilityMeasurementLabel, reportVisibilityHistoryLabel } from '@ainyc/canonry-contracts'
 import { ReportVisibilitySummary } from '../src/components/project/ReportVisibilitySummary.js'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useState } from 'react'
-import type { VisibilityReportResponse } from '@ainyc/canonry-contracts'
+import type { SentimentSummary, VisibilityReportResponse } from '@ainyc/canonry-contracts'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
 import { parseVisibilitySelection, patchVisibilitySelection } from '../src/lib/measurement-view-url.js'
 import { VisibilityOverview, VisibilityReportView, VisibilityResultsToolbar, VisibilityWorkspace, VISIBILITY_ANSWERS_LABEL, VISIBILITY_CLOSE_ANSWERS_LABEL, VISIBILITY_SCOPE_RECOVERY_COPY } from '../src/components/project/VisibilityTrendSection.js'
@@ -13,6 +13,7 @@ import { formatObservedInstantLabel, observedInstant } from '../src/components/s
 import { ANSWER_SOURCES_LABEL } from '../src/components/shared/AnswerMarkdown.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 import { createQueryClient } from '../src/queries/query-client.js'
+import { SentimentScopeProvider } from '../src/components/project/SentimentSection.js'
 
 afterEach(cleanup)
 
@@ -455,6 +456,53 @@ describe('shared production visibility view', () => {
     expect(within(table).getByText('No')).toBeTruthy()
     expect(within(table).getByText('Yes')).toBeTruthy()
     expect(container.textContent).toContain('1 query · 2 engine results shown of 2 results')
+  })
+
+  it('keeps same-query location scores and sentiment evidence scoped to each Advanced group', async () => {
+    const report = reportFixture()
+    const first = report.populations[0]!.queries.items[0]!
+    report.populations[0]!.queries.items = [
+      { ...first, queryKey: 'harbor-query', provider: 'openai', location: 'Harbor', sourceSnapshotIds: ['harbor-answer'] },
+      { ...first, queryKey: 'marina-query', provider: 'gemini', location: 'Marina', sourceSnapshotIds: ['marina-answer'] },
+    ]
+    const favorable = aggregateSentiment([{ assessmentId: 'harbor', sourceSnapshotId: 'harbor-answer', outcome: 'favorable' }])
+    const unfavorable = aggregateSentiment([{ assessmentId: 'marina', sourceSnapshotId: 'marina-answer', outcome: 'unfavorable' }])
+    const aggregate = aggregateSentiment([{ assessmentId: 'harbor', sourceSnapshotId: 'harbor-answer', outcome: 'favorable' }, { assessmentId: 'marina', sourceSnapshotId: 'marina-answer', outcome: 'unfavorable' }])
+    const dto: SentimentSummary = {
+      ...aggregate, reason: null, configured: true, evaluationDefinition: createSentimentEvaluationDefinition(), breakdowns: [],
+      selection: { mode: 'advanced', scope: 'project', queryClass: 'non-brand', runId: 'run-2', revision: 2, evaluationDefinitionId: 'definition' },
+      queries: [{ ...aggregate, reason: null, queryId: first.queryId!, queryText: first.query, queryClass: 'non-brand', sourceSnapshotIds: ['harbor-answer', 'marina-answer'], assessments: [], locations: [
+        { ...favorable, reason: null, location: 'Harbor', sourceSnapshotIds: ['harbor-answer'] },
+        { ...unfavorable, reason: null, location: 'Marina', sourceSnapshotIds: ['marina-answer'] },
+      ] }],
+    }
+    const evidenceReads: URL[] = []
+    const restore = mockFetch(url => {
+      const request = new URL(url)
+      if (request.pathname.endsWith('/settings')) return jsonResponse({ installEnabled: true, enabled: true, ready: true, readinessReasons: [], model: 'jev-1.13.0', enablementEpoch: 1, completionBoundary: 1, evaluationDefinitionId: 'definition', actions: { configure: false, backfill: false }, experimental: true, disclosure: 'Experimental sentiment' })
+      if (request.pathname.endsWith('/evidence')) { evidenceReads.push(request); return jsonResponse({ state: 'complete', selection: dto.selection, items: [], nextCursor: null }) }
+      return jsonResponse({ ...dto, selection: { ...dto.selection, queryClass: request.searchParams.get('queryClass') } })
+    })
+    const client = createQueryClient()
+    try {
+      render(<QueryClientProvider client={client}><SentimentScopeProvider projectName="project" selection={{ mode: 'advanced', scope: 'project', queryClass: 'non-brand', runId: 'run-2', revision: 2 }}><VisibilityReportView report={report} onSelectionChange={vi.fn()} /></SentimentScopeProvider></QueryClientProvider>)
+      fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
+      const table = screen.getByRole('table', { name: 'Non-brand queries engine results' })
+      const harbor = table.querySelector('[data-query-key="harbor-query"]')! as HTMLElement
+      const marina = table.querySelector('[data-query-key="marina-query"]')! as HTMLElement
+      const name = 'View Non-brand sentiment evidence for apartments near transit'
+      await waitFor(() => expect(within(harbor).getByRole('button', { name }).textContent).toContain('100%'))
+      expect(within(marina).getByRole('button', { name }).textContent).toContain('0%')
+      expect(within(harbor).getByRole('button', { name }).textContent).not.toContain('50%')
+      for (const [group, location] of [[harbor, 'Harbor'], [marina, 'Marina']] as const) {
+        fireEvent.click(within(group).getByRole('button', { name }))
+        await screen.findByText('No stored sentiment evidence for this query and scope.')
+        expect(evidenceReads.at(-1)!.searchParams.get('location')).toBe(location)
+        expect(evidenceReads.at(-1)!.searchParams.get('runId')).toBe('run-2')
+        expect(evidenceReads.at(-1)!.searchParams.get('queryId')).toBe(first.queryId)
+        fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }))
+      }
+    } finally { cleanup(); client.clear(); restore() }
   })
 
   it.each(['simple', 'advanced'] as const)('shares identical query context once and distinguishes a negative answer from missing evidence in %s reports', mode => {

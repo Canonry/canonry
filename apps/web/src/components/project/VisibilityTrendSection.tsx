@@ -337,7 +337,7 @@ function QueryResultGroup({ group, queryClass, advanced, targetLabels, marketHea
   return <tbody data-query-key={group.queryKey}>
     {marketHeading ? <tr><th colSpan={4} className="border-t border-default py-4 text-left"><h3 className="text-base font-semibold text-heading">{marketHeading}</h3></th></tr> : null}
     <tr className="measurement-result-heading"><th scope="rowgroup" colSpan={4}>
-      <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="break-words text-base font-medium text-heading">{group.query}</h3><div className="text-sm font-normal"><SentimentQueryScore showLabel queryId={first.queryId} sourceSnapshotIds={group.rows.flatMap(row => row.sourceSnapshotIds ?? [])} queryClass={queryClass === 'unknown' ? null : queryClass} /></div></div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="break-words text-base font-medium text-heading">{group.query}</h3><div className="text-sm font-normal"><SentimentQueryScore showLabel queryId={first.queryId} sourceSnapshotIds={group.rows.flatMap(row => row.sourceSnapshotIds ?? [])} queryClass={queryClass === 'unknown' ? null : queryClass} location={sharedLocation ? first.location : undefined} /></div></div>
       <div className="flex flex-wrap items-center gap-x-5 text-sm font-normal text-secondary">
         {advanced && sharedTargets ? <QueryProperties targetKeys={first.targetKeys} labels={targetLabels} /> : null}
         {sharedLocation ? <span>{locationLabel(first.location)}</span> : null}
