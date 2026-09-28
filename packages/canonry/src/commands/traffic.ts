@@ -1062,7 +1062,7 @@ export async function trafficReferralAssessment(project: string, options: Partia
   console.log(`  Adjusted estimate: ${result.totals.adjustedEstimate.total} (countable minus candidate bursts)`)
   console.log(`  Rule: ${result.rule.version}; threshold ${result.rule.burstThreshold}; ${result.rule.calibration}`)
   console.log(`  Observed server/GA quotient: ${result.comparison.observedRatio ?? 'unavailable'}; comparable coverage: unavailable`)
-  console.log(`  Evidence: ${result.evidence.returned} of ${result.evidence.total} candidate hours`)
+  console.log(`  Evidence: ${result.evidence.returned} of ${result.evidence.total} candidate groups (source, product, normalized path, UTC hour)`)
   for (const burst of result.bursts) console.log(`  ${burst.tsHour} ${burst.sourceId} ${burst.product} ${burst.landingPathNormalized} ${burst.counts.total}`)
   for (const caveat of result.caveats) console.log(`  ${caveat}`)
 }

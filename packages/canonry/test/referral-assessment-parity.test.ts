@@ -2,12 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Fastify from 'fastify'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { apiKeys, projects, trafficSources, aiReferralEventsHourly, createClient, migrate } from '@ainyc/canonry-db'
+import { apiKeys, projects, trafficSources, aiReferralEventsHourly, gaAiReferrals, createClient, migrate } from '@ainyc/canonry-db'
 import { apiRoutes, hashApiKey } from '@ainyc/canonry-api-routes'
 import { referralAssessmentSchema } from '@ainyc/canonry-contracts'
 import { ApiClient } from '../src/client.js'
 import { createCanonryMcpServer } from '../src/mcp/server.js'
 import { TRAFFIC_CLI_COMMANDS } from '../src/cli-commands/traffic.js'
+import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
 
 let api: ApiClient
 vi.mock('../src/client.js', async importOriginal => ({ ...await importOriginal<typeof import('../src/client.js')>(), createApiClient: () => api }))
@@ -61,6 +62,22 @@ describe('referral assessment authenticated HTTP, CLI and MCP parity', () => {
       expect(denied.isError).toBe(true)
       expect(JSON.stringify(denied)).not.toContain('adjustedEstimate')
     } finally { await client.close(); await server.close() }
+  })
+
+  it('prints the observed quotient rounded to 2 decimals, as the JSON carries it', async () => {
+    db.update(aiReferralEventsHourly).set({ sessionsOrHits: 100, paidSessionsOrHits: 0, organicSessionsOrHits: 100 }).run()
+    db.insert(gaAiReferrals).values({ id: 'ga', projectId: 'example', date: '2026-08-01', source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session', channelGroup: 'Referral', landingPage: '/', sessions: 30, users: 22, trafficClass: 'organic', syncedAt: '2026-09-02T06:00:00.000Z' }).run()
+    const args = ['traffic', 'referral-assessment', 'example', '--start-date', '2026-08-01', '--end-date', '2026-08-31']
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    expect(await dispatchRegisteredCommand(args, 'text', TRAFFIC_CLI_COMMANDS)).toBe(true)
+    const stdout = log.mock.calls.map(call => String(call[0])).join('\n')
+    // 100 / 30 = 3.333…; the raw float must never reach the operator.
+    expect(stdout).toContain('\n  Observed server/GA quotient: 3.33; comparable coverage: unavailable\n')
+    expect(stdout).not.toContain('3.333')
+    expect(stdout).toContain('\n  Evidence: 1 of 1 candidate groups (source, product, normalized path, UTC hour)\n')
+    log.mockClear()
+    expect(await dispatchRegisteredCommand([...args, '--format', 'json'], 'text', TRAFFIC_CLI_COMMANDS)).toBe(true)
+    expect(JSON.parse(String(log.mock.calls[0]?.[0])).comparison).toMatchObject({ serverCountable: 100, gaSessions: 30, observedRatio: 3.33, observedRatioAboveThreshold: true })
   })
 
   it('enforces missing authentication, project boundaries and unsupported Advanced attribution', async () => {

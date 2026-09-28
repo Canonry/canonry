@@ -334,7 +334,7 @@ Toolkits (loaded on demand):
 | `google-ads` | connected status, customer discovery, stored conversion-action and effective-goal snapshots, and bounded read-only sync | Discovering Ads customer options or reviewing conversion evidence |
 | `gtm` | account, container, and workspace discovery, sanitized live/draft graphs, and bounded read-only sync | Discovering GTM resource options or reviewing tag-graph evidence |
 | `conversion-tracking` | declared contracts and stored cross-provider integrity assessments with no live provider call | Checking whether stored Google Ads and GTM evidence agrees with a contract |
-| `traffic` | Referral burst assessment (raw counts, candidate evidence, separate adjusted estimate, coverage limits), list sources, source detail (24h totals + latest run), windowed crawler/AI-referral events, Cloud Run / WordPress / Vercel connect, sync, async backfill for Cloud Run/Vercel (replaces hourly rollups in a `--days` window with current classifier output; WordPress requires a retention-aware repair) | Confirming server-log evidence of crawler hits or AI-referral sessions (e.g. GPTBot, ChatGPT-User), wiring up / syncing a Cloud Run, WordPress, or Vercel traffic source, or one-shot reclassifying supported historical logs after a classifier change |
+| `traffic` | Referral burst assessment (raw counts, candidate evidence, separate adjusted estimate, coverage limits), list sources, source detail (24h totals + latest run), windowed crawler/AI-referral events, Cloud Run / WordPress / Vercel connect, sync, async backfill for Cloud Run/Vercel (replaces hourly rollups in a `--days` window with current classifier output; WordPress requires a retention-aware repair) | Confirming server-log evidence of crawler hits or AI-referral sessions (e.g. GPTBot, ChatGPT-User), reviewing candidate AI-referral bursts before quoting server-side AI referral totals, wiring up / syncing a Cloud Run, WordPress, or Vercel traffic source, or one-shot reclassifying supported historical logs after a classifier change |
 | `agent` | Aero memory list/set/forget, agent clear, agent webhook detach | Reading or writing project-scoped Aero notes, clearing a stuck conversation, removing an agent webhook |
 | `discovery` | **Find queries:** start/inspect ICP discovery sessions, harvest candidate seeds, and optionally promote approved findings into tracking. **Research queries:** start one run with `canonry_research_run_start` or reviewed destinations with `canonry_research_batch_start`. Read results with `canonry_research_runs_list` and `canonry_research_run_get`. Research never adds tracked queries. | Expanding or auditing a project's tracked-query basket, or researching specific queries, models, and locations without changing tracking. |
 
@@ -430,12 +430,14 @@ The project doctor API accepts `?reportMonth=2026-09&check=report.*`.
 Omitting the month retains the previous closed month through UTC day 3, alongside
 the current month. Future months are rejected.
 
-The checks read stored sweeps, snapshot model continuity and daily GA/GSC totals.
-They return explicit unknown coverage where absent daily rows could mean either
-zero activity or missing collection. Pending reporting dates and dates before
-connection are separate. `notificationPolicy: "silent"` leaves these advisories
-visible in doctor without sending client health alerts. The checks never run a
-sweep, sync data, create schedules or call providers.
+The checks read stored sweeps, snapshot model continuity, daily GA/GSC totals,
+and stored server AI-referral rollups beside GA AI referral rows
+(`report.ai-referral-bursts`). They return explicit unknown coverage where
+absent daily rows could mean either zero activity or missing collection.
+Pending reporting dates and dates before connection are separate.
+`notificationPolicy: "silent"` leaves these advisories visible in doctor without
+sending client health alerts. The checks never run a sweep, sync data, create
+schedules or call providers.
 
 ### AI referral assessment
 
@@ -447,11 +449,16 @@ sweep, sync data, create schedules or call providers.
 (default 100, maximum 500) match the API. The shared strict schema rejects
 unsupported Property, Target and market filters instead of silently broadening them.
 
-Threshold-qualified hours are candidate bursts, not confirmed automation. The
-adjusted estimate remains separate from raw totals and report headlines. Evidence
-is capped independently from totals. The default threshold is an uncalibrated
-review trigger. An observed server/GA quotient can be shown when GA is positive,
-but comparable coverage and GA timezone remain unknown. The silent
-`report.ai-referral-ratio` doctor diagnostic carries that limitation in its
-details and warns only when candidate bursts exist; it never claims a verified
-3x warning.
+Threshold-qualified groups (one source, product, normalized path and UTC hour
+each) are candidate bursts, not confirmed automation. The adjusted estimate
+remains separate from raw totals and report headlines. Evidence is capped
+independently from totals. The default threshold is an uncalibrated review
+trigger. An observed server/GA quotient, rounded to 2 decimals, can be shown
+when GA is positive, but comparable coverage and GA timezone remain unknown. GA
+reads `observed-zero` only when the window lies inside the latest GA sync window
+and that sync stored no AI row for it. Otherwise, including after a
+`ga sync --only traffic|social` that left earlier AI rows in that window, absent
+GA rows are `missing`.
+The silent `report.ai-referral-bursts` doctor diagnostic carries these limits in
+its details, counts `candidateGroups`, and warns only when candidate bursts
+exist; it never claims a verified 3x warning.

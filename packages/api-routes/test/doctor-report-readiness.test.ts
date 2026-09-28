@@ -39,7 +39,7 @@ describe('monthly report readiness (stored evidence only)', () => {
   }
   it('registers four default checks with an explicit silent notification policy', async () => {
     const result = await report()
-    expect(result.checks.map(c => c.id)).toEqual(['report.sweeps', 'report.models', 'report.daily-data', 'report.ai-referral-ratio'])
+    expect(result.checks.map(c => c.id)).toEqual(['report.sweeps', 'report.models', 'report.daily-data', 'report.ai-referral-bursts'])
     expect(result.checks.map(c => c.notificationPolicy)).toEqual(['silent', 'silent', 'silent', 'silent'])
   })
   it('does not clear missing monthly evidence with a probe, failed run, or spot check', async () => {

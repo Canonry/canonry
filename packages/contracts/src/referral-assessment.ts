@@ -51,10 +51,19 @@ export const referralAssessmentSchema = z.object({
     status: z.literal('unavailable'),
     serverCountable: z.number().int().nonnegative(),
     serverObservation: z.enum(['missing', 'observed-zero', 'observed-positive']),
+    /**
+     * Dimension-deduplicated GA AI sessions. With no stored AI row in the
+     * window: `0` (`observed-zero`) when the latest GA sync queried the whole
+     * window (GA4 omits zero rows), else `null` (`missing`).
+     */
     gaSessions: z.number().int().nonnegative().nullable(),
     gaObservation: z.enum(['missing', 'observed-zero', 'observed-positive']),
-    /** Descriptive quotient only. Not a matched, coverage-complete comparison. */
+    /**
+     * Descriptive quotient only, rounded to 2 decimals. Not a matched,
+     * coverage-complete comparison.
+     */
     observedRatio: z.number().nonnegative().nullable(),
+    /** Compares the rounded `observedRatio` with `rule.ratioThreshold`. */
     observedRatioAboveThreshold: z.boolean().nullable(),
     ratio: z.null(),
     reasons: z.array(z.string()),

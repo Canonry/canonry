@@ -666,20 +666,25 @@ the read; `--limit` caps candidate details, never totals. JSON and JSONL both
 return the full assessment object.
 
 Raw counts and existing headlines stay unchanged. The separate adjusted
-estimate excludes every hit in a candidate burst hour, not proven automation.
+estimate excludes every hit in a candidate burst group (one source, product,
+normalized path and UTC hour), not proven automation.
 The default 100-hit threshold is an uncalibrated review trigger. Normalized
 paths may combine multiple pages, and sources may overlap. Simple and Advanced
 projects use project/source scope; Property, Target and market attribution are
 unavailable and unsupported filters are rejected.
 
-`observedRatio` is a descriptive server/GA quotient when GA sessions are
-positive and server rows exist. Server and GA observation states distinguish
-missing evidence from stored zero. `observedRatioAboveThreshold` compares it with `--ratio-threshold`;
-it is not a quality verdict. Complete matching coverage and the GA timezone
-are unknown. Missing GA differs from an explicit stored zero. The silent
-`report.ai-referral-ratio` doctor check warns only when candidate bursts exist
-and carries these limits in its details. Keep GA evidence;
-this assessment does not establish a replacement human-visit count.
+`observedRatio` is a descriptive server/GA quotient, rounded to 2 decimals,
+when GA sessions are positive and server rows exist.
+`observedRatioAboveThreshold` compares that rounded value with
+`--ratio-threshold`; it is not a quality verdict. Complete matching coverage and
+the GA timezone are unknown. Server and GA observation states distinguish
+missing evidence from an observed zero: server rows that are all redirects or
+subresources are observed zero, and GA is observed zero only when the window
+lies inside the latest GA sync window and that sync stored no AI row for it.
+The silent `report.ai-referral-bursts` doctor check warns only when candidate
+bursts exist, reports `candidateGroups`, and carries these limits in its
+details. Keep GA evidence; this assessment does not establish a replacement
+human-visit count.
 
 ## Google Analytics 4
 

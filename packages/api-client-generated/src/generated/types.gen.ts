@@ -26494,7 +26494,7 @@ export type GetApiV1ProjectsByNameTrafficReferralAssessmentData = {
          */
         ratioThreshold?: number;
         /**
-         * Maximum candidate hour details, default 100; full totals are never truncated.
+         * Maximum candidate group details (one source, product, normalized path and UTC hour each), default 100; full totals are never truncated.
          */
         limit?: number;
     };

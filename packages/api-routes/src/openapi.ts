@@ -6753,7 +6753,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/traffic/referral-assessment',
     summary: 'Assess stored AI-referral bursts without changing headline counts',
-    description: 'DB-only project/source assessment for Simple and Advanced portfolios. No Property, Target or market attribution exists in these traffic rows. Groups countable stored hits by source, product, normalized path and UTC hour. Threshold-qualified hits remain suspected, never confirmed automation. The adjusted estimate is separate from raw totals. The observed GA quotient is descriptive; complete matching coverage and GA timezone are unavailable. Window/source are selection identity; thresholds and evidence limit are read-time tuning with no saved result or reuse.',
+    description: 'DB-only project/source assessment for Simple and Advanced portfolios. No Property, Target or market attribution exists in these traffic rows. Groups countable stored hits by source, product, normalized path and UTC hour. Threshold-qualified hits remain suspected, never confirmed automation. The adjusted estimate is separate from raw totals. The observed GA quotient is descriptive and rounded to 2 decimals; complete matching coverage and GA timezone are unavailable. GA reads observed-zero only when the window lies inside the latest GA sync window and that sync stored no AI referral row for it; otherwise absent GA rows are missing. Window/source are selection identity; thresholds and evidence limit are read-time tuning with no saved result or reuse.',
     tags: ['traffic'],
     parameters: [
       nameParameter,
@@ -6762,7 +6762,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'sourceId', in: 'query', description: 'Project-owned traffic source ID.', schema: stringSchema },
       { name: 'burstThreshold', in: 'query', description: 'Minimum countable stored hits in one grouped hour, default 100 (uncalibrated review trigger).', schema: { type: 'integer', minimum: 1, maximum: 1000000 } },
       { name: 'ratioThreshold', in: 'query', description: 'Descriptive observed-quotient threshold, default 3; never asserts comparable coverage.', schema: { type: 'number', minimum: 1, maximum: 1000 } },
-      { name: 'limit', in: 'query', description: 'Maximum candidate hour details, default 100; full totals are never truncated.', schema: { type: 'integer', minimum: 1, maximum: 500 } },
+      { name: 'limit', in: 'query', description: 'Maximum candidate group details (one source, product, normalized path and UTC hour each), default 100; full totals are never truncated.', schema: { type: 'integer', minimum: 1, maximum: 500 } },
     ],
     responses: {
       200: jsonResponse('Referral assessment with raw totals, candidate evidence, adjusted estimate and coverage limits.', 'ReferralAssessment'),

@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, trafficSources, aiReferralEventsHourly, gaAiReferrals, measurementPlans, measurementPlanVersions } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, trafficSources, aiReferralEventsHourly, gaAiReferrals, gaTrafficSummaries, measurementPlans, measurementPlanVersions } from '@ainyc/canonry-db'
 import { canonicalMeasurementPlanV2Json } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 
 const date = '2026-08-01T00:00:00.000Z'
+const gaSyncedAt = '2026-09-02T06:00:00.000Z'
 const url = '/api/v1/projects/example/traffic/referral-assessment?startDate=2026-08-01&endDate=2026-08-31'
 
 describe('stored referral assessment', () => {
@@ -20,6 +21,15 @@ describe('stored referral assessment', () => {
       createdAt: date, updatedAt: date, ...overrides,
     }).run()
   }
+  // GA rows as the GA sync writes them: GA4 omits all-zero rows, and one sync
+  // stamps its summary window and its AI rows with one `syncedAt`.
+  const gaRow = (id: string, overrides: Partial<typeof gaAiReferrals.$inferInsert> = {}) => {
+    db.insert(gaAiReferrals).values({ id, projectId: 'project', date: '2026-08-01', source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session', channelGroup: 'Referral', landingPage: '/', sessions: 10, users: 1, trafficClass: 'organic', syncedAt: gaSyncedAt, ...overrides }).run()
+  }
+  const gaSummary = (periodStart: string, periodEnd: string, syncedAt = gaSyncedAt) => {
+    db.insert(gaTrafficSummaries).values({ id: `summary-${syncedAt}`, projectId: 'project', periodStart, periodEnd, totalSessions: 420, totalOrganicSessions: 200, totalUsers: 300, syncedAt }).run()
+  }
+  const comparison = async (query = '') => (await app.inject({ method: 'GET', url: `${url}${query}` })).json().comparison
   beforeEach(async () => {
     db = createClient(':memory:')
     migrate(db)
@@ -133,12 +143,133 @@ describe('stored referral assessment', () => {
   })
 
   it('does not turn absent server evidence into a measured zero quotient', async () => {
-    db.insert(gaAiReferrals).values({ id: 'ga', projectId: 'project', date: '2026-08-01', source: 'chatgpt.com', medium: 'referral', sessions: 10, users: 1, syncedAt: date }).run()
+    gaRow('ga')
     const missing = (await app.inject({ method: 'GET', url })).json()
-    expect(missing.comparison).toMatchObject({ serverObservation: 'missing', gaSessions: 10, observedRatio: null })
-    row({ sessionsOrHits: 0, paidSessionsOrHits: 0, organicSessionsOrHits: 0 })
+    expect(missing.comparison).toMatchObject({ serverObservation: 'missing', serverCountable: 0, gaSessions: 10, observedRatio: null, observedRatioAboveThreshold: null })
+    expect(missing.comparison.reasons).toContain('server-data-missing')
+    // Stored rows that are all redirect hops or subresources: observed, none countable.
+    row({ status: 302, sessionsOrHits: 4, paidSessionsOrHits: 0, organicSessionsOrHits: 4 })
+    row({ landingPathNormalized: '/assets/app.js', sessionsOrHits: 3, paidSessionsOrHits: 0, organicSessionsOrHits: 3 })
     const zero = (await app.inject({ method: 'GET', url })).json()
-    expect(zero.comparison).toMatchObject({ serverObservation: 'observed-zero', gaSessions: 10, observedRatio: 0, status: 'unavailable' })
+    expect(zero.totals.raw.total).toBe(7)
+    expect(zero.totals.redirects.total).toBe(4)
+    expect(zero.totals.subresources.total).toBe(3)
+    expect(zero.totals.countable).toEqual({ total: 0, paid: 0, organic: 0, unknown: 0 })
+    expect(zero.comparison).toMatchObject({ serverObservation: 'observed-zero', serverCountable: 0, gaSessions: 10, gaObservation: 'observed-positive', observedRatio: 0, observedRatioAboveThreshold: false, status: 'unavailable' })
+    expect(zero.comparison.reasons).not.toContain('server-data-missing')
+  })
+
+  it('reads a window inside the latest GA sync window with no AI rows as observed zero', async () => {
+    row()
+    gaSummary('2026-07-15', '2026-09-01')
+    const zero = await comparison()
+    expect(zero).toMatchObject({ gaSessions: 0, gaObservation: 'observed-zero', serverObservation: 'observed-positive', observedRatio: null, observedRatioAboveThreshold: null, status: 'unavailable', ratio: null })
+    expect(zero.reasons).toEqual(expect.arrayContaining(['ga-observed-zero', 'ga-coverage-unproven', 'ga-time-zone-unknown']))
+    expect(zero.reasons).not.toContain('ga-data-missing')
+    // The same sync stored AI rows outside the requested window: it did query
+    // the AI breakdown, so the empty window is still a measured zero.
+    gaRow('ga-july', { date: '2026-07-20', sessions: 6 })
+    gaRow('ga-september', { date: '2026-09-01', sessions: 4 })
+    expect(await comparison()).toMatchObject({ gaSessions: 0, gaObservation: 'observed-zero' })
+  })
+
+  it.each([
+    ['equal to the request', '2026-08-01', '2026-08-31', 'observed-zero'],
+    ['one day short at the start', '2026-08-02', '2026-08-31', 'missing'],
+    ['one day short at the end', '2026-08-01', '2026-08-30', 'missing'],
+    ['overlapping only the end of the request', '2026-08-05', '2026-09-03', 'missing'],
+    ['entirely after the request', '2026-09-01', '2026-09-30', 'missing'],
+  ] as const)('keeps GA missing unless the latest sync window covers the request (summary %s)', async (_label, periodStart, periodEnd, observation) => {
+    gaSummary(periodStart, periodEnd)
+    const result = await comparison()
+    expect(result.gaObservation).toBe(observation)
+    expect(result.gaSessions).toBe(observation === 'observed-zero' ? 0 : null)
+    expect(result.reasons).toContain(observation === 'observed-zero' ? 'ga-observed-zero' : 'ga-data-missing')
+    expect(result.reasons).toContain('ga-coverage-unproven')
+  })
+
+  it('keeps GA missing when the latest sync skipped the AI breakdown', async () => {
+    // `ga sync --only traffic` moved the summary window without rewriting AI
+    // rows, so the rows in it came from an earlier sync.
+    gaRow('ga-earlier', { date: '2026-07-20', sessions: 6, syncedAt: '2026-08-15T06:00:00.000Z' })
+    gaSummary('2026-07-15', '2026-09-01')
+    expect(await comparison()).toMatchObject({ gaSessions: null, gaObservation: 'missing' })
+  })
+
+  it('bounds GA rows to the inclusive window dates', async () => {
+    row({ sessionsOrHits: 90, paidSessionsOrHits: 0, organicSessionsOrHits: 90 })
+    gaRow('before-start', { date: '2026-07-31', sessions: 500 })
+    gaRow('start', { date: '2026-08-01', sessions: 20 })
+    gaRow('end', { date: '2026-08-31', sessions: 10 })
+    gaRow('after-end', { date: '2026-09-01', sessions: 700 })
+    expect(await comparison()).toMatchObject({ gaSessions: 30, gaObservation: 'observed-positive', observedRatio: 3 })
+  })
+
+  it.each([
+    [100, 30, 3.33],
+    [100, 40, 2.5],
+    [1, 8, 0.13],
+    [2, 3, 0.67],
+    // Below 0.005 the published figure rounds to 0; the observation state
+    // and both operands still show server hits were observed.
+    [1, 300, 0],
+  ] as const)('rounds the observed quotient %s / %s to %s', async (serverHits, gaSessions, expected) => {
+    row({ sessionsOrHits: serverHits, paidSessionsOrHits: 0, organicSessionsOrHits: serverHits })
+    gaRow('ga', { sessions: gaSessions })
+    const result = await comparison('&burstThreshold=1000')
+    expect(result).toMatchObject({ serverCountable: serverHits, serverObservation: 'observed-positive', gaSessions, gaObservation: 'observed-positive', observedRatio: expected })
+  })
+
+  it('tests the published rounded quotient against the ratio threshold', async () => {
+    row({ sessionsOrHits: 100, paidSessionsOrHits: 0, organicSessionsOrHits: 100 })
+    gaRow('ga', { sessions: 30 })
+    expect(await comparison('&ratioThreshold=3.32')).toMatchObject({ observedRatio: 3.33, observedRatioAboveThreshold: true })
+    expect(await comparison('&ratioThreshold=3.33')).toMatchObject({ observedRatio: 3.33, observedRatioAboveThreshold: false })
+    expect(await comparison('&ratioThreshold=3.333')).toMatchObject({ observedRatio: 3.33, observedRatioAboveThreshold: false })
+  })
+
+  it('returns the largest bursts first and keeps them when the detail limit truncates', async () => {
+    const hour = (h: number) => `2026-08-01T${String(h).padStart(2, '0')}:00:00.000Z`
+    row({ landingPathNormalized: '/a', tsHour: hour(0), sessionsOrHits: 150, paidSessionsOrHits: 0, organicSessionsOrHits: 150 })
+    row({ landingPathNormalized: '/b', tsHour: hour(2), sessionsOrHits: 300, paidSessionsOrHits: 0, organicSessionsOrHits: 300 })
+    row({ landingPathNormalized: '/c', tsHour: hour(1), sessionsOrHits: 120, paidSessionsOrHits: 0, organicSessionsOrHits: 120 })
+    row({ landingPathNormalized: '/d', tsHour: hour(1), sessionsOrHits: 300, paidSessionsOrHits: 0, organicSessionsOrHits: 300 })
+    row({ landingPathNormalized: '/a2', tsHour: hour(1), sessionsOrHits: 300, paidSessionsOrHits: 0, organicSessionsOrHits: 300 })
+    row({ landingPathNormalized: '/small', tsHour: hour(3), sessionsOrHits: 99, paidSessionsOrHits: 0, organicSessionsOrHits: 99 })
+    // Total descending, then the hour, then source, product and path ascending.
+    const order = ['/a2', '/d', '/b', '/a', '/c']
+    const full = (await app.inject({ method: 'GET', url })).json()
+    expect(full.bursts.map((burst: { landingPathNormalized: string }) => burst.landingPathNormalized)).toEqual(order)
+    expect(full.bursts.map((burst: { counts: { total: number } }) => burst.counts.total)).toEqual([300, 300, 300, 150, 120])
+    expect(full.evidence).toEqual({ total: 5, returned: 5, truncated: false })
+    for (const limit of [1, 3]) {
+      const capped = (await app.inject({ method: 'GET', url: `${url}&limit=${limit}` })).json()
+      expect(capped.bursts.map((burst: { landingPathNormalized: string }) => burst.landingPathNormalized)).toEqual(order.slice(0, limit))
+      expect(capped.evidence).toEqual({ total: 5, returned: limit, truncated: true })
+      // Totals are never truncated with the details.
+      expect(capped.totals.suspected.total).toBe(1170)
+      expect(capped.totals.adjustedEstimate.total).toBe(99)
+    }
+    expect((await app.inject({ method: 'GET', url: `${url}&limit=1` })).json().bursts[0]).toEqual({ sourceId: 'source', product: 'ChatGPT', landingPathNormalized: '/a2', tsHour: hour(1), counts: { total: 300, paid: 0, organic: 300, unknown: 0 } })
+  })
+
+  it('includes the first UTC hour of startDate and excludes the hour before it', async () => {
+    row({ tsHour: '2026-07-31T23:00:00.000Z', sessionsOrHits: 500, paidSessionsOrHits: 0, organicSessionsOrHits: 500 })
+    row({ tsHour: '2026-08-01T00:00:00.000Z', sessionsOrHits: 7, paidSessionsOrHits: 0, organicSessionsOrHits: 7 })
+    const result = (await app.inject({ method: 'GET', url })).json()
+    expect(result.totals.raw).toEqual({ total: 7, paid: 0, organic: 7, unknown: 0 })
+    expect(result.totals.suspected.total).toBe(0)
+    expect(result.bursts).toEqual([])
+  })
+
+  it('accepts a 366-day window and rejects a 367-day window', async () => {
+    const base = '/api/v1/projects/example/traffic/referral-assessment'
+    const accepted = await app.inject({ method: 'GET', url: `${base}?startDate=2025-09-01&endDate=2026-09-01` })
+    expect(accepted.statusCode).toBe(200)
+    expect(accepted.json().window).toEqual({ startDate: '2025-09-01', endDate: '2026-09-01', timeZone: 'UTC' })
+    const rejected = await app.inject({ method: 'GET', url: `${base}?startDate=2025-08-31&endDate=2026-09-01` })
+    expect(rejected.statusCode).toBe(400)
+    expect(rejected.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } })
   })
 
   it.each(['burstThreshold=0', 'burstThreshold=1.5', 'ratioThreshold=0', 'limit=0', 'propertyId=property', 'targetId=target', 'marketKey=market'])('rejects unsupported or invalid selection %s', async (query) => {

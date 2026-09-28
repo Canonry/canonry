@@ -36,6 +36,7 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 | integrations | `traffic.source.recent-data` | project | Connected sources have crawler, AI user-fetch, or AI-referral events in the last 7d (warn) or 30d (fail) |
 | integrations | `traffic.source.sync-lag` | project | Pull-source watermark health. Skips only Cloudflare `deliveryMode=direct-push` (legacy missing mode is direct push); Queue pull remains checked. |
 | integrations | `traffic.source.worker-version` | project | Cloudflare direct/Queue last-observed Worker health. Warns before the first ingested batch and when the most recently ingested version differs from the current generated version. |
+| integrations | `report.ai-referral-bursts` | project | Silent report-month advisory (see "Referral reporting diagnostic"): warns only when stored AI referrals hold threshold-qualified burst groups to review before quoting server-side AI referral totals; skipped when every traffic source is archived |
 | integrations | `backlinks.source.connected` | project | Common Crawl is ready (`autoExtractBacklinks` + a `ready` release sync); warns when it is not set up |
 | integrations | `content.winnability.coverage` | project | Discovery classification coverage for cited-surface domains behind the content winnability gate; warns when discovery has not classified the domains that make ownable/ceded decisions meaningful |
 | providers | `config.providers` | global | At least one answer-engine provider key configured |
@@ -56,7 +57,7 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 
 ## Referral reporting diagnostic
 
-`report.ai-referral-ratio` is a DB-only, silent project check. It follows the report-month selection and calls the same assessment reader as the API/CLI/MCP. Its details carry raw server counts, dimension-deduplicated GA counts, an observed quotient and explicit missing/zero states. Current records cannot prove complete server intervals or the GA reporting timezone, so unproven coverage is never the signal: it warns (`report.ai-referral-ratio.bursts`) only when a report month has threshold-qualified bursts to review, and otherwise passes (`report.ai-referral-ratio.no-bursts`). A high quotient is not a comparable-window warning or proof of automation. Silent checks never change health paging state.
+`report.ai-referral-bursts` is a DB-only, silent project check. It follows the report-month selection and calls the same assessment reader as the API/CLI/MCP. It skips (`report.ai-referral-bursts.not-configured`) when the project has no non-archived traffic source, the rule `traffic.source.connected` and the report's server activity section use. Per month, its details carry the `suspected` burst hits, `candidateGroups` (threshold-qualified source × product × normalized path × UTC hour groups, not hours), the rule, and the comparison: the countable server total (`serverCountable`, not raw hits), dimension-deduplicated GA sessions, an observed quotient rounded to 2 decimals, and explicit missing/observed-zero states. GA is observed-zero only for a window inside the latest GA sync window that holds no AI row from an earlier sync (`latestGaSyncQueriedWindow` in `src/referral-assessment.ts`). Current records cannot prove complete server intervals or the GA reporting timezone, so unproven coverage is never the signal: it warns (`report.ai-referral-bursts.bursts`) only when a report month has threshold-qualified bursts to review, and otherwise passes (`report.ai-referral-bursts.no-bursts`). A high quotient is not a comparable-window warning or proof of automation. Silent checks never change health paging state.
 
 ## Scheduled health alerts
 
@@ -74,8 +75,9 @@ Two schedules feed `health.degraded` and `health.recovered`, which reach every e
 
 ## Monthly report readiness
 
-`report.sweeps`, `report.models`, and `report.daily-data` are stored-evidence
-project checks. They run by default and carry `notificationPolicy: silent`.
+`report.sweeps`, `report.models`, `report.daily-data`, and
+`report.ai-referral-bursts` are stored-evidence project checks. They run by
+default and carry `notificationPolicy: silent`.
 The notifier excludes silent checks from health status, signatures and recovery;
 a report-only pass must leave existing operational state untouched. The
 scheduled health pass requests only `scheduledHealthCheckIds()` (non-silent,

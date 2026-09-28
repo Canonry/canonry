@@ -34,7 +34,7 @@ it('smokes report month across authenticated API, CLI dispatch and MCP over a te
     const client = new ApiClient(`${origin}/canonry`, token, { skipProbe: true })
     const expected = doctorReportSchema.parse(await client.runDoctor({ project: 'demo', reportMonth: '2026-08', checkIds: ['report.*'] }))
     expect(expected.reportMonths).toEqual(['2026-08'])
-    expect(expected.checks.map(check => check.id)).toEqual(['report.sweeps', 'report.models', 'report.daily-data', 'report.ai-referral-ratio'])
+    expect(expected.checks.map(check => check.id)).toEqual(['report.sweeps', 'report.models', 'report.daily-data', 'report.ai-referral-bursts'])
     expect(expected.checks.map(check => check.notificationPolicy)).toEqual(['silent', 'silent', 'silent', 'silent'])
     expect(expected.checks.find(check => check.id === 'report.sweeps')?.code).toBe('report.sweeps.missing')
     await expect(client.runDoctor({ project: 'other', reportMonth: '2026-08', checkIds: ['report.*'] })).rejects.toMatchObject({ code: 'FORBIDDEN', details: { httpStatus: 403 }, exitCode: 1 })

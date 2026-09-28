@@ -1,6 +1,6 @@
-import { and, eq, gte, lte, sql, type SQL } from 'drizzle-orm'
+import { and, desc, eq, gte, lte, ne, sql, type SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { aiReferralEventsHourly as referrals, gaAiReferrals, trafficSources, type DatabaseClient } from '@ainyc/canonry-db'
+import { aiReferralEventsHourly as referrals, gaAiReferrals, gaTrafficSummaries, trafficSources, type DatabaseClient } from '@ainyc/canonry-db'
 import { aiReferralClassCounts, inclusiveDayCount, notFound, referralAssessmentQuerySchema, validationError, type ReferralAssessment, type ReferralAssessmentQuery } from '@ainyc/canonry-contracts'
 import { countableReferralCondition, referralLandedCondition } from './ai-referral-status.js'
 import { resolveProject } from './helpers.js'
@@ -8,6 +8,33 @@ import { resolveWinningDimensions } from './ga-ai-referral-aggregation.js'
 
 const DEFAULT_BURST_THRESHOLD = 100
 const DEFAULT_RATIO_THRESHOLD = 3
+
+/**
+ * Whether the latest GA sync asked GA4 for AI referrals on every date of the
+ * window. Call it only when the window has no stored AI row: GA4 omits
+ * all-zero rows, and a sync that fetches the AI breakdown deletes and
+ * rewrites every AI row across its summary window (the single
+ * `ga_traffic_summaries` row), so a window inside it with no row had zero AI
+ * sessions. `report.daily-data` reads that window the same way.
+ * `ga sync --only traffic|social` moves the summary without rewriting AI rows.
+ * An AI row in the window written by another sync proves that happened, and
+ * then the window stays unproven. Dates outside the latest window never read
+ * as zero: earlier sync windows are not recorded.
+ */
+function latestGaSyncQueriedWindow(db: DatabaseClient, projectId: string, startDate: string, endDate: string): boolean {
+  const summary = db.select({ start: gaTrafficSummaries.periodStart, end: gaTrafficSummaries.periodEnd, syncedAt: gaTrafficSummaries.syncedAt })
+    .from(gaTrafficSummaries).where(eq(gaTrafficSummaries.projectId, projectId))
+    .orderBy(desc(gaTrafficSummaries.syncedAt)).limit(1).get()
+  if (!summary || startDate < summary.start || endDate > summary.end) return false
+  // One sync writes the summary and its AI rows with one `syncedAt`.
+  const leftByAnotherSync = db.select({ id: gaAiReferrals.id }).from(gaAiReferrals).where(and(
+    eq(gaAiReferrals.projectId, projectId),
+    gte(gaAiReferrals.date, summary.start),
+    lte(gaAiReferrals.date, summary.end),
+    ne(gaAiReferrals.syncedAt, summary.syncedAt),
+  )).limit(1).get()
+  return leftByAnotherSync === undefined
+}
 
 /** DB-only assessment. Existing totals and ingest classifications are immutable. */
 export function buildReferralAssessment(db: DatabaseClient, projectName: string, input: ReferralAssessmentQuery): ReferralAssessment {
@@ -85,8 +112,12 @@ export function buildReferralAssessment(db: DatabaseClient, projectName: string,
     channelGroup: gaAiReferrals.channelGroup, sessions: sql<number>`sum(${gaAiReferrals.sessions})`,
   }).from(gaAiReferrals).where(and(eq(gaAiReferrals.projectId, project.id), gte(gaAiReferrals.date, query.startDate), lte(gaAiReferrals.date, query.endDate)))
     .groupBy(gaAiReferrals.date, gaAiReferrals.source, gaAiReferrals.medium, gaAiReferrals.trafficClass, gaAiReferrals.sourceDimension, gaAiReferrals.channelGroup).all()
-  const gaSessions = gaRows.length ? resolveWinningDimensions(gaRows).reduce((sum, row) => sum + row.paidSessions + row.organicSessions, 0) : null
-  const observedRatio = observedRows > 0 && gaSessions !== null && gaSessions > 0 ? countable.total / gaSessions : null
+  const gaSessions = gaRows.length
+    ? resolveWinningDimensions(gaRows).reduce((sum, row) => sum + row.paidSessions + row.organicSessions, 0)
+    : latestGaSyncQueriedWindow(db, project.id, query.startDate, query.endDate) ? 0 : null
+  // Rounded to 2 decimals before the threshold test, so the flag always
+  // agrees with the published figure.
+  const observedRatio = observedRows > 0 && gaSessions !== null && gaSessions > 0 ? Math.round((countable.total / gaSessions) * 100) / 100 : null
   // Current traffic sync records retain only a latest watermark, not an
   // interval ledger. GA stores date labels but no property reporting timezone.
   // Neither row presence nor min/max dates proves a comparable complete window.
