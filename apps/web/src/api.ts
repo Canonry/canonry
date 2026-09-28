@@ -2428,7 +2428,7 @@ export function fetchSentiment(project: string, selection: SentimentSelection): 
 export function fetchSentimentSettings(project: string): Promise<SentimentSettings> {
   return invokeWeb(() => getApiV1ProjectsByNameSentimentSettings({ client: heyClient, path: { name: project } }))
 }
-export function updateSentimentSettings(project: string, body: { enabled?: boolean; preset?: 'default' | 'multifamily'; customThemes?: Array<{ id: string; name: string; description: string }> }): Promise<SentimentSettings> {
+export function updateSentimentSettings(project: string, body: { enabled?: boolean }): Promise<SentimentSettings> {
   return invokeWeb(() => putApiV1ProjectsByNameSentimentSettings({ client: heyClient, path: { name: project }, body }))
 }
 export function fetchSentimentEvidence(project: string, selection: SentimentSelection, cursor?: string): Promise<{ state: SentimentSummary['state']; selection: SentimentResolvedSelection; items: SentimentEvidenceItem[]; nextCursor: string | null }> {

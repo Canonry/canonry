@@ -1,53 +1,125 @@
+import type { ComponentProps, ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { aggregateSentiment, createSentimentEvaluationDefinition, emptySentimentCounts } from '@ainyc/canonry-contracts'
 import type { SentimentEvidenceItem, SentimentSettings, SentimentSummary } from '@ainyc/canonry-contracts'
-import { SentimentSection, SentimentEvidenceDrawer, SentimentReport, SENTIMENT_COPY } from '../src/components/project/SentimentSection.js'
+import { SentimentScopeProvider, SentimentControls, SentimentHeadlines, SentimentQueryScore, SentimentOverviewMetric, SentimentEvidenceDrawer, useSentimentResolvedSource, SENTIMENT_COPY } from '../src/components/project/SentimentSection.js'
 import { sentimentSelectionFromVisibility, sentimentQueryKey } from '../src/queries/sentiment.js'
+import { EvidenceTable } from '../src/components/project/EvidenceTable.js'
+import { createDashboardFixture } from '../src/mock-data.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
 
+vi.mock('../src/hooks/use-drawer.js', () => ({ useDrawer: () => ({ openEvidence: vi.fn() }) }))
 afterEach(cleanup)
 function summary(): SentimentSummary {
   return { ...aggregateSentiment([]), state: 'complete', provisional: false, reason: null,
     selection: { mode: 'advanced', queryClass: 'branded', scope: 'property', scopeKey: 'north', marketKey: 'chicago', runId: 'run', revision: 3, provider: 'openai', model: 'source-model', location: 'Chicago', evaluationDefinitionId: 'definition-a' }, evaluationDefinition: createSentimentEvaluationDefinition(),
     coverage: { selected: 10, eligibleAssessments: 10, unadmittedAssessments: 0, judged: 5, distinctSourceAnswers: 8, expectedProviderSlots: 10, completedProviderSlots: 10, counts: { ...emptySentimentCounts(), favorable: 3, mixed: 1, unfavorable: 1, factual: 5 } },
     score: { ...aggregateSentiment([]).score, favorableRate: 0.601, favorableDisplay: '60.1%', mixedRate: 0.2, mixedDisplay: '20%', unfavorableRate: 0.199, unfavorableDisplay: '19.9%', interval: { low: 0.23, high: 0.88 } },
-    themes: [{ theme: { id: 'price', name: 'Price', description: 'Value', source: 'custom', evaluationStatus: 'custom-not-evaluated' }, discussed: 3, praised: 2, criticized: 3, both: 2, unclassified: 1 }], breakdowns: [] }
+    configured: true, queries: [], breakdowns: [] }
 }
 function settings(configure = false): SentimentSettings {
-  return { installEnabled: true, enabled: true, ready: true, readinessReasons: [], model: 'jev-1.13.0', enablementEpoch: 1, completionBoundary: 2, preset: 'default', themes: [], evaluationDefinitionId: 'definition-a', actions: { configure, backfill: configure }, experimental: true, disclosure: 'Experimental sentiment' }
+  return { installEnabled: true, enabled: true, ready: true, readinessReasons: [], model: 'jev-1.13.0', enablementEpoch: 1, completionBoundary: 2, evaluationDefinitionId: 'definition-a', actions: { configure, backfill: configure }, experimental: true, disclosure: 'Experimental sentiment' }
+}
+function SentimentSection(props: Omit<ComponentProps<typeof SentimentScopeProvider>, 'children'>) {
+  return <SentimentScopeProvider {...props}><SentimentControls /><SentimentHeadlines /></SentimentScopeProvider>
+}
+function renderScope(children: ReactNode, options: { enabled?: boolean; configure?: boolean; branded?: SentimentSummary; nonBrand?: SentimentSummary } = {}) {
+  const branded = options.branded ?? summary()
+  const nonBrand = options.nonBrand ?? { ...summary(), selection: { ...summary().selection, queryClass: 'non-brand' as const }, score: { ...summary().score, favorableRate: 0.25, favorableDisplay: '25%' } }
+  const requests: URL[] = []
+  const restore = mockFetch(url => {
+    const request = new URL(url); requests.push(request)
+    if (request.pathname.endsWith('/settings')) return jsonResponse({ ...settings(options.configure), enabled: options.enabled ?? true })
+    if (request.pathname.endsWith('/jobs')) return jsonResponse({ jobs: [] })
+    if (request.pathname.endsWith('/evidence')) return jsonResponse({ state: 'complete', selection: branded.selection, items: [], nextCursor: null })
+    return jsonResponse(request.searchParams.get('queryClass') === 'non-brand' ? nonBrand : branded)
+  })
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  const view = render(<QueryClientProvider client={client}><SentimentScopeProvider projectName="project" selection={{ mode: 'advanced', queryClass: 'branded', scope: 'property', scopeKey: 'north', marketKey: 'chicago', provider: 'openai', model: 'source-model', runId: 'run', revision: 3 }}>{children}</SentimentScopeProvider></QueryClientProvider>)
+  return { requests, client, view, close: () => { cleanup(); client.clear(); restore() } }
 }
 describe('sentiment presentation', () => {
-  it('renders exact API values, branded denominators, and overlapping themes', () => {
-    render(<SentimentReport summary={summary()} settings={settings()} onOpenEvidence={vi.fn()} />)
-    expect(screen.getByLabelText('Branded favorable share').textContent).toContain('60.1%')
-    expect(screen.getByText('5 judged of 10 selected assessments')).toBeTruthy()
-    expect(screen.getByText('8 distinct source answers')).toBeTruthy()
-    expect(screen.getByText('Custom theme: not evaluated')).toBeTruthy()
-    expect(within(screen.getByRole('row', { name: /Price/ })).getByText('2', { selector: '[data-overlap]' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: summary().score.limitation })).toBeTruthy()
+  it('renders independent branded and non-brand API values with no theme controls', async () => {
+    const page = renderScope(<><SentimentHeadlines /><SentimentControls /></>)
+    try {
+      expect((await screen.findByLabelText('Branded favorable share')).textContent).toContain('60.1%')
+      expect((await screen.findByLabelText('Non-brand favorable share')).textContent).toContain('25%')
+      expect(screen.getAllByText(/5 judged of 10 selected assessments/)).toHaveLength(2)
+      expect(screen.queryByText(/theme/i)).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Manage sentiment' })).toBeNull()
+      expect(page.requests.filter(url => url.pathname.endsWith('/sentiment'))).toHaveLength(2)
+    } finally { page.close() }
   })
-  it.each(['disabled', 'not-measured', 'processing', 'canceled', 'partial', 'failed'] as const)('preserves %s without inventing a zero', state => {
-    const dto = summary(); dto.state = state; dto.score = aggregateSentiment([]).score; dto.coverage.judged = 0
-    render(<SentimentReport summary={dto} settings={settings()} onOpenEvidence={vi.fn()} />)
-    expect(screen.getByText(SENTIMENT_COPY.states[state])).toBeTruthy()
-    expect(screen.getByLabelText('Branded favorable share').textContent).toContain('Unavailable')
-  })
-  it('shows no evaluative answers distinctly from not measured', () => {
+  it('shows only the selected query class and preserves zero judgments as unavailable', async () => {
     const dto = summary(); dto.coverage.judged = 0; dto.score = aggregateSentiment([]).score
-    render(<SentimentReport summary={dto} settings={settings()} onOpenEvidence={vi.fn()} />)
-    expect(screen.getByText(SENTIMENT_COPY.noJudgments)).toBeTruthy()
+    const page = renderScope(<SentimentHeadlines queryClass="branded" />, { branded: dto })
+    try {
+      expect((await screen.findByLabelText('Branded favorable share')).textContent).toContain('Unavailable')
+      expect(screen.getByText(SENTIMENT_COPY.noJudgments)).toBeTruthy()
+      expect(screen.queryByLabelText('Non-brand favorable share')).toBeNull()
+    } finally { page.close() }
   })
-  it('removes write controls when server permissions change', () => {
-    const onConfigure = vi.fn()
-    const view = render(<SentimentReport summary={summary()} settings={settings(true)} onOpenEvidence={vi.fn()} onConfigure={onConfigure} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Manage sentiment' }))
-    expect(onConfigure).toHaveBeenCalledOnce()
-    view.rerender(<SentimentReport summary={summary()} settings={settings(false)} onOpenEvidence={vi.fn()} onConfigure={onConfigure} />)
-    expect(screen.queryByRole('button', { name: 'Manage sentiment' })).toBeNull()
+  it.each(['not-measured', 'processing', 'canceled', 'partial', 'failed'] as const)('preserves %s without inventing a zero', async state => {
+    const dto = summary(); dto.state = state; dto.score = aggregateSentiment([]).score; dto.coverage.judged = 0
+    const page = renderScope(<SentimentHeadlines queryClass="branded" />, { branded: dto })
+    try { expect(await screen.findByText(SENTIMENT_COPY.states[state])).toBeTruthy(); expect(screen.getByLabelText('Branded favorable share').textContent).toContain('Unavailable') } finally { page.close() }
+  })
+  it('keeps enable reachable while default-off projects do not request summaries', async () => {
+    const page = renderScope(<><SentimentHeadlines /><SentimentControls /></>, { enabled: false, configure: true })
+    try {
+      await screen.findByRole('button', { name: 'Enable sentiment' })
+      expect(screen.queryByLabelText('Favorable answer scores')).toBeNull()
+      expect(page.requests.filter(url => url.pathname.endsWith('/sentiment'))).toHaveLength(0)
+    } finally { page.close() }
+  })
+  it('renders overview scores only when configured and uses the exact two server values', () => {
+    const dto = summary(); const value = { configured: false, branded: { ...dto, runIds: ['run'] }, nonBrand: { ...dto, runIds: ['run'], score: { ...dto.score, favorableDisplay: '25%' } } }
+    const view = render(<SentimentOverviewMetric value={value} />)
+    expect(screen.queryByText('Favorable')).toBeNull()
+    view.rerender(<SentimentOverviewMetric value={{ ...value, configured: true }} />)
+    expect(screen.getByLabelText('Branded favorable share').textContent).toContain('60.1%')
+    expect(screen.getByLabelText('Non-brand favorable share').textContent).toContain('25%')
+  })
+  it('places favorable in the existing query table and class filtering changes its headlines', async () => {
+    const dto = summary(); const { state, reason, provisional, coverage, score } = dto
+    dto.queries = [{ queryId: 'q', queryText: 'Is North Hall good?', queryClass: 'branded', sourceSnapshotIds: ['snapshot'], state, reason, provisional, coverage, score, locations: [] }]
+    const seed = createDashboardFixture({}).dashboard.projects[0]!.visibilityEvidence[0]!
+    const page = renderScope(<EvidenceTable evidence={[{ ...seed, id: 'north', queryId: 'q', sourceSnapshotId: 'snapshot', query: 'Is North Hall good?', queryClass: 'branded' }]} />, { branded: dto })
+    try {
+      await screen.findByRole('columnheader', { name: 'Favorable' })
+      const score = await screen.findByRole('button', { name: 'View Branded sentiment evidence for Is North Hall good?' })
+      expect(score.textContent).toContain('60.1%')
+      const row = score.closest('tr')!
+      fireEvent.keyDown(score, { key: 'Enter' })
+      expect(row.getAttribute('aria-expanded')).toBe('false')
+      fireEvent.change(screen.getByRole('combobox', { name: 'Query class' }), { target: { value: 'branded' } })
+      expect(screen.getByLabelText('Branded favorable share')).toBeTruthy()
+      expect(screen.queryByLabelText('Non-brand favorable share')).toBeNull()
+      fireEvent.click(score)
+      expect(row.getAttribute('aria-expanded')).toBe('false')
+      await screen.findByRole('dialog', { name: 'Sentiment evidence: Is North Hall good?' })
+    } finally { page.close() }
+  })
+  it('resolves deleted queries by exact source identity and location without per-row reads', async () => {
+    const dto = summary()
+    const { state, reason, provisional, coverage, score } = dto
+    dto.queries = [{ queryId: 'deleted-query', queryText: 'Is North Hall good?', queryClass: 'branded', sourceSnapshotIds: ['snapshot'], state, reason, provisional, coverage, score, locations: [{ location: 'Chicago', sourceSnapshotIds: ['snapshot'], state, reason, provisional, coverage, score: { ...score, favorableDisplay: '31.7%' } }] }]
+    const page = renderScope(<><SentimentQueryScore sourceSnapshotIds={['snapshot']} queryClass="branded" location="Chicago" /><SentimentQueryScore queryId="different-query" queryClass="branded" /></>, { branded: dto })
+    try {
+      const button = await screen.findByRole('button', { name: 'View Branded sentiment evidence for Is North Hall good?' })
+      expect(button.textContent).toContain('31.7%')
+      expect(button.textContent).toContain('5 judged')
+      expect(screen.getByText('Unavailable')).toBeTruthy()
+      fireEvent.click(button)
+      await screen.findByText('No stored sentiment evidence for this query and scope.')
+      expect(page.requests.filter(url => url.pathname.endsWith('/sentiment'))).toHaveLength(2)
+      const requested = page.requests.find(url => url.pathname.endsWith('/evidence'))!
+      expect(Object.fromEntries(requested.searchParams)).toMatchObject({ queryId: 'deleted-query', queryClass: 'branded', location: 'Chicago', runId: 'run', revision: '3', scope: 'property', scopeKey: 'north', marketKey: 'chicago', provider: 'openai', model: 'source-model', evaluationDefinitionId: 'definition-a' })
+    } finally { page.close() }
   })
   it('shows verbatim quotations and a truthful empty complaint in the evidence drawer', () => {
-    const item: SentimentEvidenceItem = { assessmentId: 'a', runId: 'run', sourceSnapshotId: 'snapshot', sourceText: 'North Hall is excellent.', sourceTextHash: 'hash', subject: { id: 'north', displayName: 'North Hall', aliases: ['North Hall'], qualifiedAliases: [], urls: [], mentionNotApplicable: false }, subjectHash: 'subject', context: { queryId: 'q', queryText: 'Is North Hall good?', queryClass: 'branded', provider: 'openai', requestedModel: 'source-model', servedModel: 'source-model', location: 'Chicago', locationContext: null, revision: 3, usageEdges: [] }, evaluationDefinitionId: 'definition-a', outcome: 'favorable', conclusion: [{ id: 's1', text: 'North Hall is excellent.', start: 0, end: 24 }], complaint: null, themes: [], returnedModel: 'jev-1.13.0', reason: null }
+    const item: SentimentEvidenceItem = { assessmentId: 'a', runId: 'run', sourceSnapshotId: 'snapshot', sourceText: 'North Hall is excellent.', sourceTextHash: 'hash', subject: { id: 'north', displayName: 'North Hall', aliases: ['North Hall'], qualifiedAliases: [], urls: [], mentionNotApplicable: false }, subjectHash: 'subject', context: { queryId: 'q', queryText: 'Is North Hall good?', queryClass: 'branded', provider: 'openai', requestedModel: 'source-model', servedModel: 'source-model', location: 'Chicago', locationContext: null, revision: 3, usageEdges: [] }, evaluationDefinitionId: 'definition-a', outcome: 'favorable', conclusion: [{ id: 's1', text: 'North Hall is excellent.', start: 0, end: 24 }], complaint: null, returnedModel: 'jev-1.13.0', reason: null }
     render(<SentimentEvidenceDrawer item={item} onClose={vi.fn()} />)
     expect(screen.getByRole('dialog', { name: 'Sentiment evidence: North Hall' })).toBeTruthy()
     expect(screen.getByText('No complaint was identified.')).toBeTruthy()
@@ -83,6 +155,54 @@ describe('sentiment generated SDK and administrator flow', () => {
       expect(url.pathname).toBe('/smoke/api/v1/projects/north%20project/sentiment')
       for (const [key, value] of Object.entries(selection)) if (value !== undefined) expect(url.searchParams.get(key)).toBe(String(value))
     } finally { restore(); heyClient.setConfig(original) }
+  })
+  it('waits for the resolved Advanced run before either summary is requested', async () => {
+    const reads: URL[] = []
+    const restore = mockFetch(url => { const request = new URL(url); if (request.pathname.endsWith('/settings')) return jsonResponse(settings()); reads.push(request); return jsonResponse(summary()) })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    function Resolved({ runId }: { runId?: string }) { useSentimentResolvedSource(runId, 7); return <SentimentHeadlines /> }
+    const tree = (runId?: string) => <QueryClientProvider client={client}><SentimentScopeProvider waitForResolvedRun projectName="project" selection={{ mode: 'advanced', scope: 'property', scopeKey: 'north', queryClass: 'branded' }}><Resolved runId={runId} /></SentimentScopeProvider></QueryClientProvider>
+    try {
+      const view = render(tree())
+      await waitFor(() => expect(client.getQueryData(sentimentQueryKey('project', 'settings'))).toBeTruthy())
+      expect(reads).toHaveLength(0)
+      view.rerender(tree('older-filtered-run'))
+      await screen.findByLabelText('Branded favorable share')
+      expect(reads).toHaveLength(2)
+      for (const request of reads) { expect(request.searchParams.get('runId')).toBe('older-filtered-run'); expect(request.searchParams.get('revision')).toBe('7') }
+    } finally { cleanup(); client.clear(); restore() }
+  })
+  it('preserves exact grouped run IDs in evidence and clears them for a single-sweep preview', async () => {
+    const dto = summary(); dto.selection = { ...dto.selection, mode: 'simple', scope: 'project', runId: null, runIds: ['east-run', 'west-run'] }
+    const { state, reason, provisional, coverage, score } = dto
+    dto.queries = [{ queryId: 'q', queryText: 'Is North Hall good?', queryClass: 'branded', sourceSnapshotIds: ['snapshot'], state, reason, provisional, coverage, score, locations: [] }]
+    const requests: URL[] = []
+    const restore = mockFetch(url => {
+      const request = new URL(url); requests.push(request)
+      if (request.pathname.endsWith('/settings')) return jsonResponse(settings(true))
+      if (request.pathname.endsWith('/jobs')) return jsonResponse({ jobs: [] })
+      if (request.pathname.endsWith('/evidence')) return jsonResponse({ state: 'complete', selection: dto.selection, items: [], nextCursor: null })
+      if (request.pathname.endsWith('/backfill-preview')) return jsonResponse({ previewToken: null, expiresAt: null, selection: { mode: 'simple', scope: 'project', queryClass: 'branded', runId: 'east-run' }, evaluationDefinitionId: 'definition-a', eligibleAssessments: 0, alreadyClassified: 0, skipped: [], estimatedInputTokens: 0, estimatedCostUsd: 0, estimateMethod: 'fixture' })
+      return jsonResponse(dto)
+    })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    try {
+      render(<QueryClientProvider client={client}><SentimentScopeProvider projectName="project" selection={{ mode: 'simple', scope: 'project', queryClass: 'branded', runIds: ['east-run', 'west-run'] }} runOptions={[{ id: 'east-run', label: 'East sweep' }]}><SentimentControls /><SentimentQueryScore queryId="q" queryClass="branded" /></SentimentScopeProvider></QueryClientProvider>)
+      fireEvent.click(await screen.findByRole('button', { name: 'View Branded sentiment evidence for Is North Hall good?' }))
+      await screen.findByText('No stored sentiment evidence for this query and scope.')
+      const evidence = requests.find(url => url.pathname.endsWith('/evidence'))!
+      expect(evidence.searchParams.getAll('runIds')).toEqual(['east-run', 'west-run'])
+      expect(evidence.searchParams.has('runId')).toBe(false)
+      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      fireEvent.click(screen.getByRole('button', { name: 'Manage sentiment' }))
+      fireEvent.change(screen.getByRole('combobox', { name: 'Saved sweep' }), { target: { value: 'east-run' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Preview sentiment backfill' }))
+      await screen.findByText('Eligible assessments')
+      const preview = requests.find(url => url.pathname.endsWith('/backfill-preview'))!
+      expect(preview.searchParams.get('runId')).toBe('east-run')
+      expect(preview.searchParams.has('runIds')).toBe(false)
+    } finally { cleanup(); client.clear(); restore() }
   })
   it('previews without admission and reuses the request key after an uncertain response', async () => {
     const dto = summary()

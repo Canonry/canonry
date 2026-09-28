@@ -10,6 +10,7 @@ import {
   useClientTable,
 } from '../shared/DataTableControls.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { SentimentHeadlines, SentimentQueryScore, useSentimentConfigured } from './SentimentSection.js'
 import { CitationTimeline, mergeProviderHistories } from './CitationTimeline.js'
 import { useDrawer } from '../../hooks/use-drawer.js'
 import { highlightTermsInText, type HighlightTermGroup } from '../../lib/highlight.js'
@@ -180,6 +181,7 @@ export function EvidenceTable({
   const { openEvidence } = useDrawer()
   const panelId = useId()
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+  const sentimentConfigured = useSentimentConfigured()
   const [mode, setMode] = useState<CoverageMode>('mentions')
   const [density, setDensity] = useState<Density>(defaultDensity)
   const [queryClassSelection, setQueryClassSelection] = useState<QueryClassSelection>('all')
@@ -231,6 +233,7 @@ export function EvidenceTable({
 
   return (
     <div className="query-evidence">
+      <SentimentHeadlines queryClass={queryClassSelection} />
       <div className="query-evidence-view-row">
         <div className="flex items-center gap-3">
           <div className="query-evidence-tabs" role="tablist" aria-label="Citation tracking view">
@@ -317,6 +320,7 @@ export function EvidenceTable({
               <tr>
                 <th scope="col">Query</th>
                 <th scope="col">Status</th>
+                {sentimentConfigured && <th scope="col">Favorable</th>}
                 <th scope="col">{historyHeader}</th>
                 <th scope="col">Latest run</th>
                 <th><span className="sr-only">Answer</span></th>
@@ -333,6 +337,8 @@ export function EvidenceTable({
                   states.includes('lost') ? 'lost' :
                   states.every(s => s === 'pending') ? 'pending' : 'not-cited'
 
+                const queryIds = [...new Set(rawItems.map(item => item.queryId).filter((id): id is string => Boolean(id)))]
+                const sourceSnapshotIds = rawItems.map(item => item.sourceSnapshotId).filter((id): id is string => Boolean(id))
                 const mergedHistory = mergeProviderHistories(items)
                 const presentCount = items.filter(i => i.citationState === CitationStates.cited || i.citationState === 'emerging').length
 
@@ -371,6 +377,7 @@ export function EvidenceTable({
                           </span>
                         </div>
                       </td>
+                      {sentimentConfigured && <td><SentimentQueryScore queryId={queryIds.length === 1 ? queryIds[0] : null} sourceSnapshotIds={queryIds.length > 1 ? [] : sourceSnapshotIds} queryClass={queryClass} location={compareLocations ? location : undefined} /></td>}
                       <td>
                         <CitationTimeline history={mergedHistory} signal={mode} />
                       </td>
@@ -392,6 +399,7 @@ export function EvidenceTable({
                               label={statusLabelForMode(item.citationState, mode)}
                             />
                           </td>
+                          {sentimentConfigured && <td />}
                           <td>
                             <CitationTimeline history={item.runHistory} signal={mode} />
                           </td>
@@ -412,7 +420,7 @@ export function EvidenceTable({
                         </tr>
                         {density === 'detailed' && (
                           <tr className="query-evidence-preview-row">
-                            <td colSpan={5}>
+                            <td colSpan={sentimentConfigured ? 6 : 5}>
                               <AnswerInlinePanel
                                 item={item}
                                 onViewFull={() => openEvidence(item.id)}

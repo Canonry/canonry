@@ -1,3 +1,4 @@
+import { SentimentControls, SentimentHeadlines, SentimentQueryScore, useSentimentResolvedSource } from './SentimentSection.js'
 import { REPORT_VISIBILITY_COPY, reportUnattributedAnswers } from '@ainyc/canonry-contracts'
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -320,8 +321,9 @@ function QueryProperties({ targetKeys, labels }: { targetKeys: string[]; labels:
   </details>
 }
 
-function QueryResultGroup({ group, advanced, targetLabels, marketHeading, onViewAnswers }: {
+function QueryResultGroup({ group, queryClass, advanced, targetLabels, marketHeading, onViewAnswers }: {
   group: VisibilityQueryGroup
+  queryClass: 'branded' | 'non-brand' | 'unknown'
   advanced: boolean
   marketHeading?: string
   targetLabels: Map<string, string>
@@ -335,7 +337,7 @@ function QueryResultGroup({ group, advanced, targetLabels, marketHeading, onView
   return <tbody data-query-key={group.queryKey}>
     {marketHeading ? <tr><th colSpan={4} className="border-t border-default py-4 text-left"><h3 className="text-base font-semibold text-heading">{marketHeading}</h3></th></tr> : null}
     <tr className="measurement-result-heading"><th scope="rowgroup" colSpan={4}>
-      <h3 className="break-words text-base font-medium text-heading">{group.query}</h3>
+      <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="break-words text-base font-medium text-heading">{group.query}</h3><div className="text-sm font-normal"><SentimentQueryScore showLabel queryId={first.queryId} queryClass={queryClass === 'unknown' ? null : queryClass} /></div></div>
       <div className="flex flex-wrap items-center gap-x-5 text-sm font-normal text-secondary">
         {advanced && sharedTargets ? <QueryProperties targetKeys={first.targetKeys} labels={targetLabels} /> : null}
         {sharedLocation ? <span>{locationLabel(first.location)}</span> : null}
@@ -695,6 +697,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
         <ReportHeadlineCell label={aggregateScope ? 'Answers citing a property' : 'Cited answers'} help={selection.mode === 'advanced' ? REPORT_HEADLINE_HELP.advancedCitation : REPORT_HEADLINE_HELP.simpleCitation} value={population.summary.citationCoverage} unit="answers" classNoun={classNoun} change={reportChangeLine(population.comparison, 'citationCoverage')} />
         {aggregateScope ? <ReportHeadlineCell label="Properties mentioned" help={REPORT_HEADLINE_HELP.propertyReach} value={population.summary.propertyReach} unit="properties" classNoun={classNoun} change={reportChangeLine(population.comparison, 'propertyReach')} /> : null}
       </dl>
+      <SentimentHeadlines queryClass={selection.queryClass} />
       <ReportTrend population={population} />
       {aggregateScope && (population.breakdown.groups.length > 0 || population.breakdown.properties.length > 0) ? <ReportScopeBreakdown key={`${selection.scope.kind}:${selection.scope.id}`} population={population} scope={selection.scope} scopeOptions={report.scopeOptions} marketKey={selection.market?.id} onSelectionChange={onSelectionChange} /> : null}
       {selection.mode === 'advanced' ? <details className="visibility-disclosure" aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} property outcomes`}><summary className="visibility-disclosure-summary"><span className="visibility-disclosure-label">Property outcomes</span><span className="visibility-disclosure-meta">{population.summary.outcomes.total} {population.summary.outcomes.total === 1 ? 'property' : 'properties'}</span></summary><div className="visibility-disclosure-panel flex flex-wrap items-start justify-between gap-3">
@@ -709,7 +712,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
         <div className="overflow-x-auto">
           <table className="evidence-table measurement-responsive-table measurement-results-table" aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} engine results`}>
             <thead><tr><th scope="col">Answer engine</th><th scope="col">Mentioned</th><th scope="col">Cited</th><th scope="col"><span className="sr-only">Evidence</span></th></tr></thead>
-            {queryGroups.map((group, index) => <QueryResultGroup key={group.queryKey} group={group} marketHeading={group.marketLabel !== queryGroups[index - 1]?.marketLabel ? group.marketLabel : undefined} advanced={selection.mode === 'advanced'} targetLabels={targetLabels} onViewAnswers={(row, trigger) => { answerTrigger.current = { row, element: trigger }; onSelectionChange({ measurementQueryKey: row.queryKey, measurementAnswer: JSON.stringify({ queryKey: row.queryKey, queryClass: population.queryClass, provider: row.provider, model: row.model, location: row.location, runId: selection.run.id, revision: selection.revision } satisfies VisibilityAnswerSelection) }) }} />)}
+            {queryGroups.map((group, index) => <QueryResultGroup key={group.queryKey} group={group} queryClass={population.queryClass} marketHeading={group.marketLabel !== queryGroups[index - 1]?.marketLabel ? group.marketLabel : undefined} advanced={selection.mode === 'advanced'} targetLabels={targetLabels} onViewAnswers={(row, trigger) => { answerTrigger.current = { row, element: trigger }; onSelectionChange({ measurementQueryKey: row.queryKey, measurementAnswer: JSON.stringify({ queryKey: row.queryKey, queryClass: population.queryClass, provider: row.provider, model: row.model, location: row.location, runId: selection.run.id, revision: selection.revision } satisfies VisibilityAnswerSelection) }) }} />)}
           </table>
         </div>
         {population.queries.items.length === 0 ? <p className="py-4 text-sm text-secondary">No measured queries match this selection.</p> : <p className="mt-3 text-sm text-secondary">{queryGroups.length} {queryGroups.length === 1 ? 'query' : 'queries'} · {population.queries.items.length} {population.queries.items.length === 1 ? 'engine result' : 'engine results'} shown of {population.queries.total} results</p>}
@@ -913,7 +916,10 @@ export function VisibilityOverview({ projectName, selection, onSelectionChange, 
   // Absent before the first report, on error (the workspace alert owns
   // recovery), and wherever the page's fallback replaces the report.
   const report = firstPage.error ? undefined : firstPage.data
+  const sentimentRun = !firstPage.isPlaceholderData && report?.selection.availability.state === 'available' ? report.selection.run.id : null
+  useSentimentResolvedSource(sentimentRun, report?.selection.revision)
   return <>
+    <div className="mb-3 flex justify-end"><SentimentControls /></div>
     {report && report.selection.availability.state === 'available' && !usesUnmeasuredFallback(report, showUnmeasuredFallback)
       ? <VisibilityResultsToolbar report={report} selection={selection} onSelectionChange={onSelectionChange} onManageQueries={onManageQueries} renderPropertyLink={renderPropertyLink} />
       : null}

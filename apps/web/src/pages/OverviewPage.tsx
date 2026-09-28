@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
+import { SentimentOverviewMetric } from '../components/project/SentimentSection.js'
 import { Sparkline } from '../components/shared/Sparkline.js'
 import { StatusBadge } from '../components/shared/StatusBadge.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
@@ -75,6 +76,7 @@ function OverviewProjectCard({
           <p className="metric-inline-caption" aria-hidden="true"></p>
         </div>
       </div>
+      <SentimentOverviewMetric value={project.sentiment} />
       <span className="project-row-link">
         <ChevronRight className="h-4 w-4 text-muted" />
       </span>

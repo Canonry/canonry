@@ -1,4 +1,4 @@
-import type { McpHealth, ProjectDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, SuggestedQueriesSummaryDto } from '@ainyc/canonry-contracts'
+import type { McpHealth, ProjectDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, SuggestedQueriesSummaryDto, SentimentOverview } from '@ainyc/canonry-contracts'
 
 export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 /** `disabled` is a service switched off on purpose, such as the public demo's worker. */
@@ -75,6 +75,7 @@ export interface RunListItemVm extends RunDto {
 }
 
 export interface PortfolioProjectVm {
+  sentiment?: SentimentOverview
   project: ProjectDto
   /** False when saved mention evidence is unavailable; zero is a measured result. */
   hasMeasurement?: boolean
@@ -127,6 +128,9 @@ export interface ModelTransitionVm {
 }
 
 export interface CitationInsightVm {
+  queryId?: string | null
+  sourceSnapshotId?: string | null
+  sourceRunId?: string | null
   id: string
   query: string
   /** Project-wide read-time class; unavailable without usable brand identities. */

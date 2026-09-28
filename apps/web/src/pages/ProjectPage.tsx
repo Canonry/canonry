@@ -34,7 +34,7 @@ import {
 import { ProviderBadge } from '../components/shared/ProviderBadge.js'
 import { RunRow } from '../components/shared/RunRow.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
-import { SentimentSection } from '../components/project/SentimentSection.js'
+import { SentimentScopeProvider, SentimentControls } from '../components/project/SentimentSection.js'
 import { sentimentSelectionFromVisibility } from '../queries/sentiment.js'
 import { EvidenceTable } from '../components/project/EvidenceTable.js'
 import { BingSummaryMetric } from '../components/project/BingSummaryMetric.js'
@@ -2714,9 +2714,8 @@ function ProjectPageContent({
   function renderVisibilityOverview(overview: React.ReactNode) {
     // Simple keeps its own layout even when a unified report is available.
     // Advanced retains the report workspace and its existing legacy fallback.
-    if (isSimpleOverview) return overview
     // The overview keys its results by the selection and keeps its toolbar mounted.
-    return (
+    const content = isSimpleOverview ? overview : (
       <VisibilityOverview
         projectName={projectName}
         selection={visibilitySelection}
@@ -2736,6 +2735,17 @@ function ProjectPageContent({
         fallback={overview}
       />
     )
+    if (isEmbed()) return content
+    const sentimentSelection = sentimentSelectionFromVisibility(visibilitySelection, isSimpleOverview ? 'simple' : 'advanced', typeof projectSearchParams.sentimentEvaluationDefinitionId === 'string' ? projectSearchParams.sentimentEvaluationDefinitionId : undefined)
+    if (isSimpleOverview) {
+      sentimentSelection.location = locationFilter === '' ? 'none' : locationFilter
+      if (!sentimentSelection.runId) {
+        const runIds = [...new Set(filteredEvidence.map(item => item.sourceRunId).filter((id): id is string => Boolean(id)))].sort()
+        if (runIds.length > 1) sentimentSelection.runIds = runIds
+        else if (runIds.length === 1) sentimentSelection.runId = runIds[0]
+      }
+    }
+    return <SentimentScopeProvider waitForResolvedRun={!isSimpleOverview} projectName={projectName} runOptions={model.recentRuns.filter(run => run.kind === RunKinds['answer-visibility'] && run.trigger !== RunTriggers.probe && (run.status === RunStatuses.completed || run.status === RunStatuses.partial)).map(run => ({ id: run.id, label: formatTimestamp(run.finishedAt ?? run.createdAt) }))} selection={sentimentSelection}>{content}</SentimentScopeProvider>
   }
 
   // The context row's measurement scope slot. Each tab owns recovery for a
@@ -3031,7 +3041,8 @@ function ProjectPageContent({
             defaultOpen
           >
             {!isEmbed() && (
-              <div className="mb-3 flex items-center justify-end">
+              <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+                <SentimentControls />
                 <WriteButton type="button" variant="outline" size="sm" onClick={() => setManagingQueries(!managingQueries)}>
                   {managingQueries ? 'Done' : 'Manage queries'}
                 </WriteButton>
@@ -3219,7 +3230,6 @@ function ProjectPageContent({
             isLoadMoreError={advancedMeasurementOverviewQuery.isFetchNextPageError}
             viewSearch={advancedMeasurementView.search ?? ''}
           />)}
-          {!isEmbed() && <SentimentSection projectName={projectName} runOptions={model.recentRuns.filter(run => run.kind === RunKinds['answer-visibility'] && run.trigger !== RunTriggers.probe && (run.status === RunStatuses.completed || run.status === RunStatuses.partial)).map(run => ({ id: run.id, label: formatTimestamp(run.finishedAt ?? run.createdAt) }))} selection={sentimentSelectionFromVisibility(visibilitySelection, isSimpleOverview ? 'simple' : 'advanced', typeof projectSearchParams.sentimentEvaluationDefinitionId === 'string' ? projectSearchParams.sentimentEvaluationDefinitionId : undefined)} />}
           {!isSimpleOverview && visibilitySelection.measurementScope === 'project' ? <details key={projectName} className="visibility-disclosure" onToggle={event => {
             if (event.currentTarget.open) onRequestOverview()
           }}>
