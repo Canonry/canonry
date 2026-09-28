@@ -3,15 +3,15 @@ import { getProviderLocationHandling, isSearchLocationIgnored } from '../src/pro
 import { RetrievalStatuses } from '../src/retrieval.js'
 
 describe('getProviderLocationHandling', () => {
-  it('reports prompt-injection providers (Gemini, Perplexity, Local)', () => {
+  it('reports prompt-injection providers (Gemini, Local)', () => {
     expect(getProviderLocationHandling('gemini').treatment).toBe('prompt')
-    expect(getProviderLocationHandling('perplexity').treatment).toBe('prompt')
     expect(getProviderLocationHandling('local').treatment).toBe('prompt')
   })
 
-  it('reports request-param providers (OpenAI, Claude, Muse)', () => {
+  it('reports request-param providers (OpenAI, Claude, Perplexity, Muse)', () => {
     expect(getProviderLocationHandling('openai').treatment).toBe('request-param')
     expect(getProviderLocationHandling('claude').treatment).toBe('request-param')
+    expect(getProviderLocationHandling('perplexity').treatment).toBe('request-param')
     expect(getProviderLocationHandling('muse')).toEqual({
       treatment: 'request-param',
       supportsLocationContext: true,
@@ -38,14 +38,14 @@ describe('getProviderLocationHandling', () => {
 })
 
 describe('isSearchLocationIgnored', () => {
-  it.each(['muse', 'openai', 'claude'])('ignores %s search location only when search did not run', (provider) => {
+  it.each(['muse', 'openai', 'claude', 'perplexity'])('ignores %s search location only when search did not run', (provider) => {
     expect(isSearchLocationIgnored(provider, RetrievalStatuses['not-used'])).toBe(true)
     for (const status of [RetrievalStatuses.used, RetrievalStatuses.unknown, RetrievalStatuses['not-applicable']]) {
       expect(isSearchLocationIgnored(provider, status)).toBe(false)
     }
   })
 
-  it.each(['gemini', 'perplexity', 'local', 'cdp:chatgpt', 'custom'])('preserves %s location treatment without search', (provider) => {
+  it.each(['gemini', 'local', 'cdp:chatgpt', 'custom'])('preserves %s location treatment without search', (provider) => {
     expect(isSearchLocationIgnored(provider, RetrievalStatuses['not-used'])).toBe(false)
   })
 })

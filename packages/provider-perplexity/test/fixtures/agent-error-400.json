@@ -1,0 +1,8 @@
+{
+  "error": {
+    "message": "invalid request body: json: unknown field \"search_mode\"",
+    "type": "invalid_request",
+    "code": 400,
+    "param": "search_mode"
+  }
+}

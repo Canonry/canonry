@@ -1,0 +1,23 @@
+{
+  "id": "resp_c81f55e0d2",
+  "object": "response",
+  "created_at": 1790000200,
+  "model": "perplexity/sonar",
+  "status": "completed",
+  "output": [
+    {
+      "id": "msg_0f77d2",
+      "type": "message",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "ok",
+          "annotations": []
+        }
+      ]
+    }
+  ],
+  "usage": { "input_tokens": 9, "output_tokens": 1, "total_tokens": 10 }
+}

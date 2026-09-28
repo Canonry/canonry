@@ -138,11 +138,6 @@ const PROVIDER_LOCATION_HANDLING: Record<string, ProviderLocationHandling> = {
     supportsLocationContext: true,
     description: 'Location appended to the query text the Gemini model receives.',
   },
-  perplexity: {
-    treatment: 'prompt',
-    supportsLocationContext: true,
-    description: 'Location appended to the query text the Perplexity model receives.',
-  },
   local: {
     treatment: 'prompt',
     supportsLocationContext: true,
@@ -157,6 +152,11 @@ const PROVIDER_LOCATION_HANDLING: Record<string, ProviderLocationHandling> = {
     treatment: 'request-param',
     supportsLocationContext: true,
     description: 'Location sent as a structured `user_location` field on Anthropic’s web_search_20250305 tool.',
+  },
+  perplexity: {
+    treatment: 'request-param',
+    supportsLocationContext: true,
+    description: 'Location sent as a structured `user_location` field on Perplexity’s web_search tool.',
   },
   muse: {
     treatment: 'request-param',

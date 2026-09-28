@@ -4,6 +4,7 @@ import {
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
   measurementPlanV2Schema,
 } from './measurement-plan-v2.js'
+import { resolveProviderModel } from './models.js'
 import { locationContextSchema, type LocationContext } from './provider.js'
 import { brandLabelFromDomain, hostOf } from './url-normalize.js'
 
@@ -541,7 +542,9 @@ function normalizeExecutionIdentity(input: MeasurementExecutionIdentityInput): M
   const models: Record<string, string> = {}
   for (const provider of providers) {
     const model = input.models[provider]
-    if (model && model.trim()) models[provider] = model.trim()
+    // A retired id resolves to what actually answers now, so a config still
+    // naming it records the new engine rather than passing as the old series.
+    if (model && model.trim()) models[provider] = resolveProviderModel(provider, model.trim())
   }
   return { providers, models }
 }

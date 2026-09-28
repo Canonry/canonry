@@ -1,6 +1,6 @@
 import { applyConfigs } from '../commands/apply.js'
 import { showAnalytics } from '../commands/analytics.js'
-import { showSources } from '../commands/sources.js'
+import { SOURCES_USAGE, parseSourcesIncludeByQuery, parseSourcesQueryClass, showSources } from '../commands/sources.js'
 import { showEvidence } from '../commands/evidence.js'
 import { exportProject } from '../commands/export-cmd.js'
 import { exportResults } from '../commands/results-export.js'
@@ -145,25 +145,30 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['sources'],
-    usage: 'canonry sources <project> [--rank] [--limit N] [--by-provider] [--window 7d|30d|90d|all] [--format json|jsonl]',
+    usage: SOURCES_USAGE,
     options: {
       rank: { type: 'boolean', default: false },
       'by-provider': { type: 'boolean', default: false },
       limit: stringOption(),
       window: stringOption(),
+      'query-class': stringOption(),
+      'run-id': stringOption(),
+      'include-by-query': stringOption(),
     },
     run: async (input) => {
-      const usage = 'canonry sources <project> [--rank] [--limit N] [--by-provider] [--window 7d|30d|90d|all] [--format json|jsonl]'
-      const project = requireProject(input, 'sources', usage)
+      const project = requireProject(input, 'sources', SOURCES_USAGE)
       await showSources(project, {
         rank: getBoolean(input.values, 'rank'),
         byProvider: getBoolean(input.values, 'by-provider'),
         limit: parseIntegerOption(input, 'limit', {
           message: '--limit must be an integer',
-          usage,
+          usage: SOURCES_USAGE,
           command: 'sources',
         }),
         window: getString(input.values, 'window'),
+        runId: getString(input.values, 'run-id'),
+        queryClass: parseSourcesQueryClass(getString(input.values, 'query-class')),
+        includeByQuery: parseSourcesIncludeByQuery(getString(input.values, 'include-by-query')),
         format: input.format,
       })
     },

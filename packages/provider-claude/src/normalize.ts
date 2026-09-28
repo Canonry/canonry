@@ -1,5 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { WebSearchTool20250305 } from "@anthropic-ai/sdk/resources/messages/messages.js";
+import type {
+  ToolChoice,
+  WebSearchTool20250305,
+} from "@anthropic-ai/sdk/resources/messages/messages.js";
 import {
   AI_ENGINE_SELF_DOMAINS,
   hostMatchesAnyDomain,
@@ -7,6 +10,7 @@ import {
   normalizeServedModel,
   registrableDomain,
   describeError,
+  RetrievalContracts,
 } from "@ainyc/canonry-contracts";
 import { withRetry } from "./utils.js";
 import type {
@@ -54,10 +58,78 @@ const VALIDATION_PATTERN = /^claude-/;
  * preamble is emitted before the tool call, but the final answer we parse is
  * unaffected.
  *
+ * This is the contract for every model that accepts forced tool use. The models
+ * in {@link CLAUDE_MODELS_REJECTING_FORCED_TOOL_CHOICE} cannot run it; see
+ * {@link claudeRetrievalContractForModel} for what they run instead.
+ *
  * https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview
  * https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool
  */
-export const CLAUDE_RETRIEVAL_CONTRACT: RetrievalContract = "search-required-v1";
+export const CLAUDE_RETRIEVAL_CONTRACT: RetrievalContract =
+  RetrievalContracts["search-required-v1"];
+
+/**
+ * Claude models that reject forced tool use. Anthropic documents that on these
+ * models `tool_choice: { type: "any" }` and `{ type: "tool", name }` return HTTP
+ * 400 ("tool_choice: type "tool" and "any" are not supported for this model."),
+ * on Messages, count_tokens and Batches alike, whatever the thinking settings.
+ *
+ * Exact model ids, copied from the documentation's list. Nothing is inferred
+ * from a family name or a version number: `claude-opus-5` and `claude-fable-5`
+ * are string prefixes of entries here and still accept forcing. A model missing
+ * from this list fails loudly with that 400 on every tracked query; it never
+ * records the wrong contract. Add an id here only when Anthropic lists it.
+ *
+ * https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools#forcing-tool-use
+ * https://platform.claude.com/docs/en/api/errors#forced-tool-use-not-supported
+ */
+export const CLAUDE_MODELS_REJECTING_FORCED_TOOL_CHOICE: ReadonlySet<string> =
+  new Set(["claude-opus-5-5", "claude-fable-5-1", "claude-mythos-5-1"]);
+
+/** True when `model` is one of {@link CLAUDE_MODELS_REJECTING_FORCED_TOOL_CHOICE}. */
+export function claudeModelRejectsForcedToolChoice(model: string): boolean {
+  return CLAUDE_MODELS_REJECTING_FORCED_TOOL_CHOICE.has(
+    model.trim().toLowerCase(),
+  );
+}
+
+/**
+ * The retrieval contract a tracked query to `model` runs under. This is the one
+ * place the model decides the search policy: the request's `tool_choice` is
+ * derived from the contract returned here (see
+ * {@link CLAUDE_TOOL_CHOICE_BY_CONTRACT}), so the contract a snapshot records
+ * always describes the request that produced it.
+ *
+ * A model that rejects forced tool use cannot run `search-required-v1`, so it
+ * runs `native-auto-v1`: the same unmodified query, the same `web_search` tool,
+ * no system prompt, and `tool_choice: auto`, which leaves the search decision to
+ * Claude. That is exactly the definition of `native-auto-v1` in
+ * `@ainyc/canonry-contracts`, and the request this adapter sent before
+ * `search-required-v1` existed, when `tool_choice` was left at its `auto`
+ * default. It guarantees no retrieval. Per-answer `retrievalStatus` detection is
+ * unchanged, so an answer written without a search is stored as `not-used`
+ * rather than as a genuine miss.
+ */
+export function claudeRetrievalContractForModel(
+  model: string,
+): RetrievalContract {
+  return claudeModelRejectsForcedToolChoice(model)
+    ? RetrievalContracts["native-auto-v1"]
+    : CLAUDE_RETRIEVAL_CONTRACT;
+}
+
+/**
+ * The `tool_choice` each retrieval contract sends. Keyed on every contract, so
+ * adding a contract to `@ainyc/canonry-contracts` fails typecheck here until
+ * its request shape is decided.
+ */
+const CLAUDE_TOOL_CHOICE_BY_CONTRACT: Record<RetrievalContract, ToolChoice> = {
+  [RetrievalContracts["search-required-v1"]]: {
+    type: "tool",
+    name: "web_search",
+  },
+  [RetrievalContracts["native-auto-v1"]]: { type: "auto" },
+};
 
 /**
  * Resolve the effective model name, validating that it is a recognised Claude
@@ -84,7 +156,10 @@ export function validateConfig(config: ClaudeConfig): ClaudeHealthcheckResult {
   const warning =
     config.model && !VALIDATION_PATTERN.test(config.model)
       ? ` (invalid model "${config.model}" replaced with default)`
-      : "";
+      : claudeModelRejectsForcedToolChoice(model)
+        ? ` (${model} rejects forced tool_choice, so tracked queries run under ` +
+          `${claudeRetrievalContractForModel(model)}: web_search is offered but retrieval is not guaranteed)`
+        : "";
   return {
     ok: true,
     provider: "claude",
@@ -133,6 +208,7 @@ export async function executeTrackedQuery(
   input: ClaudeTrackedQueryInput,
 ): Promise<ClaudeRawResult> {
   const model = resolveModel(input.config);
+  const retrievalContract = claudeRetrievalContractForModel(model);
   const client = new Anthropic({ apiKey: input.config.apiKey });
 
   const webSearchTool: Record<string, unknown> = {
@@ -156,9 +232,11 @@ export async function executeTrackedQuery(
         model,
         max_tokens: 4096,
         tools: [webSearchTool as unknown as WebSearchTool20250305],
-        // search-required-v1: retrieval is guaranteed by the API control, so the
-        // query text and answer substance stay untouched. See the contract note.
-        tool_choice: { type: "tool", name: "web_search" },
+        // search-required-v1 forces web_search, so retrieval is guaranteed by the
+        // API control and the query text and answer substance stay untouched.
+        // native-auto-v1 (models that reject forcing) leaves the search to
+        // Claude. See claudeRetrievalContractForModel.
+        tool_choice: CLAUDE_TOOL_CHOICE_BY_CONTRACT[retrievalContract],
         messages: [{ role: "user", content: input.query }],
       }),
     );
@@ -177,7 +255,7 @@ export async function executeTrackedQuery(
       groundingSources: parsed.groundingSources,
       searchQueries: parsed.searchQueries,
       retrievalStatus: parsed.retrievalStatus,
-      retrievalContract: CLAUDE_RETRIEVAL_CONTRACT,
+      retrievalContract,
     };
   } catch (err: unknown) {
     const msg = describeError(err);

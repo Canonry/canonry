@@ -1406,7 +1406,7 @@ describe('canonry', () => {
     // Unbundled source carries no tsup build stamp, so CANONRY_COMMIT is the
     // path a test can reach; the stamp source is covered in instance-identity.test.ts.
     vi.stubEnv('CANONRY_COMMIT', 'eed745d5c1f0a4b6e2d8c9a7b3f1e0d2c4b6a8f0')
-    vi.stubEnv('CANONRY_INSTANCE', 'gjelina-demo')
+    vi.stubEnv('CANONRY_INSTANCE', 'acme-demo')
     vi.stubEnv('CANONRY_INSTANCE_ROLE', 'client-demo')
     const tmpDir = path.join(os.tmpdir(), `canonry-test-${crypto.randomUUID()}`)
     fs.mkdirSync(tmpDir, { recursive: true })
@@ -1447,7 +1447,7 @@ describe('canonry', () => {
       }
       expect(body.status).toBe('ok')
       expect(body.commit).toBe('eed745d5c1f0a4b6e2d8c9a7b3f1e0d2c4b6a8f0')
-      expect(body.instance).toEqual({ name: 'gjelina-demo', role: 'client-demo' })
+      expect(body.instance).toEqual({ name: 'acme-demo', role: 'client-demo' })
     } finally {
       await app.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })
@@ -1599,6 +1599,27 @@ describe('canonry', () => {
       'https://example.test/canonry/api/v1/projects/acme/technical-aeo/internal-links?followable=false&limit=20',
       'https://example.test/canonry/api/v1/projects/acme/technical-aeo/internal-links/neighbors?nodeKey=node-1&limit=20',
       'https://example.test/canonry/api/v1/projects/acme/technical-aeo/dead-links?limit=20',
+    ])
+  })
+
+  it('ApiClient scopes analytics sources to one run and class and sends includeByQuery only when set', async () => {
+    const fakeFetch = vi.fn(async () =>
+      new Response('{}', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    vi.stubGlobal('fetch', fakeFetch)
+
+    const client = new ApiClient('https://example.test/canonry', 'cnry_test', { skipProbe: true })
+    await client.getAnalyticsSources('acme', { window: '30d', limit: 10, runId: 'run-1', queryClass: 'non-brand', includeByQuery: false })
+    await client.getAnalyticsSources('acme', { includeByQuery: true })
+    await client.getAnalyticsSources('acme', { queryClass: 'branded' })
+
+    expect(fakeFetch.mock.calls.map(([request]) => (request as Request).url)).toEqual([
+      'https://example.test/canonry/api/v1/projects/acme/analytics/sources?window=30d&limit=10&runId=run-1&queryClass=non-brand&includeByQuery=false',
+      'https://example.test/canonry/api/v1/projects/acme/analytics/sources?includeByQuery=true',
+      'https://example.test/canonry/api/v1/projects/acme/analytics/sources?queryClass=branded',
     ])
   })
 

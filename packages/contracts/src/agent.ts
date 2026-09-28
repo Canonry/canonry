@@ -212,6 +212,47 @@ export function agentConversationTitle(messages: Array<{ role: string; content?:
   return 'New conversation'
 }
 
+/**
+ * Scripted Aero turns the public demo serves for its dashboard starters. They
+ * are built once from the seeded sample rows when the demo starts; no model
+ * or provider is called to produce or replay them.
+ */
+export const aeroPreviewStarterIds = ['status', 'changes', 'gaps', 'insights'] as const
+export const aeroPreviewStarterIdSchema = z.enum(aeroPreviewStarterIds)
+export type AeroPreviewStarterId = z.infer<typeof aeroPreviewStarterIdSchema>
+
+export const aeroPreviewStepSchema = z.object({
+  /** Assistant text shown before the tool call, when the turn narrates it. */
+  text: z.string().optional(),
+  tool: z.object({
+    /** Real Canonry MCP tool name, such as canonry_visibility_report. */
+    name: z.string(),
+    /** The tool's registered title, which the live bar shows as the card label. */
+    label: z.string(),
+    arguments: z.record(z.string(), z.unknown()),
+    /** A compact excerpt of the stored result, not the full payload. */
+    result: z.unknown(),
+    durationMs: z.number().int().nonnegative(),
+  }),
+})
+export type AeroPreviewStep = z.infer<typeof aeroPreviewStepSchema>
+
+export const aeroPreviewStarterSchema = z.object({
+  id: aeroPreviewStarterIdSchema,
+  steps: z.array(aeroPreviewStepSchema),
+  /** Final assistant markdown. */
+  answer: z.string(),
+})
+export type AeroPreviewStarter = z.infer<typeof aeroPreviewStarterSchema>
+
+/** GET /api/v1/projects/:name/agent/preview, served only by the public demo. */
+export const aeroPreviewResponseSchema = z.object({
+  project: z.string(),
+  seededAt: z.string(),
+  starters: z.array(aeroPreviewStarterSchema),
+})
+export type AeroPreviewResponse = z.infer<typeof aeroPreviewResponseSchema>
+
 export const agentConversationListQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(100).default(50),

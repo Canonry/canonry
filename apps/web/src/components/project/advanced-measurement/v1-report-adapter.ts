@@ -28,7 +28,11 @@ function metric(rate: ReportTarget['mentionCoverage']): AdvancedMeasurementMetri
   if (rate.numerator === null) {
     return { numerator: null, denominator: null, reason: rate.reason }
   }
-  return { numerator: rate.numerator, denominator: rate.denominator }
+  return {
+    numerator: rate.numerator,
+    denominator: rate.denominator,
+    ...(rate.unattributed === undefined ? {} : { unattributed: rate.unattributed }),
+  }
 }
 
 function evidenceKind(classification: ReportEvidence['classification']): AdvancedMeasurementEvidence['kind'] {

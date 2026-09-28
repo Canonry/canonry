@@ -1,0 +1,71 @@
+{
+  "id": "resp_7f3c2a9e1b",
+  "object": "response",
+  "created_at": 1790000000,
+  "model": "perplexity/sonar",
+  "status": "completed",
+  "output": [
+    {
+      "type": "search_results",
+      "queries": ["best crm for startups", "startup crm comparison 2026"],
+      "results": [
+        {
+          "id": 1,
+          "url": "https://www.hubspot.com/products/crm/startups",
+          "title": "HubSpot for Startups",
+          "snippet": "Free CRM tools for early-stage teams.",
+          "date": "2026-08-02",
+          "last_updated": "2026-09-01",
+          "source": "web"
+        },
+        {
+          "id": 2,
+          "url": "https://blog.example.com/startup-crm-guide",
+          "title": "The startup CRM guide",
+          "snippet": "How to pick a CRM before Series A.",
+          "date": "2026-07-18",
+          "source": "web"
+        },
+        {
+          "id": 3,
+          "url": "https://www.hubspot.com/products/crm/startups",
+          "title": "HubSpot for Startups (duplicate hit)",
+          "snippet": "Free CRM tools for early-stage teams.",
+          "source": "web"
+        },
+        {
+          "id": 4,
+          "url": "https://pipedrive.com/en/blog/crm-for-startups",
+          "title": "CRM for startups",
+          "snippet": "Pipeline-first CRM for small sales teams.",
+          "source": "web"
+        }
+      ]
+    },
+    {
+      "id": "msg_4d1e8b",
+      "type": "message",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "HubSpot's free tier is the usual starting point for startups [1][2]. Pipedrive suits pipeline-heavy sales teams [4].",
+          "annotations": []
+        }
+      ]
+    }
+  ],
+  "usage": {
+    "input_tokens": 1843,
+    "output_tokens": 57,
+    "total_tokens": 1900,
+    "cost": {
+      "currency": "USD",
+      "input_cost": 0.0018,
+      "output_cost": 0.0001,
+      "tool_calls_cost": 0.005,
+      "total_cost": 0.0069
+    }
+  }
+}

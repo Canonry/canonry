@@ -235,11 +235,14 @@ cnry sources <project> --rank --limit 20        # top 20 domains; an explicit lo
 cnry sources <project> --by-provider            # per-provider cited-domain mix + each provider's total cited slots
 cnry sources <project> --window 30d --format json   # window-filterable; --format json emits the SourceBreakdownDto directly
 cnry sources <project> --rank --format jsonl    # stream the ranked domains, one self-contained record per line
+cnry sources <project> --query-class non-brand --run-id <run-id> --rank   # sources behind the non-brand answers of one sweep
+cnry sources <project> --include-by-query false --format json             # drop the large per-query breakdown (byQuery)
 ```
 
 - **Surface class** is deterministic (no LLM): `own` = the project's `canonicalDomain`/`ownedDomains`; `direct-competitor` = a tracked competitor; `ota-aggregator` = directories/marketplaces (Yelp, Booking.com, Tripadvisor, Amazon…); `editorial-media` = news/blogs/reference; `other` = everything else. When discovery has run, its stored per-domain classifications (`domain_classifications`) enrich recall for niche OTAs/regional media the static allow-list misses — `own` and tracked competitors always stay authoritative. Running `cnry discover run` improves coverage.
 - The ranked list is **not truncated** by default (the old top-5-per-category cap is gone). Pass `--limit N` to cap each list; the response carries `truncatedDomainCount` / `truncatedCitedSlots` so totals always reconcile.
-- Counts are **cited slots** (grounding citations), so a domain cited 3× in one answer counts 3. Probe runs are excluded.
+- Counts are **cited slots**: one per (answer, cited domain) pair, so a domain cited 3× in one answer counts once. Probe runs are excluded.
+- Without `--run-id` every run in the window is pooled (the scope line and `runCount` say how many); without `--query-class` branded and non-brand answers are pooled, and branded queries inflate your own domain. `--query-class branded|non-brand` takes the class from an active v2 measurement plan, otherwise from the project's brand name/aliases (a project with neither is refused). Answers the class filter cannot place are excluded and counted in `unclassifiedAnswers`. `--include-by-query` defaults to the server's `true`.
 
 ### Aggregated visibility stats (`cnry visibility-stats`)
 
@@ -258,9 +261,12 @@ cnry visibility-stats <project> --format jsonl                    # stream one r
 # Month-over-month comparison (the statistically honest m/m primitive — use this, not two --month calls diffed by hand):
 cnry visibility-compare <project> --from 2026-05 --to 2026-06     # SoV-led, Wilson intervals, within-noise/moved verdict, model-continuity gated
 cnry visibility-compare <project> --from 2026-05 --to 2026-06 --format json
+cnry visibility-compare <project> --from 2026-05 --to 2026-06 --provider openai --location none   # narrow every frame (case-insensitive)
+cnry visibility-compare <project> --from 2026-05 --to 2026-06 --scope property --scope-key <target>   # Advanced: one Property's frozen frame
 ```
 
 - **Use `visibility-compare` for any month-over-month AEO claim.** It leads with **share of voice** (less exposed to an engine's broad naming propensity than an absolute rate, `driftRobust: true`), pools rates per-snapshot (invariant to sweep count), restricts to the query/provider PAIRS present in BOTH months, then to providers with one known, identical configured model id in both months, and attaches a Wilson 95% interval + a `verdict` to every metric. Verdicts: **`within-noise`** = NO confirmed change (never report it as a decline); **`moved`** = a real directional move; **`model-discontinuous` / `model-unknown`** = the engine's configured model changed, was mixed within a month, or is unrecorded, so no directional call is made (do not attribute the swing to the site). Read `continuity` (`status` + per-provider evidence) for what was excluded — `continuity` is the gate, `modelChanges` is advisory. A silent upstream version bump under an unchanged configured id remains undetectable. `lowRunCount` flags a month under 5 sweeps, where intervals are too wide to resolve a move.
+- **Class rates:** `mention-rate-branded`, `cited-rate-branded`, `mention-rate-non-brand` and `cited-rate-non-brand` never pool the classes; a missing split reads `classification-unavailable`, and `excludedUnknown` counts rows without that metric's own signal. On an Advanced project without `--scope`/`--market-key`, the four original metrics keep the project frame while the class rates come from the frozen frame in **`classComparison`**: read `classComparison.continuity` (and its `basket`/run counts) as the gate for those four rates, not the top-level `continuity`. `--scope`/`--market-key` answer entirely from the frozen frame at the top level and are refused when a month holds unreconstructable schema-v1 runs.
 
 - **Tri-state aware:** `checked` counts only snapshots where `answerMentioned` was recorded — `null` ("not checked") is **excluded**, never counted as not-mentioned. So `checked` is the correct `n` for a mention proportion. `mentionRate = mentioned/checked`; `citedRate = cited/total` (citation_state is always populated, so the citation `n` is `total`). Both rates are `null` when their denominator is 0 (undefined over no samples).
 - **Date-only window:** `--since`/`--until` accept a full ISO instant or a bare `YYYY-MM-DD`. A date-only `--until 2026-06-30` covers the **whole** UTC day (through 23:59:59.999), so same-day runs are included; a date-only `--since` is that day's start.
@@ -409,9 +415,11 @@ cnry settings                                  # show config: providers, apiUrl,
 cnry settings --format json
 cnry settings provider gemini --api-key <KEY> --model gemini-2.5-flash
 cnry settings provider openai --max-per-day 1000 --max-per-minute 20
-cnry settings provider perplexity --api-key <KEY>
+cnry settings provider perplexity --api-key <KEY> --model fast
 cnry settings provider muse --api-key <KEY> --model muse-spark-1.3
 ```
+
+Perplexity runs on its Agent API. `--model` takes a preset (`fast` default, `low`, `medium`, `high`, `xhigh`) or a `vendor/model` slug such as `perplexity/sonar`. Retired Sonar names still work and run as their replacement (`sonar` → `fast`, `sonar-pro` → `low`).
 
 Quota flags: `--max-concurrent`, `--max-per-minute`, `--max-per-day`
 
@@ -1218,6 +1226,8 @@ cnry agent ask <project> "<prompt>" --provider deepinfra   # agent tier defaults
 # Restrict the tool surface. Default is --scope all (full read+write surface).
 # --scope read-only matches the dashboard bar default so pasted "Copy as CLI"
 # commands can't enable writes the UI turn couldn't perform.
+# On an install that manages answer-visibility sweeps, even --scope all cannot
+# start, fill or cancel a sweep, or change a schedule.
 cnry agent ask <project> "<prompt>" --scope read-only
 cnry agent ask <project> "<prompt>" --scope all
 

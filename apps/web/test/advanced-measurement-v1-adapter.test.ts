@@ -101,6 +101,14 @@ describe('version-one advanced measurement adapter', () => {
     })
   })
 
+  it('carries the answers a revision report left out of a mention rate', () => {
+    const partial = structuredClone(report)
+    partial.targets[0]!.mentionCoverage = { numerator: 1, denominator: 1, rate: 1, unattributed: 9 }
+    const adapted = adaptVersionOneMeasurementReport(activePlan, partial)
+    expect(adapted.overall.aggregate.properties[0]!.mentionCoverage).toEqual({ numerator: 1, denominator: 1, unattributed: 9 })
+    expect(adapted.overall.aggregate.properties[0]!.citationCoverage).toEqual({ numerator: 1, denominator: 1 })
+  })
+
   it('reports legacy completeness and bridged provenance even without citation evidence', () => {
     const adapted = adaptVersionOneMeasurementReport(activePlan, {
       ...report,

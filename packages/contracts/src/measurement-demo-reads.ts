@@ -45,6 +45,22 @@ const measurementDemoRecommendedNameSchema = z.string().trim().min(1)
 
 // ── Portfolio summary ────────────────────────────────────────────────────
 
+/**
+ * Rows every portfolio-summary list returns when `limit` is omitted. An agent
+ * reads this response as indented JSON through a 20,000-character tool-result
+ * cap. Each weakest row carries its own answer evidence (about 2,300
+ * characters with the deprecated `recommendedInstead` copy), so ten of them
+ * alone overran it. Four keeps the whole default response, markets and both
+ * rankings included, near 19,000 characters on a 200-Property, 150-market
+ * portfolio.
+ */
+export const MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT = 4
+/** Names and cited domains returned per weakest Property row. */
+export const MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT = 5
+/** Domains returned in the response-level `weakestAnswerSources`. */
+export const MEASUREMENT_PORTFOLIO_ANSWER_SOURCES_LIMIT = 10
+export const MEASUREMENT_PORTFOLIO_TIE_NOTE = 'tied Properties are ordered by name, not ranked'
+
 /** The portfolio demo defaults to the non-brand basket so its weakest rows remain actionable. */
 export const measurementPortfolioSummaryQuerySchema = z.object({
   runId: measurementDemoFilterQueryShape.runId,
@@ -52,21 +68,110 @@ export const measurementPortfolioSummaryQuerySchema = z.object({
   queryClass: measurementQueryClassFilterSchema.default('non-brand'),
   provider: measurementDemoFilterQueryShape.provider,
   location: measurementDemoFilterQueryShape.location,
+  /** Caps every list in the response (Property rows, both mention rankings, markets). Defaults to 4. */
   limit: z.number().int().positive().max(50).optional(),
+  /**
+   * Off by default: `markets` holds one level only, the top-level markets (or
+   * the selected group's direct children), worst-first and capped at `limit`.
+   * True returns every market in scope at every level, uncapped, as the
+   * roll-up did before it was levelled.
+   */
+  includeNestedMarkets: z.boolean().optional(),
 }).strict()
 export type MeasurementPortfolioSummaryQuery = z.output<typeof measurementPortfolioSummaryQuerySchema>
 
+/** A top-level reporting group: the root of a Property's market hierarchy. */
+export const measurementPortfolioMetroSchema = z.object({
+  groupKey: measurementV2StableKeySchema,
+  label: measurementDemoLabelSchema,
+}).strict()
+export type MeasurementPortfolioMetro = z.output<typeof measurementPortfolioMetroSchema>
+
+/**
+ * Where a Property sits in the plan's reporting groups, and how many queries
+ * stand behind its rates. Group a Property only by its own `metro`: a label
+ * never implies a market.
+ *
+ * `queries` counts distinct queries in the response queryClass that the
+ * displayed run asked for this Property (the plan's assignments before any run
+ * completes). Coverage denominators count ANSWERS, one per query per engine
+ * (and per location where a query runs in several), so 8 queries on 3 engines
+ * is a denominator of 24 answers.
+ */
+const measurementPortfolioPropertyContextShape = {
+  /** The top-level group holding this Property; null when it is in none. */
+  metro: measurementPortfolioMetroSchema.nullable(),
+  /** Further top-level groups holding the same Property. Present only when there are any. */
+  otherMetros: z.array(measurementPortfolioMetroSchema).min(1).optional(),
+  /** Labels of every nested (non-top-level) group holding this Property, shallowest first. */
+  submarkets: z.array(measurementDemoLabelSchema),
+  queries: measurementDemoCountSchema,
+}
+
+const measurementPortfolioCountedNameSchema = z.object({
+  name: measurementDemoRecommendedNameSchema,
+  /** Answers that wrote this name. */
+  answers: measurementDemoCountSchema,
+}).strict()
+
+const measurementPortfolioRecommendedInsteadSchema = z.object({
+  name: measurementDemoRecommendedNameSchema,
+  /** Answers that wrote this name, one per answer however it spells it: the same count as `namedInsteadInAnswerText[].answers`. */
+  occurrences: measurementDemoCountSchema,
+}).strict()
+
+const measurementPortfolioCountedDomainSchema = z.object({
+  domain: z.string().trim().min(1),
+  /** Answers citing at least one URL on this domain. */
+  answers: measurementDemoCountSchema,
+}).strict()
+
 export const measurementPortfolioWeakestPropertySchema = measurementDemoPropertySchema.extend({
+  ...measurementPortfolioPropertyContextShape,
   mentionCoverage: measurementMetricValueSchema,
   citationCoverage: measurementMetricValueSchema,
   flags: measurementDemoCountSchema,
-  recommendedInstead: z.array(z.object({
-    name: measurementDemoRecommendedNameSchema,
-    occurrences: measurementDemoCountSchema,
-  }).strict()).max(5),
-  recommendedInsteadTotal: measurementDemoCountSchema,
-  recommendedInsteadTruncated: z.boolean(),
+  /**
+   * Names WRITTEN IN THE ANSWER TEXT of this Property's answers that neither
+   * named nor cited it, counted by answer. These are mentions, never
+   * citations: a name here says nothing about which sources were linked.
+   * Supersedes the deprecated `recommendedInstead`, whose name read as a
+   * citation.
+   */
+  namedInsteadInAnswerText: z.array(measurementPortfolioCountedNameSchema).max(MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT),
+  /** Distinct names across those answers; more than returned means the list was cut. */
+  namedInsteadInAnswerTextTotal: measurementDemoCountSchema,
+  /**
+   * Domains cited by this Property's stored answers in this run and class,
+   * every engine included: each answer's stored domains plus the hosts of its
+   * captured source URLs, and answers whose text was not captured count too.
+   */
+  citedDomains: z.array(measurementPortfolioCountedDomainSchema).max(MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT),
+  /** Distinct cited domains; more than returned means the list was cut. */
+  citedDomainsTotal: measurementDemoCountSchema,
+  /**
+   * Deprecated: read `namedInsteadInAnswerText`. The same names in the same
+   * order, kept for existing consumers. `occurrences` counts answers, one per
+   * answer however it spells the name, exactly as `answers` does there.
+   */
+  recommendedInstead: z.array(measurementPortfolioRecommendedInsteadSchema).max(MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT)
+    .meta({ deprecated: true, description: 'Deprecated: read namedInsteadInAnswerText, which carries the same names in the same order. occurrences counts answers, exactly as answers does there.' }),
+  /** Deprecated: read `namedInsteadInAnswerTextTotal`, which it always equals. */
+  recommendedInsteadTotal: measurementDemoCountSchema
+    .meta({ deprecated: true, description: 'Deprecated: read namedInsteadInAnswerTextTotal, which it always equals.' }),
+  /** Deprecated: true when `namedInsteadInAnswerTextTotal` exceeds the names returned. */
+  recommendedInsteadTruncated: z.boolean()
+    .meta({ deprecated: true, description: 'Deprecated: true when namedInsteadInAnswerTextTotal exceeds the names returned in namedInsteadInAnswerText.' }),
 }).strict().superRefine((row, ctx) => {
+  if (row.namedInsteadInAnswerText.length > row.namedInsteadInAnswerTextTotal) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['namedInsteadInAnswerTextTotal'], message: 'Total cannot be smaller than the returned names' })
+  }
+  if (row.citedDomains.length > row.citedDomainsTotal) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['citedDomainsTotal'], message: 'Total cannot be smaller than the returned domains' })
+  }
+  if (row.recommendedInsteadTotal !== row.namedInsteadInAnswerTextTotal) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['recommendedInsteadTotal'], message: 'The deprecated total must equal namedInsteadInAnswerTextTotal' })
+  }
   if (row.recommendedInstead.length > row.recommendedInsteadTotal) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['recommendedInsteadTotal'], message: 'Total cannot be smaller than the returned replacements' })
   }
@@ -75,6 +180,40 @@ export const measurementPortfolioWeakestPropertySchema = measurementDemoProperty
   }
 })
 export type MeasurementPortfolioWeakestProperty = z.output<typeof measurementPortfolioWeakestPropertySchema>
+
+/**
+ * How many Properties share the weakest row's exact mention and citation
+ * rates. Rows inside a tie are ordered by name, so their order is not a rank.
+ */
+export const measurementPortfolioWeakestTieSchema = z.object({
+  count: z.number().int().min(2),
+  mentionRate: z.number(),
+  citationRate: z.number(),
+  note: z.literal(MEASUREMENT_PORTFOLIO_TIE_NOTE),
+}).strict()
+export type MeasurementPortfolioWeakestTie = z.output<typeof measurementPortfolioWeakestTieSchema>
+
+/**
+ * Where engines got their answers for the weakest Properties: the returned
+ * weakest rows plus every Property tied with the weakest. Each stored answer
+ * counts once even when it serves several of those Properties. `answers`
+ * counts every measured answer, including one whose text was not captured:
+ * source capture does not depend on answer text.
+ */
+export const measurementPortfolioAnswerSourcesSchema = z.object({
+  properties: measurementDemoCountSchema,
+  answers: measurementDemoCountSchema,
+  domains: z.array(measurementPortfolioCountedDomainSchema).max(MEASUREMENT_PORTFOLIO_ANSWER_SOURCES_LIMIT),
+  domainTotal: measurementDemoCountSchema,
+}).strict().superRefine((sources, ctx) => {
+  if (sources.domains.length > sources.domainTotal) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['domainTotal'], message: 'Total cannot be smaller than the returned domains' })
+  }
+  if (sources.domains.some(row => row.answers > sources.answers)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['domains'], message: 'A domain cannot be cited by more answers than the basis holds' })
+  }
+})
+export type MeasurementPortfolioAnswerSources = z.output<typeof measurementPortfolioAnswerSourcesSchema>
 
 /**
  * One market's roll-up, so a portfolio owner can compare markets side by side
@@ -96,6 +235,10 @@ export type MeasurementPortfolioWeakestProperty = z.output<typeof measurementPor
 export const measurementPortfolioMarketSchema = z.object({
   groupKey: measurementV2StableKeySchema,
   label: measurementDemoLabelSchema,
+  /** Null for a top-level market. */
+  parentGroupKey: measurementV2StableKeySchema.nullable(),
+  /** Direct child markets; read one with `groupKey` to list them. */
+  childMarketCount: measurementDemoCountSchema,
   propertyCount: measurementDemoCountSchema,
   propertiesMentioned: measurementMetricValueSchema,
   mentionCoverage: measurementMetricValueSchema,
@@ -103,17 +246,17 @@ export const measurementPortfolioMarketSchema = z.object({
 }).strict()
 export type MeasurementPortfolioMarket = z.output<typeof measurementPortfolioMarketSchema>
 
+const measurementPortfolioRankedPropertySchema = measurementDemoPropertySchema.extend({
+  ...measurementPortfolioPropertyContextShape,
+  mentionCoverage: measurementMetricValueSchema.options[0],
+  citationCoverage: measurementMetricValueSchema,
+}).strict()
+
 /** Known mention rates remain rankable even when another Property or signal is unknown. */
 export const measurementPortfolioMentionRankingSchema = z.object({
   eligiblePropertyCount: measurementDemoCountSchema,
-  strongest: z.array(measurementDemoPropertySchema.extend({
-    mentionCoverage: measurementMetricValueSchema.options[0],
-    citationCoverage: measurementMetricValueSchema,
-  }).strict()).max(50),
-  weakest: z.array(measurementDemoPropertySchema.extend({
-    mentionCoverage: measurementMetricValueSchema.options[0],
-    citationCoverage: measurementMetricValueSchema,
-  }).strict()).max(50),
+  strongest: z.array(measurementPortfolioRankedPropertySchema).max(50),
+  weakest: z.array(measurementPortfolioRankedPropertySchema).max(50),
   /** All excluded Properties in this scope, independent of the ranked list limit. */
   excluded: z.array(measurementDemoPropertySchema.extend({
     reason: measurementMetricUnavailableReasonSchema,
@@ -132,23 +275,37 @@ export const measurementPortfolioSummaryResponseSchema = z.object({
   }).strict(),
   measurement: measurementDemoRunMetadataSchema,
   queryClass: measurementQueryClassFilterSchema,
+  /** Engines behind the displayed answers, after any provider filter. Empty before a run completes. */
+  engines: z.array(providerNameSchema),
   metrics: z.object({
     propertiesMentioned: measurementMetricValueSchema,
     mentionCoverage: measurementMetricValueSchema,
     citationCoverage: measurementMetricValueSchema,
   }).strict(),
   weakestProperties: z.array(measurementPortfolioWeakestPropertySchema),
+  /** Set when two or more Properties share the weakest row's rates; null otherwise. */
+  tiedAtWeakest: measurementPortfolioWeakestTieSchema.nullable(),
+  /** Null before a run completes. */
+  weakestAnswerSources: measurementPortfolioAnswerSourcesSchema.nullable(),
   /** Descriptive mention ranking, using the response queryClass and scope; aggregate unavailability does not invalidate it. */
   mentionRanking: measurementPortfolioMentionRankingSchema,
   /**
-   * Every named market, worst-first. Empty when the request already narrowed to
-   * one group (a roll-up would only restate the scope) and when the plan defines
-   * no groups. Additive field.
+   * Markets worst-first. By default one level: the top-level markets, or the
+   * selected group's direct children when `groupKey` is set (empty when it has
+   * none), capped at `limit`. `includeNestedMarkets` returns every market in
+   * scope at every level, uncapped. Empty when the plan defines no groups.
    */
   markets: z.array(measurementPortfolioMarketSchema),
+  /** Markets at the returned level before `limit`; more than returned means the list was cut. */
+  totalMarkets: measurementDemoCountSchema,
+  marketsTruncated: z.boolean(),
   totalProperties: measurementDemoCountSchema,
   truncated: z.boolean(),
-}).strict()
+}).strict().superRefine((response, ctx) => {
+  if (response.marketsTruncated !== (response.markets.length < response.totalMarkets)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['marketsTruncated'], message: 'Market truncation must agree with the market total' })
+  }
+})
 export type MeasurementPortfolioSummaryResponse = z.output<typeof measurementPortfolioSummaryResponseSchema>
 
 // ── Property questions and one result ────────────────────────────────────

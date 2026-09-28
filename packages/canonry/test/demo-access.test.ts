@@ -8,7 +8,7 @@ describe('public demo read boundary', () => {
     '/api/v1/projects/:name/google/gsc/performance', '/api/v1/projects/:name/ga/traffic',
     '/api/v1/projects/:name/technical-aeo/graph', '/api/v1/projects/:name/ads/summary',
     '/api/v1/projects/:name/conversion-tracking/contracts/:contractId/integrity',
-    '/api/v1/keys/self', '/api/v1/auth/session',
+    '/api/v1/keys/self', '/api/v1/auth/session', '/api/v1/projects/:name/agent/preview',
   ])('allows the stored read %s without opening writes', (route) => {
     expect(isDemoApiReadAllowed('GET', route)).toBe(true)
     expect(isDemoApiReadAllowed('HEAD', route)).toBe(true)
@@ -26,6 +26,10 @@ describe('public demo read boundary', () => {
     '/api/v1/projects/:name/doctor', '/api/v1/settings', '/api/v1/keys',
     '/api/v1/auth/login', '/api/v1/auth/users', '/api/v1/mcp', '/api/v1/unknown-future-read',
     '/api/v1/projects/:name/unknown-future-read', '/api/v1/projects/:name/google/callback',
+    // The live Aero agent stays closed; only the scripted preview above is a read.
+    '/api/v1/projects/:name/agent/transcript', '/api/v1/projects/:name/agent/prompt',
+    '/api/v1/projects/:name/agent/providers', '/api/v1/projects/:name/agent/conversations',
+    '/api/v1/projects/:name/agent/conversations/:id', '/api/v1/projects/:name/agent/memory',
   ])('refuses live, administrative and unreviewed read %s', (route) => {
     expect(isDemoApiReadAllowed('GET', route)).toBe(false)
   })

@@ -115,8 +115,9 @@ jobs:
       contents: read
     strategy:
       fail-fast: false
-      # Both majors run the whole suite across four shards. Two Node 26 shards
-      # left an 8+ minute tail even while the four Node 22 shards finished.
+      # Both majors run the whole suite across six shards. Four Node 22 shards
+      # took 239–322 seconds in CI run 35875195112. Replaying its 914 files
+      # across six shards reduces the largest measured test workload by 30%.
       # Node 22 is the deployment major; Node 26 is the highest supported major
       # in scripts/check-node.mjs. Keep full coverage on both.
       #
@@ -127,14 +128,18 @@ jobs:
       # did while the guard sat at 25 for months.
       matrix:
         include:
-          - { node: '22', shard: '1/4' }
-          - { node: '22', shard: '2/4' }
-          - { node: '22', shard: '3/4' }
-          - { node: '22', shard: '4/4' }
-          - { node: '26', shard: '1/4' }
-          - { node: '26', shard: '2/4' }
-          - { node: '26', shard: '3/4' }
-          - { node: '26', shard: '4/4' }
+          - { node: '22', shard: '1/6' }
+          - { node: '22', shard: '2/6' }
+          - { node: '22', shard: '3/6' }
+          - { node: '22', shard: '4/6' }
+          - { node: '22', shard: '5/6' }
+          - { node: '22', shard: '6/6' }
+          - { node: '26', shard: '1/6' }
+          - { node: '26', shard: '2/6' }
+          - { node: '26', shard: '3/6' }
+          - { node: '26', shard: '4/6' }
+          - { node: '26', shard: '5/6' }
+          - { node: '26', shard: '6/6' }
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -339,9 +344,11 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm -r run build
         name: Build all packages (catches missing deps, bundler errors)
-      - name: Pack built Canonry for the install smoke test
+      - name: Pack built Canonry for smoke testing and publication
         working-directory: packages/canonry
-        run: pnpm pack --pack-destination "$RUNNER_TEMP/canonry-package"
+        run: |
+          cp ../../README.md README.md
+          pnpm pack --pack-destination "$RUNNER_TEMP/canonry-package"
       - uses: actions/upload-artifact@v4
         with:
           name: canonry-package
@@ -431,7 +438,7 @@ jobs:
           # reports `serve.started` and `cli.command` as a real user.
           docker run -d --rm --name canonry-ci -p 4100:4100 -e CANONRY_API_KEY=test -e CANONRY_TELEMETRY_DISABLED=1 canonry:ci
 
-          for attempt in $(seq 1 30); do
+          for _attempt in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:4100/health >/dev/null; then
               exit 0
             fi

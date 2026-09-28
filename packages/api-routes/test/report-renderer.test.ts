@@ -397,7 +397,7 @@ describe('renderReportHtml', () => {
   // Locks in the "smart %" rule for the What's-changed count + traffic tiles.
   // Both surfaces call the SAME shared contracts helpers (formatAverageDelta /
   // formatWindowCountDelta), so the HTML asserted here is byte-identical to the
-	  // SPA subtitle. The gjelina-shaped values: mentioned-query count averages ~3.3
+	  // SPA subtitle. The hotel-fixture-shaped values: mentioned-query count averages ~3.3
 	  // (small base → rounded raw delta) while GSC clicks total ~382 over the prior
   // window (large base → percentage).
   test('whatsChanged count + traffic tiles use the smart-% rule', () => {
@@ -1180,6 +1180,31 @@ test('client and agency HTML use canonical query-class populations instead of th
     }
     expect(html).toContain(REPORT_VISIBILITY_COPY.ambiguous)
     expect(html).not.toContain('id="citation-scorecard"')
+  }
+})
+
+
+test('HTML report states the answers a mention rate left out, matching the SPA cell', () => {
+  const report = richReport()
+  const selection: ReportVisibility['selection'] = {
+    mode: 'advanced', queryClass: 'branded', scope: { id: 'project', label: 'Example portfolio', kind: 'project', targetCount: 2 },
+    provider: null, model: null, location: { kind: 'all' }, time: { from: null, to: null }, revision: 1,
+    run: { id: 'baseline', explicit: false }, provenance: { kind: 'frozen-advanced', definitionRevision: 1 },
+    availability: { state: 'available' }, measurement: { state: 'measured', activeRevision: 1, measuredRevision: 1,
+      awaitingSweep: false, pendingAssignmentCount: 0, completedAt: '2026-09-01T12:00:00.000Z' },
+  }
+  const partial = { numerator: 10, denominator: 11, rate: 10 / 11, unattributed: 1 }
+  report.visibility = { selection, populations: [
+    { queryClass: 'branded', trend: [], summary: { queryCount: 3, answerCount: 12,
+      mentionCoverage: partial, citationCoverage: { numerator: 1, denominator: 12, rate: 1 / 12 },
+      propertyReach: { numerator: 2, denominator: 2, rate: 1 }, outcomes: { bothSignals: 1, mentionedOnly: 1, citedOnly: 0, neither: 0, notMeasured: 0, total: 2 } } },
+  ] }
+  for (const audience of ['client', 'agency'] as const) {
+    const html = renderReportHtml(report, { audience }).split('<script')[0]!
+    expect(html).toContain(`<td><strong>${reportVisibilityRate(partial)}</strong><p class="muted">10 of 11 answers</p><p class="muted">1 of 12 answers could not be tied to one property</p></td>`)
+    expect(html).not.toContain(REPORT_VISIBILITY_COPY.ambiguous)
+    // Only the mention rate left an answer out; citation keeps its own denominator.
+    expect(html.match(/could not be tied to one property/g)).toHaveLength(1)
   }
 })
 

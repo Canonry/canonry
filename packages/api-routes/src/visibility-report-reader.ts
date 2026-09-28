@@ -219,7 +219,8 @@ function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0
 }
 
-function normalizeText(value: string): string {
+/** Selection text identity (provider, location, model): compatibility-normalized, trimmed, space-collapsed, case-folded. */
+export function normalizeText(value: string): string {
   return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en')
 }
 
@@ -418,10 +419,32 @@ function citationForCoverage(candidate: Candidate, targets: ReadonlyMap<string, 
   return candidate.observation?.citationComplete ? targetValues(candidate, targets, targetKey).citation : null
 }
 
-function mentionRate(candidates: readonly Candidate[], targets: ReadonlyMap<string, VisibilityReportTargetInput>, targetKey?: string) {
+/**
+ * Mention coverage over the answers whose identity could be resolved.
+ *
+ * An unattributable answer (`mentionUnavailableReason: 'identity-ambiguous'`)
+ * leaves BOTH the numerator and the denominator and is counted in
+ * `unattributed`; it is never read as not mentioned. Any other missing mention
+ * signal still withholds the rate, and a population with no attributable
+ * answer at all stays unavailable as `identity-ambiguous`.
+ */
+function mentionRate(candidates: readonly Candidate[], targets: ReadonlyMap<string, VisibilityReportTargetInput>, targetKey?: string): VisibilityReportRate {
   const values = candidates.map(candidate => targetValues(candidate, targets, targetKey))
-  return rate(values.map(value => value.mention), values.length,
-    values.some(value => value.mentionUnavailableReason === 'identity-ambiguous') ? 'identity-ambiguous' : 'evidence-incomplete')
+  if (values.length === 0) return unavailable('no-population')
+  let numerator = 0
+  let unattributed = 0
+  for (const value of values) {
+    if (value.mention === true) numerator++
+    else if (value.mention === null) {
+      if (value.mentionUnavailableReason !== 'identity-ambiguous') return unavailable('evidence-incomplete')
+      unattributed++
+    }
+  }
+  const denominator = values.length - unattributed
+  if (denominator === 0) return unavailable('identity-ambiguous')
+  return unattributed > 0
+    ? { numerator, denominator, rate: numerator / denominator, unattributed }
+    : { numerator, denominator, rate: numerator / denominator }
 }
 
 function answered(candidate: Candidate): boolean {
@@ -1070,4 +1093,50 @@ export function buildVisibilityReport(input: VisibilityReportReaderInput): Visib
     filterOptions: filterOptions(definition, input.selection, selectedRun),
     populations,
   })
+}
+
+/** Monthly comparison uses the same frozen scopes and independent signal attribution as reports. */
+export function visibilityComparisonPopulation(run: VisibilityReportRunInput, selection: VisibilityReportReaderSelection) {
+  const targets = targetMap(run.definition)
+  const byClass = ALL_CLASSES.map(queryClass => ({ queryClass, candidates: candidatesFor(run, selection, queryClass).candidates }))
+  const pooled = new Map<string, Candidate>()
+  for (const { candidates } of byClass) {
+    for (const candidate of candidates) {
+      const existing = pooled.get(candidate.slot.id)
+      if (existing) existing.edges.push(...candidate.edges)
+      else pooled.set(candidate.slot.id, { ...candidate, edges: [...candidate.edges] })
+    }
+  }
+  const cohortKeys = new Map([...pooled.values()].map(candidate => [candidate.slot.id, JSON.stringify({
+    definition: run.comparableDefinitionIds.at(-1) ?? run.definitionId,
+    query: candidate.slot.query,
+    execution: candidate.slot.executionId,
+    location: candidate.slot.location,
+    edges: candidate.edges.map(edge => [edge.targetKey, edge.queryClass, [...edge.marketKeys].sort()]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+  })]))
+  const row = (candidate: Candidate, queryClass: VisibilityReportPopulationClass | null) => {
+    const signals = targetValues(candidate, targets)
+    return {
+      queryId: candidate.slot.queryId ?? candidate.slot.queryKey,
+      queryText: candidate.slot.query,
+      provider: candidate.slot.provider,
+      model: candidate.observation!.model,
+      answerMentioned: signals.mention,
+      mentionApplicable: candidate.edges.some(edge => targets.get(edge.targetKey)?.mentionEligible === true),
+      citation: citationForCoverage(candidate, targets),
+      answerText: candidate.observation!.answerText,
+      competitorDomains: [...new Set(candidate.edges.flatMap(edge => edge.competitorDomains))],
+      competitorMentions: candidate.observation!.competitorMentionDomains.filter(domain => candidate.edges.some(edge => edge.competitorDomains.includes(domain))),
+      competitorCitations: candidate.observation!.competitorCitationDomains.filter(domain => candidate.edges.some(edge => edge.competitorDomains.includes(domain))),
+      cohortKey: cohortKeys.get(candidate.slot.id)!,
+      queryClass: queryClass === 'unknown' ? null : queryClass,
+    }
+  }
+  return {
+    snapshots: [...pooled.values()].filter(candidate => candidate.observation !== null).map(candidate => {
+      const classes = new Set(candidate.edges.map(edge => edge.queryClass))
+      return row(candidate, classes.size === 1 ? candidate.edges[0]!.queryClass : null)
+    }),
+    classSnapshots: byClass.flatMap(({ queryClass, candidates }) => candidates.filter(candidate => candidate.observation !== null).map(candidate => row(candidate, queryClass))),
+  }
 }

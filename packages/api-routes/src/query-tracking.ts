@@ -25,6 +25,7 @@ import {
   queryTrackingPreviewStale,
   queryTrackingProvenanceSchema,
   queryTrackingWorkspaceResponseSchema,
+  resolveProviderModel,
   RunKinds,
   RunStatuses,
   RunTriggers,
@@ -218,10 +219,15 @@ function simpleDispatchEngines(
     .map(provider => ({
       provider,
       // `undefined` is materially different from an intentionally blank model
-      // override/configuration, just as it is in JobRunner.
-      requestedModel: overrides[provider] ?? summaries.get(provider)?.model ?? null,
+      // override/configuration, just as it is in JobRunner, which also resolves
+      // a retired override to the id that answers now.
+      requestedModel: resolvedOverride(provider, overrides[provider]) ?? summaries.get(provider)?.model ?? null,
     }))
     .sort((left, right) => compareText(left.provider, right.provider))
+}
+
+function resolvedOverride(provider: string, model: string | undefined): string | undefined {
+  return model === undefined ? undefined : resolveProviderModel(provider, model)
 }
 
 function simpleDefaultLocation(project: ProjectRow): LocationContext | null {

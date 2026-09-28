@@ -1,6 +1,6 @@
 import type { AgentViewContext, AgentTurnLimits } from '@ainyc/canonry-contracts'
 import { ApiError, handleAuthExpired } from './api.js'
-import type { AgentProviderId, AgentProvidersResponse, ErrorCode } from '@ainyc/canonry-contracts'
+import type { AeroPreviewResponse, AgentProviderId, AgentProvidersResponse, ErrorCode } from '@ainyc/canonry-contracts'
 
 interface ApiErrorBody {
   error?: { message?: string; code?: ErrorCode }
@@ -15,6 +15,7 @@ async function parseErrorBody(res: Response): Promise<ApiErrorBody> {
 }
 
 export type { AgentProviderId, AgentProviderOption, AgentProvidersResponse } from '@ainyc/canonry-contracts'
+export type { AeroPreviewResponse, AeroPreviewStarter, AeroPreviewStep } from '@ainyc/canonry-contracts'
 
 function getApiBase(): string {
   if (typeof window !== 'undefined' && window.__CANONRY_CONFIG__?.basePath) {
@@ -103,6 +104,23 @@ export async function fetchAeroTranscript(project: string): Promise<AeroTranscri
     throw new ApiError(body.error?.message ?? `transcript fetch failed: ${res.status}`, res.status, body.error?.code)
   }
   return (await res.json()) as AeroTranscript
+}
+
+/**
+ * The public demo's scripted Aero answers. Only the demo server serves this
+ * route; it holds prebuilt answers over the seeded data, so nothing here
+ * reaches a model.
+ */
+export async function fetchAeroPreview(project: string): Promise<AeroPreviewResponse> {
+  const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(project)}/agent/preview`, {
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    triggerAuthExpiredOn401(res.status)
+    const body = await parseErrorBody(res)
+    throw new ApiError(body.error?.message ?? `preview fetch failed: ${res.status}`, res.status, body.error?.code)
+  }
+  return (await res.json()) as AeroPreviewResponse
 }
 
 export async function fetchAgentProviders(project: string): Promise<AgentProvidersResponse> {

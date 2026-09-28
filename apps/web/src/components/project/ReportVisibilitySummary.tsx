@@ -3,11 +3,23 @@ import {
   reportQueryClassLabel,
   reportVisibilityRate,
   reportVisibilityEvidence,
+  reportUnattributedAnswers,
   reportVisibilityComparison,
   reportVisibilityMeasurementLabel,
   reportVisibilityHistoryLabel,
   type ReportVisibility,
 } from '@ainyc/canonry-contracts'
+
+type ReportRate = ReportVisibility['populations'][number]['summary']['mentionCoverage']
+
+/** Mirrors `rateCell` in `report-renderer.ts`: rate, its count, and any answers the rate left out. */
+function RateCell({ rate }: { rate: ReportRate }) {
+  const unattributed = reportUnattributedAnswers(rate)
+  return <td>
+    <strong>{reportVisibilityRate(rate)}</strong><p className="text-xs text-secondary">{reportVisibilityEvidence(rate)}</p>
+    {unattributed ? <p className="text-xs text-secondary">{unattributed}</p> : null}
+  </td>
+}
 
 export function ReportVisibilitySummary({ visibility }: { visibility: ReportVisibility }) {
   const populations = visibility.populations.filter(population => population.queryClass !== 'unknown' || population.summary.answerCount > 0)
@@ -22,9 +34,7 @@ export function ReportVisibilitySummary({ visibility }: { visibility: ReportVisi
         <tbody>{populations.map(population => <tr key={population.queryClass}>
           <td>{reportQueryClassLabel(population.queryClass)}</td>
           <td>{population.summary.queryCount}</td><td>{population.summary.answerCount}</td>
-          {[population.summary.mentionCoverage, population.summary.citationCoverage].map((rate, index) => <td key={index}>
-            <strong>{reportVisibilityRate(rate)}</strong><p className="text-xs text-secondary">{reportVisibilityEvidence(rate)}</p>
-          </td>)}
+          {[population.summary.mentionCoverage, population.summary.citationCoverage].map((rate, index) => <RateCell key={index} rate={rate} />)}
         </tr>)}</tbody>
       </table>
     </div>
@@ -35,7 +45,7 @@ export function ReportVisibilitySummary({ visibility }: { visibility: ReportVisi
         <tbody>{historyPopulations.flatMap(population => population.trend.map(point => <tr key={`${population.queryClass}:${point.runId}`}>
           <td><time dateTime={point.createdAt}>{point.createdAt.slice(0, 10)}</time></td>
           <td>{reportQueryClassLabel(population.queryClass)}</td>
-          {[point.mentionCoverage, point.citationCoverage].map((rate, index) => <td key={index}><strong>{reportVisibilityRate(rate)}</strong><p className="text-xs text-secondary">{reportVisibilityEvidence(rate)}</p></td>)}
+          {[point.mentionCoverage, point.citationCoverage].map((rate, index) => <RateCell key={index} rate={rate} />)}
           <td>{reportVisibilityComparison(point.continuity.state, point.continuity.comparedRunId !== null && !population.trend.some(previous => previous.runId === point.continuity.comparedRunId))}</td>
         </tr>))}</tbody>
       </table></div>

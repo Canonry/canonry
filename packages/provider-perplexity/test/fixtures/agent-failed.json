@@ -1,0 +1,13 @@
+{
+  "id": "resp_e40a1f93bc",
+  "object": "response",
+  "created_at": 1790000300,
+  "model": "perplexity/sonar",
+  "status": "failed",
+  "output": [],
+  "error": {
+    "code": "upstream_error",
+    "message": "The model failed to produce a response.",
+    "type": "internal_error"
+  }
+}

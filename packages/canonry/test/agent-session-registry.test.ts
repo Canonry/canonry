@@ -26,7 +26,7 @@ import { MemorySources } from '@ainyc/canonry-contracts'
 import { SessionRegistry } from '../src/agent/session-registry.js'
 import { loadAeroSystemPrompt } from '../src/agent/session.js'
 import { CanonryMcpToolNames, canonryMcpTools } from '../src/mcp/tool-registry.js'
-import { AERO_EXCLUDED_MCP_TOOLS } from '../src/agent/mcp-to-agent-tool.js'
+import { AERO_EXCLUDED_MCP_TOOLS, AERO_MANAGED_SWEEP_MCP_TOOLS } from '../src/agent/mcp-to-agent-tool.js'
 import {
   AERO_ADS_OPERATOR_CONTEXT_TOOL_NAME,
   AERO_ADS_OPERATOR_MCP_TOOL_NAMES,
@@ -45,6 +45,10 @@ const AERO_READ_TOOL_COUNT =
   SKILL_DOC_TOOL_COUNT
 const AERO_ALL_TOOL_COUNT =
   canonryMcpTools.filter((t) => t.tier === 'core' && !AERO_EXCLUDED_MCP_TOOLS.has(t.name)).length + SKILL_DOC_TOOL_COUNT
+// Once a turn is acquired, the project shape pins the tools it names. These
+// test projects have no plan, so the Simple shape pins the visibility report.
+const SIMPLE_SHAPE_PINNED_COUNT = 1
+const AERO_READ_TURN_TOOL_COUNT = AERO_READ_TOOL_COUNT + SIMPLE_SHAPE_PINNED_COUNT
 const AERO_ADS_OPERATOR_READ_TOOL_COUNT =
   canonryMcpTools.filter(
     (t) =>
@@ -230,6 +234,47 @@ describe('SessionRegistry', () => {
     })
   })
 
+  // Tools reach Aero progressively: core tools are visible, the rest arrive
+  // through aero_load_toolkit. Walk every loadable toolkit so the assertion
+  // covers what Aero can reach, not only what it sees first.
+  async function reachableToolNames(agent: { state: { tools: AgentTool[] } }): Promise<string[]> {
+    const names = new Set(agent.state.tools.map((t) => t.name))
+    const list = agent.state.tools.find((t) => t.name === 'aero_list_toolkits')
+    const load = agent.state.tools.find((t) => t.name === 'aero_load_toolkit')
+    if (!list || !load) return [...names]
+    const kits = (await list.execute('list', {})).details as Array<{ name: string }>
+    for (const kit of kits) {
+      const loaded = (await load.execute('load', { toolkit: kit.name })).details as { tools: Array<{ name: string }> }
+      for (const tool of loaded.tools) names.add(tool.name)
+    }
+    return [...names]
+  }
+
+  it('withholds sweep and schedule writes on a managed install, including after scope alignment', async () => {
+    insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig(), managedSweeps: true })
+
+    const fresh = await reachableToolNames(registry.getOrCreate('demo', { toolScope: AeroToolScopes.all }))
+    for (const name of AERO_MANAGED_SWEEP_MCP_TOOLS) expect(fresh).not.toContain(name)
+    expect(fresh).toContain(CanonryMcpToolNames.canonry_schedule_get)
+
+    const narrowed = await reachableToolNames(await registry.acquireForTurn('demo', { toolScope: AeroToolScopes.readOnly }))
+    for (const name of AERO_MANAGED_SWEEP_MCP_TOOLS) expect(narrowed).not.toContain(name)
+
+    const widened = await reachableToolNames(await registry.acquireForTurn('demo', { toolScope: AeroToolScopes.all }))
+    for (const name of AERO_MANAGED_SWEEP_MCP_TOOLS) expect(widened).not.toContain(name)
+    expect(widened).toContain(CanonryMcpToolNames.canonry_schedule_get)
+    // Cancel stays so Aero can stop the audits and syncs it can still start.
+    expect(widened).toContain(CanonryMcpToolNames.canonry_run_cancel)
+  })
+
+  it('keeps sweep and schedule writes on an unmanaged install', async () => {
+    insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+    const names = await reachableToolNames(await registry.acquireForTurn('demo', { toolScope: AeroToolScopes.all }))
+    for (const name of AERO_MANAGED_SWEEP_MCP_TOOLS) expect(names).toContain(name)
+  })
+
   it('records LLM usage with the current hot-session tool count after scope alignment', async () => {
     const projectId = insertProject(db, 'demo')
     const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
@@ -245,7 +290,7 @@ describe('SessionRegistry', () => {
     expect(usageRows).toHaveLength(1)
     expect(usageRows[0].metadata).toMatchObject({
       projectName: 'demo',
-      toolCount: AERO_READ_TOOL_COUNT,
+      toolCount: AERO_READ_TURN_TOOL_COUNT,
     })
   })
 
@@ -565,7 +610,7 @@ describe('SessionRegistry', () => {
 
     await registry.drainNow('demo')
 
-    expect(agent.state.tools.length).toBe(AERO_READ_TOOL_COUNT)
+    expect(agent.state.tools.length).toBe(AERO_READ_TURN_TOOL_COUNT)
   })
 
   it('drainNow preserves an ads-operator profile and does not widen back to the default profile', async () => {
@@ -627,7 +672,7 @@ describe('SessionRegistry', () => {
 
     await registry.drainNow('demo')
 
-    expect(agent.state.tools.length).toBe(AERO_READ_TOOL_COUNT)
+    expect(agent.state.tools.length).toBe(AERO_READ_TURN_TOOL_COUNT)
   })
 
   it('acquireForTurn compacts the transcript when it crosses the threshold, rehydrates the system prompt, and persists a compaction note', async () => {
@@ -797,7 +842,7 @@ describe('SessionRegistry', () => {
 
     await registry.acquireForTurn('demo', { toolScope: AeroToolScopes.readOnly })
 
-    expect(agent.state.tools.length).toBe(AERO_READ_TOOL_COUNT)
+    expect(agent.state.tools.length).toBe(AERO_READ_TURN_TOOL_COUNT)
   })
 
   it('acquireForTurn aligns tool profile on cached agents when idle', async () => {

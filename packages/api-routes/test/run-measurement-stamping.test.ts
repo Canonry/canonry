@@ -556,6 +556,39 @@ describe('provider roster', () => {
     expect(overriddenIdentity.checksum).not.toBe(inheritedIdentity.checksum)
   })
 
+  it('starts a new series for a retired perplexity model, and records the preset that answers', async () => {
+    expect((await publish()).statusCode).toBe(201)
+    // Written before `sonar-*` ids were resolved on write, as an old install has it.
+    db.update(projects).set({ providerModels: { perplexity: 'sonar' } }).run()
+
+    const triggered = await request('POST', '/api/v1/projects/planned/runs', { providers: ['claude', 'perplexity'] })
+    expect(triggered.statusCode).toBe(201)
+    const run = runRow((triggered.json() as { id: string }).id)
+    const identity = run.measurementExecutionIdentity!
+    expect(identity.models).toEqual({ claude: 'claude-default', perplexity: 'fast' })
+
+    // What a Sonar-era run with the same config was stamped with, by the same formula.
+    const checksumFor = (perplexity: string) => crypto.createHash('sha256').update(JSON.stringify({
+      models: { claude: 'claude-default', perplexity },
+      providers: ['claude', 'perplexity'],
+      schemaVersion: 1,
+    })).digest('hex')
+    expect(identity.checksum).toBe(checksumFor('fast'))
+    expect(identity.checksum).not.toBe(checksumFor('sonar'))
+
+    // The frozen slots ask for the preset the adapter actually runs.
+    const manifest = parseMeasurementRunManifestV1(run.measurementManifest)
+    const perplexityModels = new Set(manifest.expectedSlots
+      .filter(slot => slot.provider === 'perplexity').map(slot => slot.requestedModel))
+    expect([...perplexityModels]).toEqual(['fast'])
+    db.update(runs).set({ status: 'completed' }).run()
+
+    // `sonar` and `fast` are one engine now, so they are one series.
+    db.update(projects).set({ providerModels: { perplexity: 'fast' } }).run()
+    const explicit = await request('POST', '/api/v1/projects/planned/runs', { providers: ['claude', 'perplexity'] })
+    expect(runRow((explicit.json() as { id: string }).id).measurementExecutionIdentity!.checksum).toBe(identity.checksum)
+  })
+
   it('keeps one series while nothing about the engines or models moves', async () => {
     expect((await publish()).statusCode).toBe(201)
 

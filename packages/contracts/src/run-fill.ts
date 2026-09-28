@@ -40,6 +40,7 @@ export const runFillRefusalCodeSchema = z.enum([
   'plan_revision_changed',
   'manifest_unreadable',
   'model_not_frozen',
+  'model_retired',
   'provider_not_in_plan',
   'provider_nothing_missing',
   'provider_not_configured',

@@ -70,6 +70,12 @@ export interface AeroSessionOptions {
   toolScope?: AeroToolScope
   /** Optional profile that narrows the tool surface for specific operator workflows. */
   toolProfile?: AeroToolProfile
+  /**
+   * True when the install manages sweeps. Withholds the tools that start or
+   * fill a run, or write a schedule or project config, and makes cancel refuse
+   * sweeps, in every scope.
+   */
+  managedSweeps?: boolean
   /** Seed initial transcript. Used by the registry when rehydrating a persisted session. */
   initialMessages?: import('@mariozechner/pi-agent-core').AgentMessage[]
   /** Optional telemetry context. When present, assistant turn usage is appended to llm_usage_events. */
@@ -85,14 +91,14 @@ export { resolveAeroSkillDir } from './skill-paths.js'
  * rules). Soul is optional — SKILL.md alone is a valid prompt — but when
  * present it's prepended so identity frames the task instructions.
  */
-export function loadAeroSystemPrompt(pkgDir?: string): string {
+export function loadAeroSystemPrompt(pkgDir?: string, opts: { extras?: boolean } = {}): string {
   const skillDir = resolveAeroSkillDir(pkgDir)
   const skillBody = fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf-8')
   const soulPath = path.join(skillDir, 'soul.md')
   const base = fs.existsSync(soulPath)
     ? `${fs.readFileSync(soulPath, 'utf-8').trimEnd()}\n\n---\n\n${skillBody}`
     : skillBody
-  return appendSystemPromptExtras(base + AERO_RUNTIME_PROMPT)
+  return opts.extras === false ? base + AERO_RUNTIME_PROMPT : appendSystemPromptExtras(base + AERO_RUNTIME_PROMPT)
 }
 
 /**
@@ -226,7 +232,7 @@ export function createAeroSession(opts: AeroSessionOptions): Agent {
   }
   // Skill-doc tools ride in both scopes — they're pure reads of bundled
   // assets, no project state involved.
-  const stateTools = buildAeroStateTools(toolCtx, { scope: toolScope, profile: toolProfile })
+  const stateTools = buildAeroStateTools(toolCtx, { scope: toolScope, profile: toolProfile, managedSweeps: opts.managedSweeps })
   const defaultTools = [...stateTools, ...buildSkillDocTools(), ...(toolProfile === AeroToolProfiles.default ? [buildAeroViewTool({ ...toolCtx, basePath: opts.config.basePath })] : [])]
   const tools = opts.tools ?? defaultTools
   const toolUsageHooks = opts.db

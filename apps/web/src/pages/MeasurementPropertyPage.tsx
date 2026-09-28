@@ -3,7 +3,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
-import { MeasurementEvidenceShapes } from '@ainyc/canonry-contracts'
+import { MeasurementEvidenceShapes, UNATTRIBUTED_MENTION_REASON, reportUnattributedAnswers } from '@ainyc/canonry-contracts'
 import type {
   MeasurementOverviewResponse,
   MeasurementPlanResponse,
@@ -69,6 +69,7 @@ const UNAVAILABLE_REASONS: Record<string, string> = {
   no_completed_run: 'No completed measurement yet',
   no_population: 'No queries of this type are assigned',
   evidence_incomplete: 'Source evidence is incomplete',
+  identity_ambiguous: UNATTRIBUTED_MENTION_REASON,
   not_applicable: 'Not applicable for this Property',
 }
 
@@ -247,10 +248,14 @@ function MetricCell({ metric, emphasis = false }: { metric: MetricValue; emphasi
   const counted = metric.numerator === undefined || metric.denominator === undefined
     ? null
     : `${metric.numerator} of ${metric.denominator}`
+  // Answers the server left out of this rate because they could not be tied to
+  // one property. The count above already excludes them; this keeps them visible.
+  const unattributed = reportUnattributedAnswers(metric)
   return (
     <span className="inline-flex flex-col gap-0.5 tabular-nums">
       <span className={emphasis ? 'text-lg font-semibold text-heading' : 'text-sm font-medium text-primary'}>{percent}</span>
       {counted ? <span className="text-xs text-muted">{counted}</span> : null}
+      {unattributed ? <span className="text-xs text-muted">{unattributed}</span> : null}
     </span>
   )
 }
@@ -418,6 +423,7 @@ function CoverageHeroRow({ label, metric, failed = false }: { label: string; met
   const counted = metric.numerator === undefined || metric.denominator === undefined
     ? null
     : `${metric.numerator} of ${metric.denominator}`
+  const unattributed = reportUnattributedAnswers(metric)
   return (
     <div className="aeo-hero-row">
       <p className="aeo-hero-row-label">{label}</p>
@@ -425,7 +431,10 @@ function CoverageHeroRow({ label, metric, failed = false }: { label: string; met
       <div className="aeo-hero-row-bar" aria-hidden="true">
         <div className="metric-card-bar-fill progress-fill-neutral" style={{ width: `${percent}%` }} />
       </div>
-      <p className="aeo-hero-row-detail tabular-nums">{counted ?? ''}</p>
+      <p className="aeo-hero-row-detail tabular-nums">
+        {counted ?? ''}
+        {unattributed ? <span className="block">{unattributed}</span> : null}
+      </p>
     </div>
   )
 }

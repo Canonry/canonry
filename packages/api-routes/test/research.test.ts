@@ -313,6 +313,21 @@ describe('research model defaults', () => {
     expect((await create('gpt-override')).json()).toMatchObject({ requestedModel: 'gpt-override', resolvedModel: 'gpt-override' })
   })
 
+  it('records the preset a retired perplexity model now runs as', async () => {
+    const { app, db } = harness({
+      providerSummary: [{ name: 'perplexity', configured: true }],
+      providerAdapters: [{ name: 'perplexity', displayName: 'Perplexity', mode: 'api', modelConfigurable: true, defaultModel: 'fast', knownModels: [], modelValidationPattern: /^(?:fast|low|sonar(?:-pro)?)$/, modelValidationHint: 'preset' }],
+      getEffectiveProviderModels: () => ({ perplexity: 'fast' }),
+    })
+    db.update(projects).set({ providers: ['perplexity'], providerModels: { perplexity: 'sonar' } }).where(eq(projects.id, 'alpha')).run()
+    const readDefault = async () => (await app.inject({ method: 'GET', url: '/api/v1/projects/alpha/research/runs' })).json().providers[0].defaultModel
+    const create = (model?: string) => app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload: { queries: ['test'], provider: 'perplexity', ...(model ? { model } : {}) } })
+    expect(await readDefault()).toBe('fast')
+    expect((await create()).json()).toMatchObject({ requestedModel: null, resolvedModel: 'fast' })
+    // The caller's own words stay as asked; what runs is recorded beside them.
+    expect((await create('sonar-pro')).json()).toMatchObject({ requestedModel: 'sonar-pro', resolvedModel: 'low' })
+  })
+
   it('publishes cached models to research without invoking live discovery or changing defaults', async () => {
     const models = [{ id: 'gpt-new', displayName: 'New GPT', tier: 'standard' as const }]
     const getProviderModels = vi.fn(async () => models)

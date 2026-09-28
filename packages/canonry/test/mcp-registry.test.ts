@@ -406,6 +406,33 @@ describe('MCP tool registry', () => {
     }
   })
 
+  it('documents the portfolio summary inputs that keep its result under the tool-result cap', () => {
+    const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_measurement_portfolio_summary')!
+    const shape = (tool.inputSchema as unknown as z.ZodObject<z.ZodRawShape>).shape
+    expect(shape.limit!.description).toContain('Default 4')
+    expect(shape.groupKey!.description).toContain('metro.groupKey')
+    expect(shape.includeNestedMarkets!.description).toContain('Off by default')
+    expect(tool.inputSchema.parse({ project: 'acme', groupKey: 'metro-a', includeNestedMarkets: true, limit: 4 }))
+      .toEqual({ project: 'acme', groupKey: 'metro-a', includeNestedMarkets: true, limit: 4, queryClass: 'non-brand' })
+  })
+
+  it('reads analytics sources without the per-query breakdown unless asked, forwarding run and class', async () => {
+    const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_analytics_sources')!
+    const getAnalyticsSources = vi.fn().mockResolvedValue({})
+    const client = { getAnalyticsSources } as unknown as ApiClient
+    await tool.handler(client, tool.inputSchema.parse({ project: 'acme', runId: 'run-1', queryClass: 'non-brand' }))
+    expect(getAnalyticsSources).toHaveBeenLastCalledWith('acme', {
+      // The tool defaults the ranked lists to 10 so every engine list fits the agent's result cap.
+      window: undefined, limit: 10, runId: 'run-1', queryClass: 'non-brand', includeByQuery: false,
+    })
+    await tool.handler(client, tool.inputSchema.parse({ project: 'acme', window: '30d', limit: 20, includeByQuery: true }))
+    expect(getAnalyticsSources).toHaveBeenLastCalledWith('acme', {
+      window: '30d', limit: 20, runId: undefined, queryClass: undefined, includeByQuery: true,
+    })
+    expect(tool.description).toContain('pools every sweep in the window')
+    expect(tool.description).toContain('Gemini')
+  })
+
   it('forwards measurement-plan inputs to the matching ApiClient methods', async () => {
     const client = {
       getMeasurementPlan: vi.fn().mockResolvedValue({ active: null }),
@@ -1783,4 +1810,17 @@ test('the run-trigger tool tells an agent it can measure one slice of a plan', (
   // the API rejects that, and an agent following the text would get a 400.
   expect(tool.description).not.toMatch(/measurementScope=\{groups:\[\],\s*targets:\[\]\}/)
   expect(tool.description).toMatch(/omit the field/i)
+})
+
+describe('monthly comparison scope parity', () => {
+  it('forwards the exact Property, market, provider and location selection through the existing read tool', async () => {
+    const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_visibility_compare')!
+    const getVisibilityCompare = vi.fn().mockResolvedValue({ metrics: [], classComparison: { continuity: { status: 'comparable' } } })
+    const client = { getVisibilityCompare } as unknown as ApiClient
+    const selection = { scope: 'property', scopeKey: 'harbor', marketKey: 'coastal', provider: 'openai', location: 'Harbor' }
+    const result = await tool.handler(client, tool.inputSchema.parse({ project: 'acme', from: '2026-08', to: '2026-09', ...selection }))
+    expect(getVisibilityCompare).toHaveBeenCalledWith('acme', '2026-08', '2026-09', selection)
+    expect(result).toEqual({ metrics: [], classComparison: { continuity: { status: 'comparable' } } })
+    expect(tool.access).toBe('read')
+  })
 })

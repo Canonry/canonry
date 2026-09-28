@@ -135,11 +135,23 @@ export const visibilityReportRateSchema = z.object({
   denominator: z.number().int().nonnegative().nullable(),
   rate: z.number().min(0).max(1).nullable(),
   reason: z.enum(['no-population', 'incomplete', 'evidence-incomplete', 'identity-ambiguous', 'not-applicable']).optional(),
+  /**
+   * Answers left out of a mention rate because they could not be tied to one
+   * Property (`mentionUnavailableReason: 'identity-ambiguous'`). They leave the
+   * numerator AND the denominator, so they are never counted as not mentioned.
+   * Present only on an available rate that left at least one answer out;
+   * absent means none were. When every answer is unattributable the rate is
+   * unavailable with reason `identity-ambiguous` instead.
+   */
+  unattributed: z.number().int().positive().optional(),
 }).strict().superRefine((value, ctx) => {
   const unavailable = value.numerator === null || value.denominator === null || value.rate === null
   if (unavailable) {
     if (value.numerator !== null || value.denominator !== null || value.rate !== null || value.reason === undefined) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Unavailable rates require null values and a reason' })
+    }
+    if (value.unattributed !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['unattributed'], message: 'Only an available rate can leave answers out' })
     }
     return
   }

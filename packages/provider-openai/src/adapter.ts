@@ -7,12 +7,14 @@ import type {
   RawQueryResult,
   NormalizedQueryResult,
 } from '@ainyc/canonry-contracts'
+import { RetrievalStatuses } from '@ainyc/canonry-contracts'
 import {
   validateConfig as openaiValidateConfig,
   healthcheck as openaiHealthcheck,
   executeTrackedQuery as openaiExecuteTrackedQuery,
   normalizeResult as openaiNormalizeResult,
   generateText as openaiGenerateText,
+  OPENAI_RETRIEVAL_CONTRACT,
 } from './normalize.js'
 import type { OpenAIConfig } from './types.js'
 
@@ -84,13 +86,12 @@ export const openaiAdapter: ProviderAdapter = {
       servedModel: raw.servedModel,
       groundingSources: raw.groundingSources,
       searchQueries: raw.searchQueries,
-      // Retrieval detection is not implemented for this provider. Its candidate
-      // marker is present on 100% of stored rows, so it has never been shown to
-      // discriminate a non-retrieving answer and wiring it up would hardcode
-      // `used`. `unknown` states what we actually know. The contract is a
-      // declaration about how we build the request, so it is always knowable.
-      retrievalStatus: 'unknown' as const,
-      retrievalContract: 'native-auto-v1' as const,
+      // Read from the response's `web_search_call` items. Under forced search
+      // nearly every row reads `used`; that is the contract holding, and a
+      // `not-used` row is the visible breach, so the observation still
+      // discriminates. The contract declares how the request was built.
+      retrievalStatus: raw.retrievalStatus,
+      retrievalContract: raw.retrievalContract,
     }
   },
 
@@ -101,6 +102,10 @@ export const openaiAdapter: ProviderAdapter = {
       model: raw.model,
       groundingSources: raw.groundingSources,
       searchQueries: raw.searchQueries,
+      // A reconstruction that predates the field falls back to `unknown`
+      // rather than asserting an absence.
+      retrievalStatus: raw.retrievalStatus ?? RetrievalStatuses.unknown,
+      retrievalContract: raw.retrievalContract ?? OPENAI_RETRIEVAL_CONTRACT,
     }
     const normalized = openaiNormalizeResult(openaiRaw)
     return {
@@ -109,7 +114,7 @@ export const openaiAdapter: ProviderAdapter = {
       citedDomains: normalized.citedDomains,
       groundingSources: normalized.groundingSources,
       searchQueries: normalized.searchQueries,
-      retrievalStatus: 'unknown' as const,
+      retrievalStatus: normalized.retrievalStatus,
     }
   },
 

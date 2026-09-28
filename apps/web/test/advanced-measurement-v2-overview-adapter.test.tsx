@@ -374,6 +374,43 @@ describe('property row detail', () => {
     expect(sum('citationCoverage')).toBe(property.citationCoverage.numerator)
   })
 
+  it('discloses the answers a mention rate left out on the row and each engine, and names an all-ambiguous row', () => {
+    // Property 1: one mention plus nine answers that asked which property was meant.
+    const { activePlan, overview } = fixture(2)
+    overview.measurement = { state: 'complete', completed: 2, expected: 2 }
+    overview.properties.items[0]!.mentionCoverage = { state: 'available', value: 1, numerator: 1, denominator: 1, unattributed: 9 }
+    overview.properties.items[0]!.citationCoverage = { state: 'available', value: 0, numerator: 0, denominator: 10 }
+    overview.properties.items[0]!.providers = [
+      { provider: 'openai', mentionCoverage: { state: 'available', value: 1, numerator: 1, denominator: 1, unattributed: 4 },
+        citationCoverage: { state: 'available', value: 0, numerator: 0, denominator: 5 } },
+      { provider: 'gemini', mentionCoverage: { state: 'unavailable', reason: 'identity_ambiguous' },
+        citationCoverage: { state: 'available', value: 0, numerator: 0, denominator: 5 } },
+    ]
+    // Property 2: every answer ambiguous.
+    overview.properties.items[1]!.mentionCoverage = { state: 'unavailable', reason: 'identity_ambiguous' }
+    overview.properties.items[1]!.citationCoverage = { state: 'available', value: 0, numerator: 0, denominator: 3 }
+
+    const report = adaptV2MeasurementOverview({ overview, activePlan })
+    const [first, second] = report.currentView!.aggregate.properties
+    expect(first!.mentionCoverage).toEqual({ numerator: 1, denominator: 1, unattributed: 9 })
+    expect(first!.providers![0]!.mentionCoverage).toEqual({ numerator: 1, denominator: 1, unattributed: 4 })
+    // Not "Complete": every answer asked which property was meant.
+    expect(second!.status).toEqual({ label: 'Property identity unverified', tone: 'caution' })
+
+    render(<AdvancedMeasurementOverview report={report} canEdit onViewChange={vi.fn()} onLoadMore={vi.fn()} onPropertyExpand={vi.fn()} />)
+    const row = screen.getByRole('button', { name: 'Show details for Property 1' }).closest('tr')!
+    const [, mention, citation] = [...row.querySelectorAll('td')]
+    expect(mention!.textContent).toBe('1 of 1 (100%)9 of 10 answers could not be tied to one property')
+    expect(citation!.textContent).toBe('0 of 10 (0%)')
+    fireEvent.click(row)
+    const openai = screen.getByText('openai').closest('tr')!
+    expect(openai.querySelectorAll('td')[1]!.textContent).toBe('1 of 1 (100%)4 of 5 answers could not be tied to one property')
+    const gemini = screen.getByText('gemini').closest('tr')!
+    expect(gemini.querySelectorAll('td')[1]!.querySelector('[title]')!.getAttribute('title')).toBe('No answer could be tied to one property.')
+    const ambiguousRow = screen.getByRole('button', { name: 'Show details for Property 2' }).closest('tr')!
+    expect(within(ambiguousRow).getByText('Property identity unverified')).toBeTruthy()
+  })
+
   it('names the market a property belongs to, so a row is identifiable at portfolio scale', () => {
     const { activePlan, overview } = fixture(2)
     const report = adaptV2MeasurementOverview({ overview, activePlan })

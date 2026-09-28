@@ -232,3 +232,178 @@ describe('truncateToolResult (OSS-C)', () => {
     expect(elapsedMs).toBeLessThan(3_000)
   })
 })
+
+/** A property-shaped row: its own metrics plus a nested list of names seen instead. */
+function propertyRow(i: number, namesSeen = 5) {
+  return {
+    targetKey: `property-${i}`,
+    label: `Harbor Homes ${i}`,
+    mentionCoverage: { state: 'available', value: 0, numerator: 0, denominator: 24 },
+    citationCoverage: { state: 'available', value: 0, numerator: 0, denominator: 24 },
+    namedInstead: Array.from({ length: namesSeen }, (_, n) => ({ name: `Example Residences ${i}-${n}`, answers: n + 1 })),
+  }
+}
+
+/** The `__truncation` line a plain slice carries just before its closing note. */
+function sliceSummary(out: string): { cutAt: string; droppedKeys: string[]; keptItems: Record<string, string>; moreDroppedKeys?: number } {
+  const lines = out.split('\n')
+  expect(lines.at(-1)).toBe('... (truncated, result too large)')
+  const line = lines.at(-2)!
+  expect(line.startsWith('__truncation: ')).toBe(true)
+  return JSON.parse(line.slice('__truncation: '.length))
+}
+
+describe('truncateToolResult never truncates silently', () => {
+  it('trims many same-named nested arrays in one pass and returns structured JSON, not a slice', () => {
+    // 40 rows, each with its own nested list, next to other collections: the
+    // old one-array-per-pass walk ran out of passes here and blind-sliced.
+    const rows = Array.from({ length: 40 }, (_, i) => propertyRow(i))
+    const markets = Array.from({ length: 150 }, (_, i) => ({ groupKey: `market-${i}`, label: `Market ${i}`, propertyCount: 3, mentionCoverage: { value: 0, numerator: 0, denominator: 24 } }))
+    const details = {
+      queryClass: 'non-brand',
+      metrics: { mentionCoverage: { numerator: 0, denominator: 960 } },
+      rows,
+      ranking: { strongest: rows.slice(0, 10).map(({ namedInstead: _n, ...row }) => row), eligible: 40 },
+      markets,
+      totalProperties: 40,
+    }
+    const original = JSON.stringify(details)
+    const out = truncateToolResult(details)
+    const parsed = JSON.parse(out)
+
+    expect(out.length).toBeLessThanOrEqual(CAP)
+    expect(parsed.__truncated).toBe(true)
+    expect(parsed.metrics).toEqual(details.metrics)
+    expect(parsed.totalProperties).toBe(40)
+    expect(parsed.ranking).toEqual(details.ranking)
+    // Every row's nested list went in the same pass, and the summary says so.
+    expect(parsed.__truncation.droppedKeys).toContain('rows[].namedInstead')
+    expect(parsed.__truncation.keptItems['rows[].namedInstead']).toBe('0 of 200')
+    expect(parsed.__truncation.keptItems.rows).toBe(`${parsed.rows.length} of 40`)
+    expect(parsed.__truncation.keptItems.markets).toBe(`${parsed.markets.length} of 150`)
+    // Retained rows keep every other field and carry their own omission count.
+    expect(parsed.rows.length).toBeGreaterThan(0)
+    for (const [index, row] of parsed.rows.entries()) {
+      const { namedInstead, ...rest } = rows[index]!
+      expect(row).toMatchObject(rest)
+      expect(row.namedInstead.length + (row.__omittedRowsByField?.namedInstead ?? 0)).toBe(namedInstead.length)
+    }
+    // Every collection the summary names as cut is accounted for.
+    for (const [path, kept] of Object.entries(parsed.__truncation.keptItems as Record<string, string>)) {
+      expect(kept).toMatch(/^\d+ of \d+$/)
+      if (kept.startsWith('0 of ')) expect(parsed.__truncation.droppedKeys).toContain(path)
+    }
+    expect(JSON.stringify(details)).toBe(original)
+  })
+
+  it('spends leftover room on sibling lists and leaves untouched rows unmarked', () => {
+    // Odd rows have long lists, even rows a single entry. The group is the
+    // last thing trimmed, so it settles on a per-row count, then gives the
+    // leading rows one more entry while room remains.
+    const rows = Array.from({ length: 30 }, (_, i) => ({
+      targetKey: `property-${i}`,
+      label: `Harbor Homes ${i}`,
+      namedInstead: Array.from({ length: i % 2 === 0 ? 1 : 12 }, (_, n) => ({ name: `Example Residences ${i}-${n}`, note: 'z'.repeat(60) })),
+    }))
+    const out = truncateToolResult({ summary: { rows: rows.length }, result: { rows } })
+    const parsed = JSON.parse(out)
+
+    expect(out.length).toBeLessThanOrEqual(CAP)
+    expect(parsed.result.rows).toHaveLength(30)
+    expect(parsed.result.__omittedRowsByField).toBeUndefined()
+    const keptPerLongRow = parsed.result.rows.filter((_: unknown, i: number) => i % 2 === 1).map((row: { namedInstead: unknown[] }) => row.namedInstead.length)
+    expect(Math.min(...keptPerLongRow)).toBeGreaterThan(0)
+    expect(Math.max(...keptPerLongRow) - Math.min(...keptPerLongRow)).toBeLessThanOrEqual(1)
+    // Non-increasing: the extra entry goes to the leading rows.
+    expect(keptPerLongRow).toEqual([...keptPerLongRow].sort((a, b) => b - a))
+    let kept = 0
+    for (const [i, row] of parsed.result.rows.entries()) {
+      kept += row.namedInstead.length
+      expect(row.namedInstead).toEqual(rows[i]!.namedInstead.slice(0, row.namedInstead.length))
+      if (i % 2 === 0) {
+        expect(row.namedInstead).toHaveLength(1)
+        expect(row.__truncated).toBeUndefined()
+        expect(row.__omittedRowsByField).toBeUndefined()
+      } else {
+        expect(row.__truncated).toBe(true)
+        expect(row.namedInstead.length + row.__omittedRowsByField.namedInstead).toBe(12)
+      }
+    }
+    expect(parsed.__truncation).toEqual({
+      droppedKeys: [],
+      keptItems: { 'result.rows[].namedInstead': `${kept} of ${15 * 12 + 15}` },
+    })
+  })
+
+  it('names the trimmed collection on the largest-array and top-level-array paths', () => {
+    const actions = Array.from({ length: 600 }, (_, i) => evidenceRow(i))
+    const object = JSON.parse(truncateToolResult({ summary: { total: 600 }, actions }))
+    expect(object.__truncation).toEqual({ droppedKeys: [], keptItems: { actions: `${object.actions.length} of 600` } })
+
+    const wrapped = JSON.parse(truncateToolResult(actions))
+    expect(wrapped.__truncation).toEqual({ droppedKeys: [], keptItems: { items: `${wrapped.items.length} of 600` } })
+  })
+
+  it('ends a plain slice with a line naming the cut and unseen top-level keys and their counts', () => {
+    // Past the structured ceiling, so the slice is taken. Row text carries
+    // quotes, braces, brackets and backslashes the cut scanner must skip.
+    const tricky = 'says "{not a brace}" [or a bracket] \\ and, commas '
+    const rows = Array.from({ length: 6_000 }, (_, i) => ({ id: `row-${i}`, answerText: tricky.repeat(8) }))
+    const details = {
+      summary: { answers: 6_000, class: 'non-brand' },
+      rows,
+      markets: Array.from({ length: 150 }, (_, i) => ({ groupKey: `market-${i}` })),
+      sources: { total: 12 },
+      total: 6_000,
+    }
+    expect(JSON.stringify(details, null, 2).length).toBeGreaterThan(2_000_000)
+
+    const out = truncateToolResult(details)
+    expect(out.length).toBeLessThanOrEqual(CAP + 50)
+    const summary = sliceSummary(out)
+
+    expect(summary.droppedKeys).toEqual(['markets', 'sources', 'total'])
+    expect(summary.keptItems.markets).toBe('0 of 150')
+    const shownRows = Number(summary.keptItems.rows!.split(' of ')[0])
+    expect(summary.keptItems.rows).toBe(`${shownRows} of 6000`)
+    // Either inside the next row, or between rows when the cut lands on one.
+    expect(summary.cutAt === 'rows' || summary.cutAt.startsWith(`rows[${shownRows}]`)).toBe(true)
+    // The count is exact: the last counted row is complete in the text, the
+    // next one is not.
+    const pretty = (row: unknown) => `    ${JSON.stringify(row, null, 2).replace(/\n/g, '\n    ')}`
+    expect(out).toContain(pretty(rows[shownRows - 1]))
+    expect(out).not.toContain(pretty(rows[shownRows]))
+    // Fully shown keys are not listed.
+    expect(summary.keptItems.summary).toBeUndefined()
+    expect(summary.droppedKeys).not.toContain('summary')
+  })
+
+  it('names the cut map when a keyed collection cannot fit even emptied', () => {
+    // Hundreds of distinct keys each holding a list: emptying every list
+    // still exceeds the cap, so the walk is skipped for the slice.
+    const byQuery: Record<string, unknown> = {}
+    for (let q = 0; q < 900; q++) byQuery[`best apartments near example ${q}`] = [{ domain: 'example.com', count: q }]
+    const extra = Array.from({ length: 50 }, (_, i) => [`key${i}`, i] as const)
+    const details = { overall: [{ domain: 'example.com', count: 900 }], byQuery, ...Object.fromEntries(extra) }
+
+    const started = Date.now()
+    const out = truncateToolResult(details)
+    expect(Date.now() - started).toBeLessThan(1_000)
+    expect(out.length).toBeLessThanOrEqual(CAP + 50)
+    const summary = sliceSummary(out)
+
+    const shownKeys = Number(summary.keptItems.byQuery!.split(' of ')[0])
+    expect(summary.keptItems.byQuery).toBe(`${shownKeys} of 900 keys`)
+    expect(summary.cutAt.startsWith('byQuery')).toBe(true)
+    // Unseen top-level keys are listed up to a bound, with the rest counted.
+    expect(summary.droppedKeys).toHaveLength(30)
+    expect(summary.droppedKeys[0]).toBe('key0')
+    expect(summary.moreDroppedKeys).toBe(20)
+  })
+
+  it('adds no key line when the result has no keys to name', () => {
+    const out = truncateToolResult('y'.repeat(CAP + 5_000))
+    expect(out).not.toContain('__truncation')
+    expect(out.endsWith('\n... (truncated, result too large)')).toBe(true)
+  })
+})

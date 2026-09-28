@@ -3,6 +3,7 @@ import {
   buildMeasurementEvidence,
   buildMeasurementObservationSignals,
   buildMeasurementOverview,
+  buildMeasurementReport,
   type MeasurementOverviewInput,
 } from '../src/measurement-report.js'
 
@@ -46,7 +47,13 @@ describe('assignment-aware identity attribution', () => {
     input.observations[0]!.answerText = 'Harbor Point offers convenient service.'
     input.observations[1]!.answerText = 'Which Harbor Point do you mean?'
     const overview = buildMeasurementOverview(input)
-    expect(overview.mentionCoverage.reason).toBe('identity-ambiguous')
+    // The uncertain answer leaves the rate rather than blanking it: the one
+    // attributable answer names Harbor Point, and one answer is left out.
+    expect(overview.mentionCoverage).toEqual({ numerator: 1, denominator: 1, rate: 1, unattributed: 1 })
+    expect(overview.properties.map(row => row.mentionCoverage)).toEqual([
+      { numerator: 1, denominator: 1, rate: 1, unattributed: 1 },
+      { numerator: 0, denominator: 1, rate: 0 },
+    ])
     expect(overview.propertiesMentioned).toEqual({ numerator: 1, denominator: 2, rate: 0.5 })
   })
 
@@ -69,8 +76,10 @@ describe('assignment-aware identity attribution', () => {
     expect(evidence.answers.find(row => row.usageEdgeId === 'edge-harbor')?.mentioned).toBeNull()
     expect(evidence.answers.find(row => row.usageEdgeId === 'edge-loft')?.mentioned).toBe(false)
     const overview = buildMeasurementOverview(input)
+    // Harbor's only answer is uncertain, so its own rate has nothing to measure.
     expect(overview.properties[0]!.mentionCoverage).toEqual({ numerator: null, denominator: null, rate: null, reason: 'identity-ambiguous' })
-    expect(overview.mentionCoverage.reason).toBe('identity-ambiguous')
+    // The portfolio still measures the answer that could be attributed.
+    expect(overview.mentionCoverage).toEqual({ numerator: 0, denominator: 1, rate: 0, unattributed: 1 })
   })
 
   it('preserves uncertainty for non-Latin property names', () => {
@@ -78,7 +87,9 @@ describe('assignment-aware identity attribution', () => {
     input.targets[0]!.aliases = ['海湾公寓']
     input.observations[0]!.answerText = 'Which 海湾公寓 do you mean?'
     expect(buildMeasurementEvidence(input).answers[0]!.mentioned).toBeNull()
-    expect(buildMeasurementOverview(input).mentionCoverage.reason).toBe('identity-ambiguous')
+    const overview = buildMeasurementOverview(input)
+    expect(overview.properties[0]!.mentionCoverage.reason).toBe('identity-ambiguous')
+    expect(overview.mentionCoverage).toEqual({ numerator: 0, denominator: 1, rate: 0, unattributed: 1 })
   })
 
   it.each([
@@ -143,5 +154,91 @@ describe('assignment-aware identity attribution', () => {
     const compact = buildMeasurementObservationSignals(input).find(row => row.observationId === detailed.observationId)!
     expect(detailed).toMatchObject({ mentioned: null, cited: true, evidenceComplete: false })
     expect(compact).toMatchObject({ mentionedTargetIds: [], unknownMentionTargetIds: ['harbor'], citedTargetIds: ['harbor'], sourceComplete: false })
+  })
+})
+
+/**
+ * Harbor Point on twelve branded answers split across two engines: nine name
+ * it, two do not, and one asks which Harbor Point was meant. Sail Loft keeps
+ * its one answer, which names nothing.
+ */
+const HARBOR_ANSWERS = [
+  ...Array.from({ length: 9 }, () => 'Harbor Point is a strong choice for families.'),
+  'Several nearby communities are worth a visit.',
+  'Nothing in particular stands out.',
+  'Which Harbor Point do you mean? There are several places with that name.',
+] as const
+
+function brandedPopulation(answers: readonly string[] = HARBOR_ANSWERS): MeasurementOverviewInput {
+  const input = fixture()
+  const provider = (index: number) => index % 2 === 0 ? 'openai' : 'gemini'
+  input.usageEdges = [
+    ...answers.map((_, index) => ({ id: `edge-harbor-${index}`, type: 'target' as const, targetId: 'harbor', executionId: `exec-harbor-${index}`, queryClass: 'branded' as const })),
+    { id: 'edge-loft', type: 'target', targetId: 'loft', executionId: 'exec-loft', queryClass: 'branded' },
+  ]
+  input.expectedSlots = [
+    ...answers.map((_, index) => ({ id: `slot-harbor-${index}`, executionId: `exec-harbor-${index}`, queryText: 'is harbor point good', provider: provider(index), location: null })),
+    { id: 'slot-loft', executionId: 'exec-loft', queryText: 'is sail loft good', provider: 'openai', location: null },
+  ]
+  input.observations = [
+    ...answers.map((answerText, index) => ({ id: `answer-harbor-${index}`, executionId: `exec-harbor-${index}`, queryText: 'is harbor point good', provider: provider(index), location: null, answerText, citedUrls: [], citedUrlsComplete: true })),
+    { id: 'answer-loft', executionId: 'exec-loft', queryText: 'is sail loft good', provider: 'openai', location: null, answerText: 'No recommendation today.', citedUrls: [], citedUrlsComplete: true },
+  ]
+  return input
+}
+
+describe('unattributable answers leave the mention rate instead of blanking it', () => {
+  it('measures the attributable answers and counts the one it left out', () => {
+    const overview = buildMeasurementOverview(brandedPopulation())
+    const harbor = overview.properties.find(row => row.targetId === 'harbor')!
+    // 9 of the 11 attributable answers; the uncertain twelfth is in neither side.
+    expect(harbor.mentionCoverage).toEqual({ numerator: 9, denominator: 11, rate: 9 / 11, unattributed: 1 })
+    expect(harbor.mentionCoverage.denominator! + harbor.mentionCoverage.unattributed!).toBe(HARBOR_ANSWERS.length)
+    // Each engine is measured the same way over its own answers. Only gemini
+    // received the uncertain answer, so only its row carries the count.
+    expect(harbor.providers.map(row => [row.provider, row.mentionCoverage])).toEqual([
+      ['gemini', { numerator: 4, denominator: 5, rate: 0.8, unattributed: 1 }],
+      ['openai', { numerator: 5, denominator: 6, rate: 5 / 6 }],
+    ])
+    // Portfolio: Sail Loft's one answer is a measured negative and stays in.
+    expect(overview.mentionCoverage).toEqual({ numerator: 9, denominator: 12, rate: 0.75, unattributed: 1 })
+    expect(overview.properties.find(row => row.targetId === 'loft')!.mentionCoverage).toEqual({ numerator: 0, denominator: 1, rate: 0 })
+    // Mention and citation stay independent: the excluded answer does not move citation's denominator.
+    expect(overview.citationCoverage).toEqual({ numerator: 0, denominator: 13, rate: 0 })
+  })
+
+  it('never reads the unattributable answer as not mentioned', () => {
+    const evidence = buildMeasurementEvidence(brandedPopulation()).answers
+    expect(evidence.filter(row => row.mentioned === null).map(row => row.observationId)).toEqual(['answer-harbor-11'])
+    expect(evidence.filter(row => row.mentioned === false).map(row => row.observationId).sort())
+      .toEqual(['answer-harbor-10', 'answer-harbor-9', 'answer-loft'])
+  })
+
+  it('applies the same rule to the revision report', () => {
+    const report = buildMeasurementReport(brandedPopulation())
+    const harbor = report.targets.find(row => row.id === 'harbor')!
+    expect(harbor.mentionCoverage).toEqual({ numerator: 9, denominator: 11, rate: 9 / 11, unattributed: 1 })
+    expect(harbor.providers.map(row => [row.provider, row.mentionCoverage])).toEqual([
+      ['gemini', { numerator: 4, denominator: 5, rate: 0.8, unattributed: 1 }],
+      ['openai', { numerator: 5, denominator: 6, rate: 5 / 6 }],
+    ])
+  })
+
+  it('stays unavailable when every answer is unattributable', () => {
+    const input = brandedPopulation(['Which Harbor Point do you mean?', 'Harbor Point can refer to several different places.'])
+    input.observations.find(row => row.id === 'answer-loft')!.answerText = 'Which Sail Loft are you asking about?'
+    const unavailable = { numerator: null, denominator: null, rate: null, reason: 'identity-ambiguous' }
+    const overview = buildMeasurementOverview(input)
+    expect(overview.mentionCoverage).toEqual(unavailable)
+    expect(overview.properties.map(row => row.mentionCoverage)).toEqual([unavailable, unavailable])
+    expect(buildMeasurementReport(input).targets.map(row => row.mentionCoverage)).toEqual([unavailable, unavailable])
+  })
+
+  it('still withholds the rate when an answer is missing, whatever else is uncertain', () => {
+    const input = brandedPopulation()
+    input.observations = input.observations.filter(row => row.id !== 'answer-harbor-0')
+    const overview = buildMeasurementOverview(input)
+    expect(overview.mentionCoverage).toEqual({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' })
+    expect(overview.properties.find(row => row.targetId === 'harbor')!.mentionCoverage.reason).toBe('evidence-incomplete')
   })
 })

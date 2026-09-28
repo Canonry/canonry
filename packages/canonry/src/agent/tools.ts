@@ -108,6 +108,8 @@ export const AERO_ADS_OPERATOR_MCP_TOOL_NAMES: ReadonlySet<CanonryMcpToolName> =
 interface ToolBuildOptions {
   scope?: AeroToolScope
   profile?: AeroToolProfile
+  /** True when the install manages sweeps; see `AERO_MANAGED_SWEEP_MCP_TOOLS`. */
+  managedSweeps?: boolean
 }
 
 interface ContextSection<T> {
@@ -330,8 +332,8 @@ function buildAdsOperatorContextTool(ctx: ToolContext): AgentTool {
  * Aero-excluded set filtered out. Adding a new read tool to
  * `mcp/tool-registry.ts` automatically exposes it here.
  */
-export function buildReadTools(ctx: ToolContext): AgentTool[] {
-  return buildMcpAgentTools(canonryMcpTools, ctx, { readOnly: true })
+export function buildReadTools(ctx: ToolContext, opts: Pick<ToolBuildOptions, 'managedSweeps'> = {}): AgentTool[] {
+  return buildMcpAgentTools(canonryMcpTools, ctx, { readOnly: true, managedSweeps: opts.managedSweeps })
 }
 
 /**
@@ -339,17 +341,18 @@ export function buildReadTools(ctx: ToolContext): AgentTool[] {
  * Aero-excluded set (e.g., `canonry_agent_clear`, which would erase the
  * operator's context mid-turn). New MCP tools flow into Aero automatically.
  */
-export function buildAllTools(ctx: ToolContext): AgentTool[] {
-  return buildMcpAgentTools(canonryMcpTools, ctx)
+export function buildAllTools(ctx: ToolContext, opts: Pick<ToolBuildOptions, 'managedSweeps'> = {}): AgentTool[] {
+  return buildMcpAgentTools(canonryMcpTools, ctx, { managedSweeps: opts.managedSweeps })
 }
 
 export function buildAdsOperatorTools(
   ctx: ToolContext,
-  opts: Pick<ToolBuildOptions, 'scope'> = {},
+  opts: Pick<ToolBuildOptions, 'scope' | 'managedSweeps'> = {},
 ): AgentTool[] {
   const mcpTools = buildMcpAgentTools(canonryMcpTools, ctx, {
     readOnly: opts.scope === AeroToolScopes.readOnly,
     includeNames: AERO_ADS_OPERATOR_MCP_TOOL_NAMES,
+    managedSweeps: opts.managedSweeps,
   })
   return [buildAdsOperatorContextTool(ctx), ...mcpTools]
 }
@@ -357,8 +360,9 @@ export function buildAdsOperatorTools(
 export function buildAeroStateTools(ctx: ToolContext, opts: ToolBuildOptions = {}): AgentTool[] {
   const scope = opts.scope ?? AeroToolScopes.all
   const profile = opts.profile ?? AeroToolProfiles.default
+  const managedSweeps = opts.managedSweeps
   if (profile === AeroToolProfiles.adsOperator) {
-    return buildAdsOperatorTools(ctx, { scope })
+    return buildAdsOperatorTools(ctx, { scope, managedSweeps })
   }
-  return scope === AeroToolScopes.readOnly ? buildReadTools(ctx) : buildAllTools(ctx)
+  return scope === AeroToolScopes.readOnly ? buildReadTools(ctx, { managedSweeps }) : buildAllTools(ctx, { managedSweeps })
 }

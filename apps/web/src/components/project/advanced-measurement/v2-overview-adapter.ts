@@ -3,6 +3,7 @@ import type {
   MeasurementPlanResponse,
   MeasurementReportResponse,
 } from '@ainyc/canonry-api-client'
+import { REPORT_VISIBILITY_COPY } from '@ainyc/canonry-contracts'
 
 import type {
   AdvancedMeasurementEvidence,
@@ -43,7 +44,11 @@ function metric(value: OverviewMetric): AdvancedMeasurementMetric {
   if (value.numerator === undefined || value.denominator === undefined || value.denominator <= 0) {
     return { numerator: null, denominator: null, reason: 'not_applicable' }
   }
-  return { numerator: value.numerator, denominator: value.denominator }
+  return {
+    numerator: value.numerator,
+    denominator: value.denominator,
+    ...(value.unattributed === undefined ? {} : { unattributed: value.unattributed }),
+  }
 }
 
 /** The one rendering of a frozen URL matcher. The Property page reuses it so the two surfaces cannot print the same matcher differently. */
@@ -118,6 +123,8 @@ function propertyStatus(row: MeasurementOverviewResponse['properties']['items'][
   if (reasons.includes('no_completed_run')) return { label: 'Not measured', tone: 'neutral' }
   if (reasons.includes('plan_v1')) return { label: 'Update setup', tone: 'caution' }
   if (reasons.includes('evidence_incomplete')) return { label: 'Evidence incomplete', tone: 'caution' }
+  // Every answer asked which property was meant: not complete, and not a zero.
+  if (reasons.includes('identity_ambiguous')) return { label: REPORT_VISIBILITY_COPY.ambiguous, tone: 'caution' }
   if (reasons.includes('no_population')) return { label: 'No queries', tone: 'neutral' }
   if (reasons.includes('not_applicable')) return { label: 'Not applicable', tone: 'neutral' }
   return { label: 'Complete', tone: 'positive' }

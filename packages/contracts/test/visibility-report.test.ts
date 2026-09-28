@@ -4,11 +4,13 @@ import {
   VisibilityReportComparisonUnavailableReasons,
   visibilityReportQuerySchema,
   VisibilityReportRateChangeUnavailableReasons,
+  visibilityReportRateSchema,
   visibilityReportRateChangeSchema,
   visibilityReportResponseSchema,
   visibilityReportScopeErrorDetailsSchema,
   VisibilityReportScopeErrorReasons,
 } from '../src/visibility-report.js'
+import { reportUnattributedAnswers } from '../src/report-visibility.js'
 
 describe('visibility report contract', () => {
   it('defaults to the non-brand population and preserves explicit no-location', () => {
@@ -102,6 +104,32 @@ describe('visibility report contract', () => {
     const missingDenominator = structuredClone(response)
     delete (missingDenominator.populations[0] as { summary: { mentionCoverage: Record<string, unknown> } }).summary.mentionCoverage.denominator
     expect(visibilityReportResponseSchema.safeParse(missingDenominator).success).toBe(false)
+  })
+
+  it('carries the answers a rate left out beside its denominator, only on an available rate', () => {
+    expect(visibilityReportRateSchema.parse({ numerator: 1055, denominator: 1140, rate: 1055 / 1140, unattributed: 12 }))
+      .toEqual({ numerator: 1055, denominator: 1140, rate: 1055 / 1140, unattributed: 12 })
+    // Absent is the one encoding of none.
+    expect(visibilityReportRateSchema.safeParse({ numerator: 1, denominator: 2, rate: 0.5, unattributed: 0 }).success).toBe(false)
+    // An all-unattributable population is unavailable with its reason, not a rate with a count.
+    expect(visibilityReportRateSchema.safeParse({ numerator: null, denominator: null, rate: null, reason: 'identity-ambiguous', unattributed: 3 }).success).toBe(false)
+    expect(visibilityReportRateSchema.safeParse({ numerator: null, denominator: null, rate: null, reason: 'identity-ambiguous' }).success).toBe(true)
+  })
+})
+
+describe('unattributed answer line', () => {
+  it('states the left-out answers out of every answer the rate read', () => {
+    expect(reportUnattributedAnswers({ numerator: 1055, denominator: 1140, rate: 1055 / 1140, unattributed: 12 }))
+      .toBe('12 of 1152 answers could not be tied to one property')
+    // A metric value from the Advanced Measurement reads uses the same line.
+    expect(reportUnattributedAnswers({ numerator: 0, denominator: 1, unattributed: 1 }))
+      .toBe('1 of 2 answers could not be tied to one property')
+  })
+
+  it('says nothing when no answer was left out or the rate is unavailable', () => {
+    expect(reportUnattributedAnswers({ numerator: 3, denominator: 4, rate: 0.75 })).toBeNull()
+    expect(reportUnattributedAnswers({ numerator: null, denominator: null, rate: null, reason: 'identity-ambiguous' })).toBeNull()
+    expect(reportUnattributedAnswers({})).toBeNull()
   })
 })
 

@@ -281,6 +281,15 @@ describe('measurement metric value', () => {
     expect(measurementMetricValueSchema.parse({ state: 'available', value: 0.5, numerator: 3, denominator: 6 }))
       .toEqual({ state: 'available', value: 0.5, numerator: 3, denominator: 6 })
   })
+
+  it('carries the answers a mention rate left out beside its denominator, and only when some were', () => {
+    expect(measurementMetricValueSchema.parse({ state: 'available', value: 0.5, numerator: 3, denominator: 6, unattributed: 2 }))
+      .toEqual({ state: 'available', value: 0.5, numerator: 3, denominator: 6, unattributed: 2 })
+    // Absent is the one encoding of none; a zero, a fraction, or a count on an unavailable metric is refused.
+    expect(measurementMetricValueSchema.safeParse({ state: 'available', value: 0.5, numerator: 3, denominator: 6, unattributed: 0 }).success).toBe(false)
+    expect(measurementMetricValueSchema.safeParse({ state: 'available', value: 0.5, numerator: 3, denominator: 6, unattributed: 1.5 }).success).toBe(false)
+    expect(measurementMetricValueSchema.safeParse({ state: 'unavailable', reason: 'identity_ambiguous', unattributed: 2 }).success).toBe(false)
+  })
 })
 
 describe('measurement overview response', () => {

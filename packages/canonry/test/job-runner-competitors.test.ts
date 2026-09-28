@@ -54,27 +54,27 @@ test('extractRecommendedCompetitors matches spaced company names to compact doma
 })
 
 test('computeCompetitorOverlap does not match a subdomain label as a brand word', () => {
-  // Regression: with stored competitor `offers.roofle.com`, the prior code
+  // Regression: with stored competitor `offers.quotebird.test`, the prior code
   // pulled `offers` from the leftmost label and word-boundary-matched it
   // against arbitrary prose. Use the registrable domain's brand label
-  // (`roofle`) instead — the answer below should produce zero overlap.
-  const answer = 'Energy Design Systems offers a white-label lead generation tool. Demand IQ uses AI-driven estimates.'
+  // (`quotebird`) instead — the answer below should produce zero overlap.
+  const answer = 'Northwind Solar Systems offers a white-label lead generation tool. Acme IQ uses AI-driven estimates.'
   const result = buildResult(answer)
-  expect(computeCompetitorOverlap(result, ['offers.roofle.com'])).toEqual([])
+  expect(computeCompetitorOverlap(result, ['offers.quotebird.test'])).toEqual([])
 })
 
 test('computeCompetitorOverlap still flags the registrable brand of a subdomained competitor', () => {
   // Sanity: the brand label drawn from the eTLD+1 still matches when the
   // answer mentions the actual brand name.
-  const answer = 'Brokers turn to Roofle for instant install quotes.'
+  const answer = 'Brokers turn to Quotebird for instant install quotes.'
   const result = buildResult(answer)
-  expect(computeCompetitorOverlap(result, ['offers.roofle.com'])).toEqual(['offers.roofle.com'])
+  expect(computeCompetitorOverlap(result, ['offers.quotebird.test'])).toEqual(['offers.quotebird.test'])
 })
 
 test('computeCompetitorOverlap matches the full registrable domain in the answer', () => {
-  const answer = 'See pricing at roofle.com for details.'
+  const answer = 'See pricing at quotebird.example.com for details.'
   const result = buildResult(answer)
-  expect(computeCompetitorOverlap(result, ['roofle.com'])).toEqual(['roofle.com'])
+  expect(computeCompetitorOverlap(result, ['quotebird.example.com'])).toEqual(['quotebird.example.com'])
 })
 
 test('domain identity matching rejects hostname and prose substrings', () => {
@@ -93,25 +93,25 @@ test('domain identity matching accepts a structured source subdomain', () => {
 })
 
 test('extractRecommendedCompetitors does not seed a brand from a subdomain label', () => {
-  // The competitor `offers.roofle.com` should source brand keys from
-  // `roofle.com` (keys: `rooflecom`, `roofle`) — never from `offers`. So
+  // The competitor `offers.quotebird.test` should source brand keys from
+  // `quotebird.test` (keys: `quotebirdtest`, `quotebird`) — never from `offers`. So
   // a heading like `### Offers` must not promote "Offers" to a recommended
   // competitor.
   const answer = [
     '### Offers',
-    'Energy Design Systems is a major provider.',
+    'Northwind Solar Systems is a major provider.',
     '',
-    '1. **Roofle** - install-quote engine',
+    '1. **Quotebird** - install-quote engine',
   ].join('\n')
 
   expect(
     extractRecommendedCompetitors(
       answer,
-      ['demandiq.com'],
+      ['acmeiq.test'],
       [],
-      ['offers.roofle.com'],
+      ['offers.quotebird.test'],
     ),
-  ).toEqual(['Roofle'])
+  ).toEqual(['Quotebird'])
 })
 
 test('extractRecommendedCompetitors never recommends a cited listing marketplace, but keeps a real rival', () => {

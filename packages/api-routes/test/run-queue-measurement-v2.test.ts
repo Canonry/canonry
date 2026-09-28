@@ -331,6 +331,52 @@ describe('a published v2 revision at queue time', () => {
     expect(parseStoredMeasurementExecutionIdentity(row.measurementExecutionIdentity).models).toEqual({ openai: 'gpt-instance' })
   })
 
+  describe('an engine whose frozen ids were retired', () => {
+    function mixedRevision(db: DatabaseClient, projectId: string, provider: string, north: string, south: string) {
+      publishV2(db, projectId, v2Plan({
+        targets: ['north-branch', 'south-branch'],
+        nodes: [
+          { key: 'exec-north', queryId: 'q-1', queryText: 'widget question 0', providers: [provider], models: { [provider]: north }, location: NORTH },
+          { key: 'exec-south', queryId: 'q-1', queryText: 'widget question 0', providers: [provider], models: { [provider]: south }, location: SOUTH },
+        ],
+        assignments: [
+          { targetKey: 'north-branch', nodeKey: 'exec-north' },
+          { targetKey: 'south-branch', nodeKey: 'exec-south' },
+        ],
+      }), 1)
+      return queuedRun(db, queue(db, projectId))
+    }
+    // What the run queue stamped for this revision before the switch: a
+    // mixed-model engine was left out of the identity entirely.
+    const preSwitchChecksum = (provider: string) => crypto.createHash('sha256')
+      .update(JSON.stringify({ models: {}, providers: [provider], schemaVersion: 1 })).digest('hex')
+
+    it('starts a new series for a mixed-model revision that froze sonar and sonar-pro', () => {
+      const { db, projectId } = seed()
+      const row = mixedRevision(db, projectId, 'perplexity', 'sonar', 'sonar-pro')
+
+      const identity = parseStoredMeasurementExecutionIdentity(row.measurementExecutionIdentity)
+      expect(identity.models).toEqual({ perplexity: 'fast + low' })
+      expect(identity.checksum).not.toBe(preSwitchChecksum('perplexity'))
+      // The slots keep the revision's frozen ids: the revision is immutable.
+      expect(parseMeasurementRunManifestV1(row.measurementManifest).expectedSlots.map(slot => slot.requestedModel))
+        .toEqual(['sonar', 'sonar-pro'])
+    })
+
+    it('records the one engine a retired id and its replacement both run on', () => {
+      const { db, projectId } = seed()
+      const row = mixedRevision(db, projectId, 'perplexity', 'sonar', 'fast')
+      expect(parseStoredMeasurementExecutionIdentity(row.measurementExecutionIdentity).models).toEqual({ perplexity: 'fast' })
+    })
+
+    it('leaves a mixed-model engine with no retired id out, so its series does not break', () => {
+      const { db, projectId } = seed()
+      const identity = parseStoredMeasurementExecutionIdentity(mixedRevision(db, projectId, 'openai', 'gpt-a', 'gpt-b').measurementExecutionIdentity)
+      expect(identity.models).toEqual({})
+      expect(identity.checksum).toBe(preSwitchChecksum('openai'))
+    })
+  })
+
   it('refuses a run that asks for engines the revision was not published with', () => {
     const { db, projectId } = seed()
     publishV2(db, projectId, v2Plan({

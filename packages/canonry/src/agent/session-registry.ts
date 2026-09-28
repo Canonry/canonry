@@ -34,6 +34,7 @@ import { loadExternalMcpTools } from './remote-mcp.js'
 import { loadRecentForHydrate } from './memory-store.js'
 import { configureAeroRuntime } from './runtime.js'
 import { buildAeroViewTool, aeroViewPrompt, readAeroViewEvidence } from './view-context.js'
+import { aeroProjectShape } from './project-shape.js'
 import type { AgentViewContext, AgentTurnLimits } from '@ainyc/canonry-contracts'
 import { compactMessages, shouldCompact } from './compaction.js'
 
@@ -56,6 +57,12 @@ export interface SessionRegistryOptions {
    * the caller alone would let that one through the first time someone typed.
    */
   proactive?: boolean
+  /**
+   * True when the install manages sweeps. Every session this registry builds
+   * withholds the sweep and schedule writes, whatever scope the caller asked
+   * for, so the dashboard, the API and `canonry agent ask` share one rule.
+   */
+  managedSweeps?: boolean
 }
 
 export interface SessionPreferences {
@@ -133,7 +140,7 @@ function escapeMemoryFragment(value: string): string {
  * it while the dashboard re-fetched it on a poll. Strip it on the way to the
  * database only; the in-memory message keeps `details` for the live UI.
  */
-function withoutPersistedToolDetails(messages: readonly unknown[]): unknown[] {
+export function withoutPersistedToolDetails(messages: readonly unknown[]): unknown[] {
   return messages.map((message) => {
     if (!message || typeof message !== 'object') return message
     const row = message as Record<string, unknown>
@@ -281,6 +288,7 @@ export class SessionRegistry {
         initialMessages: persistedMessages,
         toolScope: preferences?.toolScope,
         toolProfile: preferences?.toolProfile,
+        managedSweeps: this.opts.managedSweeps,
         db: this.opts.db,
         projectId,
         agentSessionId: row.id,
@@ -316,6 +324,7 @@ export class SessionRegistry {
       systemPromptOverride: this.buildHydratedSystemPrompt(projectId, systemPrompt),
       toolScope: preferences?.toolScope,
       toolProfile: preferences?.toolProfile,
+      managedSweeps: this.opts.managedSweeps,
       db: this.opts.db,
       projectId,
       agentSessionId: sessionId,
@@ -456,9 +465,12 @@ export class SessionRegistry {
       preferences?.signal?.throwIfAborted()
       await this.maybeCompact(projectName, agent)
       preferences?.signal?.throwIfAborted()
-      agent.state.systemPrompt = this.buildHydratedSystemPrompt(projectId, systemPrompt) + aeroViewPrompt(preferences?.context)
       const progressive = (preferences?.toolProfile ?? AeroToolProfiles.default) === AeroToolProfiles.default
-      configureAeroRuntime(agent, [...agent.state.tools, ...(progressive ? [buildAeroViewTool(view, evidence)] : [])], preferences?.limits, progressive)
+      const shape = aeroProjectShape(this.opts.db, projectId)
+      agent.state.systemPrompt = this.buildHydratedSystemPrompt(projectId, systemPrompt)
+        + shape.prompt
+        + aeroViewPrompt(preferences?.context)
+      configureAeroRuntime(agent, [...agent.state.tools, ...(progressive ? [buildAeroViewTool(view, evidence)] : [])], preferences?.limits, progressive, shape.pinned)
       return agent
     } finally {
       this.acquisitions.delete(projectName)
@@ -534,7 +546,7 @@ export class SessionRegistry {
     this.projectIds.set(projectName, projectId)
     const toolCtx = { client: this.opts.client, projectName }
     // Mirror createAeroSession: skill-doc tools ride in every scope.
-    const stateTools = buildAeroStateTools(toolCtx, want)
+    const stateTools = buildAeroStateTools(toolCtx, { ...want, managedSweeps: this.opts.managedSweeps })
     agent.state.tools = [...stateTools, ...buildSkillDocTools()]
     this.scopes.set(projectName, want.scope)
     this.profiles.set(projectName, want.profile)

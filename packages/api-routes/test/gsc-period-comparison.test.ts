@@ -268,7 +268,7 @@ describe('computeGscPeriodComparison', () => {
   })
 
   /**
-   * Reproduces the real property that motivated the change (azcoatingsllc.com,
+   * Reproduces the property shape that motivated the change (a small site,
    * 139 days to 2026-08-14). The fitted trend line predicted -13.98 impressions
    * on day one, so the old tile printed nothing for impressions and nothing for
    * CTR, and reported average position as a 45.8% IMPROVEMENT across a window

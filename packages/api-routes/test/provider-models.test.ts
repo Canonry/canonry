@@ -9,6 +9,11 @@ const adapters = [
     modelValidationPattern: /^gemini-/, modelValidationHint: 'use a Gemini model ID beginning with gemini-',
   },
   {
+    name: 'perplexity', displayName: 'Perplexity', mode: 'api' as const,
+    modelConfigurable: true, defaultModel: 'fast', knownModels: [],
+    modelValidationPattern: /./, modelValidationHint: 'a preset or provider/model slug',
+  },
+  {
     name: 'cdp:chatgpt', displayName: 'ChatGPT (Browser)', mode: 'browser' as const,
     modelConfigurable: false, defaultModel: 'chatgpt-web', knownModels: [],
     modelValidationPattern: /./, modelValidationHint: 'detected from the browser',
@@ -29,6 +34,14 @@ describe('validateProviderModels', () => {
   it('trims accepted values and preserves an empty inherited map without descriptors', () => {
     expect(validateProviderModels({}, undefined)).toEqual({})
     expect(validateProviderModels({ gemini: ' gemini-2.5-pro ' }, adapters)).toEqual({ gemini: 'gemini-2.5-pro' })
+  })
+
+  it('stores the id that answers instead of a retired alias, so apply stays convergent', () => {
+    const once = validateProviderModels({ perplexity: ' sonar-pro ', gemini: 'gemini-2.5-pro' }, adapters)
+    expect(once).toEqual({ perplexity: 'low', gemini: 'gemini-2.5-pro' })
+    expect(validateProviderModels(once, adapters)).toEqual(once)
+    expect(validateProviderModels({ perplexity: 'sonar' }, adapters)).toEqual({ perplexity: 'fast' })
+    expect(validateProviderModels({ perplexity: 'perplexity/sonar' }, adapters)).toEqual({ perplexity: 'perplexity/sonar' })
   })
 
   it('fails closed when host metadata is unavailable', () => {

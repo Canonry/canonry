@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
+import { REPORT_VISIBILITY_COPY, visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
 import type { VisibilityReportComparison, VisibilityReportPopulationClass, VisibilityReportRate, VisibilityReportResponse } from '@ainyc/canonry-contracts'
 import { CHART_SERIES_COLORS, CHART_TONE } from '../src/components/shared/ChartPrimitives.js'
 import { REPORT_CHANGE_COPY, REPORT_CLASS_NOUN, REPORT_HEADLINE_HELP, VisibilityReportView } from '../src/components/project/VisibilityTrendSection.js'
@@ -184,7 +184,7 @@ describe('headline strip', () => {
     // Mention reads the answer text and Cited reads the source links, in both modes.
     expect(REPORT_HEADLINE_HELP.simpleMention).toBe('Mentioned counts answers naming your brand in the answer text, not in the source links.')
     expect(REPORT_HEADLINE_HELP.simpleCitation).toBe('Cited counts answers linking to your site in the sources behind the answer, not in the answer text.')
-    expect(REPORT_HEADLINE_HELP.advancedMention).toBe('An answer counts when it mentions any assigned property. This does not mean every property was mentioned.')
+    expect(REPORT_HEADLINE_HELP.advancedMention).toBe('An answer counts when it mentions any assigned property. This does not mean every property was mentioned. An answer that could not be tied to one property is left out of the rate, never counted as not mentioned.')
     expect(REPORT_HEADLINE_HELP.advancedCitation).toBe('An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited.')
     // Server truth: eligible = the property has a name to match (`mentionEligible`),
     // reach counts a property once across its answers, and one unknown property
@@ -284,6 +284,27 @@ describe('headline strip', () => {
     render(<VisibilityReportView report={headlineReport({ summary: { mentionCoverage: NOT_MEASURED }, comparison })} onSelectionChange={() => {}} />)
     expect(cell(MENTION_LABEL)).toEqual([[`Not measured · ${REPORT_CLASS_NOUN['non-brand']}`, REASON_CLASS]])
     expect(valueRow(CITATION_LABEL).at(-1)).toEqual(['Up 16.7 pts', 'text-sm text-positive'])
+  })
+
+  it('shows the server rate over attributable answers and, under it, the answers it left out', () => {
+    // 12 of 1152 branded answers asked which property was meant. The server left
+    // them out of both sides of the rate; the tile states the rate and the count.
+    const partial: VisibilityReportRate = { numerator: 1055, denominator: 1140, rate: 1055 / 1140, unattributed: 12 }
+    render(<VisibilityReportView report={headlineReport({ queryClass: 'branded', answerCount: 1152, summary: { mentionCoverage: partial } })} onSelectionChange={() => {}} />)
+    expect(cell(MENTION_LABEL, 'branded')).toEqual([
+      [`92.5% · ${REPORT_CLASS_NOUN.branded}`, 'report-headline-value'],
+      ['1055 of 1140 answers', DETAIL_CLASS],
+      ['12 of 1152 answers could not be tied to one property', DETAIL_CLASS],
+    ])
+    expect(visibleText(tile(MENTION_LABEL, 'branded'))).not.toContain(REPORT_VISIBILITY_COPY.ambiguous)
+    // Cited is a separate signal with its own denominator and no such line.
+    expect(cell(CITATION_LABEL, 'branded')).toEqual(figure(CITATION_LABEL, 'branded'))
+  })
+
+  it('keeps an all-unattributable rate unavailable with its reason and no count line', () => {
+    const ambiguous: VisibilityReportRate = { numerator: null, denominator: null, rate: null, reason: 'identity-ambiguous' }
+    render(<VisibilityReportView report={headlineReport({ queryClass: 'branded', summary: { mentionCoverage: ambiguous } })} onSelectionChange={() => {}} />)
+    expect(cell(MENTION_LABEL, 'branded')).toEqual([[`${REPORT_VISIBILITY_COPY.ambiguous} · ${REPORT_CLASS_NOUN.branded}`, REASON_CLASS]])
   })
 
   it.each([
@@ -394,6 +415,17 @@ describe('headline strip', () => {
     const [, , propertyMentioned, propertyCited] = cells('Harbor House')
     expect(bar(propertyMentioned!)?.width).toBe('75%')
     expect(bar(propertyCited!)?.width).toBe('50%')
+  })
+
+  it('states the answers a breakdown row left out beneath its rate', () => {
+    const report = headlineReport()
+    report.populations[0]!.breakdown.properties[0]!.mentionCoverage = { numerator: 3, denominator: 4, rate: 0.75, unattributed: 1 }
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    const breakdown = screen.getByRole('region', { name: 'Scope breakdown' })
+    fireEvent.click(within(breakdown).getByRole('button', { name: 'Properties' }))
+    const [, , mentioned, cited] = [...within(breakdown).getByRole('button', { name: 'Harbor House' }).closest('tr')!.querySelectorAll('td')]
+    expect(mentioned!.textContent).toBe('75%3 of 41 of 5 answers could not be tied to one property')
+    expect(cited!.textContent).toBe('50%2 of 4')
   })
 
   it('orders the strip, trend chart, breakdown, Property outcomes, and query results', () => {

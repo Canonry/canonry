@@ -27,6 +27,7 @@ import { asyncHandler } from './lib/async-handler.js'
 import { formatErrorLog } from './lib/format-helpers.js'
 import { viewerRoleLabel,
   getEmbedConfig,
+  isAeroPreview,
   isPublicDemo,
   heyClient,
   shouldShowDashboardAgentBar,
@@ -71,7 +72,7 @@ import { useInitialDashboard } from './contexts/dashboard-context.js'
 import { Toaster } from './components/layout/Toaster.js'
 import { DemoNotice } from './components/layout/DemoNotice.js'
 import { TaskCenter } from './components/layout/TaskCenter.js'
-import { AeroBarHost } from './components/shared/AeroBar.js'
+import { AeroBarHost, aeroAllowedFor } from './components/shared/AeroBar.js'
 import { RUNS_STALE_MS } from './queries/query-client.js'
 import { invalidateQueriesForRunKind } from './queries/run-invalidations.js'
 import { formatTrackedRunKind } from './lib/run-labels.js'
@@ -308,9 +309,11 @@ export function RootLayout() {
   const resourceLinksVisible = useMemo(shouldShowDashboardResourceLinks, [])
   const deploymentServesAgentBar = useMemo(shouldShowDashboardAgentBar, [])
   // Two independent conditions: the deployment still serves the agent at all,
-  // and this account is an administrator. Combined here rather than only at the
+  // and this account may use it: an administrator, or a signed-in viewer on an
+  // install that opened Aero to viewers. Combined here rather than only at the
   // render site so the bottom padding the bar reserves disappears with it.
-  const agentBarVisible = deploymentServesAgentBar && isAdmin
+  // The public demo has neither, and shows the bar as a scripted preview.
+  const agentBarVisible = isAeroPreview() || (deploymentServesAgentBar && aeroAllowedFor({ isAdmin, account }))
   const updateNotificationVisible = useMemo(shouldShowDashboardUpdateNotification, [])
 
   // Router state is also a data-fetching input: setup owns the project-create

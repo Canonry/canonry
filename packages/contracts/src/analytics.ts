@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { validationError } from './errors.js'
 import { measurementExecutionIdentitySchema } from './measurement-plan.js'
 import { modelPointerChangeDisclosureSchema } from './model-pointers.js'
+import { queryClassFilterSchema } from './query-class.js'
 import { sourceCategorySchema } from './source-categories.js'
 import { surfaceClassSchema } from './surface-class.js'
 
@@ -403,12 +404,24 @@ export const sourceCategoryCountSchema = z.object({
 })
 export type SourceCategoryCount = z.infer<typeof sourceCategoryCountSchema>
 
-/** One cited domain in a ranked list, tagged with its category + surface class. */
+/**
+ * One cited domain in a ranked list, tagged with its category + surface class.
+ *
+ * `count` is the number of answers in scope whose stored source list
+ * (`citedDomains` plus `citedUrls`) cites this domain. A domain counts at most
+ * once per answer, however many of its pages that answer lists.
+ */
 export const sourceRankEntrySchema = z.object({
   domain: z.string(),
   count: z.number().int(),
   /** Share of the list's `totalCitedSlots`, 0..1 (4dp). */
   percentage: z.number(),
+  /**
+   * Share of the list's `answerTotal` (every answer in scope, including answers
+   * that cited nothing) that cite this domain, 0..1 (4dp). Optional only so an
+   * older server's response still parses.
+   */
+  answerShare: z.number().optional(),
   category: sourceCategorySchema,
   label: z.string(),
   surfaceClass: surfaceClassSchema,
@@ -434,8 +447,12 @@ export type SurfaceClassCount = z.infer<typeof surfaceClassCountSchema>
  *   `sum(bySurfaceClass.count) === totalCitedSlots`  (rollup spans the FULL scope)
  */
 export const rankedSourceListSchema = z.object({
-  /** Total cited slots (grounding citations) counted in this scope. */
+  /** Total cited slots in this scope: one per (answer, cited domain) pair. */
   totalCitedSlots: z.number().int(),
+  /** Answers in this scope, including answers that cited nothing. Denominator of `answerShare`. */
+  answerTotal: z.number().int().optional(),
+  /** Answers in this scope whose stored source list names at least one domain. */
+  answersWithSources: z.number().int().optional(),
   /** Distinct domains in this scope. */
   domainTotal: z.number().int(),
   /** Ranked domains, desc by count; truncated to the applied limit if any. */
@@ -449,17 +466,73 @@ export const rankedSourceListSchema = z.object({
 })
 export type RankedSourceList = z.infer<typeof rankedSourceListSchema>
 
+/** How `queryClass` placed each answer in a class. */
+export const sourceBreakdownQueryClassBasisSchema = z.enum(['measurement-plan', 'query-text'])
+export type SourceBreakdownQueryClassBasis = z.infer<typeof sourceBreakdownQueryClassBasisSchema>
+
+/**
+ * Scope filters for `GET /projects/:name/analytics/sources`. `window` and
+ * `limit` keep their own long-standing parsing (`parseWindow`, positive int).
+ */
+export const sourceBreakdownQuerySchema = z.object({
+  /** One stored answer-visibility run. Omit to pool every run in the window. */
+  runId: z.string().trim().min(1).optional(),
+  /**
+   * Branded or non-brand answers only. With an active v2 measurement plan the
+   * class comes from each run's frozen plan assignments; otherwise from the
+   * project's brand-name classifier over the query text. `all` (the default)
+   * pools both classes.
+   */
+  queryClass: queryClassFilterSchema.optional(),
+  /** `false` omits the per-query breakdown (`byQuery`), which is large. Defaults to `true`. */
+  includeByQuery: z.enum(['true', 'false', '1', '0']).optional(),
+})
+export type SourceBreakdownQuery = z.infer<typeof sourceBreakdownQuerySchema>
+
+/**
+ * Where AI engines cite from. Every count is an answer-level credit read from
+ * the stored source list (`citedDomains` plus `citedUrls`), so a provider whose
+ * raw grounding links are redirect proxies (Gemini) is still counted.
+ * `ranked` leads the payload; `byQuery` is last and omitted with
+ * `includeByQuery=false`.
+ */
 export const sourceBreakdownDtoSchema = z.object({
-  overall: z.array(sourceCategoryCountSchema),
-  byQuery: z.record(z.string(), z.array(sourceCategoryCountSchema)),
   /** Full ranked + classified cited-domain list across all providers (#675). */
   ranked: rankedSourceListSchema,
   /** Per-provider ranked + classified breakdown, keyed by provider name (#675). */
   byProvider: z.record(z.string(), rankedSourceListSchema),
+  /**
+   * Providers that answered in scope but whose answers name no resolvable
+   * source. They are absent from `byProvider`; listed here so their absence is
+   * never read as missing data.
+   */
+  providersWithoutSources: z.array(z.string()).optional(),
+  /** Answers in scope after every filter, across all providers. */
+  answerTotal: z.number().int().optional(),
+  /** Runs pooled into this response. More than one means several sweeps are pooled. */
+  runCount: z.number().int().optional(),
+  /**
+   * Answers the `queryClass` filter could not place in either class (a run with
+   * no frozen v2 plan, an answer with no plan execution, or no query text).
+   * They are excluded from every count. Zero when no class filter is applied.
+   */
+  unclassifiedAnswers: z.number().int().optional(),
+  /** Echo of the applied filters. */
+  filters: z.object({
+    runId: z.string().nullable(),
+    queryClass: queryClassFilterSchema,
+    /** Null when `queryClass` is `all` and no classification was applied. */
+    queryClassBasis: z.union([sourceBreakdownQueryClassBasisSchema, z.null()]),
+    includeByQuery: z.boolean(),
+  }).optional(),
   runId: z.string(),
   window: metricsWindowSchema,
   /** Applied ranked-list limit; null when the full list is returned. */
   limit: z.number().int().nullable(),
+  /** Legacy category breakdown (top 5 domains per category). */
+  overall: z.array(sourceCategoryCountSchema),
+  /** Per-query category breakdown keyed by current query text. Omitted with `includeByQuery=false`. */
+  byQuery: z.record(z.string(), z.array(sourceCategoryCountSchema)).optional(),
 })
 export type SourceBreakdownDto = z.infer<typeof sourceBreakdownDtoSchema>
 
@@ -564,12 +637,17 @@ export const competitorLandscapeEvidenceSchema = z.object({
 export type CompetitorLandscapeEvidence = z.infer<typeof competitorLandscapeEvidenceSchema>
 
 export const COMPETITOR_LANDSCAPE_MODEL_GROUP_LIMIT = 50
+/** Observed answer-text names returned per landscape (and per model group); `observedNamesTotal` carries the full count. */
+export const COMPETITOR_LANDSCAPE_OBSERVED_NAME_LIMIT = 50
 
 /** A measured provider/requested-model population, not an equal-weight or matched-query comparison. */
 export const competitorLandscapeModelGroupSchema = z.object({
   ...shareOfVoiceContextFields,
   comparison: z.array(z.object({ domain: z.string(), mentions: z.number().int().nonnegative() })).optional(),
+  /** Names written in the answer text (not cited sources), top `COMPETITOR_LANDSCAPE_OBSERVED_NAME_LIMIT` by answer count. */
   observedNames: z.array(z.object({ name: z.string(), answerCount: z.number().int().nonnegative() })).optional(),
+  /** Distinct observed names before the cap. Greater than `observedNames.length` when the list was cut. */
+  observedNamesTotal: z.number().int().nonnegative().optional(),
   provider: z.string().trim().min(1),
   /** Null preserves historical observations with unknown requested model identity. */
   model: modelIdSchema.nullable(),
@@ -598,7 +676,10 @@ export type CompetitorLandscapeModelComparison = z.infer<typeof competitorLandsc
 export const competitorLandscapeResponseSchema = z.object({
   ...shareOfVoiceContextFields,
   comparison: z.array(z.object({ domain: z.string(), mentions: z.number().int().nonnegative() })).optional(),
+  /** Names written in the answer text (not cited sources), top `COMPETITOR_LANDSCAPE_OBSERVED_NAME_LIMIT` by answer count. */
   observedNames: z.array(z.object({ name: z.string(), answerCount: z.number().int().nonnegative() })).optional(),
+  /** Distinct observed names before the cap. Greater than `observedNames.length` when the list was cut. */
+  observedNamesTotal: z.number().int().nonnegative().optional(),
   window: metricsWindowSchema,
   scope: competitorLandscapeScopeSchema,
   project: competitorLandscapeRowSchema,

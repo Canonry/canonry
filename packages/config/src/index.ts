@@ -1,9 +1,11 @@
-import { agentProviderIdSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, providerQuotaPolicySchema, schedulableRunKindSchema, type ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
+import { agentProviderIdSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, providerQuotaPolicySchema, resolveProviderModel, schedulableRunKindSchema, type ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
 import { z } from 'zod'
 
 /** Presentation only. A missing or blank YAML value leaves the opt-in unset. */
 export const dashboardManagedSweepsSchema = z.boolean().nullish()
 export const researchAllowViewersSchema = z.boolean().nullish()
+/** Lets signed-in viewer accounts use Aero, in their own read-only lane. Blank leaves it off. */
+export const agentAllowViewersSchema = z.boolean().nullish()
 export const researchViewerDailyRunLimitSchema = z.number().int().positive().nullish()
 export const dashboardManagedRunKindsSchema = z.array(schedulableRunKindSchema).nullish()
 
@@ -217,7 +219,8 @@ export function getPlatformEnv(source: NodeJS.ProcessEnv): PlatformEnv {
   if (parsed.PERPLEXITY_API_KEY) {
     providers.perplexity = {
       apiKey: parsed.PERPLEXITY_API_KEY,
-      model: parsed.PERPLEXITY_MODEL,
+      // A retired Sonar name resolves to the Agent API preset that now answers.
+      model: parsed.PERPLEXITY_MODEL === undefined ? undefined : resolveProviderModel('perplexity', parsed.PERPLEXITY_MODEL),
       quota: providerQuotaPolicySchema.parse({
         maxConcurrency: parsed.PERPLEXITY_MAX_CONCURRENCY,
         maxRequestsPerMinute: parsed.PERPLEXITY_MAX_REQUESTS_PER_MINUTE,
@@ -318,7 +321,7 @@ export function getBootstrapEnv(
   if (parsed.PERPLEXITY_API_KEY) {
     providers.perplexity = {
       apiKey: parsed.PERPLEXITY_API_KEY,
-      model: parsed.PERPLEXITY_MODEL || 'sonar',
+      model: resolveProviderModel('perplexity', parsed.PERPLEXITY_MODEL || 'fast'),
       quota: providerQuotaPolicySchema.parse({
         maxConcurrency: 2,
         maxRequestsPerMinute: 10,

@@ -653,3 +653,75 @@ test('a simple-definition persistence error stops all fake provider calls', asyn
     db.$client.close()
   }
 })
+
+test('a retired perplexity model reaches the adapter, frozen definition, and snapshot as the preset that answers', async () => {
+  const db = buildDb()
+  try {
+    const fixture = seedFixture(db)
+    // config.yaml still says `sonar` (the old default); perplexity also has a stored
+    // project override written before `sonar-*` names were resolved on write.
+    db.update(projects).set({
+      providers: ['perplexity', 'openai'],
+      providerModels: { openai: 'gpt-project-actual', perplexity: 'sonar-pro' },
+    }).where(eq(projects.id, fixture.projectId)).run()
+
+    const calls: RecordedCall[] = []
+    const registry = new ProviderRegistry()
+    for (const [name, model] of [['perplexity', 'sonar'], ['openai', 'gpt-registry-ignored']] as const) {
+      registry.register(fakeAdapter({ name, calls }), {
+        provider: name,
+        apiKey: 'k',
+        model,
+        quotaPolicy: { maxConcurrency: 4, maxRequestsPerMinute: 600, maxRequestsPerDay: 100 },
+      })
+    }
+    // The registry already holds the preset for the config.yaml value.
+    expect(registry.get('perplexity')?.config.model).toBe('fast')
+
+    await new JobRunner(db, registry).executeRun(fixture.runId, fixture.projectId)
+
+    const perplexityCalls = calls.filter(call => call.provider === 'perplexity')
+    expect(perplexityCalls.map(call => call.model)).toEqual(['low', 'low'])
+    const definition = db.select().from(simpleMeasurementDefinitions)
+      .where(eq(simpleMeasurementDefinitions.runId, fixture.runId)).get()!.definition
+    expect(definition.engines).toEqual([
+      { provider: 'perplexity', requestedModel: 'low' },
+      { provider: 'openai', requestedModel: 'gpt-project-actual' },
+    ])
+    const models = db.select({ provider: querySnapshots.provider, model: querySnapshots.model })
+      .from(querySnapshots).where(eq(querySnapshots.runId, fixture.runId)).all()
+      .filter(row => row.provider === 'perplexity').map(row => row.model)
+    expect(models).toEqual(['low', 'low'])
+  } finally {
+    db.$client.close()
+  }
+})
+
+test('a retired perplexity model in config.yaml alone runs as fast end to end', async () => {
+  const db = buildDb()
+  try {
+    const fixture = seedFixture(db)
+    db.update(projects).set({ providers: ['perplexity'], providerModels: {} })
+      .where(eq(projects.id, fixture.projectId)).run()
+
+    const calls: RecordedCall[] = []
+    const registry = new ProviderRegistry()
+    registry.register(fakeAdapter({ name: 'perplexity', calls }), {
+      provider: 'perplexity',
+      apiKey: 'k',
+      model: 'sonar',
+      quotaPolicy: { maxConcurrency: 4, maxRequestsPerMinute: 600, maxRequestsPerDay: 100 },
+    })
+
+    await new JobRunner(db, registry).executeRun(fixture.runId, fixture.projectId)
+
+    expect(calls.map(call => call.model)).toEqual(['fast', 'fast'])
+    expect(db.select().from(simpleMeasurementDefinitions)
+      .where(eq(simpleMeasurementDefinitions.runId, fixture.runId)).get()!.definition.engines)
+      .toEqual([{ provider: 'perplexity', requestedModel: 'fast' }])
+    expect(db.select({ model: querySnapshots.model }).from(querySnapshots)
+      .where(eq(querySnapshots.runId, fixture.runId)).all().map(row => row.model)).toEqual(['fast', 'fast'])
+  } finally {
+    db.$client.close()
+  }
+})

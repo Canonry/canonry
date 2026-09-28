@@ -454,8 +454,8 @@ function buildCandidateQueries(opts: BuildCandidateQueriesOpts): CandidateQuery[
   // which is keyed (date, query). gsc_search_data is keyed
   // (date, query, page, country, device), so one SERP impression fans out into
   // a row per ranking page and summing it over-counts badly: on a live property
-  // the query "gjelina hotel" summed to 151,571 impressions where the real
-  // all-time figure is 26,477 and the reported 30-day window is 1,519. Both
+  // the query "harborline hotel" summed to 120,400 impressions where the real
+  // all-time figure is 21,300 and the reported 30-day window is 1,240. Both
   // errors were compounding, since this read also had no date bound at all and
   // presented lifetime demand under the report's window heading.
   //

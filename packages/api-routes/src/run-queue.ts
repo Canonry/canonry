@@ -14,6 +14,7 @@ import {
   nextScheduleUpdatedAt,
   resolveMeasurementRunQueryScope,
   resolveMeasurementRunScope,
+  resolveProviderModel,
   validationError,
   type LocationContext,
   type MeasurementExecutionIdentity,
@@ -168,7 +169,9 @@ function effectiveModels(
   const resolved: Record<string, string> = {}
   for (const provider of providers) {
     const model = overrides[provider] ?? instance[provider]
-    if (model) resolved[provider] = model
+    // An override stored before its id was retired names the engine that
+    // answers now, so the frozen slot, the snapshot, and the identity agree.
+    if (model) resolved[provider] = resolveProviderModel(provider, model)
   }
   return resolved
 }
@@ -266,6 +269,12 @@ function materializeV2ExecutionNodes(
   // would describe a measurement that never happened. The per-slot
   // `requestedModel` stays exact either way.
   const models = new Map<string, string | null>()
+  // What actually answers per engine, and which engines froze a retired id
+  // (Perplexity's `sonar`). A mixed-model engine is left out of the identity,
+  // so without this a revision mixing `sonar` and `sonar-pro` would keep the
+  // same checksum after the switch while every request ran a new engine.
+  const answering = new Map<string, Set<string>>()
+  const retired = new Set<string>()
   const claimed = new Set<string>()
 
   for (const node of [...nodes].sort((left, right) => compareText(left.stableKey, right.stableKey))) {
@@ -286,6 +295,11 @@ function materializeV2ExecutionNodes(
       const model = resolved.get(provider) ?? null
       if (!models.has(provider)) models.set(provider, model)
       else if (models.get(provider) !== model) models.set(provider, null)
+      if (model) {
+        const current = resolveProviderModel(provider, model)
+        if (current !== model) retired.add(provider)
+        answering.set(provider, (answering.get(provider) ?? new Set<string>()).add(current))
+      }
       expectedSlots.push({
         executionId: node.stableKey,
         queryText: node.queryText,
@@ -299,7 +313,16 @@ function materializeV2ExecutionNodes(
   return {
     expectedSlots,
     providers: [...providers].sort(compareText),
-    models: Object.fromEntries([...models].flatMap(([provider, model]) => model ? [[provider, model] as const] : [])),
+    models: Object.fromEntries([...models].flatMap(([provider, model]) => {
+      if (model) return [[provider, model] as const]
+      // A mixed-model engine that froze a retired id records every model that
+      // answers now, so the switch reads as a new series. Other mixed-model
+      // engines stay out, exactly as before, so their series do not break.
+      const current = answering.get(provider)
+      return retired.has(provider) && current
+        ? [[provider, [...current].sort(compareText).join(' + ')] as const]
+        : []
+    })),
   }
 }
 
