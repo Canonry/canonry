@@ -25,6 +25,9 @@ const ADDITIVE = [
   // table. It does not alter or rewrite legacy rows, and older binaries never
   // write that table, so it is additive and safe across a binary rollback.
   /^CREATE TRIGGER IF NOT EXISTS simple_measurement_definitions_no_update/i,
+  // v162 only protects the new sentiment definition table from mutation.
+  // Old writers do not know this table and retain their original behavior.
+  /^CREATE TRIGGER IF NOT EXISTS sentiment_definitions_immutable BEFORE UPDATE ON sentiment_definitions/i,
   /^ALTER TABLE \S+ ADD COLUMN/i,
 ]
 
