@@ -98,8 +98,8 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
   {
     name: 'traffic',
     title: 'Server-side traffic ingestion',
-    description: 'Connect Cloud Run traffic sources, trigger syncs, and read crawler / AI-referral hourly rollups straight from server logs (no GA dependency).',
-    whenToLoad: 'Load when you need server-log evidence of crawler hits or AI-referral sessions (e.g. confirming GPTBot or ChatGPT-User on a page), or when wiring up / syncing a Cloud Run traffic source.',
+    description: 'Read crawler / AI-referral hourly rollups straight from server logs (no GA dependency), assess AI-referral bursts from stored evidence (raw counts, candidate bursts, a separate adjusted estimate, coverage limits), connect Cloud Run / WordPress / Vercel sources, trigger syncs, and backfill Cloud Run / Vercel windows.',
+    whenToLoad: 'Load when you need server-log evidence of crawler hits or AI-referral sessions (e.g. confirming GPTBot or ChatGPT-User on a page), when reviewing candidate AI-referral bursts before quoting server-side AI referral totals, or when wiring up / syncing a traffic source.',
   },
   {
     name: 'agent',

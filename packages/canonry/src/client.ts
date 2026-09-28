@@ -1,3 +1,5 @@
+import type { ReferralAssessment, ReferralAssessmentQuery } from '@ainyc/canonry-contracts'
+import { getApiV1ProjectsByNameTrafficReferralAssessment } from '@ainyc/canonry-api-client'
 import type { AgentConversation, AgentConversationList, AgentConversationDelete } from '@ainyc/canonry-contracts'
 import type { RunCompletenessDto, RunFillRequest, RunFillResponseDto } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@ainyc/canonry-api-client'
@@ -100,6 +102,7 @@ import type {
   SourceBreakdownDto,
   VisibilityStatsDto,
   VisibilityCompareDto,
+  VisibilityCompareSelection,
   LocationContext,
   WordpressAuditIssueDto,
   WordpressAuditPageDto,
@@ -3743,6 +3746,12 @@ export class ApiClient {
     )
   }
 
+  async trafficReferralAssessment(project: string, query: ReferralAssessmentQuery): Promise<ReferralAssessment> {
+    return this.invoke<ReferralAssessment>(() => getApiV1ProjectsByNameTrafficReferralAssessment({
+      client: this.heyClient, path: { name: project }, query,
+    }))
+  }
+
   async trafficListEvents(
     project: string,
     params?: { since?: string; until?: string; kind?: string; limit?: number; sourceId?: string; granularity?: TrafficSeriesGranularity },
@@ -4533,8 +4542,11 @@ export class ApiClient {
     )
   }
 
-  async runDoctor(opts: { project?: string; checkIds?: string[] } = {}): Promise<DoctorReportDto> {
-    const checkQuery = opts.checkIds && opts.checkIds.length > 0 ? { check: opts.checkIds.join(',') } : undefined
+  async runDoctor(opts: { project?: string; checkIds?: string[]; reportMonth?: string } = {}): Promise<DoctorReportDto> {
+    const checkQuery = {
+      ...(opts.checkIds?.length ? { check: opts.checkIds.join(',') } : {}),
+      ...(opts.reportMonth ? { reportMonth: opts.reportMonth } : {}),
+    }
     if (opts.project) {
       return this.invoke<DoctorReportDto>(() =>
         getApiV1ProjectsByNameDoctor({
@@ -4594,12 +4606,12 @@ export class ApiClient {
     )
   }
 
-  async getVisibilityCompare(project: string, from: string, to: string): Promise<VisibilityCompareDto> {
+  async getVisibilityCompare(project: string, from: string, to: string, selection: VisibilityCompareSelection = {}): Promise<VisibilityCompareDto> {
     return this.invoke<VisibilityCompareDto>(() =>
       getApiV1ProjectsByNameVisibilityCompare({
         client: this.heyClient,
         path: { name: project },
-        query: { from, to } as never,
+        query: { from, to, ...selection },
       }),
     )
   }

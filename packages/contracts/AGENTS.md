@@ -12,6 +12,7 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 | `src/log-redaction.ts` | Pure bounded redaction for structured runtime values and diagnostic strings. Shared by console/Fastify logging and durable storage; masks full cookie headers, URL keys and spaced secret labels, drops opaque escaped secret assignments, and avoids unsafe object getters and request/body graphs. |
 | `src/operational-logs.ts` | Strict runtime-event, query, and page DTOs. Identity and time filters, sanitized messages, retention policy, and loss counters are the same across REST, CLI, and MCP. Runtime logs are not business audit history. |
 | `src/telemetry.ts` | Telemetry DTOs and `normalizeTelemetryStatus`: shared legacy-response normalization and anonymous-ID masking for API hosts, ApiClient/MCP, and CLI output. |
+| `src/referral-assessment.ts` | Strict query and response contract for read-time server-referral burst evidence; adjusted estimates never replace raw headlines or assert human visits. |
 | `src/provider.ts` | `ProviderName`, `ProviderConfig`, `ProviderAdapter` interface |
 | `src/project.ts` | Project DTOs and Zod schemas |
 | `src/run.ts` | Run and grounding source types |
@@ -200,3 +201,11 @@ Available factories: `validationError()`, `notFound()`, `alreadyExists()`, `auth
 
 - `packages/api-routes/` — consumes DTOs for request/response validation
 - `packages/canonry/src/client.ts` — uses DTOs for typed API client methods
+
+### Doctor report readiness
+
+`doctor.ts` owns `reportMonthSchema`, `reportMonthsForDoctor`,
+`groupIsoDateRanges`, and the optional check `notificationPolicy`. Silent means
+exclude from notification grading, not exclude from doctor output. Project
+reports expose selected `reportMonths`; the previous month stays selected through
+UTC day 3 unless the caller supplies one explicit month.

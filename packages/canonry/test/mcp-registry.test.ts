@@ -107,6 +107,7 @@ const expectedToolNames = [
   'canonry_traffic_sources_list',
   'canonry_traffic_source_get',
   'canonry_traffic_status',
+  'canonry_traffic_referral_assessment',
   'canonry_traffic_events',
   'canonry_traffic_connect_cloud_run',
   'canonry_traffic_connect_wordpress',
@@ -857,8 +858,8 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(228)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(151)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(229)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(152)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -904,7 +905,7 @@ describe('MCP tool registry', () => {
     expect(counts.get('google-ads')).toBe(6)
     expect(counts.get('gtm')).toBe(7)
     expect(counts.get('conversion-tracking')).toBe(3)
-    expect(counts.get('traffic')).toBe(10)
+    expect(counts.get('traffic')).toBe(11)
     expect(counts.get('agent')).toBe(10)
     expect(counts.get('discovery')).toBe(11)
   })
@@ -1710,6 +1711,7 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_traffic_sources_list', input: projectInput, methods: ['trafficListSources'] },
   { tool: 'canonry_traffic_source_get', input: { project: 'acme', sourceId: 'src-1' }, methods: ['trafficGetSource'] },
   { tool: 'canonry_traffic_status', input: projectInput, methods: ['trafficStatus'] },
+  { tool: 'canonry_traffic_referral_assessment', input: { project: 'acme', startDate: '2026-08-01', endDate: '2026-08-31' }, methods: ['trafficReferralAssessment'], expectedArgs: [['acme', { startDate: '2026-08-01', endDate: '2026-08-31' }]] },
   {
     tool: 'canonry_traffic_events',
     input: { project: 'acme', kind: 'crawler', limit: 50, granularity: 'day' },
@@ -1993,4 +1995,17 @@ test('the run-trigger tool tells an agent it can measure one slice of a plan', (
   // the API rejects that, and an agent following the text would get a 400.
   expect(tool.description).not.toMatch(/measurementScope=\{groups:\[\],\s*targets:\[\]\}/)
   expect(tool.description).toMatch(/omit the field/i)
+})
+
+describe('monthly comparison scope parity', () => {
+  it('forwards the exact Property, market, provider and location selection through the existing read tool', async () => {
+    const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_visibility_compare')!
+    const getVisibilityCompare = vi.fn().mockResolvedValue({ metrics: [], classComparison: { continuity: { status: 'comparable' } } })
+    const client = { getVisibilityCompare } as unknown as ApiClient
+    const selection = { scope: 'property', scopeKey: 'harbor', marketKey: 'coastal', provider: 'openai', location: 'Harbor' }
+    const result = await tool.handler(client, tool.inputSchema.parse({ project: 'acme', from: '2026-08', to: '2026-09', ...selection }))
+    expect(getVisibilityCompare).toHaveBeenCalledWith('acme', '2026-08', '2026-09', selection)
+    expect(result).toEqual({ metrics: [], classComparison: { continuity: { status: 'comparable' } } })
+    expect(tool.access).toBe('read')
+  })
 })

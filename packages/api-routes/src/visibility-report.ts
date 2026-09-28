@@ -709,6 +709,23 @@ function comparableVersionIds(
   return ids
 }
 
+/**
+ * Each revision's newest comparable successor (itself when none). Comparable
+ * links only ever point from a display-only revision to the one it replaced,
+ * so walking every revision's chain in revision order leaves each id mapped
+ * to the newest revision that still reads its answers.
+ */
+function comparableChainHeads(
+  rows: readonly (typeof measurementPlanVersions.$inferSelect)[],
+  rowsById: ReadonlyMap<string, typeof measurementPlanVersions.$inferSelect>,
+): Map<string, string> {
+  const heads = new Map<string, string>()
+  for (const row of [...rows].sort((left, right) => left.revision - right.revision)) {
+    for (const id of comparableVersionIds(rowsById, row.id)) heads.set(id, row.id)
+  }
+  return heads
+}
+
 function assignmentSignature(plan: MeasurementPlanV2, assignment: MeasurementPlanV2['assignments'][number]): string {
   const node = plan.executionNodes.find(candidate => candidate.stableKey === assignment.executionNodeKey)
   if (!node) throw new Error(`Frozen assignment references missing execution node ${assignment.executionNodeKey}`)
@@ -951,4 +968,38 @@ export async function visibilityReportRoutes(app: FastifyInstance) {
     '/projects/:name/visibility-report',
     async request => readVisibilityReport(app.db, resolveProject(app.db, request.params.name), request.query),
   )
+}
+
+/** Reconstruct complete monthly Advanced history without the report trend's 100-run presentation limit. */
+export function readVisibilityComparisonRuns(db: DatabaseClient, projectId: string, since: string, until: string, includeEvidence = true) {
+  const sourceRuns = db.select().from(runs).where(and(
+    eq(runs.projectId, projectId), eq(runs.kind, RunKinds['answer-visibility']),
+    inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]), notProbeRun(),
+    isNotNull(runs.measurementPlanVersionId), isNull(runs.measurementScope),
+    gte(runs.createdAt, since), lte(runs.createdAt, until),
+  )).all()
+  const versionRows = db.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.projectId, projectId)).all()
+  const rowsById = new Map(versionRows.map(version => [version.id, version]))
+  const versions = parseV2Versions(versionRows)
+  const heads = comparableChainHeads(versionRows, rowsById)
+  const byRun = loadVisibilitySnapshots(db, sourceRuns.map(run => run.id))
+  let unavailable = false
+  const selected: VisibilityReportRunInput[] = sourceRuns.flatMap(run => {
+    const source = versions.get(run.measurementPlanVersionId!)
+    if (!source) { unavailable = true; return [] }
+    // A display-only revision (new labels, an added market) froze the same
+    // execution, so every run in its chain reads through the chain's newest
+    // definition, as the report does for the active chain. Reading each run
+    // through its own pinned revision would give one month's answers a market
+    // the other month's answers lack, and no pair would compare.
+    const presentation = versions.get(heads.get(source.row.id) ?? source.row.id) ?? source
+    const snapshots = byRun.get(run.id) ?? []
+    const models = new Map(snapshots.map(snapshot => [snapshot.id, snapshot.model]))
+    // Without evidence, answers skip competitor matching and keep no bodies:
+    // enough for continuity, which reads models and frozen cohorts only.
+    const materialized = advancedRun(run, presentation.row, presentation.plan, snapshots, comparableVersionIds(rowsById, presentation.row.id), includeEvidence)
+    // The established monthly gate compares requested model IDs, not served IDs.
+    return [{ ...materialized, observations: materialized.observations.map(observation => ({ ...observation, model: models.get(observation.answerId) ?? null })) }]
+  })
+  return { runs: selected, unavailable }
 }

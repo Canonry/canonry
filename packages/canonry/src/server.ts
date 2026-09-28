@@ -14,7 +14,7 @@ const { version: PKG_VERSION } = _require("../package.json") as {
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { SetHeadersResponse } from "@fastify/static";
-import { anyUsersExist, apiRoutes, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS } from "@ainyc/canonry-api-routes";
+import { anyUsersExist, apiRoutes, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS } from "@ainyc/canonry-api-routes";
 import {
   apiKeys,
   auditLog,
@@ -1743,7 +1743,9 @@ export async function createServer(opts: {
       // degraded instrument kept emitting `run.completed` and looked healthy.
       void (async () => {
         try {
-          const report = await schedulerClient.runDoctor({ project: projectName });
+          // Only checks that can page: silent report advisories would be
+          // computed here and then discarded by the notifier.
+          const report = await schedulerClient.runDoctor({ project: projectName, checkIds: scheduledHealthCheckIds() });
           const project = opts.db
             .select()
             .from(projects)
