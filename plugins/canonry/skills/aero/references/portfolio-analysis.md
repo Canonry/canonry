@@ -45,7 +45,7 @@ invented combined share-of-voice ratio.
 | What was mentioned or linked in individual answers? | `canonry_measurement_property_evidence` with `shape: answers` |
 | Who appeared instead? | `namedInsteadInAnswerText` on each weakest row, or `canonry_measurement_property_competitors` for one Property; these names were written in the answer text, not cited |
 | Where do engines get these answers? | `citedDomains` on each weakest row and `weakestAnswerSources` in the portfolio summary; project-wide, `canonry_analytics_sources` with `queryClass` and `runId` set, since without them it pools both classes and every sweep |
-| Did performance change? | `populations[].comparison` from `canonry_visibility_report` for the displayed selection (Simple and Advanced); `canonry_measurement_changes` for changed Properties (Advanced); `canonry_visibility_compare` for Simple month comparisons |
+| Did performance change? | `populations[].comparison` from `canonry_visibility_report` for the displayed selection (Simple and Advanced); `canonry_measurement_changes` for changed Properties (Advanced); `canonry_visibility_compare` for calendar-month comparisons (Simple, or Advanced with a Property, group or market `scope`) |
 | Can these results support a conclusion? | `canonry_measurement_data_quality` for Advanced completeness, capture, retrieval, and comparability |
 
 For schema-v1 plans use `canonry_measurement_report` pinned to the requested
