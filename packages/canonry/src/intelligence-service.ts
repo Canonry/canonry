@@ -929,7 +929,8 @@ export class IntelligenceService {
     // Read gsc_query_daily_totals, not gsc_search_data. The latter is keyed
     // (date, query, page, country, device), so one SERP impression fans out
     // into a row per ranking page and summing it over-counts; on a live
-    // property a single query summed to 120,400 against a true 21,300. It also
+    // property a single query summed to several times its true impressions
+    // (illustrative figures: 120,400 against a true 21,300). It also
     // had no date bound while SeveritySignals.gscImpressions is documented as
     // "over the report window", so lifetime demand was being compared against
     // the fixed 100 and 10 thresholds in classifyRegressionSeverity. Both
