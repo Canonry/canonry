@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { createClient, migrate, projects, trafficSources, aiReferralEventsHourly, gaAiReferrals, gaTrafficSummaries } from '@ainyc/canonry-db'
 import { ALL_CHECKS } from '../src/doctor/registry.js'
@@ -49,6 +49,26 @@ describe('report.ai-referral-bursts doctor diagnostic', () => {
     expect(report.checks[0]?.details).toMatchObject({ months: [{ month: '2026-08', candidateGroups: 1, comparison: { observedRatio: 11.9, observedRatioAboveThreshold: true, status: 'unavailable', reasons: expect.arrayContaining(['server-coverage-unproven', 'ga-time-zone-unknown']) } }] })
     expect(report.checks[0]?.remediation).toContain('traffic referral-assessment')
     expect(report.checks[0]?.remediation).toContain('cannot verify')
+  })
+
+  it('grades only the closed month on report days, so a burst in the new month waits', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime('2026-09-02T12:00:00Z')
+      // The closed month's burst moves into the new month; August has none left.
+      db.update(aiReferralEventsHourly).set({ tsHour: '2026-09-01T10:00:00.000Z' }).run()
+      const reportDay = await runChecks({ db, project }, ALL_CHECKS, { checkIds: [CHECK] })
+      expect(reportDay.checks[0]).toMatchObject({ status: 'ok', code: 'report.ai-referral-bursts.no-bursts', summary: expect.stringContaining('bursts in 2026-08.') })
+      expect(reportDay.checks[0]?.details).toMatchObject({ months: [
+        { month: '2026-08', graded: true, suspected: { total: 0 } },
+        { month: '2026-09', graded: false, suspected: { total: 119 } },
+      ] })
+      // After day 3 the new month is the report month and its burst counts.
+      vi.setSystemTime('2026-09-04T12:00:00Z')
+      expect((await runChecks({ db, project }, ALL_CHECKS, { checkIds: [CHECK] })).checks[0]).toMatchObject({ status: 'warn', code: 'report.ai-referral-bursts.bursts' })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('counts candidate groups, not hours: two paths in one hour are two groups', async () => {

@@ -1,4 +1,4 @@
-import { CheckCategories, CheckNotificationPolicies, CheckScopes, CheckStatuses, TrafficSourceStatuses, calendarMonthBounds, reportMonthsForDoctor } from '@ainyc/canonry-contracts'
+import { CheckCategories, CheckNotificationPolicies, CheckScopes, CheckStatuses, TrafficSourceStatuses, calendarMonthBounds, gradedReportMonths, reportMonthsForDoctor } from '@ainyc/canonry-contracts'
 import { trafficSources } from '@ainyc/canonry-db'
 import { and, eq, ne } from 'drizzle-orm'
 import { buildReferralAssessment } from '../../referral-assessment.js'
@@ -19,22 +19,26 @@ export const REFERRAL_ASSESSMENT_CHECKS: readonly CheckDefinition[] = [{
     if (!configured) {
       return { status: CheckStatuses.skipped, code: 'report.ai-referral-bursts.not-configured', summary: 'No non-archived server traffic source is configured for this project.' }
     }
-    const months = reportMonthsForDoctor(ctx.reportMonth).map(month => {
+    const now = new Date()
+    const reportMonths = reportMonthsForDoctor(ctx.reportMonth, now)
+    const graded = gradedReportMonths(reportMonths, now)
+    const months = reportMonths.map(month => {
       const bounds = calendarMonthBounds(month)
       const assessment = buildReferralAssessment(ctx.db, ctx.project!.name, { startDate: bounds.since.slice(0, 10), endDate: bounds.until.slice(0, 10), limit: 1 })
       // `evidence.total` counts source × product × normalized path × UTC hour
       // groups, not hours: one hour can hold several candidate groups.
-      return { month, comparison: assessment.comparison, suspected: assessment.totals.suspected, candidateGroups: assessment.evidence.total, rule: assessment.rule }
+      // Through day 3 the new month is shown but only the closed month is graded.
+      return { month, graded: graded.has(month), comparison: assessment.comparison, suspected: assessment.totals.suspected, candidateGroups: assessment.evidence.total, rule: assessment.rule }
     })
     // Coverage is unproven by construction, so it cannot be the signal: warn
     // only when threshold-qualified bursts exist to review. A high observed
     // quotient stays descriptive, never a warning.
-    const bursts = months.filter(month => month.suspected.total > 0)
+    const bursts = months.filter(month => month.graded && month.suspected.total > 0)
     if (bursts.length === 0) {
       return {
         status: CheckStatuses.ok,
         code: 'report.ai-referral-bursts.no-bursts',
-        summary: `No threshold-qualified AI referral bursts in ${months.map(month => month.month).join(', ')}. Server/GA matching coverage stays unproven, so any observed quotient is descriptive only.`,
+        summary: `No threshold-qualified AI referral bursts in ${months.filter(month => month.graded).map(month => month.month).join(', ')}. Server/GA matching coverage stays unproven, so any observed quotient is descriptive only.`,
         details: { months },
       }
     }
