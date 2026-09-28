@@ -42,7 +42,7 @@ export class SentimentService {
       actions: { configure: administrator && install.enabled, backfill: administrator && install.ready && Boolean(row?.enabled) }, experimental: true, disclosure: DISCLOSURE,
     }
   }
-  configure(projectId: string, value: unknown): SentimentSettings {
+  configure(projectId: string, value: unknown, actor = 'system'): SentimentSettings {
     const update = parse(sentimentSettingsUpdateSchema, value)
     const previous = this.settings(projectId, true)
     if (!previous.installEnabled) throw validationError('Sentiment is disabled in install configuration.')
@@ -53,7 +53,7 @@ export class SentimentService {
     const definition = createSentimentEvaluationDefinition(themes)
     const definitionId = sentimentHash(definition)
     this.repository.putDefinition({ id: definitionId, contentHash: definitionId, requestedModel: SENTIMENT_MODEL, definition, createdAt: this.now() })
-    this.repository.configure({ projectId, enabled: configuration.enabled, evaluationDefinitionId: definitionId, configuration, now: this.now() })
+    this.repository.configure({ projectId, enabled: configuration.enabled, evaluationDefinitionId: definitionId, configuration, actor, now: this.now() })
     return this.settings(projectId, true)
   }
   private sign(value: unknown): string {
@@ -157,9 +157,10 @@ export class SentimentService {
     const settings = this.settings(projectId)
     const definition = selection.evaluationDefinitionId ? this.definition(selection.evaluationDefinitionId) : null
     const source = selection.runId ? selectSentimentSources(this.db, projectId, { ...sourceFilter(selection), runId: selection.runId }) : null
-    const options = { disabled: !settings.enabled || !settings.installEnabled, expectedProviderSlots: source?.sourceCoverage.expected ?? 0, completedProviderSlots: source?.sourceCoverage.completed ?? 0 }
+    const options = { disabled: !settings.enabled || !settings.installEnabled, eligibleAssessments: source?.assessments.length ?? 0, expectedProviderSlots: source?.sourceCoverage.expected ?? 0, completedProviderSlots: source?.sourceCoverage.completed ?? 0 }
     const aggregates = items.map(item => ({ assessmentId: item.work.id, sourceSnapshotId: item.work.snapshotId, outcome: item.evidence.outcome, themes: item.evidence.themes }))
     const summary = aggregateSentiment(aggregates, definition?.themes, options)
+    const coverageGap = items.length > 0 && items.length < (source?.assessments.length ?? 0)
     const breakdowns: SentimentSummary['breakdowns'] = []
     for (const dimension of ['provider', 'property', 'market'] as const) {
       const groups = new Map<string, StoredItem[]>()
@@ -167,9 +168,9 @@ export class SentimentService {
         const keys = dimension === 'provider' ? [item.input.context.provider] : dimension === 'property' ? [item.input.subject.id] : item.input.context.usageEdges.flatMap(edge => edge.marketId ? [edge.marketId] : [])
         for (const key of new Set(keys)) groups.set(key, [...(groups.get(key) ?? []), item])
       }
-      for (const [key, selected] of groups) { const result = aggregateSentiment(selected.map(item => ({ assessmentId: item.work.id, sourceSnapshotId: item.work.snapshotId, outcome: item.evidence.outcome, themes: item.evidence.themes })), [], options); breakdowns.push({ dimension, key, label: dimension === 'property' ? selected[0]!.input.subject.displayName : key, coverage: result.coverage, score: result.score }) }
+      for (const [key, selected] of groups) { const eligibleAssessments = source?.assessments.filter(item => dimension === 'provider' ? item.edges.some(edge => edge.provider === key) : dimension === 'property' ? item.subject.key === key : item.edges.some(edge => edge.marketKeys.includes(key))).length ?? selected.length; const result = aggregateSentiment(selected.map(item => ({ assessmentId: item.work.id, sourceSnapshotId: item.work.snapshotId, outcome: item.evidence.outcome, themes: item.evidence.themes })), [], { ...options, eligibleAssessments }); breakdowns.push({ dimension, key, label: dimension === 'property' ? selected[0]!.input.subject.displayName : key, coverage: result.coverage, score: result.score }) }
     }
-    return { ...summary, ...(selection.queryClass !== 'branded' ? { state: 'unsupported' as const } : {}), reason: options.disabled ? 'Sentiment is disabled.' : selection.queryClass !== 'branded' ? 'Non-brand sentiment is not supported.' : source?.skipped['incomplete-run'] ? 'Source sweep is incomplete.' : null, selection, evaluationDefinition: definition, breakdowns }
+    return { ...summary, ...(coverageGap && !options.disabled ? { state: 'partial' as const, provisional: true } : {}), ...(!options.disabled && selection.queryClass !== 'branded' ? { state: 'unsupported' as const } : {}), reason: options.disabled ? 'Sentiment is disabled.' : selection.queryClass !== 'branded' ? 'Non-brand sentiment is not supported.' : source?.skipped['incomplete-run'] ? 'Source sweep is incomplete.' : coverageGap ? 'classification-coverage-gap: some source assessments have not been admitted.' : null, selection, evaluationDefinition: definition, breakdowns }
   }
   summary(projectId: string, query: SentimentSelection): SentimentSummary { const selection = this.resolve(projectId, query); return this.aggregate(projectId, selection, this.items(projectId, selection)) }
   evidence(projectId: string, query: SentimentSelection, limit: number, cursor?: string) {

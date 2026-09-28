@@ -49,7 +49,25 @@ export function selectSentimentSources(db: DatabaseClient, projectId: string, fi
     if (run.kind !== 'answer-visibility') { skip('unsupported-run-kind'); continue }
     if (filters.mode === 'simple' && run.measurementPlanVersionId || filters.mode === 'advanced' && !run.measurementPlanVersionId) continue
     const completedSuperseded = run.status === 'superseded' && Boolean(db.select().from(sentimentCompletionReceipts).where(and(eq(sentimentCompletionReceipts.projectId, projectId), eq(sentimentCompletionReceipts.runId, run.id))).get())
-    if (run.status !== 'completed' && !completedSuperseded) { skip(run.status === 'failed' ? 'failed-run' : 'incomplete-run'); continue }
+    if (run.status !== 'completed' && !completedSuperseded) {
+      if (run.status !== 'failed') {
+        if (run.measurementPlanVersionId) {
+          const progress = measurementRunSlotState(db, run.id)
+          out.sourceCoverage.expected += progress.expected.length
+          out.sourceCoverage.completed += progress.executed
+        } else {
+          const stored = db.select().from(simpleMeasurementDefinitions).where(eq(simpleMeasurementDefinitions.runId, run.id)).get()
+          const definition = simpleMeasurementDefinitionSchema.safeParse(stored?.definition)
+          if (definition.success) {
+            const expected = definition.data.queries.flatMap(query => definition.data.engines.map(engine => `${query.queryId}\0${engine.provider}`))
+            const recorded = new Set(db.select().from(querySnapshots).where(eq(querySnapshots.runId, run.id)).all().map(snapshot => `${snapshot.queryId}\0${snapshot.provider}`))
+            out.sourceCoverage.expected += expected.length
+            out.sourceCoverage.completed += expected.filter(key => recorded.has(key)).length
+          }
+        }
+      }
+      skip(run.status === 'failed' ? 'failed-run' : 'incomplete-run'); continue
+    }
     const snapshots = db.select().from(querySnapshots).where(eq(querySnapshots.runId, run.id)).all()
     if (run.measurementPlanVersionId) {
       const row = db.select().from(measurementPlanVersions).where(and(eq(measurementPlanVersions.id, run.measurementPlanVersionId), eq(measurementPlanVersions.projectId, projectId))).get()

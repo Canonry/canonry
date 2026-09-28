@@ -3,7 +3,7 @@ import {
   sentimentBackfillRequestSchema, sentimentBackfillSelectionSchema, sentimentCompareRequestSchema,
   sentimentEvidenceRequestSchema, sentimentSelectionSchema, sentimentSettingsUpdateSchema,
 } from '@ainyc/canonry-contracts'
-import { resolveProject, writeAuditLog } from './helpers.js'
+import { resolveProject } from './helpers.js'
 import { canAdministerSentiment, requireSentimentAdministrator } from './sentiment-auth.js'
 import { parseSentimentRequest, SentimentService, type SentimentServiceOptions } from './sentiment-service.js'
 
@@ -15,8 +15,7 @@ export async function sentimentRoutes(app: FastifyInstance, options: SentimentRo
   app.put<{ Params: { name: string }; Body: unknown }>('/projects/:name/sentiment/settings', async request => {
     requireSentimentAdministrator(request)
     const project = resolveProject(app.db, request.params.name)
-    const result = service.configure(project.id, parseSentimentRequest(sentimentSettingsUpdateSchema, request.body))
-    writeAuditLog(app.db, { projectId: project.id, action: 'sentiment.configured', entityType: 'project', entityId: project.id, actor: 'api', diff: { enabled: result.enabled, evaluationDefinitionId: result.evaluationDefinitionId } })
+    const result = service.configure(project.id, parseSentimentRequest(sentimentSettingsUpdateSchema, request.body), request.principal?.delegatedUser?.id ?? request.principal?.id ?? 'local')
     return result
   })
   app.get<{ Params: { name: string }; Querystring: unknown }>('/projects/:name/sentiment', async request => service.summary(resolveProject(app.db, request.params.name).id, parseSentimentRequest(sentimentSelectionSchema, request.query)))

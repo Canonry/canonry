@@ -1,8 +1,8 @@
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { buildSimpleMeasurementDefinition, sentimentSummarySchema } from '@ainyc/canonry-contracts'
-import { apiKeys, createClient, migrate, projects, queries, querySnapshots, runs, simpleMeasurementDefinitions, SentimentRepository, type DatabaseClient } from '@ainyc/canonry-db'
-import { apiRoutes } from '../src/index.js'
+import { apiKeys, createClient, migrate, projects, queries, querySnapshots, runs, simpleMeasurementDefinitions, users, SentimentRepository, type DatabaseClient } from '@ainyc/canonry-db'
+import { apiRoutes, createUserSession, USER_SESSION_COOKIE_NAME } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 import { SentimentService } from '../src/sentiment-service.js'
 
@@ -33,6 +33,59 @@ function request(method: 'GET' | 'PUT' | 'POST', path: string, key = 'root', pay
 // The standalone registration receives the API prefix explicitly in beforeEach below.
 
 describe('sentiment stored API', () => {
+
+  it.each(['admin', 'viewer'] as const)('retains %s authority for named sessions and delegated MCP credentials', async role => {
+    db.insert(users).values({ id: role, name: role, nameKey: role, passwordHash: 'unused', role, createdAt: clock }).run()
+    db.insert(apiKeys).values({ id: `delegated-${role}`, name: 'delegated', keyHash: hashApiKey(`cnry_delegated-${role}`), keyPrefix: 'cnry_test', scopes: ['*'], delegatedUserId: role, createdAt: clock }).run()
+    const cookie = `${USER_SESSION_COOKIE_NAME}=${createUserSession(db, role)}`
+    const session = await app.inject({ method: 'PUT', url: '/api/v1/projects/p/sentiment/settings', headers: { cookie, host: 'localhost', origin: 'http://localhost' }, payload: { enabled: true } })
+    expect(session.statusCode).toBe(role === 'admin' ? 200 : 403)
+    expect((await request('PUT', '/settings', `delegated-${role}`, { enabled: true })).statusCode).toBe(role === 'admin' ? 200 : 403)
+    expect((await request('GET', '/settings', `delegated-${role}`)).statusCode).toBe(200)
+  })
+
+
+  it('compares different answer text under the same evaluator and refuses source model drift', () => {
+    service.configure('p', { enabled: true })
+    const original = db.select().from(simpleMeasurementDefinitions).get()!
+    for (const [runId, text, servedModel] of [['r2', 'Acme has excellent quality.', 'gpt-test-v1'], ['r3', 'Acme is reliable.', 'gpt-test-v2']]) {
+      db.insert(runs).values({ id: runId!, projectId: 'p', kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt: clock }).run()
+      db.insert(querySnapshots).values({ id: `s-${runId}`, runId: runId!, queryId: 'q', provider: 'openai', model: 'gpt-test', servedModel, answerText: text, citationState: 'cited', createdAt: clock }).run()
+      db.insert(simpleMeasurementDefinitions).values({ ...original, runId: runId! }).run()
+    }
+    const repository = new SentimentRepository(db)
+    for (const runId of ['r', 'r2', 'r3']) {
+      const preview = service.preview('p', { runId })
+      service.submit('p', preview.previewToken!, runId, 'test')
+      const work = repository.claim({ owner: 'comparison', now: clock, leaseMs: 10_000 })!
+      const input = work.input as { sentences: Array<{ id: string; text: string; start: number; end: number }> }
+      repository.completeWork({ workItemId: work.id, owner: 'comparison', now: clock, outcome: 'favorable', returnedModel: 'jev-1.13.0', result: { kind: 'classified', outcome: 'favorable', returnedModel: 'jev-1.13.0', usage: { kind: 'reported', inputTokens: 10, outputTokens: 1 }, conclusion: input.sentences.slice(0, 1), complaint: null, themes: [], confidence: null } })
+    }
+    const query = { mode: 'auto' as const, queryClass: 'branded' as const, scope: 'project' as const }
+    expect(service.compare('p', query, 'r', 'r2')).toMatchObject({ verdict: 'no-clear-change', commonUnits: 1, refusalReasons: [] })
+    expect(service.compare('p', query, 'r', 'r3')).toMatchObject({ verdict: null, refusalReasons: ['source-model-changed'] })
+  })
+  it('discloses unadmitted assessments and keeps page state bound to the full selection', () => {
+    service.configure('p', { enabled: true })
+    const stored = db.select().from(simpleMeasurementDefinitions).get()!
+    const definition = { ...stored.definition, engines: [...stored.definition.engines, { provider: 'gemini', requestedModel: 'gemini-test' }] }
+    db.insert(runs).values({ id: 'wide', projectId: 'p', kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt: clock }).run()
+    db.insert(simpleMeasurementDefinitions).values({ ...stored, runId: 'wide', definition }).run()
+    db.insert(querySnapshots).values({ id: 'wide-openai', runId: 'wide', queryId: 'q', provider: 'openai', model: 'gpt-test', servedModel: 'gpt-v1', answerText: 'Acme is excellent.', citationState: 'cited', createdAt: clock }).run()
+    db.insert(querySnapshots).values({ id: 's-gemini', runId: 'wide', queryId: 'q', provider: 'gemini', model: 'gemini-test', servedModel: 'gemini-v1', answerText: 'Acme is excellent.', citationState: 'cited', createdAt: clock }).run()
+    const preview = service.preview('p', { runId: 'wide', provider: 'openai' })
+    service.submit('p', preview.previewToken!, 'partial', 'test')
+    const query = { mode: 'auto' as const, queryClass: 'branded' as const, scope: 'project' as const, runId: 'wide' }
+    const summary = service.summary('p', query)
+    expect(summary).toMatchObject({ state: 'partial', provisional: true, coverage: { selected: 1, eligibleAssessments: 2, unadmittedAssessments: 1 } })
+    const all = service.preview('p', { runId: 'wide' })
+    service.submit('p', all.previewToken!, 'all', 'test')
+    const page = service.evidence('p', query, 1)
+    expect(page.state).toBe('processing')
+    expect(page.nextCursor).not.toBeNull()
+    expect(() => service.evidence('p', { ...query, provider: 'gemini' }, 1, page.nextCursor!)).toThrow('Evidence cursor')
+  })
+
   it('exposes default-off settings and null score without secrets', async () => {
     const settings = await request('GET', '/settings', 'read')
     expect(settings.statusCode).toBe(200)
@@ -75,6 +128,7 @@ describe('sentiment stored API', () => {
   })
   it('validates non-project scope and unsupported non-brand state', async () => {
     expect((await request('GET', '?scope=market')).statusCode).toBe(400)
+    service.configure('p', { enabled: true })
     const response = await request('GET', '?queryClass=non-brand')
     expect(response.json().state).toBe('unsupported')
   })
