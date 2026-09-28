@@ -2,9 +2,10 @@ import { cancelRun, fillRun, listRuns, showRun, showRunCompleteness, triggerRun,
 import type { CliCommandInput, CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, getStringArray, multiStringOption, parseIntegerOption, requirePositional, requireProject, stringOption } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
+import { providerDispatchModeSchema, type ProviderDispatchMode } from '@ainyc/canonry-contracts'
 
-const RUN_TRIGGER_USAGE = 'canonry run trigger <project> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--wait] [--format json]'
-const RUN_USAGE = 'canonry run <project|--all> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--wait] [--format json]'
+const RUN_TRIGGER_USAGE = 'canonry run trigger <project> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--dispatch-mode sync|batch] [--wait] [--format json]'
+const RUN_USAGE = 'canonry run <project|--all> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--dispatch-mode sync|batch] [--wait] [--format json]'
 const RUN_FILL_USAGE = 'canonry run fill <run-id> [--provider <name>[,<name>]] [--dry-run] [--wait] [--format json]'
 const RUNS_USAGE = 'canonry runs <project> [--limit <n>] [--kind <kind>] [--status <status>] [--format json]'
 
@@ -25,13 +26,27 @@ const RUN_TRIGGER_OPTIONS = {
   // intelligence / notifications. Use when you want to verify a
   // provider works without polluting the project's metrics.
   probe: { type: 'boolean', default: false },
+  // `batch` sends every provider that can to its asynchronous batch API (a
+  // full plan sweep, enabled in config.yaml); refused when none can.
+  'dispatch-mode': stringOption(),
 } as const
+
+function parseDispatchMode(value: string | undefined, command: string, usage: string): ProviderDispatchMode | undefined {
+  if (value === undefined) return undefined
+  const parsed = providerDispatchModeSchema.safeParse(value.trim().toLowerCase())
+  if (parsed.success) return parsed.data
+  throw usageError(`Error: --dispatch-mode must be one of: ${providerDispatchModeSchema.options.join(', ')} (received ${value})`, {
+    message: '--dispatch-mode must be sync or batch',
+    details: { command, usage },
+  })
+}
 
 async function triggerRunCommand(input: CliCommandInput, command: string): Promise<void> {
   const groups = getStringArray(input.values, 'group') ?? []
   const targets = getStringArray(input.values, 'target') ?? []
   const queries = getStringArray(input.values, 'query') ?? []
   const usage = command === 'run' ? RUN_USAGE : RUN_TRIGGER_USAGE
+  const dispatchMode = parseDispatchMode(getString(input.values, 'dispatch-mode'), command, usage)
 
   if (getBoolean(input.values, 'all')) {
     if (input.positionals.length > 0) {
@@ -63,6 +78,7 @@ async function triggerRunCommand(input: CliCommandInput, command: string): Promi
       wait: getBoolean(input.values, 'wait'),
       allLocations: getBoolean(input.values, 'all-locations'),
       noLocation: getBoolean(input.values, 'no-location'),
+      dispatchMode,
       format: input.format,
     })
     return
@@ -95,6 +111,7 @@ async function triggerRunCommand(input: CliCommandInput, command: string): Promi
     allLocations: getBoolean(input.values, 'all-locations'),
     noLocation: getBoolean(input.values, 'no-location'),
     probe: getBoolean(input.values, 'probe'),
+    dispatchMode,
     format: input.format,
   })
 }

@@ -5,8 +5,9 @@ import crypto from 'node:crypto'
 import { parse, stringify } from 'yaml'
 import { agentAllowViewersSchema, agentModelSchema, agentProviderSchema, dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@ainyc/canonry-config'
 import { AGENT_PROVIDER_IDS } from '@ainyc/canonry-contracts'
-import type { AgentProviderId, EmbedConfigEntry, ProviderQuotaPolicy, SchedulableRunKind } from '@ainyc/canonry-contracts'
+import type { AgentProviderId, EmbedConfigEntry, ProviderBatchConfig, ProviderPricing, ProviderQuotaPolicy, SchedulableRunKind } from '@ainyc/canonry-contracts'
 import { CliError } from './cli-error.js'
+import { normalizeProviderBatchSettings } from './provider-batch-config.js'
 
 export type GoogleConnectionType = 'gsc' | 'ga4' | 'gbp'
 
@@ -21,6 +22,14 @@ export interface ProviderConfigEntry {
   vertexRegion?: string
   /** Path to service account JSON for Vertex AI auth (falls back to ADC) */
   vertexCredentials?: string
+  /**
+   * Batch dispatch for scheduled sweeps (`docs/batch-mode.md`). Off unless
+   * `enabled: true`, and only for a provider whose adapter has a batch API.
+   * Anthropic batches are not zero-data-retention eligible.
+   */
+  batch?: ProviderBatchConfig
+  /** Price overrides (USD) per model id, winning over the built-in table. */
+  pricing?: ProviderPricing
 }
 
 export interface CdpConfigEntry {
@@ -662,6 +671,7 @@ export function loadConfig(): CanonryConfig {
     }
   }
 
+  normalizeProviderBatchSettings(parsed.providers, configPath)
   normalizeGoogleConfig(parsed)
   normalizeGoogleMarketingConfig(parsed)
   normalizeWordpressConfig(parsed)

@@ -1,5 +1,6 @@
 import type {
   ProviderQuotaPolicy,
+  ProviderUsage,
   GroundingSource,
   LocationContext,
   RetrievalContract,
@@ -46,6 +47,10 @@ export interface OpenAIRawResult {
   retrievalStatus: RetrievalStatus
   /** See {@link RetrievalContract}. */
   retrievalContract: RetrievalContract
+  /** Billable usage from the response's `usage` object; undefined when it had none. */
+  usage?: ProviderUsage
+  /** `incomplete_details.reason`, else `status`; undefined when the response had neither. */
+  stopReason?: string
 }
 
 export interface OpenAINormalizedResult {

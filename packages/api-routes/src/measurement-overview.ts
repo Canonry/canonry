@@ -63,6 +63,7 @@ import {
   runVersionServesActiveVersion,
 } from './measurement-report-adapter.js'
 import { measurementRunCompleteness } from './measurement-run-completeness.js'
+import { snapshotEvidenceFingerprint } from './snapshot-evidence-fingerprint.js'
 
 /** Every state a run can be in and still be the current one. Cancelled runs never are. */
 const CURRENT_RUN_STATUSES: readonly RunStatus[] = [
@@ -274,14 +275,6 @@ function overviewAggregateFingerprint(query: MeasurementOverviewQuery): string {
     to: query.to ?? null,
   }
   return createHash('sha256').update(JSON.stringify(filters)).digest('base64url')
-}
-
-function overviewEvidenceFingerprint(snapshots: readonly typeof querySnapshots.$inferSelect[]): string {
-  const canonical = [...snapshots]
-    .sort((left, right) => left.id.localeCompare(right.id))
-    .map(snapshot => JSON.stringify(snapshot))
-    .join('\n')
-  return createHash('sha256').update(canonical).digest('base64url')
 }
 
 function compareLabels(left: PropertyLabel, right: PropertyLabel): number {
@@ -726,7 +719,7 @@ function planV1Overview(
     active.version.id,
     // V1 rows are always plan_v1-unavailable and label/key ordered. Evidence
     // cannot change this page, so avoid materializing a full run merely to hash it.
-    overviewEvidenceFingerprint([]),
+    snapshotEvidenceFingerprint([]),
   )
 
   return {
@@ -781,7 +774,7 @@ function planV2Overview(
       query,
       null,
       active.version.id,
-      overviewEvidenceFingerprint([]),
+      snapshotEvidenceFingerprint([]),
     )
     return {
       mode: 'active-v2',
@@ -808,7 +801,7 @@ function planV2Overview(
   }
 
   const snapshots = db.select().from(querySnapshots).where(eq(querySnapshots.runId, displayed.id)).all()
-  const evidenceFingerprint = overviewEvidenceFingerprint(snapshots)
+  const evidenceFingerprint = snapshotEvidenceFingerprint(snapshots)
   const identities = namedIdentitiesFor(plan, scope, queryClass)
   const overview = cache.getOrBuild({
     planVersionId: active.version.id,

@@ -46,6 +46,8 @@ Retired names still validate and resolve through `PROVIDER_MODEL_ALIASES` in `pa
 | `retrievalStatus` | `used` with a `search_results` or `fetch_url_results` item; `not-used` with a message and neither; `unknown` otherwise |
 | `servedModel` | Top-level `model` (the model a preset resolved to) |
 | `model` | The resolved preset or slug that was requested |
+| `usage` | `usage`: `input_tokens` minus the cache reads and writes `input_tokens_details` breaks out of it = input tokens; `cache_read_input_tokens` = cached; `cache_creation_input_tokens` = cache writes; `output_tokens` = output. Searches are `tool_calls_details.web_search.invocation` (the billed count) when reported, else one per `search_results` item. No `usage` object → none recorded |
+| `stopReason` | `incomplete_details.reason` when set, else `status` |
 
 There is no top-level `citations` or `search_results` on an Agent response. A failed or cancelled run comes back as HTTP 200 with `status` and `error` set, so the adapter checks `status` and throws for anything but `completed` or `incomplete`. An `incomplete` run passes only when it still carries answer text; one that stopped before any answer throws, so it is recorded as a failed slot rather than a measured non-mention. HTTP 429 and 5xx retry through `withRetry`; other 4xx do not.
 
@@ -55,7 +57,7 @@ Switching the engine behind `perplexity` is treated as a model change:
 
 - `normalizeExecutionIdentity` (contracts) resolves retired ids, so a plan run whose config still says `sonar` gets an execution identity naming `fast` and starts a new series.
 - The provider registry, `packages/config`, project overrides (on write, and on read in the job runner, run queue, query tracking, and research) resolve the same way, so the frozen slot, snapshot `model`, and identity agree.
-- A v2 plan revision published with a frozen `sonar` keeps that id in its slots and snapshots (the revision is immutable); its identity still resolves to `fast`, and `servedModel` shows the Agent model. A revision that froze different retired ids on different nodes (`sonar` and `sonar-pro`) records every model that now answers (`fast + low`); before the switch such a mixed-model engine was left out of the identity, so without this its checksum would not move. Mixed-model engines with no retired id are still left out.
+- A v2 plan revision published with a frozen `sonar` keeps that id in its slots and snapshots (the revision is immutable); its identity still resolves to `fast`, and `servedModel` shows the Agent model. The job runner sends and prices such a slot as `fast` on both the sync and the batch path. A revision that froze different retired ids on different nodes (`sonar` and `sonar-pro`) records every model that now answers (`fast + low`); before the switch such a mixed-model engine was left out of the identity, so without this its checksum would not move. Mixed-model engines with no retired id are still left out.
 - A partial run measured before the switch cannot be filled (refusal `model_retired`): its missing slots would run the replacement engine under the old run's identity. The run's stored identity decides, since runs queued since the switch never record a retired id; for a mixed-model engine an earlier identity omitted, the frozen slots decide.
 
 ## Stored history

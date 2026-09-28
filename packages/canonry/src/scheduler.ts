@@ -1,13 +1,14 @@
 import crypto from 'node:crypto'
 import cron from 'node-cron'
 import { and, eq, inArray, notExists, sql } from 'drizzle-orm'
-import { queueRunIfProjectIdle, nextRunFromCron, nextRunFromSchedule, ensureCurrentQueryBasketRevision, latestQueryBasketRevision } from '@ainyc/canonry-api-routes'
+import { queueRunIfProjectIdle, nextRunFromCron, nextRunFromSchedule, ensureCurrentQueryBasketRevision, hasOutstandingProviderBatch, latestQueryBasketRevision } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { schedules, projects, runs, siteCrawlRunRequests } from '@ainyc/canonry-db'
 import type { CalendarRecurrence, ProviderName, LocationContext, SchedulableRunKind } from '@ainyc/canonry-contracts'
 import {
   SchedulableRunKinds,
   calendarRecurrenceSchema,
+  describeBatchIneligibility,
   RunKinds,
   RunStatuses,
   RunTriggers,
@@ -64,6 +65,12 @@ export interface SchedulerCallbacks {
   getRunnableProviderNames?: () => readonly string[]
   /** Provider → the model this host has it pointed at, frozen onto plan runs. */
   getEffectiveProviderModels?: () => Readonly<Record<string, string>>
+  /**
+   * Providers this host can dispatch to a batch API (adapter capability AND
+   * `providers.<name>.batch.enabled`). A scheduled sweep batches the ones its
+   * project marks `batch`; omitted means none, so every sweep runs sync.
+   */
+  getBatchEligibleProviderNames?: () => readonly string[]
   /**
    * Fired when a traffic-sync schedule triggers. Receives the project's name
    * and the configured source UUID — the host wires this to the existing
@@ -706,6 +713,7 @@ export class Scheduler {
         providers,
         runnableProviders: this.callbacks.getRunnableProviderNames?.(),
         providerModels: this.callbacks.getEffectiveProviderModels?.(),
+        batchEligibleProviders: this.callbacks.getBatchEligibleProviderNames?.() ?? null,
         ...(claimedOccurrence && recurrence && currentSchedule.nextRunAt === claimedOccurrence ? {
           scheduleClaim: {
             scheduleId: currentSchedule.id,
@@ -721,12 +729,31 @@ export class Scheduler {
           log.info('calendar.skipped-claimed', { projectName: project.name, scheduleId: currentSchedule.id })
           return
         }
-        log.info('run.skipped-active', { projectName: project.name, activeRunId: queueResult.activeRunId })
+        // A run waiting on a provider batch stays `running` until the batch
+        // ends or its deadline passes. Sweeps never overlap, so this one is
+        // skipped; the reason says it is waiting, not hung.
+        const batchPending = hasOutstandingProviderBatch(this.db, queueResult.activeRunId)
+        log.info('run.skipped-active', {
+          projectName: project.name,
+          activeRunId: queueResult.activeRunId,
+          ...(batchPending ? { reason: 'batch-pending' } : {}),
+        })
         if (!claimedOccurrence) this.updateScheduleTiming(currentSchedule.id, { nextRunAt })
         return
       }
 
       const runId = queueResult.runId
+      for (const [provider, reason] of Object.entries(queueResult.dispatch.ineligible)) {
+        if (!reason) continue
+        log.warn('run.dispatch-sync-fallback', {
+          runId,
+          projectName: project.name,
+          // Not `provider`: the log redactor drops that key as a payload graph.
+          providerName: provider,
+          reason,
+          message: `${provider} is set to batch for this project but runs sync on this sweep: ${describeBatchIneligibility(provider, reason)}`,
+        })
+      }
       this.updateScheduleTiming(currentSchedule.id, claimedOccurrence ? {
         lastRunAt: now,
       } : {
