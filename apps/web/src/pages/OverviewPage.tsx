@@ -22,19 +22,19 @@ function OverviewProjectCard({
   project: PortfolioProjectVm
 }) {
   return (
-    <Link
-      to="/projects/$projectName"
-      params={{ projectName: project.project.name }}
-      className="project-row cursor-pointer"
-    >
+    <div className={`project-row relative${project.sentiment?.configured ? ' project-row-with-sentiment' : ''}`}>
       <div className="project-row-chart">
         <Sparkline points={project.trend} tone={toneFromRunStatus(project.lastRun.status)} />
       </div>
       <div className="project-row-primary">
-        <div>
+        <Link
+          to="/projects/$projectName"
+          params={{ projectName: project.project.name }}
+          className="after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-mono-400"
+        >
           <p className="project-name">{project.project.name}</p>
           <p className="project-domain">{project.project.canonicalDomain}</p>
-        </div>
+        </Link>
         <p className="project-insight">{project.insight}</p>
       </div>
       <div className="project-row-stat">
@@ -80,7 +80,7 @@ function OverviewProjectCard({
       <span className="project-row-link">
         <ChevronRight className="h-4 w-4 text-muted" />
       </span>
-    </Link>
+    </div>
   )
 }
 

@@ -2640,6 +2640,10 @@
     @apply grid gap-3 rounded-xl border border-subtle bg-bg-elevated/15 px-4 py-3.5 transition hover:border-mono-700/60 hover:bg-bg-elevated/35 lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_9rem_auto] lg:items-center no-underline text-inherit;
   }
 
+  .project-row-with-sentiment {
+    @apply lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_10rem_auto];
+  }
+
   .project-row-primary {
     @apply min-w-0;
   }

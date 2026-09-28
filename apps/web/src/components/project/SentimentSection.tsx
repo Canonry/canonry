@@ -33,13 +33,14 @@ function FavorableValue({ value, label }: { value: Pick<SentimentHeadline, 'scor
 /** Portfolio values come from the existing overview response, never separate per-card requests. */
 export function SentimentOverviewMetric({ value }: { value?: SentimentOverview }) {
   if (!value?.configured) return null
+  const classes = [['non-brand', value.nonBrand], ['branded', value.branded]] as const
+  const detail = [SENTIMENT_COPY.favorable, ...classes.map(([queryClass, headline]) => `${CLASS_LABEL[queryClass]}: ${headline.coverage.judged} of ${headline.coverage.selected} judged. ${headline.provisional ? 'Provisional. ' : ''}${SENTIMENT_COPY.states[headline.state]}${headline.reason ? ` ${headline.reason}` : ''}`)].join(' ')
   return <div className="project-row-stat" data-sentiment-score>
-    <div className="grid gap-1">
-      <p className="metric-inline-label">Favorable</p>
-      {([['non-brand', value.nonBrand], ['branded', value.branded]] as const).map(([queryClass, headline]) => <div key={queryClass} role="group" aria-label={`${CLASS_LABEL[queryClass]} favorable share`} title={headline.reason ?? SENTIMENT_COPY.states[headline.state]}>
-        <p className="flex items-center justify-between gap-2 text-xs text-secondary"><span className="font-mono text-primary">{headline.score.favorableDisplay}</span><span className="whitespace-nowrap">{CLASS_LABEL[queryClass]}</span></p>
-        <p className="text-xs text-secondary">{headline.coverage.judged} judged{headline.provisional && <span className="text-caution"> · Provisional</span>}</p>
-      </div>)}
+    <div className="metric-inline-block">
+      <div className="flex items-center"><p className="metric-inline-label">Favorable</p><span className="relative z-10"><InfoTooltip text={detail} placement="bottom" /></span></div>
+      {classes.map(([queryClass, headline]) => <p key={queryClass} role="group" aria-label={`${CLASS_LABEL[queryClass]} favorable share`} className="flex items-center justify-between gap-1 text-[13px] leading-4 text-secondary">
+        <span className="whitespace-nowrap">{CLASS_LABEL[queryClass]}</span><span className="whitespace-nowrap font-mono text-primary">{headline.score.favorableDisplay}{headline.provisional && <span role="img" aria-label="Provisional" className="ml-0.5 text-caution">*</span>}</span>
+      </p>)}
     </div>
   </div>
 }

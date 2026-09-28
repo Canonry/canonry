@@ -1,3 +1,4 @@
+import { aggregateSentiment } from '@ainyc/canonry-contracts'
 import { beforeAll, expect, test } from 'vitest'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -167,4 +168,21 @@ test('shows MCP as a separate infrastructure row for viewers', async () => {
   expect(row.textContent).toContain('Available')
   expect(row.textContent).not.toContain('API')
   expect(row.querySelector('[title]')?.getAttribute('title')).toContain('not an individual client connection')
+})
+
+test('compact favorable help remains outside the single stretched project link', async () => {
+  const doc = await renderOverview(fixture => {
+    const headline = { ...aggregateSentiment([]), reason: null, runIds: ['run'], selection: { mode: 'simple' as const, scope: 'project' as const, queryClass: 'branded' as const, runId: 'run', revision: null, evaluationDefinitionId: 'definition' } }
+    fixture.dashboard.portfolioOverview.projects[0]!.sentiment = { configured: true, branded: headline, nonBrand: { ...headline, selection: { ...headline.selection, queryClass: 'non-brand' } } }
+  })
+  const metric = doc.querySelector('[data-sentiment-score]')!
+  const row = metric.closest('.project-row')!
+  const links = row.querySelectorAll('a')
+  const help = metric.querySelector('button')!
+  expect(links).toHaveLength(1)
+  expect(links[0]!.contains(help)).toBe(false)
+  expect(links[0]!.getAttribute('href')).toMatch(/^\/projects\//)
+  expect(help.getAttribute('aria-label')).toContain('Non-brand: 0 of 0 judged')
+  expect(metric.textContent).not.toContain('judged')
+  expect(metric.querySelectorAll('[aria-label$="favorable share"]')).toHaveLength(2)
 })
