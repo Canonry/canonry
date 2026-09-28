@@ -11,6 +11,7 @@ Drizzle ORM schema, migrations, and database client. SQLite locally (via better-
 | `src/schema.ts` | All table definitions (`sqliteTable`) with indexes and constraints |
 | `src/migrate.ts` | Migration runner — `MIGRATION_SQL` (initial bootstrap) + `MIGRATION_VERSIONS` array (versioned, incremental) plus the `_migrations` tracking table |
 | `src/client.ts` | `createClient()` factory — WAL journal, foreign keys, 5s busy timeout |
+| `src/sentiment-repository.ts` | Transactional sentiment definitions, enablement epochs, completion receipts, job admission, leases, attempt and result storage |
 | `src/json.ts` | `parseJsonColumn<T>(value, fallback)` — safe JSON deserialization for DB columns |
 | `src/index.ts` | Re-exports all public API |
 | `src/operational-logs.ts` | Bounded durable runtime diagnostics; sanitized, cursor-bound reads. Diagnostic writes/pruning use zero lock-wait and synchronously restore the application's busy timeout; failed capture falls back to an in-memory error counter. |
@@ -155,3 +156,45 @@ db.insert(usageCounters).values({
 - `docs/data-model.md` — ER diagram and table relationships
 - `docs/architecture.md` — how the DB fits into the system
 - `packages/contracts/` — DTOs that map to DB rows
+
+## Sentiment storage
+
+Migration 164 adds immutable evaluator definitions, off-by-default project settings,
+monotonic completion receipts, jobs and selection membership, unique assessment work,
+results, and per-attempt receipts. Persist `recordSentimentCompletion` in the same
+transaction as the winning status write of every run finalizer: `finalizeRun`,
+`finalizeBatchRun` and `finalizeRunFill`. Enablement uses the
+receipt sequence high-water mark, never the source run start time.
+
+`SentimentRepository` owns immediate transactions for admission, leases, retries,
+cancellation, and per-install request/token reservations. Use a unique owner token
+for each claim. The outbound caller must check install readiness again before
+`startAttempt`; repository checks project enablement and epoch. Call
+`suspendInstall` on an observed install disablement and `resumeInstall` before
+reconciliation after reenablement; the persisted observation survives restart and
+advances the admission boundary past the disabled interval. Attempt reservations
+are conservative across crashes; unknown usage stays on the receipt, while reported
+usage is written once into `llm_usage_events` under provider `typesafe`.
+
+Assessments are unique by project, snapshot, source hash, subject hash and evaluation
+definition. Job membership retains its cancellation epoch when an explicit backfill
+reuses or retries the assessment; reenabling alone never restarts canceled work.
+Source/project composite foreign keys prevent cross-project evidence and cascade
+source deletion. JSON columns retain frozen inputs and exact usage edges; reads must
+validate them through sentiment contracts before returning public DTOs. Credentials
+and raw provider failures never belong in these records.
+
+`sentiment_jobs` keeps per-bucket member counts (`pending_items`, `running_items`,
+`completed_items`, `failed_items`, `canceled_items`). Each status transition shifts
+one bucket in the jobs that still follow the assessment, and admission and
+cancellation recount once, so a claim costs the number of jobs sharing an
+assessment, not their size. `sentiment_settings.reconciled_sequence` is the
+reconcile cursor (each receipt is reconciled once per epoch), and `dispatch_turn`
+rotates claims across projects. `sentiment_work_items.dispatch_priority`
+(0 automatic, 1 backfill) puts new sweeps ahead of backfills.
+`sentiment_dispatch_state` is the single install-wide pause row after a provider
+429 or 401/403: reason, next dispatch time, rate-limit streak and a one-way
+credential fingerprint, never the key. A refused attempt is requeued outside the
+retry budget by advancing `attempt_budget_start`. Partial index
+`idx_sentiment_work_lease` serves the concurrency count, and
+`idx_sentiment_work_source(run_id, snapshot_id)` serves the snapshot cascade.

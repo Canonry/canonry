@@ -1,3 +1,4 @@
+import { SENTIMENT_CLI_COMMANDS } from './cli-commands/sentiment.js'
 import type { CliCommandSpec } from './cli-dispatch.js'
 import { DEMO_CLI_COMMANDS } from './cli-commands/demo.js'
 import { createApiClient } from './client.js'
@@ -42,6 +43,7 @@ import { MEASUREMENT_PLAN_CLI_COMMANDS } from './cli-commands/measurement-plan.j
 
 export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...DEMO_CLI_COMMANDS,
+  ...SENTIMENT_CLI_COMMANDS,
   ...BACKFILL_CLI_COMMANDS,
   ...BACKLINKS_CLI_COMMANDS,
   ...SYSTEM_CLI_COMMANDS,

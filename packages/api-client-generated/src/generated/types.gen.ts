@@ -4,6 +4,1061 @@ export type ClientOptions = {
     baseUrl: `${string}://${string}` | (string & {});
 };
 
+export type SentimentSummary = {
+    state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+    reason: string | null;
+    provisional: boolean;
+    coverage: {
+        selected: number;
+        eligibleAssessments: number;
+        unadmittedAssessments: number;
+        judged: number;
+        distinctSourceAnswers: number;
+        counts: {
+            favorable: number;
+            mixed: number;
+            unfavorable: number;
+            factual: number;
+            'subject-not-mentioned': number;
+            'wrong-subject': number;
+            'ambiguous-subject': number;
+            'ambiguous-judgment': number;
+            'subject-not-applicable': number;
+            'unsupported-language': number;
+            'missing-source-text': number;
+            'input-too-large': number;
+            'invalid-conclusion-evidence': number;
+            pending: number;
+            running: number;
+            'waiting-to-retry': number;
+            failed: number;
+            canceled: number;
+        };
+        expectedProviderSlots: number;
+        completedProviderSlots: number;
+    };
+    score: {
+        favorableRate: number | null;
+        mixedRate: number | null;
+        unfavorableRate: number | null;
+        favorableDisplay: string;
+        mixedDisplay: string;
+        unfavorableDisplay: string;
+        interval: {
+            low: number;
+            high: number;
+        } | null;
+        method: 'wilson-independent-v1';
+        limitation: string;
+    };
+    configured: boolean;
+    selection: {
+        runId: string | null;
+        runIds?: Array<string>;
+        revision: number | null;
+        mode: 'simple' | 'advanced';
+        queryClass: 'branded' | 'non-brand';
+        scope: 'project' | 'property' | 'group' | 'market';
+        queryId?: string;
+        scopeKey?: string;
+        marketKey?: string;
+        provider?: string;
+        model?: string;
+        location?: string;
+        evaluationDefinitionId: string | null;
+        executionNodeKey?: string;
+    };
+    evaluationDefinition: {
+        schemaVersion: 1 | 2;
+        requestedModel: 'jev-1.13.0';
+        verdictVersion: string;
+        identityVersion: string;
+        evidenceVersion: string;
+        segmentationVersion: string;
+        preprocessingVersion: string;
+        languagePolicy: 'en-only';
+        comparisonMethodVersion: 'wilson-independent-v1';
+        confidenceThreshold: number | null;
+        questions: {
+            identity: string;
+            judgment: string;
+            stance: string;
+            conclusion: string;
+            complaint: string;
+        };
+    } | null;
+    breakdowns: Array<{
+        state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+        reason: string | null;
+        provisional: boolean;
+        coverage: {
+            selected: number;
+            eligibleAssessments: number;
+            unadmittedAssessments: number;
+            judged: number;
+            distinctSourceAnswers: number;
+            counts: {
+                favorable: number;
+                mixed: number;
+                unfavorable: number;
+                factual: number;
+                'subject-not-mentioned': number;
+                'wrong-subject': number;
+                'ambiguous-subject': number;
+                'ambiguous-judgment': number;
+                'subject-not-applicable': number;
+                'unsupported-language': number;
+                'missing-source-text': number;
+                'input-too-large': number;
+                'invalid-conclusion-evidence': number;
+                pending: number;
+                running: number;
+                'waiting-to-retry': number;
+                failed: number;
+                canceled: number;
+            };
+            expectedProviderSlots: number;
+            completedProviderSlots: number;
+        };
+        score: {
+            favorableRate: number | null;
+            mixedRate: number | null;
+            unfavorableRate: number | null;
+            favorableDisplay: string;
+            mixedDisplay: string;
+            unfavorableDisplay: string;
+            interval: {
+                low: number;
+                high: number;
+            } | null;
+            method: 'wilson-independent-v1';
+            limitation: string;
+        };
+        dimension: 'provider' | 'property' | 'market' | 'query';
+        key: string;
+        label: string;
+        queryClass: 'branded' | 'non-brand';
+    }>;
+    queries: Array<{
+        state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+        reason: string | null;
+        provisional: boolean;
+        coverage: {
+            selected: number;
+            eligibleAssessments: number;
+            unadmittedAssessments: number;
+            judged: number;
+            distinctSourceAnswers: number;
+            counts: {
+                favorable: number;
+                mixed: number;
+                unfavorable: number;
+                factual: number;
+                'subject-not-mentioned': number;
+                'wrong-subject': number;
+                'ambiguous-subject': number;
+                'ambiguous-judgment': number;
+                'subject-not-applicable': number;
+                'unsupported-language': number;
+                'missing-source-text': number;
+                'input-too-large': number;
+                'invalid-conclusion-evidence': number;
+                pending: number;
+                running: number;
+                'waiting-to-retry': number;
+                failed: number;
+                canceled: number;
+            };
+            expectedProviderSlots: number;
+            completedProviderSlots: number;
+        };
+        score: {
+            favorableRate: number | null;
+            mixedRate: number | null;
+            unfavorableRate: number | null;
+            favorableDisplay: string;
+            mixedDisplay: string;
+            unfavorableDisplay: string;
+            interval: {
+                low: number;
+                high: number;
+            } | null;
+            method: 'wilson-independent-v1';
+            limitation: string;
+        };
+        queryId: string;
+        executionNodeKey?: string | null;
+        queryText: string;
+        queryClass: 'branded' | 'non-brand';
+        sourceSnapshotIds: Array<string>;
+        assessments: Array<{
+            assessmentId: string | null;
+            sourceSnapshotId: string;
+            runId: string;
+            subjectId: string;
+            subjectLabel: string;
+            executionNodeKey: string | null;
+            provider: string;
+            requestedModel: string | null;
+            servedModel: string | null;
+            location: string | null;
+            evaluationDefinitionId: string | null;
+            state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+            outcome: 'favorable' | 'mixed' | 'unfavorable' | 'factual' | 'subject-not-mentioned' | 'wrong-subject' | 'ambiguous-subject' | 'ambiguous-judgment' | 'subject-not-applicable' | 'unsupported-language' | 'missing-source-text' | 'input-too-large' | 'invalid-conclusion-evidence' | 'pending' | 'running' | 'waiting-to-retry' | 'failed' | 'canceled' | null;
+            reason: string | null;
+        }>;
+        locations: Array<{
+            state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+            reason: string | null;
+            provisional: boolean;
+            coverage: {
+                selected: number;
+                eligibleAssessments: number;
+                unadmittedAssessments: number;
+                judged: number;
+                distinctSourceAnswers: number;
+                counts: {
+                    favorable: number;
+                    mixed: number;
+                    unfavorable: number;
+                    factual: number;
+                    'subject-not-mentioned': number;
+                    'wrong-subject': number;
+                    'ambiguous-subject': number;
+                    'ambiguous-judgment': number;
+                    'subject-not-applicable': number;
+                    'unsupported-language': number;
+                    'missing-source-text': number;
+                    'input-too-large': number;
+                    'invalid-conclusion-evidence': number;
+                    pending: number;
+                    running: number;
+                    'waiting-to-retry': number;
+                    failed: number;
+                    canceled: number;
+                };
+                expectedProviderSlots: number;
+                completedProviderSlots: number;
+            };
+            score: {
+                favorableRate: number | null;
+                mixedRate: number | null;
+                unfavorableRate: number | null;
+                favorableDisplay: string;
+                mixedDisplay: string;
+                unfavorableDisplay: string;
+                interval: {
+                    low: number;
+                    high: number;
+                } | null;
+                method: 'wilson-independent-v1';
+                limitation: string;
+            };
+            location: string | null;
+            sourceSnapshotIds: Array<string>;
+        }>;
+    }>;
+    queryPage?: {
+        total: number;
+        limit: number;
+        nextCursor: string | null;
+    };
+};
+
+export type SentimentSettings = {
+    installEnabled: boolean;
+    enabled: boolean;
+    ready: boolean;
+    readinessReasons: Array<string>;
+    model: string;
+    enablementEpoch: number;
+    completionBoundary: number;
+    evaluationDefinitionId: string | null;
+    actions: {
+        configure: boolean;
+        backfill: boolean;
+    };
+    experimental: true;
+    disclosure: string;
+};
+
+export type SentimentSettingsUpdate = {
+    enabled?: boolean;
+};
+
+export type SentimentEvidencePage = {
+    state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+    selection: {
+        runId: string | null;
+        runIds?: Array<string>;
+        revision: number | null;
+        mode: 'simple' | 'advanced';
+        queryClass: 'branded' | 'non-brand';
+        scope: 'project' | 'property' | 'group' | 'market';
+        queryId?: string;
+        scopeKey?: string;
+        marketKey?: string;
+        provider?: string;
+        model?: string;
+        location?: string;
+        evaluationDefinitionId: string | null;
+        executionNodeKey?: string;
+        assessmentId?: string;
+    };
+    items: Array<{
+        assessmentId: string;
+        runId: string;
+        sourceSnapshotId: string;
+        sourceText: string;
+        sourceTextHash: string;
+        subject: {
+            id: string;
+            displayName: string;
+            aliases: Array<string>;
+            qualifiedAliases: Array<string>;
+            urls: Array<string>;
+            mentionNotApplicable: boolean;
+        };
+        subjectHash: string;
+        context: {
+            queryId: string;
+            queryText: string;
+            queryClass: 'branded' | 'non-brand';
+            provider: string;
+            requestedModel: string | null;
+            servedModel: string | null;
+            location: string | null;
+            revision: number | null;
+            usageEdges: Array<{
+                queryId: string;
+                executionNodeKey: string | null;
+                targetId: string;
+                propertyId: string | null;
+                groupId: string | null;
+                marketId: string | null;
+                queryClass: 'branded' | 'non-brand';
+                queryText?: string;
+                location: string | null;
+            }>;
+            locationContext: {
+                label: string;
+                city: string;
+                region: string;
+                country: string;
+                timezone?: string;
+            } | null;
+        };
+        evaluationDefinitionId: string;
+        outcome: 'favorable' | 'mixed' | 'unfavorable' | 'factual' | 'subject-not-mentioned' | 'wrong-subject' | 'ambiguous-subject' | 'ambiguous-judgment' | 'subject-not-applicable' | 'unsupported-language' | 'missing-source-text' | 'input-too-large' | 'invalid-conclusion-evidence' | 'pending' | 'running' | 'waiting-to-retry' | 'failed' | 'canceled';
+        conclusion: Array<{
+            id: string;
+            text: string;
+            start: number;
+            end: number;
+        }>;
+        complaint: Array<{
+            id: string;
+            text: string;
+            start: number;
+            end: number;
+        }> | null;
+        returnedModel: string | null;
+        reason: string | null;
+    }>;
+    nextCursor: string | null;
+};
+
+export type SentimentComparison = {
+    from: {
+        state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+        reason: string | null;
+        provisional: boolean;
+        coverage: {
+            selected: number;
+            eligibleAssessments: number;
+            unadmittedAssessments: number;
+            judged: number;
+            distinctSourceAnswers: number;
+            counts: {
+                favorable: number;
+                mixed: number;
+                unfavorable: number;
+                factual: number;
+                'subject-not-mentioned': number;
+                'wrong-subject': number;
+                'ambiguous-subject': number;
+                'ambiguous-judgment': number;
+                'subject-not-applicable': number;
+                'unsupported-language': number;
+                'missing-source-text': number;
+                'input-too-large': number;
+                'invalid-conclusion-evidence': number;
+                pending: number;
+                running: number;
+                'waiting-to-retry': number;
+                failed: number;
+                canceled: number;
+            };
+            expectedProviderSlots: number;
+            completedProviderSlots: number;
+        };
+        score: {
+            favorableRate: number | null;
+            mixedRate: number | null;
+            unfavorableRate: number | null;
+            favorableDisplay: string;
+            mixedDisplay: string;
+            unfavorableDisplay: string;
+            interval: {
+                low: number;
+                high: number;
+            } | null;
+            method: 'wilson-independent-v1';
+            limitation: string;
+        };
+        configured: boolean;
+        selection: {
+            runId: string | null;
+            runIds?: Array<string>;
+            revision: number | null;
+            mode: 'simple' | 'advanced';
+            queryClass: 'branded' | 'non-brand';
+            scope: 'project' | 'property' | 'group' | 'market';
+            queryId?: string;
+            scopeKey?: string;
+            marketKey?: string;
+            provider?: string;
+            model?: string;
+            location?: string;
+            evaluationDefinitionId: string | null;
+            executionNodeKey?: string;
+        };
+        evaluationDefinition: {
+            schemaVersion: 1 | 2;
+            requestedModel: 'jev-1.13.0';
+            verdictVersion: string;
+            identityVersion: string;
+            evidenceVersion: string;
+            segmentationVersion: string;
+            preprocessingVersion: string;
+            languagePolicy: 'en-only';
+            comparisonMethodVersion: 'wilson-independent-v1';
+            confidenceThreshold: number | null;
+            questions: {
+                identity: string;
+                judgment: string;
+                stance: string;
+                conclusion: string;
+                complaint: string;
+            };
+        } | null;
+        breakdowns: Array<{
+            state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+            reason: string | null;
+            provisional: boolean;
+            coverage: {
+                selected: number;
+                eligibleAssessments: number;
+                unadmittedAssessments: number;
+                judged: number;
+                distinctSourceAnswers: number;
+                counts: {
+                    favorable: number;
+                    mixed: number;
+                    unfavorable: number;
+                    factual: number;
+                    'subject-not-mentioned': number;
+                    'wrong-subject': number;
+                    'ambiguous-subject': number;
+                    'ambiguous-judgment': number;
+                    'subject-not-applicable': number;
+                    'unsupported-language': number;
+                    'missing-source-text': number;
+                    'input-too-large': number;
+                    'invalid-conclusion-evidence': number;
+                    pending: number;
+                    running: number;
+                    'waiting-to-retry': number;
+                    failed: number;
+                    canceled: number;
+                };
+                expectedProviderSlots: number;
+                completedProviderSlots: number;
+            };
+            score: {
+                favorableRate: number | null;
+                mixedRate: number | null;
+                unfavorableRate: number | null;
+                favorableDisplay: string;
+                mixedDisplay: string;
+                unfavorableDisplay: string;
+                interval: {
+                    low: number;
+                    high: number;
+                } | null;
+                method: 'wilson-independent-v1';
+                limitation: string;
+            };
+            dimension: 'provider' | 'property' | 'market' | 'query';
+            key: string;
+            label: string;
+            queryClass: 'branded' | 'non-brand';
+        }>;
+        queries: Array<{
+            state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+            reason: string | null;
+            provisional: boolean;
+            coverage: {
+                selected: number;
+                eligibleAssessments: number;
+                unadmittedAssessments: number;
+                judged: number;
+                distinctSourceAnswers: number;
+                counts: {
+                    favorable: number;
+                    mixed: number;
+                    unfavorable: number;
+                    factual: number;
+                    'subject-not-mentioned': number;
+                    'wrong-subject': number;
+                    'ambiguous-subject': number;
+                    'ambiguous-judgment': number;
+                    'subject-not-applicable': number;
+                    'unsupported-language': number;
+                    'missing-source-text': number;
+                    'input-too-large': number;
+                    'invalid-conclusion-evidence': number;
+                    pending: number;
+                    running: number;
+                    'waiting-to-retry': number;
+                    failed: number;
+                    canceled: number;
+                };
+                expectedProviderSlots: number;
+                completedProviderSlots: number;
+            };
+            score: {
+                favorableRate: number | null;
+                mixedRate: number | null;
+                unfavorableRate: number | null;
+                favorableDisplay: string;
+                mixedDisplay: string;
+                unfavorableDisplay: string;
+                interval: {
+                    low: number;
+                    high: number;
+                } | null;
+                method: 'wilson-independent-v1';
+                limitation: string;
+            };
+            queryId: string;
+            executionNodeKey?: string | null;
+            queryText: string;
+            queryClass: 'branded' | 'non-brand';
+            sourceSnapshotIds: Array<string>;
+            assessments: Array<{
+                assessmentId: string | null;
+                sourceSnapshotId: string;
+                runId: string;
+                subjectId: string;
+                subjectLabel: string;
+                executionNodeKey: string | null;
+                provider: string;
+                requestedModel: string | null;
+                servedModel: string | null;
+                location: string | null;
+                evaluationDefinitionId: string | null;
+                state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+                outcome: 'favorable' | 'mixed' | 'unfavorable' | 'factual' | 'subject-not-mentioned' | 'wrong-subject' | 'ambiguous-subject' | 'ambiguous-judgment' | 'subject-not-applicable' | 'unsupported-language' | 'missing-source-text' | 'input-too-large' | 'invalid-conclusion-evidence' | 'pending' | 'running' | 'waiting-to-retry' | 'failed' | 'canceled' | null;
+                reason: string | null;
+            }>;
+            locations: Array<{
+                state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+                reason: string | null;
+                provisional: boolean;
+                coverage: {
+                    selected: number;
+                    eligibleAssessments: number;
+                    unadmittedAssessments: number;
+                    judged: number;
+                    distinctSourceAnswers: number;
+                    counts: {
+                        favorable: number;
+                        mixed: number;
+                        unfavorable: number;
+                        factual: number;
+                        'subject-not-mentioned': number;
+                        'wrong-subject': number;
+                        'ambiguous-subject': number;
+                        'ambiguous-judgment': number;
+                        'subject-not-applicable': number;
+                        'unsupported-language': number;
+                        'missing-source-text': number;
+                        'input-too-large': number;
+                        'invalid-conclusion-evidence': number;
+                        pending: number;
+                        running: number;
+                        'waiting-to-retry': number;
+                        failed: number;
+                        canceled: number;
+                    };
+                    expectedProviderSlots: number;
+                    completedProviderSlots: number;
+                };
+                score: {
+                    favorableRate: number | null;
+                    mixedRate: number | null;
+                    unfavorableRate: number | null;
+                    favorableDisplay: string;
+                    mixedDisplay: string;
+                    unfavorableDisplay: string;
+                    interval: {
+                        low: number;
+                        high: number;
+                    } | null;
+                    method: 'wilson-independent-v1';
+                    limitation: string;
+                };
+                location: string | null;
+                sourceSnapshotIds: Array<string>;
+            }>;
+        }>;
+        queryPage?: {
+            total: number;
+            limit: number;
+            nextCursor: string | null;
+        };
+    };
+    to: {
+        state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+        reason: string | null;
+        provisional: boolean;
+        coverage: {
+            selected: number;
+            eligibleAssessments: number;
+            unadmittedAssessments: number;
+            judged: number;
+            distinctSourceAnswers: number;
+            counts: {
+                favorable: number;
+                mixed: number;
+                unfavorable: number;
+                factual: number;
+                'subject-not-mentioned': number;
+                'wrong-subject': number;
+                'ambiguous-subject': number;
+                'ambiguous-judgment': number;
+                'subject-not-applicable': number;
+                'unsupported-language': number;
+                'missing-source-text': number;
+                'input-too-large': number;
+                'invalid-conclusion-evidence': number;
+                pending: number;
+                running: number;
+                'waiting-to-retry': number;
+                failed: number;
+                canceled: number;
+            };
+            expectedProviderSlots: number;
+            completedProviderSlots: number;
+        };
+        score: {
+            favorableRate: number | null;
+            mixedRate: number | null;
+            unfavorableRate: number | null;
+            favorableDisplay: string;
+            mixedDisplay: string;
+            unfavorableDisplay: string;
+            interval: {
+                low: number;
+                high: number;
+            } | null;
+            method: 'wilson-independent-v1';
+            limitation: string;
+        };
+        configured: boolean;
+        selection: {
+            runId: string | null;
+            runIds?: Array<string>;
+            revision: number | null;
+            mode: 'simple' | 'advanced';
+            queryClass: 'branded' | 'non-brand';
+            scope: 'project' | 'property' | 'group' | 'market';
+            queryId?: string;
+            scopeKey?: string;
+            marketKey?: string;
+            provider?: string;
+            model?: string;
+            location?: string;
+            evaluationDefinitionId: string | null;
+            executionNodeKey?: string;
+        };
+        evaluationDefinition: {
+            schemaVersion: 1 | 2;
+            requestedModel: 'jev-1.13.0';
+            verdictVersion: string;
+            identityVersion: string;
+            evidenceVersion: string;
+            segmentationVersion: string;
+            preprocessingVersion: string;
+            languagePolicy: 'en-only';
+            comparisonMethodVersion: 'wilson-independent-v1';
+            confidenceThreshold: number | null;
+            questions: {
+                identity: string;
+                judgment: string;
+                stance: string;
+                conclusion: string;
+                complaint: string;
+            };
+        } | null;
+        breakdowns: Array<{
+            state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+            reason: string | null;
+            provisional: boolean;
+            coverage: {
+                selected: number;
+                eligibleAssessments: number;
+                unadmittedAssessments: number;
+                judged: number;
+                distinctSourceAnswers: number;
+                counts: {
+                    favorable: number;
+                    mixed: number;
+                    unfavorable: number;
+                    factual: number;
+                    'subject-not-mentioned': number;
+                    'wrong-subject': number;
+                    'ambiguous-subject': number;
+                    'ambiguous-judgment': number;
+                    'subject-not-applicable': number;
+                    'unsupported-language': number;
+                    'missing-source-text': number;
+                    'input-too-large': number;
+                    'invalid-conclusion-evidence': number;
+                    pending: number;
+                    running: number;
+                    'waiting-to-retry': number;
+                    failed: number;
+                    canceled: number;
+                };
+                expectedProviderSlots: number;
+                completedProviderSlots: number;
+            };
+            score: {
+                favorableRate: number | null;
+                mixedRate: number | null;
+                unfavorableRate: number | null;
+                favorableDisplay: string;
+                mixedDisplay: string;
+                unfavorableDisplay: string;
+                interval: {
+                    low: number;
+                    high: number;
+                } | null;
+                method: 'wilson-independent-v1';
+                limitation: string;
+            };
+            dimension: 'provider' | 'property' | 'market' | 'query';
+            key: string;
+            label: string;
+            queryClass: 'branded' | 'non-brand';
+        }>;
+        queries: Array<{
+            state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+            reason: string | null;
+            provisional: boolean;
+            coverage: {
+                selected: number;
+                eligibleAssessments: number;
+                unadmittedAssessments: number;
+                judged: number;
+                distinctSourceAnswers: number;
+                counts: {
+                    favorable: number;
+                    mixed: number;
+                    unfavorable: number;
+                    factual: number;
+                    'subject-not-mentioned': number;
+                    'wrong-subject': number;
+                    'ambiguous-subject': number;
+                    'ambiguous-judgment': number;
+                    'subject-not-applicable': number;
+                    'unsupported-language': number;
+                    'missing-source-text': number;
+                    'input-too-large': number;
+                    'invalid-conclusion-evidence': number;
+                    pending: number;
+                    running: number;
+                    'waiting-to-retry': number;
+                    failed: number;
+                    canceled: number;
+                };
+                expectedProviderSlots: number;
+                completedProviderSlots: number;
+            };
+            score: {
+                favorableRate: number | null;
+                mixedRate: number | null;
+                unfavorableRate: number | null;
+                favorableDisplay: string;
+                mixedDisplay: string;
+                unfavorableDisplay: string;
+                interval: {
+                    low: number;
+                    high: number;
+                } | null;
+                method: 'wilson-independent-v1';
+                limitation: string;
+            };
+            queryId: string;
+            executionNodeKey?: string | null;
+            queryText: string;
+            queryClass: 'branded' | 'non-brand';
+            sourceSnapshotIds: Array<string>;
+            assessments: Array<{
+                assessmentId: string | null;
+                sourceSnapshotId: string;
+                runId: string;
+                subjectId: string;
+                subjectLabel: string;
+                executionNodeKey: string | null;
+                provider: string;
+                requestedModel: string | null;
+                servedModel: string | null;
+                location: string | null;
+                evaluationDefinitionId: string | null;
+                state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+                outcome: 'favorable' | 'mixed' | 'unfavorable' | 'factual' | 'subject-not-mentioned' | 'wrong-subject' | 'ambiguous-subject' | 'ambiguous-judgment' | 'subject-not-applicable' | 'unsupported-language' | 'missing-source-text' | 'input-too-large' | 'invalid-conclusion-evidence' | 'pending' | 'running' | 'waiting-to-retry' | 'failed' | 'canceled' | null;
+                reason: string | null;
+            }>;
+            locations: Array<{
+                state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+                reason: string | null;
+                provisional: boolean;
+                coverage: {
+                    selected: number;
+                    eligibleAssessments: number;
+                    unadmittedAssessments: number;
+                    judged: number;
+                    distinctSourceAnswers: number;
+                    counts: {
+                        favorable: number;
+                        mixed: number;
+                        unfavorable: number;
+                        factual: number;
+                        'subject-not-mentioned': number;
+                        'wrong-subject': number;
+                        'ambiguous-subject': number;
+                        'ambiguous-judgment': number;
+                        'subject-not-applicable': number;
+                        'unsupported-language': number;
+                        'missing-source-text': number;
+                        'input-too-large': number;
+                        'invalid-conclusion-evidence': number;
+                        pending: number;
+                        running: number;
+                        'waiting-to-retry': number;
+                        failed: number;
+                        canceled: number;
+                    };
+                    expectedProviderSlots: number;
+                    completedProviderSlots: number;
+                };
+                score: {
+                    favorableRate: number | null;
+                    mixedRate: number | null;
+                    unfavorableRate: number | null;
+                    favorableDisplay: string;
+                    mixedDisplay: string;
+                    unfavorableDisplay: string;
+                    interval: {
+                        low: number;
+                        high: number;
+                    } | null;
+                    method: 'wilson-independent-v1';
+                    limitation: string;
+                };
+                location: string | null;
+                sourceSnapshotIds: Array<string>;
+            }>;
+        }>;
+        queryPage?: {
+            total: number;
+            limit: number;
+            nextCursor: string | null;
+        };
+    };
+    verdict: 'improved' | 'declined' | 'no-clear-change';
+    favorableRateDelta: number | null;
+    refusalReasons: Array<string>;
+    commonUnits: number;
+    excludedFrom: number;
+    excludedTo: number;
+    changedScope: boolean;
+    method: 'wilson-independent-v1';
+    limitation: string;
+};
+
+export type SentimentBackfillPreview = {
+    previewToken: string | null;
+    expiresAt: string | null;
+    selection: {
+        runId?: string;
+        runIds?: Array<string>;
+        revision?: number;
+        mode: 'auto' | 'simple' | 'advanced';
+        queryClass: 'branded' | 'non-brand';
+        scope: 'project' | 'property' | 'group' | 'market';
+        queryId?: string;
+        scopeKey?: string;
+        marketKey?: string;
+        provider?: string;
+        model?: string;
+        location?: string;
+        evaluationDefinitionId?: string;
+        executionNodeKey?: string;
+        from?: string;
+        to?: string;
+    };
+    evaluationDefinitionId: string | null;
+    eligibleAssessments: number;
+    alreadyClassified: number;
+    skipped: Array<{
+        runId: string;
+        reason: string;
+        count: number;
+    }>;
+    estimatedInputTokens: number;
+    estimatedCostUsd: number | null;
+    estimateMethod: string;
+};
+
+export type SentimentBackfillRequest = {
+    previewToken: string;
+    idempotencyKey: string;
+};
+
+export type SentimentJobs = {
+    jobs: Array<{
+        id: string;
+        projectId: string;
+        origin: 'automatic' | 'backfill';
+        state: 'pending' | 'running' | 'waiting-to-retry' | 'complete' | 'partial' | 'failed' | 'canceled';
+        enablementEpoch: number;
+        evaluationDefinitionId: string;
+        selection: {
+            runId?: string;
+            runIds?: Array<string>;
+            revision?: number;
+            mode: 'auto' | 'simple' | 'advanced';
+            queryClass: 'branded' | 'non-brand';
+            scope: 'project' | 'property' | 'group' | 'market';
+            queryId?: string;
+            scopeKey?: string;
+            marketKey?: string;
+            provider?: string;
+            model?: string;
+            location?: string;
+            evaluationDefinitionId?: string;
+            executionNodeKey?: string;
+            from?: string;
+            to?: string;
+        };
+        createdAt: string;
+        updatedAt: string;
+        counts: {
+            favorable: number;
+            mixed: number;
+            unfavorable: number;
+            factual: number;
+            'subject-not-mentioned': number;
+            'wrong-subject': number;
+            'ambiguous-subject': number;
+            'ambiguous-judgment': number;
+            'subject-not-applicable': number;
+            'unsupported-language': number;
+            'missing-source-text': number;
+            'input-too-large': number;
+            'invalid-conclusion-evidence': number;
+            pending: number;
+            running: number;
+            'waiting-to-retry': number;
+            failed: number;
+            canceled: number;
+        };
+        selected: number;
+        cancellationReason: string | null;
+        attemptCount: number;
+    }>;
+};
+
+export type SentimentJob = {
+    id: string;
+    projectId: string;
+    origin: 'automatic' | 'backfill';
+    state: 'pending' | 'running' | 'waiting-to-retry' | 'complete' | 'partial' | 'failed' | 'canceled';
+    enablementEpoch: number;
+    evaluationDefinitionId: string;
+    selection: {
+        runId?: string;
+        runIds?: Array<string>;
+        revision?: number;
+        mode: 'auto' | 'simple' | 'advanced';
+        queryClass: 'branded' | 'non-brand';
+        scope: 'project' | 'property' | 'group' | 'market';
+        queryId?: string;
+        scopeKey?: string;
+        marketKey?: string;
+        provider?: string;
+        model?: string;
+        location?: string;
+        evaluationDefinitionId?: string;
+        executionNodeKey?: string;
+        from?: string;
+        to?: string;
+    };
+    createdAt: string;
+    updatedAt: string;
+    counts: {
+        favorable: number;
+        mixed: number;
+        unfavorable: number;
+        factual: number;
+        'subject-not-mentioned': number;
+        'wrong-subject': number;
+        'ambiguous-subject': number;
+        'ambiguous-judgment': number;
+        'subject-not-applicable': number;
+        'unsupported-language': number;
+        'missing-source-text': number;
+        'input-too-large': number;
+        'invalid-conclusion-evidence': number;
+        pending: number;
+        running: number;
+        'waiting-to-retry': number;
+        failed: number;
+        canceled: number;
+    };
+    selected: number;
+    cancellationReason: string | null;
+    attempts: Array<{
+        id: string;
+        workItemId: string;
+        dispatchedAt: string;
+        completedAt: string | null;
+        returnedModel: string | null;
+        usage: {
+            kind: 'reported' | 'estimated' | 'unknown';
+            inputTokens: number | null;
+            outputTokens: number | null;
+        };
+        errorCode: string | null;
+    }>;
+    attemptCount?: number;
+    nextAttemptCursor?: string | null;
+};
+
 export type VisibilityReportResponse = {
     selection: {
         mode: 'simple' | 'advanced';
@@ -227,6 +1282,7 @@ export type VisibilityReportResponse = {
         };
         queries: {
             items: Array<{
+                sourceSnapshotIds: Array<string>;
                 queryKey: string;
                 queryId: string | null;
                 query: string;
@@ -2113,6 +3169,7 @@ export type BrandMetricsDto = {
         at: string;
         identity: {
             schemaVersion: 1;
+            language?: string;
             providers: Array<string>;
             models: {
                 [key: string]: string;
@@ -5596,6 +6653,7 @@ export type LatestProjectRunDto = {
         } | null;
         measurementExecutionIdentity?: {
             schemaVersion: 1;
+            language?: string;
             providers: Array<string>;
             models: {
                 [key: string]: string;
@@ -9688,6 +10746,139 @@ export type ProjectConfig = {
 };
 
 export type ProjectOverviewDto = {
+    sentiment?: {
+        configured: boolean;
+        branded: {
+            state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+            reason: string | null;
+            provisional: boolean;
+            coverage: {
+                selected: number;
+                eligibleAssessments: number;
+                unadmittedAssessments: number;
+                judged: number;
+                distinctSourceAnswers: number;
+                counts: {
+                    favorable: number;
+                    mixed: number;
+                    unfavorable: number;
+                    factual: number;
+                    'subject-not-mentioned': number;
+                    'wrong-subject': number;
+                    'ambiguous-subject': number;
+                    'ambiguous-judgment': number;
+                    'subject-not-applicable': number;
+                    'unsupported-language': number;
+                    'missing-source-text': number;
+                    'input-too-large': number;
+                    'invalid-conclusion-evidence': number;
+                    pending: number;
+                    running: number;
+                    'waiting-to-retry': number;
+                    failed: number;
+                    canceled: number;
+                };
+                expectedProviderSlots: number;
+                completedProviderSlots: number;
+            };
+            score: {
+                favorableRate: number | null;
+                mixedRate: number | null;
+                unfavorableRate: number | null;
+                favorableDisplay: string;
+                mixedDisplay: string;
+                unfavorableDisplay: string;
+                interval: {
+                    low: number;
+                    high: number;
+                } | null;
+                method: 'wilson-independent-v1';
+                limitation: string;
+            };
+            selection: {
+                runId: string | null;
+                runIds?: Array<string>;
+                revision: number | null;
+                mode: 'simple' | 'advanced';
+                queryClass: 'branded' | 'non-brand';
+                scope: 'project' | 'property' | 'group' | 'market';
+                queryId?: string;
+                scopeKey?: string;
+                marketKey?: string;
+                provider?: string;
+                model?: string;
+                location?: string;
+                evaluationDefinitionId: string | null;
+                executionNodeKey?: string;
+            };
+            runIds: Array<string>;
+        };
+        nonBrand: {
+            state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+            reason: string | null;
+            provisional: boolean;
+            coverage: {
+                selected: number;
+                eligibleAssessments: number;
+                unadmittedAssessments: number;
+                judged: number;
+                distinctSourceAnswers: number;
+                counts: {
+                    favorable: number;
+                    mixed: number;
+                    unfavorable: number;
+                    factual: number;
+                    'subject-not-mentioned': number;
+                    'wrong-subject': number;
+                    'ambiguous-subject': number;
+                    'ambiguous-judgment': number;
+                    'subject-not-applicable': number;
+                    'unsupported-language': number;
+                    'missing-source-text': number;
+                    'input-too-large': number;
+                    'invalid-conclusion-evidence': number;
+                    pending: number;
+                    running: number;
+                    'waiting-to-retry': number;
+                    failed: number;
+                    canceled: number;
+                };
+                expectedProviderSlots: number;
+                completedProviderSlots: number;
+            };
+            score: {
+                favorableRate: number | null;
+                mixedRate: number | null;
+                unfavorableRate: number | null;
+                favorableDisplay: string;
+                mixedDisplay: string;
+                unfavorableDisplay: string;
+                interval: {
+                    low: number;
+                    high: number;
+                } | null;
+                method: 'wilson-independent-v1';
+                limitation: string;
+            };
+            selection: {
+                runId: string | null;
+                runIds?: Array<string>;
+                revision: number | null;
+                mode: 'simple' | 'advanced';
+                queryClass: 'branded' | 'non-brand';
+                scope: 'project' | 'property' | 'group' | 'market';
+                queryId?: string;
+                scopeKey?: string;
+                marketKey?: string;
+                provider?: string;
+                model?: string;
+                location?: string;
+                evaluationDefinitionId: string | null;
+                executionNodeKey?: string;
+            };
+            runIds: Array<string>;
+        };
+    };
     project: {
         id: string;
         name: string;
@@ -9748,6 +10939,7 @@ export type ProjectOverviewDto = {
             } | null;
             measurementExecutionIdentity?: {
                 schemaVersion: 1;
+                language?: string;
                 providers: Array<string>;
                 models: {
                     [key: string]: string;
@@ -11118,6 +12310,7 @@ export type RunDetailDto = {
     } | null;
     measurementExecutionIdentity?: {
         schemaVersion: 1;
+        language?: string;
         providers: Array<string>;
         models: {
             [key: string]: string;
@@ -11298,6 +12491,7 @@ export type RunDto = {
     } | null;
     measurementExecutionIdentity?: {
         schemaVersion: 1;
+        language?: string;
         providers: Array<string>;
         models: {
             [key: string]: string;
@@ -15704,6 +16898,593 @@ export type GetApiV1ProjectsByNameMeasurementOverviewResponses = {
 };
 
 export type GetApiV1ProjectsByNameMeasurementOverviewResponse = GetApiV1ProjectsByNameMeasurementOverviewResponses[keyof GetApiV1ProjectsByNameMeasurementOverviewResponses];
+
+export type GetApiV1ProjectsByNameSentimentSettingsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/sentiment/settings';
+};
+
+export type GetApiV1ProjectsByNameSentimentSettingsErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSentimentSettingsError = GetApiV1ProjectsByNameSentimentSettingsErrors[keyof GetApiV1ProjectsByNameSentimentSettingsErrors];
+
+export type GetApiV1ProjectsByNameSentimentSettingsResponses = {
+    /**
+     * Secret-free configuration and effective permissions.
+     */
+    200: SentimentSettings;
+};
+
+export type GetApiV1ProjectsByNameSentimentSettingsResponse = GetApiV1ProjectsByNameSentimentSettingsResponses[keyof GetApiV1ProjectsByNameSentimentSettingsResponses];
+
+export type PutApiV1ProjectsByNameSentimentSettingsData = {
+    body: SentimentSettingsUpdate;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/sentiment/settings';
+};
+
+export type PutApiV1ProjectsByNameSentimentSettingsErrors = {
+    /**
+     * Invalid configuration or install unavailable.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Install administrator required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PutApiV1ProjectsByNameSentimentSettingsError = PutApiV1ProjectsByNameSentimentSettingsErrors[keyof PutApiV1ProjectsByNameSentimentSettingsErrors];
+
+export type PutApiV1ProjectsByNameSentimentSettingsResponses = {
+    /**
+     * Updated project configuration.
+     */
+    200: SentimentSettings;
+};
+
+export type PutApiV1ProjectsByNameSentimentSettingsResponse = PutApiV1ProjectsByNameSentimentSettingsResponses[keyof PutApiV1ProjectsByNameSentimentSettingsResponses];
+
+export type GetApiV1ProjectsByNameSentimentData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Exact group of stored runs, mutually exclusive with runId. Not supported for comparison.
+         */
+        runIds?: Array<string>;
+        /**
+         * Exact frozen query identity within the selected query class.
+         */
+        queryId?: string;
+        /**
+         * Exact frozen Advanced execution node of the selected query. Identity: it narrows the assessed population.
+         */
+        executionNodeKey?: string;
+        /**
+         * Frozen Simple or Advanced source mode.
+         */
+        mode?: 'auto' | 'simple' | 'advanced';
+        /**
+         * One query class per denominator; branded and non-brand are always separate.
+         */
+        queryClass?: 'branded' | 'non-brand';
+        /**
+         * Selected answer-subject population.
+         */
+        scope?: 'project' | 'property' | 'group' | 'market';
+        /**
+         * Exact stored run.
+         */
+        runId?: string;
+        /**
+         * Required for a non-project scope.
+         */
+        scopeKey?: string;
+        /**
+         * Exact frozen market-edge refinement.
+         */
+        marketKey?: string;
+        /**
+         * Exact answer provider.
+         */
+        provider?: string;
+        /**
+         * Exact served source model.
+         */
+        model?: string;
+        /**
+         * Exact execution location label, or none.
+         */
+        location?: string;
+        /**
+         * Pinned reusable evaluator. Omission resolves the latest admitted definition for this selection.
+         */
+        evaluationDefinitionId?: string;
+        /**
+         * Exact frozen measurement revision.
+         */
+        revision?: number;
+        /**
+         * Opt-in per-query detail, repeated or comma-separated. Omitted, query rows are compact unless queryId names one query. Tuning, not identity.
+         */
+        include?: Array<'assessments' | 'locations'>;
+        /**
+         * Query rows per page; tuning.
+         */
+        queryLimit?: number;
+        /**
+         * Opaque queryPage.nextCursor bound to the resolved selection.
+         */
+        queryCursor?: string;
+    };
+    url: '/api/v1/projects/{name}/sentiment';
+};
+
+export type GetApiV1ProjectsByNameSentimentErrors = {
+    /**
+     * Invalid selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or selected source not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSentimentError = GetApiV1ProjectsByNameSentimentErrors[keyof GetApiV1ProjectsByNameSentimentErrors];
+
+export type GetApiV1ProjectsByNameSentimentResponses = {
+    /**
+     * Stored scores, exclusions, coverage, and a page of frozen query aggregates, with per-engine subject assessments and location aggregates when included.
+     */
+    200: SentimentSummary;
+};
+
+export type GetApiV1ProjectsByNameSentimentResponse = GetApiV1ProjectsByNameSentimentResponses[keyof GetApiV1ProjectsByNameSentimentResponses];
+
+export type GetApiV1ProjectsByNameSentimentEvidenceData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Exact group of stored runs, mutually exclusive with runId. Not supported for comparison.
+         */
+        runIds?: Array<string>;
+        /**
+         * Exact frozen query identity within the selected query class.
+         */
+        queryId?: string;
+        /**
+         * Exact frozen Advanced execution node of the selected query. Identity: it narrows the assessed population.
+         */
+        executionNodeKey?: string;
+        /**
+         * Frozen Simple or Advanced source mode.
+         */
+        mode?: 'auto' | 'simple' | 'advanced';
+        /**
+         * One query class per denominator; branded and non-brand are always separate.
+         */
+        queryClass?: 'branded' | 'non-brand';
+        /**
+         * Selected answer-subject population.
+         */
+        scope?: 'project' | 'property' | 'group' | 'market';
+        /**
+         * Exact stored run.
+         */
+        runId?: string;
+        /**
+         * Required for a non-project scope.
+         */
+        scopeKey?: string;
+        /**
+         * Exact frozen market-edge refinement.
+         */
+        marketKey?: string;
+        /**
+         * Exact answer provider.
+         */
+        provider?: string;
+        /**
+         * Exact served source model.
+         */
+        model?: string;
+        /**
+         * Exact execution location label, or none.
+         */
+        location?: string;
+        /**
+         * Pinned reusable evaluator. Omission resolves the latest admitted definition for this selection.
+         */
+        evaluationDefinitionId?: string;
+        /**
+         * Exact frozen measurement revision.
+         */
+        revision?: number;
+        /**
+         * Exact stored assessment within the authorized source, subject, scope, and evaluator selection. Does not widen access.
+         */
+        assessmentId?: string;
+        /**
+         * Opaque cursor bound to every selection field and resolved evaluator ID.
+         */
+        cursor?: string;
+        /**
+         * Page size only; does not change assessment identity.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/sentiment/evidence';
+};
+
+export type GetApiV1ProjectsByNameSentimentEvidenceErrors = {
+    /**
+     * Invalid cursor or selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or selected source not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSentimentEvidenceError = GetApiV1ProjectsByNameSentimentEvidenceErrors[keyof GetApiV1ProjectsByNameSentimentEvidenceErrors];
+
+export type GetApiV1ProjectsByNameSentimentEvidenceResponses = {
+    /**
+     * Stored answer-subject evidence page.
+     */
+    200: SentimentEvidencePage;
+};
+
+export type GetApiV1ProjectsByNameSentimentEvidenceResponse = GetApiV1ProjectsByNameSentimentEvidenceResponses[keyof GetApiV1ProjectsByNameSentimentEvidenceResponses];
+
+export type GetApiV1ProjectsByNameSentimentCompareData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query: {
+        /**
+         * Exact group of stored runs, mutually exclusive with runId. Not supported for comparison.
+         */
+        runIds?: Array<string>;
+        /**
+         * Exact frozen query identity within the selected query class.
+         */
+        queryId?: string;
+        /**
+         * Exact frozen Advanced execution node of the selected query. Identity: it narrows the assessed population.
+         */
+        executionNodeKey?: string;
+        /**
+         * Frozen Simple or Advanced source mode.
+         */
+        mode?: 'auto' | 'simple' | 'advanced';
+        /**
+         * One query class per denominator; branded and non-brand are always separate.
+         */
+        queryClass?: 'branded' | 'non-brand';
+        /**
+         * Selected answer-subject population.
+         */
+        scope?: 'project' | 'property' | 'group' | 'market';
+        /**
+         * Exact stored run.
+         */
+        runId?: string;
+        /**
+         * Required for a non-project scope.
+         */
+        scopeKey?: string;
+        /**
+         * Exact frozen market-edge refinement.
+         */
+        marketKey?: string;
+        /**
+         * Exact answer provider.
+         */
+        provider?: string;
+        /**
+         * Exact served source model.
+         */
+        model?: string;
+        /**
+         * Exact execution location label, or none.
+         */
+        location?: string;
+        /**
+         * Pinned reusable evaluator. Omission resolves the latest admitted definition for this selection.
+         */
+        evaluationDefinitionId?: string;
+        /**
+         * Exact frozen measurement revision.
+         */
+        revision?: number;
+        /**
+         * Exact source run for this period.
+         */
+        fromRunId: string;
+        /**
+         * Exact source run for this period.
+         */
+        toRunId: string;
+    };
+    url: '/api/v1/projects/{name}/sentiment/compare';
+};
+
+export type GetApiV1ProjectsByNameSentimentCompareErrors = {
+    /**
+     * Invalid comparison selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or selected source not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSentimentCompareError = GetApiV1ProjectsByNameSentimentCompareErrors[keyof GetApiV1ProjectsByNameSentimentCompareErrors];
+
+export type GetApiV1ProjectsByNameSentimentCompareResponses = {
+    /**
+     * Matched units, exclusions, and conservative comparison or refusal reasons.
+     */
+    200: SentimentComparison;
+};
+
+export type GetApiV1ProjectsByNameSentimentCompareResponse = GetApiV1ProjectsByNameSentimentCompareResponses[keyof GetApiV1ProjectsByNameSentimentCompareResponses];
+
+export type GetApiV1ProjectsByNameSentimentBackfillPreviewData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Exact group of stored runs, mutually exclusive with runId. Not supported for comparison.
+         */
+        runIds?: Array<string>;
+        /**
+         * Exact frozen query identity within the selected query class.
+         */
+        queryId?: string;
+        /**
+         * Exact frozen Advanced execution node of the selected query. Identity: it narrows the assessed population.
+         */
+        executionNodeKey?: string;
+        /**
+         * Frozen Simple or Advanced source mode.
+         */
+        mode?: 'auto' | 'simple' | 'advanced';
+        /**
+         * One query class per denominator; branded and non-brand are always separate.
+         */
+        queryClass?: 'branded' | 'non-brand';
+        /**
+         * Selected answer-subject population.
+         */
+        scope?: 'project' | 'property' | 'group' | 'market';
+        /**
+         * Exact stored run.
+         */
+        runId?: string;
+        /**
+         * Required for a non-project scope.
+         */
+        scopeKey?: string;
+        /**
+         * Exact frozen market-edge refinement.
+         */
+        marketKey?: string;
+        /**
+         * Exact answer provider.
+         */
+        provider?: string;
+        /**
+         * Exact served source model.
+         */
+        model?: string;
+        /**
+         * Exact execution location label, or none.
+         */
+        location?: string;
+        /**
+         * Pinned reusable evaluator. Omission resolves the latest admitted definition for this selection.
+         */
+        evaluationDefinitionId?: string;
+        /**
+         * Exact frozen measurement revision.
+         */
+        revision?: number;
+        /**
+         * Inclusive ISO date-time bound.
+         */
+        from?: string;
+        /**
+         * Inclusive ISO date-time bound.
+         */
+        to?: string;
+    };
+    url: '/api/v1/projects/{name}/sentiment/backfill-preview';
+};
+
+export type GetApiV1ProjectsByNameSentimentBackfillPreviewErrors = {
+    /**
+     * Invalid or unbounded selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or selected source not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSentimentBackfillPreviewError = GetApiV1ProjectsByNameSentimentBackfillPreviewErrors[keyof GetApiV1ProjectsByNameSentimentBackfillPreviewErrors];
+
+export type GetApiV1ProjectsByNameSentimentBackfillPreviewResponses = {
+    /**
+     * Frozen selection, skipped work, and labeled estimates.
+     */
+    200: SentimentBackfillPreview;
+};
+
+export type GetApiV1ProjectsByNameSentimentBackfillPreviewResponse = GetApiV1ProjectsByNameSentimentBackfillPreviewResponses[keyof GetApiV1ProjectsByNameSentimentBackfillPreviewResponses];
+
+export type PostApiV1ProjectsByNameSentimentBackfillsData = {
+    body: SentimentBackfillRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/sentiment/backfills';
+};
+
+export type PostApiV1ProjectsByNameSentimentBackfillsErrors = {
+    /**
+     * Expired or changed preview, or sentiment unavailable.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Install administrator required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Idempotency key payload conflict.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameSentimentBackfillsError = PostApiV1ProjectsByNameSentimentBackfillsErrors[keyof PostApiV1ProjectsByNameSentimentBackfillsErrors];
+
+export type PostApiV1ProjectsByNameSentimentBackfillsResponses = {
+    /**
+     * Durable job receipt.
+     */
+    200: SentimentJob;
+};
+
+export type PostApiV1ProjectsByNameSentimentBackfillsResponse = PostApiV1ProjectsByNameSentimentBackfillsResponses[keyof PostApiV1ProjectsByNameSentimentBackfillsResponses];
+
+export type GetApiV1ProjectsByNameSentimentJobsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/sentiment/jobs';
+};
+
+export type GetApiV1ProjectsByNameSentimentJobsErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSentimentJobsError = GetApiV1ProjectsByNameSentimentJobsErrors[keyof GetApiV1ProjectsByNameSentimentJobsErrors];
+
+export type GetApiV1ProjectsByNameSentimentJobsResponses = {
+    /**
+     * Newest 100 job summaries with SQL-counted outcomes and attemptCount; attempt receipts are paged on the job read.
+     */
+    200: SentimentJobs;
+};
+
+export type GetApiV1ProjectsByNameSentimentJobsResponse = GetApiV1ProjectsByNameSentimentJobsResponses[keyof GetApiV1ProjectsByNameSentimentJobsResponses];
+
+export type GetApiV1ProjectsByNameSentimentJobsByJobIdData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Project-owned job identity.
+         */
+        jobId: string;
+    };
+    query?: {
+        /**
+         * Attempt receipts per page, newest first; tuning.
+         */
+        attemptLimit?: number;
+        /**
+         * Opaque nextAttemptCursor bound to this job.
+         */
+        attemptCursor?: string;
+    };
+    url: '/api/v1/projects/{name}/sentiment/jobs/{jobId}';
+};
+
+export type GetApiV1ProjectsByNameSentimentJobsByJobIdErrors = {
+    /**
+     * Project or job not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSentimentJobsByJobIdError = GetApiV1ProjectsByNameSentimentJobsByJobIdErrors[keyof GetApiV1ProjectsByNameSentimentJobsByJobIdErrors];
+
+export type GetApiV1ProjectsByNameSentimentJobsByJobIdResponses = {
+    /**
+     * Coverage, cancellation, attemptCount, and one page of attempt receipts with reported or unknown usage.
+     */
+    200: SentimentJob;
+};
+
+export type GetApiV1ProjectsByNameSentimentJobsByJobIdResponse = GetApiV1ProjectsByNameSentimentJobsByJobIdResponses[keyof GetApiV1ProjectsByNameSentimentJobsByJobIdResponses];
 
 export type GetApiV1ProjectsByNameVisibilityReportData = {
     body?: never;

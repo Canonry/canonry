@@ -17,6 +17,7 @@ import {
   readNegativeReviewMaxStars,
   runs,
 } from '@ainyc/canonry-db'
+import { SentimentService, type SentimentServiceOptions } from './sentiment-service.js'
 import { buildMentionShareInputs } from './mention-share-inputs.js'
 import {
   CitationStates,
@@ -106,7 +107,8 @@ const INTEGRATION_SYNC_KINDS: ReadonlySet<string> = new Set<RunKind>([
 type SnapshotMatchedField = ProjectSearchSnapshotHitDto['matchedField']
 type InsightMatchedField = ProjectSearchInsightHitDto['matchedField']
 
-export async function compositeRoutes(app: FastifyInstance) {
+export async function compositeRoutes(app: FastifyInstance, options: { sentiment?: SentimentServiceOptions }) {
+  const sentiment = options.sentiment ? new SentimentService(app.db, options.sentiment) : null
   // GET /projects/:name/overview — composite read for "how is project X doing?".
   // Bundles project info, latest run, top insights, health, and a transitions
   // summary so agents don't fan out to four list endpoints to answer the
@@ -350,6 +352,7 @@ export async function compositeRoutes(app: FastifyInstance) {
       attentionItems,
       runHistory,
       suggestedQueries,
+      ...(sentiment ? { sentiment: sentiment.overview(project.id, latestVisRunGroup.map(run => run.id), filterLocation ?? undefined) } : {}),
       dateRangeLabel: 'All time',
       contextLabel: `${project.country} / ${project.language.toUpperCase()}`,
     }

@@ -130,6 +130,42 @@ type CoverageEntry =
     }
 
 const COVERAGE: Record<string, CoverageEntry> = {
+  sentimentDefinitions: {
+    kind: 'internal-only',
+    reason: 'Immutable evaluator JSON is exposed only through validated, project-scoped sentiment DTOs; hashes and storage columns remain private.',
+  },
+  sentimentSettings: {
+    kind: 'internal-only',
+    reason: 'Settings are projected into the readiness/access DTO; the stored configuration and sequence bookkeeping are not raw API rows.',
+  },
+  sentimentCompletionReceipts: {
+    kind: 'internal-only',
+    reason: 'Internal durable source-completion ordering used for admission and enablement reconciliation.',
+  },
+  sentimentJobs: {
+    kind: 'internal-only',
+    reason: 'Job rows are projected into SentimentJob with computed counts and attempts; payload hashes, idempotency keys and actor internals remain private.',
+  },
+  sentimentWorkItems: {
+    kind: 'internal-only',
+    reason: 'Frozen classifier inputs, leases and retry scheduling are internal; public evidence projects validated subject/context and outcome fields.',
+  },
+  sentimentJobItems: {
+    kind: 'internal-only',
+    reason: 'Internal many-job assessment membership and immutable cancellation provenance; no raw join DTO.',
+  },
+  sentimentResults: {
+    kind: 'internal-only',
+    reason: 'Results are projected into evidence and aggregate DTOs after project/selection binding; no raw result rows.',
+  },
+  sentimentAttempts: {
+    kind: 'internal-only',
+    reason: 'Attempt rows are projected into safe attempt receipts; request reservation and internal failure storage are not raw DTOs.',
+  },
+  sentimentDispatchState: {
+    kind: 'internal-only',
+    reason: 'Install-wide dispatch pause after a provider rate limit or credential refusal; the service projects only its reason into readiness, and the one-way credential fingerprint never leaves storage.',
+  },
   runtimeLogs: {
     kind: 'internal-only',
     reason: 'Storage rows are projected into OperationalLogEntryDto; sequence, raw storage columns, and byte accounting never leave the log store.',

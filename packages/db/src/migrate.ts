@@ -4365,6 +4365,99 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       )`,
     ],
   },
+  {
+    // Opt-in answer sentiment (docs/sentiment.md): frozen evaluator
+    // definitions, per-project settings, run completion receipts, jobs, work
+    // items, attempts and results, the install-wide dispatch pause, plus the
+    // unique (run_id, id) snapshot index the work items' foreign key needs.
+    // Every table is new, so rows written before it read exactly as they did;
+    // nothing is classified or sent until a project opts in.
+    version: 164,
+    name: 'sentiment-durable-assessments',
+    statements: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_run_id ON query_snapshots(run_id, id)`,
+      `CREATE TABLE IF NOT EXISTS sentiment_definitions (
+        id TEXT PRIMARY KEY, content_hash TEXT NOT NULL, requested_model TEXT NOT NULL,
+        definition TEXT NOT NULL, created_at TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_sentiment_definitions_hash ON sentiment_definitions(content_hash)`,
+      `CREATE TRIGGER IF NOT EXISTS sentiment_definitions_immutable BEFORE UPDATE ON sentiment_definitions
+        BEGIN SELECT RAISE(ABORT, 'Sentiment evaluation definitions are immutable'); END`,
+      `CREATE TABLE IF NOT EXISTS sentiment_settings (
+        install_suspended INTEGER NOT NULL DEFAULT 0,
+        project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+        enabled INTEGER NOT NULL DEFAULT 0, enablement_epoch INTEGER NOT NULL DEFAULT 0,
+        completion_boundary INTEGER NOT NULL DEFAULT 0,
+        reconciled_sequence INTEGER NOT NULL DEFAULT 0, dispatch_turn INTEGER NOT NULL DEFAULT 0,
+        evaluation_definition_id TEXT NOT NULL REFERENCES sentiment_definitions(id),
+        configuration TEXT NOT NULL, updated_at TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS sentiment_dispatch_state (
+        id TEXT PRIMARY KEY, blocked_reason TEXT, blocked_at TEXT, next_dispatch_at TEXT,
+        rate_limit_streak INTEGER NOT NULL DEFAULT 0, credential_fingerprint TEXT, updated_at TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS sentiment_completion_receipts (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT NOT NULL, run_id TEXT NOT NULL,
+        completion_key TEXT NOT NULL, completed_at TEXT NOT NULL, kind TEXT NOT NULL, trigger TEXT NOT NULL,
+        fill_origin TEXT,
+        FOREIGN KEY (project_id, run_id) REFERENCES runs(project_id, id) ON DELETE CASCADE
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_sentiment_completion_identity ON sentiment_completion_receipts(project_id, run_id, completion_key)`,
+      `CREATE INDEX IF NOT EXISTS idx_sentiment_completion_project_sequence ON sentiment_completion_receipts(project_id, sequence)`,
+      `CREATE TABLE IF NOT EXISTS sentiment_jobs (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        action TEXT NOT NULL, origin TEXT NOT NULL, enablement_epoch INTEGER NOT NULL,
+        evaluation_definition_id TEXT NOT NULL REFERENCES sentiment_definitions(id),
+        idempotency_key TEXT NOT NULL, payload_hash TEXT NOT NULL, selection TEXT NOT NULL,
+        actor TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending', cancellation_reason TEXT,
+        pending_items INTEGER NOT NULL DEFAULT 0, running_items INTEGER NOT NULL DEFAULT 0,
+        completed_items INTEGER NOT NULL DEFAULT 0, failed_items INTEGER NOT NULL DEFAULT 0,
+        canceled_items INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_sentiment_jobs_idempotency ON sentiment_jobs(project_id, action, idempotency_key)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_sentiment_jobs_project_id ON sentiment_jobs(project_id, id)`,
+      `CREATE INDEX IF NOT EXISTS idx_sentiment_jobs_project_created ON sentiment_jobs(project_id, created_at)`,
+      `CREATE TABLE IF NOT EXISTS sentiment_work_items (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, run_id TEXT NOT NULL, snapshot_id TEXT NOT NULL,
+        source_text_hash TEXT NOT NULL, subject_hash TEXT NOT NULL,
+        evaluation_definition_id TEXT NOT NULL REFERENCES sentiment_definitions(id), enablement_epoch INTEGER NOT NULL,
+        input TEXT NOT NULL, edges TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+        lease_owner TEXT, lease_expires_at TEXT, attempt_count INTEGER NOT NULL DEFAULT 0, attempt_budget_start INTEGER NOT NULL DEFAULT 0,
+        dispatch_priority INTEGER NOT NULL DEFAULT 0, next_attempt_at TEXT, error_code TEXT, cancellation_reason TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        FOREIGN KEY (project_id, run_id) REFERENCES runs(project_id, id) ON DELETE CASCADE,
+        FOREIGN KEY (run_id, snapshot_id) REFERENCES query_snapshots(run_id, id) ON DELETE CASCADE
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_sentiment_work_identity ON sentiment_work_items(project_id, snapshot_id, source_text_hash, subject_hash, evaluation_definition_id)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_sentiment_work_project_id ON sentiment_work_items(project_id, id)`,
+      `CREATE INDEX IF NOT EXISTS idx_sentiment_work_dispatch ON sentiment_work_items(status, next_attempt_at, lease_expires_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_sentiment_work_run ON sentiment_work_items(project_id, run_id)`,
+      // The query_snapshots(run_id, id) cascade looks work items up by (run_id, snapshot_id).
+      `CREATE INDEX IF NOT EXISTS idx_sentiment_work_source ON sentiment_work_items(run_id, snapshot_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_sentiment_work_lease ON sentiment_work_items(lease_expires_at) WHERE lease_owner IS NOT NULL`,
+      `CREATE TABLE IF NOT EXISTS sentiment_job_items (
+        project_id TEXT NOT NULL, job_id TEXT NOT NULL, work_item_id TEXT NOT NULL, enablement_epoch INTEGER NOT NULL,
+        canceled_at TEXT, cancellation_reason TEXT, PRIMARY KEY (job_id, work_item_id),
+        FOREIGN KEY (project_id, job_id) REFERENCES sentiment_jobs(project_id, id) ON DELETE CASCADE,
+        FOREIGN KEY (project_id, work_item_id) REFERENCES sentiment_work_items(project_id, id) ON DELETE CASCADE
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_sentiment_job_items_work ON sentiment_job_items(work_item_id)`,
+      `CREATE TABLE IF NOT EXISTS sentiment_results (
+        work_item_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, outcome TEXT NOT NULL, result TEXT NOT NULL,
+        returned_model TEXT, completed_at TEXT NOT NULL,
+        FOREIGN KEY (project_id, work_item_id) REFERENCES sentiment_work_items(project_id, id) ON DELETE CASCADE
+      )`,
+      `CREATE TABLE IF NOT EXISTS sentiment_attempts (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, work_item_id TEXT NOT NULL, attempt_number INTEGER NOT NULL,
+        requested_model TEXT NOT NULL, returned_model TEXT, dispatched_at TEXT NOT NULL, completed_at TEXT,
+        estimated_input_tokens INTEGER NOT NULL DEFAULT 0, usage_status TEXT NOT NULL DEFAULT 'unknown', usage TEXT,
+        safe_failure TEXT,
+        FOREIGN KEY (project_id, work_item_id) REFERENCES sentiment_work_items(project_id, id) ON DELETE CASCADE
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_sentiment_attempt_number ON sentiment_attempts(work_item_id, attempt_number)`,
+      `CREATE INDEX IF NOT EXISTS idx_sentiment_attempt_dispatch ON sentiment_attempts(dispatched_at)`,
+    ],
+  },
 ]
 
 function addRunsMeasurementPlanVersionForeignKey(tx: MigrationDb): void {

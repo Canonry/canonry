@@ -1,0 +1,48 @@
+{
+  "branded": {
+    "queryClass": "branded",
+    "providerRequestRequired": true,
+    "outcome": null,
+    "questions": [
+      "identity",
+      "judgment",
+      "stance",
+      "conclusion",
+      "complaint"
+    ],
+    "estimate": {
+      "method": "calibrated-utf8-byte-bound-v2",
+      "inputTokens": 2157,
+      "stateAndLongestQuestionTokens": 1573,
+      "inputCostUsd": 0.00009059400000000001
+    },
+    "limitation": "Calibrated UTF-8 bytes / 2.5 plus 1024 framing allowance, not the vendor tokenizer or returned usage. Official price checked 2026-09-28: USD 0.042/M input tokens."
+  },
+  "non-brand": {
+    "queryClass": "non-brand",
+    "providerRequestRequired": true,
+    "outcome": null,
+    "questions": [
+      "identity",
+      "judgment",
+      "stance",
+      "conclusion",
+      "complaint"
+    ],
+    "estimate": {
+      "method": "calibrated-utf8-byte-bound-v2",
+      "inputTokens": 2168,
+      "stateAndLongestQuestionTokens": 1584,
+      "inputCostUsd": 0.00009105600000000002
+    },
+    "limitation": "Calibrated UTF-8 bytes / 2.5 plus 1024 framing allowance, not the vendor tokenizer or returned usage. Official price checked 2026-09-28: USD 0.042/M input tokens."
+  },
+  "non-brand-subject-absent": {
+    "queryClass": "non-brand",
+    "providerRequestRequired": false,
+    "outcome": "subject-not-mentioned",
+    "questions": [],
+    "estimate": null,
+    "limitation": "Calibrated UTF-8 bytes / 2.5 plus 1024 framing allowance, not the vendor tokenizer or returned usage. Official price checked 2026-09-28: USD 0.042/M input tokens."
+  }
+}

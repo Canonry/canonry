@@ -209,3 +209,15 @@ Expected — each provider has independent knowledge. Focus on the ones that mat
 
 **Never say:** "Deploy this and re-run canonry to see if it worked."
 **Always say:** "This positions the site correctly. Canonry will tell us if/when that pays off."
+
+## Experimental sentiment
+
+Use `canonry sentiment <project> --query-class non-brand --format json` and a separate
+`--query-class branded` read. Favorable is favorable / (favorable + mixed +
+unfavorable); never pool the classes. Missing mentions, factual statements, and
+unknown judgments stay outside this denominator, so sentiment cannot replace
+mention coverage. Zero judged answers are unavailable. Inspect the returned
+coverage, frozen scope, and per-query source evidence before interpreting a score.
+The feature is default-off, has no theme setup, and has not passed independent
+human evaluation for either query class. Native Aero routing and client reports
+do not consume these experimental scores.

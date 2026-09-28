@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { ProviderBatchSubmitError, parseRunError, type ProviderAdapter, type ProviderBatchResultLine } from '@ainyc/canonry-contracts'
 import { queueRunFill, queueRunIfProjectIdle } from '@ainyc/canonry-api-routes'
 import { claudeAdapter } from '@ainyc/canonry-provider-claude'
-import { providerBatches, runFills, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { providerBatches, runFills, runs, sentimentCompletionReceipts, type DatabaseClient } from '@ainyc/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
 import { addLogListener } from '../src/logger.js'
 import { ProviderBatchPoller } from '../src/provider-batch-poller.js'
@@ -236,6 +236,53 @@ describe('a mixed run: one sync provider, one batch provider', () => {
       gemini: expect.objectContaining({ message: '[fake-gemini] 429 rate limit exceeded' }),
     })
     expect(events('run.completed').map(([, props]) => (props as { status: string }).status)).toEqual(['partial'])
+  })
+})
+
+// Sentiment classifies completed sweeps from durable completion receipts, so a
+// sweep the batch finalizer completes needs its receipt from that same write.
+describe('sentiment completion receipts', () => {
+  const receiptsOf = (db: DatabaseClient, runId: string) => db.select().from(sentimentCompletionReceipts)
+    .where(eq(sentimentCompletionReceipts.runId, runId)).all()
+
+  it('records exactly one receipt when the batch finalizer completes the run', async () => {
+    const { db, projectId } = seedPlannedProject({ count: 2 })
+    const runId = queueBatchRun(db, projectId)
+    const { runner, transport, poller } = harness(db)
+
+    await runner.executeRun(runId, projectId)
+    // Handed off to the poller: the run is not complete, so it has no receipt.
+    expect(runRow(db, runId).status).toBe('running')
+    expect(receiptsOf(db, runId)).toEqual([])
+
+    transport.end(transport.only().id)
+    await poller.tick()
+
+    const run = runRow(db, runId)
+    expect(run.status).toBe('completed')
+    expect(receiptsOf(db, runId)).toEqual([expect.objectContaining({
+      projectId, runId, completionKey: 'initial', completedAt: run.finishedAt, kind: 'answer-visibility', fillOrigin: null,
+    })])
+
+    // A later pass, or a second finalizer, loses the compare-and-set and adds nothing.
+    await poller.tick()
+    expect(runner.finalizeBatchRun(runId, projectId)).toBe(false)
+    expect(receiptsOf(db, runId)).toHaveLength(1)
+  })
+
+  it('records none when the batch finalizer ends the run partial', async () => {
+    const { db, projectId } = seedPlannedProject({ count: 2 })
+    const runId = queueBatchRun(db, projectId)
+    const { runner, transport, poller } = harness(db)
+    await runner.executeRun(runId, projectId)
+    const [first] = requestRows(db, batchRows(db, runId)[0]!.id)
+    transport.end(transport.only().id, request => request.customId === first!.id
+      ? { customId: request.customId, type: 'errored', error: '[fake] errored line' } as ProviderBatchResultLine
+      : succeeded(request))
+    await poller.tick()
+
+    expect(runRow(db, runId).status).toBe('partial')
+    expect(receiptsOf(db, runId)).toEqual([])
   })
 })
 

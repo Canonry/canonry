@@ -13,7 +13,7 @@ import {
   type RawQueryResult,
   type TrackedQueryInput,
 } from '@ainyc/canonry-contracts'
-import { createClient, migrate, projects, queries, querySnapshots, runs, usageCounters, type DatabaseClient } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, queries, querySnapshots, runs, sentimentCompletionReceipts, usageCounters, type DatabaseClient } from '@ainyc/canonry-db'
 import { JobRunner, type RunFinalization } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 import { resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'
@@ -159,6 +159,33 @@ describe('finalizeRun', () => {
     expect(telemetry.trackEvent).not.toHaveBeenCalled()
     expect(runsCounted(db, projectId)).toBe(0)
     expect(quotaUsed(db, projectId)).toBe(1)
+  })
+
+  it('records one sentiment completion receipt with the winning completed status, and none otherwise', () => {
+    const receiptsOf = (db: DatabaseClient, runId: string) => db.select().from(sentimentCompletionReceipts)
+      .where(eq(sentimentCompletionReceipts.runId, runId)).all()
+
+    const completed = seed('running')
+    const { runner } = runnerWithSpies(completed.db)
+    expect(runner.finalizeRun(finalization(completed.runId, completed.projectId))).toBe(true)
+    expect(receiptsOf(completed.db, completed.runId)).toEqual([expect.objectContaining({
+      projectId: completed.projectId, runId: completed.runId, completionKey: 'initial',
+      completedAt: runRow(completed.db, completed.runId).finishedAt, kind: 'answer-visibility', trigger: 'manual', fillOrigin: null,
+    })])
+    expect(runner.finalizeRun(finalization(completed.runId, completed.projectId))).toBe(false)
+    expect(receiptsOf(completed.db, completed.runId)).toHaveLength(1)
+
+    // A partial sweep is not classified until a fill completes it.
+    const partial = seed('running')
+    expect(runnerWithSpies(partial.db).runner.finalizeRun(finalization(partial.runId, partial.projectId, {
+      providerErrors: new Map([['gemini', 'boom']]),
+    }))).toBe(true)
+    expect(runRow(partial.db, partial.runId).status).toBe('partial')
+    expect(receiptsOf(partial.db, partial.runId)).toEqual([])
+
+    const cancelled = seed('cancelled')
+    expect(runnerWithSpies(cancelled.db).runner.finalizeRun(finalization(cancelled.runId, cancelled.projectId))).toBe(false)
+    expect(receiptsOf(cancelled.db, cancelled.runId)).toEqual([])
   })
 
   it('derives the terminal status from what the run recorded', () => {

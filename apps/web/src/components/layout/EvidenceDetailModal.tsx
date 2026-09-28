@@ -5,8 +5,8 @@ import { Search, X } from 'lucide-react'
 import { brandKeyFromText, brandLabelFromDomain, CitationStates, effectiveDomains, normalizeProjectDomain } from '@ainyc/canonry-contracts'
 
 import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { SourceLink } from '../shared/SourceLink.js'
 import { highlightTermsInText, type HighlightTermGroup } from '../../lib/highlight.js'
-import { safeExternalUrl } from '../../lib/safe-url.js'
 import { fetchRunDetail, type GroundingSource } from '../../api.js'
 import type { CitationInsightVm, ProjectCommandCenterVm } from '../../view-models.js'
 
@@ -114,7 +114,7 @@ export function EvidenceDetailModal({
           matchedTerms: snap.matchedTerms ?? evidence.matchedTerms ?? [],
           groundingSources: snap.groundingSources ?? evidence.groundingSources,
           searchQueries: snap.searchQueries,
-          evidenceUrls: [],
+          evidenceUrls: snap.citedUrls ?? [],
           changeLabel: evidence.visibilityChangeLabel ?? evidence.changeLabel,
           summary: evidence.summary,
         })
@@ -250,7 +250,7 @@ export function EvidenceDetailModal({
         matchedTerms: snap.matchedTerms ?? [],
         groundingSources: snap.groundingSources,
         searchQueries: snap.searchQueries,
-        evidenceUrls: [],
+        evidenceUrls: snap.citedUrls ?? [],
         changeLabel: describeMentionChange(run.mentionTransition ?? run.visibilityTransition, run.mentionState ?? run.visibilityState),
         summary: '',
       } : {
@@ -706,22 +706,12 @@ export function EvidenceDetailModal({
                             <span>Grounding source links ({display.groundingSources.length})</span>
                             <InfoTooltip text="Links the model used as grounding or supporting context while producing the answer. These are not the same thing as answer visibility." />
                           </div>
-                          <ul className="grid gap-0.5">
-                            {display.groundingSources.map((src, i) => {
-                              const href = safeExternalUrl(src.uri)
-                              const label = src.title || src.uri
-                              return (
-                                <li key={i} className="truncate text-sm">
-                                  {href ? (
-                                    <a href={href} target="_blank" rel="noopener noreferrer" className="text-secondary hover:text-strong transition-colors">
-                                      {label}
-                                    </a>
-                                  ) : (
-                                    <span className="text-secondary">{label}</span>
-                                  )}
-                                </li>
-                              )
-                            })}
+                          <ul className="grid min-w-0 gap-3">
+                            {display.groundingSources.map((src, i) => (
+                              <li key={i} className="min-w-0">
+                                <SourceLink url={src.uri} title={src.title} />
+                              </li>
+                            ))}
                           </ul>
                         </div>
                       )}
@@ -729,21 +719,10 @@ export function EvidenceDetailModal({
                       {display.evidenceUrls.length > 0 && (
                         <div>
                           <p className="drawer-section-label">Evidence URLs</p>
-                          <ul className="grid gap-1">
-                            {display.evidenceUrls.map((url) => {
-                              const href = safeExternalUrl(url)
-                              return (
-                                <li key={url} className="truncate text-sm">
-                                  {href ? (
-                                    <a href={href} target="_blank" rel="noopener noreferrer" className="text-secondary hover:text-strong transition-colors">
-                                      {url}
-                                    </a>
-                                  ) : (
-                                    <span className="text-secondary">{url}</span>
-                                  )}
-                                </li>
-                              )
-                            })}
+                          <ul className="grid min-w-0 gap-3">
+                            {display.evidenceUrls.map((url) => (
+                              <li key={url} className="min-w-0"><SourceLink url={url} /></li>
+                            ))}
                           </ul>
                         </div>
                       )}

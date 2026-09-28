@@ -15,7 +15,7 @@ import {
   type QueryWorkspace,
 } from '../lib/project-scope.js'
 import { useQueryClient } from '@tanstack/react-query'
-import { formatPercent, parseVisibilityReportScopeErrorDetails, RatioUnits, RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
+import { formatPercent, parseVisibilityReportScopeErrorDetails, RatioUnits, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import type { MeasurementOverviewSort } from '@ainyc/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
@@ -34,6 +34,8 @@ import {
 import { ProviderBadge } from '../components/shared/ProviderBadge.js'
 import { RunRow } from '../components/shared/RunRow.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
+import { SentimentScopeProvider, SentimentControls } from '../components/project/SentimentSection.js'
+import { sentimentSelectionFromVisibility, sentimentSelectionForSimpleEvidence } from '../queries/sentiment.js'
 import { EvidenceTable } from '../components/project/EvidenceTable.js'
 import { BingSummaryMetric } from '../components/project/BingSummaryMetric.js'
 import { ActivitySection } from '../components/project/ActivitySection.js'
@@ -1887,6 +1889,7 @@ function ProjectPageContent({
   const [removingQuery, setRemovingQuery] = useState<string | null>(null)
   const [competitorLandscapeWindow, setCompetitorLandscapeWindow] = useState<CompetitorLandscapeWindow>('30d')
   const [locationFilter, setLocationFilter] = useState<string | undefined>(undefined)
+  const [evidenceProvider, setEvidenceProvider] = useState('')
   const [compareLocations, setCompareLocations] = useState(false)
   const [locationTimeline, setLocationTimeline] = useState<import('../api.js').ApiTimelineEntry[] | null>(null)
   const [_locationTimelineLoading, setLocationTimelineLoading] = useState(false)
@@ -2714,9 +2717,8 @@ function ProjectPageContent({
   function renderVisibilityOverview(overview: React.ReactNode) {
     // Simple keeps its own layout even when a unified report is available.
     // Advanced retains the report workspace and its existing legacy fallback.
-    if (isSimpleOverview) return overview
     // The overview keys its results by the selection and keeps its toolbar mounted.
-    return (
+    const content = isSimpleOverview ? overview : (
       <VisibilityOverview
         projectName={projectName}
         selection={visibilitySelection}
@@ -2736,6 +2738,13 @@ function ProjectPageContent({
         fallback={overview}
       />
     )
+    if (isEmbed()) return content
+    let sentimentSelection = sentimentSelectionFromVisibility(visibilitySelection, isSimpleOverview ? 'simple' : 'advanced', typeof projectSearchParams.sentimentEvaluationDefinitionId === 'string' ? projectSearchParams.sentimentEvaluationDefinitionId : undefined)
+    if (isSimpleOverview) {
+      sentimentSelection.location = locationFilter === '' ? 'none' : locationFilter
+      sentimentSelection = sentimentSelectionForSimpleEvidence(sentimentSelection, filteredEvidence, evidenceProvider)
+    }
+    return <SentimentScopeProvider hasSourceEvidence={!isSimpleOverview || Boolean(sentimentSelection.runId || sentimentSelection.runIds?.length)} evidenceReady={!isSimpleOverview || !(evidenceDashboard.isLoading || evidenceDashboard.evidenceLoading || evidenceDashboard.evidenceError)} waitForResolvedRun={!isSimpleOverview} projectName={projectName} runOptions={model.recentRuns.filter(run => run.kind === RunKinds['answer-visibility'] && run.trigger !== RunTriggers.probe && (run.status === RunStatuses.completed || run.status === RunStatuses.partial)).map(run => ({ id: run.id, label: formatTimestamp(run.finishedAt ?? run.createdAt) }))} selection={sentimentSelection}>{content}</SentimentScopeProvider>
   }
 
   // The context row's measurement scope slot. Each tab owns recovery for a
@@ -3031,7 +3040,8 @@ function ProjectPageContent({
             defaultOpen
           >
             {!isEmbed() && (
-              <div className="mb-3 flex items-center justify-end">
+              <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+                <SentimentControls />
                 <WriteButton type="button" variant="outline" size="sm" onClick={() => setManagingQueries(!managingQueries)}>
                   {managingQueries ? 'Done' : 'Manage queries'}
                 </WriteButton>
@@ -3127,7 +3137,7 @@ function ProjectPageContent({
                 <Button type="button" variant="outline" onClick={() => { void evidenceDashboard.refetch() }}>Retry</Button>
               </div>
             ) : (
-              <EvidenceTable evidence={filteredEvidence} compareLocations={compareLocations} />
+              <EvidenceTable evidence={filteredEvidence} compareLocations={compareLocations} providerSelection={evidenceProvider} onProviderSelectionChange={setEvidenceProvider} />
             )}
           </OverviewDisclosure>
 

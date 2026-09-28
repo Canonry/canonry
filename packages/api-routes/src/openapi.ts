@@ -45,6 +45,8 @@ interface OpenApiParameter {
   /** `header` covers the concurrency and idempotency guards on draft mutations. */
   in: 'path' | 'query' | 'header'
   required?: boolean
+  style?: 'form'
+  explode?: boolean
   description: string
   schema: Record<string, unknown>
 }
@@ -403,6 +405,17 @@ const competitorLandscapeGroupKeyParameter: OpenApiParameter = {
   description: 'Advanced Measurement market (v2 group stable key). Omit for the project-wide landscape.',
   schema: stringSchema,
 }
+
+const sentimentSelectionParameters: OpenApiParameter[] = [
+  { name: 'runIds', in: 'query', description: 'Exact group of stored runs, mutually exclusive with runId. Not supported for comparison.', style: 'form', explode: true, schema: { type: 'array', items: stringSchema, minItems: 1, maxItems: 100 } },
+  { name: 'queryId', in: 'query', description: 'Exact frozen query identity within the selected query class.', schema: stringSchema },
+  { name: 'executionNodeKey', in: 'query', description: 'Exact frozen Advanced execution node of the selected query. Identity: it narrows the assessed population.', schema: stringSchema },
+  { name: 'mode', in: 'query', description: 'Frozen Simple or Advanced source mode.', schema: { type: 'string', enum: ['auto', 'simple', 'advanced'], default: 'auto' } },
+  { name: 'queryClass', in: 'query', description: 'One query class per denominator; branded and non-brand are always separate.', schema: { type: 'string', enum: ['branded', 'non-brand'], default: 'branded' } },
+  { name: 'scope', in: 'query', description: 'Selected answer-subject population.', schema: { type: 'string', enum: ['project', 'property', 'group', 'market'], default: 'project' } },
+  ...Object.entries({ runId: 'Exact stored run.', scopeKey: 'Required for a non-project scope.', marketKey: 'Exact frozen market-edge refinement.', provider: 'Exact answer provider.', model: 'Exact served source model.', location: 'Exact execution location label, or none.', evaluationDefinitionId: 'Pinned reusable evaluator. Omission resolves the latest admitted definition for this selection.' }).map(([name, description]) => ({ name, in: 'query' as const, description, schema: stringSchema })),
+  { name: 'revision', in: 'query', description: 'Exact frozen measurement revision.', schema: { type: 'integer', minimum: 1 } },
+]
 
 const competitorLandscapeScopeParameter: OpenApiParameter = {
   name: 'scope',
@@ -1297,6 +1310,58 @@ const routeCatalog: OpenApiOperation[] = [
       404: errorResponse('Project not found.'),
       422: errorResponse('The named run is pinned to a different plan revision.'),
     },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/sentiment/settings', summary: 'Read sentiment configuration and readiness', tags: ['sentiment'], parameters: [nameParameter],
+    responses: { 200: jsonResponse('Secret-free configuration and effective permissions.', 'SentimentSettings'), 404: errorResponse('Project not found.') },
+  },
+  {
+    method: 'put', path: '/api/v1/projects/{name}/sentiment/settings', summary: 'Configure experimental project sentiment', tags: ['sentiment'], parameters: [nameParameter],
+    description: 'Install administrators only. Enabling processes future eligible completions; historical backfill is explicit. Stance-only evaluator definitions are immutable and comparisons preserve their identity. TypeSafe credentials remain local install configuration.',
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SentimentSettingsUpdate' } } } },
+    responses: { 200: jsonResponse('Updated project configuration.', 'SentimentSettings'), 400: errorResponse('Invalid configuration or install unavailable.'), 403: errorResponse('Install administrator required.'), 404: errorResponse('Project not found.') },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/sentiment', summary: 'Read stored class-separated sentiment and coverage', tags: ['sentiment'],
+    parameters: [nameParameter, ...sentimentSelectionParameters,
+      { name: 'include', in: 'query', description: 'Opt-in per-query detail, repeated or comma-separated. Omitted, query rows are compact unless queryId names one query. Tuning, not identity.', style: 'form', explode: true, schema: { type: 'array', items: { type: 'string', enum: ['assessments', 'locations'] }, maxItems: 2 } },
+      { name: 'queryLimit', in: 'query', description: 'Query rows per page; tuning.', schema: { type: 'integer', minimum: 1, maximum: 500, default: 25 } },
+      { name: 'queryCursor', in: 'query', description: 'Opaque queryPage.nextCursor bound to the resolved selection.', schema: stringSchema }],
+    description: 'Stored reads never call TypeSafe. Favorable rate is favorable divided by favorable plus mixed plus unfavorable. All scope filters are identity-bearing; overlapping usage edges count each answer-subject assessment once. Incomplete source sweeps and probes cannot supply the headline. Query rows are sorted by query text, paged by queryLimit, and are per Advanced execution node; per-engine assessments and per-location aggregates are opt-in through include.',
+    responses: { 200: jsonResponse('Stored scores, exclusions, coverage, and a page of frozen query aggregates, with per-engine subject assessments and location aggregates when included.', 'SentimentSummary'), 400: errorResponse('Invalid selection.'), 404: errorResponse('Project or selected source not found.') },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/sentiment/evidence', summary: 'Read verbatim sentiment evidence', tags: ['sentiment'],
+    parameters: [nameParameter, ...sentimentSelectionParameters, { name: 'assessmentId', in: 'query', description: 'Exact stored assessment within the authorized source, subject, scope, and evaluator selection. Does not widen access.', schema: stringSchema }, { name: 'cursor', in: 'query', description: 'Opaque cursor bound to every selection field and resolved evaluator ID.', schema: stringSchema }, { name: 'limit', in: 'query', description: 'Page size only; does not change assessment identity.', schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } }],
+    responses: { 200: jsonResponse('Stored answer-subject evidence page.', 'SentimentEvidencePage'), 400: errorResponse('Invalid cursor or selection.'), 404: errorResponse('Project or selected source not found.') },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/sentiment/compare', summary: 'Compare compatible stored sentiment periods', tags: ['sentiment'],
+    parameters: [nameParameter, ...sentimentSelectionParameters, ...['fromRunId', 'toRunId'].map(name => ({ name, in: 'query' as const, required: true, description: 'Exact source run for this period.', schema: stringSchema }))],
+    responses: { 200: jsonResponse('Matched units, exclusions, and conservative comparison or refusal reasons.', 'SentimentComparison'), 400: errorResponse('Invalid comparison selection.'), 404: errorResponse('Project or selected source not found.') },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/sentiment/backfill-preview', summary: 'Preview a bounded stored sentiment backfill', tags: ['sentiment'],
+    description: 'No provider calls. Explicit run IDs or a bounded date range are required. All selection and evaluator fields are identity-bearing. Submission pins this preview; changed selection requires a fresh preview.',
+    parameters: [nameParameter, ...sentimentSelectionParameters, ...['from', 'to'].map(name => ({ name, in: 'query' as const, description: 'Inclusive ISO date-time bound.', schema: { type: 'string', format: 'date-time' } }))],
+    responses: { 200: jsonResponse('Frozen selection, skipped work, and labeled estimates.', 'SentimentBackfillPreview'), 400: errorResponse('Invalid or unbounded selection.'), 404: errorResponse('Project or selected source not found.') },
+  },
+  {
+    method: 'post', path: '/api/v1/projects/{name}/sentiment/backfills', summary: 'Submit an explicit sentiment backfill', tags: ['sentiment'], parameters: [nameParameter],
+    description: 'Install administrator required. The idempotency key is scoped to project and action. Identical authorized replays return their original receipt even after preview expiry or disablement; changed payloads conflict.',
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SentimentBackfillRequest' } } } },
+    responses: { 200: jsonResponse('Durable job receipt.', 'SentimentJob'), 400: errorResponse('Expired or changed preview, or sentiment unavailable.'), 403: errorResponse('Install administrator required.'), 404: errorResponse('Project not found.'), 409: errorResponse('Idempotency key payload conflict.') },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/sentiment/jobs', summary: 'List automatic and backfill sentiment jobs', tags: ['sentiment'], parameters: [nameParameter],
+    responses: { 200: jsonResponse('Newest 100 job summaries with SQL-counted outcomes and attemptCount; attempt receipts are paged on the job read.', 'SentimentJobs'), 404: errorResponse('Project not found.') },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/sentiment/jobs/{jobId}', summary: 'Read a sentiment job and attempt receipts', tags: ['sentiment'],
+    parameters: [nameParameter, { name: 'jobId', in: 'path', required: true, description: 'Project-owned job identity.', schema: stringSchema },
+      { name: 'attemptLimit', in: 'query', description: 'Attempt receipts per page, newest first; tuning.', schema: { type: 'integer', minimum: 1, maximum: 200, default: 50 } },
+      { name: 'attemptCursor', in: 'query', description: 'Opaque nextAttemptCursor bound to this job.', schema: stringSchema }],
+    responses: { 200: jsonResponse('Coverage, cancellation, attemptCount, and one page of attempt receipts with reported or unknown usage.', 'SentimentJob'), 404: errorResponse('Project or job not found.') },
   },
   {
     method: 'get',

@@ -6,6 +6,7 @@ import { parse, stringify } from 'yaml'
 
 import { runCli } from '../src/cli.js'
 import { saveConfig, saveConfigPatch, loadConfig, loadConfigRaw, getConfigPath } from '../src/config.js'
+import { loadSentimentInstallConfig } from '../src/sentiment-config.js'
 import type { CanonryConfig } from '../src/config.js'
 
 let tmpDir: string
@@ -344,5 +345,30 @@ test.each([['site-audti'], ['research'], 'site-audit', true, [1]])('invalid mana
   const original = stringify({ ...baseConfig(), dashboard: { managedRunKinds } })
   fs.writeFileSync(getConfigPath(), original)
   expect(loadConfig).toThrow(/dashboard.managedRunKinds/)
+  expect(fs.readFileSync(getConfigPath(), 'utf8')).toBe(original)
+})
+
+test('saveConfigPatch keeps the live sentiment block instead of the startup snapshot', () => {
+  for (const key of ['CANONRY_SENTIMENT_ENABLED', 'TYPESAFE_API_KEY', 'TYPESAFE_MODEL']) setEnv(key, undefined)
+  fs.writeFileSync(getConfigPath(), stringify(baseConfig({ sentiment: { enabled: true, apiKey: 'startup-sentiment-key' } })))
+  const startup = loadConfig()
+  expect(loadSentimentInstallConfig()).toMatchObject({ enabled: true, apiKey: 'startup-sentiment-key' })
+
+  // The operator disables the install and rotates the key while the server runs.
+  const live = { enabled: false, apiKey: 'rotated-sentiment-key' }
+  fs.writeFileSync(getConfigPath(), stringify(baseConfig({ sentiment: live })))
+  saveConfigPatch({ ...startup, telemetry: false })
+
+  expect(readOnDisk()).toMatchObject({ sentiment: live, telemetry: false })
+  expect(loadSentimentInstallConfig()).toMatchObject(live)
+})
+
+test('saveConfigPatch does not restore a sentiment block removed from disk', () => {
+  fs.writeFileSync(getConfigPath(), stringify(baseConfig({ sentiment: { enabled: true, apiKey: 'startup-sentiment-key' } })))
+  const startup = loadConfig()
+  const original = stringify(baseConfig())
+  fs.writeFileSync(getConfigPath(), original)
+
+  saveConfigPatch(startup)
   expect(fs.readFileSync(getConfigPath(), 'utf8')).toBe(original)
 })

@@ -1,0 +1,59 @@
+{
+  "date": "2026-09-28",
+  "data": "synthetic only",
+  "requestedModel": "jev-1.13.0",
+  "returnedModels": [
+    "jev-1.13.0"
+  ],
+  "providerAttempts": 3,
+  "uniqueAssessments": 3,
+  "estimatedInputTokenUpperBound": 51828,
+  "reportedInputTokens": 16892,
+  "reportedOutputTokens": 6026,
+  "additionalCallsOnReads": 0,
+  "observedOutcomes": {
+    "Aurora Service": "favorable",
+    "Bayside Homes": "unfavorable",
+    "Harbor Homes": "favorable"
+  },
+  "transportChecks": [
+    "installed tarball serves non-root /smoke/ path",
+    "default-off reads and REST/CLI permission denials spend nothing",
+    "explicit frozen backfill admits exactly three assessments and replays receipts",
+    "persisted HTTP/CLI summaries and exact evidence agree; shared Advanced answer deduplicates",
+    "HTTP MCP and installed stdio MCP match persisted results and enforce read/scoped credentials",
+    "repeated reads and disabled receipt replay make zero additional provider calls"
+  ],
+  "independentQualityGate": "unmet",
+  "productionEnabled": false,
+  "liveArtifact": {
+    "packageVersion": "5.21.0",
+    "tarballSha256": "c1a08080e4943cc70387e5f4216c5a7e595676180a61ad591ac426af93b9f34b",
+    "scope": "Isolated feature-complete development tarball; final rebased stack receives deterministic smoke."
+  },
+  "finalArtifact": {
+    "packageVersion": "5.24.5",
+    "tarballSha256": "845698b2694663b315fd68b8d7d50e41123f8533f711ebd3c6475b2ab9c3b629",
+    "liveProviderCalls": 0,
+    "normalTransportSmoke": "passed",
+    "recoverySmoke": "passed",
+    "browserSmoke": {
+      "assertions": 8,
+      "screenshots": 10,
+      "unexpectedHttpErrors": 0,
+      "consoleErrors": 0,
+      "pageErrors": 0,
+      "providerCalls": 0
+    },
+    "zeroJudgmentSmoke": "passed",
+    "boundarySmoke": {
+      "cases": 13,
+      "classificationFixtures": "seeded offline",
+      "classifierAttempts": 0,
+      "providerCalls": 0,
+      "status": "passed"
+    }
+  },
+  "evaluatorSchemaVersion": 1,
+  "scope": "Historical branded schema 1 live validation. The stance-only schema 2 revision has separate deterministic receipts and made no additional live requests."
+}

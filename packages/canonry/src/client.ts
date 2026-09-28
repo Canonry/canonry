@@ -1,5 +1,21 @@
 import type { ReferralAssessment, ReferralAssessmentQuery } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameTrafficReferralAssessment } from '@ainyc/canonry-api-client'
+
+import type { z } from 'zod'
+import type {
+  SentimentBackfillSelection, sentimentSettingsUpdateSchema, sentimentEvidenceRequestSchema, sentimentSummaryRequestSchema,
+  sentimentCompareRequestSchema, sentimentBackfillRequestSchema, sentimentJobRequestSchema, SentimentSummaryRead, SentimentSettingsRead,
+  SentimentEvidencePageRead, SentimentComparisonRead, SentimentBackfillPreviewRead, SentimentJobRead, SentimentJobsRead,
+} from '@ainyc/canonry-contracts'
+import {
+  sentimentSummaryReadSchema, sentimentSettingsReadSchema, sentimentEvidencePageReadSchema, sentimentComparisonReadSchema,
+  sentimentBackfillPreviewReadSchema, sentimentJobReadSchema, sentimentJobsReadSchema,
+} from '@ainyc/canonry-contracts'
+import {
+  getApiV1ProjectsByNameSentiment, getApiV1ProjectsByNameSentimentSettings, putApiV1ProjectsByNameSentimentSettings,
+  getApiV1ProjectsByNameSentimentEvidence, getApiV1ProjectsByNameSentimentCompare, getApiV1ProjectsByNameSentimentBackfillPreview,
+  postApiV1ProjectsByNameSentimentBackfills, getApiV1ProjectsByNameSentimentJobs, getApiV1ProjectsByNameSentimentJobsByJobId,
+} from '@ainyc/canonry-api-client'
 import type { AgentConversation, AgentConversationList, AgentConversationDelete } from '@ainyc/canonry-contracts'
 import type { RunCompletenessDto, RunFillRequest, RunFillResponseDto } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@ainyc/canonry-api-client'
@@ -886,6 +902,47 @@ type MeasurementQueryTemplateUpsertRequest = Parameters<typeof putApiV1ProjectsB
 type MeasurementQueryTemplateApplyRequest = Parameters<typeof postApiV1ProjectsByNameMeasurementQueryTemplatesByTemplateIdApply>[0]['body']
 
 export class ApiClient {
+  // Sentiment responses are read with the tolerant readers from contracts, so
+  // a field, state or outcome added by a newer server is dropped or read
+  // through instead of rejecting the response (see `sentiment-read.ts`).
+  /** One page of query rows; follow `queryPage.nextCursor` as `queryCursor`. */
+  async getSentiment(name: string, query: Partial<z.infer<typeof sentimentSummaryRequestSchema>> = {}): Promise<SentimentSummaryRead> {
+    return sentimentSummaryReadSchema.parse(await this.invoke<unknown>(() => getApiV1ProjectsByNameSentiment({ client: this.heyClient, path: { name }, query })))
+  }
+
+  async getSentimentSettings(name: string): Promise<SentimentSettingsRead> {
+    return sentimentSettingsReadSchema.parse(await this.invoke<unknown>(() => getApiV1ProjectsByNameSentimentSettings({ client: this.heyClient, path: { name } })))
+  }
+
+  async configureSentiment(name: string, body: z.infer<typeof sentimentSettingsUpdateSchema>): Promise<SentimentSettingsRead> {
+    return sentimentSettingsReadSchema.parse(await this.invoke<unknown>(() => putApiV1ProjectsByNameSentimentSettings({ client: this.heyClient, path: { name }, body })))
+  }
+
+  async getSentimentEvidence(name: string, query: Partial<z.infer<typeof sentimentEvidenceRequestSchema>> = {}): Promise<SentimentEvidencePageRead> {
+    return sentimentEvidencePageReadSchema.parse(await this.invoke<unknown>(() => getApiV1ProjectsByNameSentimentEvidence({ client: this.heyClient, path: { name }, query })))
+  }
+
+  async compareSentiment(name: string, query: z.infer<typeof sentimentCompareRequestSchema>): Promise<SentimentComparisonRead> {
+    return sentimentComparisonReadSchema.parse(await this.invoke<unknown>(() => getApiV1ProjectsByNameSentimentCompare({ client: this.heyClient, path: { name }, query })))
+  }
+
+  async previewSentimentBackfill(name: string, query: SentimentBackfillSelection): Promise<SentimentBackfillPreviewRead> {
+    return sentimentBackfillPreviewReadSchema.parse(await this.invoke<unknown>(() => getApiV1ProjectsByNameSentimentBackfillPreview({ client: this.heyClient, path: { name }, query })))
+  }
+
+  async submitSentimentBackfill(name: string, body: z.infer<typeof sentimentBackfillRequestSchema>): Promise<SentimentJobRead> {
+    return sentimentJobReadSchema.parse(await this.invoke<unknown>(() => postApiV1ProjectsByNameSentimentBackfills({ client: this.heyClient, path: { name }, body })))
+  }
+
+  async listSentimentJobs(name: string): Promise<SentimentJobsRead> {
+    return sentimentJobsReadSchema.parse(await this.invoke<unknown>(() => getApiV1ProjectsByNameSentimentJobs({ client: this.heyClient, path: { name } })))
+  }
+
+  /** One page of attempt receipts, newest first; follow `nextAttemptCursor` as `attemptCursor`. */
+  async getSentimentJob(name: string, jobId: string, query: Partial<z.infer<typeof sentimentJobRequestSchema>> = {}): Promise<SentimentJobRead> {
+    return sentimentJobReadSchema.parse(await this.invoke<unknown>(() => getApiV1ProjectsByNameSentimentJobsByJobId({ client: this.heyClient, path: { name, jobId }, query })))
+  }
+
   private originUrl: string
   private apiKey: string
   private probePromise: Promise<void> | null = null

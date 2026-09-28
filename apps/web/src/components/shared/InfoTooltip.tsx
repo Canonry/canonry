@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
 
 interface TooltipPos {
@@ -12,18 +12,30 @@ interface TooltipPos {
  * accessible name (`aria-label`) — the visual bubble is decorative
  * (`aria-hidden`). Hover, focus, click (touch), and Escape all toggle it.
  */
-export function InfoTooltip({ text }: { text: string }) {
+export function InfoTooltip({ text, placement = 'top' }: { text: string; placement?: 'top' | 'bottom' }) {
   const [pos, setPos] = useState<TooltipPos | null>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const bubbleRef = useRef<HTMLSpanElement>(null)
+  const wasOpenBeforePointer = useRef(false)
 
   const show = useCallback(() => {
     if (!triggerRef.current) return
     const rect = triggerRef.current.getBoundingClientRect()
+    const center = rect.left + rect.width / 2
+    const halfWidth = Math.min(224, window.innerWidth - 16) / 2
     setPos({
-      top: rect.top,
-      left: rect.left + rect.width / 2,
+      top: placement === 'bottom' ? rect.bottom : rect.top,
+      left: placement === 'bottom' ? Math.max(halfWidth + 8, Math.min(center, window.innerWidth - halfWidth - 8)) : center,
     })
-  }, [])
+  }, [placement])
+
+  useLayoutEffect(() => {
+    if (placement !== 'bottom' || !pos || !bubbleRef.current) return
+    const overflow = bubbleRef.current.getBoundingClientRect().bottom - window.innerHeight + 8
+    if (overflow <= 0) return
+    const top = Math.max(0, pos.top - overflow)
+    if (top !== pos.top) setPos({ ...pos, top })
+  }, [placement, pos])
 
   const hide = useCallback(() => setPos(null), [])
 
@@ -42,7 +54,14 @@ export function InfoTooltip({ text }: { text: string }) {
         aria-expanded={pos !== null}
         onFocus={show}
         onBlur={hide}
-        onClick={toggle}
+        onPointerDown={() => { wasOpenBeforePointer.current = pos !== null && triggerRef.current?.ownerDocument.activeElement === triggerRef.current }}
+        onClick={event => {
+          // Pointer focus can open the bubble before click fires. Preserve the
+          // state from before that focus, so the first touch tap stays open.
+          if (event.detail === 0) toggle()
+          else if (wasOpenBeforePointer.current) hide()
+          else show()
+        }}
         onKeyDown={(e) => {
           if (e.key === 'Escape') hide()
         }}
@@ -54,21 +73,22 @@ export function InfoTooltip({ text }: { text: string }) {
       </button>
       {pos !== null && createPortal(
         <span
+          ref={bubbleRef}
           aria-hidden="true"
           style={{
             position: 'fixed',
             top: pos.top,
             left: pos.left,
-            transform: 'translateX(-50%) translateY(calc(-100% - 8px))',
+            transform: placement === 'bottom' ? 'translateX(-50%) translateY(8px)' : 'translateX(-50%) translateY(calc(-100% - 8px))',
             zIndex: 9999,
             pointerEvents: 'none',
-            width: '14rem',
+            width: placement === 'bottom' ? 'min(14rem, calc(100vw - 1rem))' : '14rem',
             padding: '0.5rem 0.75rem',
-            fontSize: '11px',
+            fontSize: placement === 'bottom' ? '13px' : '11px',
             fontWeight: 400,
             textTransform: 'none',
             letterSpacing: 'normal',
-            lineHeight: '1rem',
+            lineHeight: placement === 'bottom' ? '18px' : '1rem',
             color: 'var(--color-neutral-text)',
             backgroundColor: 'var(--color-bg-elevated)',
             border: '1px solid color-mix(in oklab, var(--color-border-strong) 60%, transparent)',

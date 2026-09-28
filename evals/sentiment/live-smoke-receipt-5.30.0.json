@@ -1,0 +1,39 @@
+{
+  "date": "2026-09-28",
+  "data": "synthetic only",
+  "requestedModel": "jev-1.13.0",
+  "returnedModels": [
+    "jev-1.13.0"
+  ],
+  "providerAttempts": 3,
+  "uniqueAssessments": 3,
+  "reportedInputTokens": 4102,
+  "reportedOutputTokens": 704,
+  "additionalCallsOnReads": 0,
+  "observedOutcomes": {
+    "Aurora Service": "favorable",
+    "Bayside Homes": "unfavorable",
+    "Harbor Homes": "favorable"
+  },
+  "transportChecks": [
+    "installed tarball serves non-root /smoke/ path",
+    "default-off reads and REST/CLI permission denials spend nothing",
+    "explicit frozen backfill admits exactly three assessments and replays receipts",
+    "persisted HTTP/CLI summaries and exact evidence agree; shared Advanced answer deduplicates",
+    "HTTP MCP and installed stdio MCP match persisted results and enforce read/scoped credentials",
+    "same-period comparison responses agree across HTTP, CLI and both MCP transports",
+    "frozen query scores agree across every transport and branded/non-brand populations never pool",
+    "repeated reads and disabled receipt replay make zero additional provider calls"
+  ],
+  "independentQualityGate": "unmet",
+  "productionEnabled": false,
+  "liveArtifact": {
+    "packageVersion": "5.30.0",
+    "tarballSha256": "7e4196372df5253a9a39560205bdd045e0cfccfd8d0b0bdb2148b49ea19e775b",
+    "evaluatorSchemaVersion": 2,
+    "evaluationDefinitionIds": [
+      "8f9ce9e8da2647134551932ebc35fc506e3af1bf37aaa3f60413ba59e8c8c1b3"
+    ],
+    "scope": "Final consolidated package (PR #1239), installed outside the source tree; live mode, branded query class."
+  }
+}

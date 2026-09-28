@@ -1430,3 +1430,50 @@ Compact reference for the composite / keyed commands agents read most (shapes ca
 | `cnry ads account <p>` | `AdsAccountDto{ id, name, status, currencyCode, timezone, url, reviewStatus, integrityReviewStatus, integrityDecision }` @ `contracts/ads.ts`. This is live provider state, not a synced snapshot. | → degrades to the `json` document |
 | `cnry ads geo search <p> --query <text>` | `AdsGeoSearchResponse{ count, query, results[] }` @ `contracts/ads.ts`; each location has `{ id, type, canonicalName, countryCode, name, regionCode }`. | ✅ one result / line as `{project, query, …location}` |
 | `cnry ads conversions pixels <p>` / `event-settings <p>` | `{ pixels[] }` / `{ eventSettings[] }` @ `contracts/ads.ts`. Event settings include the conversion event, attribution window, source IDs/details, archive state, and version. | ✅ one pixel/event setting / line as `{project, …row}` |
+
+## Experimental sentiment
+
+```bash
+canonry sentiment settings <project> --format json
+canonry sentiment configure <project> --enabled true --format json
+canonry sentiment <project> --run-id <run> --query-class non-brand --format json
+canonry sentiment <project> --run-id <run> --query-class non-brand --include assessments,locations --query-limit 50 --format json
+canonry sentiment evidence <project> --run-id <run> --query-class non-brand --query-id <query> --evaluation-definition-id <definition> --format json
+canonry sentiment evidence <project> --run-id <run> --query-class non-brand --assessment-id <assessment> --provider <engine> --model <served-model> --format json
+canonry sentiment compare <project> --from-run-id <before> --to-run-id <after> --format json
+canonry sentiment backfill <project> --preview --query-class non-brand --run-id <run> --format json
+canonry sentiment backfill <project> --preview --query-class branded --from <ISO-date-time> --to <ISO-date-time> --format json
+canonry sentiment backfill <project> --preview-token <returned-token> --idempotency-key <key> --format json
+canonry sentiment jobs <project> --format jsonl
+canonry sentiment job <project> <job-id> --attempt-limit 50 --format json
+```
+
+Reads are stored-only. Install and project switches default off; the install key is
+configured locally, never through remote commands. Configure and backfill submission
+require install administrator authority. Enabling processes future complete runs;
+preview/submit is the explicit historical workflow. Preview requires --query-class branded|non-brand; backfill each class with its own preview and submission. A repeated key with the same
+preview returns the same job; changed payloads conflict. Initial settings only
+control enablement; there are no theme presets or custom themes.
+
+Summary, evidence, comparison and preview accept run/revision, mode, query class, query ID,
+scope/scope key, market key, provider/model, location and evaluation definition.
+Advanced `--scope property --scope-key <key> --market-key <key>` preserves exact
+frozen usage edges. Keep every selection field and the returned evaluator ID while
+following `--cursor`. Branded and non-brand are supported with separate denominators;
+select the class explicitly (the default remains branded). Summary includes
+server-computed per-query scores, 25 rows per page by default (`--query-limit`
+1..500; follow `Next query cursor` / `queryPage.nextCursor` with `--query-cursor`).
+Advanced rows are per execution node (`executionNodeKey`; `--execution-node-key`
+narrows any read to one node). `--include assessments,locations` adds per-location
+scores and `queries[].assessments` with exact engine verdicts, requested/served
+models, source IDs, subject, location, state and exclusions; a named `--query-id`
+includes both by default. Unclassified sources have no verdict; absent subjects are
+not unfavorable. Evidence-only `--assessment-id` selects one returned assessment
+within the other filters; retain it with the evaluator and scope when following
+a cursor. `--model` matches the served source model. For a grouped read, summary and
+evidence accept `--run-ids <first> --run-ids <second>` instead of `--run-id`.
+Backfill retains repeated `--run-id` for its historical selection. JSON equals the HTTP DTO;
+evidence JSONL is one complete page document so empty state and cursor survive.
+Jobs JSONL streams one project-stamped job summary (with `attemptCount`) per line; `sentiment job` pages attempt receipts newest first (`--attempt-limit`, `--attempt-cursor`). Favorable rates use judged
+assessments; mixed gets no partial credit, absent subjects are excluded, and
+partial scores cannot establish improvement or decline.

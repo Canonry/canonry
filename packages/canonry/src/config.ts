@@ -4,6 +4,7 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import { parse, stringify } from 'yaml'
 import { agentAllowViewersSchema, agentModelSchema, agentProviderSchema, dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@ainyc/canonry-config'
+import type { SentimentInstallConfigInput } from '@ainyc/canonry-config'
 import { AGENT_PROVIDER_IDS } from '@ainyc/canonry-contracts'
 import type { AgentProviderId, EmbedConfigEntry, ProviderBatchConfig, ProviderPricing, ProviderQuotaPolicy, SchedulableRunKind } from '@ainyc/canonry-contracts'
 import { CliError } from './cli-error.js'
@@ -439,6 +440,12 @@ export interface PlacesConfigEntry {
 }
 
 export interface CanonryConfig {
+  /**
+   * Private opt-in TypeSafe classifier credentials and limits. Reloaded from
+   * config.yaml before dispatch; the in-memory copy is a startup snapshot that
+   * `saveConfigPatch` never writes back.
+   */
+  sentiment?: SentimentInstallConfigInput
   apiUrl: string
   publicUrl?: string
   /** Sub-path prefix when canonry is served behind a reverse proxy (e.g. "/canonry/"). */
@@ -880,7 +887,8 @@ export function saveConfig(config: CanonryConfig): void {
  * specified keys from `patch`, and write back.  Use this for runtime updates
  * (provider settings, connection tokens, etc.) to prevent a server started
  * with a temporary CANONRY_CONFIG_DIR from clobbering production values like
- * `database`, `apiKey`, and `anonymousId`.
+ * `database`, `apiKey`, and `anonymousId`. The `sentiment` block is never
+ * written: it always keeps its on-disk value.
  */
 export function saveConfigPatch(patch: Partial<CanonryConfig>): void {
   const configDir = getConfigDir()
@@ -908,6 +916,13 @@ export function saveConfigPatch(patch: Partial<CanonryConfig>): void {
   if (base.apiKey) merged.apiKey = base.apiKey
   if (base.anonymousId) merged.anonymousId = base.anonymousId
   if (base.dashboardPasswordHash) merged.dashboardPasswordHash = base.dashboardPasswordHash
+
+  // config.yaml is the only source of the sentiment block: the worker rereads
+  // it before every dispatch, and callers pass a startup snapshot. Writing that
+  // snapshot back would undo a live install disable, removal or key rotation,
+  // so keep exactly what is on disk, including its absence.
+  if (base.sentiment === undefined) delete merged.sentiment
+  else merged.sentiment = base.sentiment
 
   // Deep-merge providers: for each provider, preserve keys that exist on disk
   // but are absent or null in the patch (e.g. vertexProject, vertexRegion,

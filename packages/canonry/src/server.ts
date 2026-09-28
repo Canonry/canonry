@@ -4,8 +4,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { and, eq } from "drizzle-orm";
-import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds } from "@ainyc/canonry-config";
+import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds, sentimentInstallReadiness } from "@ainyc/canonry-config";
 import { CliError } from "./cli-error.js";
+import { createTypeSafeClassifier, buildJevSentimentRequest } from "@ainyc/canonry-integration-typesafe";
+import { SentimentWorker } from "./sentiment-worker.js";
+import { loadSentimentInstallConfig } from "./sentiment-config.js";
 
 const _require = createRequire(import.meta.url);
 const { version: PKG_VERSION } = _require("../package.json") as {
@@ -2570,9 +2573,32 @@ export async function createServer(opts: {
     });
   };
 
+  const sentimentWorker = new SentimentWorker(opts.db, {
+    configuration: loadSentimentInstallConfig,
+    classifier: configuration => createTypeSafeClassifier({ apiKey: configuration.apiKey! }),
+    prepare: input => {
+      const built = buildJevSentimentRequest(input);
+      return built.ok ? { ok: true, estimatedInputTokens: built.estimate.inputTokens } : built;
+    },
+  });
+  let sentimentTick: Promise<number> | null = null;
+  const pollSentiment = () => {
+    if (sentimentTick) return;
+    sentimentTick = sentimentWorker.tick().catch(() => { log.error("sentiment.worker-failed", { reason: "Stored sentiment worker could not finish its tick." }); return 0; }).finally(() => { sentimentTick = null; });
+  };
+  let sentimentTimer: ReturnType<typeof setInterval> | undefined;
+  runCoordinator.onSentimentCompleted = async () => { pollSentiment(); };
+  app.addHook("onReady", async () => { sentimentTimer = setInterval(pollSentiment, 5_000); sentimentTimer.unref(); pollSentiment(); });
+  app.addHook("onClose", async () => { clearInterval(sentimentTimer); await sentimentTick; });
+
   const providerModelCatalog = createProviderModelCatalog(registry);
   await app.register(apiRoutes, {
     db: opts.db,
+    sentiment: {
+      install: () => { const configuration = loadSentimentInstallConfig(); return { ...sentimentInstallReadiness(configuration), model: configuration.model }; },
+      previewSecret: opts.config.apiKey,
+      estimate: input => { const built = buildJevSentimentRequest(input); return built.estimate?.inputTokens ?? 0; },
+    },
     routePrefix: apiPrefix,
     // Agent-surface usage (MCP, Aero, raw API). CLI and dashboard requests are
     // measured elsewhere and skipped inside.

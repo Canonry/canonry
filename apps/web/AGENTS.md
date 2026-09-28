@@ -64,8 +64,23 @@ Apply the same classifier to measured and pending queries.
 If no usable brand identity exists, show `Unclassified`, never `Non-brand`.
 Keep the query-class filter separate from the Mentions/Citations control.
 Preserve provider and location grouping within each class.
+The Answer engine selector filters evidence before query grouping, so counts,
+histories, previews, and answer actions use only that engine. Keep it separate
+from text search and preserve a selected engine when location changes leave no
+matching evidence, with All engines available to recover.
+`Find a query` matches query text only, never engines, locations, answers, or
+source URLs. Use underline signal tabs, one answer-preview checkbox, and plain
+query-class/engine metadata in this table. Keep status and change labels readable
+without capsule backgrounds. Native query buttons own keyboard expansion;
+timelines announce the selected mention or citation signal.
+Latest-run signals use two aligned rows, mention then citation, with no wrapping
+separators or duplicate observation summary.
 Advanced Measurement uses its own evidence components and frozen Target assignment classes.
 Do not replace those classes with the Simple project classifier.
+
+Saved answer source lists use `SourceLink` to show the title and full, wrapping
+URL. Only HTTP(S) destinations are clickable. Keep source classification and
+counted disclosures in Advanced and Research views.
 
 ### API calls (Critical)
 

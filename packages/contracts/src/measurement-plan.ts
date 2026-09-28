@@ -524,6 +524,8 @@ const measurementPlanCreatedAtSchema = z.string().datetime()
  */
 export const measurementExecutionIdentitySchema = z.object({
   schemaVersion: z.literal(1),
+  /** Frozen execution-language provenance; absent on legacy runs. Separate from the engine/model checksum. */
+  language: z.string().min(1).optional(),
   /** Sorted, lower-cased provider names. */
   providers: z.array(z.string().min(1)).min(1),
   /** Provider → the model that will actually answer, however it was resolved. */

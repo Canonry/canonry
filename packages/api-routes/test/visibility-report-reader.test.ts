@@ -6,6 +6,17 @@ import {
 
 const AT = '2026-09-04T12:00:00.000Z'
 
+describe('exact engine-row source membership', () => {
+  it('deduplicates shared target edges and never invents an ID for an unanswered slot', () => {
+    const source = run()
+    source.observations = source.observations.filter(observation => observation.slotId !== 'beta-slot')
+    const report = buildVisibilityReport(input({ runs: [source], selection: { queryClass: 'non-brand', scope: 'project', location: { kind: 'all' }, limit: 50 } }))
+    const rows = report.populations[0]!.queries.items
+    expect(rows.find(row => row.location === 'Alpha')!.sourceSnapshotIds).toEqual(['answer-alpha'])
+    expect(rows.find(row => row.location === 'Beta')!.sourceSnapshotIds).toEqual([])
+  })
+})
+
 describe('per-target uncertain identity and positive citation evidence', () => {
   it('keeps a known citation when source capture is partial, without fabricating a negative', () => {
     const selected = run()

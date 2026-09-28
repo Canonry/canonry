@@ -59,6 +59,8 @@ export type AeroEventContext =
  * failure isolation. One subscriber failing must not starve the others.
  */
 export class RunCoordinator {
+  /** Host wakeup only; durable completion receipts remain the delivery authority. */
+  onSentimentCompleted?: (runId: string, projectId: string) => Promise<void>
   constructor(
     private db: DatabaseClient,
     private notifier: Notifier,
@@ -101,6 +103,11 @@ export class RunCoordinator {
         log.error('notifier.failed', { runId, error: describeError(err) })
       }
       return
+    }
+
+    if (kind === RunKinds['answer-visibility'] && runRow?.status === 'completed' && this.onSentimentCompleted) {
+      try { await this.onSentimentCompleted(runId, projectId) }
+      catch { log.error('sentiment.wakeup-failed', { runId, projectId }) }
     }
 
     let insightCount = 0

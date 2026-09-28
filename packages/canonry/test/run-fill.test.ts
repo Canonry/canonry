@@ -30,6 +30,7 @@ import {
   queries,
   querySnapshots,
   runFills,
+  sentimentCompletionReceipts,
   runs,
   usageCounters,
   type DatabaseClient,
@@ -177,6 +178,7 @@ describe('filling a partial run in place', () => {
     // The held-back post-run pipeline runs exactly once, now that the run is whole.
     expect(completed).toHaveBeenCalledTimes(1)
     expect(completed).toHaveBeenCalledWith(runId, projectId, { origin: 'fill' })
+    expect(db.select().from(sentimentCompletionReceipts).where(eq(sentimentCompletionReceipts.runId, runId)).all()).toMatchObject([{ completionKey: admitted.fill.id, fillOrigin: admitted.fill.id }])
     expect(readRunCompleteness(db, after)).toMatchObject({ status: 'completed', expected: 8, executed: 8, missing: 0 })
   })
 
@@ -391,6 +393,7 @@ describe('review follow-ups', () => {
     await runner.executeRunFill(admitted.fill.id)
     expect(runRow(db, runId).status).toBe('completed')
     expect(completed).not.toHaveBeenCalled()
+    expect(db.select().from(sentimentCompletionReceipts).where(eq(sentimentCompletionReceipts.runId, runId)).all()).toHaveLength(1)
   })
 
   it('refuses a fill the provider\'s daily quota could not start, naming the fix', async () => {

@@ -1,8 +1,18 @@
 import type { CitationInsightVm, RunHistoryPoint } from '../../view-models.js'
 
-export function CitationTimeline({ history, maxDots = 12 }: { history: RunHistoryPoint[]; maxDots?: number }) {
+export function CitationTimeline({ history, maxDots = 12, signal = 'citations' }: {
+  history: RunHistoryPoint[]
+  maxDots?: number
+  /** Names the signal already projected into each point's citationState. */
+  signal?: 'mentions' | 'citations'
+}) {
   const dots = history.slice(-maxDots)
-  if (dots.length === 0) return <span className="text-[11px] text-faint">No data</span>
+  if (dots.length === 0) return <span className="text-[13px] text-secondary">No data</span>
+
+  const signalLabel = signal === 'mentions' ? 'Mention' : 'Citation'
+  const stateLabels: Record<string, string> = signal === 'mentions'
+    ? { cited: 'mentioned', 'not-cited': 'not mentioned', lost: 'mention lost', emerging: 'new mention', pending: 'mention pending' }
+    : { cited: 'cited', 'not-cited': 'not cited', lost: 'citation lost', emerging: 'new citation', pending: 'citation pending' }
 
   const colorMap: Record<string, string> = {
     cited: 'bg-positive-400',
@@ -20,16 +30,17 @@ export function CitationTimeline({ history, maxDots = 12 }: { history: RunHistor
   const lastIndex = dots.length - 1
   const firstDate = new Date(dots[0].createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
   const lastDate = new Date(dots[lastIndex].createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  const runCountLabel = `${dots.length} ${dots.length === 1 ? 'run' : 'runs'}`
   const timelineLabel = dots.map((dot, i) => {
     const date = new Date(dot.createdAt).toLocaleDateString()
     const prefix = i === lastIndex ? 'Latest run, ' : ''
-    return `${prefix}${date}: ${dot.citationState}${dot.model ? `, model ${dot.model}` : ''}`
+    return `${prefix}${date}: ${stateLabels[dot.citationState] ?? dot.citationState}${dot.model ? `, model ${dot.model}` : ''}`
   }).join('; ')
 
   return (
-    <div className="flex items-center gap-1" role="img" aria-label={`Citation history across ${dots.length} runs. ${timelineLabel}`}>
-      <span className="text-[9px] text-faint shrink-0" aria-hidden="true">{firstDate}</span>
-      <div className="flex items-center gap-[3px]" title={`${dots.length} runs`} aria-hidden="true">
+    <div className="flex items-center gap-2" role="img" aria-label={`${signalLabel} history across ${runCountLabel}. ${timelineLabel}`}>
+      {dots.length > 1 ? <span className="text-[11px] text-secondary shrink-0" aria-hidden="true">{firstDate}</span> : null}
+      <div className="flex items-center gap-[3px]" title={runCountLabel} aria-hidden="true">
         {dots.map((d, i) => {
           // The ring means "the model changed on this run", NOT "this is the
           // newest run". Without a separate marker for the latest run, a strip
@@ -45,7 +56,7 @@ export function CitationTimeline({ history, maxDots = 12 }: { history: RunHistor
                 modelChanged ? 'ring-1 ring-caution-300/80 ring-offset-1 ring-offset-bg' : ''
               } ${isLatest ? 'outline outline-1 outline-offset-2 outline-mono-400' : ''}`}
               title={[
-                d.citationState,
+                stateLabels[d.citationState] ?? d.citationState,
                 new Date(d.createdAt).toLocaleDateString(),
                 d.model ? `model ${d.model}` : null,
                 modelChanged ? 'model changed' : null,
@@ -55,8 +66,8 @@ export function CitationTimeline({ history, maxDots = 12 }: { history: RunHistor
           )
         })}
       </div>
-      <span className="text-[9px] shrink-0 text-secondary" aria-hidden="true">
-        {lastDate} <span className="text-faint">latest</span>
+      <span className="text-[11px] shrink-0 text-secondary" aria-hidden="true">
+        {lastDate} <span>latest</span>
       </span>
     </div>
   )

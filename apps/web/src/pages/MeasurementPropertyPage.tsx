@@ -25,8 +25,8 @@ import { formatObservedInstantLabel, observedInstant } from '../components/share
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { AnswerMarkdown, ANSWER_SOURCES_LABEL } from '../components/shared/AnswerMarkdown.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
-import { safeExternalUrl } from '../lib/safe-url.js'
 import { splitPercentSign } from '../lib/format-helpers.js'
+import { SourceLink } from '../components/shared/SourceLink.js'
 import { carryVisibilitySearch, parseVisibilitySelection, patchVisibilitySelection } from '../lib/measurement-view-url.js'
 import type { VisibilitySelectionState } from '../lib/measurement-view-url.js'
 import { MARKET_SCOPE_COPY } from '../components/project/VisibilityScopePicker.js'
@@ -164,16 +164,16 @@ function AnswerSources({ row }: { row: AnswerRow }) {
         <caption className="sr-only">Source URLs for {row.queryText}</caption>
         <thead><tr><th>Match</th><th>URL</th></tr></thead>
         <tbody>
-          {sourcesOwnFirst(row.sources).map(source => { const href = safeExternalUrl(source.sourceUrl); return (
+          {sourcesOwnFirst(row.sources).map(source => (
             <tr key={source.sourceUrl}>
               <td>
                 <ToneBadge tone={EVIDENCE_LABELS[source.classification].tone}>
                   {EVIDENCE_LABELS[source.classification].label}
                 </ToneBadge>
               </td>
-              <td className="break-all text-secondary">{href ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-link underline">{source.sourceUrl}</a> : source.sourceUrl}</td>
+              <td><SourceLink url={source.sourceUrl} /></td>
             </tr>
-          ) })}
+          ))}
         </tbody>
       </table>
       </div>

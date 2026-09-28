@@ -281,6 +281,7 @@ export const runs = sqliteTable('runs', {
    */
   measurementExecutionIdentity: text('measurement_execution_identity', { mode: 'json' }).$type<{
     schemaVersion: 1
+    language?: string
     providers: string[]
     models: Record<string, string>
     checksum: string
@@ -429,6 +430,7 @@ export const querySnapshots = sqliteTable('query_snapshots', {
 }, (table) => [
   index('idx_snapshots_run').on(table.runId),
   index('idx_snapshots_query').on(table.queryId),
+  uniqueIndex('idx_snapshots_run_id').on(table.runId, table.id),
   index('idx_snapshots_citation_state').on(table.citationState),
   index('idx_snapshots_provider_model').on(table.provider, table.model),
   index('idx_snapshots_location').on(table.location),
@@ -3300,4 +3302,174 @@ export const gtmRawSnapshots = sqliteTable('gtm_raw_snapshots', {
     columns: [table.projectId, table.connectionId],
     foreignColumns: [gtmConnections.projectId, gtmConnections.id],
   }).onDelete('cascade'),
+])
+
+/** Immutable evaluator request definitions; answer text and served models live on assessments. */
+export const sentimentDefinitions = sqliteTable('sentiment_definitions', {
+  id: text('id').primaryKey(),
+  contentHash: text('content_hash').notNull(),
+  requestedModel: text('requested_model').notNull(),
+  definition: text('definition', { mode: 'json' }).$type<unknown>().notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [uniqueIndex('idx_sentiment_definitions_hash').on(table.contentHash)])
+
+export const sentimentSettings = sqliteTable('sentiment_settings', {
+  installSuspended: integer('install_suspended', { mode: 'boolean' }).notNull().default(false),
+  projectId: text('project_id').primaryKey().references(() => projects.id, { onDelete: 'cascade' }),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
+  enablementEpoch: integer('enablement_epoch').notNull().default(0),
+  completionBoundary: integer('completion_boundary').notNull().default(0),
+  /** Highest receipt sequence whose automatic admissions are settled, so reconciliation never rereads it. */
+  reconciledSequence: integer('reconciled_sequence').notNull().default(0),
+  /** Round-robin position: the project claimed least recently dispatches next within a priority tier. */
+  dispatchTurn: integer('dispatch_turn').notNull().default(0),
+  evaluationDefinitionId: text('evaluation_definition_id').notNull().references(() => sentimentDefinitions.id),
+  configuration: text('configuration', { mode: 'json' }).$type<unknown>().notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
+/**
+ * One install-wide row (id 'install'). A provider rate limit or authorization
+ * refusal pauses every project's dispatch until next_dispatch_at. The credential
+ * fingerprint is a one-way hash that lets a rotated key resume at once; the key
+ * itself is never stored.
+ */
+export const sentimentDispatchState = sqliteTable('sentiment_dispatch_state', {
+  id: text('id').primaryKey(),
+  blockedReason: text('blocked_reason'),
+  blockedAt: text('blocked_at'),
+  nextDispatchAt: text('next_dispatch_at'),
+  rateLimitStreak: integer('rate_limit_streak').notNull().default(0),
+  credentialFingerprint: text('credential_fingerprint'),
+  updatedAt: text('updated_at').notNull(),
+})
+
+/** AUTOINCREMENT preserves the enablement ordering even when source rows are deleted. */
+export const sentimentCompletionReceipts = sqliteTable('sentiment_completion_receipts', {
+  sequence: integer('sequence').primaryKey({ autoIncrement: true }),
+  projectId: text('project_id').notNull(),
+  runId: text('run_id').notNull(),
+  completionKey: text('completion_key').notNull(),
+  completedAt: text('completed_at').notNull(),
+  kind: text('kind').notNull(),
+  trigger: text('trigger').notNull(),
+  fillOrigin: text('fill_origin'),
+}, (table) => [
+  uniqueIndex('idx_sentiment_completion_identity').on(table.projectId, table.runId, table.completionKey),
+  index('idx_sentiment_completion_project_sequence').on(table.projectId, table.sequence),
+  foreignKey({ columns: [table.projectId, table.runId], foreignColumns: [runs.projectId, runs.id] }).onDelete('cascade'),
+])
+
+export const sentimentJobs = sqliteTable('sentiment_jobs', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  action: text('action').notNull(),
+  origin: text('origin').notNull(),
+  enablementEpoch: integer('enablement_epoch').notNull(),
+  evaluationDefinitionId: text('evaluation_definition_id').notNull().references(() => sentimentDefinitions.id),
+  idempotencyKey: text('idempotency_key').notNull(),
+  payloadHash: text('payload_hash').notNull(),
+  selection: text('selection', { mode: 'json' }).$type<unknown>().notNull(),
+  actor: text('actor').notNull(),
+  state: text('state').notNull().default('pending'),
+  cancellationReason: text('cancellation_reason'),
+  /** Membership counts by dispatch bucket, kept incrementally so a transition never rereads the whole job. */
+  pendingItems: integer('pending_items').notNull().default(0),
+  runningItems: integer('running_items').notNull().default(0),
+  completedItems: integer('completed_items').notNull().default(0),
+  failedItems: integer('failed_items').notNull().default(0),
+  canceledItems: integer('canceled_items').notNull().default(0),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_sentiment_jobs_idempotency').on(table.projectId, table.action, table.idempotencyKey),
+  uniqueIndex('idx_sentiment_jobs_project_id').on(table.projectId, table.id),
+  index('idx_sentiment_jobs_project_created').on(table.projectId, table.createdAt),
+])
+
+/** One durable dispatcher identity per answer/subject/evaluator, shared across admissions. */
+export const sentimentWorkItems = sqliteTable('sentiment_work_items', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull(),
+  runId: text('run_id').notNull(),
+  snapshotId: text('snapshot_id').notNull(),
+  sourceTextHash: text('source_text_hash').notNull(),
+  subjectHash: text('subject_hash').notNull(),
+  evaluationDefinitionId: text('evaluation_definition_id').notNull().references(() => sentimentDefinitions.id),
+  enablementEpoch: integer('enablement_epoch').notNull(),
+  input: text('input', { mode: 'json' }).$type<unknown>().notNull(),
+  edges: text('edges', { mode: 'json' }).$type<unknown[]>().notNull(),
+  status: text('status').notNull().default('pending'),
+  leaseOwner: text('lease_owner'),
+  leaseExpiresAt: text('lease_expires_at'),
+  attemptCount: integer('attempt_count').notNull().default(0),
+  /**
+   * Attempts excluded from the retry budget: every attempt before the last explicit
+   * replay, plus each attempt the provider refused for rate limit or authorization.
+   * Lifetime attempt numbers remain monotonic.
+   */
+  attemptBudgetStart: integer('attempt_budget_start').notNull().default(0),
+  /** 0 for automatic admissions, 1 for backfills; automatic work dispatches first. */
+  dispatchPriority: integer('dispatch_priority').notNull().default(0),
+  nextAttemptAt: text('next_attempt_at'),
+  errorCode: text('error_code'),
+  cancellationReason: text('cancellation_reason'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_sentiment_work_identity').on(table.projectId, table.snapshotId, table.sourceTextHash, table.subjectHash, table.evaluationDefinitionId),
+  uniqueIndex('idx_sentiment_work_project_id').on(table.projectId, table.id),
+  index('idx_sentiment_work_dispatch').on(table.status, table.nextAttemptAt, table.leaseExpiresAt),
+  index('idx_sentiment_work_run').on(table.projectId, table.runId),
+  // Serves the cascade from query_snapshots(run_id, id); without it each deleted snapshot scans this table.
+  index('idx_sentiment_work_source').on(table.runId, table.snapshotId),
+  // Only leased rows enter the install concurrency count, so history never widens it.
+  index('idx_sentiment_work_lease').on(table.leaseExpiresAt).where(sql`lease_owner IS NOT NULL`),
+  foreignKey({ columns: [table.projectId, table.runId], foreignColumns: [runs.projectId, runs.id] }).onDelete('cascade'),
+  foreignKey({ columns: [table.runId, table.snapshotId], foreignColumns: [querySnapshots.runId, querySnapshots.id] }).onDelete('cascade'),
+])
+
+/** Cancellation belongs to the job selection, so later explicit backfills cannot rewrite it. */
+export const sentimentJobItems = sqliteTable('sentiment_job_items', {
+  projectId: text('project_id').notNull(),
+  jobId: text('job_id').notNull(),
+  workItemId: text('work_item_id').notNull(),
+  enablementEpoch: integer('enablement_epoch').notNull(),
+  canceledAt: text('canceled_at'),
+  cancellationReason: text('cancellation_reason'),
+}, (table) => [
+  primaryKey({ columns: [table.jobId, table.workItemId] }),
+  index('idx_sentiment_job_items_work').on(table.workItemId),
+  foreignKey({ columns: [table.projectId, table.jobId], foreignColumns: [sentimentJobs.projectId, sentimentJobs.id] }).onDelete('cascade'),
+  foreignKey({ columns: [table.projectId, table.workItemId], foreignColumns: [sentimentWorkItems.projectId, sentimentWorkItems.id] }).onDelete('cascade'),
+])
+
+export const sentimentResults = sqliteTable('sentiment_results', {
+  workItemId: text('work_item_id').primaryKey(),
+  projectId: text('project_id').notNull(),
+  outcome: text('outcome').notNull(),
+  result: text('result', { mode: 'json' }).$type<unknown>().notNull(),
+  returnedModel: text('returned_model'),
+  completedAt: text('completed_at').notNull(),
+}, (table) => [
+  foreignKey({ columns: [table.projectId, table.workItemId], foreignColumns: [sentimentWorkItems.projectId, sentimentWorkItems.id] }).onDelete('cascade'),
+])
+
+export const sentimentAttempts = sqliteTable('sentiment_attempts', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull(),
+  workItemId: text('work_item_id').notNull(),
+  attemptNumber: integer('attempt_number').notNull(),
+  requestedModel: text('requested_model').notNull(),
+  returnedModel: text('returned_model'),
+  dispatchedAt: text('dispatched_at').notNull(),
+  completedAt: text('completed_at'),
+  estimatedInputTokens: integer('estimated_input_tokens').notNull().default(0),
+  usageStatus: text('usage_status').notNull().default('unknown'),
+  usage: text('usage', { mode: 'json' }).$type<{ inputTokens: number; outputTokens: number; costMillicents?: number }>(),
+  safeFailure: text('safe_failure'),
+}, (table) => [
+  uniqueIndex('idx_sentiment_attempt_number').on(table.workItemId, table.attemptNumber),
+  index('idx_sentiment_attempt_dispatch').on(table.dispatchedAt),
+  foreignKey({ columns: [table.projectId, table.workItemId], foreignColumns: [sentimentWorkItems.projectId, sentimentWorkItems.id] }).onDelete('cascade'),
 ])

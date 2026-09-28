@@ -90,3 +90,23 @@ Aero history is exposed through five `canonry_agent_conversations_*` tools in th
 agent toolkit. API/CLI implement the same operations. New requires a UUID for
 retry identity. The native agent excludes new/resume/delete; HTTP enforces
 instance-administrator authority on reads and writes alike.
+
+Experimental sentiment adds nine monitoring tools: settings, configure, summary,
+evidence, compare, backfill preview, backfill submit, jobs and job detail. Schemas
+reuse contracts, and outputs use the tolerant readers in `contracts/src/sentiment-read.ts`
+(the `canonry_logs_list` precedent), so a newer engine's field, state or outcome never
+fails output validation; only configure and backfill submit are writes. Both require install
+administrator authority at the API, including delegated credentials. Reads preserve
+nulls, frozen query/subject/market/evaluator context, server-owned per-query scores
+and refusal reasons. `queryClass` selects exactly one branded or non-brand
+population, and backfill preview requires it rather than defaulting to branded;
+`queryId` retains its frozen identity. Summary and evidence accept
+`runIds` for exact grouped location runs instead of `runId`; preserve this full
+selection when following evidence cursors. Summary query rows are compact and paged
+(`queryLimit`, `queryCursor`); per-engine assessments and locations are opt-in through
+`include` or a named `queryId`, so an ordinary project's summary fits the MCP output
+limit. The jobs tool lists summaries with `attemptCount`, and the job tool pages
+attempts. Evidence-only `assessmentId` narrows the stored verdict without
+widening project, class, source or subject scope. Configure accepts only enabled
+state, and no active tool accepts theme settings. Credentials are never accepted. Native Aero defers all nine tools until its
+separate sentiment evaluation and release gate.
