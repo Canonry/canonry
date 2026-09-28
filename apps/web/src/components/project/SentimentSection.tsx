@@ -44,8 +44,8 @@ export function SentimentReport({ summary, settings, onOpenEvidence, onConfigure
   </section>
 }
 
-export function SentimentEvidenceDrawer({ item, onClose }: { item: SentimentEvidenceItem | null; onClose: () => void }) {
-  return <Sheet open={item !== null} onOpenChange={open => { if (!open) onClose() }}><SheetContent><SheetHeader><SheetTitle>Sentiment evidence: {item?.subject.displayName}</SheetTitle><SheetDescription>Stored answer and verbatim quotations for this branded assessment.</SheetDescription></SheetHeader>{item && <div className="mt-5 space-y-5 overflow-y-auto text-sm text-secondary">
+export function SentimentEvidenceDrawer({ item, onClose, onRestoreFocus }: { item: SentimentEvidenceItem | null; onClose: () => void; onRestoreFocus?: () => void }) {
+  return <Sheet open={item !== null} onOpenChange={open => { if (!open) onClose() }}><SheetContent onCloseAutoFocus={event => { if (onRestoreFocus) { event.preventDefault(); onRestoreFocus() } }}><SheetHeader><SheetTitle>Sentiment evidence: {item?.subject.displayName}</SheetTitle><SheetDescription>Stored answer and verbatim quotations for this branded assessment.</SheetDescription></SheetHeader>{item && <div className="mt-5 space-y-5 overflow-y-auto text-sm text-secondary">
     <div className="flex flex-wrap gap-2"><ToneBadge tone="neutral">{outcomeLabel(item.outcome)}</ToneBadge><span>{item.context.provider}</span><span>{item.context.servedModel ?? 'Source model unavailable'}</span><span>{item.context.location ?? 'No location'}</span></div>
     <p className="text-primary">{item.context.queryText}</p>
     {item.reason && <p>{item.reason}</p>}
@@ -86,7 +86,7 @@ function SentimentScope({ projectName, selection, runOptions }: { projectName: s
     <SentimentReport summary={summary.data} settings={readonlySettings} onOpenEvidence={() => setEvidenceOpen(value => !value)} onConfigure={() => setManageOpen(value => !value)} />
     {settings.isError && <p role="alert" className="text-sm text-secondary">Sentiment controls are unavailable. Refresh to check permissions.</p>}
     {evidenceOpen && <SentimentEvidenceExplorer key={JSON.stringify(evidenceSelection)} projectName={projectName} selection={evidenceSelection} />}
-    {manageOpen && readonlySettings?.actions.configure && <SentimentSettingsEditor key={readonlySettings.evaluationDefinitionId} projectName={projectName} settings={readonlySettings} selection={evidenceSelection} runOptions={sweepOptions} />}
+    {manageOpen && readonlySettings?.actions.configure && <SentimentSettingsEditor key={JSON.stringify([readonlySettings.evaluationDefinitionId, readonlySettings.enabled, readonlySettings.enablementEpoch])} projectName={projectName} settings={readonlySettings} selection={evidenceSelection} runOptions={sweepOptions} />}
     <details className="my-4"><summary className="cursor-pointer text-sm text-secondary">Sentiment jobs and comparison</summary><div className="mt-4">{jobs.data ? <SentimentJobs jobs={jobs.data.jobs} /> : <p role={jobs.isError ? 'alert' : 'status'} className="text-sm text-secondary">{jobs.isError ? 'Could not load sentiment jobs.' : 'Loading sentiment jobs…'}</p>}<SentimentCompare projectName={projectName} selection={evidenceSelection} runOptions={sweepOptions} /></div></details>
   </>
 }
@@ -94,12 +94,13 @@ function SentimentScope({ projectName, selection, runOptions }: { projectName: s
 function SentimentEvidenceExplorer({ projectName, selection }: { projectName: string; selection: SentimentSelection }) {
   const [cursor, setCursor] = useState<string | undefined>()
   const [item, setItem] = useState<SentimentEvidenceItem | null>(null)
+  const evidenceOpener = useRef<HTMLButtonElement | null>(null)
   const query = useQuery({ queryKey: sentimentQueryKey(projectName, 'evidence', selection, cursor), queryFn: () => fetchSentimentEvidence(projectName, selection, cursor), retry: false })
   return <section aria-label="Branded sentiment evidence" className="my-4">
     <h3>Branded sentiment evidence</h3>
-    {query.isPending ? <p role="status" className="mt-2 text-sm text-secondary">Loading evidence…</p> : query.isError ? <div role="alert" className="mt-2 text-sm text-secondary">Could not load evidence. <Button variant="outline" onClick={() => { void query.refetch() }}>Retry evidence</Button></div> : query.data.items.length === 0 ? <p className="mt-2 text-sm text-secondary">No stored evidence for this selection.</p> : <div className="data-table-wrapper mt-3"><table className="data-table"><thead><tr><th>Subject</th><th>Query</th><th>Engine</th><th>Outcome</th><th>Evidence</th></tr></thead><tbody>{query.data.items.map(row => <tr key={row.assessmentId}><th scope="row">{row.subject.displayName}</th><td>{row.context.queryText}</td><td>{row.context.provider}</td><td>{outcomeLabel(row.outcome)}</td><td><Button variant="outline" onClick={() => setItem(row)} aria-label={`Open sentiment evidence for ${row.subject.displayName}`}>Open evidence</Button></td></tr>)}</tbody></table></div>}
+    {query.isPending ? <p role="status" className="mt-2 text-sm text-secondary">Loading evidence…</p> : query.isError ? <div role="alert" className="mt-2 text-sm text-secondary">Could not load evidence. <Button variant="outline" onClick={() => { void query.refetch() }}>Retry evidence</Button></div> : query.data.items.length === 0 ? <p className="mt-2 text-sm text-secondary">No stored evidence for this selection.</p> : <div className="data-table-wrapper mt-3"><table className="data-table"><thead><tr><th>Subject</th><th>Query</th><th>Engine</th><th>Outcome</th><th>Evidence</th></tr></thead><tbody>{query.data.items.map(row => <tr key={row.assessmentId}><th scope="row">{row.subject.displayName}</th><td>{row.context.queryText}</td><td>{row.context.provider}</td><td>{outcomeLabel(row.outcome)}</td><td><Button variant="outline" onClick={event => { evidenceOpener.current = event.currentTarget; setItem(row) }} aria-label={`Open sentiment evidence for ${row.subject.displayName}`}>Open evidence</Button></td></tr>)}</tbody></table></div>}
     <div className="mt-3 flex gap-2">{cursor && <Button variant="outline" onClick={() => setCursor(undefined)}>First evidence page</Button>}{query.data?.nextCursor && <Button variant="outline" disabled={query.isFetching} onClick={() => setCursor(query.data.nextCursor ?? undefined)}>Next evidence page</Button>}</div>
-    <SentimentEvidenceDrawer item={item} onClose={() => setItem(null)} />
+    <SentimentEvidenceDrawer item={item} onClose={() => setItem(null)} onRestoreFocus={() => evidenceOpener.current?.focus()} />
   </section>
 }
 
