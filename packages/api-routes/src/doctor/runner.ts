@@ -1,7 +1,9 @@
 import {
+  CheckNotificationPolicies,
   CheckScopes,
   CheckStatuses,
   summarizeCheckResults,
+  reportMonthsForDoctor,
   type CheckResultDto,
   type DoctorReportDto,
   describeError,
@@ -47,7 +49,9 @@ export async function runChecks(
     } catch (err) {
       const message = describeError(err)
       output = {
-        status: CheckStatuses.fail,
+        // An advisory that cannot run is still only an advisory: it must not
+        // fail the doctor (and its exit code) the way a broken health check does.
+        status: definition.notificationPolicy === CheckNotificationPolicies.silent ? CheckStatuses.warn : CheckStatuses.fail,
         code: `${definition.id}.runtime-error`,
         summary: `Check threw an unexpected error: ${message}`,
         remediation: null,
@@ -60,6 +64,7 @@ export async function runChecks(
       scope: definition.scope,
       title: definition.title,
       status: output.status,
+      ...(definition.notificationPolicy ? { notificationPolicy: definition.notificationPolicy } : {}),
       code: output.code,
       summary: output.summary,
       remediation: output.remediation ?? null,
@@ -71,6 +76,7 @@ export async function runChecks(
   return {
     scope: targetScope,
     project: projectName,
+    ...(ctx.project ? { reportMonths: reportMonthsForDoctor(ctx.reportMonth, startedAt) } : {}),
     generatedAt: startedAt.toISOString(),
     durationMs: Date.now() - startedAt.getTime(),
     summary: summarizeCheckResults(results),

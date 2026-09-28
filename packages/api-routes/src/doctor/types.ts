@@ -59,6 +59,8 @@ export interface AgentPinStatus {
 }
 
 export interface DoctorContext {
+  /** Explicit calendar report month; omitted retains the previous month through UTC day 3. */
+  reportMonth?: string
   db: DatabaseClient
   /** When the check is project-scoped, this resolves to the project row. */
   project: ProjectInfo | null
@@ -174,6 +176,7 @@ export type CheckOutput = Pick<CheckResultDto, 'status' | 'code' | 'summary'> & 
 }
 
 export interface CheckDefinition {
+  notificationPolicy?: import('@ainyc/canonry-contracts').CheckNotificationPolicy
   id: string
   category: CheckCategory
   scope: CheckScope

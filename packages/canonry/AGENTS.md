@@ -97,6 +97,10 @@ File-level rules for the MCP pieces in this package:
 - `src/mcp/operations-guide.ts` — compact intent routing filtered against the connection's loaded tools; generated source is `docs/agent-operations/v1.md`. No provider calls or permission grants.
 - `src/commands/mcp.ts` — MCP client install helpers: `mcp install`, `mcp config` (writes to client config files only — separate from the `canonry-mcp` stdio bin). `src/mcp-clients.ts` is the registry of supported MCP clients (Claude Desktop, Cursor, Codex) — config-path resolvers and format hints used by `mcp install`/`mcp config`.
 
+### Referral assessment
+
+`traffic referral-assessment` reads `/projects/:name/traffic/referral-assessment` through the SDK. UTC date bounds and source select stored evidence; thresholds and detail limit tune only this read. JSON and MCP preserve the full response. Raw traffic/report headlines stay unchanged. Server rows have no Property, Target or market attribution, so Simple and Advanced projects share the explicitly project/source-only diagnostic.
+
 ### Command output
 
 All commands that produce output must support `--format json` for machine-parseable output. Use the format flag to switch between human-friendly tables and JSON.
@@ -381,6 +385,7 @@ Registered via `src/cli-commands/measurement-plan.ts`.
 
 - `visibility-stats <project>` — aggregated per-query mention/citation rates with sample size (`--since`/`--until`/`--month <YYYY-MM>`/`--last-runs`/`--by-provider`/`--share-of-voice`); `--share-of-voice` adds pooled project-vs-competitor share of voice to the envelope; collection command → jsonl streams one record per query.
 - Also `visibility-compare <project> --from <YYYY-MM> --to <YYYY-MM>` (`showVisibilityCompare`) — month-over-month AEO comparison rendered as the statistician-panel table (share-of-voice-led with `*` drift-robust marker, each cell `point [ci-lo, ci-hi]`, within-noise/moved verdict, basket + low-sweep caveat + model-change note); object command, `--format json` (jsonl degrades to json).
+- Monthly class rates have distinct branded/non-brand metric keys. `--scope`, `--scope-key`, `--market-key`, `--provider`, and `--location` map to the same REST/MCP selection. Print the Advanced `classComparison` cohort separately from the preserved legacy project basket, and print the selection whenever one is set; JSON retains the complete API response. A bad selector is a usage error (exit 1).
 - Delegates to `ApiClient.getVisibilityStats` / `getVisibilityCompare`. Registered via `src/cli-commands/visibility-stats.ts`.
 
 `src/commands/report.ts`: `runReportCommand` — `canonry report <project>` — fetches `/report` JSON, renders self-contained HTML to disk via `renderReportHtml` from `@ainyc/canonry-api-routes`.
@@ -681,3 +686,13 @@ Native `agent ask` supports `--context <json>`, `--max-tool-calls`, and
 turn; it does not widen tool scope. Preserve terminal `aero_turn_status` in JSON
 output and fail unexpected SSE EOF. See `src/agent/AGENTS.md` and
 `docs/aero-evaluation.md` for runtime boundaries and captured-turn evaluation.
+
+### Report-readiness doctor selection
+
+`doctor --report-month YYYY-MM` forwards `reportMonth` unchanged through the typed
+client and MCP. It also works with `--all`. Project JSON carries `reportMonths`;
+JSONL records keep their check's `details.months`. Report advisories have
+`notificationPolicy: silent` and cannot change operational health signatures or
+produce degraded/recovered notifications; the scheduled health pass does not run
+them at all (`scheduledHealthCheckIds`), and a crashed advisory reports `warn`,
+so it never sets a failing exit code. See `api-routes/src/doctor/AGENTS.md`.

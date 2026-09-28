@@ -3256,6 +3256,10 @@ export type DoctorReportDto = {
      */
     project: string | null;
     /**
+     * Calendar months evaluated by project report readiness checks.
+     */
+    reportMonths?: Array<string>;
+    /**
      * ISO-8601 timestamp when this doctor run started.
      */
     generatedAt: string;
@@ -3273,6 +3277,10 @@ export type DoctorReportDto = {
         scope: 'global' | 'project';
         title: string;
         status: 'ok' | 'warn' | 'fail' | 'skipped';
+        /**
+         * Health checks page by default. Silent report advisories remain visible but never affect health alert state.
+         */
+        notificationPolicy?: 'health' | 'silent';
         /**
          * Stable machine-readable code (e.g. "google.token.refresh-failed"). Use this for filtering and remediation logic.
          */
@@ -10309,6 +10317,96 @@ export type QueryDto = {
     createdAt: string;
 };
 
+export type ReferralAssessment = {
+    scope: {
+        project: string;
+        sourceId: string | null;
+        attribution: 'project-source-only';
+        unavailableDimensions: Array<'property' | 'target' | 'market'>;
+    };
+    window: {
+        startDate: string;
+        endDate: string;
+        timeZone: 'UTC';
+    };
+    rule: {
+        version: 'hourly-normalized-path-v1';
+        burstThreshold: number;
+        ratioThreshold: number;
+        calibration: 'uncalibrated-default' | 'request-override';
+        grouping: Array<string>;
+        confirmsAutomation: false;
+    };
+    totals: {
+        raw: {
+            total: number;
+            paid: number;
+            organic: number;
+            unknown: number;
+        };
+        redirects: {
+            total: number;
+            paid: number;
+            organic: number;
+            unknown: number;
+        };
+        subresources: {
+            total: number;
+            paid: number;
+            organic: number;
+            unknown: number;
+        };
+        countable: {
+            total: number;
+            paid: number;
+            organic: number;
+            unknown: number;
+        };
+        suspected: {
+            total: number;
+            paid: number;
+            organic: number;
+            unknown: number;
+        };
+        adjustedEstimate: {
+            total: number;
+            paid: number;
+            organic: number;
+            unknown: number;
+        };
+    };
+    bursts: Array<{
+        sourceId: string;
+        product: string;
+        landingPathNormalized: string;
+        tsHour: string;
+        counts: {
+            total: number;
+            paid: number;
+            organic: number;
+            unknown: number;
+        };
+    }>;
+    evidence: {
+        total: number;
+        returned: number;
+        truncated: boolean;
+    };
+    comparison: {
+        status: 'unavailable';
+        serverCountable: number;
+        serverObservation: 'missing' | 'observed-zero' | 'observed-positive';
+        gaSessions: number | null;
+        gaObservation: 'missing' | 'observed-zero' | 'observed-positive';
+        observedRatio: number | null;
+        observedRatioAboveThreshold: boolean | null;
+        ratio: null;
+        reasons: Array<string>;
+        gaScope: 'project';
+    };
+    caveats: Array<string>;
+};
+
 export type ResultsExportDto = {
     schemaVersion: 'canonry.results-export/v1';
     generatedAt: string;
@@ -12120,6 +12218,51 @@ export type LoginRequest = {
 
 export type VisibilityCompareDto = {
     project: string;
+    selection?: {
+        scope?: 'project' | 'group' | 'market' | 'property';
+        scopeKey?: string;
+        marketKey?: string;
+        provider?: string;
+        location?: string;
+    };
+    classComparison?: {
+        from: {
+            month: string;
+            since: string;
+            until: string;
+            runCount: number;
+            lowRunCount: boolean;
+        };
+        to: {
+            month: string;
+            since: string;
+            until: string;
+            runCount: number;
+            lowRunCount: boolean;
+        };
+        basket: {
+            queryCount: number;
+            excludedFromOnly: number;
+            excludedToOnly: number;
+            providers: Array<string>;
+            excludedProviders: Array<string>;
+        };
+        continuity: {
+            status: 'comparable' | 'model-discontinuous' | 'model-unknown' | 'insufficient-data';
+            comparedProviders: Array<string>;
+            providers: Array<{
+                provider: string;
+                status: 'included' | 'model-discontinuous' | 'model-unknown';
+                fromModels: Array<string>;
+                toModels: Array<string>;
+            }>;
+        };
+        modelChanges: Array<{
+            provider: string;
+            fromModels: Array<string>;
+            toModels: Array<string>;
+        }>;
+    };
     from: {
         month: string;
         since: string;
@@ -12142,25 +12285,27 @@ export type VisibilityCompareDto = {
         excludedProviders: Array<string>;
     };
     metrics: Array<{
-        key: 'mention-share-of-voice' | 'cited-share-of-voice' | 'mention-rate' | 'cited-rate';
+        key: 'mention-share-of-voice' | 'cited-share-of-voice' | 'mention-rate' | 'cited-rate' | 'mention-rate-branded' | 'cited-rate-branded' | 'mention-rate-non-brand' | 'cited-rate-non-brand';
         label: string;
-        queryClass: 'all' | 'non-brand' | 'pooled';
+        queryClass: 'all' | 'branded' | 'non-brand' | 'pooled';
         driftRobust: boolean;
         from: {
-            availability: 'available' | 'no-observations' | 'no-competitive-frame';
+            availability: 'available' | 'no-observations' | 'no-competitive-frame' | 'classification-unavailable';
             point: number | null;
             ciLow: number | null;
             ciHigh: number | null;
             numerator: number;
             denominator: number;
+            excludedUnknown?: number;
         };
         to: {
-            availability: 'available' | 'no-observations' | 'no-competitive-frame';
+            availability: 'available' | 'no-observations' | 'no-competitive-frame' | 'classification-unavailable';
             point: number | null;
             ciLow: number | null;
             ciHigh: number | null;
             numerator: number;
             denominator: number;
+            excludedUnknown?: number;
         };
         rateRatio: number | null;
         direction: 'up' | 'down' | 'flat' | null;
@@ -17586,6 +17731,26 @@ export type GetApiV1ProjectsByNameVisibilityCompareData = {
          * Later calendar month (YYYY-MM) — the reporting period compared against "from".
          */
         to: string;
+        /**
+         * Advanced frozen population scope; default project.
+         */
+        scope?: 'project' | 'group' | 'market' | 'property';
+        /**
+         * Stable Property Target, group, or market key; required for non-project scope.
+         */
+        scopeKey?: string;
+        /**
+         * Intersect project/group/property selection with exact frozen market edges.
+         */
+        marketKey?: string;
+        /**
+         * Restrict both frames to one provider (case-insensitive).
+         */
+        provider?: string;
+        /**
+         * Execution location label (case-insensitive), or none for no location.
+         */
+        location?: string;
     };
     url: '/api/v1/projects/{name}/visibility-compare';
 };
@@ -25341,12 +25506,25 @@ export type GetApiV1DoctorData = {
     path?: never;
     query?: {
         /**
+         * Report month YYYY-MM (not future). Omit for this month plus the previous month through UTC day 3. Read selection only; no writes or provider calls by report checks.
+         */
+        reportMonth?: string;
+        /**
          * Optional comma-separated list of check IDs or wildcard prefixes (e.g. "config.*").
          */
         check?: string;
     };
     url: '/api/v1/doctor';
 };
+
+export type GetApiV1DoctorErrors = {
+    /**
+     * Invalid report month.
+     */
+    400: ErrorEnvelope;
+};
+
+export type GetApiV1DoctorError = GetApiV1DoctorErrors[keyof GetApiV1DoctorErrors];
 
 export type GetApiV1DoctorResponses = {
     /**
@@ -25367,6 +25545,10 @@ export type GetApiV1ProjectsByNameDoctorData = {
     };
     query?: {
         /**
+         * Report month YYYY-MM (not future). Omit for this month plus the previous month through UTC day 3. Read selection only; no writes or provider calls by report checks.
+         */
+        reportMonth?: string;
+        /**
          * Optional comma-separated list of check IDs or wildcard prefixes (e.g. "google.auth.*").
          */
         check?: string;
@@ -25375,6 +25557,10 @@ export type GetApiV1ProjectsByNameDoctorData = {
 };
 
 export type GetApiV1ProjectsByNameDoctorErrors = {
+    /**
+     * Invalid report month.
+     */
+    400: ErrorEnvelope;
     /**
      * Project not found.
      */
@@ -26277,6 +26463,65 @@ export type GetApiV1ProjectsByNameTrafficSourcesByIdResponses = {
 };
 
 export type GetApiV1ProjectsByNameTrafficSourcesByIdResponse = GetApiV1ProjectsByNameTrafficSourcesByIdResponses[keyof GetApiV1ProjectsByNameTrafficSourcesByIdResponses];
+
+export type GetApiV1ProjectsByNameTrafficReferralAssessmentData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query: {
+        /**
+         * Inclusive UTC calendar date, YYYY-MM-DD.
+         */
+        startDate: string;
+        /**
+         * Inclusive UTC calendar date; window must be 1 to 366 days.
+         */
+        endDate: string;
+        /**
+         * Project-owned traffic source ID.
+         */
+        sourceId?: string;
+        /**
+         * Minimum countable stored hits in one grouped hour, default 100 (uncalibrated review trigger).
+         */
+        burstThreshold?: number;
+        /**
+         * Descriptive observed-quotient threshold, default 3; never asserts comparable coverage.
+         */
+        ratioThreshold?: number;
+        /**
+         * Maximum candidate group details (one source, product, normalized path and UTC hour each), default 100; full totals are never truncated.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/traffic/referral-assessment';
+};
+
+export type GetApiV1ProjectsByNameTrafficReferralAssessmentErrors = {
+    /**
+     * Invalid or unsupported selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or source not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameTrafficReferralAssessmentError = GetApiV1ProjectsByNameTrafficReferralAssessmentErrors[keyof GetApiV1ProjectsByNameTrafficReferralAssessmentErrors];
+
+export type GetApiV1ProjectsByNameTrafficReferralAssessmentResponses = {
+    /**
+     * Referral assessment with raw totals, candidate evidence, adjusted estimate and coverage limits.
+     */
+    200: ReferralAssessment;
+};
+
+export type GetApiV1ProjectsByNameTrafficReferralAssessmentResponse = GetApiV1ProjectsByNameTrafficReferralAssessmentResponses[keyof GetApiV1ProjectsByNameTrafficReferralAssessmentResponses];
 
 export type GetApiV1ProjectsByNameTrafficEventsData = {
     body?: never;

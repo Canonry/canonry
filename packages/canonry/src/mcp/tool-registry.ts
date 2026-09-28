@@ -1,3 +1,4 @@
+import { visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema } from '@ainyc/canonry-contracts'
 import { agentConversationCreateSchema } from '@ainyc/canonry-contracts'
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import {
@@ -784,6 +785,7 @@ const agentWebhookAttachInputSchema = z.object({
 })
 
 const doctorInputSchema = z.object({
+  reportMonth: reportMonthSchema.optional().describe('Report month (YYYY-MM). Defaults to this month, also retaining the prior month through UTC day 3.'),
   project: projectNameSchema.optional().describe('Project name to scope project-level checks. Omit to run global checks (provider keys, config, etc.).'),
   checks: z.array(z.string().min(1)).optional().describe('Optional check IDs or wildcard prefixes (e.g. "google.auth.*", "config.providers"). Empty/omitted runs all matching checks for the chosen scope.'),
 })
@@ -1341,7 +1343,7 @@ export const canonryMcpTools = [
     inputSchema: doctorInputSchema,
     annotations: readAnnotations(true),
     openApiOperations: ['GET /api/v1/doctor', 'GET /api/v1/projects/{name}/doctor'],
-    handler: (client, input) => client.runDoctor({ project: input.project, checkIds: input.checks }),
+    handler: (client, input) => client.runDoctor({ project: input.project, checkIds: input.checks, ...(input.reportMonth ? { reportMonth: input.reportMonth } : {}) }),
   }),
   defineTool({
     name: 'canonry_project_export',
@@ -1578,17 +1580,18 @@ export const canonryMcpTools = [
     name: 'canonry_visibility_compare',
     title: 'Compare AEO visibility month over month',
     description:
-      'Statistically honest month-over-month AEO comparison in ONE call — use this instead of hand-computing deltas from two visibility-stats calls. Share of voice (`mention-share-of-voice`, `driftRobust: true`) is less exposed to broad model-wide naming propensity than absolute rates, but it never overrides model continuity. The response restricts to common query/provider pairs, then includes only providers with exactly one known, identical configured model id in both months. `continuity` surfaces every provider, its model evidence, and whether it was excluded for a changed, mixed mid-month, or unknown model. When no provider remains, metrics return `model-discontinuous` or `model-unknown`, never a directional call. A silent upstream version bump under an unchanged configured id remains undetectable. `from` must be a month strictly before `to`.',
+      'Statistically honest month-over-month AEO comparison in ONE call — use this instead of hand-computing deltas from two visibility-stats calls. Share of voice (`mention-share-of-voice`, `driftRobust: true`) is less exposed to broad model-wide naming propensity than absolute rates, but it never overrides model continuity. Branded and non-brand mention/cited rates are separate additive metrics; classification-unavailable never falls back to pooling. provider and location narrow every frame; scope, scopeKey and marketKey answer from the frozen Advanced frame alone (refused when a month holds unreconstructable schema-v1 runs) and deduplicate shared executions. Without scope/marketKey, Advanced class metrics use classComparison for their basket and continuity while the four original metrics keep the project frame. On frozen frames, answers with incomplete source capture leave every citation figure (excludedUnknown). The response restricts to common query/provider pairs, then includes only providers with exactly one known, identical configured model id in both months. `continuity` surfaces every provider, its model evidence, and whether it was excluded for a changed, mixed mid-month, or unknown model. When no provider remains, metrics return `model-discontinuous` or `model-unknown`, never a directional call. A silent upstream version bump under an unchanged configured id remains undetectable. `from` must be a month strictly before `to`.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: z.object({
       project: projectNameSchema,
+      ...visibilityCompareSelectionSchema.shape,
       from: z.string().describe('Earlier calendar month (YYYY-MM), the baseline. Must be strictly before "to".'),
       to: z.string().describe('Later calendar month (YYYY-MM), compared against "from".'),
     }),
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/visibility-compare'],
-    handler: (client, input) => client.getVisibilityCompare(input.project, input.from, input.to),
+    handler: (client, input) => client.getVisibilityCompare(input.project, input.from, input.to, { scope: input.scope, scopeKey: input.scopeKey, marketKey: input.marketKey, provider: input.provider, location: input.location }),
   }),
   defineTool({
     name: 'canonry_content_targets',
@@ -2258,6 +2261,20 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/traffic/status'],
     handler: (client, input) => client.trafficStatus(input.project),
+  }),
+  defineTool({
+    name: 'canonry_traffic_referral_assessment',
+    title: 'Assess AI referral bursts',
+    description: 'Read stored AI-referral burst evidence and a separate adjusted estimate without changing raw totals or report headlines. Candidate bursts are not confirmed automation. Project/source scope only, for Simple or Advanced portfolios; Property, Target and market attribution are unavailable. GA quotient is descriptive with unknown matching coverage. No provider calls.',
+    access: 'read',
+    tier: 'traffic',
+    inputSchema: referralAssessmentQuerySchema.extend({ project: projectNameSchema }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/traffic/referral-assessment'],
+    handler: (client, input) => {
+      const { project, ...query } = input
+      return client.trafficReferralAssessment(project, query)
+    },
   }),
   defineTool({
     name: 'canonry_traffic_events',

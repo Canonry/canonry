@@ -15,12 +15,11 @@ import {
   type VisibilityCompareMetricKey,
   type VisibilityCompareMetricPeriod,
   type VisibilityCompareContinuityStatus,
-  type VisibilityCompareProviderContinuityStatus,
   type VisibilityCompareProviderRow,
   type VisibilityStatsShareCompetitor,
 } from '@ainyc/canonry-contracts'
 import { buildQueryAttribution, resolveCurrentQuery } from './visibility-stats.js'
-import { classifyModelEvidence } from './model-evidence.js'
+import { classifyModelEvidence, compareModelContinuity } from './model-evidence.js'
 
 /** Runs below this many sweeps in a month make every interval too wide to resolve a move. */
 export const VISIBILITY_COMPARE_MIN_RUNS = 5
@@ -35,6 +34,16 @@ export interface VisibilityCompareSnapshotInput {
   answerMentioned: boolean | null
   answerText: string | null
   citedDomains: string[]
+  /** Frozen Advanced scope identity; absent for the legacy simple basket. */
+  cohortKey?: string
+  queryClass?: QueryClass | null
+  /** Advanced source capture can be incomplete independently of mentions. */
+  citationChecked?: boolean
+  /** False when no selected Target is mention-eligible: the row has no mention signal, known or unknown. */
+  mentionApplicable?: boolean
+  competitorDomains?: string[]
+  competitorMentions?: string[]
+  competitorCitations?: string[]
 }
 
 export interface VisibilityCompareCompetitorInput {
@@ -48,6 +57,8 @@ export interface VisibilityComparePeriodInput {
   until: string
   runCount: number
   snapshots: VisibilityCompareSnapshotInput[]
+  /** Advanced class populations reuse an answer once per class, with scoped Target attribution. */
+  classSnapshots?: VisibilityCompareSnapshotInput[]
 }
 
 export interface ComputeVisibilityCompareInput {
@@ -64,6 +75,7 @@ export interface ComputeVisibilityCompareInput {
    * Empty means no split was possible and the figure stays pooled.
    */
   brandNames?: readonly string[]
+  frozenClassification?: boolean
 }
 
 interface Attributed extends VisibilityCompareSnapshotInput {
@@ -73,10 +85,11 @@ interface Attributed extends VisibilityCompareSnapshotInput {
 interface BasketPair {
   queryId: string
   provider: string
+  cohortKey?: string
 }
 
-function basketPairKey(queryId: string, provider: string): string {
-  return JSON.stringify([queryId, provider])
+function basketPairKey(queryId: string, provider: string, cohortKey?: string): string {
+  return JSON.stringify([queryId, provider, cohortKey ?? null])
 }
 
 /** Attribute snapshots to currently-tracked queries (drop the rest), restricted to the common query/provider-pair basket. */
@@ -89,7 +102,7 @@ function restrict(
   for (const snap of snapshots) {
     const resolved = resolveCurrentQuery(attribution, snap)
     if (!resolved) continue
-    if (!pairs.has(basketPairKey(resolved.id, snap.provider))) continue
+    if (!pairs.has(basketPairKey(resolved.id, snap.provider, snap.cohortKey))) continue
     out.push({ ...snap, queryId: resolved.id })
   }
   return out
@@ -121,8 +134,8 @@ function observedPairs(
   for (const snap of snapshots) {
     const resolved = resolveCurrentQuery(attribution, snap)
     if (!resolved || !queryIds.has(resolved.id)) continue
-    const pair = { queryId: resolved.id, provider: snap.provider }
-    pairs.set(basketPairKey(pair.queryId, pair.provider), pair)
+    const pair = { queryId: resolved.id, provider: snap.provider, cohortKey: snap.cohortKey }
+    pairs.set(basketPairKey(pair.queryId, pair.provider, pair.cohortKey), pair)
   }
   return pairs
 }
@@ -192,13 +205,17 @@ function metric(
 interface PeriodCounts {
   checked: number // answerMentioned is a boolean (the mention denominator)
   mentioned: number // answerMentioned === true
-  total: number // every snapshot (the citation denominator)
+  total: number // snapshots whose source capture is complete (the citation denominator)
   cited: number // citationState === 'cited'
+  /** Snapshots with incomplete source capture, excluded from every citation figure. */
+  citationUnknown: number
+  /** The frame records capture completeness (Advanced); legacy rows are always complete. */
+  citationEvidence: boolean
   projectCited: number // = cited (project's own citation)
   competitorCited: number // sum over competitors of snapshots citing that competitor
   queriesMentioned: number // distinct basket queries mentioned by >= 1 provider
   perProvider: Map<string, { checked: number; mentioned: number; cited: number }>
-  mentionShare: ReturnType<typeof buildMentionShare>
+  mentionShare: { breakdown: { projectMentionSnapshots: number; competitorMentionSnapshots: number; perCompetitor: Array<{ domain: string; mentionSnapshots: number }> } }
   competitors: VisibilityStatsShareCompetitor[]
 }
 
@@ -222,7 +239,9 @@ function countPeriod(
 ): PeriodCounts {
   let checked = 0
   let mentioned = 0
+  let total = 0
   let cited = 0
+  let citationUnknown = 0
   let competitorCited = 0
   const perProvider = new Map<string, { checked: number; mentioned: number; cited: number }>()
   const mentionedQueries = new Set<string>()
@@ -240,7 +259,12 @@ function countPeriod(
       mentioned += 1
       mentionedQueries.add(snap.queryId)
     }
-    const isCited = snap.citationState === CitationStates.cited
+    // An incomplete source list proves neither a citation nor its absence, for
+    // the project or a competitor, so the row leaves every citation figure.
+    const citationKnown = snap.citationChecked !== false
+    if (citationKnown) total += 1
+    else citationUnknown += 1
+    const isCited = citationKnown && snap.citationState === CitationStates.cited
     if (isCited) cited += 1
 
     const pp = perProvider.get(snap.provider) ?? { checked: 0, mentioned: 0, cited: 0 }
@@ -249,9 +273,11 @@ function countPeriod(
     if (isCited) pp.cited += 1
     perProvider.set(snap.provider, pp)
 
+    if (!citationKnown) continue
     // Competitor citation, per-snapshot per-competitor (mirrors buildMentionShare's
     // competitor counting: a snapshot citing two competitors adds two).
-    if (competitorHosts.length > 0 && snap.citedDomains.length > 0) {
+    if (snap.competitorCitations !== undefined) competitorCited += snap.competitorCitations.length
+    else if (competitorHosts.length > 0 && snap.citedDomains.length > 0) {
       const citedHosts = snap.citedDomains
         .map((d) => hostOf(d))
         .filter((h): h is string => h !== null && h.length > 0)
@@ -261,7 +287,7 @@ function countPeriod(
     }
   }
 
-  const mentionShare = buildMentionShare(
+  let mentionShare: PeriodCounts['mentionShare'] = buildMentionShare(
     snaps.map((s) => ({
       // Share uses current identity; named-rate counts above deliberately keep
       // their historical persisted-boolean semantics.
@@ -274,11 +300,31 @@ function countPeriod(
     { competitors, classificationAvailable },
   )
 
+  if (snaps.some(snapshot => snapshot.competitorMentions !== undefined)) {
+    // Same scope as buildMentionShare: non-brand when classified, pooled (and
+    // labelled pooled) only when nothing could be classified.
+    const selected = snaps.filter(snapshot => (!classificationAvailable || queryClassOf(snapshot) === 'non-brand') && snapshot.answerMentioned !== null)
+    // Same rows as buildMentionShare: named competitors only, most-named first.
+    const perCompetitor = competitors.map(competitor => ({
+      domain: competitor.domain,
+      mentionSnapshots: selected.filter(snapshot => snapshot.competitorMentions?.includes(competitor.domain)).length,
+    }))
+      .filter(row => row.mentionSnapshots > 0)
+      .sort((a, b) => b.mentionSnapshots - a.mentionSnapshots || (a.domain < b.domain ? -1 : 1))
+    mentionShare = { ...mentionShare, breakdown: { ...mentionShare.breakdown,
+      projectMentionSnapshots: selected.filter(snapshot => snapshot.answerMentioned === true).length,
+      competitorMentionSnapshots: perCompetitor.reduce((total, competitor) => total + competitor.mentionSnapshots, 0),
+      perCompetitor,
+    } }
+  }
+
   return {
     checked,
     mentioned,
-    total: snaps.length,
+    total,
     cited,
+    citationUnknown,
+    citationEvidence: snaps.some(snapshot => snapshot.citationChecked !== undefined),
     projectCited: cited,
     competitorCited,
     queriesMentioned: mentionedQueries.size,
@@ -292,11 +338,6 @@ function modelIds(evidence: ReturnType<typeof classifyModelEvidence>): string[] 
   if (evidence.status === 'known') return [evidence.model]
   if (evidence.status === 'mixed') return evidence.models
   return []
-}
-
-/** Unknown or partially legacy evidence cannot support a continuity verdict. */
-function isUnknownModelEvidence(evidence: ReturnType<typeof classifyModelEvidence>): boolean {
-  return evidence.status === 'unknown' || (evidence.status === 'mixed' && evidence.includesUnknown)
 }
 
 /**
@@ -313,10 +354,10 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
   // snapshots would let a rename move a query between classes mid-comparison,
   // which is exactly the kind of basket churn this function exists to exclude.
   const classifier = compileQueryClassifier(input.brandNames ?? [])
-  const classificationAvailable = classifier !== null
+  const classificationAvailable = input.frozenClassification === true || classifier !== null
   const queryTextById = new Map(input.queries.map((q) => [q.id, q.query]))
   const queryClassOf = (snap: Attributed): QueryClass | null =>
-    classifier ? classifier.classify(queryTextById.get(snap.queryId) ?? snap.queryText) : null
+    input.frozenClassification ? snap.queryClass ?? null : classifier ? classifier.classify(queryTextById.get(snap.queryId) ?? snap.queryText) : null
   // Compiled once for every answer and matched against the answer's prose;
   // same identity rule as `determineAnswerMentioned(text, brandNames, [])`.
   const projectMatcher = compileBrandAliases(input.brandNames ?? [])
@@ -340,17 +381,10 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
   const continuityProviders = [...candidateProviders]
     .sort((a, b) => a.localeCompare(b))
     .map((provider) => {
-      const fromEvidence = classifyModelEvidence(fromCandidateModels.get(provider) ?? [])
-      const toEvidence = classifyModelEvidence(toCandidateModels.get(provider) ?? [])
-      const fromModels = modelIds(fromEvidence)
-      const toModels = modelIds(toEvidence)
-      const status: VisibilityCompareProviderContinuityStatus =
-        isUnknownModelEvidence(fromEvidence) || isUnknownModelEvidence(toEvidence)
-          ? 'model-unknown'
-          : fromEvidence.status === 'known' && toEvidence.status === 'known' && fromEvidence.model === toEvidence.model
-            ? 'included'
-            : 'model-discontinuous'
-      return { provider, status, fromModels, toModels }
+      return { provider, ...compareModelContinuity(
+        fromCandidateModels.get(provider) ?? [],
+        toCandidateModels.get(provider) ?? [],
+      ) }
     })
   const providersBoth = new Set(
     continuityProviders.filter((provider) => provider.status === 'included').map((provider) => provider.provider),
@@ -379,12 +413,24 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
   const fromCounts = countPeriod(fromSnaps, input.competitors, queryClassOf, classificationAvailable, projectMatcher)
   const toCounts = countPeriod(toSnaps, input.competitors, queryClassOf, classificationAvailable, projectMatcher)
 
+  const fromClassSnaps = input.from.classSnapshots === undefined ? fromSnaps : restrict(input.from.classSnapshots, attribution, comparedPairs)
+  const toClassSnaps = input.to.classSnapshots === undefined ? toSnaps : restrict(input.to.classSnapshots, attribution, comparedPairs)
+  // Frozen share of voice reads each row's stored Target mention, never answer text.
+  const noProjectMatcher = compileBrandAliases([])
+  const fromShareCounts = input.frozenClassification ? countPeriod(fromClassSnaps, input.competitors, queryClassOf, true, noProjectMatcher) : fromCounts
+  const toShareCounts = input.frozenClassification ? countPeriod(toClassSnaps, input.competitors, queryClassOf, true, noProjectMatcher) : toCounts
+
   const shareCounts = (c: PeriodCounts): { proj: number; comp: number } => ({
     proj: c.mentionShare.breakdown.projectMentionSnapshots,
     comp: c.mentionShare.breakdown.competitorMentionSnapshots,
   })
-  const fromShare = shareCounts(fromCounts)
-  const toShare = shareCounts(toCounts)
+  const fromShare = shareCounts(fromShareCounts)
+  const toShare = shareCounts(toShareCounts)
+
+  // Frames that record capture completeness say how many rows each citation
+  // figure had to leave out; legacy frames are complete by construction.
+  const citationPeriod = (c: PeriodCounts, value: VisibilityCompareMetricPeriod): VisibilityCompareMetricPeriod =>
+    c.citationEvidence ? { ...value, excludedUnknown: c.citationUnknown } : value
 
   const metrics: VisibilityCompareMetric[] = [
     metric(
@@ -410,12 +456,12 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
       'Cited share of voice',
       'all',
       true,
-      input.competitors.length > 0
+      citationPeriod(fromCounts, input.competitors.length > 0
         ? period(fromCounts.projectCited, fromCounts.projectCited + fromCounts.competitorCited)
-        : unavailableCompetitivePeriod(fromCounts.projectCited),
-      input.competitors.length > 0
+        : unavailableCompetitivePeriod(fromCounts.projectCited)),
+      citationPeriod(toCounts, input.competitors.length > 0
         ? period(toCounts.projectCited, toCounts.projectCited + toCounts.competitorCited)
-        : unavailableCompetitivePeriod(toCounts.projectCited),
+        : unavailableCompetitivePeriod(toCounts.projectCited)),
       continuityBlock,
     ),
     metric(
@@ -432,11 +478,39 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
       'Cited rate',
       'all',
       false,
-      period(fromCounts.cited, fromCounts.total),
-      period(toCounts.cited, toCounts.total),
+      citationPeriod(fromCounts, period(fromCounts.cited, fromCounts.total)),
+      citationPeriod(toCounts, period(toCounts.cited, toCounts.total)),
       continuityBlock,
     ),
   ]
+
+  const classPeriod = (snapshots: Attributed[], queryClass: QueryClass, signal: 'mention' | 'cited'): VisibilityCompareMetricPeriod => {
+    if (!classificationAvailable) return { ...period(0, 0), availability: 'classification-unavailable' }
+    // A row whose Targets are all mention-ineligible has no mention signal at
+    // all; it is not an unknown one.
+    const selected = snapshots.filter(snapshot => queryClassOf(snapshot) === queryClass
+      && (signal === 'cited' || snapshot.mentionApplicable !== false))
+    const checked = selected.filter(snapshot => signal === 'mention'
+      ? typeof snapshot.answerMentioned === 'boolean'
+      : snapshot.citationChecked !== false)
+    const numerator = checked.filter(snapshot => signal === 'mention'
+      ? snapshot.answerMentioned === true
+      : snapshot.citationState === CitationStates.cited).length
+    return { ...period(numerator, checked.length), excludedUnknown: selected.length - checked.length }
+  }
+  for (const queryClass of ['branded', 'non-brand'] as const) {
+    for (const signal of ['mention', 'cited'] as const) {
+      metrics.push(metric(
+        `${signal}-rate-${queryClass}`,
+        signal === 'mention' ? 'Mention rate' : 'Cited rate',
+        queryClass,
+        false,
+        classPeriod(fromClassSnaps, queryClass, signal),
+        classPeriod(toClassSnaps, queryClass, signal),
+        continuityBlock,
+      ))
+    }
+  }
 
   // Model changes are reported over the pre-continuity pair basket so a
   // discontinuous provider remains visible even though it is excluded from the
@@ -498,6 +572,6 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
       comparedProviders: [...providersBoth].sort((a, b) => a.localeCompare(b)),
       providers: continuityProviders,
     },
-    competitors: { from: fromCounts.competitors, to: toCounts.competitors },
+    competitors: { from: fromShareCounts.competitors, to: toShareCounts.competitors },
   }
 }

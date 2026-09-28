@@ -20,6 +20,36 @@ land. Server logs catch the upstream bot activity AND referrals at the
 edge — including arrivals GA4 missed because of cookie consent, ad
 blockers, or analytics gaps.
 
+## Reviewing suspicious referral bursts
+
+Run `canonry traffic referral-assessment <project> --start-date YYYY-MM-DD
+--end-date YYYY-MM-DD --format json`, or call MCP
+`canonry_traffic_referral_assessment`. This reads stored evidence only.
+
+The response preserves raw counts, separates redirects and subresources, and
+flags candidate groups: one source, product, normalized path and UTC hour each.
+A separate adjusted estimate subtracts those candidates from countable hits.
+Legitimate peaks can qualify and small automated bursts can escape the rule.
+`--burst-threshold` changes the default 100-hit review trigger; the default has
+not been calibrated against live traffic distributions.
+
+Server counts use short actor windows within ingestion batches, so they are
+not GA sessions or verified people. Normalized paths can combine pages;
+multiple sources can overlap. No Property, Target or market attribution is
+available. These limits apply equally to Simple and Advanced portfolios.
+
+The observed server/GA quotient, rounded to 2 decimals, uses
+dimension-deduplicated GA sessions, but complete matching coverage and the GA
+reporting timezone remain unknown. GA reads observed zero only when the window
+lies inside the latest GA sync window and that sync stored no AI row for it;
+otherwise absent GA rows are missing, never zero.
+The silent `report.ai-referral-bursts` doctor advisory warns
+(`report.ai-referral-bursts.bursts`) only when threshold-qualified bursts exist
+to review; otherwise it passes (`no-bursts`) with these coverage limits in its
+details. It skips a project whose traffic sources are all archived.
+A high quotient does not confirm automation, and this diagnostic does not
+replace GA or change any existing report headline.
+
 ## Architecture
 
 Four tables store the shared output from every adapter:

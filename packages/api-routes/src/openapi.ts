@@ -2519,9 +2519,16 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/visibility-compare',
     summary: 'Compare AEO visibility month over month',
     description:
-      'Statistically honest month-over-month AEO comparison in one call. PRIMARY metric is share of voice (brand vs competitor mentions in the same answers), which is less exposed to broad model-wide naming propensity than an absolute rate but never bypasses model continuity. Rates are pooled per-snapshot over each month (invariant to sweep count), restricted to query/provider pairs present in BOTH months, and then restricted again to providers with exactly one known, identical configured model id in both months. `continuity` reports every provider and its model evidence; changed, mixed mid-month, or legacy-unknown models are excluded. When no provider remains, metrics return a continuity-blocked verdict rather than a directional call. `from` must be a month strictly before `to`. A silent upstream version bump under an unchanged configured id remains undetectable.',
+      'Statistically honest month-over-month AEO comparison in one call. PRIMARY metric is share of voice (brand vs competitor mentions in the same answers), which is less exposed to broad model-wide naming propensity than an absolute rate but never bypasses model continuity. Rates are pooled per-snapshot over each month (invariant to sweep count), restricted to query/provider pairs present in BOTH months, and then restricted again to providers with exactly one known, identical configured model id in both months. `continuity` reports every provider and its model evidence; changed, mixed mid-month, or legacy-unknown models are excluded. When no provider remains, metrics return a continuity-blocked verdict rather than a directional call. `from` must be a month strictly before `to`. Adds separate branded/non-brand mention and cited rates with classification-unavailable rather than pooled fallback. Advanced class metrics read frozen Property/market/execution assignments and reuse each answer once per class. Without a scope or marketKey the four original metrics keep the project frame (provider/location narrow it the same way for Simple and Advanced) and Advanced class metrics carry their own `classComparison` cohort. A scope or marketKey answers entirely from the frozen frame and is refused when either month holds runs whose plan cannot be reconstructed (schema v1). On frozen frames, answers with incomplete source capture leave every citation figure and are counted in `excludedUnknown`. A silent upstream version bump under an unchanged configured id remains undetectable.',
     tags: ['analytics'],
-    parameters: [nameParameter, compareFromQueryParameter, compareToQueryParameter],
+    parameters: [
+      nameParameter, compareFromQueryParameter, compareToQueryParameter,
+      { name: 'scope', in: 'query', description: 'Advanced frozen population scope; default project.', schema: { type: 'string', enum: ['project', 'group', 'market', 'property'] } },
+      { name: 'scopeKey', in: 'query', description: 'Stable Property Target, group, or market key; required for non-project scope.', schema: stringSchema },
+      { name: 'marketKey', in: 'query', description: 'Intersect project/group/property selection with exact frozen market edges.', schema: stringSchema },
+      { name: 'provider', in: 'query', description: 'Restrict both frames to one provider (case-insensitive).', schema: stringSchema },
+      { name: 'location', in: 'query', description: 'Execution location label (case-insensitive), or none for no location.', schema: stringSchema },
+    ],
     responses: {
       200: jsonResponse('Month-over-month visibility comparison returned.', 'VisibilityCompareDto'),
       400: errorResponse('Invalid or missing from/to months.'),
@@ -6193,6 +6200,12 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['doctor'],
     parameters: [
       {
+        name: 'reportMonth',
+        in: 'query',
+        description: 'Report month YYYY-MM (not future). Omit for this month plus the previous month through UTC day 3. Read selection only; no writes or provider calls by report checks.',
+        schema: { type: 'string', pattern: '^[1-9][0-9]{3}-(0[1-9]|1[0-2])$' },
+      },
+      {
         name: 'check',
         in: 'query',
         description: 'Optional comma-separated list of check IDs or wildcard prefixes (e.g. "config.*").',
@@ -6201,6 +6214,7 @@ const routeCatalog: OpenApiOperation[] = [
     ],
     responses: {
       200: jsonResponse('Doctor report returned.', 'DoctorReportDto'),
+      400: errorResponse('Invalid report month.'),
     },
   },
   {
@@ -6213,6 +6227,12 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [
       nameParameter,
       {
+        name: 'reportMonth',
+        in: 'query',
+        description: 'Report month YYYY-MM (not future). Omit for this month plus the previous month through UTC day 3. Read selection only; no writes or provider calls by report checks.',
+        schema: { type: 'string', pattern: '^[1-9][0-9]{3}-(0[1-9]|1[0-2])$' },
+      },
+      {
         name: 'check',
         in: 'query',
         description: 'Optional comma-separated list of check IDs or wildcard prefixes (e.g. "google.auth.*").',
@@ -6221,6 +6241,7 @@ const routeCatalog: OpenApiOperation[] = [
     ],
     responses: {
       200: jsonResponse('Doctor report returned.', 'DoctorReportDto'),
+      400: errorResponse('Invalid report month.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -6725,6 +6746,27 @@ const routeCatalog: OpenApiOperation[] = [
     ],
     responses: {
       200: jsonResponse('Source detail returned.', 'TrafficSourceDetailDto'),
+      404: errorResponse('Project or source not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/traffic/referral-assessment',
+    summary: 'Assess stored AI-referral bursts without changing headline counts',
+    description: 'DB-only project/source assessment for Simple and Advanced portfolios. No Property, Target or market attribution exists in these traffic rows. Groups countable stored hits by source, product, normalized path and UTC hour. Threshold-qualified hits remain suspected, never confirmed automation. The adjusted estimate is separate from raw totals. The observed GA quotient is descriptive and rounded to 2 decimals; complete matching coverage and GA timezone are unavailable. GA reads observed-zero only when the window lies inside the latest GA sync window and that sync stored no AI referral row for it; otherwise absent GA rows are missing. Window/source are selection identity; thresholds and evidence limit are read-time tuning with no saved result or reuse.',
+    tags: ['traffic'],
+    parameters: [
+      nameParameter,
+      { name: 'startDate', in: 'query', required: true, description: 'Inclusive UTC calendar date, YYYY-MM-DD.', schema: stringSchema },
+      { name: 'endDate', in: 'query', required: true, description: 'Inclusive UTC calendar date; window must be 1 to 366 days.', schema: stringSchema },
+      { name: 'sourceId', in: 'query', description: 'Project-owned traffic source ID.', schema: stringSchema },
+      { name: 'burstThreshold', in: 'query', description: 'Minimum countable stored hits in one grouped hour, default 100 (uncalibrated review trigger).', schema: { type: 'integer', minimum: 1, maximum: 1000000 } },
+      { name: 'ratioThreshold', in: 'query', description: 'Descriptive observed-quotient threshold, default 3; never asserts comparable coverage.', schema: { type: 'number', minimum: 1, maximum: 1000 } },
+      { name: 'limit', in: 'query', description: 'Maximum candidate group details (one source, product, normalized path and UTC hour each), default 100; full totals are never truncated.', schema: { type: 'integer', minimum: 1, maximum: 500 } },
+    ],
+    responses: {
+      200: jsonResponse('Referral assessment with raw totals, candidate evidence, adjusted estimate and coverage limits.', 'ReferralAssessment'),
+      400: errorResponse('Invalid or unsupported selection.'),
       404: errorResponse('Project or source not found.'),
     },
   },
