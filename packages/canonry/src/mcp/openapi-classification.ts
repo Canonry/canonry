@@ -1,6 +1,17 @@
 export type OpenApiMcpClassification = 'included' | 'deferred' | 'excluded-protocol'
 
 export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
+  // The sentiment API lands before its CLI/MCP tools in the next stack layer.
+  // Keep these operations explicit until the adapter exposes their workflows.
+  'GET /api/v1/projects/{name}/sentiment/settings': 'deferred',
+  'PUT /api/v1/projects/{name}/sentiment/settings': 'deferred',
+  'GET /api/v1/projects/{name}/sentiment': 'deferred',
+  'GET /api/v1/projects/{name}/sentiment/evidence': 'deferred',
+  'GET /api/v1/projects/{name}/sentiment/compare': 'deferred',
+  'GET /api/v1/projects/{name}/sentiment/backfill-preview': 'deferred',
+  'POST /api/v1/projects/{name}/sentiment/backfills': 'deferred',
+  'GET /api/v1/projects/{name}/sentiment/jobs': 'deferred',
+  'GET /api/v1/projects/{name}/sentiment/jobs/{jobId}': 'deferred',
   'GET /api/v1/projects/{name}/traffic/referral-assessment': 'included',
   'GET /api/v1/operations/logs': 'included',
   'GET /api/v1/openapi.json': 'excluded-protocol',
