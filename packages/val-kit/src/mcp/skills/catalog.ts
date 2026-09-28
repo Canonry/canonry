@@ -18,6 +18,7 @@ import { part as canonrySkillPart0 } from './canonry-skill.0.js'
 import { part as canonryReferencesAeoAnalysisPart0 } from './canonry-references-aeo-analysis.0.js'
 import { part as canonryReferencesCanonryCliPart0 } from './canonry-references-canonry-cli.0.js'
 import { part as canonryReferencesCanonryCliPart1 } from './canonry-references-canonry-cli.1.js'
+import { part as canonryReferencesCanonryCliPart2 } from './canonry-references-canonry-cli.2.js'
 import { part as canonryReferencesGoogleBusinessProfilePart0 } from './canonry-references-google-business-profile.0.js'
 import { part as canonryReferencesGoogleMarketingPart0 } from './canonry-references-google-marketing.0.js'
 import { part as canonryReferencesIndexingPart0 } from './canonry-references-indexing.0.js'
@@ -82,7 +83,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Portfolio analysis",
     description: "Interpret Simple and Advanced portfolios, compare Properties and markets, trace answer evidence, and qualify missing or incompatible measurements.",
     entryPoint: false,
-    characters: 7284,
+    characters: 7349,
     content: aeroReferencesPortfolioAnalysisPart0,
   },
   {
@@ -102,7 +103,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Reporting Templates",
     description: "Weekly and monthly report templates with metric tables, regression/gain sections, and recommended-actions structure. Read when asked to produce a client-facing summary.",
     entryPoint: false,
-    characters: 10742,
+    characters: 11469,
     content: aeroReferencesReportingPart0,
   },
   {
@@ -162,8 +163,8 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry CLI Reference",
     description: "canonry skill reference: references/canonry-cli.md",
     entryPoint: false,
-    characters: 112315,
-    content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1].join(''),
+    characters: 113316,
+    content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1, canonryReferencesCanonryCliPart2].join(''),
   },
   {
     uri: "canonry-skill://canonry/references/google-business-profile.md",

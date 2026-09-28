@@ -17,7 +17,7 @@ import {
   parseTrackedQueryResponse as claudeParseTrackedQueryResponse,
   normalizeResult as claudeNormalizeResult,
   generateText as claudeGenerateText,
-  CLAUDE_RETRIEVAL_CONTRACT,
+  claudeRetrievalContractForModel,
 } from './normalize.js'
 import type { ClaudeConfig, ClaudeRawResult, ClaudeTrackedQueryInput } from './types.js'
 
@@ -121,7 +121,8 @@ export const claudeAdapter: ProviderAdapter = {
       // across this boundary. A reconstruction that predates the field falls
       // back to `unknown` rather than asserting an absence.
       retrievalStatus: raw.retrievalStatus ?? 'unknown',
-      retrievalContract: raw.retrievalContract ?? CLAUDE_RETRIEVAL_CONTRACT,
+      // The contract is decided by the model the request was built for.
+      retrievalContract: raw.retrievalContract ?? claudeRetrievalContractForModel(raw.model),
     }
     const normalized = claudeNormalizeResult(claudeRaw)
     return {

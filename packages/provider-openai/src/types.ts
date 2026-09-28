@@ -1,6 +1,13 @@
-import type { ProviderQuotaPolicy, ProviderUsage, GroundingSource, LocationContext } from '@ainyc/canonry-contracts'
+import type {
+  ProviderQuotaPolicy,
+  ProviderUsage,
+  GroundingSource,
+  LocationContext,
+  RetrievalContract,
+  RetrievalStatus,
+} from '@ainyc/canonry-contracts'
 
-export type { GroundingSource }
+export type { GroundingSource, RetrievalContract, RetrievalStatus }
 
 export interface OpenAIConfig {
   apiKey: string
@@ -36,6 +43,10 @@ export interface OpenAIRawResult {
   servedModel?: string
   groundingSources: GroundingSource[]
   searchQueries: string[]
+  /** See {@link RetrievalStatus}. */
+  retrievalStatus: RetrievalStatus
+  /** See {@link RetrievalContract}. */
+  retrievalContract: RetrievalContract
   /** Billable usage from the response's `usage` object; undefined when it had none. */
   usage?: ProviderUsage
   /** `incomplete_details.reason`, else `status`; undefined when the response had neither. */
@@ -48,4 +59,6 @@ export interface OpenAINormalizedResult {
   citedDomains: string[]
   groundingSources: GroundingSource[]
   searchQueries: string[]
+  /** See {@link RetrievalStatus}. */
+  retrievalStatus: RetrievalStatus
 }

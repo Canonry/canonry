@@ -107,6 +107,23 @@ test('a location reaches the wire through the built body', async () => {
   }])
 })
 
+test('a model that rejects forced tool_choice is built, sent and parsed under native-auto-v1', async () => {
+  // The batch line is the built body, so it must carry the same per-model
+  // tool_choice the sync path sends, and parse must record the same contract.
+  const model = 'claude-opus-5-5'
+  const sent = stubMessagesApi(SEARCHED_MESSAGE)
+  const viaSync = await claudeAdapter.executeTrackedQuery(QUERY, { ...CONFIG, model })
+
+  const built = claudeAdapter.buildTrackedQueryRequest!(QUERY, { ...CONFIG, model })
+  expect(sent[0]!.body).toEqual(built.body)
+  expect(built.body.tool_choice).toEqual({ type: 'auto' })
+  expect(built.body.tools).toEqual([{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }])
+
+  const viaParse = claudeAdapter.parseTrackedQueryResponse!(structuredClone(SEARCHED_MESSAGE), model)
+  expect(viaSync).toEqual(viaParse)
+  expect(viaParse.retrievalContract).toBe('native-auto-v1')
+})
+
 test('the built body carries the resolved model, not an invalid configured one', () => {
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
   try {

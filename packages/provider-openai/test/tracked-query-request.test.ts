@@ -111,8 +111,10 @@ test('the sync result is exactly parseTrackedQueryResponse of the response it st
   const viaParse = openaiAdapter.parseTrackedQueryResponse!(structuredClone(RESPONSE), 'gpt-5.4')
   expect(viaParse).toEqual({ ...viaSync, rawResponse: RESPONSE })
   expect(viaParse.servedModel).toBe('gpt-5.4-2026-03-05')
-  expect(viaParse.retrievalStatus).toBe('unknown')
-  expect(viaParse.retrievalContract).toBe('native-auto-v1')
+  // search-required-v1 (#1206): retrieval is read from the response's
+  // web_search_call items, so both halves report the searches it made.
+  expect(viaParse.retrievalStatus).toBe('used')
+  expect(viaParse.retrievalContract).toBe('search-required-v1')
 })
 
 test('parse extracts usage and stop reason exactly', () => {
