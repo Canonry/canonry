@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-libra
 import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 import type { VisibilityReportResponse } from '@ainyc/canonry-contracts'
-import { queryTrackingWorkspaceResponseSchema, visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
+import { aggregateSentiment, queryTrackingWorkspaceResponseSchema, sentimentPresetThemes, sentimentSettingsSchema, sentimentSummarySchema, visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
 
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
@@ -1484,6 +1484,15 @@ test('cached setup and queries remain usable when their background refresh fails
 })
 
 test('cached competitor history remains visible when its background refresh fails', async () => {
+  const disabledSentiment = sentimentSummarySchema.parse({
+    ...aggregateSentiment([], [], { disabled: true }), reason: null, evaluationDefinition: null, breakdowns: [],
+    selection: { mode: 'simple', scope: 'project', queryClass: 'branded', runId: null, revision: null, evaluationDefinitionId: null },
+  })
+  const disabledSentimentSettings = sentimentSettingsSchema.parse({
+    installEnabled: false, enabled: false, ready: false, readinessReasons: ['Sentiment is disabled in install configuration.'],
+    model: 'jev-1.13.0', enablementEpoch: 0, completionBoundary: 0, preset: 'default', themes: sentimentPresetThemes('default'),
+    evaluationDefinitionId: null, actions: { configure: false, backfill: false }, experimental: true, disclosure: 'Sentiment quality has not completed independent evaluation.',
+  })
   const realFetch = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const raw = input instanceof Request ? input.url : String(input)
@@ -1495,6 +1504,9 @@ test('cached competitor history remains visible when its background refresh fail
     if (path.endsWith('/measurement-plan')) return jsonResponse({ active: null })
     if (path.endsWith('/measurement-setup')) return jsonResponse(simpleMeasurementSetupResponse())
     if (url.pathname.endsWith('/visibility-report')) return jsonResponse(visibilityReportResponse({ mode: 'simple' }))
+    if (url.pathname.endsWith('/sentiment')) return jsonResponse(disabledSentiment)
+    if (url.pathname.endsWith('/sentiment/settings')) return jsonResponse(disabledSentimentSettings)
+    if (url.pathname.endsWith('/sentiment/jobs')) return jsonResponse({ jobs: [] })
     if (url.pathname.endsWith('/analytics/competitors')) {
       return jsonResponse({ code: 'INTERNAL_ERROR', message: 'temporary failure' }, 500)
     }
@@ -1538,6 +1550,7 @@ test('cached competitor history remains visible when its background refresh fail
   )?.status).toBe('error'))
   expect(page.getByRole('rowheader', { name: 'Cached pin' })).toBeTruthy()
   expect(page.getByRole('rowheader', { name: 'Cached observed rival' })).toBeTruthy()
+  expect(await page.findByText('Sentiment is disabled.')).toBeTruthy()
   expect(page.getByRole('alert').textContent).toContain('Could not refresh competitor history. Showing the last available data.')
 })
 

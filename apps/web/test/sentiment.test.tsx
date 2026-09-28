@@ -4,6 +4,7 @@ import { aggregateSentiment, createSentimentEvaluationDefinition, emptySentiment
 import type { SentimentEvidenceItem, SentimentSettings, SentimentSummary } from '@ainyc/canonry-contracts'
 import { SentimentSection, SentimentEvidenceDrawer, SentimentReport, SENTIMENT_COPY } from '../src/components/project/SentimentSection.js'
 import { sentimentSelectionFromVisibility, sentimentQueryKey } from '../src/queries/sentiment.js'
+import { AccountProvider } from '../src/contexts/account-context.js'
 
 afterEach(cleanup)
 function summary(): SentimentSummary {
@@ -109,6 +110,34 @@ describe('sentiment generated SDK and administrator flow', () => {
       await screen.findByText('Backfill submitted. Progress is available in Recent jobs.')
       expect(admissions).toHaveLength(2)
       expect(admissions[0]).toEqual(admissions[1])
+    } finally { cleanup(); client.clear(); restore() }
+  })
+  it('disables both open write controls when the account becomes view-only before action permissions refresh', async () => {
+    let writes = 0
+    const dto = summary()
+    const restore = mockFetch((url, init) => {
+      if (init?.method === 'PUT' || init?.method === 'POST') writes++
+      const path = new URL(url).pathname
+      if (path.endsWith('/sentiment/settings')) return jsonResponse(settings(true))
+      if (path.endsWith('/sentiment/jobs')) return jsonResponse({ jobs: [] })
+      if (path.endsWith('/sentiment/backfill-preview')) return jsonResponse({ previewToken: 'frozen-preview', expiresAt: '2026-09-28T11:00:00Z', selection: dto.selection, evaluationDefinitionId: 'definition-a', eligibleAssessments: 1, alreadyClassified: 0, skipped: [], estimatedInputTokens: 1234, estimatedCostUsd: 0.01, estimateMethod: 'fixture estimate' })
+      return jsonResponse(dto)
+    })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const tree = (role: 'admin' | 'viewer') => <AccountProvider account={{ name: 'operator', role }}><QueryClientProvider client={client}><SentimentSection projectName="project" selection={{ mode: 'simple', queryClass: 'branded', scope: 'project', runId: 'run' }} /></QueryClientProvider></AccountProvider>
+    try {
+      const page = render(tree('admin'))
+      fireEvent.click(await screen.findByRole('button', { name: 'Manage sentiment' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Preview sentiment backfill' }))
+      await screen.findByRole('button', { name: 'Confirm sentiment backfill' })
+      page.rerender(tree('viewer'))
+      const save = screen.getByRole('button', { name: 'Save sentiment settings' }) as HTMLButtonElement
+      const confirm = screen.getByRole('button', { name: 'Confirm sentiment backfill' }) as HTMLButtonElement
+      expect(save.disabled).toBe(true)
+      expect(confirm.disabled).toBe(true)
+      fireEvent.click(save)
+      fireEvent.click(confirm)
+      expect(writes).toBe(0)
     } finally { cleanup(); client.clear(); restore() }
   })
   it('stops a write after permission changes during an open session', async () => {
