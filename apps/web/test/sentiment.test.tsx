@@ -102,14 +102,14 @@ describe('sentiment presentation', () => {
       await screen.findByRole('columnheader', { name: 'Favorable' })
       const score = await screen.findByRole('button', { name: 'View Branded sentiment evidence for Is North Hall good?' })
       expect(score.textContent).toContain('60.1%')
-      const row = score.closest('tr')!
+      const queryToggle = screen.getByRole('button', { name: 'Is North Hall good?', exact: true })
       fireEvent.keyDown(score, { key: 'Enter' })
-      expect(row.getAttribute('aria-expanded')).toBe('false')
+      expect(queryToggle.getAttribute('aria-expanded')).toBe('false')
       fireEvent.change(screen.getByRole('combobox', { name: 'Query class' }), { target: { value: 'branded' } })
       expect(screen.getByLabelText('Branded favorable share')).toBeTruthy()
       expect(screen.queryByLabelText('Non-brand favorable share')).toBeNull()
       fireEvent.click(score)
-      expect(row.getAttribute('aria-expanded')).toBe('false')
+      expect(queryToggle.getAttribute('aria-expanded')).toBe('false')
       await screen.findByRole('dialog', { name: 'Sentiment evidence: Is North Hall good?' })
     } finally { page.close() }
   })
