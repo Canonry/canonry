@@ -401,7 +401,11 @@ export const visibilityCompareDtoSchema = z.object({
   from: visibilityComparePeriodWindowSchema,
   to: visibilityComparePeriodWindowSchema,
   basket: visibilityCompareBasketSchema,
-  /** Ordered: mention SoV (primary), cited SoV, mention rate (level), cited rate. */
+  /**
+   * Ordered: mention SoV (primary), cited SoV, mention rate (level), cited rate,
+   * then the class rates (`mention-rate-branded`, `cited-rate-branded`,
+   * `mention-rate-non-brand`, `cited-rate-non-brand`). Read metrics by `key`.
+   */
   metrics: z.array(visibilityCompareMetricSchema),
   queriesMentioned: visibilityCompareQueriesMentionedSchema,
   byProvider: z.array(visibilityCompareProviderRowSchema),

@@ -1,5 +1,5 @@
 import { createLogger } from './logger.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError, inclusiveDayCount, reportMonthsForDoctor } from '@ainyc/canonry-contracts'
 
 const log = createLogger('DataRefresh')
 
@@ -24,6 +24,18 @@ export interface DataRefreshClient {
 }
 
 /**
+ * The GA window a scheduled refresh syncs: the last 30 days, except through
+ * UTC day 3, when it reaches back to the first day of the closed month the
+ * monthly report is built from. A date inside the latest sync with no GA row
+ * then provably had no traffic, instead of reading as unknown.
+ */
+export function gaRefreshDays(now: Date = new Date()): number {
+  const [reportMonth] = reportMonthsForDoctor(undefined, now)
+  const reach = inclusiveDayCount(`${reportMonth}-01`, now.toISOString().slice(0, 10)) ?? 0
+  return Math.max(30, reach)
+}
+
+/**
  * Refresh every data integration for a project in one shot: GSC, Bing, GA,
  * GBP, OpenAI / ChatGPT Ads, Google Ads, and Google Tag Manager.
  *
@@ -33,11 +45,11 @@ export interface DataRefreshClient {
  * never blocks the others — mirroring the external cron this replaces. This
  * function never rejects: the caller treats it as fire-and-forget.
  */
-export async function refreshAllIntegrations(client: DataRefreshClient, projectName: string): Promise<void> {
+export async function refreshAllIntegrations(client: DataRefreshClient, projectName: string, now: Date = new Date()): Promise<void> {
   const integrations: Array<{ name: string; run: () => Promise<unknown> }> = [
     { name: 'gsc', run: () => client.gscSync(projectName, {}) },
     { name: 'bing', run: () => client.bingInspectSitemap(projectName, {}) },
-    { name: 'ga', run: () => client.gaSync(projectName, { days: 30 }) },
+    { name: 'ga', run: () => client.gaSync(projectName, { days: gaRefreshDays(now) }) },
     { name: 'gbp', run: () => client.triggerGbpSync(projectName, {}) },
     // `ads` remains the OpenAI / ChatGPT Ads integration. For scheduled
     // refreshes, Google providers have explicit names and fan out only here.

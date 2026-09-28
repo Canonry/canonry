@@ -32,6 +32,9 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 | auth | `wordpress.publish.connection` | project | WordPress publishing connection (`integration-wordpress`): the Application Password authenticates and the `wp/v2` REST API responds; skipped when no connection is configured |
 | auth | `traffic.source.credentials` | project | Per-source-type credential validation (Cloud Run service-account access token resolves; WordPress and Vercel probe-call their endpoints) |
 | auth | `traffic.source.scopes` | project | Per-source-type scope validation (skipped where the adapter has no explicit scope check — e.g. WordPress Application Passwords, Vercel API tokens) |
+| schedules | `report.sweeps` | project | **Silent** report advisory: whole-project sweeps of the report month together answered every expected slot (see "Monthly report readiness") |
+| providers | `report.models` | project | **Silent** report advisory: each provider kept one known model across the report month and the month before, in every frame the monthly comparison gates on |
+| integrations | `report.daily-data` | project | **Silent** report advisory: every mature GA4 and Search Console date of the report month has a stored total or was proven quiet by the latest sync |
 | integrations | `traffic.source.connected` | project | At least one non-archived server-side traffic source exists for the project |
 | integrations | `traffic.source.recent-data` | project | Connected sources have crawler, AI user-fetch, or AI-referral events in the last 7d (warn) or 30d (fail) |
 | integrations | `traffic.source.sync-lag` | project | Pull-source watermark health. Skips only Cloudflare `deliveryMode=direct-push` (legacy missing mode is direct push); Queue pull remains checked. |
@@ -87,19 +90,33 @@ silent check that throws reports `warn`, never `fail`: an advisory cannot fail
 
 `reportMonth=YYYY-MM` selects a report month (never a future month). Omitted,
 checks cover the current UTC month and retain the previous closed month through
-day 3. This is read selection, not a work-identity or tuning parameter.
+day 3. This is read selection, not a work-identity or tuning parameter. While
+both months are shown (days 1-3), only the closed month decides a check's
+status (`gradedReportMonths`); the new month is listed with `graded: false`.
 
-Sweep readiness excludes probes and spot checks. Plan runs (schema v1 or v2)
+Sweep readiness excludes probes and spot checks: a plan run with a
+`measurementScope`, and a Simple run with a `queries` subset (the same rule as
+`newerFullSweep`). Plan runs (schema v1 or v2)
 validate their manifest against the frozen revision and match usable answers by
 execution slot (`measurementSlotKey`); an answer with no execution id makes the
 run unusable. Simple runs use the frozen input definition when present; legacy
-runs explicitly report current-basket coverage as their basis. A month is ready
-when its sweeps with the same expected slots together answer every slot, as the
-monthly comparison pools a month; a failed or empty run cannot clear readiness.
+runs explicitly report current-basket coverage as their basis (an empty project
+provider list means every configured provider, which only the runner knows, so
+such a run is held to the providers it answered on). A month is ready when its
+sweeps with the same expected slots together answer every slot, as the monthly
+comparison pools a month; a failed or empty run cannot clear readiness. Only
+the widest expectations decide: a group whose slots are a strict subset of
+another group's (a `canonry run --provider` run) cannot clear the month. Runs
+do not record a provider override, so a month whose only runs used one reads
+as that narrower set.
 Model checks read `readVisibilityContinuity`: the same matched-pair continuity
-gate and frame as monthly comparison (frozen class frame for Advanced), including
-unknown and mixed models, without loading or matching answer text. First observed
-dates do not claim to be provider deployment dates.
+gates as monthly comparison, including unknown and mixed models, without
+matching answer text. Every project gets the project frame, which gates the
+compare's four project metrics; an Advanced project whose two months are frozen
+schema-v2 history also gets the class frame, which gates the class rates. A
+schema-v1 plan has no class frame (its class rates are unavailable), so it
+never warns for lack of one. First observed dates do not claim to be provider
+deployment dates.
 
 Daily checks distinguish observed totals (including measured zero), dates the
 latest sync queried that returned no row, unknown dates, onboarding dates and
@@ -107,8 +124,12 @@ pending reporting dates. Both APIs omit zero-data rows, and each sync replaces
 its whole requested range, so an absent date inside the latest sync's range
 (`latestSyncRange`: the GA summary window, or the Search Console rows' span up
 to the watermark's requested ceiling when both came from that sync) is zero
-activity. Earlier syncs' ranges are not recorded: absent dates outside the
-latest range stay unknown, never confirmed gaps or synthetic zeros. Search
-Console uses Pacific dates. GA timezone is unrecorded and the response labels
-its UTC fallback. Both use a conservative three-day reporting lag. Backfill is
-advice only.
+activity, but only up to the reporting lag before that sync ran
+(`zeroProvenThrough`): a sync asks through its own day, and the source had not
+published its last few days yet. Earlier syncs' ranges are not recorded: absent
+dates outside the proven range stay unknown, never confirmed gaps or synthetic
+zeros. Search Console uses Pacific dates. GA timezone is unrecorded and the
+response labels its UTC fallback. Both use a conservative three-day reporting
+lag. The scheduled GA refresh reaches back to the first day of the closed month
+through day 3 (`gaRefreshDays`), so the report month sits inside the latest GA
+sync. Backfill is advice only.

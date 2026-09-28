@@ -5,11 +5,12 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createClient, migrate, projects, queries, querySnapshots, runs, measurementPlans, measurementPlanVersions, gaDailyTotals, gaTrafficSummaries, gscDailyTotals, gscDataWatermarks } from '@ainyc/canonry-db'
-import { canonicalMeasurementPlanJson, canonicalMeasurementPlanV2Json, CheckCategories, CheckScopes, CitationStates, compileMeasurementPlan, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
+import { buildSimpleMeasurementDefinition, canonicalMeasurementPlanJson, canonicalMeasurementPlanV2Json, CheckCategories, CheckScopes, CitationStates, compileMeasurementPlan, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 import { buildMeasurementPlanV2Manifest, buildMeasurementRunManifest } from '../src/measurement-report-adapter.js'
 import { ALL_CHECKS, scheduledHealthCheckIds } from '../src/doctor/registry.js'
 import { runChecks } from '../src/doctor/runner.js'
+import { captureSimpleMeasurementDefinition } from '../src/simple-measurement-definitions.js'
 import type { DoctorContext } from '../src/doctor/types.js'
 
 const NOW = '2026-09-25T12:00:00.000Z'
@@ -218,5 +219,119 @@ describe('monthly report readiness (stored evidence only)', () => {
     expect(ids).toEqual(projectChecks.filter(check => !check.optIn && check.notificationPolicy !== 'silent').map(check => check.id))
     expect(projectChecks.some(check => check.optIn)).toBe(true)
     expect(ids.length).toBeGreaterThan(0)
+  })
+
+  /** A Simple run whose dispatch froze exactly these queries and engines, as the runner records it. */
+  function frozenRun(date: string, basket: Array<{ id: string; text: string }>, engines: string[], answers: Array<[string, string]>, opts: Partial<typeof runs.$inferInsert> = {}) {
+    const id = randomUUID()
+    const at = `${date}T12:00:00.000Z`
+    db.insert(runs).values({ id, projectId: project.id, kind: RunKinds['answer-visibility'], status: RunStatuses.running, trigger: RunTriggers.manual, createdAt: at, ...opts }).run()
+    captureSimpleMeasurementDefinition(db, { projectId: project.id, runId: id, definition: buildSimpleMeasurementDefinition({
+      capturedAt: at, identity: { displayName: 'Client', aliases: [], canonicalDomain: 'https://Client.example/', ownedDomains: [] },
+      country: 'US', language: 'en', location: null, engines: engines.map(provider => ({ provider, requestedModel: null })), competitors: [],
+      queries: basket.map(query => ({ queryId: query.id, queryText: query.text, provenance: null })),
+    }) })
+    for (const [answeredQuery, provider] of answers) db.insert(querySnapshots).values({ id: randomUUID(), runId: id, queryId: answeredQuery, provider, model: 'fast', citationState: CitationStates['not-cited'], answerMentioned: false, answerText: 'Other service', createdAt: at }).run()
+    db.update(runs).set({ status: RunStatuses.completed }).where(eq(runs.id, id)).run()
+    return id
+  }
+  const sweepsCheck = async () => (await report()).checks.find(c => c.id === 'report.sweeps')
+
+  it('does not let a query-subset run clear the month', async () => {
+    const second = randomUUID()
+    db.insert(queries).values({ id: second, projectId: project.id, query: 'second category', createdAt: NOW }).run()
+    // `canonry run --query "best service"` answers every slot it froze, but it is a spot check.
+    const subset = frozenRun('2026-09-20', [{ id: queryId, text: 'best service' }], ['perplexity'], [[queryId, 'perplexity']], { queries: ['best service'] })
+    expect(await sweepsCheck()).toMatchObject({ status: 'warn', code: 'report.sweeps.missing', details: { months: [{ eligibleRunIds: [], coverage: null, runs: [{ runId: subset, complete: false, reason: 'query-subset' }] }] } })
+  })
+
+  it('lets only the widest expected slots decide, so a narrower provider run cannot clear a gap', async () => {
+    const second = randomUUID()
+    db.insert(queries).values({ id: second, projectId: project.id, query: 'second category', createdAt: NOW }).run()
+    const basket = [{ id: queryId, text: 'best service' }, { id: second, text: 'second category' }]
+    // The full sweep missed (second, openai); a later `--provider perplexity` run
+    // answered every slot it froze, which is only the perplexity half.
+    const full = frozenRun('2026-09-10', basket, ['perplexity', 'openai'], [[queryId, 'perplexity'], [second, 'perplexity'], [queryId, 'openai']])
+    frozenRun('2026-09-20', basket, ['perplexity'], [[queryId, 'perplexity'], [second, 'perplexity']])
+    expect(await sweepsCheck()).toMatchObject({ status: 'warn', details: { months: [{ eligibleRunIds: [], coverage: { expected: 4, answered: 3, sweeps: 1 } }] } })
+    // Once a full sweep answers the missing slot, the widest expectation is met.
+    const repaired = frozenRun('2026-09-25', basket, ['perplexity', 'openai'], [[second, 'openai']])
+    expect(await sweepsCheck()).toMatchObject({ status: 'ok', details: { months: [{ eligibleRunIds: [full, repaired], coverage: { expected: 4, answered: 4, sweeps: 2 } }] } })
+  })
+
+  it('holds a legacy run on a default provider list to the providers it answered on', async () => {
+    db.update(projects).set({ providers: [] }).where(eq(projects.id, project.id)).run()
+    const legacy = sweep('2026-09-20')
+    expect(await sweepsCheck()).toMatchObject({ status: 'ok', details: { months: [{ eligibleRunIds: [legacy], runs: [{ reason: 'current-basket', expected: 1, answered: 1, providers: ['perplexity'] }] }] } })
+  })
+
+  it('grades only the closed month on report days while showing the new one', async () => {
+    sweep('2026-08-16')
+    const closed = sweep('2026-09-15')
+    vi.setSystemTime('2026-10-02T12:00:00Z')
+    const result = await report()
+    expect(result.checks.find(c => c.id === 'report.sweeps')).toMatchObject({ status: 'ok', code: 'report.sweeps.ready', details: { months: [
+      { month: '2026-09', graded: true, eligibleRunIds: [closed] },
+      { month: '2026-10', graded: false, eligibleRunIds: [] },
+    ] } })
+    expect(result.checks.find(c => c.id === 'report.models')).toMatchObject({ status: 'ok', code: 'report.models.continuous', details: { months: [
+      { month: '2026-09', graded: true, frame: 'project', continuity: 'comparable' },
+      { month: '2026-10', graded: false, frame: 'project', continuity: 'insufficient-data' },
+    ] } })
+    // Once the new month is the only one shown, its missing sweeps count.
+    vi.setSystemTime('2026-10-04T12:00:00Z')
+    expect((await report()).checks.find(c => c.id === 'report.sweeps')).toMatchObject({ status: 'warn', details: { months: [{ month: '2026-10', graded: true }] } })
+  })
+
+  it('grades the project frame on a schema-v1 plan instead of warning forever', async () => {
+    const legacy = compileMeasurementPlan({ schemaVersion: 1, targets: [{ stableKey: 'downtown', label: 'Client Downtown', urls: [{ kind: 'prefix', host: 'client.example', pathPrefix: '/downtown', pathCase: 'insensitive' }], aliases: ['Client Downtown'] }], groups: [], targetQuerySelections: [{ targetKey: 'downtown', queryIds: [queryId] }] }, { canonicalDomain: 'client.example', ownedDomains: [], brandNames: ['Client'], trackedQueries: [{ id: queryId, query: 'best service' }], locations: [], defaultContext: null, expectedSnapshots: 1 })
+    const versionId = randomUUID()
+    db.insert(measurementPlanVersions).values({ id: versionId, projectId: project.id, revision: 1, canonicalJson: canonicalMeasurementPlanJson(legacy), checksum: 'a'.repeat(64), schemaVersion: 1, createdAt: NOW }).run()
+    db.insert(measurementPlans).values({ projectId: project.id, activeVersionId: versionId, createdAt: NOW, updatedAt: NOW }).run()
+    const manifest = buildMeasurementRunManifest(legacy, ['perplexity'])
+    for (const date of ['2026-08-16', '2026-09-15']) {
+      const runId = randomUUID()
+      db.insert(runs).values({ id: runId, projectId: project.id, kind: RunKinds['answer-visibility'], status: RunStatuses.completed, trigger: RunTriggers.scheduled, createdAt: `${date}T12:00:00.000Z`, measurementPlanVersionId: versionId, measurementManifest: manifest }).run()
+      for (const slot of manifest.expectedSlots) db.insert(querySnapshots).values({ id: randomUUID(), runId, queryId, queryText: slot.queryText, provider: slot.provider, model: 'fast', answerText: 'Other service', answerMentioned: false, citationState: CitationStates['not-cited'], measurementExecutionId: slot.executionId, createdAt: `${date}T12:00:00.000Z` }).run()
+    }
+    // The frozen frame cannot read v1 history, so the compare has no class
+    // rates to gate: only its project frame applies.
+    expect((await report()).checks.find(c => c.id === 'report.models')).toMatchObject({ status: 'ok', code: 'report.models.continuous', details: { months: [
+      { month: '2026-09', frame: 'project', continuity: 'comparable', providers: [{ provider: 'perplexity', status: 'included' }] },
+    ] } })
+  })
+
+  it('grades both the project frame and the frozen class frame on an Advanced project', async () => {
+    const plan = measurementPlanV2Fixture()
+    for (const query of plan.querySnapshots) db.insert(queries).values({ id: query.queryId, projectId: project.id, query: query.queryText, createdAt: NOW }).run()
+    const versionId = randomUUID()
+    db.insert(measurementPlanVersions).values({ id: versionId, projectId: project.id, revision: 1, canonicalJson: canonicalMeasurementPlanV2Json(plan), checksum: 'a'.repeat(64), schemaVersion: 2, compiledChecksum: plan.compiledChecksum, createdAt: NOW }).run()
+    db.insert(measurementPlans).values({ projectId: project.id, activeVersionId: versionId, createdAt: NOW, updatedAt: NOW }).run()
+    const manifest = buildMeasurementPlanV2Manifest(plan)
+    for (const [date, openaiModel] of [['2026-08-16', 'model-a'], ['2026-09-15', 'model-b']] as const) {
+      const runId = randomUUID()
+      db.insert(runs).values({ id: runId, projectId: project.id, kind: RunKinds['answer-visibility'], status: RunStatuses.completed, trigger: RunTriggers.scheduled, createdAt: `${date}T12:00:00.000Z`, measurementPlanVersionId: versionId, measurementManifest: manifest }).run()
+      for (const slot of manifest.expectedSlots) db.insert(querySnapshots).values({ id: randomUUID(), runId, queryId: null, queryText: slot.queryText, provider: slot.provider, model: slot.provider === 'openai' ? openaiModel : 'model-g', answerText: 'Other properties', answerMentioned: false, citationState: CitationStates['not-cited'], measurementExecutionId: slot.executionId, requestedContext: slot.context, supportedContext: { status: 'applied', resolved: slot.context }, location: slot.context?.label ?? null, captureStatus: 'complete', createdAt: `${date}T12:00:00.000Z` }).run()
+    }
+    const models = (await report()).checks.find(c => c.id === 'report.models')
+    const openai = { provider: 'openai', status: 'model-discontinuous', fromModels: ['model-a'], toModels: ['model-b'], firstObservedAt: '2026-09-15T12:00:00.000Z' }
+    expect(models).toMatchObject({ status: 'warn', code: 'report.models.excluded', details: { months: [
+      { month: '2026-09', frame: 'project', continuity: 'comparable', providers: [{ provider: 'gemini', status: 'included' }, openai] },
+      { month: '2026-09', frame: 'class', continuity: 'comparable', providers: [{ provider: 'gemini', status: 'included' }, openai] },
+    ] } })
+    expect(models?.summary).toBe('Monthly comparison excludes openai: model-a → model-b (2026-09; new model first observed 2026-09-15T12:00:00.000Z); openai: model-a → model-b (2026-09, class basket; new model first observed 2026-09-15T12:00:00.000Z).')
+  })
+
+  it('does not count Search Console days the source had not published at sync time as zero activity', async () => {
+    vi.setSystemTime('2026-10-03T12:00:00Z')
+    // The last refresh ran 10-01 (PT) and asked through 10-01, but Google had
+    // published only through 09-29; later refreshes failed.
+    const syncedAt = '2026-10-01T10:00:00.000Z'
+    for (let day = 1; day <= 29; day++) db.insert(gscDailyTotals).values({ id: randomUUID(), projectId: project.id, date: `2026-09-${String(day).padStart(2, '0')}`, clicks: 1, impressions: 5, position: '3', createdAt: syncedAt }).run()
+    db.insert(gscDataWatermarks).values({ projectId: project.id, dataThroughDate: '2026-09-29', syncedThroughDate: '2026-10-01', updatedAt: syncedAt }).run()
+    const daily = (await runChecks({ db, project, reportMonth: '2026-09' }, ALL_CHECKS, { checkIds: ['report.daily-data'] })).checks[0]
+    expect(daily).toMatchObject({ status: 'warn', code: 'report.daily-data.unknown', details: { months: [{ sources: [
+      { source: 'gsc', matureThrough: '2026-09-30', latestSyncRange: { start: '2026-09-01', end: '2026-10-01', syncedAt }, zeroProvenThrough: '2026-09-28', observedDays: 29, queriedEmptyDays: 0, unknownDays: 1, unknownRanges: [{ start: '2026-09-30', end: '2026-09-30' }] },
+    ] }] } })
   })
 })

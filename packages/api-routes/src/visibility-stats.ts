@@ -412,7 +412,7 @@ export async function visibilityStatsRoutes(app: FastifyInstance) {
   })
 }
 
-/** One stored-evidence monthly reader shared by REST and report-readiness checks. */
+/** The stored-evidence monthly comparison behind the REST route, CLI and MCP tool. */
 export function readVisibilityCompare(db: DatabaseClient, projectName: string, query: VisibilityCompareSelection & { from?: string; to?: string }) {
   const project = resolveProject(db, projectName)
   const selection = visibilityCompareSelectionSchema.safeParse(query)
@@ -437,8 +437,11 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
       location: locationKey === undefined ? { kind: 'all' } : locationKey === 'none' ? { kind: 'none' } : { kind: 'exact', value: filters.location! },
       limit: 100,
     }
-    const fromMonth = loadAdvancedCompareMonth(db, project.id, fromBounds, readerSelection)
-    const toMonth = loadAdvancedCompareMonth(db, project.id, toBounds, readerSelection)
+    const { missingScope: fromMissingScope, ...fromMonth } = loadAdvancedCompareMonth(db, project.id, fromBounds, readerSelection)
+    const { missingScope: toMissingScope, ...toMonth } = loadAdvancedCompareMonth(db, project.id, toBounds, readerSelection)
+    // The request fails for a missing scope only when no run in either month measured it.
+    const missingScope = fromMissingScope ?? toMissingScope
+    if (missingScope !== undefined && fromMonth.runCount + toMonth.runCount === 0) throw validationError(missingScope.message, missingScope.details)
     const queries = [...new Map([...fromMonth.snapshots, ...toMonth.snapshots].map(snapshot => [snapshot.queryId!, { id: snapshot.queryId!, query: snapshot.queryText! }])).values()]
     advancedComparison = { ...computeVisibilityCompare({
       project: project.name, queries,
@@ -572,41 +575,61 @@ function legacyCompareRunIds(db: DatabaseClient, projectId: string, bounds: Mont
     .map((r) => r.id)
 }
 
-/** One month of the frozen Advanced frame for a selection. */
+/**
+ * One month of the frozen Advanced frame for a selection. A run whose frozen
+ * definition lacks the selected scope never measured it (a Property added or
+ * retired by a material revision): it leaves the month, as it leaves the
+ * report's trend, and `runCount` counts only the runs that measured it. The
+ * first such scope error is returned for the caller to raise when neither
+ * month measured the scope at all.
+ */
 function loadAdvancedCompareMonth(db: DatabaseClient, projectId: string, bounds: MonthBounds, selection: VisibilityReportReaderSelection, includeEvidence = true) {
   const selected = readVisibilityComparisonRuns(db, projectId, bounds.since, bounds.until, includeEvidence)
   const snapshots: VisibilityCompareSnapshotInput[] = []
   const classSnapshots: VisibilityCompareSnapshotInput[] = []
+  let runCount = 0
+  let missingScope: VisibilityReportScopeError | undefined
   for (const run of selected.runs) {
+    let population: ReturnType<typeof visibilityComparisonPopulation>
     try {
-      const population = visibilityComparisonPopulation(run, selection)
-      const adapt = (snapshot: typeof population.snapshots[number]): VisibilityCompareSnapshotInput => ({
-        ...snapshot,
-        citationState: snapshot.citation === true ? CitationStates.cited : CitationStates['not-cited'],
-        citationChecked: snapshot.citation !== null,
-        citedDomains: [],
-      })
-      snapshots.push(...population.snapshots.map(adapt))
-      classSnapshots.push(...population.classSnapshots.map(adapt))
+      population = visibilityComparisonPopulation(run, selection)
     } catch (error) {
+      if (error instanceof VisibilityReportScopeError && error.details !== undefined) {
+        missingScope ??= error
+        continue
+      }
       if (error instanceof VisibilityReportScopeError) throw validationError(error.message, error.details)
       throw error
     }
+    runCount += 1
+    const adapt = (snapshot: typeof population.snapshots[number]): VisibilityCompareSnapshotInput => ({
+      ...snapshot,
+      citationState: snapshot.citation === true ? CitationStates.cited : CitationStates['not-cited'],
+      citationChecked: snapshot.citation !== null,
+      citedDomains: [],
+    })
+    snapshots.push(...population.snapshots.map(adapt))
+    classSnapshots.push(...population.classSnapshots.map(adapt))
   }
-  return { runCount: selected.runs.length, snapshots, classSnapshots, classificationAvailable: !selected.unavailable }
+  return { runCount, snapshots, classSnapshots, classificationAvailable: !selected.unavailable, missingScope }
+}
+
+/** One continuity frame a monthly comparison gates metrics on. */
+export interface VisibilityContinuityFrame {
+  /** `project` gates the four project metrics; `class` gates the frozen class rates. */
+  frame: 'class' | 'project'
+  continuity: VisibilityCompareDto['continuity']
 }
 
 /**
- * The model-continuity gate a monthly comparison applies, without computing
- * its metrics: the frozen class frame on an Advanced project, the project
- * frame otherwise, exactly as `readVisibilityCompare` gates them. Continuity
- * reads query, provider, model and frozen cohort only, so no answer text is
- * loaded or matched.
+ * The model-continuity gates a monthly comparison applies, without computing
+ * its metrics, exactly as `readVisibilityCompare` applies them: the project
+ * frame always gates the four project metrics, and on an Advanced project
+ * whose two months are frozen schema-v2 history, the frozen class frame gates
+ * the class rates as well. Continuity reads query, provider, model and frozen
+ * cohort only; no answer text is matched.
  */
-export function readVisibilityContinuity(db: DatabaseClient, projectName: string, months: { from: string; to: string }): {
-  frame: 'class' | 'project'
-  continuity: VisibilityCompareDto['continuity']
-} {
+export function readVisibilityContinuity(db: DatabaseClient, projectName: string, months: { from: string; to: string }): VisibilityContinuityFrame[] {
   const project = resolveProject(db, projectName)
   const { fromRaw, toRaw, fromBounds, toBounds } = compareMonths(months.from, months.to)
   const bare = (snapshot: Pick<VisibilityCompareSnapshotInput, 'queryId' | 'queryText' | 'provider' | 'model' | 'cohortKey'>): VisibilityCompareSnapshotInput => ({
@@ -620,41 +643,37 @@ export function readVisibilityContinuity(db: DatabaseClient, projectName: string
     answerText: null,
     citedDomains: [],
   })
-
-  let frame: 'class' | 'project'
-  let trackedQueries: Array<{ id: string; query: string }>
-  let fromMonth: { runCount: number; snapshots: VisibilityCompareSnapshotInput[] }
-  let toMonth: { runCount: number; snapshots: VisibilityCompareSnapshotInput[] }
-  if (activeMeasurementPlan(db, project.id) !== null) {
-    frame = 'class'
-    const selection: VisibilityReportReaderSelection = { scope: 'project', queryClass: 'all', location: { kind: 'all' }, limit: 100 }
-    const load = (bounds: MonthBounds) => {
-      const month = loadAdvancedCompareMonth(db, project.id, bounds, selection, false)
-      return { runCount: month.runCount, snapshots: month.snapshots.map(bare) }
-    }
-    fromMonth = load(fromBounds)
-    toMonth = load(toBounds)
-    trackedQueries = [...new Map([...fromMonth.snapshots, ...toMonth.snapshots].map(snapshot => [snapshot.queryId!, { id: snapshot.queryId!, query: snapshot.queryText! }])).values()]
-  } else {
-    frame = 'project'
-    trackedQueries = db.select({ id: queries.id, query: queries.query }).from(queries).where(eq(queries.projectId, project.id)).all()
-    const load = (bounds: MonthBounds) => {
-      const runIds = legacyCompareRunIds(db, project.id, bounds)
-      const rows = runIds.length > 0 && trackedQueries.length > 0
-        ? db.select({ queryId: querySnapshots.queryId, queryText: querySnapshots.queryText, provider: querySnapshots.provider, model: querySnapshots.model })
-          .from(querySnapshots).where(inArray(querySnapshots.runId, runIds)).all()
-        : []
-      return { runCount: runIds.length, snapshots: rows.map(bare) }
-    }
-    fromMonth = load(fromBounds)
-    toMonth = load(toBounds)
-  }
-  const dto = computeVisibilityCompare({
+  const gate = (trackedQueries: Array<{ id: string; query: string }>, fromMonth: { runCount: number; snapshots: VisibilityCompareSnapshotInput[] }, toMonth: { runCount: number; snapshots: VisibilityCompareSnapshotInput[] }) => computeVisibilityCompare({
     project: project.name,
     queries: trackedQueries,
     competitors: [],
     from: { month: fromRaw, ...fromBounds, ...fromMonth },
     to: { month: toRaw, ...toBounds, ...toMonth },
-  })
-  return { frame, continuity: dto.continuity }
+  }).continuity
+
+  const trackedQueries = db.select({ id: queries.id, query: queries.query }).from(queries).where(eq(queries.projectId, project.id)).all()
+  const loadProjectMonth = (bounds: MonthBounds) => {
+    const runIds = legacyCompareRunIds(db, project.id, bounds)
+    const rows = runIds.length > 0 && trackedQueries.length > 0
+      ? db.select({ queryId: querySnapshots.queryId, queryText: querySnapshots.queryText, provider: querySnapshots.provider, model: querySnapshots.model })
+        .from(querySnapshots).where(inArray(querySnapshots.runId, runIds)).all()
+      : []
+    return { runCount: runIds.length, snapshots: rows.map(bare) }
+  }
+  const frames: VisibilityContinuityFrame[] = [{ frame: 'project', continuity: gate(trackedQueries, loadProjectMonth(fromBounds), loadProjectMonth(toBounds)) }]
+
+  if (activeMeasurementPlan(db, project.id) !== null) {
+    const selection: VisibilityReportReaderSelection = { scope: 'project', queryClass: 'all', location: { kind: 'all' }, limit: 100 }
+    const fromMonth = loadAdvancedCompareMonth(db, project.id, fromBounds, selection, false)
+    const toMonth = loadAdvancedCompareMonth(db, project.id, toBounds, selection, false)
+    // A month with runs the frozen frame cannot read (schema v1) has no class
+    // rates to gate: the comparison reports them classification-unavailable.
+    if (fromMonth.classificationAvailable && toMonth.classificationAvailable) {
+      const bareFrom = { runCount: fromMonth.runCount, snapshots: fromMonth.snapshots.map(bare) }
+      const bareTo = { runCount: toMonth.runCount, snapshots: toMonth.snapshots.map(bare) }
+      const frozenQueries = [...new Map([...bareFrom.snapshots, ...bareTo.snapshots].map(snapshot => [snapshot.queryId!, { id: snapshot.queryId!, query: snapshot.queryText! }])).values()]
+      frames.push({ frame: 'class', continuity: gate(frozenQueries, bareFrom, bareTo) })
+    }
+  }
+  return frames
 }

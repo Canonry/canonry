@@ -70,7 +70,7 @@ export function modelEvidenceStatesEqual(a: ModelEvidenceState, b: ModelEvidence
     a.models.every((model, index) => model === b.models[index])
 }
 
-/** Shared exclusion gate for monthly comparison and report-readiness diagnostics. */
+/** The model-continuity gate a monthly comparison applies to each provider. */
 export function compareModelContinuity(
   from: Iterable<ModelEvidenceValue>,
   to: Iterable<ModelEvidenceValue>,
