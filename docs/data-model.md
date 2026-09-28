@@ -346,7 +346,7 @@ Local-AEO signals. The OAuth connection reuses `google_connections` with `connec
 | Table | Purpose |
 | --- | --- |
 | **sentiment_definitions** | Immutable evaluator content, content hash, and requested Jev model. A source answer changes assessment identity without changing the reusable definition. |
-| **sentiment_settings** | Default-off project opt-in, effective theme configuration, enablement epoch, completion-sequence boundary, and persisted install suspension. No credentials. |
+| **sentiment_settings** | Default-off project opt-in, effective sentiment enablement configuration, enablement epoch, completion-sequence boundary, and persisted install suspension. No credentials. |
 | **sentiment_completion_receipts** | Monotonic AUTOINCREMENT completion order, including fills. Enablement uses the sequence high-water mark, which survives source deletion. |
 | **sentiment_jobs / sentiment_job_items** | Project/action/idempotency-key admissions and frozen selections. Per-selection cancellation remains visible when a later explicit backfill reuses the assessment. |
 | **sentiment_work_items** | One leased work identity per project, snapshot, source-text hash, subject hash, and evaluator definition. Exact frozen inputs and usage edges, durable retry time, and attempt count. |
