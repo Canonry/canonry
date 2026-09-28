@@ -4,7 +4,8 @@ import path from 'node:path'
 import { afterEach, expect, test } from 'vitest'
 import { eq } from 'drizzle-orm'
 
-import { createClient, MIGRATION_VERSIONS, migrate, projects, researchRunQueries, researchRuns } from '../src/index.js'
+import { createClient, MIGRATION_VERSIONS, migrate, researchRunQueries, researchRuns } from '../src/index.js'
+import { insertLegacyProject } from './legacy-rows.js'
 
 const V153 = 153
 const cleanups: string[] = []
@@ -18,10 +19,7 @@ test('v153 preserves a pre-scope research batch and round-trips frozen scope con
   const now = '2026-09-09T12:00:00.000Z'
 
   migrate(db, MIGRATION_VERSIONS.filter(migration => migration.version < V153))
-  db.insert(projects).values({
-    id: 'project', name: 'project', displayName: 'Project', canonicalDomain: 'project.example',
-    country: 'US', language: 'en', createdAt: now, updatedAt: now,
-  }).run()
+  insertLegacyProject(db, { id: 'project', displayName: 'Project', canonicalDomain: 'project.example', createdAt: now })
   db.$client.prepare(`INSERT INTO research_runs (
     id, project_id, status, provider, resolved_model, total_queries, created_at
   ) VALUES (?, ?, ?, ?, ?, ?, ?)`)

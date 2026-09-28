@@ -1,4 +1,4 @@
-import { GoogleGenAI, type GenerateContentResponse } from '@google/genai'
+import { GoogleGenAI, type Content, type GenerateContentResponse, type Tool } from '@google/genai'
 import {
   AI_ENGINE_SELF_DOMAINS,
   VERTEX_AI_SEARCH_PROXY_DOMAIN,
@@ -7,7 +7,9 @@ import {
   normalizeServedModel,
   registrableDomain,
   describeError,
+  usageCount,
 } from '@ainyc/canonry-contracts'
+import type { ProviderUsage, TrackedQueryRequest } from '@ainyc/canonry-contracts'
 import { withRetry } from './utils.js'
 import type {
   GeminiConfig,
@@ -120,36 +122,78 @@ export async function healthcheck(config: GeminiConfig): Promise<GeminiHealthche
   }
 }
 
+/** The generateContent request body as it goes on the wire. */
+interface GenerateContentBody {
+  contents: Content[]
+  tools: Tool[]
+  generationConfig: Record<string, never>
+}
+
+/**
+ * The first half of `executeTrackedQuery`: the exact generateContent request
+ * it sends. The body is the SDK's wire form, not its call form: the SDK turns
+ * a `contents` string into one user turn and serializes the call's `config`
+ * as top-level `tools` plus a `generationConfig` object (empty here). The
+ * endpoint is the resource path under the API host, which differs between
+ * AI Studio and Vertex AI.
+ */
+export function buildTrackedQueryRequest(input: GeminiTrackedQueryInput): TrackedQueryRequest {
+  const model = resolveModel(input.config)
+  const endpoint = isVertexConfig(input.config)
+    ? `/v1beta1/projects/${input.config.vertexProject}/locations/${input.config.vertexRegion || 'us-central1'}/publishers/google/models/${model}:generateContent`
+    : `/v1beta/models/${model}:generateContent`
+
+  const body = {
+    contents: [{ parts: [{ text: buildPrompt(input.query, input.location) }], role: 'user' }],
+    tools: [{ googleSearch: {} }],
+    generationConfig: {},
+  } satisfies GenerateContentBody
+
+  return { endpoint, body }
+}
+
 export async function executeTrackedQuery(input: GeminiTrackedQueryInput): Promise<GeminiRawResult> {
   const model = resolveModel(input.config)
-  const prompt = buildPrompt(input.query, input.location)
+  const request = buildTrackedQueryRequest(input).body as unknown as GenerateContentBody
   const client = createClient(input.config)
 
+  let result: GenerateContentResponse
   try {
-    const result = await withRetry(() =>
+    result = await withRetry(() =>
       client.models.generateContent({
         model,
-        contents: prompt,
+        contents: request.contents,
         config: {
-          tools: [{ googleSearch: {} }],
+          tools: request.tools,
         },
       }),
     )
-
-    const rawResponse = responseToRecord(result)
-    const parsed = reparseStoredResult(rawResponse)
-
-    return {
-      provider: 'gemini',
-      rawResponse,
-      model,
-      servedModel: extractServedModel(rawResponse),
-      groundingSources: parsed.groundingSources,
-      searchQueries: parsed.searchQueries,
-    }
   } catch (err: unknown) {
     const msg = describeError(err)
     throw new Error(`[provider-gemini] ${msg}`)
+  }
+  return parseTrackedQueryResponse(result, model)
+}
+
+/**
+ * The second half of `executeTrackedQuery`: read one generateContent response
+ * into a result. `body` is the SDK's response, the raw JSON, or a record this
+ * function already stored (trimming is idempotent); `model` is the model the
+ * request asked for.
+ */
+export function parseTrackedQueryResponse(body: object, model: string): GeminiRawResult {
+  const rawResponse = responseToRecord(body)
+  const parsed = reparseStoredResult(rawResponse)
+
+  return {
+    provider: 'gemini',
+    rawResponse,
+    model,
+    servedModel: extractServedModel(rawResponse),
+    groundingSources: parsed.groundingSources,
+    searchQueries: parsed.searchQueries,
+    usage: extractUsageFromRaw(rawResponse),
+    stopReason: extractStopReasonFromRaw(rawResponse),
   }
 }
 
@@ -294,6 +338,42 @@ export function extractSearchQueriesFromRaw(rawResponse: Record<string, unknown>
   }
 }
 
+/**
+ * Billable usage off a stored generateContent response. `promptTokenCount`
+ * includes the cached tokens it breaks out as `cachedContentTokenCount`, so
+ * they are subtracted to leave the uncached remainder; thinking tokens are
+ * billed as output. Searches are the grounding metadata's executed queries.
+ * A response with no usage metadata yields undefined, never a zero-cost answer.
+ * Docs: https://ai.google.dev/api/generate-content#UsageMetadata
+ */
+function extractUsageFromRaw(rawResponse: Record<string, unknown>): ProviderUsage | undefined {
+  const usage = rawResponse.usageMetadata as {
+    promptTokenCount?: unknown
+    cachedContentTokenCount?: unknown
+    candidatesTokenCount?: unknown
+    thoughtsTokenCount?: unknown
+  } | null | undefined
+  if (usage === null || typeof usage !== 'object') return undefined
+
+  const promptTokens = usageCount(usage.promptTokenCount)
+  const cachedInputTokens = usageCount(usage.cachedContentTokenCount)
+  const searchQueries = extractSearchQueriesFromRaw(rawResponse)
+  return {
+    inputTokens: Math.max(0, promptTokens - cachedInputTokens),
+    cachedInputTokens,
+    cacheWriteTokens: 0,
+    outputTokens: usageCount(usage.candidatesTokenCount) + usageCount(usage.thoughtsTokenCount),
+    searchCount: Array.isArray(searchQueries) ? searchQueries.length : 0,
+  }
+}
+
+/** `candidates[0].finishReason` verbatim (`STOP`, `MAX_TOKENS`, `SAFETY`, …). */
+function extractStopReasonFromRaw(rawResponse: Record<string, unknown>): string | undefined {
+  const candidates = rawResponse.candidates as Array<{ finishReason?: unknown } | null> | undefined
+  const finishReason = Array.isArray(candidates) ? candidates[0]?.finishReason : undefined
+  return typeof finishReason === 'string' && finishReason.length > 0 ? finishReason : undefined
+}
+
 function extractCitedDomainsFromSources(groundingSources: GroundingSource[]): string[] {
   const domains = new Set<string>()
 
@@ -369,7 +449,10 @@ export async function generateText(prompt: string, config: GeminiConfig): Promis
   return result.text ?? ''
 }
 
-export function responseToRecord(response: GenerateContentResponse): Record<string, unknown> {
+export function responseToRecord(body: object): Record<string, unknown> {
+  // The SDK's response object, the raw JSON, and a record stored by this
+  // function all carry these fields under the same names.
+  const response = body as Partial<GenerateContentResponse>
   try {
     const candidates = response.candidates?.map(c => ({
       content: c.content,

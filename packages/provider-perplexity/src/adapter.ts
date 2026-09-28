@@ -3,6 +3,7 @@ import type {
   ProviderConfig,
   ProviderHealthcheckResult,
   TrackedQueryInput,
+  TrackedQueryRequest,
   RawQueryResult,
   NormalizedQueryResult,
 } from '@ainyc/canonry-contracts'
@@ -11,17 +12,46 @@ import {
   PERPLEXITY_RETRIEVAL_CONTRACT,
   validateConfig as perplexityValidateConfig,
   healthcheck as perplexityHealthcheck,
+  buildTrackedQueryRequest as perplexityBuildTrackedQueryRequest,
   executeTrackedQuery as perplexityExecuteTrackedQuery,
+  parseTrackedQueryResponse as perplexityParseTrackedQueryResponse,
   normalizeResult as perplexityNormalizeResult,
   generateText as perplexityGenerateText,
 } from './normalize.js'
-import type { PerplexityConfig } from './types.js'
+import type { PerplexityConfig, PerplexityRawResult, PerplexityTrackedQueryInput } from './types.js'
 
 function toPerplexityConfig(config: ProviderConfig): PerplexityConfig {
   return {
     apiKey: config.apiKey ?? '',
     model: config.model,
     quotaPolicy: config.quotaPolicy,
+  }
+}
+
+function toPerplexityInput(input: TrackedQueryInput, config: ProviderConfig): PerplexityTrackedQueryInput {
+  return {
+    query: input.query,
+    canonicalDomains: input.canonicalDomains,
+    competitorDomains: input.competitorDomains,
+    config: toPerplexityConfig(config),
+    location: input.location,
+  }
+}
+
+function toRawQueryResult(raw: PerplexityRawResult): RawQueryResult {
+  return {
+    provider: 'perplexity',
+    rawResponse: raw.rawResponse,
+    model: raw.model,
+    servedModel: raw.servedModel,
+    groundingSources: raw.groundingSources,
+    searchQueries: raw.searchQueries,
+    // Read off the Agent API output: a `search_results` item is the retrieval
+    // call. The contract is how we built the request, so it is always known.
+    retrievalStatus: raw.retrievalStatus ?? 'unknown',
+    retrievalContract: PERPLEXITY_RETRIEVAL_CONTRACT,
+    usage: raw.usage,
+    stopReason: raw.stopReason,
   }
 }
 
@@ -68,26 +98,16 @@ export const perplexityAdapter: ProviderAdapter = {
     }
   },
 
+  buildTrackedQueryRequest(input: TrackedQueryInput, config: ProviderConfig): TrackedQueryRequest {
+    return perplexityBuildTrackedQueryRequest(toPerplexityInput(input, config))
+  },
+
   async executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult> {
-    const raw = await perplexityExecuteTrackedQuery({
-      query: input.query,
-      canonicalDomains: input.canonicalDomains,
-      competitorDomains: input.competitorDomains,
-      config: toPerplexityConfig(config),
-      location: input.location,
-    })
-    return {
-      provider: 'perplexity',
-      rawResponse: raw.rawResponse,
-      model: raw.model,
-      servedModel: raw.servedModel,
-      groundingSources: raw.groundingSources,
-      searchQueries: raw.searchQueries,
-      // Read off the Agent API output: a `search_results` item is the retrieval
-      // call. The contract is how we built the request, so it is always known.
-      retrievalStatus: raw.retrievalStatus ?? 'unknown',
-      retrievalContract: PERPLEXITY_RETRIEVAL_CONTRACT,
-    }
+    return toRawQueryResult(await perplexityExecuteTrackedQuery(toPerplexityInput(input, config)))
+  },
+
+  parseTrackedQueryResponse(body: Record<string, unknown>, model: string): RawQueryResult {
+    return toRawQueryResult(perplexityParseTrackedQueryResponse(body, model))
   },
 
   normalizeResult(raw: RawQueryResult): NormalizedQueryResult {

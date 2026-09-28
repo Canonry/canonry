@@ -44,6 +44,7 @@ import {
   gscUrlInspectionDtoSchema,
   notificationDtoSchema,
   projectDtoSchema,
+  providerBatchSummaryDtoSchema,
   queryDtoSchema,
   querySnapshotDtoSchema,
   recommendationExplanationDtoSchema,
@@ -165,12 +166,37 @@ const COVERAGE: Record<string, CoverageEntry> = {
     dto: runDtoSchema,
     internal: {
       sourceId: 'Set for traffic-sync runs; consumed by traffic routes, not the user-facing run DTO.',
+      providerDispatchModes: 'Exposed as `dispatchModes` on the run DTO ({} when null).',
+      pendingProviderErrors: 'Sync-provider errors held while finalization waits on a provider batch; folded into `error` at finalize.',
     },
   },
   runFills: {
     kind: 'dto',
     dto: runFillDtoSchema,
     internal: {},
+  },
+  providerBatches: {
+    kind: 'dto',
+    dto: providerBatchSummaryDtoSchema,
+    internal: {
+      projectId: 'Implied by the run the batch belongs to.',
+      runId: 'Implied by the run detail that lists it.',
+      fillId: 'Reserved for batch-dispatched fills; fills read through run_fills.',
+      providerBatchId: 'The provider\'s own batch id; an operational handle for the poller, not user data.',
+      quotaScope: 'Stored daily-quota reservation, released by the poller.',
+      quotaPeriod: 'Stored daily-quota reservation, released by the poller.',
+      quotaReserved: 'Stored daily-quota reservation, released by the poller.',
+      quotaReleased: 'Guards against a double release on re-ingest.',
+      cancelRequestedAt: 'Poller bookkeeping for a deadline cancel.',
+      ingestedAt: 'Poller bookkeeping; ingestion progress is ingestedCount/status.',
+      resultsExpireAt: 'When the provider deletes results; poller bookkeeping.',
+      createdAt: 'Row insert time; the run detail orders by it.',
+      updatedAt: 'Row bookkeeping.',
+    },
+  },
+  providerBatchRequests: {
+    kind: 'internal-only',
+    reason: 'Maps each batch line\'s custom_id to its slot for ingest; answers surface as query snapshots.',
   },
   querySnapshots: {
     kind: 'dto',
@@ -180,6 +206,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
       measurementExecutionId: 'Plan-run attribution; read through the measurement report, not the snapshot DTO.',
       screenshotPath: 'Debug-only artifact path; not surfaced on the snapshot DTO.',
       rawResponse: 'Raw provider payload; exposed via a separate endpoint, not the snapshot DTO.',
+      providerBatchId: 'Links the answer to its provider_batches row; the run detail lists the batches.',
     },
   },
   schedules: {

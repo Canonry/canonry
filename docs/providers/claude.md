@@ -37,7 +37,7 @@ Extracts analyst-relevant fields from the raw response:
 
 ## Retrieval contract
 
-Every Claude snapshot stores `retrieval_contract`, the search policy of the request that produced it. The model decides the contract, and the contract decides `tool_choice`, so a stored row always describes the request that was sent. The rule lives in one place: `CLAUDE_MODELS_REJECTING_FORCED_TOOL_CHOICE` and `claudeRetrievalContractForModel` in `packages/provider-claude/src/normalize.ts`.
+Every Claude snapshot stores `retrieval_contract`, the search policy of the request that produced it. The model decides the contract, and the contract decides `tool_choice`, so a stored row always describes the request that was sent. The rule lives in one place: `CLAUDE_MODELS_REJECTING_FORCED_TOOL_CHOICE` and `claudeRetrievalContractForModel` in `packages/provider-claude/src/normalize.ts`. `buildTrackedQueryRequest` applies it and `parseTrackedQueryResponse` records it, so a batch line ([batch mode](../batch-mode.md)) sends the same `tool_choice` and stores the same contract as the sync call for that model.
 
 | Models | Contract | `tool_choice` | Retrieval |
 |--------|----------|---------------|-----------|

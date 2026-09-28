@@ -24,6 +24,8 @@ Drizzle ORM schema, migrations, and database client. SQLite locally (via better-
 - **System**: apiKeys, usageCounters
 - **Aero history**: migration 159 adds `agent_conversations` for inactive transcripts. The unique `agent_sessions.projectId` slot remains active; swaps are transactional. No existing transcript is rewritten.
 - **Aero model upgrade**: migration 158 moves existing DeepInfra GLM-5.2 sessions to DeepSeek-V4-Flash once. Later explicit selections survive subsequent migrations and hydration; transcript, queue, and activity timestamps stay intact.
+- **Provider batch dispatch**: migration 162 adds `provider_batches` and `provider_batch_requests`, plus nullable/defaulted dispatch columns on `projects`, `runs`, and `query_snapshots`. A batch row is written `submitting` before the submit call and is never resubmitted. Its composite project/run foreign key cascades with the run. `provider_batch_requests.query_id` is SET NULL so a deleted query cannot make ingest write a dangling id. Both SET NULL child columns (`provider_batch_requests.query_id`, `query_snapshots.provider_batch_id`) are indexed so a parent delete does not scan the child table. See `docs/batch-mode.md`.
+- **Upgrade tests seed physical columns**: a test that migrates to an older version must seed with `test/legacy-rows.ts` (raw SQL), not Drizzle — Drizzle names every current column, so a later migration adding one breaks the seed.
 - **Delegated MCP identity**: `apiKeys.delegatedUserId` is internal, nullable for historical/ordinary keys, and cascade-deleted with its user (migration 154). It retains the originating account across the MCP-to-REST hop; never derive this identity from a key name or expose it as client-settable input.
 
 ## Patterns

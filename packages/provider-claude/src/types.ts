@@ -1,5 +1,6 @@
 import type {
   ProviderQuotaPolicy,
+  ProviderUsage,
   GroundingSource,
   LocationContext,
   RetrievalContract,
@@ -41,6 +42,10 @@ export interface ClaudeRawResult {
   retrievalStatus: RetrievalStatus
   /** See {@link RetrievalContract}. */
   retrievalContract: RetrievalContract
+  /** Billable usage from the response's `usage` block; undefined when it had none. */
+  usage?: ProviderUsage
+  /** `stop_reason` verbatim; undefined when the response had none. */
+  stopReason?: string
 }
 
 export interface ClaudeNormalizedResult {

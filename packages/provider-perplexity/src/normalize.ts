@@ -7,7 +7,9 @@ import {
   registrableDomain,
   resolveProviderModel,
   describeError,
+  usageCount,
 } from '@ainyc/canonry-contracts'
+import type { ProviderUsage, TrackedQueryRequest } from '@ainyc/canonry-contracts'
 import { withRetry } from './utils.js'
 import type {
   PerplexityAgentRequest,
@@ -35,6 +37,9 @@ export const DEFAULT_MODEL = 'fast'
 // and keeps the Bearer auth this provider has always used.
 const BASE_URL = 'https://api.perplexity.ai/v1'
 const AGENT_PATH = '/agent'
+
+/** The path a tracked query is posted to, relative to the API host (`BASE_URL` + `AGENT_PATH`). */
+export const PERPLEXITY_AGENT_ENDPOINT = '/v1/agent'
 
 /**
  * The measurement contract this provider executes. `search-required-v1`: the
@@ -153,28 +158,53 @@ export async function healthcheck(config: PerplexityConfig): Promise<PerplexityH
   }
 }
 
+/** A tracked query's request, with the Agent API body type the sync path posts. */
+type PerplexityTrackedQueryRequest = TrackedQueryRequest & { body: PerplexityAgentRequest }
+
+/** The first half of `executeTrackedQuery`: the exact Agent API request it posts. */
+export function buildTrackedQueryRequest(input: PerplexityTrackedQueryInput): PerplexityTrackedQueryRequest {
+  return {
+    endpoint: PERPLEXITY_AGENT_ENDPOINT,
+    body: buildAgentRequest(input.query, resolveModel(input.config.model), input.location),
+  }
+}
+
 export async function executeTrackedQuery(input: PerplexityTrackedQueryInput): Promise<PerplexityRawResult> {
   const model = resolveModel(input.config.model)
   const client = createClient(input.config.apiKey)
-  const request = buildAgentRequest(input.query, model, input.location)
+  const { body } = buildTrackedQueryRequest(input)
 
   try {
-    const rawResponse = await withRetry(() => postAgent(client, request))
-    assertUsableResponse(rawResponse)
-    const parsed = reparseStoredResult(rawResponse)
-
-    return {
-      provider: 'perplexity',
-      rawResponse,
-      model,
-      servedModel: extractServedModel(rawResponse),
-      groundingSources: parsed.groundingSources,
-      searchQueries: parsed.searchQueries,
-      retrievalStatus: parsed.retrievalStatus,
-    }
+    const rawResponse = await withRetry(() => postAgent(client, body))
+    // Inside the try: a failed run arrives as HTTP 200 and is reported like
+    // any other provider error. It is never retried.
+    return parseTrackedQueryResponse(rawResponse, model)
   } catch (err: unknown) {
     const msg = describeError(err)
     throw new Error(`[provider-perplexity] ${msg}`)
+  }
+}
+
+/**
+ * The second half of `executeTrackedQuery`: read one Agent API response into
+ * a result, throwing on a failed, cancelled, or answerless run exactly as the
+ * sync path does. `model` is the id the request asked for; a retired one is
+ * recorded as the preset it resolves to, the same as the sync path records.
+ */
+export function parseTrackedQueryResponse(body: Record<string, unknown>, model: string): PerplexityRawResult {
+  assertUsableResponse(body)
+  const parsed = reparseStoredResult(body)
+
+  return {
+    provider: 'perplexity',
+    rawResponse: body,
+    model: resolveModel(model),
+    servedModel: extractServedModel(body),
+    groundingSources: parsed.groundingSources,
+    searchQueries: parsed.searchQueries,
+    retrievalStatus: parsed.retrievalStatus,
+    usage: extractAgentUsage(body),
+    stopReason: extractAgentStopReason(body),
   }
 }
 
@@ -338,6 +368,43 @@ function extractAgentSearchQueries(response: Record<string, unknown>): string[] 
     }
   }
   return [...queries]
+}
+
+/**
+ * Billable usage off an Agent API response (`ResponsesUsage` in Perplexity's
+ * SDK). `input_tokens_details` breaks cache reads and writes out of
+ * `input_tokens`, as OpenAI's Responses usage does, so both are subtracted to
+ * leave the uncached remainder. `searchCount` is the billed `web_search`
+ * invocations from `tool_calls_details` when the response reports them, else
+ * one per `search_results` output item (each is one executed search call).
+ * A response with no usage object yields undefined, never a zero-cost answer.
+ */
+function extractAgentUsage(response: Record<string, unknown>): ProviderUsage | undefined {
+  const usage = isRecord(response.usage) ? response.usage : undefined
+  if (!usage) return undefined
+
+  const details = isRecord(usage.input_tokens_details) ? usage.input_tokens_details : undefined
+  const cachedInputTokens = usageCount(details?.cache_read_input_tokens)
+  const cacheWriteTokens = usageCount(details?.cache_creation_input_tokens)
+  const toolCalls = isRecord(usage.tool_calls_details) ? usage.tool_calls_details : undefined
+  const webSearch = isRecord(toolCalls?.web_search) ? toolCalls.web_search : undefined
+  const searchCount = typeof webSearch?.invocation === 'number'
+    ? usageCount(webSearch.invocation)
+    : agentOutput(response).filter(item => item.type === 'search_results').length
+  return {
+    inputTokens: Math.max(0, usageCount(usage.input_tokens) - cachedInputTokens - cacheWriteTokens),
+    cachedInputTokens,
+    cacheWriteTokens,
+    outputTokens: usageCount(usage.output_tokens),
+    searchCount,
+  }
+}
+
+/** Why the run stopped: `incomplete_details.reason` when it has one, else `status`. */
+function extractAgentStopReason(response: Record<string, unknown>): string | undefined {
+  const details = isRecord(response.incomplete_details) ? response.incomplete_details : undefined
+  if (typeof details?.reason === 'string' && details.reason.length > 0) return details.reason
+  return typeof response.status === 'string' && response.status.length > 0 ? response.status : undefined
 }
 
 /**
