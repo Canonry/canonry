@@ -82,7 +82,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Portfolio analysis",
     description: "Interpret Simple and Advanced portfolios, compare Properties and markets, trace answer evidence, and qualify missing or incompatible measurements.",
     entryPoint: false,
-    characters: 7284,
+    characters: 7349,
     content: aeroReferencesPortfolioAnalysisPart0,
   },
   {
@@ -102,7 +102,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Reporting Templates",
     description: "Weekly and monthly report templates with metric tables, regression/gain sections, and recommended-actions structure. Read when asked to produce a client-facing summary.",
     entryPoint: false,
-    characters: 11295,
+    characters: 11469,
     content: aeroReferencesReportingPart0,
   },
   {

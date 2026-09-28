@@ -9,6 +9,7 @@ import {
   textContainsBrandAlias,
   textContainsAnyBrandAlias,
 } from '../src/brand-matching.js'
+import { determineAnswerMentioned } from '../src/answer-visibility.js'
 
 describe('brand identity matching', () => {
   it('folds casing, punctuation, and spacing without changing spelling', () => {
@@ -73,6 +74,43 @@ describe('one segmentation for the whole alias set', () => {
     const matcher = compileBrandAliases(aliases)
     for (const text of ['Vexlo IQ rocks', 'nothing', 'the Vantrell Hotel']) {
       expect(matcherMatchesText(matcher, text)).toBe(textContainsAnyBrandAlias(text, aliases))
+    }
+  })
+
+  it('a compiled matcher is the name-only rule of determineAnswerMentioned', () => {
+    // Visibility compare compiles the project's names once and calls
+    // matcherMatchesText instead of determineAnswerMentioned(text, names, []).
+    // Pin the two together so a rule added to one cannot drift from the other.
+    const nameSets: string[][] = [
+      [],
+      [''],
+      ['  '],
+      ['DemoCo'],
+      ['Demo Co', 'démo-co'],
+      ['demo.co', 'DemoCo.com'],
+      ['Solême', 'Vexlo IQ'],
+      ['Ｄｅｍｏ', 'ﬁnance hub'],
+      ['東京ホテル'],
+    ]
+    const texts: Array<string | null> = [
+      null,
+      '',
+      'DemoCo leads the list.',
+      'DEMO CO and démo co are both named.',
+      'Democracy and rivalry are unrelated words.',
+      'Read more at https://demo.co/pricing or www.democo.com.',
+      'Try demo-co.com today.',
+      'Solême works with Vexlo-IQ.',
+      'Demo pricing from ｄｅｍｏ and finance hub listings.',
+      '東京ホテルは駅の近くです。',
+      'Zero​width Demo​Co text.',
+    ]
+    for (const names of nameSets) {
+      const matcher = compileBrandAliases(names)
+      for (const text of texts) {
+        expect(matcherMatchesText(matcher, text), `${JSON.stringify(names)} vs ${JSON.stringify(text)}`)
+          .toBe(determineAnswerMentioned(text, names, []))
+      }
     }
   })
 

@@ -412,7 +412,7 @@ export async function visibilityStatsRoutes(app: FastifyInstance) {
   })
 }
 
-/** One stored-evidence monthly reader shared by REST and report-readiness checks. */
+/** The stored-evidence monthly comparison behind the REST route, CLI and MCP tool. */
 export function readVisibilityCompare(db: DatabaseClient, projectName: string, query: VisibilityCompareSelection & { from?: string; to?: string }) {
   const project = resolveProject(db, projectName)
   const selection = visibilityCompareSelectionSchema.safeParse(query)
@@ -437,8 +437,11 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
       location: locationKey === undefined ? { kind: 'all' } : locationKey === 'none' ? { kind: 'none' } : { kind: 'exact', value: filters.location! },
       limit: 100,
     }
-    const fromMonth = loadAdvancedCompareMonth(db, project.id, fromBounds, readerSelection)
-    const toMonth = loadAdvancedCompareMonth(db, project.id, toBounds, readerSelection)
+    const { missingScope: fromMissingScope, ...fromMonth } = loadAdvancedCompareMonth(db, project.id, fromBounds, readerSelection)
+    const { missingScope: toMissingScope, ...toMonth } = loadAdvancedCompareMonth(db, project.id, toBounds, readerSelection)
+    // The request fails for a missing scope only when no run in either month measured it.
+    const missingScope = fromMissingScope ?? toMissingScope
+    if (missingScope !== undefined && fromMonth.runCount + toMonth.runCount === 0) throw validationError(missingScope.message, missingScope.details)
     const queries = [...new Map([...fromMonth.snapshots, ...toMonth.snapshots].map(snapshot => [snapshot.queryId!, { id: snapshot.queryId!, query: snapshot.queryText! }])).values()]
     advancedComparison = { ...computeVisibilityCompare({
       project: project.name, queries,
@@ -572,28 +575,43 @@ function legacyCompareRunIds(db: DatabaseClient, projectId: string, bounds: Mont
     .map((r) => r.id)
 }
 
-/** One month of the frozen Advanced frame for a selection. */
+/**
+ * One month of the frozen Advanced frame for a selection. A run whose frozen
+ * definition lacks the selected scope never measured it (a Property added or
+ * retired by a material revision): it leaves the month, as it leaves the
+ * report's trend, and `runCount` counts only the runs that measured it. The
+ * first such scope error is returned for the caller to raise when neither
+ * month measured the scope at all.
+ */
 function loadAdvancedCompareMonth(db: DatabaseClient, projectId: string, bounds: MonthBounds, selection: VisibilityReportReaderSelection, includeEvidence = true) {
   const selected = readVisibilityComparisonRuns(db, projectId, bounds.since, bounds.until, includeEvidence)
   const snapshots: VisibilityCompareSnapshotInput[] = []
   const classSnapshots: VisibilityCompareSnapshotInput[] = []
+  let runCount = 0
+  let missingScope: VisibilityReportScopeError | undefined
   for (const run of selected.runs) {
+    let population: ReturnType<typeof visibilityComparisonPopulation>
     try {
-      const population = visibilityComparisonPopulation(run, selection)
-      const adapt = (snapshot: typeof population.snapshots[number]): VisibilityCompareSnapshotInput => ({
-        ...snapshot,
-        citationState: snapshot.citation === true ? CitationStates.cited : CitationStates['not-cited'],
-        citationChecked: snapshot.citation !== null,
-        citedDomains: [],
-      })
-      snapshots.push(...population.snapshots.map(adapt))
-      classSnapshots.push(...population.classSnapshots.map(adapt))
+      population = visibilityComparisonPopulation(run, selection)
     } catch (error) {
+      if (error instanceof VisibilityReportScopeError && error.details !== undefined) {
+        missingScope ??= error
+        continue
+      }
       if (error instanceof VisibilityReportScopeError) throw validationError(error.message, error.details)
       throw error
     }
+    runCount += 1
+    const adapt = (snapshot: typeof population.snapshots[number]): VisibilityCompareSnapshotInput => ({
+      ...snapshot,
+      citationState: snapshot.citation === true ? CitationStates.cited : CitationStates['not-cited'],
+      citationChecked: snapshot.citation !== null,
+      citedDomains: [],
+    })
+    snapshots.push(...population.snapshots.map(adapt))
+    classSnapshots.push(...population.classSnapshots.map(adapt))
   }
-  return { runCount: selected.runs.length, snapshots, classSnapshots, classificationAvailable: !selected.unavailable }
+  return { runCount, snapshots, classSnapshots, classificationAvailable: !selected.unavailable, missingScope }
 }
 
 /** One continuity frame a monthly comparison gates metrics on. */

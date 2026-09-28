@@ -267,6 +267,21 @@ describe('monthly class metric presentation', () => {
     expect(JSON.parse(machine.text())).toEqual(dto)
     expect(mockGetVisibilityCompare).toHaveBeenLastCalledWith('acme', '2026-05', '2026-06', { scope: 'property', scopeKey: 'harbor', marketKey: 'market', provider: 'gemini', location: undefined })
   })
+
+  it('warns when the class basket has fewer sweeps than the floor even if the project frame does not', async () => {
+    const dto = compareData('non-brand')
+    dto.from = { ...dto.from, runCount: 20, lowRunCount: false }
+    dto.to = { ...dto.to, runCount: 20, lowRunCount: false }
+    dto.classComparison = { from: { ...dto.from, runCount: 3, lowRunCount: true }, to: { ...dto.to, runCount: 20, lowRunCount: false }, basket: dto.basket, continuity: dto.continuity, modelChanges: [] }
+    mockGetVisibilityCompare.mockResolvedValue(dto)
+    const human = captureOutput(() => showVisibilityCompare('acme', { from: '2026-05', to: '2026-06' }))
+    await human.run
+    const lines = human.lines()
+    expect(lines.find(line => line.startsWith('Sweeps:'))).toBe('Sweeps: 2026-05 20, 2026-06 20')
+    expect(lines.find(line => line.startsWith('Class basket sweeps:'))).toBe(
+      `Class basket sweeps: 2026-05 3, 2026-06 20; continuity: ${dto.continuity.status}  (below the 5-sweep floor — class intervals are wide, a "moved" verdict is unlikely to be reachable)`,
+    )
+  })
 })
 
 describe('monthly comparison selection', () => {
