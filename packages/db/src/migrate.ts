@@ -4458,7 +4458,115 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_sentiment_attempt_dispatch ON sentiment_attempts(dispatched_at)`,
     ],
   },
+  {
+    // An Aero conversation id lives in `agent_sessions` while it is active and
+    // in `agent_conversations` once archived, and one foreign key can reference
+    // only one of them. Keyed to `agent_sessions`, the usage and tool ledgers
+    // made "new conversation" fail after any turn (the handler re-keyed the
+    // active row) and nulled a conversation's rows when another was resumed.
+    // The hook rebuilds both tables with `agent_session_id` as a plain indexed
+    // id; see `dropAeroLedgerConversationKeys`.
+    version: 165,
+    name: 'aero-ledger-conversation-ids',
+    statements: [],
+    run: dropAeroLedgerConversationKeys,
+  },
 ]
+
+/**
+ * v165: rebuilds `llm_usage_events` and `agent_tool_events` without the
+ * `agent_session_id -> agent_sessions(id)` foreign key. The project and run keys,
+ * every column, default and index are unchanged. Rows are copied verbatim,
+ * except that a project or run id that already dangles is nulled (as v60 did)
+ * instead of failing the copy. A table that no longer has the key is skipped,
+ * so a replay is a no-op.
+ */
+const AERO_LEDGER_REBUILDS: ReadonlyArray<{ table: string; statements: readonly string[] }> = [
+  {
+    table: 'llm_usage_events',
+    statements: [
+      `CREATE TABLE llm_usage_events_v165 (
+        id                  TEXT PRIMARY KEY,
+        project_id          TEXT REFERENCES projects(id) ON DELETE CASCADE,
+        run_id              TEXT REFERENCES runs(id) ON DELETE SET NULL,
+        agent_session_id    TEXT,
+        feature             TEXT NOT NULL,
+        provider            TEXT NOT NULL,
+        model               TEXT NOT NULL,
+        response_id         TEXT,
+        input_tokens        INTEGER NOT NULL DEFAULT 0,
+        output_tokens       INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens   INTEGER NOT NULL DEFAULT 0,
+        cache_write_tokens  INTEGER NOT NULL DEFAULT 0,
+        total_tokens        INTEGER NOT NULL DEFAULT 0,
+        cost_millicents     INTEGER NOT NULL DEFAULT 0,
+        prompt_family       TEXT,
+        prompt_version      TEXT,
+        metadata            TEXT,
+        created_at          TEXT NOT NULL
+      )`,
+      `INSERT INTO llm_usage_events_v165 (
+        id, project_id, run_id, agent_session_id, feature, provider, model, response_id, input_tokens, output_tokens,
+        cache_read_tokens, cache_write_tokens, total_tokens, cost_millicents, prompt_family, prompt_version, metadata, created_at
+      )
+      SELECT u.id, p.id, r.id, u.agent_session_id, u.feature, u.provider, u.model, u.response_id, u.input_tokens, u.output_tokens,
+        u.cache_read_tokens, u.cache_write_tokens, u.total_tokens, u.cost_millicents, u.prompt_family, u.prompt_version, u.metadata, u.created_at
+      FROM llm_usage_events u
+      LEFT JOIN projects p ON p.id = u.project_id
+      LEFT JOIN runs r ON r.id = u.run_id`,
+      `DROP TABLE llm_usage_events`,
+      `ALTER TABLE llm_usage_events_v165 RENAME TO llm_usage_events`,
+      `CREATE INDEX IF NOT EXISTS idx_llm_usage_project_created ON llm_usage_events(project_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_llm_usage_feature_created ON llm_usage_events(feature, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_llm_usage_session_created ON llm_usage_events(agent_session_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_llm_usage_run_created ON llm_usage_events(run_id, created_at)`,
+    ],
+  },
+  {
+    table: 'agent_tool_events',
+    statements: [
+      `CREATE TABLE agent_tool_events_v165 (
+        id                    TEXT PRIMARY KEY,
+        project_id            TEXT REFERENCES projects(id) ON DELETE CASCADE,
+        agent_session_id      TEXT,
+        tool_call_id          TEXT NOT NULL,
+        tool_name             TEXT NOT NULL,
+        assistant_response_id TEXT,
+        provider              TEXT,
+        model                 TEXT,
+        status                TEXT NOT NULL,
+        duration_ms           INTEGER NOT NULL DEFAULT 0,
+        args_bytes            INTEGER NOT NULL DEFAULT 0,
+        result_text_chars     INTEGER NOT NULL DEFAULT 0,
+        result_bytes          INTEGER NOT NULL DEFAULT 0,
+        metadata              TEXT,
+        created_at            TEXT NOT NULL
+      )`,
+      `INSERT INTO agent_tool_events_v165 (
+        id, project_id, agent_session_id, tool_call_id, tool_name, assistant_response_id, provider, model, status,
+        duration_ms, args_bytes, result_text_chars, result_bytes, metadata, created_at
+      )
+      SELECT t.id, p.id, t.agent_session_id, t.tool_call_id, t.tool_name, t.assistant_response_id, t.provider, t.model, t.status,
+        t.duration_ms, t.args_bytes, t.result_text_chars, t.result_bytes, t.metadata, t.created_at
+      FROM agent_tool_events t
+      LEFT JOIN projects p ON p.id = t.project_id`,
+      `DROP TABLE agent_tool_events`,
+      `ALTER TABLE agent_tool_events_v165 RENAME TO agent_tool_events`,
+      `CREATE INDEX IF NOT EXISTS idx_agent_tool_events_project_created ON agent_tool_events(project_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_agent_tool_events_session_created ON agent_tool_events(agent_session_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_agent_tool_events_tool_created ON agent_tool_events(tool_name, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_agent_tool_events_status_created ON agent_tool_events(status, created_at)`,
+    ],
+  },
+]
+
+function dropAeroLedgerConversationKeys(tx: MigrationDb): void {
+  for (const ledger of AERO_LEDGER_REBUILDS) {
+    const keys = tx.all(sql.raw(`PRAGMA foreign_key_list('${ledger.table}')`)) as Array<{ table: string }>
+    if (!keys.some(key => key.table === 'agent_sessions')) continue
+    for (const statement of ledger.statements) tx.run(sql.raw(statement))
+  }
+}
 
 function addRunsMeasurementPlanVersionForeignKey(tx: MigrationDb): void {
   const tableSqlRow = tx.all(sql.raw("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'runs'")) as Array<{ sql: string }>

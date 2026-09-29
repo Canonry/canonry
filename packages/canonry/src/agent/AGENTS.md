@@ -25,7 +25,11 @@ consume Canonry through the external-agent webhook.
 - **Persistence**: one active `agent_sessions` row per project, with inactive
   conversations in `agent_conversations`. New/resume atomically archive the
   current transcript, model, and follow-ups; delete removes only that conversation
-  and its compaction notes. Shared project notes survive. Migration 159 keeps the
+  and its compaction notes. Shared project notes survive. New replaces the active
+  row and never re-keys it. `llm_usage_events` and `agent_tool_events` keep their
+  conversation id through new, resume and archive: migration 165 dropped their
+  foreign key to `agent_sessions`, which cannot follow an archived conversation.
+  Delete keeps those rows and clears the id. Migration 159 keeps the
   existing active transcript intact. Busy acquisition/streaming blocks switching.
   History routes live in `api-routes/agent-conversations.ts`, with injected runtime
   hooks. CLI: `agent conversations list|new|show|resume|delete`; MCP: the five
