@@ -1275,10 +1275,11 @@ function OverviewBrief({
   return (
     <section className="overview-brief" aria-labelledby="overview-brief-title">
       <div className="av-card-head">
-        <h2 className="av-card-title">
-          <span id="overview-brief-title">Visibility</span>
+        {/* A sibling of the heading, so the heading's name stays the title. */}
+        <div className="inline-flex items-center">
+          <h2 id="overview-brief-title" className="av-card-title">Visibility</h2>
           <InfoTooltip text="A query counts once if any engine mentions or cites you. Rows compare only queries in both sweeps." />
-        </h2>
+        </div>
         {header ? <p className="av-card-meta">{header}</p> : null}
       </div>
 
@@ -2230,8 +2231,8 @@ function ProjectPageContent({
   const competitorLandscapeError = !competitorLandscapeQuery.isError
     ? undefined
     : competitorLandscapeQuery.data === undefined
-      ? 'Could not load competitor history. Your pinned competitors remain available.'
-      : 'Could not refresh competitor history. Showing the last available data.'
+      ? 'Could not load competitors over time. Your pinned competitors remain available.'
+      : 'Could not refresh competitors over time. Showing the last available data.'
   const projectPinnedCompetitorFallback = useMemo<CompetitorLandscapeRow[]>(() => (
     model.competitors.map(competitor => ({
       domain: competitor.domain,

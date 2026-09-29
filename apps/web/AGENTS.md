@@ -55,8 +55,9 @@ Hide the metric and its layout slot when no judged overall score exists. Keep
 counts, class scope, confidence and provisional status in its tooltip; detailed
 sentiment analysis retains separate branded and non-brand populations. Keep class
 headlines to the score, rating count and any partial-results state. Below
-`SENTIMENT_MIN_RATED` (10) ratings a class headline reads "too few" instead of
-its score, and its Details list the rated outcomes. Query rows keep their score
+`SENTIMENT_MIN_RATED` (10) ratings a class headline, and the portfolio's
+overall figure, reads "too few" instead of its score, and its Details list the
+rated outcomes. Query rows keep their score
 beside its rating count. Empty classes show a short state. Coverage and confidence belong in closed Details disclosures;
 data-processing disclosure belongs in Enable/Manage sentiment.
 
@@ -73,6 +74,9 @@ query counts and one status word, and everything else in the shared closed
 words and the answer-level movement. An engine answer counts only when it was
 observed in both sweeps with a mention result in each. Probe runs never set the
 card's time or its "Sweep running" state; the Run button still waits for them.
+Non-brand counts here and on By engine read amber below 70% of their base and
+green from it (`coverageTone`), never red; branded and unclassified counts are
+never toned.
 
 `VisibilityTrendSection` ("AI answers over time") uses the same card shape: the
 latest point's date and sweep count, one headline figure with its base, the
@@ -83,7 +87,10 @@ names live in "What changed" and the point tooltips, never the legend. "What
 changed" (`modelChangeRows`, `querySetChanges` in `lib/visibility-trend-helpers.ts`)
 lists query-set and model changes by engine, collapsed to one line; a Perplexity
 preset (an id without "/") never gets the amber substitution row, and its served
-model rides on its row instead.
+model rides on its row instead. Model notes name engines as the page does
+("OpenAI"). The Date ⓘ names the sweep before a change only when it is provably
+the adjacent one (`sweepBefore`); a pooled point hides the sweeps inside it. On
+a phone the table wraps to the card rather than scrolling.
 
 "Where competitors beat you" (`CompetitiveCard` in `MentionShare.tsx`) is one
 class at a time behind a Non-brand/Branded control: mention share and the
@@ -100,8 +107,9 @@ summary tiles or per-model rate table. "Past sweeps" (`PastSweeps`, operator
 only) is one line per sweep: time, trigger ("Spot check" for a probe) and
 duration in words, with a partial or failed sweep's error detail kept; the time
 opens the run, and RunsPage keeps `RunRow`. "Competitors over time" is the
-`CompetitorLandscape` card described under Competitor landscapes. Class and
-window controls on these cards use `SegmentedRadioGroup`. The Simple context
+`CompetitorLandscape` card described under Competitor landscapes. Every class,
+metric and window control on these cards, the trend's included, uses
+`SegmentedRadioGroup`. The Simple context
 row and the embed header name no date range ("All time" read over latest-sweep
 figures); each card states its own sweep, point or window.
 

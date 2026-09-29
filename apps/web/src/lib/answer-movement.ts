@@ -1,4 +1,4 @@
-import type { QueryClass } from '@ainyc/canonry-contracts'
+import { normalizeQueryText, type QueryClass } from '@ainyc/canonry-contracts'
 import type {
   CitationInsightVm,
   MetricTone,
@@ -82,14 +82,14 @@ export function buildVisibilityRows(input: VisibilityRowsInput): VisibilityRow[]
   const queries = new Map<string, { text: string; key: VisibilityRowKey; mentioned: boolean; cited: boolean }>()
   for (const row of evidence) {
     if (!row.sourceRunId) continue
-    const id = queryKey(row.query)
+    const id = normalizeQueryText(row.query)
     const entry = queries.get(id) ?? { text: row.query, key: rowKey(classify(row.query)), mentioned: false, cited: false }
     if (row.answerMentioned === true) entry.mentioned = true
     if (row.citationState === 'cited' || row.citationState === 'emerging') entry.cited = true
     queries.set(id, entry)
   }
 
-  const added = new Set(comparison.addedQueries.map(queryKey))
+  const added = new Set(comparison.addedQueries.map(normalizeQueryText))
   const removedByKey = countByKey(comparison.removedQueries, classify)
   const keys = VISIBILITY_ROW_ORDER.filter(key => [...queries.values()].some(entry => entry.key === key))
   const mentionByKey = splitMovement(input.mentionMovement, classify, keys)
@@ -189,16 +189,14 @@ export function signalMovePhrase(move: SignalMove): string {
 }
 
 /**
- * Tone for a non-brand count. Same bands as the server's coverage gauges
- * (`scoreTone`, packages/intelligence/src/score-tones.ts): 70% and up
- * positive, 40% and up caution, below that negative.
+ * Tone for a non-brand count: 70% and up positive, the server's top coverage
+ * band (`scoreTone`, packages/intelligence/src/score-tones.ts), anything less
+ * caution. Never negative, as the approved Visibility and By engine cards draw
+ * it: a count says how many queries, and red stays for a loss.
  */
 export function coverageTone(count: number, total: number): MetricTone {
   if (total <= 0) return 'neutral'
-  const score = (count / total) * 100
-  if (score >= 70) return 'positive'
-  if (score >= 40) return 'caution'
-  return 'negative'
+  return (count / total) * 100 >= 70 ? 'positive' : 'caution'
 }
 
 export interface AnswerCounts {
@@ -247,11 +245,11 @@ export function buildAnswerMovement(input: AnswerMovementInput): AnswerMovement 
   const byRow = new Map<VisibilityRowKey, AnswerCounts>()
   const changes: AnswerChange[] = []
   if (!input.previousRunAt) return { byRow, changes }
-  const added = new Set(input.addedQueries.map(queryKey))
+  const added = new Set(input.addedQueries.map(normalizeQueryText))
 
   for (const row of input.evidence) {
     // A query-scoped history pools every engine; it cannot speak for one answer.
-    if (!row.sourceRunId || row.historyScope === 'query' || added.has(queryKey(row.query))) continue
+    if (!row.sourceRunId || row.historyScope === 'query' || added.has(normalizeQueryText(row.query))) continue
     const current = onlyPoint(row.runHistory, point => point.runId === row.sourceRunId)
     const previous = onlyPoint(row.runHistory, point => sameInstant(point.createdAt, input.previousRunAt!))
     if (!current || !previous) continue
@@ -338,10 +336,6 @@ function sameInstant(a: string, b: string): boolean {
 
 function rowKey(queryClass: QueryClass | null): VisibilityRowKey {
   return queryClass ?? 'unclassified'
-}
-
-function queryKey(text: string): string {
-  return text.trim().toLowerCase()
 }
 
 function countByKey(texts: readonly string[], classify: QueryClassLookup): Map<VisibilityRowKey, number> {

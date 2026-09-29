@@ -1,6 +1,6 @@
-import { formatPercent, RatioUnits, shareOfVoiceReason } from '@ainyc/canonry-contracts'
+import { formatPercent, RatioUnits } from '@ainyc/canonry-contracts'
 import React, { useId, useState } from 'react'
-import type { CompetitorLandscapeResponse, CompetitorLandscapeRow as CompetitorLandscapeRowDto } from '@ainyc/canonry-contracts'
+import type { CompetitorLandscapeResponse, CompetitorLandscapeRow as CompetitorLandscapeRowDto, ShareOfVoiceContext } from '@ainyc/canonry-contracts'
 
 import { splitPercentSign } from '../../lib/format-helpers.js'
 import { mentionShareTone, METRIC_TONE_TEXT_CLASS } from '../../lib/tone-helpers.js'
@@ -45,6 +45,19 @@ const CLASS_NOTE: Record<QueryClassFilter, string> = {
   'non-brand': 'Counts queries that do not name your brand.',
   branded: 'Counts queries that name your brand.',
   all: 'Counts every tracked query, so mention share is not shown.',
+}
+
+/**
+ * Why mention share has no figure, as a Details fragment after "Mention
+ * share: ". The CLI and reports keep the full sentences (`shareOfVoiceReason`).
+ */
+const MENTION_SHARE_REASON: Record<NonNullable<ShareOfVoiceContext['reason']>, string> = {
+  'select-query-class': 'no query type selected',
+  'no-competitors': 'no competitors configured',
+  'insufficient-observed': 'needs 3 observed competitors, each named in 3 or more answers',
+  'no-answers': 'no answer text',
+  'no-mentions': 'no brands named',
+  unavailable: 'competitor data unavailable',
 }
 
 const LANDSCAPE_DEFINITIONS = 'Mention share: your share of the brand mentions in these answers, each brand counted at most once per answer. Named: answers that name the brand. Cited: answers whose sources link to its site.'
@@ -342,7 +355,7 @@ export function CompetitorLandscape({
       ? <>Base: <strong>{landscape.runCount}</strong> {plural(landscape.runCount, 'sweep', 'sweeps')}, <strong>{evidence.answeredResults}</strong> {plural(evidence.answeredResults, 'answer', 'answers')}</>
       : <>Base: <strong>{evidence.answeredResults}</strong> {plural(evidence.answeredResults, 'answer', 'answers')}</>)
     if (landscape.reason) {
-      details.push(`Mention share: ${shareOfVoiceReason(landscape.reason)}`)
+      details.push(`Mention share: ${MENTION_SHARE_REASON[landscape.reason]}`)
     } else if (metricState === 'measured' && landscape.project.shareOfVoice !== null) {
       details.push(
         <>
@@ -365,9 +378,7 @@ export function CompetitorLandscape({
     }
   }
   if (pendingDraftCompetitorCount > 0) {
-    details.push(landscape?.scope.kind === 'all-markets'
-      ? `${pendingDraftCompetitorCount} competitor${pendingDraftCompetitorCount === 1 ? ' is' : 's are'} pending publication across markets.`
-      : `${pendingDraftCompetitorCount} competitor${pendingDraftCompetitorCount === 1 ? ' is' : 's are'} pending publication for this market.`)
+    details.push(<>{landscape?.scope.kind === 'all-markets' ? 'Pending publication across markets' : 'Pending publication'}: <strong>{pendingDraftCompetitorCount}</strong> {plural(pendingDraftCompetitorCount, 'competitor', 'competitors')}</>)
   }
   const pages = [...(landscape ? [{ name: 'You', row: landscape.project }] : []), ...frameRows.map(row => ({ name: row.domain, row }))]
     .filter(entry => entry.row.sampleUrls.length > 0)
@@ -444,7 +455,7 @@ export function CompetitorLandscape({
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <p className="av-card-meta">{meta}</p>
-          <SegmentedRadioGroup label="Competitor history window" className="flex-wrap" options={WINDOW_OPTIONS} value={window} onChange={onWindowChange} />
+          <SegmentedRadioGroup label="Competitors over time window" className="flex-wrap" options={WINDOW_OPTIONS} value={window} onChange={onWindowChange} />
         </div>
       </div>
 
@@ -453,13 +464,13 @@ export function CompetitorLandscape({
         {error ? (
           <div role="alert" className="flex flex-wrap items-center gap-3 border-y border-negative-800/40 bg-negative-950/20 py-3 text-sm text-negative">
             <span>{error}</span>
-            {onRetry ? <Button type="button" size="sm" variant="outline" onClick={onRetry}>Retry competitor history</Button> : null}
+            {onRetry ? <Button type="button" size="sm" variant="outline" onClick={onRetry}>Retry competitors over time</Button> : null}
           </div>
         ) : null}
 
         {isLoading && !landscape && pinned.length === 0 ? (
           <div role="status" aria-live="polite" className="h-24 animate-pulse rounded-md bg-surface">
-            <span className="sr-only">Loading competitor history</span>
+            <span className="sr-only">Loading competitors over time</span>
           </div>
         ) : landscape || frameRows.length > 0 ? (
           <table className="av-grid" aria-label="Competitors over time">

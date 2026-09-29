@@ -41,6 +41,16 @@ describe('byEngineClasses', () => {
     expect(branded!.engines.map(({ mentioned, cited }) => [mentioned, cited])).toEqual([[3, 2], [3, 3], [3, 2], [3, 3]])
   })
 
+  test('counts a competitor gap only for an answer the grid counts, so it never exceeds its base', () => {
+    const data = ainycCitationVisibility()
+    const gap = data.competitorGaps[0]!
+    // The server keeps gap rows from an engine no longer configured, and from a
+    // query no longer tracked; neither is one of the answers the base counts.
+    data.competitorGaps.push({ ...gap, provider: 'muse' }, { ...gap, queryId: 'query_removed', query: 'removed query' })
+    const [nonBrand] = byEngineClasses(data, ainycClassify)
+    expect(nonBrand).toMatchObject({ answers: 44, competitorCited: 8 })
+  })
+
   test('a project that cannot classify gets one Unclassified class, never Non-brand', () => {
     const classes = byEngineClasses(ainycCitationVisibility(), () => null)
     expect(classes.map(entry => [entry.key, entry.queries, entry.answers, entry.competitorCited])).toEqual([['unclassified', 14, 56, 8]])
@@ -78,8 +88,9 @@ describe('By engine card', () => {
       ['Mentioned', '1', '3', '0', '3'],
       ['Cited', '2', '3', '0', '4'],
     ])
-    // Non-brand counts carry the coverage tone.
-    expect(grid.querySelectorAll('.av-n-sm.text-negative-400')).toHaveLength(8)
+    // Non-brand counts below 70% read amber, as the approved card draws them; never red.
+    expect(grid.querySelectorAll('.av-n-sm.text-caution-400')).toHaveLength(8)
+    expect(grid.querySelectorAll('.text-negative-400')).toHaveLength(0)
     expect(container.querySelector('.av-card-line')?.textContent).toBe('Competitor cited instead of you8 of 44 answers · non-brand queries')
 
     const details = container.querySelector<HTMLDetailsElement>('details.av-details')!

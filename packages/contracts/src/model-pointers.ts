@@ -438,8 +438,12 @@ function sortedUnique(days: (string | null)[]): string[] {
   return [...new Set(days.filter((d): d is string => d !== null))].sort()
 }
 
-function normalizeEngineChange(provider: string, entry: WireModelPointerChange): EngineModelChange {
-  const engine = answerEngineName(provider)
+function normalizeEngineChange(
+  provider: string,
+  entry: WireModelPointerChange,
+  engineName: (provider: string) => string,
+): EngineModelChange {
+  const engine = engineName(provider)
   const perChange = Array.isArray(entry.changes) ? entry.changes : []
   const changeCount = countOf(entry.changeCount) || perChange.length
   // `unverifiedChangeCount` is the field the current server sends;
@@ -557,9 +561,18 @@ function uncheckedTailSentence(entries: readonly EngineModelChange[]): string | 
  */
 export function buildModelChangeNotice(
   disclosures: Record<string, WireModelPointerChange | null | undefined> | undefined,
+  options: {
+    /**
+     * Names an engine where a surface already labels it its own way (the web's
+     * What changed table reads "OpenAI"), so the note beside it matches. The
+     * wording is otherwise the shared one.
+     */
+    engineName?: (provider: string) => string
+  } = {},
 ): ModelChangeNotice | null {
+  const engineName = options.engineName ?? answerEngineName
   const entries = Object.entries(disclosures ?? {})
-    .map(([provider, entry]) => normalizeEngineChange(provider, entry ?? {}))
+    .map(([provider, entry]) => normalizeEngineChange(provider, entry ?? {}, engineName))
     .sort((a, b) => a.engine.localeCompare(b.engine))
   if (entries.length === 0) return null
 

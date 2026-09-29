@@ -88,8 +88,9 @@ function bullets(details: Element | null): string[] {
   return [...(details?.querySelectorAll('li') ?? [])].map(item => item.textContent ?? '')
 }
 
+/** Cell text with its no-break spaces read as spaces: a date never splits across lines. */
 function changeRows(): string[][] {
-  return [...whatChanged().querySelectorAll('.av-change-table tbody tr')].map(row => [...row.children].map(cell => cell.textContent ?? ''))
+  return [...whatChanged().querySelectorAll('.av-change-table tbody tr')].map(row => [...row.children].map(cell => (cell.textContent ?? '').replace(/\u00a0/g, ' ')))
 }
 
 function readout(): Record<'value' | 'change' | 'base', string | null> {
@@ -132,8 +133,8 @@ test('reads 25.0% of 100 answers on Sep 29 with no change figure, and says why',
   expect(within(card).getByText('Setup changed')).toBeTruthy()
   expect(screen.queryByText(/Query set changed/)).toBeNull()
 
-  // The window picker reads in words.
-  expect(within(screen.getByRole('group', { name: 'Time window' })).getAllByRole('button').map(button => button.textContent))
+  // The window picker reads in words, as the other cards' window controls do.
+  expect(within(screen.getByRole('radiogroup', { name: 'Time window' })).getAllByRole('radio').map(radio => radio.textContent))
     .toEqual(['7 days', '30 days', '90 days', 'All'])
 })
 
@@ -141,10 +142,10 @@ test('keeps the Cited change hidden too, and mention share\'s change because onl
   renderAinyc()
   await screen.findByRole('list', { name: 'Engines' })
 
-  act(() => { fireEvent.click(screen.getByRole('button', { name: 'Cited' })) })
+  act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Cited' })) })
   expect(readout()).toEqual({ value: '27.0%', change: null, base: '· 27 of 100 answers' })
 
-  act(() => { fireEvent.click(screen.getByRole('button', { name: 'Mention share' })) })
+  act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Mention share' })) })
   expect(readout()).toEqual({ value: '31.7%', change: 'down 2.9 points', base: '· 13 of 41 tracked-brand mentions' })
   expect(bullets(trendCard().querySelector(':scope > details.av-details'))).toEqual(['Base: Mar 13 to Apr 8 point'])
 })
@@ -179,7 +180,8 @@ test('collapses What changed to one line and opens a table by engine, newest fir
   })).toBeTruthy()
   // chat-latest has no update on record and was last checked Jul 20: that
   // note rides on its row, never as the banner above the readout.
-  expect(within(changes).getByRole('button', { name: /^No model updates are on record for ChatGPT in this period\. .*We last checked for model updates on Jul 20, and this period runs past that date/ })).toBeTruthy()
+  // Named as its row is: "OpenAI", not ChatGPT.
+  expect(within(changes).getByRole('button', { name: /^No model updates are on record for OpenAI in this period\. .*We last checked for model updates on Jul 20, and this period runs past that date/ })).toBeTruthy()
   expect(screen.queryByText(/The model behind/)).toBeNull()
   // fast is a Perplexity preset: its served model is the preset working, so no
   // amber row, and the preset's own answer model is named on its row.
@@ -198,8 +200,11 @@ test('dates every model change "on or before" Sep 29 on 7 days, bounded by the J
   await screen.findByRole('list', { name: 'Engines' })
 
   expect(trendCard().querySelector('.av-card-meta')?.textContent).toBe('Sep 29 · 2 sweeps')
-  // One point: the server has no change to report, so there is nothing to explain.
-  expect(bullets(trendCard().querySelector(':scope > details.av-details'))).toEqual(['25.0% pools all answers; not an average of engines'])
+  // One point: no change figure to withhold, but the point still mixes two query sets.
+  expect(bullets(trendCard().querySelector(':scope > details.av-details'))).toEqual([
+    'Sep 29 point mixes the 5:41 AM sweep (11 queries) and the 5:59 AM sweep (14 queries)',
+    '25.0% pools all answers; not an average of engines',
+  ])
 
   const changes = whatChanged()
   expect(changes.querySelector('.av-wc-summary')?.textContent).toBe('Sep 29 · 3 queries added · 4 new models')
@@ -215,6 +220,10 @@ test('dates every model change "on or before" Sep 29 on 7 days, bounded by the J
     'Changed before this date range, after the Jul 14 sweep: Claude, Gemini, OpenAI and Perplexity',
   ])
   expect(within(changes).getByRole('button', { name: /Sweep before: Jul 14\.$/ })).toBeTruthy()
+
+  // Mention share reads non-brand answers only, which the branded additions left alone.
+  act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Mention share' })) })
+  expect(bullets(trendCard().querySelector(':scope > details.av-details'))).toEqual([])
 })
 
 test('the first and latest point tooltips carry their own dates, counts and models', async () => {

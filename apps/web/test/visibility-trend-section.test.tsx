@@ -116,7 +116,7 @@ function whatChanged(): HTMLElement {
 
 /** Each change row as [group, date, from, to]; a continued group names itself for screen readers only. */
 function changeRows(root: HTMLElement): string[][] {
-  return [...root.querySelectorAll('.av-change-table tbody tr')].map(row => [...row.children].map(cell => cell.textContent ?? ''))
+  return [...root.querySelectorAll('.av-change-table tbody tr')].map(row => [...row.children].map(cell => (cell.textContent ?? '').replace(/\u00a0/g, ' ')))
 }
 
 /** The bullets of the Details list directly under `root`. */
@@ -153,24 +153,24 @@ test('defaults to the by-engine view with a per-engine legend, and toggles to al
   // `.visibility-trend-chart` class.
   const legend = await screen.findByRole('list', { name: 'Engines' })
 
-  // Segmented controls are toggle buttons (aria-pressed). Metric is Cited /
-  // Mentioned (no "Both"); Mentioned is the default.
-  expect(screen.queryByRole('button', { name: 'Both' })).toBeNull()
-  expect(screen.getByRole('button', { name: 'Cited' })).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Mention share' })).toBeTruthy()
-  const mentioned = screen.getByRole('button', { name: 'Mentioned' })
-  expect(mentioned.getAttribute('aria-pressed')).toBe('true')
+  // The controls are radio groups, like every AI Visibility card's. Metric is
+  // Cited / Mentioned / Mention share (no "Both"); Mentioned is the default.
+  expect(screen.queryByRole('radio', { name: 'Both' })).toBeNull()
+  expect(screen.getByRole('radio', { name: 'Cited' })).toBeTruthy()
+  expect(screen.getByRole('radio', { name: 'Mention share' })).toBeTruthy()
+  const mentioned = screen.getByRole('radio', { name: 'Mentioned' })
+  expect(mentioned.getAttribute('aria-checked')).toBe('true')
   expect(mentioned.getAttribute('title')).toBeNull()
   const mentionedDescriptionId = mentioned.getAttribute('aria-describedby')
   expect(mentionedDescriptionId).toBeTruthy()
   expect(document.getElementById(mentionedDescriptionId!)?.textContent).toBe('Your brand or domain appears in the answer text.')
 
   // By engine is the default breakdown; All engines is the other mode.
-  const byEngine = screen.getByRole('button', { name: 'By engine' })
-  const allEngines = screen.getByRole('button', { name: 'All engines' })
-  expect(byEngine.getAttribute('aria-pressed')).toBe('true')
-  expect(allEngines.getAttribute('aria-pressed')).toBe('false')
-  expect(screen.getByRole('button', { name: 'All' })).toBeTruthy()
+  const byEngine = screen.getByRole('radio', { name: 'By engine' })
+  const allEngines = screen.getByRole('radio', { name: 'All engines' })
+  expect(byEngine.getAttribute('aria-checked')).toBe('true')
+  expect(allEngines.getAttribute('aria-checked')).toBe('false')
+  expect(screen.getByRole('radio', { name: 'All' })).toBeTruthy()
 
   // The headline pools every answer, with its base beside it, and Details says
   // it is not an engine average. Mentioned sits at 0.5 in both buckets and the
@@ -194,8 +194,8 @@ test('defaults to the by-engine view with a per-engine legend, and toggles to al
   // Switching to All engines presses it (no refetch) and drops the per-engine
   // legend and the pooling note: the headline now matches the one plotted line.
   act(() => { fireEvent.click(allEngines) })
-  expect(allEngines.getAttribute('aria-pressed')).toBe('true')
-  expect(byEngine.getAttribute('aria-pressed')).toBe('false')
+  expect(allEngines.getAttribute('aria-checked')).toBe('true')
+  expect(byEngine.getAttribute('aria-checked')).toBe('false')
   expect(screen.queryByRole('list', { name: 'Engines' })).toBeNull()
   expect(screen.queryByText(/pools all answers/)).toBeNull()
 })
@@ -285,9 +285,9 @@ test('carries pooled classification-unavailable scope through an empty response'
 
   renderSection(['competitor.com'])
   await screen.findByText('Run a sweep to start tracking citations and mentions over time.')
-  act(() => { fireEvent.click(screen.getByRole('button', { name: 'Mention share' })) })
+  act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Mention share' })) })
 
-  expect(screen.getByText(/pooled queries.*classification unavailable/i)).toBeTruthy()
+  expect(screen.getByText(/No answer-text brand mentions for you or tracked competitors in all answers/)).toBeTruthy()
 })
 
 test('renders mention-share as a metric view and hides the engine split', async () => {
@@ -303,20 +303,22 @@ test('renders mention-share as a metric view and hides the engine split', async 
   renderSection(['competitor.com'])
 
   await screen.findByRole('list', { name: 'Engines' })
-  const mentionShare = screen.getByRole('button', { name: 'Mention share' })
+  const mentionShare = screen.getByRole('radio', { name: 'Mention share' })
   act(() => { fireEvent.click(mentionShare) })
 
-  expect(mentionShare.getAttribute('aria-pressed')).toBe('true')
-  expect(screen.queryByRole('group', { name: 'Series' })).toBeNull()
+  expect(mentionShare.getAttribute('aria-checked')).toBe('true')
+  expect(screen.queryByRole('radiogroup', { name: 'Series' })).toBeNull()
   expect(screen.queryByRole('list', { name: 'Engines' })).toBeNull()
   expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('75.0%')
   // 0.25 to 0.75 across the two plotted points, in words, over its base.
   expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('up 50.0 points')
   expect(document.querySelector('.visibility-trend-current-detail')?.textContent).toBe('· 3 of 4 tracked-brand mentions')
   expect(screen.getByText(/Latest 75\.0%, up 50\.0 points over the period\./)).toBeTruthy()
-  expect(screen.getByRole('img', { name: /Mention share.*non-brand queries.*trend chart/i })).toBeTruthy()
-  expect(screen.getByText(/75\.0% mention share for non-brand queries, 3 of 4 tracked-brand mentions were you/)).toBeTruthy()
-  expect(screen.getAllByText('Mention share · non-brand queries').length).toBeGreaterThan(0)
+  // The headline says only "Mention share"; its scope is in the title's ⓘ and
+  // its base, and assistive tech hears it with the name.
+  expect(document.querySelector('.visibility-trend-current-label')?.textContent).toBe('Mention share')
+  expect(screen.getByRole('img', { name: /^Mention share in non-brand answers trend chart/ })).toBeTruthy()
+  expect(screen.getByText(/75\.0% mention share in non-brand answers, 3 of 4 tracked-brand mentions were you/)).toBeTruthy()
 })
 
 test('reads the head and legend from the API rates, so a rate near either end never prints as 0% or 100%', async () => {
@@ -368,7 +370,7 @@ test('prints the server change across the window, never a subtraction of the plo
 
   renderSection()
   await screen.findByRole('list', { name: 'Engines' })
-  act(() => { fireEvent.click(screen.getByRole('button', { name: 'Cited' })) })
+  act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Cited' })) })
 
   expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('up 12.3 points')
   expect(screen.queryByText('up 50.0 points')).toBeNull()
@@ -411,10 +413,12 @@ test('labels a pooled mention-share trend as classification unavailable', async 
 
   renderSection(['competitor.com'])
   await screen.findByRole('list', { name: 'Engines' })
-  act(() => { fireEvent.click(screen.getByRole('button', { name: 'Mention share' })) })
+  act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Mention share' })) })
 
-  expect(screen.getByRole('img', { name: /Mention share.*pooled queries.*classification unavailable.*trend chart/i })).toBeTruthy()
-  expect(screen.getAllByText('Mention share · pooled queries · classification unavailable').length).toBeGreaterThan(0)
+  // "All answers", as the title's ⓘ and the competitive card say, never "pooled".
+  expect(screen.getByRole('img', { name: /^Mention share in all answers trend chart/ })).toBeTruthy()
+  expect(document.querySelector('.visibility-trend-current-label')?.textContent).toBe('Mention share')
+  expect(screen.queryByText(/pooled|classification unavailable/i)).toBeNull()
 })
 
 test('prompts for competitors before rendering the mention-share metric view', async () => {
@@ -430,7 +434,7 @@ test('prompts for competitors before rendering the mention-share metric view', a
   renderSection([])
 
   await screen.findByRole('list', { name: 'Engines' })
-  act(() => { fireEvent.click(screen.getByRole('button', { name: 'Mention share' })) })
+  act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Mention share' })) })
 
   await waitFor(() => {
     expect(screen.getByText(/Add tracked competitors/)).toBeTruthy()
@@ -627,7 +631,7 @@ test('hides model details and sweep commentary when there are no model changes',
   expect(screen.queryByRole('list', { name: 'Model substitutions' })).toBeNull()
   expect(screen.queryByText('Only one sweep so far. The trend line fills in after the next run.')).toBeNull()
 
-  act(() => { fireEvent.click(screen.getByRole('button', { name: 'Mention share' })) })
+  act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Mention share' })) })
   expect(screen.queryByText(/Only one .* mention-share point so far/)).toBeNull()
 })
 
@@ -672,9 +676,9 @@ test('meets the reader with the model-update caveat before the headline number',
 
   renderSection()
 
-  const note = await screen.findByText(/The model behind ChatGPT/)
+  const note = await screen.findByText(/The model behind OpenAI/)
   expect(note.textContent).toBe(
-    `The model behind ChatGPT was updated on ${formatCalendarDay('2026-06-24')}, inside this period. `
+    `The model behind OpenAI was updated on ${formatCalendarDay('2026-06-24')}, inside this period. `
     + `Some of the movement in these numbers may come from this update ${CLOSING_LINE}`,
   )
   // The point of the placement: the number the operator is about to send to a
@@ -694,9 +698,9 @@ test('states one fact per affected engine and closes with a single consequence',
 
   renderSection()
 
-  const note = await screen.findByText(/The model behind ChatGPT/)
+  const note = await screen.findByText(/The model behind OpenAI/)
   expect(note.textContent).toBe(
-    `The model behind ChatGPT was updated on ${formatCalendarDay('2026-06-24')}, inside this period. `
+    `The model behind OpenAI was updated on ${formatCalendarDay('2026-06-24')}, inside this period. `
     + `The model behind Perplexity was updated on ${formatCalendarDay('2026-06-10')}, inside this period. `
     + `Some of the movement in these numbers may come from these updates ${CLOSING_LINE}`,
   )
@@ -715,13 +719,15 @@ test('puts a moving model id with no update on record in What changed, never in 
 
   await screen.findByRole('list', { name: 'Engines' })
   expect(screen.queryByText(/The model behind/)).toBeNull()
-  // OpenAI has no change row here to carry it, so the note is a Details line.
-  expect(detailsText(whatChanged())).toContain(
-    'No model updates are on record for ChatGPT in this period. This engine can be moved onto a different underlying model'
-    + ' without the data ever showing a different model name, so we check each period against a record of known updates.'
-    + ` Nothing is listed inside this one. We last checked for model updates on ${formatCalendarDay('2026-07-20')}, and this period runs past that`
-    + ' date, so there may be later updates we do not know about.',
-  )
+  // OpenAI has no change row here to carry it, so the note is a short Details
+  // line with the whole explanation behind its ⓘ.
+  expect(detailsText(whatChanged())).toContain('OpenAI: no model updates on record')
+  expect(within(whatChanged()).getByRole('button', {
+    name: 'No model updates are on record for OpenAI in this period. This engine can be moved onto a different underlying model'
+      + ' without the data ever showing a different model name, so we check each period against a record of known updates.'
+      + ` Nothing is listed inside this one. We last checked for model updates on ${formatCalendarDay('2026-07-20')}, and this period runs past that`
+      + ' date, so there may be later updates we do not know about.',
+  })).toBeTruthy()
 })
 
 test('renders nothing at all when the API omits the field or reports no exposure', async () => {

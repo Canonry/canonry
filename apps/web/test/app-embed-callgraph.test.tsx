@@ -5,6 +5,7 @@ import { RouterProvider } from '@tanstack/react-router'
 
 import { createAppRouter } from '../src/router/router.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
+import { ainycComparison, ainycGaps, ainycMentionShare, ainycMovement } from './ainyc-visibility-fixture.js'
 
 beforeAll(async () => {
   await preloadAllLazyRoutes()
@@ -120,7 +121,38 @@ const emptyCompetitorLandscape = {
   truncated: false,
 }
 
-test('embed project overview only issues reads covered by the overview server allowlist', async () => {
+const score = (label: string) => ({ label, value: 'No data', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] })
+
+/** GET /overview after a completed sweep, enough for the Simple cards to read their own data. */
+const baselineOverview = {
+  project,
+  latestRun: { totalRuns: 2, run: null },
+  health: null,
+  topInsights: [],
+  queryCounts: { totalQueries: 14, citedQueries: 7, notCitedQueries: 7, citedRate: 0.5, mentionedQueries: 7, notMentionedQueries: 7, mentionRate: 0.5 },
+  providers: [],
+  transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
+  scores: {
+    mention: score('Mention Coverage'),
+    visibility: score('Answer Visibility'),
+    mentionShare: ainycMentionShare(),
+    gapQueries: score('Gap Queries'),
+    mentionGaps: score('Mention Gaps'),
+    indexCoverage: score('Index Coverage'),
+    competitorPressure: score('Competitor Pressure'),
+    runStatus: score('Run Status'),
+  },
+  movementSummary: ainycMovement(),
+  citationMovement: ainycMovement(),
+  mentionMovement: ainycMovement(),
+  movementComparison: ainycComparison(),
+  competitors: [],
+  attentionItems: [],
+  runHistory: [],
+  contextLabel: 'US / EN',
+}
+
+async function renderEmbedOverview(overview: unknown) {
   window.__CANONRY_CONFIG__ = {
     embed: {
       enabled: true,
@@ -153,7 +185,8 @@ test('embed project overview only issues reads covered by the overview server al
       if (path === '/api/v1/projects/citypoint/google/gsc/coverage') return jsonResponse(null)
       if (path === '/api/v1/projects/citypoint/bing/coverage') return jsonResponse(null)
       if (path === '/api/v1/projects/citypoint/insights') return jsonResponse([])
-      if (path === '/api/v1/projects/citypoint/overview') return jsonResponse(null)
+      if (path === '/api/v1/projects/citypoint/overview') return jsonResponse(overview)
+      if (path === '/api/v1/projects/citypoint/analytics/gaps?window=7d') return jsonResponse(ainycGaps())
       if (path === '/api/v1/projects/citypoint/analytics/metrics') return jsonResponse(emptyMetrics)
       if (path === '/api/v1/projects/citypoint/analytics/competitors?window=30d&queryClass=non-brand') return jsonResponse(emptyCompetitorLandscape)
       if (path === '/api/v1/projects/citypoint/citations/visibility') return jsonResponse(emptyCitationVisibility)
@@ -181,6 +214,11 @@ test('embed project overview only issues reads covered by the overview server al
       <RouterProvider router={router} />
     </QueryClientProvider>,
   )
+  return { observed, observedMethods, disallowed }
+}
+
+test('embed project overview only issues reads covered by the overview server allowlist', async () => {
+  const { observed, observedMethods, disallowed } = await renderEmbedOverview(null)
 
   await waitFor(() => {
     expect(observed.has('/api/v1/projects/citypoint/citations/visibility')).toBe(true)
@@ -195,4 +233,18 @@ test('embed project overview only issues reads covered by the overview server al
     { path: '/api/v1/projects/citypoint/analytics/competitors?window=30d&queryClass=non-brand', method: 'GET' },
   ])
   expect(Array.from(observed).some(path => path.startsWith('/api/v1/settings'))).toBe(false)
+})
+
+test('an embed with a completed sweep reads the competitive card\'s gaps, an allowed read', async () => {
+  const { observed, observedMethods, disallowed } = await renderEmbedOverview(baselineOverview)
+
+  // "Where competitors beat you" counts its gaps from the latest sweep.
+  await waitFor(() => {
+    expect(observed.has('/api/v1/projects/citypoint/analytics/gaps?window=7d')).toBe(true)
+  })
+  expect(await screen.findByText('Where competitors beat you', { selector: 'h2' })).toBeTruthy()
+  expect(disallowed).toEqual([])
+  expect(observedMethods.filter(request => request.path.includes('/analytics/gaps'))).toEqual([
+    { path: '/api/v1/projects/citypoint/analytics/gaps?window=7d', method: 'GET' },
+  ])
 })

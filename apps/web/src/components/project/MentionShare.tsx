@@ -48,8 +48,8 @@ const GAP_DEFINITIONS = 'Named instead of you: queries where an engine named a t
  *  explanation can never describe a population other than the one on screen. */
 const COMPETITIVE_CARD_TOOLTIP: Record<MentionScopeKey, string> = {
   'non-brand': `Queries that do not contain your name. Mention share: your share of tracked-brand mentions in the answers, where each answer counts you and each tracked competitor once. ${GAP_DEFINITIONS} Branded queries are scored separately because you are named on nearly all of them and a competitor cannot be.`,
-  branded: `Queries that contain your name. Mention share: your share of tracked-brand mentions in the answers. This is recognition, not competitive placement, and it is never pooled with the non-brand figures. ${GAP_DEFINITIONS}`,
-  pooled: `This project has no brand name or domain to match on, so branded and non-brand queries could not be separated. These figures pool both and are not a competitive read. ${GAP_DEFINITIONS}`,
+  branded: `Queries that contain your name. Mention share: your share of tracked-brand mentions in the answers. This is recognition, not competitive placement, and it is never counted together with the non-brand figures. ${GAP_DEFINITIONS}`,
+  pooled: `This project has no brand name or domain to match on, so branded and non-brand queries could not be separated. These figures count all answers and are not a competitive read. ${GAP_DEFINITIONS}`,
 }
 
 /**
@@ -231,7 +231,7 @@ export function CompetitiveCard({
     details.push(<>Base: <strong>{active.snapshotsWithAnswerText}</strong> {MENTION_SCOPE_BASE[scopeKey]}</>)
   }
   if (scoped) details.push(...gapQueryLines(scoped.named, scoped.cited))
-  if (pooled) details.push('Set a brand name to split branded from non-brand.')
+  if (pooled) details.push('No brand name: branded and non-brand not split')
 
   const spoken = MENTION_SCOPE_SPOKEN[scopeKey]
   const gapState: GapCountState = scoped ?? (gaps.status === 'error' ? 'error' : 'loading')

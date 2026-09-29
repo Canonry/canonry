@@ -1401,16 +1401,7 @@
     @apply bg-mono-700/90 text-primary shadow-sm;
   }
 
-  /* ── AEO performance hero (paired Mention + Citation) ── */
-
-  .aeo-hero {
-    @apply rounded-xl border border-default bg-surface px-5 py-5;
-  }
-
-
-  .aeo-hero-rows {
-    @apply space-y-4 sm:space-y-3;
-  }
+  /* ── AEO hero rows (a Property's paired metrics, MeasurementPropertyPage) ── */
 
   .aeo-hero-row {
     @apply grid items-center gap-x-4 gap-y-1;
@@ -1521,8 +1512,9 @@
     @apply ml-px text-[13px] tabular-nums text-muted;
   }
 
+  /* Wraps on a phone ("first AI / sweep") rather than push the grid past the card. */
   .av-status {
-    @apply whitespace-nowrap text-[13px] font-medium;
+    @apply text-[13px] font-medium sm:whitespace-nowrap;
   }
 
   /* A grid of many small figures (By engine, Past sweeps, Competitors over
@@ -1657,12 +1649,14 @@
   }
 
   .av-change-table thead th {
-    @apply whitespace-nowrap pb-2 pr-6 pt-1 text-left text-[11px] font-medium uppercase tracking-[0.14em] text-muted sm:pr-10;
+    @apply whitespace-nowrap pb-2 pr-3 pt-1 text-left text-[11px] font-medium uppercase tracking-[0.14em] text-muted sm:pr-10;
   }
 
+  /* On a phone the table fits the card instead of scrolling: cells wrap and a
+     model id breaks at its hyphens, so the To column and its ⓘ stay in view. */
   .av-change-table td,
   .av-change-table tbody th {
-    @apply whitespace-nowrap py-1 pr-6 text-left align-baseline text-[13px] sm:pr-10;
+    @apply py-1 pr-3 text-left align-baseline text-[13px] sm:whitespace-nowrap sm:pr-10;
   }
 
   .av-change-table tbody tr:first-child > * {
@@ -1682,7 +1676,7 @@
   }
 
   .av-model {
-    @apply font-mono text-xs text-strong;
+    @apply font-mono text-xs text-strong wrap-anywhere sm:wrap-normal;
   }
 
   .av-model-from {
@@ -1758,7 +1752,7 @@
   }
 
   .metric-card-bar-fill {
-    /* Tone color comes from the paired `progress-fill-{tone}` class. Transition
+    /* Color comes from the paired `progress-fill-neutral` class. Transition
        is scoped to `width` (not `all`, which also crossfaded tone swaps) and
        gated behind `motion-safe` so reduced-motion users get no animation. */
     @apply h-full rounded-full motion-safe:transition-[width] motion-safe:duration-300;
@@ -2096,24 +2090,12 @@
     @apply mt-0.5 text-[12px] text-faint;
   }
 
-  /* ── Metric progress-bar tone fills ──
-     Shared by `.metric-card-bar-fill` (secondary metric cards) and the AEO
-     performance hero rows. The metric card / grid layout itself lives in the
-     "Metric cards (non-gauge)" block above; the duplicate definitions that
-     once lived here silently overrode it (flipping `lg:grid-cols-3` to
-     `md:grid-cols-2`) and have been removed. */
-
-  .progress-fill-positive {
-    @apply bg-positive-400;
-  }
-
-  .progress-fill-caution {
-    @apply bg-caution-400;
-  }
-
-  .progress-fill-negative {
-    @apply bg-negative-400;
-  }
+  /* ── Metric progress-bar fill ──
+     The one untoned fill, shared by `.metric-card-bar-fill` (a Property's
+     metric cards) and the report strip's rate bars. The metric card / grid
+     layout itself lives in the "Metric cards (non-gauge)" block above; the
+     duplicate definitions that once lived here silently overrode it (flipping
+     `lg:grid-cols-3` to `md:grid-cols-2`) and have been removed. */
 
   .progress-fill-neutral {
     @apply bg-mono-500;

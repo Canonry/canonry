@@ -268,7 +268,7 @@ describe('CompetitorLandscape', () => {
     const { container } = renderLandscape({ onWindowChange, window: '90d', landscape: landscape({ window: '90d' }) })
 
     expect(container.querySelector('.av-card-meta')?.textContent).toBe('Non-brand · last 90 days')
-    const control = screen.getByRole('radiogroup', { name: 'Competitor history window' })
+    const control = screen.getByRole('radiogroup', { name: 'Competitors over time window' })
     expect(within(control).getAllByRole('radio').map(option => option.textContent)).toEqual(['7 days', '30 days', '90 days', 'All'])
     fireEvent.keyDown(control, { key: 'ArrowLeft' })
     expect(onWindowChange).toHaveBeenCalledWith('30d')
@@ -329,7 +329,7 @@ describe('CompetitorLandscape', () => {
 
     expect(screen.getByRole('alert').textContent).toContain('Could not load observed competitors.')
     expect(within(grid()).getByRole('rowheader', { name: 'saved.example' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Retry competitor history' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Retry competitors over time' }))
     expect(onRetry).toHaveBeenCalledTimes(1)
   })
 
@@ -364,14 +364,15 @@ describe('CompetitorLandscape', () => {
       }),
     })
 
-    expect(screen.getByText('1 competitor is pending publication for this market.')).toBeTruthy()
+    // A Details fragment, the count in bold.
+    expect([...document.querySelectorAll('details.av-details li')].map(item => item.textContent)).toContain('Pending publication: 1 competitor')
   })
 })
 
 test('explains unmeasured share without hiding counts', () => {
   const data = landscape({ basis: null, availability: 'not-measured', reason: 'no-competitors', pinned: [], observed: [], project: row({ surfaceClass: 'own', mentionCount: 34, shareOfVoice: null }) })
   const { container } = renderLandscape({ landscape: data })
-  expect(screen.getByText('Mention share: No competitors configured.')).toBeTruthy()
+  expect(screen.getByText('Mention share: no competitors configured')).toBeTruthy()
   expect(within(gridRow('You')).getByText('Not measured')).toBeTruthy()
   expect(within(gridRow('You')).getByText('34')).toBeTruthy()
   expect(detailsList(container).bullets).not.toContain('Tracked competitors only')
@@ -402,7 +403,7 @@ test('explains why a class must be selected, and never tones a pooled share', ()
     observed: [],
     filters: { scope: 'project', groupKey: null, provider: null, queryClass: 'all', location: null, runId: null },
   }) })
-  expect(screen.getByText('Mention share: Select a query class.')).toBeTruthy()
+  expect(screen.getByText('Mention share: no query type selected')).toBeTruthy()
   expect(container.querySelector('.av-card-meta')?.textContent).toBe('All queries · last 30 days')
   expect(gridRow('You').querySelector('.text-caution-400, .text-negative-400, .text-positive-400')).toBeNull()
 })

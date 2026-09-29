@@ -207,6 +207,32 @@ describe('buildAnswerMovement', () => {
     expect(ainycAnswers(evidence).byRow.get('non-brand')?.total).toBe(42)
   })
 
+  it('lists both sides when one engine gains what another loses, so "was" can equal "now"', () => {
+    // An answer that mentioned and cited you in both sweeps, other than the
+    // Perplexity gain, now does neither.
+    const lost = ainycEvidence().find(row => {
+      if (row.provider === 'perplexity' && row.query === 'NYC AEO Agency') return false
+      const now = row.runHistory.find(point => point.runId === row.sourceRunId)
+      const before = row.runHistory.find(point => point.runId === AINYC_PREVIOUS_RUN.id)
+      return now?.answerMentioned === true && before?.answerMentioned === true
+        && now.citationState === 'cited' && before.citationState === 'cited'
+    })!
+    expect(lost).toBeTruthy()
+    const evidence = ainycEvidence().map(row => row.id !== lost.id ? row : {
+      ...row,
+      runHistory: row.runHistory.map(point => point.runId === row.sourceRunId
+        ? { ...point, answerMentioned: false, citationState: 'not-cited' as const }
+        : point),
+    })
+    const answers = ainycAnswers(evidence)
+    expect(answers.byRow.get('non-brand')).toEqual({ total: 44, mentionedNow: 6, mentionedBefore: 6, citedNow: 8, citedBefore: 8 })
+    expect(answers.changes).toHaveLength(2)
+    expect(groupAnswerChanges(answers.changes).map(group => group.phrase).sort()).toEqual([
+      'no longer mentions or cites you',
+      'now mentions and cites you',
+    ])
+  })
+
   it('compares nothing without a previous sweep', () => {
     const answers = buildAnswerMovement({ evidence: ainycEvidence(), previousRunAt: null, addedQueries: [], classify: () => 'non-brand' })
     expect(answers.byRow.size).toBe(0)
@@ -247,10 +273,13 @@ describe('answer change wording', () => {
 })
 
 describe('coverageTone', () => {
-  it('uses the server coverage bands: 70 and up positive, 40 and up caution, below negative', () => {
+  it('reads 70% and up positive and anything less caution, never negative', () => {
     expect(coverageTone(7, 10)).toBe('positive')
+    expect(coverageTone(69, 100)).toBe('caution')
     expect(coverageTone(4, 10)).toBe('caution')
-    expect(coverageTone(4, 11)).toBe('negative')
+    // ainyc's non-brand 4 of 11 is amber on the approved card, and so is 0.
+    expect(coverageTone(4, 11)).toBe('caution')
+    expect(coverageTone(0, 11)).toBe('caution')
     expect(coverageTone(0, 0)).toBe('neutral')
   })
 })

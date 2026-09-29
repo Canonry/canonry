@@ -22,6 +22,8 @@ import {
   showsChangeFigure,
   substitutedModels,
   sweepBefore,
+  formatBucketDateTick,
+  formatObservedDay,
   trendToTone,
   whatChangedSummary,
   latestProviderRate,
@@ -32,6 +34,7 @@ import {
   MENTIONED_KEY,
   normalizeProviderKey,
 } from '../src/lib/visibility-trend-helpers.js'
+import { observedInstant } from '../src/components/shared/ChartPrimitives.js'
 import { AINYC_SWEEP_TIMES, ainycMetrics } from './ainyc-visibility-fixture.js'
 
 function provider(citationRate: number, mentionRate: number) {
@@ -626,6 +629,50 @@ describe('sweepBefore', () => {
   it('falls back to the plotted points\' own sweeps, and is null with nothing earlier', () => {
     expect(sweepBefore('2026-09-29T09:41:26.139Z', [], ainyc('all').buckets)).toBe('2026-07-14T06:00:00.016Z')
     expect(sweepBefore('2026-03-01T00:00:00.000Z', AINYC_SWEEP_TIMES, ainyc('all').buckets)).toBeNull()
+  })
+
+  // Daily sweeps pooled into one point, Aug 31 to Sep 29 (30 sweeps).
+  const day = (d: number) => new Date(Date.UTC(2026, 7, 31 + d, 6)).toISOString()
+  const pooled = { ...bucket('2026-08-31', {}), dataStartDate: day(0), dataEndDate: day(29), sweepCount: 30 }
+
+  it('leaves the date out when a change sits inside a pooled point, older than the recent sweeps', () => {
+    // Sep 10's sweep before is Sep 9, which neither list holds; Aug 31 would be false.
+    const recent = [day(25), day(26), day(27), day(28), day(29)]
+    expect(sweepBefore(day(10), recent, [pooled])).toBeNull()
+  })
+
+  it('takes a point boundary only when nothing can sit between it and the change', () => {
+    const next = { ...bucket('2026-09-30', {}), dataStartDate: day(30), dataEndDate: day(31), sweepCount: 2 }
+    // The change opens its point: the point before ends on the adjacent sweep.
+    expect(sweepBefore(day(30), [], [pooled, next])).toBe(day(29))
+    // The change closes a two-sweep point: its first sweep is adjacent.
+    expect(sweepBefore(day(31), [], [pooled, next])).toBe(day(30))
+    // The window's first sweep: only the last sweep before the window is adjacent.
+    expect(sweepBefore(day(0), [], [pooled], '2026-08-20T06:00:00.000Z')).toBe('2026-08-20T06:00:00.000Z')
+    expect(sweepBefore(day(0), [], [pooled])).toBeNull()
+  })
+})
+
+describe('day formats', () => {
+  it('prints days in en-US whatever the browser locale, like the sweep times', () => {
+    const locales: unknown[] = []
+    const original = Date.prototype.toLocaleDateString
+    Date.prototype.toLocaleDateString = function (this: Date, locale?: Intl.LocalesArgument, options?: Intl.DateTimeFormatOptions) {
+      locales.push(locale)
+      return original.call(this, locale, options)
+    }
+    try {
+      const latest = ainyc('all').buckets.at(-1)!
+      expect(formatObservedDay(observedInstant('2026-09-29T09:59:00.000Z'), NOW)).toBe('Sep 29')
+      expect(formatObservedDay(observedInstant('2025-09-29T09:59:00.000Z'), NOW)).toBe('Sep 29, 2025')
+      // Mar 13 in New York, Mar 14 in UTC: the viewer's zone, in en-US.
+      expect(formatBucketDateTick(ainyc('all').buckets[0]!)).toMatch(/^Mar 1[34]$/)
+      expect(formatBucketDateTick(latest)).toBe('Sep 29')
+    } finally {
+      Date.prototype.toLocaleDateString = original
+    }
+    expect(locales.length).toBeGreaterThan(0)
+    expect(locales.every(locale => locale === 'en-US')).toBe(true)
   })
 })
 

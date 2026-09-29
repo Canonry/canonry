@@ -252,7 +252,7 @@ describe('CompetitiveCard class control', () => {
       ['Cited instead of you', '2 of 5 queries'],
     ])
     expect(bullets()).toContain('Base: 32 answers')
-    expect(bullets().at(-1)).toBe('Set a brand name to split branded from non-brand.')
+    expect(bullets().at(-1)).toBe('No brand name: branded and non-brand not split')
     // A pooled figure is not a competitive read, so it is never tone-coloured.
     expect(shareValue().className).toContain('text-primary')
     // And it is never labelled with a class it was not split by.

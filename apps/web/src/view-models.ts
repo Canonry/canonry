@@ -231,8 +231,6 @@ export interface ProjectCommandCenterVm {
    *  explicitly rather than inferred. */
   mentionShareSummary: MentionShareDto & { unavailable?: boolean }
   queryCounts: QueryCountsVm
-  gapQueries: ScoreSummaryVm
-  mentionGaps: ScoreSummaryVm
   indexCoverage: ScoreSummaryVm
   competitorPressure: ScoreSummaryVm
   runStatus: ScoreSummaryVm

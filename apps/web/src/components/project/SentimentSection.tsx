@@ -78,16 +78,23 @@ export function showsSentimentOverview(value?: SentimentOverview): value is Sent
   return Boolean(value?.configured && value.overall && value.overall.coverage.judged > 0 && value.overall.score.favorableRate !== null) && !isEmbed()
 }
 
-/** Portfolio values come from the existing overview response, never separate per-card requests. */
+/**
+ * Portfolio values come from the existing overview response, never separate
+ * per-card requests. Below {@link SENTIMENT_MIN_RATED} ratings the figure
+ * reads "too few", as the Tone card does; the counts stay in the ⓘ.
+ */
 export function SentimentOverviewMetric({ value }: { value?: SentimentOverview }) {
   if (!showsSentimentOverview(value)) return null
   const headline = value.overall
+  const judged = headline.coverage.judged
   const interval = sentimentIntervalText(headline.score)
-  const detail = `${SENTIMENT_COPY.overall} ${headline.coverage.judged} of ${headline.coverage.selected} judged${interval ? `, 95% interval ${interval}` : ''}. ${headline.provisional ? 'Provisional. ' : ''}${SENTIMENT_COPY.states[headline.state]}${headline.reason ? ` ${headline.reason}` : ''}`
+  const detail = `${SENTIMENT_COPY.overall} ${judged} of ${headline.coverage.selected} judged${interval ? `, 95% interval ${interval}` : ''}. ${headline.provisional ? 'Provisional. ' : ''}${SENTIMENT_COPY.states[headline.state]}${headline.reason ? ` ${headline.reason}` : ''}`
   return <div className="project-row-stat" data-sentiment-score>
     <div className="metric-inline-block">
       <div className="flex items-center gap-1"><p className="metric-inline-label">Sentiment</p><span className="relative z-10"><InfoTooltip text={detail} placement="bottom" /></span></div>
-      <p className="metric-inline-value">{headline.score.favorableDisplay}<span className="sr-only"> favorable judgments, all query classes</span></p>
+      {showsFavorableShare(judged)
+        ? <p className="metric-inline-value">{headline.score.favorableDisplay}<span className="sr-only"> favorable judgments, all query classes</span></p>
+        : <p className="metric-inline-value text-secondary">{SENTIMENT_COPY.tooFew}<span className="sr-only"> ratings for a favorable share, {judged} of {SENTIMENT_MIN_RATED} needed, all query classes</span></p>}
       <p className="metric-inline-caption" aria-hidden="true"></p>
     </div>
   </div>

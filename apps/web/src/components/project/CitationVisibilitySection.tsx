@@ -74,6 +74,9 @@ export function byEngineClasses(data: CitationVisibilityResponse, classify: Quer
     return entry
   }
 
+  // The (query, engine) pairs the grid counts. A gap outside them, such as one
+  // from an engine no longer configured, would count an answer outside the base.
+  const answered = new Map<string, string>()
   for (const row of data.byQuery) {
     const entry = classOf(row.query)
     if (row.providers.length === 0) {
@@ -82,6 +85,7 @@ export function byEngineClasses(data: CitationVisibilityResponse, classify: Quer
     }
     entry.queries++
     for (const answer of row.providers) {
+      answered.set(`${row.queryId}::${answer.provider}`, row.query)
       const engine = entry.engines.find(counts => counts.provider === answer.provider)!
       engine.answered++
       if (answer.mentioned) engine.mentioned++
@@ -94,7 +98,10 @@ export function byEngineClasses(data: CitationVisibilityResponse, classify: Quer
     if (anyMentioned && !anyCited) entry.namedNotCited++
   }
   // Each gap row is one engine's latest answer to one query.
-  for (const gap of data.competitorGaps) classOf(gap.query).competitorCited++
+  for (const gap of data.competitorGaps) {
+    const query = answered.get(`${gap.queryId}::${gap.provider}`)
+    if (query !== undefined) classOf(query).competitorCited++
+  }
 
   return VISIBILITY_ROW_ORDER
     .map(key => classes.get(key))

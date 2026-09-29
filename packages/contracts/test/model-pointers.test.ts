@@ -578,6 +578,14 @@ describe('buildModelChangeNotice', () => {
     })!.text).toBe('No model updates are on record for ChatGPT and Gemini in this period.')
   })
 
+  it('names the engine the way the surface already labels it, when told to', () => {
+    const engineName = (provider: string) => (provider === 'openai' ? 'OpenAI' : provider)
+    expect(buildModelChangeNotice({ openai: { changeCount: 0 } }, { engineName })!.text)
+      .toBe('No model updates are on record for OpenAI in this period.')
+    expect(buildModelChangeNotice({ openai: confirmed('2026-06-24') }, { engineName })!.text)
+      .toContain('The model behind OpenAI was updated on Jun 24')
+  })
+
   it('drops the quiet line when any engine actually changed, so the caveat stands alone', () => {
     const notice = buildModelChangeNotice({ openai: confirmed('2026-06-24'), gemini: { changeCount: 0 } })!
     expect(notice.kind).toBe('change')

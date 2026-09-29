@@ -43,6 +43,7 @@ import {
 } from '../shared/ChartPrimitives.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { Disclosure } from '../shared/Disclosure.js'
+import { SegmentedRadioGroup } from '../shared/SegmentedRadioGroup.js'
 import { formatSweepInstant } from '../../lib/format-helpers.js'
 import { fetchAnalyticsMetrics, isDashboardManagedSweeps } from '../../api.js'
 import { MANAGED_SWEEPS_COPY } from './ManagedSweepStatus.js'
@@ -970,7 +971,7 @@ const METRIC_OPTIONS: Array<{ value: MetricChoice; label: string; description: s
   {
     value: 'mentionShare',
     label: 'Mention share',
-    description: 'On non-brand queries, the share of answer-text brand mentions for you and tracked competitors that were you. Pooled only when query classification is unavailable.',
+    description: 'Your share of the answer-text brand mentions for you and tracked competitors, in non-brand answers, or in all answers when queries cannot be split by brand.',
   },
 ]
 const MENTION_SHARE_COLOR = CHART_SERIES_COLORS[2]!
@@ -1031,20 +1032,21 @@ interface TooltipPayloadItem {
   color?: string
 }
 
+/** The answers mention share reads, as the title's ⓘ and the competitive card name them. */
 function mentionShareScopeLabel(scope: MentionShareScope): string {
-  return scope === 'non-brand'
-    ? 'non-brand queries'
-    : 'pooled queries · classification unavailable'
+  return scope === 'non-brand' ? 'non-brand answers' : 'all answers'
 }
 
-function metricLabel(metric: MetricChoice, mentionShareScope?: MentionShareScope): string {
+/** The metric's visible name. Mention share's scope is in the title's ⓘ and its base, not here. */
+function metricLabel(metric: MetricChoice): string {
   if (metric === 'cited') return 'Cited'
-  if (metric === 'mentionShare') {
-    return mentionShareScope
-      ? `Mention share · ${mentionShareScopeLabel(mentionShareScope)}`
-      : 'Mention share'
-  }
+  if (metric === 'mentionShare') return 'Mention share'
   return 'Mentioned'
+}
+
+/** The name assistive tech hears, which carries mention share's scope with it. */
+function spokenMetricLabel(metric: MetricChoice, scope: MentionShareScope): string {
+  return metric === 'mentionShare' ? `Mention share in ${mentionShareScopeLabel(scope)}` : metricLabel(metric)
 }
 
 /** The title's ⓘ: what each metric counts, in one line apiece. */
@@ -1119,27 +1121,41 @@ function querySetChangePhrase(change: Pick<BasketChangeEvent, 'added' | 'removed
   return parts.join(', ')
 }
 
+/** The query-set changes a point pools sweeps across: after its first sweep, up to its last. */
+function mixingChanges(point: MetricsBucket, changes: readonly BasketChangeEvent[]): BasketChangeEvent[] {
+  const range = readBucketObservedRange(point)
+  return range === null
+    ? []
+    : basketChangesInBucket(point, changes).filter(change => Date.parse(change.at) > Date.parse(range.start))
+}
+
+/**
+ * "Sep 29 point mixes the 5:41 AM sweep (11 queries) and the 5:59 AM sweep (14
+ * queries)": a point that pools sweeps from both sides of a query-set change.
+ * Null when it does not.
+ */
+function pointMixPhrase(point: MetricsBucket, changes: readonly BasketChangeEvent[]): ReactNode | null {
+  const range = readBucketObservedRange(point)
+  const days = formatBucketDayRange(point)
+  const change = mixingChanges(point, changes).at(-1)
+  if (!range || !days || !change) return null
+  const later = point.queryCount
+  const earlier = later - change.added.length + change.removed.length
+  const sameDay = sameViewerDay(range.start, range.end)
+  const time = (at: string) => formatSweepInstant(at, sameDay ? range.start : null)
+  return range.sweepCount === 2
+    ? <><strong>{days}</strong> point mixes the <strong>{time(range.start)}</strong> sweep (<strong>{earlier}</strong> queries) and the <strong>{time(range.end)}</strong> sweep (<strong>{later}</strong> queries)</>
+    : <><strong>{days}</strong> point mixes sweeps of <strong>{earlier}</strong> and <strong>{later}</strong> queries</>
+}
+
 /**
  * Why the headline prints no change figure (decision 3). A latest point that
  * pools sweeps from both sides of a query-set change is named as such;
  * otherwise the changes between the first and latest points are listed.
  */
 function noChangeFigureReason(shift: QuerySetShift, latest: MetricsBucket): ReactNode {
-  const range = readBucketObservedRange(latest)
-  const days = formatBucketDayRange(latest)
-  const mixing = range === null
-    ? []
-    : basketChangesInBucket(latest, shift.changes).filter(change => Date.parse(change.at) > Date.parse(range.start))
-  const change = mixing.at(-1)
-  if (range && days && change) {
-    const later = latest.queryCount
-    const earlier = later - change.added.length + change.removed.length
-    const sameDay = sameViewerDay(range.start, range.end)
-    const time = (at: string) => formatSweepInstant(at, sameDay ? range.start : null)
-    return range.sweepCount === 2
-      ? <>No change figure: <strong>{days}</strong> point mixes the <strong>{time(range.start)}</strong> sweep (<strong>{earlier}</strong> queries) and the <strong>{time(range.end)}</strong> sweep (<strong>{later}</strong> queries)</>
-      : <>No change figure: <strong>{days}</strong> point mixes sweeps of <strong>{earlier}</strong> and <strong>{later}</strong> queries</>
-  }
+  const mix = pointMixPhrase(latest, shift.changes)
+  if (mix) return <>No change figure: {mix}</>
   if (shift.changes.length > 0) {
     return <>No change figure: {shift.changes.map((entry, index) => <Fragment key={entry.at}>{index > 0 ? ', ' : ''}{querySetChangePhrase(entry)} <strong>{formatObservedDay(observedInstant(entry.at))}</strong></Fragment>)}; first and latest points cover different queries</>
   }
@@ -1162,6 +1178,11 @@ interface ChangeTableGroup {
   key: string
   label: string
   rows: ChangeTableRow[]
+}
+
+/** A date that never splits across lines ("Sep 29" stays whole when the column wraps on a phone). */
+function unbroken(text: string): string {
+  return text.replace(/ /g, '\u00a0')
 }
 
 function ModelName({ state, from = false }: { state: ModelEvidenceState; from?: boolean }) {
@@ -1286,8 +1307,12 @@ function WhatChanged({
   }
   for (const entry of truncated) details.push(`${providerDisplayName(entry.provider)}: most recent ${entry.shown} of ${entry.total} changes`)
   for (const provider of incompleteHistory) details.push(`${providerDisplayName(provider)}: may be missing older changes`)
+  // No row names the moving id, so the note gets a short bullet of its own
+  // with the full explanation behind its ⓘ.
   for (const [provider, notice] of pointerNotices) {
-    if (!noticeRows.has(provider)) details.push(notice.text)
+    if (!noticeRows.has(provider)) {
+      details.push(<span className="inline-flex items-center gap-1">{providerDisplayName(provider)}: no model updates on record<InfoTooltip text={notice.text} /></span>)
+    }
   }
 
   if (rowCount === 0 && details.length === 0) return null
@@ -1301,8 +1326,10 @@ function WhatChanged({
     const onNewestDay = [...new Set(instants.filter(at => day(at) === newestDay))].sort()
     const times = onNewestDay.map(at => formatSweepInstant(at, at))
     dateHelp += ` ${newestDay} = the ${joinWithAnd(times)} ${times.length === 1 ? 'sweep' : 'sweeps'}.`
+    // The last sweep before the window, adjacent to its first sweep.
     const anchors = modelRows.flatMap(row => (row.anchorAt ? [row.anchorAt] : []))
-    const before = sweepBefore(onNewestDay[0]!, [...sweepTimes, ...anchors], buckets)
+    const windowAnchor = anchors.length > 0 ? anchors.reduce((a, b) => (Date.parse(b) > Date.parse(a) ? b : a)) : null
+    const before = sweepBefore(onNewestDay[0]!, sweepTimes, buckets, windowAnchor)
     if (before) dateHelp += ` Sweep before: ${day(before)}.`
   }
 
@@ -1326,7 +1353,9 @@ function WhatChanged({
                 <thead>
                   <tr>
                     <th scope="col"><span className="sr-only">Changed</span></th>
-                    <th scope="col"><span className="inline-flex items-center gap-1">Date<InfoTooltip text={dateHelp} /></span></th>
+                    {/* Named "Date" outright: from its content the header would
+                        carry the ⓘ's whole text onto every date cell. */}
+                    <th scope="col" aria-label="Date"><span className="inline-flex items-center gap-1">Date<InfoTooltip text={dateHelp} /></span></th>
                     <th scope="col">From</th>
                     <th scope="col">To</th>
                   </tr>
@@ -1338,7 +1367,7 @@ function WhatChanged({
                         {index === 0
                           ? <th scope="row" className="av-engine">{group.label}</th>
                           : <td className="av-engine"><span className="sr-only">{group.label}</span></td>}
-                        <td className="av-date">{row.onOrBefore ? `on or before ${day(row.at)}` : day(row.at)}</td>
+                        <td className="av-date">{row.onOrBefore ? `on or before ${unbroken(day(row.at))}` : unbroken(day(row.at))}</td>
                         <td>{row.from}</td>
                         <td>
                           <span className="inline-flex items-center gap-1">{row.to}{row.toHelp ? <InfoTooltip text={row.toHelp} /> : null}</span>
@@ -1429,7 +1458,7 @@ function TrendTooltip({
         {head}
         <div className="trend-tooltip-row">
           <span className="trend-tooltip-swatch trend-tooltip-swatch-ring" style={{ borderColor: MENTION_SHARE_COLOR }} aria-hidden="true" />
-          <span className="trend-tooltip-name">Mention share · {mentionShareScopeLabel(bucket.mentionShare.scope)}</span>
+          <span className="trend-tooltip-name">Mention share</span>
           <span className="trend-tooltip-value">{formatPercent(bucket.mentionShare.rate)}</span>
         </div>
         <p className="trend-tooltip-detail">
@@ -1475,20 +1504,21 @@ function TrendDataSummary({
   metric,
   mode,
   series,
+  mentionShareScope,
 }: {
   buckets: readonly MetricsBucket[]
   metric: MetricChoice
   mode: TrendSeriesMode
   series: readonly string[]
+  mentionShareScope: MentionShareScope
 }) {
-  const summaryScope = buckets[buckets.length - 1]?.mentionShare.scope
   // The wrapper hides the table, not `sr-only` on the table: a table box never
   // shrinks below its content, so it would ignore the 1px width and its nowrap
   // rows would push the page sideways on narrow screens.
   return (
     <div className="sr-only">
       <table>
-        <caption>{metricLabel(metric, summaryScope)} trend data</caption>
+        <caption>{spokenMetricLabel(metric, mentionShareScope)} trend data</caption>
         <thead>
           <tr>
             <th scope="col">Point</th>
@@ -1504,8 +1534,8 @@ function TrendDataSummary({
               const denominator = projectMentions + competitorMentions
               const scope = mentionShareScopeLabel(bucket.mentionShare.scope)
               valueText = denominator > 0
-                ? `${formatPercent(bucket.mentionShare.rate)} mention share for ${scope}, ${projectMentions} of ${denominator} tracked-brand mentions were you`
-                : `mention share undefined for ${scope}, no project or competitor brand mentions`
+                ? `${formatPercent(bucket.mentionShare.rate)} mention share in ${scope}, ${projectMentions} of ${denominator} tracked-brand mentions were you`
+                : `mention share undefined in ${scope}, no project or competitor brand mentions`
             } else if (mode === 'byProvider') {
               valueText = series.map(provider => {
                 const counts = providerMetricCount(bucket, provider, metric)
@@ -1526,54 +1556,6 @@ function TrendDataSummary({
           })}
         </tbody>
       </table>
-    </div>
-  )
-}
-
-/**
- * Single-select segmented control. A group of toggle buttons (`role="group"` +
- * `aria-pressed`), not a tab pattern: these switch the chart's series in place,
- * they don't reveal panels, so tab semantics would mislead assistive tech.
- */
-function Segmented<T extends string>({
-  options,
-  value,
-  onChange,
-  ariaLabel,
-  className,
-}: {
-  options: Array<{ value: T; label: string; description?: string }>
-  value: T
-  onChange: (next: T) => void
-  ariaLabel: string
-  className?: string
-}) {
-  const descriptionBaseId = useId()
-
-  return (
-    <div role="group" aria-label={ariaLabel} className={`segmented ${className ?? ''}`}>
-      {options.map(opt => {
-        const selected = value === opt.value
-        const descriptionId = opt.description ? `${descriptionBaseId}-${opt.value}-description` : undefined
-        return (
-          <Fragment key={opt.value}>
-            <button
-              type="button"
-              aria-pressed={selected}
-              aria-describedby={descriptionId}
-              className={`segmented-option ${selected ? 'segmented-option-active' : ''}`}
-              onClick={() => onChange(opt.value)}
-            >
-              {opt.label}
-            </button>
-            {opt.description && (
-              <span id={descriptionId} className="sr-only">
-                {opt.description}
-              </span>
-            )}
-          </Fragment>
-        )
-      })}
     </div>
   )
 }
@@ -1654,11 +1636,15 @@ export function VisibilityTrendSection({
   const modelPointers = useMemo(() => (data ? readModelPointerChanges(data) : {}), [data])
   // A recorded update is the banner above the readout. An engine on a moving
   // model id with none on record gets its own quieter note in What changed.
-  const modelChangeNotice = useMemo(() => buildModelChangeNotice(modelPointers), [modelPointers])
+  // Both name engines as the rest of the page does ("OpenAI").
+  const modelChangeNotice = useMemo(
+    () => buildModelChangeNotice(modelPointers, { engineName: providerDisplayName }),
+    [modelPointers],
+  )
   const pointerNotices = useMemo(() => {
     const notices = new Map<string, { text: string; modelIds: readonly string[] }>()
     for (const [provider, entry] of Object.entries(modelPointers).sort(([a], [b]) => a.localeCompare(b))) {
-      const notice = buildModelChangeNotice({ [provider]: entry })
+      const notice = buildModelChangeNotice({ [provider]: entry }, { engineName: providerDisplayName })
       if (notice?.kind === 'no-known-change') notices.set(provider, { text: `${notice.text} ${notice.detail}`, modelIds: (entry.modelIds as readonly string[] | undefined) ?? [] })
     }
     return notices
@@ -1675,7 +1661,8 @@ export function VisibilityTrendSection({
   const mentionShareScope: MentionShareScope = buckets[buckets.length - 1]?.mentionShare.scope
     ?? data?.mentionShareScope
     ?? 'pooled'
-  const currentMetricLabel = metricLabel(metric, mentionShareScope)
+  const currentMetricLabel = metricLabel(metric)
+  const spokenLabel = spokenMetricLabel(metric, mentionShareScope)
   // The headline is the pooled rate of every answer, which no single engine
   // line matches, so in by-engine mode its dot takes no engine's color.
   const headlineDotColor = byProviderMode
@@ -1712,6 +1699,15 @@ export function VisibilityTrendSection({
 
   const trendDetails: ReactNode[] = []
   if (latestPlotted && windowChange !== null && shift && !figureShown) trendDetails.push(noChangeFigureReason(shift, latestPlotted))
+  // One point has no change figure to withhold, but it can still pool sweeps
+  // of two query sets. Said unless the metric reads past that change, as mention
+  // share does when only branded queries moved.
+  if (latestPlotted && plottedBuckets.length === 1) {
+    const mixing = mixingChanges(latestPlotted, basketChanges)
+    const mix = pointMixPhrase(latestPlotted, basketChanges)
+    const pointShift = { changes: mixing, firstCount: latestPlotted.queryCount, latestCount: latestPlotted.queryCount }
+    if (mix && !showsChangeFigure(pointShift, metric, mentionShareScope, classifyQuery)) trendDetails.push(mix)
+  }
   if (pointChange !== null && plottedBuckets[0]) {
     const base = formatBucketDayRange(plottedBuckets[0])
     if (base) trendDetails.push(<>Base: <strong>{base}</strong> point</>)
@@ -1741,11 +1737,11 @@ export function VisibilityTrendSection({
 
   const controls = (
     <div className="visibility-trend-controls">
-      <Segmented options={METRIC_OPTIONS} value={metric} onChange={setMetric} ariaLabel="Metric" className="visibility-trend-metric-control" />
+      <SegmentedRadioGroup options={METRIC_OPTIONS} value={metric} onChange={setMetric} label="Metric" className="visibility-trend-metric-control" />
       {metric !== 'mentionShare' && (
-        <Segmented options={MODE_OPTIONS} value={mode} onChange={setMode} ariaLabel="Series" />
+        <SegmentedRadioGroup options={MODE_OPTIONS} value={mode} onChange={setMode} label="Series" />
       )}
-      <Segmented options={WINDOW_OPTIONS} value={window} onChange={setWindow} ariaLabel="Time window" className="sm:ml-auto" />
+      <SegmentedRadioGroup options={WINDOW_OPTIONS} value={window} onChange={setWindow} label="Time window" className="sm:ml-auto" />
     </div>
   )
 
@@ -1764,7 +1760,7 @@ export function VisibilityTrendSection({
       body = (
         <p className="text-sm text-secondary">
           {metric === 'mentionShare'
-            ? `No answer-text brand mentions for you or tracked competitors on ${mentionShareScopeLabel(mentionShareScope)} in this window yet.`
+            ? `No answer-text brand mentions for you or tracked competitors in ${mentionShareScopeLabel(mentionShareScope)} in this window yet.`
             : isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Run a sweep to start tracking citations and mentions over time.'}
         </p>
       )
@@ -1775,13 +1771,13 @@ export function VisibilityTrendSection({
         </p>
       )
     } else {
-      const srSummary = `${currentMetricLabel} rate across ${rows.length} ${rows.length === 1 ? 'sweep' : 'sweeps'}. Latest ${formatPercent(latestRate)}${
+      const srSummary = `${spokenLabel} rate across ${rows.length} ${rows.length === 1 ? 'sweep' : 'sweeps'}. Latest ${formatPercent(latestRate)}${
         pointChange !== null ? `, ${spokenPointChange(pointChange)}` : ''
       }.`
       body = (
         <>
           <p className="sr-only">{srSummary}</p>
-          <TrendDataSummary buckets={buckets} metric={metric} mode={effectiveMode} series={series} />
+          <TrendDataSummary buckets={buckets} metric={metric} mode={effectiveMode} series={series} mentionShareScope={mentionShareScope} />
           {/* Per-engine key with each line's most recent value. Model names
               live in What changed and the point tooltips, not here. */}
           {byProviderMode && series.length > 0 && (
@@ -1805,7 +1801,7 @@ export function VisibilityTrendSection({
           <div
             className="visibility-trend-chart"
             role="img"
-            aria-label={`${currentMetricLabel} trend chart over ${rows.length} ${rows.length === 1 ? 'point' : 'points'}`}
+            aria-label={`${spokenLabel} trend chart over ${rows.length} ${rows.length === 1 ? 'point' : 'points'}`}
           >
             <ResponsiveContainer width="100%" height="100%">
               {/* Room on the right for the last tick ("Sep 29") centered on the last point. */}
@@ -1875,10 +1871,11 @@ export function VisibilityTrendSection({
     <div className="visibility-trend-stack">
       <section className="visibility-trend" aria-labelledby={titleId}>
         <div className="av-card-head">
-          <h2 className="av-card-title">
-            <span id={titleId}>AI answers over time</span>
+          {/* A sibling of the heading, so the heading's name stays the title. */}
+          <div className="inline-flex items-center">
+            <h2 id={titleId} className="av-card-title">AI answers over time</h2>
             <InfoTooltip text={trendTitleHelp(mentionShareScope)} />
-          </h2>
+          </div>
           {latestPlotted ? <p className="av-card-meta">{formatBucketDateLabel(latestPlotted)}</p> : null}
         </div>
         <div className="visibility-trend-body">

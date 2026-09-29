@@ -68,10 +68,28 @@ export function formatSweepInstant(iso: string, sameDayAs?: string | null, now: 
   if (Number.isNaN(date.getTime())) return iso
   const time = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
   if (sameDayAs && new Date(sameDayAs).toDateString() === date.toDateString()) return time
-  const day = date.toLocaleDateString('en-US', date.getFullYear() === now.getFullYear()
-    ? { month: 'short', day: 'numeric' }
-    : { month: 'short', day: 'numeric', year: 'numeric' })
-  return `${day}, ${time}`
+  return `${formatSweepDay(iso, now)}, ${time}`
+}
+
+/**
+ * A sweep's day in the viewer's zone, in the same style as
+ * {@link formatSweepInstant}: "Sep 29", with the year only outside the current
+ * one ("Sep 29, 2025"). Always en-US, so a card's dates read one way whatever
+ * the browser's locale.
+ */
+export function formatSweepDay(iso: string, now: Date = new Date()): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return date.getFullYear() === now.getFullYear()
+    ? formatMonthDay(iso)
+    : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+/** A sweep's day without its year ("Sep 29"), for chart ticks. en-US, like the rest. */
+export function formatMonthDay(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 export function formatTimestamp(value: string | null | undefined): string {

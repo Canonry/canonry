@@ -13,12 +13,10 @@ import type {
 } from '@ainyc/canonry-contracts'
 import type { MetricTone } from '../view-models.js'
 import {
-  formatObservedInstantLabel,
-  formatObservedInstantMonthDay,
   observedInstant,
-  observedInstantYear,
   type ObservedInstant,
 } from '../components/shared/ChartPrimitives.js'
+import { formatMonthDay, formatSweepDay } from './format-helpers.js'
 
 /**
  * Pure reshaping of `BrandMetricsDto` into Recharts-ready rows for the
@@ -115,11 +113,13 @@ export function readBucketObservedRange(
   }
 }
 
-/** A real instant as a day in the viewer's timezone: "Sep 29", with the year only outside the current one. */
+/**
+ * A real instant as a day in the viewer's timezone: "Sep 29", with the year
+ * only outside the current one. The same en-US style as the Visibility card's
+ * sweep times, so one page never mixes "Sep 29" with "29 Sept".
+ */
 export function formatObservedDay(instant: ObservedInstant, now: Date = new Date()): string {
-  return observedInstantYear(instant) === now.getFullYear()
-    ? formatObservedInstantMonthDay(instant)
-    : formatObservedInstantLabel(instant)
+  return formatSweepDay(instant, now)
 }
 
 /** The days a bucket's sweeps span: "Sep 29", or "Mar 13 to Apr 8". Null on an older API. */
@@ -147,7 +147,7 @@ export function formatBucketDateLabel(bucket: BrandMetricsDto['buckets'][number]
 /** Axis tick for a bucket ("Mar 13"): the first sweep it actually contains, in the viewer's timezone. */
 export function formatBucketDateTick(bucket: BrandMetricsDto['buckets'][number]): string {
   const range = readBucketObservedRange(bucket)
-  return range ? formatObservedInstantMonthDay(range.start) : ''
+  return range ? formatMonthDay(range.start) : ''
 }
 
 export function normalizeProviderKey(provider: string): string {
@@ -649,23 +649,41 @@ export function whatChangedSummary({ latest, queryChanges, modelRows, now = new 
 }
 
 /**
- * The last sweep before `at`: from the recent sweeps and the plotted points'
- * own first and last sweeps, since a 7 or 30 day window may plot one point.
+ * The sweep right before `at`, or null when no known sweep is provably the
+ * adjacent one. A date that is only "some earlier sweep" would misstate when
+ * the change could have happened, so a gap in what is known leaves it out.
+ *
+ * - `recentSweeps`: the newest real sweeps, a contiguous run back from the
+ *   latest, so the newest of them before `at` is the adjacent one.
+ * - `buckets`: a point's first and last sweeps. A pooled point hides the
+ *   sweeps between them, so a boundary counts only when nothing can sit in
+ *   between: `at` opens its point (the point before ends on the adjacent
+ *   sweep), or `at` closes a two-sweep point (its first sweep is adjacent).
+ * - `windowAnchor`: the last sweep before the window, adjacent to its first.
  */
 export function sweepBefore(
   at: string,
-  sweepTimes: readonly string[],
+  recentSweeps: readonly string[],
   buckets: readonly MetricsBucket[],
+  windowAnchor: string | null = null,
 ): ObservedInstant | null {
-  const candidates = [
-    ...sweepTimes,
-    ...buckets.flatMap(bucket => {
-      const range = readBucketObservedRange(bucket)
-      return range ? [range.start, range.end] : []
-    }),
-  ].filter(time => Number.isFinite(instantMs(time)) && instantMs(time) < instantMs(at))
-  if (candidates.length === 0) return null
-  return observedInstant(candidates.reduce((a, b) => (instantMs(b) > instantMs(a) ? b : a)))
+  const atMs = instantMs(at)
+  if (!Number.isFinite(atMs)) return null
+  const recent = recentSweeps.filter(time => instantMs(time) < atMs)
+  if (recent.length > 0) return observedInstant(recent.reduce((a, b) => (instantMs(b) > instantMs(a) ? b : a)))
+
+  const ranges = buckets
+    .map(bucket => readBucketObservedRange(bucket))
+    .filter((range): range is BucketObservedRange => range !== null)
+    .sort((a, b) => instantMs(a.start) - instantMs(b.start))
+  const index = ranges.findIndex(range => instantMs(range.start) <= atMs && atMs <= instantMs(range.end))
+  if (index === -1) return null
+  const range = ranges[index]!
+  if (instantMs(range.start) === atMs) {
+    if (index > 0) return ranges[index - 1]!.end
+    return windowAnchor && instantMs(windowAnchor) < atMs ? observedInstant(windowAnchor) : null
+  }
+  return range.sweepCount === 2 && instantMs(range.end) === atMs ? range.start : null
 }
 
 /** How the query set moved between the first and latest plotted points. */

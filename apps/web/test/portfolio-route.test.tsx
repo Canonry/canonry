@@ -1579,7 +1579,7 @@ test('cached competitor history remains visible when its background refresh fail
   expect(page.getByRole('rowheader', { name: 'cached-pin.example' })).toBeTruthy()
   expect(page.getByRole('rowheader', { name: 'cached-observed.example' })).toBeTruthy()
   expect(page.queryByLabelText('Favorable answer scores')).toBeNull()
-  expect(page.getByRole('alert').textContent).toContain('Could not refresh competitor history. Showing the last available data.')
+  expect(page.getByRole('alert').textContent).toContain('Could not refresh competitors over time. Showing the last available data.')
 })
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -1629,10 +1629,6 @@ function forceNoisyFreshVisibility(dashboard: ReturnType<typeof createDashboardF
   project.mentionShareSummary.delta = 'Run a sweep first'
   project.mentionShareSummary.breakdown = { ...emptyMentionBreakdown }
   project.mentionShareSummary.branded = { ...emptyMentionBreakdown }
-  project.mentionGaps.value = 'No data'
-  project.mentionGaps.delta = 'Run a sweep first'
-  project.gapQueries.value = 'No data'
-  project.gapQueries.delta = 'Run a sweep first'
   dashboard.runs = []
 }
 
@@ -1825,8 +1821,8 @@ test('the Visibility card reads ainyc\'s two sweeps by class, above the trend ch
     ['Non-brand', '4 of 11', '4 of 11', 'no change'],
     ['Branded', '3 of 3', '3 of 3', 'first AI sweep'],
   ])
-  // Non-brand carries its coverage tone (4 of 11 is under 40%); branded never does.
-  expect(card.querySelector('tbody tr:first-child .av-n')!.className).toContain('text-negative-400')
+  // Non-brand under 70% reads amber, as the approved card draws it; branded is never toned.
+  expect(card.querySelector('tbody tr:first-child .av-n')!.className).toContain('text-caution-400')
   expect(card.querySelector('tbody tr:nth-child(2) .av-n')!.className).toContain('text-primary')
   expect(details!.open).toBe(false)
   expect(bullets).toEqual([
@@ -1838,6 +1834,34 @@ test('the Visibility card reads ainyc\'s two sweeps by class, above the trend ch
   // Decision 1: the card sits above the chart.
   expect(html.indexOf('id="overview-brief-title"')).toBeLessThan(html.indexOf('AI answers over time'))
   expect(html).not.toMatch(/Coverage now|Tracking scope changed|comparable queries/)
+})
+
+test('the Visibility card says when no query is in both sweeps and names removed queries', async () => {
+  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    configureFixture(dashboard) {
+      const project = withAinycSweeps(dashboard)
+      // The same latest sweep, against a previous one of two non-brand queries
+      // that were both removed: every latest query is new.
+      const latest = [...new Set(project.visibilityEvidence.map(row => row.query))]
+      project.movementComparison = {
+        ...ainycComparison(),
+        previousQueryCount: 2,
+        comparableQueryCount: 0,
+        addedQueryCount: latest.length,
+        addedQueries: latest,
+        removedQueryCount: 2,
+        removedQueries: ['aeo consultant nyc', 'geo agency'],
+      }
+    },
+  })
+  const { rows, bullets } = visibilityCard(html)
+
+  // Non-brand had queries last sweep but none in both; branded had none at all.
+  expect(rows.map(row => row.at(-1))).toEqual(['not compared · 11 added', 'first AI sweep'])
+  expect(bullets).toContain(`Compared with the ${formatSweepInstant(AINYC_PREVIOUS_RUN.createdAt, AINYC_LATEST_RUN.createdAt)} sweep, no queries in both`)
+  expect(bullets).toContain('Removed: aeo consultant nyc, geo agency')
+  // Nothing is in both sweeps, so there is no answer movement to report.
+  expect(bullets.some(bullet => bullet?.startsWith('Answers:'))).toBe(false)
 })
 
 test('What changed names ainyc\'s added queries as written and dates the sweep before the change', async () => {
