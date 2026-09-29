@@ -473,7 +473,7 @@ export function CompetitorLandscape({
             <span className="sr-only">Loading competitors over time</span>
           </div>
         ) : landscape || frameRows.length > 0 ? (
-          <table className="av-grid" aria-label="Competitors over time">
+          <table className="av-grid av-grid-brands" aria-label="Competitors over time">
             <thead>
               <tr>
                 <th scope="col"><span className="sr-only">Brand</span></th>

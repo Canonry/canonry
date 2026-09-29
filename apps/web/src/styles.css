@@ -1517,11 +1517,100 @@
     @apply text-[13px] font-medium sm:whitespace-nowrap;
   }
 
-  /* A grid of many small figures (By engine, Past sweeps, Competitors over
-     time): tighter rows and a figure one step down from the hero size. */
+  /* A grid of many small figures (By engine, Past sweeps): tighter rows and a
+     figure one step down from the hero size. On a phone the columns sit
+     closer, the headers track tighter and "Of 11 queries" may wrap, so four
+     engines fit a 390px card instead of scrolling inside it. */
+  .av-grid-dense thead th {
+    @apply max-sm:pr-2.5 max-sm:align-bottom max-sm:tracking-[0.04em];
+  }
+
+  .av-grid-dense thead th:first-child {
+    @apply max-sm:whitespace-normal;
+  }
+
   .av-grid-dense td,
   .av-grid-dense tbody th {
-    @apply py-[0.2rem];
+    @apply py-[0.2rem] max-sm:pr-2.5;
+  }
+
+  /* A 360px or 375px phone: the headers drop to 10px and the columns close
+     up a little more, so the same four engines still fit. */
+  @media (max-width: 379px) {
+    .av-grid-dense thead th {
+      @apply pr-2 text-[10px];
+    }
+
+    .av-grid-dense td,
+    .av-grid-dense tbody th {
+      @apply pr-2;
+    }
+  }
+
+  /* Past sweeps on a phone: the time takes its own line and the trigger,
+     duration and any status follow under it, so a long duration never pushes
+     the grid past the card. The trigger keeps a width so durations line up. */
+  @media (max-width: 639px) {
+    .av-grid-sweeps,
+    .av-grid-sweeps > tbody {
+      @apply block;
+    }
+
+    .av-grid-sweeps tbody tr {
+      @apply flex flex-wrap items-baseline gap-x-3 py-1;
+    }
+
+    .av-grid-sweeps tbody th {
+      @apply basis-full p-0;
+    }
+
+    .av-grid-sweeps td {
+      @apply whitespace-normal p-0;
+    }
+
+    .av-grid-sweeps td:first-of-type {
+      @apply min-w-[5.5rem];
+    }
+  }
+
+  /* Competitors over time on a phone: each brand's name, with its Pin or
+     Unpin, takes its own line and its three figures sit in equal columns under
+     the headers, so a long domain never pushes the grid past the card. */
+  @media (max-width: 639px) {
+    .av-grid-brands,
+    .av-grid-brands > thead,
+    .av-grid-brands > tbody {
+      @apply block;
+    }
+
+    .av-grid-brands tr {
+      @apply grid grid-cols-3 items-baseline gap-x-3;
+    }
+
+    .av-grid-brands thead th {
+      @apply self-end whitespace-normal pr-0;
+    }
+
+    .av-grid-brands thead th:first-child,
+    .av-grid-brands thead th:nth-child(5) {
+      @apply sr-only;
+    }
+
+    .av-grid-brands tbody th {
+      @apply col-span-full row-start-1 whitespace-normal pb-0 pr-0 wrap-anywhere;
+    }
+
+    .av-grid-brands tbody tr:has(> td:nth-child(5)) > th {
+      @apply col-span-2;
+    }
+
+    .av-grid-brands tbody td {
+      @apply row-start-2 pr-0 pt-0;
+    }
+
+    .av-grid-brands tbody td:nth-child(5) {
+      @apply col-start-3 row-start-1 self-center justify-self-end pb-0;
+    }
   }
 
   .av-n-sm {

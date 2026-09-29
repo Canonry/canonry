@@ -31,7 +31,7 @@ export function PastSweeps({ runs }: { runs: readonly RunListItemVm[] }) {
         {runs.length === 0 ? (
           <p className="text-sm text-secondary">No sweeps yet.</p>
         ) : (
-          <table className="av-grid av-grid-dense" aria-labelledby={titleId}>
+          <table className="av-grid av-grid-dense av-grid-sweeps" aria-labelledby={titleId}>
             <thead className="sr-only">
               <tr>
                 <th scope="col">Started</th>

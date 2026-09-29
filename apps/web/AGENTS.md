@@ -109,7 +109,12 @@ duration in words, with a partial or failed sweep's error detail kept; the time
 opens the run, and RunsPage keeps `RunRow`. "Competitors over time" is the
 `CompetitorLandscape` card described under Competitor landscapes. Every class,
 metric and window control on these cards, the trend's included, uses
-`SegmentedRadioGroup`. The Simple context
+`SegmentedRadioGroup`. On a phone all three fit the card with no inner
+scroller, in CSS only: By engine closes up its columns and wraps "Of 11
+queries" (`.av-grid-dense`), Past sweeps puts the trigger and duration under
+the time (`.av-grid-sweeps`), and Competitors over time gives each brand's name
+and Pin/Unpin their own line above its three figures (`.av-grid-brands`). The
+desktop grids are unchanged. The Simple context
 row and the embed header name no date range ("All time" read over latest-sweep
 figures); each card states its own sweep, point or window.
 
