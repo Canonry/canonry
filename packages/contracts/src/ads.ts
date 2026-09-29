@@ -250,6 +250,8 @@ export const adsCampaignDtoSchema = z.object({
   lifetimeSpendLimitMicros: z.number().int().nullable().optional(),
   conversionEventSettingIds: z.array(z.string()).default([]),
   locationIds: z.array(z.string()).optional(),
+  /** Locations carved out of the included set, if the campaign has any. */
+  excludedLocationIds: z.array(z.string()).optional(),
   adGroups: z.array(adsAdGroupDtoSchema).default([]),
   /** Provider tracking parameters appended to this entity's click URLs. */
   landingPageQueryStringTemplate: z.string().nullable().optional(),
@@ -716,6 +718,7 @@ export const adsReconcileFieldsSchema = z
     endTime: adsTimestampSchema.nullable().optional(),
     lifetimeSpendLimitMicros: adsMicrosSchema.min(1_000_000).optional(),
     locationIds: z.array(adsEntityIdSchema).max(100).optional(),
+    excludedLocationIds: z.array(adsEntityIdSchema).max(100).optional(),
     biddingType: adsCampaignBiddingTypeSchema.optional(),
     conversionEventSettingIds: adsConversionEventSettingIdsSchema.optional(),
     campaignId: adsEntityIdSchema.optional(),
@@ -744,6 +747,8 @@ export const adsCampaignCreateRequestSchema = z
     endTime: adsTimestampSchema.optional(),
     lifetimeSpendLimitMicros: adsMicrosSchema.min(1_000_000),
     locationIds: z.array(adsEntityIdSchema).min(1).max(100),
+    /** Optional carve-out: locations excluded from the targeted set. */
+    excludedLocationIds: z.array(adsEntityIdSchema).min(1).max(100).optional(),
     // biddingType is BILLING (what the account pays for) and is immutable once
     // the provider creates the campaign. conversionEventSettingIds is
     // OPTIMIZATION (what delivery is steered toward). The two are independent,
@@ -806,6 +811,8 @@ export const adsCampaignUpdateRequestSchema = z
     endTime: adsTimestampSchema.nullable().optional(),
     lifetimeSpendLimitMicros: adsMicrosSchema.min(1_000_000).optional(),
     locationIds: z.array(adsEntityIdSchema).min(1).max(100).optional(),
+    /** Carve-out to apply; an empty array clears the exclusions. */
+    excludedLocationIds: z.array(adsEntityIdSchema).max(100).optional(),
     /** Tracking parameters for this entity's click URLs; null clears them. */
     landingPageQueryStringTemplate: adsQueryStringTemplateSchema.nullable().optional(),
   })

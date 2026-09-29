@@ -4687,6 +4687,8 @@ const routeCatalog: OpenApiOperation[] = [
             description: 'Optional conversion events to optimize delivery toward. Independent of biddingType: a clicks campaign may omit these.',
           },
           landingPageQueryStringTemplate: { type: 'string', minLength: 1, maxLength: 1000, description: 'Tracking parameters appended to click URLs under this entity, as a bare query string (utm_source=chatgpt&utm_medium=cpc). Supports the {campaign_id}, {ad_group_id}, {ad_id}, {ad_account_id} and {oppref} macros. Levels combine; on a duplicate key the destination URL wins, then ad, ad group, campaign.' },
+
+          excludedLocationIds: { type: 'array', minItems: 1, maxItems: 100, items: stringSchema, description: 'Locations carved OUT of the targeted set, for example postal codes excluded from a market. Targeting replaces rather than merges upstream, so an update naming only one half of the geography has the other carried over from the live campaign.' },
         },
       } } },
     },
@@ -4784,6 +4786,8 @@ const routeCatalog: OpenApiOperation[] = [
           lifetimeSpendLimitMicros: { type: 'integer', minimum: 1000000 },
           locationIds: { type: 'array', minItems: 1, maxItems: 100, items: stringSchema },
           landingPageQueryStringTemplate: { type: 'string', minLength: 1, maxLength: 1000, nullable: true, description: 'Tracking parameters appended to click URLs under this entity, as a bare query string. Null clears them.' },
+
+          excludedLocationIds: { type: 'array', maxItems: 100, items: stringSchema, description: 'Locations carved OUT of the targeted set; an empty array clears the carve-out. Targeting replaces rather than merges upstream, so the untouched half of the geography is carried over from the live campaign.' },
         },
       } } },
     },

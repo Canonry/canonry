@@ -155,6 +155,25 @@ function validateCampaignTargeting(value: unknown): void {
     validateRequestObject(target, 'Campaign location target')
     validateId(target.id as string, 'Campaign location id')
   }
+
+  // Exclusions carve locations OUT of the included set. Absent means "no
+  // carve-out"; an empty include list is refused rather than silently sent,
+  // because upstream targeting REPLACES and a caller that means "clear the
+  // exclusions" should omit the key.
+  const excluded = value.excluded_locations
+  if (excluded === undefined) return
+  validateRequestObject(excluded, 'Campaign excluded locations')
+  const excludedInclude = excluded.include
+  if (!Array.isArray(excludedInclude) || excludedInclude.length === 0) {
+    throw new OpenAiAdsApiError(
+      'Campaign excluded_locations include must be a non-empty array; omit the key to carve nothing out',
+      400,
+    )
+  }
+  for (const target of excludedInclude) {
+    validateRequestObject(target, 'Campaign excluded location target')
+    validateId(target.id as string, 'Campaign excluded location id')
+  }
 }
 
 function validateCampaignBidding(request: OpenAiAdsCreateCampaignRequest): void {

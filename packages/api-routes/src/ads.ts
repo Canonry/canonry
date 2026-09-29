@@ -264,6 +264,7 @@ export interface AdsOperatorEntityResult {
   endTime?: number | null
   lifetimeSpendLimitMicros?: number | null
   locationIds?: string[] | null
+  excludedLocationIds?: string[] | null
   campaignId?: string | null
   contextHints?: string[] | null
   maxBidMicros?: number | null
@@ -287,6 +288,7 @@ export interface AdsOperator {
     endTime?: number
     lifetimeSpendLimitMicros: number
     locationIds: string[]
+    excludedLocationIds?: string[]
     biddingType: AdsCampaignBiddingType
     conversionEventSettingIds?: string[]
     landingPageQueryStringTemplate?: string
@@ -298,6 +300,7 @@ export interface AdsOperator {
     endTime?: number | null
     lifetimeSpendLimitMicros?: number
     locationIds?: string[]
+    excludedLocationIds?: string[]
     landingPageQueryStringTemplate?: string | null
   }): Promise<AdsOperatorEntityResult>
   pauseCampaign(apiKey: string, id: string): Promise<AdsOperatorEntityResult>
@@ -675,9 +678,9 @@ function creativeDto(raw: unknown): AdsCreativeDto | null {
   }
 }
 
-function locationIdsDto(raw: unknown): string[] {
+function targetedLocationIds(raw: unknown, key: 'locations' | 'excluded_locations'): string[] {
   if (!raw || typeof raw !== 'object') return []
-  const locations = (raw as { locations?: unknown }).locations
+  const locations = (raw as Record<string, unknown>)[key]
   if (!locations || typeof locations !== 'object') return []
   const include = (locations as { include?: unknown }).include
   if (!Array.isArray(include)) return []
@@ -686,6 +689,15 @@ function locationIdsDto(raw: unknown): string[] {
     const id = (entry as { id?: unknown }).id
     return typeof id === 'string' && id.length > 0 ? [id] : []
   })
+}
+
+/** Locations carved OUT of the included set; empty when the campaign has none. */
+function excludedLocationIdsDto(raw: unknown): string[] {
+  return targetedLocationIds(raw, 'excluded_locations')
+}
+
+function locationIdsDto(raw: unknown): string[] {
+  return targetedLocationIds(raw, 'locations')
 }
 
 function operationDto(row: OperationRow): AdsOperationDto {
@@ -809,6 +821,7 @@ function campaignCreateReconcileFields(input: {
   endTime?: number
   lifetimeSpendLimitMicros: number
   locationIds: string[]
+  excludedLocationIds?: string[]
   biddingType: AdsCampaignBiddingType
   conversionEventSettingIds?: string[]
   landingPageQueryStringTemplate?: string
@@ -821,6 +834,9 @@ function campaignCreateReconcileFields(input: {
     endTime: input.endTime ?? null,
     lifetimeSpendLimitMicros: input.lifetimeSpendLimitMicros,
     locationIds: normalizeStringSet(input.locationIds),
+    ...(input.excludedLocationIds === undefined
+      ? {}
+      : { excludedLocationIds: normalizeStringSet(input.excludedLocationIds) }),
     biddingType: input.biddingType,
     conversionEventSettingIds: normalizeStringSet(input.conversionEventSettingIds ?? []),
     ...(input.landingPageQueryStringTemplate === undefined
@@ -892,6 +908,9 @@ function updateReconcileFields(
     if (Array.isArray(update.locationIds)) {
       fields.locationIds = normalizeStringSet(update.locationIds as string[])
     }
+    if (Array.isArray(update.excludedLocationIds)) {
+      fields.excludedLocationIds = normalizeStringSet(update.excludedLocationIds as string[])
+    }
   } else if (entityType === AdsEntityTypes.ad_group) {
     if (Array.isArray(update.contextHints)) {
       fields.contextHints = normalizeStringSet(update.contextHints as string[])
@@ -926,6 +945,12 @@ function entityReconcileFields(entity: AdsOperatorEntityResult): AdsReconcileFie
     fields.lifetimeSpendLimitMicros = entity.lifetimeSpendLimitMicros
   }
   if (Array.isArray(entity.locationIds)) fields.locationIds = normalizeStringSet(entity.locationIds)
+  // Both sides of the comparison must emit this or a carve-out write could
+  // never be verified on recovery, the same way the tracking template could
+  // not before it was added here.
+  if (Array.isArray(entity.excludedLocationIds)) {
+    fields.excludedLocationIds = normalizeStringSet(entity.excludedLocationIds)
+  }
   if (entity.biddingType) fields.biddingType = entity.biddingType
   if (entity.conversionEventSettingIds === null) {
     fields.conversionEventSettingIds = []
@@ -2686,7 +2711,24 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
           const current = await operator.getCampaign(apiKey, request.params.id)
           assertExpectedUpdatedAt(current, expectedUpdatedAt)
           assertPausedForWrite(current)
-          return operator.updateCampaign(apiKey, request.params.id, update)
+          // Upstream targeting REPLACES rather than merges, so an update that
+          // names only one half of the geography would silently drop the
+          // other. Carry the untouched half over from the live entity.
+          if (update.locationIds === undefined && update.excludedLocationIds === undefined) {
+            return operator.updateCampaign(apiKey, request.params.id, update)
+          }
+          const locationIds = update.locationIds ?? current.locationIds ?? undefined
+          if (locationIds === undefined || locationIds.length === 0) {
+            throw validationError('The upstream campaign reported no included locations to preserve', {
+              campaignId: current.id,
+            })
+          }
+          const excludedLocationIds = update.excludedLocationIds ?? current.excludedLocationIds ?? undefined
+          return operator.updateCampaign(apiKey, request.params.id, {
+            ...update,
+            locationIds,
+            ...(excludedLocationIds === undefined ? {} : { excludedLocationIds }),
+          })
         },
       })
     },
@@ -3059,6 +3101,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       dailySpendLimitMicros: campaign.dailySpendLimitMicros,
       lifetimeSpendLimitMicros: campaign.lifetimeSpendLimitMicros,
       locationIds: locationIdsDto(campaign.targeting),
+      excludedLocationIds: excludedLocationIdsDto(campaign.targeting),
       adGroups: groupsByCampaign.get(campaign.id) ?? [],
       landingPageQueryStringTemplate: campaign.landingPageQueryStringTemplate,
       upstreamUpdatedAt: campaign.upstreamUpdatedAt,
