@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { getModel } from '@mariozechner/pi-ai'
+import { normalizeContext, type Model } from '@earendil-works/pi-ai'
+import { clampMaxTokensToContext } from '@earendil-works/pi-ai/api/simple-options'
 import { LLM_CAPABILITIES, LlmCapabilities } from '@ainyc/canonry-contracts'
 import {
   AGENT_PROVIDERS,
@@ -19,6 +20,7 @@ import {
   validateAgentProviderRegistry,
   type SupportedAgentProvider,
 } from '../src/agent/providers.js'
+import { aeroModels } from '../src/agent/pi-models.js'
 
 describe('agent provider registry', () => {
   it('exposes at least the expected baseline providers', () => {
@@ -47,7 +49,7 @@ describe('agent provider registry', () => {
         expect((model as { baseUrl?: string }).baseUrl).toBe(entry.openaiCompatible.baseUrl)
         continue
       }
-      const model = getModel(entry.piAiProvider as never, entry.defaultModel as never)
+      const model = aeroModels.getModel(entry.piAiProvider, entry.defaultModel)
       expect(model, `pi-ai missing ${entry.piAiProvider}/${entry.defaultModel}`).toBeDefined()
     }
   })
@@ -137,9 +139,11 @@ describe('resolveApiKeySource', () => {
 
   it('tags env-sourced keys with source="env" when config is empty', () => {
     const provider = listAgentProviders()[0] as SupportedAgentProvider
-    const entry = getAgentProvider(provider)
-    const envName = `${entry.piAiProvider.toUpperCase()}_API_KEY`
+    const envName = agentProviderApiKeyEnvVar(provider)
     const prior = process.env[envName]
+    // Anthropic reads ANTHROPIC_OAUTH_TOKEN first; clear it so the plain var is the one found.
+    const priorOauth = process.env.ANTHROPIC_OAUTH_TOKEN
+    delete process.env.ANTHROPIC_OAUTH_TOKEN
     process.env[envName] = 'from-env'
     try {
       const res = resolveApiKeySource(provider, {})
@@ -147,6 +151,7 @@ describe('resolveApiKeySource', () => {
     } finally {
       if (prior === undefined) delete process.env[envName]
       else process.env[envName] = prior
+      if (priorOauth !== undefined) process.env.ANTHROPIC_OAUTH_TOKEN = priorOauth
     }
   })
 })
@@ -170,10 +175,10 @@ describe('buildAgentProvidersResponse', () => {
   })
 
   it('marks providers with no key as configured=false / keySource=null', () => {
-    // Wipe all relevant env vars so detection uses config only.
+    // Wipe all relevant env vars so detection uses config only. Anthropic
+    // also reads ANTHROPIC_OAUTH_TOKEN ahead of its plain API key var.
     const priors: Record<string, string | undefined> = {}
-    for (const p of listAgentProviders()) {
-      const envName = `${getAgentProvider(p).piAiProvider.toUpperCase()}_API_KEY`
+    for (const envName of [...listAgentProviders().map(agentProviderApiKeyEnvVar), 'ANTHROPIC_OAUTH_TOKEN']) {
       priors[envName] = process.env[envName]
       delete process.env[envName]
     }
@@ -197,17 +202,20 @@ describe('buildAgentProvidersResponse', () => {
     // Configure the #2 priority entry; #1 must remain unconfigured.
     const target = sorted[1] as SupportedAgentProvider
     const lower = sorted[0] as SupportedAgentProvider
-    const lowerEnvName = `${getAgentProvider(lower).piAiProvider.toUpperCase()}_API_KEY`
-    const priorEnv = process.env[lowerEnvName]
-    delete process.env[lowerEnvName]
+    const lowerEnvNames = [agentProviderApiKeyEnvVar(lower)]
+    if (getAgentProvider(lower).piAiProvider === 'anthropic') lowerEnvNames.push('ANTHROPIC_OAUTH_TOKEN')
+    const priors = lowerEnvNames.map((name) => [name, process.env[name]] as const)
+    for (const name of lowerEnvNames) delete process.env[name]
     try {
       const res = buildAgentProvidersResponse({
         providers: { [target]: { apiKey: 'cfg' } },
       })
       expect(res.defaultProvider).toBe(target)
     } finally {
-      if (priorEnv === undefined) delete process.env[lowerEnvName]
-      else process.env[lowerEnvName] = priorEnv
+      for (const [name, prior] of priors) {
+        if (prior === undefined) delete process.env[name]
+        else process.env[name] = prior
+      }
     }
   })
 })
@@ -249,7 +257,7 @@ describe('PROVIDER_MODELS capability tiers', () => {
           expect((model as { id?: string }).id).toBe(modelId)
           continue
         }
-        const model = getModel(entry.piAiProvider as never, modelId as never)
+        const model = aeroModels.getModel(entry.piAiProvider, modelId)
         expect(
           model,
           `pi-ai catalog missing ${entry.piAiProvider}/${modelId} (capability=${capability})`,
@@ -346,18 +354,18 @@ describe('resolveModelForCapability: gemini proxy base URL override', () => {
   })
 
   it('never mutates the shared pi-ai registry Model (clones, not in place)', () => {
-    const before = baseUrlOf(getModel('google' as never, geminiAgentId as never))
+    const before = baseUrlOf(aeroModels.getModel('google', geminiAgentId))
     withGeminiBaseUrl('http://172.17.0.1:4610/gemini', () => {
       resolveModelForCapability('gemini', LlmCapabilities.agent)
     })
-    const after = baseUrlOf(getModel('google' as never, geminiAgentId as never))
+    const after = baseUrlOf(aeroModels.getModel('google', geminiAgentId))
     expect(after).toBe(before)
     expect(after ?? '').not.toContain('172.17.0.1')
   })
 
   it('leaves the default Google host untouched when GEMINI_BASE_URL is unset', () => {
     withGeminiBaseUrl(undefined, () => {
-      const fromRegistry = baseUrlOf(getModel('google' as never, geminiAgentId as never))
+      const fromRegistry = baseUrlOf(aeroModels.getModel('google', geminiAgentId))
       expect(baseUrlOf(resolveModelForCapability('gemini', LlmCapabilities.agent))).toBe(fromRegistry)
     })
   })
@@ -379,7 +387,12 @@ describe('deepinfra (custom OpenAI-compatible host)', () => {
     baseUrl: string
     reasoning: boolean
     cost: { input: number; output: number; cacheRead: number; cacheWrite: number }
-    compat?: { supportsDeveloperRole?: boolean; maxTokensField?: string; thinkingFormat?: string }
+    compat?: {
+      supportsDeveloperRole?: boolean
+      maxTokensField?: string
+      thinkingFormat?: string
+      chatTemplateKwargs?: Record<string, unknown>
+    }
   }
 
   it('is registered, agent-only, and carries an openaiCompatible host config', () => {
@@ -429,10 +442,14 @@ describe('deepinfra (custom OpenAI-compatible host)', () => {
     const agent = resolveModelForCapability('deepinfra', LlmCapabilities.agent) as unknown as CompletionsModel
     expect(agent.compat?.thinkingFormat).toBeUndefined()
     // analyze + classify → enable_thinking:false via GLM's chat-template switch,
-    // merged onto (not replacing) the base open-model compat profile.
+    // merged onto (not replacing) the base open-model compat profile. The kwarg
+    // binds to pi's thinking state, which these callers leave off, so pi-ai
+    // sends `chat_template_kwargs: { enable_thinking: false }` and nothing else
+    // (`qwen-chat-template` would also send `preserve_thinking`).
     for (const cap of [LlmCapabilities.analyze, LlmCapabilities.classify]) {
       const model = resolveModelForCapability('deepinfra', cap) as unknown as CompletionsModel
-      expect(model.compat?.thinkingFormat).toBe('qwen-chat-template')
+      expect(model.compat?.thinkingFormat).toBe('chat-template')
+      expect(model.compat?.chatTemplateKwargs).toEqual({ enable_thinking: { $var: 'thinking.enabled' } })
       expect(model.compat?.maxTokensField).toBe('max_tokens')
     }
   })
@@ -519,13 +536,18 @@ describe('deepinfra (custom OpenAI-compatible host)', () => {
       const model = resolveModelForCapability('deepinfra', capability) as unknown as { contextWindow: number }
       expect(model.contextWindow).toBe(1_048_576)
     }
-    // An unknown user --model slug keeps the conservative fallback window.
+    // An unknown user --model slug declares no window (0). pi-ai 0.74+ clamps
+    // each request's output cap to the window minus the estimated prompt, so a
+    // guessed window would shrink a long turn's cap toward 1 token; 0 skips
+    // the clamp and the host enforces its real window.
     const custom = resolveModelForCapability(
       'deepinfra',
       LlmCapabilities.agent,
       'meta-llama/Llama-4-Maverick',
-    ) as unknown as { contextWindow: number }
-    expect(custom.contextWindow).toBe(131072)
+    ) as unknown as Model<'openai-completions'>
+    expect(custom.contextWindow).toBe(0)
+    const longPrompt = normalizeContext({ messages: [{ role: 'user', content: 'x'.repeat(600_000), timestamp: 0 }] })
+    expect(clampMaxTokensToContext(custom, longPrompt, 32_000)).toBe(32_000)
   })
 
   it('repoints baseUrl via DEEPINFRA_BASE_URL when set, else uses the constant', () => {

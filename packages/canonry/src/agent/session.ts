@@ -1,8 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { Agent } from '@mariozechner/pi-agent-core'
-import type { AgentOptions, AgentTool } from '@mariozechner/pi-agent-core'
-import { registerBuiltInApiProviders, type Model } from '@mariozechner/pi-ai'
+import { Agent } from '@earendil-works/pi-agent-core'
+import type { AgentOptions, AgentTool } from '@earendil-works/pi-agent-core'
+import type { Model } from '@earendil-works/pi-ai'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
@@ -32,9 +32,10 @@ import {
   recordLlmUsageEvent,
 } from './llm-usage.js'
 import { splitAeroAnthropicSystemCachePayload } from './prompt-cache.js'
-import { configureAeroRuntime } from './runtime.js'
+import { configureAeroRuntime, isRunFailureMessage } from './runtime.js'
 import { buildAeroViewTool, AERO_RUNTIME_PROMPT } from './view-context.js'
 import { createAeroToolUsageHooks } from './tool-usage.js'
+import { aeroStreamFn } from './pi-models.js'
 
 export type { SupportedAgentProvider } from './providers.js'
 export { AgentProviders, listAgentProviders, coerceAgentProvider } from './providers.js'
@@ -42,7 +43,6 @@ export { AgentProviders, listAgentProviders, coerceAgentProvider } from './provi
 let builtinsRegistered = false
 function ensureBuiltinsRegistered(): void {
   if (!builtinsRegistered) {
-    registerBuiltInApiProviders()
     validateAgentProviderRegistry()
     builtinsRegistered = true
   }
@@ -77,7 +77,7 @@ export interface AeroSessionOptions {
    */
   managedSweeps?: boolean
   /** Seed initial transcript. Used by the registry when rehydrating a persisted session. */
-  initialMessages?: import('@mariozechner/pi-agent-core').AgentMessage[]
+  initialMessages?: import('@earendil-works/pi-agent-core').AgentMessage[]
   /** Optional telemetry context. When present, assistant turn usage is appended to llm_usage_events. */
   db?: DatabaseClient
   projectId?: string
@@ -251,7 +251,7 @@ export function createAeroSession(opts: AeroSessionOptions): Agent {
       tools,
       ...(opts.initialMessages ? { messages: opts.initialMessages } : {}),
     },
-    streamFn: opts.streamFn,
+    streamFn: opts.streamFn ?? aeroStreamFn,
     sessionId: buildAeroProviderSessionId(opts),
     onPayload: splitAeroAnthropicSystemCachePayload,
     ...toolUsageHooks,
@@ -265,6 +265,10 @@ export function createAeroSession(opts: AeroSessionOptions): Agent {
     agent.subscribe((event) => {
       if (event.type !== 'turn_end') return
       if (event.message.role !== 'assistant') return
+      // A stopped or failed run now ends with a placeholder assistant message
+      // (pi-agent-core 0.81+). It made no provider call, so it is not usage; a
+      // real provider error is still recorded, as before.
+      if (isRunFailureMessage(event.message)) return
       recordLlmUsageEvent({
         db: telemetryDb,
         projectId: opts.projectId,

@@ -27,17 +27,14 @@ import {
   projects,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
-import {
-  fauxAssistantMessage,
-  registerFauxProvider,
-  type FauxProviderRegistration,
-} from '@mariozechner/pi-ai'
-import type { AgentMessage } from '@mariozechner/pi-agent-core'
+import { fauxAssistantMessage } from '@earendil-works/pi-ai'
+import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { resolveAgentEnabled, resolveAgentProactiveEnabled } from '../src/agent-config.js'
 import { SessionRegistry } from '../src/agent/session-registry.js'
 import { createServer } from '../src/server.js'
 import type { ApiClient } from '../src/client.js'
 import type { CanonryConfig } from '../src/config.js'
+import { registerAeroFaux, type AeroFaux } from './helpers/aero-faux.js'
 
 function cfg(agent?: CanonryConfig['agent']): CanonryConfig {
   return {
@@ -98,7 +95,7 @@ describe('resolveAgentProactiveEnabled', () => {
 describe('SessionRegistry proactive wake', () => {
   let tmpDir: string
   let db: DatabaseClient
-  let faux: FauxProviderRegistration
+  let faux: AeroFaux
 
   function insertProject(name: string): string {
     const id = `proj_${name}_${crypto.randomUUID()}`
@@ -125,7 +122,7 @@ describe('SessionRegistry proactive wake', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-prompt-only-'))
     db = createClient(path.join(tmpDir, 'test.db'))
     migrate(db)
-    faux = registerFauxProvider({ api: 'faux-api', provider: 'faux', models: [{ id: 'faux-model' }] })
+    faux = registerAeroFaux({ api: 'faux-api', provider: 'faux', models: [{ id: 'faux-model' }] })
   })
 
   afterEach(() => {

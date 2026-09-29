@@ -3,12 +3,12 @@ import { AppError, agentBusy } from '@ainyc/canonry-contracts'
 import type { AgentViewContext } from '@ainyc/canonry-contracts'
 import { apiKeys, type DatabaseClient } from '@ainyc/canonry-db'
 import { hashApiKey } from '@ainyc/canonry-api-routes'
-import type { Agent, AgentMessage, AgentTool } from '@mariozechner/pi-agent-core'
+import type { Agent, AgentMessage, AgentTool } from '@earendil-works/pi-agent-core'
 import { and, eq, isNotNull, like } from 'drizzle-orm'
 import { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
 import { CanonryMcpToolNames, canonryMcpTools, type CanonryMcpToolName } from '../mcp/tool-registry.js'
-import { configureAeroRuntime } from './runtime.js'
+import { configureAeroRuntime, setAeroSystemPrompt } from './runtime.js'
 import { createAeroSession, loadAeroSystemPrompt, resolveSessionProviderAndModel } from './session.js'
 import { withoutPersistedToolDetails } from './session-registry.js'
 import { buildSkillDocTools } from './skill-tools.js'
@@ -228,16 +228,18 @@ export class ViewerAeroSessions {
     try {
       const client = new ApiClient(this.opts.selfApiUrl, minted.raw, { skipProbe: true, surface: 'aero' })
       const agent = this.sessions.get(key)?.agent ?? this.createAgent(project, client)
-      agent.state.messages = trimViewerTranscript(agent.state.messages)
+      // Count and trim conversation turns only; the leading system message is
+      // rebuilt below.
+      agent.state.messages = trimViewerTranscript(agent.state.messages.filter(message => message.role !== 'system'))
       const view = { client, projectName: project.name, basePath: this.opts.config.basePath, context: preferences.context }
       const evidence = preferences.context ? await readAeroViewEvidence(view) : undefined
       preferences.signal?.throwIfAborted()
       // Without the operator's AERO_SYSTEM_PROMPT_APPEND / _FILE extras: those
       // are the operator's instructions, not the viewer's to read.
       const shape = aeroProjectShape(this.opts.db, project.id)
-      agent.state.systemPrompt = loadAeroSystemPrompt(undefined, { extras: false }) + VIEWER_AERO_PROMPT
+      setAeroSystemPrompt(agent, loadAeroSystemPrompt(undefined, { extras: false }) + VIEWER_AERO_PROMPT
         + shape.prompt
-        + aeroViewPrompt(preferences.context)
+        + aeroViewPrompt(preferences.context))
       // Toolkits load on demand, so the request stays under the providers'
       // function limits (128 on some), and the tools the project shape names
       // are visible from the start so the first calls it suggests never miss.

@@ -10,8 +10,8 @@ import {
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import { MemorySources } from '@ainyc/canonry-contracts'
-import type { Api, Model } from '@mariozechner/pi-ai'
-import type { AgentMessage } from '@mariozechner/pi-agent-core'
+import type { Api, Model } from '@earendil-works/pi-ai'
+import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { and, eq, like } from 'drizzle-orm'
 import {
   COMPACTION_MAX_MESSAGES,
@@ -74,6 +74,13 @@ describe('shouldCompact', () => {
       () => userMsg('x'),
     )
     expect(shouldCompact(messages)).toBe(true)
+  })
+
+  it('ignores the leading system message pi keeps in the transcript', () => {
+    // pi-agent-core 0.86+ stores the prompt and tool schemas as a system
+    // message; it is rebuilt every turn and must not trigger compaction.
+    const system = { role: 'system', content: 'x'.repeat(COMPACTION_TOKEN_THRESHOLD * 8), timestamp: 0 } as unknown as AgentMessage
+    expect(shouldCompact([system, { role: 'user', content: 'hi', timestamp: 1 } as AgentMessage])).toBe(false)
   })
 
   it('returns true when estimated tokens cross the threshold', () => {
