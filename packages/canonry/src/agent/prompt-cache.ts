@@ -1,4 +1,4 @@
-import type { Api, Model } from '@mariozechner/pi-ai'
+import type { Api, Model } from '@earendil-works/pi-ai'
 
 const AERO_MEMORY_SEPARATOR = '\n\n---\n\n'
 const AERO_MEMORY_BLOCK_PREFIX = `${AERO_MEMORY_SEPARATOR}<memory>\n`

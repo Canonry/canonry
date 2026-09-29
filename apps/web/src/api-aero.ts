@@ -29,7 +29,7 @@ const API_BASE = getApiBase()
 // ──────────────────────────────────────────────────────────────────
 // Event shape — mirrors pi-agent-core's AgentEvent plus the two control
 // frames the server brackets the stream with. Inlined here so we don't
-// ship a hard dependency on @mariozechner/pi-agent-core into the frontend.
+// ship a hard dependency on @earendil-works/pi-agent-core into the frontend.
 
 export type AeroTextBlock = { type: 'text'; text: string; textSignature?: string }
 export type AeroToolCallBlock = { type: 'toolCall'; id: string; name: string; arguments: Record<string, unknown> }

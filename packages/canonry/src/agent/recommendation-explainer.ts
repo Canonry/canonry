@@ -1,4 +1,5 @@
-import { complete, type Context } from '@mariozechner/pi-ai'
+import type { Context } from '@earendil-works/pi-ai'
+import { completeOnce } from './pi-models.js'
 import {
   actionConfidenceLabel,
   contentActionLabel,
@@ -198,7 +199,7 @@ export function createRecommendationExplainer(
       ],
     }
     const apiKey = resolveApiKeyFor(provider, opts.config)
-    const resp = await complete(model, context, apiKey ? { apiKey } : {})
+    const resp = await completeOnce(model, context, apiKey ? { apiKey } : {})
     const parts = resp.content.filter((p): p is { type: 'text'; text: string } => p.type === 'text')
     const text = parts.map((p) => p.text).join('\n').trim()
     if (!text) {
@@ -320,7 +321,7 @@ export function createRecommendationBriefSynthesizer(
         systemPrompt: BRIEF_SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userContent, timestamp: Date.now() }],
       }
-      const resp = await complete(model, context, apiKey ? { apiKey } : {})
+      const resp = await completeOnce(model, context, apiKey ? { apiKey } : {})
       totalCostDollars += Number.isFinite(resp.usage.cost.total) ? resp.usage.cost.total : 0
       const parts = resp.content.filter((p): p is { type: 'text'; text: string } => p.type === 'text')
       const text = parts.map((p) => p.text).join('\n').trim()

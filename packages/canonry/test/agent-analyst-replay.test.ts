@@ -1,13 +1,15 @@
 import { afterAll, expect, it, vi } from 'vitest'
-import { Agent } from '@mariozechner/pi-agent-core'
-import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from '@mariozechner/pi-ai'
+import { Agent } from '@earendil-works/pi-agent-core'
+import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai'
 import { agentViewContextSchema, evaluateAgentTrace, type AgentEvaluationTrace, type AgentVisibilityEvidence } from '@ainyc/canonry-contracts'
 import { buildAeroViewTool, readAeroViewEvidence, aeroViewPrompt } from '../src/agent/view-context.js'
 import { configureAeroRuntime, aeroTurnStatus } from '../src/agent/runtime.js'
+import { aeroStreamFn } from '../src/agent/pi-models.js'
 import { aeroEvidenceFixture } from '../../contracts/test/fixtures/aero-evidence.js'
 import type { ApiClient } from '../src/client.js'
+import { registerAeroFaux } from './helpers/aero-faux.js'
 
-const faux = registerFauxProvider({ api: 'aero-replay', provider: 'aero-replay', models: [{ id: 'analyst-replay' }] })
+const faux = registerAeroFaux({ api: 'aero-replay', provider: 'aero-replay', models: [{ id: 'analyst-replay' }] })
 afterAll(() => faux.unregister())
 
 it.each(['simple', 'advanced'] as const)('replays %s scope, stale evidence, missing values, separate classes, and incompatible comparisons', async mode => {
@@ -16,7 +18,7 @@ it.each(['simple', 'advanced'] as const)('replays %s scope, stale evidence, miss
   const context = agentViewContextSchema.parse({ view: 'visibility', selection: { mode, queryClass: 'all', ...(mode === 'advanced' ? { scope: 'property', scopeKey: 'hotel', marketKey: 'london', revision: 3 } : {}), runId: 'run-3' } })
   const options = { client: { getVisibilityReport } as unknown as ApiClient, projectName: 'demo', context, basePath: '/canonry/' }
   const evidence = await readAeroViewEvidence(options) as AgentVisibilityEvidence & { source: { href: string } }
-  const agent = new Agent({ initialState: { model: faux.getModel(), systemPrompt: aeroViewPrompt(context) } })
+  const agent = new Agent({ initialState: { model: faux.getModel(), systemPrompt: aeroViewPrompt(context) }, streamFn: aeroStreamFn })
   configureAeroRuntime(agent, [buildAeroViewTool(options, evidence)])
   const trace: AgentEvaluationTrace = { answer: '', tools: [], modelCalls: 0, durationMs: 0 }
   agent.subscribe(event => {

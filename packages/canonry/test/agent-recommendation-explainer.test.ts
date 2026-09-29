@@ -1,24 +1,25 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { ContentTargetRowDto } from '@ainyc/canonry-contracts'
 
-// Stub `complete` at module-load time so the explainer's `import { complete }`
-// resolves to the mock. Each test seeds `mockState.completeImpl` to control
-// what `complete` returns / throws for that test.
+// Stub `completeOnce` at module-load time so the explainer's
+// `import { completeOnce }` resolves to the mock. Each test seeds
+// `mockState.completeImpl` to control what `completeOnce` returns / throws
+// for that test.
 const mockState: {
   completeImpl: ((model: unknown, context: unknown, opts: unknown) => Promise<unknown>) | null
   callCount: number
   lastCall: { model: unknown; context: unknown; opts: unknown } | null
 } = { completeImpl: null, callCount: 0, lastCall: null }
 
-vi.mock('@mariozechner/pi-ai', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@mariozechner/pi-ai')>()
+vi.mock('../src/agent/pi-models.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/agent/pi-models.js')>()
   return {
     ...actual,
-    complete: async (model: unknown, context: unknown, opts: unknown) => {
+    completeOnce: async (model: unknown, context: unknown, opts: unknown) => {
       mockState.callCount++
       mockState.lastCall = { model, context, opts }
       if (!mockState.completeImpl) {
-        throw new Error('test did not seed mockState.completeImpl before invoking complete()')
+        throw new Error('test did not seed mockState.completeImpl before invoking completeOnce()')
       }
       return mockState.completeImpl(model, context, opts)
     },
@@ -373,7 +374,7 @@ describe('createRecommendationExplainer', () => {
     ).rejects.toThrow(/no text content/)
   })
 
-  it('passes the rendered prompt as a user message to complete()', async () => {
+  it('passes the rendered prompt as a user message to completeOnce()', async () => {
     const explainer = createRecommendationExplainer({
       config: { providers: { claude: { apiKey: 'sk' } } },
     })
@@ -503,7 +504,7 @@ describe('createRecommendationBriefSynthesizer', () => {
     expect(mockState.callCount).toBe(2)
   })
 
-  it('throws PROVIDER_ERROR when no provider is configured (never calls complete)', async () => {
+  it('throws PROVIDER_ERROR when no provider is configured (never calls completeOnce)', async () => {
     const synth = createRecommendationBriefSynthesizer({ config: { providers: {} } })
     vi.stubEnv('ANTHROPIC_API_KEY', '')
     vi.stubEnv('OPENAI_API_KEY', '')

@@ -6,8 +6,8 @@ import {
   projects,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
-import type { Agent, AgentMessage, AgentTool } from '@mariozechner/pi-agent-core'
-import type { Api, Model } from '@mariozechner/pi-ai'
+import type { Agent, AgentMessage, AgentTool } from '@earendil-works/pi-agent-core'
+import type { Api, Model } from '@earendil-works/pi-ai'
 import { agentBusy, AgentProviderIds, describeError, missingDependency } from '@ainyc/canonry-contracts'
 import { createLogger } from '../logger.js'
 import type { ApiClient } from '../client.js'
@@ -21,7 +21,7 @@ import {
   resolveSessionProviderAndModel,
   type SupportedAgentProvider,
 } from './session.js'
-import { agentProviderApiKeyEnvVar, coerceAgentProvider, getAgentProvider, resolveApiKeyFor } from './providers.js'
+import { agentProviderApiKeyEnvVar, coerceAgentProvider, getAgentProvider, isAgentModelAvailable, resolveApiKeyFor } from './providers.js'
 import { buildSkillDocTools } from './skill-tools.js'
 import {
   AeroToolProfiles,
@@ -32,7 +32,7 @@ import {
 } from './tools.js'
 import { loadExternalMcpTools } from './remote-mcp.js'
 import { loadRecentForHydrate } from './memory-store.js'
-import { configureAeroRuntime } from './runtime.js'
+import { configureAeroRuntime, isSystemMessage, setAeroSystemPrompt } from './runtime.js'
 import { buildAeroViewTool, aeroViewPrompt, readAeroViewEvidence } from './view-context.js'
 import { aeroProjectShape } from './project-shape.js'
 import type { AgentViewContext, AgentTurnLimits } from '@ainyc/canonry-contracts'
@@ -141,7 +141,7 @@ function escapeMemoryFragment(value: string): string {
  * database only; the in-memory message keeps `details` for the live UI.
  */
 export function withoutPersistedToolDetails(messages: readonly unknown[]): unknown[] {
-  return messages.map((message) => {
+  return messages.filter((message) => !isSystemMessage(message)).map((message) => {
     if (!message || typeof message !== 'object') return message
     const row = message as Record<string, unknown>
     if (row.role !== 'toolResult' || !('details' in row)) return message
@@ -405,7 +405,10 @@ export class SessionRegistry {
     if (!projectId) return
     const row = this.loadRow(projectId)
     if (!row) return
-    agent.state.systemPrompt = this.buildHydratedSystemPrompt(projectId, row.systemPrompt)
+    // A run keeps the context it started with; the next turn rebuilds the
+    // prompt from the database anyway.
+    if (agent.state.isStreaming) return
+    setAeroSystemPrompt(agent, this.buildHydratedSystemPrompt(projectId, row.systemPrompt))
   }
 
   /**
@@ -441,10 +444,8 @@ export class SessionRegistry {
       const projectId = this.resolveProjectId(projectName)
       const row = this.loadRow(projectId)
       const systemPrompt = loadAeroSystemPrompt()
-      if (row && row.systemPrompt !== systemPrompt) {
-        this.persistPromptSnapshot(projectId, systemPrompt)
-        agent.state.systemPrompt = this.buildHydratedSystemPrompt(projectId, systemPrompt)
-      }
+      // The prompt itself is rebuilt below, after compaction.
+      if (row && row.systemPrompt !== systemPrompt) this.persistPromptSnapshot(projectId, systemPrompt)
       this.alignToolSurface(projectName, agent, {
         scope: preferences?.toolScope ?? AeroToolScopes.all,
         profile: preferences?.toolProfile ?? AeroToolProfiles.default,
@@ -467,10 +468,10 @@ export class SessionRegistry {
       preferences?.signal?.throwIfAborted()
       const progressive = (preferences?.toolProfile ?? AeroToolProfiles.default) === AeroToolProfiles.default
       const shape = aeroProjectShape(this.opts.db, projectId)
-      agent.state.systemPrompt = this.buildHydratedSystemPrompt(projectId, systemPrompt)
+      setAeroSystemPrompt(agent, this.buildHydratedSystemPrompt(projectId, systemPrompt)
         + shape.prompt
-        + aeroViewPrompt(preferences?.context)
-      configureAeroRuntime(agent, [...agent.state.tools, ...(progressive ? [buildAeroViewTool(view, evidence)] : [])], preferences?.limits, progressive, shape.pinned)
+        + aeroViewPrompt(preferences?.context))
+      configureAeroRuntime(agent, [...agent.state.tools as AgentTool[], ...(progressive ? [buildAeroViewTool(view, evidence)] : [])], preferences?.limits, progressive, shape.pinned)
       return agent
     } finally {
       this.acquisitions.delete(projectName)
@@ -521,8 +522,10 @@ export class SessionRegistry {
       if (!result) return
       agent.state.messages = result.messages
       // Rehydrate the system prompt so the just-written compaction note
-      // shows up in the `<memory>` block on the very next LLM call.
-      agent.state.systemPrompt = this.buildHydratedSystemPrompt(projectId, row.systemPrompt)
+      // shows up in the `<memory>` block on the very next LLM call. The kept
+      // suffix starts at a user message, so this also restores the leading
+      // system message the slice dropped.
+      setAeroSystemPrompt(agent, this.buildHydratedSystemPrompt(projectId, row.systemPrompt))
       this.save(projectName)
       log.info('compaction.completed', {
         projectName,
@@ -597,8 +600,13 @@ export class SessionRegistry {
       ?? pinned
       ?? current.provider
       ?? AgentProviderIds.claude) as SupportedAgentProvider
+    // A stored model the installed catalog no longer has (pi-ai drops retired
+    // ids, e.g. glm-5.1 in 0.87) falls back to the provider default instead of
+    // failing every turn. Only the stored value: a request or pin is kept, so
+    // a mistyped one still fails loudly.
     const carried = !preferences?.provider && !pinned && provider === current.provider
-      ? current.modelId ?? undefined
+      && current.modelId && isAgentModelAvailable(provider, current.modelId)
+      ? current.modelId
       : undefined
     const pinnedModelId = provider === pinned ? this.opts.config.agent?.model ?? undefined : undefined
     const modelId = preferences?.modelId

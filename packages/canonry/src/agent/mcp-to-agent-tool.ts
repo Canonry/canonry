@@ -1,5 +1,5 @@
-import { Type, type TSchema } from '@sinclair/typebox'
-import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core'
+import { Type, type TSchema } from '@earendil-works/pi-ai'
+import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core'
 import { randomUUID } from 'node:crypto'
 import { RunKinds } from '@ainyc/canonry-contracts'
 import { runWithUsageTags, type ApiClient } from '../client.js'

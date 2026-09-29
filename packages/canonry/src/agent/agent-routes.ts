@@ -19,11 +19,11 @@ import {
   type AgentMemoryListResponse,
   describeError,
 } from '@ainyc/canonry-contracts'
-import type { Agent, AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core'
+import type { Agent, AgentEvent, AgentMessage } from '@earendil-works/pi-agent-core'
 import { registerAgentConversationRoutes, requireInstanceAdministrator } from '@ainyc/canonry-api-routes'
 import type { SessionRegistry } from './session-registry.js'
 import { VIEWER_AERO_MAX_PROMPT_CHARS, type ViewerAeroSessions } from './viewer-sessions.js'
-import { aeroTurnStatus } from './runtime.js'
+import { aeroTurnStatus, isRunFailureMessage, isSystemMessage } from './runtime.js'
 import {
   AeroToolProfiles,
   AeroToolScopes,
@@ -62,7 +62,7 @@ function viewerAeroCaller(request: FastifyRequest, opts: AgentRoutesOptions): st
 }
 
 /** Assistant-message fields a viewer never receives: which model answered, and what it cost. */
-const VIEWER_HIDDEN_ASSISTANT_KEYS = ['api', 'provider', 'model', 'responseId', 'usage'] as const
+const VIEWER_HIDDEN_ASSISTANT_KEYS = ['api', 'provider', 'model', 'responseId', 'usage', 'responseModel', 'diagnostics', 'providerThinkingLevel', 'rawStopReason'] as const
 const VIEWER_ERROR_MESSAGE = 'Aero could not finish this answer. Try again, or ask an administrator if it keeps happening.'
 
 /**
@@ -152,6 +152,14 @@ async function streamAgentTurn(
 
   write({ type: 'stream_open' })
   const unsubscribe = agent.subscribe((event) => {
+    // System messages hold the prompt and every tool schema (pi-agent-core
+    // 0.86+), and a run failure's placeholder message was never streamed
+    // before 0.81: send neither, so the dashboard and CLI see what they did.
+    if ('message' in event && (isSystemMessage(event.message) || isRunFailureMessage(event.message))) return
+    if (event.type === 'agent_end') {
+      write({ ...event, messages: event.messages.filter(message => !isSystemMessage(message)) })
+      return
+    }
     if (event.type === 'tool_execution_start') {
       const labelled = { ...event, label: agent.state.tools.find(tool => tool.name === event.toolName)?.label }
       write(labelled)

@@ -1,5 +1,6 @@
-import type { AgentMessage } from '@mariozechner/pi-agent-core'
-import { complete, type Api, type Context, type Message, type Model } from '@mariozechner/pi-ai'
+import type { AgentMessage } from '@earendil-works/pi-agent-core'
+import type { Api, Context, Message, Model } from '@earendil-works/pi-ai'
+import { completeOnce } from './pi-models.js'
 import { AGENT_MEMORY_VALUE_MAX_BYTES } from '@ainyc/canonry-contracts'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import {
@@ -18,8 +19,18 @@ import { writeCompactionNote } from './memory-store.js'
  * crossing the char-based token estimate.
  */
 export function shouldCompact(messages: readonly AgentMessage[]): boolean {
-  if (messages.length >= COMPACTION_MAX_MESSAGES) return true
-  return estimateTranscriptTokens(messages) >= COMPACTION_TOKEN_THRESHOLD
+  const turns = conversationMessages(messages)
+  if (turns.length >= COMPACTION_MAX_MESSAGES) return true
+  return estimateTranscriptTokens(turns) >= COMPACTION_TOKEN_THRESHOLD
+}
+
+/**
+ * The transcript without its system messages. pi-agent-core 0.86+ keeps the
+ * prompt and tool declarations there; they are rebuilt every turn, so they
+ * neither count toward compaction nor get summarized.
+ */
+function conversationMessages(messages: readonly AgentMessage[]): AgentMessage[] {
+  return messages.filter(message => message.role !== 'system')
 }
 
 /**
@@ -89,7 +100,7 @@ export interface RunSummaryLlmArgs {
 }
 
 /**
- * One-shot summarizer call via pi-ai's non-streaming `complete`. Returns
+ * One-shot summarizer call via pi-ai's non-streaming `complete` (`completeOnce`). Returns
  * the concatenated text content from the assistant reply. Throws on
  * provider error or empty output so callers can fall back to "keep the
  * transcript uncompacted."
@@ -100,7 +111,7 @@ export async function runSummaryLlm(args: RunSummaryLlmArgs): Promise<string> {
     messages: toLlmMessages(args.chunk),
   }
   const apiKey = args.getApiKey?.(args.model.provider)
-  const resp = await complete(args.model, context, apiKey ? { apiKey } : {})
+  const resp = await completeOnce(args.model, context, apiKey ? { apiKey } : {})
   const parts = resp.content.filter((p): p is { type: 'text'; text: string } => p.type === 'text')
   const text = parts.map((p) => p.text).join('\n').trim()
   if (!text) throw new Error('summary LLM returned no text content')
@@ -134,12 +145,14 @@ export interface CompactMessagesResult {
  * so a flaky summarizer never blocks a user turn.
  */
 export async function compactMessages(args: CompactMessagesArgs): Promise<CompactMessagesResult | null> {
-  const target = Math.floor(args.messages.length * COMPACTION_TARGET_RATIO)
-  const split = findSafeSplit(args.messages, target)
+  // The kept suffix has no system message; the caller rebuilds it.
+  const messages = conversationMessages(args.messages)
+  const target = Math.floor(messages.length * COMPACTION_TARGET_RATIO)
+  const split = findSafeSplit(messages, target)
   if (split === 0) return null
 
-  const chunk = args.messages.slice(0, split)
-  const suffix = args.messages.slice(split)
+  const chunk = messages.slice(0, split)
+  const suffix = messages.slice(split)
 
   const summarize = args.summarize ?? runSummaryLlm
   const rawSummary = await summarize({ model: args.model, chunk, getApiKey: args.getApiKey })

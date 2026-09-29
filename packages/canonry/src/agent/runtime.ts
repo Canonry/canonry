@@ -1,7 +1,13 @@
 import { z } from 'zod'
-import { Type } from '@sinclair/typebox'
-import type { Agent, AgentTool } from '@mariozechner/pi-agent-core'
-import type { AssistantMessage, AssistantMessageEventStream } from '@mariozechner/pi-ai'
+import type { Agent, AgentTool } from '@earendil-works/pi-agent-core'
+import {
+  Type,
+  createInitialSystemMessage,
+  getCurrentTools,
+  toToolDeclaration,
+  type AssistantMessage,
+  type AssistantMessageEventStream,
+} from '@earendil-works/pi-ai'
 import { agentTurnLimitsSchema, type AgentTurnLimits } from '@ainyc/canonry-contracts'
 import { canonryMcpTools } from '../mcp/tool-registry.js'
 import { CANONRY_MCP_TOOLKITS } from '../mcp/toolkits.js'
@@ -219,11 +225,13 @@ export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?
     runtime = { allowed, loaded: new Set(), limits: agentTurnLimitsSchema.parse(limits ?? {}), calls: 0, rounds: 0, startedAt: 0, reason: 'completed', progressive, pinned: new Set(pinned), corrected: new Map() }
     runtimes.set(agent, runtime)
     const state = runtime
-    const stream = agent.streamFn
-    agent.streamFn = (model, context, options) => {
+    const stream = agent.streamFunction
+    agent.streamFunction = (model, context, options) => {
       options?.signal?.throwIfAborted()
       state.rounds++
-      const visible = new Set((context.tools ?? []).map(tool => tool.name))
+      // The loop sends a normalized transcript: its system messages, not
+      // `context.tools`, declare the tools this request can call.
+      const visible = new Set(getCurrentTools(context.messages).map(tool => tool.name))
       const response = stream(model, context, options)
       return response instanceof Promise
         ? response.then(ready => withCorrectedToolNames(state, ready, visible))
@@ -231,10 +239,16 @@ export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?
     }
     const before = agent.beforeToolCall
     const after = agent.afterToolCall
+    // Calls past the tool limit, marked at tool_execution_start.
+    const overLimit = new Set<string>()
     agent.beforeToolCall = async (event, signal) => {
-      if (signal?.aborted) return { block: true, reason: 'Turn stopped.' }
+      if (signal?.aborted || overLimit.has(event.toolCall.id)) return { block: true, reason: 'Turn stopped.' }
       return before?.(event, signal)
     }
+    const finish = agent.finishTurn
+    // A turn that hit the tool limit ends the run once its batch settles,
+    // without another model call.
+    agent.finishTurn = (turn, signal) => state.reason === 'tool-limit' ? { action: 'end' } : finish?.(turn, signal)
     agent.afterToolCall = async (event, signal) => {
       const override = await after?.(event, signal)
       if (event.toolCall.name === LOAD && !event.isError) {
@@ -247,31 +261,46 @@ export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?
       return override
     }
     const toolStarts = new Map<string, number>()
+    const toolDurations = new Map<string, number>()
     agent.subscribe(event => {
       if (event.type === 'tool_execution_start') {
+        // Count every attempt here, including unknown tools and invalid
+        // arguments, which pi rejects before beforeToolCall runs. A call past
+        // the limit is blocked there instead of aborting the run: pi runs a
+        // parallel batch only after preparing every call in it, so an abort
+        // would also cancel the calls already allowed.
         if (state.calls >= state.limits.maxToolCalls) {
           state.reason = 'tool-limit'
-          agent.abort()
+          overLimit.add(event.toolCallId)
         } else if (!agent.signal?.aborted) {
           state.calls++
-          toolStarts.set(event.toolCallId, Date.now())
         }
+        toolStarts.set(event.toolCallId, Date.now())
+      }
+      // Time each call from its own end event: a parallel batch's result
+      // messages arrive only after the whole batch has finished.
+      if (event.type === 'tool_execution_end') {
+        const startedAt = toolStarts.get(event.toolCallId)
+        if (startedAt !== undefined) toolDurations.set(event.toolCallId, Date.now() - startedAt)
+        toolStarts.delete(event.toolCallId)
       }
       if (event.type === 'message_end' && event.message.role === 'toolResult') {
         const message = event.message
         explainMissingTool(state, message)
-        const startedAt = toolStarts.get(message.toolCallId)
+        const durationMs = toolDurations.get(message.toolCallId)
         const requested = state.corrected.get(message.toolCallId)
         Object.assign(message, {
           aeroToolLabel: state.allowed.find(tool => tool.name === message.toolName)?.label,
-          ...(startedAt === undefined ? {} : { aeroDurationMs: Date.now() - startedAt }),
+          ...(durationMs === undefined ? {} : { aeroDurationMs: durationMs }),
           ...(requested === undefined ? {} : { aeroRequestedToolName: requested }),
         })
-        toolStarts.delete(event.message.toolCallId)
+        toolDurations.delete(message.toolCallId)
         state.corrected.delete(message.toolCallId)
       }
       if (event.type === 'agent_start') {
         toolStarts.clear()
+        toolDurations.clear()
+        overLimit.clear()
         state.corrected.clear()
         state.calls = 0
         state.rounds = 0
@@ -294,6 +323,52 @@ export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?
   runtime.progressive = progressive
   runtime.pinned = new Set(pinned)
   agent.state.tools = visibleTools(runtime)
+  setAeroSystemPrompt(agent)
+}
+
+/**
+ * pi-agent-core 0.86+ keeps the system prompt and tool declarations in the
+ * transcript as `role: 'system'` messages. They are rebuilt from the database
+ * and the live tool set on every hydrate and turn, so they are never stored,
+ * archived or shown: a stored copy would bring back a stale prompt, the full
+ * `<memory>` block and every tool schema, and 0.67-era rows stay loadable.
+ */
+export function isSystemMessage(message: unknown): boolean {
+  return !!message && typeof message === 'object' && (message as { role?: unknown }).role === 'system'
+}
+
+
+/**
+ * The assistant message pi-agent-core appends when a run throws or is aborted
+ * outside a provider call (for example the stream wrapper's abort check). Since
+ * 0.81 it is streamed as message_start/message_end/turn_end; 0.67 only put it
+ * in the transcript and on `agent_end`. It carries no answer and no usage: one
+ * empty text part, stop reason `aborted` or `error`, and the thrown message.
+ * It also has no `responseId`, which tells it apart from a real provider error
+ * of the same shape (OpenAI Responses opens an empty text part as soon as an
+ * output item starts, and sets `responseId` before that).
+ */
+export function isRunFailureMessage(message: unknown): boolean {
+  if (!message || typeof message !== 'object') return false
+  const m = message as { role?: unknown; stopReason?: unknown; content?: unknown; usage?: { totalTokens?: unknown }; responseId?: unknown }
+  if (m.role !== 'assistant' || (m.stopReason !== 'aborted' && m.stopReason !== 'error') || m.responseId) return false
+  const content = Array.isArray(m.content) ? m.content as Array<{ type?: unknown; text?: unknown }> : []
+  return content.length === 1 && content[0]!.type === 'text' && content[0]!.text === '' && m.usage?.totalTokens === 0
+}
+
+/**
+ * Set the prompt Aero runs with. pi-agent-core 0.86 made `state.systemPrompt`
+ * a read-only replay of the transcript's system messages, and a later system
+ * message appends to the prompt rather than replacing it. So rewrite the one
+ * leading system message instead: the given prompt plus the tools the agent
+ * holds now, followed by the rest of the transcript without any system
+ * message (earlier tool announcements are folded into the new declaration).
+ * Call it between runs only; a run keeps the context it started with.
+ */
+export function setAeroSystemPrompt(agent: Agent, prompt: string = agent.state.systemPrompt): void {
+  const system = createInitialSystemMessage(prompt, agent.state.tools.map(toToolDeclaration))
+  const rest = agent.state.messages.filter(message => message.role !== 'system')
+  agent.state.messages = system ? [system, ...rest] : rest
 }
 
 export function aeroTurnStatus(agent: Agent) {
