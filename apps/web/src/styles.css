@@ -2404,6 +2404,7 @@
 
   .query-evidence-table-wrap {
     @apply relative overflow-x-auto;
+    container-type: inline-size;
   }
 
   .query-evidence-table {
@@ -2466,6 +2467,10 @@
 
   .query-evidence-preview-row > td {
     @apply bg-surface-subtle px-10 pb-6 pt-2;
+  }
+
+  .query-evidence-preview {
+    max-width: min(65ch, calc(100cqi - 5rem));
   }
 
   /* Keep row actions reachable when a measurement table is wider than its pane. */
@@ -2643,11 +2648,11 @@
   /* ── Project row (overview) ── */
 
   .project-row {
-    @apply grid gap-3 rounded-xl border border-subtle bg-bg-elevated/15 px-4 py-3.5 transition hover:border-mono-700/60 hover:bg-bg-elevated/35 lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_9rem_auto] lg:items-center no-underline text-inherit;
+    @apply grid gap-3 rounded-xl border border-subtle bg-bg-elevated/15 px-4 py-3.5 transition hover:border-mono-700/60 hover:bg-bg-elevated/35 lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_auto] lg:items-center no-underline text-inherit;
   }
 
   .project-row-with-sentiment {
-    @apply lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_10rem_auto];
+    @apply lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_9rem_auto];
   }
 
   .project-row-primary {

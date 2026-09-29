@@ -1,6 +1,6 @@
 import { Fragment, useId, useMemo, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
-import { CitationStates, brandLabelFromDomain, type QueryClass } from '@ainyc/canonry-contracts'
+import { CitationStates, brandLabelFromDomain, hostOf, type QueryClass } from '@ainyc/canonry-contracts'
 
 import { Button } from '../ui/button.js'
 import { CitationBadge } from '../shared/CitationBadge.js'
@@ -10,10 +10,12 @@ import {
   useClientTable,
 } from '../shared/DataTableControls.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { SourceLink } from '../shared/SourceLink.js'
+import { AnswerMarkdown } from '../shared/AnswerMarkdown.js'
 import { SentimentHeadlines, SentimentQueryScore, SentimentAnswerOutcome, useSentimentConfigured } from './SentimentSection.js'
 import { CitationTimeline, mergeProviderHistories } from './CitationTimeline.js'
 import { useDrawer } from '../../hooks/use-drawer.js'
-import { highlightTermsInText, type HighlightTermGroup } from '../../lib/highlight.js'
+import type { HighlightTermGroup } from '../../lib/highlight.js'
 import type { CitationInsightVm, CitationState, RunHistoryPoint } from '../../view-models.js'
 
 export type CoverageMode = 'citations' | 'mentions'
@@ -427,8 +429,10 @@ export function EvidenceTable({
                         {density === 'detailed' && (
                           <tr className="query-evidence-preview-row">
                             <td colSpan={sentimentConfigured ? 6 : 5}>
-                              <AnswerInlinePanel
+                              <EvidenceInlinePanel
+                                key={mode}
                                 item={item}
+                                mode={mode}
                                 onViewFull={() => openEvidence(item.id)}
                               />
                             </td>
@@ -461,7 +465,7 @@ export function EvidenceTable({
   )
 }
 
-export function buildHighlightGroups(item: CitationInsightVm): HighlightTermGroup[] {
+export function buildHighlightGroups(item: Pick<CitationInsightVm, 'matchedTerms' | 'mentionedCompetitorDomains' | 'recommendedCompetitors'>): HighlightTermGroup[] {
   const brandTerms = (item.matchedTerms ?? []).filter(t => t.trim().length > 2)
   const competitorTerms = [
     ...(item.mentionedCompetitorDomains ?? []).flatMap(d => {
@@ -483,20 +487,67 @@ export function isCitedCompetitorDomain(item: CitationInsightVm, domain: string)
   )
 }
 
-function truncate(text: string, max: number): { body: string; truncated: boolean } {
-  if (text.length <= max) return { body: text, truncated: false }
-  const cut = text.lastIndexOf(' ', max)
-  const body = text.slice(0, cut > max - 40 ? cut : max).trimEnd()
-  return { body: `${body}…`, truncated: true }
+function EvidenceInlinePanel({ item, mode, onViewFull }: {
+  item: CitationInsightVm
+  mode: CoverageMode
+  onViewFull: () => void
+}) {
+  const [answerExpanded, setAnswerExpanded] = useState(false)
+  const [sourcesExpanded, setSourcesExpanded] = useState(false)
+  if (mode === 'mentions') return <AnswerInlinePanel item={item} onViewFull={onViewFull} />
+
+  const sources = item.evidenceUrls.length > 0
+    ? item.evidenceUrls.map(url => ({ uri: url, title: item.groundingSources.find(source => source.uri === url)?.title }))
+    : item.groundingSources
+  return (
+    <div className="query-evidence-preview space-y-3">
+      <p className="text-[13px] font-medium text-secondary">
+        {item.evidenceUrls.length > 0 ? 'Cited sources' : sources.length > 0 ? 'Grounding sources' : 'Cited domains'}
+      </p>
+      {sources.length > 0 ? (
+        <ul className="space-y-4">
+          {sources.slice(0, sourcesExpanded ? undefined : 6).map((source, index) => (
+            <li key={`${index}-${source.uri}`} className="min-w-0">
+              <SourceLink url={source.uri} title={source.title} />
+              {isCitedCompetitorDomain(item, hostOf(source.uri) ?? '') && <p className="mt-1 text-[13px] text-secondary">Competitor source</p>}
+            </li>
+          ))}
+        </ul>
+      ) : item.citedDomains.length > 0 ? (
+        <ul className="space-y-1 text-sm text-secondary">
+          {item.citedDomains.slice(0, sourcesExpanded ? undefined : 6).map(domain => (
+            <li key={domain} className="[overflow-wrap:anywhere]">
+              {domain}{isCitedCompetitorDomain(item, domain) ? ' · competitor source' : ''}
+            </li>
+          ))}
+        </ul>
+      ) : <p className="text-sm text-secondary">No cited sources captured for this run.</p>}
+      {(sources.length > 6 || (sources.length === 0 && item.citedDomains.length > 6)) && (
+        <Button type="button" variant="ghost" className="min-h-11" aria-expanded={sourcesExpanded} onClick={() => setSourcesExpanded(expanded => !expanded)}>
+          {sourcesExpanded ? 'Show fewer sources' : 'View all sources'}
+        </Button>
+      )}
+      {item.answerSnippet.trim() ? (
+        <details open={answerExpanded} className="border-t border-subtle pt-1">
+          <summary className="min-h-11 cursor-pointer py-3 text-sm text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={event => { event.preventDefault(); setAnswerExpanded(expanded => !expanded) }}>Answer text</summary>
+          {answerExpanded && <AnswerInlinePanel item={item} onViewFull={onViewFull} contextOnly />}
+        </details>
+      ) : <p className="text-sm text-secondary">No answer text captured for this run.</p>}
+    </div>
+  )
 }
 
 function AnswerInlinePanel({
   item,
   onViewFull,
+  contextOnly = false,
 }: {
   item: CitationInsightVm
   onViewFull: () => void
+  contextOnly?: boolean
 }) {
+  const { matchedTerms, mentionedCompetitorDomains, recommendedCompetitors } = item
+  const groups = useMemo(() => buildHighlightGroups({ matchedTerms, mentionedCompetitorDomains, recommendedCompetitors }), [matchedTerms, mentionedCompetitorDomains, recommendedCompetitors])
   const hasAnswer = item.answerSnippet.trim().length > 0
   if (!hasAnswer) {
     return (
@@ -506,50 +557,53 @@ function AnswerInlinePanel({
     )
   }
 
-  const { body, truncated } = truncate(item.answerSnippet, ANSWER_PREVIEW_MAX)
-  const groups = buildHighlightGroups(item)
+  const truncated = item.answerSnippet.length > ANSWER_PREVIEW_MAX
 
   return (
-    <div className="max-w-prose space-y-3">
-      <p className="text-[13px] font-medium text-secondary">Answer text</p>
-      <p className="text-sm leading-relaxed text-neutral">
-        {highlightTermsInText(body, groups)}
-      </p>
-      {(item.citedDomains.length > 0 || (item.mentionedCompetitorDomains?.length ?? 0) > 0) && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-secondary">
-          {item.citedDomains.length > 0 && (
-            <>
-              <span className="font-medium">Cited:</span>
-              {item.citedDomains.slice(0, 6).map(d => (
-                <span
-                  key={`c-${d}`}
-                  className="[overflow-wrap:anywhere]"
-                >
-                  {d}{isCitedCompetitorDomain(item, d) ? ' · competitor source' : ''}
-                </span>
-              ))}
-              {item.citedDomains.length > 6 && (
-                <span>+{item.citedDomains.length - 6} more</span>
-              )}
-            </>
+    <div className="query-evidence-preview space-y-3">
+      {!contextOnly && <p className="text-[13px] font-medium text-secondary">Answer text</p>}
+      <AnswerMarkdown headingLevel={4} highlightGroups={groups} previewLength={ANSWER_PREVIEW_MAX}>
+        {item.answerSnippet}
+      </AnswerMarkdown>
+      {((!contextOnly && item.citedDomains.length > 0) || (item.mentionedCompetitorDomains?.length ?? 0) > 0) && (
+        <dl className="space-y-2 text-[13px] leading-6 text-secondary">
+          {!contextOnly && item.citedDomains.length > 0 && (
+            <div>
+              <dt className="font-medium">Cited domains</dt>
+              <dd className="flex flex-wrap gap-x-3 gap-y-1">
+                {item.citedDomains.slice(0, 6).map(d => (
+                  <span
+                    key={`c-${d}`}
+                    className="[overflow-wrap:anywhere]"
+                  >
+                    {d}{isCitedCompetitorDomain(item, d) ? ' · competitor source' : ''}
+                  </span>
+                ))}
+                {item.citedDomains.length > 6 && (
+                  <span>+{item.citedDomains.length - 6} more</span>
+                )}
+              </dd>
+            </div>
           )}
           {(item.mentionedCompetitorDomains?.length ?? 0) > 0 && (
-            <>
-              <span className="font-medium">Competitors in answer:</span>
-              {item.mentionedCompetitorDomains!.slice(0, 4).map(d => (
-                <span
-                  key={`co-${d}`}
-                  className="[overflow-wrap:anywhere]"
-                >
-                  {d}
-                </span>
-              ))}
-              {item.mentionedCompetitorDomains!.length > 4 && (
-                <span>+{item.mentionedCompetitorDomains!.length - 4} more</span>
-              )}
-            </>
+            <div>
+              <dt className="font-medium">Competitors in answer</dt>
+              <dd className="flex flex-wrap gap-x-3 gap-y-1">
+                {item.mentionedCompetitorDomains!.slice(0, 4).map(d => (
+                  <span
+                    key={`co-${d}`}
+                    className="[overflow-wrap:anywhere]"
+                  >
+                    {d}
+                  </span>
+                ))}
+                {item.mentionedCompetitorDomains!.length > 4 && (
+                  <span>+{item.mentionedCompetitorDomains!.length - 4} more</span>
+                )}
+              </dd>
+            </div>
           )}
-        </div>
+        </dl>
       )}
       {truncated && (
         <Button

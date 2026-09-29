@@ -1,6 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectOverviewDto } from '@ainyc/canonry-contracts'
-import { renderHuman } from '../src/commands/overview.js'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { sentimentFixtureSummary } from '../../contracts/test/fixtures/sentiment.js'
+import { renderHuman, showOverview } from '../src/commands/overview.js'
+import * as clientModule from '../src/client.js'
+import { createCanonryMcpServerWithCatalog } from '../src/mcp/server.js'
+
+function makeSentiment() {
+  const { state, reason, provisional, coverage, score, selection } = sentimentFixtureSummary
+  const common = { state, reason, provisional, coverage, score, runIds: ['run-fixture'] }
+  return {
+    configured: true,
+    branded: { ...common, selection },
+    nonBrand: { ...common, selection: { ...selection, queryClass: 'non-brand' as const } },
+    overall: { ...common, queryClass: 'all' as const },
+  }
+}
 
 function makeOverview(overrides: Partial<ProjectOverviewDto> = {}): ProjectOverviewDto {
   return {
@@ -113,6 +129,74 @@ describe('canonry overview — human output', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it('prints the server overall score with its combined class scope and judged denominator', () => {
+    const sentiment = makeSentiment()
+    sentiment.overall.score = { ...sentiment.overall.score, favorableDisplay: '61.0%' }
+    output = captureOutput(() => renderHuman(makeOverview({ sentiment })))
+    expect(output).toContain('Overall sentiment: 61.0% favorable · all query classes')
+    expect(output).toContain('3 favorable / 5 judged · provisional')
+    expect(output).not.toContain('Overall sentiment: 60.0%')
+  })
+
+  it('shows a measured zero overall favorable score', () => {
+    const sentiment = makeSentiment()
+    sentiment.overall.score = { ...sentiment.overall.score, favorableRate: 0, favorableDisplay: '0.0%' }
+    sentiment.overall.coverage = { ...sentiment.overall.coverage, counts: { ...sentiment.overall.coverage.counts, favorable: 0, unfavorable: 4 } }
+    output = captureOutput(() => renderHuman(makeOverview({ sentiment })))
+    expect(output).toContain('Overall sentiment: 0.0% favorable · all query classes')
+  })
+
+  it.each(['disabled', 'missing', 'unjudged', 'unavailable'] as const)('omits a %s overall score without combining class values locally', condition => {
+    const sentiment = makeSentiment()
+    const { overall: _overall, ...olderSentiment } = sentiment
+    if (condition === 'disabled') sentiment.configured = false
+    if (condition === 'unjudged') sentiment.overall.coverage = { ...sentiment.overall.coverage, judged: 0 }
+    if (condition === 'unavailable') sentiment.overall.score = { ...sentiment.overall.score, favorableRate: null }
+    output = captureOutput(() => renderHuman(makeOverview({ sentiment: condition === 'missing' ? olderSentiment : sentiment })))
+    expect(output).not.toContain('Overall sentiment:')
+  })
+
+  it.each(['simple', 'advanced'] as const)('preserves %s overall and class headlines through generated HTTP, CLI JSON and MCP transport', async mode => {
+    const sentiment = makeSentiment()
+    sentiment.branded.selection = { ...sentiment.branded.selection, mode, revision: mode === 'advanced' ? 4 : null }
+    sentiment.nonBrand.selection = { ...sentiment.nonBrand.selection, mode, revision: mode === 'advanced' ? 4 : null }
+    const overview = makeOverview({ sentiment })
+    const requests: Request[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      requests.push(input instanceof Request ? input : new Request(input, init))
+      return Response.json(overview)
+    }))
+    const api = new clientModule.ApiClient('https://canonry.test/prefix', 'cnry_overview-read', { skipProbe: true })
+    const selection = { location: 'Harbor', since: '2026-09-01T00:00:00Z' }
+    expect(await api.getProjectOverview('demo', selection)).toEqual(overview)
+    vi.spyOn(clientModule, 'createApiClient').mockReturnValue(api)
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    await showOverview('demo', { format: 'json', ...selection })
+    expect(JSON.parse(String(log.mock.calls[0]![0]))).toEqual(overview)
+
+    const { server } = createCanonryMcpServerWithCatalog({ clientFactory: () => api, scope: 'read-only' })
+    const mcp = new Client({ name: 'overview-sentiment-test', version: '1' }, { capabilities: {} })
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+    try {
+      await server.connect(serverTransport)
+      await mcp.connect(clientTransport)
+      const response = await mcp.callTool({ name: 'canonry_project_overview', arguments: { project: 'demo', ...selection } })
+      expect(response.isError).not.toBe(true)
+      expect(response.structuredContent).toEqual(overview)
+    } finally {
+      await mcp.close()
+      await server.close()
+    }
+    expect(requests).toHaveLength(3)
+    for (const request of requests) {
+      const url = new URL(request.url)
+      expect(url.pathname).toBe('/prefix/api/v1/projects/demo/overview')
+      expect(Object.fromEntries(url.searchParams)).toEqual(selection)
+      expect(request.headers.get('authorization')).toBe('Bearer cnry_overview-read')
+    }
   })
 
   it('renders Mention, Citation, and Mention Share scores in the hero order', () => {

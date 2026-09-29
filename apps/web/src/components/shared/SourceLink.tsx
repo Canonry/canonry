@@ -5,8 +5,8 @@ export function SourceLink({ url, title }: { url: string; title?: string | null 
   const safeUrl = safeExternalUrl(url)
   const href = safeUrl && /^https?:\/\//i.test(safeUrl) ? safeUrl : null
   return (
-    <span className="block min-w-0 text-sm [overflow-wrap:anywhere]">
-      {title && title !== url ? <span className="block text-secondary">{title}</span> : null}
+    <span className="block min-w-0 text-sm leading-6 [overflow-wrap:anywhere]">
+      {title && title !== url ? <><span className="mb-1 block font-medium text-heading">{title}</span>{' '}</> : null}
       {href ? (
         <a href={href} target="_blank" rel="noopener noreferrer" className="text-link underline underline-offset-2 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
           {url}

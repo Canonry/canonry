@@ -1,12 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import { sentimentFixtureSummary, sentimentCompleteFixtureSummary } from './fixtures/sentiment.js'
-import { sentimentSummarySchema } from '../src/sentiment.js'
+import { sentimentSummarySchema, sentimentOverviewSchema, sentimentOverallHeadlineSchema } from '../src/sentiment.js'
 import { aggregateSentiment, canonicalSentimentDefinitionJson, createSentimentEvaluationDefinition, hasCurrentSentimentTemplate, sentimentJobRequestSchema, sentimentJobsSchema, sentimentSummaryRequestSchema, sentimentClassifierOutputSchema, sentimentRateDisplay, sentimentSettingsUpdateSchema, sentimentSelectionSchema, sentimentCompareRequestSchema, sentimentAssessmentSummarySchema, sentimentEvidenceRequestSchema, storedSentimentEvaluationDefinitionSchema, storedSentimentClassifierOutputSchema, type SentimentAggregateItem, type SentimentOutcome } from '../src/sentiment.js'
 
 const outcomes: SentimentOutcome[] = ['favorable', 'favorable', 'favorable', 'mixed', 'unfavorable', 'factual', 'wrong-subject', 'invalid-conclusion-evidence', 'failed', 'pending']
 const canonical: SentimentAggregateItem[] = outcomes.map((outcome, index) => ({ assessmentId: `a${index}`, sourceSnapshotId: `s${index}`, outcome }))
 
 describe('sentiment measurement invariants', () => {
+  it('adds an explicitly combined overview without requiring it from older servers', () => {
+    const { state, reason, provisional, coverage, score, selection } = sentimentFixtureSummary
+    const headline = { state, reason, provisional, coverage, score, selection, runIds: ['run'] }
+    const prior = { configured: true, branded: headline, nonBrand: { ...headline, selection: { ...selection, queryClass: 'non-brand' } } }
+    expect(sentimentOverviewSchema.parse(prior)).toEqual(prior)
+    const overall = { state, reason, provisional, coverage, score, queryClass: 'all', runIds: ['run'] }
+    expect(sentimentOverviewSchema.parse({ ...prior, overall }).overall).toEqual(overall)
+    expect(sentimentOverallHeadlineSchema.safeParse({ ...overall, queryClass: 'branded' }).success).toBe(false)
+    expect(sentimentOverallHeadlineSchema.safeParse({ ...overall, selection }).success).toBe(false)
+    expect(sentimentSelectionSchema.safeParse({ queryClass: 'all' }).success).toBe(false)
+  })
   it('shares strict partial and complete DTO fixtures across every surface', () => {
     expect(sentimentSummarySchema.parse(sentimentFixtureSummary)).toEqual(sentimentFixtureSummary)
     expect(sentimentSummarySchema.parse(sentimentCompleteFixtureSummary).state).toBe('complete')

@@ -10878,6 +10878,56 @@ export type ProjectOverviewDto = {
             };
             runIds: Array<string>;
         };
+        overall?: {
+            state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+            reason: string | null;
+            provisional: boolean;
+            coverage: {
+                selected: number;
+                eligibleAssessments: number;
+                unadmittedAssessments: number;
+                judged: number;
+                distinctSourceAnswers: number;
+                counts: {
+                    favorable: number;
+                    mixed: number;
+                    unfavorable: number;
+                    factual: number;
+                    'subject-not-mentioned': number;
+                    'wrong-subject': number;
+                    'ambiguous-subject': number;
+                    'ambiguous-judgment': number;
+                    'subject-not-applicable': number;
+                    'unsupported-language': number;
+                    'missing-source-text': number;
+                    'input-too-large': number;
+                    'invalid-conclusion-evidence': number;
+                    pending: number;
+                    running: number;
+                    'waiting-to-retry': number;
+                    failed: number;
+                    canceled: number;
+                };
+                expectedProviderSlots: number;
+                completedProviderSlots: number;
+            };
+            score: {
+                favorableRate: number | null;
+                mixedRate: number | null;
+                unfavorableRate: number | null;
+                favorableDisplay: string;
+                mixedDisplay: string;
+                unfavorableDisplay: string;
+                interval: {
+                    low: number;
+                    high: number;
+                } | null;
+                method: 'wilson-independent-v1';
+                limitation: string;
+            };
+            queryClass: 'all';
+            runIds: Array<string>;
+        };
     };
     project: {
         id: string;

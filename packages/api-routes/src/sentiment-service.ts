@@ -8,7 +8,7 @@ import {
   validationError, type SentimentBackfillPreview, type SentimentBackfillSelection, type SentimentClassifierInput,
   type SentimentComparison, type SentimentCounts, type SentimentEvidenceItem, type SentimentHeadline, type SentimentJob, type SentimentOutcome,
   type SentimentQuerySummary, type SentimentResolvedSelection, type SentimentSelection, type SentimentEvidenceSelection,
-  type SentimentSettings, type SentimentSummary, type SentimentOverview, type SentimentSummaryInclude, type SentimentJobSummary,
+  type SentimentSettings, type SentimentSummary, type SentimentOverview, type SentimentOverallHeadline, type SentimentSummaryInclude, type SentimentJobSummary,
 } from '@ainyc/canonry-contracts'
 import {
   measurementPlanVersions, querySnapshots, runs, sentimentAttempts, sentimentDefinitions, sentimentJobItems, sentimentJobs,
@@ -342,23 +342,9 @@ export class SentimentService {
     const selections = resolved.map(entry => entry.selection), sources = resolved.map(entry => entry.source)
     const runIds = selections.flatMap(selection => selection.runId ? [selection.runId] : []).sort()
     const definitions = new Set(selections.flatMap(selection => selection.evaluationDefinitionId ? [selection.evaluationDefinitionId] : []))
-    const modes = new Set(selections.map(selection => selection.mode))
-    const revisions = new Set(selections.map(selection => selection.revision))
-    const source: SentimentSourceSelection = { assessments: sources.flatMap(source => source.assessments), runIds, sourceCoverage: { expected: sources.reduce((sum, source) => sum + source.sourceCoverage.expected, 0), completed: sources.reduce((sum, source) => sum + source.sourceCoverage.completed, 0) }, skipped: sources.reduce<Record<string, number>>((counts, source) => { for (const [reason, count] of Object.entries(source.skipped)) counts[reason] = (counts[reason] ?? 0) + count; return counts }, {}) }
+    const source: SentimentSourceSelection = { assessments: sources.flatMap(source => source.assessments), runIds, sourceCoverage: { expected: sources.reduce((sum, source) => sum + source.sourceCoverage.expected, 0), completed: sources.reduce((sum, source) => sum + source.sourceCoverage.completed, 0) }, sourceSlotIds: { expected: sources.flatMap(source => source.sourceSlotIds.expected), completed: sources.flatMap(source => source.sourceSlotIds.completed) }, skipped: sources.reduce<Record<string, number>>((counts, source) => { for (const [reason, count] of Object.entries(source.skipped)) counts[reason] = (counts[reason] ?? 0) + count; return counts }, {}) }
     const selection: SentimentResolvedSelection = { ...selections[0]!, runId: runIds.length === 1 ? runIds[0]! : null, runIds: runIds.length > 1 ? runIds : undefined, evaluationDefinitionId: definitions.size === 1 ? [...definitions][0]! : null }
-    let reason: string | null = definitions.size > 1 ? 'evaluation-definition-changed' : modes.size > 1 ? 'source-mode-changed' : revisions.size > 1 ? 'measurement-revision-changed' : null
-    const subjects = new Map<string, string>(), queries = new Map<string, string>()
-    const filter = sourceFilter(query)
-    for (const assessment of source.assessments) {
-      const identity = sentimentHash(assessment.subject), prior = subjects.get(assessment.subject.key)
-      if (prior && prior !== identity) reason ??= 'subject-identity-changed'
-      subjects.set(assessment.subject.key, identity)
-      for (const edge of assessment.edges.filter(edge => matchesSentimentEdge(edge, filter))) {
-        const previous = queries.get(edge.queryKey)
-        if (previous && previous !== edge.queryText) reason ??= 'query-identity-changed'
-        queries.set(edge.queryKey, edge.queryText)
-      }
-    }
+    const reason = incompatibleSelectionReason(selections, source.assessments, sourceFilter(query))
     return { selection, items, source, reason, fingerprint: sentimentHash(selections) }
   }
   /** Incompatible pooled identities replace every score in the response with an unavailable one. */
@@ -392,6 +378,7 @@ export class SentimentService {
   overview(projectId: string, runIds: string[], location?: string): SentimentOverview {
     const settings = this.settings(projectId)
     const configured = settings.enabled && settings.installEnabled
+    const reads: Read<StoredItem>[] = []
     const headline = (queryClass: 'branded' | 'non-brand'): SentimentHeadline => {
       // Off (the default) and no-run projects answer from settings alone: no source selection or stored read.
       if (!configured || !runIds.length) {
@@ -400,10 +387,12 @@ export class SentimentService {
         return { state: result.state, reason: result.reason, provisional: result.provisional, coverage: result.coverage, score: result.score, selection: empty, runIds: [] }
       }
       const read = this.readSelection(projectId, { mode: 'auto', scope: 'project', queryClass, runIds, ...(location ? { location } : {}) })
+      reads.push(read)
       const { summary: result } = this.present(read, settings, null)
       return { state: result.state, reason: result.reason, provisional: result.provisional, coverage: result.coverage, score: result.score, selection: result.selection, runIds: result.selection.runIds ?? (result.selection.runId ? [result.selection.runId] : []) }
     }
-    return { configured, branded: headline('branded'), nonBrand: headline('non-brand') }
+    const branded = headline('branded'), nonBrand = headline('non-brand')
+    return { configured, branded, nonBrand, overall: overallSentiment(reads, !configured) }
   }
   evidence(projectId: string, query: SentimentEvidenceSelection, limit: number, cursor?: string) {
     const { assessmentId, ...sourceSelection } = query
@@ -463,7 +452,47 @@ export class SentimentService {
   }
 }
 const jobAttemptJoin = and(eq(sentimentJobItems.workItemId, sentimentAttempts.workItemId), eq(sentimentJobItems.projectId, sentimentAttempts.projectId))
-function emptySource(): SentimentSourceSelection { return { assessments: [], runIds: [], sourceCoverage: { expected: 0, completed: 0 }, skipped: {} } }
+function emptySource(): SentimentSourceSelection { return { assessments: [], runIds: [], sourceCoverage: { expected: 0, completed: 0 }, sourceSlotIds: { expected: [], completed: [] }, skipped: {} } }
+
+function incompatibleSelectionReason(selections: readonly SentimentResolvedSelection[], assessments: readonly SentimentSourceAssessment[], filter?: SentimentSourceFilter): string | null {
+  const definitions = new Set(selections.flatMap(selection => selection.evaluationDefinitionId ? [selection.evaluationDefinitionId] : []))
+  const modes = new Set(selections.map(selection => selection.mode))
+  const revisions = new Set(selections.map(selection => selection.revision))
+  let reason: string | null = definitions.size > 1 ? 'evaluation-definition-changed' : modes.size > 1 ? 'source-mode-changed' : revisions.size > 1 ? 'measurement-revision-changed' : null
+  const subjects = new Map<string, string>(), queries = new Map<string, string>()
+  for (const assessment of assessments) {
+    const identity = sentimentHash(assessment.subject), prior = subjects.get(assessment.subject.key)
+    if (prior && prior !== identity) reason ??= 'subject-identity-changed'
+    subjects.set(assessment.subject.key, identity)
+    for (const edge of assessment.edges) {
+      if (filter && !matchesSentimentEdge(edge, filter)) continue
+      const previous = queries.get(edge.queryKey)
+      if (previous && previous !== edge.queryText) reason ??= 'query-identity-changed'
+      queries.set(edge.queryKey, edge.queryText)
+    }
+  }
+  return reason
+}
+
+/** Overview alone combines the classes, counting each saved answer-subject assessment once. */
+function overallSentiment(reads: readonly Read<StoredItem>[], disabled: boolean): SentimentOverallHeadline {
+  const assessmentKey = (item: SentimentSourceAssessment) => JSON.stringify([item.snapshotId, item.subject.key])
+  const assessments = reads.flatMap(read => read.source.assessments)
+  const eligible = [...new Map(assessments.map(item => [assessmentKey(item), item])).values()]
+  const selected = [...new Map(reads.flatMap(read => read.items).map(item => [assessmentKey(item.member), item])).values()]
+  const slots = {
+    expected: new Set(reads.flatMap(read => read.source.sourceSlotIds.expected)).size,
+    completed: new Set(reads.flatMap(read => read.source.sourceSlotIds.completed)).size,
+  }
+  const result = scoreAssessments(selected, eligible, { disabled, slots, incomplete: reads.some(read => Boolean(read.source.skipped['incomplete-run'])) })
+  const reason = reads.find(read => read.reason)?.reason ?? incompatibleSelectionReason(reads.map(read => read.selection), assessments)
+  return {
+    ...result,
+    ...(!disabled && reason ? { state: 'unsupported' as const, reason, provisional: true, score: aggregateSentiment([]).score } : {}),
+    queryClass: 'all',
+    runIds: [...new Set(reads.flatMap(read => read.source.runIds))].sort(),
+  }
+}
 function append<K, V>(map: Map<K, V[]>, key: K, value: V) { const list = map.get(key); if (list) list.push(value); else map.set(key, [value]) }
 function queryRowKey(edge: Pick<SentimentSourceEdge, 'executionNodeKey'> & ({ queryKey: string } | { queryId: string })): string {
   return `${'queryKey' in edge ? edge.queryKey : edge.queryId}\0${edge.executionNodeKey ?? ''}`
@@ -480,7 +509,7 @@ function compareRows(left: RowKey, right: RowKey): number {
 function withheldCounts(counts: SentimentCounts): SentimentCounts {
   return Object.fromEntries(Object.entries(counts).map(([key, value]) => [key, OPERATIONAL_OUTCOMES.has(key as SentimentOutcome) ? value : 0])) as SentimentCounts
 }
-/** One class-scoped aggregate. A disabled read withholds judged and completed-outcome counts along with the rates. */
+/** One selected assessment aggregate. A disabled read withholds judged and completed-outcome counts along with the rates. */
 function scoreAssessments(selected: readonly StoredItem[], eligible: readonly SentimentSourceAssessment[], options: { disabled: boolean; incomplete: boolean; slots?: { expected: number; completed: number } }) {
   const distinct = new Set(eligible.map(item => item.snapshotId)).size
   const slots = options.slots ?? { expected: distinct, completed: distinct }

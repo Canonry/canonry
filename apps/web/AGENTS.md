@@ -50,6 +50,14 @@ Other Vite options use the native CLI without caching, preserving custom output 
 
 ### Simple query evidence
 
+Portfolio overview sentiment shows only the server's `sentiment.overall` score.
+Hide the metric and its layout slot when no judged overall score exists. Keep
+counts, class scope, confidence and provisional status in its tooltip; detailed
+sentiment analysis retains separate branded and non-brand populations. Keep class
+headlines to the score, rating count and any partial-results state. Empty classes
+show a short state. Coverage and confidence belong in closed Details disclosures;
+data-processing disclosure belongs in Enable/Manage sentiment.
+
 Simple projects render the existing `VisibilityTrendSection`, `OverviewBrief`,
 competitive summary, and `EvidenceTable` directly, including in embeds and
 when an unpublished Advanced draft exists. Do not replace that layout with
@@ -73,6 +81,12 @@ source URLs. Use underline signal tabs, one answer-preview checkbox, and plain
 query-class/engine metadata in this table. Keep status and change labels readable
 without capsule backgrounds. Native query buttons own keyboard expansion;
 timelines announce the selected mention or citation signal.
+Mention previews lead with highlighted answer text. Citation previews lead with
+captured source URLs, with answer text in a closed disclosure. Keep grounding
+fallbacks labelled and domain-only evidence as text; missing answer text never
+hides captured sources.
+Render preview answers through `AnswerMarkdown`, preserving paragraphs, lists,
+safe links and prose highlights. Shorten the parsed text, never raw Markdown.
 Latest-run signals use two aligned rows, mention then citation, with no wrapping
 separators or duplicate observation summary.
 Advanced Measurement uses its own evidence components and frozen Target assignment classes.

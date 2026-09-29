@@ -1,5 +1,6 @@
-import { useRef, useState } from 'react'
+import { Fragment, memo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
+import { highlightTermsInText, type HighlightTermGroup } from '../../lib/highlight.js'
 import { safeExternalUrl } from '../../lib/safe-url.js'
 import { Button } from '../ui/button.js'
 
@@ -14,8 +15,63 @@ export const ANSWER_MARKDOWN_COPY = {
 interface MarkdownNode {
   type: string
   depth?: number
+  value?: string
+  alt?: string
   children?: MarkdownNode[]
-  data?: { hProperties?: Record<string, unknown> }
+  data?: { hName?: string; hProperties?: Record<string, unknown> }
+}
+
+function prepareAnswerPreview({ previewLength, highlight }: { previewLength?: number; highlight: boolean }) {
+  return (tree: MarkdownNode) => {
+    if (previewLength !== undefined && Number.isFinite(previewLength)) {
+      let remaining = Math.max(0, Math.floor(previewLength))
+      const preview: { lastNode?: MarkdownNode; field: 'value' | 'alt'; omitted: boolean } = { field: 'value', omitted: false }
+      const trim = (node: MarkdownNode): boolean => {
+        // Definitions may follow omitted prose; retained reference links still need them.
+        if (node.type === 'definition') return true
+        if (node.children) {
+          node.children = node.children.filter(trim)
+          return node.children.length > 0
+        }
+        const field = node.type === 'image' || node.type === 'imageReference' ? 'alt' : 'value'
+        const value = node[field]
+        if (value === undefined) return remaining > 0
+        const characters = Array.from(value)
+        if (characters.length === 0) return remaining > 0
+        if (remaining === 0) {
+          preview.omitted = true
+          return false
+        }
+        const overBudget = characters.length > remaining
+        const kept = characters.slice(0, remaining)
+        if (overBudget && !/\s/.test(characters[remaining]!)) {
+          let wordBoundary = kept.length - 1
+          while (wordBoundary >= 0 && !/\s/.test(kept[wordBoundary]!)) wordBoundary--
+          if (wordBoundary >= 0 && wordBoundary > remaining - 40) kept.length = wordBoundary
+        }
+        preview.omitted ||= overBudget
+        node[field] = kept.join('')
+        remaining = overBudget ? 0 : remaining - kept.length
+        if (kept.length === 0) return false
+        preview.lastNode = node
+        preview.field = field
+        return true
+      }
+      trim(tree)
+      if (preview.omitted) {
+        if (preview.lastNode) preview.lastNode[preview.field] = `${preview.lastNode[preview.field]!.trimEnd()}…`
+        else tree.children?.push({ type: 'paragraph', children: [{ type: 'text', value: '…' }] })
+      }
+    }
+    if (highlight) {
+      const markProse = (node: MarkdownNode) => {
+        if (['link', 'linkReference', 'code', 'inlineCode'].includes(node.type)) return
+        if (node.type === 'text') node.data = { ...node.data, hName: 'span' }
+        node.children?.forEach(markProse)
+      }
+      markProse(tree)
+    }
+  }
 }
 
 function rebaseAnswerHeadings({ headingLevel }: { headingLevel: number }) {
@@ -62,19 +118,27 @@ function CopyAnswerButton({ answer }: { answer: string }) {
   </div>
 }
 
-export function AnswerMarkdown({ children, headingLevel = 4, copyable = false }: {
+export const AnswerMarkdown = memo(function AnswerMarkdown({ children, headingLevel = 4, copyable = false, highlightGroups, previewLength }: {
   children: string
   /** The shallowest answer heading, below the containing page section. */
   headingLevel?: 2 | 3 | 4 | 5 | 6
   copyable?: boolean
+  highlightGroups?: HighlightTermGroup[]
+  /** Parsed text limit, excluding Markdown syntax and URLs; keeps nearby whole words. */
+  previewLength?: number
 }) {
   return (
     <div className="answer-markdown">
-      <ReactMarkdown remarkPlugins={[[rebaseAnswerHeadings, { headingLevel }]]} components={{
+      <ReactMarkdown remarkPlugins={[[rebaseAnswerHeadings, { headingLevel }], [prepareAnswerPreview, { previewLength, highlight: Boolean(highlightGroups?.length) }]]} components={{
         p: ({ children }) => <p className="mb-3 whitespace-pre-wrap last:mb-0">{children}</p>,
         ul: ({ children }) => <ul className="mb-3 ml-5 list-disc space-y-1">{children}</ul>,
         ol: ({ children, start }) => <ol start={start} className="mb-3 ml-5 list-decimal space-y-1">{children}</ol>,
         pre: ({ children }) => <pre className="mb-3 overflow-x-auto whitespace-pre-wrap">{children}</pre>,
+        span: ({ children }) => <span>{typeof children === 'string' && highlightGroups
+          ? children.split(/(https?:\/\/[^\s<>]+)/i).map((text, index) => index % 2
+            ? text
+            : <Fragment key={index}>{highlightTermsInText(text, highlightGroups)}</Fragment>)
+          : children}</span>,
         a: ({ children, href }) => {
           const safeHref = safeExternalUrl(href)
           return safeHref ? <a href={safeHref} target="_blank" rel="noopener noreferrer" className="text-link underline">{children}</a> : <span>{children}</span>
@@ -84,4 +148,4 @@ export function AnswerMarkdown({ children, headingLevel = 4, copyable = false }:
       {copyable && children.trim() ? <CopyAnswerButton key={children} answer={children} /> : null}
     </div>
   )
-}
+})

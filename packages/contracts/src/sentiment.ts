@@ -147,7 +147,10 @@ export const sentimentScoreSchema = z.object({ favorableRate: rate, mixedRate: r
 const headlineFields = { state: sentimentStateSchema, reason: z.string().nullable(), provisional: z.boolean(), coverage: sentimentCoverageSchema, score: sentimentScoreSchema }
 export const sentimentHeadlineSchema = z.object({ ...headlineFields, selection: sentimentResolvedSelectionSchema, runIds: z.array(id) }).strict()
 export type SentimentHeadline = z.infer<typeof sentimentHeadlineSchema>
-export const sentimentOverviewSchema = z.object({ configured: z.boolean(), branded: sentimentHeadlineSchema, nonBrand: sentimentHeadlineSchema }).strict()
+/** Overview-only combined assessment population; class-specific analysis stays separate. */
+export const sentimentOverallHeadlineSchema = z.object({ ...headlineFields, queryClass: z.literal('all'), runIds: z.array(id) }).strict()
+export type SentimentOverallHeadline = z.infer<typeof sentimentOverallHeadlineSchema>
+export const sentimentOverviewSchema = z.object({ configured: z.boolean(), branded: sentimentHeadlineSchema, nonBrand: sentimentHeadlineSchema, overall: sentimentOverallHeadlineSchema.optional() }).strict()
 export type SentimentOverview = z.infer<typeof sentimentOverviewSchema>
 /** Compact stored assessment metadata for exact engine rows; never carries answer text or quotes. */
 export const sentimentAssessmentSummarySchema = z.object({
@@ -228,7 +231,7 @@ export function emptySentimentCounts(): SentimentCounts {
 export function sentimentRateDisplay(value: number | null): string {
   return value === null ? 'Unavailable' : formatPercent(value, RatioUnits.fraction)
 }
-/** Every selected answer-subject assessment appears once within one query class. */
+/** Every selected answer-subject assessment appears once within the selected population. */
 export function aggregateSentiment(items: readonly SentimentAggregateItem[], options: { disabled?: boolean; eligibleAssessments?: number; expectedProviderSlots?: number; completedProviderSlots?: number } = {}) {
   const unique = [...new Map(items.map(item => [item.assessmentId, item])).values()]
   const counts = emptySentimentCounts()

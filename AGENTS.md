@@ -112,7 +112,7 @@ Every (query × provider) snapshot carries two independent signals — a model c
 
 ### Branded vs non-brand (Critical)
 
-**Branded and non-brand queries never share a denominator.** A branded query names the project, so the model was handed the answer; pooling lets brand recall outvote the category and can invert a ranking (measured on a real basket: pooled ranked the subject FIRST at 42%, non-brand ranked it LAST at 3%).
+**Branded and non-brand queries never share a denominator, except the explicit overall sentiment score below.** A branded query names the project, so the model was handed the answer; pooling lets brand recall outvote the category and can invert a ranking (measured on a real basket: pooled ranked the subject FIRST at 42%, non-brand ranked it LAST at 3%).
 
 1. Competitive metrics default to non-brand: Mention Share (card, breakdown chart, trend buckets), `visibility-stats --share-of-voice`, `visibility-compare`, and the report's mention landscape.
 2. Branded stays visible as a sibling field (`branded`) with its own labelled section and denominator — never dropped, never pooled.
@@ -120,6 +120,7 @@ Every (query × provider) snapshot carries two independent signals — a model c
 4. `pooled` appears only when the project has no usable brand alias. Never label an unsplit figure `non-brand`, and never silently classify an unclassifiable basket.
 5. One classifier: `compileQueryClassifier` (`packages/contracts/src/query-class.ts`) runs `effectiveBrandNames` through the shared brand matcher; `queryClassSchema` IS `measurementQueryClassSchema`. No hand-rolled regex, no second enum.
 6. `competitorOverlap` is legacy MIXED evidence (answer text, source links, or both). Citation metrics use `citedDomains` plus grounding-source hosts; mention metrics use answer text with the shared matcher.
+7. Portfolio overview sentiment intentionally combines branded and non-brand judgments under `overall.queryClass = 'all'`. Compute it server-side from distinct answer-subject assessments, never averaged class rates. Preserve both class summaries in the API and detailed analysis. Show one overall value or no metric when no judgment exists; competitive metrics remain separate.
 
 ### Query vs question
 

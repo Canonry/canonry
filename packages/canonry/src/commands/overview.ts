@@ -140,6 +140,12 @@ export function renderHuman(overview: ProjectOverviewDto): void {
   printScore('Competitor press.', scores.competitorPressure)
   printScore('Run status       ', scores.runStatus)
 
+  const overallSentiment = overview.sentiment?.overall
+  if (overview.sentiment?.configured && overallSentiment && overallSentiment.coverage.judged > 0 && overallSentiment.score.favorableRate !== null) {
+    console.log(`\n  Overall sentiment: ${overallSentiment.score.favorableDisplay} favorable · all query classes`)
+    console.log(`    ${overallSentiment.coverage.counts.favorable} favorable / ${overallSentiment.coverage.judged} judged${overallSentiment.provisional ? ' · provisional' : ''}`)
+  }
+
   console.log(`\n  Queries cited:     ${queryCounts.citedQueries}/${queryCounts.totalQueries} (${formatPercent(queryCounts.citedRate)})`)
   console.log(`  Queries mentioned: ${queryCounts.mentionedQueries}/${queryCounts.totalQueries} (${formatPercent(queryCounts.mentionRate)})`)
 

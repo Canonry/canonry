@@ -14,6 +14,7 @@ test('renders a title and full destination, including path, query, and fragment'
   expect(link.getAttribute('href')).toBe(url)
   expect(link.getAttribute('target')).toBe('_blank')
   expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+  expect(link.parentElement?.textContent).toBe(`Hotel rooms ${url}`)
 })
 
 test.each([undefined, '', 'https://hotel.example/rooms'])('shows a URL without a duplicate title when title is %s', title => {
