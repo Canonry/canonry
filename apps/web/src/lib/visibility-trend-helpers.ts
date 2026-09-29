@@ -154,6 +154,35 @@ export function normalizeProviderKey(provider: string): string {
   return provider.trim().toLowerCase()
 }
 
+/**
+ * The tracked competitor set as a cache-key segment. Analytics reads that
+ * depend on it rotate their key when a competitor is added or removed, so the
+ * change costs one fetch rather than an invalidation plus a refetch.
+ */
+export function competitorFrameKey(competitorDomains: readonly string[]): string {
+  return competitorDomains
+    .map(domain => domain.trim().toLowerCase())
+    .filter(Boolean)
+    .sort()
+    .join('\n')
+}
+
+/** Human-friendly engine names (data keys are lowercase). */
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  claude: 'Claude',
+  openai: 'OpenAI',
+  gemini: 'Gemini',
+  perplexity: 'Perplexity',
+  muse: 'Muse',
+  local: 'Local',
+}
+
+/** An engine's name as people read it ("OpenAI", "Perplexity"). */
+export function providerDisplayName(name: string): string {
+  const key = normalizeProviderKey(name)
+  return PROVIDER_DISPLAY_NAMES[key] ?? name.charAt(0).toUpperCase() + name.slice(1)
+}
+
 /** Presentation-only: 0-1 rate → 0-100 axis value, one decimal. */
 function toPercent(rate: number): number {
   return Math.round(rate * 1000) / 10

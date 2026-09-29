@@ -128,12 +128,12 @@ function renderSection() {
 test('uses server pagination when unfiltered and client pagination for expanded results', async () => {
   renderSection()
 
-  await waitFor(() => expect(screen.getByText('1–25+ rows')).not.toBeNull())
+  await waitFor(() => expect(screen.getByText('1 to 25+ rows')).not.toBeNull())
   expect(screen.getByText('search query 000')).not.toBeNull()
   expect(screen.queryByText('search query 025')).toBeNull()
 
   fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-  await waitFor(() => expect(screen.getByText('26–31 rows')).not.toBeNull())
+  await waitFor(() => expect(screen.getByText('26 to 31 rows')).not.toBeNull())
   expect(screen.getByText('search query 025')).not.toBeNull()
   expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(true)
 
@@ -142,12 +142,12 @@ test('uses server pagination when unfiltered and client pagination for expanded 
   })
   fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
 
-  await waitFor(() => expect(screen.getByText('1–25 of 60 matches')).not.toBeNull())
+  await waitFor(() => expect(screen.getByText('1 to 25 of 60 matches')).not.toBeNull())
   expect(screen.getByText('search query 024')).not.toBeNull()
   expect(screen.queryByText('search query 025')).toBeNull()
 
   fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-  await waitFor(() => expect(screen.getByText('26–50 of 60 matches')).not.toBeNull())
+  await waitFor(() => expect(screen.getByText('26 to 50 of 60 matches')).not.toBeNull())
   expect(screen.getByText('search query 025')).not.toBeNull()
   expect(screen.queryByText('search query 024')).toBeNull()
 
@@ -155,7 +155,7 @@ test('uses server pagination when unfiltered and client pagination for expanded 
   expect(within(performancePeriod).getByRole('button', { name: '30d' }).getAttribute('aria-pressed')).toBe('true')
   fireEvent.click(within(performancePeriod).getByRole('button', { name: '7d' }))
   expect(within(performancePeriod).getByRole('button', { name: '7d' }).getAttribute('aria-pressed')).toBe('true')
-  await waitFor(() => expect(screen.getByText('1–25 of 60 matches')).not.toBeNull())
+  await waitFor(() => expect(screen.getByText('1 to 25 of 60 matches')).not.toBeNull())
   expect(screen.getByText('search query 000')).not.toBeNull()
   expect(screen.queryByText('search query 025')).toBeNull()
 })

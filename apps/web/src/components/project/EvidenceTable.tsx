@@ -1,6 +1,6 @@
 import { Fragment, useId, useMemo, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
-import { CitationStates, brandLabelFromDomain, hostOf, type QueryClass } from '@ainyc/canonry-contracts'
+import { CitationStates, brandLabelFromDomain, hostOf, normalizeQueryText, type QueryClass } from '@ainyc/canonry-contracts'
 
 import { Button } from '../ui/button.js'
 import { CitationBadge } from '../shared/CitationBadge.js'
@@ -15,6 +15,7 @@ import { AnswerMarkdown } from '../shared/AnswerMarkdown.js'
 import { SentimentHeadlines, SentimentQueryScore, SentimentAnswerOutcome, useSentimentConfigured } from './SentimentSection.js'
 import { CitationTimeline, mergeProviderHistories } from './CitationTimeline.js'
 import { useDrawer } from '../../hooks/use-drawer.js'
+import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 import type { HighlightTermGroup } from '../../lib/highlight.js'
 import type { CitationInsightVm, CitationState, RunHistoryPoint } from '../../view-models.js'
 
@@ -42,6 +43,22 @@ const ANSWER_PREVIEW_MAX = 320
 
 function queryClassLabel(queryClass: QueryClass | null): string {
   return queryClass === 'branded' ? 'Branded' : queryClass === 'non-brand' ? 'Non-brand' : 'Unclassified'
+}
+
+/** Rows read Non-brand first, then Branded, then anything the project could not classify. */
+function queryClassRank(queryClass: QueryClass | null): number {
+  return queryClass === 'non-brand' ? 0 : queryClass === 'branded' ? 1 : 2
+}
+
+/** Consecutive rows of one class, so each class gets its own labelled row group. */
+function classRuns<T extends { queryClass: QueryClass | null }>(rows: readonly T[]): Array<{ queryClass: QueryClass | null; rows: T[] }> {
+  const runs: Array<{ queryClass: QueryClass | null; rows: T[] }> = []
+  for (const row of rows) {
+    const last = runs.at(-1)
+    if (last && last.queryClass === row.queryClass) last.rows.push(row)
+    else runs.push({ queryClass: row.queryClass, rows: [row] })
+  }
+  return runs
 }
 
 function evidenceGroupSearchText(group: EvidenceGroup): string {
@@ -177,12 +194,19 @@ export function EvidenceTable({
   defaultDensity = 'detailed',
   providerSelection: controlledProvider,
   onProviderSelectionChange,
+  addedQueries = [],
 }: {
   evidence: CitationInsightVm[]
   compareLocations?: boolean
   defaultDensity?: Density
   providerSelection?: string
   onProviderSelectionChange?: (provider: string) => void
+  /**
+   * Queries first tracked in the latest sweep (`movementComparison.addedQueries`).
+   * Only these read "new query": a query whose history is merely short (an
+   * engine new to an old query, a first sweep) keeps its signal labels.
+   */
+  addedQueries?: readonly string[]
 }) {
   const { openEvidence } = useDrawer()
   const panelId = useId()
@@ -212,7 +236,8 @@ export function EvidenceTable({
       existing.rawItems.push(rawItem)
       map.set(key, existing)
     }
-    return [...map.values()]
+    // A stable sort, so rows keep their order within a class.
+    return [...map.values()].sort((a, b) => queryClassRank(a.queryClass) - queryClassRank(b.queryClass))
   }, [evidence, mode, compareLocations, providerSelection])
   const classGroups = useMemo(() => groups.filter(group =>
     queryClassSelection === 'all'
@@ -222,6 +247,19 @@ export function EvidenceTable({
     rows: classGroups,
     getSearchText: evidenceGroupSearchText,
   })
+  // Each class heading counts that class's queries across every page, after the
+  // filters; a compared location adds rows, never queries.
+  const classQueryCounts = useMemo(() => {
+    const phrases = new Map<QueryClass | null, Set<string>>()
+    for (const group of groupsTable.filteredRows) {
+      const set = phrases.get(group.queryClass) ?? new Set<string>()
+      set.add(group.phrase)
+      phrases.set(group.queryClass, set)
+    }
+    return phrases
+  }, [groupsTable.filteredRows])
+  const added = useMemo(() => new Set(addedQueries.map(normalizeQueryText)), [addedQueries])
+  const columnCount = sentimentConfigured ? 6 : 5
   const visibleGroupKeys = groupsTable.rows.map((group) => group.key)
   const visibleGroupsExpanded = visibleGroupKeys.length > 0
     && visibleGroupKeys.every((key) => expandedRows.has(key))
@@ -307,7 +345,7 @@ export function EvidenceTable({
             <span className="sr-only">Answer engine</span>
             <select value={providerSelection} onChange={event => { setProviderSelection(event.target.value); groupsTable.setPage(1) }}>
               <option value="">All engines</option>
-              {providers.map(provider => <option key={provider} value={provider}>{provider}</option>)}
+              {providers.map(provider => <option key={provider} value={provider}>{providerDisplayName(provider)}</option>)}
             </select>
           </label>
           <label className="query-evidence-filter">
@@ -334,116 +372,126 @@ export function EvidenceTable({
                 <th><span className="sr-only">Answer</span></th>
               </tr>
             </thead>
-            <tbody>
-              {groupsTable.rows.map(({ key: groupKey, phrase, queryClass, location, items, rawItems }, groupIndex) => {
-                const isExpanded = expandedRows.has(groupKey)
-                const metadataId = `${panelId}-query-${groupIndex}`
-                const states = items.map(i => i.citationState)
-                const aggState: CitationState =
-                  states.includes('cited') ? 'cited' :
-                  states.includes('emerging') ? 'emerging' :
-                  states.includes('lost') ? 'lost' :
-                  states.every(s => s === 'pending') ? 'pending' : 'not-cited'
+            {classRuns(groupsTable.rows).map(run => (
+              <tbody key={run.queryClass ?? 'unclassified'}>
+                <tr className="query-evidence-group">
+                  <th scope="rowgroup" colSpan={columnCount}>
+                    {queryClassLabel(run.queryClass)} ({classQueryCounts.get(run.queryClass)?.size ?? 0})
+                  </th>
+                </tr>
+                {run.rows.map(({ key: groupKey, phrase, queryClass, location, items, rawItems }) => {
+                  const isExpanded = expandedRows.has(groupKey)
+                  const groupIndex = visibleGroupKeys.indexOf(groupKey)
+                  const metadataId = `${panelId}-query-${groupIndex}`
+                  const isNewQuery = added.has(normalizeQueryText(phrase))
+                  const states = items.map(i => i.citationState)
+                  const aggState: CitationState =
+                    states.includes('cited') ? 'cited' :
+                    states.includes('emerging') ? 'emerging' :
+                    states.includes('lost') ? 'lost' :
+                    states.every(s => s === 'pending') ? 'pending' : 'not-cited'
 
-                const queryIds = [...new Set(rawItems.map(item => item.queryId).filter((id): id is string => Boolean(id)))]
-                const sourceSnapshotIds = rawItems.map(item => item.sourceSnapshotId).filter((id): id is string => Boolean(id))
-                const mergedHistory = mergeProviderHistories(items)
-                const presentCount = items.filter(i => i.citationState === CitationStates.cited || i.citationState === 'emerging').length
+                  const queryIds = [...new Set(rawItems.map(item => item.queryId).filter((id): id is string => Boolean(id)))]
+                  const sourceSnapshotIds = rawItems.map(item => item.sourceSnapshotId).filter((id): id is string => Boolean(id))
+                  const mergedHistory = mergeProviderHistories(items)
+                  const presentCount = items.filter(i => i.citationState === CitationStates.cited || i.citationState === 'emerging').length
 
-                return (
-                  <Fragment key={groupKey}>
-                    <tr className="query-evidence-row" onClick={() => toggleRow(groupKey)}>
-                      <td className="evidence-query-cell">
-                        <button
-                          type="button"
-                          className="query-evidence-query"
-                          aria-label={phrase}
-                          aria-describedby={metadataId}
-                          aria-expanded={isExpanded}
-                          onClick={event => { event.stopPropagation(); toggleRow(groupKey) }}
-                        >
-                          <ChevronRight size={16} aria-hidden="true" className={isExpanded ? 'rotate-90' : ''} />
-                          <span className="min-w-0">
-                            <span>{phrase}</span>
-                            <span id={metadataId} className="query-evidence-meta">
-                              <span>{queryClassLabel(queryClass)}</span>
-                              {compareLocations && <span>{location ?? 'No location'}</span>}
-                              {items.filter(item => item.provider).map(item => <span key={item.id}>{item.provider}</span>)}
-                            </span>
-                          </span>
-                        </button>
-                      </td>
-                      <td>
-                        <div className="flex items-center gap-2">
-                          <CitationBadge state={aggState} label={statusLabelForMode(aggState, mode)} className="rounded-none border-0 bg-transparent p-0 text-sm tracking-normal" />
-                          <span
-                            className="text-sm text-secondary tabular-nums"
-                            aria-label={`${presentCount} of ${items.length} engines ${countNoun}`}
-                            title={`${presentCount} of ${items.length} engines ${countNoun}`}
+                  return (
+                    <Fragment key={groupKey}>
+                      <tr className="query-evidence-row" onClick={() => toggleRow(groupKey)}>
+                        <td className="evidence-query-cell">
+                          <button
+                            type="button"
+                            className="query-evidence-query"
+                            aria-label={phrase}
+                            aria-describedby={metadataId}
+                            aria-expanded={isExpanded}
+                            onClick={event => { event.stopPropagation(); toggleRow(groupKey) }}
                           >
-                            {presentCount}/{items.length}
-                          </span>
-                        </div>
-                      </td>
-                      {sentimentConfigured && <td><SentimentQueryScore queryId={queryIds.length === 1 ? queryIds[0] : null} sourceSnapshotIds={queryIds.length > 1 ? [] : sourceSnapshotIds} queryClass={queryClass} location={compareLocations ? location : undefined} /></td>}
-                      <td>
-                        <CitationTimeline history={mergedHistory} signal={mode} />
-                      </td>
-                      <td className="evidence-change-cell">
-                        <SignalStrip items={rawItems} />
-                      </td>
-                      <td />
-                    </tr>
-                    {isExpanded && items.map((item, index) => (
-                      <Fragment key={item.id}>
-                        <tr className="query-evidence-engine-row">
-                          <td className="evidence-query-cell">
-                            <span className="text-sm text-secondary">{item.provider || 'Awaiting engine'}</span>
-                          </td>
-                          <td>
-                            <CitationBadge
-                              state={item.citationState}
-                              className="rounded-none border-0 bg-transparent p-0 text-sm tracking-normal"
-                              label={statusLabelForMode(item.citationState, mode)}
-                            />
-                          </td>
-                          {sentimentConfigured && <td><SentimentAnswerOutcome queryId={item.queryId} sourceSnapshotIds={item.sourceSnapshotId ? [item.sourceSnapshotId] : []} queryClass={item.queryClass} provider={item.provider} location={item.location ?? null} /></td>}
-                          <td>
-                            <CitationTimeline history={item.runHistory} signal={mode} />
-                          </td>
-                          <td className="evidence-change-cell">
-                            <SignalStrip items={[rawItems[index] ?? item]} />
-                          </td>
-                          <td>
-                            <Button
-                              variant="ghost"
-                              className="min-h-11"
-                              type="button"
-                              title={`View ${item.provider || 'saved'} answer for ${item.query}`}
-                              onClick={(e) => { e.stopPropagation(); void openEvidence(item.id) }}
+                            <ChevronRight size={16} aria-hidden="true" className={isExpanded ? 'rotate-90' : ''} />
+                            <span className="min-w-0">
+                              <span>{phrase}</span>
+                              <span id={metadataId} className="query-evidence-meta">
+                                <span>{queryClassLabel(queryClass)}</span>
+                                {compareLocations && <span>{location ?? 'No location'}</span>}
+                                {items.filter(item => item.provider).map(item => <span key={item.id}>{providerDisplayName(item.provider)}</span>)}
+                              </span>
+                            </span>
+                          </button>
+                        </td>
+                        <td>
+                          <div className="flex items-center gap-2">
+                            <CitationBadge state={aggState} label={statusLabelForMode(aggState, mode)} className="rounded-none border-0 bg-transparent p-0 text-sm tracking-normal" />
+                            <span
+                              className="text-sm text-secondary tabular-nums"
+                              aria-label={`${presentCount} of ${items.length} engines ${countNoun}`}
+                              title={`${presentCount} of ${items.length} engines ${countNoun}`}
                             >
-                              View
-                            </Button>
-                          </td>
-                        </tr>
-                        {density === 'detailed' && (
-                          <tr className="query-evidence-preview-row">
-                            <td colSpan={sentimentConfigured ? 6 : 5}>
-                              <EvidenceInlinePanel
-                                key={mode}
-                                item={item}
-                                mode={mode}
-                                onViewFull={() => openEvidence(item.id)}
+                              {presentCount}/{items.length}
+                            </span>
+                          </div>
+                        </td>
+                        {sentimentConfigured && <td><SentimentQueryScore queryId={queryIds.length === 1 ? queryIds[0] : null} sourceSnapshotIds={queryIds.length > 1 ? [] : sourceSnapshotIds} queryClass={queryClass} location={compareLocations ? location : undefined} /></td>}
+                        <td>
+                          <CitationTimeline history={mergedHistory} signal={mode} />
+                        </td>
+                        <td className="evidence-change-cell">
+                          {isNewQuery ? <span className="query-evidence-new">new query</span> : <SignalStrip items={rawItems} />}
+                        </td>
+                        <td />
+                      </tr>
+                      {isExpanded && items.map((item, index) => (
+                        <Fragment key={item.id}>
+                          <tr className="query-evidence-engine-row">
+                            <td className="evidence-query-cell">
+                              <span className="text-sm text-secondary">{item.provider ? providerDisplayName(item.provider) : 'Awaiting engine'}</span>
+                            </td>
+                            <td>
+                              <CitationBadge
+                                state={item.citationState}
+                                className="rounded-none border-0 bg-transparent p-0 text-sm tracking-normal"
+                                label={statusLabelForMode(item.citationState, mode)}
                               />
                             </td>
+                            {sentimentConfigured && <td><SentimentAnswerOutcome queryId={item.queryId} sourceSnapshotIds={item.sourceSnapshotId ? [item.sourceSnapshotId] : []} queryClass={item.queryClass} provider={item.provider} location={item.location ?? null} /></td>}
+                            <td>
+                              <CitationTimeline history={item.runHistory} signal={mode} />
+                            </td>
+                            <td className="evidence-change-cell">
+                              {/* The query row already says "new query"; every engine is new with it. */}
+                              {isNewQuery ? null : <SignalStrip items={[rawItems[index] ?? item]} />}
+                            </td>
+                            <td>
+                              <Button
+                                variant="ghost"
+                                className="min-h-11"
+                                type="button"
+                                title={`View ${item.provider ? providerDisplayName(item.provider) : 'saved'} answer for ${item.query}`}
+                                onClick={(e) => { e.stopPropagation(); void openEvidence(item.id) }}
+                              >
+                                View
+                              </Button>
+                            </td>
                           </tr>
-                        )}
-                      </Fragment>
-                    ))}
-                  </Fragment>
-                )
-              })}
-            </tbody>
+                          {density === 'detailed' && (
+                            <tr className="query-evidence-preview-row">
+                              <td colSpan={columnCount}>
+                                <EvidenceInlinePanel
+                                  key={mode}
+                                  item={item}
+                                  mode={mode}
+                                  onViewFull={() => openEvidence(item.id)}
+                                />
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      ))}
+                    </Fragment>
+                  )
+                })}
+              </tbody>
+            ))}
           </table>
         </div>
         {groupsTable.totalRows === 0 && (groupsTable.hasQuery || queryClassSelection !== 'all' || providerSelection) ? (

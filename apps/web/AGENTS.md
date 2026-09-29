@@ -54,8 +54,10 @@ Portfolio overview sentiment shows only the server's `sentiment.overall` score.
 Hide the metric and its layout slot when no judged overall score exists. Keep
 counts, class scope, confidence and provisional status in its tooltip; detailed
 sentiment analysis retains separate branded and non-brand populations. Keep class
-headlines to the score, rating count and any partial-results state. Empty classes
-show a short state. Coverage and confidence belong in closed Details disclosures;
+headlines to the score, rating count and any partial-results state. Below
+`SENTIMENT_MIN_RATED` (10) ratings a class headline reads "too few" instead of
+its score, and its Details list the rated outcomes. Query rows keep their score
+beside its rating count. Empty classes show a short state. Coverage and confidence belong in closed Details disclosures;
 data-processing disclosure belongs in Enable/Manage sentiment.
 
 Simple projects render the existing `OverviewBrief`, `VisibilityTrendSection`,
@@ -83,6 +85,13 @@ lists query-set and model changes by engine, collapsed to one line; a Perplexity
 preset (an id without "/") never gets the amber substitution row, and its served
 model rides on its row instead.
 
+"Where competitors beat you" (`CompetitiveCard` in `MentionShare.tsx`) is one
+class at a time behind a Non-brand/Branded control: mention share and the
+"Named instead of you" / "Cited instead of you" query counts, with the brand
+counts and gap query names in Details. The counts come from GET
+/analytics/gaps (latest sweep), classified by query text with the page's
+classifier; the overview embed allowlist includes that read.
+
 Keep the Latest signals block and suggested queries out of the Simple overview.
 The underlying insights and suggestions remain available through the API.
 
@@ -90,7 +99,11 @@ Use `compileQueryClassifier(effectiveBrandNames(project))` for Simple query labe
 Apply the same classifier to measured and pending queries.
 If no usable brand identity exists, show `Unclassified`, never `Non-brand`.
 Keep the query-class filter separate from the Mentions/Citations control.
-Preserve provider and location grouping within each class.
+Preserve provider and location grouping within each class. Rows sit in one
+labelled row group per class, Non-brand first, then Branded, then Unclassified,
+each heading counting that class's queries after the filters. Engines read by
+their display names (`providerDisplayName`). "new query" marks only the latest
+sweep's `addedQueries`; "First mention" stays for an engine new to an old query.
 The Answer engine selector filters evidence before query grouping, so counts,
 histories, previews, and answer actions use only that engine. Keep it separate
 from text search and preserve a selected engine when location changes leave no

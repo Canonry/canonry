@@ -206,8 +206,8 @@ test('project route keeps the core metric and evidence class baseline stable', a
   const html = await renderRoute('/projects/Citypoint%20Dental%20NYC')
 
   // Operator project pages render the project context row instead of the
-  // page header; only embeds keep `.page-header`. The Visibility card draws no
-  // bars, so the first fill is the competitive Mention gaps row.
+  // page header; only embeds keep `.page-header`. The AI Visibility cards are
+  // number grids, so the overview draws no metric bar at all.
   expect({
     pageContainer: classFor(html, '.page-container'),
     pageHeader: classOrNull(html, '.page-header'),
@@ -218,12 +218,14 @@ test('project route keeps the core metric and evidence class baseline stable', a
     projectContextMeta: classFor(html, '.project-context-meta'),
     projectContextActions: classFor(html, '.project-context-actions'),
     firstSectionDivider: classFor(html, '.page-section-divider'),
-    firstMetricFill: classFor(html, '.metric-card-bar-fill'),
+    firstMetricFill: classOrNull(html, '.metric-card-bar-fill'),
+    firstCard: classFor(html, '.overview-brief'),
     evidenceDisclosure: classFor(html, '#evidence-section'),
   }).toMatchInlineSnapshot(`
     {
       "evidenceDisclosure": "overview-disclosure page-section-divider scroll-mt-24",
-      "firstMetricFill": "metric-card-bar-fill progress-fill-caution",
+      "firstCard": "overview-brief",
+      "firstMetricFill": null,
       "firstSectionDivider": "page-section-divider",
       "pageContainer": "page-container",
       "pageHeader": null,

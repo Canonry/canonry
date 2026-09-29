@@ -51,6 +51,7 @@ import { DEFAULT_QUERY_STALE_MS, STATIC_VISIBILITY_STALE_MS } from '../../querie
 import {
   basketChangesInBucket,
   buildSelectedTrendRows,
+  competitorFrameKey,
   CITED_KEY,
   formatBucketDateLabel,
   formatBucketDateTick,
@@ -68,6 +69,7 @@ import {
   normalizeProviderKey,
   partitionModelAttributionEvents,
   plottedMetricRates,
+  providerDisplayName,
   querySetChanges,
   querySetShift,
   readBasketChanges,
@@ -978,22 +980,6 @@ const SETUP_CHANGE_COLOR = CHART_SERIES_COLORS[4]!
 /** Dark ring drawn around the active (hovered) dot so it reads against the line. */
 const ACTIVE_DOT_RING = 'var(--chart-tooltip-bg)'
 
-/** Human-friendly engine names for the legend and tooltip (data keys are lowercase). */
-const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  claude: 'Claude',
-  openai: 'OpenAI',
-  gemini: 'Gemini',
-  perplexity: 'Perplexity',
-  muse: 'Muse',
-  local: 'Local',
-}
-
-/** An engine's name as people read it ("OpenAI", "Perplexity"). */
-export function providerDisplayName(name: string): string {
-  const key = normalizeProviderKey(name)
-  return PROVIDER_DISPLAY_NAMES[key] ?? name.charAt(0).toUpperCase() + name.slice(1)
-}
-
 type PointChange = ReturnType<typeof formatPointDelta>
 
 const POINT_CHANGE_TONE: Record<PointDeltaDirection, string> = {
@@ -1032,14 +1018,6 @@ function seriesColor(key: string, index: number): string {
   if (key === MENTIONED_KEY) return CHART_SERIES_COLORS[1]! // blue
   if (key === MENTION_SHARE_KEY) return MENTION_SHARE_COLOR
   return providerSeriesColor(normalizeProviderKey(key), index)
-}
-
-function competitorFrameKey(competitorDomains: readonly string[]): string {
-  return competitorDomains
-    .map(domain => domain.trim().toLowerCase())
-    .filter(Boolean)
-    .sort()
-    .join('\n')
 }
 
 type MetricsBucket = BrandMetricsDto['buckets'][number]

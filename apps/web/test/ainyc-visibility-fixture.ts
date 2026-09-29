@@ -1,5 +1,5 @@
-import type { QueryClass } from '@ainyc/canonry-contracts'
-import type { CitationInsightVm, MovementComparisonVm, MovementSummaryVm, RunHistoryPoint } from '../src/view-models.js'
+import type { GapAnalysisDto, GapCategory, GapQuery, QueryClass } from '@ainyc/canonry-contracts'
+import type { CitationInsightVm, MovementComparisonVm, MovementSummaryVm, ProjectCommandCenterVm, RunHistoryPoint } from '../src/view-models.js'
 
 /**
  * ainyc's two Sep 29 sweeps, in the shape the dashboard builds from stored
@@ -71,6 +71,111 @@ export function ainycEvidence(): CitationInsightVm[] {
       ],
     }
   }))
+}
+
+/** ainyc's query classes as the page's classifier resolves them (brand "Canonry"). */
+export function ainycClassify(text: string): QueryClass | null {
+  return QUERIES.find(([query]) => query.toLowerCase() === text.trim().toLowerCase())?.[1] ?? null
+}
+
+/** `scores.mentionShare` from ainyc's stored GET /overview (latest sweep). */
+export function ainycMentionShare(): ProjectCommandCenterVm['mentionShareSummary'] {
+  return {
+    label: 'Mention Share',
+    value: '33.3%',
+    delta: '7 of 21 brand mentions · non-brand queries',
+    tone: 'caution',
+    description: '',
+    tooltip: '',
+    trend: [],
+    progress: 33.333333,
+    scope: 'non-brand',
+    breakdown: {
+      projectMentionSnapshots: 7,
+      competitorMentionSnapshots: 14,
+      combinedMentionSnapshots: 21,
+      perCompetitor: [{ domain: 'pbjmarketing.com', mentionSnapshots: 14, shareOfCompetitiveTotal: 100 }],
+      ranking: [
+        { kind: 'competitor', domain: 'pbjmarketing.com', mentionSnapshots: 14, share: 0.6666666666666666 },
+        { kind: 'project', domain: null, mentionSnapshots: 7, share: 0.3333333333333333 },
+      ],
+      snapshotsWithAnswerText: 44,
+      snapshotsTotal: 44,
+      score: 33.333333,
+    },
+    branded: {
+      projectMentionSnapshots: 12,
+      competitorMentionSnapshots: 0,
+      combinedMentionSnapshots: 12,
+      perCompetitor: [],
+      ranking: [
+        { kind: 'project', domain: null, mentionSnapshots: 12, share: 1 },
+        { kind: 'competitor', domain: 'pbjmarketing.com', mentionSnapshots: 0, share: 0 },
+      ],
+      snapshotsWithAnswerText: 12,
+      snapshotsTotal: 12,
+      score: 100,
+    },
+  }
+}
+
+/** Query id and all-window consistency (cited, mentioned, total time points) per query. */
+const AINYC_GAP_QUERIES: Record<string, [queryId: string, citedRuns: number, mentionedRuns: number, totalRuns: number]> = {
+  'AEO Agency in NYC': ['9881c0a1-1740-4f2a-a380-01eba2058530', 45, 45, 53],
+  'AEO Agency NYC': ['e21078a9-59a8-4078-8b7a-d2d7536b4900', 45, 45, 53],
+  'Answer Engine Optimization Agency NYC': ['6eaf55b5-e790-4cd6-9aee-6062bd554c07', 46, 46, 53],
+  'Canonry': ['7100603e-ca6f-49d8-9d75-d5de40f72443', 1, 1, 1],
+  'Canonry AEO agency': ['33c95d3c-6da9-4273-8b75-03efb43ec1e2', 1, 1, 1],
+  'Canonry reviews': ['c755e394-994c-4a98-ae66-d6e711bbdbc2', 1, 1, 1],
+  'NYC AEO Agency': ['f02adaf9-3b91-4230-9ec1-4e24b46449a5', 46, 46, 52],
+  'best AEO agency New York': ['ee8b1897-33f9-4db7-a04f-961f75149163', 10, 11, 41],
+  'AI SEO agency NYC': ['67714690-6f1e-4c97-b32a-c81a5f560d35', 14, 17, 41],
+  'generative engine optimization agency NYC': ['254866d9-0e6e-48a2-a0ff-1101e042c3dc', 16, 16, 41],
+  'how to appear in AI search results': ['6eb8391d-d2fe-41ef-812e-38bc8df492b8', 0, 1, 41],
+  'how to get my business cited by AI': ['3d0fa777-1a3d-4ec2-85db-1c3fc7f82308', 0, 3, 41],
+  'how to rank on ChatGPT': ['85ae4b60-b96a-46d9-ada3-c7b75b1917ab', 0, 0, 41],
+  'optimize website for AI search': ['cc47352d-88f5-4f01-b5d0-16c0c9216237', 0, 2, 41],
+}
+
+/** pbjmarketing.com is named and cited on these queries; no other tracked competitor appears. */
+const AINYC_COMPETITOR_QUERIES = new Set(['AEO Agency in NYC', 'AEO Agency NYC', 'Answer Engine Optimization Agency NYC', 'NYC AEO Agency', 'best AEO agency New York'])
+
+function gapRow(query: string, category: GapCategory, providers: string[]): GapQuery {
+  const [queryId, citedRuns, mentionedRuns, totalRuns] = AINYC_GAP_QUERIES[query]!
+  const competitors = AINYC_COMPETITOR_QUERIES.has(query) ? ['pbjmarketing.com'] : []
+  return { query, queryId, category, providers, competitorsCiting: competitors, competitorsMentioned: competitors, consistency: { citedRuns, totalRuns, mentionedRuns } }
+}
+
+const AINYC_UNCITED = ['AI SEO agency NYC', 'generative engine optimization agency NYC', 'how to appear in AI search results', 'how to get my business cited by AI', 'how to rank on ChatGPT', 'optimize website for AI search']
+
+/** ainyc's stored GET /analytics/gaps: the latest sweep's lanes, in the server's order. */
+export function ainycGaps(): GapAnalysisDto {
+  return {
+    cited: [
+      gapRow('AEO Agency in NYC', 'cited', ['perplexity', 'gemini']),
+      gapRow('AEO Agency NYC', 'cited', ['perplexity', 'gemini']),
+      gapRow('Answer Engine Optimization Agency NYC', 'cited', ['perplexity', 'claude']),
+      gapRow('Canonry', 'cited', ['perplexity', 'gemini']),
+      gapRow('Canonry AEO agency', 'cited', ['gemini', 'openai', 'claude', 'perplexity']),
+      gapRow('Canonry reviews', 'cited', ['perplexity', 'claude', 'gemini', 'openai']),
+      gapRow('NYC AEO Agency', 'cited', ['gemini', 'claude', 'perplexity']),
+    ],
+    gap: [gapRow('best AEO agency New York', 'gap', [])],
+    uncited: AINYC_UNCITED.map(query => gapRow(query, 'uncited', [])),
+    mentionedQueries: [
+      gapRow('AEO Agency in NYC', 'cited', ['perplexity', 'gemini']),
+      gapRow('AEO Agency NYC', 'cited', ['perplexity', 'gemini']),
+      gapRow('Answer Engine Optimization Agency NYC', 'cited', ['claude']),
+      gapRow('Canonry', 'cited', ['perplexity', 'gemini', 'claude', 'openai']),
+      gapRow('Canonry AEO agency', 'cited', ['gemini', 'openai', 'claude', 'perplexity']),
+      gapRow('Canonry reviews', 'cited', ['perplexity', 'claude', 'gemini', 'openai']),
+      gapRow('NYC AEO Agency', 'cited', ['gemini', 'perplexity']),
+    ],
+    mentionGap: [gapRow('best AEO agency New York', 'gap', [])],
+    notMentioned: AINYC_UNCITED.map(query => gapRow(query, 'uncited', [])),
+    runId: AINYC_LATEST_RUN.id,
+    window: 'all',
+  }
 }
 
 /** `movementComparison` from ainyc's stored GET /overview. */

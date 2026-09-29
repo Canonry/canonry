@@ -18,10 +18,20 @@ const CLASS_LABEL: Record<QueryClass, string> = { branded: 'Branded', 'non-brand
 export const SENTIMENT_COPY = {
   states: { disabled: 'Sentiment is off.', 'not-measured': 'No ratings yet.', processing: 'Analyzing sentiment…', canceled: 'Analysis canceled.', partial: 'Partial results.', failed: 'Analysis failed.', complete: 'Analysis complete.', unsupported: 'Sentiment unavailable.' },
   noJudgments: 'No ratings available.',
+  tooFew: 'too few',
   overall: 'Overall sentiment is the share of favorable judgments across branded and non-brand queries. Each saved answer-subject assessment counts once. Factual, unmentioned, unsupported, and unclassified answers are excluded.',
   favorable: 'The favorable share of favorable, mixed and unfavorable ratings. Each rating evaluates one subject in an answer. Branded and non-brand queries are measured separately.',
 } as const
 function outcomeLabel(value: string) { return value.replaceAll('-', ' ').replace(/^./, character => character.toUpperCase()) }
+
+/**
+ * Fewer rated answers than this and a class headline says "too few" instead of
+ * a favorable share: one or two ratings swing it from 0% to 100%. The rated
+ * counts stay in Details. Query rows keep their share beside its rating count.
+ */
+export const SENTIMENT_MIN_RATED = 10
+export function showsFavorableShare(judged: number): boolean { return judged >= SENTIMENT_MIN_RATED }
+const RATED_OUTCOMES = ['favorable', 'mixed', 'unfavorable'] as const
 
 /** Branded is the headline sentiment figure; non-brand follows it as its own population. */
 const CLASS_ORDER: readonly QueryClass[] = ['branded', 'non-brand']
@@ -33,7 +43,9 @@ function FavorableValue({ value, label }: { value: Pick<SentimentHeadline, 'scor
   const hasScore = value.score.favorableRate !== null && value.coverage.judged > 0
   return <div role="group" aria-label={`${label} favorable share`}>
     {hasScore ? <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-      <span className="font-mono text-lg text-primary">{value.score.favorableDisplay}</span>
+      {showsFavorableShare(value.coverage.judged)
+        ? <span className="font-mono text-lg text-primary">{value.score.favorableDisplay}</span>
+        : <span className="text-sm font-medium text-secondary">{SENTIMENT_COPY.tooFew}</span>}
       <span className="text-sm text-secondary">· {value.coverage.judged} {value.coverage.judged === 1 ? 'rating' : 'ratings'}</span>
       {value.provisional && <span className="text-sm text-caution">Partial results</span>}
     </div> : <p className="text-sm text-secondary">{value.state === 'complete' ? SENTIMENT_COPY.noJudgments : SENTIMENT_COPY.states[value.state]}</p>}
@@ -43,11 +55,15 @@ function FavorableValue({ value, label }: { value: Pick<SentimentHeadline, 'scor
 function SentimentHeadlineDetails({ value }: { value: SentimentSummary }) {
   const { coverage, score } = value
   const interval = sentimentIntervalText(score)
+  // With the share hidden, the rated outcomes are the only view of the ratings.
+  const tooFew = coverage.judged > 0 && !showsFavorableShare(coverage.judged)
   if (!coverage.selected && !coverage.eligibleAssessments && !value.reason) return null
   return <details className="mt-3 max-w-sm text-sm text-secondary">
     <summary className="w-fit cursor-pointer rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">Details</summary>
     <dl className="mt-2 space-y-1">
       {coverage.selected > 0 && <div className="flex flex-wrap justify-between gap-x-6"><dt>Rated assessments</dt><dd>{coverage.judged} of {coverage.selected}</dd></div>}
+      {tooFew && RATED_OUTCOMES.filter(outcome => coverage.counts[outcome] > 0).map(outcome => <div key={outcome} className="flex flex-wrap justify-between gap-x-6"><dt>{outcomeLabel(outcome)}</dt><dd>{coverage.counts[outcome]}</dd></div>)}
+      {tooFew && <div className="flex flex-wrap justify-between gap-x-6"><dt>Favorable share</dt><dd>Shown from {SENTIMENT_MIN_RATED} ratings</dd></div>}
       {coverage.distinctSourceAnswers > 0 && <div className="flex flex-wrap justify-between gap-x-6"><dt>Source answers</dt><dd>{coverage.distinctSourceAnswers}</dd></div>}
       {coverage.unadmittedAssessments > 0 && <div className="flex flex-wrap justify-between gap-x-6"><dt>Not yet analyzed</dt><dd>{coverage.unadmittedAssessments}</dd></div>}
       {Object.entries(coverage.counts).filter(([outcome, count]) => count > 0 && !['favorable', 'mixed', 'unfavorable'].includes(outcome)).map(([outcome, count]) => <div key={outcome} className="flex flex-wrap justify-between gap-x-6"><dt>{outcomeLabel(outcome)}</dt><dd>{count}</dd></div>)}

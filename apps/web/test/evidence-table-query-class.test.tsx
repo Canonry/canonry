@@ -187,8 +187,8 @@ test('same-query buttons describe their class, compared location and engines ind
     evidence('Best widgets', 'non-brand', { id: 'east-gemini', location: 'East', provider: 'gemini' }),
     evidence('Best widgets', 'non-brand', { id: 'west-claude', location: 'West', provider: 'claude' }),
   ]} />)
-  const east = screen.getByRole('button', { name: 'Best widgets', exact: true, description: /Non-brand.*East.*claude.*gemini/ })
-  const west = screen.getByRole('button', { name: 'Best widgets', exact: true, description: /Non-brand.*West.*claude/ })
+  const east = screen.getByRole('button', { name: 'Best widgets', exact: true, description: /Non-brand.*East.*Claude.*Gemini/ })
+  const west = screen.getByRole('button', { name: 'Best widgets', exact: true, description: /Non-brand.*West.*Claude/ })
   expect(east.getAttribute('aria-describedby')).not.toBe(west.getAttribute('aria-describedby'))
   expect(screen.getAllByRole('button', { name: 'Best widgets', exact: true })).toHaveLength(2)
   fireEvent.click(east)
@@ -208,4 +208,88 @@ test('changing class resets pagination while preserving the independent signal s
   expect(screen.getByText('Widget category 0')).toBeTruthy()
   expect(screen.queryByText('Widget category 29')).toBeNull()
   expect(screen.getByRole('tab', { name: 'Citations' }).getAttribute('aria-selected')).toBe('true')
+})
+
+function classHeadings(): string[] {
+  return [...document.querySelectorAll('tr.query-evidence-group th')].map(heading => heading.textContent ?? '')
+}
+
+test('groups rows Non-brand first, then Branded, then Unclassified, each under a counted row-group heading', () => {
+  render(<EvidenceTable evidence={[
+    evidence('Northwind pricing', 'branded'),
+    evidence('Imported question', null),
+    evidence('Best widgets', 'non-brand'),
+    evidence('Northwind reviews', 'branded'),
+    evidence('Local widget makers', 'non-brand'),
+  ]} />)
+
+  expect(classHeadings()).toEqual(['Non-brand (2)', 'Branded (2)', 'Unclassified (1)'])
+  for (const heading of document.querySelectorAll('tr.query-evidence-group th')) expect(heading.getAttribute('scope')).toBe('rowgroup')
+  // Within a class, rows keep their evidence order.
+  expect([...document.querySelectorAll('button.query-evidence-query')].map(button => button.getAttribute('aria-label'))).toEqual([
+    'Best widgets', 'Local widget makers', 'Northwind pricing', 'Northwind reviews', 'Imported question',
+  ])
+  expect(screen.getByText('1 to 5 of 5 queries')).toBeTruthy()
+
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Find a query' }), { target: { value: 'northwind' } })
+  expect(classHeadings()).toEqual(['Branded (2)'])
+  expect(screen.getByText('1 to 2 of 2 matches')).toBeTruthy()
+})
+
+test('a class heading counts queries across pages, not location rows', () => {
+  render(<EvidenceTable compareLocations evidence={Array.from({ length: 14 }, (_, index) => ['East', 'West'].map(location =>
+    evidence(`Widget query ${index}`, 'non-brand', { id: `${index}-${location}`, location }),
+  )).flat()} />)
+  // 28 location rows over two pages, 14 queries under one heading on each.
+  expect(classHeadings()).toEqual(['Non-brand (14)'])
+  expect(screen.getByText('1 to 25 of 28 queries')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Next', exact: true }))
+  expect(classHeadings()).toEqual(['Non-brand (14)'])
+  expect(screen.getByText('26 to 28 of 28 queries')).toBeTruthy()
+})
+
+test('"new query" marks only the latest sweep\'s added queries; an engine new to an old query keeps "First mention"', () => {
+  const before = { runId: 'run-1', createdAt: '2026-09-29T09:41:26.139Z' }
+  const latest = { runId: 'run-2', createdAt: '2026-09-29T09:59:38.415Z' }
+  const mentioned = { citationState: 'not-cited' as const, answerMentioned: true }
+  render(<EvidenceTable
+    addedQueries={['canonry reviews']}
+    evidence={[
+      evidence('Canonry reviews', 'branded', { id: 'new-claude', provider: 'claude', runHistory: [{ ...latest, ...mentioned }] }),
+      evidence('Canonry reviews', 'branded', { id: 'new-gemini', provider: 'gemini', runHistory: [{ ...latest, ...mentioned }] }),
+      evidence('Best widgets', 'non-brand', { id: 'old-claude', provider: 'claude', runHistory: [{ ...before, ...mentioned }, { ...latest, ...mentioned }] }),
+      // Gemini answered this old query for the first time in the latest sweep.
+      evidence('Best widgets', 'non-brand', { id: 'old-gemini', provider: 'gemini', runHistory: [{ ...latest, ...mentioned }] }),
+    ]}
+  />)
+
+  // Matched case-insensitively against the stored key, as the Visibility card does.
+  const added = screen.getByText('Canonry reviews').closest('tr')!
+  expect(within(added).getByText('new query').className).toContain('query-evidence-new')
+  expect(within(added).queryByText('First mention')).toBeNull()
+  const old = screen.getByText('Best widgets').closest('tr')!
+  expect(within(old).queryByText('new query')).toBeNull()
+  expect(within(old).getByText('Still mentioned')).toBeTruthy()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Best widgets', exact: true }))
+  const engineRows = [...document.querySelectorAll('tr.query-evidence-engine-row')]
+  expect(engineRows.map(row => [row.querySelector('td')!.textContent, row.querySelector('.evidence-change-cell')!.textContent])).toEqual([
+    ['Claude', 'Still mentionedNo citation'],
+    ['Gemini', 'First mentionNo citation'],
+  ])
+
+  fireEvent.click(screen.getByRole('button', { name: 'Best widgets', exact: true }))
+  fireEvent.click(screen.getByRole('button', { name: 'Canonry reviews', exact: true }))
+  // Every engine is new with the query, so its rows repeat no "First mention".
+  expect([...document.querySelectorAll('tr.query-evidence-engine-row .evidence-change-cell')].map(cell => cell.textContent)).toEqual(['', ''])
+  expect(screen.queryAllByText('new query')).toHaveLength(1)
+})
+
+test('without added queries a first sweep still reads "First mention"', () => {
+  render(<EvidenceTable evidence={[
+    evidence('Best widgets', 'non-brand', { runHistory: [{ runId: 'run-1', createdAt: '2026-09-29T09:41:26.139Z', citationState: 'cited', answerMentioned: true }] }),
+  ]} />)
+  const row = screen.getByText('Best widgets').closest('tr')!
+  expect(within(row).getByText('First mention')).toBeTruthy()
+  expect(within(row).queryByText('new query')).toBeNull()
 })
