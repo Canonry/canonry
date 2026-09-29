@@ -451,7 +451,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     gapQueries: {
       label: 'Citation Gaps',
       value: '1',
-      delta: '1 of 9 queries at risk',
+      delta: '1 of 9 queries',
       tone: 'caution',
       description: 'One tracked query currently cites competitors without citing Citypoint.',
       trend: [],
@@ -460,7 +460,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     mentionGaps: {
       label: 'Mention Gaps',
       value: '2',
-      delta: '2 of 9 queries at risk',
+      delta: '2 of 9 queries',
       tone: 'caution',
       description: 'Two tracked queries mention competitors but never Citypoint.',
       trend: [],
@@ -670,7 +670,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     gapQueries: {
       label: 'Citation Gaps',
       value: '0',
-      delta: '0 of 6 queries at risk',
+      delta: '0 of 6 queries',
       tone: 'positive',
       description: 'No competitive citation gaps detected in the latest visibility run.',
       trend: [],
@@ -679,7 +679,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     mentionGaps: {
       label: 'Mention Gaps',
       value: '0',
-      delta: '0 of 6 queries at risk',
+      delta: '0 of 6 queries',
       tone: 'positive',
       description: 'No competitive mention gaps detected in the latest visibility run.',
       trend: [],
@@ -853,7 +853,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     gapQueries: {
       label: 'Citation Gaps',
       value: '2',
-      delta: '2 of 7 queries at risk',
+      delta: '2 of 7 queries',
       tone: 'caution',
       description: 'Two tracked queries currently cite competitors without citing Northstar.',
       trend: [],
@@ -862,7 +862,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     mentionGaps: {
       label: 'Mention Gaps',
       value: '3',
-      delta: '3 of 7 queries at risk',
+      delta: '3 of 7 queries',
       tone: 'negative',
       description: 'Three tracked queries mention competitors but never Northstar.',
       trend: [],

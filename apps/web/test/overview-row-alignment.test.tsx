@@ -99,7 +99,7 @@ test('the pressure label reads the single word "Pressure" and keeps its full mea
 
 test('a partial sweep keeps its data-validity caveat in the caution tone rather than as faint text', async () => {
   const doc = await renderOverview((fixture) => {
-    fixture.dashboard.portfolioOverview.projects[0]!.providerCoverage = '2 of 4 providers'
+    fixture.dashboard.portfolioOverview.projects[0]!.providerCoverage = '2 of 4 engines'
     fixture.dashboard.portfolioOverview.projects[1]!.providerCoverage = undefined
   })
 
@@ -110,10 +110,10 @@ test('a partial sweep keeps its data-validity caveat in the caution tone rather 
   const partialCaption = partialMention!.querySelector('.metric-inline-caption')!
   // Caution tone is the whole point: it is why the score above reads amber.
   expect(partialCaption.getAttribute('class')).toContain('text-caution')
-  expect(partialCaption.textContent).toBe('Partial sweep: 2 of 4 providers')
+  expect(partialCaption.textContent).toBe('Partial sweep: 2 of 4 engines')
   // Truncation is expected in a 9rem column, so the full text must survive on
   // the title attribute where a hover can still reach it.
-  expect(partialCaption.getAttribute('title')).toBe('2 of 4 providers')
+  expect(partialCaption.getAttribute('title')).toBe('2 of 4 engines')
 
   // A complete sweep carries no caveat and must NOT borrow the caution tone.
   const fullCaption = fullMention!.querySelector('.metric-inline-caption')!

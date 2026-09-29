@@ -179,7 +179,7 @@ test('collapses What changed to one line and opens a table by engine, newest fir
   })).toBeTruthy()
   // chat-latest has no update on record and was last checked Jul 20: that
   // note rides on its row, never as the banner above the readout.
-  expect(within(changes).getByRole('button', { name: /^No model updates are on record for ChatGPT in this period\. .*We last checked for model updates on 2026-07-20, and this period runs past that date/ })).toBeTruthy()
+  expect(within(changes).getByRole('button', { name: /^No model updates are on record for ChatGPT in this period\. .*We last checked for model updates on Jul 20, and this period runs past that date/ })).toBeTruthy()
   expect(screen.queryByText(/The model behind/)).toBeNull()
   // fast is a Perplexity preset: its served model is the preset working, so no
   // amber row, and the preset's own answer model is named on its row.

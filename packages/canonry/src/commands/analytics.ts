@@ -178,7 +178,7 @@ function printMetrics(data: BrandMetricsDto): void {
         ? served.latestServedModelIds.join(', ')
         : formatModelEvidence(served.latestObservation.state)
       const substituted = mismatch[provider]
-      const note = substituted ? ` — not the ${formatModelEvidence(substituted.configured)} you selected` : ''
+      const note = substituted ? ` (not the ${formatModelEvidence(substituted.configured)} you selected)` : ''
       console.log(`    ${provider}: ${rawIds} at ${served.latestObservation.observedAt}${note}`)
       for (const event of served.events) {
         const dating = event.fromPreWindowAnchor ? ' (on or before)' : ''

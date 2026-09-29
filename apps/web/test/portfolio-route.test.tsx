@@ -1974,7 +1974,7 @@ test('the Visibility card marks a partial sweep and a row that gained queries', 
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
     configureFixture(dashboard) {
       const project = withAinycSweeps(dashboard)
-      project.mentionSummary = { ...project.mentionSummary, providerCoverage: '3 of 4 providers' }
+      project.mentionSummary = { ...project.mentionSummary, providerCoverage: '3 of 4 engines' }
       project.movementComparison = {
         ...ainycComparison(),
         addedQueries: [...ainycComparison().addedQueries, 'best AEO agency New York'],
@@ -1989,7 +1989,7 @@ test('the Visibility card marks a partial sweep and a row that gained queries', 
   expect(rows.map(row => row[3])).toEqual(['no change · 1 added', 'first AI sweep'])
   // A partial sweep reads caution, as the server's coverage tone does.
   expect(card.querySelector('tbody tr:first-child .av-n')!.className).toContain('text-caution-400')
-  expect(bullets.at(-1)).toBe('Partial: 3 of 4 providers')
+  expect(bullets.at(-1)).toBe('Partial: 3 of 4 engines')
 })
 
 test('the Visibility card names a first sweep and compares nothing', async () => {

@@ -57,7 +57,7 @@ export function buildGapQueryScore(
   return {
     label: 'Citation Gaps',
     value: `${gapCount}`,
-    delta: `${gapCount} of ${totalCount} queries at risk`,
+    delta: `${gapCount} of ${totalCount} ${totalCount === 1 ? 'query' : 'queries'}`,
     tone: gapTone(gapCount, totalCount),
     description: gapCount > 0
       ? `${gapCount} tracked ${gapQueryLabel} currently cite competitors without citing your domain.`
@@ -114,7 +114,7 @@ export function buildMentionGapScore(
   return {
     label: 'Mention Gaps',
     value: `${gapCount}`,
-    delta: `${gapCount} of ${totalCount} queries at risk`,
+    delta: `${gapCount} of ${totalCount} ${totalCount === 1 ? 'query' : 'queries'}`,
     tone: gapTone(gapCount, totalCount),
     description: gapCount > 0
       ? `${gapCount} tracked ${gapQueryLabel} mention competitors but never your brand.`

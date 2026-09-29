@@ -63,6 +63,22 @@ export function formatDate(iso: string): string {
   }
 }
 
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const
+
+/**
+ * A calendar day ("2026-07-20") in the one date style every surface shares:
+ * "Jul 20", with the year only outside the current one ("Jul 20, 2025"). A day
+ * is a date rather than an instant, so no time zone moves it. Anything that is
+ * not a calendar day comes back unchanged.
+ */
+export function formatCalendarDay(day: string, now: Date = new Date()): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day)
+  const month: string | undefined = match ? MONTH_NAMES[Number(match[2]) - 1] : undefined
+  if (!match || !month) return day
+  const label = `${month} ${Number(match[3])}`
+  return Number(match[1]) === now.getFullYear() ? label : `${label}, ${match[1]}`
+}
+
 export function formatIsoDate(iso: string): string {
   if (!iso) return '—'
   try {

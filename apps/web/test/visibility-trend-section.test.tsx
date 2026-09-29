@@ -2,6 +2,7 @@ import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { formatCalendarDay } from '@ainyc/canonry-contracts'
 
 afterEach(cleanup)
 
@@ -673,7 +674,7 @@ test('meets the reader with the model-update caveat before the headline number',
 
   const note = await screen.findByText(/The model behind ChatGPT/)
   expect(note.textContent).toBe(
-    'The model behind ChatGPT was updated on 2026-06-24, inside this period. '
+    `The model behind ChatGPT was updated on ${formatCalendarDay('2026-06-24')}, inside this period. `
     + `Some of the movement in these numbers may come from this update ${CLOSING_LINE}`,
   )
   // The point of the placement: the number the operator is about to send to a
@@ -695,8 +696,8 @@ test('states one fact per affected engine and closes with a single consequence',
 
   const note = await screen.findByText(/The model behind ChatGPT/)
   expect(note.textContent).toBe(
-    'The model behind ChatGPT was updated on 2026-06-24, inside this period. '
-    + 'The model behind Perplexity was updated on 2026-06-10, inside this period. '
+    `The model behind ChatGPT was updated on ${formatCalendarDay('2026-06-24')}, inside this period. `
+    + `The model behind Perplexity was updated on ${formatCalendarDay('2026-06-10')}, inside this period. `
     + `Some of the movement in these numbers may come from these updates ${CLOSING_LINE}`,
   )
   // Two engines are two facts and ONE warning. Repeating the consequence per
@@ -718,7 +719,7 @@ test('puts a moving model id with no update on record in What changed, never in 
   expect(detailsText(whatChanged())).toContain(
     'No model updates are on record for ChatGPT in this period. This engine can be moved onto a different underlying model'
     + ' without the data ever showing a different model name, so we check each period against a record of known updates.'
-    + ' Nothing is listed inside this one. We last checked for model updates on 2026-07-20, and this period runs past that'
+    + ` Nothing is listed inside this one. We last checked for model updates on ${formatCalendarDay('2026-07-20')}, and this period runs past that`
     + ' date, so there may be later updates we do not know about.',
   )
 })

@@ -687,7 +687,7 @@ test('buildProjectCommandCenter populates score gauges from the overview DTO whe
       transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
       scores: {
         visibility: { label: 'Answer Visibility', value: '75.0%', delta: '3 of 4 queries visible', tone: 'positive', description: '', tooltip: '', trend: [], progress: 75 },
-        gapQueries: { label: 'Gap Queries', value: '0', delta: '0 of 4 queries at risk', tone: 'positive', description: '', tooltip: '', trend: [] },
+        gapQueries: { label: 'Gap Queries', value: '0', delta: '0 of 4 queries', tone: 'positive', description: '', tooltip: '', trend: [] },
         indexCoverage: { label: 'Index Coverage', value: 'No data', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
         competitorPressure: { label: 'Competitor Pressure', value: 'None', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
         runStatus: { label: 'Run Status', value: 'None', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },

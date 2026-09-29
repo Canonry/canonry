@@ -1,4 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { afterAll, beforeAll, describe, it, expect, vi } from 'vitest'
+
+import { formatCalendarDay } from '../src/formatting.js'
 
 import {
   KNOWN_MOVING_POINTER_MODEL_IDS,
@@ -19,6 +21,14 @@ const CHAT_LATEST_UNCONFIRMED_REPOINT = '2026-05-28'
 const CHAT_LATEST_REPOINT = '2026-06-24'
 const CHAT_LATEST_INTRODUCED = '2026-05-05'
 const GPT_53_REPOINT = '2026-03-16'
+
+// The notice names days the way every surface does ("Jun 24", the year only
+// outside the current one), so the clock is fixed inside the registry's year.
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-09-29T12:00:00.000Z'))
+})
+afterAll(() => { vi.useRealTimers() })
 
 /** The common case: every id run for the whole period. */
 function overWholePeriod(modelIds: string[], periodStart: string, periodEnd: string): ModelPointerExposure {
@@ -146,7 +156,7 @@ describe('a period spanning one change', () => {
 
   it('names the date and says what it means for the number', () => {
     expect(noticeText(disclosure)).toBe(
-      'The model behind ChatGPT was updated on 2026-06-24, inside this period.'
+      'The model behind ChatGPT was updated on Jun 24, inside this period.'
       + ' Some of the movement in these numbers may come from this update'
       + ' rather than from a real change in how AI answers about you, so compare periods carefully.',
     )
@@ -171,7 +181,7 @@ describe('a period spanning several changes', () => {
     // model behind it changing, and no reporting period can straddle it.
     expect(CHAT_LATEST_INTRODUCED >= '2026-05-01' && CHAT_LATEST_INTRODUCED <= '2026-07-01').toBe(true)
     expect(disclosure.changeCount).toBe(2)
-    expect(noticeText(disclosure)).not.toContain(CHAT_LATEST_INTRODUCED)
+    expect(noticeText(disclosure)).not.toContain(formatCalendarDay(CHAT_LATEST_INTRODUCED))
   })
 })
 
@@ -199,7 +209,7 @@ describe('a period spanning no known change', () => {
     // The date has to reach a reader, not just the DTO. A record nobody has
     // updated produces this exact state, so the sentence says when we looked.
     expect(noticeText(disclosure)).toContain(
-      `We last checked for model updates on ${MODEL_POINTER_REGISTRY_CHECKED_THROUGH}.`,
+      `We last checked for model updates on ${formatCalendarDay(MODEL_POINTER_REGISTRY_CHECKED_THROUGH)}.`,
     )
     expect(() => modelPointerChangeDisclosureSchema.parse(disclosure)).not.toThrow()
   })
@@ -237,7 +247,7 @@ describe('a period reaching past the day the list was last checked', () => {
 
   it('says so in the copy, so ignorance never reads as clearance', () => {
     expect(noticeText(disclosure)).toContain(
-      `We last checked for model updates on ${MODEL_POINTER_REGISTRY_CHECKED_THROUGH},`
+      `We last checked for model updates on ${formatCalendarDay(MODEL_POINTER_REGISTRY_CHECKED_THROUGH)},`
       + ' and this period runs past that date, so there may be later updates we do not know about.',
     )
   })
@@ -271,7 +281,7 @@ describe('the change has to have happened while the project was running the id',
     })
     const disclosure = disclosed(exposure)
     expect(disclosure.changes.map(c => c.date)).toEqual([CHAT_LATEST_UNCONFIRMED_REPOINT])
-    expect(noticeText(disclosure)).not.toContain(CHAT_LATEST_REPOINT)
+    expect(noticeText(disclosure)).not.toContain(formatCalendarDay(CHAT_LATEST_REPOINT))
   })
 
   it('says nothing about a change BEFORE the project switched to the id', () => {
@@ -337,7 +347,7 @@ describe('the change has to have happened while the project was running the id',
     // 2026-03-16 fell after gpt-5.3-chat-latest was dropped; 2026-06-24 fell
     // while chat-latest was running.
     expect(disclosure.changes.map(c => `${c.modelId}@${c.date}`)).toEqual([`chat-latest@${CHAT_LATEST_REPOINT}`])
-    expect(noticeText(disclosure)).not.toContain(GPT_53_REPOINT)
+    expect(noticeText(disclosure)).not.toContain(formatCalendarDay(GPT_53_REPOINT))
     // Both ids are still reported as run — the project IS on moving ids.
     expect(disclosure.modelIds).toEqual(['chat-latest', 'gpt-5.3-chat-latest'])
   })
@@ -394,7 +404,7 @@ describe('an unconfirmed change is never asserted and never dropped', () => {
     expect(disclosure.changeCount).toBe(1)
     expect(disclosure.unverifiedChangeCount).toBe(1)
     expect(noticeText(disclosure)).toBe(
-      'The model behind ChatGPT may have been updated on 2026-05-28, inside this period,'
+      'The model behind ChatGPT may have been updated on May 28, inside this period,'
       + ' though that is not confirmed.'
       + ' If so, some of the movement in these numbers may come from this update'
       + ' rather than from a real change in how AI answers about you, so compare periods carefully.',
@@ -409,8 +419,8 @@ describe('an unconfirmed change is never asserted and never dropped', () => {
     expect(disclosure.changeCount).toBe(2)
     expect(disclosure.unverifiedChangeCount).toBe(1)
     expect(noticeText(disclosure)).toBe(
-      'The model behind ChatGPT was updated on 2026-06-24, inside this period,'
-      + ' and may also have been updated on 2026-05-28.'
+      'The model behind ChatGPT was updated on Jun 24, inside this period,'
+      + ' and may also have been updated on May 28.'
       + ' Some of the movement in these numbers may come from these updates'
       + ' rather than from a real change in how AI answers about you, so compare periods carefully.',
     )
@@ -428,9 +438,9 @@ describe('an unconfirmed change is never asserted and never dropped', () => {
   it('says "more than once" only about changes the record actually supports', () => {
     const disclosure = disclosed(overWholePeriod(['chat-latest', 'gpt-5.3-chat-latest'], '2026-01-01', '2026-07-01'))
     expect(noticeText(disclosure)).toContain(
-      `was updated more than once between ${GPT_53_REPOINT} and ${CHAT_LATEST_REPOINT}`,
+      `was updated more than once between ${formatCalendarDay(GPT_53_REPOINT)} and ${formatCalendarDay(CHAT_LATEST_REPOINT)}`,
     )
-    expect(noticeText(disclosure)).toContain(`may also have been updated on ${CHAT_LATEST_UNCONFIRMED_REPOINT}`)
+    expect(noticeText(disclosure)).toContain(`may also have been updated on ${formatCalendarDay(CHAT_LATEST_UNCONFIRMED_REPOINT)}`)
   })
 })
 
@@ -482,7 +492,7 @@ describe('buildModelChangeNotice', () => {
     const notice = buildModelChangeNotice({ openai: confirmed('2026-06-24') })
     expect(notice).toEqual({
       kind: 'change',
-      text: 'The model behind ChatGPT was updated on 2026-06-24, inside this period. '
+      text: 'The model behind ChatGPT was updated on Jun 24, inside this period. '
         + `Some of the movement in these numbers may come from this update ${CLOSE}`,
     })
     // The internal id is what the notice must NOT lead with: an agency owner
@@ -502,8 +512,8 @@ describe('buildModelChangeNotice', () => {
       perplexity: confirmed('2026-06-10'),
     })!
     expect(notice.text).toBe(
-      'The model behind ChatGPT was updated on 2026-06-24, inside this period. '
-      + 'The model behind Perplexity was updated on 2026-06-10, inside this period. '
+      'The model behind ChatGPT was updated on Jun 24, inside this period. '
+      + 'The model behind Perplexity was updated on Jun 10, inside this period. '
       + `Some of the movement in these numbers may come from these updates ${CLOSE}`,
     )
     const sentences = notice.text.split('. ').map(s => s.trim())
@@ -514,7 +524,7 @@ describe('buildModelChangeNotice', () => {
     expect(buildModelChangeNotice({
       gemini: { changeCount: 2, unverifiedChangeCount: 0, firstChangeDate: '2026-06-02', lastChangeDate: '2026-06-30' },
     })!.text).toBe(
-      'The model behind Gemini was updated more than once between 2026-06-02 and 2026-06-30, inside this period. '
+      'The model behind Gemini was updated more than once between Jun 2 and Jun 30, inside this period. '
       + `Some of the movement in these numbers may come from these updates ${CLOSE}`,
     )
   })
@@ -524,7 +534,7 @@ describe('buildModelChangeNotice', () => {
       openai: { changeCount: 1, unverifiedChangeCount: 1, firstChangeDate: '2026-05-28', lastChangeDate: '2026-05-28' },
     })!
     expect(notice.text).toBe(
-      'The model behind ChatGPT may have been updated on 2026-05-28, inside this period, though that is not confirmed. '
+      'The model behind ChatGPT may have been updated on May 28, inside this period, though that is not confirmed. '
       + `If so, some of the movement in these numbers may come from this update ${CLOSE}`,
     )
     expect(notice.text).not.toContain('was updated')
@@ -540,7 +550,7 @@ describe('buildModelChangeNotice', () => {
         changes: [{ date: '2026-05-28', confirmed: false }, { date: '2026-06-24', confirmed: true }],
       },
     })!.text).toBe(
-      'The model behind ChatGPT was updated on 2026-06-24, inside this period, and may also have been updated on 2026-05-28. '
+      'The model behind ChatGPT was updated on Jun 24, inside this period, and may also have been updated on May 28. '
       + `Some of the movement in these numbers may come from these updates ${CLOSE}`,
     )
   })
@@ -589,7 +599,7 @@ describe('buildModelChangeNotice', () => {
       expect(notice.kind).toBe('no-known-change')
       expect(notice).toHaveProperty('detail')
       expect((notice as { detail: string }).detail)
-        .toContain('We last checked for model updates on 2026-07-20.')
+        .toContain('We last checked for model updates on Jul 20.')
     })
 
     it('says the tail of the period was never checked, so ignorance cannot read as clearance', () => {
@@ -598,11 +608,11 @@ describe('buildModelChangeNotice', () => {
       })!
       const detail = (notice as { detail: string }).detail
       expect(detail).toContain(
-        'We last checked for model updates on 2026-07-20, and this period runs past that date,'
+        'We last checked for model updates on Jul 20, and this period runs past that date,'
         + ' so there may be later updates we do not know about.',
       )
       // Not both sentences: naming the same date twice reads as two findings.
-      expect(detail).not.toContain('on 2026-07-20. ')
+      expect(detail).not.toContain('on Jul 20. ')
     })
 
     it('warns about the unchecked tail on a KNOWN change too', () => {
@@ -611,7 +621,7 @@ describe('buildModelChangeNotice', () => {
         openai: { ...confirmed('2026-06-24'), knownGoodAsOf: '2026-07-20', checkedThroughPeriodEnd: false },
       })!
       expect(notice.text).toContain(
-        'We last checked for model updates on 2026-07-20, and this period runs past that date,'
+        'We last checked for model updates on Jul 20, and this period runs past that date,'
         + ' so there may be later updates we do not know about.',
       )
     })
@@ -621,8 +631,8 @@ describe('buildModelChangeNotice', () => {
         openai: { changeCount: 0, knownGoodAsOf: '2026-07-20', checkedThroughPeriodEnd: false },
         gemini: { changeCount: 0, knownGoodAsOf: '2026-03-01', checkedThroughPeriodEnd: false },
       })!
-      expect((notice as { detail: string }).detail).toContain('on 2026-03-01,')
-      expect((notice as { detail: string }).detail).not.toContain('2026-07-20')
+      expect((notice as { detail: string }).detail).toContain('on Mar 1,')
+      expect((notice as { detail: string }).detail).not.toContain('Jul 20')
     })
 
     it('claims no freshness at all when an older server omits the date', () => {
@@ -630,7 +640,16 @@ describe('buildModelChangeNotice', () => {
       // server never performed, which is the lie the field exists to prevent.
       const notice = buildModelChangeNotice({ openai: { changeCount: 0 } })!
       expect((notice as { detail: string }).detail).not.toContain('last checked')
-      expect((notice as { detail: string }).detail).not.toContain(MODEL_POINTER_REGISTRY_CHECKED_THROUGH)
+      expect((notice as { detail: string }).detail).not.toContain(formatCalendarDay(MODEL_POINTER_REGISTRY_CHECKED_THROUGH))
+    })
+
+    it('names a day as every surface does, with the year only outside the current one', () => {
+      const notice = buildModelChangeNotice({
+        openai: { ...confirmed('2025-12-04'), knownGoodAsOf: '2026-07-20', checkedThroughPeriodEnd: false },
+      })!
+      expect(notice.text).toContain('The model behind ChatGPT was updated on Dec 4, 2025, inside this period.')
+      expect(notice.text).toContain('We last checked for model updates on Jul 20, and')
+      expect(notice.text).not.toMatch(/\d{4}-\d{2}-\d{2}/)
     })
   })
 })
