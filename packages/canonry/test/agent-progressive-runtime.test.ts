@@ -1,12 +1,13 @@
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
-import { Agent } from '@mariozechner/pi-agent-core'
-import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from '@mariozechner/pi-ai'
-import { Type } from '@sinclair/typebox'
+import { Agent } from '@earendil-works/pi-agent-core'
+import { Type, fauxAssistantMessage, fauxToolCall, getCurrentTools } from '@earendil-works/pi-ai'
+import { registerAeroFaux } from './helpers/aero-faux.js'
+import { aeroStreamFn } from '../src/agent/pi-models.js'
 import { configureAeroRuntime, aeroTurnStatus, MAX_VISIBLE_TOOLS } from '../src/agent/runtime.js'
 import { buildAllTools, buildReadTools } from '../src/agent/tools.js'
 import type { ApiClient } from '../src/client.js'
 
-const faux = registerFauxProvider({ api: 'aero-progressive-test', provider: 'aero-progressive-test', models: [{ id: 'test' }] })
+const faux = registerAeroFaux({ api: 'aero-progressive-test', provider: 'aero-progressive-test', models: [{ id: 'test' }] })
 afterEach(() => { vi.useRealTimers() })
 afterAll(() => faux.unregister())
 
@@ -14,7 +15,7 @@ describe('Aero progressive tool execution', () => {
   it('loads schemas into the running loop before the next model request without widening read scope', async () => {
     const getInsights = vi.fn(async () => [])
     const allowed = buildReadTools({ client: { getInsights } as unknown as ApiClient, projectName: 'demo' })
-    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
     configureAeroRuntime(agent, allowed)
     const initialNames = agent.state.tools.map(tool => tool.name)
     expect(initialNames).toContain('aero_load_toolkit')
@@ -23,8 +24,8 @@ describe('Aero progressive tool execution', () => {
     faux.setResponses([
       fauxAssistantMessage(fauxToolCall('aero_load_toolkit', { toolkit: 'monitoring' }), { stopReason: 'toolUse' }),
       context => {
-        expect(context.tools?.map(tool => tool.name)).toContain('canonry_insights_list')
-        expect(context.tools?.map(tool => tool.name)).not.toContain('canonry_run_trigger')
+        expect(getCurrentTools(context.messages).map(tool => tool.name)).toContain('canonry_insights_list')
+        expect(getCurrentTools(context.messages).map(tool => tool.name)).not.toContain('canonry_run_trigger')
         return fauxAssistantMessage(fauxToolCall('canonry_insights_list', {}), { stopReason: 'toolUse' })
       },
       fauxAssistantMessage('No active insights.'),
@@ -40,7 +41,7 @@ describe('Aero progressive tool execution', () => {
   it('tells the model which toolkit to load when it calls an allowed tool that is not loaded yet', async () => {
     const getInsights = vi.fn(async () => [])
     const allowed = buildReadTools({ client: { getInsights } as unknown as ApiClient, projectName: 'demo' })
-    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
     configureAeroRuntime(agent, allowed)
     faux.setResponses([
       fauxAssistantMessage(fauxToolCall('canonry_insights_list', {}), { stopReason: 'toolUse' }),
@@ -62,7 +63,7 @@ describe('Aero progressive tool execution', () => {
 
   it('keeps pinned tools visible without loading their toolkit', () => {
     const allowed = buildReadTools({ client: {} as ApiClient, projectName: 'demo' })
-    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
     configureAeroRuntime(agent, allowed, undefined, true, ['canonry_measurement_portfolio_summary'])
     const names = agent.state.tools.map(tool => tool.name)
     expect(names).toContain('canonry_measurement_portfolio_summary')
@@ -70,7 +71,7 @@ describe('Aero progressive tool execution', () => {
   })
 
   it('points an eager turn at its own list instead of a toolkit tool it does not have', async () => {
-    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
     configureAeroRuntime(agent, [], undefined, false)
     faux.setResponses([
       fauxAssistantMessage(fauxToolCall('canonry_insights_list', {}), { stopReason: 'toolUse' }),
@@ -87,13 +88,13 @@ describe('Aero progressive tool execution', () => {
   it('never lets loaded toolkits carry a request past the function limit', async () => {
     const allowed = buildAllTools({ client: {} as ApiClient, projectName: 'demo' })
     expect(allowed.length).toBeGreaterThan(MAX_VISIBLE_TOOLS)
-    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
     configureAeroRuntime(agent, allowed, { maxToolCalls: 100, timeoutMs: 10_000 })
     const kits = ((await agent.state.tools.find(tool => tool.name === 'aero_list_toolkits')!.execute('list', {})).details as Array<{ name: string }>).map(kit => kit.name)
     faux.setResponses([
       fauxAssistantMessage(kits.map((toolkit, index) => fauxToolCall('aero_load_toolkit', { toolkit }, { id: `load-${index}` })), { stopReason: 'toolUse' }),
       context => {
-        expect(context.tools!.length).toBeLessThanOrEqual(MAX_VISIBLE_TOOLS)
+        expect(getCurrentTools(context.messages).length).toBeLessThanOrEqual(MAX_VISIBLE_TOOLS)
         return fauxAssistantMessage('Done.')
       },
     ])
@@ -103,7 +104,7 @@ describe('Aero progressive tool execution', () => {
 
   it('stops before executing calls beyond the limit, including multiple calls in one model response', async () => {
     const execute = vi.fn(async () => ({ content: [{ type: 'text' as const, text: 'done' }], details: {} }))
-    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
     configureAeroRuntime(agent, [{ name: 'check', label: 'Check', description: 'Test', parameters: Type.Object({}), execute }], { maxToolCalls: 1, timeoutMs: 1000 })
     faux.setResponses([fauxAssistantMessage([
       fauxToolCall('check', {}, { id: 'first' }), fauxToolCall('check', {}, { id: 'second' }),
@@ -115,7 +116,7 @@ describe('Aero progressive tool execution', () => {
 
   it('aborts a slow provider at the time limit', async () => {
     vi.useFakeTimers()
-    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
     configureAeroRuntime(agent, [], { maxToolCalls: 3, timeoutMs: 1000 })
     faux.setResponses([async (_context, options) => {
       await new Promise<void>(resolve => options?.signal?.addEventListener('abort', () => resolve(), { once: true }))
@@ -130,7 +131,7 @@ describe('Aero progressive tool execution', () => {
 
 
 it('counts malformed tool attempts and reports provider failure distinctly', async () => {
-  const agent = new Agent({ initialState: { model: faux.getModel() } })
+  const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
   configureAeroRuntime(agent, [], { maxToolCalls: 1, timeoutMs: 1000 })
   faux.setResponses([
     fauxAssistantMessage(fauxToolCall('nonexistent', {}), { stopReason: 'toolUse' }),
@@ -162,7 +163,7 @@ describe('misspelled tool names', () => {
 
   it('runs the visible tool a transposed prefix meant, and records the name the model wrote', async () => {
     const changes = fakeTool('canonry_measurement_changes')
-    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
     configureAeroRuntime(agent, [changes.tool], undefined, true, ['canonry_measurement_changes'])
     const { starts, results } = watch(agent)
     faux.setResponses([
@@ -184,7 +185,7 @@ describe('misspelled tool names', () => {
 
   it('runs the tool a dropped letter meant on an eager turn', async () => {
     const changes = fakeTool('canonry_measurement_changes')
-    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
     configureAeroRuntime(agent, [changes.tool, fakeTool('canonry_measurement_overview').tool], undefined, false)
     const { results } = watch(agent)
     faux.setResponses([
@@ -199,7 +200,7 @@ describe('misspelled tool names', () => {
   it('does not guess between two close names, and lists both', async () => {
     const get = fakeTool('harbor_report_get')
     const set = fakeTool('harbor_report_set')
-    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
     configureAeroRuntime(agent, [get.tool, set.tool], undefined, false)
     const { results } = watch(agent)
     faux.setResponses([
@@ -216,7 +217,7 @@ describe('misspelled tool names', () => {
 
   it('keeps the plain refusal for a name close to no tool', async () => {
     const changes = fakeTool('canonry_measurement_changes')
-    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
     configureAeroRuntime(agent, [changes.tool], undefined, false)
     const { results } = watch(agent)
     faux.setResponses([
@@ -231,7 +232,7 @@ describe('misspelled tool names', () => {
   it('never renames a misspelling to a write tool, and makes the model name the write exactly', async () => {
     const fillRun = vi.fn(async () => ({}))
     const allowed = buildAllTools({ client: { fillRun } as unknown as ApiClient, projectName: 'demo' })
-    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
     configureAeroRuntime(agent, allowed, undefined, false)
     const { starts, results } = watch(agent)
     faux.setResponses([
@@ -253,7 +254,7 @@ describe('misspelled tool names', () => {
 
   it('treats a tool whose access is unknown as a write and does not rename to it', async () => {
     const publish = fakeTool('harbor_report_publish')
-    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
     configureAeroRuntime(agent, [publish.tool], undefined, false)
     const { results } = watch(agent)
     faux.setResponses([
@@ -270,7 +271,7 @@ describe('misspelled tool names', () => {
     const getRunCompleteness = vi.fn(async () => ({}))
     const fillRun = vi.fn(async () => ({}))
     const allowed = buildAllTools({ client: { getRunCompleteness, fillRun } as unknown as ApiClient, projectName: 'demo' })
-    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
     configureAeroRuntime(agent, allowed, undefined, false)
     const { results } = watch(agent)
     faux.setResponses([
@@ -285,13 +286,13 @@ describe('misspelled tool names', () => {
 
   it('renames a misspelled toolkit load, which only changes what is visible', async () => {
     const allowed = buildReadTools({ client: {} as ApiClient, projectName: 'demo' })
-    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
     configureAeroRuntime(agent, allowed)
     const { results } = watch(agent)
     faux.setResponses([
       fauxAssistantMessage(fauxToolCall('aero_load_tolkit', { toolkit: 'monitoring' }), { stopReason: 'toolUse' }),
       context => {
-        expect(context.tools?.map(tool => tool.name)).toContain('canonry_insights_list')
+        expect(getCurrentTools(context.messages).map(tool => tool.name)).toContain('canonry_insights_list')
         return fauxAssistantMessage('Done.')
       },
     ])
@@ -302,7 +303,7 @@ describe('misspelled tool names', () => {
   it('names the exact tool and its toolkit when the close match is allowed but not loaded', async () => {
     const getInsights = vi.fn(async () => [])
     const allowed = buildReadTools({ client: { getInsights } as unknown as ApiClient, projectName: 'demo' })
-    const agent = new Agent({ initialState: { model: faux.getModel() } })
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
     configureAeroRuntime(agent, allowed)
     const { results } = watch(agent)
     faux.setResponses([

@@ -1,10 +1,9 @@
 import {
-  getEnvApiKey,
-  getModel,
   type KnownProvider,
   type Model,
   type OpenAICompletionsCompat,
-} from '@mariozechner/pi-ai'
+} from '@earendil-works/pi-ai'
+import { aeroModels } from './pi-models.js'
 import {
   AGENT_PROVIDER_IDS,
   AgentProviderIds,
@@ -42,10 +41,10 @@ import {
  * Per-model metadata used to build a `Model<'openai-completions'>` object
  * for a custom OpenAI-compatible host that isn't in pi-ai's catalog. Costs
  * are USD per 1M tokens (same unit pi-ai's `calculateCost` consumes).
- * `contextWindow` / `maxTokens` are descriptive capability metadata — Aero's
- * compaction fires on a fixed token budget (`COMPACTION_TOKEN_THRESHOLD`) and
- * pi-agent-core's loop never reads `model.contextWindow`, so the value here
- * does not gate compaction; keep it accurate for documentation + cost display.
+ * `contextWindow` does not gate Aero's compaction, which fires on a fixed
+ * token budget (`COMPACTION_TOKEN_THRESHOLD`). pi-ai 0.74+ does read it: each
+ * request's output cap is clamped to the window minus the estimated prompt.
+ * So it must be the real serving window, or 0 when unknown (0 skips the clamp).
  */
 export interface OpenAiCompatibleModelMeta {
   contextWindow: number
@@ -59,8 +58,8 @@ export interface OpenAiCompatibleModelMeta {
  * through its `openai-completions` API but does not ship in its model
  * catalog. When an `AgentProviderEntry` carries this block, model resolution
  * constructs a custom `Model<'openai-completions'>` pointed at `baseUrl`
- * instead of looking the id up via `getModel`, and API-key resolution reads
- * `apiKeyEnvVar` (pi-ai's `getEnvApiKey` doesn't know this host).
+ * instead of looking the id up in pi-ai's catalog, and API-key resolution
+ * reads `apiKeyEnvVar`.
  */
 export interface OpenAiCompatibleHost {
   /** OpenAI-compatible completions base URL, e.g. `https://api.deepinfra.com/v1/openai`. */
@@ -72,7 +71,7 @@ export interface OpenAiCompatibleHost {
    * the `baseUrl` constant is used, so the default self-hosted path is unchanged.
    */
   baseUrlEnvVar?: string
-  /** Env var carrying the API key — pi-ai's `getEnvApiKey` has no entry for this host. */
+  /** Env var carrying the API key; this host has no pi-ai catalog entry. */
   apiKeyEnvVar: string
   /**
    * pi-ai compat overrides for the host's quirks. pi-ai auto-detects compat
@@ -91,7 +90,7 @@ export interface AgentProviderEntry {
   /**
    * The `model.provider` string the agent loop passes to `getApiKey`. For
    * pi-ai catalog providers this is the pi-ai vendor id (e.g. `anthropic`)
-   * that `getModel(provider, id)` / `getEnvApiKey(provider)` accept. For a
+   * that the catalog lookup and `CATALOG_API_KEY_ENV_VARS` accept. For a
    * custom OpenAI-compatible host (see `openaiCompatible`) it's the canonical
    * `AgentProviderId` (e.g. `deepinfra`) — not a pi-ai catalog provider —
    * which `resolveAgentId` maps back to the config/env key lookup.
@@ -133,7 +132,7 @@ export interface AgentProviderEntry {
  *   - Gemini: 2.5-flash is already cheap + capable; no separate analyze /
  *     classify tier worth using until Gemini ships a dedicated micro
  *     model. All three tiers point at flash.
- *   - Zai: glm-5.1 is the agent tier; glm-5.1-flash is the cheap tier
+ *   - Zai: glm-5.2 is the agent tier; glm-5-turbo is the cheap tier
  *     for analyze + classify.
  *   - DeepInfra: Western-hosted open weights, split by tier. DeepSeek-V4-Flash
  *     drives the agent loop at ~$0.09/$0.18 per 1M; GLM-5.2 stays on analyze +
@@ -164,9 +163,10 @@ export const PROVIDER_MODELS = {
     [LlmCapabilities.classify]: 'gemini-2.5-flash-lite',
   },
   [AgentProviderIds.zai]: {
-    // GLM lineage: 5.1 is the latest agent-class model; 5-turbo is the
-    // cheaper tier good for structured tasks and classification.
-    [LlmCapabilities.agent]: 'glm-5.1',
+    // GLM lineage: 5.2 replaced 5.1, which pi-ai 0.87 dropped from its
+    // catalog; 5-turbo is the cheaper tier good for structured tasks and
+    // classification.
+    [LlmCapabilities.agent]: 'glm-5.2',
     [LlmCapabilities.analyze]: 'glm-5-turbo',
     [LlmCapabilities.classify]: 'glm-5-turbo',
   },
@@ -272,9 +272,10 @@ export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderEntry> = {
       },
       // Fallback for arbitrary `--model` slugs we don't ship as tiers. cost is
       // 0, so an unknown slug isn't cost-tracked by pi-ai's `calculateCost`;
-      // contextWindow stays conservative since we can't know the slug's window.
+      // contextWindow is 0 (unknown) because a guessed window would clamp a long
+      // turn's output cap toward 1 token; the host enforces its real window.
       defaultModelMeta: {
-        contextWindow: 131072,
+        contextWindow: 0,
         maxTokens: 32768,
         reasoning: false,
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -370,11 +371,11 @@ export function resolveModelForCapability(
     const suppressThinking = capability !== LlmCapabilities.agent
     return buildOpenAiCompatibleModel(entry, id, suppressThinking) as Model<never>
   }
-  const model = getModel(entry.piAiProvider as never, id as never) as Model<never> | undefined
+  const model = aeroModels.getModel(entry.piAiProvider, id) as Model<never> | undefined
   if (!model) {
     throw new Error(
       `Model '${id}' not found for pi-ai provider '${entry.piAiProvider}'. ` +
-        `Verify PROVIDER_MODELS[${provider}][${capability}] against the installed @mariozechner/pi-ai catalog.`,
+        `Verify PROVIDER_MODELS[${provider}][${capability}] against the installed @earendil-works/pi-ai catalog.`,
     )
   }
   // Proxied deployments run the agent with a per-tenant LiteLLM virtual key and
@@ -420,13 +421,15 @@ export function buildOpenAiCompatibleModel(
   // constant, so the default self-hosted path is byte-for-byte unchanged.
   const baseUrl = (host.baseUrlEnvVar ? process.env[host.baseUrlEnvVar] : undefined) || host.baseUrl
   // When the caller wants thinking off (the cheap single-shot tiers), pin GLM's
-  // chat-template thinking switch. With `thinkingFormat: 'qwen-chat-template'`
-  // and no request-time reasoning effort (the explain/classify callers pass
-  // none), pi-ai emits `chat_template_kwargs: { enable_thinking: false }` on
-  // DeepInfra's vLLM route. That branch requires `reasoning: true`, which the
-  // GLM tier sets — so the trace is suppressed at the request, not the model.
+  // chat-template thinking switch. With `thinkingFormat: 'chat-template'`, the
+  // `enable_thinking` kwarg bound to pi's thinking state and no request-time
+  // reasoning effort (the explain/classify callers pass none), pi-ai emits
+  // exactly `chat_template_kwargs: { enable_thinking: false }` on DeepInfra's
+  // vLLM route. (`qwen-chat-template` now also sends `preserve_thinking`.) That
+  // branch requires `reasoning: true`, which the GLM tier sets — so the trace
+  // is suppressed at the request, not the model.
   const compat: OpenAICompletionsCompat | undefined = suppressThinking
-    ? { ...host.compat, thinkingFormat: 'qwen-chat-template' }
+    ? { ...host.compat, thinkingFormat: 'chat-template', chatTemplateKwargs: { enable_thinking: { $var: 'thinking.enabled' } } }
     : host.compat
   return {
     id,
@@ -441,6 +444,15 @@ export function buildOpenAiCompatibleModel(
     maxTokens: meta.maxTokens,
     ...(compat ? { compat } : {}),
   }
+}
+
+/**
+ * Whether `id` resolves for `provider` in the installed pi-ai catalog. A custom
+ * OpenAI-compatible host accepts any slug (the host validates it per request).
+ */
+export function isAgentModelAvailable(provider: AgentProviderId, id: string): boolean {
+  const entry = AGENT_PROVIDERS[provider]
+  return !!entry.openaiCompatible || !!aeroModels.getModel(entry.piAiProvider, id)
 }
 
 /**
@@ -498,29 +510,42 @@ export function resolveApiKeySource(
 ): { key: string; source: 'config' | 'env' } | undefined {
   const id = resolveAgentId(providerOrPiAi)
   if (!id) return undefined
-  const entry = AGENT_PROVIDERS[id]
   const fromConfig = config.providers?.[id]?.apiKey
   if (fromConfig) return { key: fromConfig, source: 'config' }
-  // Custom hosts (DeepInfra) aren't in pi-ai's env-var map — read their
-  // documented env var directly. Catalog providers fall back to pi-ai.
-  const fromEnv = entry.openaiCompatible
-    ? process.env[entry.openaiCompatible.apiKeyEnvVar]
-    : getEnvApiKey(entry.piAiProvider)
+  const fromEnv = agentProviderApiKeyEnvVars(id)
+    .map((name) => process.env[name])
+    .find((value) => !!value)
   if (fromEnv) return { key: fromEnv, source: 'env' }
   return undefined
 }
 
 /**
+ * Env vars read for each catalog provider's key, in lookup order. This is the
+ * map pi-ai's `getEnvApiKey` used before 0.80 moved it to a compat entry;
+ * keeping it here fixes the order (pi-ai 0.82 put `ANTHROPIC_AUTH_TOKEN` ahead
+ * of both for its own auth, which Canonry does not use).
+ */
+const CATALOG_API_KEY_ENV_VARS: Record<string, readonly string[]> = {
+  anthropic: ['ANTHROPIC_OAUTH_TOKEN', 'ANTHROPIC_API_KEY'],
+  openai: ['OPENAI_API_KEY'],
+  google: ['GEMINI_API_KEY'],
+  zai: ['ZAI_API_KEY'],
+}
+
+function agentProviderApiKeyEnvVars(id: AgentProviderId): readonly string[] {
+  const entry = AGENT_PROVIDERS[id]
+  if (entry.openaiCompatible) return [entry.openaiCompatible.apiKeyEnvVar]
+  return CATALOG_API_KEY_ENV_VARS[entry.piAiProvider] ?? [`${entry.piAiProvider.toUpperCase()}_API_KEY`]
+}
+
+/**
  * The environment variable an operator sets to supply this provider's key,
- * shown in onboarding hints. Custom hosts carry their own var (DeepInfra →
- * `DEEPINFRA_TOKEN`); catalog providers derive it from the pi-ai vendor id
- * (`anthropic` → `ANTHROPIC_API_KEY`), matching pi-ai's `getEnvApiKey` map.
+ * shown in onboarding hints: the last (plain API key) entry of the lookup
+ * order, e.g. `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `DEEPINFRA_TOKEN`.
  */
 export function agentProviderApiKeyEnvVar(id: AgentProviderId): string {
-  const entry = AGENT_PROVIDERS[id]
-  return entry.openaiCompatible
-    ? entry.openaiCompatible.apiKeyEnvVar
-    : `${entry.piAiProvider.toUpperCase()}_API_KEY`
+  const names = agentProviderApiKeyEnvVars(id)
+  return names[names.length - 1]!
 }
 
 /**

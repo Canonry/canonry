@@ -13,7 +13,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { eq, like } from 'drizzle-orm'
-import type { AgentTool } from '@mariozechner/pi-agent-core'
+import type { AgentTool } from '@earendil-works/pi-agent-core'
 import { agentSessions, apiKeys, createClient, migrate, projects, users, type DatabaseClient } from '@ainyc/canonry-db'
 import { AppError, MemorySources } from '@ainyc/canonry-contracts'
 import { hashUserPassword, type AuthPrincipal } from '@ainyc/canonry-api-routes'
@@ -194,7 +194,9 @@ describe('ViewerAeroSessions', () => {
 
     expect(turn.agent.state.systemPrompt).toContain(VIEWER_AERO_PROMPT.trim())
     expect(turn.agent.state.systemPrompt).not.toContain(OPERATOR_SECRET)
-    expect(turn.agent.state.messages).toEqual([])
+    // Only the leading system message that carries the prompt; no conversation turns.
+    expect(turn.agent.state.messages.filter(message => message.role !== 'system')).toEqual([])
+    expect(lane.transcript(project.name, 'viewer-a')).toEqual([])
   })
 
   it('keeps one conversation per viewer, and a reset touches only its own', async () => {
@@ -358,6 +360,8 @@ describe('agent routes with viewers allowed', () => {
       {
         role: 'assistant', content: [{ type: 'text', text: 'Mentioned in 3 of 4 answers.' }], api: 'openai-completions', provider: 'deepinfra',
         model: 'secret-model-id', responseId: 'resp_1', usage: { cost: { total: 0.01 } }, errorMessage: 'org org-123 rate limited', stopReason: 'stop', timestamp: 3,
+        // Fields pi-ai 0.83+ adds: the model that actually served, provider diagnostics, thinking level, raw stop reason.
+        responseModel: 'secret-served-model', diagnostics: [{ note: 'secret-diagnostic' }], providerThinkingLevel: 'secret-level', rawStopReason: 'secret-raw-stop',
       },
     ] as never
     turn.release()
@@ -366,7 +370,7 @@ describe('agent routes with viewers allowed', () => {
 
     expect(res.statusCode).toBe(200)
     expect(res.body).toContain('Mentioned in 3 of 4 answers.')
-    for (const hidden of ['secret-model-id', 'deepinfra', 'openai-completions', 'resp_1', 'cost', 'org-123', 'payload']) {
+    for (const hidden of ['secret-model-id', 'deepinfra', 'openai-completions', 'resp_1', 'cost', 'org-123', 'payload', 'secret-served-model', 'secret-diagnostic', 'secret-level', 'secret-raw-stop']) {
       expect(res.body).not.toContain(hidden)
     }
   })

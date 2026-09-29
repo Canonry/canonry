@@ -5,8 +5,9 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createClient, migrate, projects, type DatabaseClient } from '@ainyc/canonry-db'
 import { AppError, validationError, agentViewContextSchema } from '@ainyc/canonry-contracts'
-import { fauxAssistantMessage, fauxToolCall, registerFauxProvider, type FauxProviderRegistration } from '@mariozechner/pi-ai'
+import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai'
 import { aeroEvidenceFixture } from '../../contracts/test/fixtures/aero-evidence.js'
+import { registerAeroFaux, type AeroFaux } from './helpers/aero-faux.js'
 import { SessionRegistry } from '../src/agent/session-registry.js'
 import { registerAgentRoutes } from '../src/agent/agent-routes.js'
 import type { ApiClient } from '../src/client.js'
@@ -16,7 +17,7 @@ let directory: string
 let db: DatabaseClient
 let app: FastifyInstance
 let registry: SessionRegistry
-let faux: FauxProviderRegistration
+let faux: AeroFaux
 const read = vi.fn()
 const context = agentViewContextSchema.parse({ view: 'property', selection: { scope: 'property', scopeKey: 'hotel', marketKey: 'london', queryClass: 'non-brand', runId: 'run-3' } })
 
@@ -28,7 +29,7 @@ beforeEach(async () => {
   db.insert(projects).values({ id: 'demo', name: 'demo', displayName: 'Demo', canonicalDomain: 'demo.example', country: 'US', language: 'en', createdAt: now, updatedAt: now }).run()
   read.mockReset().mockResolvedValue(aeroEvidenceFixture('advanced'))
   registry = new SessionRegistry({ db, client: { getVisibilityReport: read } as unknown as ApiClient, config: { apiKey: 'test', providers: { claude: { apiKey: 'test' } }, basePath: '/canonry/' } as CanonryConfig })
-  faux = registerFauxProvider({ api: 'aero-http-test', provider: 'aero-http-test', models: [{ id: 'test' }] })
+  faux = registerAeroFaux({ api: 'aero-http-test', provider: 'aero-http-test', models: [{ id: 'test' }] })
   registry.getOrCreate('demo').state.model = faux.getModel()
   app = Fastify()
   app.setErrorHandler((error, _request, reply) => {

@@ -2,11 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import {
-  fauxAssistantMessage,
-  registerFauxProvider,
-  type FauxProviderRegistration,
-} from '@mariozechner/pi-ai'
+import { fauxAssistantMessage } from '@earendil-works/pi-ai'
 import type { HealthSnapshotDto, ProjectDto, RunDto } from '@ainyc/canonry-contracts'
 import { createClient, migrate, type DatabaseClient } from '@ainyc/canonry-db'
 import {
@@ -16,7 +12,8 @@ import {
 } from '../src/agent/session.js'
 import type { ApiClient, TimelineDto } from '../src/client.js'
 import type { CanonryConfig } from '../src/config.js'
-import type { AgentEvent } from '@mariozechner/pi-agent-core'
+import type { AgentEvent } from '@earendil-works/pi-agent-core'
+import { registerAeroFaux, type AeroFaux } from './helpers/aero-faux.js'
 
 function stubClient(): ApiClient {
   const project = {
@@ -103,12 +100,12 @@ describe('detectAgentProvider', () => {
 })
 
 describe('createAeroSession — end-to-end with faux provider', () => {
-  let faux: FauxProviderRegistration
+  let faux: AeroFaux
   let tmpDir: string
   let db: DatabaseClient
 
   beforeEach(() => {
-    faux = registerFauxProvider({
+    faux = registerAeroFaux({
       api: 'faux-api',
       provider: 'faux',
       models: [{ id: 'faux-model' }],
