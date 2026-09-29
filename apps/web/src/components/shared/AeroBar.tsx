@@ -1192,7 +1192,7 @@ function envVarHint(id: AgentProviderId): string {
     case 'openai':
       return 'OPENAI_API_KEY'
     case 'gemini':
-      return 'GOOGLE_API_KEY'
+      return 'GEMINI_API_KEY'
     case 'zai':
       return 'ZAI_API_KEY'
     case 'deepinfra':

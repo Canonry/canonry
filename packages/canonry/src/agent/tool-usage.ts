@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { agentToolEvents, type DatabaseClient } from '@ainyc/canonry-db'
-import type { AgentOptions } from '@mariozechner/pi-agent-core'
-import type { ImageContent, TextContent } from '@mariozechner/pi-ai'
+import type { AgentOptions } from '@earendil-works/pi-agent-core'
+import type { ImageContent, TextContent } from '@earendil-works/pi-ai'
 
 export const AeroToolEventStatuses = {
   success: 'success',

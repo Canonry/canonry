@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { Type } from '@sinclair/typebox'
-import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core'
+import { Type } from '@earendil-works/pi-ai'
+import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core'
 import { resolveAeroSkillDir } from './skill-paths.js'
 
 const MAX_DOC_CHARS = 20_000

@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import type { AgentTool } from '@mariozechner/pi-agent-core'
+import type { AgentTool } from '@earendil-works/pi-agent-core'
 import { buildSkillDocTools, scanSkillDocs, type SkillDocEntry } from '../src/agent/skill-tools.js'
 
 async function exec<T>(tool: AgentTool, params: unknown): Promise<T> {
