@@ -193,7 +193,7 @@ it does not resume interrupted work. The one exception is a running sweep that
 wrote provider batches (see "Finalizing a sweep" below).
 
 Before provider dispatch, `JobRunner` captures the resolved inputs of each official simple run.
-The frozen definition records exact query text, identity, classification, location, and requested models.
+The frozen definition records exact query text, identity (including the project's sentiment-only qualified aliases, omitted when empty), classification, location, and requested models.
 Capture failure prevents provider calls. Probe and advanced runs retain their existing paths.
 Queue-time configuration does not define simple runs because their inputs resolve at dispatch.
 This capture does not change current report calculations or reconstruct historical definitions.

@@ -89,6 +89,10 @@ export function resolveLocations(
   return resolved
 }
 
+/** Bounds for `qualifiedAliases` on project writes (see `resolveProjectQualifiedAliases`). */
+export const PROJECT_QUALIFIED_ALIAS_LIMIT = 20
+export const PROJECT_QUALIFIED_ALIAS_MAX_LENGTH = 200
+
 export const projectUpsertRequestSchema = z.object({
   displayName: z.string().min(1),
   canonicalDomain: z.string().min(1),
@@ -109,6 +113,13 @@ export const projectUpsertRequestSchema = z.object({
   defaultLocation: z.string().nullable().optional(),
   measurement: measurementConfigSchema.optional(),
   autoExtractBacklinks: z.boolean().optional(),
+  /**
+   * Aliases the sentiment evaluator is told are this brand's own names. Each
+   * entry must already be one of `aliases`. Omitted keeps the stored list,
+   * minus names that no longer qualify; `[]` clears.
+   */
+  qualifiedAliases: z.array(z.string().trim().min(1).max(PROJECT_QUALIFIED_ALIAS_MAX_LENGTH))
+    .max(PROJECT_QUALIFIED_ALIAS_LIMIT).optional(),
   /**
    * Highest star rating that counts as a negative Google review for this
    * project's `review.negative` webhook (1-4). Omit to keep the stored value;
@@ -155,6 +166,8 @@ export const projectDtoSchema = z.object({
   canonicalDomain: z.string(),
   ownedDomains: z.array(z.string()).default([]),
   aliases: z.array(z.string()).default([]),
+  /** Operator-chosen subset of `aliases` that Simple sentiment treats as this brand's own names. */
+  qualifiedAliases: z.array(z.string()).default([]),
   country: z.string().length(2),
   language: z.string().min(2),
   tags: z.array(z.string()).default([]),
@@ -292,6 +305,58 @@ export function normalizeProjectAliases(
     result.push(trimmed)
   }
   return result
+}
+
+export type ProjectQualifiedAliasRejectionReason = 'not-an-alias' | 'display-name' | 'too-short' | 'competitor-collision'
+
+/**
+ * Resolves the operator-chosen subset of a project's aliases that Simple
+ * sentiment tells the evaluator are this brand's own names. Entries are
+ * trimmed, blanks skipped, and duplicates dropped case-insensitively, never by
+ * brand key: "Acme Co" and "AcmeCo" are both kept because the evaluator sees
+ * each literal spelling. Each kept entry is returned in its stored alias
+ * spelling and the list is sorted by code unit. An entry is rejected when it
+ * is not a stored alias, shares the display name's brand key, has a brand key
+ * shorter than `MIN_DOMAIN_BRAND_KEY_LENGTH`, or shares a brand key with a
+ * competitor name. It never changes mention detection or query classes.
+ */
+export function resolveProjectQualifiedAliases(
+  identity: { displayName?: string | null; aliases?: readonly string[] | null },
+  requested: readonly string[] | null | undefined,
+  competitorNames: readonly string[] = [],
+): { value: string[]; rejected: { name: string; reason: ProjectQualifiedAliasRejectionReason }[] } {
+  const stored = new Map<string, string>()
+  for (const alias of normalizeProjectAliases(identity.displayName, identity.aliases)) {
+    stored.set(alias.toLowerCase(), alias)
+  }
+  const displayKey = brandKeyFromText(identity.displayName ?? '')
+  const competitorKeys = new Set(competitorNames.map(brandKeyFromText).filter(key => key.length > 0))
+  const value: string[] = []
+  const rejected: { name: string; reason: ProjectQualifiedAliasRejectionReason }[] = []
+  const seen = new Set<string>()
+  for (const raw of requested ?? []) {
+    const name = raw.trim()
+    if (!name) continue
+    const lower = name.toLowerCase()
+    if (seen.has(lower)) continue
+    seen.add(lower)
+    const alias = stored.get(lower)
+    if (alias === undefined) {
+      rejected.push({ name, reason: 'not-an-alias' })
+      continue
+    }
+    const key = brandKeyFromText(alias)
+    if (displayKey && key === displayKey) {
+      rejected.push({ name, reason: 'display-name' })
+    } else if (key.length < MIN_DOMAIN_BRAND_KEY_LENGTH) {
+      rejected.push({ name, reason: 'too-short' })
+    } else if (competitorKeys.has(key)) {
+      rejected.push({ name, reason: 'competitor-collision' })
+    } else {
+      value.push(alias)
+    }
+  }
+  return { value: value.sort(), rejected }
 }
 
 /**

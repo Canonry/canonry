@@ -189,7 +189,7 @@ Red flag — the engine won't even say your name. Check (the lost citation for y
 - Is the homepage indexed?
 - Does `llms.txt` exist and list the business clearly?
 - Does schema include the exact brand name in `name` field?
-- Is a brand alias missing? (`spec.brandAliases` widens the `answerMentioned` detector for variants like "Acme Cloud" vs "AcmeCloud".)
+- Is a brand alias missing? (`spec.aliases` widens the `answerMentioned` detector for another name the brand goes by, such as a product or former name. Case, spacing and punctuation variants like "Acme Cloud" vs "AcmeCloud" already match.)
 
 ### Informational terms not mentioned
 Content strategy play:

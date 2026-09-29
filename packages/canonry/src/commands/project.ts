@@ -1,5 +1,5 @@
 import type { ProjectDto, ProviderDispatchModesMap } from '@ainyc/canonry-contracts'
-import { effectiveDomains, normalizeProjectAliases, resolveNegativeReviewMaxStars } from '@ainyc/canonry-contracts'
+import { effectiveDomains, normalizeProjectAliases, resolveNegativeReviewMaxStars, resolveProjectQualifiedAliases } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -10,7 +10,7 @@ function getClient() {
 
 export async function createProject(
   name: string,
-  opts: { domain: string; ownedDomains?: string[]; aliases?: string[]; country: string; language: string; displayName: string; providers?: string[]; providerModels?: Record<string, string>; providerDispatchModes?: ProviderDispatchModesMap; format?: string },
+  opts: { domain: string; ownedDomains?: string[]; aliases?: string[]; qualifiedAliases?: string[]; country: string; language: string; displayName: string; providers?: string[]; providerModels?: Record<string, string>; providerDispatchModes?: ProviderDispatchModesMap; format?: string },
 ): Promise<void> {
   const client = getClient()
   const result: ProjectDto = await client.putProject(name, {
@@ -18,6 +18,7 @@ export async function createProject(
     canonicalDomain: opts.domain,
     ownedDomains: opts.ownedDomains ?? [],
     aliases: normalizeProjectAliases(opts.displayName, opts.aliases ?? []),
+    ...(opts.qualifiedAliases?.length ? { qualifiedAliases: opts.qualifiedAliases } : {}),
     country: opts.country,
     language: opts.language,
     providers: opts.providers ?? [],
@@ -92,6 +93,11 @@ export async function listProjects(format?: string): Promise<void> {
   }
 }
 
+/** A newer CLI can be pointed at an older server that predates the field. */
+function storedQualifiedAliases(project: ProjectDto): string[] {
+  return (project as { qualifiedAliases?: string[] }).qualifiedAliases ?? []
+}
+
 export async function showProject(name: string, format?: string): Promise<void> {
   const client = getClient()
   const project: ProjectDto = await client.getProject(name)
@@ -111,6 +117,10 @@ export async function showProject(name: string, format?: string): Promise<void> 
   }
   if (project.aliases && project.aliases.length > 0) {
     console.log(`  Aliases:          ${project.aliases.join(', ')}`)
+  }
+  const qualifiedAliases = storedQualifiedAliases(project)
+  if (qualifiedAliases.length > 0) {
+    console.log(`  Qualified:        ${qualifiedAliases.join(', ')} (sentiment)`)
   }
   console.log(`  Country:          ${project.country}`)
   console.log(`  Language:         ${project.language}`)
@@ -140,6 +150,8 @@ export async function updateProjectSettings(
     aliases?: string[]
     addAlias?: string[]
     removeAlias?: string[]
+    addQualifiedAlias?: string[]
+    removeQualifiedAlias?: string[]
     country?: string
     language?: string
     providers?: string[]
@@ -175,6 +187,31 @@ export async function updateProjectSettings(
   if (opts.removeAlias) {
     const toRemove = new Set(opts.removeAlias.map(a => a.toLowerCase()))
     aliases = aliases.filter(a => !toRemove.has(a.toLowerCase()))
+  }
+  const nextAliases = normalizeProjectAliases(nextDisplayName, aliases)
+
+  // Sent only when a qualified-alias flag was given; an omitted list keeps the
+  // stored one server-side. Unlike the model and dispatch maps below, the
+  // stored list IS filtered here, by the rule the server applies only when the
+  // field is omitted: echoing a name that `--remove-alias` just dropped, or
+  // that `--display-name` now spells, would turn this edit into a 400. The
+  // server keeps the stored list clear of competitor names on its own.
+  const touchesQualified = (opts.addQualifiedAlias?.length ?? 0) > 0 || (opts.removeQualifiedAlias?.length ?? 0) > 0
+  let qualifiedAliases = resolveProjectQualifiedAliases(
+    { displayName: nextDisplayName, aliases: nextAliases },
+    storedQualifiedAliases(project),
+  ).value
+  if (opts.addQualifiedAlias) {
+    const existingKeys = new Set(qualifiedAliases.map(alias => alias.toLowerCase()))
+    for (const alias of opts.addQualifiedAlias) {
+      if (existingKeys.has(alias.toLowerCase())) continue
+      existingKeys.add(alias.toLowerCase())
+      qualifiedAliases = [...qualifiedAliases, alias]
+    }
+  }
+  if (opts.removeQualifiedAlias) {
+    const toRemove = new Set(opts.removeQualifiedAlias.map(alias => alias.toLowerCase()))
+    qualifiedAliases = qualifiedAliases.filter(alias => !toRemove.has(alias.toLowerCase()))
   }
   const providerModels = { ...(project.providerModels ?? {}), ...(opts.providerModels ?? {}) }
   for (const provider of opts.clearProviderModels ?? []) delete providerModels[provider]
@@ -212,7 +249,8 @@ export async function updateProjectSettings(
     displayName: nextDisplayName,
     canonicalDomain: opts.domain ?? project.canonicalDomain,
     ownedDomains,
-    aliases: normalizeProjectAliases(nextDisplayName, aliases),
+    aliases: nextAliases,
+    ...(touchesQualified ? { qualifiedAliases } : {}),
     country: opts.country ?? project.country,
     language: opts.language ?? project.language,
     tags: project.tags,

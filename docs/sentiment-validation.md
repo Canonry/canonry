@@ -102,3 +102,5 @@ pnpm val:skills:check
 ## Unmet release gate
 
 No independently reviewed held-out corpus was supplied. Each query class independently needs at least 150 representative answers across two industries, adjudicated stance challenge cases, and the blinded accuracy/evidence review in the current rubric. Both class gates remain **unmet**. The checked-in template stays empty and the offline release report truthfully fails both gates. Themes are outside the initial scope and rubric. The feature stays experimental and default-off; these smoke results do not authorize production enablement or establish accuracy on customer data.
+
+Operator-qualified aliases (`subject.qualifiedAliases` on a Simple subject) add a `qualified-former-name` challenge tag, defined in `evals/sentiment/README.md`. Its rows are pending: none are labelled, and whether a qualified spelling changes Jev's identity answer is unverified. The release gate above is unchanged; the tag is descriptive and not gated.

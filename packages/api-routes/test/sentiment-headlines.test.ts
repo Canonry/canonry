@@ -31,11 +31,11 @@ beforeEach(() => {
 })
 afterEach(() => db.$client.close())
 
-function simple(runId: string, labels = ['Acme reviews', 'best service options'], location: string | null = null, domain = 'acme.example', providers = ['openai']) {
+function simple(runId: string, labels = ['Acme reviews', 'best service options'], location: string | null = null, domain = 'acme.example', providers = ['openai'], identity: { aliases?: string[]; qualifiedAliases?: string[] } = {}) {
   db.insert(runs).values({ id: runId, projectId: 'p', kind: 'answer-visibility', status: 'completed', trigger: 'manual', location, createdAt: NOW }).run()
   const frozen = labels.map((queryText, index) => ({ queryId: `q-${index}`, queryText, provenance: null }))
   for (const query of frozen) db.insert(queries).values({ id: query.queryId, projectId: 'p', query: query.queryText, createdAt: NOW }).onConflictDoNothing().run()
-  const definition = buildSimpleMeasurementDefinition({ capturedAt: NOW, identity: { displayName: 'Acme', aliases: ['Acme Co'], canonicalDomain: domain, ownedDomains: [] }, country: 'US', language: 'en', location: location ? { label: location, city: location, region: 'EX', country: 'US' } : null, engines: providers.map(provider => ({ provider, requestedModel: provider === 'openai' ? 'source-model' : `${provider}-requested` })), queries: frozen })
+  const definition = buildSimpleMeasurementDefinition({ capturedAt: NOW, identity: { displayName: 'Acme', aliases: identity.aliases ?? ['Acme Co'], canonicalDomain: domain, ownedDomains: [], qualifiedAliases: identity.qualifiedAliases }, country: 'US', language: 'en', location: location ? { label: location, city: location, region: 'EX', country: 'US' } : null, engines: providers.map(provider => ({ provider, requestedModel: provider === 'openai' ? 'source-model' : `${provider}-requested` })), queries: frozen })
   db.insert(simpleMeasurementDefinitions).values({ runId, projectId: 'p', definition, checksum: runId, capturedAt: NOW }).run()
   for (const query of frozen) for (const provider of providers) db.insert(querySnapshots).values({ id: `${runId}-${query.queryId}${provider === 'openai' ? '' : `-${provider}`}`, runId, queryId: query.queryId, queryText: query.queryText, location, provider, model: provider === 'openai' ? 'source-model' : `${provider}-requested`, servedModel: provider === 'openai' ? 'served-model' : `${provider}-served`, answerText: 'Acme Co offers excellent service.', citationState: 'cited', createdAt: NOW }).run()
 }
@@ -261,6 +261,25 @@ describe('class-separated sentiment headlines', () => {
     expect(overview.branded.score.favorableRate).toBe(1)
     expect(overview.nonBrand.score.favorableRate).toBe(1)
     expect(overview.overall).toMatchObject({ state: 'unsupported', reason: 'evaluation-definition-changed', provisional: true, coverage: { judged: 2 }, score: { favorableRate: null, favorableDisplay: 'Unavailable' } })
+  })
+
+  it('treats the first qualified run as a subject boundary for pooled reads and comparisons', () => {
+    // Same aliases, answers and engines on both sides; only the frozen qualified list differs.
+    const aliases = ['Acme Co', 'ACMENYC']
+    simple('unqualified', undefined, 'Harbor', 'acme.example', ['openai'], { aliases })
+    simple('qualified', undefined, 'Bayside', 'acme.example', ['openai'], { aliases, qualifiedAliases: ['ACMENYC'] })
+    admit('unqualified', 'branded'); admit('qualified', 'branded'); finish()
+    const pooled = service.summary('p', sentimentSelectionSchema.parse({ runIds: ['unqualified', 'qualified'], queryClass: 'branded' }))
+    expect(pooled).toMatchObject({ state: 'unsupported', reason: 'subject-identity-changed', score: { favorableRate: null } })
+    // Each side alone stays readable.
+    expect(summary('qualified', 'branded')).toMatchObject({ state: 'complete', score: { favorableRate: 1 } })
+
+    simple('before', undefined, null, 'acme.example', ['openai'], { aliases })
+    simple('after', undefined, null, 'acme.example', ['openai'], { aliases, qualifiedAliases: ['ACMENYC'] })
+    admit('before', 'branded'); admit('after', 'branded'); finish()
+    const comparison = service.compare('p', sentimentSelectionSchema.parse({ queryClass: 'branded' }), 'before', 'after')
+    expect(comparison).toMatchObject({ changedScope: true, commonUnits: 0, verdict: null, favorableRateDelta: null })
+    expect(comparison.refusalReasons).toContain('source-scope-changed')
   })
 
   it('reads legacy theme-bearing stored definitions without mutating them and explicitly upgrades only current configuration', () => {

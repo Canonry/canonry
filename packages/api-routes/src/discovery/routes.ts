@@ -44,6 +44,7 @@ import {
   type LocationContext,
 } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from '../helpers.js'
+import { pruneQualifiedAliasesForCompetitors } from '../projects.js'
 
 /**
  * Fired after a `discovery_sessions` row + matching `runs` row are inserted
@@ -670,13 +671,20 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
             createdAt: now,
           }).run()
         }
+        const droppedQualifiedAliases = promotedCompetitors.length
+          ? pruneQualifiedAliasesForCompetitors(tx, project.id, now)
+          : []
         writeAuditLog(tx, {
           projectId: project.id,
           actor: 'api',
           action: 'discovery.promoted',
           entityType: 'discovery_session',
           entityId: session.id,
-          diff: { queries: promotedQueries, competitors: promotedCompetitors },
+          diff: {
+            queries: promotedQueries,
+            competitors: promotedCompetitors,
+            ...(droppedQualifiedAliases.length ? { droppedQualifiedAliases } : {}),
+          },
         })
       })
     }

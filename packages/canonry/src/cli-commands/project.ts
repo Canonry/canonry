@@ -26,12 +26,13 @@ import { gbpNegativeReviewMaxStarsSchema, providerDispatchModeSchema, type Provi
 export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['project', 'create'],
-    usage: 'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--dispatch-mode provider=sync|batch...] [--format json]',
+    usage: 'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--dispatch-mode provider=sync|batch...] [--format json]',
     help: 'Create a project. Pass --domain for the public site to scan. Provider credentials are not required for Page Health.',
     options: {
       domain: { type: 'string', short: 'd' },
       'owned-domain': multiStringOption(),
       alias: multiStringOption(),
+      'qualified-alias': multiStringOption(),
       country: stringOption(),
       language: stringOption(),
       'display-name': stringOption(),
@@ -43,12 +44,13 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const name = requireProject(
         input,
         'project.create',
-        'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--dispatch-mode provider=sync|batch...] [--format json]',
+        'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--dispatch-mode provider=sync|batch...] [--format json]',
       )
       await createProject(name, {
         domain: getString(input.values, 'domain') ?? name,
         ownedDomains: getStringArray(input.values, 'owned-domain') ?? [],
         aliases: getStringArray(input.values, 'alias') ?? [],
+        qualifiedAliases: getStringArray(input.values, 'qualified-alias') ?? [],
         country: getString(input.values, 'country') ?? 'US',
         language: getString(input.values, 'language') ?? 'en',
         displayName: getString(input.values, 'display-name') ?? name,
@@ -61,7 +63,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['project', 'update'],
-    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--format json]',
+    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--format json]',
     options: {
       domain: { type: 'string', short: 'd' },
       'owned-domain': multiStringOption(),
@@ -70,6 +72,8 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       alias: multiStringOption(),
       'add-alias': multiStringOption(),
       'remove-alias': multiStringOption(),
+      'add-qualified-alias': multiStringOption(),
+      'remove-qualified-alias': multiStringOption(),
       country: stringOption(),
       language: stringOption(),
       'display-name': stringOption(),
@@ -85,7 +89,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const name = requireProject(
         input,
         'project.update',
-        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--format json]',
+        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--format json]',
       )
       const providers = getStringArray(input.values, 'provider')
       const allProviders = getBoolean(input.values, 'all-providers')
@@ -109,6 +113,8 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         aliases: getStringArray(input.values, 'alias'),
         addAlias: getStringArray(input.values, 'add-alias'),
         removeAlias: getStringArray(input.values, 'remove-alias'),
+        addQualifiedAlias: getStringArray(input.values, 'add-qualified-alias'),
+        removeQualifiedAlias: getStringArray(input.values, 'remove-qualified-alias'),
         country: getString(input.values, 'country'),
         language: getString(input.values, 'language'),
         providers: allProviders ? [] : providers,

@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
+import { eq } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   auditLog,
@@ -1888,6 +1889,26 @@ describe('POST /discover/sessions/:id/promote', () => {
     const promoteAudits = db.select().from(auditLog).all().filter(a => a.action === 'discovery.promoted')
     expect(promoteAudits).toHaveLength(1)
     expect(promoteAudits[0]!.entityId).toBe(sessionId)
+  })
+
+  it('drops a qualified alias that a promoted competitor now claims, and records it on the audit row', async () => {
+    const { app, db, tmpDir } = buildAppWithRoutes()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db)
+    db.update(projects).set({ aliases: ['Halo Panel', 'HarborIQ NYC'], qualifiedAliases: ['Halo Panel', 'HarborIQ NYC'] })
+      .where(eq(projects.id, projectId)).run()
+    const sessionId = seedSession(db, projectId, { competitorMap: [{ domain: 'halopanel.test', hits: 2 }] })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
+      payload: {},
+    })
+    expect(response.statusCode).toBe(200)
+    expect((response.json() as DiscoveryPromoteResult).promoted.competitors).toEqual(['halopanel.test'])
+    expect(db.select().from(projects).where(eq(projects.id, projectId)).get()!.qualifiedAliases).toEqual(['HarborIQ NYC'])
+    const audit = db.select().from(auditLog).all().find(a => a.action === 'discovery.promoted')!
+    expect(JSON.parse(audit.diff!)).toMatchObject({ droppedQualifiedAliases: ['Halo Panel'] })
   })
 
   it('promotes only the requested buckets, including wasted-surface when explicit, and skips competitors when includeCompetitors is false', async () => {

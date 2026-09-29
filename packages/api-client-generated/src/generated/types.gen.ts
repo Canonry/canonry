@@ -10593,6 +10593,7 @@ export type ProjectCreateRequest = {
         leadEventNames: Array<string>;
     };
     autoExtractBacklinks?: boolean;
+    qualifiedAliases?: Array<string>;
     negativeReviewMaxStars?: number | null;
     configSource?: 'cli' | 'api' | 'config-file';
     name: string;
@@ -10605,6 +10606,7 @@ export type ProjectDto = {
     canonicalDomain: string;
     ownedDomains: Array<string>;
     aliases: Array<string>;
+    qualifiedAliases: Array<string>;
     country: string;
     language: string;
     tags: Array<string>;
@@ -10671,6 +10673,7 @@ export type ProjectUpsertRequest = {
         leadEventNames: Array<string>;
     };
     autoExtractBacklinks?: boolean;
+    qualifiedAliases?: Array<string>;
     negativeReviewMaxStars?: number | null;
     configSource?: 'cli' | 'api' | 'config-file';
 };
@@ -10689,6 +10692,7 @@ export type ProjectConfig = {
         canonicalDomain: string;
         ownedDomains: Array<string>;
         aliases: Array<string>;
+        qualifiedAliases?: Array<string>;
         country: string;
         language: string;
         queries?: Array<string>;
@@ -10936,6 +10940,7 @@ export type ProjectOverviewDto = {
         canonicalDomain: string;
         ownedDomains: Array<string>;
         aliases: Array<string>;
+        qualifiedAliases: Array<string>;
         country: string;
         language: string;
         tags: Array<string>;

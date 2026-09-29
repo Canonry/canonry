@@ -218,6 +218,15 @@ export function brandLabelFromDomain(value: string | null | undefined): string {
 }
 
 /**
+ * The brand label a stored competitor domain contributes: its domain label, or
+ * the domain itself when it has no recognizable suffix. A Simple run freezes
+ * competitors with this label, and qualified-alias writes check against it.
+ */
+export function competitorLabelFromDomain(domain: string): string {
+  return brandLabelFromDomain(domain) || domain
+}
+
+/**
  * True when `candidate` is the same host as `domain`, or a subdomain of it.
  * Both inputs may be bare hosts or full URLs.
  */

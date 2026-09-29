@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
+import { canonicalSentimentJson } from '@ainyc/canonry-contracts'
 import { buildJevSentimentRequest, createTypeSafeClassifier } from '../src/classifier.js'
 import type { JevRequest } from '../src/client.js'
 import { inputFixture, responseFixture } from './fixtures.js'
@@ -208,6 +209,32 @@ describe('non-brand intended-subject boundaries', () => {
     const qualified = nonBrand('North Hall, Chicago is a good choice.')
     qualified.subject.aliases = []; qualified.subject.urls = []
     expect(await classifier({ complaint: 'absent' }).instance.classify(qualified)).toMatchObject({ kind: 'classified', outcome: 'favorable' })
+  })
+  // A Simple subject: mention names keep one spelling per brand key, and the operator-qualified
+  // subset of aliases carries the literal spellings the evaluator must recognize as the brand.
+  function simpleSubject(sourceText: string, qualifiedAliases: string[]) {
+    const input = nonBrand(sourceText)
+    input.subject = { id: 'project', displayName: 'Harborline', aliases: ['Harborline', 'HBLNYC'], qualifiedAliases, urls: ['harborline.example'], mentionNotApplicable: false }
+    input.subjectHash = createHash('sha256').update(canonicalSentimentJson(input.subject)).digest('hex')
+    return input
+  }
+  it('sends a Simple subject\'s qualified aliases verbatim in the request state', async () => {
+    const input = simpleSubject('HBL NYC is a strong agency.', ['HBL NYC'])
+    const built = buildJevSentimentRequest(input)
+    expect(built.ok).toBe(true)
+    if (!built.ok) return
+    expect(built.request.state.subject).toEqual({ id: 'project', displayName: 'Harborline', aliases: ['Harborline', 'HBLNYC'], qualifiedAliases: ['HBL NYC'], urls: ['harborline.example'], mentionNotApplicable: false })
+    const { instance, requests } = classifier({ complaint: 'absent' })
+    expect(await instance.classify(input)).toMatchObject({ kind: 'classified', outcome: 'favorable' })
+    expect(requests[0].state.subject).toEqual(input.subject)
+  })
+  it.each([['HBL NYC is a strong agency.', true], ['Other agencies in NYC are strong.', false]] as const)('makes the same non-brand gate decision with and without the qualified list: %s', (sourceText, sent) => {
+    // Qualified aliases are a subset of aliases, so their brand keys are already candidates.
+    for (const qualifiedAliases of [[], ['HBL NYC']]) {
+      const built = buildJevSentimentRequest(simpleSubject(sourceText, qualifiedAliases))
+      expect(built.ok).toBe(sent)
+      if (!built.ok) expect(built.outcome).toBe('subject-not-mentioned')
+    }
   })
   it('refuses prior evaluator semantics instead of silently reclassifying old queued inputs', async () => {
     const input = nonBrand()

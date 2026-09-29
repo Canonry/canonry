@@ -1047,6 +1047,7 @@ function formatProject(row: typeof projects.$inferSelect, negativeReviewMaxStars
     canonicalDomain: row.canonicalDomain,
     ownedDomains: row.ownedDomains,
     aliases: row.aliases,
+    qualifiedAliases: row.qualifiedAliases,
     country: row.country,
     language: row.language,
     tags: row.tags,
