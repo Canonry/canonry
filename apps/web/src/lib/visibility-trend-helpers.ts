@@ -520,32 +520,22 @@ export function substitutedModels(
 }
 
 export interface QuerySetChange {
-  /** The first sweep on the new query set. */
+  /** When the change was recorded, normally as the first sweep on the new query set was queued. */
   at: ObservedInstant
   /** Stored query keys (normalized query text). */
   added: string[]
   removed: string[]
-  /** Queries measured before and after. Null when the response has no point to count from. */
-  fromCount: number | null
-  toCount: number | null
 }
 
 /**
- * The window's query-set changes, newest first, with the query count on either
- * side. The server holds every plotted point to the newest query set, so the
- * latest point's count is the set after the newest change; each earlier count
- * walks back through a change's added and removed queries.
+ * The window's query-set changes, newest first, as recorded. No query count
+ * rides along: a point's `queryCount` is the queries its sweeps answered, not
+ * the size of the query set, and the response carries no size to read.
  */
 export function querySetChanges(dto: BrandMetricsDto): QuerySetChange[] {
-  let count: number | null = dto.buckets.at(-1)?.queryCount ?? null
   return [...readBasketChanges(dto)]
     .sort((a, b) => instantMs(b.at) - instantMs(a.at))
-    .map(change => {
-      const toCount = count
-      const before = toCount === null ? null : toCount - change.added.length + change.removed.length
-      count = before !== null && before >= 0 ? before : null
-      return { at: observedInstant(change.at), added: change.added, removed: change.removed, fromCount: count, toCount }
-    })
+    .map(change => ({ at: observedInstant(change.at), added: change.added, removed: change.removed }))
 }
 
 export interface ModelChangeRow {
@@ -688,16 +678,60 @@ export function sweepBefore(
 
 /** How the query set moved between the first and latest plotted points. */
 export interface QuerySetShift {
-  /** Recorded changes after the first point's first sweep, up to the latest point's last. */
+  /**
+   * Recorded changes after the first point's first sweep, up to the latest
+   * point's last, that touched a query tracked now. Whole events, so a
+   * message still names everything each one added and removed.
+   */
   changes: BasketChangeEvent[]
+  /** The queries tracked now that those changes added or removed: what the points do not share. */
+  keys: string[]
+  /** Queries with answers in the first and latest points (the API's `queryCount`), not the size of the query set. */
   firstCount: number
   latestCount: number
 }
 
 /**
- * Whether the first and latest plotted points measured different query sets:
- * their query counts differ, or a recorded change falls after the first
- * point's first sweep. Null when the set held still, or with one point.
+ * The queries tracked now, among those a recorded change touched: each one's
+ * last recorded change added it. `basketChanges` holds every change since the
+ * window opened, so a query's last change in it is its last change overall.
+ */
+function trackedChangedKeys(changes: readonly BasketChangeEvent[]): Set<string> {
+  const tracked = new Map<string, boolean>()
+  for (const change of [...changes].sort((a, b) => a.revision - b.revision)) {
+    for (const key of change.removed) tracked.set(key, false)
+    for (const key of change.added) tracked.set(key, true)
+  }
+  return new Set([...tracked].filter(([, isTracked]) => isTracked).map(([key]) => key))
+}
+
+/**
+ * The recorded changes after `from`, up to and including `to`, that leave two
+ * points on different queries. The server holds every point to the queries
+ * tracked now, so a change matters only when it touched one of them: a query
+ * removed for good is gone from every point alike, while one added (or removed
+ * and added back) is missing from the points before it.
+ */
+function splittingChanges(
+  changes: readonly BasketChangeEvent[],
+  from: string,
+  to: string,
+): Pick<QuerySetShift, 'changes' | 'keys'> {
+  const tracked = trackedChangedKeys(changes)
+  const splitting = changes
+    .filter(change => instantMs(change.at) > instantMs(from) && instantMs(change.at) <= instantMs(to))
+    .filter(change => [...change.added, ...change.removed].some(key => tracked.has(key)))
+    .sort((a, b) => instantMs(a.at) - instantMs(b.at))
+  const keys = [...new Set(splitting.flatMap(change => [...change.added, ...change.removed]))].filter(key => tracked.has(key))
+  return { changes: splitting, keys }
+}
+
+/**
+ * Whether the first and latest plotted points measured different queries: a
+ * recorded change after the first point's first sweep touched a query tracked
+ * now, or the points answered different numbers of queries. Null when they
+ * read the same queries, or with one point. `changes` must be the response's
+ * whole `basketChanges`, which is what says which queries are tracked now.
  */
 export function querySetShift(
   plotted: readonly MetricsBucket[],
@@ -708,19 +742,33 @@ export function querySetShift(
   const latest = plotted.at(-1)!
   const start = readBucketObservedRange(first)?.start ?? first.startDate
   const end = readBucketObservedRange(latest)?.end ?? latest.endDate
-  const inWindow = changes
-    .filter(change => instantMs(change.at) > instantMs(start) && instantMs(change.at) <= instantMs(end))
-    .sort((a, b) => instantMs(a.at) - instantMs(b.at))
-  if (inWindow.length === 0 && first.queryCount === latest.queryCount) return null
-  return { changes: inWindow, firstCount: first.queryCount, latestCount: latest.queryCount }
+  const split = splittingChanges(changes, start, end)
+  if (split.changes.length === 0 && first.queryCount === latest.queryCount) return null
+  return { ...split, firstCount: first.queryCount, latestCount: latest.queryCount }
+}
+
+/**
+ * Whether one point pools sweeps of different queries: a recorded change after
+ * its first sweep, up to its last, touched a query tracked now. Null when its
+ * sweeps read the same queries, or on an older API with no sweep times.
+ */
+export function pointQuerySetShift(
+  point: MetricsBucket,
+  changes: readonly BasketChangeEvent[],
+): QuerySetShift | null {
+  const range = readBucketObservedRange(point)
+  if (!range) return null
+  const split = splittingChanges(changes, range.start, range.end)
+  if (split.changes.length === 0) return null
+  return { ...split, firstCount: point.queryCount, latestCount: point.queryCount }
 }
 
 /**
  * Whether the headline may print its first-to-latest change. Not across a
  * query-set change: the figure would compare two different baskets. Mention
- * share is the one exception, because it reads non-brand answers only: a
- * change that added or removed branded queries alone leaves its set intact.
- * `classify` must be the metrics route's brand matcher.
+ * share is the one exception, because it reads non-brand answers only: when
+ * every query the points do not share (`shift.keys`) is branded, its set is
+ * intact. `classify` must be the metrics route's brand matcher.
  */
 export function showsChangeFigure(
   shift: QuerySetShift | null,
@@ -730,6 +778,5 @@ export function showsChangeFigure(
 ): boolean {
   if (!shift) return true
   if (metric !== 'mentionShare' || mentionShareScope !== 'non-brand' || !classify) return false
-  const keys = shift.changes.flatMap(change => [...change.added, ...change.removed])
-  return keys.length > 0 && keys.every(key => classify(key) === 'branded')
+  return shift.keys.length > 0 && shift.keys.every(key => classify(key) === 'branded')
 }

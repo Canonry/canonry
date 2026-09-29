@@ -199,9 +199,14 @@ function buildEvidenceFromTimeline(
     )
     const allProviders = [...new Set([...providersFromLatestRun, ...providersFromHistory])].sort()
     const providers = allProviders.length > 0 ? allProviders : ['gemini']
+    // The timeline is capped to the newest runs of any status, so newer failed
+    // sweeps can push the latest completed one out of it. Its own snapshots
+    // above are the authority on which queries it answered.
+    const queriesInLatestRun = new Set(allSnapshots.flatMap(snap => (snap.query ? [snap.query] : [])))
 
     for (const entry of timeline) {
-      if (entry.runs.length === 0) continue // never run yet; pending fallback handles it
+      // Never run yet: the pending fallback below handles it.
+      if (entry.runs.length === 0 && !queriesInLatestRun.has(entry.query)) continue
       seenQueries.add(entry.query)
       const latestRun = entry.runs.at(-1)
       const transition = latestRun?.transition ?? 'not-cited'
@@ -249,12 +254,19 @@ function buildEvidenceFromTimeline(
               ? 'model'
               : 'query'
 
+          // With no run of this query in the timeline window, the latest
+          // sweep's own answer is all there is: its state, never a change.
+          const ownStateOnly = !effectiveHistory && !latestRun && snap !== undefined
           const effectiveTransition = effectiveHistory
             ? effectiveHistory.at(-1)!.transition
-            : transition
+            : ownStateOnly
+              ? (snap.citationState === CitationStates.cited ? 'cited' : 'not-cited')
+              : transition
           const effectiveVisibilityTransition = effectiveHistory
             ? (effectiveHistory.at(-1)!.visibilityTransition ?? (effectiveHistory.at(-1)!.visibilityState === 'visible' ? 'visible' : 'not-visible'))
-            : (latestRun?.visibilityTransition ?? (latestRun?.visibilityState === 'visible' ? 'visible' : 'not-visible'))
+            : ownStateOnly
+              ? (snap.visibilityState === 'visible' ? 'visible' : 'not-visible')
+              : (latestRun?.visibilityTransition ?? (latestRun?.visibilityState === 'visible' ? 'visible' : 'not-visible'))
 
           // When a provider is missing from the latest run, keep showing its last
           // observed provider-level state instead of leaking the query-level

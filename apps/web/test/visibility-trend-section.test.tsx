@@ -751,3 +751,81 @@ test('renders nothing at all when the API omits the field or reports no exposure
   expect(screen.queryByText(/The model behind/)).toBeNull()
   expect(screen.queryByText(/No model updates are on record/)).toBeNull()
 })
+
+// ── Query-set changes: what the server's restated points can and cannot say ──
+
+function basketPoint(day: string, rate: 0 | 0.5 | 1, queryCount: number, revision: number) {
+  return {
+    startDate: `${day}T00:00:00.000Z`, endDate: `${day}T23:59:59.999Z`,
+    dataStartDate: `${day}T12:00:00.000Z`, dataEndDate: `${day}T12:00:00.000Z`, sweepCount: 1,
+    citationRate: rate, cited: 4 * rate, total: 4, queryCount, mentionRate: rate, mentionedCount: 4 * rate,
+    mentionShare: { scope: 'non-brand', rate: null, projectMentionSnapshots: 4 * rate, competitorMentionSnapshots: 0 },
+    byProvider: { gemini: provider(rate, rate) },
+    modelEvidenceByProvider: {}, basketRevision: revision,
+  }
+}
+
+function basketMetrics(buckets: unknown[], windowChange: WindowChange, basketChanges: unknown[]) {
+  return { ...metricsDto(buckets, 'non-brand', windowChange), modelAttribution: {}, basketChanges, referenceBasketRevision: basketChanges.length + 1 }
+}
+
+function renderMetrics(metrics: unknown) {
+  const restore = mockFetch((url) => {
+    if (url.split('?')[0]!.endsWith('/projects/test-project/analytics/metrics')) return jsonResponse(metrics)
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+  renderSection()
+}
+
+function trendDetails(): string[] {
+  return detailsText(document.querySelector('section.visibility-trend')!)
+}
+
+test('prints the change after a query is removed, since the server restates both points to the queries still tracked', async () => {
+  const change = { first: 0, latest: 1, delta: 1 }
+  renderMetrics(basketMetrics(
+    [basketPoint('2026-07-01', 0, 1, 1), basketPoint('2026-07-05', 1, 1, 2)],
+    { citationRate: change, mentionRate: change, mentionShare: null },
+    [{ revision: 2, at: '2026-07-05T12:00:00.000Z', added: [], removed: ['query b'] }],
+  ))
+  await screen.findByRole('list', { name: 'Engines' })
+
+  act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Cited' })) })
+  expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('up 100.0 points')
+  expect(trendDetails().filter(item => item.startsWith('No change figure'))).toEqual([])
+
+  // The removal is still listed as the event it was.
+  expect(changeRows(whatChanged())).toEqual([['Queries', expect.stringMatching(/^Jul 5/), '1 query removed']])
+  expect(detailsText(whatChanged())).toEqual([expect.stringMatching(/^Removed Jul 5(, 2026)?: query b$/)])
+})
+
+test('names a query-set change without counting queries the points only happened to answer', async () => {
+  // {a, b} became {a, b, c}, and the Sep 28 sweep lost "b" to engine errors:
+  // both points answered 2 queries. Counting back from that printed 1 to 2.
+  const flat = { first: 0.5, latest: 0.5, delta: 0 }
+  renderMetrics(basketMetrics(
+    [basketPoint('2026-09-20', 0.5, 2, 1), basketPoint('2026-09-28', 0.5, 2, 2)],
+    { citationRate: flat, mentionRate: flat, mentionShare: null },
+    [{ revision: 2, at: '2026-09-28T12:00:00.000Z', added: ['c'], removed: [] }],
+  ))
+  await screen.findByRole('list', { name: 'Engines' })
+
+  expect(changeRows(whatChanged())).toEqual([['Queries', expect.stringMatching(/^Sep 28/), '1 query added']])
+  expect(trendDetails()[0]).toMatch(/^No change figure: 1 query added Sep 28(, 2026)?; first and latest points cover different queries$/)
+  expect(document.querySelector('section.visibility-trend')?.textContent).not.toMatch(/\d+ quer(y|ies) (?:and|to|->) /)
+})
+
+test('says the points answered different numbers of queries when no recorded change explains it', async () => {
+  // The query set held still; one query went unanswered in the latest sweep.
+  const change = { first: 0.5, latest: 1, delta: 0.5 }
+  renderMetrics(basketMetrics(
+    [basketPoint('2026-09-20', 0.5, 3, 1), basketPoint('2026-09-28', 1, 2, 1)],
+    { citationRate: change, mentionRate: change, mentionShare: null },
+    [],
+  ))
+  await screen.findByRole('list', { name: 'Engines' })
+
+  expect(document.querySelector('.visibility-trend-current-delta')).toBeNull()
+  expect(trendDetails()[0]).toBe('No change figure: first and latest points have answers for 3 and 2 queries')
+})

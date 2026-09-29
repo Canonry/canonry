@@ -2,6 +2,7 @@ import { test, expect } from 'vitest'
 
 import { buildDashboard, buildPortfolioProject, buildProjectCommandCenter, type ProjectData } from '../src/build-dashboard.js'
 import type { ApiSettings } from '../src/api.js'
+import { buildVisibilityRows } from '../src/lib/answer-movement.js'
 
 test('buildProjectCommandCenter evidence summary uses canonical mention vocabulary, not legacy "visible"', () => {
   // AGENTS.md vocabulary rule: new UI labels for the answer-text-presence
@@ -1384,4 +1385,70 @@ test('buildPortfolioProject carries the mention-rate trend, score, and subtitle 
   // Regression guard: with no runs anywhere (`data.runs` empty AND the overview
   // run null) it still degrades to the empty "No runs yet" item.
   expect(buildPortfolioProject({ ...base, runs: [] }).lastRun.id).toBe('none')
+})
+
+test('buildProjectCommandCenter keeps the latest completed sweep when newer failed sweeps fill the timeline window', () => {
+  // One completed sweep, then 20 failed ones. GET /timeline?limit=20 takes the
+  // 20 newest answer-visibility runs of any status (history.ts), and a failed
+  // run wrote no snapshots, so every entry comes back with no runs. The latest
+  // completed sweep is still authoritative: the uncapped runs list picks it and
+  // its GET /runs/:id snapshots arrive as `latestRunDetails`.
+  const okRun = {
+    id: 'run_ok', projectId: 'proj_1', kind: 'answer-visibility', status: 'completed', trigger: 'manual',
+    startedAt: '2026-09-01T00:00:00Z', finishedAt: '2026-09-01T00:01:00Z', error: null, createdAt: '2026-09-01T00:00:00Z',
+  } as const
+  const failedRuns = Array.from({ length: 20 }, (_, index) => {
+    const day = `2026-09-${String(index + 2).padStart(2, '0')}`
+    return { ...okRun, id: `run_fail_${index + 1}`, status: 'failed' as const, error: null, createdAt: `${day}T00:00:00Z`, startedAt: `${day}T00:00:00Z`, finishedAt: `${day}T00:00:05Z` }
+  })
+  const queries = ['best polyurea roof coating', 'polyurea vs silicone roof coating', 'roof coating contractors']
+  const snapshot = (index: number, mentioned: boolean, cited: boolean) => ({
+    id: `snap_${index}`, runId: 'run_ok', queryId: `q_${index}`, query: queries[index]!, provider: 'openai',
+    citationState: cited ? 'cited' : 'not-cited', answerMentioned: mentioned,
+    visibilityState: mentioned ? 'visible' : 'not-visible', mentionState: mentioned ? 'mentioned' : 'not-mentioned',
+    answerText: 'answer', citedDomains: cited ? ['example.com'] : [], competitorOverlap: [],
+    citedCompetitorDomains: [], mentionedCompetitorDomains: [], groundingSources: [], searchQueries: [],
+    model: 'gpt-5', location: null, createdAt: '2026-09-01T00:00:10Z',
+  })
+  const data: ProjectData = {
+    project: {
+      id: 'proj_1', name: 'acme', displayName: 'Acme Coatings', canonicalDomain: 'example.com', ownedDomains: [],
+      country: 'US', language: 'en', tags: [], labels: {}, providers: ['openai'], configSource: 'api', configRevision: 1,
+      createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
+    },
+    runs: [okRun, ...failedRuns],
+    // The third query was added after the completed sweep and has never run.
+    queries: queries.map((query, index) => ({ id: `q_${index}`, query, createdAt: '2026-08-01T00:00:00Z' })),
+    competitors: [],
+    timeline: queries.map(query => ({ query, runs: [], providerRuns: {}, modelRuns: {} })),
+    latestRunDetails: [{ ...okRun, snapshots: [snapshot(0, true, true), snapshot(1, false, false)] }],
+    previousRunDetails: [],
+  }
+
+  const cc = buildProjectCommandCenter(data)
+  // Each answer is evidence for the sweep it came from, and says only what that
+  // sweep saw: no change is claimed, since the window holds no earlier sweep.
+  expect(cc.visibilityEvidence.map(row => [row.query, row.sourceRunId, row.answerMentioned, row.citationState, row.changeLabel, row.visibilityChangeLabel])).toEqual([
+    ['best polyurea roof coating', 'run_ok', true, 'cited', 'Cited in latest run', 'Visible in latest run'],
+    ['polyurea vs silicone roof coating', 'run_ok', false, 'not-cited', 'Not cited in latest run', 'Not visible in latest run'],
+    ['roof coating contractors', null, undefined, 'pending', 'Awaiting first run', 'Awaiting first run'],
+  ])
+
+  // What /overview returns for this project's one completed sweep.
+  const noMovement = { gained: 0, lost: 0, tone: 'neutral' as const, hasPreviousRun: false, gainedQueries: [], lostQueries: [] }
+  const rows = buildVisibilityRows({
+    evidence: cc.visibilityEvidence,
+    mentionMovement: noMovement,
+    citationMovement: noMovement,
+    comparison: {
+      hasPreviousRun: false, comparable: false, querySetChanged: false, previousRunAt: null,
+      currentQueryCount: 2, previousQueryCount: 0, comparableQueryCount: 0,
+      addedQueryCount: 0, removedQueryCount: 0, addedQueries: [], removedQueries: [],
+    },
+    classify: () => 'non-brand',
+  })
+  // No rows is what the card prints as "Query results unavailable."
+  expect(rows.map(row => [row.key, row.mentioned, row.cited, row.total, row.status.kind])).toEqual([
+    ['non-brand', 1, 1, 2, 'first-sweep'],
+  ])
 })

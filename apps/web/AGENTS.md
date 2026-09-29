@@ -71,7 +71,10 @@ Advanced plans retain their own report workspace and scope controls.
 time, one row per query class (never a pooled figure) with Mentioned and Cited
 query counts and one status word, and everything else in the shared closed
 `Disclosure` ("Details"). `lib/answer-movement.ts` owns the rows, the status
-words and the answer-level movement. An engine answer counts only when it was
+words and the answer-level movement. The rows read the latest completed
+sweep's own `GET /runs/:id` snapshots, never the capped timeline alone: newer
+failed sweeps can fill that window, and a query answered there still gets its
+row (`buildEvidenceFromTimeline`). An engine answer counts only when it was
 observed in both sweeps with a mention result in each. Probe runs never set the
 card's time or its "Sweep running" state; the Run button still waits for them.
 Non-brand counts here and on By engine read amber below 70% of their base and
@@ -81,8 +84,13 @@ never toned.
 `VisibilityTrendSection` ("AI answers over time") uses the same card shape: the
 latest point's date and sweep count, one headline figure with its base, the
 chart, and a closed Details. It prints no change figure while the first and
-latest points measured different query sets (`querySetShift`), except mention
-share when every changed query is branded, and says why in Details. Model
+latest points measured different queries (`querySetShift`), except mention
+share when every query they do not share is branded, and says why in Details.
+The server restates every point to the queries tracked now, so only a change
+that touched a query still tracked splits them; a query removed for good leaves
+the points comparable. A point's `queryCount` is the queries it has answers
+for, not the size of the query set, and the response carries no set size, so
+query-set changes are named ("3 queries added"), never counted. Model
 names live in "What changed" and the point tooltips, never the legend. "What
 changed" (`modelChangeRows`, `querySetChanges` in `lib/visibility-trend-helpers.ts`)
 lists query-set and model changes by engine, collapsed to one line; a Perplexity

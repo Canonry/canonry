@@ -116,7 +116,7 @@ test('reads 25.0% of 100 answers on Sep 29 with no change figure, and says why',
   // headline carries no change figure (decision 3).
   expect(readout()).toEqual({ value: '25.0%', change: null, base: '· 25 of 100 answers' })
   expect(bullets(card.querySelector(':scope > details.av-details'))).toEqual([
-    'No change figure: Sep 29 point mixes the 5:41 AM sweep (11 queries) and the 5:59 AM sweep (14 queries)',
+    'No change figure: Sep 29 point mixes the 5:41 AM sweep and the 5:59 AM sweep, with 3 queries added between them',
     '25.0% pools all answers; not an average of engines',
   ])
   expect(screen.getByText('Mentioned rate across 5 sweeps. Latest 25.0%.')).toBeTruthy()
@@ -160,7 +160,7 @@ test('collapses What changed to one line and opens a table by engine, newest fir
   expect(changes.querySelector('.av-wc-when-closed:not(.av-wc-summary)')?.textContent).toBe('Show all 11 ▸')
 
   expect(changeRows()).toEqual([
-    ['Queries', 'Sep 29', '11 queries', '14 queries'],
+    ['Queries', 'Sep 29', '3 queries added'],
     ['Claude', 'Sep 29', 'claude-sonnet-4-6', 'claude-sonnet-5'],
     ['Claude', 'Mar 20', 'claude-opus-4-6', 'claude-sonnet-4-6'],
     ['Claude', 'Mar 14', 'claude-sonnet-4-6', 'claude-opus-4-6'],
@@ -202,7 +202,7 @@ test('dates every model change "on or before" Sep 29 on 7 days, bounded by the J
   expect(trendCard().querySelector('.av-card-meta')?.textContent).toBe('Sep 29 · 2 sweeps')
   // One point: no change figure to withhold, but the point still mixes two query sets.
   expect(bullets(trendCard().querySelector(':scope > details.av-details'))).toEqual([
-    'Sep 29 point mixes the 5:41 AM sweep (11 queries) and the 5:59 AM sweep (14 queries)',
+    'Sep 29 point mixes the 5:41 AM sweep and the 5:59 AM sweep, with 3 queries added between them',
     '25.0% pools all answers; not an average of engines',
   ])
 

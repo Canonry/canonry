@@ -13,6 +13,7 @@ import {
   isPerplexityPreset,
   modelChangeRows,
   querySetChanges,
+  pointQuerySetShift,
   querySetShift,
   readBasketChanges,
   readModelPointerChanges,
@@ -488,18 +489,53 @@ const ainyc = (window: 'all' | '7d') => ainycMetrics(window) as unknown as Brand
 const classify = (text: string) => compileQueryClassifier(['Canonry'])?.classify(text) ?? null
 const known = (model: string) => ({ status: 'known', model }) as const
 
+/**
+ * GET /analytics/metrics for a project whose query set went {a, b} (revision
+ * 1, Sep 20) to {a, b, c} (revision 2, Sep 28). The Sep 28 sweep was partial:
+ * every engine failed on "b", so it stored answers for a and c only. A point's
+ * `queryCount` is the queries WITH ANSWERS in it (analytics.ts), 2 and 2 here,
+ * while the query set held 2 and then 3.
+ */
+function partialSweepAfterAdd(): BrandMetricsDto {
+  const point = (day: string, revision: number) => ({
+    startDate: `2026-09-${day}T00:00:00.000Z`, endDate: `2026-09-${day}T23:59:59.999Z`,
+    dataStartDate: `2026-09-${day}T12:00:00.000Z`, dataEndDate: `2026-09-${day}T12:00:00.000Z`, sweepCount: 1,
+    citationRate: 0.5, cited: 2, total: 4, queryCount: 2, mentionRate: 0.5, mentionedCount: 2,
+    mentionShare: { scope: 'non-brand' as const, rate: null, projectMentionSnapshots: 2, competitorMentionSnapshots: 0 },
+    byProvider: { gemini: { citationRate: 0.5, cited: 1, total: 2, mentionRate: 0.5, mentionedCount: 1 }, openai: { citationRate: 0.5, cited: 1, total: 2, mentionRate: 0.5, mentionedCount: 1 } },
+    modelEvidenceByProvider: {}, basketRevision: revision,
+  })
+  return {
+    ...dto([point('20', 1), point('28', 2)]),
+    windowChange: { citationRate: { first: 0.5, latest: 0.5, delta: 0 }, mentionRate: { first: 0.5, latest: 0.5, delta: 0 }, mentionShare: null },
+    basketChanges: [{ revision: 2, at: '2026-09-28T12:00:00.000Z', added: ['c'], removed: [] }],
+    referenceBasketRevision: 2,
+  } as BrandMetricsDto
+}
+
 describe('querySetChanges', () => {
-  it('reads ainyc\'s Sep 29 change with the query count on either side', () => {
+  it('reads ainyc\'s Sep 29 change as recorded, with no query count', () => {
     expect(querySetChanges(ainyc('all'))).toEqual([{
       at: '2026-09-29T09:59:38.415Z',
       added: ['canonry', 'canonry aeo agency', 'canonry reviews'],
       removed: [],
-      fromCount: 11,
-      toCount: 14,
     }])
   })
 
-  it('walks each earlier count back through the changes after it, newest first', () => {
+  it('reads no count from the queries a partial sweep happened to answer', () => {
+    // The set went from 2 queries to 3, but each point answered 2. Counting
+    // back from the latest point's answered queries would print 1 to 2.
+    expect(querySetChanges(partialSweepAfterAdd())).toEqual([{ at: '2026-09-28T12:00:00.000Z', added: ['c'], removed: [] }])
+  })
+
+  it('reads no count while the first sweep on the new set has not become a point', () => {
+    // A change is recorded when its sweep is queued; a running, failed or
+    // cancelled sweep never becomes a point, so the latest point is the old set.
+    const metrics = partialSweepAfterAdd()
+    expect(querySetChanges({ ...metrics, buckets: metrics.buckets.slice(0, 1) })).toEqual([{ at: '2026-09-28T12:00:00.000Z', added: ['c'], removed: [] }])
+  })
+
+  it('lists every recorded change newest first, and none from an older API', () => {
     const metrics = {
       ...ainyc('all'),
       basketChanges: [
@@ -507,15 +543,10 @@ describe('querySetChanges', () => {
         { revision: 3, at: '2026-09-29T09:59:38.415Z', added: ['x', 'y', 'z'], removed: [] },
       ],
     }
-    expect(querySetChanges(metrics).map(change => [change.at, change.fromCount, change.toCount])).toEqual([
-      ['2026-09-29T09:59:38.415Z', 11, 14],
-      ['2026-05-01T00:00:00.000Z', 12, 11],
+    expect(querySetChanges(metrics).map(change => [change.at, change.added, change.removed])).toEqual([
+      ['2026-09-29T09:59:38.415Z', ['x', 'y', 'z'], []],
+      ['2026-05-01T00:00:00.000Z', ['a'], ['b', 'c']],
     ])
-  })
-
-  it('has no counts when there is no point to count from, and no changes from an older API', () => {
-    const metrics = { ...ainyc('all'), buckets: [] }
-    expect(querySetChanges(metrics).map(change => [change.fromCount, change.toCount])).toEqual([[null, null]])
     expect(readBasketChanges(dto([]))).toEqual([])
   })
 })
@@ -613,7 +644,7 @@ describe('whatChangedSummary', () => {
     const row = { provider: 'openai', at, onOrBefore: false, anchorAt: null, from: known('a'), to: known('b'), served: null, reroute: false }
     expect(whatChangedSummary({
       latest,
-      queryChanges: [{ at, added: ['x'], removed: ['y'], fromCount: 14, toCount: 14 }] as Parameters<typeof whatChangedSummary>[0]['queryChanges'],
+      queryChanges: [{ at, added: ['x'], removed: ['y'] }] as Parameters<typeof whatChangedSummary>[0]['queryChanges'],
       modelRows: [row] as Parameters<typeof whatChangedSummary>[0]['modelRows'],
       now: NOW,
     })).toBe('Sep 29 · 1 query added · 1 query removed · 1 new model')
@@ -676,11 +707,39 @@ describe('day formats', () => {
   })
 })
 
+/**
+ * Queries a and b swept Jul 1 (a not cited, b cited). b was then deleted and a
+ * swept Jul 5, cited. The server holds every point to the queries tracked now,
+ * so both points read a alone: one query, three answers each, 0% then 100%.
+ * Captured from the real route (analytics.ts) on these rows.
+ */
+function removalMetrics(): BrandMetricsDto {
+  const point = (day: string, revision: number, rate: 0 | 1) => ({
+    startDate: `2026-07-${day}T00:00:00.000Z`, endDate: `2026-07-${day}T23:59:59.999Z`,
+    dataStartDate: `2026-07-${day}T09:00:00.000Z`, dataEndDate: `2026-07-${day}T09:00:00.000Z`, sweepCount: 1,
+    citationRate: rate, cited: 3 * rate, total: 3, queryCount: 1, mentionRate: rate, mentionedCount: 3 * rate,
+    mentionShare: { scope: 'non-brand' as const, rate: null, projectMentionSnapshots: 3 * rate, competitorMentionSnapshots: 0 },
+    byProvider: Object.fromEntries(['claude', 'gemini', 'openai'].map(p => [p, { citationRate: rate, cited: rate, total: 1, mentionRate: rate, mentionedCount: rate }])),
+    modelEvidenceByProvider: {}, basketRevision: revision,
+  })
+  return {
+    ...dto([point('01', 1, 0), point('05', 2, 1)]),
+    windowChange: { citationRate: { first: 0, latest: 1, delta: 1 }, mentionRate: { first: 0, latest: 1, delta: 1 }, mentionShare: null },
+    basketChanges: [{ revision: 2, at: '2026-07-05T09:00:00.000Z', added: [], removed: ['query b'] }],
+    referenceBasketRevision: 2,
+  } as BrandMetricsDto
+}
+
 describe('the change figure (decision 3)', () => {
   it('drops ainyc\'s Mentioned and Cited change: 11 queries in the first point, 14 in the latest', () => {
     const metrics = ainyc('all')
     const shift = querySetShift(metrics.buckets, readBasketChanges(metrics))
-    expect(shift).toEqual({ changes: readBasketChanges(metrics), firstCount: 11, latestCount: 14 })
+    expect(shift).toEqual({
+      changes: readBasketChanges(metrics),
+      keys: ['canonry', 'canonry aeo agency', 'canonry reviews'],
+      firstCount: 11,
+      latestCount: 14,
+    })
     expect(showsChangeFigure(shift, 'mentioned', 'non-brand', classify)).toBe(false)
     expect(showsChangeFigure(shift, 'cited', 'non-brand', classify)).toBe(false)
   })
@@ -699,7 +758,7 @@ describe('the change figure (decision 3)', () => {
     const nonBrand = [{ revision: 2, at: '2026-09-29T09:59:38.415Z', added: ['canonry', 'aeo agency brooklyn'], removed: [] }]
     expect(showsChangeFigure(querySetShift(metrics.buckets, nonBrand), 'mentionShare', 'non-brand', classify)).toBe(false)
     const unrecorded = querySetShift(metrics.buckets, [])
-    expect(unrecorded).toEqual({ changes: [], firstCount: 11, latestCount: 14 })
+    expect(unrecorded).toEqual({ changes: [], keys: [], firstCount: 11, latestCount: 14 })
     expect(showsChangeFigure(unrecorded, 'mentionShare', 'non-brand', classify)).toBe(false)
   })
 
@@ -714,5 +773,65 @@ describe('the change figure (decision 3)', () => {
     expect(querySetShift(held, atFirstSweep)).toBeNull()
     const inside = [{ ...atFirstSweep[0]!, at: '2026-05-20T00:00:00.000Z' }]
     expect(querySetShift(held, inside)?.changes).toEqual(inside)
+  })
+
+  it('keeps the change after a query is removed: the server restates both points to the retained queries', () => {
+    const metrics = removalMetrics()
+    expect(metricWindowChange(metrics, 'cited')?.delta).toBe(1)
+    const shift = querySetShift(metrics.buckets, readBasketChanges(metrics))
+    expect(shift).toBeNull()
+    expect(showsChangeFigure(shift, 'cited', 'non-brand', classify)).toBe(true)
+    expect(showsChangeFigure(shift, 'mentioned', 'non-brand', classify)).toBe(true)
+  })
+
+  it('ignores a query added and removed again inside the window, which no point reads', () => {
+    const metrics = removalMetrics()
+    const churn = [
+      { revision: 2, at: '2026-07-03T09:00:00.000Z', added: ['query c'], removed: [] },
+      { revision: 3, at: '2026-07-05T09:00:00.000Z', added: [], removed: ['query c'] },
+    ]
+    expect(querySetShift(metrics.buckets, churn)).toBeNull()
+  })
+
+  it('still drops the change when a query removed in the window is tracked again after the latest point', () => {
+    // Tracked now, so the server keeps it, but the Jul 5 point never swept it.
+    const metrics = removalMetrics()
+    const later = [...readBasketChanges(metrics), { revision: 3, at: '2026-07-06T09:00:00.000Z', added: ['query b'], removed: [] }]
+    const shift = querySetShift(metrics.buckets, later)
+    expect(shift).toEqual({ changes: [readBasketChanges(metrics)[0]], keys: ['query b'], firstCount: 1, latestCount: 1 })
+    expect(showsChangeFigure(shift, 'cited', 'non-brand', classify)).toBe(false)
+  })
+
+  it('reads mention share past a removed non-brand query once it is gone from every point', () => {
+    const metrics = ainyc('all')
+    const swap = [{ revision: 2, at: '2026-09-29T09:59:38.415Z', added: ['canonry'], removed: ['ai seo agency nyc'] }]
+    const shift = querySetShift(metrics.buckets, swap)
+    expect(shift?.keys).toEqual(['canonry'])
+    expect(showsChangeFigure(shift, 'mentionShare', 'non-brand', classify)).toBe(true)
+    expect(showsChangeFigure(shift, 'cited', 'non-brand', classify)).toBe(false)
+  })
+
+  it('names no removal as the cause when the points differ only in queries answered', () => {
+    // One query of the two still tracked went unanswered on Jul 5.
+    const metrics = removalMetrics()
+    const buckets = [{ ...metrics.buckets[0]!, queryCount: 2 }, metrics.buckets[1]!]
+    expect(querySetShift(buckets, readBasketChanges(metrics))).toEqual({ changes: [], keys: [], firstCount: 2, latestCount: 1 })
+  })
+})
+
+describe('pointQuerySetShift', () => {
+  it('finds ainyc\'s Sep 29 point pooling sweeps before and after its branded queries were added', () => {
+    const metrics = ainyc('7d')
+    const shift = pointQuerySetShift(metrics.buckets[0]!, readBasketChanges(metrics))
+    expect(shift?.changes).toEqual(readBasketChanges(metrics))
+    expect(shift?.keys).toEqual(['canonry', 'canonry aeo agency', 'canonry reviews'])
+    expect(showsChangeFigure(shift, 'mentionShare', 'non-brand', classify)).toBe(true)
+    expect(showsChangeFigure(shift, 'mentioned', 'non-brand', classify)).toBe(false)
+  })
+
+  it('finds no mix across a removal, since the server restates every sweep in the point', () => {
+    const [first, latest] = removalMetrics().buckets
+    const pooled = { ...latest!, dataStartDate: first!.dataStartDate, sweepCount: 2 }
+    expect(pointQuerySetShift(pooled, readBasketChanges(removalMetrics()))).toBeNull()
   })
 })

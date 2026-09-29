@@ -70,6 +70,7 @@ import {
   normalizeProviderKey,
   partitionModelAttributionEvents,
   plottedMetricRates,
+  pointQuerySetShift,
   providerDisplayName,
   querySetChanges,
   querySetShift,
@@ -1112,54 +1113,55 @@ function queryCountLabel(count: number): string {
   return `${count} ${count === 1 ? 'query' : 'queries'}`
 }
 
-/** "3 queries added", "1 query removed", or both. */
-function querySetChangePhrase(change: Pick<BasketChangeEvent, 'added' | 'removed'>): string {
-  const parts = [
-    ...(change.added.length > 0 ? [`${queryCountLabel(change.added.length)} added`] : []),
-    ...(change.removed.length > 0 ? [`${change.added.length > 0 ? change.removed.length : queryCountLabel(change.removed.length)} removed`] : []),
+/** "3 queries added", "1 query removed", or both, the second without its noun. */
+function querySetChangeParts(added: number, removed: number): string[] {
+  return [
+    ...(added > 0 ? [`${queryCountLabel(added)} added`] : []),
+    ...(removed > 0 ? [`${added > 0 ? removed : queryCountLabel(removed)} removed`] : []),
   ]
-  return parts.join(', ')
 }
 
-/** The query-set changes a point pools sweeps across: after its first sweep, up to its last. */
-function mixingChanges(point: MetricsBucket, changes: readonly BasketChangeEvent[]): BasketChangeEvent[] {
-  const range = readBucketObservedRange(point)
-  return range === null
-    ? []
-    : basketChangesInBucket(point, changes).filter(change => Date.parse(change.at) > Date.parse(range.start))
+/** "3 queries added", "1 query removed", or both. */
+function querySetChangePhrase(change: Pick<BasketChangeEvent, 'added' | 'removed'>): string {
+  return querySetChangeParts(change.added.length, change.removed.length).join(', ')
 }
 
 /**
- * "Sep 29 point mixes the 5:41 AM sweep (11 queries) and the 5:59 AM sweep (14
- * queries)": a point that pools sweeps from both sides of a query-set change.
- * Null when it does not.
+ * "Sep 29 point mixes the 5:41 AM sweep and the 5:59 AM sweep, with 3 queries
+ * added between them": a point that pools sweeps of different queries. It
+ * names the change, never a sweep's query count, which the response does not
+ * carry. `changes` is the response's whole `basketChanges`. Null when the
+ * point's sweeps read the same queries.
  */
 function pointMixPhrase(point: MetricsBucket, changes: readonly BasketChangeEvent[]): ReactNode | null {
   const range = readBucketObservedRange(point)
   const days = formatBucketDayRange(point)
-  const change = mixingChanges(point, changes).at(-1)
-  if (!range || !days || !change) return null
-  const later = point.queryCount
-  const earlier = later - change.added.length + change.removed.length
+  const mixing = pointQuerySetShift(point, changes)?.changes ?? []
+  if (!range || !days || mixing.length === 0) return null
+  const moved = joinWithAnd(querySetChangeParts(
+    mixing.reduce((sum, change) => sum + change.added.length, 0),
+    mixing.reduce((sum, change) => sum + change.removed.length, 0),
+  ))
   const sameDay = sameViewerDay(range.start, range.end)
   const time = (at: string) => formatSweepInstant(at, sameDay ? range.start : null)
   return range.sweepCount === 2
-    ? <><strong>{days}</strong> point mixes the <strong>{time(range.start)}</strong> sweep (<strong>{earlier}</strong> queries) and the <strong>{time(range.end)}</strong> sweep (<strong>{later}</strong> queries)</>
-    : <><strong>{days}</strong> point mixes sweeps of <strong>{earlier}</strong> and <strong>{later}</strong> queries</>
+    ? <><strong>{days}</strong> point mixes the <strong>{time(range.start)}</strong> sweep and the <strong>{time(range.end)}</strong> sweep, with {moved} between them</>
+    : <><strong>{days}</strong> point mixes sweeps with {moved} between them</>
 }
 
 /**
  * Why the headline prints no change figure (decision 3). A latest point that
- * pools sweeps from both sides of a query-set change is named as such;
- * otherwise the changes between the first and latest points are listed.
+ * pools sweeps of different queries is named as such; otherwise the changes
+ * between the first and latest points are listed, or, with none recorded, the
+ * queries each point has answers for.
  */
-function noChangeFigureReason(shift: QuerySetShift, latest: MetricsBucket): ReactNode {
-  const mix = pointMixPhrase(latest, shift.changes)
+function noChangeFigureReason(shift: QuerySetShift, latest: MetricsBucket, changes: readonly BasketChangeEvent[]): ReactNode {
+  const mix = pointMixPhrase(latest, changes)
   if (mix) return <>No change figure: {mix}</>
   if (shift.changes.length > 0) {
     return <>No change figure: {shift.changes.map((entry, index) => <Fragment key={entry.at}>{index > 0 ? ', ' : ''}{querySetChangePhrase(entry)} <strong>{formatObservedDay(observedInstant(entry.at))}</strong></Fragment>)}; first and latest points cover different queries</>
   }
-  return <>No change figure: first and latest points cover different queries (<strong>{shift.firstCount}</strong> and <strong>{shift.latestCount}</strong>)</>
+  return <>No change figure: first and latest points have answers for <strong>{shift.firstCount}</strong> and <strong>{shift.latestCount}</strong> queries</>
 }
 
 // ── What changed ──
@@ -1168,7 +1170,8 @@ interface ChangeTableRow {
   key: string
   at: ObservedInstant
   onOrBefore: boolean
-  from: ReactNode
+  /** Null when the row is one change rather than a before and after: it spans From and To. */
+  from: ReactNode | null
   to: ReactNode
   /** Help beside the To value: a preset's served model, or a moving model id's check. */
   toHelp: string | null
@@ -1250,8 +1253,10 @@ function WhatChanged({
         key: `queries-${change.at}`,
         at: change.at,
         onOrBefore: false,
-        from: <span className="av-model-from">{change.fromCount === null ? `${change.removed.length} removed` : queryCountLabel(change.fromCount)}</span>,
-        to: <span className="text-strong">{change.toCount === null ? `${change.added.length} added` : queryCountLabel(change.toCount)}</span>,
+        // The change itself, not a before and after: no response field says
+        // how many queries the set held on either side.
+        from: null,
+        to: <span className="text-strong">{querySetChangePhrase(change)}</span>,
         toHelp: null,
       })),
     })
@@ -1368,8 +1373,8 @@ function WhatChanged({
                           ? <th scope="row" className="av-engine">{group.label}</th>
                           : <td className="av-engine"><span className="sr-only">{group.label}</span></td>}
                         <td className="av-date">{row.onOrBefore ? `on or before ${unbroken(day(row.at))}` : unbroken(day(row.at))}</td>
-                        <td>{row.from}</td>
-                        <td>
+                        {row.from === null ? null : <td>{row.from}</td>}
+                        <td colSpan={row.from === null ? 2 : undefined}>
                           <span className="inline-flex items-center gap-1">{row.to}{row.toHelp ? <InfoTooltip text={row.toHelp} /> : null}</span>
                         </td>
                       </tr>
@@ -1698,15 +1703,13 @@ export function VisibilityTrendSection({
   const competitorCount = competitorDomains.length
 
   const trendDetails: ReactNode[] = []
-  if (latestPlotted && windowChange !== null && shift && !figureShown) trendDetails.push(noChangeFigureReason(shift, latestPlotted))
+  if (latestPlotted && windowChange !== null && shift && !figureShown) trendDetails.push(noChangeFigureReason(shift, latestPlotted, basketChanges))
   // One point has no change figure to withhold, but it can still pool sweeps
   // of two query sets. Said unless the metric reads past that change, as mention
   // share does when only branded queries moved.
   if (latestPlotted && plottedBuckets.length === 1) {
-    const mixing = mixingChanges(latestPlotted, basketChanges)
     const mix = pointMixPhrase(latestPlotted, basketChanges)
-    const pointShift = { changes: mixing, firstCount: latestPlotted.queryCount, latestCount: latestPlotted.queryCount }
-    if (mix && !showsChangeFigure(pointShift, metric, mentionShareScope, classifyQuery)) trendDetails.push(mix)
+    if (mix && !showsChangeFigure(pointQuerySetShift(latestPlotted, basketChanges), metric, mentionShareScope, classifyQuery)) trendDetails.push(mix)
   }
   if (pointChange !== null && plottedBuckets[0]) {
     const base = formatBucketDayRange(plottedBuckets[0])
