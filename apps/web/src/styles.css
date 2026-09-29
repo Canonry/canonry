@@ -1203,6 +1203,10 @@
     @apply sm:grid-cols-2;
   }
 
+  .report-headline + .sentiment-headlines {
+    @apply mt-6;
+  }
+
   .report-headline-tile {
     @apply flex min-w-0 flex-col gap-1 rounded-xl border border-default bg-surface px-4 py-4;
   }

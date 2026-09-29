@@ -44,7 +44,7 @@ function SentimentHeadlineDetails({ value }: { value: SentimentSummary }) {
   const { coverage, score } = value
   const interval = sentimentIntervalText(score)
   if (!coverage.selected && !coverage.eligibleAssessments && !value.reason) return null
-  return <details className="mt-2 max-w-sm text-sm text-secondary">
+  return <details className="mt-3 max-w-sm text-sm text-secondary">
     <summary className="w-fit cursor-pointer rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">Details</summary>
     <dl className="mt-2 space-y-1">
       {coverage.selected > 0 && <div className="flex flex-wrap justify-between gap-x-6"><dt>Rated assessments</dt><dd>{coverage.judged} of {coverage.selected}</dd></div>}
@@ -152,11 +152,11 @@ export function SentimentHeadlines({ queryClass = 'all' }: { queryClass?: QueryC
   const scope = useContext(SentimentContext)
   if (!scope?.configured || queryClass === 'unknown' || queryClass === 'unclassified') return null
   const classes: readonly QueryClass[] = queryClass === 'all' ? CLASS_ORDER : [queryClass]
-  return <div className="mb-4 flex flex-wrap items-start gap-x-8 gap-y-3" aria-label="Favorable answer scores">
+  return <div className="sentiment-headlines mb-4 flex flex-wrap items-start gap-x-8 gap-y-3" aria-label="Favorable answer scores">
     {classes.map(value => {
       const query = scope.summaries[value]
       return <div key={value} className="min-w-0 max-w-full">
-        <div className="mb-1 flex items-center gap-2"><span className="text-sm text-secondary">Favorable · {CLASS_LABEL[value]}</span><InfoTooltip text={SENTIMENT_COPY.favorable} /></div>
+        <div className="mb-2 flex items-center gap-2"><span className="text-sm text-secondary">Favorable · {CLASS_LABEL[value]}</span><InfoTooltip text={SENTIMENT_COPY.favorable} /></div>
         {!scope.hasSourceEvidence ? <p className="text-sm text-secondary">No saved answers.</p> : query.data ? <>
           <FavorableValue value={query.data} label={CLASS_LABEL[value]} />
           <SentimentHeadlineDetails value={query.data} />
