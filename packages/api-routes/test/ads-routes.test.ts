@@ -1932,6 +1932,140 @@ describe('ads routes', () => {
     ])
   })
 
+  it('carries the untouched half of geo targeting over from the live campaign', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ currentEntity: { locationIds: ['3000196'], excludedLocationIds: ['9096161'] } })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+
+    // Only the carve-out is named: the included market must survive.
+    const exclusionOnly = await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_live', payload: {
+        operationKey: 'geo:exclusion-only', expectedUpdatedAt: 123,
+        excludedLocationIds: ['9096161', '9096162'],
+      },
+    })
+    expect(exclusionOnly.statusCode).toBe(200)
+    expect(ctx.operatorCalls).toEqual([
+      { method: 'getCampaign', input: undefined },
+      {
+        method: 'updateCampaign',
+        input: { locationIds: ['3000196'], excludedLocationIds: ['9096161', '9096162'] },
+      },
+    ])
+
+    // Only the include is named: the existing carve-out must survive.
+    ctx.operatorCalls.length = 0
+    const includeOnly = await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_live', payload: {
+        operationKey: 'geo:include-only', expectedUpdatedAt: 123, locationIds: ['3000205'],
+      },
+    })
+    expect(includeOnly.statusCode).toBe(200)
+    expect(ctx.operatorCalls).toEqual([
+      { method: 'getCampaign', input: undefined },
+      { method: 'updateCampaign', input: { locationIds: ['3000205'], excludedLocationIds: ['9096161'] } },
+    ])
+  })
+
+  it('leaves geo alone when an update names neither half', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ currentEntity: { locationIds: ['3000196'], excludedLocationIds: ['9096161'] } })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+
+    const res = await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_live', payload: {
+        operationKey: 'geo:name-only', expectedUpdatedAt: 123, name: 'Renamed campaign',
+      },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(ctx.operatorCalls).toEqual([
+      { method: 'getCampaign', input: undefined },
+      { method: 'updateCampaign', input: { name: 'Renamed campaign' } },
+    ])
+  })
+
+  it('refuses a carve-out when the live campaign reports no included locations', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ currentEntity: { locationIds: [] } })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+
+    const res = await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_live', payload: {
+        operationKey: 'geo:no-includes', expectedUpdatedAt: 123, excludedLocationIds: ['9096161'],
+      },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.body).toContain('no included locations')
+  })
+
+  it('derives both location sets from the raw upstream targeting blob', async () => {
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    // The shape here is what the provider actually returns: enriched location
+    // objects under `locations.include` and `excluded_locations.include`. The
+    // fake operator hands DTO-shaped fields in directly, so only this test
+    // catches a wrong read key.
+    ctx.db.insert(adsCampaigns).values({
+      id: 'cmpn_geo', projectId, name: 'Metro minus neighbour', status: 'active',
+      biddingType: 'clicks', syncedAt: NOW, conversionEventSettingIds: [],
+      targeting: {
+        locations: { include: [{ id: '3000196', type: 'market', country_code: 'US', name: 'Reno', region_code: null }] },
+        excluded_locations: {
+          include: [
+            { id: '9096161', type: 'postal_code', country_code: 'US', name: '96161', region_code: '96161' },
+            { id: '9096162', type: 'postal_code', country_code: 'US', name: '96162', region_code: '96162' },
+          ],
+        },
+      },
+      upstreamUpdatedAt: 321,
+    }).run()
+
+    const res = await ctx.app.inject({ method: 'GET', url: '/projects/acme/ads/campaigns' })
+    expect(res.statusCode).toBe(200)
+    const campaign = (JSON.parse(res.body) as {
+      campaigns: Array<{ id: string; locationIds?: string[]; excludedLocationIds?: string[] }>
+    }).campaigns.find((c) => c.id === 'cmpn_geo')
+    expect(campaign).toMatchObject({
+      locationIds: ['3000196'],
+      excludedLocationIds: ['9096161', '9096162'],
+    })
+  })
+
+  it('recovers a carve-out write, matching the upstream exclusion set', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ currentEntity: { locationIds: ['3000196'], excludedLocationIds: ['9096161'] } })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const operationKey = 'reconcile:campaign:carve-out'
+    await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_live', payload: {
+        operationKey, expectedUpdatedAt: 123, excludedLocationIds: ['9096161'],
+      },
+    })
+    ctx.db.update(adsOperations).set({ state: 'unknown', errorCode: 'upstream_error' })
+      .where(eq(adsOperations.operationKey, operationKey)).run()
+    ctx.operatorCalls.length = 0
+
+    const recovered = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/acme/ads/operations/${encodeURIComponent(operationKey)}/reconcile`,
+    })
+    expect(JSON.parse(recovered.body)).toMatchObject({
+      resolved: true, operation: { state: 'succeeded', entityId: 'cmpn_live' },
+    })
+  })
+
   it('marks an ambiguous upstream outcome unknown and never retries it blindly', async () => {
     await ctx.app.close()
     fs.rmSync(ctx.tmpDir, { recursive: true, force: true })

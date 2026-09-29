@@ -893,3 +893,51 @@ describe('landing page tracking template', () => {
     expect(parseLandingPageQueryStringTemplate(undefined)).toBeNull()
   })
 })
+
+describe('location exclusions', () => {
+  const TARGETING = {
+    locations: { include: [{ id: '3000196' }] },
+    excluded_locations: { include: [{ id: '9096161' }, { id: '9096162' }] },
+  }
+
+  it('sends excluded_locations on create exactly as supplied', async () => {
+    const request: OpenAiAdsCreateCampaignRequest = { ...CREATE_CAMPAIGN_REQUEST, targeting: TARGETING }
+    const calls = mockFetchOnce({ ...FIXTURE_CAMPAIGN, status: OpenAiAdsWriteStatuses.paused })
+
+    await createCampaign('test-key', request)
+
+    expectJsonPost(calls[0]!, 'campaigns', request)
+  })
+
+  it('sends a market include with postal-code exclusions on update', async () => {
+    const request = { targeting: TARGETING }
+    const calls = mockFetchOnce({ ...FIXTURE_CAMPAIGN })
+
+    await updateCampaign('test-key', FIXTURE_CAMPAIGN.id, request)
+
+    expectJsonPost(calls[0]!, `campaigns/${FIXTURE_CAMPAIGN.id}`, request)
+  })
+
+  it('refuses an empty or malformed carve-out before any request is made', async () => {
+    for (const excluded of [{ include: [] }, { include: [{}] }, { include: 'nope' }, {}]) {
+      const calls = mockFetchOnce(FIXTURE_CAMPAIGN)
+      await expect(() => createCampaign('test-key', {
+        ...CREATE_CAMPAIGN_REQUEST,
+        targeting: { locations: { include: [{ id: '3000196' }] }, excluded_locations: excluded },
+      } as OpenAiAdsCreateCampaignRequest)).rejects.toMatchObject({ status: 400 })
+      expect(calls).toEqual([])
+    }
+  })
+
+  it('leaves targeting without a carve-out untouched', async () => {
+    const request: OpenAiAdsCreateCampaignRequest = {
+      ...CREATE_CAMPAIGN_REQUEST,
+      targeting: { locations: { include: [{ id: '3000196' }] } },
+    }
+    const calls = mockFetchOnce({ ...FIXTURE_CAMPAIGN, status: OpenAiAdsWriteStatuses.paused })
+
+    await createCampaign('test-key', request)
+
+    expectJsonPost(calls[0]!, 'campaigns', request)
+  })
+})

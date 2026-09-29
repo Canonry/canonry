@@ -502,7 +502,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
     dto: adsCampaignDtoSchema,
     internal: {
       projectId: 'Implied by the route scope.',
-      targeting: 'Raw upstream geo-targeting JSON; projected to locationIds on the DTO.',
+      targeting: 'Raw upstream geo-targeting JSON; projected to locationIds and excludedLocationIds on the DTO.',
       upstreamCreatedAt: 'Upstream bookkeeping epoch; not part of the read DTO.',
       syncRunId: 'Internal join key.',
     },

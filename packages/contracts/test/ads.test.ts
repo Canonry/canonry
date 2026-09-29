@@ -1190,3 +1190,45 @@ describe('ad URL tracking template', () => {
     }).success).toBe(false)
   })
 })
+
+describe('location exclusions', () => {
+  test('create accepts a carve-out alongside the included set', () => {
+    const base = {
+      operationKey: 'launch:campaign:geo',
+      name: 'Metro minus neighbour',
+      lifetimeSpendLimitMicros: 5_000_000,
+      locationIds: ['3000196'],
+    }
+    expect(adsCampaignCreateRequestSchema.safeParse(base).success).toBe(true)
+    expect(adsCampaignCreateRequestSchema.safeParse({
+      ...base, excludedLocationIds: ['9096161', '9096162'],
+    }).success).toBe(true)
+    expect(adsCampaignCreateRequestSchema.safeParse({ ...base, excludedLocationIds: [] }).success).toBe(false)
+  })
+
+  test('update takes a carve-out, and an empty array to clear it', () => {
+    const base = { operationKey: 'launch:campaign:geo2', expectedUpdatedAt: 123 }
+    expect(adsCampaignUpdateRequestSchema.safeParse({
+      ...base, excludedLocationIds: ['9096161'],
+    }).success).toBe(true)
+    expect(adsCampaignUpdateRequestSchema.safeParse({ ...base, excludedLocationIds: [] }).success).toBe(true)
+    expect(adsCampaignUpdateRequestSchema.safeParse({
+      ...base, excludedLocationIds: Array.from({ length: 101 }, (_, i) => `90000${i}`),
+    }).success).toBe(false)
+  })
+
+  test('reconcile fields carry the carve-out so both sides can match', () => {
+    expect(adsReconcileFieldsSchema.safeParse({
+      status: 'paused', locationIds: ['3000196'], excludedLocationIds: ['9096161'],
+    }).success).toBe(true)
+  })
+
+  test('the campaign DTO exposes the carve-out', () => {
+    const parsed = adsCampaignDtoSchema.safeParse({
+      id: 'cmpn_1', name: 'Metro', status: 'active',
+      locationIds: ['3000196'], excludedLocationIds: ['9096161'],
+    })
+    expect(parsed.success).toBe(true)
+    if (parsed.success) expect(parsed.data.excludedLocationIds).toEqual(['9096161'])
+  })
+})
