@@ -189,7 +189,7 @@ export function DataTablePagination({
   return (
     <div className={`mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-secondary ${className ?? ''}`}>
       <p className="tabular-nums">
-        {rangeStart.toLocaleString('en-US')}–{rangeEnd.toLocaleString('en-US')}
+        {rangeStart.toLocaleString('en-US')} to {rangeEnd.toLocaleString('en-US')}
         {totalRows === undefined
           ? `${canGoNext ? '+' : ''} ${itemLabel}`
           : ` of ${totalRows.toLocaleString('en-US')} ${itemLabel}`}

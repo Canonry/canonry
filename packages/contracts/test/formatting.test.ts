@@ -5,6 +5,7 @@ import {
   deltaPercent,
   deltaTone,
   formatAverageDelta,
+  formatCalendarDay,
   formatDate,
   formatZonedTimestamp,
   formatDateRange,
@@ -131,6 +132,25 @@ describe('formatDate', () => {
 
   test('invalid input falls back to original string', () => {
     expect(formatDate('not-a-date')).toBe('not-a-date')
+  })
+})
+
+describe('formatCalendarDay', () => {
+  const now = new Date('2026-09-29T12:00:00.000Z')
+
+  test('names a day in the current year without its year', () => {
+    expect(formatCalendarDay('2026-07-20', now)).toBe('Jul 20')
+    expect(formatCalendarDay('2026-03-01', now)).toBe('Mar 1')
+  })
+
+  test('keeps the year for a day outside the current one', () => {
+    expect(formatCalendarDay('2025-12-04', now)).toBe('Dec 4, 2025')
+  })
+
+  test('returns anything that is not a calendar day unchanged', () => {
+    expect(formatCalendarDay('2026-07-20T12:00:00.000Z', now)).toBe('2026-07-20T12:00:00.000Z')
+    expect(formatCalendarDay('2026-13-01', now)).toBe('2026-13-01')
+    expect(formatCalendarDay('', now)).toBe('')
   })
 })
 

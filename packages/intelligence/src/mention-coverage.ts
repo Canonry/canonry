@@ -37,7 +37,7 @@ export function buildMentionCoverage(
   snapshots: readonly MentionCoverageSnapshot[],
   options: MentionCoverageOptions,
 ): ScoreSummaryDto {
-  const tooltip = 'Your domain or company name was in the answer returned by the LLM.'
+  const tooltip = 'Your domain or company name was in the answer returned by the AI engine.'
 
   if (snapshots.length === 0) {
     return {
@@ -76,7 +76,7 @@ export function buildMentionCoverage(
     trend: [],
     progress: score,
     providerCoverage: isPartialProviderRun
-      ? `${runApiProviderCount} of ${options.configuredApiProviders.length} providers`
+      ? `${runApiProviderCount} of ${options.configuredApiProviders.length} engines`
       : undefined,
   }
 }

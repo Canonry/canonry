@@ -139,7 +139,7 @@ const runCitypointVisibility = createRun({
   status: 'completed',
   createdAt: '2026-03-08T12:15:00.000Z',
   startedAt: 'Mar 8, 12:15 PM',
-  duration: '6m 12s',
+  duration: '6 minutes 12 seconds',
   statusDetail: '18 tracked queries checked; 3 citation losses detected on emergency-intent prompts.',
   summary: 'Citation losses on emergency-intent prompts',
   triggerLabel: 'Scheduled',
@@ -154,7 +154,7 @@ const runCitypointQueued = createRun({
   status: 'queued',
   createdAt: '2026-03-09T08:05:00.000Z',
   startedAt: 'Mar 9, 8:05 AM',
-  duration: 'Waiting for slot',
+  duration: 'Waiting',
   statusDetail: 'Ready to enqueue after the next provider rate window clears.',
   summary: 'Queued follow-up after local ranking movement',
   triggerLabel: 'Manual',
@@ -169,7 +169,7 @@ const runHarborVisibility = createRun({
   status: 'completed',
   createdAt: '2026-03-08T11:05:00.000Z',
   startedAt: 'Mar 8, 11:05 AM',
-  duration: '5m 07s',
+  duration: '5 minutes 7 seconds',
   statusDetail: '12 tracked queries checked; local-intent visibility held steady across branded prompts.',
   summary: 'Branded prompts remain stable',
   triggerLabel: 'Scheduled',
@@ -184,7 +184,7 @@ const runNorthstarVisibility = createRun({
   status: 'running',
   createdAt: '2026-03-08T13:40:00.000Z',
   startedAt: 'Mar 8, 1:40 PM',
-  duration: '3m 10s',
+  duration: 'Running',
   statusDetail: 'Provider responses still in flight for 9 multi-location prompts.',
   summary: 'Mid-run on treatment-location prompts',
   triggerLabel: 'Manual',
@@ -389,7 +389,6 @@ const citypointEvidence: CitationInsightVm[] = [
 const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
   {
     project: projects[0],
-    dateRangeLabel: 'Last 7 days',
     contextLabel: 'US / English / Local-intent monitoring',
     mentionSummary: {
       label: 'Mention Coverage',
@@ -452,24 +451,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         score: 100,
       },
     },
-    gapQueries: {
-      label: 'Citation Gaps',
-      value: '1',
-      delta: '1 of 9 queries at risk',
-      tone: 'caution',
-      description: 'One tracked query currently cites competitors without citing Citypoint.',
-      trend: [],
-      progress: 11.111111,
-    },
-    mentionGaps: {
-      label: 'Mention Gaps',
-      value: '2',
-      delta: '2 of 9 queries at risk',
-      tone: 'caution',
-      description: 'Two tracked queries mention competitors but never Citypoint.',
-      trend: [],
-      progress: 22.22,
-    },
     indexCoverage: {
       label: 'Index Coverage',
       value: '82.1%',
@@ -478,11 +459,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       description: '10 URLs are not indexed in Google Search Console.',
       trend: [84, 84, 83, 82, 82],
     },
-    providerScores: [
-      { provider: 'gemini', model: 'gemini-2.5-flash', score: 55.56, cited: 5, total: 9 },
-      { provider: 'openai', model: 'gpt-5.4', score: 66.666667, cited: 6, total: 9 },
-      { provider: 'claude', model: 'claude-sonnet-4-6', score: 44.44, cited: 4, total: 9 },
-    ],
     queryCounts: { cited: 6, total: 9 },
     citationMovement: {
       gained: 1,
@@ -607,6 +583,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       },
     ],
     recentRuns: [runCitypointQueued, runCitypointVisibility],
+    visibilitySweeps: [runCitypointVisibility],
     suggestedQueries: {
       rows: [
         { query: 'emergency dentist near me', impressions: 4200, clicks: 87, avgPosition: 8, reason: '4.2K impressions · ranks #8 on Google' },
@@ -619,7 +596,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
   },
   {
     project: projects[1],
-    dateRangeLabel: 'Last 14 days',
     contextLabel: 'US / English / Service-area legal prompts',
     mentionSummary: {
       label: 'Mention Coverage',
@@ -677,24 +653,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         score: 100,
       },
     },
-    gapQueries: {
-      label: 'Citation Gaps',
-      value: '0',
-      delta: '0 of 6 queries at risk',
-      tone: 'positive',
-      description: 'No competitive citation gaps detected in the latest visibility run.',
-      trend: [],
-      progress: 0,
-    },
-    mentionGaps: {
-      label: 'Mention Gaps',
-      value: '0',
-      delta: '0 of 6 queries at risk',
-      tone: 'positive',
-      description: 'No competitive mention gaps detected in the latest visibility run.',
-      trend: [],
-      progress: 0,
-    },
     indexCoverage: {
       label: 'Index Coverage',
       value: '91.1%',
@@ -703,10 +661,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       description: '5 URLs are not indexed in Google Search Console.',
       trend: [88, 89, 89, 90, 91],
     },
-    providerScores: [
-      { provider: 'gemini', model: 'gemini-2.5-flash', score: 75, cited: 3, total: 4 },
-      { provider: 'openai', model: 'gpt-5.4', score: 50, cited: 2, total: 4 },
-    ],
     queryCounts: { cited: 3, total: 4 },
     citationMovement: { gained: 1, lost: 0, tone: 'positive', hasPreviousRun: true },
     mentionMovement: { gained: 1, lost: 0, tone: 'positive', hasPreviousRun: true },
@@ -797,6 +751,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       },
     ],
     recentRuns: [runHarborVisibility],
+    visibilitySweeps: [runHarborVisibility],
     suggestedQueries: {
       rows: [
         { query: 'car accident lawyer monmouth county', impressions: 2300, clicks: 41, avgPosition: 6, reason: '2.3K impressions · ranks #6 on Google' },
@@ -807,7 +762,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
   },
   {
     project: projects[2],
-    dateRangeLabel: 'Last 7 days',
     contextLabel: 'US / English / Multi-location treatment prompts',
     mentionSummary: {
       label: 'Mention Coverage',
@@ -865,24 +819,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         score: 100,
       },
     },
-    gapQueries: {
-      label: 'Citation Gaps',
-      value: '2',
-      delta: '2 of 7 queries at risk',
-      tone: 'caution',
-      description: 'Two tracked queries currently cite competitors without citing Northstar.',
-      trend: [],
-      progress: 28.57,
-    },
-    mentionGaps: {
-      label: 'Mention Gaps',
-      value: '3',
-      delta: '3 of 7 queries at risk',
-      tone: 'negative',
-      description: 'Three tracked queries mention competitors but never Northstar.',
-      trend: [],
-      progress: 42.86,
-    },
     indexCoverage: {
       label: 'Index Coverage',
       value: '71.1%',
@@ -891,9 +827,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       description: '11 URLs are not indexed in Bing Webmaster Tools.',
       trend: [68, 69, 70, 71, 71],
     },
-    providerScores: [
-      { provider: 'openai', model: 'gpt-5.4', score: 57.14, cited: 4, total: 7 },
-    ],
     queryCounts: { cited: 4, total: 7 },
     citationMovement: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
     mentionMovement: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
@@ -977,6 +910,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       },
     ],
     recentRuns: [runNorthstarVisibility],
+    visibilitySweeps: [],
     suggestedQueries: {
       rows: [],
       totalCandidates: 0,

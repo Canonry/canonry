@@ -211,20 +211,19 @@ test('project route renders a concise visibility summary with progressive detail
   // The route/embed token remains `technical-aeo`; only the product label changes.
   expect(html).toMatch(/Site Health/)
   expect(html).toMatch(/Queries/)
-  expect(html).toMatch(/Visibility/)
-  expect(html).toMatch(/Coverage now/)
-  expect(html).toMatch(/Since last sweep/)
+  // The Visibility card: a short title, the sweep state, and the rest behind a
+  // closed Details. The queued sweep is a real one, so the card says so.
+  // The title's ⓘ sits beside the heading, so the heading's name stays "Visibility".
+  expect(html).toMatch(/<h2 id="overview-brief-title" class="av-card-title">Visibility<\/h2>/)
+  expect(html).toContain('<p class="av-card-meta">Sweep running</p>')
+  expect(html).toMatch(/<details class="av-details"><summary>Details<\/summary>/)
+  expect(html).toContain('Added: dental implants downtown brooklyn')
+  expect(html).not.toMatch(/Coverage now|Tracking scope changed|comparable queries/)
   expect(html).toMatch(/Mentioned/)
   expect(html).toMatch(/Cited/)
-  // The hero figures arrive formatted by the API ("66.7%"); the sign is set
-  // apart once, never appended to a value that already carries it.
-  expect(html).toMatch(/<p class="aeo-hero-row-value [^"]*">66\.7<span class="text-faint">%<\/span><\/p>/)
-  expect(html).toMatch(/<p class="aeo-hero-row-value [^"]*">61\.0<span class="text-faint">%<\/span><\/p>/)
   expect(html).not.toMatch(/%<span class="text-faint">%/)
-  // Per-model citation rates are 0..100 at wire precision and read through formatPercent.
-  expect(html).toContain('<span class="font-semibold text-strong">55.6%</span>')
-  expect(html).toContain('<span class="font-semibold text-strong">66.7%</span>')
-  expect(html).toMatch(/1 query added · 8 comparable queries\./)
+  // By engine keeps per-engine counts only; the per-model rate table is gone.
+  expect(html).not.toMatch(/Citation rate by model/)
   expect(html).not.toMatch(/Latest signals/)
   expect(html).not.toMatch(/Emergency-intent prompts stopped grounding Citypoint/)
   expect(html).not.toMatch(/Suggested query/)
@@ -235,8 +234,12 @@ test('project route renders a concise visibility summary with progressive detail
   expect(html).not.toMatch(/What needs your attention/)
   expect(html).toMatch(/<details id="evidence-section"/)
   expect(html).toMatch(/Query evidence/)
-  expect(html).toMatch(/Citation and engine diagnostics/)
-  expect(html).toMatch(/Recent execution history/)
+  expect(html).toMatch(/class="av-card-title">By engine<\/h2>/)
+  // Past sweeps: one line per sweep, its time opening the run.
+  expect(html).toMatch(/class="av-card-title">Past sweeps<\/h2>/)
+  expect(html).toContain('aria-label="View the Mar 8, 12:15 PM sweep"')
+  expect(html).toContain('6 minutes 12 seconds')
+  expect(html).not.toMatch(/Citation and engine diagnostics|Recent execution history/)
 })
 
 test('runs route renders the operational timeline and filters', async () => {

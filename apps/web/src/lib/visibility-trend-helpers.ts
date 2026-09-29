@@ -1,22 +1,22 @@
 import type {
+  BasketChangeEvent,
   BrandMetricsDto,
   ModelAttribution,
   ModelAttributionEvent,
   ModelEvidenceState,
   ModelPointerChangeDisclosure,
   ModelServiceMismatch,
-  QueryChangeEvent,
+  QueryClass,
   ServedModelAttribution,
   TrendDirection,
   WindowRateChange,
 } from '@ainyc/canonry-contracts'
 import type { MetricTone } from '../view-models.js'
 import {
-  formatObservedInstantLabel,
-  formatObservedInstantTick,
   observedInstant,
   type ObservedInstant,
 } from '../components/shared/ChartPrimitives.js'
+import { formatMonthDay, formatSweepDay } from './format-helpers.js'
 
 /**
  * Pure reshaping of `BrandMetricsDto` into Recharts-ready rows for the
@@ -114,28 +114,73 @@ export function readBucketObservedRange(
 }
 
 /**
- * The date a bucket's point is really about, in the viewer's own timezone. When
- * the bucket pools several sweeps it reads as a range plus the count — today
- * that pooling is invisible and a multi-week average looks like a single
- * reading.
+ * A real instant as a day in the viewer's timezone: "Sep 29", with the year
+ * only outside the current one. The same en-US style as the Visibility card's
+ * sweep times, so one page never mixes "Sep 29" with "29 Sept".
  */
-export function formatBucketDateLabel(bucket: BrandMetricsDto['buckets'][number]): string {
-  const range = readBucketObservedRange(bucket)
-  if (!range) return 'Sweep date unavailable'
-  const start = formatObservedInstantLabel(range.start)
-  const end = formatObservedInstantLabel(range.end)
-  if (start === end) return start
-  return `${start} – ${end} · ${range.sweepCount} sweeps combined`
+export function formatObservedDay(instant: ObservedInstant, now: Date = new Date()): string {
+  return formatSweepDay(instant, now)
 }
 
-/** Compact axis tick for a bucket — the first sweep it actually contains, in the viewer's timezone. */
+/** The days a bucket's sweeps span: "Sep 29", or "Mar 13 to Apr 8". Null on an older API. */
+export function formatBucketDayRange(bucket: BrandMetricsDto['buckets'][number], now: Date = new Date()): string | null {
+  const range = readBucketObservedRange(bucket)
+  if (!range) return null
+  const start = formatObservedDay(range.start, now)
+  const end = formatObservedDay(range.end, now)
+  return start === end ? start : `${start} to ${end}`
+}
+
+/**
+ * The date a bucket's point is really about, in the viewer's own timezone, and
+ * always how many sweeps it pools ("Sep 29 · 2 sweeps", "Mar 13 to Apr 8 · 41
+ * sweeps"): two sweeps on one day are still two readings, and a multi-week
+ * average must never look like a single one.
+ */
+export function formatBucketDateLabel(bucket: BrandMetricsDto['buckets'][number], now: Date = new Date()): string {
+  const range = readBucketObservedRange(bucket)
+  const days = formatBucketDayRange(bucket, now)
+  if (!range || !days) return 'Sweep date unavailable'
+  return `${days} · ${range.sweepCount} ${range.sweepCount === 1 ? 'sweep' : 'sweeps'}`
+}
+
+/** Axis tick for a bucket ("Mar 13"): the first sweep it actually contains, in the viewer's timezone. */
 export function formatBucketDateTick(bucket: BrandMetricsDto['buckets'][number]): string {
   const range = readBucketObservedRange(bucket)
-  return range ? formatObservedInstantTick(range.start) : ''
+  return range ? formatMonthDay(range.start) : ''
 }
 
 export function normalizeProviderKey(provider: string): string {
   return provider.trim().toLowerCase()
+}
+
+/**
+ * The tracked competitor set as a cache-key segment. Analytics reads that
+ * depend on it rotate their key when a competitor is added or removed, so the
+ * change costs one fetch rather than an invalidation plus a refetch.
+ */
+export function competitorFrameKey(competitorDomains: readonly string[]): string {
+  return competitorDomains
+    .map(domain => domain.trim().toLowerCase())
+    .filter(Boolean)
+    .sort()
+    .join('\n')
+}
+
+/** Human-friendly engine names (data keys are lowercase). */
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  claude: 'Claude',
+  openai: 'OpenAI',
+  gemini: 'Gemini',
+  perplexity: 'Perplexity',
+  muse: 'Muse',
+  local: 'Local',
+}
+
+/** An engine's name as people read it ("OpenAI", "Perplexity"). */
+export function providerDisplayName(name: string): string {
+  const key = normalizeProviderKey(name)
+  return PROVIDER_DISPLAY_NAMES[key] ?? name.charAt(0).toUpperCase() + name.slice(1)
 }
 
 /** Presentation-only: 0-1 rate → 0-100 axis value, one decimal. */
@@ -229,17 +274,16 @@ export function readModelPointerChanges(dto: BrandMetricsDto): Record<string, Mo
   return (dto as MetricsWithOptionalModelAttribution).modelPointerChanges ?? {}
 }
 
-/** The raw ids an engine reported, joined for display. Empty → the normalized label stands alone. */
-export function formatServedModelIds(ids: readonly string[]): string | null {
-  return ids.length > 0 ? ids.join(', ') : null
+/** "a", "a and b", "a, b and c". */
+export function joinWithAnd(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? ''
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
 }
 
-function findNormalizedProvider<T>(byProvider: Record<string, T | undefined>, provider: string): T | undefined {
-  const target = normalizeProviderKey(provider)
-  return Object.entries(byProvider).find(([key]) => normalizeProviderKey(key) === target)?.[1]
-}
-
-/** Human-readable, categorical evidence label. This never turns mixed data into a single model. */
+/**
+ * Human-readable, categorical evidence label. This never turns mixed data into
+ * a single model: "a, b", or "a, b and an unknown model".
+ */
 export function formatModelEvidence(state: ModelEvidenceState): string {
   switch (state.status) {
     case 'known':
@@ -247,26 +291,14 @@ export function formatModelEvidence(state: ModelEvidenceState): string {
     case 'unknown':
       return 'Unknown model'
     case 'mixed':
-      return `Mixed: ${state.models.join(', ')}${state.includesUnknown ? ' + unknown' : ''}`
+      if (state.models.length === 0) return 'Unknown model'
+      return `${state.models.join(', ')}${state.includesUnknown ? ' and an unknown model' : ''}`
   }
 }
 
-/**
- * Read the evidence from the same last bucket that draws a provider's plotted
- * point. Do not use run-detail/citation history: it can include a different
- * window, a probe, or a partial sweep that the analytics response excluded.
- */
-export function latestPlottedProviderModelEvidence(
-  buckets: readonly BrandMetricsDto['buckets'][number][],
-  provider: string,
-): ModelEvidenceState | null {
-  for (let index = buckets.length - 1; index >= 0; index -= 1) {
-    const bucket = buckets[index]!
-    if (!findNormalizedProvider(bucketProviders(bucket), provider)) continue
-    const evidence = readBucketModelEvidence(bucket)
-    return evidence ? findNormalizedProvider(evidence, provider) ?? null : null
-  }
-  return null
+/** A mixed point's models as a phrase ("a and b", "a, b and an unknown model"). */
+export function formatMixedModels(state: Extract<ModelEvidenceState, { status: 'mixed' }>): string {
+  return joinWithAnd([...state.models, ...(state.includesUnknown ? ['an unknown model'] : [])])
 }
 
 /** Group categorical changes by the existing plotted bucket; no false-precision timestamp markers. */
@@ -326,28 +358,6 @@ export function partitionModelAttributionEvents(
     beforeWindow: beforeWindow.sort((a, b) =>
       a.event.observedAt.localeCompare(b.event.observedAt) || a.provider.localeCompare(b.provider)),
   }
-}
-
-/**
- * How many changes the response actually carries vs how many it observed,
- * pooled across providers. Honest as a whole-list summary — it matches what
- * `groupModelAttributionEvents` renders — and that is all it is used for now
- * (the assistive-tech description). It must NOT drive the truncation note: the
- * server's cap is per provider, so a pooled pair cannot say WHOSE history is
- * clipped and reads as if every engine's were. Use `truncatedProviderCounts`
- * for anything the operator reads as a claim about a specific engine.
- */
-export function countModelAttributionEvents(
-  attribution: ModelAttribution,
-): { shown: number; total: number } {
-  let shown = 0
-  let total = 0
-  for (const entry of Object.values(attribution)) {
-    shown += entry.events.length
-    // An older server omits `eventTotal`; its list is the whole history.
-    total += entry.eventTotal ?? entry.events.length
-  }
-  return { shown, total }
 }
 
 export interface ProviderEventCount {
@@ -461,29 +471,415 @@ export function trendToTone(direction: TrendDirection): MetricTone {
   }
 }
 
-/** "2026-04-03" → "04/03" (MM/DD; ISO date is already zero-padded). */
-function mmdd(iso: string): string {
-  const [, m, d] = iso.slice(0, 10).split('-')
-  if (!m || !d) return iso
-  return `${m}/${d}`
+// ── What changed: the query set and the models behind the trend ──
+
+type MetricsBucket = BrandMetricsDto['buckets'][number]
+
+function instantMs(value: string): number {
+  return Date.parse(value)
 }
 
-function signedDelta(delta: number): string {
-  return delta > 0 ? `+${delta}` : `${delta}`
+/** True when `at` falls between a point's first and last sweep, inclusive. */
+function withinBucket(bucket: MetricsBucket, at: string): boolean {
+  const range = readBucketObservedRange(bucket)
+  if (!range) return false
+  const time = instantMs(at)
+  return time >= instantMs(range.start) && time <= instantMs(range.end)
+}
+
+/** The recorded query-set changes. An older API omits the field; that reads as none. */
+export function readBasketChanges(dto: BrandMetricsDto): BasketChangeEvent[] {
+  return (dto as { basketChanges?: BasketChangeEvent[] }).basketChanges ?? []
+}
+
+/** The query-set changes first measured inside one plotted point, oldest first. */
+export function basketChangesInBucket(bucket: MetricsBucket, changes: readonly BasketChangeEvent[]): BasketChangeEvent[] {
+  return changes
+    .filter(change => withinBucket(bucket, change.at))
+    .sort((a, b) => instantMs(a.at) - instantMs(b.at))
 }
 
 /**
- * One-line caption explaining query-set changes beneath the chart, so a rate
- * dip that coincides with newly-added queries reads as expected, not a
- * regression. Lists up to two changes inline; collapses three or more into a
- * count + the most recent so the caption never sprawls into a messy run-on.
- * Returns null when there are no changes (nothing to render).
+ * A Perplexity preset (`fast`, `low`, ...) picks its own model for every
+ * answer, so answering with a different model is the preset working, not a
+ * substitution. A fixed Perplexity model is a `vendor/model` slug (the
+ * provider's model registry), so an id without "/" is a preset.
  */
-export function formatQueryChangeCaption(changes: QueryChangeEvent[]): string | null {
-  if (changes.length === 0) return null
-  if (changes.length <= 2) {
-    return `Query set changed: ${changes.map(c => `${signedDelta(c.delta)} on ${mmdd(c.date)}`).join(', ')}`
+export function isPerplexityPreset(provider: string, state: ModelEvidenceState): boolean {
+  return normalizeProviderKey(provider) === 'perplexity' && state.status === 'known' && !state.model.includes('/')
+}
+
+/** Every served-model mismatch that is a real substitution: all but a Perplexity preset's. */
+export function substitutedModels(
+  mismatch: Record<string, ModelServiceMismatch>,
+): Array<{ provider: string; mismatch: ModelServiceMismatch }> {
+  return Object.entries(mismatch)
+    .filter(([provider, entry]) => !isPerplexityPreset(provider, entry.configured))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([provider, entry]) => ({ provider, mismatch: entry }))
+}
+
+export interface QuerySetChange {
+  /** When the change was recorded, normally as the first sweep on the new query set was queued. */
+  at: ObservedInstant
+  /** Stored query keys (normalized query text). */
+  added: string[]
+  removed: string[]
+}
+
+/**
+ * The window's query-set changes, newest first, as recorded. No query count
+ * rides along: a point's `queryCount` is the queries its sweeps answered, not
+ * the size of the query set, and the response carries no size to read.
+ */
+export function querySetChanges(dto: BrandMetricsDto): QuerySetChange[] {
+  return [...readBasketChanges(dto)]
+    .sort((a, b) => instantMs(b.at) - instantMs(a.at))
+    .map(change => ({ at: observedInstant(change.at), added: change.added, removed: change.removed }))
+}
+
+export interface ModelChangeRow {
+  provider: string
+  /** The first sweep on the new model. */
+  at: ObservedInstant
+  /** Inherited from before the window: it happened after `anchorAt`, on or before `at`. */
+  onOrBefore: boolean
+  anchorAt: ObservedInstant | null
+  from: ModelEvidenceState
+  to: ModelEvidenceState
+  /** For a move onto a Perplexity preset: what the engine answered with on either side. */
+  served: { from: ModelEvidenceState; to: ModelEvidenceState } | null
+  /** A preset that kept its id while the engine moved it onto a different model. */
+  reroute: boolean
+}
+
+/** The model a provider was set to at `at`: the last change on or before it, else the first change's `from`. */
+function configuredStateAt(entry: ModelAttribution[string], at: string): ModelEvidenceState {
+  const events = [...entry.events].sort((a, b) => instantMs(a.observedAt) - instantMs(b.observedAt))
+  let state = events[0]?.from ?? entry.latestObservation.state
+  for (const event of events) {
+    if (instantMs(event.observedAt) <= instantMs(at)) state = event.to
   }
-  const latest = [...changes].sort((a, b) => b.date.localeCompare(a.date))[0]!
-  return `Query set changed ${changes.length} times (latest ${signedDelta(latest.delta)} on ${mmdd(latest.date)})`
+  return state
+}
+
+function modelChangeRow(
+  provider: string,
+  event: ModelAttributionEvent,
+  served: ModelChangeRow['served'],
+  reroute: boolean,
+): ModelChangeRow {
+  return {
+    provider,
+    at: observedInstant(event.observedAt),
+    onOrBefore: event.fromPreWindowAnchor === true,
+    anchorAt: event.anchorObservedAt ? observedInstant(event.anchorObservedAt) : null,
+    from: event.from,
+    to: event.to,
+    served,
+    reroute,
+  }
+}
+
+/**
+ * Every model change in the window as one row, newest first. A Perplexity
+ * preset keeps its id while the engine picks the model, so the served series
+ * joins in two ways: the served move behind a switch onto the preset, and any
+ * later re-route under it, which the configured series never shows.
+ */
+export function modelChangeRows(attribution: ModelAttribution, served: ServedModelAttribution): ModelChangeRow[] {
+  const rows: ModelChangeRow[] = []
+  for (const [provider, entry] of Object.entries(attribution)) {
+    const servedEntry = served[provider] as ServedModelAttribution[string] | undefined
+    const servedEvents = servedEntry?.events ?? []
+    const configuredAt = new Set(entry.events.map(event => event.observedAt))
+    for (const event of entry.events) {
+      const servedEvent = isPerplexityPreset(provider, event.to)
+        ? servedEvents.find(candidate => candidate.observedAt === event.observedAt)
+        : undefined
+      rows.push(modelChangeRow(provider, event, servedEvent ? { from: servedEvent.from, to: servedEvent.to } : null, false))
+    }
+    for (const event of servedEvents) {
+      if (configuredAt.has(event.observedAt)) continue
+      if (!isPerplexityPreset(provider, configuredStateAt(entry, event.observedAt))) continue
+      rows.push(modelChangeRow(provider, event, null, true))
+    }
+  }
+  return rows.sort((a, b) => instantMs(b.at) - instantMs(a.at) || a.provider.localeCompare(b.provider))
+}
+
+/**
+ * The collapsed "What changed" line. It names what the latest point first
+ * measured ("Sep 29 · 3 queries added · 4 new models"), or, when that point
+ * brought nothing new, the day of the newest change. Null when nothing changed.
+ */
+export function whatChangedSummary({ latest, queryChanges, modelRows, now = new Date() }: {
+  latest: MetricsBucket | undefined
+  queryChanges: readonly QuerySetChange[]
+  modelRows: readonly ModelChangeRow[]
+  now?: Date
+}): string | null {
+  const instants = [...queryChanges.map(change => change.at), ...modelRows.map(row => row.at)]
+  if (instants.length === 0) return null
+  const inLatest = (at: string) => latest !== undefined && withinBucket(latest, at)
+  const latestQueries = queryChanges.filter(change => inLatest(change.at))
+  const added = latestQueries.reduce((sum, change) => sum + change.added.length, 0)
+  const removed = latestQueries.reduce((sum, change) => sum + change.removed.length, 0)
+  const models = modelRows.filter(row => inLatest(row.at)).length
+  const days = latest ? formatBucketDayRange(latest, now) : null
+  if (days === null || added + removed + models === 0) {
+    const newest = instants.reduce((a, b) => (instantMs(b) > instantMs(a) ? b : a))
+    return `No changes since ${formatObservedDay(newest, now)}`
+  }
+  const parts = [days]
+  if (added > 0) parts.push(`${added} ${added === 1 ? 'query' : 'queries'} added`)
+  if (removed > 0) parts.push(`${removed} ${removed === 1 ? 'query' : 'queries'} removed`)
+  if (models > 0) parts.push(`${models} new ${models === 1 ? 'model' : 'models'}`)
+  return parts.join(' · ')
+}
+
+/**
+ * The sweep right before `at`, or null when no known sweep is provably the
+ * adjacent one. A date that is only "some earlier sweep" would misstate when
+ * the change could have happened, so a gap in what is known leaves it out.
+ *
+ * - `recentSweeps`: the newest real sweeps, a contiguous run back from the
+ *   latest, so the newest of them before `at` is the adjacent one.
+ * - `buckets`: a point's first and last sweeps. A pooled point hides the
+ *   sweeps between them, so a boundary counts only when nothing can sit in
+ *   between: `at` opens its point (the point before ends on the adjacent
+ *   sweep), or `at` closes a two-sweep point (its first sweep is adjacent).
+ * - `windowAnchor`: the last sweep before the window, adjacent to its first.
+ */
+export function sweepBefore(
+  at: string,
+  recentSweeps: readonly string[],
+  buckets: readonly MetricsBucket[],
+  windowAnchor: string | null = null,
+): ObservedInstant | null {
+  const atMs = instantMs(at)
+  if (!Number.isFinite(atMs)) return null
+  const recent = recentSweeps.filter(time => instantMs(time) < atMs)
+  if (recent.length > 0) return observedInstant(recent.reduce((a, b) => (instantMs(b) > instantMs(a) ? b : a)))
+
+  const ranges = buckets
+    .map(bucket => readBucketObservedRange(bucket))
+    .filter((range): range is BucketObservedRange => range !== null)
+    .sort((a, b) => instantMs(a.start) - instantMs(b.start))
+  const index = ranges.findIndex(range => instantMs(range.start) <= atMs && atMs <= instantMs(range.end))
+  if (index === -1) return null
+  const range = ranges[index]!
+  if (instantMs(range.start) === atMs) {
+    if (index > 0) return ranges[index - 1]!.end
+    return windowAnchor && instantMs(windowAnchor) < atMs ? observedInstant(windowAnchor) : null
+  }
+  return range.sweepCount === 2 && instantMs(range.end) === atMs ? range.start : null
+}
+
+/**
+ * How the queries a shift names moved, by each one's membership on either side:
+ * the first sweep compared against the last.
+ */
+export interface QuerySetMoves {
+  /** Out of the set on the first sweep, in it on the last. */
+  added: string[]
+  /** In the set on the first sweep, out of it on the last (and added back since). */
+  removed: string[]
+  /** In the set on both, out of it for a while between them. */
+  removedAndAddedBack: string[]
+  /** Out of the set on both, in it for a while between them. */
+  addedAndRemovedAgain: string[]
+}
+
+/** How the query set moved between the first and latest plotted points, or across one point's sweeps. */
+export interface QuerySetShift {
+  /**
+   * Recorded changes after the first sweep, up to the last, that touched a
+   * query in `keys`. Whole events, so a message still names everything each
+   * one added and removed.
+   */
+  changes: BasketChangeEvent[]
+  /** The queries tracked now that one side reads and the other does not: what the points do not share. */
+  keys: string[]
+  /** How `keys` moved. Counted from membership, never summed from `changes`. */
+  moves: QuerySetMoves
+  /** Queries with answers in the first and latest points (the API's `queryCount`), not the size of the query set. */
+  firstCount: number
+  latestCount: number
+}
+
+/** A query's recorded changes, oldest first: when, and whether it joined the set or left it. */
+type MembershipEvents = ReadonlyArray<{ at: number; member: boolean }>
+
+/**
+ * The queries tracked now, among those a recorded change touched, with their
+ * recorded changes. A query is tracked now when its last recorded change added
+ * it: `basketChanges` holds every change since the window opened, so a query's
+ * last change in it is its last change overall. One whose last change removed
+ * it is gone from every point alike, since the server holds every point to the
+ * queries tracked now, and never splits two of them.
+ */
+function trackedMembership(changes: readonly BasketChangeEvent[]): Map<string, MembershipEvents> {
+  const byKey = new Map<string, Array<{ at: number; member: boolean }>>()
+  const record = (key: string, event: { at: number; member: boolean }) => {
+    const events = byKey.get(key)
+    if (events) events.push(event)
+    else byKey.set(key, [event])
+  }
+  for (const change of [...changes].sort((a, b) => a.revision - b.revision)) {
+    const at = instantMs(change.at)
+    for (const key of change.removed) record(key, { at, member: false })
+    for (const key of change.added) record(key, { at, member: true })
+  }
+  return new Map([...byKey].filter(([, events]) => events.at(-1)!.member))
+}
+
+/**
+ * Whether a sweep at `at` measured the query. Before its first recorded change
+ * it held the opposite of that change. A sweep at the instant of a change is on
+ * the new set: a sweep's revision is minted as it is queued (run-queue.ts).
+ */
+function memberAt(events: MembershipEvents, at: number): boolean {
+  let member = !events[0]!.member
+  for (const event of events) if (event.at <= at) member = event.member
+  return member
+}
+
+/** True when a change to the query falls after `from`, up to and including `to`. */
+function changedBetween(events: MembershipEvents, from: number, to: number): boolean {
+  return events.some(event => event.at > from && event.at <= to)
+}
+
+/**
+ * Whether one point's sweeps read the query differently. Two sweeps are its
+ * first and last, so their membership says it. With more, the sweeps between
+ * have unknown times, so any change after the first sweep counts.
+ */
+function pointSplits(events: MembershipEvents, range: BucketObservedRange): boolean {
+  const start = instantMs(range.start)
+  const end = instantMs(range.end)
+  return range.sweepCount > 2
+    ? changedBetween(events, start, end)
+    : memberAt(events, start) !== memberAt(events, end)
+}
+
+/**
+ * The shift across `from` (the earlier side's first sweep) to `to` (the later
+ * side's last), for the tracked queries `splits` picks. Null when it picks none.
+ */
+function shiftAcross(
+  changes: readonly BasketChangeEvent[],
+  from: string,
+  to: string,
+  splits: (events: MembershipEvents) => boolean,
+): Omit<QuerySetShift, 'firstCount' | 'latestCount'> | null {
+  const fromMs = instantMs(from)
+  const toMs = instantMs(to)
+  const moves: QuerySetMoves = { added: [], removed: [], removedAndAddedBack: [], addedAndRemovedAgain: [] }
+  const split = new Set<string>()
+  for (const [key, events] of trackedMembership(changes)) {
+    if (!splits(events)) continue
+    split.add(key)
+    const before = memberAt(events, fromMs)
+    const after = memberAt(events, toMs)
+    if (before !== after) (after ? moves.added : moves.removed).push(key)
+    else (before ? moves.removedAndAddedBack : moves.addedAndRemovedAgain).push(key)
+  }
+  if (split.size === 0) return null
+  const touches = (change: BasketChangeEvent) => [...change.added, ...change.removed].some(key => split.has(key))
+  const splitting = changes
+    .filter(change => instantMs(change.at) > fromMs && instantMs(change.at) <= toMs && touches(change))
+    .sort((a, b) => instantMs(a.at) - instantMs(b.at))
+  const keys = [...new Set(splitting.flatMap(change => [...change.added, ...change.removed]))].filter(key => split.has(key))
+  return { changes: splitting, keys, moves }
+}
+
+/**
+ * Whether the first and latest plotted points measured different queries: a
+ * query tracked now is in one and not the other, or either point pools sweeps
+ * of different queries (`pointQuerySetShift`), or, with no change recorded,
+ * the points answered different numbers of queries. The server holds every
+ * point to the queries tracked now and rejoins a query's old answers by its
+ * text, so a query removed for good is gone from both points, and one removed
+ * and added back before the first or after the latest is in both. Null when
+ * they read the same queries, or with one point. `changes` must be the
+ * response's whole `basketChanges`, which is what says which queries are
+ * tracked now.
+ */
+export function querySetShift(
+  plotted: readonly MetricsBucket[],
+  changes: readonly BasketChangeEvent[],
+): QuerySetShift | null {
+  if (plotted.length < 2) return null
+  const first = plotted[0]!
+  const latest = plotted.at(-1)!
+  const firstRange = readBucketObservedRange(first)
+  const latestRange = readBucketObservedRange(latest)
+  const start = firstRange?.start ?? first.startDate
+  const end = latestRange?.end ?? latest.endDate
+  const split = shiftAcross(changes, start, end, events =>
+    memberAt(events, instantMs(start)) !== memberAt(events, instantMs(end))
+    || (firstRange !== null && pointSplits(events, firstRange))
+    || (latestRange !== null && pointSplits(events, latestRange)))
+  if (!split && first.queryCount === latest.queryCount) return null
+  return {
+    ...(split ?? { changes: [], keys: [], moves: { added: [], removed: [], removedAndAddedBack: [], addedAndRemovedAgain: [] } }),
+    firstCount: first.queryCount,
+    latestCount: latest.queryCount,
+  }
+}
+
+/**
+ * Whether one point pools sweeps of different queries: a query tracked now is
+ * in its first sweep and not its last, or the other way round. With more than
+ * two sweeps, any change to such a query after its first sweep counts, since
+ * the sweeps between have unknown times. Null when its sweeps read the same
+ * queries, or on an older API with no sweep times.
+ */
+export function pointQuerySetShift(
+  point: MetricsBucket,
+  changes: readonly BasketChangeEvent[],
+): QuerySetShift | null {
+  const range = readBucketObservedRange(point)
+  if (!range) return null
+  const split = shiftAcross(changes, range.start, range.end, events => pointSplits(events, range))
+  return split ? { ...split, firstCount: point.queryCount, latestCount: point.queryCount } : null
+}
+
+function queryCountLabel(count: number): string {
+  return `${count} ${count === 1 ? 'query' : 'queries'}`
+}
+
+/**
+ * "3 queries added", "1 query added and 2 removed", "1 query removed and added
+ * back": how a shift's queries moved, each counted once. The noun rides on the
+ * first count only, except on a move back, which would otherwise read as part
+ * of the one before it. Empty with nothing moved.
+ */
+export function querySetMovePhrase(moves: QuerySetMoves): string {
+  const parts: string[] = []
+  const count = (n: number) => (parts.length === 0 ? queryCountLabel(n) : String(n))
+  if (moves.added.length > 0) parts.push(`${count(moves.added.length)} added`)
+  if (moves.removed.length > 0) parts.push(`${count(moves.removed.length)} removed`)
+  if (moves.removedAndAddedBack.length > 0) parts.push(`${queryCountLabel(moves.removedAndAddedBack.length)} removed and added back`)
+  if (moves.addedAndRemovedAgain.length > 0) parts.push(`${queryCountLabel(moves.addedAndRemovedAgain.length)} added and removed again`)
+  return joinWithAnd(parts)
+}
+
+/**
+ * Whether the headline may print its first-to-latest change. Not across a
+ * query-set change: the figure would compare two different baskets. Mention
+ * share is the one exception, because it reads non-brand answers only: when
+ * every query the points do not share (`shift.keys`) is branded, its set is
+ * intact. `classify` must be the metrics route's brand matcher.
+ */
+export function showsChangeFigure(
+  shift: QuerySetShift | null,
+  metric: MetricChoice,
+  mentionShareScope: 'non-brand' | 'pooled',
+  classify?: (queryText: string) => QueryClass | null,
+): boolean {
+  if (!shift) return true
+  if (metric !== 'mentionShare' || mentionShareScope !== 'non-brand' || !classify) return false
+  return shift.keys.length > 0 && shift.keys.every(key => classify(key) === 'branded')
 }

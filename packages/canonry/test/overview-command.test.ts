@@ -74,8 +74,8 @@ function makeOverview(overrides: Partial<ProjectOverviewDto> = {}): ProjectOverv
           snapshotsTotal: 10,
         },
       },
-      gapQueries: { label: 'Citation Gaps', value: '2', delta: '2 of 8 queries at risk', tone: 'caution', description: '', trend: [] },
-      mentionGaps: { label: 'Mention Gaps', value: '1', delta: '1 of 8 queries at risk', tone: 'caution', description: '', trend: [] },
+      gapQueries: { label: 'Citation Gaps', value: '2', delta: '2 of 8 queries', tone: 'caution', description: '', trend: [] },
+      mentionGaps: { label: 'Mention Gaps', value: '1', delta: '1 of 8 queries', tone: 'caution', description: '', trend: [] },
       indexCoverage: { label: 'Index Coverage', value: 'No data', delta: '', tone: 'neutral', description: '', trend: [] },
       competitorPressure: { label: 'Competitor Pressure', value: 'None', delta: '', tone: 'neutral', description: '', trend: [] },
       runStatus: { label: 'Run Status', value: 'Healthy', delta: '', tone: 'positive', description: '', trend: [] },
@@ -336,7 +336,7 @@ describe('canonry overview — human output', () => {
     expect(lines).toContain(scoreLine('Visibility       ', 'caution', '50.0%', '4 of 8 queries cited'))
     expect(lines).toContain(scoreLine('Mention share    ', 'positive', '60.0%', '6 of 10 brand mentions'))
     // A count gauge stays a count, and nothing gains a second sign.
-    expect(lines).toContain(scoreLine('Gap queries      ', 'caution', '2', '2 of 8 queries at risk'))
+    expect(lines).toContain(scoreLine('Gap queries      ', 'caution', '2', '2 of 8 queries'))
     expect(lines.join('\n')).not.toContain('%%')
   })
 

@@ -27,6 +27,7 @@ import type {
   ScoreSummaryVm,
 } from './view-models.js'
 import { mapInsightDtosToVms } from './mappers/insight-mapper.js'
+import { formatSweepInstant } from './lib/format-helpers.js'
 
 function toProjectDto(p: ApiProject): ProjectDto {
   return {
@@ -55,25 +56,24 @@ function toProjectDto(p: ApiProject): ProjectDto {
   }
 }
 
-function formatDate(iso: string): string {
-  try {
-    const d = new Date(iso)
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
-  } catch {
-    return iso
-  }
+function unit(count: number, word: string): string {
+  return `${count} ${word}${count === 1 ? '' : 's'}`
 }
 
-function formatDuration(startedAt: string | null, finishedAt: string | null): string {
+/** A run's length in words ("2 minutes 28 seconds"), whole seconds rounded down. */
+export function formatDuration(startedAt: string | null, finishedAt: string | null): string {
   if (!startedAt) return 'Waiting'
   if (!finishedAt) return 'Running'
   const ms = new Date(finishedAt).getTime() - new Date(startedAt).getTime()
-  if (ms < 1000) return '<1s'
+  if (ms < 1000) return 'under 1 second'
   const seconds = Math.floor(ms / 1000)
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
   const secs = seconds % 60
-  return `${minutes}m ${secs}s`
+  // Seconds stop mattering once a run takes hours.
+  if (hours > 0) return minutes > 0 ? `${unit(hours, 'hour')} ${unit(minutes, 'minute')}` : unit(hours, 'hour')
+  if (minutes > 0) return secs > 0 ? `${unit(minutes, 'minute')} ${unit(secs, 'second')}` : unit(minutes, 'minute')
+  return unit(secs, 'second')
 }
 
 function kindLabel(kind: RunKind): string {
@@ -97,7 +97,14 @@ function kindLabel(kind: RunKind): string {
 }
 
 function triggerLabel(trigger: string): string {
-  return trigger === RunTriggers.manual ? 'Manual' : trigger === RunTriggers.scheduled ? 'Scheduled' : trigger === RunTriggers['config-apply'] ? 'Config apply' : trigger
+  switch (trigger) {
+    case RunTriggers.manual: return 'Manual'
+    case RunTriggers.scheduled: return 'Scheduled'
+    case RunTriggers['config-apply']: return 'Config apply'
+    // A probe answers a few queries on demand; it is not a full sweep.
+    case RunTriggers.probe: return 'Spot check'
+    default: return trigger
+  }
 }
 
 export function toRunListItem(run: ApiRun, projectName: string): RunListItemVm {
@@ -111,7 +118,7 @@ export function toRunListItem(run: ApiRun, projectName: string): RunListItemVm {
     trigger: (run.trigger ?? 'manual') as RunListItemVm['trigger'],
     location: run.location ?? null,
     createdAt: run.createdAt,
-    startedAt: run.startedAt ? formatDate(run.startedAt) : formatDate(run.createdAt),
+    startedAt: formatSweepInstant(run.startedAt || run.createdAt),
     duration: formatDuration(run.startedAt ?? null, run.finishedAt ?? null),
     statusDetail: run.error ? formatRunError(run.error) : statusDetailFromRun(run),
     summary: summaryFromRun(run),
@@ -193,9 +200,14 @@ function buildEvidenceFromTimeline(
     )
     const allProviders = [...new Set([...providersFromLatestRun, ...providersFromHistory])].sort()
     const providers = allProviders.length > 0 ? allProviders : ['gemini']
+    // The timeline is capped to the newest runs of any status, so newer failed
+    // sweeps can push the latest completed one out of it. Its own snapshots
+    // above are the authority on which queries it answered.
+    const queriesInLatestRun = new Set(allSnapshots.flatMap(snap => (snap.query ? [snap.query] : [])))
 
     for (const entry of timeline) {
-      if (entry.runs.length === 0) continue // never run yet; pending fallback handles it
+      // Never run yet: the pending fallback below handles it.
+      if (entry.runs.length === 0 && !queriesInLatestRun.has(entry.query)) continue
       seenQueries.add(entry.query)
       const latestRun = entry.runs.at(-1)
       const transition = latestRun?.transition ?? 'not-cited'
@@ -243,12 +255,29 @@ function buildEvidenceFromTimeline(
               ? 'model'
               : 'query'
 
-          const effectiveTransition = effectiveHistory
-            ? effectiveHistory.at(-1)!.transition
-            : transition
-          const effectiveVisibilityTransition = effectiveHistory
-            ? (effectiveHistory.at(-1)!.visibilityTransition ?? (effectiveHistory.at(-1)!.visibilityState === 'visible' ? 'visible' : 'not-visible'))
-            : (latestRun?.visibilityTransition ?? (latestRun?.visibilityState === 'visible' ? 'visible' : 'not-visible'))
+          // The timeline holds runs of every status, so a cancelled run, one
+          // cut short by a restart, or a sweep still running can sit after the
+          // latest completed sweep and hold answers of its own. The row is that
+          // sweep's snapshot: its state and change read the history only up to
+          // the snapshot's own run. With that run outside the window, the
+          // snapshot is all there is: its state, never a change.
+          const ownRunIndex = snap && effectiveHistory
+            ? effectiveHistory.findIndex(point => point.runId === snap.runId)
+            : -1
+          const stateHistory = snap
+            ? (ownRunIndex >= 0 ? effectiveHistory!.slice(0, ownRunIndex + 1) : null)
+            : effectiveHistory
+          const ownStateOnly = snap !== undefined && stateHistory === null
+          const effectiveTransition = stateHistory
+            ? stateHistory.at(-1)!.transition
+            : ownStateOnly
+              ? (snap.citationState === CitationStates.cited ? 'cited' : 'not-cited')
+              : transition
+          const effectiveVisibilityTransition = stateHistory
+            ? (stateHistory.at(-1)!.visibilityTransition ?? (stateHistory.at(-1)!.visibilityState === 'visible' ? 'visible' : 'not-visible'))
+            : ownStateOnly
+              ? (snap.visibilityState === 'visible' ? 'visible' : 'not-visible')
+              : (latestRun?.visibilityTransition ?? (latestRun?.visibilityState === 'visible' ? 'visible' : 'not-visible'))
 
           // When a provider is missing from the latest run, keep showing its last
           // observed provider-level state instead of leaking the query-level
@@ -263,12 +292,12 @@ function buildEvidenceFromTimeline(
           const snapVisibilityState = (snap?.visibilityState as CitationInsightVm['visibilityState'] | undefined)
             ?? (latestProviderVisibilityState === 'visible' ? 'visible' : latestProviderVisibilityState === 'pending' ? 'pending' : 'not-visible')
 
-          const streak = effectiveHistory
-            ? computeStreak(effectiveHistory)
-            : computeStreak(entry.runs)
-          const visibilityStreak = effectiveHistory
-            ? computeVisibilityStreak(effectiveHistory)
-            : computeVisibilityStreak(entry.runs)
+          const streak = stateHistory
+            ? computeStreak(stateHistory)
+            : ownStateOnly ? 1 : computeStreak(entry.runs)
+          const visibilityStreak = stateHistory
+            ? computeVisibilityStreak(stateHistory)
+            : ownStateOnly ? 1 : computeVisibilityStreak(entry.runs)
 
           const runModels = buildRunModelMap(entry, provider)
           const runHistory = (effectiveHistory ?? entry.runs)
@@ -539,6 +568,18 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
   return emptyCommandCenter(dto, evidence, runItems)
 }
 
+/**
+ * The project's completed and partial AI Visibility sweeps, newest first,
+ * probes left out: the runs `/overview` picks its latest and previous sweep
+ * from. Read from the whole run list, so newer failed or cancelled runs never
+ * push one out, as they can out of the five-row `recentRuns`.
+ */
+export function visibilitySweepItems(runItems: readonly RunListItemVm[]): RunListItemVm[] {
+  return runItems.filter(run => run.kind === RunKinds['answer-visibility']
+    && run.trigger !== RunTriggers.probe
+    && (run.status === RunStatuses.completed || run.status === RunStatuses.partial))
+}
+
 function adaptOverviewToCommandCenter(
   project: ProjectDto,
   overview: ProjectOverviewDto,
@@ -568,16 +609,12 @@ function adaptOverviewToCommandCenter(
 
   return {
     project,
-    dateRangeLabel: overview.dateRangeLabel,
     contextLabel: overview.contextLabel,
     mentionSummary: overview.scores.mention as ScoreSummaryVm,
     visibilitySummary: overview.scores.visibility as ScoreSummaryVm,
     mentionShareSummary: overview.scores.mentionShare,
     queryCounts: { cited: overview.queryCounts.citedQueries, total: overview.queryCounts.totalQueries },
-    gapQueries: overview.scores.gapQueries as ScoreSummaryVm,
-    mentionGaps: overview.scores.mentionGaps as ScoreSummaryVm,
     indexCoverage: overview.scores.indexCoverage as ScoreSummaryVm,
-    providerScores: overview.providerScores,
     competitorPressure: overview.scores.competitorPressure as ScoreSummaryVm,
     runStatus: overview.scores.runStatus as ScoreSummaryVm,
     citationMovement: overview.citationMovement as MovementSummaryVm,
@@ -596,6 +633,7 @@ function adaptOverviewToCommandCenter(
       notes: '',
     })),
     recentRuns: runItems.slice(0, 5),
+    visibilitySweeps: visibilitySweepItems(runItems),
     suggestedQueries: overview.suggestedQueries,
   }
 }
@@ -631,7 +669,6 @@ function emptyCommandCenter(
   }
   return {
     project,
-    dateRangeLabel: 'All time',
     contextLabel: `${project.country} / ${project.language.toUpperCase()}`,
     mentionSummary: { ...placeholder, label: 'Mention Coverage' },
     visibilitySummary: { ...placeholder, label: 'Citation Coverage' },
@@ -647,10 +684,7 @@ function emptyCommandCenter(
       branded: emptyMentionShareBreakdown(),
     },
     queryCounts: { cited: 0, total: 0 },
-    gapQueries: { ...placeholder, label: 'Citation Gaps' },
-    mentionGaps: { ...placeholder, label: 'Mention Gaps' },
     indexCoverage: { ...placeholder, label: 'Index Coverage' },
-    providerScores: [],
     competitorPressure: { ...placeholder, label: 'Competitor Pressure' },
     runStatus: { ...placeholder, label: 'Run Status' },
     citationMovement: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
@@ -672,6 +706,7 @@ function emptyCommandCenter(
     visibilityEvidence: evidence,
     competitors: [],
     recentRuns: runItems.slice(0, 5),
+    visibilitySweeps: visibilitySweepItems(runItems),
     suggestedQueries: { rows: [], totalCandidates: 0, skippedAlreadyTracked: 0 },
   }
 }

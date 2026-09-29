@@ -606,6 +606,8 @@ function isOverviewRead(url: string): boolean {
     'overview',
     'visibility-report',
     'analytics/metrics',
+    // The latest sweep's stored gap lanes, for the competitive card.
+    'analytics/gaps',
     // Stored historical competitor evidence. This path does not call a
     // provider and write methods are refused before the tab allowlist.
     'analytics/competitors',

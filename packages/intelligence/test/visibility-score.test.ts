@@ -115,7 +115,7 @@ describe('buildVisibilityScore', () => {
       configuredApiProviders: ['gemini', 'openai', 'claude'],
     })
     expect(result.tone).toBe('caution')
-    expect(result.providerCoverage).toBe('1 of 3 providers')
+    expect(result.providerCoverage).toBe('1 of 3 engines')
   })
 
   it('does not flag partial coverage when only one provider is configured', () => {

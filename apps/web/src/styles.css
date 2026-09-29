@@ -329,10 +329,6 @@
   --chart-axis: #d4d4d8;
 }
 
-[data-theme='light'] .visibility-trend-title {
-  color: var(--color-text-heading);
-}
-
 /* Provider-identity pills on the light canvas: keep the engine hue but flip the
    canvas polarity (light tint + darker ink) so the uppercase label stays legible
    on white. The dark-canvas defaults (literal utilities in ProviderBadge, a
@@ -1053,10 +1049,6 @@
     @apply text-[13px] text-secondary;
   }
 
-  .project-context-meta {
-    @apply text-[13px] text-secondary;
-  }
-
   .project-context-actions {
     @apply ml-auto flex flex-wrap items-center justify-end gap-3;
   }
@@ -1138,21 +1130,25 @@
     @apply absolute left-0 top-full z-30 mt-2 rounded-md border border-default bg-bg p-3 shadow-lg;
   }
 
+  /* "AI answers over time" as an AI Visibility card (the shared av-card-head
+     and Details), with "What changed" and any substitution rows under it. */
+  .visibility-trend-stack {
+    @apply space-y-3;
+  }
+
   .visibility-trend {
-    @apply rounded-xl border border-default bg-surface px-5 py-5;
+    @apply rounded-xl border border-default bg-surface;
   }
 
-  .visibility-trend-head {
-    @apply mb-3 flex flex-wrap items-start justify-between gap-x-6 gap-y-2;
+  /* No overflow clipping here: the chart's hover tooltip must not be cut off. */
+  .visibility-trend-body {
+    @apply px-5 pb-4 pt-2;
   }
 
-  .visibility-trend-title {
-    @apply flex items-center gap-1.5;
-  }
-
-  /* Headline readout: latest value of the selected metric + its change. */
+  /* Headline readout: the latest point of the selected metric, its change
+     when the query set held still, and its base. */
   .visibility-trend-current {
-    @apply flex items-baseline gap-2;
+    @apply mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-1;
   }
 
   .visibility-trend-current-dot {
@@ -1163,18 +1159,26 @@
     @apply text-[11px] font-medium uppercase tracking-wide text-secondary;
   }
 
-  /* "avg" tag shown beside the headline in by-engine mode — the headline is the
-     blended rate across engines, not any single line on the chart. */
-  .visibility-trend-current-qualifier {
-    @apply rounded bg-mono-800/80 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-muted;
-  }
-
   .visibility-trend-current-value {
     @apply text-2xl font-semibold tabular-nums tracking-tight text-primary;
   }
 
   .visibility-trend-current-delta {
-    @apply text-xs font-medium tabular-nums;
+    @apply text-[13px] font-medium tabular-nums;
+  }
+
+  .visibility-trend-current-detail {
+    @apply text-[13px] tabular-nums text-secondary;
+  }
+
+  /* Key for the dashed chart markers, drawn like the marker itself. */
+  .visibility-trend-key {
+    @apply mt-2 flex items-center gap-1.5 text-[11px] text-muted;
+  }
+
+  .visibility-trend-key-swatch {
+    @apply h-3 w-0 shrink-0;
+    border-left: 1.5px dashed var(--chart-series-5);
   }
 
   .visibility-trend-controls {
@@ -1257,10 +1261,6 @@
     @apply block h-full rounded-full;
   }
 
-  .visibility-trend-note {
-    @apply mt-2 text-[11px] text-secondary;
-  }
-
   /* Per-engine legend with live values, above the chart. Line-shaped swatches
      (not dots) so each entry reads as the series it labels. */
   .trend-legend {
@@ -1275,20 +1275,8 @@
     @apply h-[3px] w-3.5 shrink-0 rounded-full;
   }
 
-  .trend-legend-label {
-    @apply inline-flex min-w-0 items-baseline gap-1;
-  }
-
   .trend-legend-name {
     @apply shrink-0 text-[11px] font-medium text-neutral;
-  }
-
-  .trend-legend-model {
-    @apply inline-block max-w-44 truncate font-mono text-[11px] text-muted;
-  }
-
-  .trend-legend-model-more {
-    @apply shrink-0 rounded bg-bg-elevated/60 px-1 py-px font-mono text-[10px] text-muted;
   }
 
   .trend-legend-value {
@@ -1296,7 +1284,7 @@
   }
 
   .trend-tooltip {
-    @apply min-w-48 rounded-lg border border-default bg-bg-elevated px-3 py-2 text-xs text-secondary shadow-lg;
+    @apply min-w-56 max-w-72 rounded-lg border border-default bg-bg-elevated px-3 py-2 text-xs text-secondary shadow-lg;
   }
 
   .trend-tooltip-label {
@@ -1331,42 +1319,18 @@
     @apply mt-1 text-[11px] leading-snug text-muted;
   }
 
-  /* Observed model evidence stays textual as well as visual: chart markers
-     are supplemental, never the only place an operator can learn a change. */
-  .trend-model-evidence {
-    @apply mt-3 rounded-lg border border-base bg-bg-elevated/40 px-3 py-2.5;
+  /* An engine's answers behind its rate, beside the rate. */
+  .trend-tooltip-count {
+    @apply min-w-16 text-right tabular-nums text-muted;
   }
 
-  .trend-model-evidence-head {
-    @apply flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1;
+  /* "3 queries added 5:59 AM", under the point's date. */
+  .trend-tooltip-note {
+    @apply mb-1.5 mt-0;
   }
 
-  .trend-model-evidence-title {
-    @apply text-[11px] font-medium text-neutral;
-  }
-
-  .trend-model-evidence-key {
-    @apply text-[10px] text-muted;
-  }
-
-  .trend-model-evidence-empty {
-    @apply mt-1 text-[11px] text-muted;
-  }
-
-  .trend-model-evidence-note {
-    @apply mt-1.5 text-[11px] text-muted;
-  }
-
-  .trend-model-evidence-list {
-    @apply mt-1.5 space-y-1;
-  }
-
-  .trend-model-evidence-item {
-    @apply flex flex-wrap items-baseline gap-x-2 text-[11px] leading-snug text-secondary;
-  }
-
-  .trend-model-evidence-date {
-    @apply shrink-0 font-mono text-[10px] text-muted;
+  .trend-tooltip-models {
+    @apply mt-2;
   }
 
   /* Project execution settings deliberately stand apart from metadata: these
@@ -1437,16 +1401,7 @@
     @apply bg-mono-700/90 text-primary shadow-sm;
   }
 
-  /* ── AEO performance hero (paired Mention + Citation) ── */
-
-  .aeo-hero {
-    @apply rounded-xl border border-default bg-surface px-5 py-5;
-  }
-
-
-  .aeo-hero-rows {
-    @apply space-y-4 sm:space-y-3;
-  }
+  /* ── AEO hero rows (a Property's paired metrics, MeasurementPropertyPage) ── */
 
   .aeo-hero-row {
     @apply grid items-center gap-x-4 gap-y-1;
@@ -1491,18 +1446,6 @@
     @apply overflow-hidden rounded-xl border border-default bg-surface-subtle;
   }
 
-  .overview-brief-head {
-    @apply flex flex-col gap-3 px-5 py-5 sm:flex-row sm:items-start sm:justify-between;
-  }
-
-  .overview-brief-title {
-    @apply mt-1 max-w-3xl text-xl font-semibold tracking-[-0.02em] text-primary sm:text-2xl;
-  }
-
-  .overview-brief-updated {
-    @apply shrink-0 text-[13px] tabular-nums text-secondary sm:pt-2;
-  }
-
   .overview-brief-grid {
     @apply grid border-t border-mono-800/50 lg:grid-cols-[1.35fr_0.825fr];
   }
@@ -1511,173 +1454,344 @@
     @apply min-w-0 px-5 py-4;
   }
 
-  .overview-brief-panel + .overview-brief-panel {
-    @apply border-t border-subtle lg:border-l lg:border-t-0;
-  }
-
   .overview-brief-label {
     @apply mb-3 text-[11px] font-medium uppercase tracking-[0.14em] text-muted;
   }
 
-  .overview-brief-panel-title {
-    @apply text-sm font-medium leading-5 text-heading;
+  /* An AI Visibility card: a short title with the sweep time, a compact grid of
+     counts with one status word per row, then everything else in Details. */
+  .av-card-head {
+    @apply flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 pb-1 pt-[1.1rem];
   }
 
-  .overview-brief-panel-copy {
-    @apply mt-1.5 text-[13px] leading-5 text-secondary;
+  .av-card-title {
+    @apply inline-flex items-center text-[11px] font-medium uppercase tracking-[0.18em] text-muted;
   }
 
-  .overview-signal-change-list {
-    @apply space-y-2;
+  .av-card-meta {
+    @apply text-[13px] tabular-nums text-secondary;
   }
 
-  .overview-signal-change-row {
-    @apply grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3 text-sm font-semibold;
+  .av-card-body {
+    @apply overflow-x-auto px-5 pb-[0.9rem] pt-3;
   }
 
-  .overview-signal-change-label {
-    @apply font-medium text-strong;
+  .av-grid {
+    @apply border-collapse;
   }
 
-  .overview-brief-note {
-    @apply mt-3 text-xs text-caution-400/80;
+  .av-grid thead th {
+    @apply whitespace-nowrap pb-2 pr-4 text-left text-[11px] font-medium uppercase tracking-[0.14em] text-muted sm:pr-9;
   }
 
-  .overview-brief-coverage .aeo-hero-rows {
-    @apply space-y-3;
+  .av-grid td,
+  .av-grid tbody th {
+    @apply whitespace-nowrap py-[0.3rem] pr-4 text-left align-baseline sm:pr-9;
   }
 
-  .competitive-summary {
-    @apply px-5 py-4;
+  /* On a phone the status word may drop its "· n added" to a second line
+     rather than push the grid wider than the card. */
+  .av-grid thead th:last-child,
+  .av-grid td:last-child {
+    @apply whitespace-normal pr-0 sm:whitespace-nowrap;
   }
 
-  /* Mention share: one chrome line (metric + class control), one figure, one
-     ranked list. The class control owns the denominator for everything above
-     `.competitive-gaps`, so branded and non-brand figures are never on screen
-     together. */
-  .mention-share {
-    @apply space-y-2;
-  }
-
-  .mention-share-head {
-    @apply flex flex-wrap items-center justify-between gap-x-3 gap-y-2;
-  }
-
-  .mention-share-label {
-    @apply inline-flex items-center gap-1.5;
-  }
-
-  .mention-share-label-text {
+  .av-grid .av-row-label {
     @apply text-sm font-medium text-strong;
   }
 
-  /* Scope label when there is no control. Load bearing, so 13px text-secondary,
-     never a 10px muted eyebrow. */
+  /* A key figure in its tone; the denominator stays quiet. Same size as the
+     hero values so the card reads at a glance. */
+  .av-n {
+    @apply text-2xl font-bold tracking-tight tabular-nums;
+  }
+
+  /* A real space separates the figure for screen readers; the margin tops it
+     up to the design's gap. */
+  .av-of {
+    @apply ml-px text-[13px] tabular-nums text-muted;
+  }
+
+  /* Wraps on a phone ("first AI / sweep") rather than push the grid past the card. */
+  .av-status {
+    @apply text-[13px] font-medium sm:whitespace-nowrap;
+  }
+
+  /* A grid of many small figures (By engine, Past sweeps): tighter rows and a
+     figure one step down from the hero size. On a phone the columns sit
+     closer, the headers track tighter and "Of 11 queries" may wrap, so four
+     engines fit a 390px card instead of scrolling inside it. */
+  .av-grid-dense thead th {
+    @apply max-sm:pr-2.5 max-sm:align-bottom max-sm:tracking-[0.04em];
+  }
+
+  .av-grid-dense thead th:first-child {
+    @apply max-sm:whitespace-normal;
+  }
+
+  .av-grid-dense td,
+  .av-grid-dense tbody th {
+    @apply py-[0.2rem] max-sm:pr-2.5;
+  }
+
+  /* A 360px or 375px phone: the headers drop to 10px and the columns close
+     up a little more, so the same four engines still fit. */
+  @media (max-width: 379px) {
+    .av-grid-dense thead th {
+      @apply pr-2 text-[10px];
+    }
+
+    .av-grid-dense td,
+    .av-grid-dense tbody th {
+      @apply pr-2;
+    }
+  }
+
+  /* Past sweeps on a phone: the time takes its own line and the trigger,
+     duration and any status follow under it, so a long duration never pushes
+     the grid past the card. The trigger keeps a width so durations line up. */
+  @media (max-width: 639px) {
+    .av-grid-sweeps,
+    .av-grid-sweeps > tbody {
+      @apply block;
+    }
+
+    .av-grid-sweeps tbody tr {
+      @apply flex flex-wrap items-baseline gap-x-3 py-1;
+    }
+
+    .av-grid-sweeps tbody th {
+      @apply basis-full p-0;
+    }
+
+    .av-grid-sweeps td {
+      @apply whitespace-normal p-0;
+    }
+
+    .av-grid-sweeps td:first-of-type {
+      @apply min-w-[5.5rem];
+    }
+  }
+
+  /* Competitors over time on a phone: each brand's name, with its Pin or
+     Unpin, takes its own line and its three figures sit in equal columns under
+     the headers, so a long domain never pushes the grid past the card. */
+  @media (max-width: 639px) {
+    .av-grid-brands,
+    .av-grid-brands > thead,
+    .av-grid-brands > tbody {
+      @apply block;
+    }
+
+    .av-grid-brands tr {
+      @apply grid grid-cols-3 items-baseline gap-x-3;
+    }
+
+    .av-grid-brands thead th {
+      @apply self-end whitespace-normal pr-0;
+    }
+
+    .av-grid-brands thead th:first-child,
+    .av-grid-brands thead th:nth-child(5) {
+      @apply sr-only;
+    }
+
+    .av-grid-brands tbody th {
+      @apply col-span-full row-start-1 whitespace-normal pb-0 pr-0 wrap-anywhere;
+    }
+
+    .av-grid-brands tbody tr:has(> td:nth-child(5)) > th {
+      @apply col-span-2;
+    }
+
+    .av-grid-brands tbody td {
+      @apply row-start-2 pr-0 pt-0;
+    }
+
+    .av-grid-brands tbody td:nth-child(5) {
+      @apply col-start-3 row-start-1 self-center justify-self-end pb-0;
+    }
+  }
+
+  .av-n-sm {
+    @apply text-[15px] font-semibold leading-6 tabular-nums;
+  }
+
+  /* A row's time that opens its run: reads as text, underlines on hover. */
+  .av-link {
+    @apply rounded-sm text-left underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
+  }
+
+  /* One labelled figure under a card's grid ("Competitor cited instead of you"). */
+  .av-card-line {
+    @apply mt-3 flex flex-wrap items-baseline gap-x-6 gap-y-1 border-t border-subtle pt-3;
+  }
+
+  .av-card-line-label {
+    @apply text-sm font-medium text-strong;
+  }
+
+  /* A list inside a Details bullet ("Company names in answers ▸"). Starts
+     closed, with the same arrows as Details. */
+  .av-subdetails > summary {
+    @apply w-fit cursor-pointer list-none rounded-sm hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
+  }
+
+  .av-subdetails > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .av-subdetails > summary::after {
+    content: '\00a0\25B8';
+  }
+
+  .av-subdetails[open] > summary::after {
+    content: '\00a0\25B4';
+  }
+
+  .av-subdetails-body {
+    @apply mb-2 mt-1 space-y-1 leading-5;
+  }
+
+  /* "Details ▸" under a card. Starts closed; bullets, bold key numbers. */
+  .av-details {
+    @apply border-t border-subtle px-5;
+  }
+
+  .av-details > summary {
+    @apply flex min-h-10 w-fit cursor-pointer list-none items-center rounded-sm text-[13px] font-medium text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
+  }
+
+  .av-details > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .av-details > summary::after {
+    content: '\00a0\25B8';
+  }
+
+  .av-details[open] > summary::after {
+    content: '\00a0\25B4';
+  }
+
+  .av-details-list {
+    @apply mb-[0.9rem] list-disc pl-[1.1rem] text-[13px] leading-[1.55rem] text-secondary;
+  }
+
+  .av-details-list li::marker {
+    @apply text-faint;
+  }
+
+  .av-details-list strong {
+    @apply font-semibold tabular-nums text-heading;
+  }
+
+  /* "What changed": one line collapsed, a table by engine opened. The summary
+     and its toggle swap with the open state, so neither needs script. */
+  .av-wc {
+    @apply rounded-xl border border-default bg-surface-subtle;
+  }
+
+  .av-wc > summary {
+    @apply flex min-h-11 cursor-pointer list-none flex-wrap items-center gap-x-6 gap-y-1 rounded-xl px-5 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
+  }
+
+  .av-wc > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .av-wc-summary {
+    @apply text-[13px] tabular-nums text-strong;
+  }
+
+  .av-wc-toggle {
+    @apply ml-auto whitespace-nowrap text-[13px] font-medium text-secondary;
+  }
+
+  .av-wc > summary:hover .av-wc-toggle {
+    @apply text-heading;
+  }
+
+  .av-wc .av-wc-when-open,
+  .av-wc[open] .av-wc-when-closed {
+    display: none;
+  }
+
+  .av-wc[open] .av-wc-when-open {
+    display: inline;
+  }
+
+  .av-wc-body {
+    @apply px-5 pb-1;
+  }
+
+  .av-wc-body > .av-details-list {
+    @apply mb-3;
+  }
+
+  .av-wc .av-details {
+    @apply -mx-5;
+  }
+
+  .av-change-table {
+    @apply border-collapse;
+  }
+
+  .av-change-table thead th {
+    @apply whitespace-nowrap pb-2 pr-3 pt-1 text-left text-[11px] font-medium uppercase tracking-[0.14em] text-muted sm:pr-10;
+  }
+
+  /* On a phone the table fits the card instead of scrolling: cells wrap and a
+     model id breaks at its hyphens, so the To column and its ⓘ stay in view. */
+  .av-change-table td,
+  .av-change-table tbody th {
+    @apply py-1 pr-3 text-left align-baseline text-[13px] sm:whitespace-nowrap sm:pr-10;
+  }
+
+  .av-change-table tbody tr:first-child > * {
+    @apply border-t border-subtle pt-2;
+  }
+
+  .av-change-table tbody tr:last-child > * {
+    @apply pb-2;
+  }
+
+  .av-engine {
+    @apply font-medium text-strong;
+  }
+
+  .av-date {
+    @apply tabular-nums text-secondary;
+  }
+
+  .av-model {
+    @apply font-mono text-xs text-strong wrap-anywhere sm:wrap-normal;
+  }
+
+  .av-model-from {
+    @apply text-secondary;
+  }
+
+  /* A real substitution: the engine answered with another model than selected. */
+  .av-amber-row {
+    @apply grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-6 gap-y-1 rounded-xl px-5 py-3 text-[13px] sm:grid-cols-[9rem_minmax(0,1fr)_auto];
+  }
+
+  .av-amber-row > :nth-child(2) {
+    @apply col-span-2 row-start-2 sm:col-span-1 sm:row-start-auto;
+  }
+
+  /* "Where competitors beat you": the population's name where the class
+     control goes when there is only one class. Load bearing, so 13px
+     text-secondary, never a 10px muted eyebrow. */
   .mention-share-class {
     @apply text-[13px] font-medium text-secondary;
   }
 
-  .mention-share-value {
-    @apply text-2xl font-bold tracking-tight tabular-nums;
-  }
-
-  /* Non-numeric states are sentences, not figures, so they never take the 24px
-     numeral size. */
+  /* Non-numeric mention share states are words, not figures, so they never
+     take the card's numeral size. */
   .mention-share-value-text {
     @apply text-[15px] font-medium text-secondary;
-  }
-
-  /* Carries the denominator's name next to its counts, so a crop of the figure
-     is still self-describing. */
-  .mention-share-caption {
-    @apply text-[13px] text-secondary tabular-nums;
-  }
-
-  .mention-share-caption-scope {
-    @apply font-medium text-heading;
-  }
-
-  .mention-share-note {
-    @apply text-[13px] text-secondary;
-  }
-
-  /* A real <table> for semantics, laid out as the same four-column grid it was
-     before. `display: block` on the table and its sections hands layout back to
-     the per-row grid; the columns are still declared in one place. */
-  .mention-share-table {
-    @apply block pt-1;
-  }
-
-  .mention-share-table thead,
-  .mention-share-table tbody {
-    @apply block;
-  }
-
-  /* A `th` defaults to bold and centred; the row header must look exactly like
-     the span it replaced, so weight comes from the row's own classes. */
-  .mention-share-table th {
-    @apply text-left;
-    font-weight: inherit;
-  }
-
-  .mention-share-rows {
-    @apply space-y-1.5;
-  }
-
-  /* Under 480px the bar track COLLAPSES to zero width rather than the bar being
-     `display: none`. Two reasons, both learned by measuring:
-     - The bar is redundant with the share percentage printed beside it, but the
-       competitor's name is not redundant with anything. At 390px a 1fr label
-       against a 2fr bar truncated `rival-one.example` and `rival-two.example`
-       to the same `rival-...`, which destroys the one thing this list says.
-     - `display: none` removes a grid ITEM from the grid, it does not leave its
-       track empty. Hiding the bar that way reflowed each row's remaining three
-       cells into columns 1-3 while the header kept four, putting the `Share`
-       heading 68px right of the numbers under it. A zero-width track keeps
-       every row and the header on the same four columns.
-     `.mention-share-bar` is `w-full overflow-hidden`, so at a zero-width track
-     it paints nothing. */
-  .mention-share-row {
-    @apply grid items-center gap-x-3 text-[13px];
-    grid-template-columns: minmax(0, 1fr) 0 64px 56px;
-  }
-
-  @media (min-width: 480px) {
-    .mention-share-row {
-      grid-template-columns: minmax(140px, 1fr) minmax(80px, 2fr) 64px 60px;
-    }
-  }
-
-  /* MUST stay after `.mention-share-row` and its media query: equal specificity,
-     so source order decides the font size. */
-  .mention-share-row-head {
-    @apply mb-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted;
-  }
-
-  .mention-share-row-label {
-    @apply truncate;
-  }
-
-  .mention-share-bar {
-    @apply h-1.5 w-full rounded-full bg-surface-inset overflow-hidden;
-  }
-
-  .mention-share-bar-fill {
-    @apply h-full rounded-full;
-  }
-
-  .mention-share-count {
-    @apply inline-flex items-center justify-end gap-1 text-secondary tabular-nums text-right;
-  }
-
-  .mention-share-share {
-    @apply text-primary tabular-nums text-right;
-  }
-
-  /* The gap rows sit below a rule because the class control has no authority
-     over them: `mentionGaps` and `gapQueries` have no class split in the DTO. */
-  .competitive-gaps {
-    @apply mt-5 pt-4 border-t border-mono-800/50;
   }
 
   /* ── Movement banner (Since Last Run) ── */
@@ -1727,7 +1841,7 @@
   }
 
   .metric-card-bar-fill {
-    /* Tone color comes from the paired `progress-fill-{tone}` class. Transition
+    /* Color comes from the paired `progress-fill-neutral` class. Transition
        is scoped to `width` (not `all`, which also crossfaded tone swaps) and
        gated behind `motion-safe` so reduced-motion users get no animation. */
     @apply h-full rounded-full motion-safe:transition-[width] motion-safe:duration-300;
@@ -2065,24 +2179,12 @@
     @apply mt-0.5 text-[12px] text-faint;
   }
 
-  /* ── Metric progress-bar tone fills ──
-     Shared by `.metric-card-bar-fill` (secondary metric cards) and the AEO
-     performance hero rows. The metric card / grid layout itself lives in the
-     "Metric cards (non-gauge)" block above; the duplicate definitions that
-     once lived here silently overrode it (flipping `lg:grid-cols-3` to
-     `md:grid-cols-2`) and have been removed. */
-
-  .progress-fill-positive {
-    @apply bg-positive-400;
-  }
-
-  .progress-fill-caution {
-    @apply bg-caution-400;
-  }
-
-  .progress-fill-negative {
-    @apply bg-negative-400;
-  }
+  /* ── Metric progress-bar fill ──
+     The one untoned fill, shared by `.metric-card-bar-fill` (a Property's
+     metric cards) and the report strip's rate bars. The metric card / grid
+     layout itself lives in the "Metric cards (non-gauge)" block above; the
+     duplicate definitions that once lived here silently overrode it (flipping
+     `lg:grid-cols-3` to `md:grid-cols-2`) and have been removed. */
 
   .progress-fill-neutral {
     @apply bg-mono-500;
@@ -2469,6 +2571,15 @@
     @apply pl-10;
   }
 
+  /* One labelled row group per query class: Non-brand, then Branded. */
+  .query-evidence-group > th {
+    @apply bg-surface-subtle py-2.5 text-left text-[13px] font-semibold text-strong;
+  }
+
+  .query-evidence-new {
+    @apply whitespace-nowrap text-info-300;
+  }
+
   .query-evidence-preview-row > td {
     @apply bg-surface-subtle px-10 pb-6 pt-2;
   }
@@ -2635,18 +2746,6 @@
 
   .competitor-table td {
     @apply px-4 py-3 text-neutral;
-  }
-
-  .competitor-landscape {
-    @apply space-y-4;
-  }
-
-  .competitor-landscape-group th {
-    @apply border-y border-default bg-bg-elevated/35 px-4 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-secondary;
-  }
-
-  .competitor-landscape-manage {
-    @apply mt-1;
   }
 
   /* ── Project row (overview) ── */

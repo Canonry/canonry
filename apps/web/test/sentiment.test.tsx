@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { aggregateSentiment, createSentimentEvaluationDefinition, emptySentimentCounts } from '@ainyc/canonry-contracts'
 import type { SentimentEvidenceItem, SentimentSettings, SentimentSummary, SentimentAssessmentSummary } from '@ainyc/canonry-contracts'
-import { SentimentScopeProvider, SentimentControls, SentimentHeadlines, SentimentQueryScore, SentimentAnswerOutcome, SentimentOverviewMetric, SentimentEvidenceDrawer, useSentimentResolvedSource, SENTIMENT_COPY, showsSentimentOverview } from '../src/components/project/SentimentSection.js'
+import { SentimentScopeProvider, SentimentControls, SentimentHeadlines, SentimentQueryScore, SentimentAnswerOutcome, SentimentOverviewMetric, SentimentEvidenceDrawer, useSentimentResolvedSource, SENTIMENT_COPY, SENTIMENT_MIN_RATED, showsFavorableShare, showsSentimentOverview } from '../src/components/project/SentimentSection.js'
 import { sentimentSelectionFromVisibility, sentimentSelectionForSimpleEvidence, sentimentQueryKey, sentimentSummaryRefetchInterval } from '../src/queries/sentiment.js'
 import { EvidenceTable } from '../src/components/project/EvidenceTable.js'
 import { createDashboardFixture } from '../src/mock-data.js'
@@ -14,7 +14,7 @@ afterEach(cleanup)
 function summary(): SentimentSummary {
   return { ...aggregateSentiment([]), state: 'complete', provisional: false, reason: null,
     selection: { mode: 'advanced', queryClass: 'branded', scope: 'property', scopeKey: 'north', marketKey: 'chicago', runId: 'run', revision: 3, provider: 'openai', model: 'source-model', location: 'Chicago', evaluationDefinitionId: 'definition-a' }, evaluationDefinition: createSentimentEvaluationDefinition(),
-    coverage: { selected: 10, eligibleAssessments: 10, unadmittedAssessments: 0, judged: 5, distinctSourceAnswers: 8, expectedProviderSlots: 10, completedProviderSlots: 10, counts: { ...emptySentimentCounts(), favorable: 3, mixed: 1, unfavorable: 1, factual: 5 } },
+    coverage: { selected: 12, eligibleAssessments: 12, unadmittedAssessments: 0, judged: 10, distinctSourceAnswers: 8, expectedProviderSlots: 12, completedProviderSlots: 12, counts: { ...emptySentimentCounts(), favorable: 6, mixed: 2, unfavorable: 2, factual: 2 } },
     score: { ...aggregateSentiment([]).score, favorableRate: 0.601, favorableDisplay: '60.1%', mixedRate: 0.2, mixedDisplay: '20%', unfavorableRate: 0.199, unfavorableDisplay: '19.9%', interval: { low: 0.23, high: 0.88 } },
     configured: true, queries: [], breakdowns: [] }
 }
@@ -54,7 +54,7 @@ describe('sentiment presentation', () => {
     try {
       expect((await screen.findByLabelText('Branded favorable share')).textContent).toContain('60.1%')
       expect((await screen.findByLabelText('Non-brand favorable share')).textContent).toContain('25%')
-      expect(screen.getAllByText('5 of 10')).toHaveLength(2)
+      expect(screen.getAllByText('10 of 12')).toHaveLength(2)
       expect(screen.queryByText(/theme/i)).toBeNull()
       expect(screen.queryByRole('button', { name: 'Manage sentiment' })).toBeNull()
       expect(page.requests.filter(url => url.pathname.endsWith('/sentiment'))).toHaveLength(2)
@@ -66,12 +66,12 @@ describe('sentiment presentation', () => {
       const branded = await screen.findByLabelText('Branded favorable share')
       const nonBrand = await screen.findByLabelText('Non-brand favorable share')
       expect(branded.compareDocumentPosition(nonBrand) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-      expect(branded.textContent).toBe('60.1%· 5 ratings')
+      expect(branded.textContent).toBe('60.1%· 10 ratings')
       expect(branded.textContent).not.toContain('interval')
       const details = branded.parentElement!.querySelector('details')!
       expect(details.open).toBe(false)
       expect(details.querySelector('summary')!.textContent).toBe('Details')
-      expect(within(details).getByText('5 of 10')).toBeTruthy()
+      expect(within(details).getByText('10 of 12')).toBeTruthy()
       expect(within(details).getByText('8')).toBeTruthy()
       expect(within(details).getByText('Factual')).toBeTruthy()
       expect(within(details).getByText('23.0% to 88.0%')).toBeTruthy()
@@ -79,6 +79,41 @@ describe('sentiment presentation', () => {
       expect(screen.queryByText('Experimental sentiment')).toBeNull()
       expect(screen.queryByText('Coverage and method')).toBeNull()
       expect(document.body.textContent).not.toContain('0.23')
+    } finally { page.close() }
+  })
+  it('hides the favorable share below ten ratings and keeps the rated outcomes in Details', async () => {
+    expect(SENTIMENT_MIN_RATED).toBe(10)
+    expect([0, 1, 9, 10, 44].map(showsFavorableShare)).toEqual([false, false, false, true, true])
+    // ainyc's branded class: 2 of 12 rated, 1 favorable and 1 mixed, 50.0% on the wire.
+    const dto = summary()
+    dto.coverage = { ...dto.coverage, judged: 2, counts: { ...emptySentimentCounts(), favorable: 1, mixed: 1, factual: 6, 'ambiguous-subject': 3, 'wrong-subject': 1 } }
+    dto.score = { ...dto.score, favorableRate: 0.5, favorableDisplay: '50.0%' }
+    const page = renderScope(<SentimentHeadlines queryClass="branded" />, { branded: dto })
+    try {
+      const headline = await screen.findByLabelText('Branded favorable share')
+      expect(headline.textContent).toBe(`${SENTIMENT_COPY.tooFew}· 2 ratings`)
+      expect(document.body.textContent).not.toContain('50.0%')
+      const details = headline.parentElement!.querySelector('details')!
+      expect(details.open).toBe(false)
+      const rows = [...details.querySelectorAll('dl > div')].map(row => [row.querySelector('dt')!.textContent, row.querySelector('dd')!.textContent])
+      expect(rows).toEqual(expect.arrayContaining([
+        ['Rated assessments', '2 of 12'],
+        ['Favorable', '1'],
+        ['Mixed', '1'],
+        ['Favorable share', 'Shown from 10 ratings'],
+      ]))
+      // An outcome with no ratings is not listed.
+      expect(rows.some(([label]) => label === 'Unfavorable')).toBe(false)
+    } finally { page.close() }
+  })
+  it('shows the favorable share from exactly ten ratings, without the rated outcome rows', async () => {
+    const page = renderScope(<SentimentHeadlines queryClass="branded" />)
+    try {
+      const headline = await screen.findByLabelText('Branded favorable share')
+      expect(headline.textContent).toBe('60.1%· 10 ratings')
+      const details = headline.parentElement!.querySelector('details')!
+      expect(within(details).queryByText('Favorable share')).toBeNull()
+      expect(within(details).queryByText('Mixed')).toBeNull()
     } finally { page.close() }
   })
   it('shows only the selected query class and preserves zero judgments as unavailable', async () => {
@@ -117,12 +152,12 @@ describe('sentiment presentation', () => {
   })
   it('keeps measured zero and partial results visible while hiding empty coverage rows', async () => {
     const dto = summary(); dto.provisional = true; dto.state = 'partial'
-    dto.coverage.judged = 1; dto.coverage.unadmittedAssessments = 3
+    dto.coverage.unadmittedAssessments = 3
     dto.score = { ...dto.score, favorableRate: 0, favorableDisplay: '0%' }
     const page = renderScope(<SentimentHeadlines queryClass="branded" />, { branded: dto })
     try {
       const headline = await screen.findByLabelText('Branded favorable share')
-      expect(headline.textContent).toBe('0%· 1 ratingPartial results')
+      expect(headline.textContent).toBe('0%· 10 ratingsPartial results')
       const details = headline.parentElement!.querySelector('details')!
       expect(within(details).getByText('Not yet analyzed')).toBeTruthy()
       expect(within(details).getByText('3')).toBeTruthy()
@@ -157,10 +192,10 @@ describe('sentiment presentation', () => {
     expect(screen.queryByLabelText('Non-brand favorable share')).toBeNull()
     expect(container.querySelectorAll('.metric-inline-value')).toHaveLength(1)
     expect(container.querySelector('.metric-inline-value')?.textContent).toContain('all query classes')
-    expect(screen.queryByText(/5 judged/)).toBeNull()
+    expect(screen.queryByText(/10 judged/)).toBeNull()
     expect(screen.queryByText('Unavailable')).toBeNull()
     const info = screen.getByRole('button', { name: /Overall sentiment/ })
-    expect(info.getAttribute('aria-label')).toContain('5 of 10 judged')
+    expect(info.getAttribute('aria-label')).toContain('10 of 12 judged')
     expect(info.getAttribute('aria-label')).toContain('95% interval 23.0% to 88.0%')
     expect(info.getAttribute('aria-label')).toContain('Provisional')
     fireEvent.pointerDown(info)
@@ -226,7 +261,7 @@ describe('sentiment presentation', () => {
     try {
       const button = await screen.findByRole('button', { name: 'View Branded sentiment evidence for Is North Hall good?' })
       expect(button.textContent).toContain('31.7%')
-      expect(button.textContent).toContain('5 judged')
+      expect(button.textContent).toContain('10 judged')
       expect(button.textContent).toContain('Provisional')
       expect(screen.getAllByText('Unavailable')).toHaveLength(2)
       fireEvent.click(button)
@@ -285,8 +320,8 @@ describe('per-engine sentiment', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Is North Hall good?', exact: true }))
       const favorable = await screen.findByRole('button', { name: 'View openai sentiment evidence for North Hall: Favorable' })
       const unfavorable = screen.getByRole('button', { name: 'View gemini sentiment evidence for North Hall: Unfavorable' })
-      expect(within(favorable.closest('tr')!).getByText('openai')).toBeTruthy()
-      expect(within(unfavorable.closest('tr')!).getByText('gemini')).toBeTruthy()
+      expect(within(favorable.closest('tr')!).getByText('OpenAI')).toBeTruthy()
+      expect(within(unfavorable.closest('tr')!).getByText('Gemini')).toBeTruthy()
       expect(page.requests.filter(url => url.pathname.endsWith('/sentiment'))).toHaveLength(2)
       expect(page.requests.filter(url => url.pathname.endsWith('/evidence'))).toHaveLength(0)
       fireEvent.click(unfavorable)

@@ -99,7 +99,7 @@ test('the pressure label reads the single word "Pressure" and keeps its full mea
 
 test('a partial sweep keeps its data-validity caveat in the caution tone rather than as faint text', async () => {
   const doc = await renderOverview((fixture) => {
-    fixture.dashboard.portfolioOverview.projects[0]!.providerCoverage = '2 of 4 providers'
+    fixture.dashboard.portfolioOverview.projects[0]!.providerCoverage = '2 of 4 engines'
     fixture.dashboard.portfolioOverview.projects[1]!.providerCoverage = undefined
   })
 
@@ -110,10 +110,10 @@ test('a partial sweep keeps its data-validity caveat in the caution tone rather 
   const partialCaption = partialMention!.querySelector('.metric-inline-caption')!
   // Caution tone is the whole point: it is why the score above reads amber.
   expect(partialCaption.getAttribute('class')).toContain('text-caution')
-  expect(partialCaption.textContent).toBe('Partial sweep: 2 of 4 providers')
+  expect(partialCaption.textContent).toBe('Partial sweep: 2 of 4 engines')
   // Truncation is expected in a 9rem column, so the full text must survive on
   // the title attribute where a hover can still reach it.
-  expect(partialCaption.getAttribute('title')).toBe('2 of 4 providers')
+  expect(partialCaption.getAttribute('title')).toBe('2 of 4 engines')
 
   // A complete sweep carries no caveat and must NOT borrow the caution tone.
   const fullCaption = fullMention!.querySelector('.metric-inline-caption')!
@@ -183,10 +183,10 @@ test('shows MCP as a separate infrastructure row for viewers', async () => {
 test('one overall sentiment value aligns with the other stats and keeps help outside the project link', async () => {
   const doc = await renderOverview(fixture => {
     const headline = { ...aggregateSentiment([]), reason: null, runIds: ['run'], selection: { mode: 'simple' as const, scope: 'project' as const, queryClass: 'branded' as const, runId: 'run', revision: null, evaluationDefinitionId: 'definition' } }
-    const overall = { ...aggregateSentiment([
-      { assessmentId: 'one', sourceSnapshotId: 'one', outcome: 'favorable' },
-      { assessmentId: 'two', sourceSnapshotId: 'two', outcome: 'mixed' },
-    ]), reason: null, runIds: ['run'], queryClass: 'all' as const }
+    // Ten ratings, the fewest that show a favorable share.
+    const overall = { ...aggregateSentiment(Array.from({ length: 10 }, (_, index) => ({
+      assessmentId: `a${index}`, sourceSnapshotId: `s${index}`, outcome: index % 2 === 0 ? 'favorable' as const : 'mixed' as const,
+    }))), reason: null, runIds: ['run'], queryClass: 'all' as const }
     fixture.dashboard.portfolioOverview.projects[0]!.sentiment = { configured: true, overall, branded: headline, nonBrand: { ...headline, selection: { ...headline.selection, queryClass: 'non-brand' } } }
   })
   const metric = doc.querySelector('[data-sentiment-score]')!
@@ -196,7 +196,7 @@ test('one overall sentiment value aligns with the other stats and keeps help out
   expect(links).toHaveLength(1)
   expect(links[0]!.contains(help)).toBe(false)
   expect(links[0]!.getAttribute('href')).toMatch(/^\/projects\//)
-  expect(help.getAttribute('aria-label')).toContain('2 of 2 judged')
+  expect(help.getAttribute('aria-label')).toContain('10 of 10 judged')
   expect(row.classList.contains('project-row-with-sentiment')).toBe(true)
   expect(statBlocks(row)).toHaveLength(3)
   expect(metric.querySelector('.metric-inline-block')!.children).toHaveLength(3)
@@ -205,6 +205,23 @@ test('one overall sentiment value aligns with the other stats and keeps help out
   expect(metric.textContent).not.toContain('Unavailable')
   expect(metric.textContent).not.toContain('judged')
   expect(metric.querySelectorAll('.metric-inline-value')).toHaveLength(1)
+})
+
+test('below 10 ratings the overall value reads "too few", as the Tone card does', async () => {
+  const doc = await renderOverview(fixture => {
+    const headline = { ...aggregateSentiment([]), reason: null, runIds: ['run'], selection: { mode: 'simple' as const, scope: 'project' as const, queryClass: 'branded' as const, runId: 'run', revision: null, evaluationDefinitionId: 'definition' } }
+    const overall = { ...aggregateSentiment([
+      { assessmentId: 'one', sourceSnapshotId: 'one', outcome: 'favorable' },
+      { assessmentId: 'two', sourceSnapshotId: 'two', outcome: 'mixed' },
+    ]), reason: null, runIds: ['run'], queryClass: 'all' as const }
+    fixture.dashboard.portfolioOverview.projects[0]!.sentiment = { configured: true, overall, branded: headline, nonBrand: { ...headline, selection: { ...headline.selection, queryClass: 'non-brand' } } }
+  })
+  const metric = doc.querySelector('[data-sentiment-score]')!
+  // The slot stays, so the row keeps its grid; the counts stay in the ⓘ.
+  expect(metric.closest('.project-row')!.classList.contains('project-row-with-sentiment')).toBe(true)
+  expect(metric.querySelector('button')!.getAttribute('aria-label')).toContain('2 of 2 judged')
+  expect(metric.querySelector('.metric-inline-value')!.textContent).toBe('too few ratings for a favorable share, 2 of 10 needed, all query classes')
+  expect(metric.textContent).not.toContain('%')
 })
 
 test('an unjudged overall score leaves no sentiment metric or grid slot', async () => {

@@ -93,6 +93,12 @@ function detailsForTitle(doc: Document, title: string): HTMLDetailsElement | nul
     .find((details) => details.querySelector('.overview-disclosure-title')?.textContent === title) ?? null
 }
 
+/** An AI Visibility card, which is always on screen rather than a disclosure. */
+function cardForTitle(doc: Document, title: string): HTMLElement | null {
+  return [...doc.querySelectorAll<HTMLElement>('section.overview-brief')]
+    .find(card => card.querySelector('.av-card-title')?.textContent === title) ?? null
+}
+
 function visibilityReportQuery(projectName: string, selection: VisibilitySelectionState) {
   return { client: heyClient, path: { name: projectName }, query: visibilityReportFirstPageQuery(selection) }
 }
@@ -285,8 +291,8 @@ test('embed hides the project sweep action that leaks on every tab', async () =>
   // A read-only report still renders in the embed, proving we hid controls,
   // not content.
   expect(embed).toContain('Citypoint Dental NYC')
-  expect(embed).toContain('Answer-engine trend')
-  expect(embed).toContain('Coverage now')
+  expect(embed).toContain('AI answers over time')
+  expect(embed).toContain('id="overview-brief-title"')
   expect(embed).toContain('Query evidence')
   expect(embed).toContain('Mention share')
 })
@@ -314,17 +320,17 @@ test('embed hides the overview competitor and query managers', async () => {
   expect(embedDoc.querySelector('.page-header .tag-row')).toBeNull()
 })
 
-test('embed defaults client-value overview disclosures open and omits run history', async () => {
+test('embed shows the query evidence and By engine cards and omits past sweeps', async () => {
   const embedDoc = parseHtml(await renderAt('/projects/project_citypoint', { enabled: true, views: ['project'] }))
   const operatorDoc = parseHtml(await renderAt('/projects/project_citypoint'))
 
   expect(detailsForTitle(operatorDoc, 'Query evidence')?.hasAttribute('open')).toBe(true)
-  expect(detailsForTitle(operatorDoc, 'Citation and engine diagnostics')?.hasAttribute('open')).toBe(false)
-  expect(detailsForTitle(operatorDoc, 'Recent execution history')).not.toBeNull()
+  expect(cardForTitle(operatorDoc, 'By engine')).not.toBeNull()
+  expect(cardForTitle(operatorDoc, 'Past sweeps')).not.toBeNull()
 
   expect(detailsForTitle(embedDoc, 'Query evidence')?.hasAttribute('open')).toBe(true)
-  expect(detailsForTitle(embedDoc, 'Citation and engine diagnostics')?.hasAttribute('open')).toBe(true)
-  expect(detailsForTitle(embedDoc, 'Recent execution history')).toBeNull()
+  expect(cardForTitle(embedDoc, 'By engine')).not.toBeNull()
+  expect(cardForTitle(embedDoc, 'Past sweeps')).toBeNull()
 })
 
 // A default embed config (enabled, no `views` allowlist) makes every top-level
