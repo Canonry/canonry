@@ -393,7 +393,7 @@ Sentiment JSON columns use native Drizzle JSON mode. Provider calls run outside 
 | Table | Purpose |
 |-------|---------|
 | **agent_sessions** | One active Aero conversation per project. Durable half of the hybrid session registry — stores transcript, queued follow-ups, and chosen provider/model so a live pi-agent-core Agent can be rehydrated after a restart. Unique: `projectId`. FK: projectId → projects |
-| **agent_conversations** | Inactive Aero conversations. Stores title, transcript, prompt snapshot, model, pending follow-ups, and timestamps. New/resume swaps with the active slot in one transaction. FK: projectId → projects |
+| **agent_conversations** | Inactive Aero conversations. Stores title, transcript, prompt snapshot, model, pending follow-ups, and timestamps. New/resume swaps with the active slot in one transaction. `llm_usage_events` and `agent_tool_events` keep the conversation id through new, resume and archive (a plain column since migration 165, because the id moves between the two tables); deleting a conversation clears it. FK: projectId → projects |
 | **agent_memory** | Project-scoped durable notes written by Aero (`remember`), the operator (CLI / API), or the compaction summarizer. Shared notes and only the active conversation's compaction summaries hydrate its system prompt under `<memory>`. Keys starting with `compaction:` are reserved for summarized transcript slices. Unique: `(projectId, key)`. FK: projectId → projects |
 
 ### Discovery (three-ring model)

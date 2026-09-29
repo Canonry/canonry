@@ -5,11 +5,14 @@ import path from 'node:path'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
-import { agentConversations, agentMemory, agentSessions, createClient, migrate, MIGRATION_VERSIONS, type DatabaseClient } from '@ainyc/canonry-db'
+import type { AssistantMessage } from '@mariozechner/pi-ai'
+import { agentConversations, agentMemory, agentSessions, agentToolEvents, createClient, llmUsageEvents, migrate, MIGRATION_VERSIONS, type DatabaseClient } from '@ainyc/canonry-db'
 import { AppError, MemorySources, agentConversationListSchema, agentConversationSchema } from '@ainyc/canonry-contracts'
 import { registerAgentRoutes } from '../src/agent/agent-routes.js'
 import { SessionRegistry } from '../src/agent/session-registry.js'
 import { loadRecentForHydrate, upsertMemoryEntry, writeCompactionNote } from '../src/agent/memory-store.js'
+import { AeroLlmUsageFeatures, recordLlmUsageEvent } from '../src/agent/llm-usage.js'
+import { recordAgentToolEvent } from '../src/agent/tool-usage.js'
 import { ApiClient } from '../src/client.js'
 import type { CanonryConfig } from '../src/config.js'
 import { canonryMcpTools } from '../src/mcp/tool-registry.js'
@@ -116,8 +119,61 @@ it('preserves pending followups with their conversation and refuses changes duri
   expect(registry.peekPending('demo')).toEqual(messages)
 })
 
+it('keeps each conversation\'s usage and tool events attributed across new, resume and delete', async () => {
+  // A turn records one usage row per model call and one event per tool call,
+  // both keyed by the active conversation id.
+  const recordTurn = (agentSessionId: string) => {
+    const message = {
+      role: 'assistant', content: [], provider: 'deepinfra', model: 'test-model', responseId: `response-${agentSessionId}`, stopReason: 'stop', timestamp: 1,
+      usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0.001 } },
+    } as unknown as AssistantMessage
+    recordLlmUsageEvent({ db, projectId: 'demo', agentSessionId, feature: AeroLlmUsageFeatures.turn, message })
+    recordAgentToolEvent({ db, projectId: 'demo', agentSessionId, toolCallId: `call-${agentSessionId}`, toolName: 'canonry_project_get', status: 'success' })
+  }
+  const sorted = (ids: Array<string | null>) => [...ids].sort((a, b) => String(a).localeCompare(String(b)))
+  const ledger = () => sorted([
+    ...db.select({ id: llmUsageEvents.agentSessionId }).from(llmUsageEvents).all(),
+    ...db.select({ id: agentToolEvents.agentSessionId }).from(agentToolEvents).all(),
+  ].map(row => row.id))
+
+  recordTurn('legacy')
+  expect(ledger()).toEqual(['legacy', 'legacy'])
+
+  const id = crypto.randomUUID()
+  const created = await create(id)
+  expect(created.statusCode).toBe(200)
+  expect(created.json()).toMatchObject({ id, active: true, messages: [] })
+  expect(current()).toMatchObject({ id, systemPrompt: 'Old installed prompt', modelProvider: 'claude', modelId: 'claude-opus-4-7', messages: '[]', followUpQueue: '[]' })
+  expect(db.select().from(agentConversations).where(eq(agentConversations.id, 'legacy')).get()).toMatchObject({ messages })
+  expect(ledger()).toEqual(['legacy', 'legacy'])
+
+  recordTurn(id)
+  expect((await app.inject({ method: 'POST', url: `${url}/legacy/resume` })).statusCode).toBe(200)
+  expect(current().id).toBe('legacy')
+  expect(ledger()).toEqual(sorted(['legacy', 'legacy', id, id]))
+
+  // Deleting a conversation keeps what was spent and unlinks it from the id.
+  expect((await app.inject({ method: 'DELETE', url: `${url}/${id}` })).statusCode).toBe(200)
+  expect(ledger()).toEqual(sorted(['legacy', 'legacy', null, null]))
+  expect((await app.inject({ method: 'DELETE', url: `${url}/legacy` })).statusCode).toBe(200)
+  expect(ledger()).toEqual([null, null, null, null])
+  expect(db.select().from(llmUsageEvents).all().map(row => row.costMillicents)).toEqual([100, 100])
+})
+
+it('starts a conversation when the live session has lost its row', async () => {
+  // A project deleted and recreated under the same name leaves the registry's
+  // live session without a row; creating a conversation must not reuse it.
+  registry.getOrCreate('demo')
+  db.delete(agentSessions).run()
+  const id = crypto.randomUUID()
+  const created = await create(id)
+  expect(created.statusCode).toBe(200)
+  expect(created.json()).toMatchObject({ id, active: true, messages: [] })
+  expect(current()).toMatchObject({ id, projectId: 'demo', messages: '[]' })
+})
+
 it('rolls back an archive and active change together if a transaction fails', async () => {
-  db.run(sql.raw("CREATE TRIGGER reject_conversation_update BEFORE UPDATE ON agent_sessions BEGIN SELECT RAISE(ABORT, 'test failure'); END"))
+  db.run(sql.raw("CREATE TRIGGER reject_conversation_insert BEFORE INSERT ON agent_sessions BEGIN SELECT RAISE(ABORT, 'test failure'); END"))
   expect((await create()).statusCode).toBe(500)
   expect(current().id).toBe('legacy')
   expect(db.select().from(agentConversations).all()).toEqual([])

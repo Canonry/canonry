@@ -168,6 +168,17 @@ const RUN_HOOK_ALLOWLIST: ReadonlySet<number> = new Set([
   // `model_id = 'zai-org/GLM-5.2'` predicate, which also stops it overwriting a
   // later explicit selection.
   158,
+  // v165 rebuilds `llm_usage_events` and `agent_tool_events` only to drop the
+  // `agent_session_id -> agent_sessions(id)` foreign key; every column, default,
+  // index and the project/run keys are unchanged, and rows are copied verbatim.
+  // The hook is required because SQLite cannot drop a foreign key without a
+  // transactional table rebuild (as v118). Downgrade-safe: no binary reads the
+  // ledgers' session id, and an older binary's writes are a subset of what the
+  // relaxed table accepts. Its new-conversation handler re-keys the active row,
+  // which now succeeds instead of failing on the key, and its resume and delete
+  // handlers no longer null the ledger rows. Idempotent: a table without the
+  // key is skipped.
+  165,
 ])
 
 test(`migrations after v${DOWNGRADE_BASELINE} define no run() hook unless explicitly allowlisted`, () => {

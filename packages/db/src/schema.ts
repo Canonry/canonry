@@ -2090,7 +2090,8 @@ export const llmUsageEvents = sqliteTable('llm_usage_events', {
   id: text('id').primaryKey(),
   projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
   runId: text('run_id').references(() => runs.id, { onDelete: 'set null' }),
-  agentSessionId: text('agent_session_id').references(() => agentSessions.id, { onDelete: 'set null' }),
+  /** The Aero conversation id: `agent_sessions.id` while active, `agent_conversations.id` once archived. Not a foreign key (v165). */
+  agentSessionId: text('agent_session_id'),
   feature: text('feature').notNull(),
   provider: text('provider').notNull(),
   model: text('model').notNull(),
@@ -2120,7 +2121,8 @@ export const llmUsageEvents = sqliteTable('llm_usage_events', {
 export const agentToolEvents = sqliteTable('agent_tool_events', {
   id: text('id').primaryKey(),
   projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
-  agentSessionId: text('agent_session_id').references(() => agentSessions.id, { onDelete: 'set null' }),
+  /** The Aero conversation id, as on `llm_usage_events`. Not a foreign key (v165). */
+  agentSessionId: text('agent_session_id'),
   toolCallId: text('tool_call_id').notNull(),
   toolName: text('tool_name').notNull(),
   assistantResponseId: text('assistant_response_id'),

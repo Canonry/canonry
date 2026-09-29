@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { and, desc, eq, like } from 'drizzle-orm'
-import { agentConversations, agentMemory, agentSessions, parseJsonColumn, type DatabaseClient } from '@ainyc/canonry-db'
+import { agentConversations, agentMemory, agentSessions, agentToolEvents, llmUsageEvents, parseJsonColumn, type DatabaseClient } from '@ainyc/canonry-db'
 import { agentBusy, agentConversationCreateSchema, agentConversationListQuerySchema, agentConversationTitle, alreadyExists, notFound, validationError, type AgentConversation, type AgentConversationSummary } from '@ainyc/canonry-contracts'
 import { requireInstanceAdministrator } from './auth.js'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
@@ -80,11 +80,21 @@ export function registerAgentConversationRoutes(app: FastifyInstance, opts: { db
     prepare(project.name)
     const existing = activeRow(project.id)
     if (!existing) runtime.getOrCreate(project.name)
-    const current = activeRow(project.id)!
+    if (!activeRow(project.id)) {
+      // A live session whose row is gone (the project was recreated) inserts
+      // nothing; drop it so the fresh one writes the row the insert copies.
+      runtime.reset(project.name)
+      runtime.getOrCreate(project.name)
+    }
+    const current = activeRow(project.id)
+    if (!current) throw notFound('conversation', id)
     const now = new Date().toISOString()
     db.transaction(tx => {
       if (existing) archive(tx, current)
-      tx.update(agentSessions).set({ id, messages: '[]', followUpQueue: '[]', createdAt: now, updatedAt: now }).where(eq(agentSessions.projectId, project.id)).run()
+      // Replace the active row rather than re-keying it: its id is the archived
+      // conversation's id, which the usage and tool ledgers keep.
+      tx.delete(agentSessions).where(eq(agentSessions.projectId, project.id)).run()
+      tx.insert(agentSessions).values({ ...current, id, messages: '[]', followUpQueue: '[]', createdAt: now, updatedAt: now }).run()
       writeAuditLog(tx, auditFromRequest(request, { projectId: project.id, actor: 'api', action: 'agent.conversation.created', entityType: 'agent-conversation', entityId: id }))
     })
     runtime.reset(project.name)
@@ -123,6 +133,9 @@ export function registerAgentConversationRoutes(app: FastifyInstance, opts: { db
     db.transaction(tx => {
       tx.delete(agentConversations).where(and(eq(agentConversations.projectId, project.id), eq(agentConversations.id, id))).run()
       if (isActive) tx.delete(agentSessions).where(eq(agentSessions.projectId, project.id)).run()
+      // Keep what the conversation spent, but no longer link it to a deleted id.
+      tx.update(llmUsageEvents).set({ agentSessionId: null }).where(and(eq(llmUsageEvents.projectId, project.id), eq(llmUsageEvents.agentSessionId, id))).run()
+      tx.update(agentToolEvents).set({ agentSessionId: null }).where(and(eq(agentToolEvents.projectId, project.id), eq(agentToolEvents.agentSessionId, id))).run()
       // Prefix matching treats legacy IDs containing SQL wildcards literally.
       const prefix = `compaction:${id}:`
       const notes = tx.select().from(agentMemory).where(and(eq(agentMemory.projectId, project.id), like(agentMemory.key, 'compaction:%'))).all()
