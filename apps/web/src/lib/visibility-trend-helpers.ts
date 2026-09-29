@@ -1,11 +1,12 @@
 import type {
+  BasketChangeEvent,
   BrandMetricsDto,
   ModelAttribution,
   ModelAttributionEvent,
   ModelEvidenceState,
   ModelPointerChangeDisclosure,
   ModelServiceMismatch,
-  QueryChangeEvent,
+  QueryClass,
   ServedModelAttribution,
   TrendDirection,
   WindowRateChange,
@@ -13,8 +14,9 @@ import type {
 import type { MetricTone } from '../view-models.js'
 import {
   formatObservedInstantLabel,
-  formatObservedInstantTick,
+  formatObservedInstantMonthDay,
   observedInstant,
+  observedInstantYear,
   type ObservedInstant,
 } from '../components/shared/ChartPrimitives.js'
 
@@ -113,25 +115,39 @@ export function readBucketObservedRange(
   }
 }
 
-/**
- * The date a bucket's point is really about, in the viewer's own timezone. When
- * the bucket pools several sweeps it reads as a range plus the count — today
- * that pooling is invisible and a multi-week average looks like a single
- * reading.
- */
-export function formatBucketDateLabel(bucket: BrandMetricsDto['buckets'][number]): string {
-  const range = readBucketObservedRange(bucket)
-  if (!range) return 'Sweep date unavailable'
-  const start = formatObservedInstantLabel(range.start)
-  const end = formatObservedInstantLabel(range.end)
-  if (start === end) return start
-  return `${start} – ${end} · ${range.sweepCount} sweeps combined`
+/** A real instant as a day in the viewer's timezone: "Sep 29", with the year only outside the current one. */
+export function formatObservedDay(instant: ObservedInstant, now: Date = new Date()): string {
+  return observedInstantYear(instant) === now.getFullYear()
+    ? formatObservedInstantMonthDay(instant)
+    : formatObservedInstantLabel(instant)
 }
 
-/** Compact axis tick for a bucket — the first sweep it actually contains, in the viewer's timezone. */
+/** The days a bucket's sweeps span: "Sep 29", or "Mar 13 to Apr 8". Null on an older API. */
+export function formatBucketDayRange(bucket: BrandMetricsDto['buckets'][number], now: Date = new Date()): string | null {
+  const range = readBucketObservedRange(bucket)
+  if (!range) return null
+  const start = formatObservedDay(range.start, now)
+  const end = formatObservedDay(range.end, now)
+  return start === end ? start : `${start} to ${end}`
+}
+
+/**
+ * The date a bucket's point is really about, in the viewer's own timezone, and
+ * always how many sweeps it pools ("Sep 29 · 2 sweeps", "Mar 13 to Apr 8 · 41
+ * sweeps"): two sweeps on one day are still two readings, and a multi-week
+ * average must never look like a single one.
+ */
+export function formatBucketDateLabel(bucket: BrandMetricsDto['buckets'][number], now: Date = new Date()): string {
+  const range = readBucketObservedRange(bucket)
+  const days = formatBucketDayRange(bucket, now)
+  if (!range || !days) return 'Sweep date unavailable'
+  return `${days} · ${range.sweepCount} ${range.sweepCount === 1 ? 'sweep' : 'sweeps'}`
+}
+
+/** Axis tick for a bucket ("Mar 13"): the first sweep it actually contains, in the viewer's timezone. */
 export function formatBucketDateTick(bucket: BrandMetricsDto['buckets'][number]): string {
   const range = readBucketObservedRange(bucket)
-  return range ? formatObservedInstantTick(range.start) : ''
+  return range ? formatObservedInstantMonthDay(range.start) : ''
 }
 
 export function normalizeProviderKey(provider: string): string {
@@ -229,17 +245,16 @@ export function readModelPointerChanges(dto: BrandMetricsDto): Record<string, Mo
   return (dto as MetricsWithOptionalModelAttribution).modelPointerChanges ?? {}
 }
 
-/** The raw ids an engine reported, joined for display. Empty → the normalized label stands alone. */
-export function formatServedModelIds(ids: readonly string[]): string | null {
-  return ids.length > 0 ? ids.join(', ') : null
+/** "a", "a and b", "a, b and c". */
+export function joinWithAnd(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? ''
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
 }
 
-function findNormalizedProvider<T>(byProvider: Record<string, T | undefined>, provider: string): T | undefined {
-  const target = normalizeProviderKey(provider)
-  return Object.entries(byProvider).find(([key]) => normalizeProviderKey(key) === target)?.[1]
-}
-
-/** Human-readable, categorical evidence label. This never turns mixed data into a single model. */
+/**
+ * Human-readable, categorical evidence label. This never turns mixed data into
+ * a single model: "a, b", or "a, b and an unknown model".
+ */
 export function formatModelEvidence(state: ModelEvidenceState): string {
   switch (state.status) {
     case 'known':
@@ -247,26 +262,14 @@ export function formatModelEvidence(state: ModelEvidenceState): string {
     case 'unknown':
       return 'Unknown model'
     case 'mixed':
-      return `Mixed: ${state.models.join(', ')}${state.includesUnknown ? ' + unknown' : ''}`
+      if (state.models.length === 0) return 'Unknown model'
+      return `${state.models.join(', ')}${state.includesUnknown ? ' and an unknown model' : ''}`
   }
 }
 
-/**
- * Read the evidence from the same last bucket that draws a provider's plotted
- * point. Do not use run-detail/citation history: it can include a different
- * window, a probe, or a partial sweep that the analytics response excluded.
- */
-export function latestPlottedProviderModelEvidence(
-  buckets: readonly BrandMetricsDto['buckets'][number][],
-  provider: string,
-): ModelEvidenceState | null {
-  for (let index = buckets.length - 1; index >= 0; index -= 1) {
-    const bucket = buckets[index]!
-    if (!findNormalizedProvider(bucketProviders(bucket), provider)) continue
-    const evidence = readBucketModelEvidence(bucket)
-    return evidence ? findNormalizedProvider(evidence, provider) ?? null : null
-  }
-  return null
+/** A mixed point's models as a phrase ("a and b", "a, b and an unknown model"). */
+export function formatMixedModels(state: Extract<ModelEvidenceState, { status: 'mixed' }>): string {
+  return joinWithAnd([...state.models, ...(state.includesUnknown ? ['an unknown model'] : [])])
 }
 
 /** Group categorical changes by the existing plotted bucket; no false-precision timestamp markers. */
@@ -326,28 +329,6 @@ export function partitionModelAttributionEvents(
     beforeWindow: beforeWindow.sort((a, b) =>
       a.event.observedAt.localeCompare(b.event.observedAt) || a.provider.localeCompare(b.provider)),
   }
-}
-
-/**
- * How many changes the response actually carries vs how many it observed,
- * pooled across providers. Honest as a whole-list summary — it matches what
- * `groupModelAttributionEvents` renders — and that is all it is used for now
- * (the assistive-tech description). It must NOT drive the truncation note: the
- * server's cap is per provider, so a pooled pair cannot say WHOSE history is
- * clipped and reads as if every engine's were. Use `truncatedProviderCounts`
- * for anything the operator reads as a claim about a specific engine.
- */
-export function countModelAttributionEvents(
-  attribution: ModelAttribution,
-): { shown: number; total: number } {
-  let shown = 0
-  let total = 0
-  for (const entry of Object.values(attribution)) {
-    shown += entry.events.length
-    // An older server omits `eventTotal`; its list is the whole history.
-    total += entry.eventTotal ?? entry.events.length
-  }
-  return { shown, total }
 }
 
 export interface ProviderEventCount {
@@ -461,29 +442,247 @@ export function trendToTone(direction: TrendDirection): MetricTone {
   }
 }
 
-/** "2026-04-03" → "04/03" (MM/DD; ISO date is already zero-padded). */
-function mmdd(iso: string): string {
-  const [, m, d] = iso.slice(0, 10).split('-')
-  if (!m || !d) return iso
-  return `${m}/${d}`
+// ── What changed: the query set and the models behind the trend ──
+
+type MetricsBucket = BrandMetricsDto['buckets'][number]
+
+function instantMs(value: string): number {
+  return Date.parse(value)
 }
 
-function signedDelta(delta: number): string {
-  return delta > 0 ? `+${delta}` : `${delta}`
+/** True when `at` falls between a point's first and last sweep, inclusive. */
+function withinBucket(bucket: MetricsBucket, at: string): boolean {
+  const range = readBucketObservedRange(bucket)
+  if (!range) return false
+  const time = instantMs(at)
+  return time >= instantMs(range.start) && time <= instantMs(range.end)
+}
+
+/** The recorded query-set changes. An older API omits the field; that reads as none. */
+export function readBasketChanges(dto: BrandMetricsDto): BasketChangeEvent[] {
+  return (dto as { basketChanges?: BasketChangeEvent[] }).basketChanges ?? []
+}
+
+/** The query-set changes first measured inside one plotted point, oldest first. */
+export function basketChangesInBucket(bucket: MetricsBucket, changes: readonly BasketChangeEvent[]): BasketChangeEvent[] {
+  return changes
+    .filter(change => withinBucket(bucket, change.at))
+    .sort((a, b) => instantMs(a.at) - instantMs(b.at))
 }
 
 /**
- * One-line caption explaining query-set changes beneath the chart, so a rate
- * dip that coincides with newly-added queries reads as expected, not a
- * regression. Lists up to two changes inline; collapses three or more into a
- * count + the most recent so the caption never sprawls into a messy run-on.
- * Returns null when there are no changes (nothing to render).
+ * A Perplexity preset (`fast`, `low`, ...) picks its own model for every
+ * answer, so answering with a different model is the preset working, not a
+ * substitution. A fixed Perplexity model is a `vendor/model` slug (the
+ * provider's model registry), so an id without "/" is a preset.
  */
-export function formatQueryChangeCaption(changes: QueryChangeEvent[]): string | null {
-  if (changes.length === 0) return null
-  if (changes.length <= 2) {
-    return `Query set changed: ${changes.map(c => `${signedDelta(c.delta)} on ${mmdd(c.date)}`).join(', ')}`
+export function isPerplexityPreset(provider: string, state: ModelEvidenceState): boolean {
+  return normalizeProviderKey(provider) === 'perplexity' && state.status === 'known' && !state.model.includes('/')
+}
+
+/** Every served-model mismatch that is a real substitution: all but a Perplexity preset's. */
+export function substitutedModels(
+  mismatch: Record<string, ModelServiceMismatch>,
+): Array<{ provider: string; mismatch: ModelServiceMismatch }> {
+  return Object.entries(mismatch)
+    .filter(([provider, entry]) => !isPerplexityPreset(provider, entry.configured))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([provider, entry]) => ({ provider, mismatch: entry }))
+}
+
+export interface QuerySetChange {
+  /** The first sweep on the new query set. */
+  at: ObservedInstant
+  /** Stored query keys (normalized query text). */
+  added: string[]
+  removed: string[]
+  /** Queries measured before and after. Null when the response has no point to count from. */
+  fromCount: number | null
+  toCount: number | null
+}
+
+/**
+ * The window's query-set changes, newest first, with the query count on either
+ * side. The server holds every plotted point to the newest query set, so the
+ * latest point's count is the set after the newest change; each earlier count
+ * walks back through a change's added and removed queries.
+ */
+export function querySetChanges(dto: BrandMetricsDto): QuerySetChange[] {
+  let count: number | null = dto.buckets.at(-1)?.queryCount ?? null
+  return [...readBasketChanges(dto)]
+    .sort((a, b) => instantMs(b.at) - instantMs(a.at))
+    .map(change => {
+      const toCount = count
+      const before = toCount === null ? null : toCount - change.added.length + change.removed.length
+      count = before !== null && before >= 0 ? before : null
+      return { at: observedInstant(change.at), added: change.added, removed: change.removed, fromCount: count, toCount }
+    })
+}
+
+export interface ModelChangeRow {
+  provider: string
+  /** The first sweep on the new model. */
+  at: ObservedInstant
+  /** Inherited from before the window: it happened after `anchorAt`, on or before `at`. */
+  onOrBefore: boolean
+  anchorAt: ObservedInstant | null
+  from: ModelEvidenceState
+  to: ModelEvidenceState
+  /** For a move onto a Perplexity preset: what the engine answered with on either side. */
+  served: { from: ModelEvidenceState; to: ModelEvidenceState } | null
+  /** A preset that kept its id while the engine moved it onto a different model. */
+  reroute: boolean
+}
+
+/** The model a provider was set to at `at`: the last change on or before it, else the first change's `from`. */
+function configuredStateAt(entry: ModelAttribution[string], at: string): ModelEvidenceState {
+  const events = [...entry.events].sort((a, b) => instantMs(a.observedAt) - instantMs(b.observedAt))
+  let state = events[0]?.from ?? entry.latestObservation.state
+  for (const event of events) {
+    if (instantMs(event.observedAt) <= instantMs(at)) state = event.to
   }
-  const latest = [...changes].sort((a, b) => b.date.localeCompare(a.date))[0]!
-  return `Query set changed ${changes.length} times (latest ${signedDelta(latest.delta)} on ${mmdd(latest.date)})`
+  return state
+}
+
+function modelChangeRow(
+  provider: string,
+  event: ModelAttributionEvent,
+  served: ModelChangeRow['served'],
+  reroute: boolean,
+): ModelChangeRow {
+  return {
+    provider,
+    at: observedInstant(event.observedAt),
+    onOrBefore: event.fromPreWindowAnchor === true,
+    anchorAt: event.anchorObservedAt ? observedInstant(event.anchorObservedAt) : null,
+    from: event.from,
+    to: event.to,
+    served,
+    reroute,
+  }
+}
+
+/**
+ * Every model change in the window as one row, newest first. A Perplexity
+ * preset keeps its id while the engine picks the model, so the served series
+ * joins in two ways: the served move behind a switch onto the preset, and any
+ * later re-route under it, which the configured series never shows.
+ */
+export function modelChangeRows(attribution: ModelAttribution, served: ServedModelAttribution): ModelChangeRow[] {
+  const rows: ModelChangeRow[] = []
+  for (const [provider, entry] of Object.entries(attribution)) {
+    const servedEntry = served[provider] as ServedModelAttribution[string] | undefined
+    const servedEvents = servedEntry?.events ?? []
+    const configuredAt = new Set(entry.events.map(event => event.observedAt))
+    for (const event of entry.events) {
+      const servedEvent = isPerplexityPreset(provider, event.to)
+        ? servedEvents.find(candidate => candidate.observedAt === event.observedAt)
+        : undefined
+      rows.push(modelChangeRow(provider, event, servedEvent ? { from: servedEvent.from, to: servedEvent.to } : null, false))
+    }
+    for (const event of servedEvents) {
+      if (configuredAt.has(event.observedAt)) continue
+      if (!isPerplexityPreset(provider, configuredStateAt(entry, event.observedAt))) continue
+      rows.push(modelChangeRow(provider, event, null, true))
+    }
+  }
+  return rows.sort((a, b) => instantMs(b.at) - instantMs(a.at) || a.provider.localeCompare(b.provider))
+}
+
+/**
+ * The collapsed "What changed" line. It names what the latest point first
+ * measured ("Sep 29 · 3 queries added · 4 new models"), or, when that point
+ * brought nothing new, the day of the newest change. Null when nothing changed.
+ */
+export function whatChangedSummary({ latest, queryChanges, modelRows, now = new Date() }: {
+  latest: MetricsBucket | undefined
+  queryChanges: readonly QuerySetChange[]
+  modelRows: readonly ModelChangeRow[]
+  now?: Date
+}): string | null {
+  const instants = [...queryChanges.map(change => change.at), ...modelRows.map(row => row.at)]
+  if (instants.length === 0) return null
+  const inLatest = (at: string) => latest !== undefined && withinBucket(latest, at)
+  const latestQueries = queryChanges.filter(change => inLatest(change.at))
+  const added = latestQueries.reduce((sum, change) => sum + change.added.length, 0)
+  const removed = latestQueries.reduce((sum, change) => sum + change.removed.length, 0)
+  const models = modelRows.filter(row => inLatest(row.at)).length
+  const days = latest ? formatBucketDayRange(latest, now) : null
+  if (days === null || added + removed + models === 0) {
+    const newest = instants.reduce((a, b) => (instantMs(b) > instantMs(a) ? b : a))
+    return `No changes since ${formatObservedDay(newest, now)}`
+  }
+  const parts = [days]
+  if (added > 0) parts.push(`${added} ${added === 1 ? 'query' : 'queries'} added`)
+  if (removed > 0) parts.push(`${removed} ${removed === 1 ? 'query' : 'queries'} removed`)
+  if (models > 0) parts.push(`${models} new ${models === 1 ? 'model' : 'models'}`)
+  return parts.join(' · ')
+}
+
+/**
+ * The last sweep before `at`: from the recent sweeps and the plotted points'
+ * own first and last sweeps, since a 7 or 30 day window may plot one point.
+ */
+export function sweepBefore(
+  at: string,
+  sweepTimes: readonly string[],
+  buckets: readonly MetricsBucket[],
+): ObservedInstant | null {
+  const candidates = [
+    ...sweepTimes,
+    ...buckets.flatMap(bucket => {
+      const range = readBucketObservedRange(bucket)
+      return range ? [range.start, range.end] : []
+    }),
+  ].filter(time => Number.isFinite(instantMs(time)) && instantMs(time) < instantMs(at))
+  if (candidates.length === 0) return null
+  return observedInstant(candidates.reduce((a, b) => (instantMs(b) > instantMs(a) ? b : a)))
+}
+
+/** How the query set moved between the first and latest plotted points. */
+export interface QuerySetShift {
+  /** Recorded changes after the first point's first sweep, up to the latest point's last. */
+  changes: BasketChangeEvent[]
+  firstCount: number
+  latestCount: number
+}
+
+/**
+ * Whether the first and latest plotted points measured different query sets:
+ * their query counts differ, or a recorded change falls after the first
+ * point's first sweep. Null when the set held still, or with one point.
+ */
+export function querySetShift(
+  plotted: readonly MetricsBucket[],
+  changes: readonly BasketChangeEvent[],
+): QuerySetShift | null {
+  if (plotted.length < 2) return null
+  const first = plotted[0]!
+  const latest = plotted.at(-1)!
+  const start = readBucketObservedRange(first)?.start ?? first.startDate
+  const end = readBucketObservedRange(latest)?.end ?? latest.endDate
+  const inWindow = changes
+    .filter(change => instantMs(change.at) > instantMs(start) && instantMs(change.at) <= instantMs(end))
+    .sort((a, b) => instantMs(a.at) - instantMs(b.at))
+  if (inWindow.length === 0 && first.queryCount === latest.queryCount) return null
+  return { changes: inWindow, firstCount: first.queryCount, latestCount: latest.queryCount }
+}
+
+/**
+ * Whether the headline may print its first-to-latest change. Not across a
+ * query-set change: the figure would compare two different baskets. Mention
+ * share is the one exception, because it reads non-brand answers only: a
+ * change that added or removed branded queries alone leaves its set intact.
+ * `classify` must be the metrics route's brand matcher.
+ */
+export function showsChangeFigure(
+  shift: QuerySetShift | null,
+  metric: MetricChoice,
+  mentionShareScope: 'non-brand' | 'pooled',
+  classify?: (queryText: string) => QueryClass | null,
+): boolean {
+  if (!shift) return true
+  if (metric !== 'mentionShare' || mentionShareScope !== 'non-brand' || !classify) return false
+  const keys = shift.changes.flatMap(change => [...change.added, ...change.removed])
+  return keys.length > 0 && keys.every(key => classify(key) === 'branded')
 }

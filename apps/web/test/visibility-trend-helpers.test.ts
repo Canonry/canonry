@@ -1,20 +1,29 @@
 import { describe, it, expect } from 'vitest'
+import { compileQueryClassifier } from '@ainyc/canonry-contracts'
 import type { BrandMetricsDto, ModelAttribution, ModelEvidenceState, ModelPointerChangeDisclosure } from '@ainyc/canonry-contracts'
 import {
   buildMentionShareTrendRows,
   buildSelectedTrendRows,
   buildTrendRows,
-  countModelAttributionEvents,
   partitionModelAttributionEvents,
   truncatedProviderCounts,
+  formatMixedModels,
   formatModelEvidence,
   groupModelAttributionEvents,
+  isPerplexityPreset,
+  modelChangeRows,
+  querySetChanges,
+  querySetShift,
+  readBasketChanges,
   readModelPointerChanges,
-  latestPlottedProviderModelEvidence,
   readBucketModelEvidence,
   readModelAttribution,
+  readServedModelAttribution,
+  showsChangeFigure,
+  substitutedModels,
+  sweepBefore,
   trendToTone,
-  formatQueryChangeCaption,
+  whatChangedSummary,
   latestProviderRate,
   metricWindowChange,
   plottedMetricRates,
@@ -23,6 +32,7 @@ import {
   MENTIONED_KEY,
   normalizeProviderKey,
 } from '../src/lib/visibility-trend-helpers.js'
+import { AINYC_SWEEP_TIMES, ainycMetrics } from './ainyc-visibility-fixture.js'
 
 function provider(citationRate: number, mentionRate: number) {
   return { citationRate, cited: 0, total: 4, mentionRate, mentionedCount: 0 }
@@ -152,24 +162,15 @@ describe('model attribution helpers', () => {
     expect(formatModelEvidence({ status: 'known', model: 'gemini-2.5-flash' })).toBe('gemini-2.5-flash')
     expect(formatModelEvidence({ status: 'unknown' })).toBe('Unknown model')
     expect(formatModelEvidence({ status: 'mixed', models: ['gpt-5', 'gpt-5-mini'], includesUnknown: true }))
-      .toBe('Mixed: gpt-5, gpt-5-mini + unknown')
+      .toBe('gpt-5, gpt-5-mini and an unknown model')
+    expect(formatModelEvidence({ status: 'mixed', models: ['gpt-5', 'gpt-5-mini'], includesUnknown: false }))
+      .toBe('gpt-5, gpt-5-mini')
   })
 
-  it('uses the last plotted provider bucket, not detail-view history, for a legend model label', () => {
-    const buckets = [
-      {
-        ...bucket('2026-04-01', { gemini: provider(0.25, 0.1) }),
-        modelEvidenceByProvider: { gemini: { status: 'known', model: 'gemini-2.0-flash' } },
-      },
-      {
-        ...bucket('2026-04-08', { gemini: provider(0.75, 0.5) }),
-        modelEvidenceByProvider: { gemini: { status: 'mixed', models: ['gemini-2.0-flash', 'gemini-2.5-flash'], includesUnknown: false } },
-      },
-    ] as BrandMetricsDto['buckets']
-
-    expect(latestPlottedProviderModelEvidence(buckets, ' Gemini ')).toEqual({
-      status: 'mixed', models: ['gemini-2.0-flash', 'gemini-2.5-flash'], includesUnknown: false,
-    })
+  it('words a mixed point as a phrase for its Details line', () => {
+    expect(formatMixedModels({ status: 'mixed', models: ['a', 'b'], includesUnknown: false })).toBe('a and b')
+    expect(formatMixedModels({ status: 'mixed', models: ['a', 'b'], includesUnknown: true })).toBe('a, b and an unknown model')
+    expect(formatMixedModels({ status: 'mixed', models: ['a'], includesUnknown: true })).toBe('a and an unknown model')
   })
 
   it('distinguishes an older analytics payload from an observed unknown model', () => {
@@ -210,64 +211,6 @@ describe('model attribution helpers', () => {
         to: { status: 'known', model: 'gemini-2.5-flash' },
       } }],
     }])
-  })
-
-  it('counts shown vs observed changes so a capped list can say how much it is hiding', () => {
-    const event = {
-      observedAt: '2026-04-08T09:00:00.000Z',
-      bucketStartDate: '2026-04-08',
-      from: { status: 'known', model: 'a' },
-      to: { status: 'known', model: 'b' },
-    } as const
-    const latestObservation = { observedAt: '2026-04-08T09:00:00.000Z', state: { status: 'known', model: 'b' } } as const
-
-    // gemini is truncated (2 of 40), openai is complete, and claude predates
-    // `eventTotal` entirely — an older server's list IS its whole history.
-    expect(countModelAttributionEvents({
-      gemini: { latestObservation, events: [event, event], eventTotal: 40 },
-      openai: { latestObservation, events: [event], eventTotal: 1 },
-      claude: { latestObservation, events: [event, event, event] },
-    })).toEqual({ shown: 6, total: 44 })
-
-    expect(countModelAttributionEvents({})).toEqual({ shown: 0, total: 0 })
-  })
-
-  it('summed `shown` equals the events the grouped view actually renders', () => {
-    // The cap is applied PER PROVIDER server-side, but the UI renders one
-    // merged, bucket-grouped list and so reports one summed pair. That is only
-    // honest if the sum matches what grouping emits — if grouping ever starts
-    // dropping events (an unparsable bucket, a dedupe), `shown` would overstate
-    // the visible history and "showing N of M" would lie in the safe-looking
-    // direction. Cross-check the two helpers against the same input.
-    const eventAt = (observedAt: string, bucketStartDate: string) => ({
-      observedAt,
-      bucketStartDate,
-      from: { status: 'known', model: 'a' },
-      to: { status: 'known', model: 'b' },
-    } as const)
-    const latestObservation = { observedAt: '2026-04-15T09:00:00.000Z', state: { status: 'known', model: 'b' } } as const
-
-    // Two providers, overlapping buckets, one of them truncated.
-    const attribution = {
-      gemini: {
-        latestObservation,
-        events: [eventAt('2026-04-08T09:00:00.000Z', '2026-04-08'), eventAt('2026-04-15T09:00:00.000Z', '2026-04-15')],
-        eventTotal: 40,
-      },
-      openai: {
-        latestObservation,
-        events: [eventAt('2026-04-08T10:00:00.000Z', '2026-04-08')],
-        eventTotal: 1,
-      },
-    }
-
-    const counts = countModelAttributionEvents(attribution)
-    const rendered = groupModelAttributionEvents(attribution)
-      .reduce((sum, bucket) => sum + bucket.events.length, 0)
-
-    expect(counts.shown).toBe(rendered)
-    // …and the truncation is still visible in the summed pair.
-    expect(counts).toEqual({ shown: 3, total: 41 })
   })
 })
 
@@ -413,39 +356,6 @@ describe('trendToTone', () => {
   })
 })
 
-describe('formatQueryChangeCaption', () => {
-  it('returns null when there are no changes', () => {
-    expect(formatQueryChangeCaption([])).toBeNull()
-  })
-
-  it('formats a single change with a signed delta and MM/DD date', () => {
-    expect(formatQueryChangeCaption([{ date: '2026-03-17', delta: 7, label: '+7 kp' }]))
-      .toBe('Query set changed: +7 on 03/17')
-  })
-
-  it('lists two changes inline (MM/DD)', () => {
-    const caption = formatQueryChangeCaption([
-      { date: '2026-04-03', delta: 2, label: '+2 kp' },
-      { date: '2026-05-01', delta: 3, label: '+3 kp' },
-    ])
-    expect(caption).toBe('Query set changed: +2 on 04/03, +3 on 05/01')
-  })
-
-  it('collapses three or more changes into a count + the most recent', () => {
-    const caption = formatQueryChangeCaption([
-      { date: '2026-04-03', delta: 2, label: '+2 kp' },
-      { date: '2026-05-01', delta: 3, label: '+3 kp' },
-      { date: '2026-05-17', delta: 1, label: '+1 kp' },
-    ])
-    expect(caption).toBe('Query set changed 3 times (latest +1 on 05/17)')
-  })
-
-  it('renders a negative delta (queries removed)', () => {
-    expect(formatQueryChangeCaption([{ date: '2026-06-02', delta: -4, label: '-4 kp' }]))
-      .toBe('Query set changed: -4 on 06/02')
-  })
-})
-
 describe('partitionModelAttributionEvents', () => {
   const latestObservation = {
     observedAt: '2026-04-08T09:00:00.000Z',
@@ -565,5 +475,197 @@ describe('readModelPointerChanges', () => {
   it('passes the server disclosures through untouched', () => {
     expect(readModelPointerChanges(metrics({ modelPointerChanges: { openai: openaiChange } })))
       .toEqual({ openai: openaiChange })
+  })
+})
+
+// ── What changed and the change figure, on ainyc's stored responses ──
+
+const NOW = new Date('2026-09-29T14:00:00.000Z')
+const ainyc = (window: 'all' | '7d') => ainycMetrics(window) as unknown as BrandMetricsDto
+const classify = (text: string) => compileQueryClassifier(['Canonry'])?.classify(text) ?? null
+const known = (model: string) => ({ status: 'known', model }) as const
+
+describe('querySetChanges', () => {
+  it('reads ainyc\'s Sep 29 change with the query count on either side', () => {
+    expect(querySetChanges(ainyc('all'))).toEqual([{
+      at: '2026-09-29T09:59:38.415Z',
+      added: ['canonry', 'canonry aeo agency', 'canonry reviews'],
+      removed: [],
+      fromCount: 11,
+      toCount: 14,
+    }])
+  })
+
+  it('walks each earlier count back through the changes after it, newest first', () => {
+    const metrics = {
+      ...ainyc('all'),
+      basketChanges: [
+        { revision: 2, at: '2026-05-01T00:00:00.000Z', added: ['a'], removed: ['b', 'c'] },
+        { revision: 3, at: '2026-09-29T09:59:38.415Z', added: ['x', 'y', 'z'], removed: [] },
+      ],
+    }
+    expect(querySetChanges(metrics).map(change => [change.at, change.fromCount, change.toCount])).toEqual([
+      ['2026-09-29T09:59:38.415Z', 11, 14],
+      ['2026-05-01T00:00:00.000Z', 12, 11],
+    ])
+  })
+
+  it('has no counts when there is no point to count from, and no changes from an older API', () => {
+    const metrics = { ...ainyc('all'), buckets: [] }
+    expect(querySetChanges(metrics).map(change => [change.fromCount, change.toCount])).toEqual([[null, null]])
+    expect(readBasketChanges(dto([]))).toEqual([])
+  })
+})
+
+describe('modelChangeRows', () => {
+  it('lists ainyc\'s ten model changes newest first, with the preset\'s served move on its row', () => {
+    const metrics = ainyc('all')
+    const rows = modelChangeRows(readModelAttribution(metrics)!, readServedModelAttribution(metrics))
+    expect(rows.map(row => [row.provider, row.at])).toEqual([
+      ['claude', '2026-09-29T09:41:26.139Z'],
+      ['gemini', '2026-09-29T09:41:26.139Z'],
+      ['openai', '2026-09-29T09:41:26.139Z'],
+      ['perplexity', '2026-09-29T09:41:26.139Z'],
+      ['gemini', '2026-04-08T00:42:29.051Z'],
+      ['gemini', '2026-03-26T23:45:36.350Z'],
+      ['claude', '2026-03-20T22:20:16.712Z'],
+      ['gemini', '2026-03-15T02:08:10.978Z'],
+      ['claude', '2026-03-15T02:02:55.024Z'],
+      ['openai', '2026-03-15T02:02:55.024Z'],
+    ])
+    const perplexity = rows.find(row => row.provider === 'perplexity')!
+    expect([perplexity.from, perplexity.to]).toEqual([known('sonar'), known('fast')])
+    expect(perplexity.served).toEqual({ from: known('sonar'), to: known('openai/gpt-6-luna') })
+    // OpenAI's served series moved too, but only a preset's served model is news.
+    expect(rows.filter(row => row.served !== null || row.reroute)).toEqual([perplexity])
+    expect(rows.every(row => !row.onOrBefore && row.anchorAt === null)).toBe(true)
+  })
+
+  it('adds a preset\'s later re-route, which the configured series never shows', () => {
+    const metrics = ainyc('all')
+    const served = readServedModelAttribution(metrics)
+    const reroute = { observedAt: '2026-10-06T09:00:00.000Z', bucketStartDate: '2026-09-10T00:00:00.000Z', from: known('openai/gpt-6-luna'), to: known('anthropic/claude-sonnet-5') }
+    served.perplexity!.events.push(reroute)
+    // A fixed model's served-only move is a substitution, shown as its amber row instead.
+    served.openai!.events.push({ ...reroute, from: known('chat-latest'), to: known('gpt-6') })
+    const rows = modelChangeRows(readModelAttribution(metrics)!, served)
+    expect(rows[0]).toMatchObject({ provider: 'perplexity', at: reroute.observedAt, from: reroute.from, to: reroute.to, reroute: true, served: null })
+    expect(rows.filter(row => row.reroute)).toHaveLength(1)
+  })
+
+  it('marks a change inherited from before the window, with its lower bound', () => {
+    const metrics = ainyc('7d')
+    const rows = modelChangeRows(readModelAttribution(metrics)!, readServedModelAttribution(metrics))
+    expect(rows.map(row => [row.provider, row.onOrBefore, row.anchorAt])).toEqual([
+      ['claude', true, '2026-07-14T06:00:00.016Z'],
+      ['gemini', true, '2026-07-14T06:00:00.016Z'],
+      ['openai', true, '2026-07-14T06:00:00.016Z'],
+      ['perplexity', true, '2026-07-14T06:00:00.016Z'],
+    ])
+  })
+})
+
+describe('Perplexity presets (decision 5)', () => {
+  it('treats a Perplexity id without "/" as a preset, and nothing else', () => {
+    expect(isPerplexityPreset('perplexity', known('fast'))).toBe(true)
+    expect(isPerplexityPreset(' Perplexity ', known('sonar'))).toBe(true)
+    expect(isPerplexityPreset('perplexity', known('perplexity/sonar'))).toBe(false)
+    expect(isPerplexityPreset('perplexity', { status: 'mixed', models: ['fast', 'low'], includesUnknown: false })).toBe(false)
+    expect(isPerplexityPreset('openai', known('chat-latest'))).toBe(false)
+  })
+
+  it('keeps every substitution but a preset\'s', () => {
+    const at = '2026-09-29T09:59:38.415Z'
+    expect(substitutedModels({
+      perplexity: { observedAt: at, configured: known('fast'), served: known('openai/gpt-6-luna') },
+      openai: { observedAt: at, configured: known('gpt-5.6'), served: known('gpt-5.6-sol') },
+    }).map(entry => entry.provider)).toEqual(['openai'])
+    expect(substitutedModels({
+      perplexity: { observedAt: at, configured: known('perplexity/sonar'), served: known('perplexity/sonar-pro') },
+    }).map(entry => entry.provider)).toEqual(['perplexity'])
+  })
+})
+
+describe('whatChangedSummary', () => {
+  const rowsOf = (metrics: BrandMetricsDto) => modelChangeRows(readModelAttribution(metrics)!, readServedModelAttribution(metrics))
+
+  it('names what ainyc\'s latest point first measured, on All and on 7 days', () => {
+    for (const window of ['all', '7d'] as const) {
+      const metrics = ainyc(window)
+      expect(whatChangedSummary({ latest: metrics.buckets.at(-1), queryChanges: querySetChanges(metrics), modelRows: rowsOf(metrics), now: NOW }))
+        .toBe('Sep 29 · 3 queries added · 4 new models')
+    }
+  })
+
+  it('names the day of the newest change when the latest point brought nothing new', () => {
+    const metrics = ainyc('all')
+    const later = { ...metrics.buckets.at(-1)!, startDate: '2026-10-10T00:00:00.000Z', dataStartDate: '2026-10-12T09:00:00.000Z', dataEndDate: '2026-10-12T09:00:00.000Z', sweepCount: 1 }
+    expect(whatChangedSummary({ latest: later, queryChanges: querySetChanges(metrics), modelRows: rowsOf(metrics), now: NOW }))
+      .toBe('No changes since Sep 29')
+  })
+
+  it('counts removals and uses the singular, and is null with nothing to list', () => {
+    const latest = ainyc('all').buckets.at(-1)!
+    const at = latest.dataEndDate as string
+    const row = { provider: 'openai', at, onOrBefore: false, anchorAt: null, from: known('a'), to: known('b'), served: null, reroute: false }
+    expect(whatChangedSummary({
+      latest,
+      queryChanges: [{ at, added: ['x'], removed: ['y'], fromCount: 14, toCount: 14 }] as Parameters<typeof whatChangedSummary>[0]['queryChanges'],
+      modelRows: [row] as Parameters<typeof whatChangedSummary>[0]['modelRows'],
+      now: NOW,
+    })).toBe('Sep 29 · 1 query added · 1 query removed · 1 new model')
+    expect(whatChangedSummary({ latest, queryChanges: [], modelRows: [], now: NOW })).toBeNull()
+  })
+})
+
+describe('sweepBefore', () => {
+  it('finds the sweep before ainyc\'s Sep 29 changes, probes already excluded', () => {
+    expect(sweepBefore('2026-09-29T09:41:26.139Z', AINYC_SWEEP_TIMES, [])).toBe('2026-07-14T06:00:00.016Z')
+  })
+
+  it('falls back to the plotted points\' own sweeps, and is null with nothing earlier', () => {
+    expect(sweepBefore('2026-09-29T09:41:26.139Z', [], ainyc('all').buckets)).toBe('2026-07-14T06:00:00.016Z')
+    expect(sweepBefore('2026-03-01T00:00:00.000Z', AINYC_SWEEP_TIMES, ainyc('all').buckets)).toBeNull()
+  })
+})
+
+describe('the change figure (decision 3)', () => {
+  it('drops ainyc\'s Mentioned and Cited change: 11 queries in the first point, 14 in the latest', () => {
+    const metrics = ainyc('all')
+    const shift = querySetShift(metrics.buckets, readBasketChanges(metrics))
+    expect(shift).toEqual({ changes: readBasketChanges(metrics), firstCount: 11, latestCount: 14 })
+    expect(showsChangeFigure(shift, 'mentioned', 'non-brand', classify)).toBe(false)
+    expect(showsChangeFigure(shift, 'cited', 'non-brand', classify)).toBe(false)
+  })
+
+  it('keeps mention share\'s change when every added query is branded, since it reads non-brand answers only', () => {
+    const metrics = ainyc('all')
+    const shift = querySetShift(metrics.buckets, readBasketChanges(metrics))
+    expect(showsChangeFigure(shift, 'mentionShare', 'non-brand', classify)).toBe(true)
+    // Pooled mention share reads branded answers too, and no classifier means no proof.
+    expect(showsChangeFigure(shift, 'mentionShare', 'pooled', classify)).toBe(false)
+    expect(showsChangeFigure(shift, 'mentionShare', 'non-brand')).toBe(false)
+  })
+
+  it('drops mention share\'s change when a non-brand query moved, or the count moved with no record', () => {
+    const metrics = ainyc('all')
+    const nonBrand = [{ revision: 2, at: '2026-09-29T09:59:38.415Z', added: ['canonry', 'aeo agency brooklyn'], removed: [] }]
+    expect(showsChangeFigure(querySetShift(metrics.buckets, nonBrand), 'mentionShare', 'non-brand', classify)).toBe(false)
+    const unrecorded = querySetShift(metrics.buckets, [])
+    expect(unrecorded).toEqual({ changes: [], firstCount: 11, latestCount: 14 })
+    expect(showsChangeFigure(unrecorded, 'mentionShare', 'non-brand', classify)).toBe(false)
+  })
+
+  it('keeps the change with one point, a held query set, or a change before the first sweep', () => {
+    const week = ainyc('7d')
+    expect(querySetShift(week.buckets, readBasketChanges(week))).toBeNull()
+    expect(showsChangeFigure(null, 'mentioned', 'non-brand', classify)).toBe(true)
+
+    const held = ainyc('all').buckets.slice(0, 4)
+    expect(querySetShift(held, [])).toBeNull()
+    const atFirstSweep = [{ revision: 2, at: held[0]!.dataStartDate as string, added: ['x'], removed: [] }]
+    expect(querySetShift(held, atFirstSweep)).toBeNull()
+    const inside = [{ ...atFirstSweep[0]!, at: '2026-05-20T00:00:00.000Z' }]
+    expect(querySetShift(held, inside)?.changes).toEqual(inside)
   })
 })

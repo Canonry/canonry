@@ -19,7 +19,7 @@ import { parseVisibilitySelection, visibilityReportFirstPageQuery } from '../src
 import { PROJECT_SCOPE_COPY } from '../src/lib/project-scope.js'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
 import { formatSweepInstant } from '../src/lib/format-helpers.js'
-import { AINYC_LATEST_RUN, AINYC_PREVIOUS_RUN, ainycComparison, ainycEvidence, ainycMovement } from './ainyc-visibility-fixture.js'
+import { AINYC_LATEST_RUN, AINYC_PREVIOUS_RUN, ainycComparison, ainycEvidence, ainycMetrics, ainycMovement } from './ainyc-visibility-fixture.js'
 import {
   getApiV1CdpStatusQueryKey,
   getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey,
@@ -97,6 +97,8 @@ async function renderAt(
      * fresh-project fixtures mean).
      */
     siteHealthScan?: 'completed' | 'partial' | 'failed'
+    /** GET /analytics/metrics for every window, so the trend and What changed render in one pass. */
+    analyticsMetrics?: unknown
   } = {},
 ): Promise<string> {
   if (embed) window.__CANONRY_CONFIG__ = { embed }
@@ -109,6 +111,10 @@ async function renderAt(
   options.configureFixture?.(fixture.dashboard)
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const projectName = fixture.dashboard.projects.find(project => project.project.id === 'project_citypoint')!.project.name
+  if (options.analyticsMetrics !== undefined) {
+    // The trend's key carries its window, competitor frame and sweep revision; the prefix seeds all of them.
+    queryClient.setQueryDefaults(['analytics-metrics'], { initialData: options.analyticsMetrics })
+  }
   if (options.cdpStatus !== undefined) {
     queryClient.setQueryData(
       getApiV1CdpStatusQueryKey({ client: heyClient }),
@@ -757,7 +763,7 @@ test('the Portfolio route is an explicit non-embed project workspace', async () 
 test.each([false, true])('a Simple project retains its overview with or without a cached unified report (cached: %s)', async seedVisibilityReport => {
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, { seedVisibilityReport })
 
-  expect(html).toContain('Answer-engine trend')
+  expect(html).toContain('AI answers over time')
   expect(html).toContain('Time window')
   expect(html).toContain(VISIBILITY_CARD_TIP)
   expect(html).toContain('<p class="av-card-meta">Sweep running</p>')
@@ -797,7 +803,7 @@ test('an unpublished Advanced draft and stale report filters do not replace the 
     competitorLandscape: competitorLandscapeResponse(),
   })
 
-  expect(html).toContain('Answer-engine trend')
+  expect(html).toContain('AI answers over time')
   expect(html).toContain(VISIBILITY_CARD_TIP)
   expect(html).toContain('Query evidence')
   expect(html).toContain('Pinned operator')
@@ -887,7 +893,7 @@ test('a stale Site Health onboarding marker cannot redirect the project overview
     </QueryClientProvider>,
   )
 
-  expect(await page.findByRole('heading', { name: 'Answer-engine trend' })).toBeTruthy()
+  expect(await page.findByRole('heading', { name: 'AI answers over time' })).toBeTruthy()
   expect(router.state.location.pathname).toBe('/projects/project_citypoint')
 })
 
@@ -1157,7 +1163,7 @@ test('a direct Portfolio URL falls back safely in embed mode', async () => {
   })
 
   expect(html).toContain('Citypoint Dental NYC')
-  expect(html).toContain('Answer-engine trend')
+  expect(html).toContain('AI answers over time')
   expect(html).not.toContain('Import sitemap')
   expect(html).not.toContain('>Portfolio</a>')
   expect(html).not.toContain('Coverage and performance')
@@ -1190,7 +1196,7 @@ test('an embed with no project-tab allowlist never mounts Portfolio data reads',
     </QueryClientProvider>,
   )
 
-  expect(await screen.findByRole('heading', { name: 'Answer-engine trend' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'AI answers over time' })).toBeTruthy()
   await waitFor(() => expect(observed.some(path => path.endsWith('/runs?kind=answer-visibility'))).toBe(true))
   await new Promise(resolve => setTimeout(resolve, 50))
   expect(observed.filter(path =>
@@ -1231,7 +1237,7 @@ test('embedded Queries and legacy Discovery URLs fall back before reading unpubl
         </DashboardProvider>
       </QueryClientProvider>,
     )
-    expect(await screen.findByRole('heading', { name: 'Answer-engine trend' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'AI answers over time' })).toBeTruthy()
     screen.unmount()
   }
 
@@ -1432,7 +1438,7 @@ test('a failed setup read keeps project results and the global run action visibl
   )
 
   expect(await page.findByText('Could not check the advanced measurement setup. Existing project-wide results remain available.')).toBeTruthy()
-  expect(await page.findByRole('heading', { name: 'Answer-engine trend' })).toBeTruthy()
+  expect(await page.findByRole('heading', { name: 'AI answers over time' })).toBeTruthy()
   expect(page.getByRole('button', { name: 'AI sweep running…' })).toBeTruthy()
   expect(page.queryByRole('button', { name: 'Set up advanced measurement' })).toBeNull()
   expect(page.getByRole('button', { name: 'Retry setup check' })).toBeTruthy()
@@ -1811,8 +1817,25 @@ test('the Visibility card reads ainyc\'s two sweeps by class, above the trend ch
     'Added: Canonry, Canonry AEO agency, Canonry reviews',
   ])
   // Decision 1: the card sits above the chart.
-  expect(html.indexOf('id="overview-brief-title"')).toBeLessThan(html.indexOf('Answer-engine trend'))
+  expect(html.indexOf('id="overview-brief-title"')).toBeLessThan(html.indexOf('AI answers over time'))
   expect(html).not.toMatch(/Coverage now|Tracking scope changed|comparable queries/)
+})
+
+test('What changed names ainyc\'s added queries as written and dates the sweep before the change', async () => {
+  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    configureFixture: withAinycSweeps,
+    analyticsMetrics: ainycMetrics('all'),
+  })
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const changes = doc.querySelector('details.av-wc')!
+
+  expect(changes.querySelector('.av-wc-summary')?.textContent).toMatch(/^Sep 29(, 2026)? · 3 queries added · 4 new models$/)
+  // Stored basket keys are lowercase; the page hands the section the tracked and added query text.
+  expect([...changes.querySelectorAll('.av-details-list li')].map(item => item.textContent))
+    .toEqual([expect.stringMatching(/^Added Sep 29(, 2026)?: Canonry, Canonry AEO agency, Canonry reviews$/)])
+  expect([...changes.querySelectorAll('button[aria-label]')].map(button => button.getAttribute('aria-label')))
+    .toContainEqual(expect.stringMatching(/ Sweep before: Jul 14(, 2026)?\.$/))
+  expect(html).not.toContain('Query set changed')
 })
 
 test('a spot check never flips the Visibility card, while the Run button still waits for it', async () => {
@@ -2420,7 +2443,7 @@ test('a settled absent plan renders the Simple overview, so the guard is not a p
   // strand this on the skeleton forever.
   const html = await renderAt('/projects/project_citypoint')
 
-  expect(html).toContain('Answer-engine trend')
+  expect(html).toContain('AI answers over time')
   expect(html).not.toContain('Loading project overview')
 })
 

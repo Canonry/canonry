@@ -15,7 +15,7 @@ import {
   type QueryWorkspace,
 } from '../lib/project-scope.js'
 import { useQueryClient } from '@tanstack/react-query'
-import { compileQueryClassifier, effectiveBrandNames, formatPercent, parseVisibilityReportScopeErrorDetails, RatioUnits, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
+import { compileQueryClassifier, effectiveBrandNames, formatPercent, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RatioUnits, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import type { MeasurementOverviewSort } from '@ainyc/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
@@ -1199,6 +1199,7 @@ function queryNameList(names: readonly string[], count: number): string {
 function OverviewBrief({
   model,
   evidence,
+  classify,
   evidenceState,
   sweepRunning,
   hasVisibilityBaseline,
@@ -1206,6 +1207,7 @@ function OverviewBrief({
   model: ProjectCommandCenterVm
   /** The Simple evidence rows, each engine's latest answer with its run history. */
   evidence: readonly CitationInsightVm[]
+  classify: QueryClassLookup
   evidenceState: 'loading' | 'error' | 'ready'
   /** A real sweep in flight. A spot check (probe) never flips the card. */
   sweepRunning: boolean
@@ -1219,16 +1221,6 @@ function OverviewBrief({
   )
   const partialCoverage = model.mentionSummary.providerCoverage
 
-  // Evidence rows carry the class the query table shows; anything else (a
-  // removed query, a gained one no longer tracked) goes through the same matcher.
-  const classify = useMemo<QueryClassLookup>(() => {
-    const known = new Map(evidence.map(row => [row.query.trim().toLowerCase(), row.queryClass ?? null]))
-    const classifier = compileQueryClassifier(effectiveBrandNames(model.project))
-    return text => {
-      const hit = known.get(text.trim().toLowerCase())
-      return hit !== undefined ? hit : classifier?.classify(text) ?? null
-    }
-  }, [evidence, model.project])
   const rows = useMemo(() => buildVisibilityRows({
     evidence,
     mentionMovement: model.mentionMovement,
@@ -2140,6 +2132,29 @@ function ProjectPageContent({
   const needsSimpleEvidence = tab === 'overview' && isSimpleOverview && !isMeasurementModeUnresolved
   const evidenceDashboard = useProjectDashboard(projectName, { evidence: needsSimpleEvidence })
   const visibilityEvidence = evidenceDashboard.commandCenter?.visibilityEvidence ?? model.visibilityEvidence
+  // One query classifier for the Visibility card and the trend. Evidence rows
+  // carry the class the query table shows; anything else (a removed query, a
+  // stored basket key) goes through the brand matcher the metrics route uses.
+  const classifyQuery = useMemo<QueryClassLookup>(() => {
+    const known = new Map(visibilityEvidence.map(row => [normalizeQueryText(row.query), row.queryClass ?? null]))
+    const classifier = compileQueryClassifier(effectiveBrandNames(model.project))
+    return text => {
+      const hit = known.get(normalizeQueryText(text))
+      return hit !== undefined ? hit : classifier?.classify(text) ?? null
+    }
+  }, [visibilityEvidence, model.project])
+  // Query text as written, so the trend can name a stored (lowercase) basket key.
+  const trackedQueryTexts = useMemo(() => [...new Set([
+    ...visibilityEvidence.map(row => row.query),
+    ...model.movementComparison.addedQueries,
+    ...model.movementComparison.removedQueries,
+  ])], [visibilityEvidence, model.movementComparison])
+  // Real sweeps only, to date the sweep before a model or query change.
+  const recentSweepTimes = useMemo(() => model.recentRuns
+    .filter(run => run.kind === RunKinds['answer-visibility']
+      && run.trigger !== RunTriggers.probe
+      && (run.status === RunStatuses.completed || run.status === RunStatuses.partial))
+    .map(run => run.createdAt), [model.recentRuns])
   // Other tabs still expose the admin sweep control. Its readiness needs the
   // tracked basket, but never answer bodies or historical run detail.
   const needsHeaderQueries = canWrite && !isEmbed() && !isDashboardManagedSweeps() && tab !== 'overview'
@@ -3033,6 +3048,7 @@ function ProjectPageContent({
           <OverviewBrief
             model={model}
             evidence={visibilityEvidence}
+            classify={classifyQuery}
             evidenceState={evidenceDashboard.evidenceLoading ? 'loading' : evidenceDashboard.evidenceError ? 'error' : 'ready'}
             sweepRunning={visibilitySweepRunning}
             hasVisibilityBaseline={hasVisibilityBaseline}
@@ -3043,6 +3059,9 @@ function ProjectPageContent({
               projectName={model.project.name}
               competitorDomains={competitorDomains}
               analyticsRevision={latestVisibilityRevision}
+              queryTexts={trackedQueryTexts}
+              classifyQuery={classifyQuery}
+              sweepTimes={recentSweepTimes}
             />
           </section>
 

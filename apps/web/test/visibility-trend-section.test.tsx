@@ -108,6 +108,22 @@ const TWO_BUCKETS_CHANGE: WindowChange = {
   mentionShare: { first: 0.25, latest: 0.75, delta: 0.5 },
 }
 
+/** The "What changed" disclosure under the trend card. */
+function whatChanged(): HTMLElement {
+  return document.querySelector<HTMLElement>('details.av-wc')!
+}
+
+/** Each change row as [group, date, from, to]; a continued group names itself for screen readers only. */
+function changeRows(root: HTMLElement): string[][] {
+  return [...root.querySelectorAll('.av-change-table tbody tr')].map(row => [...row.children].map(cell => cell.textContent ?? ''))
+}
+
+/** The bullets of the Details list directly under `root`. */
+function detailsText(root: Element): string[] {
+  const details = [...root.querySelectorAll(':scope > details.av-details, :scope .av-wc-body > details.av-details')][0]
+  return [...(details?.querySelectorAll('li') ?? [])].map(item => item.textContent ?? '')
+}
+
 function renderSection(competitorDomains: readonly string[] = []) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -129,7 +145,7 @@ test('defaults to the by-engine view with a per-engine legend, and toggles to al
 
   renderSection()
 
-  expect(screen.getByText('Answer-engine trend')).toBeTruthy()
+  expect(screen.getByRole('heading', { name: /AI answers over time/ })).toBeTruthy()
 
   // The legend only renders once the DTO has loaded (and only in by-engine
   // mode) — wait on it rather than the chart skeleton, which shares the
@@ -155,11 +171,16 @@ test('defaults to the by-engine view with a per-engine legend, and toggles to al
   expect(allEngines.getAttribute('aria-pressed')).toBe('false')
   expect(screen.getByRole('button', { name: 'All' })).toBeTruthy()
 
-  // The headline is the blended average across engines, tagged "avg". Mentioned
-  // sits at 0.5 in both buckets, so its change reads as none.
-  expect(screen.getByText('avg')).toBeTruthy()
-  expect(screen.getByText('0 pts')).toBeTruthy()
+  // The headline pools every answer, with its base beside it, and Details says
+  // it is not an engine average. Mentioned sits at 0.5 in both buckets and the
+  // query set held still, so its change reads as none.
+  expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('no change')
+  expect(document.querySelector('.visibility-trend-current-detail')?.textContent).toBe('· 2 of 4 answers')
   expect(screen.getByText('Mentioned rate across 2 sweeps. Latest 50.0%, no change over the period.')).toBeTruthy()
+  expect(detailsText(document.querySelector('.visibility-trend')!)).toEqual([
+    expect.stringMatching(/^Base: Apr 3(, 2026)? point$/),
+    '50.0% pools all answers; not an average of engines',
+  ])
 
   // The legend lists each engine with its latest value (a direct read of the
   // rightmost plotted point — gemini 50% in both buckets, openai 25% then gone),
@@ -170,15 +191,15 @@ test('defaults to the by-engine view with a per-engine legend, and toggles to al
   expect(within(legend).getByText('25.0%')).toBeTruthy()
 
   // Switching to All engines presses it (no refetch) and drops the per-engine
-  // legend + "avg" tag — the headline now matches the single plotted line.
+  // legend and the pooling note: the headline now matches the one plotted line.
   act(() => { fireEvent.click(allEngines) })
   expect(allEngines.getAttribute('aria-pressed')).toBe('true')
   expect(byEngine.getAttribute('aria-pressed')).toBe('false')
   expect(screen.queryByRole('list', { name: 'Engines' })).toBeNull()
-  expect(screen.queryByText('avg')).toBeNull()
+  expect(screen.queryByText(/pools all answers/)).toBeNull()
 })
 
-test('labels per-engine legend entries from analytics bucket evidence and surfaces categorical model changes', async () => {
+test('keeps model names out of the legend and lists each model change in What changed', async () => {
   const restore = mockFetch((url) => {
     const path = url.split('?')[0]!
     if (path.endsWith('/projects/test-project/analytics/metrics')) {
@@ -192,15 +213,22 @@ test('labels per-engine legend entries from analytics bucket evidence and surfac
 
   const legend = await screen.findByRole('list', { name: 'Engines' })
   expect(within(legend).getByText('Gemini')).toBeTruthy()
-  expect(within(legend).getByText('Mixed: gemini-2.0-flash, gemini-2.5-flash')).toBeTruthy()
   expect(within(legend).getByText('OpenAI')).toBeTruthy()
-  expect(within(legend).getByText('Unknown model')).toBeTruthy()
-  expect(screen.getByText('Model evidence changes')).toBeTruthy()
-  expect(screen.getByText(/Gemini: gemini-2.0-flash → Mixed: gemini-2.0-flash, gemini-2.5-flash/)).toBeTruthy()
+  expect(within(legend).queryByText(/gemini-2|Unknown model/)).toBeNull()
+
+  const changes = whatChanged()
+  // The latest point (Apr 11) brought nothing new, so the line names the newest change.
+  expect(changes.querySelector('.av-wc-summary')?.textContent).toMatch(/^No changes since Apr 8(, 2026)?$/)
+  expect(changes.querySelector('.av-wc-toggle')?.textContent).toMatch(/^Show all 1/)
+  expect(changeRows(changes)).toEqual([
+    ['Gemini', expect.stringMatching(/^Apr 8/), 'gemini-2.0-flash', 'gemini-2.0-flash, gemini-2.5-flash'],
+  ])
+  // Model names left the legend, so a latest point that pools two models is said in Details.
+  expect(detailsText(changes)).toEqual([expect.stringMatching(/^Apr 11(, 2026)? point mixes Gemini models: gemini-2\.0-flash and gemini-2\.5-flash$/)])
   // Neither optional field is present on this DTO, so the change is dated
   // plainly and no partial-history note appears.
   expect(screen.queryByText(/on or before/)).toBeNull()
-  expect(screen.queryByText(/Showing the/)).toBeNull()
+  expect(screen.queryByText(/most recent/)).toBeNull()
 })
 
 test('dates an anchored change "on or before" and says how much history is shown', async () => {
@@ -221,10 +249,10 @@ test('dates an anchored change "on or before" and says how much history is shown
 
   // The change can only be dated to the last sweep BEFORE the window, so the
   // row must not read as an event that happened on that bucket's date.
-  expect(await screen.findByText(/on or before/)).toBeTruthy()
+  expect(await screen.findByText(/^on or before Apr 8/)).toBeTruthy()
   // The server caps per provider, so the note must name the engine whose
   // history is clipped rather than implying every engine's list is partial.
-  expect(screen.getByText(/^Gemini: showing the most recent 1 of 84 changes\.$/)).toBeTruthy()
+  expect(detailsText(whatChanged())).toContain('Gemini: most recent 1 of 84 changes')
 })
 
 test('shows an empty state when there are no buckets yet', async () => {
@@ -280,12 +308,13 @@ test('renders mention-share as a metric view and hides the engine split', async 
   expect(mentionShare.getAttribute('aria-pressed')).toBe('true')
   expect(screen.queryByRole('group', { name: 'Series' })).toBeNull()
   expect(screen.queryByRole('list', { name: 'Engines' })).toBeNull()
-  expect(screen.getByText('75.0%')).toBeTruthy()
-  // 0.25 to 0.75 across the two plotted points.
-  expect(screen.getByText('+50.0 pts')).toBeTruthy()
+  expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('75.0%')
+  // 0.25 to 0.75 across the two plotted points, in words, over its base.
+  expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('up 50.0 points')
+  expect(document.querySelector('.visibility-trend-current-detail')?.textContent).toBe('· 3 of 4 tracked-brand mentions')
   expect(screen.getByText(/Latest 75\.0%, up 50\.0 points over the period\./)).toBeTruthy()
   expect(screen.getByRole('img', { name: /Mention share.*non-brand queries.*trend chart/i })).toBeTruthy()
-  expect(screen.getByText(/75\.0% mention share for non-brand queries, 3 of 4 brand mentions were you/)).toBeTruthy()
+  expect(screen.getByText(/75\.0% mention share for non-brand queries, 3 of 4 tracked-brand mentions were you/)).toBeTruthy()
   expect(screen.getAllByText('Mention share · non-brand queries').length).toBeGreaterThan(0)
 })
 
@@ -311,8 +340,8 @@ test('reads the head and legend from the API rates, so a rate near either end ne
 
   const legend = await screen.findByRole('list', { name: 'Engines' })
   // Head: the blended mentioned rate, 0.9996 then 0.0004.
-  expect(screen.getByText('<0.1%')).toBeTruthy()
-  expect(screen.getByText('-99.9 pts')).toBeTruthy()
+  expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('<0.1%')
+  expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('down 99.9 points')
   expect(screen.getByText('Mentioned rate across 2 sweeps. Latest <0.1%, down 99.9 points over the period.')).toBeTruthy()
   // Legend: gemini's latest mentioned rate.
   expect(within(legend).getByText('>99.9%')).toBeTruthy()
@@ -340,8 +369,8 @@ test('prints the server change across the window, never a subtraction of the plo
   await screen.findByRole('list', { name: 'Engines' })
   act(() => { fireEvent.click(screen.getByRole('button', { name: 'Cited' })) })
 
-  expect(screen.getByText('+12.3 pts')).toBeTruthy()
-  expect(screen.queryByText('+50.0 pts')).toBeNull()
+  expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('up 12.3 points')
+  expect(screen.queryByText('up 50.0 points')).toBeNull()
   expect(screen.getByText('Cited rate across 2 sweeps. Latest 75.0%, up 12.3 points over the period.')).toBeTruthy()
 })
 
@@ -459,13 +488,13 @@ test('files a change inherited from before the window under its own heading, not
 
   renderSection()
 
-  // Grouped separately, so nothing places it on a date inside the chart…
-  expect(await screen.findByText('Changed before this date range')).toBeTruthy()
-  // …and the lower bound is surfaced, so the operator gets a closed range.
-  expect(screen.getByText(/last seen gemini-2\.0-flash on/)).toBeTruthy()
+  // Dated "on or before", so nothing places it on a date inside the chart...
+  expect(await screen.findByText(/^on or before Apr 8/)).toBeTruthy()
+  // ...and the lower bound is surfaced, so the operator gets a closed range.
+  expect(detailsText(whatChanged())).toContainEqual(expect.stringMatching(/^Changed before this date range, after the Mar 25(, 2026)? sweep: Gemini$/))
 })
 
-test('says what the engines actually answered with and flags a substitution in plain language', async () => {
+test('flags a real substitution as its own amber row', async () => {
   const withServed = metricsDto(TWO_BUCKETS)
   Object.assign(withServed, {
     servedModelAttribution: {
@@ -499,8 +528,44 @@ test('says what the engines actually answered with and flags a substitution in p
 
   renderSection()
 
-  expect(await screen.findByText('What the engines answered with')).toBeTruthy()
-  expect(screen.getByText(/OpenAI: gpt-5\.6-sol — not the gpt-5\.6 you selected/)).toBeTruthy()
+  const substitutions = await screen.findByRole('list', { name: 'Model substitutions' })
+  expect(substitutions.textContent).toBe('OpenAIselected gpt-5.6 · answered gpt-5.6-solsubstituted')
+})
+
+test('never flags a Perplexity preset, and says in What changed which model it answered with', async () => {
+  const withPreset = metricsDto(TWO_BUCKETS)
+  const at = '2026-04-11T08:05:00.000Z'
+  Object.assign(withPreset, {
+    modelAttribution: {
+      perplexity: {
+        latestObservation: { observedAt: at, state: { status: 'known', model: 'fast' } },
+        events: [{ observedAt: at, bucketStartDate: '2026-04-08T00:00:00.000Z', from: { status: 'known', model: 'perplexity/sonar' }, to: { status: 'known', model: 'fast' } }],
+      },
+    },
+    servedModelAttribution: {
+      perplexity: {
+        latestObservation: { observedAt: at, state: { status: 'known', model: 'openai/gpt-6-luna' } },
+        events: [{ observedAt: at, bucketStartDate: '2026-04-08T00:00:00.000Z', from: { status: 'known', model: 'perplexity/sonar' }, to: { status: 'known', model: 'openai/gpt-6-luna' } }],
+        eventTotal: 1,
+        latestServedModelIds: ['openai/gpt-6-luna'],
+      },
+    },
+    modelServiceMismatch: {
+      perplexity: { observedAt: at, configured: { status: 'known', model: 'fast' }, served: { status: 'known', model: 'openai/gpt-6-luna' } },
+    },
+  })
+  const restore = mockFetch((url) => {
+    if (url.split('?')[0]!.endsWith('/projects/test-project/analytics/metrics')) return jsonResponse(withPreset)
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  renderSection()
+
+  await screen.findByRole('list', { name: 'Engines' })
+  expect(screen.queryByRole('list', { name: 'Model substitutions' })).toBeNull()
+  expect(changeRows(whatChanged())).toEqual([['Perplexity', expect.stringMatching(/^Apr 11/), 'perplexity/sonar', 'fast']])
+  expect(within(whatChanged()).getByRole('button', { name: 'Preset picks its own model. Answered with openai/gpt-6-luna (was perplexity/sonar).' })).toBeTruthy()
 })
 
 test('says nothing about served models when the API omits them', async () => {
@@ -515,8 +580,8 @@ test('says nothing about served models when the API omits them', async () => {
 
   renderSection()
 
-  await screen.findByText('Model evidence changes')
-  expect(screen.queryByText('What the engines answered with')).toBeNull()
+  await screen.findByText('What changed')
+  expect(screen.queryByRole('list', { name: 'Model substitutions' })).toBeNull()
 })
 
 test('hides model details and sweep commentary when there are no model changes', async () => {
@@ -556,9 +621,9 @@ test('hides model details and sweep commentary when there are no model changes',
   renderSection(['competitor.com'])
 
   await screen.findByRole('list', { name: 'Engines' })
-  expect(screen.queryByText('Model evidence changes')).toBeNull()
-  expect(screen.queryByText('No model evidence changes in this window.')).toBeNull()
-  expect(screen.queryByText('What the engines answered with')).toBeNull()
+  expect(screen.queryByText('What changed')).toBeNull()
+  expect(screen.queryByText('Setup changed')).toBeNull()
+  expect(screen.queryByRole('list', { name: 'Model substitutions' })).toBeNull()
   expect(screen.queryByText('Only one sweep so far. The trend line fills in after the next run.')).toBeNull()
 
   act(() => { fireEvent.click(screen.getByRole('button', { name: 'Mention share' })) })
@@ -640,15 +705,22 @@ test('states one fact per affected engine and closes with a single consequence',
   expect(new Set(sentences).size).toBe(sentences.length)
 })
 
-test('does not render model-pointer commentary when no update is on record', async () => {
+test('puts a moving model id with no update on record in What changed, never in the banner', async () => {
   onTestFinished(mockMetrics({
-    modelPointerChanges: { openai: { modelIds: ['chat-latest'], changeCount: 0, unverifiedChangeCount: 0 } },
+    modelPointerChanges: { openai: { modelIds: ['chat-latest'], changeCount: 0, unverifiedChangeCount: 0, knownGoodAsOf: '2026-07-20', checkedThroughPeriodEnd: false } },
   }))
 
   renderSection()
 
   await screen.findByRole('list', { name: 'Engines' })
-  expect(screen.queryByText('No model updates are on record for ChatGPT in this period.')).toBeNull()
+  expect(screen.queryByText(/The model behind/)).toBeNull()
+  // OpenAI has no change row here to carry it, so the note is a Details line.
+  expect(detailsText(whatChanged())).toContain(
+    'No model updates are on record for ChatGPT in this period. This engine can be moved onto a different underlying model'
+    + ' without the data ever showing a different model name, so we check each period against a record of known updates.'
+    + ' Nothing is listed inside this one. We last checked for model updates on 2026-07-20, and this period runs past that'
+    + ' date, so there may be later updates we do not know about.',
+  )
 })
 
 test('renders nothing at all when the API omits the field or reports no exposure', async () => {

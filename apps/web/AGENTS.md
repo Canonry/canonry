@@ -72,6 +72,17 @@ words and the answer-level movement. An engine answer counts only when it was
 observed in both sweeps with a mention result in each. Probe runs never set the
 card's time or its "Sweep running" state; the Run button still waits for them.
 
+`VisibilityTrendSection` ("AI answers over time") uses the same card shape: the
+latest point's date and sweep count, one headline figure with its base, the
+chart, and a closed Details. It prints no change figure while the first and
+latest points measured different query sets (`querySetShift`), except mention
+share when every changed query is branded, and says why in Details. Model
+names live in "What changed" and the point tooltips, never the legend. "What
+changed" (`modelChangeRows`, `querySetChanges` in `lib/visibility-trend-helpers.ts`)
+lists query-set and model changes by engine, collapsed to one line; a Perplexity
+preset (an id without "/") never gets the amber substitution row, and its served
+model rides on its row instead.
+
 Keep the Latest signals block and suggested queries out of the Simple overview.
 The underlying insights and suggestions remain available through the API.
 

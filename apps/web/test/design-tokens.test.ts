@@ -366,13 +366,6 @@ test('the light theme deepens the tone-scale foreground steps (no bright tone te
   }
 })
 
-test('the light theme gives visibility chart titles a semantic text color', async () => {
-  const css = await compileAppStyles([])
-  const rule = ruleFor(css, "[data-theme='light'] .visibility-trend-title")
-
-  expect(rule).toContain('color: var(--color-text-heading)')
-})
-
 test('Site Health uses a color-vision-safe graph palette in both themes', async () => {
   const source = await readFile(stylesPath, 'utf8')
   const light = source.match(/\[data-theme='light'\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? ''

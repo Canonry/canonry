@@ -3,8 +3,8 @@ import { REPORT_VISIBILITY_COPY, reportUnattributedAnswers } from '@ainyc/canonr
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
-import { buildModelChangeNotice, describeError, formatPercent, formatPointDelta, formatSignedPointDelta, parseVisibilityReportScopeErrorDetails, RatioUnits, VisibilityReportComparisonUnavailableReasons, VisibilityReportRateChangeUnavailableReasons, VisibilityReportScopeErrorReasons } from '@ainyc/canonry-contracts'
-import type { BrandMetricsDto, MetricsWindow, PointDeltaDirection } from '@ainyc/canonry-contracts'
+import { buildModelChangeNotice, describeError, formatPercent, formatPointDelta, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RatioUnits, VisibilityReportComparisonUnavailableReasons, VisibilityReportRateChangeUnavailableReasons, VisibilityReportScopeErrorReasons } from '@ainyc/canonry-contracts'
+import type { BasketChangeEvent, BrandMetricsDto, MetricsWindow, ModelEvidenceState, PointDeltaDirection, QueryClass } from '@ainyc/canonry-contracts'
 import type { VisibilityReportComparison, VisibilityReportQueryRow, VisibilityReportResponse, VisibilityReportRate, VisibilityReportPopulation, VisibilityReportSummary } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameVisibilityReportOptions } from '@ainyc/canonry-api-client/react-query'
 import { apiErrorDetails, heyClient } from '../../api.js'
@@ -34,6 +34,7 @@ import {
   observedInstant,
   observedInstantYear,
   providerSeriesColor,
+  type ObservedInstant,
   ReferenceLine,
   RechartsTooltip,
   ResponsiveContainer,
@@ -41,44 +42,58 @@ import {
   YAxis,
 } from '../shared/ChartPrimitives.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { Disclosure } from '../shared/Disclosure.js'
+import { formatSweepInstant } from '../../lib/format-helpers.js'
 import { fetchAnalyticsMetrics, isDashboardManagedSweeps } from '../../api.js'
 import { MANAGED_SWEEPS_COPY } from './ManagedSweepStatus.js'
 import { DataTablePagination, useClientTable } from '../shared/DataTableControls.js'
 import { DEFAULT_QUERY_STALE_MS, STATIC_VISIBILITY_STALE_MS } from '../../queries/query-client.js'
 import {
+  basketChangesInBucket,
   buildSelectedTrendRows,
   CITED_KEY,
-  countModelAttributionEvents,
   formatBucketDateLabel,
   formatBucketDateTick,
+  formatBucketDayRange,
+  formatMixedModels,
   formatModelEvidence,
-  formatQueryChangeCaption,
-  formatServedModelIds,
-  groupModelAttributionEvents,
-  latestPlottedProviderModelEvidence,
+  formatObservedDay,
+  isPerplexityPreset,
+  joinWithAnd,
   latestProviderRate,
   MENTION_SHARE_KEY,
   MENTIONED_KEY,
   metricWindowChange,
+  modelChangeRows,
   normalizeProviderKey,
   partitionModelAttributionEvents,
   plottedMetricRates,
+  querySetChanges,
+  querySetShift,
+  readBasketChanges,
   readBucketModelEvidence,
+  readBucketObservedRange,
   readModelAttribution,
   readModelPointerChanges,
   readModelServiceMismatch,
   readServedModelAttribution,
+  showsChangeFigure,
+  substitutedModels,
+  sweepBefore,
   truncatedProviderCounts,
+  whatChangedSummary,
   type MetricChoice,
-  type ModelAttributionEventPartition,
+  type ModelChangeRow,
   type ProviderEventCount,
+  type QuerySetChange,
+  type QuerySetShift,
   type TrendSeriesMode,
 } from '../../lib/visibility-trend-helpers.js'
 
 const WINDOW_OPTIONS: Array<{ value: MetricsWindow; label: string }> = [
-  { value: '7d', label: '7d' },
-  { value: '30d', label: '30d' },
-  { value: '90d', label: '90d' },
+  { value: '7d', label: '7 days' },
+  { value: '30d', label: '30 days' },
+  { value: '90d', label: '90 days' },
   { value: 'all', label: 'All' },
 ]
 
@@ -957,6 +972,8 @@ const METRIC_OPTIONS: Array<{ value: MetricChoice; label: string; description: s
   },
 ]
 const MENTION_SHARE_COLOR = CHART_SERIES_COLORS[2]!
+/** Every setup-change marker on the chart shares one color, so the key below it names them all. */
+const SETUP_CHANGE_COLOR = CHART_SERIES_COLORS[4]!
 
 /** Dark ring drawn around the active (hovered) dot so it reads against the line. */
 const ACTIVE_DOT_RING = 'var(--chart-tooltip-bg)'
@@ -985,13 +1002,18 @@ const POINT_CHANGE_TONE: Record<PointDeltaDirection, string> = {
   none: 'text-muted',
 }
 
-/** The same change in words, for the screen-reader summary. */
-function spokenPointChange({ direction, magnitude }: PointChange): string {
+/** The headline's change in words: "up 4.5 points", never "+4.5 pts". */
+function pointChangeWords({ direction, magnitude }: PointChange): string {
   switch (direction) {
-    case 'up': return `up ${magnitude} points over the period`
-    case 'down': return `down ${magnitude} points over the period`
-    case 'none': return 'no change over the period'
+    case 'up': return `up ${magnitude} points`
+    case 'down': return `down ${magnitude} points`
+    case 'none': return 'no change'
   }
+}
+
+/** The same change in words, for the screen-reader summary. */
+function spokenPointChange(change: PointChange): string {
+  return change.direction === 'none' ? 'no change over the period' : `${pointChangeWords(change)} over the period`
 }
 
 function isOverallSeries(key: string): boolean {
@@ -1047,6 +1069,12 @@ function metricLabel(metric: MetricChoice, mentionShareScope?: MentionShareScope
   return 'Mentioned'
 }
 
+/** The title's ⓘ: what each metric counts, in one line apiece. */
+function trendTitleHelp(scope: MentionShareScope): string {
+  return 'Mentioned = share of answers that name you. Cited = share that link to your site. '
+    + `Mention share = your share of tracked-brand mentions in ${scope === 'non-brand' ? 'non-brand answers' : 'all answers'}.`
+}
+
 function metricField(metric: Exclude<MetricChoice, 'mentionShare'>): 'citationRate' | 'mentionRate' {
   return metric === 'cited' ? 'citationRate' : 'mentionRate'
 }
@@ -1069,141 +1097,307 @@ function providerMetricCount(
   }
 }
 
+/** A point's base in words: the answers, or the tracked-brand mentions, behind its rate. */
+function bucketBase(bucket: MetricsBucket, metric: MetricChoice): string {
+  if (metric === 'mentionShare') {
+    const { projectMentionSnapshots: you, competitorMentionSnapshots: competitors } = bucket.mentionShare
+    return `${you} of ${you + competitors} tracked-brand mentions`
+  }
+  return `${metricCount(bucket, metric)} of ${bucket.total} answers`
+}
+
 function findBucket(buckets: readonly MetricsBucket[], label: string | number | undefined): MetricsBucket | null {
   if (label === undefined) return null
   const key = String(label)
   return buckets.find(b => b.startDate === key) ?? null
 }
 
-function formatBucketModelEvidence(bucket: MetricsBucket): string {
+/**
+ * Each engine's models in one point, in the tooltip's engine order. Empty on an
+ * older API, which recorded none.
+ */
+function bucketModels(bucket: MetricsBucket): string[] {
   const evidence = readBucketModelEvidence(bucket)
-  if (evidence === null) return 'Model attribution unavailable for this bucket.'
-  const labels = Object.entries(evidence)
+  if (evidence === null) return []
+  return Object.entries(evidence)
     .sort(([a], [b]) => normalizeProviderKey(a).localeCompare(normalizeProviderKey(b)))
-    .map(([provider, state]) => `${providerDisplayName(provider)}: ${formatModelEvidence(state)}`)
-  return labels.length > 0 ? `Model evidence: ${labels.join('; ')}` : 'No model evidence in this bucket.'
+    .map(([, state]) => formatModelEvidence(state))
 }
 
-function modelEventMarkerColor(events: ReturnType<typeof groupModelAttributionEvents>[number]['events']): string {
-  if (events.some(({ event }) => event.to.status === 'mixed')) return CHART_TONE.caution
-  if (events.some(({ event }) => event.to.status === 'unknown')) return CHART_TONE.negative
-  if (events.every(({ event }) => event.from.status === 'known' && event.to.status === 'known')) return CHART_SERIES_COLORS[4]!
-  return CHART_TONE.positive
+function sameViewerDay(a: string, b: string): boolean {
+  return new Date(a).toDateString() === new Date(b).toDateString()
+}
+
+function queryCountLabel(count: number): string {
+  return `${count} ${count === 1 ? 'query' : 'queries'}`
+}
+
+/** "3 queries added", "1 query removed", or both. */
+function querySetChangePhrase(change: Pick<BasketChangeEvent, 'added' | 'removed'>): string {
+  const parts = [
+    ...(change.added.length > 0 ? [`${queryCountLabel(change.added.length)} added`] : []),
+    ...(change.removed.length > 0 ? [`${change.added.length > 0 ? change.removed.length : queryCountLabel(change.removed.length)} removed`] : []),
+  ]
+  return parts.join(', ')
 }
 
 /**
- * A model-evidence change is grouped by `bucketStartDate`, which is the
- * synthetic grouping key — never a date to show. Resolve it back to the
- * bucket's real sweep dates; if that bucket is no longer in the response, fall
- * back to the event's own observation time, which is also a real instant.
+ * Why the headline prints no change figure (decision 3). A latest point that
+ * pools sweeps from both sides of a query-set change is named as such;
+ * otherwise the changes between the first and latest points are listed.
  */
-function modelEventDateLabel(
-  buckets: readonly MetricsBucket[],
-  bucketStartDate: string,
-  observedAt: string,
-): string {
-  const bucket = findBucket(buckets, bucketStartDate)
-  return bucket ? formatBucketDateLabel(bucket) : formatObservedInstantLabel(observedInstant(observedAt))
+function noChangeFigureReason(shift: QuerySetShift, latest: MetricsBucket): ReactNode {
+  const range = readBucketObservedRange(latest)
+  const days = formatBucketDayRange(latest)
+  const mixing = range === null
+    ? []
+    : basketChangesInBucket(latest, shift.changes).filter(change => Date.parse(change.at) > Date.parse(range.start))
+  const change = mixing.at(-1)
+  if (range && days && change) {
+    const later = latest.queryCount
+    const earlier = later - change.added.length + change.removed.length
+    const sameDay = sameViewerDay(range.start, range.end)
+    const time = (at: string) => formatSweepInstant(at, sameDay ? range.start : null)
+    return range.sweepCount === 2
+      ? <>No change figure: <strong>{days}</strong> point mixes the <strong>{time(range.start)}</strong> sweep (<strong>{earlier}</strong> queries) and the <strong>{time(range.end)}</strong> sweep (<strong>{later}</strong> queries)</>
+      : <>No change figure: <strong>{days}</strong> point mixes sweeps of <strong>{earlier}</strong> and <strong>{later}</strong> queries</>
+  }
+  if (shift.changes.length > 0) {
+    return <>No change figure: {shift.changes.map((entry, index) => <Fragment key={entry.at}>{index > 0 ? ', ' : ''}{querySetChangePhrase(entry)} <strong>{formatObservedDay(observedInstant(entry.at))}</strong></Fragment>)}; first and latest points cover different queries</>
+  }
+  return <>No change figure: first and latest points cover different queries (<strong>{shift.firstCount}</strong> and <strong>{shift.latestCount}</strong>)</>
 }
 
-function ModelEvidenceSummary({
-  partition,
-  available,
-  counts,
+// ── What changed ──
+
+interface ChangeTableRow {
+  key: string
+  at: ObservedInstant
+  onOrBefore: boolean
+  from: ReactNode
+  to: ReactNode
+  /** Help beside the To value: a preset's served model, or a moving model id's check. */
+  toHelp: string | null
+}
+
+interface ChangeTableGroup {
+  key: string
+  label: string
+  rows: ChangeTableRow[]
+}
+
+function ModelName({ state, from = false }: { state: ModelEvidenceState; from?: boolean }) {
+  return <span className={from ? 'av-model av-model-from' : 'av-model'}>{formatModelEvidence(state)}</span>
+}
+
+/** The help beside a Perplexity preset's To value: the preset picks the model, and here is the one it picked. */
+function presetHelp(row: ModelChangeRow, latestServedIds: readonly string[] | null): string | null {
+  if (row.reroute) return 'Same preset, answered with a different model.'
+  if (!isPerplexityPreset(row.provider, row.to)) return null
+  if (row.served) return `Preset picks its own model. Answered with ${formatModelEvidence(row.served.to)} (was ${formatModelEvidence(row.served.from)}).`
+  return latestServedIds && latestServedIds.length > 0
+    ? `Preset picks its own model. Answered with ${latestServedIds.join(', ')}.`
+    : 'Preset picks its own model.'
+}
+
+/**
+ * "What changed": every query-set and model change in the window, one line
+ * collapsed and a table by engine when opened, each change dated by the first
+ * sweep that measured it. Replaces the always-open model evidence list and the
+ * query-set caption. The notices that qualify a change (before this date
+ * range, a capped or incomplete history, a point that mixes models, a moving
+ * model id's last check) sit in its Details; the model-update banner stays
+ * above the trend readout.
+ */
+function WhatChanged({
+  buckets,
+  queryChanges,
+  modelRows,
+  served,
+  pointerNotices,
   truncated,
   incompleteHistory,
-  served,
-  mismatch,
-  buckets,
+  queryName,
+  sweepTimes,
 }: {
-  partition: ModelAttributionEventPartition
-  available: boolean
-  counts: { shown: number; total: number }
+  buckets: readonly MetricsBucket[]
+  queryChanges: readonly QuerySetChange[]
+  modelRows: readonly ModelChangeRow[]
+  served: ReturnType<typeof readServedModelAttribution>
+  pointerNotices: ReadonlyMap<string, { text: string; modelIds: readonly string[] }>
   truncated: ProviderEventCount[]
   incompleteHistory: string[]
-  served: ReturnType<typeof readServedModelAttribution>
-  mismatch: ReturnType<typeof readModelServiceMismatch>
-  buckets: readonly MetricsBucket[]
+  queryName: (key: string) => string
+  sweepTimes: readonly string[]
 }) {
-  const descriptionId = useId()
-  const servedEntries = Object.entries(served).sort(([a], [b]) => a.localeCompare(b))
-  const hasChanges = partition.buckets.length > 0 || partition.beforeWindow.length > 0
-  if (!available || !hasChanges) return null
+  const latest = buckets.at(-1)
+  const day = (at: ObservedInstant) => formatObservedDay(at)
 
+  // A moving model id's "no update on record" note rides on that engine's
+  // newest row naming the id; an engine with no such row gets it in Details.
+  const noticeRows = new Map<string, ModelChangeRow>()
+  for (const [provider, notice] of pointerNotices) {
+    const row = modelRows.find(candidate => candidate.provider === provider && !candidate.reroute
+      && candidate.to.status === 'known' && notice.modelIds.includes(candidate.to.model))
+    if (row) noticeRows.set(provider, row)
+  }
+
+  const groups: ChangeTableGroup[] = []
+  if (queryChanges.length > 0) {
+    groups.push({
+      key: 'queries',
+      label: 'Queries',
+      rows: queryChanges.map(change => ({
+        key: `queries-${change.at}`,
+        at: change.at,
+        onOrBefore: false,
+        from: <span className="av-model-from">{change.fromCount === null ? `${change.removed.length} removed` : queryCountLabel(change.fromCount)}</span>,
+        to: <span className="text-strong">{change.toCount === null ? `${change.added.length} added` : queryCountLabel(change.toCount)}</span>,
+        toHelp: null,
+      })),
+    })
+  }
+  const providers = [...new Set(modelRows.map(row => row.provider))]
+    .sort((a, b) => providerDisplayName(a).localeCompare(providerDisplayName(b)))
+  for (const provider of providers) {
+    const servedEntry = served[provider] as (typeof served)[string] | undefined
+    const latestServedIds = servedEntry?.latestServedModelIds ?? null
+    const rows = modelRows.filter(row => row.provider === provider)
+    groups.push({
+      key: provider,
+      label: providerDisplayName(provider),
+      rows: rows.map((row, index) => {
+        const notice = noticeRows.get(provider) === row ? pointerNotices.get(provider)!.text : null
+        const help = [presetHelp(row, index === 0 ? latestServedIds : null), notice].filter(Boolean).join(' ')
+        return {
+          key: `${provider}-${row.at}-${row.reroute ? 'served' : 'set'}`,
+          at: row.at,
+          onOrBefore: row.onOrBefore,
+          from: <ModelName state={row.from} from />,
+          to: <ModelName state={row.to} />,
+          toHelp: help || null,
+        }
+      }),
+    })
+  }
+  const rowCount = groups.reduce((sum, group) => sum + group.rows.length, 0)
+
+  const details: ReactNode[] = []
+  for (const change of queryChanges) {
+    if (change.added.length > 0) details.push(<>Added <strong>{day(change.at)}</strong>: {change.added.map(queryName).join(', ')}</>)
+    if (change.removed.length > 0) details.push(<>Removed <strong>{day(change.at)}</strong>: {change.removed.map(queryName).join(', ')}</>)
+  }
+  // Model names left the legend, so a latest point that pools two models for
+  // one engine is only said here.
+  const latestDays = latest ? formatBucketDayRange(latest) : null
+  for (const [provider, state] of Object.entries(latest ? readBucketModelEvidence(latest) ?? {} : {}).sort(([a], [b]) => a.localeCompare(b))) {
+    if (state.status === 'mixed' && latestDays) details.push(<><strong>{latestDays}</strong> point mixes {providerDisplayName(provider)} models: {formatMixedModels(state)}</>)
+  }
+  // A change inherited from before the window is dated "on or before" in the
+  // table; its lower bound, the last sweep on the old model, is said here once
+  // per bound rather than once per engine.
+  const inherited = new Map<string, string[]>()
+  for (const row of modelRows.filter(candidate => candidate.onOrBefore)) {
+    const bound = row.anchorAt ? day(row.anchorAt) : ''
+    inherited.set(bound, [...new Set([...(inherited.get(bound) ?? []), providerDisplayName(row.provider)])])
+  }
+  for (const [bound, engines] of inherited) {
+    details.push(bound
+      ? <>Changed before this date range, after the <strong>{bound}</strong> sweep: {joinWithAnd(engines)}</>
+      : `Changed before this date range: ${joinWithAnd(engines)}`)
+  }
+  for (const entry of truncated) details.push(`${providerDisplayName(entry.provider)}: most recent ${entry.shown} of ${entry.total} changes`)
+  for (const provider of incompleteHistory) details.push(`${providerDisplayName(provider)}: may be missing older changes`)
+  for (const [provider, notice] of pointerNotices) {
+    if (!noticeRows.has(provider)) details.push(notice.text)
+  }
+
+  if (rowCount === 0 && details.length === 0) return null
+
+  // The Date column's ⓘ: what a date means, which sweep(s) the newest date
+  // is, and the sweep before them, since the change happened in between.
+  const instants = groups.flatMap(group => group.rows.map(row => row.at))
+  let dateHelp = 'First sweep on the new model or query set.'
+  if (instants.length > 0) {
+    const newestDay = day(instants.reduce((a, b) => (Date.parse(b) > Date.parse(a) ? b : a)))
+    const onNewestDay = [...new Set(instants.filter(at => day(at) === newestDay))].sort()
+    const times = onNewestDay.map(at => formatSweepInstant(at, at))
+    dateHelp += ` ${newestDay} = the ${joinWithAnd(times)} ${times.length === 1 ? 'sweep' : 'sweeps'}.`
+    const anchors = modelRows.flatMap(row => (row.anchorAt ? [row.anchorAt] : []))
+    const before = sweepBefore(onNewestDay[0]!, [...sweepTimes, ...anchors], buckets)
+    if (before) dateHelp += ` Sweep before: ${day(before)}.`
+  }
+
+  const summary = whatChangedSummary({ latest, queryChanges, modelRows }) ?? 'No changes in this date range'
   return (
-    <aside className="trend-model-evidence" aria-labelledby="trend-model-evidence-title" aria-describedby={descriptionId}>
-      <div className="trend-model-evidence-head">
-        <p id="trend-model-evidence-title" className="trend-model-evidence-title">Model evidence changes</p>
-        <span className="trend-model-evidence-key" aria-hidden="true">Dashed chart markers</span>
+    <details className="av-wc">
+      <summary>
+        <span className="av-card-title">What changed</span>
+        <span className="av-wc-summary av-wc-when-closed">{summary}</span>
+        <span className="av-wc-toggle">
+          <span className="av-wc-when-closed">{rowCount > 0 ? `Show all ${rowCount}` : 'Details'} <span aria-hidden="true">▸</span></span>
+          <span className="av-wc-when-open">Hide <span aria-hidden="true">▴</span></span>
+        </span>
+      </summary>
+      <div className="av-wc-body">
+        {rowCount > 0 ? (
+          <>
+            <div className="overflow-x-auto">
+              <table className="av-change-table">
+                <caption className="sr-only">Query and model changes, newest first</caption>
+                <thead>
+                  <tr>
+                    <th scope="col"><span className="sr-only">Changed</span></th>
+                    <th scope="col"><span className="inline-flex items-center gap-1">Date<InfoTooltip text={dateHelp} /></span></th>
+                    <th scope="col">From</th>
+                    <th scope="col">To</th>
+                  </tr>
+                </thead>
+                {groups.map(group => (
+                  <tbody key={group.key}>
+                    {group.rows.map((row, index) => (
+                      <tr key={row.key}>
+                        {index === 0
+                          ? <th scope="row" className="av-engine">{group.label}</th>
+                          : <td className="av-engine"><span className="sr-only">{group.label}</span></td>}
+                        <td className="av-date">{row.onOrBefore ? `on or before ${day(row.at)}` : day(row.at)}</td>
+                        <td>{row.from}</td>
+                        <td>
+                          <span className="inline-flex items-center gap-1">{row.to}{row.toHelp ? <InfoTooltip text={row.toHelp} /> : null}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                ))}
+              </table>
+            </div>
+            <Disclosure items={details} />
+          </>
+        ) : (
+          <ul className="av-details-list">{details.map((item, index) => <li key={index}>{item}</li>)}</ul>
+        )}
       </div>
-      <p id={descriptionId} className="sr-only">
-        Model evidence is recorded from the exact snapshots that produced each trend bucket. It is not the project’s configured provider model.
-        {counts.total > 0 ? ` ${counts.shown} of ${counts.total} recorded changes are listed.` : ''}
-      </p>
-      {partition.buckets.length > 0 && (
-        <ul className="trend-model-evidence-list">
-          {partition.buckets.flatMap(({ bucketStartDate, events: bucketEvents }) => bucketEvents.map(({ provider, event }) => (
-            <li key={`${provider}-${event.observedAt}-${event.bucketStartDate}`} className="trend-model-evidence-item">
-              <span className="trend-model-evidence-date">{modelEventDateLabel(buckets, bucketStartDate, event.observedAt)}</span>
-              <span>{providerDisplayName(provider)}: {formatModelEvidence(event.from)} → {formatModelEvidence(event.to)}</span>
-            </li>
-          )))}
-        </ul>
-      )}
-      {/* These changes happened before the chart starts. They are listed so
-          nothing is lost, but they get no chart marker — a marker would put
-          a date on a change that did not happen on that date. */}
-      {partition.beforeWindow.length > 0 && (
-        <>
-          <p className="trend-model-evidence-note">Changed before this date range</p>
-          <ul className="trend-model-evidence-list">
-            {partition.beforeWindow.map(({ provider, event }) => (
-              <li key={`before-${provider}-${event.observedAt}`} className="trend-model-evidence-item">
-                <span className="trend-model-evidence-date">
-                  on or before {formatObservedInstantLabel(observedInstant(event.observedAt))}
-                </span>
-                <span>
-                  {providerDisplayName(provider)}: {formatModelEvidence(event.from)} → {formatModelEvidence(event.to)}
-                  {event.anchorObservedAt
-                    ? ` (last seen ${formatModelEvidence(event.from)} on ${formatObservedInstantLabel(observedInstant(event.anchorObservedAt))})`
-                    : ''}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-      {truncated.map(entry => (
-        <p key={`truncated-${entry.provider}`} className="trend-model-evidence-note">
-          {providerDisplayName(entry.provider)}: showing the most recent {entry.shown} of {entry.total} changes.
-        </p>
+    </details>
+  )
+}
+
+/**
+ * One amber row per real substitution: the engine answered with a different
+ * model from the one selected. A Perplexity preset never gets one (decision 5);
+ * its served model shows in What changed instead.
+ */
+function SubstitutionRows({ substitutions }: { substitutions: ReturnType<typeof substitutedModels> }) {
+  if (substitutions.length === 0) return null
+  return (
+    <ul className="space-y-3" aria-label="Model substitutions">
+      {substitutions.map(({ provider, mismatch }) => (
+        <li key={provider} className="av-amber-row border border-caution-800/60 bg-caution-950/20">
+          <span className="av-engine">{providerDisplayName(provider)}</span>
+          <span className="text-secondary">selected <ModelName state={mismatch.configured} /> · answered <ModelName state={mismatch.served} /></span>
+          <span className="av-status text-caution-400">substituted</span>
+        </li>
       ))}
-      {incompleteHistory.map(provider => (
-        <p key={`incomplete-${provider}`} className="trend-model-evidence-note">
-          We did not look far enough back to be sure this is every {providerDisplayName(provider)} change.
-        </p>
-      ))}
-      {servedEntries.length > 0 && (
-        <>
-          <p className="trend-model-evidence-note">What the engines answered with</p>
-          <ul className="trend-model-evidence-list">
-            {servedEntries.map(([provider, entry]) => {
-              const rawIds = formatServedModelIds(entry.latestServedModelIds)
-              const substituted = mismatch[provider]
-              return (
-                <li key={`served-${provider}`} className="trend-model-evidence-item">
-                  <span className="trend-model-evidence-date">{formatObservedInstantLabel(observedInstant(entry.latestObservation.observedAt))}</span>
-                  <span>
-                    {providerDisplayName(provider)}: {rawIds ?? formatModelEvidence(entry.latestObservation.state)}
-                    {substituted ? ` — not the ${formatModelEvidence(substituted.configured)} you selected` : ''}
-                  </span>
-                </li>
-              )
-            })}
-          </ul>
-        </>
-      )}
-    </aside>
+    </ul>
   )
 }
 
@@ -1214,6 +1408,7 @@ function TrendTooltip({
   metric,
   mode,
   buckets,
+  basketChanges,
 }: {
   active?: boolean
   label?: string | number
@@ -1221,29 +1416,48 @@ function TrendTooltip({
   metric: MetricChoice
   mode: TrendSeriesMode
   buckets: readonly MetricsBucket[]
+  basketChanges: readonly BasketChangeEvent[]
 }) {
   if (!active) return null
   const bucket = findBucket(buckets, label)
   if (!bucket) return null
 
+  // The point's own query-set changes, timed: "3 queries added 5:59 AM".
+  const range = readBucketObservedRange(bucket)
+  const sameDayAs = range !== null && sameViewerDay(range.start, range.end) ? range.start : null
+  const changes = basketChangesInBucket(bucket, basketChanges)
+  const models = bucketModels(bucket)
+  const head = (
+    <>
+      <p className="trend-tooltip-label">{formatBucketDateLabel(bucket)}</p>
+      {changes.map(change => (
+        <p key={change.at} className="trend-tooltip-detail trend-tooltip-note">
+          {querySetChangePhrase(change)} {formatSweepInstant(change.at, sameDayAs)}
+        </p>
+      ))}
+    </>
+  )
+  const modelLine = models.length > 0 && (
+    <p className="trend-tooltip-detail trend-tooltip-models">
+      {models.map((model, index) => <Fragment key={index}>{index > 0 ? '; ' : ''}<span className="whitespace-nowrap">{model}</span></Fragment>)}
+    </p>
+  )
+
   if (metric === 'mentionShare') {
     const projectMentions = bucket.mentionShare.projectMentionSnapshots
-    const competitorMentions = bucket.mentionShare.competitorMentionSnapshots
-    const denominator = projectMentions + competitorMentions
+    const denominator = projectMentions + bucket.mentionShare.competitorMentionSnapshots
     return (
       <div className="trend-tooltip">
-        <p className="trend-tooltip-label">{formatBucketDateLabel(bucket)}</p>
+        {head}
         <div className="trend-tooltip-row">
           <span className="trend-tooltip-swatch trend-tooltip-swatch-ring" style={{ borderColor: MENTION_SHARE_COLOR }} aria-hidden="true" />
           <span className="trend-tooltip-name">Mention share · {mentionShareScopeLabel(bucket.mentionShare.scope)}</span>
           <span className="trend-tooltip-value">{formatPercent(bucket.mentionShare.rate)}</span>
         </div>
-        {denominator > 0 ? (
-          <p className="trend-tooltip-detail">You {projectMentions} / {denominator} brand mentions. Competitors {competitorMentions}.</p>
-        ) : (
-          <p className="trend-tooltip-detail">No project or competitor brand mentions in this bucket.</p>
-        )}
-        <p className="trend-tooltip-detail">{formatBucketModelEvidence(bucket)}</p>
+        <p className="trend-tooltip-detail">
+          {denominator > 0 ? `You ${projectMentions} of ${denominator} tracked-brand mentions` : 'No tracked-brand mentions in this point'}
+        </p>
+        {modelLine}
       </div>
     )
   }
@@ -1253,7 +1467,7 @@ function TrendTooltip({
     : [{ dataKey: metric === 'cited' ? CITED_KEY : MENTIONED_KEY }]
   return (
     <div className="trend-tooltip">
-      <p className="trend-tooltip-label">{formatBucketDateLabel(bucket)}</p>
+      {head}
       {items.map((item, index) => {
         const key = String(item.dataKey ?? item.name ?? '')
         const providerCounts = mode === 'byProvider' ? providerMetricCount(bucket, key, metric) : null
@@ -1268,14 +1482,12 @@ function TrendTooltip({
               <span className="trend-tooltip-swatch" style={{ backgroundColor: color }} aria-hidden="true" />
               <span className="trend-tooltip-name">{seriesLabel(key)}</span>
               <span className="trend-tooltip-value">{formatPercent(rate)}</span>
+              <span className="trend-tooltip-count">{count} of {total}</span>
             </div>
-            <p className="trend-tooltip-detail">
-              {count} / {total} snapshots, {metric === 'cited' ? 'source links' : 'answer text'}
-            </p>
           </div>
         )
       })}
-      <p className="trend-tooltip-detail">{formatBucketModelEvidence(bucket)}</p>
+      {modelLine}
     </div>
   )
 }
@@ -1301,7 +1513,7 @@ function TrendDataSummary({
         <caption>{metricLabel(metric, summaryScope)} trend data</caption>
         <thead>
           <tr>
-            <th scope="col">Bucket</th>
+            <th scope="col">Point</th>
             <th scope="col">Values</th>
           </tr>
         </thead>
@@ -1314,18 +1526,19 @@ function TrendDataSummary({
               const denominator = projectMentions + competitorMentions
               const scope = mentionShareScopeLabel(bucket.mentionShare.scope)
               valueText = denominator > 0
-                ? `${formatPercent(bucket.mentionShare.rate)} mention share for ${scope}, ${projectMentions} of ${denominator} brand mentions were you`
+                ? `${formatPercent(bucket.mentionShare.rate)} mention share for ${scope}, ${projectMentions} of ${denominator} tracked-brand mentions were you`
                 : `mention share undefined for ${scope}, no project or competitor brand mentions`
             } else if (mode === 'byProvider') {
               valueText = series.map(provider => {
                 const counts = providerMetricCount(bucket, provider, metric)
                 if (!counts) return `${providerDisplayName(provider)} no data`
-                return `${providerDisplayName(provider)} ${formatPercent(counts.rate)} ${metricLabel(metric).toLowerCase()}, ${counts.count} of ${counts.total} snapshots`
+                return `${providerDisplayName(provider)} ${formatPercent(counts.rate)} ${metricLabel(metric).toLowerCase()}, ${counts.count} of ${counts.total} answers`
               }).join('; ')
             } else {
-              valueText = `${formatPercent(bucket[metricField(metric)])} ${metricLabel(metric).toLowerCase()}, ${metricCount(bucket, metric)} of ${bucket.total} snapshots`
+              valueText = `${formatPercent(bucket[metricField(metric)])} ${metricLabel(metric).toLowerCase()}, ${metricCount(bucket, metric)} of ${bucket.total} answers`
             }
-            valueText += `; ${formatBucketModelEvidence(bucket)}`
+            const models = bucketModels(bucket)
+            if (models.length > 0) valueText += `; models: ${models.join('; ')}`
             return (
               <tr key={bucket.startDate}>
                 <th scope="row">{formatBucketDateLabel(bucket)}</th>
@@ -1387,15 +1600,30 @@ function Segmented<T extends string>({
   )
 }
 
+/**
+ * "AI answers over time" and, under it, "What changed". The card reads as a
+ * title with the latest point's date, one headline figure with its base, the
+ * controls, the chart and a closed Details; the change figure is withheld
+ * whenever the first and latest points measured different query sets.
+ */
 export function VisibilityTrendSection({
   projectName,
   competitorDomains = [],
   analyticsRevision = 'none',
+  queryTexts = [],
+  classifyQuery,
+  sweepTimes = [],
 }: {
   projectName: string
   competitorDomains?: readonly string[]
   /** Latest completed answer-visibility logical-sweep revision from dashboard polling. */
   analyticsRevision?: string
+  /** Query text as people wrote it, to name the stored (lowercase) keys of added and removed queries. */
+  queryTexts?: readonly string[]
+  /** The project's brand matcher, the same one the metrics route classifies queries with. */
+  classifyQuery?: (queryText: string) => QueryClass | null
+  /** Recent sweep times, probes excluded, to date the sweep before a change. */
+  sweepTimes?: readonly string[]
 }) {
   const [window, setWindow] = useState<MetricsWindow>('all')
   const [metric, setMetric] = useState<MetricChoice>('mentioned')
@@ -1403,6 +1631,7 @@ export function VisibilityTrendSection({
   // disagree wildly (a brand cited heavily by one engine and ignored by
   // another), which is the first thing an operator needs to see.
   const [mode, setMode] = useState<TrendSeriesMode>('byProvider')
+  const titleId = useId()
   const metricsFrameKey = useMemo(() => competitorFrameKey(competitorDomains), [competitorDomains])
 
   const metricsQuery = useQuery({
@@ -1425,10 +1654,6 @@ export function VisibilityTrendSection({
     () => partitionModelAttributionEvents(modelAttribution ?? {}),
     [modelAttribution],
   )
-  const modelEventCounts = useMemo(
-    () => countModelAttributionEvents(modelAttribution ?? {}),
-    [modelAttribution],
-  )
   const truncatedProviders = useMemo(
     () => truncatedProviderCounts(modelAttribution ?? {}),
     [modelAttribution],
@@ -1441,17 +1666,30 @@ export function VisibilityTrendSection({
     [modelAttribution],
   )
   const servedAttribution = useMemo(() => (data ? readServedModelAttribution(data) : {}), [data])
-  const serviceMismatch = useMemo(() => (data ? readModelServiceMismatch(data) : {}), [data])
-  // Only a recorded update is surfaced in the dashboard. A moving model id
-  // with no update on record does not add persistent commentary to the chart.
-  const modelChangeNotice = useMemo(
-    () => (data ? buildModelChangeNotice(readModelPointerChanges(data)) : null),
-    [data],
+  const substitutions = useMemo(() => (data ? substitutedModels(readModelServiceMismatch(data)) : []), [data])
+  const basketChanges = useMemo(() => (data ? readBasketChanges(data) : []), [data])
+  const queryChanges = useMemo(() => (data ? querySetChanges(data) : []), [data])
+  const modelRows = useMemo(
+    () => modelChangeRows(modelAttribution ?? {}, servedAttribution),
+    [modelAttribution, servedAttribution],
   )
+  const modelPointers = useMemo(() => (data ? readModelPointerChanges(data) : {}), [data])
+  // A recorded update is the banner above the readout. An engine on a moving
+  // model id with none on record gets its own quieter note in What changed.
+  const modelChangeNotice = useMemo(() => buildModelChangeNotice(modelPointers), [modelPointers])
+  const pointerNotices = useMemo(() => {
+    const notices = new Map<string, { text: string; modelIds: readonly string[] }>()
+    for (const [provider, entry] of Object.entries(modelPointers).sort(([a], [b]) => a.localeCompare(b))) {
+      const notice = buildModelChangeNotice({ [provider]: entry })
+      if (notice?.kind === 'no-known-change') notices.set(provider, { text: `${notice.text} ${notice.detail}`, modelIds: (entry.modelIds as readonly string[] | undefined) ?? [] })
+    }
+    return notices
+  }, [modelPointers])
+  const queryName = useMemo(() => {
+    const names = new Map(queryTexts.map(text => [normalizeQueryText(text), text]))
+    return (key: string) => names.get(normalizeQueryText(key)) ?? key
+  }, [queryTexts])
 
-  // Headline readout: the selected metric's latest bucket value plus its change
-  // across the visible window. Quantifies "where it sits now, which way it
-  // moved" without reusing the removed trend badges.
   const byProviderMode = metric !== 'mentionShare' && effectiveMode === 'byProvider'
   const buckets = data?.buckets ?? []
   // The top-level scope survives an empty response. Falling back to non-brand
@@ -1460,78 +1698,77 @@ export function VisibilityTrendSection({
     ?? data?.mentionShareScope
     ?? 'pooled'
   const currentMetricLabel = metricLabel(metric, mentionShareScope)
-  const metricColor = metric === 'cited'
-    ? CHART_TONE.positive
-    : metric === 'mentionShare'
-      ? MENTION_SHARE_COLOR
-      : CHART_SERIES_COLORS[1]!
-  // In by-engine mode the headline is the blended rate across every engine,
-  // which no single line on the chart matches — neutralize the swatch (so it
-  // doesn't read as one engine's color) and tag it "avg".
-  const headlineDotColor = byProviderMode ? CHART_NEUTRAL.textDim : metricColor
-  // The x-axis KEY stays `startDate` (monotonic, and what the model-evidence
+  // The headline is the pooled rate of every answer, which no single engine
+  // line matches, so in by-engine mode its dot takes no engine's color.
+  const headlineDotColor = byProviderMode
+    ? CHART_NEUTRAL.textDim
+    : metric === 'cited' ? CHART_TONE.positive : metric === 'mentionShare' ? MENTION_SHARE_COLOR : CHART_SERIES_COLORS[1]!
+  // The x-axis KEY stays `startDate` (monotonic, and what the setup-change
   // reference lines are positioned by), but the tick a reader sees is resolved
   // back to the bucket's real first sweep. A key that has no bucket gets no
-  // label — better blank than a synthetic boundary printed as a date.
+  // label: better blank than a synthetic boundary printed as a date.
   const bucketTickFormatter = useMemo(() => {
     const labels = new Map(buckets.map(b => [b.startDate, formatBucketDateTick(b)]))
     return (value: string) => labels.get(String(value)) ?? ''
   }, [buckets])
+  // The points the selected metric plots: mention share skips a point with no
+  // tracked-brand mentions, as the chart and the server's change do.
+  const plottedBuckets = metric === 'mentionShare'
+    ? buckets.filter(b => typeof b.mentionShare.rate === 'number' && Number.isFinite(b.mentionShare.rate))
+    : buckets
+  const latestPlotted = plottedBuckets.at(-1)
   // The API's rates behind the plotted points, since the chart rows are rounded
   // to the axis: the head formats these, so a rate under a tenth reads <0.1%.
   const plottedRates = data ? plottedMetricRates(data, metric) : []
   const latestRate = plottedRates.at(-1) ?? null
   // The change across the window is the server's own first-to-latest delta,
-  // the same figure `canonry analytics` prints; nothing is subtracted here.
+  // the same figure `canonry analytics` prints; nothing is subtracted here. It
+  // is withheld when the two points measured different query sets.
   const windowChange = data ? metricWindowChange(data, metric) : null
-  const pointChange = latestRate !== null && windowChange !== null
+  const shift = querySetShift(plottedBuckets, basketChanges)
+  const figureShown = showsChangeFigure(shift, metric, mentionShareScope, classifyQuery)
+  const pointChange = latestRate !== null && windowChange !== null && figureShown
     ? formatPointDelta(windowChange.delta)
     : null
   const competitorCount = competitorDomains.length
 
-  const header = (
-    <>
-      {/* Above the section head, which is where the headline number and its
-          delta live. Whoever is about to send that number to a client has to
-          meet the caveat BEFORE they read it, so it cannot sit under the head
-          (they have already read the number) or in the model-evidence aside
-          below the chart (they have already sent it). Tinted, not alarming —
-          nothing is broken, the reading just needs care. */}
-      {modelChangeNotice?.kind === 'change' && (
-        <p className="mb-3 rounded-lg border border-caution-800/60 bg-caution-950/20 px-3 py-2 text-[11px] leading-snug text-secondary">
-          {modelChangeNotice.text}
-        </p>
+  const trendDetails: ReactNode[] = []
+  if (latestPlotted && windowChange !== null && shift && !figureShown) trendDetails.push(noChangeFigureReason(shift, latestPlotted))
+  if (pointChange !== null && plottedBuckets[0]) {
+    const base = formatBucketDayRange(plottedBuckets[0])
+    if (base) trendDetails.push(<>Base: <strong>{base}</strong> point</>)
+  }
+  if (byProviderMode && latestRate !== null) trendDetails.push(<><strong>{formatPercent(latestRate)}</strong> pools all answers; not an average of engines</>)
+
+  // One marker per point where the setup changed: an in-window model change,
+  // or a query-set change first measured inside that point.
+  const markerKeys = [...new Set([
+    ...modelEvents.buckets.map(entry => entry.bucketStartDate),
+    ...buckets.filter(bucket => basketChangesInBucket(bucket, basketChanges).length > 0).map(bucket => bucket.startDate),
+  ])].sort()
+
+  const readout = latestRate !== null && latestPlotted && (
+    <div className="visibility-trend-current">
+      <span className="visibility-trend-current-dot" style={{ backgroundColor: headlineDotColor }} aria-hidden="true" />
+      <span className="visibility-trend-current-label">{currentMetricLabel}</span>
+      <span className="visibility-trend-current-value">{formatPercent(latestRate)}</span>
+      {pointChange !== null && (
+        <span className={`visibility-trend-current-delta ${POINT_CHANGE_TONE[pointChange.direction]}`}>
+          {pointChangeWords(pointChange)}
+        </span>
       )}
-      <div className="visibility-trend-head">
-        <div className="space-y-1">
-          <p className="eyebrow eyebrow-soft">Trend</p>
-          <h2 className="visibility-trend-title">
-            Answer-engine trend
-            <InfoTooltip text="Three separate signals over sweep buckets: answer text mentions, source citations, and your answer-text mention share against tracked competitors. Mentioned and Cited use all query-provider snapshots. Mention share uses non-brand queries when classification is available; pooled means the project has no usable brand identity for a split." />
-          </h2>
-        </div>
-        {latestRate !== null && (
-          <div className="visibility-trend-current">
-            <span className="visibility-trend-current-dot" style={{ backgroundColor: headlineDotColor }} aria-hidden="true" />
-            <span className="visibility-trend-current-label">{currentMetricLabel}</span>
-            {byProviderMode && <span className="visibility-trend-current-qualifier">avg</span>}
-            <span className="visibility-trend-current-value">{formatPercent(latestRate)}</span>
-            {pointChange !== null && windowChange !== null && (
-              <span className={`visibility-trend-current-delta ${POINT_CHANGE_TONE[pointChange.direction]}`}>
-                {formatSignedPointDelta(windowChange.delta)}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-      <div className="visibility-trend-controls">
-        <Segmented options={METRIC_OPTIONS} value={metric} onChange={setMetric} ariaLabel="Metric" className="visibility-trend-metric-control" />
-        {metric !== 'mentionShare' && (
-          <Segmented options={MODE_OPTIONS} value={mode} onChange={setMode} ariaLabel="Series" />
-        )}
-        <Segmented options={WINDOW_OPTIONS} value={window} onChange={setWindow} ariaLabel="Time window" className="sm:ml-auto" />
-      </div>
-    </>
+      <span className="visibility-trend-current-detail">· {bucketBase(latestPlotted, metric)}</span>
+    </div>
+  )
+
+  const controls = (
+    <div className="visibility-trend-controls">
+      <Segmented options={METRIC_OPTIONS} value={metric} onChange={setMetric} ariaLabel="Metric" className="visibility-trend-metric-control" />
+      {metric !== 'mentionShare' && (
+        <Segmented options={MODE_OPTIONS} value={mode} onChange={setMode} ariaLabel="Series" />
+      )}
+      <Segmented options={WINDOW_OPTIONS} value={window} onChange={setWindow} ariaLabel="Time window" className="sm:ml-auto" />
+    </div>
   )
 
   let body: React.ReactNode
@@ -1545,7 +1782,6 @@ export function VisibilityTrendSection({
     body = null
   } else {
     const { rows, series, hasData } = trend
-    const caption = formatQueryChangeCaption(data.queryChanges)
     if (!hasData) {
       body = (
         <p className="text-sm text-secondary">
@@ -1568,19 +1804,12 @@ export function VisibilityTrendSection({
         <>
           <p className="sr-only">{srSummary}</p>
           <TrendDataSummary buckets={buckets} metric={metric} mode={effectiveMode} series={series} />
-          {/* Per-engine key with each line's most recent value, so the engines
-              and where they sit now are readable at a glance — replaces the
-              cramped bottom legend and gives the by-engine view its payoff. */}
+          {/* Per-engine key with each line's most recent value. Model names
+              live in What changed and the point tooltips, not here. */}
           {byProviderMode && series.length > 0 && (
             <ul className="trend-legend" aria-label="Engines">
               {series.map((key, i) => {
                 const rate = latestProviderRate(data, key, metric)
-                const evidence = latestPlottedProviderModelEvidence(buckets, key)
-                const evidenceLabel = modelAttribution === null
-                  ? 'Attribution unavailable'
-                  : evidence
-                    ? formatModelEvidence(evidence)
-                    : 'No observed model evidence'
                 return (
                   <li key={key} className="trend-legend-item">
                     <span
@@ -1588,10 +1817,7 @@ export function VisibilityTrendSection({
                       style={{ backgroundColor: seriesColor(key, i) }}
                       aria-hidden="true"
                     />
-                    <span className="trend-legend-label">
-                      <span className="trend-legend-name">{seriesLabel(key)}</span>
-                      <span className="trend-legend-model"><span aria-hidden="true">· </span>{evidenceLabel}</span>
-                    </span>
+                    <span className="trend-legend-name">{seriesLabel(key)}</span>
                     {rate !== null && <span className="trend-legend-value">{formatPercent(rate)}</span>}
                   </li>
                 )
@@ -1601,10 +1827,11 @@ export function VisibilityTrendSection({
           <div
             className="visibility-trend-chart"
             role="img"
-            aria-label={`${currentMetricLabel} trend chart over ${rows.length} ${rows.length === 1 ? 'bucket' : 'buckets'}`}
+            aria-label={`${currentMetricLabel} trend chart over ${rows.length} ${rows.length === 1 ? 'point' : 'points'}`}
           >
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+              {/* Room on the right for the last tick ("Sep 29") centered on the last point. */}
+              <ComposedChart data={rows} margin={{ top: 8, right: 20, bottom: 0, left: 0 }}>
                 <CartesianGrid stroke={CHART_GRID_STROKE} vertical={false} />
                 <XAxis
                   dataKey="date"
@@ -1625,13 +1852,13 @@ export function VisibilityTrendSection({
                 />
                 <RechartsTooltip
                   cursor={{ stroke: CHART_AXIS_STROKE, strokeWidth: 1 }}
-                  content={<TrendTooltip metric={metric} mode={effectiveMode} buckets={buckets} />}
+                  content={<TrendTooltip metric={metric} mode={effectiveMode} buckets={buckets} basketChanges={basketChanges} />}
                 />
-                {modelEvents.buckets.map(({ bucketStartDate, events }) => (
+                {markerKeys.map(key => (
                   <ReferenceLine
-                    key={`model-evidence-${bucketStartDate}`}
-                    x={bucketStartDate}
-                    stroke={modelEventMarkerColor(events)}
+                    key={`setup-change-${key}`}
+                    x={key}
+                    stroke={SETUP_CHANGE_COLOR}
                     strokeDasharray="4 4"
                     strokeWidth={1.5}
                     ifOverflow="extendDomain"
@@ -1658,26 +1885,55 @@ export function VisibilityTrendSection({
               </ComposedChart>
             </ResponsiveContainer>
           </div>
-          <ModelEvidenceSummary
-            partition={modelEvents}
-            available={modelAttribution !== null}
-            counts={modelEventCounts}
-            truncated={truncatedProviders}
-            incompleteHistory={incompleteHistoryProviders}
-            served={servedAttribution}
-            mismatch={serviceMismatch}
-            buckets={buckets}
-          />
-          {caption && <p className="visibility-trend-note">{caption}</p>}
+          {markerKeys.length > 0 && (
+            <p className="visibility-trend-key"><span className="visibility-trend-key-swatch" aria-hidden="true" />Setup changed</p>
+          )}
         </>
       )
     }
   }
 
   return (
-    <section className="visibility-trend">
-      {header}
-      {body}
-    </section>
+    <div className="visibility-trend-stack">
+      <section className="visibility-trend" aria-labelledby={titleId}>
+        <div className="av-card-head">
+          <h2 className="av-card-title">
+            <span id={titleId}>AI answers over time</span>
+            <InfoTooltip text={trendTitleHelp(mentionShareScope)} />
+          </h2>
+          {latestPlotted ? <p className="av-card-meta">{formatBucketDateLabel(latestPlotted)}</p> : null}
+        </div>
+        <div className="visibility-trend-body">
+          {/* Above the readout. Whoever is about to send that number to a
+              client has to meet the caveat BEFORE they read it. Tinted, not
+              alarming: nothing is broken, the reading just needs care. */}
+          {modelChangeNotice?.kind === 'change' && (
+            <p className="mb-3 rounded-lg border border-caution-800/60 bg-caution-950/20 px-3 py-2 text-[11px] leading-snug text-secondary">
+              {modelChangeNotice.text}
+            </p>
+          )}
+          {readout}
+          {controls}
+          {body}
+        </div>
+        <Disclosure items={trendDetails} />
+      </section>
+      {data && !error ? (
+        <>
+          <WhatChanged
+            buckets={buckets}
+            queryChanges={queryChanges}
+            modelRows={modelRows}
+            served={servedAttribution}
+            pointerNotices={pointerNotices}
+            truncated={truncatedProviders}
+            incompleteHistory={incompleteHistoryProviders}
+            queryName={queryName}
+            sweepTimes={sweepTimes}
+          />
+          <SubstitutionRows substitutions={substitutions} />
+        </>
+      ) : null}
+    </div>
   )
 }
