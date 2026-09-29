@@ -76,6 +76,7 @@ import {
 export const projectRowSchema = createSelectSchema(projects, {
   ownedDomains: z.array(z.string()),
   aliases: z.array(z.string()),
+  qualifiedAliases: z.array(z.string()),
   tags: z.array(z.string()),
   labels: z.record(z.string(), z.string()),
   providers: z.array(z.string()),

@@ -13,15 +13,9 @@ import {
   parseJsonColumn,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
-import {
-  fauxAssistantMessage,
-  fauxToolCall,
-  registerFauxProvider,
-  type FauxProviderRegistration,
-} from '@mariozechner/pi-ai'
+import { Type, fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai'
 import { eq } from 'drizzle-orm'
-import { Type } from '@sinclair/typebox'
-import type { AgentMessage, AgentTool } from '@mariozechner/pi-agent-core'
+import type { AgentMessage, AgentTool } from '@earendil-works/pi-agent-core'
 import { MemorySources } from '@ainyc/canonry-contracts'
 import { SessionRegistry } from '../src/agent/session-registry.js'
 import { loadAeroSystemPrompt } from '../src/agent/session.js'
@@ -35,6 +29,7 @@ import {
 } from '../src/agent/tools.js'
 import type { ApiClient } from '../src/client.js'
 import type { CanonryConfig } from '../src/config.js'
+import { registerAeroFaux, type AeroFaux } from './helpers/aero-faux.js'
 
 // Initial schemas contain authorized core tools, two skill readers, two
 // toolkit controls, and the current-view evidence reader. Non-core tools load
@@ -97,13 +92,13 @@ function insertProject(db: DatabaseClient, name: string): string {
 describe('SessionRegistry', () => {
   let tmpDir: string
   let db: DatabaseClient
-  let faux: FauxProviderRegistration
+  let faux: AeroFaux
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-session-registry-'))
     db = createClient(path.join(tmpDir, 'test.db'))
     migrate(db)
-    faux = registerFauxProvider({
+    faux = registerAeroFaux({
       api: 'faux-api',
       provider: 'faux',
       models: [{ id: 'faux-model' }],
@@ -156,7 +151,8 @@ describe('SessionRegistry', () => {
     await agent.prompt('Status update please')
     await agent.waitForIdle()
 
-    const inMemoryCount = agent.state.messages.length
+    // The leading system message is rebuilt on hydrate, never persisted.
+    const inMemoryCount = agent.state.messages.filter((m) => m.role !== 'system').length
     expect(inMemoryCount).toBeGreaterThan(0)
 
     registry.save('demo')
@@ -378,7 +374,7 @@ describe('SessionRegistry', () => {
 
     const rehydrated = registry.getOrCreate('demo')
     expect(registry.isLive('demo')).toBe(true)
-    expect(rehydrated.state.messages).toHaveLength(seededMessages.length)
+    expect(rehydrated.state.messages.filter((m) => m.role !== 'system')).toHaveLength(seededMessages.length)
     expect(rehydrated.state.systemPrompt).toBe(loadAeroSystemPrompt())
 
     // Persisted queue is pulled into the registry's pending buffer, not pi's follow-up queue
@@ -822,7 +818,11 @@ describe('SessionRegistry', () => {
     const acquired = await registry.acquireForTurn('demo')
 
     expect(acquired).toBe(agent)
-    expect(agent.state.messages).toBe(messagesBefore)
+    // The refresh rewrites only the leading system message; every transcript
+    // message after it is the same object as before.
+    const transcriptAfter = agent.state.messages.filter((m) => m.role !== 'system')
+    expect(transcriptAfter).toHaveLength(messagesBefore.length)
+    transcriptAfter.forEach((m, i) => expect(m).toBe(messagesBefore[i]))
     expect(agent.state.systemPrompt).toContain('Current deployment instructions')
     expect(agent.state.systemPrompt).not.toContain('Previous deployment instructions')
     expect(agent.state.systemPrompt).toContain('reporting-tone: Concise')
@@ -883,7 +883,7 @@ describe('SessionRegistry', () => {
     const agent = registry.getOrCreate('demo', { provider: 'claude' })
     const originalModelId = (agent.state.model as { id: string }).id
 
-    await registry.acquireForTurn('demo', { provider: 'zai', modelId: 'glm-5.1' })
+    await registry.acquireForTurn('demo', { provider: 'zai', modelId: 'glm-5.2' })
 
     const newModelId = (agent.state.model as { id: string }).id
     expect(newModelId).not.toBe(originalModelId)
@@ -893,6 +893,6 @@ describe('SessionRegistry', () => {
     const projectId = db.select({ id: projects.id }).from(projects).where(eq(projects.name, 'demo')).get()!.id
     const row = db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId)).get()
     expect(row?.modelProvider).toBe('zai')
-    expect(row?.modelId).toBe('glm-5.1')
+    expect(row?.modelId).toBe('glm-5.2')
   })
 })

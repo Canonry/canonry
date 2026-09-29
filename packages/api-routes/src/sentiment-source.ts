@@ -167,8 +167,10 @@ export function selectSentimentSources(db: DatabaseClient, projectId: string, fi
       }
       // The subject matches the same frozen brand names the mention metric uses. Stored
       // aliases never repeat the display name, so aliases alone would miss answers that
-      // name the brand only by its display name.
+      // name the brand only by its display name. Qualified aliases come only from the
+      // frozen sidecar; absent means `[]`, keeping pre-feature subject hashes.
       const identity = definition.identity
+      const qualifiedAliases = [...(identity.qualifiedAliases ?? [])].sort()
       const names = effectiveBrandNames(identity)
       const urls = [identity.canonicalDomain, ...identity.ownedDomains]
       const mentionNotApplicable = !names.length && !urls.some(url => url.trim())
@@ -177,7 +179,7 @@ export function selectSentimentSources(db: DatabaseClient, projectId: string, fi
         const edge: SentimentSourceEdge = { queryKey: query.queryId, queryText: query.queryText, executionNodeKey: null, queryClass: query.queryClass, propertyKey: projectId, groupKeys: [], marketKeys: [], provider: snapshot.provider, sourceModel: snapshot.model, servedModel: snapshot.servedModel, context: definition.location }
         if (!matchesSentimentEdge(edge, filters)) { excluded([edge]); continue }
         out.assessments.push({ projectId, runId: run.id, snapshotId: snapshot.id, sourceText: snapshot.answerText ?? '', language: definition.language, queryText: query.queryText, revision: null,
-          subject: { key: projectId, name: identity.displayName, aliases: [...names], identityAliases: [], urls: [...urls], mentionNotApplicable }, edges: [edge] })
+          subject: { key: projectId, name: identity.displayName, aliases: [...names], identityAliases: [...qualifiedAliases], urls: [...urls], mentionNotApplicable }, edges: [edge] })
       }
     }
     // Complete source admission already proved every frozen slot. Coverage of this

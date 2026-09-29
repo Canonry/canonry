@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { AgentTool } from '@mariozechner/pi-agent-core'
+import type { AgentTool } from '@earendil-works/pi-agent-core'
 import { CanonryMcpToolNames, canonryMcpTools } from '../src/mcp/tool-registry.js'
 import {
   AERO_EXCLUDED_MCP_TOOLS,

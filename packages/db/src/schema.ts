@@ -10,6 +10,12 @@ export const projects = sqliteTable('projects', {
   canonicalDomain: text('canonical_domain').notNull(),
   ownedDomains: text('owned_domains', { mode: 'json' }).$type<string[]>().notNull().default([]),
   aliases: text('aliases', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  /**
+   * Operator-chosen subset of `aliases` that Simple sentiment tells the
+   * evaluator are this brand's own names. Frozen into each Simple run's
+   * sidecar at dispatch; never read by mention detection or query classes.
+   */
+  qualifiedAliases: text('qualified_aliases', { mode: 'json' }).$type<string[]>().notNull().default([]),
   country: text('country').notNull(),
   language: text('language').notNull(),
   tags: text('tags', { mode: 'json' }).$type<string[]>().notNull().default([]),

@@ -1278,7 +1278,7 @@ export const canonryMcpTools = [
   }),
   defineTool({
     name: 'canonry_sentiment_configure', title: 'Configure project sentiment',
-    description: 'Install administrator only: explicitly enable or disable stance-and-evidence sentiment. Both install and project switches default off. Enabling processes future eligible complete runs; historical answers require explicit backfill. On dispatch TypeSafe receives the text of each answer with the frozen subject identity (name, aliases and URLs), the tracked query text and class, the answer engine with its requested and served models, the location, and internal query, subject, Property, group and market identifiers. API keys remain local install configuration and are never accepted here.',
+    description: 'Install administrator only: explicitly enable or disable stance-and-evidence sentiment. Both install and project switches default off. Enabling processes future eligible complete runs; historical answers require explicit backfill. On dispatch TypeSafe receives the text of each answer with the frozen subject identity (name, aliases, qualified aliases and URLs), the tracked query text and class, the answer engine with its requested and served models, the location, and internal query, subject, Property, group and market identifiers. API keys remain local install configuration and are never accepted here.',
     access: 'write', tier: 'monitoring', inputSchema: sentimentConfigureInputSchema, outputSchema: sentimentSettingsReadSchema, annotations: writeAnnotations({ idempotentHint: true }),
     openApiOperations: ['PUT /api/v1/projects/{name}/sentiment/settings'],
     handler: (client, input) => { const { project, ...request } = input; return client.configureSentiment(project, request) },
@@ -2607,7 +2607,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_project_upsert',
     title: 'Create or replace project',
-    description: 'Create or replace a Canonry project. PUT semantics — fields not in the request are reset to their defaults. Provide the full intended project shape. Exception: an omitted providerDispatchModes (provider → sync|batch for scheduled sweeps) keeps the stored preference; send {} to clear it.',
+    description: 'Create or replace a Canonry project. PUT semantics: fields not in the request are reset to their defaults. Provide the full intended project shape. Exceptions: an omitted providerDispatchModes (provider → sync|batch for scheduled sweeps) keeps the stored preference; send {} to clear it. An omitted qualifiedAliases (the aliases Simple sentiment treats as this brand\'s own names) keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it.',
     access: 'write',
     tier: 'setup',
     inputSchema: projectUpsertInputSchema,
@@ -2618,7 +2618,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_apply_config',
     title: 'Apply project config',
-    description: 'Apply one Canonry config-as-code project document. Replaces the project to match the config — fields omitted from the spec are reset to defaults, with one exception: a spec with neither queries nor keywords leaves the tracked-query basket unchanged. To clear the basket, pass an explicit empty queries list. For multi-document YAML, call this tool once per project document.',
+    description: 'Apply one Canonry config-as-code project document. Replaces the project to match the config; fields omitted from the spec are reset to defaults, with these exceptions: a spec with neither queries nor keywords leaves the tracked-query basket unchanged (to clear the basket, pass an explicit empty queries list); an omitted providerDispatchModes keeps the stored preference; and an omitted qualifiedAliases keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it. For multi-document YAML, call this tool once per project document.',
     access: 'write',
     tier: 'core',
     inputSchema: applyConfigInputSchema,

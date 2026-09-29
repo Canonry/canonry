@@ -4,9 +4,10 @@ import {
   buildSimpleMeasurementDefinition, canonicalMeasurementPlanV2Json, sentimentBackfillPreviewSchema, sentimentSelectionSchema,
   sentimentSummarySchema, sentimentOverviewSchema, storedSentimentClassifierInputSchema, type SentimentClassifierOutput, type SentimentOutcome,
 } from '@ainyc/canonry-contracts'
+import { eq } from 'drizzle-orm'
 import {
   apiKeys, createClient, measurementPlanVersions, migrate, projects, queries, querySnapshots, runs,
-  simpleMeasurementDefinitions, SentimentRepository, type DatabaseClient,
+  sentimentWorkItems, simpleMeasurementDefinitions, SentimentRepository, type DatabaseClient,
 } from '@ainyc/canonry-db'
 
 /** Counts frozen source selections; the real selector still answers every call. */
@@ -39,11 +40,11 @@ beforeEach(() => {
 })
 afterEach(() => db.$client.close())
 
-function simple(runId: string, labels: string[], location: string | null = null, providers = ['openai']) {
+function simple(runId: string, labels: string[], location: string | null = null, providers = ['openai'], identity: { aliases?: string[]; qualifiedAliases?: string[] } = {}) {
   db.insert(runs).values({ id: runId, projectId: 'p', kind: 'answer-visibility', status: 'completed', trigger: 'manual', location, createdAt: NOW }).run()
   const frozen = labels.map((queryText, index) => ({ queryId: `q-${index}`, queryText, provenance: null }))
   for (const query of frozen) db.insert(queries).values({ id: query.queryId, projectId: 'p', query: query.queryText, createdAt: NOW }).onConflictDoNothing().run()
-  const definition = buildSimpleMeasurementDefinition({ capturedAt: NOW, identity: { displayName: 'Acme', aliases: ['Acme Co'], canonicalDomain: 'acme.example', ownedDomains: [] }, country: 'US', language: 'en', location: location ? { label: location, city: location, region: 'EX', country: 'US' } : null, engines: providers.map(provider => ({ provider, requestedModel: `${provider}-requested` })), queries: frozen })
+  const definition = buildSimpleMeasurementDefinition({ capturedAt: NOW, identity: { displayName: 'Acme', aliases: identity.aliases ?? ['Acme Co'], canonicalDomain: 'acme.example', ownedDomains: [], qualifiedAliases: identity.qualifiedAliases }, country: 'US', language: 'en', location: location ? { label: location, city: location, region: 'EX', country: 'US' } : null, engines: providers.map(provider => ({ provider, requestedModel: `${provider}-requested` })), queries: frozen })
   db.insert(simpleMeasurementDefinitions).values({ runId, projectId: 'p', definition, checksum: runId, capturedAt: NOW }).run()
   for (const query of frozen) for (const provider of providers) db.insert(querySnapshots).values({ id: `${runId}-${query.queryId}${provider === 'openai' ? '' : `-${provider}`}`, runId, queryId: query.queryId, queryText: query.queryText, location, provider, model: `${provider}-requested`, servedModel: `${provider}-served`, answerText: ANSWER, citationState: 'cited', createdAt: NOW }).run()
 }
@@ -394,9 +395,37 @@ describe('sentiment service reads', () => {
     } finally { await app.close() }
   })
 
+  it('never rescores a run captured before the project qualified an alias, and gives a later run its own subject', () => {
+    service.configure('p', { enabled: true })
+    const aliases = ['Acme Co', 'ACMENYC']
+    simple('before', ['Acme reviews', 'Acme pricing'], null, ['openai'], { aliases }); admit('before'); finish()
+    const classified = db.select({ snapshotId: sentimentWorkItems.snapshotId, subjectHash: sentimentWorkItems.subjectHash }).from(sentimentWorkItems).all()
+    expect(classified).toHaveLength(2)
+
+    // The live setting changes; the run's frozen sidecar does not.
+    db.update(projects).set({ aliases, qualifiedAliases: ['ACMENYC'] }).where(eq(projects.id, 'p')).run()
+    const preview = service.preview('p', { runId: 'before', queryClass: 'branded' })
+    expect(preview).toMatchObject({ eligibleAssessments: 2, alreadyClassified: 2 })
+    const job = service.submit('p', preview.previewToken!, 'before:after-opt-in', 'fixture')
+    expect(job).toMatchObject({ state: 'complete', selected: 2 })
+    expect(repository.claim({ owner: 'service-test', now: NOW, leaseMs: 30_000 })).toBeUndefined()
+    expect(db.select({ snapshotId: sentimentWorkItems.snapshotId, subjectHash: sentimentWorkItems.subjectHash }).from(sentimentWorkItems).all()).toEqual(classified)
+
+    // Same aliases, same answers: only the frozen qualified list differs.
+    simple('after', ['Acme reviews', 'Acme pricing'], null, ['openai'], { aliases, qualifiedAliases: ['ACMENYC'] })
+    expect(service.preview('p', { runId: 'after', queryClass: 'branded' })).toMatchObject({ eligibleAssessments: 2, alreadyClassified: 0 })
+    admit('after')
+    const fresh = db.select({ runId: sentimentWorkItems.runId, subjectHash: sentimentWorkItems.subjectHash, input: sentimentWorkItems.input }).from(sentimentWorkItems).all().filter(item => item.runId === 'after')
+    expect(fresh).toHaveLength(2)
+    for (const item of fresh) {
+      expect(storedSentimentClassifierInputSchema.parse(item.input).subject.qualifiedAliases).toEqual(['ACMENYC'])
+      expect(classified.map(prior => prior.subjectHash)).not.toContain(item.subjectHash)
+    }
+  })
+
   it('discloses every category of data a request sends to TypeSafe', () => {
     const { disclosure } = service.settings('p')
-    for (const sent of ['answer\'s text', 'subject identity', 'tracked query text', 'query class', 'answer engine', 'requested and served models', 'location', 'identifiers']) expect(disclosure).toContain(sent)
+    for (const sent of ['answer\'s text', 'subject identity', 'qualified aliases', 'tracked query text', 'query class', 'answer engine', 'requested and served models', 'location', 'identifiers']) expect(disclosure).toContain(sent)
     expect(disclosure).not.toContain('\u2014')
   })
 })

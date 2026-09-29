@@ -2,11 +2,11 @@ import crypto from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { projects, competitors, schedules, notifications, readNegativeReviewMaxStars, writeNegativeReviewMaxStars } from '@ainyc/canonry-db'
-import { forbidden, nextScheduleUpdatedAt, normalizeProjectAliases, normalizeProjectDomain, projectConfigSchema, registrableDomain, resolveConfigSpecQueries, SchedulableRunKinds, validationError, describeError } from '@ainyc/canonry-contracts'
+import { competitorLabelFromDomain, forbidden, nextScheduleUpdatedAt, normalizeProjectAliases, normalizeProjectDomain, projectConfigSchema, registrableDomain, resolveConfigSpecQueries, resolveProjectQualifiedAliases, SchedulableRunKinds, validationError, describeError } from '@ainyc/canonry-contracts'
 import type { ProviderAdapterInfo } from './settings.js'
 import { pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
 import { writeAuditLog } from './helpers.js'
-import { assertProviderModelScope } from './projects.js'
+import { assertProviderModelScope, requireQualifiedAliases } from './projects.js'
 import { assertQueryReplacementAllowed, replaceProjectQueries } from './query-replace.js'
 import { activeRevisionProviders } from './run-queue.js'
 import { nextRunFromSchedule, resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
@@ -73,6 +73,19 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     const specDispatchModes = config.spec.providerDispatchModes === undefined
       ? undefined
       : validateProviderDispatchModes(config.spec.providerDispatchModes, opts?.providerAdapters)
+    // Present = the exact list, validated against the spec's own competitors
+    // because apply replaces that set. Absent keeps the stored list (below).
+    const specCompetitorNames = normalizeCompetitorList(config.spec.competitors).map(competitorLabelFromDomain)
+    const specQualifiedAliases = config.spec.qualifiedAliases === undefined
+      ? undefined
+      : requireQualifiedAliases(
+          {
+            displayName: config.spec.displayName,
+            aliases: normalizeProjectAliases(config.spec.displayName, config.spec.aliases),
+          },
+          config.spec.qualifiedAliases,
+          specCompetitorNames,
+        )
 
     // Validate schedule before entering transaction
     let resolvedSchedule: { cronExpr: string; preset: string | null; recurrence: import('@ainyc/canonry-contracts').CalendarRecurrence | null; timezone: string } | null = null
@@ -165,6 +178,13 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
 
       if (existing) {
         projectId = existing.id
+        // Omitted keeps the stored list, minus names that no longer pass the
+        // write rules against this spec's aliases and competitors.
+        const qualifiedAliases = specQualifiedAliases ?? resolveProjectQualifiedAliases(
+          { displayName: config.spec.displayName, aliases: nextAliases },
+          existing.qualifiedAliases,
+          specCompetitorNames,
+        ).value
         const providerDispatchModes = pruneProviderDispatchModes(
           specDispatchModes ?? existing.providerDispatchModes,
           specProviders,
@@ -175,6 +195,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           canonicalDomain: config.spec.canonicalDomain,
           ownedDomains: config.spec.ownedDomains ?? [],
           aliases: nextAliases,
+          qualifiedAliases,
           country: config.spec.country,
           language: config.spec.language,
           labels: config.metadata.labels,
@@ -207,6 +228,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           canonicalDomain: config.spec.canonicalDomain,
           ownedDomains: config.spec.ownedDomains ?? [],
           aliases: nextAliases,
+          qualifiedAliases: specQualifiedAliases ?? [],
           country: config.spec.country,
           language: config.spec.language,
           tags: [],
@@ -395,6 +417,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       canonicalDomain: project.canonicalDomain,
       ownedDomains: project.ownedDomains,
       aliases: project.aliases,
+      qualifiedAliases: project.qualifiedAliases,
       country: project.country,
       language: project.language,
       tags: project.tags,

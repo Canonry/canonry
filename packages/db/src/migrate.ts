@@ -4471,6 +4471,16 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     statements: [],
     run: dropAeroLedgerConversationKeys,
   },
+  {
+    // Sentiment-only project setting: the aliases the evaluator is told are
+    // the brand's own names. Defaulted, so an older writer that omits it and
+    // every existing project read as not opted in.
+    version: 166,
+    name: 'projects-qualified-aliases',
+    statements: [
+      `ALTER TABLE projects ADD COLUMN qualified_aliases TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
 ]
 
 /**

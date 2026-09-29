@@ -246,8 +246,26 @@ describe('Node support range', () => {
     const root = declaredEnginesCeiling(['package.json'])
     const published = declaredEnginesCeiling(['packages', 'canonry', 'package.json'])
 
-    expect(root.declared).toBe(`>=${CANONRY_MIN_MAJOR}.14.0 <${expectedCeiling}`)
+    // 22.19 is the floor Aero's agent runtime declares (see the next test).
+    expect(root.declared).toBe(`>=${CANONRY_MIN_MAJOR}.19.0 <${expectedCeiling}`)
     expect(published.declared).toBe(root.declared)
+  })
+
+  test('the declared floor is at least what the pi agent runtime requires', () => {
+    // @earendil-works/pi-ai and pi-agent-core declare their own Node floor; a
+    // pi upgrade that raises it must raise Canonry's too, or installs between
+    // the two floors run an unsupported runtime.
+    const floor = (range: string): number[] => (/>=\s*(\d+)\.(\d+)\.(\d+)/.exec(range)?.slice(1) ?? []).map(Number)
+    const atLeast = (a: number[], b: number[]): boolean =>
+      a[0] !== b[0] ? a[0]! > b[0]! : a[1] !== b[1] ? a[1]! > b[1]! : a[2]! >= b[2]!
+    const canonry = floor(declaredEnginesCeiling(['packages', 'canonry', 'package.json']).declared)
+    expect(canonry).toHaveLength(3)
+    for (const name of ['pi-ai', 'pi-agent-core']) {
+      const pkg = JSON.parse(readRepoFile('packages', 'canonry', 'node_modules', '@earendil-works', name, 'package.json')) as { engines?: { node?: string } }
+      const pi = floor(pkg.engines?.node ?? '')
+      expect(pi, `${name} engines.node`).toHaveLength(3)
+      expect(atLeast(canonry, pi), `${name} needs node ${pkg.engines?.node}`).toBe(true)
+    }
   })
 
   test('every Dockerfile uses the Node 22 base', () => {

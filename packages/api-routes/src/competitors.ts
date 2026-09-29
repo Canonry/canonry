@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { competitors } from '@ainyc/canonry-db'
 import { competitorBatchRequestSchema, normalizeProjectDomain, notFound, registrableDomain, validationError } from '@ainyc/canonry-contracts'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
+import { pruneQualifiedAliasesForCompetitors } from './projects.js'
 
 // Reduce a competitor domain to its registrable form (eTLD+1) so that
 // arbitrary subdomain labels like `offers` in `offers.quotebird.test` cannot
@@ -70,13 +71,17 @@ export async function competitorRoutes(app: FastifyInstance) {
           createdAt: now,
         }).run()
       }
+      const droppedQualifiedAliases = pruneQualifiedAliasesForCompetitors(tx, project.id, now)
 
       writeAuditLog(tx, {
         projectId: project.id,
         actor: 'api',
         action: 'competitors.replaced',
         entityType: 'competitor',
-        diff: { competitors: normalizedCompetitors },
+        diff: {
+          competitors: normalizedCompetitors,
+          ...(droppedQualifiedAliases.length ? { droppedQualifiedAliases } : {}),
+        },
       })
     })
 
@@ -117,13 +122,14 @@ export async function competitorRoutes(app: FastifyInstance) {
           target: [competitors.projectId, competitors.domain],
         }).run()
       }
+      const droppedQualifiedAliases = pruneQualifiedAliasesForCompetitors(tx, project.id, now)
 
       writeAuditLog(tx, {
         projectId: project.id,
         actor: 'api',
         action: 'competitors.appended',
         entityType: 'competitor',
-        diff: { added },
+        diff: { added, ...(droppedQualifiedAliases.length ? { droppedQualifiedAliases } : {}) },
       })
     })
 

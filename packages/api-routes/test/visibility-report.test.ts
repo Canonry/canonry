@@ -160,7 +160,7 @@ function seedAdvancedRun(input: {
   return id
 }
 
-function seedSimpleRun(id: string, capturedAt: string, withDefinition: boolean, requestedModel = 'simple-pin'): void {
+function seedSimpleRun(id: string, capturedAt: string, withDefinition: boolean, requestedModel = 'simple-pin', qualifiedAliases?: string[]): void {
   db.insert(runs).values({
     id,
     projectId,
@@ -179,7 +179,7 @@ function seedSimpleRun(id: string, capturedAt: string, withDefinition: boolean, 
     }).onConflictDoNothing().run()
     const definition = buildSimpleMeasurementDefinition({
       capturedAt,
-      identity: { displayName: 'Frozen Northstar', aliases: ['Northstar'], canonicalDomain: 'northstar.example', ownedDomains: [] },
+      identity: { displayName: 'Frozen Northstar', aliases: ['Northstar'], canonicalDomain: 'northstar.example', ownedDomains: [], qualifiedAliases },
       country: 'US', language: 'en', location: null,
       engines: [{ provider: 'openai', requestedModel }],
       competitors: [{ domain: 'challenger.example', label: 'Challenger', aliases: ['Challenger'] }],
@@ -518,6 +518,22 @@ describe('visibility report route', () => {
       { state: 'comparable', comparedRunId: 'simple-first' },
       { state: 'model-changed', comparedRunId: 'simple-second' },
     ])
+  })
+
+  it('keeps simple captures that differ only in their sentiment-only qualified aliases on one definition', async () => {
+    seedSimpleRun('simple-first', FIRST, true)
+    seedSimpleRun('simple-qualified', SECOND, true, 'simple-pin', ['Northstar'])
+    const stored = db.select().from(simpleMeasurementDefinitions).all()
+    expect(stored.map(row => row.definition.identity.qualifiedAliases)).toEqual([undefined, ['Northstar']])
+
+    const result = await report('mode=simple&queryClass=non-brand')
+    expect(result.status).toBe(200)
+    const population = (result.body as VisibilityReportResponse).populations[0]!
+    expect(population.trend.map(point => point.continuity)).toEqual([
+      { state: 'first', comparedRunId: null },
+      { state: 'comparable', comparedRunId: 'simple-first' },
+    ])
+    expect(population.trend.map(point => point.runId)).toEqual(['simple-first', 'simple-qualified'])
   })
 
   it('rejects malformed selection cursors and missing scope keys, while a scoped read-only key can read only its own project', async () => {

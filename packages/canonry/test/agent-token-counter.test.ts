@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { AgentMessage } from '@mariozechner/pi-agent-core'
+import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { estimateMessageTokens, estimateTranscriptTokens } from '../src/agent/token-counter.js'
 
 describe('token-counter', () => {

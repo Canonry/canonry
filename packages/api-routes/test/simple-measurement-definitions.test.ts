@@ -220,3 +220,97 @@ describe('simple measurement definition capture', () => {
     })).toThrow(/competitors.*exactly match/i)
   })
 })
+
+function qualifiedDefinition(qualifiedAliases?: string[], aliases = ['Northstar Living', 'NSLNYC', 'NSL NYC']) {
+  return buildSimpleMeasurementDefinition({
+    capturedAt,
+    identity: {
+      displayName: 'Northstar', aliases,
+      canonicalDomain: 'https://northstar.example/', ownedDomains: [],
+      ...(qualifiedAliases === undefined ? {} : { qualifiedAliases }),
+    },
+    country: 'US', language: 'en', location: null,
+    engines: [{ provider: 'gemini', requestedModel: 'fixture-model' }],
+    queries: [{ queryId: 'query-a', queryText: 'Northstar reviews', provenance: 'manual' }],
+  })
+}
+
+describe('simple measurement definition capture: qualified aliases', () => {
+  const capture = (definition: ReturnType<typeof qualifiedDefinition>) =>
+    captureSimpleMeasurementDefinition(db, { projectId: 'project-a', runId: 'run-a', definition })
+  const storedRow = () => db.select().from(simpleMeasurementDefinitions).get()!
+
+  it.each([
+    ['added', undefined, ['NSLNYC']],
+    ['changed', ['NSLNYC'], ['NSL NYC']],
+    ['cleared', ['NSL NYC', 'NSLNYC'], []],
+  ] as const)('replay keeps the first capture when the live list was %s', (_label, first, live) => {
+    const frozen = qualifiedDefinition(first === undefined ? undefined : [...first])
+    capture(frozen)
+    const row = storedRow()
+
+    const replayed = capture({ ...qualifiedDefinition([...live]), capturedAt: '2026-09-04T17:00:00.000Z' })
+
+    expect(replayed).toEqual(frozen)
+    expect(db.select().from(simpleMeasurementDefinitions).all()).toHaveLength(1)
+    expect(storedRow()).toEqual(row)
+  })
+
+  it('replays a pre-feature sidecar after the project opts in and returns it with no key', () => {
+    // A sidecar stored before the field existed, byte for byte.
+    const legacy = qualifiedDefinition()
+    expect(legacy.identity).not.toHaveProperty('qualifiedAliases')
+    capture(legacy)
+
+    const replayed = capture(qualifiedDefinition(['NSLNYC', 'NSL NYC']))
+
+    expect(replayed).toEqual(legacy)
+    expect(replayed!.identity).not.toHaveProperty('qualifiedAliases')
+    expect(storedRow().definition.identity).not.toHaveProperty('qualifiedAliases')
+  })
+
+  it('still refuses a replay whose aliases changed', () => {
+    capture(qualifiedDefinition(['NSLNYC']))
+    expect(() => capture(qualifiedDefinition(['NSLNYC'], ['Northstar Living', 'NSLNYC'])))
+      .toThrow(/already.*captured/i)
+    expect(() => capture(qualifiedDefinition(undefined, ['Northstar Living', 'NSLNYC', 'NSL NYC', 'Northstar Homes'])))
+      .toThrow(/already.*captured/i)
+  })
+
+  it('refuses a first capture whose list is not a sorted subset of the captured aliases', () => {
+    const valid = qualifiedDefinition(['NSLNYC', 'NSL NYC'])
+    expect(valid.identity.qualifiedAliases).toEqual(['NSL NYC', 'NSLNYC'])
+
+    const unsorted = { ...valid, identity: { ...valid.identity, qualifiedAliases: ['NSLNYC', 'NSL NYC'] } }
+    expect(() => capture(unsorted)).toThrow(/sorted subset/i)
+    const notSubset = { ...valid, identity: { ...valid.identity, qualifiedAliases: ['Former Name'] } }
+    expect(() => capture(notSubset)).toThrow(/sorted subset/i)
+    const displayName = { ...valid, identity: { ...valid.identity, qualifiedAliases: ['Northstar'] } }
+    expect(() => capture(displayName)).toThrow(/sorted subset/i)
+    expect(db.select().from(simpleMeasurementDefinitions).all()).toEqual([])
+
+    expect(capture(valid)).toEqual(valid)
+    expect(storedRow().checksum).toBe(crypto.createHash('sha256')
+      .update(canonicalSimpleMeasurementDefinitionJson(valid)).digest('hex'))
+  })
+
+  it('refuses a list naming a frozen competitor', () => {
+    db.insert(competitors).values({ id: 'rival', projectId: 'project-a', domain: 'nslnyc.example', createdAt: capturedAt }).run()
+    const built = buildSimpleMeasurementDefinition({
+      capturedAt,
+      identity: {
+        displayName: 'Northstar', aliases: ['Northstar Living', 'NSLNYC', 'NSL NYC'],
+        canonicalDomain: 'https://northstar.example/', ownedDomains: [], qualifiedAliases: ['NSLNYC'],
+      },
+      country: 'US', language: 'en', location: null,
+      engines: [{ provider: 'gemini', requestedModel: 'fixture-model' }],
+      competitors: [{ domain: 'nslnyc.example', label: 'nslnyc', aliases: ['nslnyc'] }],
+      queries: [{ queryId: 'query-a', queryText: 'Northstar reviews', provenance: 'manual' }],
+    })
+    // The builder drops the colliding name rather than failing dispatch.
+    expect(built.identity).not.toHaveProperty('qualifiedAliases')
+    const forced = { ...built, identity: { ...built.identity, qualifiedAliases: ['NSLNYC'] } }
+    expect(() => capture(forced)).toThrow(/sorted subset/i)
+    expect(capture(built)).toEqual(built)
+  })
+})

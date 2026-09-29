@@ -5,7 +5,7 @@ import path from 'node:path'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
-import type { AssistantMessage } from '@mariozechner/pi-ai'
+import type { AssistantMessage } from '@earendil-works/pi-ai'
 import { agentConversations, agentMemory, agentSessions, agentToolEvents, createClient, llmUsageEvents, migrate, MIGRATION_VERSIONS, type DatabaseClient } from '@ainyc/canonry-db'
 import { AppError, MemorySources, agentConversationListSchema, agentConversationSchema } from '@ainyc/canonry-contracts'
 import { registerAgentRoutes } from '../src/agent/agent-routes.js'
@@ -13,6 +13,7 @@ import { SessionRegistry } from '../src/agent/session-registry.js'
 import { loadRecentForHydrate, upsertMemoryEntry, writeCompactionNote } from '../src/agent/memory-store.js'
 import { AeroLlmUsageFeatures, recordLlmUsageEvent } from '../src/agent/llm-usage.js'
 import { recordAgentToolEvent } from '../src/agent/tool-usage.js'
+import { isSystemMessage } from '../src/agent/runtime.js'
 import { ApiClient } from '../src/client.js'
 import type { CanonryConfig } from '../src/config.js'
 import { canonryMcpTools } from '../src/mcp/tool-registry.js'
@@ -25,6 +26,8 @@ const config = { apiKey: 'test', providers: { claude: { apiKey: 'test' } } } as 
 const messages = [{ role: 'user' as const, content: 'Explain the London Property', timestamp: 1, aeroContext: { view: 'property', selection: { scope: 'property', scopeKey: 'hotel', marketKey: 'london', queryClass: 'non-brand' } } }]
 const current = () => db.select().from(agentSessions).where(eq(agentSessions.projectId, 'demo')).get()!
 const url = '/api/v1/projects/demo/agent/conversations'
+// The live transcript leads with pi's system message; compare only the turns.
+const liveTurns = () => registry.getOrCreate('demo').state.messages.filter(message => !isSystemMessage(message))
 const create = (id = crypto.randomUUID()) => app.inject({ method: 'POST', url, payload: { id } })
 
 beforeEach(async () => {
@@ -71,11 +74,11 @@ it('archives, reopens, and restores transcript/model/context after the registry 
   expect(fresh).toMatchObject({ id, active: true, messages: [], modelId: 'claude-opus-4-7' })
   expect((await app.inject(`${url}/legacy`)).json()).toMatchObject({ active: false, messages })
   registry.clear()
-  expect(registry.getOrCreate('demo').state.messages).toEqual([])
+  expect(liveTurns()).toEqual([])
   const resumed = await app.inject({ method: 'POST', url: `${url}/legacy/resume` })
   expect(resumed.statusCode).toBe(200)
   expect(resumed.json()).toMatchObject({ id: 'legacy', active: true, messages })
-  expect(registry.getOrCreate('demo').state.messages).toEqual(messages)
+  expect(liveTurns()).toEqual(messages)
   expect((await create(id)).json()).toMatchObject({ id, active: false })
   expect(current().id).toBe('legacy') // replay of creation cannot switch context again
   expect((await app.inject({ method: 'POST', url: `${url}/legacy/resume` })).statusCode).toBe(200)

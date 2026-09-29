@@ -1,7 +1,7 @@
 # Aero (built-in agent)
 
 Canonry ships a built-in AI agent called **Aero**, built on
-[`@mariozechner/pi-agent-core`](https://github.com/badlogic/pi-mono). Users
+[`@earendil-works/pi-agent-core`](https://github.com/earendil-works/pi). Users
 who already have their own agent (Claude Code, Codex, custom) can still
 consume Canonry through the external-agent webhook.
 
@@ -29,7 +29,12 @@ consume Canonry through the external-agent webhook.
   row and never re-keys it. `llm_usage_events` and `agent_tool_events` keep their
   conversation id through new, resume and archive: migration 165 dropped their
   foreign key to `agent_sessions`, which cannot follow an archived conversation.
-  Delete keeps those rows and clears the id. Migration 159 keeps the
+  Delete keeps those rows and clears the id.
+  pi-agent-core 0.86+ keeps the system prompt and tool declarations in the
+  transcript as `role: 'system'` messages, and `state.systemPrompt` is read-only.
+  Set the prompt with `setAeroSystemPrompt` (`runtime.ts`), which rewrites the one
+  leading system message. System messages are never saved, archived, streamed
+  over SSE or shown to viewers (`isSystemMessage`); they are rebuilt every turn. Migration 159 keeps the
   existing active transcript intact. Busy acquisition/streaming blocks switching.
   History routes live in `api-routes/agent-conversations.ts`, with injected runtime
   hooks. CLI: `agent conversations list|new|show|resume|delete`; MCP: the five
@@ -198,7 +203,7 @@ whether or not the cap cut anything; a result with nothing partial serializes
 byte-identical to plain compact JSON.
 
 A misspelled tool name is corrected before pi prepares the call: the
-`agent.streamFn` wrapper (`runtime.ts`) renames a tool call to the one VISIBLE
+`agent.streamFunction` wrapper (`runtime.ts`) renames a tool call to the one VISIBLE
 tool within a small edit distance (never toward a hidden or disallowed tool),
 and the tool-result message records the name the model wrote as
 `aeroRequestedToolName`. Without a unique visible match, the refusal names the
@@ -358,6 +363,7 @@ Aero's rules live in `src/agent/AGENTS.md` (see "Agent layer (Aero)" below). The
 - `packages/canonry/src/agent/runtime.ts` — progressive schemas and execution budgets
 - `packages/canonry/src/agent/view-context.ts` — authoritative view evidence
 - `packages/canonry/src/agent/session.ts` — `createAeroSession` (pi integration)
+- `packages/canonry/src/agent/pi-models.ts` — the one pi-ai model collection (`aeroModels`: built-in catalog plus the DeepInfra provider), the Agent's `aeroStreamFn`, and `completeOnce` for one-shot calls. Every request gets 2 retries (pi 0.76 made it 0), an output cap of min(model max, 32K) (streaming used that cap before pi 0.74; one-shot calls now get it too, where each API used to apply its own default), and a `canonry` User-Agent instead of pi's, which names the host OS and architecture.
 - `packages/canonry/src/agent/session-registry.ts` — hybrid in-memory + DB registry
 - `packages/canonry/src/agent/tools.ts` — thin wrapper that exposes the entire MCP tool registry to Aero via `mcp-to-agent-tool.ts`
 - `packages/canonry/src/agent/mcp-to-agent-tool.ts` — adapter; new MCP tools flow into Aero with no second registration

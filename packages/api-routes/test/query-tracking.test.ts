@@ -249,6 +249,7 @@ function insertFrozenSimpleRun(opts: {
       aliases: project.aliases,
       canonicalDomain: project.canonicalDomain,
       ownedDomains: project.ownedDomains,
+      qualifiedAliases: project.qualifiedAliases,
     },
     country: project.country,
     language: project.language,
@@ -517,6 +518,29 @@ describe('query tracking workspace: simple projects', () => {
       .toMatchObject({ state: 'awaiting-sweep', lastMeasuredAt: null })
     expect(after.tracked.find(row => row.queryId === 'q-unaffected'))
       .toMatchObject({ state: 'tracked', lastMeasuredAt: NOW })
+  })
+
+  it('keeps a simple query measured when only the sentiment-only qualified aliases differ from the sidecar', async () => {
+    const later = '2026-09-05T00:00:00.000Z'
+    db.update(projects).set({ aliases: ['Northwind Homes'], qualifiedAliases: ['Northwind Homes'] }).where(eq(projects.id, 'project-northwind')).run()
+    insertFrozenSimpleRun({ id: 'simple-qualified' })
+    expect(db.select().from(simpleMeasurementDefinitions).where(eq(simpleMeasurementDefinitions.runId, 'simple-qualified')).get()!
+      .definition.identity.qualifiedAliases).toEqual(['Northwind Homes'])
+    expect((await workspace()).tracked.find(row => row.queryId === 'q-existing'))
+      .toMatchObject({ state: 'tracked', lastMeasuredAt: NOW })
+
+    // Clearing the live list leaves the qualified sidecar's query measured.
+    db.update(projects).set({ qualifiedAliases: [] }).where(eq(projects.id, 'project-northwind')).run()
+    expect((await workspace()).tracked.find(row => row.queryId === 'q-existing'))
+      .toMatchObject({ state: 'tracked', lastMeasuredAt: NOW })
+
+    // A later sidecar without the list stays measured after the project opts back in.
+    insertFrozenSimpleRun({ id: 'simple-plain', finishedAt: later })
+    expect(db.select().from(simpleMeasurementDefinitions).where(eq(simpleMeasurementDefinitions.runId, 'simple-plain')).get()!
+      .definition.identity).not.toHaveProperty('qualifiedAliases')
+    db.update(projects).set({ qualifiedAliases: ['Northwind Homes'] }).where(eq(projects.id, 'project-northwind')).run()
+    expect((await workspace()).tracked.find(row => row.queryId === 'q-existing'))
+      .toMatchObject({ state: 'tracked', lastMeasuredAt: later })
   })
 
   it('treats a legacy simple run without a frozen sidecar as unknown', async () => {
