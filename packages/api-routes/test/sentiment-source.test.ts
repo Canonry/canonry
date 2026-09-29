@@ -161,6 +161,63 @@ describe('sentiment frozen source selection', () => {
     expect(selectSentimentSources(db, 'p', { runId: 'advanced', queryClass: 'non-brand' }).skipped).toEqual({ 'excluded-branded': 2 })
   })
 
+  it('keeps a pre-feature Simple sidecar at an empty qualified list and its pre-feature subject hash', () => {
+    simple(); snapshot()
+    expect(db.select().from(simpleMeasurementDefinitions).get()!.definition.identity).not.toHaveProperty('qualifiedAliases')
+    const [assessment] = selectSentimentSources(db, 'p', { runId: 'r' }).assessments
+    expect(assessment!.subject.identityAliases).toEqual([])
+    const input = sentimentClassifierInput(assessment!, createSentimentEvaluationDefinition())
+    expect(input.subject).toEqual({ id: 'p', displayName: 'Original', aliases: ['Original', 'Original Co'], qualifiedAliases: [], urls: ['https://Original.Example/about'], mentionNotApplicable: false })
+    // Pinned before qualified aliases existed: a run that never opted in keeps every stored assessment's identity.
+    expect(input.subjectHash).toBe('81fe08656c9a877d6b4024cb828d081abdfba1d7be6d60d8d98e827bd63b9ff1')
+  })
+
+  it('sends an opted-in Simple sidecar\'s frozen qualified aliases, sorted, whatever the live project says', () => {
+    const subjectFor = (runId: string, qualifiedAliases?: string[], storedAs?: string[]) => {
+      db.insert(runs).values({ id: runId, projectId: 'p', kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt: now }).run()
+      const built = buildSimpleMeasurementDefinition({ capturedAt: now, identity: { displayName: 'Original', aliases: ['Original Co', 'ORGNYC', 'ORG NYC'], canonicalDomain: 'https://Original.Example/about', ownedDomains: [], qualifiedAliases }, country: 'US', language: 'en', location: null, engines: [{ provider: 'openai', requestedModel: 'gpt-test' }], queries: [{ queryId: 'q', queryText: 'Original reviews', provenance: null }] })
+      // `storedAs` writes the row's list directly, as a sidecar not produced by the builder.
+      const definition = storedAs ? { ...built, identity: { ...built.identity, qualifiedAliases: storedAs } } : built
+      db.insert(simpleMeasurementDefinitions).values({ runId, projectId: 'p', definition, checksum: runId, capturedAt: now }).run()
+      db.insert(querySnapshots).values({ id: `${runId}-s`, runId, queryId: 'q', queryText: 'Original reviews', provider: 'openai', model: 'gpt-test', servedModel: 'gpt-test-v1', answerText: 'ORG NYC provides excellent service.', citationState: 'cited', createdAt: now }).run()
+      const [assessment] = selectSentimentSources(db, 'p', { runId }).assessments
+      return { assessment: assessment!, input: sentimentClassifierInput(assessment!, createSentimentEvaluationDefinition()) }
+    }
+    db.update(projects).set({ aliases: ['Original Co'], qualifiedAliases: [] }).where(eq(projects.id, 'p')).run()
+    const qualified = subjectFor('qualified', ['ORGNYC', 'ORG NYC'])
+    expect(qualified.assessment.subject.identityAliases).toEqual(['ORG NYC', 'ORGNYC'])
+    expect(qualified.input.subject.qualifiedAliases).toEqual(['ORG NYC', 'ORGNYC'])
+    // Mention names are unchanged: one spelling per brand key, as before.
+    expect(qualified.input.subject.aliases).toEqual(['Original', 'Original Co', 'ORGNYC'])
+
+    // The same frozen identity without the list differs only there, and so does its hash.
+    const plain = subjectFor('plain')
+    expect(plain.input.subject).toEqual({ ...qualified.input.subject, qualifiedAliases: [] })
+    expect(plain.input.subjectHash).not.toBe(qualified.input.subjectHash)
+
+    // A stored list in another order is the same identity, with the same hash.
+    const unsorted = subjectFor('unsorted', undefined, ['ORGNYC', 'ORG NYC'])
+    expect(unsorted.assessment.subject.identityAliases).toEqual(['ORG NYC', 'ORGNYC'])
+    expect(unsorted.input.subjectHash).toBe(qualified.input.subjectHash)
+  })
+
+  it('passes an Advanced Property\'s frozen identity phrases through as qualified aliases', () => {
+    const plan = measurementPlanV2Fixture()
+    plan.targets[0]!.identityAliases = ['Harbor Homes Northbridge']
+    advancedPlan(plan)
+    advancedRun('advanced', plan, stampedIdentity('en'))
+    const selected = selectSentimentSources(db, 'p', { runId: 'advanced', queryClass: 'non-brand' }).assessments
+    const harbor = selected.filter(item => item.subject.key === 'harbor')
+    const bayside = selected.filter(item => item.subject.key === 'bayside')
+    expect(harbor.length).toBeGreaterThan(0)
+    expect(bayside.length).toBeGreaterThan(0)
+    for (const item of harbor) {
+      expect(item.subject.identityAliases).toEqual(['Harbor Homes Northbridge'])
+      expect(sentimentClassifierInput(item, createSentimentEvaluationDefinition()).subject.qualifiedAliases).toEqual(['Harbor Homes Northbridge'])
+    }
+    for (const item of bayside) expect(item.subject.identityAliases).toEqual([])
+  })
+
   it('never loads raw provider payloads or run manifests while selecting sources', () => {
     simple(); snapshot()
     db.update(querySnapshots).set({ rawResponse: JSON.stringify({ payload: 'x'.repeat(4096) }) }).run()

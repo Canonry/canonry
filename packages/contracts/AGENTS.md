@@ -18,7 +18,7 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 | `src/project.ts` | Project DTOs and Zod schemas |
 | `src/run.ts` | Run and grounding source types |
 | `src/provider-batch.ts` / `src/run-dispatch.ts` | Batch dispatch (#1201): provider-level vocabulary (dispatch mode, batch status, usage, prices, the adapter capability) and the run layer on top of it — `resolveRunDispatchModes` (the one eligibility rule set, applied at queue time), `describeBatchIneligibility` (the only wording of each reason), the batch ledger `outcome` enum, and `summarizeRunUsage` (the run detail's usage sum; an answer without usage counts nowhere, an unpriced group's cost is null). |
-| `src/simple-measurement-definition.ts` | Frozen inputs for simple runs: identity, exact queries, query classes, location, and requested models. The builder uses the shared classifier. Unknown classification stays null. Canonical serialization preserves exact values and sorts set-like collections. |
+| `src/simple-measurement-definition.ts` | Frozen inputs for simple runs: identity, exact queries, query classes, location, and requested models. The builder uses the shared classifier. Unknown classification stays null. Canonical serialization preserves exact values and sorts set-like collections. The identity freezes optional sentiment-only `qualifiedAliases` (resolved by `resolveProjectQualifiedAliases` in `project.ts`, stale entries dropped), omitted when empty so pre-feature checksums never move; the stored schema applies no write rules, so a later rule change cannot orphan a sidecar. |
 | `src/snapshot.ts` | Snapshot DTOs and diff types |
 | `src/research.ts` | Research DTOs and shared helpers for exact-text deduplication and declared template bindings/expansion. |
 | `src/scopes.ts` | Shared read-only classification (`read` or named `*.read`, unless explicitly write-granted), restricted write grants (`research.run` and Ads), and delegated-consent intersection. Adding an action grant must keep API gates and MCP catalogs aligned. |
@@ -77,7 +77,7 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 |---------|------|
 | Date / number / ratio formatting | `packages/contracts/src/formatting.ts` (`formatPercent`, `formatSignedPercent`, `deltaPercent`) |
 | Ratio wire precision (what a producer sends) | `packages/contracts/src/ratio-unit.ts` (`roundRatio`, `percentOf`) |
-| URL / domain identity | `packages/contracts/src/url-normalize.ts` (`hostOf`, PSL-aware `registrableDomain` / `brandLabelFromDomain`, exact-or-subdomain matching, prose domain extraction) |
+| URL / domain identity | `packages/contracts/src/url-normalize.ts` (`hostOf`, PSL-aware `registrableDomain` / `brandLabelFromDomain`, `competitorLabelFromDomain` (the label a stored competitor domain contributes), exact-or-subdomain matching, prose domain extraction) |
 | External JSON object narrowing | `packages/contracts/src/record.ts` (`asRecord`, rejects null, arrays, and primitive values) |
 | Brand identity matching | `packages/contracts/src/brand-matching.ts` (exact approved aliases across case/spacing/punctuation variants; never fuzzy/edit-distance matching for metrics) |
 | Answer prose for mention matching | `packages/contracts/src/answer-prose.ts` (`answerProseForMentions`: strip citation chips, links and markers before any mention match; `stripCitationChips` for link-aware readers) |

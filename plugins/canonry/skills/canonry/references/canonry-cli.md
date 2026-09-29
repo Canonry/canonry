@@ -53,6 +53,8 @@ cnry project update <name>                     # update project settings
 cnry project update <name> --dispatch-mode claude=batch   # scheduled sweeps batch this provider (repeatable; see Batch mode below)
 cnry project update <name> --clear-dispatch-mode claude   # back to sync
 cnry project update <name> --negative-review-max-stars 2   # review.negative for 1-2 star Google reviews only (1-4, or "default" for 3)
+cnry project update <name> --add-qualified-alias "Acme NYC"      # sentiment treats this existing alias as the brand's own name (see Brand aliases)
+cnry project update <name> --remove-qualified-alias "Acme NYC"   # repeatable; create takes --qualified-alias
 cnry project delete <name>                     # delete a project
 cnry project delete <name> --dry-run           # preview cascade impact (GET /delete-preview) without writing
 cnry status <project>                          # mention + citation summary + domain info
@@ -60,7 +62,9 @@ cnry status <project>                          # mention + citation summary + do
 
 ### Brand aliases
 
-`spec.brandAliases: string[]` on the project (set via `cnry apply` or the dashboard) widens the mention detector. Use it when the answer text says "Meta" but the canonical brand is "Facebook", or for product variants ("AcmeCloud", "Acme Cloud", "AcmeCloud Pro"). Aliases are case-insensitive and match the same answer-text scan that powers `answerMentioned`.
+`spec.aliases: string[]` on the project (set via `cnry apply`, `cnry project update <name> --add-alias <name>`, or the dashboard) widens the mention detector. Use it when the answer text says "Meta" but the canonical brand is "Facebook", or for a product or former name ("AcmeCloud Pro"). Matching ignores case, spacing and punctuation, so "AcmeCloud" already matches "Acme Cloud"; it is the same answer-text scan that powers `answerMentioned`.
+
+`spec.qualifiedAliases: string[]` (experimental sentiment only; `--add-qualified-alias` / `--remove-qualified-alias` on update, `--qualified-alias` on create) marks aliases the sentiment evaluator is told are the brand's own names, with their exact spelling, for example a former name or a spaced spelling of one. Each must already be an alias, must not be a spelling of the display name, needs a brand key of at least four characters, and must not be a competitor's name; a rejected entry is a 400 naming the reason. It changes neither `answerMentioned` nor query classes. An omitted field keeps the stored list (minus names that no longer qualify: a removed alias, a spelling of the display name, or a competitor's name) and `[]` clears it. Adding a competitor drops a qualified alias it shares a brand key with. It applies to runs dispatched afterward only; recorded answers are not rescored.
 
 ## Surgical Reads — `cnry get`
 
@@ -197,7 +201,7 @@ cnry evidence <project>                        # per-query [C/c][M/m] cell + Men
 cnry evidence <project> --format json          # JSON output
 cnry history <project>                         # audit trail
 cnry export <project> --include-results        # export as YAML
-cnry backfill answer-mentions                  # recompute answerMentioned (primary) from stored answers (honors brandAliases)
+cnry backfill answer-mentions                  # recompute answerMentioned (primary) from stored answers (honors aliases)
 cnry backfill answer-mentions --dry-run
 cnry backfill answer-visibility                # recompute citationState (secondary) from stored answers
 cnry backfill answer-visibility --dry-run      # preview which snapshots would change
@@ -1476,4 +1480,9 @@ Backfill retains repeated `--run-id` for its historical selection. JSON equals t
 evidence JSONL is one complete page document so empty state and cursor survive.
 Jobs JSONL streams one project-stamped job summary (with `attemptCount`) per line; `sentiment job` pages attempt receipts newest first (`--attempt-limit`, `--attempt-cursor`). Favorable rates use judged
 assessments; mixed gets no partial credit, absent subjects are excluded, and
-partial scores cannot establish improvement or decline.
+partial scores cannot establish improvement or decline. A Simple subject carries the
+project's qualified aliases frozen at dispatch as `subject.qualifiedAliases` (see Brand
+aliases); earlier runs keep their list (empty before opting in) and are not rescored.
+Every change to the list (first set, edit, or clear) starts a new subject boundary at
+the first run captured afterward: a pooled read or comparison across it is refused, so
+read from the most recent change onward.

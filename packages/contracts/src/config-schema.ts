@@ -2,7 +2,12 @@ import { z } from 'zod'
 import { calendarRecurrenceSchema } from './schedule.js'
 import { providerModelsSchema, providerNameSchema, locationContextSchema } from './provider.js'
 import { notificationEventSchema } from './notification.js'
-import { findDuplicateLocationLabels, hasLocationLabel } from './project.js'
+import {
+  findDuplicateLocationLabels,
+  hasLocationLabel,
+  PROJECT_QUALIFIED_ALIAS_LIMIT,
+  PROJECT_QUALIFIED_ALIAS_MAX_LENGTH,
+} from './project.js'
 import { measurementConfigSchema, defaultMeasurementConfig } from './measurement.js'
 import { providerDispatchModesSchema } from './provider-batch.js'
 import { gbpNegativeReviewMaxStarsSchema } from './gbp.js'
@@ -56,6 +61,11 @@ export const configSpecSchema = z.object({
   canonicalDomain: z.string().min(1),
   ownedDomains: z.array(z.string().min(1)).optional().default([]),
   aliases: z.array(z.string().min(1)).optional().default([]),
+  // No default on purpose: an apply that omits it keeps the project's stored
+  // list, minus names that no longer qualify against this spec's `aliases`,
+  // display name and competitors. Each entry must be an alias.
+  qualifiedAliases: z.array(z.string().min(1).max(PROJECT_QUALIFIED_ALIAS_MAX_LENGTH))
+    .max(PROJECT_QUALIFIED_ALIAS_LIMIT).optional(),
   country: z.string().length(2),
   language: z.string().min(2),
   queries: configQueryListSchema.optional(),

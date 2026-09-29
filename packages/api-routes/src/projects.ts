@@ -1,10 +1,11 @@
 import crypto from 'node:crypto'
 import { and, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { projects, queries, competitors, schedules, notifications, runs, querySnapshots, insights, auditLog, readAllNegativeReviewMaxStars, readNegativeReviewMaxStars, writeNegativeReviewMaxStars } from '@ainyc/canonry-db'
+import { projects, queries, competitors, schedules, notifications, runs, querySnapshots, insights, auditLog, readAllNegativeReviewMaxStars, readNegativeReviewMaxStars, writeNegativeReviewMaxStars, type DatabaseClient } from '@ainyc/canonry-db'
 import type { InferSelectModel } from 'drizzle-orm'
 import {
   alreadyExists,
+  competitorLabelFromDomain,
   describeError,
   forbidden,
   hostOf,
@@ -15,6 +16,7 @@ import {
   normalizeProjectName,
   projectCreateRequestSchema,
   projectUpsertRequestSchema,
+  resolveProjectQualifiedAliases,
   findDuplicateLocationLabels,
   hasLocationLabel,
   DEFAULT_MEASUREMENT_CONFIG,
@@ -152,6 +154,10 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     const id = crypto.randomUUID()
     const now = new Date().toISOString()
     const nextAliases = normalizeProjectAliases(body.displayName, body.aliases ?? [])
+    // A new project has no competitors yet, so only the alias rules apply.
+    const qualifiedAliases = body.qualifiedAliases === undefined
+      ? []
+      : requireQualifiedAliases({ displayName: body.displayName, aliases: nextAliases }, body.qualifiedAliases, [])
     const inserted = app.db.transaction((tx) => {
       const result = tx.insert(projects).values({
         id,
@@ -160,6 +166,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         canonicalDomain,
         ownedDomains: body.ownedDomains ?? [],
         aliases: nextAliases,
+        qualifiedAliases,
         country: body.country,
         language: body.language,
         tags: body.tags ?? [],
@@ -204,6 +211,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       canonicalDomain: string
       ownedDomains?: string[]
       aliases?: string[]
+      qualifiedAliases?: string[]
       country: string
       language: string
       tags?: string[]
@@ -289,6 +297,16 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     const nextMeasurement = body.measurement ?? existing?.measurement ?? DEFAULT_MEASUREMENT_CONFIG
 
     const nextAliases = normalizeProjectAliases(body.displayName, body.aliases ?? [])
+    // Explicit: every entry must pass the write rules against the live
+    // competitors. Omitted: keep the stored list, minus names that no longer
+    // pass them (the dashboard's settings save never sends the field).
+    // Sentiment only reads it, so a change here never triggers the mention
+    // backfill.
+    const nextIdentity = { displayName: body.displayName, aliases: nextAliases }
+    const liveCompetitors = existing ? liveCompetitorNames(app.db, existing.id) : []
+    const nextQualifiedAliases = body.qualifiedAliases !== undefined
+      ? requireQualifiedAliases(nextIdentity, body.qualifiedAliases, liveCompetitors)
+      : resolveProjectQualifiedAliases(nextIdentity, existing?.qualifiedAliases ?? [], liveCompetitors).value
 
     if (existing) {
       const prevAliases = existing.aliases
@@ -300,6 +318,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           canonicalDomain: body.canonicalDomain,
           ownedDomains: body.ownedDomains ?? [],
           aliases: nextAliases,
+          qualifiedAliases: nextQualifiedAliases,
           country: body.country,
           language: body.language,
           tags: body.tags ?? [],
@@ -342,6 +361,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         canonicalDomain: body.canonicalDomain,
         ownedDomains: body.ownedDomains ?? [],
         aliases: nextAliases,
+        qualifiedAliases: nextQualifiedAliases,
         country: body.country,
         language: body.language,
         tags: body.tags ?? [],
@@ -622,6 +642,12 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       eq(schedules.kind, SchedulableRunKinds['answer-visibility']),
     )).get()
     const notificationRows = app.db.select().from(notifications).where(eq(notifications.projectId, project.id)).all()
+    // Filtered by the rules `POST /apply` enforces, so an export always re-applies.
+    const exportedQualifiedAliases = resolveProjectQualifiedAliases(
+      project,
+      project.qualifiedAliases,
+      comps.map(c => competitorLabelFromDomain(c.domain)),
+    ).value
 
     const config = {
       apiVersion: 'canonry/v1',
@@ -635,6 +661,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         canonicalDomain: project.canonicalDomain,
         ownedDomains: project.ownedDomains,
         aliases: project.aliases,
+        ...(exportedQualifiedAliases.length ? { qualifiedAliases: exportedQualifiedAliases } : {}),
         country: project.country,
         language: project.language,
         queries: qs.map(q => q.query),
@@ -711,6 +738,60 @@ export function assertProviderModelScope(
   requireScope(request, SETTINGS_WRITE_SCOPE)
 }
 
+/**
+ * An explicit `qualifiedAliases` write is all-or-nothing: any rejected entry is
+ * a 400 naming each entry and its reason, in the message and in details.
+ * Shared with `POST /apply`.
+ */
+export function requireQualifiedAliases(
+  identity: { displayName: string; aliases: readonly string[] },
+  requested: readonly string[],
+  competitorNames: readonly string[],
+): string[] {
+  const resolved = resolveProjectQualifiedAliases(identity, requested, competitorNames)
+  if (resolved.rejected.length > 0) {
+    const reasons = resolved.rejected.map(entry => `${entry.name} (${entry.reason})`).join(', ')
+    throw validationError(`Rejected qualifiedAliases: ${reasons}`, {
+      rejectedQualifiedAliases: resolved.rejected,
+    })
+  }
+  return resolved.value
+}
+
+/**
+ * A project's live competitor names as a Simple run freezes them: the legacy
+ * table holds domains only, so each contributes its brand label.
+ */
+export function liveCompetitorNames(db: Pick<DatabaseClient, 'select'>, projectId: string): string[] {
+  return db.select({ domain: competitors.domain }).from(competitors)
+    .where(eq(competitors.projectId, projectId)).all()
+    .map(row => competitorLabelFromDomain(row.domain))
+}
+
+/**
+ * Drops stored qualified aliases that now share a brand key with a live
+ * competitor. Competitor writes outside a project PUT or apply call this in
+ * their transaction, so the stored list, its export and a Simple run's frozen
+ * list always agree. Returns the dropped names for the caller's audit entry.
+ */
+export function pruneQualifiedAliasesForCompetitors(
+  tx: Pick<DatabaseClient, 'select' | 'update'>,
+  projectId: string,
+  now: string,
+): string[] {
+  const project = tx.select({
+    displayName: projects.displayName,
+    aliases: projects.aliases,
+    qualifiedAliases: projects.qualifiedAliases,
+  }).from(projects).where(eq(projects.id, projectId)).get()
+  if (!project?.qualifiedAliases.length) return []
+  const kept = resolveProjectQualifiedAliases(project, project.qualifiedAliases, liveCompetitorNames(tx, projectId)).value
+  const dropped = project.qualifiedAliases.filter(name => !kept.includes(name))
+  if (dropped.length === 0) return []
+  tx.update(projects).set({ qualifiedAliases: kept, updatedAt: now }).where(eq(projects.id, projectId)).run()
+  return dropped
+}
+
 function providerModelsEqual(a: ProviderModels, b: ProviderModels): boolean {
   const aKeys = Object.keys(a)
   if (aKeys.length !== Object.keys(b).length) return false
@@ -730,6 +811,7 @@ export function formatProject(row: InferSelectModel<typeof projects>, negativeRe
     canonicalDomain: row.canonicalDomain,
     ownedDomains: row.ownedDomains,
     aliases: row.aliases,
+    qualifiedAliases: row.qualifiedAliases,
     country: row.country,
     language: row.language,
     tags: row.tags,

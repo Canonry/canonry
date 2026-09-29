@@ -32,11 +32,11 @@ beforeEach(() => {
   service = new SentimentService(db, { install: () => ({ enabled, ready: enabled, reason: enabled ? null : 'install-disabled', model: 'jev-1.13.0' }), now, previewSecret: 'secret' })
 })
 afterEach(() => { db.$client.close() })
-function source(id: string, receipt = true, queryText = 'Acme reviews', projectId = 'p', brand = 'Acme') {
+function source(id: string, receipt = true, queryText = 'Acme reviews', projectId = 'p', brand = 'Acme', identity: { aliases?: string[]; qualifiedAliases?: string[] } = {}) {
   const queryId = projectId === 'p' ? 'q' : `${projectId}-q`
   db.insert(runs).values({ id, projectId, kind: 'answer-visibility', trigger: 'manual', status: 'completed', createdAt: time }).run()
   db.insert(querySnapshots).values({ id: `s-${id}`, runId: id, queryId, provider: 'openai', model: 'gpt-test', servedModel: 'gpt-test-v1', answerText: `${brand} is excellent.`, citationState: 'cited', createdAt: time }).run()
-  db.insert(simpleMeasurementDefinitions).values({ runId: id, projectId, checksum: 'x', capturedAt: time, definition: buildSimpleMeasurementDefinition({ capturedAt: time, identity: { displayName: brand, aliases: [], canonicalDomain: `https://${brand}.Example/`, ownedDomains: [] }, country: 'US', language: 'en', location: null, engines: [{ provider: 'openai', requestedModel: 'gpt-test' }], queries: [{ queryId, queryText, provenance: null }] }) }).run()
+  db.insert(simpleMeasurementDefinitions).values({ runId: id, projectId, checksum: 'x', capturedAt: time, definition: buildSimpleMeasurementDefinition({ capturedAt: time, identity: { displayName: brand, aliases: identity.aliases ?? [], canonicalDomain: `https://${brand}.Example/`, ownedDomains: [], qualifiedAliases: identity.qualifiedAliases }, country: 'US', language: 'en', location: null, engines: [{ provider: 'openai', requestedModel: 'gpt-test' }], queries: [{ queryId, queryText, provenance: null }] }) }).run()
   if (receipt) recordSentimentCompletion(db, { projectId, runId: id, completionKey: 'initial', completedAt: time })
 }
 function secondProject() {
@@ -63,6 +63,24 @@ describe('durable sentiment worker', () => {
     expect(service.jobList('p').jobs).toHaveLength(2)
     expect(service.summary('p', { runId: 'non-brand', mode: 'simple', scope: 'project', queryClass: 'non-brand' })).toMatchObject({ state: 'complete', coverage: { selected: 1, judged: 0, counts: { 'subject-not-mentioned': 1, unfavorable: 0 } }, score: { favorableRate: null, favorableDisplay: 'Unavailable' } })
   })
+  it('sends an opted-in run\'s frozen qualified aliases on automatic admission, and an empty list for a run that never opted in', async () => {
+    service.configure('p', { enabled: true })
+    const aliases = ['AcmeNYC', 'Acme NYC']
+    source('plain', true, 'Acme reviews', 'p', 'Acme', { aliases })
+    source('qualified', true, 'Acme reviews', 'p', 'Acme', { aliases, qualifiedAliases: ['AcmeNYC', 'Acme NYC'] })
+    const { runtime, classify } = worker()
+    await runtime.tick(); await runtime.tick()
+    expect(classify).toHaveBeenCalledTimes(2)
+    const sent = new Map(classify.mock.calls.map(([input]) => [input.sourceSnapshotId, input]))
+    expect(sent.get('s-qualified')!.subject.qualifiedAliases).toEqual(['Acme NYC', 'AcmeNYC'])
+    expect(sent.get('s-plain')!.subject.qualifiedAliases).toEqual([])
+    expect(sent.get('s-qualified')!.subjectHash).not.toBe(sent.get('s-plain')!.subjectHash)
+    const stored = db.select({ snapshotId: sentimentWorkItems.snapshotId, input: sentimentWorkItems.input }).from(sentimentWorkItems).all()
+    expect(Object.fromEntries(stored.map(item => [item.snapshotId, (item.input as SentimentClassifierInput).subject.qualifiedAliases]))).toEqual({
+      's-plain': [], 's-qualified': ['Acme NYC', 'AcmeNYC'],
+    })
+  })
+
   it('upgrades an enabled legacy evaluator at a new future-completion boundary without automatic historical non-brand work', async () => {
     const old = { ...createSentimentEvaluationDefinition(), schemaVersion: 1, verdictVersion: 'stance-v1', identityVersion: 'qualified-subject-v1', themes: [], questions: { ...createSentimentEvaluationDefinition().questions, theme: 'Archived question' } }
     const repository = new SentimentRepository(db), id = sentimentHash(old)

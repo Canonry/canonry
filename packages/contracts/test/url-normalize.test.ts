@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   absolutizeProjectUrl,
   brandLabelFromDomain,
+  competitorLabelFromDomain,
   describeLandingPage,
   extractDomainsFromText,
   hostMatchesDomain,
@@ -41,6 +42,13 @@ describe('domain identity', () => {
   it('treats private-suffix tenants as separate domains', () => {
     expect(registrableDomain('docs.canonry.github.io')).toBe('canonry.github.io')
     expect(brandLabelFromDomain('docs.canonry.github.io')).toBe('canonry')
+  })
+
+  it('labels a stored competitor by its brand label, else by the stored domain', () => {
+    expect(competitorLabelFromDomain('rivalhomes.example')).toBe('rivalhomes')
+    expect(competitorLabelFromDomain('news.bbc.co.uk')).toBe('bbc')
+    expect(competitorLabelFromDomain('localhost')).toBe('localhost')
+    expect(competitorLabelFromDomain('10.0.0.1')).toBe('10.0.0.1')
   })
 
   it('matches only the same host or a real subdomain', () => {

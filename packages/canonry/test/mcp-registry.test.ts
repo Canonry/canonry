@@ -292,6 +292,25 @@ describe('MCP tool registry', () => {
     expect(schemaProperty(inputSchemaFor(tool.name), 'groupBy')).toMatchObject({ const: 'model' })
   })
 
+  it('carries qualifiedAliases on project upsert and apply, and names the omitted-keeps exception', () => {
+    const upsert = canonryMcpTools.find(candidate => candidate.name === 'canonry_project_upsert')!
+    const request = { displayName: 'Acme', canonicalDomain: 'acme.example', country: 'US', language: 'en', aliases: ['AcmeNYC'] }
+    expect(upsert.inputSchema.parse({ project: 'acme', request: { ...request, qualifiedAliases: ['AcmeNYC'] } }))
+      .toMatchObject({ request: { qualifiedAliases: ['AcmeNYC'] } })
+    expect(upsert.inputSchema.parse({ project: 'acme', request }).request).not.toHaveProperty('qualifiedAliases')
+    expect(upsert.inputSchema.safeParse({ project: 'acme', request: { ...request, qualifiedAliases: Array.from({ length: 21 }, (_, i) => `Alias ${i}`) } }).success).toBe(false)
+    const requestSchema = z.toJSONSchema(upsert.inputSchema) as { properties: { request: { properties: Record<string, unknown>; required?: string[] } } }
+    expect(requestSchema.properties.request.properties).toHaveProperty('qualifiedAliases')
+    expect(requestSchema.properties.request.required ?? []).not.toContain('qualifiedAliases')
+    expect(upsert.description).toContain('An omitted qualifiedAliases')
+    expect(upsert.description).toContain('keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it')
+
+    const apply = canonryMcpTools.find(candidate => candidate.name === 'canonry_apply_config')!
+    const config = { apiVersion: 'canonry/v1', kind: 'Project', metadata: { name: 'acme' }, spec: { ...request, qualifiedAliases: ['AcmeNYC'] } }
+    expect(apply.inputSchema.parse({ config }).config.spec.qualifiedAliases).toEqual(['AcmeNYC'])
+    expect(apply.description).toContain('an omitted qualifiedAliases keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it')
+  })
+
   it('tells agents each visibility population carries its change since the previous sweep', () => {
     const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_visibility_report')!
     expect(tool.description).toContain(

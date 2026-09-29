@@ -116,7 +116,7 @@ erDiagram
 
 | Table | Purpose | Key Constraints |
 |-------|---------|----------------|
-| **projects** | Root entity — domain, location config, provider list, per-project `provider_models` overrides, `provider_dispatch_modes` (JSON: provider → `sync`/`batch`, read by scheduled sweeps only), `measurement_config` (JSON: marketing hosts, brand terms, and GA4 lead-event names), optional `icp_description` (free-text ICP used by discovery seed phase) | Unique: `name` |
+| **projects** | Root entity: domain, location config, provider list, `aliases`, `qualified_aliases` (JSON: the operator-chosen subset of `aliases` that Simple sentiment tells its evaluator are the brand's own names; frozen into each Simple run's sidecar, never read by mention detection), per-project `provider_models` overrides, `provider_dispatch_modes` (JSON: provider → `sync`/`batch`, read by scheduled sweeps only), `measurement_config` (JSON: marketing hosts, brand terms, and GA4 lead-event names), optional `icp_description` (free-text ICP used by discovery seed phase) | Unique: `name` |
 | **queries** | Tracked queries per project. `provenance` tags where the entry came from (e.g. `cli`, `discovery:<session_id>`) so adopted basket entries can be traced back to a discovery run. | Unique: `(projectId, query)` |
 | **competitors** | Competitor domains per project. `provenance` tags origin (`cli`, `discovery:<session_id>`) for the same traceability reason. | Unique: `(projectId, domain)` |
 | **measurement_plans** | Optional active-plan pointer for a project. | PK: `projectId`; composite FK `(projectId, activeVersionId)` → plan version |

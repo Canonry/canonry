@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { locationContextSchema, providerNameSchema } from './provider.js'
-import { effectiveBrandNames } from './project.js'
+import { effectiveBrandNames, resolveProjectQualifiedAliases } from './project.js'
 import { compileQueryClassifier, queryClassSchema } from './query-class.js'
 
 /** First immutable snapshot format for a planless simple measurement run. */
@@ -17,6 +17,11 @@ const simpleMeasurementIdentitySchema = z.object({
   aliases: z.array(z.string()),
   canonicalDomain: z.string(),
   ownedDomains: z.array(z.string()),
+  // Sentiment-only: the aliases the evaluator is told are this brand's own
+  // names. Omitted when empty, so a sidecar that never opted in keeps its
+  // checksum. No bounds or matcher rules here: a later change to the write
+  // rules must never make a stored sidecar unreadable.
+  qualifiedAliases: z.array(z.string()).optional(),
 }).strict()
 
 const simpleMeasurementEngineSchema = z.object({
@@ -138,6 +143,13 @@ export const simpleMeasurementDefinitionSchema = z.object({
 
 export type SimpleMeasurementDefinition = z.output<typeof simpleMeasurementDefinitionSchema>
 
+/** Every name a frozen competitor set contributes: each label, then its aliases. */
+export function simpleMeasurementCompetitorNames(
+  competitors: readonly { label: string; aliases: readonly string[] }[] | undefined,
+): string[] {
+  return competitors?.flatMap(competitor => [competitor.label, ...competitor.aliases]) ?? []
+}
+
 /**
  * Clone and validate a dispatch-time simple-run definition.
  *
@@ -150,6 +162,13 @@ export function buildSimpleMeasurementDefinition(
 ): SimpleMeasurementDefinition {
   const parsed = simpleMeasurementDefinitionInputSchema.parse(input)
   const classifier = compileQueryClassifier(effectiveBrandNames(parsed.identity))
+  // Stale entries (no longer an alias, or now a competitor's name) are dropped
+  // rather than thrown: capture must never block a sweep over a sentiment input.
+  const qualifiedAliases = resolveProjectQualifiedAliases(
+    { displayName: parsed.identity.displayName, aliases: parsed.identity.aliases },
+    parsed.identity.qualifiedAliases,
+    simpleMeasurementCompetitorNames(parsed.competitors),
+  ).value
 
   return simpleMeasurementDefinitionSchema.parse({
     schemaVersion: SIMPLE_MEASUREMENT_DEFINITION_SCHEMA_VERSION,
@@ -159,6 +178,7 @@ export function buildSimpleMeasurementDefinition(
       aliases: [...parsed.identity.aliases],
       canonicalDomain: parsed.identity.canonicalDomain,
       ownedDomains: [...parsed.identity.ownedDomains],
+      ...(qualifiedAliases.length ? { qualifiedAliases } : {}),
     },
     country: parsed.country,
     language: parsed.language,
@@ -211,6 +231,10 @@ export function canonicalSimpleMeasurementDefinitionJson(definition: SimpleMeasu
       aliases: [...parsed.identity.aliases].sort(compareText),
       canonicalDomain: parsed.identity.canonicalDomain,
       ownedDomains: [...parsed.identity.ownedDomains].sort(compareText),
+      // Absent and empty serialize alike, so pre-feature checksums never move.
+      ...(parsed.identity.qualifiedAliases?.length
+        ? { qualifiedAliases: [...parsed.identity.qualifiedAliases].sort(compareText) }
+        : {}),
     },
     country: parsed.country,
     language: parsed.language,

@@ -27,7 +27,7 @@ import {
   usageCounters,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
-import { captureSimpleMeasurementDefinition } from '@ainyc/canonry-api-routes'
+import { captureSimpleMeasurementDefinition, selectSentimentSources } from '@ainyc/canonry-api-routes'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 import { resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'
@@ -723,6 +723,110 @@ test('a retired perplexity model in config.yaml alone runs as fast end to end', 
       .toEqual([{ provider: 'perplexity', requestedModel: 'fast' }])
     expect(db.select({ model: querySnapshots.model }).from(querySnapshots)
       .where(eq(querySnapshots.runId, fixture.runId)).all().map(row => row.model)).toEqual(['fast', 'fast'])
+  } finally {
+    db.$client.close()
+  }
+})
+
+test('freezes the project qualified aliases sorted, and omits the key when the list is empty', async () => {
+  const db = buildDb()
+  try {
+    const fixture = seedFixture(db)
+    db.update(projects).set({ aliases: ['Northstar', 'NS Living', 'NSLNYC'], qualifiedAliases: ['NSLNYC', 'NS Living'] })
+      .where(eq(projects.id, fixture.projectId)).run()
+    await new JobRunner(db, registryFor([])).executeRun(fixture.runId, fixture.projectId)
+    const qualified = db.select().from(simpleMeasurementDefinitions)
+      .where(eq(simpleMeasurementDefinitions.runId, fixture.runId)).get()!.definition
+    expect(qualified.identity.qualifiedAliases).toEqual(['NS Living', 'NSLNYC'])
+
+    const plainRun = crypto.randomUUID()
+    db.insert(runs).values({
+      id: plainRun, projectId: fixture.projectId, kind: RunKinds['answer-visibility'], trigger: RunTriggers.manual,
+      status: RunStatuses.queued, createdAt: '2026-09-04T17:00:00.000Z',
+    }).run()
+    db.update(projects).set({ qualifiedAliases: [] }).where(eq(projects.id, fixture.projectId)).run()
+    await new JobRunner(db, registryFor([])).executeRun(plainRun, fixture.projectId)
+    const plain = db.select().from(simpleMeasurementDefinitions)
+      .where(eq(simpleMeasurementDefinitions.runId, plainRun)).get()!.definition
+    expect(plain.identity).not.toHaveProperty('qualifiedAliases')
+    // Mention identity and query classes are the same with or without the list.
+    expect(plain.identity.aliases).toEqual(qualified.identity.aliases)
+    expect(plain.queries.map(query => query.queryClass)).toEqual(qualified.queries.map(query => query.queryClass))
+  } finally {
+    db.$client.close()
+  }
+})
+
+test('drops a stale qualified alias at dispatch instead of failing the sweep', async () => {
+  const db = buildDb()
+  try {
+    const fixture = seedFixture(db)
+    // Written straight to the row, as if the alias was removed by a path that skipped the intersection.
+    db.update(projects).set({ qualifiedAliases: ['Former Name', 'NS Living'] }).where(eq(projects.id, fixture.projectId)).run()
+    const calls: RecordedCall[] = []
+    await new JobRunner(db, registryFor(calls)).executeRun(fixture.runId, fixture.projectId)
+    expect(calls).toHaveLength(4)
+    expect(db.select().from(simpleMeasurementDefinitions)
+      .where(eq(simpleMeasurementDefinitions.runId, fixture.runId)).get()!.definition.identity.qualifiedAliases).toEqual(['NS Living'])
+  } finally {
+    db.$client.close()
+  }
+})
+
+test('never lets a stale qualified entry change a frozen query class', async () => {
+  const db = buildDb()
+  try {
+    const fixture = seedFixture(db)
+    db.update(projects).set({ qualifiedAliases: ['Former Name'] }).where(eq(projects.id, fixture.projectId)).run()
+    const formerId = crypto.randomUUID()
+    db.insert(queries).values({ id: formerId, projectId: fixture.projectId, query: 'Former Name reviews', createdAt: '2026-09-04T16:00:00.000Z' }).run()
+    await new JobRunner(db, registryFor([])).executeRun(fixture.runId, fixture.projectId)
+    expect(db.select({ status: runs.status }).from(runs).where(eq(runs.id, fixture.runId)).get()).toEqual({ status: RunStatuses.completed })
+    const definition = db.select().from(simpleMeasurementDefinitions)
+      .where(eq(simpleMeasurementDefinitions.runId, fixture.runId)).get()!.definition
+    expect(definition.queries.find(query => query.queryId === formerId)?.queryClass).toBe('non-brand')
+    expect(definition.identity).not.toHaveProperty('qualifiedAliases')
+  } finally {
+    db.$client.close()
+  }
+})
+
+test('drops a qualified alias a live competitor claims at dispatch, through the runner\'s competitor labels', async () => {
+  const db = buildDb()
+  try {
+    const fixture = seedFixture(db)
+    // Written straight to the rows, as a competitor added without the route's pruning would leave them.
+    db.update(projects).set({ aliases: ['Northstar', 'NS Living', 'NSLNYC'], qualifiedAliases: ['NSLNYC', 'NS Living'] })
+      .where(eq(projects.id, fixture.projectId)).run()
+    db.insert(competitors).values({ id: crypto.randomUUID(), projectId: fixture.projectId, domain: 'nslnyc.example', createdAt: '2026-09-04T16:00:00.000Z' }).run()
+    const calls: RecordedCall[] = []
+    await new JobRunner(db, registryFor(calls)).executeRun(fixture.runId, fixture.projectId)
+    expect(db.select({ status: runs.status }).from(runs).where(eq(runs.id, fixture.runId)).get()).toEqual({ status: RunStatuses.completed })
+    expect(calls).toHaveLength(4)
+    const definition = db.select().from(simpleMeasurementDefinitions)
+      .where(eq(simpleMeasurementDefinitions.runId, fixture.runId)).get()!.definition
+    expect(definition.competitors).toEqual([{ domain: 'nslnyc.example', label: 'nslnyc', aliases: ['nslnyc'] }])
+    expect(definition.identity.qualifiedAliases).toEqual(['NS Living'])
+  } finally {
+    db.$client.close()
+  }
+})
+
+test('carries the project qualified aliases through the sidecar to the sentiment subject with no override', async () => {
+  const db = buildDb()
+  try {
+    const fixture = seedFixture(db)
+    db.update(projects).set({ qualifiedAliases: ['NS Living'] }).where(eq(projects.id, fixture.projectId)).run()
+    await new JobRunner(db, registryFor([])).executeRun(fixture.runId, fixture.projectId)
+    expect(db.select({ status: runs.status }).from(runs).where(eq(runs.id, fixture.runId)).get()).toEqual({ status: RunStatuses.completed })
+
+    // The live setting changes after dispatch; the frozen sidecar is what sentiment reads.
+    db.update(projects).set({ qualifiedAliases: [] }).where(eq(projects.id, fixture.projectId)).run()
+    for (const queryClass of ['branded', 'non-brand'] as const) {
+      const selected = selectSentimentSources(db, fixture.projectId, { runId: fixture.runId, queryClass })
+      expect(selected.assessments).toHaveLength(2)
+      for (const assessment of selected.assessments) expect(assessment.subject.identityAliases).toEqual(['NS Living'])
+    }
   } finally {
     db.$client.close()
   }
