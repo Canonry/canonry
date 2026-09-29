@@ -196,9 +196,11 @@ describe('class-separated sentiment headlines', () => {
       expect(response.statusCode, response.body).toBe(200)
       const result = response.json().sentiment
       expect(result).toMatchObject({ configured: true, branded: { coverage: { selected: 2, judged: 2 }, score: { favorableRate: 0.5, favorableDisplay: '50.0%' }, selection: { runId: null } }, nonBrand: { coverage: { selected: 2, judged: 0 }, score: { favorableRate: null, favorableDisplay: 'Unavailable' } } })
+      expect(result.overall).toMatchObject({ queryClass: 'all', runIds: ['bayside', 'harbor'], coverage: { selected: 4, judged: 2, distinctSourceAnswers: 4 }, score: { favorableRate: 0.5, favorableDisplay: '50.0%' } })
       expect(result.branded.runIds.sort()).toEqual(['bayside', 'harbor'])
       const located = await app.inject({ method: 'GET', url: '/api/v1/projects/p/overview?location=Harbor', headers: { authorization: 'Bearer cnry_headlines' } })
       expect(located.json().sentiment.branded).toMatchObject({ coverage: { selected: 1, judged: 1 }, score: { favorableRate: 1 }, runIds: ['harbor'] })
+      expect(located.json().sentiment.overall).toMatchObject({ queryClass: 'all', coverage: { selected: 2, judged: 1 }, score: { favorableRate: 1, favorableDisplay: '100%' }, runIds: ['harbor'] })
       const grouped = await app.inject({ method: 'GET', url: '/api/v1/projects/p/sentiment?runIds=harbor&runIds=bayside&queryClass=branded&include=locations', headers: { authorization: 'Bearer cnry_headlines' } })
       expect(grouped.statusCode, grouped.body).toBe(200)
       const groupSummary = sentimentSummarySchema.parse(grouped.json())
@@ -236,6 +238,7 @@ describe('class-separated sentiment headlines', () => {
     const selected = sentimentSelectionSchema.parse({ runIds: ['original', 'changed'], queryClass: 'branded' })
     const incompatible = service.summary('p', selected)
     expect(incompatible).toMatchObject({ state: 'unsupported', reason: 'subject-identity-changed', score: { favorableRate: null, favorableDisplay: 'Unavailable' } })
+    expect(service.overview('p', ['original', 'changed']).overall).toMatchObject({ state: 'unsupported', reason: 'subject-identity-changed', score: { favorableRate: null } })
     expect(incompatible.queries.every(query => query.score.favorableRate === null && query.assessments.every(row => row.outcome === null && row.state === 'unsupported'))).toBe(true)
     const definition = { ...createSentimentEvaluationDefinition(), confidenceThreshold: 0.8 }
     const id = sentimentHash(definition)
@@ -244,6 +247,20 @@ describe('class-separated sentiment headlines', () => {
     const preview = service.preview('p', { runId: 'changed' })
     service.submit('p', preview.previewToken!, 'new-evaluator', 'fixture'); finish()
     expect(service.summary('p', selected)).toMatchObject({ state: 'unsupported', reason: 'evaluation-definition-changed', selection: { evaluationDefinitionId: null }, score: { favorableRate: null } })
+    expect(service.overview('p', ['original', 'changed']).overall).toMatchObject({ state: 'unsupported', reason: 'evaluation-definition-changed', score: { favorableRate: null } })
+  })
+
+  it('withholds only the overall score when the two classes use incompatible evaluators', () => {
+    simple('different-evaluators'); admit('different-evaluators', 'branded'); finish()
+    const definition = { ...createSentimentEvaluationDefinition(), confidenceThreshold: 0.8 }
+    const id = sentimentHash(definition)
+    repository.putDefinition({ id, contentHash: id, requestedModel: definition.requestedModel, definition, createdAt: NOW })
+    repository.configure({ projectId: 'p', enabled: true, evaluationDefinitionId: id, configuration: { enabled: true }, now: NOW })
+    admit('different-evaluators', 'non-brand'); finish()
+    const overview = service.overview('p', ['different-evaluators'])
+    expect(overview.branded.score.favorableRate).toBe(1)
+    expect(overview.nonBrand.score.favorableRate).toBe(1)
+    expect(overview.overall).toMatchObject({ state: 'unsupported', reason: 'evaluation-definition-changed', provisional: true, coverage: { judged: 2 }, score: { favorableRate: null, favorableDisplay: 'Unavailable' } })
   })
 
   it('reads legacy theme-bearing stored definitions without mutating them and explicitly upgrades only current configuration', () => {

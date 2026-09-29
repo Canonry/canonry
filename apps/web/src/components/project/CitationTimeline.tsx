@@ -38,9 +38,9 @@ export function CitationTimeline({ history, maxDots = 12, signal = 'citations' }
   }).join('; ')
 
   return (
-    <div className="flex items-center gap-2" role="img" aria-label={`${signalLabel} history across ${runCountLabel}. ${timelineLabel}`}>
+    <div className="inline-flex w-max items-center gap-2 whitespace-nowrap" role="img" aria-label={`${signalLabel} history across ${runCountLabel}. ${timelineLabel}`}>
       {dots.length > 1 ? <span className="text-[11px] text-secondary shrink-0" aria-hidden="true">{firstDate}</span> : null}
-      <div className="flex items-center gap-[3px]" title={runCountLabel} aria-hidden="true">
+      <div className="flex shrink-0 items-center gap-[3px]" title={runCountLabel} aria-hidden="true">
         {dots.map((d, i) => {
           // The ring means "the model changed on this run", NOT "this is the
           // newest run". Without a separate marker for the latest run, a strip
@@ -52,7 +52,7 @@ export function CitationTimeline({ history, maxDots = 12, signal = 'citations' }
           return (
             <span
               key={`${d.runId}:${d.createdAt}`}
-              className={`h-2.5 w-2.5 ${shapeMap[d.citationState] ?? 'rounded-sm'} ${colorMap[d.citationState] ?? 'bg-mono-700'} ${
+              className={`h-2.5 w-2.5 shrink-0 ${shapeMap[d.citationState] ?? 'rounded-sm'} ${colorMap[d.citationState] ?? 'bg-mono-700'} ${
                 modelChanged ? 'ring-1 ring-caution-300/80 ring-offset-1 ring-offset-bg' : ''
               } ${isLatest ? 'outline outline-1 outline-offset-2 outline-mono-400' : ''}`}
               title={[

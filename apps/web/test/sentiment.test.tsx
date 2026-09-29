@@ -54,21 +54,30 @@ describe('sentiment presentation', () => {
     try {
       expect((await screen.findByLabelText('Branded favorable share')).textContent).toContain('60.1%')
       expect((await screen.findByLabelText('Non-brand favorable share')).textContent).toContain('25%')
-      expect(screen.getAllByText(/5 judged of 10 selected assessments/)).toHaveLength(2)
+      expect(screen.getAllByText('5 of 10')).toHaveLength(2)
       expect(screen.queryByText(/theme/i)).toBeNull()
       expect(screen.queryByRole('button', { name: 'Manage sentiment' })).toBeNull()
       expect(page.requests.filter(url => url.pathname.endsWith('/sentiment'))).toHaveLength(2)
     } finally { page.close() }
   })
-  it('lists branded first on the project page and shows each judged n and interval in the shared percent format', async () => {
+  it('keeps headlines concise and moves coverage and uncertainty into closed details', async () => {
     const page = renderScope(<SentimentHeadlines />)
     try {
       const branded = await screen.findByLabelText('Branded favorable share')
       const nonBrand = await screen.findByLabelText('Non-brand favorable share')
       expect(branded.compareDocumentPosition(nonBrand) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-      // Visible next to the value, not only inside the collapsed method details, and never as raw 0.23.
-      expect(branded.textContent).toBe('60.1%5 judged95% interval 23.0% to 88.0%')
-      expect(screen.getAllByText('95% Wilson interval: 23.0% to 88.0%')).toHaveLength(2)
+      expect(branded.textContent).toBe('60.1%· 5 ratings')
+      expect(branded.textContent).not.toContain('interval')
+      const details = branded.parentElement!.querySelector('details')!
+      expect(details.open).toBe(false)
+      expect(details.querySelector('summary')!.textContent).toBe('Details')
+      expect(within(details).getByText('5 of 10')).toBeTruthy()
+      expect(within(details).getByText('8')).toBeTruthy()
+      expect(within(details).getByText('Factual')).toBeTruthy()
+      expect(within(details).getByText('23.0% to 88.0%')).toBeTruthy()
+      expect(within(details).getByRole('button', { name: summary().score.limitation, hidden: true })).toBeTruthy()
+      expect(screen.queryByText('Experimental sentiment')).toBeNull()
+      expect(screen.queryByText('Coverage and method')).toBeNull()
       expect(document.body.textContent).not.toContain('0.23')
     } finally { page.close() }
   })
@@ -76,15 +85,58 @@ describe('sentiment presentation', () => {
     const dto = summary(); dto.coverage.judged = 0; dto.score = aggregateSentiment([]).score
     const page = renderScope(<SentimentHeadlines queryClass="branded" />, { branded: dto })
     try {
-      expect((await screen.findByLabelText('Branded favorable share')).textContent).toContain('Unavailable')
-      expect(screen.getByText(SENTIMENT_COPY.noJudgments)).toBeTruthy()
+      expect((await screen.findByLabelText('Branded favorable share')).textContent).toBe(SENTIMENT_COPY.noJudgments)
+      expect(screen.queryByText('Unavailable')).toBeNull()
       expect(screen.queryByLabelText('Non-brand favorable share')).toBeNull()
     } finally { page.close() }
   })
   it.each(['not-measured', 'processing', 'canceled', 'partial', 'failed'] as const)('preserves %s without inventing a zero', async state => {
     const dto = summary(); dto.state = state; dto.score = aggregateSentiment([]).score; dto.coverage.judged = 0
     const page = renderScope(<SentimentHeadlines queryClass="branded" />, { branded: dto })
-    try { expect(await screen.findByText(SENTIMENT_COPY.states[state])).toBeTruthy(); expect(screen.getByLabelText('Branded favorable share').textContent).toContain('Unavailable') } finally { page.close() }
+    try { expect(await screen.findByText(SENTIMENT_COPY.states[state])).toBeTruthy(); expect(screen.getByLabelText('Branded favorable share').textContent).not.toContain('0%') } finally { page.close() }
+  })
+  it('omits empty counts and methodology for an unmeasured class', async () => {
+    const dto = { ...summary(), ...aggregateSentiment([]) }
+    const page = renderScope(<SentimentHeadlines queryClass="branded" />, { branded: dto })
+    try {
+      const headline = await screen.findByLabelText('Branded favorable share')
+      expect(headline.textContent).toBe('No ratings yet.')
+      expect(headline.parentElement!.querySelector('details')).toBeNull()
+      expect(screen.queryByText(/0 judged|Unavailable|95%/)).toBeNull()
+    } finally { page.close() }
+  })
+  it('does not claim opinions are absent when completed assessments could not be rated', async () => {
+    const dto = { ...summary(), ...aggregateSentiment([{ assessmentId: 'foreign', sourceSnapshotId: 'foreign', outcome: 'unsupported-language' }]) }
+    const page = renderScope(<SentimentHeadlines queryClass="branded" />, { branded: dto })
+    try {
+      const headline = await screen.findByLabelText('Branded favorable share')
+      expect(headline.textContent).toBe('No ratings available.')
+      expect(within(headline.parentElement!.querySelector('details')!).getByText('Unsupported language')).toBeTruthy()
+      expect(headline.textContent).not.toContain('0%')
+    } finally { page.close() }
+  })
+  it('keeps measured zero and partial results visible while hiding empty coverage rows', async () => {
+    const dto = summary(); dto.provisional = true; dto.state = 'partial'
+    dto.coverage.judged = 1; dto.coverage.unadmittedAssessments = 3
+    dto.score = { ...dto.score, favorableRate: 0, favorableDisplay: '0%' }
+    const page = renderScope(<SentimentHeadlines queryClass="branded" />, { branded: dto })
+    try {
+      const headline = await screen.findByLabelText('Branded favorable share')
+      expect(headline.textContent).toBe('0%· 1 ratingPartial results')
+      const details = headline.parentElement!.querySelector('details')!
+      expect(within(details).getByText('Not yet analyzed')).toBeTruthy()
+      expect(within(details).getByText('3')).toBeTruthy()
+      expect(within(details).queryByText('Pending')).toBeNull()
+    } finally { page.close() }
+  })
+  it('keeps data processing disclosure in Manage sentiment only', async () => {
+    const page = renderScope(<><SentimentHeadlines /><SentimentControls /></>, { configure: true })
+    try {
+      const manage = await screen.findByRole('button', { name: 'Manage sentiment' })
+      expect(screen.queryByText('Experimental sentiment')).toBeNull()
+      fireEvent.click(manage)
+      expect(await screen.findByText('Experimental sentiment')).toBeTruthy()
+    } finally { page.close() }
   })
   it('keeps enable reachable while default-off projects do not request summaries', async () => {
     const page = renderScope(<><SentimentHeadlines /><SentimentControls /></>, { enabled: false, configure: true })
@@ -94,26 +146,23 @@ describe('sentiment presentation', () => {
       expect(page.requests.filter(url => url.pathname.endsWith('/sentiment'))).toHaveLength(0)
     } finally { page.close() }
   })
-  it('renders branded as the primary overview figure with its judged count and interval, then non-brand', () => {
+  it('renders one overall API score with its evidence only in the tooltip', () => {
     const dto = summary(); dto.provisional = true; dto.state = 'partial'
-    const value = { configured: false, branded: { ...dto, runIds: ['run'] }, nonBrand: { ...dto, runIds: ['run'], coverage: { ...dto.coverage, judged: 3, selected: 4 }, score: { ...dto.score, favorableDisplay: '25.0%', interval: { low: 0.05, high: 0.6 } } } }
-    const view = render(<SentimentOverviewMetric value={value} />)
-    expect(screen.queryByText('Favorable')).toBeNull()
-    view.rerender(<SentimentOverviewMetric value={{ ...value, configured: true }} />)
-    const branded = screen.getByLabelText('Branded favorable share')
-    const nonBrand = screen.getByLabelText('Non-brand favorable share')
-    expect(branded.compareDocumentPosition(nonBrand) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(branded.hasAttribute('data-sentiment-primary')).toBe(true)
-    // Server display value, judged n and the Wilson interval in the shared percent format; never the raw 0.23.
-    expect(branded.textContent).toBe('Branded60.1%*5 judged · 95% interval 23.0%–88.0%')
-    expect(nonBrand.textContent).toBe('Non-brand25.0%*3 judged · 95% interval 5.0%–60.0%')
-    expect(nonBrand.hasAttribute('data-sentiment-primary')).toBe(false)
-    expect(screen.getAllByRole('img', { name: 'Provisional' })).toHaveLength(2)
-    const info = screen.getByRole('button', { name: /Favorable answers divided/ })
-    const label = info.getAttribute('aria-label')!
-    expect(label).toContain('Branded: 60.1%, 5 of 10 judged, 95% interval 23.0% to 88.0%. Provisional. Sentiment results are partial.')
-    expect(label).toContain('Non-brand: 25.0%, 3 of 4 judged, 95% interval 5.0% to 60.0%.')
-    expect(label.indexOf('Branded:')).toBeLessThan(label.indexOf('Non-brand:'))
+    const overall = { queryClass: 'all' as const, state: dto.state, reason: dto.reason, provisional: dto.provisional, coverage: dto.coverage, score: { ...dto.score, favorableDisplay: '71.2%', favorableRate: 0.712 }, runIds: ['run'] }
+    const value = { configured: true, overall, branded: { ...dto, runIds: ['run'] }, nonBrand: { ...dto, runIds: ['run'], score: { ...dto.score, favorableDisplay: '25.0%' } } }
+    const { container } = render(<SentimentOverviewMetric value={value} />)
+    expect(screen.getByText('Sentiment', { exact: true })).toBeTruthy()
+    expect(screen.getByText('71.2%', { exact: false })).toBeTruthy()
+    expect(screen.queryByLabelText('Branded favorable share')).toBeNull()
+    expect(screen.queryByLabelText('Non-brand favorable share')).toBeNull()
+    expect(container.querySelectorAll('.metric-inline-value')).toHaveLength(1)
+    expect(container.querySelector('.metric-inline-value')?.textContent).toContain('all query classes')
+    expect(screen.queryByText(/5 judged/)).toBeNull()
+    expect(screen.queryByText('Unavailable')).toBeNull()
+    const info = screen.getByRole('button', { name: /Overall sentiment/ })
+    expect(info.getAttribute('aria-label')).toContain('5 of 10 judged')
+    expect(info.getAttribute('aria-label')).toContain('95% interval 23.0% to 88.0%')
+    expect(info.getAttribute('aria-label')).toContain('Provisional')
     fireEvent.pointerDown(info)
     fireEvent.focus(info)
     fireEvent.click(info, { detail: 1 })
@@ -121,14 +170,24 @@ describe('sentiment presentation', () => {
     fireEvent.keyDown(info, { key: 'Escape' })
     expect(info.getAttribute('aria-expanded')).toBe('false')
   })
-  it('shows only the judged count when nothing was judged, with no interval', () => {
-    const empty = { ...aggregateSentiment([]), reason: null, runIds: ['run'], selection: summary().selection }
-    render(<SentimentOverviewMetric value={{ configured: true, branded: empty, nonBrand: empty }} />)
-    expect(screen.getByLabelText('Branded favorable share').textContent).toBe('BrandedUnavailable0 judged')
-    expect(screen.queryByText(/interval/)).toBeNull()
+  it('shows measured zero overall sentiment as a number', () => {
+    const dto = summary()
+    const overall = { queryClass: 'all' as const, ...dto, runIds: ['run'], score: { ...dto.score, favorableRate: 0, favorableDisplay: '0.0%' } }
+    render(<SentimentOverviewMetric value={{ configured: true, overall, branded: { ...dto, runIds: ['run'] }, nonBrand: { ...dto, runIds: ['run'] } }} />)
+    expect(screen.getByText('0.0%', { exact: false })).toBeTruthy()
+  })
+  it.each(['missing', 'unjudged', 'disabled', 'unavailable'] as const)('hides %s overall sentiment without reserving a metric slot', state => {
+    const dto = summary()
+    const overall = { queryClass: 'all' as const, ...dto, ...(state === 'unjudged' ? aggregateSentiment([]) : {}), reason: null, runIds: ['run'] }
+    if (state === 'unavailable') overall.score = aggregateSentiment([]).score
+    const value = { configured: state !== 'disabled', branded: { ...dto, runIds: ['run'] }, nonBrand: { ...dto, runIds: ['run'] }, ...(state === 'missing' ? {} : { overall }) }
+    const { container } = render(<SentimentOverviewMetric value={value} />)
+    expect(showsSentimentOverview(value)).toBe(false)
+    expect(container.innerHTML).toBe('')
   })
   it('hides the overview figure inside an embed, as the project page does', () => {
-    const value = { configured: true, branded: { ...summary(), runIds: ['run'] }, nonBrand: { ...summary(), runIds: ['run'] } }
+    const dto = summary()
+    const value = { configured: true, overall: { queryClass: 'all' as const, ...dto, runIds: ['run'] }, branded: { ...dto, runIds: ['run'] }, nonBrand: { ...dto, runIds: ['run'] } }
     window.__CANONRY_CONFIG__ = { embed: { enabled: true } }
     try {
       expect(showsSentimentOverview(value)).toBe(false)
@@ -293,7 +352,7 @@ describe('per-engine sentiment', () => {
       expect(summaries.every(url => !url.searchParams.has('model') && !url.searchParams.has('revision'))).toBe(true)
       expect(summaries.slice(-2).every(url => url.searchParams.get('runId') === 'openai-run' && !url.searchParams.has('runIds[]'))).toBe(true)
       view.rerender(<QueryClientProvider client={client}><View locationEmpty /></QueryClientProvider>)
-      await waitFor(() => expect(screen.getByLabelText('Favorable answer scores').textContent).toContain('Unavailable'))
+      await waitFor(() => expect(screen.getByLabelText('Favorable answer scores').textContent).toContain('No saved answers.'))
       expect(screen.getByRole('combobox', { name: 'Answer engine' })).toHaveProperty('value', 'openai')
       expect(screen.queryByLabelText('Branded favorable share')).toBeNull()
       expect(reads.filter(url => url.pathname.endsWith('/sentiment'))).toHaveLength(4)

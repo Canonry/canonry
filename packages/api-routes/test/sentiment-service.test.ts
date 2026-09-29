@@ -2,7 +2,7 @@ import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   buildSimpleMeasurementDefinition, canonicalMeasurementPlanV2Json, sentimentBackfillPreviewSchema, sentimentSelectionSchema,
-  sentimentSummarySchema, storedSentimentClassifierInputSchema, type SentimentClassifierOutput, type SentimentOutcome,
+  sentimentSummarySchema, sentimentOverviewSchema, storedSentimentClassifierInputSchema, type SentimentClassifierOutput, type SentimentOutcome,
 } from '@ainyc/canonry-contracts'
 import {
   apiKeys, createClient, measurementPlanVersions, migrate, projects, queries, querySnapshots, runs,
@@ -77,7 +77,7 @@ async function overviewSentiment() {
 describe('sentiment service reads', () => {
   it('answers the overview of an unconfigured or switched-off project without selecting any source', async () => {
     simple('harbor', ['Acme reviews'], 'Harbor'); simple('bayside', ['Acme reviews'], 'Bayside')
-    const off = { configured: false, branded: { state: 'disabled', runIds: [], coverage: { selected: 0, eligibleAssessments: 0 }, score: { favorableRate: null } }, nonBrand: { state: 'disabled', runIds: [] } }
+    const off = { configured: false, branded: { state: 'disabled', runIds: [], coverage: { selected: 0, eligibleAssessments: 0 }, score: { favorableRate: null } }, nonBrand: { state: 'disabled', runIds: [] }, overall: { queryClass: 'all', state: 'disabled', runIds: [], coverage: { selected: 0, judged: 0 }, score: { favorableRate: null } } }
     expect(await overviewSentiment()).toMatchObject(off)
     expect(selections.count).toBe(0)
     service.configure('p', { enabled: true }); admit('harbor'); finish()
@@ -98,6 +98,7 @@ describe('sentiment service reads', () => {
     const overview = service.overview('p', ['harbor', 'bayside'])
     expect(overview).toMatchObject({ configured: true, branded: { coverage: { selected: 2, judged: 2 }, score: { favorableRate: 0.5 } }, nonBrand: { coverage: { selected: 2, judged: 2 }, score: { favorableRate: 1 } } })
     expect(overview.branded.runIds).toEqual(['bayside', 'harbor'])
+    expect(overview.overall).toMatchObject({ queryClass: 'all', coverage: { selected: 4, judged: 4, distinctSourceAnswers: 4, expectedProviderSlots: 4, completedProviderSlots: 4 }, score: { favorableRate: 0.75, favorableDisplay: '75.0%' }, runIds: ['bayside', 'harbor'] })
     expect(selections.count).toBe(4)
     selections.count = 0
     expect(service.summary('p', sentimentSelectionSchema.parse({ runId: 'harbor' }))).toMatchObject({ coverage: { selected: 1, judged: 1 } })
@@ -105,6 +106,65 @@ describe('sentiment service reads', () => {
     selections.count = 0
     service.compare('p', sentimentSelectionSchema.parse({}), 'harbor', 'bayside')
     expect(selections.count).toBe(2)
+  })
+
+  it('computes overall from Simple judgments rather than averaging class percentages', async () => {
+    service.configure('p', { enabled: true })
+    simple('mixed', ['Acme reviews', 'best services', 'service options', 'local services', 'service facts', 'nearby providers', 'foreign services'])
+    admit('mixed'); admit('mixed', 'non-brand')
+    const outcomes: SentimentOutcome[] = ['favorable', 'favorable', 'mixed', 'unfavorable', 'factual', 'subject-not-mentioned', 'unsupported-language']
+    finish(snapshotId => ({ outcome: outcomes[Number(snapshotId.split('-').at(-1))]! }))
+    const overview = sentimentOverviewSchema.parse(await overviewSentiment())
+    expect(overview.overall).toMatchObject({ queryClass: 'all', state: 'complete', provisional: false, reason: null, runIds: ['mixed'], coverage: { selected: 7, eligibleAssessments: 7, unadmittedAssessments: 0, judged: 4, distinctSourceAnswers: 7, expectedProviderSlots: 7, completedProviderSlots: 7, counts: { favorable: 2, mixed: 1, unfavorable: 1, factual: 1, 'subject-not-mentioned': 1, 'unsupported-language': 1 } }, score: { favorableRate: 0.5, mixedRate: 0.25, unfavorableRate: 0.25, favorableDisplay: '50.0%', mixedDisplay: '25.0%', unfavorableDisplay: '25.0%', interval: { low: 0.15, high: 0.85 } } })
+    expect(Object.values(overview.overall!.coverage.counts).reduce((sum, count) => sum + count, 0)).toBe(7)
+    expect(overview.overall).not.toHaveProperty('selection')
+    expect(overview.branded.score.favorableRate).toBe(1)
+    expect(overview.nonBrand.score.favorableRate).toBe(1 / 3)
+    expect(service.overview('p', ['mixed', 'mixed']).overall).toEqual(overview.overall)
+  })
+
+  it('excludes a newer probe and its saved judgments from the serialized overview', async () => {
+    service.configure('p', { enabled: true })
+    simple('measured', ['Acme reviews', 'best services']); admit('measured'); admit('measured', 'non-brand')
+    finish(snapshotId => ({ outcome: snapshotId.endsWith('0') ? 'favorable' : 'unfavorable' }))
+    const expected = service.overview('p', ['measured']).overall
+    simple('probe', ['Acme reviews', 'best services']); admit('probe'); admit('probe', 'non-brand'); finish()
+    // Retain classified rows to prove that neither the source nor saved judgments leak.
+    db.$client.prepare("UPDATE runs SET trigger = 'probe', created_at = '2026-09-29T00:00:00.000Z' WHERE id = 'probe'").run()
+    const overview = sentimentOverviewSchema.parse(await overviewSentiment())
+    expect(overview.overall).toEqual(expected)
+    expect(overview.overall).toMatchObject({ runIds: ['measured'], coverage: { selected: 2, judged: 2, expectedProviderSlots: 2, completedProviderSlots: 2, counts: { favorable: 1, unfavorable: 1 } }, score: { favorableRate: 0.5, favorableDisplay: '50.0%' } })
+    expect(service.overview('p', ['measured', 'probe']).overall).toMatchObject({ coverage: expected!.coverage, score: expected!.score })
+  })
+
+  it('preserves unavailable overall scores, unadmitted coverage and partial classifications', () => {
+    service.configure('p', { enabled: true })
+    expect(service.overview('p', []).overall).toMatchObject({ queryClass: 'all', state: 'not-measured', runIds: [], score: { favorableRate: null, favorableDisplay: 'Unavailable' } })
+    simple('partial', ['Acme reviews', 'best services'])
+    expect(service.overview('p', ['partial']).overall).toMatchObject({ state: 'not-measured', coverage: { selected: 0, eligibleAssessments: 2, unadmittedAssessments: 2, judged: 0 }, score: { favorableRate: null } })
+    admit('partial'); finish()
+    expect(service.overview('p', ['partial']).overall).toMatchObject({ state: 'partial', provisional: true, coverage: { selected: 1, eligibleAssessments: 2, unadmittedAssessments: 1, judged: 1 }, score: { favorableRate: 1, favorableDisplay: '100%' } })
+    simple('unjudged', ['Acme facts', 'service facts']); admit('unjudged'); admit('unjudged', 'non-brand')
+    finish(snapshotId => ({ outcome: snapshotId.endsWith('0') ? 'factual' : 'subject-not-mentioned' }))
+    expect(service.overview('p', ['unjudged']).overall).toMatchObject({ state: 'complete', coverage: { selected: 2, judged: 0, counts: { factual: 1, 'subject-not-mentioned': 1 } }, score: { favorableRate: null, favorableDisplay: 'Unavailable', interval: null } })
+  })
+
+  it('unions Advanced answer-subject assessments and provider slots across both classes', () => {
+    const plan = measurementPlanV2Fixture()
+    const reused = { executionNodeKey: 'exec-brand', targetKey: 'harbor', queryId: 'q-cross-class' }
+    plan.usageEdges.push(reused)
+    plan.assignments.push({ ...reused, queryClass: 'non-brand' })
+    db.insert(measurementPlanVersions).values({ id: 'v', projectId: 'p', revision: 1, canonicalJson: canonicalMeasurementPlanV2Json(plan), checksum: 'v', schemaVersion: 2, compiledChecksum: plan.compiledChecksum, createdAt: NOW }).run()
+    db.insert(runs).values({ id: 'advanced', projectId: 'p', kind: 'answer-visibility', status: 'completed', trigger: 'manual', measurementPlanVersionId: 'v', measurementManifest: buildMeasurementPlanV2Manifest(plan), measurementExecutionIdentity: { language: 'en' }, createdAt: NOW }).run()
+    for (const node of plan.executionNodes) for (const provider of ['openai', 'gemini']) db.insert(querySnapshots).values({ id: `${node.stableKey}-${provider}`, runId: 'advanced', measurementExecutionId: node.stableKey, queryText: node.queryText, provider, model: `${provider}-requested`, servedModel: `${provider}-served`, answerText: 'Harbor Homes and Bayside Homes offer homes.', citationState: 'cited', createdAt: NOW }).run()
+    service.configure('p', { enabled: true }); admit('advanced'); admit('advanced', 'non-brand')
+    finish((snapshotId, subjectId) => ({ outcome: snapshotId.startsWith('exec-brand') ? snapshotId.endsWith('openai') ? 'favorable' : 'mixed' : subjectId === 'harbor' ? 'unfavorable' : 'factual' }))
+    const overview = sentimentOverviewSchema.parse(service.overview('p', ['advanced']))
+    expect(overview.branded.coverage.judged).toBe(2)
+    expect(overview.nonBrand.coverage.judged).toBe(4)
+    expect(overview.overall).toMatchObject({ queryClass: 'all', coverage: { selected: 6, eligibleAssessments: 6, judged: 4, distinctSourceAnswers: 4, expectedProviderSlots: 4, completedProviderSlots: 4, counts: { favorable: 1, mixed: 1, unfavorable: 2, factual: 2 } }, score: { favorableRate: 0.25, favorableDisplay: '25.0%' } })
+    db.$client.prepare("DELETE FROM query_snapshots WHERE id = 'exec-brand-gemini'").run()
+    expect(service.overview('p', ['advanced']).overall).toMatchObject({ state: 'not-measured', provisional: true, reason: 'Source sweep is incomplete.', coverage: { selected: 0, judged: 0, expectedProviderSlots: 4, completedProviderSlots: 3 }, score: { favorableRate: null } })
   })
 
   it('lets an administrator switch a project off while the install switch is off, and it stays off on resume', () => {

@@ -31,6 +31,8 @@ export interface SentimentSourceSelection {
   assessments: SentimentSourceAssessment[]
   runIds: string[]
   sourceCoverage: { expected: number; completed: number }
+  /** Internal identities permit unioning class coverage without counting shared slots twice. */
+  sourceSlotIds: { expected: string[]; completed: string[] }
   skipped: Record<string, number>
   /** The same skips attributed to their run, so a preview names each run without selecting it again. */
   skippedByRun?: Record<string, Record<string, number>>
@@ -71,7 +73,10 @@ export function selectSentimentSources(db: DatabaseClient, projectId: string, fi
   const selectedRuns = db.select(sourceRunColumns).from(runs).where(and(...conditions)).orderBy(desc(runs.createdAt)).limit(101).all()
   if (selectedRuns.length > 100) throw validationError('Selection exceeds 100 runs; narrow the date range.')
   if (requestedIds && new Set(selectedRuns.map(row => row.id)).size !== new Set(requestedIds).size) throw validationError('One or more selected runs are unavailable in this project.')
-  const out: SentimentSourceSelection = { assessments: [], runIds: selectedRuns.map(row => row.id), sourceCoverage: { expected: 0, completed: 0 }, skipped: {}, skippedByRun: {} }
+  const out: SentimentSourceSelection = { assessments: [], runIds: selectedRuns.map(row => row.id), sourceCoverage: { expected: 0, completed: 0 }, sourceSlotIds: { expected: [], completed: [] }, skipped: {}, skippedByRun: {} }
+  const recordSlots = (runId: string, slots: { expected: string[]; completed: string[] }) => {
+    for (const key of ['expected', 'completed'] as const) out.sourceSlotIds[key].push(...slots[key].map(slot => pairKey(runId, slot)))
+  }
   let currentRunId = ''
   const skip = (reason: string, count = 1) => {
     out.skipped[reason] = (out.skipped[reason] ?? 0) + count
@@ -92,6 +97,7 @@ export function selectSentimentSources(db: DatabaseClient, projectId: string, fi
     const completedSuperseded = run.status === 'superseded' && Boolean(db.select({ sequence: sentimentCompletionReceipts.sequence }).from(sentimentCompletionReceipts).where(and(eq(sentimentCompletionReceipts.projectId, projectId), eq(sentimentCompletionReceipts.runId, run.id))).get())
     if (run.status !== 'completed' && !completedSuperseded) {
       const coverage = selectedSlotCoverage(db, projectId, run, filters, plans)
+      recordSlots(run.id, coverage.slotIds)
       out.sourceCoverage.expected += coverage.expected
       out.sourceCoverage.completed += coverage.completed
       skip(run.status === 'failed' ? 'failed-run' : 'incomplete-run'); continue
@@ -111,6 +117,7 @@ export function selectSentimentSources(db: DatabaseClient, projectId: string, fi
       out.sourceCoverage.completed += slots.executed
       if (!slots.planned || !slots.readable || slots.missing.length > 0 || slots.hasUnboundSnapshot) {
         const coverage = selectedSlotCoverage(db, projectId, run, filters, plans)
+        recordSlots(run.id, coverage.slotIds)
         out.sourceCoverage.expected = beforeCoverage.expected + coverage.expected; out.sourceCoverage.completed = beforeCoverage.completed + coverage.completed
         skip('incomplete-run'); continue
       }
@@ -154,6 +161,7 @@ export function selectSentimentSources(db: DatabaseClient, projectId: string, fi
       out.sourceCoverage.completed += expected.filter(key => recorded.has(key)).length
       if (!expected.length || expected.some(key => !recorded.has(key)) || snapshots.length !== expected.length || snapshots.some(({ snapshot, query }) => !expectedSlots.has(simpleSlotKey(query?.queryId, snapshot.provider)))) {
         const coverage = selectedSlotCoverage(db, projectId, run, filters, plans)
+        recordSlots(run.id, coverage.slotIds)
         out.sourceCoverage.expected = beforeCoverage.expected + coverage.expected; out.sourceCoverage.completed = beforeCoverage.completed + coverage.completed
         skip('incomplete-run'); continue
       }
@@ -174,9 +182,10 @@ export function selectSentimentSources(db: DatabaseClient, projectId: string, fi
     }
     // Complete source admission already proved every frozen slot. Coverage of this
     // selected class/scope counts each answer-provider slot once across subjects.
-    const selectedSlots = new Set(out.assessments.slice(beforeAssessments).map(item => item.snapshotId)).size
-    out.sourceCoverage.expected = beforeCoverage.expected + selectedSlots
-    out.sourceCoverage.completed = beforeCoverage.completed + selectedSlots
+    const selectedSlots = [...new Set(out.assessments.slice(beforeAssessments).map(item => item.snapshotId))]
+    recordSlots(run.id, { expected: selectedSlots, completed: selectedSlots })
+    out.sourceCoverage.expected = beforeCoverage.expected + selectedSlots.length
+    out.sourceCoverage.completed = beforeCoverage.completed + selectedSlots.length
 
   }
   return out
@@ -223,7 +232,8 @@ function indexedPlan(db: DatabaseClient, projectId: string, versionId: string, c
 /** Missing slots still belong to the selected frozen class/scope, never to every project query. */
 function selectedSlotCoverage(db: DatabaseClient, projectId: string, run: SourceRun, filters: SentimentSourceFilter, plans: PlanCache) {
   const expected = new Set<string>(), completed = new Set<string>()
-  if (run.status === 'failed') return { expected: 0, completed: 0 }
+  const coverage = () => ({ expected: expected.size, completed: completed.size, slotIds: { expected: [...expected], completed: [...completed] } })
+  if (run.status === 'failed') return coverage()
   const snapshots = db.select({ queryId: querySnapshots.queryId, queryText: querySnapshots.queryText, provider: querySnapshots.provider, servedModel: querySnapshots.servedModel, measurementExecutionId: querySnapshots.measurementExecutionId }).from(querySnapshots).where(eq(querySnapshots.runId, run.id)).all()
   const count = (key: string, edge: SentimentSourceEdge, recorded: boolean) => {
     if (!matchesSentimentEdge(edge, filters)) return
@@ -231,7 +241,7 @@ function selectedSlotCoverage(db: DatabaseClient, projectId: string, run: Source
   }
   if (run.measurementPlanVersionId) {
     const indexed = indexedPlan(db, projectId, run.measurementPlanVersionId, plans)
-    if (!indexed || filters.revision !== undefined && indexed.revision !== filters.revision) return { expected: 0, completed: 0 }
+    if (!indexed || filters.revision !== undefined && indexed.revision !== filters.revision) return coverage()
     const bySlot = new Map<string, (typeof snapshots)[number]>()
     for (const snapshot of snapshots) if (snapshot.measurementExecutionId !== null) keep(bySlot, pairKey(snapshot.measurementExecutionId, snapshot.provider), snapshot)
     const scopedTargets = run.measurementScope?.resolvedTargets.length ? new Set(run.measurementScope.resolvedTargets) : null
@@ -248,10 +258,10 @@ function selectedSlotCoverage(db: DatabaseClient, projectId: string, run: Source
       }
     }
   } else {
-    if (filters.revision !== undefined || filters.scope && filters.scope !== 'project' || filters.marketKey) return { expected: 0, completed: 0 }
+    if (filters.revision !== undefined || filters.scope && filters.scope !== 'project' || filters.marketKey) return coverage()
     const row = db.select({ definition: simpleMeasurementDefinitions.definition }).from(simpleMeasurementDefinitions).where(eq(simpleMeasurementDefinitions.runId, run.id)).get()
     const stored = simpleMeasurementDefinitionSchema.safeParse(row?.definition)
-    if (!stored.success) return { expected: 0, completed: 0 }
+    if (!stored.success) return coverage()
     const sourceQuery = simpleSourceQueries(stored.data)
     const bySlot = new Map<string, (typeof snapshots)[number]>()
     for (const snapshot of snapshots) { const query = sourceQuery(snapshot); if (query) keep(bySlot, simpleSlotKey(query.queryId, snapshot.provider), snapshot) }
@@ -261,7 +271,7 @@ function selectedSlotCoverage(db: DatabaseClient, projectId: string, run: Source
       count(`${query.queryId}:${engine.provider}`, { queryKey: query.queryId, queryText: query.queryText, executionNodeKey: null, queryClass: query.queryClass, propertyKey: run.projectId, groupKeys: [], marketKeys: [], provider: engine.provider, sourceModel: engine.requestedModel, servedModel: snapshot?.servedModel ?? null, context: stored.data.location }, Boolean(snapshot))
     }
   }
-  return { expected: expected.size, completed: completed.size }
+  return coverage()
 }
 
 export function matchesSentimentEdge(edge: SentimentSourceEdge, filters: SentimentSourceFilter): boolean {

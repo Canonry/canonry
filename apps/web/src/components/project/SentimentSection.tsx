@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
-import type { SentimentEvidenceItem, SentimentJobSummary, SentimentSettings, SentimentSummary, SentimentSelection, SentimentBackfillPreview, SentimentBackfillSelection, SentimentOverview, SentimentHeadline, SentimentAssessmentSummary, SentimentEvidenceSelection } from '@ainyc/canonry-contracts'
+import type { SentimentEvidenceItem, SentimentJobSummary, SentimentSettings, SentimentSummary, SentimentSelection, SentimentBackfillPreview, SentimentBackfillSelection, SentimentOverview, SentimentOverallHeadline, SentimentHeadline, SentimentAssessmentSummary, SentimentEvidenceSelection } from '@ainyc/canonry-contracts'
 import { describeError, formatPercent, RatioUnits } from '@ainyc/canonry-contracts'
 import { Button } from '../ui/button.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet.js'
@@ -16,9 +16,10 @@ type QueryClassView = QueryClass | 'all' | 'unclassified' | 'unknown'
 type RunOption = { id: string; label: string }
 const CLASS_LABEL: Record<QueryClass, string> = { branded: 'Branded', 'non-brand': 'Non-brand' }
 export const SENTIMENT_COPY = {
-  states: { disabled: 'Sentiment is disabled.', 'not-measured': 'No sentiment assessments yet.', processing: 'Sentiment classification is in progress.', canceled: 'Sentiment work was canceled.', partial: 'Sentiment results are partial.', failed: 'Sentiment classification failed.', complete: 'Sentiment classification is complete.', unsupported: 'Sentiment is unavailable for this selection.' },
-  noJudgments: 'No evaluative answers were classified.',
-  favorable: 'Favorable answers divided by favorable, mixed, and unfavorable judgments. Factual, unmentioned, unsupported, and unclassified answers are not judgments. Branded and non-brand queries are measured separately.',
+  states: { disabled: 'Sentiment is off.', 'not-measured': 'No ratings yet.', processing: 'Analyzing sentiment…', canceled: 'Analysis canceled.', partial: 'Partial results.', failed: 'Analysis failed.', complete: 'Analysis complete.', unsupported: 'Sentiment unavailable.' },
+  noJudgments: 'No ratings available.',
+  overall: 'Overall sentiment is the share of favorable judgments across branded and non-brand queries. Each saved answer-subject assessment counts once. Factual, unmentioned, unsupported, and unclassified answers are excluded.',
+  favorable: 'The favorable share of favorable, mixed and unfavorable ratings. Each rating evaluates one subject in an answer. Branded and non-brand queries are measured separately.',
 } as const
 function outcomeLabel(value: string) { return value.replaceAll('-', ' ').replace(/^./, character => character.toUpperCase()) }
 
@@ -28,48 +29,50 @@ const CLASS_ORDER: readonly QueryClass[] = ['branded', 'non-brand']
 function sentimentIntervalText(score: Pick<SentimentHeadline['score'], 'interval'>): string | null {
   return score.interval ? `${formatPercent(score.interval.low, RatioUnits.fraction)} to ${formatPercent(score.interval.high, RatioUnits.fraction)}` : null
 }
-function FavorableValue({ value, label }: { value: Pick<SentimentHeadline, 'score' | 'coverage' | 'provisional'>; label: string }) {
-  const interval = sentimentIntervalText(value.score)
+function FavorableValue({ value, label }: { value: Pick<SentimentHeadline, 'score' | 'coverage' | 'provisional' | 'state' | 'reason'>; label: string }) {
+  const hasScore = value.score.favorableRate !== null && value.coverage.judged > 0
   return <div role="group" aria-label={`${label} favorable share`}>
-    <span className="font-mono text-lg text-primary">{value.score.favorableDisplay}</span>
-    <span className="ml-2 text-sm text-secondary">{value.coverage.judged} judged</span>
-    {value.provisional && <span className="ml-2 text-sm text-secondary">Provisional</span>}
-    {interval && <span className="block text-sm text-secondary">95% interval {interval}</span>}
+    {hasScore ? <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+      <span className="font-mono text-lg text-primary">{value.score.favorableDisplay}</span>
+      <span className="text-sm text-secondary">· {value.coverage.judged} {value.coverage.judged === 1 ? 'rating' : 'ratings'}</span>
+      {value.provisional && <span className="text-sm text-caution">Partial results</span>}
+    </div> : <p className="text-sm text-secondary">{value.state === 'complete' ? SENTIMENT_COPY.noJudgments : SENTIMENT_COPY.states[value.state]}</p>}
   </div>
 }
 
-/** The portfolio card shows sentiment only where the project page does: configured, and never inside an embed. */
-export function showsSentimentOverview(value?: SentimentOverview): value is SentimentOverview {
-  return Boolean(value?.configured) && !isEmbed()
+function SentimentHeadlineDetails({ value }: { value: SentimentSummary }) {
+  const { coverage, score } = value
+  const interval = sentimentIntervalText(score)
+  if (!coverage.selected && !coverage.eligibleAssessments && !value.reason) return null
+  return <details className="mt-3 max-w-sm text-sm text-secondary">
+    <summary className="w-fit cursor-pointer rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">Details</summary>
+    <dl className="mt-2 space-y-1">
+      {coverage.selected > 0 && <div className="flex flex-wrap justify-between gap-x-6"><dt>Rated assessments</dt><dd>{coverage.judged} of {coverage.selected}</dd></div>}
+      {coverage.distinctSourceAnswers > 0 && <div className="flex flex-wrap justify-between gap-x-6"><dt>Source answers</dt><dd>{coverage.distinctSourceAnswers}</dd></div>}
+      {coverage.unadmittedAssessments > 0 && <div className="flex flex-wrap justify-between gap-x-6"><dt>Not yet analyzed</dt><dd>{coverage.unadmittedAssessments}</dd></div>}
+      {Object.entries(coverage.counts).filter(([outcome, count]) => count > 0 && !['favorable', 'mixed', 'unfavorable'].includes(outcome)).map(([outcome, count]) => <div key={outcome} className="flex flex-wrap justify-between gap-x-6"><dt>{outcomeLabel(outcome)}</dt><dd>{count}</dd></div>)}
+      {interval && <div className="flex flex-wrap justify-between gap-x-6"><dt className="flex items-center gap-1">95% confidence range <InfoTooltip text={score.limitation} placement="bottom" /></dt><dd>{interval}</dd></div>}
+    </dl>
+    {value.reason && <p className="mt-2 max-w-prose break-words">{value.reason}</p>}
+  </details>
 }
 
-/** One class on the portfolio card: its server display value, judged n and Wilson interval. */
-function OverviewClassFigure({ queryClass, headline, primary }: { queryClass: QueryClass; headline: SentimentHeadline; primary: boolean }) {
-  const interval = sentimentIntervalText(headline.score)
-  const range = headline.score.interval ? `${formatPercent(headline.score.interval.low, RatioUnits.fraction)}–${formatPercent(headline.score.interval.high, RatioUnits.fraction)}` : null
-  return <div role="group" aria-label={`${CLASS_LABEL[queryClass]} favorable share`} {...(primary ? { 'data-sentiment-primary': '' } : {})}>
-    <p className="flex items-baseline justify-between gap-1">
-      <span className="text-[12px] text-secondary">{CLASS_LABEL[queryClass]}</span>
-      <span className={`whitespace-nowrap font-mono ${primary ? 'text-base font-semibold text-heading' : 'text-[13px] text-primary'}`}>{headline.score.favorableDisplay}{headline.provisional && <span role="img" aria-label="Provisional" className="ml-0.5 text-caution">*</span>}</span>
-    </p>
-    <p className="truncate text-[11px] leading-4 text-faint" title={`${headline.coverage.judged} judged${interval ? `, 95% interval ${interval}` : ''}`}>{headline.coverage.judged} judged{range && <> · <span className="sr-only">95% interval </span>{range}</>}</p>
-  </div>
+/** An overview shows one measured overall score, or no sentiment metric. */
+export function showsSentimentOverview(value?: SentimentOverview): value is SentimentOverview & { overall: SentimentOverallHeadline } {
+  return Boolean(value?.configured && value.overall && value.overall.coverage.judged > 0 && value.overall.score.favorableRate !== null) && !isEmbed()
 }
 
 /** Portfolio values come from the existing overview response, never separate per-card requests. */
 export function SentimentOverviewMetric({ value }: { value?: SentimentOverview }) {
   if (!showsSentimentOverview(value)) return null
-  const headlines: Record<QueryClass, SentimentHeadline> = { branded: value.branded, 'non-brand': value.nonBrand }
-  const detail = [SENTIMENT_COPY.favorable, ...CLASS_ORDER.map(queryClass => {
-    const headline = headlines[queryClass]
-    const interval = sentimentIntervalText(headline.score)
-    return `${CLASS_LABEL[queryClass]}: ${headline.score.favorableDisplay}, ${headline.coverage.judged} of ${headline.coverage.selected} judged${interval ? `, 95% interval ${interval}` : ''}. ${headline.provisional ? 'Provisional. ' : ''}${SENTIMENT_COPY.states[headline.state]}${headline.reason ? ` ${headline.reason}` : ''}`
-  })].join(' ')
-  // Branded is the primary figure; non-brand follows as its own population with its own denominator.
+  const headline = value.overall
+  const interval = sentimentIntervalText(headline.score)
+  const detail = `${SENTIMENT_COPY.overall} ${headline.coverage.judged} of ${headline.coverage.selected} judged${interval ? `, 95% interval ${interval}` : ''}. ${headline.provisional ? 'Provisional. ' : ''}${SENTIMENT_COPY.states[headline.state]}${headline.reason ? ` ${headline.reason}` : ''}`
   return <div className="project-row-stat" data-sentiment-score>
-    <div className="grid gap-y-1">
-      <div className="flex items-center"><p className="metric-inline-label">Favorable</p><span className="relative z-10"><InfoTooltip text={detail} placement="bottom" /></span></div>
-      {CLASS_ORDER.map((queryClass, index) => <OverviewClassFigure key={queryClass} queryClass={queryClass} headline={headlines[queryClass]} primary={index === 0} />)}
+    <div className="metric-inline-block">
+      <div className="flex items-center gap-1"><p className="metric-inline-label">Sentiment</p><span className="relative z-10"><InfoTooltip text={detail} placement="bottom" /></span></div>
+      <p className="metric-inline-value">{headline.score.favorableDisplay}<span className="sr-only"> favorable judgments, all query classes</span></p>
+      <p className="metric-inline-caption" aria-hidden="true"></p>
     </div>
   </div>
 }
@@ -149,23 +152,15 @@ export function SentimentHeadlines({ queryClass = 'all' }: { queryClass?: QueryC
   const scope = useContext(SentimentContext)
   if (!scope?.configured || queryClass === 'unknown' || queryClass === 'unclassified') return null
   const classes: readonly QueryClass[] = queryClass === 'all' ? CLASS_ORDER : [queryClass]
-  return <div className="mb-4 flex flex-wrap items-start gap-x-8 gap-y-3" aria-label="Favorable answer scores">
+  return <div className="sentiment-headlines mb-4 flex flex-wrap items-start gap-x-8 gap-y-3" aria-label="Favorable answer scores">
     {classes.map(value => {
       const query = scope.summaries[value]
-      return <div key={value}>
-        <div className="mb-1 flex items-center gap-2"><span className="text-sm text-secondary">Favorable · {CLASS_LABEL[value]}</span><InfoTooltip text={SENTIMENT_COPY.favorable} /></div>
-        {!scope.hasSourceEvidence ? <p className="text-sm text-secondary">Unavailable</p> : query.data ? <>
+      return <div key={value} className="min-w-0 max-w-full">
+        <div className="mb-2 flex items-center gap-2"><span className="text-sm text-secondary">Favorable · {CLASS_LABEL[value]}</span><InfoTooltip text={SENTIMENT_COPY.favorable} /></div>
+        {!scope.hasSourceEvidence ? <p className="text-sm text-secondary">No saved answers.</p> : query.data ? <>
           <FavorableValue value={query.data} label={CLASS_LABEL[value]} />
-          <details className="mt-1 text-sm text-secondary"><summary className="cursor-pointer">Coverage and method</summary>
-            <p>{query.data.coverage.judged} judged of {query.data.coverage.selected} selected assessments; {query.data.coverage.distinctSourceAnswers} distinct source answers.</p>
-            <p>{query.data.coverage.eligibleAssessments} eligible; {query.data.coverage.unadmittedAssessments} awaiting admission.</p>
-            <p>{query.data.state === 'complete' && query.data.coverage.judged === 0 ? SENTIMENT_COPY.noJudgments : SENTIMENT_COPY.states[query.data.state]}</p>
-            {query.data.reason && <p>{query.data.reason}</p>}
-            {Object.entries(query.data.coverage.counts).filter(([outcome, count]) => count > 0 && !['favorable', 'mixed', 'unfavorable'].includes(outcome)).map(([outcome, count]) => <p key={outcome}>{outcomeLabel(outcome)}: {count}</p>)}
-            <p>{scope.settings.data?.disclosure}</p>
-            <p>95% Wilson interval: {sentimentIntervalText(query.data.score) ?? 'Unavailable'}</p><p>{query.data.score.limitation}</p>
-          </details>
-        </> : query.isError ? <p role="alert" className="text-sm text-secondary">Favorable score unavailable. <Button variant="ghost" onClick={() => { void query.refetch() }}>Retry score</Button></p> : <p role="status" className="text-sm text-secondary">Loading favorable score…</p>}
+          <SentimentHeadlineDetails value={query.data} />
+        </> : query.isError ? <p role="alert" className="text-sm text-secondary">Couldn’t load sentiment. <Button variant="ghost" onClick={() => { void query.refetch() }}>Retry</Button></p> : <p role="status" className="text-sm text-secondary">Loading sentiment…</p>}
       </div>
     })}
   </div>

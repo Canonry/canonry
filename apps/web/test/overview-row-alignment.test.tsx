@@ -180,10 +180,14 @@ test('shows MCP as a separate infrastructure row for viewers', async () => {
   expect(row.querySelector('[title]')?.getAttribute('title')).toContain('not an individual client connection')
 })
 
-test('compact favorable help remains outside the single stretched project link', async () => {
+test('one overall sentiment value aligns with the other stats and keeps help outside the project link', async () => {
   const doc = await renderOverview(fixture => {
     const headline = { ...aggregateSentiment([]), reason: null, runIds: ['run'], selection: { mode: 'simple' as const, scope: 'project' as const, queryClass: 'branded' as const, runId: 'run', revision: null, evaluationDefinitionId: 'definition' } }
-    fixture.dashboard.portfolioOverview.projects[0]!.sentiment = { configured: true, branded: headline, nonBrand: { ...headline, selection: { ...headline.selection, queryClass: 'non-brand' } } }
+    const overall = { ...aggregateSentiment([
+      { assessmentId: 'one', sourceSnapshotId: 'one', outcome: 'favorable' },
+      { assessmentId: 'two', sourceSnapshotId: 'two', outcome: 'mixed' },
+    ]), reason: null, runIds: ['run'], queryClass: 'all' as const }
+    fixture.dashboard.portfolioOverview.projects[0]!.sentiment = { configured: true, overall, branded: headline, nonBrand: { ...headline, selection: { ...headline.selection, queryClass: 'non-brand' } } }
   })
   const metric = doc.querySelector('[data-sentiment-score]')!
   const row = metric.closest('.project-row')!
@@ -192,9 +196,24 @@ test('compact favorable help remains outside the single stretched project link',
   expect(links).toHaveLength(1)
   expect(links[0]!.contains(help)).toBe(false)
   expect(links[0]!.getAttribute('href')).toMatch(/^\/projects\//)
-  expect(help.getAttribute('aria-label')).toContain('Non-brand: Unavailable, 0 of 0 judged.')
+  expect(help.getAttribute('aria-label')).toContain('2 of 2 judged')
   expect(row.classList.contains('project-row-with-sentiment')).toBe(true)
-  const shares = metric.querySelectorAll('[aria-label$="favorable share"]')
-  expect([...shares].map(node => node.getAttribute('aria-label'))).toEqual(['Branded favorable share', 'Non-brand favorable share'])
-  expect(shares[0]!.textContent).toContain('0 judged')
+  expect(statBlocks(row)).toHaveLength(3)
+  expect(metric.querySelector('.metric-inline-block')!.children).toHaveLength(3)
+  expect(metric.querySelector('.metric-inline-label')!.textContent).toBe('Sentiment')
+  expect(metric.querySelector('.metric-inline-value')!.textContent).toBe('50.0% favorable judgments, all query classes')
+  expect(metric.textContent).not.toContain('Unavailable')
+  expect(metric.textContent).not.toContain('judged')
+  expect(metric.querySelectorAll('.metric-inline-value')).toHaveLength(1)
+})
+
+test('an unjudged overall score leaves no sentiment metric or grid slot', async () => {
+  const doc = await renderOverview(fixture => {
+    const headline = { ...aggregateSentiment([]), reason: null, runIds: ['run'], selection: { mode: 'simple' as const, scope: 'project' as const, queryClass: 'branded' as const, runId: 'run', revision: null, evaluationDefinitionId: 'definition' } }
+    fixture.dashboard.portfolioOverview.projects[0]!.sentiment = { configured: true, branded: headline, nonBrand: headline, overall: { ...aggregateSentiment([]), reason: null, runIds: ['run'], queryClass: 'all' } }
+  })
+  const row = doc.querySelector('.project-row')!
+  expect(row.querySelector('[data-sentiment-score]')).toBeNull()
+  expect(row.classList.contains('project-row-with-sentiment')).toBe(false)
+  expect(statBlocks(row)).toHaveLength(2)
 })
