@@ -58,11 +58,19 @@ headlines to the score, rating count and any partial-results state. Empty classe
 show a short state. Coverage and confidence belong in closed Details disclosures;
 data-processing disclosure belongs in Enable/Manage sentiment.
 
-Simple projects render the existing `VisibilityTrendSection`, `OverviewBrief`,
+Simple projects render the existing `OverviewBrief`, `VisibilityTrendSection`,
 competitive summary, and `EvidenceTable` directly, including in embeds and
 when an unpublished Advanced draft exists. Do not replace that layout with
 `VisibilityWorkspace` when a unified report becomes available. Published
 Advanced plans retain their own report workspace and scope controls.
+
+`OverviewBrief` is the Visibility card: a short title with the latest sweep's
+time, one row per query class (never a pooled figure) with Mentioned and Cited
+query counts and one status word, and everything else in the shared closed
+`Disclosure` ("Details"). `lib/answer-movement.ts` owns the rows, the status
+words and the answer-level movement. An engine answer counts only when it was
+observed in both sweeps with a mention result in each. Probe runs never set the
+card's time or its "Sweep running" state; the Run button still waits for them.
 
 Keep the Latest signals block and suggested queries out of the Simple overview.
 The underlying insights and suggestions remain available through the API.

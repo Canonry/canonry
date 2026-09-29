@@ -971,7 +971,8 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   local: 'Local',
 }
 
-function providerDisplayName(name: string): string {
+/** An engine's name as people read it ("OpenAI", "Perplexity"). */
+export function providerDisplayName(name: string): string {
   const key = normalizeProviderKey(name)
   return PROVIDER_DISPLAY_NAMES[key] ?? name.charAt(0).toUpperCase() + name.slice(1)
 }

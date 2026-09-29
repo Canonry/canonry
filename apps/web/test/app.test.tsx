@@ -211,20 +211,19 @@ test('project route renders a concise visibility summary with progressive detail
   // The route/embed token remains `technical-aeo`; only the product label changes.
   expect(html).toMatch(/Site Health/)
   expect(html).toMatch(/Queries/)
-  expect(html).toMatch(/Visibility/)
-  expect(html).toMatch(/Coverage now/)
-  expect(html).toMatch(/Since last sweep/)
+  // The Visibility card: a short title, the sweep state, and the rest behind a
+  // closed Details. The queued sweep is a real one, so the card says so.
+  expect(html).toMatch(/<h2 class="av-card-title"><span id="overview-brief-title">Visibility<\/span>/)
+  expect(html).toContain('<p class="av-card-meta">Sweep running</p>')
+  expect(html).toMatch(/<details class="av-details"><summary>Details<\/summary>/)
+  expect(html).toContain('Added: dental implants downtown brooklyn')
+  expect(html).not.toMatch(/Coverage now|Tracking scope changed|comparable queries/)
   expect(html).toMatch(/Mentioned/)
   expect(html).toMatch(/Cited/)
-  // The hero figures arrive formatted by the API ("66.7%"); the sign is set
-  // apart once, never appended to a value that already carries it.
-  expect(html).toMatch(/<p class="aeo-hero-row-value [^"]*">66\.7<span class="text-faint">%<\/span><\/p>/)
-  expect(html).toMatch(/<p class="aeo-hero-row-value [^"]*">61\.0<span class="text-faint">%<\/span><\/p>/)
   expect(html).not.toMatch(/%<span class="text-faint">%/)
   // Per-model citation rates are 0..100 at wire precision and read through formatPercent.
   expect(html).toContain('<span class="font-semibold text-strong">55.6%</span>')
   expect(html).toContain('<span class="font-semibold text-strong">66.7%</span>')
-  expect(html).toMatch(/1 query added · 8 comparable queries\./)
   expect(html).not.toMatch(/Latest signals/)
   expect(html).not.toMatch(/Emergency-intent prompts stopped grounding Citypoint/)
   expect(html).not.toMatch(/Suggested query/)

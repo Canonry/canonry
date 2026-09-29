@@ -58,6 +58,22 @@ export function toTitleCase(value: string): string {
     .join(' ')
 }
 
+/**
+ * A sweep's time in the viewer's zone: "Sep 29, 5:41 AM", the time alone when
+ * it falls on the same day as `sameDayAs` (the sentence already names that
+ * day), and the year only outside the current one ("Sep 29, 2025, 5:41 AM").
+ */
+export function formatSweepInstant(iso: string, sameDayAs?: string | null, now: Date = new Date()): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  const time = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  if (sameDayAs && new Date(sameDayAs).toDateString() === date.toDateString()) return time
+  const day = date.toLocaleDateString('en-US', date.getFullYear() === now.getFullYear()
+    ? { month: 'short', day: 'numeric' }
+    : { month: 'short', day: 'numeric', year: 'numeric' })
+  return `${day}, ${time}`
+}
+
 export function formatTimestamp(value: string | null | undefined): string {
   if (!value) return '—'
   try {

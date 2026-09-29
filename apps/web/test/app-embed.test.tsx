@@ -286,7 +286,7 @@ test('embed hides the project sweep action that leaks on every tab', async () =>
   // not content.
   expect(embed).toContain('Citypoint Dental NYC')
   expect(embed).toContain('Answer-engine trend')
-  expect(embed).toContain('Coverage now')
+  expect(embed).toContain('id="overview-brief-title"')
   expect(embed).toContain('Query evidence')
   expect(embed).toContain('Mention share')
 })
