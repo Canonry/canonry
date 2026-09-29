@@ -240,7 +240,14 @@ export interface ProjectCommandCenterVm {
   insights: ProjectInsightVm[]
   visibilityEvidence: CitationInsightVm[]
   competitors: CompetitorVm[]
+  /** The newest five runs of any status: a presentation slice for Past sweeps and the running state. */
   recentRuns: RunListItemVm[]
+  /**
+   * Completed and partial AI Visibility sweeps, newest first, probes left out,
+   * from the whole run list. Anything that names the latest or an earlier
+   * sweep reads these, never `recentRuns`, which newer failures can fill.
+   */
+  visibilitySweeps: RunListItemVm[]
   /** Suggested queries to add to tracking — high-impression GSC queries that
    *  aren't yet in the basket. Renders as the fourth Opportunities card. */
   suggestedQueries: SuggestedQueriesSummaryDto

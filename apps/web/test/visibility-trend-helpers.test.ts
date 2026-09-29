@@ -14,6 +14,7 @@ import {
   modelChangeRows,
   querySetChanges,
   pointQuerySetShift,
+  querySetMovePhrase,
   querySetShift,
   readBasketChanges,
   readModelPointerChanges,
@@ -37,6 +38,7 @@ import {
 } from '../src/lib/visibility-trend-helpers.js'
 import { observedInstant } from '../src/components/shared/ChartPrimitives.js'
 import { AINYC_SWEEP_TIMES, ainycMetrics } from './ainyc-visibility-fixture.js'
+import { cancelledSweepBetweenMetrics, removedAndReAddedMetrics, roundTripInsidePointMetrics } from './basket-scenarios-fixture.js'
 
 function provider(citationRate: number, mentionRate: number) {
   return { citationRate, cited: 0, total: 4, mentionRate, mentionedCount: 0 }
@@ -730,6 +732,8 @@ function removalMetrics(): BrandMetricsDto {
   } as BrandMetricsDto
 }
 
+const NO_MOVES = { added: [], removed: [], removedAndAddedBack: [], addedAndRemovedAgain: [] }
+
 describe('the change figure (decision 3)', () => {
   it('drops ainyc\'s Mentioned and Cited change: 11 queries in the first point, 14 in the latest', () => {
     const metrics = ainyc('all')
@@ -737,6 +741,7 @@ describe('the change figure (decision 3)', () => {
     expect(shift).toEqual({
       changes: readBasketChanges(metrics),
       keys: ['canonry', 'canonry aeo agency', 'canonry reviews'],
+      moves: { ...NO_MOVES, added: ['canonry', 'canonry aeo agency', 'canonry reviews'] },
       firstCount: 11,
       latestCount: 14,
     })
@@ -758,7 +763,7 @@ describe('the change figure (decision 3)', () => {
     const nonBrand = [{ revision: 2, at: '2026-09-29T09:59:38.415Z', added: ['canonry', 'aeo agency brooklyn'], removed: [] }]
     expect(showsChangeFigure(querySetShift(metrics.buckets, nonBrand), 'mentionShare', 'non-brand', classify)).toBe(false)
     const unrecorded = querySetShift(metrics.buckets, [])
-    expect(unrecorded).toEqual({ changes: [], keys: [], firstCount: 11, latestCount: 14 })
+    expect(unrecorded).toEqual({ changes: [], keys: [], moves: NO_MOVES, firstCount: 11, latestCount: 14 })
     expect(showsChangeFigure(unrecorded, 'mentionShare', 'non-brand', classify)).toBe(false)
   })
 
@@ -798,7 +803,7 @@ describe('the change figure (decision 3)', () => {
     const metrics = removalMetrics()
     const later = [...readBasketChanges(metrics), { revision: 3, at: '2026-07-06T09:00:00.000Z', added: ['query b'], removed: [] }]
     const shift = querySetShift(metrics.buckets, later)
-    expect(shift).toEqual({ changes: [readBasketChanges(metrics)[0]], keys: ['query b'], firstCount: 1, latestCount: 1 })
+    expect(shift).toEqual({ changes: [readBasketChanges(metrics)[0]], keys: ['query b'], moves: { ...NO_MOVES, removed: ['query b'] }, firstCount: 1, latestCount: 1 })
     expect(showsChangeFigure(shift, 'cited', 'non-brand', classify)).toBe(false)
   })
 
@@ -811,11 +816,41 @@ describe('the change figure (decision 3)', () => {
     expect(showsChangeFigure(shift, 'cited', 'non-brand', classify)).toBe(false)
   })
 
+  it('keeps the change when a query is removed and added back before the latest point, since both points read it', () => {
+    // The server rejoins b's Jul 1 answers by its text once b is tracked again.
+    for (const metrics of [removedAndReAddedMetrics(), removedAndReAddedMetrics({ withMiddle: false })]) {
+      expect(metricWindowChange(metrics, 'cited')?.delta).toBe(0.5)
+      const shift = querySetShift(metrics.buckets, readBasketChanges(metrics))
+      expect(shift).toBeNull()
+      expect(showsChangeFigure(shift, 'cited', 'non-brand', classify)).toBe(true)
+    }
+  })
+
+  it('drops the change when the latest point pools sweeps that may read different queries', () => {
+    // b removed and added back inside a latest point of three sweeps: the one
+    // between them may have read a alone.
+    const first = removedAndReAddedMetrics().buckets[0]!
+    const latest = { ...first, startDate: '2026-07-09T00:00:00.000Z', dataStartDate: '2026-07-09T09:00:00.000Z', dataEndDate: '2026-07-09T15:00:00.000Z', sweepCount: 3 }
+    const changes = [
+      { revision: 2, at: '2026-07-09T12:00:00.000Z', added: [], removed: ['query b'] },
+      { revision: 3, at: '2026-07-09T15:00:00.000Z', added: ['query b'], removed: [] },
+    ]
+    expect(querySetShift([first, latest], changes)).toEqual({
+      changes,
+      keys: ['query b'],
+      moves: { ...NO_MOVES, removedAndAddedBack: ['query b'] },
+      firstCount: 2,
+      latestCount: 2,
+    })
+    // With two sweeps, both on {a, b}, the point reads one set.
+    expect(querySetShift([first, { ...latest, sweepCount: 2 }], changes)).toBeNull()
+  })
+
   it('names no removal as the cause when the points differ only in queries answered', () => {
     // One query of the two still tracked went unanswered on Jul 5.
     const metrics = removalMetrics()
     const buckets = [{ ...metrics.buckets[0]!, queryCount: 2 }, metrics.buckets[1]!]
-    expect(querySetShift(buckets, readBasketChanges(metrics))).toEqual({ changes: [], keys: [], firstCount: 2, latestCount: 1 })
+    expect(querySetShift(buckets, readBasketChanges(metrics))).toEqual({ changes: [], keys: [], moves: NO_MOVES, firstCount: 2, latestCount: 1 })
   })
 })
 
@@ -833,5 +868,37 @@ describe('pointQuerySetShift', () => {
     const [first, latest] = removalMetrics().buckets
     const pooled = { ...latest!, dataStartDate: first!.dataStartDate, sweepCount: 2 }
     expect(pointQuerySetShift(pooled, readBasketChanges(removalMetrics()))).toBeNull()
+  })
+
+  it('counts what the two sweeps differ by, not every query a change in between touched', () => {
+    // c and d added for a sweep that was cancelled, d deleted before the next:
+    // the 08:00 and 10:00 sweeps differ by c alone.
+    const metrics = cancelledSweepBetweenMetrics()
+    const shift = pointQuerySetShift(metrics.buckets[0]!, readBasketChanges(metrics))
+    expect(shift?.keys).toEqual(['query c'])
+    expect(shift?.moves).toEqual({ ...NO_MOVES, added: ['query c'] })
+    expect(querySetMovePhrase(shift!.moves)).toBe('1 query added')
+  })
+
+  it('finds no mix when a query is removed and added back between a point\'s two sweeps', () => {
+    const metrics = roundTripInsidePointMetrics()
+    expect(pointQuerySetShift(metrics.buckets[0]!, readBasketChanges(metrics))).toBeNull()
+  })
+
+  it('still flags a point of more than two sweeps, since the ones between may have read the other set', () => {
+    const metrics = roundTripInsidePointMetrics({ sweepCount: 3 })
+    const shift = pointQuerySetShift(metrics.buckets[0]!, readBasketChanges(metrics))
+    expect(shift?.moves).toEqual({ ...NO_MOVES, removedAndAddedBack: ['query b'] })
+    expect(querySetMovePhrase(shift!.moves)).toBe('1 query removed and added back')
+  })
+})
+
+describe('querySetMovePhrase', () => {
+  it('names each kind of move once, the noun only on the first count', () => {
+    expect(querySetMovePhrase({ ...NO_MOVES, added: ['a', 'b', 'c'] })).toBe('3 queries added')
+    expect(querySetMovePhrase({ ...NO_MOVES, removed: ['a'] })).toBe('1 query removed')
+    expect(querySetMovePhrase({ ...NO_MOVES, added: ['a'], removed: ['b', 'c'] })).toBe('1 query added and 2 removed')
+    expect(querySetMovePhrase({ ...NO_MOVES, added: ['a'], addedAndRemovedAgain: ['b'] })).toBe('1 query added and 1 query added and removed again')
+    expect(querySetMovePhrase(NO_MOVES)).toBe('')
   })
 })

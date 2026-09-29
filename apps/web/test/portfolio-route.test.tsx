@@ -1796,6 +1796,7 @@ function withAinycSweeps(dashboard: ReturnType<typeof createDashboardFixture>['d
   project.citationMovement = ainycMovement()
   project.queryCounts = { cited: 7, total: 14 }
   project.recentRuns = [{ ...completed, id: AINYC_LATEST_RUN.id, trigger: 'manual', createdAt: AINYC_LATEST_RUN.createdAt, startedAt: 'Sep 29, 5:59 AM' }]
+  project.visibilitySweeps = [...project.recentRuns]
   return project
 }
 
@@ -2014,6 +2015,31 @@ test('the Visibility card marks a partial sweep and a row that gained queries', 
   // A partial sweep reads caution, as the server's coverage tone does.
   expect(card.querySelector('tbody tr:first-child .av-n')!.className).toContain('text-caution-400')
   expect(bullets.at(-1)).toBe('Partial: 3 of 4 engines')
+})
+
+test('the Visibility card keeps its sweep time and partial mark when five newer failed runs fill the recent-run slice', async () => {
+  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    configureFixture(dashboard) {
+      const project = withAinycSweeps(dashboard)
+      project.mentionSummary = { ...project.mentionSummary, providerCoverage: '3 of 4 engines' }
+      const sweep = project.recentRuns[0]!
+      // What the builder hands the page: the five-row slice is newer failures,
+      // while the sweeps come from the whole run list.
+      project.visibilitySweeps = [sweep, { ...sweep, id: AINYC_PREVIOUS_RUN.id, createdAt: AINYC_PREVIOUS_RUN.createdAt, startedAt: 'Sep 29, 5:41 AM' }]
+      project.recentRuns = Array.from({ length: 5 }, (_, index) => ({
+        ...sweep,
+        id: `failed-after-${index}`,
+        status: 'failed' as const,
+        createdAt: `2026-09-29T1${4 - index}:00:00.000Z`,
+        startedAt: `Sep 29, ${10 - index}:00 AM`,
+      }))
+    },
+  })
+  const { meta, bullets } = visibilityCard(html)
+
+  expect(meta).toBe('Sep 29, 5:59 AM · partial')
+  // Same day as the latest sweep, so the previous one reads as a time.
+  expect(bullets[0]).toBe(`Compared with the ${formatSweepInstant(AINYC_PREVIOUS_RUN.createdAt, AINYC_LATEST_RUN.createdAt)} sweep, same 11 queries`)
 })
 
 test('the Visibility card names a first sweep and compares nothing', async () => {

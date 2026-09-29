@@ -74,9 +74,15 @@ query counts and one status word, and everything else in the shared closed
 words and the answer-level movement. The rows read the latest completed
 sweep's own `GET /runs/:id` snapshots, never the capped timeline alone: newer
 failed sweeps can fill that window, and a query answered there still gets its
-row (`buildEvidenceFromTimeline`). An engine answer counts only when it was
-observed in both sweeps with a mention result in each. Probe runs never set the
-card's time or its "Sweep running" state; the Run button still waits for them.
+row (`buildEvidenceFromTimeline`). The timeline holds runs of every status, so
+a row's state and change read its history only up to the snapshot's own run; a
+cancelled run or a sweep still running after it never moves the row. An engine
+answer counts only when it was observed in both sweeps with a mention result in
+each. The card's time, "Compared with" line, the trend's sweep dates and the
+sentiment backfill's sweeps read `visibilitySweeps` (every completed or partial
+sweep, from the whole run list), never the five-row `recentRuns`. Probe runs
+never set the card's time or its "Sweep running" state; the Run button still
+waits for them.
 Non-brand counts here and on By engine read amber below 70% of their base and
 green from it (`coverageTone`), never red; branded and unclassified counts are
 never toned.
@@ -86,11 +92,17 @@ latest point's date and sweep count, one headline figure with its base, the
 chart, and a closed Details. It prints no change figure while the first and
 latest points measured different queries (`querySetShift`), except mention
 share when every query they do not share is branded, and says why in Details.
-The server restates every point to the queries tracked now, so only a change
-that touched a query still tracked splits them; a query removed for good leaves
-the points comparable. A point's `queryCount` is the queries it has answers
-for, not the size of the query set, and the response carries no set size, so
-query-set changes are named ("3 queries added"), never counted. Model
+The server restates every point to the queries tracked now and rejoins a
+query's old answers by its text, so two points differ only when a query tracked
+now is in the set at one and not the other (its membership at the first
+point's first sweep and the latest point's last, replayed from
+`basketChanges`), or when either point pools sweeps from both sides of such a
+change. A query removed for good, or removed and added back between the two
+points, leaves them comparable. A point's
+`queryCount` is the queries it has answers for, not the size of the query set,
+and the response carries no set size: a point that mixes sweeps counts only
+the queries its first and last sweeps differ by (`QuerySetShift.moves`), never
+a sum over the changes between them. Model
 names live in "What changed" and the point tooltips, never the legend. "What
 changed" (`modelChangeRows`, `querySetChanges` in `lib/visibility-trend-helpers.ts`)
 lists query-set and model changes by engine, collapsed to one line; a Perplexity

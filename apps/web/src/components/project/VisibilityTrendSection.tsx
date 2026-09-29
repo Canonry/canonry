@@ -73,6 +73,7 @@ import {
   pointQuerySetShift,
   providerDisplayName,
   querySetChanges,
+  querySetMovePhrase,
   querySetShift,
   readBasketChanges,
   readBucketModelEvidence,
@@ -1113,40 +1114,41 @@ function queryCountLabel(count: number): string {
   return `${count} ${count === 1 ? 'query' : 'queries'}`
 }
 
-/** "3 queries added", "1 query removed", or both, the second without its noun. */
-function querySetChangeParts(added: number, removed: number): string[] {
-  return [
-    ...(added > 0 ? [`${queryCountLabel(added)} added`] : []),
-    ...(removed > 0 ? [`${added > 0 ? removed : queryCountLabel(removed)} removed`] : []),
-  ]
-}
-
-/** "3 queries added", "1 query removed", or both. */
+/** One recorded change: "3 queries added", "1 query removed", or both, the second without its noun. */
 function querySetChangePhrase(change: Pick<BasketChangeEvent, 'added' | 'removed'>): string {
-  return querySetChangeParts(change.added.length, change.removed.length).join(', ')
+  const { added, removed } = change
+  return [
+    ...(added.length > 0 ? [`${queryCountLabel(added.length)} added`] : []),
+    ...(removed.length > 0 ? [`${added.length > 0 ? removed.length : queryCountLabel(removed.length)} removed`] : []),
+  ].join(', ')
 }
 
 /**
  * "Sep 29 point mixes the 5:41 AM sweep and the 5:59 AM sweep, with 3 queries
  * added between them": a point that pools sweeps of different queries. It
- * names the change, never a sweep's query count, which the response does not
- * carry. `changes` is the response's whole `basketChanges`. Null when the
- * point's sweeps read the same queries.
+ * counts the queries its first and last sweeps differ by (`shift.moves`),
+ * never a sweep's query count, which the response does not carry, nor every
+ * query a change between them touched. With more than two sweeps, a query
+ * removed and added back between the first and last is named too, since a
+ * sweep between them may have missed it. `changes` is the response's whole
+ * `basketChanges`. Null when the point's sweeps read the same queries.
  */
 function pointMixPhrase(point: MetricsBucket, changes: readonly BasketChangeEvent[]): ReactNode | null {
   const range = readBucketObservedRange(point)
   const days = formatBucketDayRange(point)
-  const mixing = pointQuerySetShift(point, changes)?.changes ?? []
-  if (!range || !days || mixing.length === 0) return null
-  const moved = joinWithAnd(querySetChangeParts(
-    mixing.reduce((sum, change) => sum + change.added.length, 0),
-    mixing.reduce((sum, change) => sum + change.removed.length, 0),
-  ))
+  const shift = pointQuerySetShift(point, changes)
+  if (!range || !days || !shift) return null
+  const moved = querySetMovePhrase(shift.moves)
   const sameDay = sameViewerDay(range.start, range.end)
   const time = (at: string) => formatSweepInstant(at, sameDay ? range.start : null)
-  return range.sweepCount === 2
-    ? <><strong>{days}</strong> point mixes the <strong>{time(range.start)}</strong> sweep and the <strong>{time(range.end)}</strong> sweep, with {moved} between them</>
-    : <><strong>{days}</strong> point mixes sweeps with {moved} between them</>
+  if (range.sweepCount === 2) {
+    return <><strong>{days}</strong> point mixes the <strong>{time(range.start)}</strong> sweep and the <strong>{time(range.end)}</strong> sweep, with {moved} between them</>
+  }
+  // Only a query that differs between the first and last sweep proves a mix;
+  // one that came back may only have been missed by a sweep between them.
+  return shift.moves.added.length + shift.moves.removed.length > 0
+    ? <><strong>{days}</strong> point mixes sweeps with {moved} between them</>
+    : <><strong>{days}</strong> point pools <strong>{range.sweepCount}</strong> sweeps, with {moved} between the first and last</>
 }
 
 /**

@@ -31,6 +31,7 @@ vi.mock('recharts', () => {
 
 import { VisibilityTrendSection } from '../src/components/project/VisibilityTrendSection.js'
 import { mockFetch, jsonResponse } from './mock-fetch.js'
+import { cancelledSweepBetweenMetrics, removedAndReAddedMetrics, roundTripInsidePointMetrics } from './basket-scenarios-fixture.js'
 
 function provider(citationRate: number, mentionRate: number) {
   return { citationRate, cited: 1, total: 4, mentionRate, mentionedCount: 2 }
@@ -828,4 +829,36 @@ test('says the points answered different numbers of queries when no recorded cha
 
   expect(document.querySelector('.visibility-trend-current-delta')).toBeNull()
   expect(trendDetails()[0]).toBe('No change figure: first and latest points have answers for 3 and 2 queries')
+})
+
+test('prints the change when a query was removed and added back before the latest point', async () => {
+  // Both points read a and b: the server rejoins b's first answers once it is tracked again.
+  renderMetrics(removedAndReAddedMetrics())
+  await screen.findByRole('list', { name: 'Engines' })
+
+  act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Cited' })) })
+  expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('up 50.0 points')
+  expect(trendDetails().filter(item => item.startsWith('No change figure'))).toEqual([])
+})
+
+test('says what a pooled point\'s two sweeps differ by, not every query a change between them touched', async () => {
+  renderMetrics(cancelledSweepBetweenMetrics())
+  await waitFor(() => expect(document.querySelector('.visibility-trend-current-value')).not.toBeNull())
+
+  expect(trendDetails()).toContainEqual(expect.stringMatching(/^Jul 5(, 2026)? point mixes the \S+ AM sweep and the \S+ AM sweep, with 1 query added between them$/))
+  expect(trendDetails().join('\n')).not.toMatch(/2 queries/)
+})
+
+test('says nothing of a mix when both of a point\'s sweeps read the same queries', async () => {
+  renderMetrics(roundTripInsidePointMetrics())
+  await waitFor(() => expect(document.querySelector('.visibility-trend-current-value')).not.toBeNull())
+
+  expect(trendDetails().filter(item => item.includes('point mixes'))).toEqual([])
+})
+
+test('names a query removed and added back inside a point of more than two sweeps without claiming a mix', async () => {
+  renderMetrics(roundTripInsidePointMetrics({ sweepCount: 3 }))
+  await waitFor(() => expect(document.querySelector('.visibility-trend-current-value')).not.toBeNull())
+
+  expect(trendDetails()).toContainEqual(expect.stringMatching(/^Jul 1(, 2026)? point pools 3 sweeps, with 1 query removed and added back between the first and last$/))
 })

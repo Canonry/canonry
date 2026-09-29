@@ -676,62 +676,135 @@ export function sweepBefore(
   return range.sweepCount === 2 && instantMs(range.end) === atMs ? range.start : null
 }
 
-/** How the query set moved between the first and latest plotted points. */
+/**
+ * How the queries a shift names moved, by each one's membership on either side:
+ * the first sweep compared against the last.
+ */
+export interface QuerySetMoves {
+  /** Out of the set on the first sweep, in it on the last. */
+  added: string[]
+  /** In the set on the first sweep, out of it on the last (and added back since). */
+  removed: string[]
+  /** In the set on both, out of it for a while between them. */
+  removedAndAddedBack: string[]
+  /** Out of the set on both, in it for a while between them. */
+  addedAndRemovedAgain: string[]
+}
+
+/** How the query set moved between the first and latest plotted points, or across one point's sweeps. */
 export interface QuerySetShift {
   /**
-   * Recorded changes after the first point's first sweep, up to the latest
-   * point's last, that touched a query tracked now. Whole events, so a
-   * message still names everything each one added and removed.
+   * Recorded changes after the first sweep, up to the last, that touched a
+   * query in `keys`. Whole events, so a message still names everything each
+   * one added and removed.
    */
   changes: BasketChangeEvent[]
-  /** The queries tracked now that those changes added or removed: what the points do not share. */
+  /** The queries tracked now that one side reads and the other does not: what the points do not share. */
   keys: string[]
+  /** How `keys` moved. Counted from membership, never summed from `changes`. */
+  moves: QuerySetMoves
   /** Queries with answers in the first and latest points (the API's `queryCount`), not the size of the query set. */
   firstCount: number
   latestCount: number
 }
 
+/** A query's recorded changes, oldest first: when, and whether it joined the set or left it. */
+type MembershipEvents = ReadonlyArray<{ at: number; member: boolean }>
+
 /**
- * The queries tracked now, among those a recorded change touched: each one's
- * last recorded change added it. `basketChanges` holds every change since the
- * window opened, so a query's last change in it is its last change overall.
+ * The queries tracked now, among those a recorded change touched, with their
+ * recorded changes. A query is tracked now when its last recorded change added
+ * it: `basketChanges` holds every change since the window opened, so a query's
+ * last change in it is its last change overall. One whose last change removed
+ * it is gone from every point alike, since the server holds every point to the
+ * queries tracked now, and never splits two of them.
  */
-function trackedChangedKeys(changes: readonly BasketChangeEvent[]): Set<string> {
-  const tracked = new Map<string, boolean>()
-  for (const change of [...changes].sort((a, b) => a.revision - b.revision)) {
-    for (const key of change.removed) tracked.set(key, false)
-    for (const key of change.added) tracked.set(key, true)
+function trackedMembership(changes: readonly BasketChangeEvent[]): Map<string, MembershipEvents> {
+  const byKey = new Map<string, Array<{ at: number; member: boolean }>>()
+  const record = (key: string, event: { at: number; member: boolean }) => {
+    const events = byKey.get(key)
+    if (events) events.push(event)
+    else byKey.set(key, [event])
   }
-  return new Set([...tracked].filter(([, isTracked]) => isTracked).map(([key]) => key))
+  for (const change of [...changes].sort((a, b) => a.revision - b.revision)) {
+    const at = instantMs(change.at)
+    for (const key of change.removed) record(key, { at, member: false })
+    for (const key of change.added) record(key, { at, member: true })
+  }
+  return new Map([...byKey].filter(([, events]) => events.at(-1)!.member))
 }
 
 /**
- * The recorded changes after `from`, up to and including `to`, that leave two
- * points on different queries. The server holds every point to the queries
- * tracked now, so a change matters only when it touched one of them: a query
- * removed for good is gone from every point alike, while one added (or removed
- * and added back) is missing from the points before it.
+ * Whether a sweep at `at` measured the query. Before its first recorded change
+ * it held the opposite of that change. A sweep at the instant of a change is on
+ * the new set: a sweep's revision is minted as it is queued (run-queue.ts).
  */
-function splittingChanges(
+function memberAt(events: MembershipEvents, at: number): boolean {
+  let member = !events[0]!.member
+  for (const event of events) if (event.at <= at) member = event.member
+  return member
+}
+
+/** True when a change to the query falls after `from`, up to and including `to`. */
+function changedBetween(events: MembershipEvents, from: number, to: number): boolean {
+  return events.some(event => event.at > from && event.at <= to)
+}
+
+/**
+ * Whether one point's sweeps read the query differently. Two sweeps are its
+ * first and last, so their membership says it. With more, the sweeps between
+ * have unknown times, so any change after the first sweep counts.
+ */
+function pointSplits(events: MembershipEvents, range: BucketObservedRange): boolean {
+  const start = instantMs(range.start)
+  const end = instantMs(range.end)
+  return range.sweepCount > 2
+    ? changedBetween(events, start, end)
+    : memberAt(events, start) !== memberAt(events, end)
+}
+
+/**
+ * The shift across `from` (the earlier side's first sweep) to `to` (the later
+ * side's last), for the tracked queries `splits` picks. Null when it picks none.
+ */
+function shiftAcross(
   changes: readonly BasketChangeEvent[],
   from: string,
   to: string,
-): Pick<QuerySetShift, 'changes' | 'keys'> {
-  const tracked = trackedChangedKeys(changes)
+  splits: (events: MembershipEvents) => boolean,
+): Omit<QuerySetShift, 'firstCount' | 'latestCount'> | null {
+  const fromMs = instantMs(from)
+  const toMs = instantMs(to)
+  const moves: QuerySetMoves = { added: [], removed: [], removedAndAddedBack: [], addedAndRemovedAgain: [] }
+  const split = new Set<string>()
+  for (const [key, events] of trackedMembership(changes)) {
+    if (!splits(events)) continue
+    split.add(key)
+    const before = memberAt(events, fromMs)
+    const after = memberAt(events, toMs)
+    if (before !== after) (after ? moves.added : moves.removed).push(key)
+    else (before ? moves.removedAndAddedBack : moves.addedAndRemovedAgain).push(key)
+  }
+  if (split.size === 0) return null
+  const touches = (change: BasketChangeEvent) => [...change.added, ...change.removed].some(key => split.has(key))
   const splitting = changes
-    .filter(change => instantMs(change.at) > instantMs(from) && instantMs(change.at) <= instantMs(to))
-    .filter(change => [...change.added, ...change.removed].some(key => tracked.has(key)))
+    .filter(change => instantMs(change.at) > fromMs && instantMs(change.at) <= toMs && touches(change))
     .sort((a, b) => instantMs(a.at) - instantMs(b.at))
-  const keys = [...new Set(splitting.flatMap(change => [...change.added, ...change.removed]))].filter(key => tracked.has(key))
-  return { changes: splitting, keys }
+  const keys = [...new Set(splitting.flatMap(change => [...change.added, ...change.removed]))].filter(key => split.has(key))
+  return { changes: splitting, keys, moves }
 }
 
 /**
  * Whether the first and latest plotted points measured different queries: a
- * recorded change after the first point's first sweep touched a query tracked
- * now, or the points answered different numbers of queries. Null when they
- * read the same queries, or with one point. `changes` must be the response's
- * whole `basketChanges`, which is what says which queries are tracked now.
+ * query tracked now is in one and not the other, or either point pools sweeps
+ * of different queries (`pointQuerySetShift`), or, with no change recorded,
+ * the points answered different numbers of queries. The server holds every
+ * point to the queries tracked now and rejoins a query's old answers by its
+ * text, so a query removed for good is gone from both points, and one removed
+ * and added back before the first or after the latest is in both. Null when
+ * they read the same queries, or with one point. `changes` must be the
+ * response's whole `basketChanges`, which is what says which queries are
+ * tracked now.
  */
 export function querySetShift(
   plotted: readonly MetricsBucket[],
@@ -740,17 +813,28 @@ export function querySetShift(
   if (plotted.length < 2) return null
   const first = plotted[0]!
   const latest = plotted.at(-1)!
-  const start = readBucketObservedRange(first)?.start ?? first.startDate
-  const end = readBucketObservedRange(latest)?.end ?? latest.endDate
-  const split = splittingChanges(changes, start, end)
-  if (split.changes.length === 0 && first.queryCount === latest.queryCount) return null
-  return { ...split, firstCount: first.queryCount, latestCount: latest.queryCount }
+  const firstRange = readBucketObservedRange(first)
+  const latestRange = readBucketObservedRange(latest)
+  const start = firstRange?.start ?? first.startDate
+  const end = latestRange?.end ?? latest.endDate
+  const split = shiftAcross(changes, start, end, events =>
+    memberAt(events, instantMs(start)) !== memberAt(events, instantMs(end))
+    || (firstRange !== null && pointSplits(events, firstRange))
+    || (latestRange !== null && pointSplits(events, latestRange)))
+  if (!split && first.queryCount === latest.queryCount) return null
+  return {
+    ...(split ?? { changes: [], keys: [], moves: { added: [], removed: [], removedAndAddedBack: [], addedAndRemovedAgain: [] } }),
+    firstCount: first.queryCount,
+    latestCount: latest.queryCount,
+  }
 }
 
 /**
- * Whether one point pools sweeps of different queries: a recorded change after
- * its first sweep, up to its last, touched a query tracked now. Null when its
- * sweeps read the same queries, or on an older API with no sweep times.
+ * Whether one point pools sweeps of different queries: a query tracked now is
+ * in its first sweep and not its last, or the other way round. With more than
+ * two sweeps, any change to such a query after its first sweep counts, since
+ * the sweeps between have unknown times. Null when its sweeps read the same
+ * queries, or on an older API with no sweep times.
  */
 export function pointQuerySetShift(
   point: MetricsBucket,
@@ -758,9 +842,28 @@ export function pointQuerySetShift(
 ): QuerySetShift | null {
   const range = readBucketObservedRange(point)
   if (!range) return null
-  const split = splittingChanges(changes, range.start, range.end)
-  if (split.changes.length === 0) return null
-  return { ...split, firstCount: point.queryCount, latestCount: point.queryCount }
+  const split = shiftAcross(changes, range.start, range.end, events => pointSplits(events, range))
+  return split ? { ...split, firstCount: point.queryCount, latestCount: point.queryCount } : null
+}
+
+function queryCountLabel(count: number): string {
+  return `${count} ${count === 1 ? 'query' : 'queries'}`
+}
+
+/**
+ * "3 queries added", "1 query added and 2 removed", "1 query removed and added
+ * back": how a shift's queries moved, each counted once. The noun rides on the
+ * first count only, except on a move back, which would otherwise read as part
+ * of the one before it. Empty with nothing moved.
+ */
+export function querySetMovePhrase(moves: QuerySetMoves): string {
+  const parts: string[] = []
+  const count = (n: number) => (parts.length === 0 ? queryCountLabel(n) : String(n))
+  if (moves.added.length > 0) parts.push(`${count(moves.added.length)} added`)
+  if (moves.removed.length > 0) parts.push(`${count(moves.removed.length)} removed`)
+  if (moves.removedAndAddedBack.length > 0) parts.push(`${queryCountLabel(moves.removedAndAddedBack.length)} removed and added back`)
+  if (moves.addedAndRemovedAgain.length > 0) parts.push(`${queryCountLabel(moves.addedAndRemovedAgain.length)} added and removed again`)
+  return joinWithAnd(parts)
 }
 
 /**

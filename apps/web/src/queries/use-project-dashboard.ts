@@ -166,7 +166,9 @@ export function useProjectDashboard(
       return {
         ...initialCommandCenter,
         project: built.project,
-        recentRuns: runsQuery.data ? built.recentRuns : initialCommandCenter.recentRuns,
+        // The runs list has loaded (checked above), so both come from it.
+        recentRuns: built.recentRuns,
+        visibilitySweeps: built.visibilitySweeps,
         visibilityEvidence: evidence ? built.visibilityEvidence : initialCommandCenter.visibilityEvidence,
       }
     }

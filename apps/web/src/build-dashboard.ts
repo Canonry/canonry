@@ -254,16 +254,26 @@ function buildEvidenceFromTimeline(
               ? 'model'
               : 'query'
 
-          // With no run of this query in the timeline window, the latest
-          // sweep's own answer is all there is: its state, never a change.
-          const ownStateOnly = !effectiveHistory && !latestRun && snap !== undefined
-          const effectiveTransition = effectiveHistory
-            ? effectiveHistory.at(-1)!.transition
+          // The timeline holds runs of every status, so a cancelled run, one
+          // cut short by a restart, or a sweep still running can sit after the
+          // latest completed sweep and hold answers of its own. The row is that
+          // sweep's snapshot: its state and change read the history only up to
+          // the snapshot's own run. With that run outside the window, the
+          // snapshot is all there is: its state, never a change.
+          const ownRunIndex = snap && effectiveHistory
+            ? effectiveHistory.findIndex(point => point.runId === snap.runId)
+            : -1
+          const stateHistory = snap
+            ? (ownRunIndex >= 0 ? effectiveHistory!.slice(0, ownRunIndex + 1) : null)
+            : effectiveHistory
+          const ownStateOnly = snap !== undefined && stateHistory === null
+          const effectiveTransition = stateHistory
+            ? stateHistory.at(-1)!.transition
             : ownStateOnly
               ? (snap.citationState === CitationStates.cited ? 'cited' : 'not-cited')
               : transition
-          const effectiveVisibilityTransition = effectiveHistory
-            ? (effectiveHistory.at(-1)!.visibilityTransition ?? (effectiveHistory.at(-1)!.visibilityState === 'visible' ? 'visible' : 'not-visible'))
+          const effectiveVisibilityTransition = stateHistory
+            ? (stateHistory.at(-1)!.visibilityTransition ?? (stateHistory.at(-1)!.visibilityState === 'visible' ? 'visible' : 'not-visible'))
             : ownStateOnly
               ? (snap.visibilityState === 'visible' ? 'visible' : 'not-visible')
               : (latestRun?.visibilityTransition ?? (latestRun?.visibilityState === 'visible' ? 'visible' : 'not-visible'))
@@ -281,12 +291,12 @@ function buildEvidenceFromTimeline(
           const snapVisibilityState = (snap?.visibilityState as CitationInsightVm['visibilityState'] | undefined)
             ?? (latestProviderVisibilityState === 'visible' ? 'visible' : latestProviderVisibilityState === 'pending' ? 'pending' : 'not-visible')
 
-          const streak = effectiveHistory
-            ? computeStreak(effectiveHistory)
-            : computeStreak(entry.runs)
-          const visibilityStreak = effectiveHistory
-            ? computeVisibilityStreak(effectiveHistory)
-            : computeVisibilityStreak(entry.runs)
+          const streak = stateHistory
+            ? computeStreak(stateHistory)
+            : ownStateOnly ? 1 : computeStreak(entry.runs)
+          const visibilityStreak = stateHistory
+            ? computeVisibilityStreak(stateHistory)
+            : ownStateOnly ? 1 : computeVisibilityStreak(entry.runs)
 
           const runModels = buildRunModelMap(entry, provider)
           const runHistory = (effectiveHistory ?? entry.runs)
@@ -557,6 +567,18 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
   return emptyCommandCenter(dto, evidence, runItems)
 }
 
+/**
+ * The project's completed and partial AI Visibility sweeps, newest first,
+ * probes left out: the runs `/overview` picks its latest and previous sweep
+ * from. Read from the whole run list, so newer failed or cancelled runs never
+ * push one out, as they can out of the five-row `recentRuns`.
+ */
+export function visibilitySweepItems(runItems: readonly RunListItemVm[]): RunListItemVm[] {
+  return runItems.filter(run => run.kind === RunKinds['answer-visibility']
+    && run.trigger !== RunTriggers.probe
+    && (run.status === RunStatuses.completed || run.status === RunStatuses.partial))
+}
+
 function adaptOverviewToCommandCenter(
   project: ProjectDto,
   overview: ProjectOverviewDto,
@@ -610,6 +632,7 @@ function adaptOverviewToCommandCenter(
       notes: '',
     })),
     recentRuns: runItems.slice(0, 5),
+    visibilitySweeps: visibilitySweepItems(runItems),
     suggestedQueries: overview.suggestedQueries,
   }
 }
@@ -682,6 +705,7 @@ function emptyCommandCenter(
     visibilityEvidence: evidence,
     competitors: [],
     recentRuns: runItems.slice(0, 5),
+    visibilitySweeps: visibilitySweepItems(runItems),
     suggestedQueries: { rows: [], totalCandidates: 0, skippedAlreadyTracked: 0 },
   }
 }

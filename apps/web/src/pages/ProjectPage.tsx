@@ -1215,11 +1215,8 @@ function OverviewBrief({
   hasVisibilityBaseline: boolean
 }) {
   const comparison = model.movementComparison
-  const latestBaselineSweep = model.recentRuns.find(run =>
-    run.kind === RunKinds['answer-visibility']
-    && run.trigger !== RunTriggers.probe
-    && (run.status === RunStatuses.completed || run.status === RunStatuses.partial),
-  )
+  // From the whole run list: newer failed runs can fill `recentRuns`.
+  const latestBaselineSweep = model.visibilitySweeps.at(0)
   const partialCoverage = model.mentionSummary.providerCoverage
 
   const rows = useMemo(() => buildVisibilityRows({
@@ -1806,6 +1803,9 @@ function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; acti
  */
 const MAP_SITE_SCAN_HISTORY_LIMIT = 20
 
+/** The newest saved sweeps the sentiment backfill offers. */
+const SENTIMENT_BACKFILL_SWEEP_OPTIONS = 5
+
 function ProjectPageContent({
   tab: requestedTab,
   model,
@@ -2151,12 +2151,9 @@ function ProjectPageContent({
     ...model.movementComparison.addedQueries,
     ...model.movementComparison.removedQueries,
   ])], [visibilityEvidence, model.movementComparison])
-  // Real sweeps only, to date the sweep before a model or query change.
-  const recentSweepTimes = useMemo(() => model.recentRuns
-    .filter(run => run.kind === RunKinds['answer-visibility']
-      && run.trigger !== RunTriggers.probe
-      && (run.status === RunStatuses.completed || run.status === RunStatuses.partial))
-    .map(run => run.createdAt), [model.recentRuns])
+  // Real sweeps only, to date the sweep before a model or query change. Every
+  // one back from the latest, so newer failed runs never leave a gap.
+  const recentSweepTimes = useMemo(() => model.visibilitySweeps.map(run => run.createdAt), [model.visibilitySweeps])
   // Other tabs still expose the admin sweep control. Its readiness needs the
   // tracked basket, but never answer bodies or historical run detail.
   const needsHeaderQueries = canWrite && !isEmbed() && !isDashboardManagedSweeps() && tab !== 'overview'
@@ -2820,7 +2817,7 @@ function ProjectPageContent({
       sentimentSelection.location = locationFilter === '' ? 'none' : locationFilter
       sentimentSelection = sentimentSelectionForSimpleEvidence(sentimentSelection, filteredEvidence, evidenceProvider)
     }
-    return <SentimentScopeProvider hasSourceEvidence={!isSimpleOverview || Boolean(sentimentSelection.runId || sentimentSelection.runIds?.length)} evidenceReady={!isSimpleOverview || !(evidenceDashboard.isLoading || evidenceDashboard.evidenceLoading || evidenceDashboard.evidenceError)} waitForResolvedRun={!isSimpleOverview} projectName={projectName} runOptions={model.recentRuns.filter(run => run.kind === RunKinds['answer-visibility'] && run.trigger !== RunTriggers.probe && (run.status === RunStatuses.completed || run.status === RunStatuses.partial)).map(run => ({ id: run.id, label: formatTimestamp(run.finishedAt ?? run.createdAt) }))} selection={sentimentSelection}>{content}</SentimentScopeProvider>
+    return <SentimentScopeProvider hasSourceEvidence={!isSimpleOverview || Boolean(sentimentSelection.runId || sentimentSelection.runIds?.length)} evidenceReady={!isSimpleOverview || !(evidenceDashboard.isLoading || evidenceDashboard.evidenceLoading || evidenceDashboard.evidenceError)} waitForResolvedRun={!isSimpleOverview} projectName={projectName} runOptions={model.visibilitySweeps.slice(0, SENTIMENT_BACKFILL_SWEEP_OPTIONS).map(run => ({ id: run.id, label: formatTimestamp(run.finishedAt ?? run.createdAt) }))} selection={sentimentSelection}>{content}</SentimentScopeProvider>
   }
 
   // The context row's measurement scope slot. Each tab owns recovery for a

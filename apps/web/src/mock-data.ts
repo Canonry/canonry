@@ -580,6 +580,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       },
     ],
     recentRuns: [runCitypointQueued, runCitypointVisibility],
+    visibilitySweeps: [runCitypointVisibility],
     suggestedQueries: {
       rows: [
         { query: 'emergency dentist near me', impressions: 4200, clicks: 87, avgPosition: 8, reason: '4.2K impressions · ranks #8 on Google' },
@@ -747,6 +748,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       },
     ],
     recentRuns: [runHarborVisibility],
+    visibilitySweeps: [runHarborVisibility],
     suggestedQueries: {
       rows: [
         { query: 'car accident lawyer monmouth county', impressions: 2300, clicks: 41, avgPosition: 6, reason: '2.3K impressions · ranks #6 on Google' },
@@ -905,6 +907,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       },
     ],
     recentRuns: [runNorthstarVisibility],
+    visibilitySweeps: [],
     suggestedQueries: {
       rows: [],
       totalCandidates: 0,
