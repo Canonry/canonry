@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, expect, onTestFinished, test } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 
@@ -185,12 +185,10 @@ test('embed project overview only issues reads covered by the overview server al
   await waitFor(() => {
     expect(observed.has('/api/v1/projects/citypoint/citations/visibility')).toBe(true)
     expect(observed.has('/api/v1/projects/citypoint/analytics/metrics')).toBe(true)
-  })
-  expect(observed.has('/api/v1/projects/citypoint/analytics/competitors?window=30d&queryClass=non-brand')).toBe(false)
-  fireEvent.click(await screen.findByText('Competitor history', { selector: 'summary' }))
-  await waitFor(() => {
+    // Simple shows "Competitors over time" as a card, so it reads on arrival.
     expect(observed.has('/api/v1/projects/citypoint/analytics/competitors?window=30d&queryClass=non-brand')).toBe(true)
   })
+  expect(await screen.findByText('Competitors over time', { selector: 'h2' })).toBeTruthy()
 
   expect(disallowed).toEqual([])
   expect(observedMethods.filter(request => request.path.includes('/analytics/competitors'))).toEqual([

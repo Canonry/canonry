@@ -19,7 +19,8 @@ import { parseVisibilitySelection, visibilityReportFirstPageQuery } from '../src
 import { PROJECT_SCOPE_COPY } from '../src/lib/project-scope.js'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
 import { formatSweepInstant } from '../src/lib/format-helpers.js'
-import { AINYC_LATEST_RUN, AINYC_PREVIOUS_RUN, ainycComparison, ainycEvidence, ainycGaps, ainycMentionShare, ainycMetrics, ainycMovement } from './ainyc-visibility-fixture.js'
+import { AINYC_LATEST_RUN, AINYC_PREVIOUS_RUN, ainycCitationVisibility, ainycComparison, ainycEvidence, ainycGaps, ainycLandscape, ainycMentionShare, ainycMetrics, ainycMovement, ainycRuns } from './ainyc-visibility-fixture.js'
+import { toRunListItem } from '../src/build-dashboard.js'
 import {
   getApiV1CdpStatusQueryKey,
   getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey,
@@ -30,6 +31,7 @@ import {
   getApiV1ProjectsByNameMeasurementReportQueryKey,
   getApiV1ProjectsByNameQueriesQueryKey,
   getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey,
+  getApiV1ProjectsByNameCitationsVisibilityQueryKey,
   getApiV1ProjectsByNameSchedulesQueryKey,
   getApiV1ProjectsByNameScheduleQueryKey,
   getApiV1ProjectsByNameVisibilityReportQueryKey,
@@ -101,6 +103,8 @@ async function renderAt(
     analyticsMetrics?: unknown
     /** GET /analytics/gaps, so the competitive card's gap counts render in one pass. */
     analyticsGaps?: unknown
+    /** GET /citations/visibility, so the By engine card renders in one pass. */
+    citationVisibility?: unknown
   } = {},
 ): Promise<string> {
   if (embed) window.__CANONRY_CONFIG__ = { embed }
@@ -116,6 +120,9 @@ async function renderAt(
   if (options.analyticsMetrics !== undefined) {
     // The trend's key carries its window, competitor frame and sweep revision; the prefix seeds all of them.
     queryClient.setQueryDefaults(['analytics-metrics'], { initialData: options.analyticsMetrics })
+  }
+  if (options.citationVisibility !== undefined) {
+    queryClient.setQueryData(getApiV1ProjectsByNameCitationsVisibilityQueryKey({ client: heyClient, path: { name: projectName } }), options.citationVisibility)
   }
   if (options.analyticsGaps !== undefined) {
     // Keyed like the trend: project, competitor frame and sweep revision.
@@ -702,10 +709,15 @@ function competitorLandscapeResponse({
   scope = { kind: 'project' as const },
   pinnedLabel = 'Pinned operator',
   observedLabel = 'Observed rival',
+  pinnedDomain = 'pinned.example',
+  observedDomain = 'observed.example',
 }: {
   scope?: { kind: 'project' } | { kind: 'group'; groupKey: string } | { kind: 'all-markets' }
   pinnedLabel?: string
   observedLabel?: string
+  /** The card names competitors by domain, so a test tells responses apart by these. */
+  pinnedDomain?: string
+  observedDomain?: string
 } = {}) {
   const row = (domain: string, label: string, pinned: boolean, shareOfVoice: number) => ({
     domain,
@@ -724,8 +736,8 @@ function competitorLandscapeResponse({
     window: '30d' as const,
     scope,
     project: row('citypoint.example', 'Citypoint', false, 50),
-    pinned: [row('pinned.example', pinnedLabel, true, 0)],
-    observed: [row('observed.example', observedLabel, false, 25)],
+    pinned: [row(pinnedDomain, pinnedLabel, true, 0)],
+    observed: [row(observedDomain, observedLabel, false, 25)],
     otherSources: [],
     evidence: {
       answeredResults: 8,
@@ -812,7 +824,7 @@ test('an unpublished Advanced draft and stale report filters do not replace the 
   expect(html).toContain('AI answers over time')
   expect(html).toContain(VISIBILITY_CARD_TIP)
   expect(html).toContain('Query evidence')
-  expect(html).toContain('Pinned operator')
+  expect(html).toContain('pinned.example')
   expectNoResultsToolbar(html)
   expect(html).not.toContain('Unclassified queries')
 })
@@ -853,10 +865,10 @@ test('a Simple project loads pinned and historical competitors from the stored-e
     competitorLandscape: competitorLandscapeResponse(),
   })
 
-  expect(html).toContain('Competitor landscape')
-  expect(html).toContain('Pinned operator')
-  expect(html).toContain('Observed rival')
-  expect(html.indexOf('Pinned operator')).toBeLessThan(html.indexOf('Observed rival'))
+  expect(html).toContain('Competitors over time')
+  expect(html).toContain('pinned.example')
+  expect(html).toContain('observed.example')
+  expect(html.indexOf('pinned.example')).toBeLessThan(html.indexOf('observed.example'))
 })
 
 test('project navigation ignores stale Site Health onboarding markers', async () => {
@@ -916,7 +928,7 @@ test('an active setup uses the unified report without flashing legacy metrics', 
   expect(html).toContain('AI sweep running')
   // Competitor history remains available on the legacy Advanced Measurement
   // surface; group-only scope does not exist until a v2 plan is active.
-  expect(html).toContain('Competitor landscape')
+  expect(html).toContain('Competitors over time')
   expect(html).not.toContain('Where competitors beat you')
   expect(html).not.toContain('Republish setup')
 })
@@ -1105,6 +1117,7 @@ test('pinning a market competitor writes only a draft action and refetches that 
         scope: { kind: 'group', groupKey: 'north' },
         pinnedLabel: mutationSettled ? 'Draft rival' : 'North pin',
         observedLabel: 'Observed rival',
+        pinnedDomain: mutationSettled ? 'draft-rival.example' : 'north-pin.example',
       })
       return jsonResponse({
         ...response,
@@ -1157,7 +1170,7 @@ test('pinning a market competitor writes only a draft action and refetches that 
   await waitFor(() => expect(calls.slice(mutationIndex + 1).some(call => (
     call.method === 'GET' && call.path.includes('/analytics/competitors?') && call.path.includes('groupKey=north')
   ))).toBe(true))
-  expect(await page.findByText('Draft rival')).toBeTruthy()
+  expect(await page.findByRole('rowheader', { name: 'draft-rival.example' })).toBeTruthy()
   expect(calls.some(call => call.path.includes('/measurement-plan/draft/actions/publish'))).toBe(false)
 })
 
@@ -1543,7 +1556,7 @@ test('cached competitor history remains visible when its background refresh fail
       path: { name: projectName },
       query: { window: '30d', queryClass: 'non-brand' },
     }),
-    competitorLandscapeResponse({ pinnedLabel: 'Cached pin', observedLabel: 'Cached observed rival' }),
+    competitorLandscapeResponse({ pinnedDomain: 'cached-pin.example', observedDomain: 'cached-observed.example' }),
   )
   const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint'] })
   await router.load()
@@ -1555,8 +1568,7 @@ test('cached competitor history remains visible when its background refresh fail
     </QueryClientProvider>,
   )
 
-  fireEvent.click(await page.findByText('Competitor history', { selector: 'summary, summary > span' }))
-
+  // Simple shows the card on arrival, so its refresh starts without a click.
   await waitFor(() => expect(queryClient.getQueryState(
     getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey({
       client: heyClient,
@@ -1564,8 +1576,8 @@ test('cached competitor history remains visible when its background refresh fail
       query: { window: '30d', queryClass: 'non-brand' },
     }),
   )?.status).toBe('error'))
-  expect(page.getByRole('rowheader', { name: 'Cached pin' })).toBeTruthy()
-  expect(page.getByRole('rowheader', { name: 'Cached observed rival' })).toBeTruthy()
+  expect(page.getByRole('rowheader', { name: 'cached-pin.example' })).toBeTruthy()
+  expect(page.getByRole('rowheader', { name: 'cached-observed.example' })).toBeTruthy()
   expect(page.queryByLabelText('Favorable answer scores')).toBeNull()
   expect(page.getByRole('alert').textContent).toContain('Could not refresh competitor history. Showing the last available data.')
 })
@@ -1670,7 +1682,7 @@ test('a fresh project offers one AI Visibility setup action instead of an unread
   expect(html).toContain('Your domain appears in the engine')
   expect(html).toContain('Complete your first AI Visibility sweep to measure both signals.')
   expect(html).toContain('Where competitors beat you')
-  expect(html).toContain('Competitor landscape')
+  expect(html).toContain('Competitors over time')
   expect(html).toContain('Add competitor')
   expect(html).toContain('Competitive mention and citation gaps appear after the first AI Visibility sweep.')
   expect(html).not.toContain('No completed sweep')
@@ -1767,7 +1779,8 @@ test('a first sweep in flight replaces empty-state instructions with one live st
   })
 
   expect(html).toContain('<p class="av-card-meta">Sweep running</p>')
-  expect(html).toContain('Queued')
+  // Past sweeps says the queued sweep is waiting to start.
+  expect(html).toContain('<td class="text-[13px] text-secondary">Waiting</td>')
   expect(html).not.toContain('No sweep yet')
   expect(html.match(/Your first sweep is running\. Results will appear when it completes\./g)).toHaveLength(1)
   expect(html.match(/Competitive mention and citation gaps appear after the first AI Visibility sweep\./g)).toHaveLength(1)
@@ -1885,6 +1898,56 @@ test('Where competitors beat you and the query table read ainyc\'s latest sweep 
   expect([...table.querySelector('tbody .query-evidence-meta')!.children].map(item => item.textContent)).toEqual(['Non-brand', 'Claude', 'Gemini', 'OpenAI', 'Perplexity'])
   expect(doc.querySelector('#evidence-section')!.textContent).toContain('1 to 14 of 14 queries')
   expect(html.indexOf('Where competitors beat you')).toBeLessThan(html.indexOf('Query evidence'))
+})
+
+test('By engine, Past sweeps and Competitors over time read ainyc as the approved cards', async () => {
+  const html = await renderAt('/projects/project_citypoint', undefined, { plan: { active: null }, competitorLandscape: ainycLandscape() }, {
+    configureFixture(dashboard) {
+      const project = withAinycSweeps(dashboard)
+      project.recentRuns = ainycRuns().map(run => toRunListItem(run, project.project.name))
+      project.competitors = [{ id: 'competitor_pbj', domain: 'pbjmarketing.com', citationCount: 5, totalQueries: 14, pressureLabel: '', citedQueries: [], movement: '', notes: '' }]
+    },
+    citationVisibility: ainycCitationVisibility(),
+  })
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const card = (title: string) => [...doc.querySelectorAll('section.overview-brief')]
+    .find(section => section.querySelector('.av-card-title')?.textContent === title)!
+  const cells = (row: Element) => [...row.children].map(cell => cell.textContent)
+
+  const byEngine = card('By engine')
+  expect([...byEngine.querySelectorAll('.av-grid tr')].map(cells)).toEqual([
+    ['Of 11 queries', 'Claude', 'Gemini', 'OpenAI', 'Perplexity'],
+    ['Mentioned', '1', '3', '0', '3'],
+    ['Cited', '2', '3', '0', '4'],
+  ])
+  expect(byEngine.querySelector('.av-card-line')?.textContent).toBe('Competitor cited instead of you8 of 44 answers · non-brand queries')
+  expect([...byEngine.querySelectorAll('.av-details-list li')].map(item => item.textContent))
+    .toEqual(['Cited but not named: 0 of 11 queries', 'Named but not cited: 0 of 11 queries'])
+
+  // Trigger and duration in words; times follow the viewer's zone.
+  const sweeps = [...card('Past sweeps').querySelectorAll('tbody tr')].map(cells)
+  expect(sweeps.map(row => row.slice(1, 3))).toEqual([
+    ['Manual', '2 minutes 28 seconds'],
+    ['Manual', '2 minutes 10 seconds'],
+    ['Scheduled', '3 minutes 53 seconds'],
+    ['Manual', '3 minutes 54 seconds'],
+    ['Spot check', '5 seconds'],
+  ])
+
+  const competitors = card('Competitors over time')
+  expect(competitors.querySelector('.av-card-meta')?.textContent).toBe('Non-brand · last 30 days')
+  expect([...competitors.querySelectorAll('.av-grid[aria-label="Competitors over time"] tbody tr')].map(row => cells(row).slice(0, 4))).toEqual([
+    ['You', '31.7%', '13 of 88', '17 of 88'],
+    ['pbjmarketing.com', '68.3%', '28 of 88', '28 of 88'],
+  ])
+  expect(competitors.querySelector<HTMLDetailsElement>('details.av-details')!.open).toBe(false)
+
+  // Page order under the query table, and nothing left of the old sections.
+  const at = (title: string) => html.indexOf(`class="av-card-title">${title}<`)
+  expect(html.indexOf('Query evidence')).toBeLessThan(at('By engine'))
+  expect(at('By engine')).toBeLessThan(at('Past sweeps'))
+  expect(at('Past sweeps')).toBeLessThan(at('Competitors over time'))
+  expect(html).not.toMatch(/All time|Citation rate by model|Citation and engine diagnostics|Recent execution history|Competitor landscape|No additional competitors/)
 })
 
 test('a spot check never flips the Visibility card, while the Run button still waits for it', async () => {
@@ -2529,16 +2592,16 @@ test('a market scope reads that group\'s stored competitor landscape', async () 
       overviewKey: { scope: 'group', groupKey: 'north' },
       competitorLandscape: competitorLandscapeResponse({
         scope: { kind: 'group', groupKey: 'north' },
-        pinnedLabel: 'North pin',
-        observedLabel: 'North rival',
+        pinnedDomain: 'north-pin.example',
+        observedDomain: 'north-rival.example',
       }),
       competitorLandscapeKey: { groupKey: 'north' },
     },
   )
 
-  expect(html).toContain('North pin')
-  expect(html).toContain('North rival')
-  expect(html).not.toContain('Pinned operator')
+  expect(html).toContain('north-pin.example')
+  expect(html).toContain('north-rival.example')
+  expect(html).not.toContain('pinned.example')
 })
 
 test('a market fallback keeps project pins alongside frozen market pins', async () => {
@@ -2560,7 +2623,7 @@ test('a market fallback keeps project pins alongside frozen market pins', async 
     },
   )
 
-  expect(html).toContain('North rival')
+  expect(html).toContain('north-rival.example')
   expect(html).toContain('downtownsmiles.com')
 })
 
@@ -2574,15 +2637,15 @@ test('an all-properties v2 view requests and renders the explicit all-markets la
       overviewKey: { scope: 'all' },
       competitorLandscape: competitorLandscapeResponse({
         scope: { kind: 'all-markets' },
-        pinnedLabel: 'All market pin',
-        observedLabel: 'All market rival',
+        pinnedDomain: 'all-market-pin.example',
+        observedDomain: 'all-market-rival.example',
       }),
       competitorLandscapeKey: { scope: 'all-markets' },
     },
   )
 
-  expect(html).toContain('All market pin')
-  expect(html).toContain('All market rival')
+  expect(html).toContain('all-market-pin.example')
+  expect(html).toContain('all-market-rival.example')
   expect(html).toContain('All markets')
 })
 
@@ -2596,7 +2659,7 @@ test('a query class in the URL selects that class on first paint', async () => {
       overviewKey: { queryClass: 'branded' },
       competitorLandscape: competitorLandscapeResponse({
         scope: { kind: 'all-markets' },
-        observedLabel: 'Branded market rival',
+        observedDomain: 'branded-market-rival.example',
       }),
       competitorLandscapeKey: { scope: 'all-markets', queryClass: 'branded' },
       visibilityReport: visibilityReportResponse({ mode: 'advanced', queryClass: 'branded' }),
@@ -2607,7 +2670,7 @@ test('a query class in the URL selects that class on first paint', async () => {
   const control = doc.querySelector('select[aria-label="Query type"]')
   const checked = control?.querySelector('option[selected]')
   expect(checked?.textContent).toBe('Branded')
-  expect(html).toContain('Branded market rival')
+  expect(html).toContain('branded-market-rival.example')
 })
 
 test('collapsed competitor history starts on demand and follows query class', async () => {
@@ -2638,8 +2701,8 @@ test('collapsed competitor history starts on demand and follows query class', as
       const queryClass = url.searchParams.get('queryClass') === 'branded' ? 'branded' as const : 'all' as const
       const response = competitorLandscapeResponse({
         scope: { kind: 'all-markets' },
-        pinnedLabel: queryClass === 'branded' ? 'Branded pin' : 'All-query pin',
-        observedLabel: queryClass === 'branded' ? 'Branded rival' : 'All-query rival',
+        pinnedDomain: queryClass === 'branded' ? 'branded-pin.example' : 'all-query-pin.example',
+        observedDomain: queryClass === 'branded' ? 'branded-rival.example' : 'all-query-rival.example',
       })
       return jsonResponse({
         ...response,
@@ -2665,7 +2728,7 @@ test('collapsed competitor history starts on demand and follows query class', as
   expect(observed.some(path => path.includes('/analytics/competitors?'))).toBe(false)
 
   fireEvent.click(await page.findByText('Competitor history', { selector: 'summary, summary > span' }))
-  expect(await page.findByText('All-query rival')).toBeTruthy()
+  expect(await page.findByText('all-query-rival.example')).toBeTruthy()
   await waitFor(() => expect(observed.some(path => (
     path.includes('/analytics/competitors?')
     && path.includes('scope=all-markets')
@@ -2675,7 +2738,7 @@ test('collapsed competitor history starts on demand and follows query class', as
   fireEvent.change(page.getByLabelText('Query type'), { target: { value: 'branded' } })
 
   expect(await page.findByRole('heading', { name: 'Branded queries' })).toBeTruthy()
-  expect(await page.findByText('Branded rival')).toBeTruthy()
+  expect(await page.findByText('branded-rival.example')).toBeTruthy()
   await waitFor(() => expect(observed.some(path => (
     path.includes('/analytics/competitors?')
     && path.includes('scope=all-markets')

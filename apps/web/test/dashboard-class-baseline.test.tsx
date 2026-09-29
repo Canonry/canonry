@@ -215,7 +215,7 @@ test('project route keeps the core metric and evidence class baseline stable', a
     projectContextRow: classFor(html, '.project-context-row'),
     projectContextTitle: classFor(html, '.project-context-title'),
     projectContextDomain: classFor(html, '.project-context-domain'),
-    projectContextMeta: classFor(html, '.project-context-meta'),
+    projectContextMeta: classOrNull(html, '.project-context-meta'),
     projectContextActions: classFor(html, '.project-context-actions'),
     firstSectionDivider: classFor(html, '.page-section-divider'),
     firstMetricFill: classOrNull(html, '.metric-card-bar-fill'),
@@ -232,7 +232,7 @@ test('project route keeps the core metric and evidence class baseline stable', a
       "pageTitle": null,
       "projectContextActions": "project-context-actions",
       "projectContextDomain": "project-context-domain",
-      "projectContextMeta": "project-context-meta",
+      "projectContextMeta": null,
       "projectContextRow": "project-context-row",
       "projectContextTitle": "project-context-title md:sr-only",
     }

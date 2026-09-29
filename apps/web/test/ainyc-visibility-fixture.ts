@@ -1,4 +1,4 @@
-import type { GapAnalysisDto, GapCategory, GapQuery, QueryClass } from '@ainyc/canonry-contracts'
+import type { CitationVisibilityResponse, CompetitorLandscapeResponse, CompetitorLandscapeRow, GapAnalysisDto, GapCategory, GapQuery, QueryClass, RunDto } from '@ainyc/canonry-contracts'
 import type { CitationInsightVm, MovementComparisonVm, MovementSummaryVm, ProjectCommandCenterVm, RunHistoryPoint } from '../src/view-models.js'
 
 /**
@@ -283,3 +283,131 @@ export const AINYC_SWEEP_TIMES = [
   '2026-07-14T06:00:00.016Z',
   '2026-05-28T20:30:59.109Z',
 ]
+
+/**
+ * GET /citations/visibility for ainyc (`av/cv.json`): each query's latest
+ * answer per engine, from the same states as the evidence, and the 8
+ * competitor-gap answers (all non-brand, all pbjmarketing.com).
+ */
+export function ainycCitationVisibility(): CitationVisibilityResponse {
+  const gaps: ReadonlyArray<[query: string, provider: string]> = [
+    ['AEO Agency in NYC', 'claude'], ['AEO Agency in NYC', 'openai'],
+    ['AEO Agency NYC', 'claude'], ['AEO Agency NYC', 'openai'],
+    ['Answer Engine Optimization Agency NYC', 'openai'],
+    ['best AEO agency New York', 'claude'], ['best AEO agency New York', 'perplexity'],
+    ['NYC AEO Agency', 'openai'],
+  ]
+  const byQuery = QUERIES.map(([query, , , latest], index) => {
+    const providers = ENGINES.map((provider, engine) => ({
+      provider,
+      citationState: latest[engine]!.endsWith('C') ? 'cited' as const : 'not-cited' as const,
+      cited: latest[engine]!.endsWith('C'),
+      mentioned: latest[engine]!.startsWith('M'),
+      runId: AINYC_LATEST_RUN.id,
+      runCreatedAt: AINYC_LATEST_RUN.createdAt,
+    }))
+    return {
+      queryId: `query_${index}`,
+      query,
+      providers,
+      citedCount: providers.filter(entry => entry.cited).length,
+      mentionedCount: providers.filter(entry => entry.mentioned).length,
+      totalProviders: providers.length,
+    }
+  })
+  return {
+    summary: {
+      providersConfigured: 4, providersCiting: 4, providersMentioning: 4, totalQueries: 14,
+      queriesCitedAndMentioned: 7, queriesCitedOnly: 0, queriesMentionedOnly: 0, queriesInvisible: 7,
+      latestRunId: AINYC_LATEST_RUN.id, latestRunAt: AINYC_LATEST_RUN.createdAt,
+    },
+    byQuery,
+    competitorGaps: gaps.map(([query, provider]) => ({
+      queryId: byQuery.find(row => row.query === query)!.queryId,
+      query,
+      provider,
+      citingCompetitors: ['pbjmarketing.com'],
+      runId: AINYC_LATEST_RUN.id,
+      runCreatedAt: AINYC_LATEST_RUN.createdAt,
+    })),
+    status: 'ready',
+  }
+}
+
+const OBSERVED_NAMES: ReadonlyArray<[string, number]> = [
+  ['PBJ Marketing', 25], ['Web Tonic', 18], ['Fuel Online', 15], ['AEO Engine', 12], ['NoGood', 9], ['Winston Digital Marketing', 8],
+  ['Lemniscate Growth', 6], ['AI Search Rankings', 5], ['AI Search Rankings NYC', 5], ['CBI Digital', 3], ['Mimvi', 3], ['Primary Position', 3],
+  ['Busylike', 2], ['CB/I Digital', 2], ['Digital Agency Network', 2], ['GetCito', 2], ['GoodFirms', 2], ['Hozio', 2], ['KSM Media Hut', 2],
+  ['Localplus', 2], ['Mimvi SEO', 2], ['Mulder Agency', 2], ['New York SEO Company (NYSEO/CO)', 2], ['NYC SEO', 2], ['Percepture', 2],
+  ['RankSystem', 2], ['SemNexus', 2], ['Thrive Agency', 2], ['WebFlur', 2], ['WebFX', 2], ['50Pros', 1], ['Agency AEO', 1],
+  ['AI Search Rankings (NYC)', 1], ['Angora Media', 1], ['Avenue Z (Flatiron District, NYC)', 1], ['Blurn & BX Studio', 1], ['BX Studio', 1],
+  ['CEO of GEO', 1], ['Choose iPullRank', 1], ['Choose NoGood', 1], ['Coalition Technologies', 1], ['DASH TWO', 1],
+  ['Dominate Reddit (r/AskNYC, r/Brooklyn, etc.)', 1], ['Dominate Reddit and Quora', 1], ['Engage with Google and Yelp Reviews', 1],
+  ['Forte on Forums (Reddit & Quora)', 1], ['Google Business Profile', 1], ['Google now offers native reporting', 1],
+  ['Great Bear Marketing & BX Studio', 1], ['Klikcy', 1],
+]
+
+function landscapeRow(row: Partial<CompetitorLandscapeRow> & Pick<CompetitorLandscapeRow, 'domain' | 'label'>): CompetitorLandscapeRow {
+  return {
+    surfaceClass: 'unknown', pinned: false, mentionCount: 0, shareOfVoice: null, citationCount: 0, answeredResults: 88,
+    firstSeenAt: '2026-09-29T09:41:30.494Z', lastSeenAt: '2026-09-29T10:00:52.249Z', sampleUrls: [],
+    ...row,
+  }
+}
+
+/**
+ * GET /analytics/competitors?window=30d&queryClass=non-brand for ainyc
+ * (`av/land30nb.json`). The first three other sources are the stored ones; the
+ * other 97 up to the server's cap of 100 are placeholders.
+ */
+export function ainycLandscape(): CompetitorLandscapeResponse {
+  return {
+    window: '30d',
+    scope: { kind: 'project' },
+    basis: 'tracked',
+    availability: 'measured',
+    reason: null,
+    comparison: [{ domain: 'pbjmarketing.com', mentions: 28 }],
+    observedNames: OBSERVED_NAMES.map(([name, answerCount]) => ({ name, answerCount })),
+    observedNamesTotal: 59,
+    project: landscapeRow({
+      domain: 'canonry.ai', label: 'Canonry', surfaceClass: 'own', mentionCount: 13, shareOfVoice: 31.707317, citationCount: 17,
+      sampleUrls: ['https://canonry.ai/how-to-choose-an-nyc-aeo-agency', 'https://ainyc.ai/', 'https://canonry.ai/about'],
+    }),
+    pinned: [landscapeRow({
+      domain: 'pbjmarketing.com', label: 'pbjmarketing', surfaceClass: 'direct-competitor', pinned: true, mentionCount: 28, shareOfVoice: 68.292683, citationCount: 28,
+      sampleUrls: ['https://pbjmarketing.com/aeo-location/nyc-aeo-agency?utm_source=openai', 'https://pbjmarketing.com/aeo-location/nyc-aeo-agency', 'https://pbjmarketing.com/location/nyc-aeo-agency'],
+    })],
+    observed: [],
+    otherSources: [
+      landscapeRow({ domain: 'webtonic.io', label: 'webtonic', citationCount: 27, sampleUrls: ['https://www.webtonic.io/locations/new-york-city-geo-aeo'] }),
+      landscapeRow({ domain: 'aeoengine.ai', label: 'aeoengine', citationCount: 21, sampleUrls: ['https://aeoengine.ai/'] }),
+      landscapeRow({ domain: 'semrush.com', label: 'semrush', citationCount: 20, sampleUrls: ['https://www.semrush.com/blog/ai-citations/'] }),
+      ...Array.from({ length: 97 }, (_, index) => landscapeRow({ domain: `site-${index + 1}.example`, label: `site-${index + 1}`, citationCount: 1 })),
+    ],
+    evidence: { answeredResults: 88, sourceResults: 86, missingAnswerTextResults: 0, mentionCredits: 41, incompleteSourceResults: 2, excludedProbeResults: 0, excludedNonCompletedResults: 0 },
+    marketState: null,
+    filters: { scope: 'project', groupKey: null, provider: null, queryClass: 'non-brand', location: null, runId: null },
+    truncated: true,
+    runCount: 2,
+    runIds: [AINYC_LATEST_RUN.id, AINYC_PREVIOUS_RUN.id],
+  }
+}
+
+/**
+ * ainyc's five latest answer-visibility runs (`av/runs.json`), newest first,
+ * the May 17 probe included. Times are UTC; the page shows them in the
+ * viewer's zone.
+ */
+export function ainycRuns(): RunDto[] {
+  const run = (id: string, trigger: RunDto['trigger'], createdAt: string, startedAt: string, finishedAt: string): RunDto => ({
+    id, projectId: 'project_ainyc', kind: 'answer-visibility', status: 'completed', trigger, location: 'nyc', createdAt, startedAt, finishedAt, error: null,
+  })
+  return [
+    run(AINYC_LATEST_RUN.id, 'manual', AINYC_LATEST_RUN.createdAt, '2026-09-29T09:59:38.446Z', '2026-09-29T10:02:07.340Z'),
+    run(AINYC_PREVIOUS_RUN.id, 'manual', AINYC_PREVIOUS_RUN.createdAt, '2026-09-29T09:41:26.165Z', '2026-09-29T09:43:36.998Z'),
+    run('8891101e-7224-4843-8912-5c88d2579095', 'scheduled', '2026-07-14T06:00:00.016Z', '2026-07-14T06:00:00.021Z', '2026-07-14T06:03:53.977Z'),
+    run('f79e7929-841c-4f07-ac12-106ec43d325b', 'manual', '2026-05-28T20:30:59.109Z', '2026-05-28T20:30:59.112Z', '2026-05-28T20:34:53.187Z'),
+    run('cae71507-b133-4f49-ab69-fc3707eae805', 'probe', '2026-05-17T02:28:46.270Z', '2026-05-17T02:28:46.287Z', '2026-05-17T02:28:51.415Z'),
+  ]
+}

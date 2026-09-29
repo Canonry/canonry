@@ -7,6 +7,7 @@ import { splitPercentSign } from '../../lib/format-helpers.js'
 import { METRIC_TONE_TEXT_CLASS } from '../../lib/tone-helpers.js'
 import { Disclosure } from '../shared/Disclosure.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { SegmentedRadioGroup } from '../shared/SegmentedRadioGroup.js'
 
 export type MentionShareBreakdownVm = ProjectCommandCenterVm['mentionShareSummary']['breakdown']
 
@@ -232,19 +233,6 @@ export function CompetitiveCard({
   if (scoped) details.push(...gapQueryLines(scoped.named, scoped.cited))
   if (pooled) details.push('Set a brand name to split branded from non-brand.')
 
-  function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
-    const index = MENTION_CLASS_OPTIONS.findIndex(o => o.value === activeKey)
-    let next: number | null = null
-    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % MENTION_CLASS_OPTIONS.length
-    else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + MENTION_CLASS_OPTIONS.length) % MENTION_CLASS_OPTIONS.length
-    else if (event.key === 'Home') next = 0
-    else if (event.key === 'End') next = MENTION_CLASS_OPTIONS.length - 1
-    if (next === null) return
-    event.preventDefault()
-    setSelected(MENTION_CLASS_OPTIONS[next]!.value)
-    event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')[next]?.focus()
-  }
-
   const spoken = MENTION_SCOPE_SPOKEN[scopeKey]
   const gapState: GapCountState = scoped ?? (gaps.status === 'error' ? 'error' : 'loading')
 
@@ -259,29 +247,7 @@ export function CompetitiveCard({
           {hasBaseline && <InfoTooltip text={COMPETITIVE_CARD_TOOLTIP[scopeKey]} />}
         </div>
         {!hasBaseline ? null : hasBranded ? (
-          <div
-            role="radiogroup"
-            aria-label="Query type"
-            className="segmented flex-wrap"
-            onKeyDown={handleKeyDown}
-          >
-            {MENTION_CLASS_OPTIONS.map(option => {
-              const checked = option.value === activeKey
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={checked}
-                  tabIndex={checked ? 0 : -1}
-                  onClick={() => setSelected(option.value)}
-                  className={`segmented-option min-h-11 ${checked ? 'segmented-option-active' : ''}`}
-                >
-                  {option.label}
-                </button>
-              )
-            })}
-          </div>
+          <SegmentedRadioGroup label="Query type" className="flex-wrap" options={MENTION_CLASS_OPTIONS} value={activeKey} onChange={setSelected} />
         ) : (
           <span className="mention-share-class">{MENTION_SCOPE_WORD[scopeKey]}</span>
         )}

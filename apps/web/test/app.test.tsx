@@ -221,9 +221,8 @@ test('project route renders a concise visibility summary with progressive detail
   expect(html).toMatch(/Mentioned/)
   expect(html).toMatch(/Cited/)
   expect(html).not.toMatch(/%<span class="text-faint">%/)
-  // Per-model citation rates are 0..100 at wire precision and read through formatPercent.
-  expect(html).toContain('<span class="font-semibold text-strong">55.6%</span>')
-  expect(html).toContain('<span class="font-semibold text-strong">66.7%</span>')
+  // By engine keeps per-engine counts only; the per-model rate table is gone.
+  expect(html).not.toMatch(/Citation rate by model/)
   expect(html).not.toMatch(/Latest signals/)
   expect(html).not.toMatch(/Emergency-intent prompts stopped grounding Citypoint/)
   expect(html).not.toMatch(/Suggested query/)
@@ -234,8 +233,12 @@ test('project route renders a concise visibility summary with progressive detail
   expect(html).not.toMatch(/What needs your attention/)
   expect(html).toMatch(/<details id="evidence-section"/)
   expect(html).toMatch(/Query evidence/)
-  expect(html).toMatch(/Citation and engine diagnostics/)
-  expect(html).toMatch(/Recent execution history/)
+  expect(html).toMatch(/class="av-card-title">By engine<\/h2>/)
+  // Past sweeps: one line per sweep, its time opening the run.
+  expect(html).toMatch(/class="av-card-title">Past sweeps<\/h2>/)
+  expect(html).toContain('aria-label="View the Mar 8, 12:15 PM sweep"')
+  expect(html).toContain('6 minutes 12 seconds')
+  expect(html).not.toMatch(/Citation and engine diagnostics|Recent execution history/)
 })
 
 test('runs route renders the operational timeline and filters', async () => {

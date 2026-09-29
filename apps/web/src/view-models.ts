@@ -218,7 +218,6 @@ export interface QueryCountsVm {
 
 export interface ProjectCommandCenterVm {
   project: ProjectDto
-  dateRangeLabel: string
   contextLabel: string
   /** Primary headline gauge — Mention Coverage. The dashboard renders this as the big radial gauge. */
   mentionSummary: ScoreSummaryVm
@@ -235,7 +234,6 @@ export interface ProjectCommandCenterVm {
   gapQueries: ScoreSummaryVm
   mentionGaps: ScoreSummaryVm
   indexCoverage: ScoreSummaryVm
-  providerScores: { provider: string; model: string | null; score: number; cited: number; total: number; trend?: number[] }[]
   competitorPressure: ScoreSummaryVm
   runStatus: ScoreSummaryVm
   citationMovement: MovementSummaryVm

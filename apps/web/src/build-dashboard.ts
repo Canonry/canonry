@@ -27,6 +27,7 @@ import type {
   ScoreSummaryVm,
 } from './view-models.js'
 import { mapInsightDtosToVms } from './mappers/insight-mapper.js'
+import { formatSweepInstant } from './lib/format-helpers.js'
 
 function toProjectDto(p: ApiProject): ProjectDto {
   return {
@@ -54,25 +55,24 @@ function toProjectDto(p: ApiProject): ProjectDto {
   }
 }
 
-function formatDate(iso: string): string {
-  try {
-    const d = new Date(iso)
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
-  } catch {
-    return iso
-  }
+function unit(count: number, word: string): string {
+  return `${count} ${word}${count === 1 ? '' : 's'}`
 }
 
-function formatDuration(startedAt: string | null, finishedAt: string | null): string {
+/** A run's length in words ("2 minutes 28 seconds"), whole seconds rounded down. */
+export function formatDuration(startedAt: string | null, finishedAt: string | null): string {
   if (!startedAt) return 'Waiting'
   if (!finishedAt) return 'Running'
   const ms = new Date(finishedAt).getTime() - new Date(startedAt).getTime()
-  if (ms < 1000) return '<1s'
+  if (ms < 1000) return 'under 1 second'
   const seconds = Math.floor(ms / 1000)
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
   const secs = seconds % 60
-  return `${minutes}m ${secs}s`
+  // Seconds stop mattering once a run takes hours.
+  if (hours > 0) return minutes > 0 ? `${unit(hours, 'hour')} ${unit(minutes, 'minute')}` : unit(hours, 'hour')
+  if (minutes > 0) return secs > 0 ? `${unit(minutes, 'minute')} ${unit(secs, 'second')}` : unit(minutes, 'minute')
+  return unit(secs, 'second')
 }
 
 function kindLabel(kind: RunKind): string {
@@ -96,7 +96,14 @@ function kindLabel(kind: RunKind): string {
 }
 
 function triggerLabel(trigger: string): string {
-  return trigger === RunTriggers.manual ? 'Manual' : trigger === RunTriggers.scheduled ? 'Scheduled' : trigger === RunTriggers['config-apply'] ? 'Config apply' : trigger
+  switch (trigger) {
+    case RunTriggers.manual: return 'Manual'
+    case RunTriggers.scheduled: return 'Scheduled'
+    case RunTriggers['config-apply']: return 'Config apply'
+    // A probe answers a few queries on demand; it is not a full sweep.
+    case RunTriggers.probe: return 'Spot check'
+    default: return trigger
+  }
 }
 
 export function toRunListItem(run: ApiRun, projectName: string): RunListItemVm {
@@ -110,7 +117,7 @@ export function toRunListItem(run: ApiRun, projectName: string): RunListItemVm {
     trigger: (run.trigger ?? 'manual') as RunListItemVm['trigger'],
     location: run.location ?? null,
     createdAt: run.createdAt,
-    startedAt: run.startedAt ? formatDate(run.startedAt) : formatDate(run.createdAt),
+    startedAt: formatSweepInstant(run.startedAt || run.createdAt),
     duration: formatDuration(run.startedAt ?? null, run.finishedAt ?? null),
     statusDetail: run.error ? formatRunError(run.error) : statusDetailFromRun(run),
     summary: summaryFromRun(run),
@@ -567,7 +574,6 @@ function adaptOverviewToCommandCenter(
 
   return {
     project,
-    dateRangeLabel: overview.dateRangeLabel,
     contextLabel: overview.contextLabel,
     mentionSummary: overview.scores.mention as ScoreSummaryVm,
     visibilitySummary: overview.scores.visibility as ScoreSummaryVm,
@@ -576,7 +582,6 @@ function adaptOverviewToCommandCenter(
     gapQueries: overview.scores.gapQueries as ScoreSummaryVm,
     mentionGaps: overview.scores.mentionGaps as ScoreSummaryVm,
     indexCoverage: overview.scores.indexCoverage as ScoreSummaryVm,
-    providerScores: overview.providerScores,
     competitorPressure: overview.scores.competitorPressure as ScoreSummaryVm,
     runStatus: overview.scores.runStatus as ScoreSummaryVm,
     citationMovement: overview.citationMovement as MovementSummaryVm,
@@ -630,7 +635,6 @@ function emptyCommandCenter(
   }
   return {
     project,
-    dateRangeLabel: 'All time',
     contextLabel: `${project.country} / ${project.language.toUpperCase()}`,
     mentionSummary: { ...placeholder, label: 'Mention Coverage' },
     visibilitySummary: { ...placeholder, label: 'Citation Coverage' },
@@ -649,7 +653,6 @@ function emptyCommandCenter(
     gapQueries: { ...placeholder, label: 'Citation Gaps' },
     mentionGaps: { ...placeholder, label: 'Mention Gaps' },
     indexCoverage: { ...placeholder, label: 'Index Coverage' },
-    providerScores: [],
     competitorPressure: { ...placeholder, label: 'Competitor Pressure' },
     runStatus: { ...placeholder, label: 'Run Status' },
     citationMovement: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },

@@ -1049,10 +1049,6 @@
     @apply text-[13px] text-secondary;
   }
 
-  .project-context-meta {
-    @apply text-[13px] text-secondary;
-  }
-
   .project-context-actions {
     @apply ml-auto flex flex-wrap items-center justify-end gap-3;
   }
@@ -1527,6 +1523,53 @@
 
   .av-status {
     @apply whitespace-nowrap text-[13px] font-medium;
+  }
+
+  /* A grid of many small figures (By engine, Past sweeps, Competitors over
+     time): tighter rows and a figure one step down from the hero size. */
+  .av-grid-dense td,
+  .av-grid-dense tbody th {
+    @apply py-[0.2rem];
+  }
+
+  .av-n-sm {
+    @apply text-[15px] font-semibold leading-6 tabular-nums;
+  }
+
+  /* A row's time that opens its run: reads as text, underlines on hover. */
+  .av-link {
+    @apply rounded-sm text-left underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
+  }
+
+  /* One labelled figure under a card's grid ("Competitor cited instead of you"). */
+  .av-card-line {
+    @apply mt-3 flex flex-wrap items-baseline gap-x-6 gap-y-1 border-t border-subtle pt-3;
+  }
+
+  .av-card-line-label {
+    @apply text-sm font-medium text-strong;
+  }
+
+  /* A list inside a Details bullet ("Company names in answers ▸"). Starts
+     closed, with the same arrows as Details. */
+  .av-subdetails > summary {
+    @apply w-fit cursor-pointer list-none rounded-sm hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
+  }
+
+  .av-subdetails > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .av-subdetails > summary::after {
+    content: '\00a0\25B8';
+  }
+
+  .av-subdetails[open] > summary::after {
+    content: '\00a0\25B4';
+  }
+
+  .av-subdetails-body {
+    @apply mb-2 mt-1 space-y-1 leading-5;
   }
 
   /* "Details ▸" under a card. Starts closed; bullets, bold key numbers. */
@@ -2632,18 +2675,6 @@
 
   .competitor-table td {
     @apply px-4 py-3 text-neutral;
-  }
-
-  .competitor-landscape {
-    @apply space-y-4;
-  }
-
-  .competitor-landscape-group th {
-    @apply border-y border-default bg-bg-elevated/35 px-4 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-secondary;
-  }
-
-  .competitor-landscape-manage {
-    @apply mt-1;
   }
 
   /* ── Project row (overview) ── */

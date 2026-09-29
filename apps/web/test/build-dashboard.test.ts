@@ -713,11 +713,9 @@ test('buildProjectCommandCenter populates score gauges from the overview DTO whe
   expect(vm.visibilitySummary.value).toBe('75.0%')
   expect(vm.visibilitySummary.tone).toBe('positive')
   expect(vm.queryCounts).toEqual({ cited: 3, total: 4 })
-  expect(vm.providerScores).toEqual([{ provider: 'gemini', model: 'flash', score: 75, cited: 3, total: 4 }])
   expect(vm.citationMovement).toEqual({ gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false })
   expect(vm.mentionMovement).toEqual({ gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false })
   expect(vm.movementComparison).toMatchObject({ hasPreviousRun: false, comparable: false })
-  expect(vm.dateRangeLabel).toBe('All time')
   expect(vm.contextLabel).toBe('US / EN')
 })
 

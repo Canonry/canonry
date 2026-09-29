@@ -62,3 +62,15 @@ export const METRIC_TONE_TEXT_CLASS: Record<MetricTone, string> = {
   negative: 'text-negative-400',
   neutral: 'text-secondary',
 }
+
+/**
+ * Tone for a non-brand mention share (0..100). Same bands as the server's
+ * `mentionShareTone` (packages/intelligence/src/mention-share.ts): 50% and up
+ * positive, 25% and up caution, below that negative. Looser than coverage
+ * because the frame is already competitive.
+ */
+export function mentionShareTone(percent: number): MetricTone {
+  if (percent >= 50) return 'positive'
+  if (percent >= 25) return 'caution'
+  return 'negative'
+}

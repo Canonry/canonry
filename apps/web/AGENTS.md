@@ -92,6 +92,19 @@ counts and gap query names in Details. The counts come from GET
 /analytics/gaps (latest sweep), classified by query text with the page's
 classifier; the overview embed allowlist includes that read.
 
+Under the query table, in order: "By engine" (`CitationVisibilitySection`,
+`byEngineClasses`) is one class at a time, Mentioned and Cited query counts per
+engine from GET /citations/visibility, one "Competitor cited instead of you"
+answer count with its base, and the cited-but-not-named split in Details; no
+summary tiles or per-model rate table. "Past sweeps" (`PastSweeps`, operator
+only) is one line per sweep: time, trigger ("Spot check" for a probe) and
+duration in words, with a partial or failed sweep's error detail kept; the time
+opens the run, and RunsPage keeps `RunRow`. "Competitors over time" is the
+`CompetitorLandscape` card described under Competitor landscapes. Class and
+window controls on these cards use `SegmentedRadioGroup`. The Simple context
+row and the embed header name no date range ("All time" read over latest-sweep
+figures); each card states its own sweep, point or window.
+
 Keep the Latest signals block and suggested queries out of the Simple overview.
 The underlying insights and suggestions remain available through the API.
 
@@ -234,7 +247,7 @@ Keep branded, non-brand, and unknown populations separate. Format server rates w
 Default the shared URL selection to all queries for Simple and Advanced, preserving explicit query-type links.
 Simple history without query labels must show its saved unclassified results on arrival. In the all-query view, omit Simple classes with no current or historical queries when another class has results; keep Advanced unmeasured classes explicit.
 Each population opens with its headline strip: the class heading, a caption, and `dl.report-headline` — separate `.report-headline-tile` surfaces with a gap, never a shared border or dividers — for mention coverage, citation coverage, and Properties mentioned (omitted for a Property scope). One column on phones, then the `data-columns` count. Every tile label carries an `InfoTooltip` from `REPORT_HEADLINE_HELP` in Simple, Advanced aggregate and Property scopes alike. A tile prints the server rate with its metric's change inline beside it in `REPORT_CHANGE_COPY` words (`Up 4.2 pts` positive, `Down 4.2 pts` negative, `No change` and a metric's `No earlier value` secondary; an unavailable or inapplicable current value prints nothing), then one supporting line of `numerator of denominator answers|properties`, plus a second line from `reportUnattributedAnswers` when the server's rate carries `unattributed`; `formatPointDelta` only formats the server delta, and a null rate prints its reason with no change. The class is visible only in the `h2`; each tile repeats it as `sr-only` text beside its value, so every figure still names its own instrument. The caption is the one place the comparison is named: `12 queries · 36 answers · vs Sep 8 sweep`, where the previous sweep is an observed instant that keeps its year unless it falls in the displayed sweep's year, the one population-level `REPORT_CHANGE_COPY` reason replaces the `vs` part, and `no-selected-run` or an absent `comparison` leaves the comparison unnamed; its explanation `InfoTooltip` stays beside it. The trend legend is a checkbox fieldset whose last visible series cannot be hidden; Cited draws dashed with hollow dots. Order: strip, trend, Scope breakdown (4px bars at the server rate, none for a null rate), Property outcomes, Query results, Competitors.
-Those collapsed rows are one list, not five components. `Property outcomes`, `Query results` and `Competitors` here, plus `Project signals` and `Competitor history` in `ProjectPage.tsx`, all use `.visibility-disclosure` / `-summary` / `-label` / `-meta` from `styles.css`, so one label weight, one row rhythm, one divider and one focus ring cover the whole stack; they came from two components and read as two designs (64px bold rows against 44px quiet ones, a section gap in the middle, a focus ring on only three). Keep the utilities in the stylesheet rather than at the call sites: `design-tokens.test.ts` compiles the rule, which is the only place drift is visible. The Simple overview is the exception and keeps `page-section-divider` for its own `Competitor history`, because there the row sits among page sections instead of this stack. `Project signals` and `Competitor history` carry no count: their data loads when the row opens, so any number before that would be invented.
+Those collapsed rows are one list, not five components. `Property outcomes`, `Query results` and `Competitors` here, plus `Project signals` and `Competitor history` in `ProjectPage.tsx`, all use `.visibility-disclosure` / `-summary` / `-label` / `-meta` from `styles.css`, so one label weight, one row rhythm, one divider and one focus ring cover the whole stack; they came from two components and read as two designs (64px bold rows against 44px quiet ones, a section gap in the middle, a focus ring on only three). Keep the utilities in the stylesheet rather than at the call sites: `design-tokens.test.ts` compiles the rule, which is the only place drift is visible. The Simple overview is the exception: it shows the same `CompetitorLandscape` as the "Competitors over time" card among its page sections, loaded on arrival. `Project signals` and Advanced `Competitor history` carry no count: their data loads when the row opens, so any number before that would be invented.
 
 The Advanced `Property outcomes` disclosure matches its Query results and Competitors siblings: a bold label and, beside it, the server's own `summary.outcomes.total` as `12 properties` (`1 property` singular). Never sum the buckets to get it; the response schema already requires the partition to sum to `total`, so a drift must stay visible rather than be papered over by a UI count. The buckets keep their labels and order (mentioned and cited, mentioned only, cited only, neither signal, not measured). `REPORT_OUTCOMES_HELP` explains all of it, and its `InfoTooltip` sits in the opened panel beside the bucket list, never inside the `<summary>` — a button there would toggle the disclosure on click and join the summary's accessible name. Its copy states what the server computes in `outcomeCounts` / `targetPresence` and nothing beyond it: the buckets count properties rather than answers, `citedOnly` is the engine using the page as a source without naming it in the answer, `notMeasured` covers both an unmeasured property and a half-measured one (calling that "mentioned but not cited" would assert an absence nothing measured), and one verified signal survives a later uncertain answer. The partition reads a property's own two signals and no competitor's, so neither this copy nor the same sentence on `measurementOutcomeCountsSchema` may say a rival was recommended instead — `citedOnly` never measured one. Give the five buckets five distinct counts in any test fixture, or a rotated tuple list renders one bucket's count under another label and still passes.
 Never draw an empty trend chart when every server rate is unavailable. Chart tooltip labels show the observation date without the time. When a chart has rates, retain its history table for screen readers without a duplicate visible disclosure; comparison warnings stay beside the chart. If no rates can be plotted, show the history table for recorded sweeps, including dates and comparison markers for partial measurements.
@@ -498,7 +511,7 @@ Token migration guardrails:
 - Pills are status/tag indicators only. Use tabs, selects, segmented controls,
   checkboxes, or shared rectangular buttons for interactive choices. Topbar
   health pills use `rounded-full` with tone-colored borders.
-- **AEO performance hero + metric cards:** the project overview leads with the AEO performance hero — three paired Mention / Cited / Mention-share rows with linear progress bars (stacking below `480px`) — followed by secondary metric cards in a `sm:grid-cols-2 lg:grid-cols-3` grid. Linear bars beat stacked radials when several numbers are read against each other. Keep a single `.metric-grid` / `.metric-card` definition; a duplicate once overrode the column count.
+- **AI Visibility cards:** the Simple overview is a stack of `.overview-brief` cards, each a short `av-card-title`, a compact `av-grid` of counts (`av-n`, or `av-n-sm` in dense grids) with at most one status word per row, and everything else in the shared closed `Disclosure` ("Details"). No hero, progress bars or metric tiles; a count reads "4 of 11" with its base. Keep a single `.metric-grid` / `.metric-card` definition for the pages that still use metric cards; a duplicate once overrode the column count.
 - **Insight cards** use a left-border accent color based on tone (`insight-card-positive`, `insight-card-caution`, `insight-card-negative`).
 - **Sparklines** show inline trends in overview project rows.
 - Keep 10-11px eyebrow labels only for nonessential section context. Meaningful supporting copy is at least 13px and uses `text-secondary` or stronger.
@@ -514,8 +527,14 @@ Token migration guardrails:
 - `CompetitorLandscape` reads the windowed stored-evidence endpoint. Never send
   a historical row into the latest-only `EvidenceTable`; use its returned
   `sampleUrls` when showing source evidence.
-- Show project/user pins before observed competitors. Advanced Measurement
-  reads must pass the selected `groupKey`, or explicit `scope=all-markets`.
+- It is the "Competitors over time" card: you and the competitors behind
+  mention share (the pins, or with no pins the observed competitors the server
+  admitted), by domain, with Mention share, Named and Cited. Details holds the
+  base, the brand counts, which competitors count, data-quality notes, other
+  competitors (with type and Pin), the company names and other cited sites.
+  Never claim no competitors while names were observed.
+- Advanced Measurement reads must pass the selected `groupKey`, or explicit
+  `scope=all-markets`.
 - Stored landscape GETs are embed-safe. Every competitor mutation requires
   `canWrite && !isEmbed()`; market pins create/update a draft and never publish.
 - History fallback pins show unavailable metrics, never latest-only counts under

@@ -33,7 +33,6 @@ import {
   type CompetitorLandscapeWindow,
 } from '../components/project/CompetitorLandscape.js'
 import { ProviderBadge } from '../components/shared/ProviderBadge.js'
-import { RunRow } from '../components/shared/RunRow.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { SentimentScopeProvider, SentimentControls } from '../components/project/SentimentSection.js'
 import { sentimentSelectionFromVisibility, sentimentSelectionForSimpleEvidence } from '../queries/sentiment.js'
@@ -44,6 +43,7 @@ import { GscSection } from '../components/project/GscSection.js'
 import { GbpSection } from '../components/project/GbpSection.js'
 import { BacklinksSection } from '../components/project/BacklinksSection.js'
 import { CitationVisibilitySection } from '../components/project/CitationVisibilitySection.js'
+import { PastSweeps } from '../components/project/PastSweeps.js'
 import { useVisibilityReportFirstPage, VisibilityOverview, VisibilityTrendSection } from '../components/project/VisibilityTrendSection.js'
 import { VisibilityScopePicker } from '../components/project/VisibilityScopePicker.js'
 import { QueriesSection } from '../components/project/DiscoverySection.js'
@@ -2210,7 +2210,8 @@ function ProjectPageContent({
     setCompetitorHistoryOpenForProject(null)
   }, [projectName])
   const competitorHistoryOpen = competitorHistoryOpenForProject === projectName
-  const competitorLandscapeReadEnabled = competitorLandscapeAvailable && competitorHistoryOpen
+  // Simple shows the card on arrival; Advanced reads it when its row opens.
+  const competitorLandscapeReadEnabled = competitorLandscapeAvailable && (isSimpleOverview || competitorHistoryOpen)
   const competitorLandscapeQuery = useQuery({
     ...getApiV1ProjectsByNameAnalyticsCompetitorsOptions(competitorLandscapeQueryInput),
     enabled: competitorLandscapeReadEnabled,
@@ -2875,17 +2876,45 @@ function ProjectPageContent({
     }
   }
 
-  // Overview's date range. Simple always shows it; an Advanced portfolio shows
-  // only an explicit historical range and renders no element otherwise.
-  const overviewRangeLabel = tab === 'overview' && (isSimpleOverview || visibilitySelection.from || visibilitySelection.to)
-    ? isSimpleOverview
-      ? model.dateRangeLabel
-      : `${visibilitySelection.from?.slice(0, 10) ?? 'First measurement'} to ${visibilitySelection.to?.slice(0, 10) ?? 'Latest measurement'}`
+  // An Advanced portfolio's explicit historical range, for the embed header; the
+  // operator row shows it as a filter token in the results toolbar. Simple has
+  // no range to name: each card states its own sweep, point or window.
+  const overviewRangeLabel = tab === 'overview' && !isSimpleOverview && (visibilitySelection.from || visibilitySelection.to)
+    ? `${visibilitySelection.from?.slice(0, 10) ?? 'First measurement'} to ${visibilitySelection.to?.slice(0, 10) ?? 'Latest measurement'}`
     : null
-  // The operator row keeps only the Simple range. An Advanced explicit range is a
-  // filter token in the results toolbar; the embed header keeps its text.
-  const contextMetaLabel = isSimpleOverview ? overviewRangeLabel : null
   const scopeSlotContent = renderScopeSlot()
+  const competitorLandscapeCard = competitorLandscapeAvailable ? (
+    <CompetitorLandscape
+      window={competitorLandscapeWindow}
+      landscape={competitorLandscapeQuery.data}
+      pinnedFallback={competitorLandscapePinnedFallback}
+      canWrite={canWrite}
+      isEmbed={isEmbed()}
+      onWindowChange={setCompetitorLandscapeWindow}
+      // A group write is an additive, revision-guarded draft action.
+      // All-markets has no single safe market target, so it stays
+      // read-only even for an operator.
+      onPin={competitorLandscapeGroupKey && canWrite && !isEmbed()
+        ? handlePinAdvancedCompetitor
+        : !isAdvancedAllMarkets && canWrite && !isEmbed()
+          ? handleAddCompetitor
+          : undefined}
+      onUnpin={competitorLandscapeGroupKey || isAdvancedAllMarkets || !canWrite || isEmbed()
+        ? undefined
+        : handleRemoveCompetitor}
+      onAddCompetitor={competitorLandscapeGroupKey && canWrite && !isEmbed()
+        ? handlePinAdvancedCompetitor
+        : !isAdvancedAllMarkets && canWrite && !isEmbed()
+          ? handleAddCompetitor
+          : undefined}
+      error={competitorLandscapeError}
+      onRetry={competitorLandscapeReadEnabled ? () => { void competitorLandscapeQuery.refetch() } : undefined}
+      isLoading={competitorLandscapeReadEnabled && competitorLandscapeQuery.isPending && competitorLandscapeQuery.data === undefined}
+      scopeLabel={isSimpleOverview ? undefined : competitorLandscapeGroupKey
+        ? `${selectedCompetitorLandscapeGroup?.label ?? competitorLandscapeGroupKey} group`
+        : isAdvancedAllMarkets ? 'All markets' : 'Project-wide'}
+    />
+  ) : null
 
   return (
     <div className="page-container">
@@ -2913,7 +2942,6 @@ function ProjectPageContent({
           ) : null}
           {scopeSlotContent !== null ? <div className="project-context-scope">{scopeSlotContent}</div> : null}
           {model.project.canonicalDomain ? <span className="project-context-domain">{model.project.canonicalDomain}</span> : null}
-          {contextMetaLabel !== null ? <p className="project-context-meta">{contextMetaLabel}</p> : null}
           <div className="project-context-actions" data-project-actions>
             {isDashboardManagedSweeps() ? (
               <ManagedSweepStatus projectName={projectName} running={hasActiveVisibilitySweep} portfolio={!isSimpleOverview} />
@@ -3187,54 +3215,14 @@ function ProjectPageContent({
             )}
           </OverviewDisclosure>
 
-          <OverviewDisclosure eyebrow="Analysis" title="Citation and engine diagnostics" meta="Deep dive" defaultOpen={isEmbed()}>
-            <CitationVisibilitySection projectName={model.project.name} />
-
-            {model.providerScores.length > 1 && (
-              <section className="page-section-divider">
-                <div className="section-head section-head-inline">
-                  <div>
-                    <p className="eyebrow eyebrow-soft">Model breakdown</p>
-                    <h2>Citation rate by model <InfoTooltip text="Per-model citation rate in the latest sweep. The same query set can perform differently across engines." /></h2>
-                  </div>
-                </div>
-                <div className="evidence-table-wrap">
-                  <table className="evidence-table">
-                    <thead>
-                      <tr>
-                        <th scope="col">Model</th>
-                        <th scope="col">Citation rate</th>
-                        <th scope="col">Cited queries</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {model.providerScores.map((ps) => (
-                        <tr key={`${ps.provider}::${ps.model ?? 'unknown'}`}>
-                          <td>
-                            <div className="flex flex-col items-start gap-0.5">
-                              <ProviderBadge provider={ps.provider} />
-                              {ps.model && <span className="text-[11px] font-mono text-muted">{ps.model}</span>}
-                            </div>
-                          </td>
-                          <td><span className="font-semibold text-strong">{formatPercent(ps.score, RatioUnits.percent)}</span></td>
-                          <td className="text-muted">{ps.cited} of {ps.total}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            )}
-          </OverviewDisclosure>
+          <div className="page-section-divider">
+            <CitationVisibilitySection projectName={model.project.name} classify={classifyQuery} hasCompetitors={competitorDomains.length > 0} />
+          </div>
 
           {!isEmbed() && (
-            <OverviewDisclosure eyebrow="Run history" title="Recent execution history" meta={`${model.recentRuns.length} recent`}>
-              <div className="run-list">
-                {model.recentRuns.map((run) => (
-                  <RunRow key={run.id} run={run} />
-                ))}
-              </div>
-            </OverviewDisclosure>
+            <div className="page-section-divider">
+              <PastSweeps runs={model.recentRuns} />
+            </div>
           )}
 
               </>
@@ -3294,44 +3282,18 @@ function ProjectPageContent({
               />
             )}
           </details> : null}
-          {competitorLandscapeAvailable ? (
-            // The Simple overview keeps its own section rhythm, where this row
-            // sits among page sections rather than in the Advanced stack of
-            // collapsed detail rows.
-            <details className={isSimpleOverview ? 'page-section-divider' : 'visibility-disclosure'} open={competitorHistoryOpen} onToggle={event => setCompetitorHistoryOpenForProject(event.currentTarget.open ? projectName : null)}>
-              <summary className={isSimpleOverview ? 'min-h-11 cursor-pointer py-3 text-sm font-medium text-heading' : 'visibility-disclosure-summary'}>{isSimpleOverview ? 'Competitor history' : <span className="visibility-disclosure-label">Competitor history</span>}</summary>
-              <p className="pb-3 text-sm text-secondary">History for this scope uses the time window below.</p>
-              <CompetitorLandscape
-                window={competitorLandscapeWindow}
-                landscape={competitorLandscapeQuery.data}
-                pinnedFallback={competitorLandscapePinnedFallback}
-                canWrite={canWrite}
-                isEmbed={isEmbed()}
-                onWindowChange={setCompetitorLandscapeWindow}
-                // A group write is an additive, revision-guarded draft action.
-                // All-markets has no single safe market target, so it stays
-                // read-only even for an operator.
-                onPin={competitorLandscapeGroupKey && canWrite && !isEmbed()
-                  ? handlePinAdvancedCompetitor
-                  : !isAdvancedAllMarkets && canWrite && !isEmbed()
-                    ? handleAddCompetitor
-                    : undefined}
-                onUnpin={competitorLandscapeGroupKey || isAdvancedAllMarkets || !canWrite || isEmbed()
-                  ? undefined
-                  : handleRemoveCompetitor}
-                onAddCompetitor={competitorLandscapeGroupKey && canWrite && !isEmbed()
-                  ? handlePinAdvancedCompetitor
-                  : !isAdvancedAllMarkets && canWrite && !isEmbed()
-                    ? handleAddCompetitor
-                    : undefined}
-                error={competitorLandscapeError}
-                onRetry={competitorLandscapeReadEnabled ? () => { void competitorLandscapeQuery.refetch() } : undefined}
-                isLoading={competitorLandscapeReadEnabled && competitorLandscapeQuery.isPending && competitorLandscapeQuery.data === undefined}
-                scopeLabel={competitorLandscapeGroupKey
-                  ? `${selectedCompetitorLandscapeGroup?.label ?? competitorLandscapeGroupKey} group`
-                  : isAdvancedAllMarkets ? 'All markets' : 'Project-wide'}
-              />
-            </details>
+          {competitorLandscapeCard !== null ? (
+            // Simple shows the card among its page sections, loaded on arrival.
+            // Advanced keeps it in its stack of collapsed rows, loaded on open.
+            isSimpleOverview ? (
+              <div className="page-section-divider">{competitorLandscapeCard}</div>
+            ) : (
+              <details className="visibility-disclosure" open={competitorHistoryOpen} onToggle={event => setCompetitorHistoryOpenForProject(event.currentTarget.open ? projectName : null)}>
+                <summary className="visibility-disclosure-summary"><span className="visibility-disclosure-label">Competitor history</span></summary>
+                <p className="pb-3 text-sm text-secondary">History for this scope uses the time window below.</p>
+                {competitorLandscapeCard}
+              </details>
+            )
           ) : null}
         </>
         )
