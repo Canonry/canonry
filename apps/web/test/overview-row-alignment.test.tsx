@@ -207,6 +207,40 @@ test('one overall sentiment value aligns with the other stats and keeps help out
   expect(metric.querySelectorAll('.metric-inline-value')).toHaveLength(1)
 })
 
+test('when any project shows sentiment, every row keeps the same columns so Mentioned lines up', async () => {
+  const doc = await renderOverview(fixture => {
+    const headline = { ...aggregateSentiment([]), reason: null, runIds: ['run'], selection: { mode: 'simple' as const, scope: 'project' as const, queryClass: 'branded' as const, runId: 'run', revision: null, evaluationDefinitionId: 'definition' } }
+    const overall = { ...aggregateSentiment(Array.from({ length: 10 }, (_, index) => ({
+      assessmentId: `a${index}`, sourceSnapshotId: `s${index}`, outcome: 'favorable' as const,
+    }))), reason: null, runIds: ['run'], queryClass: 'all' as const }
+    fixture.dashboard.portfolioOverview.projects[0]!.sentiment = { configured: true, overall, branded: headline, nonBrand: { ...headline, selection: { ...headline.selection, queryClass: 'non-brand' } } }
+  })
+  const rows = [...doc.querySelectorAll('.project-row')]
+  expect(rows.length).toBeGreaterThan(1)
+  for (const row of rows) {
+    // Same grid template and the same number of stat cells in every row.
+    expect(row.classList.contains('project-row-with-sentiment')).toBe(true)
+    expect(row.querySelectorAll(':scope > .project-row-stat')).toHaveLength(3)
+    expect(row.querySelector(':scope > .project-row-stat .metric-inline-label')!.textContent).toBe('Mentioned')
+  }
+  const placeholders = doc.querySelectorAll('[data-sentiment-placeholder]')
+  expect(placeholders).toHaveLength(rows.length - 1)
+  for (const cell of placeholders) {
+    expect(cell.getAttribute('aria-hidden')).toBe('true')
+    expect(cell.textContent).toBe('')
+  }
+})
+
+test('with no project showing sentiment, rows keep two stat cells and no reserved column', async () => {
+  const doc = await renderOverview()
+  const rows = [...doc.querySelectorAll('.project-row')]
+  for (const row of rows) {
+    expect(row.classList.contains('project-row-with-sentiment')).toBe(false)
+    expect(row.querySelectorAll(':scope > .project-row-stat')).toHaveLength(2)
+  }
+  expect(doc.querySelectorAll('[data-sentiment-placeholder]')).toHaveLength(0)
+})
+
 test('below 10 ratings the overall value reads "too few", as the Tone card does', async () => {
   const doc = await renderOverview(fixture => {
     const headline = { ...aggregateSentiment([]), reason: null, runIds: ['run'], selection: { mode: 'simple' as const, scope: 'project' as const, queryClass: 'branded' as const, runId: 'run', revision: null, evaluationDefinitionId: 'definition' } }
