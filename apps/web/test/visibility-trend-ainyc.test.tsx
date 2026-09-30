@@ -10,7 +10,7 @@ import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, onTestFinished, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { compileQueryClassifier } from '@ainyc/canonry-contracts'
+import { compileQueryClassifier, formatPercent } from '@ainyc/canonry-contracts'
 
 /** What the chart's hover tooltip is showing, set per test: Recharts itself is inert in jsdom. */
 const tooltip: { current: Record<string, unknown> | null } = { current: null }
@@ -256,4 +256,20 @@ test('the first and latest point tooltips carry their own dates, counts and mode
     'Perplexity32.0%8 of 25',
     'claude-sonnet-5; gemini-3.5-flash; chat-latest; fast',
   ])
+})
+
+test('mention share names its class in the headline and tooltip, and the tooltip counts competitors (restored)', async () => {
+  const metrics = ainycMetrics('all')
+  const tooltipText = () => [...screen.getByTestId('trend-tooltip').querySelectorAll('p, .trend-tooltip-row')].map(node => node.textContent)
+
+  tooltip.current = { active: true, label: metrics.buckets.at(-1)!.startDate, payload: [] }
+  renderAinyc()
+  await screen.findByRole('list', { name: 'Engines' })
+  act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Mention share' })) })
+
+  expect(document.querySelector('.visibility-trend-current-label')?.textContent).toBe('Mention share in non-brand answers')
+  const bucket = metrics.buckets.at(-1)!.mentionShare
+  const total = bucket.projectMentionSnapshots + bucket.competitorMentionSnapshots
+  expect(tooltipText()).toContain(`Mention share in non-brand answers${formatPercent(bucket.rate)}`)
+  expect(tooltipText()).toContain(`You ${bucket.projectMentionSnapshots} of ${total} tracked-brand mentions. Competitors ${bucket.competitorMentionSnapshots}.`)
 })

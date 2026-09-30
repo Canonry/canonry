@@ -1,3 +1,4 @@
+import { percentOf } from '@ainyc/canonry-contracts'
 import type { CitationVisibilityResponse, CompetitorLandscapeResponse, CompetitorLandscapeRow, GapAnalysisDto, GapCategory, GapQuery, QueryClass, RunDto } from '@ainyc/canonry-contracts'
 import type { CitationInsightVm, MovementComparisonVm, MovementSummaryVm, ProjectCommandCenterVm, RunHistoryPoint } from '../src/view-models.js'
 
@@ -332,6 +333,22 @@ export function ainycCitationVisibility(): CitationVisibilityResponse {
     })),
     status: 'ready',
   }
+}
+
+/** The model each engine answered ainyc's latest sweep with (`modelAttribution`). */
+const LATEST_MODELS: Record<(typeof ENGINES)[number], string> = {
+  claude: 'claude-sonnet-5', gemini: 'gemini-3.5-flash', openai: 'chat-latest', perplexity: 'fast',
+}
+
+/**
+ * `providerScores` from ainyc's GET /overview: the latest sweep's cited answers
+ * per engine and model over all 14 queries, as `buildProviderScores` sums them.
+ */
+export function ainycProviderScores(): ProjectCommandCenterVm['providerScores'] {
+  return ENGINES.map((provider, engine) => {
+    const cited = QUERIES.filter(([, , , latest]) => latest[engine]!.endsWith('C')).length
+    return { provider, model: LATEST_MODELS[provider], score: percentOf(cited, QUERIES.length) ?? 0, cited, total: QUERIES.length }
+  })
 }
 
 const OBSERVED_NAMES: ReadonlyArray<[string, number]> = [

@@ -1,4 +1,4 @@
-import type { McpHealth, ProjectDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, SuggestedQueriesSummaryDto, SentimentOverview } from '@ainyc/canonry-contracts'
+import type { McpHealth, ProjectDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, ProjectOverviewProviderScoreDto, SuggestedQueriesSummaryDto, SentimentOverview } from '@ainyc/canonry-contracts'
 
 export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 /** `disabled` is a service switched off on purpose, such as the public demo's worker. */
@@ -232,6 +232,8 @@ export interface ProjectCommandCenterVm {
   mentionShareSummary: MentionShareDto & { unavailable?: boolean }
   queryCounts: QueryCountsVm
   indexCoverage: ScoreSummaryVm
+  /** The latest sweep's citation rate per engine and model, over all queries (`overview.providerScores`). */
+  providerScores: ProjectOverviewProviderScoreDto[]
   competitorPressure: ScoreSummaryVm
   runStatus: ScoreSummaryVm
   citationMovement: MovementSummaryVm

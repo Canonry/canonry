@@ -4,7 +4,7 @@ import type { GapAnalysisDto, GapQuery } from '@ainyc/canonry-contracts'
 import type { ProjectCommandCenterVm } from '../../view-models.js'
 import type { QueryClassLookup } from '../../lib/answer-movement.js'
 import { splitPercentSign } from '../../lib/format-helpers.js'
-import { METRIC_TONE_TEXT_CLASS } from '../../lib/tone-helpers.js'
+import { gapTone, METRIC_TONE_TEXT_CLASS } from '../../lib/tone-helpers.js'
 import { Disclosure } from '../shared/Disclosure.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { SegmentedRadioGroup } from '../shared/SegmentedRadioGroup.js'
@@ -44,12 +44,15 @@ const MENTION_SCOPE_BASE: Record<MentionScopeKey, string> = {
 
 const GAP_DEFINITIONS = 'Named instead of you: queries where an engine named a tracked competitor and none named you. Cited instead of you: queries where an engine cited a tracked competitor\'s site and none cited yours.'
 
+/** Mentioned and cited are separate signals, and the card counts both. */
+const MENTION_DEFINITION = 'Mentioned means the brand is in the answer text. Cited means its site is in the sources. Neither implies the other.'
+
 /** One tooltip per scope, selected by what is actually rendered, so the
  *  explanation can never describe a population other than the one on screen. */
 const COMPETITIVE_CARD_TOOLTIP: Record<MentionScopeKey, string> = {
-  'non-brand': `Queries that do not contain your name. Mention share: your share of tracked-brand mentions in the answers, where each answer counts you and each tracked competitor once. ${GAP_DEFINITIONS} Branded queries are scored separately because you are named on nearly all of them and a competitor cannot be.`,
-  branded: `Queries that contain your name. Mention share: your share of tracked-brand mentions in the answers. This is recognition, not competitive placement, and it is never counted together with the non-brand figures. ${GAP_DEFINITIONS}`,
-  pooled: `This project has no brand name or domain to match on, so branded and non-brand queries could not be separated. These figures count all answers and are not a competitive read. ${GAP_DEFINITIONS}`,
+  'non-brand': `Queries that do not contain your name. Mention share: your share of tracked-brand mentions in the answers, where each answer counts you and each tracked competitor once. ${GAP_DEFINITIONS} Branded queries are scored separately because you are named on nearly all of them and a competitor cannot be. ${MENTION_DEFINITION}`,
+  branded: `Queries that contain your name. Mention share: your share of tracked-brand mentions in the answers. This is recognition, not competitive placement, and it is never counted together with the non-brand figures. ${GAP_DEFINITIONS} ${MENTION_DEFINITION}`,
+  pooled: `This project has no brand name or domain to match on, so branded and non-brand queries could not be separated. These figures count all answers and are not a competitive read. ${GAP_DEFINITIONS} ${MENTION_DEFINITION}`,
 }
 
 /**
@@ -152,13 +155,21 @@ export type CompetitiveGapsState =
 
 type GapCountState = ScopeGaps | 'loading' | 'error'
 
-function GapCount({ lane, state, spoken }: { lane: 'named' | 'cited'; state: GapCountState; spoken: string }) {
+function GapCount({ lane, state, spoken, toned }: {
+  lane: 'named' | 'cited'
+  state: GapCountState
+  spoken: string
+  /** Only a non-brand count is a competitive read, so only it takes a tone. */
+  toned: boolean
+}) {
   if (state === 'loading') return <span role="status" className="text-[13px] text-secondary">Loading…</span>
   if (state === 'error') return <span className="text-[13px] text-secondary">Could not load</span>
   if (state.total === 0) return <span className="text-[13px] text-secondary">No queries</span>
+  const count = state[lane].length
+  const toneClass = toned ? METRIC_TONE_TEXT_CLASS[gapTone(count, state.total)] : 'text-primary'
   return (
     <>
-      <span className="av-n text-primary">{state[lane].length}</span>{' '}
+      <span className={`av-n ${toneClass}`}>{count}</span>{' '}
       <span className="av-of">of {state.total} {state.total === 1 ? 'query' : 'queries'}</span>
       <span className="sr-only"> · {spoken}</span>
     </>
@@ -166,11 +177,12 @@ function GapCount({ lane, state, spoken }: { lane: 'named' | 'cited'; state: Gap
 }
 
 /**
- * "Where competitors beat you": mention share and the two gap counts for ONE
- * class, with the brand counts and gap queries in Details. Branded and
- * non-brand are never on screen together, so no figure can be read against the
- * other class's denominator. The class control sits where the card's meta goes,
- * and a class without branded queries shows its name there instead.
+ * "Where competitors beat you": mention share for you and each tracked
+ * competitor, and the two gap counts, for ONE class from the latest sweep, with
+ * the gap queries in Details. Branded and non-brand are never on screen
+ * together, so no figure can be read against the other class's denominator. The
+ * class control sits beside the card's meta, and a class without branded
+ * queries shows its name there instead.
  */
 export function CompetitiveCard({
   summary,
@@ -214,24 +226,18 @@ export function CompetitiveCard({
   const toneClass = scopeKey === 'non-brand' ? METRIC_TONE_TEXT_CLASS[summary.tone] : 'text-primary'
   const scoped = gaps.status === 'ready' ? scopeGaps(gaps.data, scopeKey, classify) : null
 
+  // Every tracked competitor in the server's order, zero-mention ones included,
+  // so "no competitor was named in this class" is a visible 0%, not an absent row.
+  const competitorRows = figures.numeric ? active.ranking.filter(row => row.kind === 'competitor') : []
+
   const details: React.ReactNode[] = []
-  if (figures.numeric) {
-    const competitors = active.ranking.filter(row => row.kind === 'competitor')
-    details.push(
-      <>
-        Mention share: you <strong>{active.projectMentionSnapshots}</strong>
-        {competitors.map(row => <React.Fragment key={row.domain ?? ''}>, {row.domain} <strong>{row.mentionSnapshots}</strong></React.Fragment>)}
-        {' '}tracked-brand mentions
-      </>,
-    )
-  } else {
-    details.push(`Mention share: ${figures.detail}`)
-  }
+  // A numeric share carries its counts in the grid; any other state says why here.
+  if (!figures.numeric) details.push(`Mention share: ${figures.detail}`)
   if (!summary.unavailable && active.snapshotsWithAnswerText > 0) {
     details.push(<>Base: <strong>{active.snapshotsWithAnswerText}</strong> {MENTION_SCOPE_BASE[scopeKey]}</>)
   }
   if (scoped) details.push(...gapQueryLines(scoped.named, scoped.cited))
-  if (pooled) details.push('No brand name: branded and non-brand not split')
+  if (pooled) details.push('Set a brand name to split branded from non-brand.')
 
   const spoken = MENTION_SCOPE_SPOKEN[scopeKey]
   const gapState: GapCountState = scoped ?? (gaps.status === 'error' ? 'error' : 'loading')
@@ -246,11 +252,17 @@ export function CompetitiveCard({
           <h2 id={titleId} className="av-card-title">Where competitors beat you</h2>
           {hasBaseline && <InfoTooltip text={COMPETITIVE_CARD_TOOLTIP[scopeKey]} />}
         </div>
-        {!hasBaseline ? null : hasBranded ? (
-          <SegmentedRadioGroup label="Query type" className="flex-wrap" options={MENTION_CLASS_OPTIONS} value={activeKey} onChange={setSelected} />
-        ) : (
-          <span className="mention-share-class">{MENTION_SCOPE_WORD[scopeKey]}</span>
-        )}
+        {hasBaseline ? (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {/* Competitors over time reads a window; this card reads one sweep. */}
+            <p className="av-card-meta">Latest sweep</p>
+            {hasBranded ? (
+              <SegmentedRadioGroup label="Query type" className="flex-wrap" options={MENTION_CLASS_OPTIONS} value={activeKey} onChange={setSelected} />
+            ) : (
+              <span className="mention-share-class">{MENTION_SCOPE_WORD[scopeKey]}</span>
+            )}
+          </div>
+        ) : null}
       </div>
 
       <div className="av-card-body">
@@ -265,23 +277,42 @@ export function CompetitiveCard({
                 <th scope="row" className="av-row-label">Mention share</th>
                 <td>
                   {figures.numeric ? (
-                    <span className={`av-n ${toneClass}`}>
-                      {headline.figure}
-                      {headline.sign ? <span className="text-faint">{headline.sign}</span> : null}
-                      <span className="sr-only"> · {spoken}</span>
-                    </span>
+                    <>
+                      <span className={`av-n ${toneClass}`}>
+                        {headline.figure}
+                        {headline.sign ? <span className="text-faint">{headline.sign}</span> : null}
+                        <span className="sr-only"> · {spoken}</span>
+                      </span>{' '}
+                      <span className="av-of">{figures.detail}</span>
+                    </>
                   ) : (
                     <span className="mention-share-value-text">{figures.headline}</span>
                   )}
                 </td>
               </tr>
+              {competitorRows.map(row => {
+                const share = splitPercentSign(formatPercent(row.share))
+                return (
+                  <tr key={row.domain ?? ''}>
+                    <th scope="row" className="av-row-label">{row.domain}</th>
+                    <td>
+                      <span className="av-n-sm text-primary">
+                        {share.figure}
+                        {share.sign ? <span className="text-faint">{share.sign}</span> : null}
+                        <span className="sr-only"> · {spoken}</span>
+                      </span>{' '}
+                      <span className="av-of">{row.mentionSnapshots} of {active.combinedMentionSnapshots}</span>
+                    </td>
+                  </tr>
+                )
+              })}
               <tr>
                 <th scope="row" className="av-row-label">Named instead of you</th>
-                <td><GapCount lane="named" state={gapState} spoken={spoken} /></td>
+                <td><GapCount lane="named" state={gapState} spoken={spoken} toned={scopeKey === 'non-brand'} /></td>
               </tr>
               <tr>
                 <th scope="row" className="av-row-label">Cited instead of you</th>
-                <td><GapCount lane="cited" state={gapState} spoken={spoken} /></td>
+                <td><GapCount lane="cited" state={gapState} spoken={spoken} toned={scopeKey === 'non-brand'} /></td>
               </tr>
             </tbody>
           </table>

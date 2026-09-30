@@ -1,8 +1,9 @@
 import React, { useId, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { CitationVisibilityResponse } from '@ainyc/canonry-contracts'
+import { formatPercent, RatioUnits, type CitationVisibilityResponse } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameCitationsVisibilityOptions } from '@ainyc/canonry-api-client/react-query'
 import { heyClient, isDashboardManagedSweeps } from '../../api.js'
+import type { ProjectCommandCenterVm } from '../../view-models.js'
 import { MANAGED_SWEEPS_COPY } from './ManagedSweepStatus.js'
 import { STATIC_VISIBILITY_STALE_MS } from '../../queries/query-client.js'
 import {
@@ -39,10 +40,16 @@ export interface ByEngineClass {
   answers: number
   /** Answers citing a tracked competitor's site and not yours. */
   competitorCited: number
+  /** Those answers, in the server's order, with the competitors each one cites. */
+  competitorGaps: { query: string; provider: string; competitors: string[] }[]
+  /** Queries some engine cites you on and some engine names you on. */
+  citedAndNamed: number
   /** Queries some engine cites you on while none names you. */
   citedNotNamed: number
   /** Queries some engine names you on while none cites you. */
   namedNotCited: number
+  /** Queries no engine cites you on or names you on. */
+  neither: number
 }
 
 /**
@@ -66,8 +73,11 @@ export function byEngineClasses(data: CitationVisibilityResponse, classify: Quer
         engines: providers.map(provider => ({ provider, answered: 0, mentioned: 0, cited: 0 })),
         answers: 0,
         competitorCited: 0,
+        competitorGaps: [],
+        citedAndNamed: 0,
         citedNotNamed: 0,
         namedNotCited: 0,
+        neither: 0,
       }
       classes.set(key, entry)
     }
@@ -94,13 +104,18 @@ export function byEngineClasses(data: CitationVisibilityResponse, classify: Quer
     }
     const anyCited = row.providers.some(answer => answer.cited)
     const anyMentioned = row.providers.some(answer => answer.mentioned)
-    if (anyCited && !anyMentioned) entry.citedNotNamed++
-    if (anyMentioned && !anyCited) entry.namedNotCited++
+    if (anyCited && anyMentioned) entry.citedAndNamed++
+    else if (anyCited) entry.citedNotNamed++
+    else if (anyMentioned) entry.namedNotCited++
+    else entry.neither++
   }
   // Each gap row is one engine's latest answer to one query.
   for (const gap of data.competitorGaps) {
     const query = answered.get(`${gap.queryId}::${gap.provider}`)
-    if (query !== undefined) classOf(query).competitorCited++
+    if (query === undefined) continue
+    const entry = classOf(query)
+    entry.competitorCited++
+    entry.competitorGaps.push({ query, provider: gap.provider, competitors: gap.citingCompetitors })
   }
 
   return VISIBILITY_ROW_ORDER
@@ -122,19 +137,23 @@ function plural(count: number, one: string, many: string): string {
 
 /**
  * "By engine": Mentioned and Cited query counts per engine for ONE query
- * class, one competitor line with its base, and the mention/citation split in
- * Details. A Non-brand/Branded control sits where the card's meta goes; a
- * single class shows its name there instead.
+ * class, one competitor line with its base, and in Details the mention/citation
+ * split, the competitors on each gap answer, and the all-queries engine counts
+ * and per-model citation rates. A Non-brand/Branded control sits where the
+ * card's meta goes; a single class shows its name there instead.
  */
 export function CitationVisibilitySection({
   projectName,
   classify,
   hasCompetitors,
+  providerScores = [],
 }: {
   projectName: string
   classify: QueryClassLookup
   /** Without tracked competitors the competitor line has nothing to count. */
   hasCompetitors: boolean
+  /** GET /overview's per-model citation rates: all queries, so never in the class grid. */
+  providerScores?: ProjectCommandCenterVm['providerScores']
 }) {
   const titleId = useId()
   const [selected, setSelected] = useState<VisibilityRowKey>('non-brand')
@@ -172,16 +191,32 @@ export function CitationVisibilitySection({
   }
 
   const details: React.ReactNode[] = []
-  if (active) {
+  if (active && data?.status === 'ready') {
     const queries = plural(active.queries, 'query', 'queries')
+    details.push(<>Cited and named: <strong>{active.citedAndNamed} of {active.queries}</strong> {queries}</>)
     details.push(<>Cited but not named: <strong>{active.citedNotNamed} of {active.queries}</strong> {queries}</>)
     details.push(<>Named but not cited: <strong>{active.namedNotCited} of {active.queries}</strong> {queries}</>)
+    details.push(<>Not cited or named: <strong>{active.neither} of {active.queries}</strong> {queries}</>)
     for (const engine of active.engines) {
       if (engine.answered < active.queries) {
         details.push(<>{providerDisplayName(engine.provider)}: answered <strong>{engine.answered} of {active.queries}</strong> {queries}</>)
       }
     }
     if (active.unanswered > 0) details.push(<>No answers yet: <strong>{active.unanswered}</strong> {plural(active.unanswered, 'query', 'queries')}</>)
+    // The server's engine counts span every query, so they say so.
+    const { providersCiting, providersMentioning, providersConfigured } = data.summary
+    details.push(<>All queries: cited by <strong>{providersCiting} of {providersConfigured}</strong> {plural(providersConfigured, 'engine', 'engines')}, named by <strong>{providersMentioning} of {providersConfigured}</strong></>)
+    for (const score of providerScores) {
+      details.push(
+        <>
+          {providerDisplayName(score.provider)}{score.model ? ` (${score.model})` : ''} citation rate:{' '}
+          <strong>{formatPercent(score.score, RatioUnits.percent)}</strong>, <strong>{score.cited} of {score.total}</strong> {plural(score.total, 'answer', 'answers')}, all queries
+        </>,
+      )
+    }
+    for (const gap of active.competitorGaps) {
+      details.push(`"${gap.query}" (${providerDisplayName(gap.provider)}): ${gap.competitors.join(', ')} cited instead of you`)
+    }
   }
 
   // Only non-brand is a competitive read; branded sits near every answer by

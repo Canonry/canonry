@@ -19,7 +19,7 @@ import { parseVisibilitySelection, visibilityReportFirstPageQuery } from '../src
 import { PROJECT_SCOPE_COPY } from '../src/lib/project-scope.js'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
 import { formatSweepInstant } from '../src/lib/format-helpers.js'
-import { AINYC_LATEST_RUN, AINYC_PREVIOUS_RUN, ainycCitationVisibility, ainycComparison, ainycEvidence, ainycGaps, ainycLandscape, ainycMentionShare, ainycMetrics, ainycMovement, ainycRuns } from './ainyc-visibility-fixture.js'
+import { AINYC_LATEST_RUN, AINYC_PREVIOUS_RUN, ainycCitationVisibility, ainycComparison, ainycEvidence, ainycGaps, ainycLandscape, ainycMentionShare, ainycMetrics, ainycMovement, ainycProviderScores, ainycRuns } from './ainyc-visibility-fixture.js'
 import { toRunListItem } from '../src/build-dashboard.js'
 import {
   getApiV1CdpStatusQueryKey,
@@ -715,7 +715,7 @@ function competitorLandscapeResponse({
   scope?: { kind: 'project' } | { kind: 'group'; groupKey: string } | { kind: 'all-markets' }
   pinnedLabel?: string
   observedLabel?: string
-  /** The card names competitors by domain, so a test tells responses apart by these. */
+  /** The card names competitors by display name and domain, so a test tells responses apart by these. */
   pinnedDomain?: string
   observedDomain?: string
 } = {}) {
@@ -1170,7 +1170,7 @@ test('pinning a market competitor writes only a draft action and refetches that 
   await waitFor(() => expect(calls.slice(mutationIndex + 1).some(call => (
     call.method === 'GET' && call.path.includes('/analytics/competitors?') && call.path.includes('groupKey=north')
   ))).toBe(true))
-  expect(await page.findByRole('rowheader', { name: 'draft-rival.example' })).toBeTruthy()
+  expect(await page.findByRole('rowheader', { name: 'Draft rival draft-rival.example' })).toBeTruthy()
   expect(calls.some(call => call.path.includes('/measurement-plan/draft/actions/publish'))).toBe(false)
 })
 
@@ -1576,8 +1576,8 @@ test('cached competitor history remains visible when its background refresh fail
       query: { window: '30d', queryClass: 'non-brand' },
     }),
   )?.status).toBe('error'))
-  expect(page.getByRole('rowheader', { name: 'cached-pin.example' })).toBeTruthy()
-  expect(page.getByRole('rowheader', { name: 'cached-observed.example' })).toBeTruthy()
+  expect(page.getByRole('rowheader', { name: 'Pinned operator cached-pin.example' })).toBeTruthy()
+  expect(page.getByRole('rowheader', { name: 'Observed rival cached-observed.example' })).toBeTruthy()
   expect(page.queryByLabelText('Favorable answer scores')).toBeNull()
   expect(page.getByRole('alert').textContent).toContain('Could not refresh competitors over time. Showing the last available data.')
 })
@@ -1900,14 +1900,16 @@ test('Where competitors beat you and the query table read ainyc\'s latest sweep 
   const card = [...doc.querySelectorAll('section[aria-labelledby]')]
     .find(section => section.querySelector('h2')?.textContent === 'Where competitors beat you')!
 
+  // Each tracked competitor's share sits under yours, from the latest sweep.
+  expect(card.querySelector('.av-card-meta')?.textContent).toBe('Latest sweep')
   expect([...card.querySelectorAll('.av-grid tbody tr')].map(row => [...row.children].map(visible))).toEqual([
-    ['Mention share', '33.3%'],
+    ['Mention share', '33.3% 7 of 21 tracked-brand mentions'],
+    ['pbjmarketing.com', '66.7% 14 of 21'],
     ['Named instead of you', '1 of 11 queries'],
     ['Cited instead of you', '1 of 11 queries'],
   ])
   expect(card.querySelector<HTMLDetailsElement>('details.av-details')!.open).toBe(false)
   expect([...card.querySelectorAll('.av-details-list li')].map(item => item.textContent)).toEqual([
-    'Mention share: you 7, pbjmarketing.com 14 tracked-brand mentions',
     'Base: 44 non-brand answers',
     'Named and cited instead: "best AEO agency New York"',
   ])
@@ -1931,6 +1933,7 @@ test('By engine, Past sweeps and Competitors over time read ainyc as the approve
       const project = withAinycSweeps(dashboard)
       project.recentRuns = ainycRuns().map(run => toRunListItem(run, project.project.name))
       project.competitors = [{ id: 'competitor_pbj', domain: 'pbjmarketing.com', citationCount: 5, totalQueries: 14, pressureLabel: '', citedQueries: [], movement: '', notes: '' }]
+      project.providerScores = ainycProviderScores()
     },
     citationVisibility: ainycCitationVisibility(),
   })
@@ -1946,8 +1949,27 @@ test('By engine, Past sweeps and Competitors over time read ainyc as the approve
     ['Cited', '2', '3', '0', '4'],
   ])
   expect(byEngine.querySelector('.av-card-line')?.textContent).toBe('Competitor cited instead of you8 of 44 answers · non-brand queries')
-  expect([...byEngine.querySelectorAll('.av-details-list li')].map(item => item.textContent))
-    .toEqual(['Cited but not named: 0 of 11 queries', 'Named but not cited: 0 of 11 queries'])
+  // The tiles, engine counts, per-model rates and competitor gap rows of the
+  // old diagnostics are Details lines; the per-model rates come from /overview.
+  expect([...byEngine.querySelectorAll('.av-details-list li')].map(item => item.textContent)).toEqual([
+    'Cited and named: 4 of 11 queries',
+    'Cited but not named: 0 of 11 queries',
+    'Named but not cited: 0 of 11 queries',
+    'Not cited or named: 7 of 11 queries',
+    'All queries: cited by 4 of 4 engines, named by 4 of 4',
+    'Claude (claude-sonnet-5) citation rate: 28.6%, 4 of 14 answers, all queries',
+    'Gemini (gemini-3.5-flash) citation rate: 42.9%, 6 of 14 answers, all queries',
+    'OpenAI (chat-latest) citation rate: 14.3%, 2 of 14 answers, all queries',
+    'Perplexity (fast) citation rate: 50.0%, 7 of 14 answers, all queries',
+    '"AEO Agency in NYC" (Claude): pbjmarketing.com cited instead of you',
+    '"AEO Agency in NYC" (OpenAI): pbjmarketing.com cited instead of you',
+    '"AEO Agency NYC" (Claude): pbjmarketing.com cited instead of you',
+    '"AEO Agency NYC" (OpenAI): pbjmarketing.com cited instead of you',
+    '"Answer Engine Optimization Agency NYC" (OpenAI): pbjmarketing.com cited instead of you',
+    '"best AEO agency New York" (Claude): pbjmarketing.com cited instead of you',
+    '"best AEO agency New York" (Perplexity): pbjmarketing.com cited instead of you',
+    '"NYC AEO Agency" (OpenAI): pbjmarketing.com cited instead of you',
+  ])
 
   // Trigger and duration in words; times follow the viewer's zone.
   const sweeps = [...card('Past sweeps').querySelectorAll('tbody tr')].map(cells)
@@ -1960,11 +1982,13 @@ test('By engine, Past sweeps and Competitors over time read ainyc as the approve
   ])
 
   const competitors = card('Competitors over time')
-  expect(competitors.querySelector('.av-card-meta')?.textContent).toBe('Non-brand · last 30 days')
-  expect([...competitors.querySelectorAll('.av-grid[aria-label="Competitors over time"] tbody tr')].map(row => cells(row).slice(0, 4))).toEqual([
-    ['You', '31.7%', '13 of 88', '17 of 88'],
-    ['pbjmarketing.com', '68.3%', '28 of 88', '28 of 88'],
+  expect(competitors.querySelector('.av-card-meta')?.textContent).toBe('Non-brand · last 30 days · tracked competitors only')
+  expect([...competitors.querySelectorAll('.av-grid[aria-label="Competitors over time"] tbody tr')].map(row => cells(row).slice(0, 5))).toEqual([
+    ['You', 'Your brand', '31.7%', '13 of 88', '17 of 88'],
+    ['pbjmarketing.com', 'Competitor', '68.3%', '28 of 88', '28 of 88'],
   ])
+  // Two incomplete source lists qualify the Cited figures without opening Details.
+  expect([...competitors.querySelectorAll('.av-card-body p')].map(line => line.textContent)).toEqual(['Citation data incomplete'])
   expect(competitors.querySelector<HTMLDetailsElement>('details.av-details')!.open).toBe(false)
 
   // Page order under the query table, and nothing left of the old sections.
@@ -1972,7 +1996,7 @@ test('By engine, Past sweeps and Competitors over time read ainyc as the approve
   expect(html.indexOf('Query evidence')).toBeLessThan(at('By engine'))
   expect(at('By engine')).toBeLessThan(at('Past sweeps'))
   expect(at('Past sweeps')).toBeLessThan(at('Competitors over time'))
-  expect(html).not.toMatch(/All time|Citation rate by model|Citation and engine diagnostics|Recent execution history|Competitor landscape|No additional competitors/)
+  expect(html).not.toMatch(/All time|Citation and engine diagnostics|Recent execution history|Competitor landscape/)
 })
 
 test('a spot check never flips the Visibility card, while the Run button still waits for it', async () => {

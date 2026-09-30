@@ -1574,8 +1574,9 @@
   }
 
   /* Competitors over time on a phone: each brand's name, with its Pin or
-     Unpin, takes its own line and its three figures sit in equal columns under
-     the headers, so a long domain never pushes the grid past the card. */
+     Unpin, takes its own line, its type the next, and its three figures sit in
+     equal columns under the headers, so a long domain never pushes the grid
+     past the card. */
   @media (max-width: 639px) {
     .av-grid-brands,
     .av-grid-brands > thead,
@@ -1592,7 +1593,8 @@
     }
 
     .av-grid-brands thead th:first-child,
-    .av-grid-brands thead th:nth-child(5) {
+    .av-grid-brands thead .av-brand-type,
+    .av-grid-brands thead .av-brand-actions {
       @apply sr-only;
     }
 
@@ -1600,15 +1602,19 @@
       @apply col-span-full row-start-1 whitespace-normal pb-0 pr-0 wrap-anywhere;
     }
 
-    .av-grid-brands tbody tr:has(> td:nth-child(5)) > th {
+    .av-grid-brands tbody tr:has(> .av-brand-actions) > th {
       @apply col-span-2;
     }
 
     .av-grid-brands tbody td {
-      @apply row-start-2 pr-0 pt-0;
+      @apply row-start-3 pr-0 pt-0;
     }
 
-    .av-grid-brands tbody td:nth-child(5) {
+    .av-grid-brands tbody td.av-brand-type {
+      @apply col-span-full row-start-2 py-0;
+    }
+
+    .av-grid-brands tbody td.av-brand-actions {
       @apply col-start-3 row-start-1 self-center justify-self-end pb-0;
     }
   }

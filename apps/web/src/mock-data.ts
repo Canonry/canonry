@@ -459,6 +459,11 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       description: '10 URLs are not indexed in Google Search Console.',
       trend: [84, 84, 83, 82, 82],
     },
+    providerScores: [
+      { provider: 'gemini', model: 'gemini-2.5-flash', score: 55.56, cited: 5, total: 9 },
+      { provider: 'openai', model: 'gpt-5.4', score: 66.666667, cited: 6, total: 9 },
+      { provider: 'claude', model: 'claude-sonnet-4-6', score: 44.44, cited: 4, total: 9 },
+    ],
     queryCounts: { cited: 6, total: 9 },
     citationMovement: {
       gained: 1,
@@ -661,6 +666,10 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       description: '5 URLs are not indexed in Google Search Console.',
       trend: [88, 89, 89, 90, 91],
     },
+    providerScores: [
+      { provider: 'gemini', model: 'gemini-2.5-flash', score: 75, cited: 3, total: 4 },
+      { provider: 'openai', model: 'gpt-5.4', score: 50, cited: 2, total: 4 },
+    ],
     queryCounts: { cited: 3, total: 4 },
     citationMovement: { gained: 1, lost: 0, tone: 'positive', hasPreviousRun: true },
     mentionMovement: { gained: 1, lost: 0, tone: 'positive', hasPreviousRun: true },
@@ -827,6 +836,9 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       description: '11 URLs are not indexed in Bing Webmaster Tools.',
       trend: [68, 69, 70, 71, 71],
     },
+    providerScores: [
+      { provider: 'openai', model: 'gpt-5.4', score: 57.14, cited: 4, total: 7 },
+    ],
     queryCounts: { cited: 4, total: 7 },
     citationMovement: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
     mentionMovement: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },

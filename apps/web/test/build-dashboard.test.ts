@@ -718,6 +718,9 @@ test('buildProjectCommandCenter populates score gauges from the overview DTO whe
   expect(vm.mentionMovement).toEqual({ gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false })
   expect(vm.movementComparison).toMatchObject({ hasPreviousRun: false, comparable: false })
   expect(vm.contextLabel).toBe('US / EN')
+  // The per-model citation rates the By engine card lists (restored after the cleanup).
+  expect(vm.providerScores).toEqual([{ provider: 'gemini', model: 'flash', score: 75, cited: 3, total: 4 }])
+  expect(buildProjectCommandCenter({ ...data, overview: null }).providerScores).toEqual([])
 })
 
 test('buildProjectCommandCenter surfaces synthesized attention items (e.g. stale_visibility) as project insights', () => {

@@ -315,9 +315,9 @@ test('renders mention-share as a metric view and hides the engine split', async 
   expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('up 50.0 points')
   expect(document.querySelector('.visibility-trend-current-detail')?.textContent).toBe('· 3 of 4 tracked-brand mentions')
   expect(screen.getByText(/Latest 75\.0%, up 50\.0 points over the period\./)).toBeTruthy()
-  // The headline says only "Mention share"; its scope is in the title's ⓘ and
-  // its base, and assistive tech hears it with the name.
-  expect(document.querySelector('.visibility-trend-current-label')?.textContent).toBe('Mention share')
+  // The headline names mention share's scope, as it did before the cleanup,
+  // and assistive tech hears it with the name.
+  expect(document.querySelector('.visibility-trend-current-label')?.textContent).toBe('Mention share in non-brand answers')
   expect(screen.getByRole('img', { name: /^Mention share in non-brand answers trend chart/ })).toBeTruthy()
   expect(screen.getByText(/75\.0% mention share in non-brand answers, 3 of 4 tracked-brand mentions were you/)).toBeTruthy()
 })
@@ -418,7 +418,7 @@ test('labels a pooled mention-share trend as classification unavailable', async 
 
   // "All answers", as the title's ⓘ and the competitive card say, never "pooled".
   expect(screen.getByRole('img', { name: /^Mention share in all answers trend chart/ })).toBeTruthy()
-  expect(document.querySelector('.visibility-trend-current-label')?.textContent).toBe('Mention share')
+  expect(document.querySelector('.visibility-trend-current-label')?.textContent).toBe('Mention share in all answers')
   expect(screen.queryByText(/pooled|classification unavailable/i)).toBeNull()
 })
 

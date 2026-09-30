@@ -3214,7 +3214,7 @@ function ProjectPageContent({
           </OverviewDisclosure>
 
           <div className="page-section-divider">
-            <CitationVisibilitySection projectName={model.project.name} classify={classifyQuery} hasCompetitors={competitorDomains.length > 0} />
+            <CitationVisibilitySection projectName={model.project.name} classify={classifyQuery} hasCompetitors={competitorDomains.length > 0} providerScores={model.providerScores} />
           </div>
 
           {!isEmbed() && (

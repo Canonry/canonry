@@ -74,3 +74,15 @@ export function mentionShareTone(percent: number): MetricTone {
   if (percent >= 25) return 'caution'
   return 'negative'
 }
+
+/**
+ * Tone for a gap count out of the queries it was drawn from. Same bands as the
+ * server's `gapTone` (packages/intelligence/src/score-tones.ts): no gap
+ * positive, 30% of queries and up negative, anything between caution.
+ */
+export function gapTone(gapCount: number, totalCount: number): MetricTone {
+  if (gapCount === 0) return 'positive'
+  const ratio = totalCount > 0 ? gapCount / totalCount : 0
+  if (ratio >= 0.3) return 'negative'
+  return 'caution'
+}

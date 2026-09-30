@@ -1039,14 +1039,14 @@ function mentionShareScopeLabel(scope: MentionShareScope): string {
   return scope === 'non-brand' ? 'non-brand answers' : 'all answers'
 }
 
-/** The metric's visible name. Mention share's scope is in the title's ⓘ and its base, not here. */
+/** The metric's bare name, for sentences that go on to say what it counts. */
 function metricLabel(metric: MetricChoice): string {
   if (metric === 'cited') return 'Cited'
   if (metric === 'mentionShare') return 'Mention share'
   return 'Mentioned'
 }
 
-/** The name assistive tech hears, which carries mention share's scope with it. */
+/** The metric's name as shown and heard: mention share always carries its scope. */
 function spokenMetricLabel(metric: MetricChoice, scope: MentionShareScope): string {
   return metric === 'mentionShare' ? `Mention share in ${mentionShareScopeLabel(scope)}` : metricLabel(metric)
 }
@@ -1459,17 +1459,20 @@ function TrendTooltip({
 
   if (metric === 'mentionShare') {
     const projectMentions = bucket.mentionShare.projectMentionSnapshots
-    const denominator = projectMentions + bucket.mentionShare.competitorMentionSnapshots
+    const competitorMentions = bucket.mentionShare.competitorMentionSnapshots
+    const denominator = projectMentions + competitorMentions
     return (
       <div className="trend-tooltip">
         {head}
         <div className="trend-tooltip-row">
           <span className="trend-tooltip-swatch trend-tooltip-swatch-ring" style={{ borderColor: MENTION_SHARE_COLOR }} aria-hidden="true" />
-          <span className="trend-tooltip-name">Mention share</span>
+          <span className="trend-tooltip-name">{spokenMetricLabel('mentionShare', bucket.mentionShare.scope)}</span>
           <span className="trend-tooltip-value">{formatPercent(bucket.mentionShare.rate)}</span>
         </div>
         <p className="trend-tooltip-detail">
-          {denominator > 0 ? `You ${projectMentions} of ${denominator} tracked-brand mentions` : 'No tracked-brand mentions in this point'}
+          {denominator > 0
+            ? `You ${projectMentions} of ${denominator} tracked-brand mentions. Competitors ${competitorMentions}.`
+            : 'No tracked-brand mentions in this point'}
         </p>
         {modelLine}
       </div>
@@ -1668,7 +1671,8 @@ export function VisibilityTrendSection({
   const mentionShareScope: MentionShareScope = buckets[buckets.length - 1]?.mentionShare.scope
     ?? data?.mentionShareScope
     ?? 'pooled'
-  const currentMetricLabel = metricLabel(metric)
+  // Mention share's scope is shown in the headline too, so a cropped chart
+  // still says which answers its share was measured in.
   const spokenLabel = spokenMetricLabel(metric, mentionShareScope)
   // The headline is the pooled rate of every answer, which no single engine
   // line matches, so in by-engine mode its dot takes no engine's color.
@@ -1729,7 +1733,7 @@ export function VisibilityTrendSection({
   const readout = latestRate !== null && latestPlotted && (
     <div className="visibility-trend-current">
       <span className="visibility-trend-current-dot" style={{ backgroundColor: headlineDotColor }} aria-hidden="true" />
-      <span className="visibility-trend-current-label">{currentMetricLabel}</span>
+      <span className="visibility-trend-current-label">{spokenLabel}</span>
       <span className="visibility-trend-current-value">{formatPercent(latestRate)}</span>
       {pointChange !== null && (
         <span className={`visibility-trend-current-delta ${POINT_CHANGE_TONE[pointChange.direction]}`}>
