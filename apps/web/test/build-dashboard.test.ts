@@ -689,6 +689,7 @@ test('buildProjectCommandCenter populates score gauges from the overview DTO whe
       scores: {
         visibility: { label: 'Answer Visibility', value: '75.0%', delta: '3 of 4 queries visible', tone: 'positive', description: '', tooltip: '', trend: [], progress: 75 },
         gapQueries: { label: 'Gap Queries', value: '0', delta: '0 of 4 queries', tone: 'positive', description: '', tooltip: '', trend: [] },
+        mentionGaps: { label: 'Mention Gaps', value: '1', delta: '1 of 4 queries', tone: 'caution', description: '', tooltip: '', trend: [], progress: 25 },
         indexCoverage: { label: 'Index Coverage', value: 'No data', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
         competitorPressure: { label: 'Competitor Pressure', value: 'None', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
         runStatus: { label: 'Run Status', value: 'None', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
@@ -721,6 +722,15 @@ test('buildProjectCommandCenter populates score gauges from the overview DTO whe
   // The per-model citation rates the By engine card lists (restored after the cleanup).
   expect(vm.providerScores).toEqual([{ provider: 'gemini', model: 'flash', score: 75, cited: 3, total: 4 }])
   expect(buildProjectCommandCenter({ ...data, overview: null }).providerScores).toEqual([])
+  // The Simple header's range and the all-queries gap counts, also restored.
+  expect(vm.dateRangeLabel).toBe('All time')
+  expect(vm.gapQueries).toMatchObject({ value: '0', delta: '0 of 4 queries' })
+  expect(vm.mentionGaps).toMatchObject({ value: '1', delta: '1 of 4 queries', progress: 25 })
+  expect(buildProjectCommandCenter({ ...data, overview: null })).toMatchObject({
+    dateRangeLabel: 'All time',
+    gapQueries: { value: 'No data' },
+    mentionGaps: { value: 'No data' },
+  })
 })
 
 test('buildProjectCommandCenter surfaces synthesized attention items (e.g. stale_visibility) as project insights', () => {

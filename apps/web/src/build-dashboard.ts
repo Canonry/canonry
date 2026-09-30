@@ -609,11 +609,14 @@ function adaptOverviewToCommandCenter(
 
   return {
     project,
+    dateRangeLabel: overview.dateRangeLabel,
     contextLabel: overview.contextLabel,
     mentionSummary: overview.scores.mention as ScoreSummaryVm,
     visibilitySummary: overview.scores.visibility as ScoreSummaryVm,
     mentionShareSummary: overview.scores.mentionShare,
     queryCounts: { cited: overview.queryCounts.citedQueries, total: overview.queryCounts.totalQueries },
+    gapQueries: overview.scores.gapQueries as ScoreSummaryVm,
+    mentionGaps: overview.scores.mentionGaps as ScoreSummaryVm,
     indexCoverage: overview.scores.indexCoverage as ScoreSummaryVm,
     providerScores: overview.providerScores,
     competitorPressure: overview.scores.competitorPressure as ScoreSummaryVm,
@@ -670,6 +673,7 @@ function emptyCommandCenter(
   }
   return {
     project,
+    dateRangeLabel: 'All time',
     contextLabel: `${project.country} / ${project.language.toUpperCase()}`,
     mentionSummary: { ...placeholder, label: 'Mention Coverage' },
     visibilitySummary: { ...placeholder, label: 'Citation Coverage' },
@@ -685,6 +689,8 @@ function emptyCommandCenter(
       branded: emptyMentionShareBreakdown(),
     },
     queryCounts: { cited: 0, total: 0 },
+    gapQueries: { ...placeholder, label: 'Citation Gaps' },
+    mentionGaps: { ...placeholder, label: 'Mention Gaps' },
     indexCoverage: { ...placeholder, label: 'Index Coverage' },
     providerScores: [],
     competitorPressure: { ...placeholder, label: 'Competitor Pressure' },

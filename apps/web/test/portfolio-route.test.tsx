@@ -1797,6 +1797,12 @@ function withAinycSweeps(dashboard: ReturnType<typeof createDashboardFixture>['d
   project.queryCounts = { cited: 7, total: 14 }
   project.recentRuns = [{ ...completed, id: AINYC_LATEST_RUN.id, trigger: 'manual', createdAt: AINYC_LATEST_RUN.createdAt, startedAt: 'Sep 29, 5:59 AM' }]
   project.visibilitySweeps = [...project.recentRuns]
+  // GET /overview's all-queries scores for the same sweep: 7 of 14 named, 7 of
+  // 14 cited, and 1 of 14 queries each named and cited instead of you.
+  project.mentionSummary = { ...project.mentionSummary, value: '50.0%', delta: '7 of 14 queries mentioned', progress: 50 }
+  project.visibilitySummary = { ...project.visibilitySummary, value: '50.0%', delta: '7 of 14 queries cited', progress: 50 }
+  project.mentionGaps = { ...project.mentionGaps, value: '1', delta: '1 of 14 queries', progress: 100 / 14 }
+  project.gapQueries = { ...project.gapQueries, value: '1', delta: '1 of 14 queries', progress: 100 / 14 }
   return project
 }
 
@@ -1817,11 +1823,14 @@ test('the Visibility card reads ainyc\'s two sweeps by class, above the trend ch
   const { card, meta, rows, details, bullets } = visibilityCard(html)
 
   expect(meta).toBe('Sep 29, 5:59 AM')
-  // Never the pooled 7 of 14: the branded queries added this sweep get their own row.
+  // Never the pooled 7 of 14: the branded queries added this sweep get their own
+  // row, each count with its share of the class beside it.
   expect(rows).toEqual([
-    ['Non-brand', '4 of 11', '4 of 11', 'no change'],
-    ['Branded', '3 of 3', '3 of 3', 'first AI sweep'],
+    ['Non-brand', '4 of 11 (36.4%)', '4 of 11 (36.4%)', 'no change'],
+    ['Branded', '3 of 3 (100%)', '3 of 3 (100%)', 'first AI sweep'],
   ])
+  // On a phone the share drops under its count rather than widen the grid.
+  expect(card.querySelector('tbody tr:first-child td .av-of:last-child')!.className).toContain('max-sm:block')
   // Non-brand under 70% reads amber, as the approved card draws it; branded is never toned.
   expect(card.querySelector('tbody tr:first-child .av-n')!.className).toContain('text-caution-400')
   expect(card.querySelector('tbody tr:nth-child(2) .av-n')!.className).toContain('text-primary')
@@ -1831,6 +1840,8 @@ test('the Visibility card reads ainyc\'s two sweeps by class, above the trend ch
     'Answers: mentioned 7 of 44 (was 6), cited 9 of 44 (was 8)',
     'Perplexity: now mentions and cites you for "NYC AEO Agency"',
     'Added: Canonry, Canonry AEO agency, Canonry reviews',
+    // The server's pooled figures, labelled as all queries, never a row of the grid.
+    'All queries: 7 of 14 queries mentioned (50.0%), 7 of 14 queries cited (50.0%)',
   ])
   // Decision 1: the card sits above the chart.
   expect(html.indexOf('id="overview-brief-title"')).toBeLessThan(html.indexOf('AI answers over time'))
@@ -1875,8 +1886,13 @@ test('What changed names ainyc\'s added queries as written and dates the sweep b
 
   expect(changes.querySelector('.av-wc-summary')?.textContent).toMatch(/^Sep 29(, 2026)? · 3 queries added · 4 new models$/)
   // Stored basket keys are lowercase; the page hands the section the tracked and added query text.
-  expect([...changes.querySelectorAll('.av-details-list li')].map(item => item.textContent))
-    .toEqual([expect.stringMatching(/^Added Sep 29(, 2026)?: Canonry, Canonry AEO agency, Canonry reviews$/)])
+  expect([...changes.querySelectorAll('.av-details-list li')].map(item => item.textContent)).toEqual([
+    expect.stringMatching(/^Added Sep 29(, 2026)?: Canonry, Canonry AEO agency, Canonry reviews$/),
+    expect.stringMatching(/^Claude last answered with claude-sonnet-5 on Sep 29(, 2026)?$/),
+    expect.stringMatching(/^Gemini last answered with gemini-3.5-flash on Sep 29(, 2026)?$/),
+    expect.stringMatching(/^OpenAI last answered with chat-latest on Sep 29(, 2026)?$/),
+    expect.stringMatching(/^Perplexity last answered with openai\/gpt-6-luna on Sep 29(, 2026)?$/),
+  ])
   expect([...changes.querySelectorAll('button[aria-label]')].map(button => button.getAttribute('aria-label')))
     .toContainEqual(expect.stringMatching(/ Sweep before: Jul 14(, 2026)?\.$/))
   expect(html).not.toContain('Query set changed')
@@ -1902,9 +1918,11 @@ test('Where competitors beat you and the query table read ainyc\'s latest sweep 
 
   // Each tracked competitor's share sits under yours, from the latest sweep.
   expect(card.querySelector('.av-card-meta')?.textContent).toBe('Latest sweep')
+  // You are ranked among them by name, as the server ranked the brands.
   expect([...card.querySelectorAll('.av-grid tbody tr')].map(row => [...row.children].map(visible))).toEqual([
     ['Mention share', '33.3% 7 of 21 tracked-brand mentions'],
-    ['pbjmarketing.com', '66.7% 14 of 21'],
+    ['pbjmarketing.com', '66.7% 14 of 21 mentions'],
+    ['Citypoint Dental NYC (you)', '33.3% 7 of 21 mentions'],
     ['Named instead of you', '1 of 11 queries'],
     ['Cited instead of you', '1 of 11 queries'],
   ])
@@ -1912,9 +1930,11 @@ test('Where competitors beat you and the query table read ainyc\'s latest sweep 
   expect([...card.querySelectorAll('.av-details-list li')].map(item => item.textContent)).toEqual([
     'Base: 44 non-brand answers',
     'Named and cited instead: "best AEO agency New York"',
+    'All queries: named instead of you 1 of 14 queries, cited instead of you 1 of 14 queries',
   ])
-  // Never the pooled "1 / 14" of the old card.
-  expect(visible(card)).not.toMatch(/of 14|at risk|Mention gaps/)
+  // The pooled "1 of 14" of the old card is a labelled Details line, never a grid figure.
+  expect(visible(card.querySelector('.av-grid')!)).not.toMatch(/of 14/)
+  expect(visible(card)).not.toMatch(/at risk|Mention gaps/)
 
   // The query table: Non-brand first, then Branded; "new query" only on the added three.
   const table = doc.querySelector('#evidence-section table')!
@@ -1982,9 +2002,10 @@ test('By engine, Past sweeps and Competitors over time read ainyc as the approve
   ])
 
   const competitors = card('Competitors over time')
-  expect(competitors.querySelector('.av-card-meta')?.textContent).toBe('Non-brand · last 30 days · tracked competitors only')
+  // Simple names its scope again, as Advanced does.
+  expect(competitors.querySelector('.av-card-meta')?.textContent).toBe('Project-wide · Non-brand · last 30 days · tracked competitors only')
   expect([...competitors.querySelectorAll('.av-grid[aria-label="Competitors over time"] tbody tr')].map(row => cells(row).slice(0, 5))).toEqual([
-    ['You', 'Your brand', '31.7%', '13 of 88', '17 of 88'],
+    ['Canonry (you)', 'Your brand', '31.7%', '13 of 88', '17 of 88'],
     ['pbjmarketing.com', 'Competitor', '68.3%', '28 of 88', '28 of 88'],
   ])
   // Two incomplete source lists qualify the Cited figures without opening Details.
@@ -2073,11 +2094,12 @@ test('the Visibility card names a first sweep and compares nothing', async () =>
       project.movementComparison = { ...ainycComparison(), hasPreviousRun: false, previousRunAt: null, addedQueries: [], addedQueryCount: 0 }
     },
   })
-  const { meta, rows, details } = visibilityCard(html)
+  const { meta, rows, bullets } = visibilityCard(html)
 
   expect(meta).toBe('First sweep')
   expect(rows.map(row => row[3])).toEqual(['first AI sweep', 'first AI sweep'])
-  expect(details).toBeNull()
+  // No comparison to report; only the server's all-queries figures.
+  expect(bullets).toEqual(['All queries: 7 of 14 queries mentioned (50.0%), 7 of 14 queries cited (50.0%)'])
 })
 
 test('a frozen visibility baseline remains visible when five newer failed runs fill the recent-run slice', async () => {

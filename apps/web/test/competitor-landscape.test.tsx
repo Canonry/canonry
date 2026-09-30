@@ -83,6 +83,9 @@ function grid() {
   return screen.getByRole('table', { name: 'Competitors over time' })
 }
 
+/** Your row, named by the project's display name: "Canonry (you)". */
+const YOU = /\(you\)$/
+
 function gridRow(name: string | RegExp) {
   return within(grid()).getByRole('rowheader', { name }).closest('tr')!
 }
@@ -105,8 +108,8 @@ describe('CompetitorLandscape', () => {
     expect(container.querySelector('.av-card-meta')?.textContent).toBe('Non-brand · last 30 days · tracked competitors only')
     expect(within(grid()).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Brand', 'Type', 'Mention share', 'Named', 'Cited'])
 
-    const you = gridRow('You')
-    expect(you.textContent).toBe('YouYour brand31.7%13 of 8817 of 88')
+    const you = gridRow(YOU)
+    expect(you.textContent).toBe('Canonry (you)Your brand31.7%13 of 8817 of 88')
     // 31.7% sits in the mention-share caution band, and the whole row reads in it.
     expect(you.querySelectorAll('.text-caution-400')).toHaveLength(3)
     const rival = gridRow('pbjmarketing.com')
@@ -218,8 +221,8 @@ describe('CompetitorLandscape', () => {
   test('counts citations over every answer, text or not', () => {
     // 20 answers with text plus 2 that kept only a source list.
     renderLandscape()
-    const you = gridRow('You')
-    expect(you.textContent).toBe('YouYour brand50.0%4 of 207 of 22')
+    const you = gridRow(YOU)
+    expect(you.textContent).toBe('Canonry (you)Your brand50.0%4 of 207 of 22')
   })
 
   test.each([
@@ -238,7 +241,7 @@ describe('CompetitorLandscape', () => {
     }
     const { rerender, props } = renderLandscape({ landscape: landscape({ scope, evidence: emptyEvidence }) })
 
-    const brandRow = gridRow('You')
+    const brandRow = gridRow(YOU)
     expect(within(brandRow).getAllByText('Not measured')).toHaveLength(3)
     expect(brandRow.textContent).not.toMatch(/(^|[^\d.])0(\.0)?%/)
 
@@ -248,7 +251,7 @@ describe('CompetitorLandscape', () => {
       evidence: { ...emptyEvidence, answeredResults: 1 },
     })} />)
     // A measured zero share is exact, so it reads 0% with no decimal.
-    expect(gridRow('You').textContent).toBe('YouYour brand0%0 of 10 of 1')
+    expect(gridRow(YOU).textContent).toBe('Canonry (you)Your brand0%0 of 10 of 1')
   })
 
   test('shows stored source URLs for other competitors, never a link to latest evidence', () => {
@@ -374,8 +377,8 @@ test('explains unmeasured share without hiding counts', () => {
   const data = landscape({ basis: null, availability: 'not-measured', reason: 'no-competitors', pinned: [], observed: [], project: row({ surfaceClass: 'own', mentionCount: 34, shareOfVoice: null }) })
   const { container } = renderLandscape({ landscape: data })
   expect(screen.getByText('Mention share: no competitors configured')).toBeTruthy()
-  expect(within(gridRow('You')).getByText('Not measured')).toBeTruthy()
-  expect(within(gridRow('You')).getByText('34')).toBeTruthy()
+  expect(within(gridRow(YOU)).getByText('Not measured')).toBeTruthy()
+  expect(within(gridRow(YOU)).getByText('34')).toBeTruthy()
   expect(detailsList(container).bullets).not.toContain('Tracked competitors only')
   // Neither the one-decimal nor the exact-100 form of a share may appear.
   expect(screen.queryByText(/100(\.0)?%/)).toBeNull()
@@ -386,7 +389,7 @@ test('an observed basis puts the admitted competitors in the grid and says so', 
   const below = row({ domain: 'below.example', mentionCount: 2, shareOfVoice: null })
   const { container } = renderLandscape({ landscape: landscape({ basis: 'observed', pinned: [], observed: [admitted, below] }) })
 
-  expect(within(grid()).getAllByRole('rowheader').map(cell => cell.textContent)).toEqual(['You', 'Rival admitted.example'])
+  expect(within(grid()).getAllByRole('rowheader').map(cell => cell.textContent)).toEqual(['Canonry (you)', 'Rival admitted.example'])
   expect(screen.getByRole('button', { name: 'Pin admitted.example' })).toBeTruthy()
   expect(container.querySelector('.av-card-meta')?.textContent).toBe('Non-brand · last 30 days · observed competitors only')
   expect(detailsList(container).bullets).toEqual(expect.arrayContaining([
@@ -406,7 +409,7 @@ test('explains why a class must be selected, and never tones a pooled share', ()
   }) })
   expect(screen.getByText('Mention share: no query type selected')).toBeTruthy()
   expect(container.querySelector('.av-card-meta')?.textContent).toBe('All queries · last 30 days · tracked competitors only')
-  expect(gridRow('You').querySelector('.text-caution-400, .text-negative-400, .text-positive-400')).toBeNull()
+  expect(gridRow(YOU).querySelector('.text-caution-400, .text-negative-400, .text-positive-400')).toBeNull()
 })
 
 describe('CompetitorLandscape restored figures (a cleanup never removes data)', () => {
@@ -433,10 +436,21 @@ describe('CompetitorLandscape restored figures (a cleanup never removes data)', 
     expect(visibleNotes(pinned.container)).not.toContain('No pinned competitors.')
   })
 
+  test('names your row by the project\'s display name, as before the cleanup', () => {
+    renderLandscape({ landscape: ainycLandscape(), canWrite: false })
+    const you = within(grid()).getAllByRole('rowheader')[0]!
+    expect(you.textContent).toBe('Canonry (you)')
+    expect(you.querySelector('.av-of')?.textContent).toBe('(you)')
+    cleanup()
+    // A project with no name to show still reads as yours.
+    renderLandscape({ landscape: landscape({ project: row({ domain: 'canonry.example', label: ' ', surfaceClass: 'own', shareOfVoice: 50 }) }) })
+    expect(within(grid()).getAllByRole('rowheader')[0]!.textContent).toBe('You')
+  })
+
   test('restores the Type column in the main grid', () => {
     renderLandscape({ landscape: ainycLandscape(), canWrite: false })
     expect(within(grid()).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Brand', 'Type', 'Mention share', 'Named', 'Cited'])
-    expect(gridRow('You').querySelectorAll('td')[0]!.textContent).toBe('Your brand')
+    expect(gridRow(YOU).querySelectorAll('td')[0]!.textContent).toBe('Your brand')
     expect(gridRow('pbjmarketing.com').querySelectorAll('td')[0]!.textContent).toBe('Competitor')
   })
 

@@ -531,7 +531,10 @@ export function CompetitorLandscape({
             <tbody>
               {landscape ? (
                 <tr>
-                  <th scope="row" className="av-row-label">You</th>
+                  {/* Named as before the cleanup: "Canonry (you)", or "You" with no name to show. */}
+                  <th scope="row" className="av-row-label">
+                    {landscape.project.label.trim() ? <>{landscape.project.label.trim()} <span className="av-of">(you)</span></> : 'You'}
+                  </th>
                   <td className="av-brand-type text-[13px] text-secondary">Your brand</td>
                   <td><Share percent={landscape.project.shareOfVoice} state={metricState} toneClass={youTone} /></td>
                   <td><Count count={landscape.project.mentionCount} of={named} state={metricState} toneClass={youTone} /></td>

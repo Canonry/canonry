@@ -13,6 +13,8 @@ import {
   type QueryClassLookup,
   type VisibilityRowKey,
 } from '../../lib/answer-movement.js'
+import { extractErrorMessage } from '../../lib/extract-error-message.js'
+import { formatSweepInstant } from '../../lib/format-helpers.js'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 import { METRIC_TONE_TEXT_CLASS } from '../../lib/tone-helpers.js'
 import { Disclosure } from '../shared/Disclosure.js'
@@ -123,6 +125,34 @@ export function byEngineClasses(data: CitationVisibilityResponse, classify: Quer
     .filter((entry): entry is ByEngineClass => entry !== undefined && entry.queries > 0)
 }
 
+export interface UncountedCompetitorGap {
+  query: string
+  provider: string
+  competitors: string[]
+  /** Why the counts leave it out: its engine is no longer configured, or its query is no longer tracked. */
+  reason: 'engine' | 'query'
+}
+
+/**
+ * The competitor gap rows the class counts leave out, in the server's order:
+ * one engine's latest answer to one query, where the query is no longer
+ * tracked or the engine no longer answers it. Listed on their own so no gap
+ * the server returns goes unseen.
+ */
+export function uncountedCompetitorGaps(data: CitationVisibilityResponse): UncountedCompetitorGap[] {
+  const tracked = new Map(data.byQuery.map(row => [row.queryId, row]))
+  return data.competitorGaps.flatMap(gap => {
+    const row = tracked.get(gap.queryId)
+    if (row?.providers.some(answer => answer.provider === gap.provider)) return []
+    return [{ query: gap.query, provider: gap.provider, competitors: gap.citingCompetitors, reason: row ? 'engine' as const : 'query' as const }]
+  })
+}
+
+const UNCOUNTED_REASON: Record<UncountedCompetitorGap['reason'], string> = {
+  engine: 'engine no longer configured',
+  query: 'query no longer tracked',
+}
+
 const SPOKEN_CLASS: Record<VisibilityRowKey, string> = {
   'non-brand': 'non-brand queries',
   branded: 'branded queries',
@@ -138,9 +168,10 @@ function plural(count: number, one: string, many: string): string {
 /**
  * "By engine": Mentioned and Cited query counts per engine for ONE query
  * class, one competitor line with its base, and in Details the mention/citation
- * split, the competitors on each gap answer, and the all-queries engine counts
- * and per-model citation rates. A Non-brand/Branded control sits where the
- * card's meta goes; a single class shows its name there instead.
+ * split, the competitors on each gap answer (and the gap answers no class
+ * counts), and the all-queries engine counts and per-model citation rates. The
+ * latest run's time is the card's meta; a Non-brand/Branded control sits
+ * beside it, or a single class's name.
  */
 export function CitationVisibilitySection({
   projectName,
@@ -172,7 +203,8 @@ export function CitationVisibilitySection({
   if (visibilityQuery.isError) {
     body = (
       <div className="flex flex-wrap items-center gap-3 text-sm text-secondary">
-        <span>Could not load engine results.</span>
+        {/* The SDK throws the API's error envelope; its message says why. */}
+        <span>Could not load engine results: {extractErrorMessage(visibilityQuery.error)}</span>
         <Button type="button" size="sm" variant="outline" onClick={() => { void visibilityQuery.refetch() }}>Retry</Button>
       </div>
     )
@@ -217,7 +249,12 @@ export function CitationVisibilitySection({
     for (const gap of active.competitorGaps) {
       details.push(`"${gap.query}" (${providerDisplayName(gap.provider)}): ${gap.competitors.join(', ')} cited instead of you`)
     }
+    // Outside every class's base, so on every tab and in no count.
+    for (const gap of uncountedCompetitorGaps(data)) {
+      details.push(`"${gap.query}" (${providerDisplayName(gap.provider)}): ${gap.competitors.join(', ')} cited instead of you, not counted (${UNCOUNTED_REASON[gap.reason]})`)
+    }
   }
+  const latestRunAt = data?.status === 'ready' ? data.summary.latestRunAt : null
 
   // Only non-brand is a competitive read; branded sits near every answer by
   // construction and unclassified pools both, so neither is tone-coloured.
@@ -233,16 +270,21 @@ export function CitationVisibilitySection({
           <h2 id={titleId} className="av-card-title">By engine</h2>
           {active && <InfoTooltip text={BY_ENGINE_TOOLTIP} />}
         </div>
-        {classes.length > 1 ? (
-          <SegmentedRadioGroup
-            label="Query type"
-            className="flex-wrap"
-            options={classes.map(entry => ({ value: entry.key, label: VISIBILITY_ROW_LABEL[entry.key] }))}
-            value={active!.key}
-            onChange={setSelected}
-          />
-        ) : active ? (
-          <span className="mention-share-class">{VISIBILITY_ROW_LABEL[active.key]}</span>
+        {latestRunAt || active ? (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {latestRunAt ? <p className="av-card-meta">Latest run {formatSweepInstant(latestRunAt)}</p> : null}
+            {classes.length > 1 ? (
+              <SegmentedRadioGroup
+                label="Query type"
+                className="flex-wrap"
+                options={classes.map(entry => ({ value: entry.key, label: VISIBILITY_ROW_LABEL[entry.key] }))}
+                value={active!.key}
+                onChange={setSelected}
+              />
+            ) : active ? (
+              <span className="mention-share-class">{VISIBILITY_ROW_LABEL[active.key]}</span>
+            ) : null}
+          </div>
         ) : null}
       </div>
 

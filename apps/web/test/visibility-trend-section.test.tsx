@@ -794,7 +794,7 @@ test('prints the change after a query is removed, since the server restates both
 
   act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Cited' })) })
   expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('up 100.0 points')
-  expect(trendDetails().filter(item => item.startsWith('No change figure'))).toEqual([])
+  expect(trendDetails().filter(item => item.startsWith('Not the same queries'))).toEqual([])
 
   // The removal is still listed as the event it was.
   expect(changeRows(whatChanged())).toEqual([['Queries', expect.stringMatching(/^Jul 5/), '1 query removed']])
@@ -813,7 +813,9 @@ test('names a query-set change without counting queries the points only happened
   await screen.findByRole('list', { name: 'Engines' })
 
   expect(changeRows(whatChanged())).toEqual([['Queries', expect.stringMatching(/^Sep 28/), '1 query added']])
-  expect(trendDetails()[0]).toMatch(/^No change figure: 1 query added Sep 28(, 2026)?; first and latest points cover different queries$/)
+  // The change still shows, qualified in view, with the reason in Details.
+  expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('no change (not the same queries)')
+  expect(trendDetails()[0]).toMatch(/^Not the same queries: 1 query added Sep 28(, 2026)?; first and latest points cover different queries$/)
   expect(document.querySelector('section.visibility-trend')?.textContent).not.toMatch(/\d+ quer(y|ies) (?:and|to|->) /)
 })
 
@@ -827,8 +829,13 @@ test('says the points answered different numbers of queries when no recorded cha
   ))
   await screen.findByRole('list', { name: 'Engines' })
 
-  expect(document.querySelector('.visibility-trend-current-delta')).toBeNull()
-  expect(trendDetails()[0]).toBe('No change figure: first and latest points have answers for 3 and 2 queries')
+  // Shown, never withheld: qualified in view and never tone-coloured as a win.
+  const delta = document.querySelector('.visibility-trend-current-delta')!
+  expect(delta.textContent).toBe('up 50.0 points (not the same queries)')
+  expect(delta.className).toContain('text-muted')
+  expect(delta.className).not.toContain('text-positive-400')
+  expect(trendDetails()[0]).toBe('Not the same queries: first and latest points have answers for 3 and 2 queries')
+  expect(screen.getByText('Mentioned rate across 2 sweeps. Latest 100%, up 50.0 points over the period, not the same queries.')).toBeTruthy()
 })
 
 test('prints the change when a query was removed and added back before the latest point', async () => {
@@ -838,7 +845,7 @@ test('prints the change when a query was removed and added back before the lates
 
   act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Cited' })) })
   expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('up 50.0 points')
-  expect(trendDetails().filter(item => item.startsWith('No change figure'))).toEqual([])
+  expect(trendDetails().filter(item => item.startsWith('Not the same queries'))).toEqual([])
 })
 
 test('says what a pooled point\'s two sweeps differ by, not every query a change between them touched', async () => {

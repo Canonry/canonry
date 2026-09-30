@@ -389,6 +389,7 @@ const citypointEvidence: CitationInsightVm[] = [
 const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
   {
     project: projects[0],
+    dateRangeLabel: 'Last 7 days',
     contextLabel: 'US / English / Local-intent monitoring',
     mentionSummary: {
       label: 'Mention Coverage',
@@ -450,6 +451,24 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         snapshotsTotal: 8,
         score: 100,
       },
+    },
+    gapQueries: {
+      label: 'Citation Gaps',
+      value: '1',
+      delta: '1 of 9 queries',
+      tone: 'caution',
+      description: 'One tracked query currently cites competitors without citing Citypoint.',
+      trend: [],
+      progress: 11.111111,
+    },
+    mentionGaps: {
+      label: 'Mention Gaps',
+      value: '2',
+      delta: '2 of 9 queries',
+      tone: 'caution',
+      description: 'Two tracked queries mention competitors but never Citypoint.',
+      trend: [],
+      progress: 22.22,
     },
     indexCoverage: {
       label: 'Index Coverage',
@@ -601,6 +620,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
   },
   {
     project: projects[1],
+    dateRangeLabel: 'Last 14 days',
     contextLabel: 'US / English / Service-area legal prompts',
     mentionSummary: {
       label: 'Mention Coverage',
@@ -657,6 +677,24 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         snapshotsTotal: 5,
         score: 100,
       },
+    },
+    gapQueries: {
+      label: 'Citation Gaps',
+      value: '0',
+      delta: '0 of 6 queries',
+      tone: 'positive',
+      description: 'No competitive citation gaps detected in the latest visibility run.',
+      trend: [],
+      progress: 0,
+    },
+    mentionGaps: {
+      label: 'Mention Gaps',
+      value: '0',
+      delta: '0 of 6 queries',
+      tone: 'positive',
+      description: 'No competitive mention gaps detected in the latest visibility run.',
+      trend: [],
+      progress: 0,
     },
     indexCoverage: {
       label: 'Index Coverage',
@@ -771,6 +809,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
   },
   {
     project: projects[2],
+    dateRangeLabel: 'Last 7 days',
     contextLabel: 'US / English / Multi-location treatment prompts',
     mentionSummary: {
       label: 'Mention Coverage',
@@ -827,6 +866,24 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         snapshotsTotal: 8,
         score: 100,
       },
+    },
+    gapQueries: {
+      label: 'Citation Gaps',
+      value: '2',
+      delta: '2 of 7 queries',
+      tone: 'caution',
+      description: 'Two tracked queries currently cite competitors without citing Northstar.',
+      trend: [],
+      progress: 28.57,
+    },
+    mentionGaps: {
+      label: 'Mention Gaps',
+      value: '3',
+      delta: '3 of 7 queries',
+      tone: 'negative',
+      description: 'Three tracked queries mention competitors but never Northstar.',
+      trend: [],
+      progress: 42.86,
     },
     indexCoverage: {
       label: 'Index Coverage',

@@ -218,6 +218,8 @@ export interface QueryCountsVm {
 
 export interface ProjectCommandCenterVm {
   project: ProjectDto
+  /** The server's label for the period the overview reads ("All time"), shown in the Simple header. */
+  dateRangeLabel: string
   contextLabel: string
   /** Primary headline gauge — Mention Coverage. The dashboard renders this as the big radial gauge. */
   mentionSummary: ScoreSummaryVm
@@ -231,6 +233,10 @@ export interface ProjectCommandCenterVm {
    *  explicitly rather than inferred. */
   mentionShareSummary: MentionShareDto & { unavailable?: boolean }
   queryCounts: QueryCountsVm
+  /** The latest sweep's citation gaps over all queries together (`overview.scores.gapQueries`). */
+  gapQueries: ScoreSummaryVm
+  /** The latest sweep's mention gaps over all queries together (`overview.scores.mentionGaps`). */
+  mentionGaps: ScoreSummaryVm
   indexCoverage: ScoreSummaryVm
   /** The latest sweep's citation rate per engine and model, over all queries (`overview.providerScores`). */
   providerScores: ProjectOverviewProviderScoreDto[]

@@ -5,18 +5,25 @@ import { getApiV1ProjectsByNameCitationsVisibilityQueryKey } from '@ainyc/canonr
 import { emptyCitationVisibility, type CitationVisibilityResponse } from '@ainyc/canonry-contracts'
 
 import { heyClient } from '../src/api.js'
-import { byEngineClasses, CitationVisibilitySection } from '../src/components/project/CitationVisibilitySection.js'
+import { byEngineClasses, CitationVisibilitySection, uncountedCompetitorGaps } from '../src/components/project/CitationVisibilitySection.js'
+import { formatSweepInstant } from '../src/lib/format-helpers.js'
 import type { ProjectCommandCenterVm } from '../src/view-models.js'
 import { ainycCitationVisibility, ainycClassify, ainycProviderScores } from './ainyc-visibility-fixture.js'
 
 afterEach(cleanup)
 
 function renderCard(
-  data: CitationVisibilityResponse,
+  data: CitationVisibilityResponse | { failed: unknown },
   { hasCompetitors = true, classify = ainycClassify, providerScores = [] as ProjectCommandCenterVm['providerScores'] } = {},
 ) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  queryClient.setQueryData(getApiV1ProjectsByNameCitationsVisibilityQueryKey({ client: heyClient, path: { name: 'ainyc' } }), data)
+  // A read that already failed stays failed on mount, so the card shows its error.
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, retryOnMount: false } } })
+  const key = getApiV1ProjectsByNameCitationsVisibilityQueryKey({ client: heyClient, path: { name: 'ainyc' } })
+  if ('failed' in data) {
+    queryClient.getQueryCache().build(queryClient, { queryKey: key }).setState({ status: 'error', error: data.failed as Error, fetchStatus: 'idle' })
+  } else {
+    queryClient.setQueryData(key, data)
+  }
   return render(
     <QueryClientProvider client={queryClient}>
       <CitationVisibilitySection projectName="ainyc" classify={classify} hasCompetitors={hasCompetitors} providerScores={providerScores} />
@@ -186,7 +193,11 @@ describe('By engine restored figures (a cleanup never removes data)', () => {
     data.competitorGaps.push({ ...gap, provider: 'muse' })
     const { container } = renderCard(data)
     expect(bullets(container)).toContain('"AEO Agency in NYC" (Claude): pbjmarketing.com, rival.example cited instead of you')
-    expect(bullets(container).filter(line => line.includes('cited instead of you'))).toHaveLength(8)
+    expect(bullets(container).filter(line => line.endsWith('cited instead of you'))).toHaveLength(8)
+    // The engine the counts leave out is listed on its own, as not counted.
+    expect(bullets(container).filter(line => line.includes('not counted'))).toEqual([
+      '"AEO Agency in NYC" (Muse): pbjmarketing.com cited instead of you, not counted (engine no longer configured)',
+    ])
   })
 
   test('restores the cited-and-named and neither counts beside the other two splits', () => {
@@ -221,6 +232,50 @@ describe('By engine restored figures (a cleanup never removes data)', () => {
   test('names an engine without a recorded model by the engine alone', () => {
     const { container } = renderCard(ainycCitationVisibility(), { providerScores: [{ provider: 'gemini', model: null, score: 75, cited: 3, total: 4 }] })
     expect(bullets(container)).toContain('Gemini citation rate: 75.0%, 3 of 4 answers, all queries')
+  })
+
+  test('restores the latest run time in the card head', () => {
+    const { container } = renderCard(ainycCitationVisibility())
+    const latestRunAt = ainycCitationVisibility().summary.latestRunAt!
+    expect(container.querySelector('.av-card-head .av-card-meta')?.textContent).toBe(`Latest run ${formatSweepInstant(latestRunAt)}`)
+    cleanup()
+    const data = ainycCitationVisibility()
+    data.summary = { ...data.summary, latestRunAt: null }
+    const without = renderCard(data)
+    expect(without.container.querySelector('.av-card-head .av-card-meta')).toBeNull()
+  })
+
+  test('lists the gap answers outside the counts, from an engine no longer configured or a query no longer tracked', () => {
+    const data = ainycCitationVisibility()
+    const gap = data.competitorGaps[0]!
+    data.competitorGaps.push(
+      { ...gap, provider: 'mistral', citingCompetitors: ['beta.example'] },
+      { ...gap, queryId: 'query_removed', query: 'removed query', provider: 'claude', citingCompetitors: ['beta.example', 'gamma.example'] },
+    )
+    expect(uncountedCompetitorGaps(data)).toEqual([
+      { query: 'AEO Agency in NYC', provider: 'mistral', competitors: ['beta.example'], reason: 'engine' },
+      { query: 'removed query', provider: 'claude', competitors: ['beta.example', 'gamma.example'], reason: 'query' },
+    ])
+    const { container } = renderCard(data)
+    const outside = [
+      '"AEO Agency in NYC" (Mistral): beta.example cited instead of you, not counted (engine no longer configured)',
+      '"removed query" (Claude): beta.example, gamma.example cited instead of you, not counted (query no longer tracked)',
+    ]
+    expect(bullets(container).slice(-2)).toEqual(outside)
+    // They belong to no class, so every tab lists them; the counts never include them.
+    expect(container.querySelector('.av-card-line')?.textContent).toBe('Competitor cited instead of you8 of 44 answers · non-brand queries')
+    fireEvent.click(screen.getByRole('radio', { name: 'Branded' }))
+    expect(bullets(container).slice(-2)).toEqual(outside)
+  })
+
+  test.each([
+    ['an Error', new Error('engine results store unavailable')],
+    // What the generated SDK throws for a failed read: the API's error envelope.
+    ['the API error envelope', { error: { code: 'INTERNAL_ERROR', message: 'engine results store unavailable' } }],
+  ])('says why engine results could not load (%s)', (_shape, failed) => {
+    renderCard({ failed })
+    expect(screen.getByText('Could not load engine results: engine results store unavailable')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
   })
 
   test('restores how many engines cite you and name you', () => {

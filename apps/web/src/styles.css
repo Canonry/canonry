@@ -1049,6 +1049,10 @@
     @apply text-[13px] text-secondary;
   }
 
+  .project-context-meta {
+    @apply text-[13px] text-secondary;
+  }
+
   .project-context-actions {
     @apply ml-auto flex flex-wrap items-center justify-end gap-3;
   }

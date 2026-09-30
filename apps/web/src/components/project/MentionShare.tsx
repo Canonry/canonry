@@ -1,7 +1,7 @@
 import React, { useId, useState } from 'react'
 import { formatPercent, RatioUnits } from '@ainyc/canonry-contracts'
 import type { GapAnalysisDto, GapQuery } from '@ainyc/canonry-contracts'
-import type { ProjectCommandCenterVm } from '../../view-models.js'
+import type { ProjectCommandCenterVm, ScoreSummaryVm } from '../../view-models.js'
 import type { QueryClassLookup } from '../../lib/answer-movement.js'
 import { splitPercentSign } from '../../lib/format-helpers.js'
 import { gapTone, METRIC_TONE_TEXT_CLASS } from '../../lib/tone-helpers.js'
@@ -177,12 +177,13 @@ function GapCount({ lane, state, spoken, toned }: {
 }
 
 /**
- * "Where competitors beat you": mention share for you and each tracked
- * competitor, and the two gap counts, for ONE class from the latest sweep, with
- * the gap queries in Details. Branded and non-brand are never on screen
- * together, so no figure can be read against the other class's denominator. The
- * class control sits beside the card's meta, and a class without branded
- * queries shows its name there instead.
+ * "Where competitors beat you": your mention share, then every tracked brand's
+ * share in the server's ranking (you by name among them), and the two gap
+ * counts, for ONE class from the latest sweep, with the gap queries and the
+ * server's all-queries gap counts in Details. Branded and non-brand are never
+ * on screen together, so no figure can be read against the other class's
+ * denominator. The class control sits beside the card's meta, and a class
+ * without branded queries shows its name there instead.
  */
 export function CompetitiveCard({
   summary,
@@ -190,6 +191,8 @@ export function CompetitiveCard({
   gaps,
   classify,
   hasBaseline,
+  projectLabel,
+  allQueryGaps,
 }: {
   summary: ProjectCommandCenterVm['mentionShareSummary']
   competitorDomains: string[]
@@ -198,6 +201,10 @@ export function CompetitiveCard({
   classify: QueryClassLookup
   /** A completed sweep exists; before it the card only says what will appear. */
   hasBaseline: boolean
+  /** The project's display name, which labels your row in the brand ranking. */
+  projectLabel?: string
+  /** GET /overview's gap counts over every query together, for the Details line that says so. */
+  allQueryGaps?: { named: ScoreSummaryVm; cited: ScoreSummaryVm }
 }) {
   const [selected, setSelected] = useState<MentionClassKey>('non-brand')
   const titleId = useId()
@@ -226,9 +233,10 @@ export function CompetitiveCard({
   const toneClass = scopeKey === 'non-brand' ? METRIC_TONE_TEXT_CLASS[summary.tone] : 'text-primary'
   const scoped = gaps.status === 'ready' ? scopeGaps(gaps.data, scopeKey, classify) : null
 
-  // Every tracked competitor in the server's order, zero-mention ones included,
-  // so "no competitor was named in this class" is a visible 0%, not an absent row.
-  const competitorRows = figures.numeric ? active.ranking.filter(row => row.kind === 'competitor') : []
+  // Every tracked brand in the server's order, you among them and zero-mention
+  // competitors included, so "no competitor was named in this class" is a
+  // visible 0%, not an absent row, and your rank reads as the server ranked it.
+  const brandRows = figures.numeric ? active.ranking : []
 
   const details: React.ReactNode[] = []
   // A numeric share carries its counts in the grid; any other state says why here.
@@ -237,6 +245,12 @@ export function CompetitiveCard({
     details.push(<>Base: <strong>{active.snapshotsWithAnswerText}</strong> {MENTION_SCOPE_BASE[scopeKey]}</>)
   }
   if (scoped) details.push(...gapQueryLines(scoped.named, scoped.cited))
+  // The server's own gap counts span every query, both classes and any it
+  // could not place, so they are labelled as such and never sit in the grid.
+  // A pooled card already counts every query.
+  if (!pooled && allQueryGaps && allQueryGaps.named.progress !== undefined && allQueryGaps.cited.progress !== undefined) {
+    details.push(`All queries: named instead of you ${allQueryGaps.named.delta}, cited instead of you ${allQueryGaps.cited.delta}`)
+  }
   if (pooled) details.push('Set a brand name to split branded from non-brand.')
 
   const spoken = MENTION_SCOPE_SPOKEN[scopeKey]
@@ -290,18 +304,23 @@ export function CompetitiveCard({
                   )}
                 </td>
               </tr>
-              {competitorRows.map(row => {
+              {brandRows.map(row => {
                 const share = splitPercentSign(formatPercent(row.share))
+                const isYou = row.kind === 'project'
                 return (
-                  <tr key={row.domain ?? ''}>
-                    <th scope="row" className="av-row-label">{row.domain}</th>
+                  // A domain can be long: on a phone it wraps rather than push the grid past the card.
+                  <tr key={isYou ? 'project' : row.domain ?? ''}>
+                    <th scope="row" className="av-row-label max-sm:whitespace-normal max-sm:wrap-anywhere">
+                      {isYou ? (projectLabel ? <>{projectLabel} <span className="av-of">(you)</span></> : 'You') : row.domain}
+                    </th>
                     <td>
+                      {/* No column header names these figures, so each says its metric. */}
                       <span className="av-n-sm text-primary">
                         {share.figure}
                         {share.sign ? <span className="text-faint">{share.sign}</span> : null}
-                        <span className="sr-only"> · {spoken}</span>
+                        <span className="sr-only"> mention share · {spoken}</span>
                       </span>{' '}
-                      <span className="av-of">{row.mentionSnapshots} of {active.combinedMentionSnapshots}</span>
+                      <span className="av-of">{row.mentionSnapshots} of {active.combinedMentionSnapshots} {active.combinedMentionSnapshots === 1 ? 'mention' : 'mentions'}</span>
                     </td>
                   </tr>
                 )

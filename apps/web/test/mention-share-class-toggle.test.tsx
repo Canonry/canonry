@@ -9,7 +9,7 @@ import {
   type MentionShareBreakdownVm,
 } from '../src/components/project/MentionShare.js'
 import { METRIC_TONE_TEXT_CLASS } from '../src/lib/tone-helpers.js'
-import type { ProjectCommandCenterVm } from '../src/view-models.js'
+import type { ProjectCommandCenterVm, ScoreSummaryVm } from '../src/view-models.js'
 import { ainycClassify, ainycGaps, ainycMentionShare } from './ainyc-visibility-fixture.js'
 
 afterEach(cleanup)
@@ -120,10 +120,11 @@ function gapAnalysis(): GapAnalysisDto {
 
 function renderCard(
   over: Partial<Summary> = {},
-  { competitorDomains = ['rival-one.example'], gaps = { status: 'ready', data: gapAnalysis() }, hasBaseline = true }: {
+  { competitorDomains = ['rival-one.example'], gaps = { status: 'ready', data: gapAnalysis() }, hasBaseline = true, allQueryGaps }: {
     competitorDomains?: string[]
     gaps?: CompetitiveGapsState
     hasBaseline?: boolean
+    allQueryGaps?: { named: ScoreSummaryVm; cited: ScoreSummaryVm }
   } = {},
 ) {
   return render(
@@ -133,8 +134,15 @@ function renderCard(
       gaps={gaps}
       classify={classify}
       hasBaseline={hasBaseline}
+      projectLabel="Acme Dental"
+      allQueryGaps={allQueryGaps}
     />,
   )
+}
+
+/** GET /overview's all-queries gap score ("3 of 12 queries"), as the server words it. */
+function gapScore(label: string, count: number, total: number): ScoreSummaryVm {
+  return { label, value: String(count), delta: `${count} of ${total} queries`, tone: 'caution', description: '', tooltip: '', trend: [], progress: count / total * 100 }
 }
 
 function card(): HTMLElement {
@@ -169,7 +177,8 @@ describe('CompetitiveCard class control', () => {
 
     expect(rows()).toEqual([
       ['Mention share', '10.0% 1 of 10 tracked-brand mentions'],
-      ['rival-one.example', '90.0% 9 of 10'],
+      ['rival-one.example', '90.0% 9 of 10 mentions'],
+      ['Acme Dental (you)', '10.0% 1 of 10 mentions'],
       ['Named instead of you', '1 of 3 queries'],
       ['Cited instead of you', '2 of 3 queries'],
     ])
@@ -185,9 +194,15 @@ describe('CompetitiveCard class control', () => {
 
   it('names the class in each figure\'s own accessible text', () => {
     renderCard()
-    for (const cell of card().querySelectorAll('.av-grid td')) {
-      expect(cell.querySelector('.sr-only')?.textContent).toBe(' · non-brand queries')
-    }
+    const spoken = [...card().querySelectorAll('.av-grid td')].map(cell => cell.querySelector('.sr-only')?.textContent)
+    // The brand rows also name their metric: they have no column header to say it.
+    expect(spoken).toEqual([
+      ' · non-brand queries',
+      ' mention share · non-brand queries',
+      ' mention share · non-brand queries',
+      ' · non-brand queries',
+      ' · non-brand queries',
+    ])
   })
 
   it('shows the API share to one decimal, with the sign set apart and never doubled', () => {
@@ -220,7 +235,8 @@ describe('CompetitiveCard class control', () => {
     // "no competitor was named here" is visible rather than absent.
     expect(rows()).toEqual([
       ['Mention share', '100% 20 of 20 tracked-brand mentions'],
-      ['rival-one.example', '0% 0 of 20'],
+      ['Acme Dental (you)', '100% 20 of 20 mentions'],
+      ['rival-one.example', '0% 0 of 20 mentions'],
       ['Named instead of you', '0 of 1 query'],
       ['Cited instead of you', '0 of 1 query'],
     ])
@@ -247,7 +263,7 @@ describe('CompetitiveCard class control', () => {
     renderCard({ scope: 'pooled' })
     expect(screen.queryByRole('radiogroup')).toBeNull()
     expect(card().querySelector('.mention-share-class')?.textContent).toBe('All answers')
-    expect(rows().slice(2)).toEqual([
+    expect(rows().slice(-2)).toEqual([
       ['Named instead of you', '1 of 5 queries'],
       ['Cited instead of you', '2 of 5 queries'],
     ])
@@ -331,7 +347,7 @@ describe('CompetitiveCard class control', () => {
 describe('CompetitiveCard gap counts', () => {
   it('waits for GET /analytics/gaps without inventing counts', () => {
     renderCard({}, { gaps: { status: 'loading' } })
-    expect(rows().slice(2)).toEqual([
+    expect(rows().slice(-2)).toEqual([
       ['Named instead of you', 'Loading…'],
       ['Cited instead of you', 'Loading…'],
     ])
@@ -342,7 +358,8 @@ describe('CompetitiveCard gap counts', () => {
     renderCard({}, { gaps: { status: 'error' } })
     expect(rows()).toEqual([
       ['Mention share', '10.0% 1 of 10 tracked-brand mentions'],
-      ['rival-one.example', '90.0% 9 of 10'],
+      ['rival-one.example', '90.0% 9 of 10 mentions'],
+      ['Acme Dental (you)', '10.0% 1 of 10 mentions'],
       ['Named instead of you', 'Could not load'],
       ['Cited instead of you', 'Could not load'],
     ])
@@ -351,7 +368,7 @@ describe('CompetitiveCard gap counts', () => {
   it('says "No queries" for a class with none in the latest sweep', () => {
     renderCard({}, { gaps: { status: 'ready', data: { ...gapAnalysis(), cited: [gap('cheap widgets')], gap: [gap('best widgets')] } } })
     fireEvent.click(screen.getByRole('radio', { name: 'Branded' }))
-    expect(rows().slice(2)).toEqual([
+    expect(rows().slice(-2)).toEqual([
       ['Named instead of you', 'No queries'],
       ['Cited instead of you', 'No queries'],
     ])
@@ -406,18 +423,20 @@ describe('CompetitiveCard mention counts', () => {
         score: 10,
       }),
     }, { competitorDomains: ['rival-one.example', 'rival-two.example'] })
-    expect(rows().slice(0, 3)).toEqual([
+    expect(rows().slice(0, 4)).toEqual([
       ['Mention share', '10.0% 1 of 10 tracked-brand mentions'],
-      ['rival-two.example', '20.0% 2 of 10'],
-      ['rival-one.example', '70.0% 7 of 10'],
+      ['rival-two.example', '20.0% 2 of 10 mentions'],
+      ['Acme Dental (you)', '10.0% 1 of 10 mentions'],
+      ['rival-one.example', '70.0% 7 of 10 mentions'],
     ])
   })
 
   it('reads ainyc\'s stored latest sweep as the approved card', () => {
-    render(<CompetitiveCard summary={ainycMentionShare()} competitorDomains={['pbjmarketing.com']} gaps={{ status: 'ready', data: ainycGaps() }} classify={ainycClassify} hasBaseline />)
+    render(<CompetitiveCard summary={ainycMentionShare()} competitorDomains={['pbjmarketing.com']} gaps={{ status: 'ready', data: ainycGaps() }} classify={ainycClassify} hasBaseline projectLabel="Canonry" />)
     expect(rows()).toEqual([
       ['Mention share', '33.3% 7 of 21 tracked-brand mentions'],
-      ['pbjmarketing.com', '66.7% 14 of 21'],
+      ['pbjmarketing.com', '66.7% 14 of 21 mentions'],
+      ['Canonry (you)', '33.3% 7 of 21 mentions'],
       ['Named instead of you', '1 of 11 queries'],
       ['Cited instead of you', '1 of 11 queries'],
     ])
@@ -430,7 +449,8 @@ describe('CompetitiveCard mention counts', () => {
     fireEvent.click(screen.getByRole('radio', { name: 'Branded' }))
     expect(rows()).toEqual([
       ['Mention share', '100% 12 of 12 tracked-brand mentions'],
-      ['pbjmarketing.com', '0% 0 of 12'],
+      ['Canonry (you)', '100% 12 of 12 mentions'],
+      ['pbjmarketing.com', '0% 0 of 12 mentions'],
       ['Named instead of you', '0 of 3 queries'],
       ['Cited instead of you', '0 of 3 queries'],
     ])
@@ -463,7 +483,7 @@ describe('scopeGaps and gapQueryLines', () => {
 })
 
 describe('CompetitiveCard restored figures (a cleanup never removes data)', () => {
-  it('restores each tracked competitor\'s mention share as a grid row under yours', () => {
+  it('restores the brand ranking under your share: every brand in the server\'s order, you by name', () => {
     // rival-two is tracked and was never named: it still gets a row, at 0%.
     renderCard({
       breakdown: breakdown({
@@ -480,14 +500,23 @@ describe('CompetitiveCard restored figures (a cleanup never removes data)', () =
         score: 10,
       }),
     }, { competitorDomains: ['rival-one.example', 'rival-two.example'] })
-    expect(rows().slice(0, 3)).toEqual([
+    expect(rows().slice(0, 4)).toEqual([
       ['Mention share', '10.0% 1 of 10 tracked-brand mentions'],
-      ['rival-one.example', '90.0% 9 of 10'],
-      ['rival-two.example', '0% 0 of 10'],
+      ['rival-one.example', '90.0% 9 of 10 mentions'],
+      ['Acme Dental (you)', '10.0% 1 of 10 mentions'],
+      ['rival-two.example', '0% 0 of 10 mentions'],
     ])
-    // Each competitor row names its class to assistive tech, like every figure.
-    for (const cell of [...card().querySelectorAll('.av-grid tbody tr')].slice(1, 3).map(row => row.querySelector('td')!)) {
-      expect(cell.querySelector('.sr-only')?.textContent).toBe(' · non-brand queries')
+    // A brand row has no column header, so its figure names the metric and
+    // its class to assistive tech, and its count carries its unit.
+    const brandRows = [...card().querySelectorAll('.av-grid tbody tr')].slice(1, 4)
+    for (const row of brandRows) {
+      expect(row.querySelector('td .sr-only')?.textContent).toBe(' mention share · non-brand queries')
+      expect(row.querySelector('td .av-of')?.textContent).toMatch(/^\d+ of 10 mentions$/)
+    }
+    // A long domain wraps on a phone instead of pushing the grid past the card.
+    for (const label of brandRows.map(row => row.querySelector('th')!)) {
+      expect(label.className).toContain('max-sm:whitespace-normal')
+      expect(label.className).toContain('max-sm:wrap-anywhere')
     }
     // The counts now sit in the grid, so Details no longer repeats them.
     expect(bullets().some(line => line.includes('tracked-brand mentions'))).toBe(false)
@@ -502,9 +531,10 @@ describe('CompetitiveCard restored figures (a cleanup never removes data)', () =
   it('switches the competitor rows with the class control', () => {
     renderCard()
     fireEvent.click(screen.getByRole('radio', { name: 'Branded' }))
-    expect(rows().slice(0, 2)).toEqual([
+    expect(rows().slice(0, 3)).toEqual([
       ['Mention share', '100% 20 of 20 tracked-brand mentions'],
-      ['rival-one.example', '0% 0 of 20'],
+      ['Acme Dental (you)', '100% 20 of 20 mentions'],
+      ['rival-one.example', '0% 0 of 20 mentions'],
     ])
   })
 
@@ -536,5 +566,27 @@ describe('CompetitiveCard restored figures (a cleanup never removes data)', () =
   it('asks for a brand name when classes cannot be split', () => {
     renderCard({ scope: 'pooled' })
     expect(bullets()).toContain('Set a brand name to split branded from non-brand.')
+  })
+
+  it('keeps the server\'s all-queries gap counts in Details, labelled as all queries', () => {
+    const allQueryGaps = { named: gapScore('Mention Gaps', 3, 12), cited: gapScore('Citation Gaps', 2, 12) }
+    renderCard({}, { allQueryGaps })
+    // The grid stays per class; the pooled counts are the old card's, named as such.
+    expect(rows().slice(-2)).toEqual([
+      ['Named instead of you', '1 of 3 queries'],
+      ['Cited instead of you', '2 of 3 queries'],
+    ])
+    expect(bullets().at(-1)).toBe('All queries: named instead of you 3 of 12 queries, cited instead of you 2 of 12 queries')
+    fireEvent.click(screen.getByRole('radio', { name: 'Branded' }))
+    expect(bullets().at(-1)).toBe('All queries: named instead of you 3 of 12 queries, cited instead of you 2 of 12 queries')
+
+    // A pooled card already counts every query, and a sweep-less score has no counts.
+    cleanup()
+    renderCard({ scope: 'pooled' }, { allQueryGaps })
+    expect(bullets().some(line => line.startsWith('All queries'))).toBe(false)
+    cleanup()
+    const noData: ScoreSummaryVm = { label: 'Mention Gaps', value: 'No data', delta: 'Run a sweep first', tone: 'neutral', description: '', trend: [] }
+    renderCard({}, { allQueryGaps: { named: noData, cited: noData } })
+    expect(bullets().some(line => line.startsWith('All queries'))).toBe(false)
   })
 })

@@ -1137,14 +1137,18 @@ function SearchConsoleSection({
  */
 function OverviewCompetitive({
   projectName,
+  projectLabel,
   summary,
+  allQueryGaps,
   competitorDomains,
   analyticsRevision,
   classify,
   hasVisibilityBaseline,
 }: {
   projectName: string
+  projectLabel: string
   summary: ProjectCommandCenterVm['mentionShareSummary']
+  allQueryGaps: { named: ProjectCommandCenterVm['mentionGaps']; cited: ProjectCommandCenterVm['gapQueries'] }
   competitorDomains: string[]
   analyticsRevision: string
   classify: QueryClassLookup
@@ -1167,6 +1171,8 @@ function OverviewCompetitive({
       gaps={gaps}
       classify={classify}
       hasBaseline={hasVisibilityBaseline}
+      projectLabel={projectLabel}
+      allQueryGaps={allQueryGaps}
     />
   )
 }
@@ -1182,11 +1188,13 @@ const VISIBILITY_STATUS_TONE: Record<VisibilityRowStatus['kind'], string> = {
   changed: 'text-caution-400',
 }
 
+/** "4 of 11 (36.4%)": the count, its class base and its share of it. On a phone the share drops under the count. */
 function VisibilityCount({ count, total, toneClass }: { count: number; total: number; toneClass: string }) {
   return (
     <>
       <span className={`av-n ${toneClass}`}>{count}</span>{' '}
       <span className="av-of">of {total}</span>
+      {total > 0 ? <>{' '}<span className="av-of max-sm:block">({formatPercent(count / total)})</span></> : null}
     </>
   )
 }
@@ -1267,6 +1275,12 @@ function OverviewBrief({
   }
   if (comparison.addedQueryCount > 0) details.push(`Added: ${queryNameList(comparison.addedQueries, comparison.addedQueryCount)}`)
   if (comparison.removedQueryCount > 0) details.push(`Removed: ${queryNameList(comparison.removedQueries, comparison.removedQueryCount)}`)
+  // GET /overview's coverage over every query together. It pools both classes,
+  // so it is labelled as such and never a row of the class grid.
+  const allQueries = [model.mentionSummary, model.visibilitySummary]
+    .filter(summary => summary.progress !== undefined)
+    .map(summary => `${summary.delta} (${summary.value})`)
+  if (hasVisibilityBaseline && allQueries.length > 0) details.push(`All queries: ${allQueries.join(', ')}`)
   if (hasVisibilityBaseline && partialCoverage) details.push(<>Partial: <strong>{partialCoverage}</strong></>)
 
   return (
@@ -2874,12 +2888,17 @@ function ProjectPageContent({
     }
   }
 
-  // An Advanced portfolio's explicit historical range, for the embed header; the
-  // operator row shows it as a filter token in the results toolbar. Simple has
-  // no range to name: each card states its own sweep, point or window.
-  const overviewRangeLabel = tab === 'overview' && !isSimpleOverview && (visibilitySelection.from || visibilitySelection.to)
-    ? `${visibilitySelection.from?.slice(0, 10) ?? 'First measurement'} to ${visibilitySelection.to?.slice(0, 10) ?? 'Latest measurement'}`
+  // Overview's date range. Simple always shows the server's label
+  // (`dateRangeLabel`); an Advanced portfolio shows only an explicit historical
+  // range, and renders no element otherwise.
+  const overviewRangeLabel = tab === 'overview' && (isSimpleOverview || visibilitySelection.from || visibilitySelection.to)
+    ? isSimpleOverview
+      ? model.dateRangeLabel
+      : `${visibilitySelection.from?.slice(0, 10) ?? 'First measurement'} to ${visibilitySelection.to?.slice(0, 10) ?? 'Latest measurement'}`
     : null
+  // The operator row keeps only the Simple range. An Advanced explicit range is a
+  // filter token in the results toolbar; the embed header keeps its text.
+  const contextMetaLabel = isSimpleOverview ? overviewRangeLabel : null
   const scopeSlotContent = renderScopeSlot()
   const competitorLandscapeCard = competitorLandscapeAvailable ? (
     <CompetitorLandscape
@@ -2908,7 +2927,7 @@ function ProjectPageContent({
       error={competitorLandscapeError}
       onRetry={competitorLandscapeReadEnabled ? () => { void competitorLandscapeQuery.refetch() } : undefined}
       isLoading={competitorLandscapeReadEnabled && competitorLandscapeQuery.isPending && competitorLandscapeQuery.data === undefined}
-      scopeLabel={isSimpleOverview ? undefined : competitorLandscapeGroupKey
+      scopeLabel={competitorLandscapeGroupKey
         ? `${selectedCompetitorLandscapeGroup?.label ?? competitorLandscapeGroupKey} group`
         : isAdvancedAllMarkets ? 'All markets' : 'Project-wide'}
     />
@@ -2940,6 +2959,7 @@ function ProjectPageContent({
           ) : null}
           {scopeSlotContent !== null ? <div className="project-context-scope">{scopeSlotContent}</div> : null}
           {model.project.canonicalDomain ? <span className="project-context-domain">{model.project.canonicalDomain}</span> : null}
+          {contextMetaLabel !== null ? <p className="project-context-meta">{contextMetaLabel}</p> : null}
           <div className="project-context-actions" data-project-actions>
             {isDashboardManagedSweeps() ? (
               <ManagedSweepStatus projectName={projectName} running={hasActiveVisibilitySweep} portfolio={!isSimpleOverview} />
@@ -3096,7 +3116,9 @@ function ProjectPageContent({
           <div className="page-section-divider">
             <OverviewCompetitive
               projectName={model.project.name}
+              projectLabel={model.project.displayName || model.project.name}
               summary={model.mentionShareSummary}
+              allQueryGaps={{ named: model.mentionGaps, cited: model.gapQueries }}
               competitorDomains={competitorDomains}
               analyticsRevision={latestVisibilityRevision}
               classify={classifyQuery}

@@ -1095,15 +1095,15 @@ function findBucket(buckets: readonly MetricsBucket[], label: string | number | 
 }
 
 /**
- * Each engine's models in one point, in the tooltip's engine order. Empty on an
- * older API, which recorded none.
+ * Each engine's models in one point, named by engine ("Claude: claude-sonnet-5"),
+ * in the tooltip's engine order. Empty on an older API, which recorded none.
  */
 function bucketModels(bucket: MetricsBucket): string[] {
   const evidence = readBucketModelEvidence(bucket)
   if (evidence === null) return []
   return Object.entries(evidence)
     .sort(([a], [b]) => normalizeProviderKey(a).localeCompare(normalizeProviderKey(b)))
-    .map(([, state]) => formatModelEvidence(state))
+    .map(([provider, state]) => `${providerDisplayName(provider)}: ${formatModelEvidence(state)}`)
 }
 
 function sameViewerDay(a: string, b: string): boolean {
@@ -1152,18 +1152,18 @@ function pointMixPhrase(point: MetricsBucket, changes: readonly BasketChangeEven
 }
 
 /**
- * Why the headline prints no change figure (decision 3). A latest point that
- * pools sweeps of different queries is named as such; otherwise the changes
- * between the first and latest points are listed, or, with none recorded, the
- * queries each point has answers for.
+ * Why the headline's change reads "(not the same queries)". A latest point
+ * that pools sweeps of different queries is named as such; otherwise the
+ * changes between the first and latest points are listed, or, with none
+ * recorded, the queries each point has answers for.
  */
-function noChangeFigureReason(shift: QuerySetShift, latest: MetricsBucket, changes: readonly BasketChangeEvent[]): ReactNode {
+function notSameQueriesReason(shift: QuerySetShift, latest: MetricsBucket, changes: readonly BasketChangeEvent[]): ReactNode {
   const mix = pointMixPhrase(latest, changes)
-  if (mix) return <>No change figure: {mix}</>
+  if (mix) return <>Not the same queries: {mix}</>
   if (shift.changes.length > 0) {
-    return <>No change figure: {shift.changes.map((entry, index) => <Fragment key={entry.at}>{index > 0 ? ', ' : ''}{querySetChangePhrase(entry)} <strong>{formatObservedDay(observedInstant(entry.at))}</strong></Fragment>)}; first and latest points cover different queries</>
+    return <>Not the same queries: {shift.changes.map((entry, index) => <Fragment key={entry.at}>{index > 0 ? ', ' : ''}{querySetChangePhrase(entry)} <strong>{formatObservedDay(observedInstant(entry.at))}</strong></Fragment>)}; first and latest points cover different queries</>
   }
-  return <>No change figure: first and latest points have answers for <strong>{shift.firstCount}</strong> and <strong>{shift.latestCount}</strong> queries</>
+  return <>Not the same queries: first and latest points have answers for <strong>{shift.firstCount}</strong> and <strong>{shift.latestCount}</strong> queries</>
 }
 
 // ── What changed ──
@@ -1210,8 +1210,8 @@ function presetHelp(row: ModelChangeRow, latestServedIds: readonly string[] | nu
  * sweep that measured it. Replaces the always-open model evidence list and the
  * query-set caption. The notices that qualify a change (before this date
  * range, a capped or incomplete history, a point that mixes models, a moving
- * model id's last check) sit in its Details; the model-update banner stays
- * above the trend readout.
+ * model id's last check) sit in its Details, followed by the model each engine
+ * last answered with; the model-update banner stays above the trend readout.
  */
 function WhatChanged({
   buckets,
@@ -1323,6 +1323,14 @@ function WhatChanged({
   }
 
   if (rowCount === 0 && details.length === 0) return null
+  // What every engine last answered with, as the old model evidence list said
+  // whenever something changed. A real substitution also has its amber row.
+  for (const [provider, entry] of Object.entries(served).sort(([a], [b]) => providerDisplayName(a).localeCompare(providerDisplayName(b)))) {
+    // An older API sends no served ids; the recorded model stands in.
+    const servedIds = (entry.latestServedModelIds as readonly string[] | undefined) ?? []
+    const ids = servedIds.length > 0 ? servedIds.join(', ') : formatModelEvidence(entry.latestObservation.state)
+    details.push(<>{providerDisplayName(provider)} last answered with <strong>{ids}</strong> on <strong>{day(observedInstant(entry.latestObservation.observedAt))}</strong></>)
+  }
 
   // The Date column's ⓘ: what a date means, which sweep(s) the newest date
   // is, and the sweep before them, since the change happened in between.
@@ -1698,18 +1706,21 @@ export function VisibilityTrendSection({
   const plottedRates = data ? plottedMetricRates(data, metric) : []
   const latestRate = plottedRates.at(-1) ?? null
   // The change across the window is the server's own first-to-latest delta,
-  // the same figure `canonry analytics` prints; nothing is subtracted here. It
-  // is withheld when the two points measured different query sets.
+  // the same figure `canonry analytics` prints; nothing is subtracted here.
+  // When the two points measured different query sets it is still shown, with
+  // "(not the same queries)" beside it, never tone-coloured, and the reason in
+  // Details.
   const windowChange = data ? metricWindowChange(data, metric) : null
   const shift = querySetShift(plottedBuckets, basketChanges)
-  const figureShown = showsChangeFigure(shift, metric, mentionShareScope, classifyQuery)
-  const pointChange = latestRate !== null && windowChange !== null && figureShown
+  const sameQueries = showsChangeFigure(shift, metric, mentionShareScope, classifyQuery)
+  const pointChange = latestRate !== null && windowChange !== null
     ? formatPointDelta(windowChange.delta)
     : null
+  const changeQualified = pointChange !== null && !sameQueries
   const competitorCount = competitorDomains.length
 
   const trendDetails: ReactNode[] = []
-  if (latestPlotted && windowChange !== null && shift && !figureShown) trendDetails.push(noChangeFigureReason(shift, latestPlotted, basketChanges))
+  if (latestPlotted && windowChange !== null && shift && !sameQueries) trendDetails.push(notSameQueriesReason(shift, latestPlotted, basketChanges))
   // One point has no change figure to withhold, but it can still pool sweeps
   // of two query sets. Said unless the metric reads past that change, as mention
   // share does when only branded queries moved.
@@ -1736,8 +1747,8 @@ export function VisibilityTrendSection({
       <span className="visibility-trend-current-label">{spokenLabel}</span>
       <span className="visibility-trend-current-value">{formatPercent(latestRate)}</span>
       {pointChange !== null && (
-        <span className={`visibility-trend-current-delta ${POINT_CHANGE_TONE[pointChange.direction]}`}>
-          {pointChangeWords(pointChange)}
+        <span className={`visibility-trend-current-delta ${changeQualified ? 'text-muted' : POINT_CHANGE_TONE[pointChange.direction]}`}>
+          {pointChangeWords(pointChange)}{changeQualified ? ' (not the same queries)' : ''}
         </span>
       )}
       <span className="visibility-trend-current-detail">· {bucketBase(latestPlotted, metric)}</span>
@@ -1781,7 +1792,7 @@ export function VisibilityTrendSection({
       )
     } else {
       const srSummary = `${spokenLabel} rate across ${rows.length} ${rows.length === 1 ? 'sweep' : 'sweeps'}. Latest ${formatPercent(latestRate)}${
-        pointChange !== null ? `, ${spokenPointChange(pointChange)}` : ''
+        pointChange !== null ? `, ${spokenPointChange(pointChange)}${changeQualified ? ', not the same queries' : ''}` : ''
       }.`
       body = (
         <>
