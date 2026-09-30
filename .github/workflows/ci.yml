@@ -421,6 +421,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # A registry 429 while BuildKit resolves FROM fails the build at once.
+      # Pull the base images first, with retries and a Docker Hub fallback; the
+      # build then uses the local copies. Keep build-push-action's `pull` off.
+      - name: Pull base images
+        run: bash scripts/pull-docker-base-images.sh Dockerfile
+
       # Use the runner's bundled buildx/docker driver so CI doesn't have to pull
       # an extra BuildKit image from Docker Hub before the actual image build.
       - uses: docker/build-push-action@v6

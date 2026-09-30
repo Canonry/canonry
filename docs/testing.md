@@ -140,13 +140,19 @@ Successful `main` runs warm caches that PRs can restore. Each PR can also reuse 
 A cache miss runs the checks normally. Local test commands keep their existing behavior.
 To bypass the test compilation caches in CI, omit the two `--experimental` flags and set `NODE_DISABLE_COMPILE_CACHE=1`.
 
-Npm publishing waits for the successful `ci.yml` push run on the exact release commit and branch.
+Npm publishing waits for the `validate` job of the `ci.yml` push run on the exact release commit and branch.
+`validate` requires typecheck, tests, lint, the drift checks, the WordPress plugin suite, the package build, and the install smoke test.
+The Docker image build is outside it, so a Docker failure cannot skip npm; Docker publishes from its own Publish job.
 It does not repeat typechecks or an unsharded test suite. Failed, cancelled, missing, or timed-out validation blocks publication.
 The wait has a 25-minute deadline. After fixing CI, rerun the failed Publish jobs to retry the gate.
 
+Before each image build, CI and Publish run `scripts/pull-docker-base-images.sh Dockerfile`.
+It retries failed pulls with backoff. For ECR Public's Docker Official Images, it also tries the same image on Docker Hub, which has a separate quota.
+BuildKit then uses the local copy instead of the registry, so leave `pull` off in `docker/build-push-action`.
+
 The build job includes the root README, packs Canonry once, and uploads the tarball for the install smoke test and npm publication.
 The smoke job installs that artifact in a scratch directory without a repository checkout or workspace dependencies.
-Publish downloads the artifact from the successful push CI run for the exact release commit.
+Publish downloads the artifact from the push CI run whose `validate` job passed for the exact release commit.
 It publishes the tested primary tarball unchanged and repacks its contents with the compatibility package name.
 Neither publication runs build or lifecycle scripts. Missing artifacts or a mismatched package name or version stop publication.
 Artifacts remain available for seven days; after expiry, rerun CI before retrying publication.

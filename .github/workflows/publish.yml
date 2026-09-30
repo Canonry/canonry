@@ -123,12 +123,19 @@ jobs:
     steps:
       # The push already starts ci.yml. Reuse its completed validation for this
       # exact commit instead of repeating cold typechecks and a serial suite.
+      #
+      # The gate is ci.yml's `validate` job, which requires every release check
+      # (typecheck, tests, lint, drift checks, the package build, and the
+      # install smoke test). It is not the whole run: the Docker image build is
+      # also in ci.yml, and a registry failure there must not stop npm. Docker
+      # publishes from its own job.
       - name: Require successful CI for the release commit
         id: validated-ci
         uses: actions/github-script@v8
         with:
           script: |
             const branch = context.ref.replace('refs/heads/', '');
+            const gateJob = 'validate';
             const deadline = Date.now() + 25 * 60 * 1000;
             while (Date.now() < deadline) {
               const { data } = await github.rest.actions.listWorkflowRuns({
@@ -142,15 +149,28 @@ jobs:
               const run = data.workflow_runs
                 .filter(run => run.head_sha === context.sha && run.event === 'push' && run.head_branch === branch)
                 .sort((a, b) => b.id - a.id)[0];
-              if (run?.status === 'completed') {
-                if (run.conclusion !== 'success') {
-                  throw new Error(`CI ${run.id} ended with ${run.conclusion}: ${run.html_url}`);
+              let job;
+              if (run) {
+                const { data: { jobs } } = await github.rest.actions.listJobsForWorkflowRun({
+                  ...context.repo,
+                  run_id: run.id,
+                  filter: 'latest',
+                  per_page: 100,
+                });
+                job = jobs.find(job => job.name === gateJob);
+                if (job?.status === 'completed') {
+                  if (job.conclusion !== 'success') {
+                    throw new Error(`CI ${run.id} ${gateJob} ended with ${job.conclusion}: ${run.html_url}`);
+                  }
+                  core.info(`CI ${gateJob} passed for ${context.sha}: ${run.html_url}`);
+                  core.setOutput('run_id', String(run.id));
+                  return;
                 }
-                core.info(`CI passed for ${context.sha}: ${run.html_url}`);
-                core.setOutput('run_id', String(run.id));
-                return;
+                if (run.status === 'completed') {
+                  throw new Error(`CI ${run.id} ended with ${run.conclusion} and no completed ${gateJob} job: ${run.html_url}`);
+                }
               }
-              core.info(`Waiting for CI on ${context.sha} (${run?.status ?? 'not started'})`);
+              core.info(`Waiting for CI ${gateJob} on ${context.sha} (${job?.status ?? run?.status ?? 'not started'})`);
               await new Promise(resolve => setTimeout(resolve, 15000));
             }
             throw new Error(`Timed out waiting for successful CI on ${context.sha}`);
@@ -395,6 +415,11 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # After the logins, so a Docker Hub fallback pull is authenticated when
+      # credentials exist. See the same step in ci.yml.
+      - name: Pull base images
+        run: bash scripts/pull-docker-base-images.sh Dockerfile
 
       - uses: docker/build-push-action@v6
         with:
