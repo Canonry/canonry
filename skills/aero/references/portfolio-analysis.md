@@ -58,7 +58,7 @@ change the plan to make a read work.
 
 - Quote the server's numerator and denominator with a rate, headline and
   branded figures included; Aero's tool text renders them beside the percent,
-  as in `28.8% (474/1644)`. Mention and citation are independent signals;
+  as in `25.0% (6/24)`. Mention and citation are independent signals;
   `mentioned: null` or `answerMentioned: null` means unchecked, not a
   measured miss.
 - A Property's citation coverage counts only citations of its own page, so

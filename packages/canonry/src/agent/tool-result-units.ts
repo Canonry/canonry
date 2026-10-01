@@ -113,7 +113,7 @@ function render(schema: JsonSchema, value: unknown, components: Record<string, J
       out[key] = rendered
     }
     // A rate that carries its counts renders them beside the percent, so the
-    // model quotes "28.8% (474/1644)" instead of dropping the denominator.
+    // model quotes "25.0% (6/24)" instead of dropping the denominator.
     if (typeof current.value === 'number' && typeof out.value === 'string'
       && Number.isInteger(current.numerator) && Number.isInteger(current.denominator)) {
       out.value = `${out.value} (${current.numerator as number}/${current.denominator as number})`
