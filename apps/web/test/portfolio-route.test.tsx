@@ -1566,7 +1566,12 @@ test('cached competitor history remains visible when its background refresh fail
     </QueryClientProvider>,
   )
 
-  // Simple shows the card on arrival, so its refresh starts without a click.
+  // Cached history stays dormant until the operator opens it.
+  expect(queryClient.getQueryState(getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey({
+    client: heyClient, path: { name: projectName }, query: { window: '30d', queryClass: 'non-brand' },
+  }))?.fetchStatus).toBe('idle')
+  expect(page.getByRole('rowheader', { name: 'Pinned operator cached-pin.example' }).closest<HTMLDetailsElement>('details.visibility-disclosure')?.open).toBe(false)
+  fireEvent.click(await page.findByText('Competitor history', { selector: 'summary, summary > span' }))
   await waitFor(() => expect(queryClient.getQueryState(
     getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey({
       client: heyClient,
@@ -1803,7 +1808,7 @@ test.each([false, true])('ainyc\'s Simple overview opens on the trend chart, wit
   // The chart is the first section after the tabs, then the cards in page order.
   expect(doc.querySelector('nav.project-subnav + section .av-card-title')?.textContent).toBe('AI answers over time')
   const at = (title: string) => html.indexOf(`class="av-card-title">${title}<`)
-  const competitive = html.indexOf('<h2>Where competitors are winning</h2>')
+  const competitive = at('Where competitors are winning')
   expect(at('AI answers over time')).toBeGreaterThan(-1)
   expect(at('AI answers over time')).toBeLessThan(competitive)
   expect(competitive).toBeLessThan(html.indexOf('Query evidence'))
@@ -1844,7 +1849,7 @@ test('Where competitors are winning and the query table read ainyc\'s latest swe
   const card = [...doc.querySelectorAll('section.page-section-divider')]
     .find(section => section.querySelector('h2')?.textContent === 'Where competitors are winning')!
 
-  expect(card.querySelector('.supporting-copy')?.textContent).toBe('Latest measured results against pinned competitors.')
+  expect(card.querySelector('.av-card-meta')?.textContent).toBe('Latest sweep')
   // Non-brand mention share, its caption and the server's brand ranking.
   expect(card.querySelector('.mention-share-value')?.textContent).toBe('33.3%')
   expect(card.querySelector('.mention-share-caption')?.textContent).toBe('Non-brand · 7 of 21 brand mentions')
@@ -1856,14 +1861,16 @@ test('Where competitors are winning and the query table read ainyc\'s latest swe
     ['pbjmarketing.com', '14', '66.7%'],
     ['Citypoint Dental NYC (you)', '7', '33.3%'],
   ])
-  // The two gap rows read GET /overview's all-queries scores, with the server's caption.
+  // The gap scope remains explicit beside a separately scoped mention-share control.
+  expect(card.querySelector('.competitive-gaps-scope')?.textContent).toBe('All queries')
+  // Each value also carries its scope for assistive technology; the denominator appears once.
   expect([...card.querySelectorAll('.competitive-gaps .aeo-hero-row')].map(row => [
     row.querySelector('.aeo-hero-row-label')?.firstChild?.textContent,
     row.querySelector('.aeo-hero-row-value')?.textContent,
     row.querySelector('.aeo-hero-row-detail')?.textContent,
   ])).toEqual([
-    ['Mention gaps', '1 / 14', '1 of 14 queries'],
-    ['Citation gaps', '1 / 14', '1 of 14 queries'],
+    ['Mention gaps', '1 / 14 queries, all queries', undefined],
+    ['Citation gaps', '1 / 14 queries, all queries', undefined],
   ])
 
   // The query table: Non-brand first, then Branded; "new query" only on the added three.
@@ -1875,6 +1882,31 @@ test('Where competitors are winning and the query table read ainyc\'s latest swe
   expect([...table.querySelector('tbody .query-evidence-meta')!.children].map(item => item.textContent)).toEqual(['Non-brand', 'Claude', 'Gemini', 'OpenAI', 'Perplexity'])
   expect(doc.querySelector('#evidence-section')!.textContent).toContain('1 to 14 of 14 queries')
   expect(html.indexOf('Where competitors are winning')).toBeLessThan(html.indexOf('Query evidence'))
+})
+
+test('switching mention share to branded leaves gaps explicitly scoped to all queries', async () => {
+  const { page } = await renderScopeRoute('/projects/project_citypoint', url => {
+    if (url.pathname.endsWith('/measurement-plan')) return jsonResponse({ active: null })
+    if (url.pathname.endsWith('/measurement-setup')) return jsonResponse(simpleMeasurementSetupResponse())
+    return undefined
+  }, {
+    configureFixture(dashboard) {
+      const project = withAinycSweeps(dashboard)
+      project.mentionShareSummary = ainycMentionShare()
+      project.competitors = [{ id: 'competitor_pbj', domain: 'pbjmarketing.com', citationCount: 5, totalQueries: 14, pressureLabel: '', citedQueries: [], movement: '', notes: '' }]
+    },
+  })
+  const heading = await page.findByRole('heading', { name: 'Where competitors are winning' })
+  const section = heading.closest('section')!
+  const gaps = () => [...section.querySelectorAll('.aeo-hero-row-value')].map(value => value.textContent)
+  const expectedGaps = ['1 / 14 queries, all queries', '1 / 14 queries, all queries']
+  expect(gaps()).toEqual(expectedGaps)
+  fireEvent.click(within(section).getByRole('radio', { name: 'Branded' }))
+  expect(section.querySelector('.mention-share-caption')?.textContent).toBe('Branded · 12 of 12 brand mentions')
+  expect(section.querySelector('.mention-share-value')?.textContent).toBe('100%')
+  expect(section.querySelector('.competitive-gaps-scope')?.textContent).toBe('All queries')
+  expect(gaps()).toEqual(expectedGaps)
+  expect(section.querySelector('.competitive-gaps')?.textContent).not.toContain('1 of 14 queries')
 })
 
 test('By engine, Past sweeps and Competitors over time read ainyc as the approved cards', async () => {
@@ -1942,11 +1974,13 @@ test('By engine, Past sweeps and Competitors over time read ainyc as the approve
   expect([...competitors.querySelectorAll('.av-card-body p')].map(line => line.textContent)).toEqual(['Citation data incomplete'])
   expect(competitors.querySelector<HTMLDetailsElement>('details.av-details')!.open).toBe(false)
 
-  // Page order under the query table, and nothing left of the old sections.
+  // Engine results precede the evidence table; both histories start collapsed below it.
   const at = (title: string) => html.indexOf(`class="av-card-title">${title}<`)
-  expect(html.indexOf('Query evidence')).toBeLessThan(at('By engine'))
-  expect(at('By engine')).toBeLessThan(at('Past sweeps'))
+  expect(at('By engine')).toBeLessThan(html.indexOf('Query evidence'))
+  expect(html.indexOf('Query evidence')).toBeLessThan(at('Past sweeps'))
   expect(at('Past sweeps')).toBeLessThan(at('Competitors over time'))
+  expect(card('Past sweeps').querySelector<HTMLDetailsElement>('details.av-history')?.open).toBe(false)
+  expect(competitors.closest<HTMLDetailsElement>('details.visibility-disclosure')?.open).toBe(false)
   expect(html).not.toMatch(/All time|Citation and engine diagnostics|Recent execution history|Competitor landscape/)
 })
 
@@ -2768,7 +2802,7 @@ async function rowTrigger(root: ParentNode): Promise<HTMLElement> {
 async function renderScopeRoute(
   entry: string,
   respond: (url: URL) => Response | Promise<Response> | undefined,
-  options: { accountRole?: 'admin' | 'viewer' } = {},
+  options: { accountRole?: 'admin' | 'viewer'; configureFixture?: (dashboard: ReturnType<typeof createDashboardFixture>['dashboard']) => void } = {},
 ) {
   const observed: URL[] = []
   const realFetch = globalThis.fetch
@@ -2784,6 +2818,7 @@ async function renderScopeRoute(
   onTestFinished(() => { globalThis.fetch = realFetch })
 
   const fixture = createDashboardFixture({})
+  options.configureFixture?.(fixture.dashboard)
   const projectName = fixture.dashboard.projects.find(project => project.project.id === 'project_citypoint')!.project.name
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const router = createAppRouter(queryClient, { initialEntries: [entry] })

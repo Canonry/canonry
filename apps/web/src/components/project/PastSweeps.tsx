@@ -1,4 +1,5 @@
 import { useId } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
 import type { RunListItemVm } from '../../view-models.js'
 import { useDrawer } from '../../hooks/use-drawer.js'
@@ -22,7 +23,7 @@ const STATUS_WORD: Record<RunListItemVm['status'], { word: string; tone: string 
  * sweeps. Details keeps each run's summary and status detail, the old run
  * card's title and detail line. RunsPage keeps the fuller `RunRow` card.
  */
-export function PastSweeps({ runs }: { runs: readonly RunListItemVm[] }) {
+export function PastSweeps({ runs, collapsed = false }: { runs: readonly RunListItemVm[]; collapsed?: boolean }) {
   const titleId = useId()
   const { openRun } = useDrawer()
   // Multi-location sweeps share a start time, so the location tells them apart.
@@ -33,52 +34,57 @@ export function PastSweeps({ runs }: { runs: readonly RunListItemVm[] }) {
 
   return (
     <section className="overview-brief" aria-labelledby={titleId}>
-      <div className="av-card-head">
-        <h2 id={titleId} className="av-card-title">Past sweeps</h2>
-        {runs.length > 0 ? <p className="av-card-meta">{runs.length} recent</p> : null}
-      </div>
-      <div className="av-card-body">
-        {runs.length === 0 ? (
-          <p className="text-sm text-secondary">No sweeps yet.</p>
-        ) : (
-          <table className="av-grid av-grid-dense av-grid-sweeps" aria-labelledby={titleId}>
-            <thead className="sr-only">
-              <tr>
-                <th scope="col">Started</th>
-                {showKind ? <th scope="col">Type</th> : null}
-                <th scope="col">Trigger</th>
-                {showLocation ? <th scope="col">Location</th> : null}
-                <th scope="col">Duration</th>
-                <th scope="col">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {runs.map(run => {
-                const status = STATUS_WORD[run.status]
-                const showDetail = run.status === RunStatuses.partial || run.status === RunStatuses.failed
-                return (
-                  <tr key={run.id}>
-                    <th scope="row" className="av-row-label tabular-nums">
-                      <button type="button" className="av-link" onClick={() => openRun(run.id)} aria-label={`View the ${run.startedAt} sweep`}>
-                        {run.startedAt}
-                      </button>
-                    </th>
-                    {showKind ? <td className="text-[13px] text-secondary">{run.kindLabel}</td> : null}
-                    <td className="text-[13px] text-secondary">{run.triggerLabel}</td>
-                    {showLocation ? <td className="text-[13px] text-secondary">{run.location ?? 'No location'}</td> : null}
-                    <td className="text-[13px] text-secondary">{run.duration}</td>
-                    <td>
-                      <span className={`av-status ${status.tone}`}>{status.word}</span>
-                      {showDetail && run.statusDetail ? <span className="ml-2 text-[13px] text-secondary">{run.statusDetail}</span> : null}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
-      <Disclosure items={details} />
+      <details className="av-history" open={!collapsed || undefined}>
+        <summary className="av-card-head">
+          <h2 id={titleId} className="av-card-title">Past sweeps</h2>
+          <span className="inline-flex items-center gap-2">
+            {runs.length > 0 ? <span className="av-card-meta">{runs.length} recent</span> : null}
+            <ChevronDown className="overview-disclosure-icon" size={16} aria-hidden="true" />
+          </span>
+        </summary>
+        <div className="av-card-body">
+          {runs.length === 0 ? (
+            <p className="text-sm text-secondary">No sweeps yet.</p>
+          ) : (
+            <table className="av-grid av-grid-dense av-grid-sweeps" aria-labelledby={titleId}>
+              <thead className="sr-only">
+                <tr>
+                  <th scope="col">Started</th>
+                  {showKind ? <th scope="col">Type</th> : null}
+                  <th scope="col">Trigger</th>
+                  {showLocation ? <th scope="col">Location</th> : null}
+                  <th scope="col">Duration</th>
+                  <th scope="col">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {runs.map(run => {
+                  const status = STATUS_WORD[run.status]
+                  const showDetail = run.status === RunStatuses.partial || run.status === RunStatuses.failed
+                  return (
+                    <tr key={run.id}>
+                      <th scope="row" className="av-row-label tabular-nums">
+                        <button type="button" className="av-link" onClick={() => openRun(run.id)} aria-label={`View the ${run.startedAt} sweep`}>
+                          {run.startedAt}
+                        </button>
+                      </th>
+                      {showKind ? <td className="text-[13px] text-secondary">{run.kindLabel}</td> : null}
+                      <td className="text-[13px] text-secondary">{run.triggerLabel}</td>
+                      {showLocation ? <td className="text-[13px] text-secondary">{run.location ?? 'No location'}</td> : null}
+                      <td className="text-[13px] text-secondary">{run.duration}</td>
+                      <td>
+                        <span className={`av-status ${status.tone}`}>{status.word}</span>
+                        {showDetail && run.statusDetail ? <span className="ml-2 text-[13px] text-secondary">{run.statusDetail}</span> : null}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <Disclosure items={details} />
+      </details>
     </section>
   )
 }

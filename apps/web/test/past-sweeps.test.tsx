@@ -66,6 +66,20 @@ function bullets(): string[] {
 }
 
 describe('PastSweeps', () => {
+  test('history opens and closes without losing sweep detail actions', () => {
+    const runs = ainycRuns().map(run => toRunListItem(run, 'ainyc'))
+    render(<PastSweeps runs={runs} collapsed />)
+    const history = card().querySelector<HTMLDetailsElement>('details.av-history')!
+    expect(history.open).toBe(false)
+    const summary = screen.getByRole('heading', { name: 'Past sweeps' }).closest('summary')!
+    fireEvent.click(summary)
+    expect(history.open).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: `View the ${runs[0]!.startedAt} sweep` }))
+    expect(openRun).toHaveBeenCalledWith(runs[0]!.id)
+    fireEvent.click(summary)
+    expect(history.open).toBe(false)
+  })
+
   test('one line per sweep, the spot check labelled and the time opening its run', () => {
     render(<PastSweeps runs={ainycRuns().map(run => toRunListItem(run, 'ainyc'))} />)
 

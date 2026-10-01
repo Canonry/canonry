@@ -1153,21 +1153,18 @@ function OverviewMetricRow({
           style={{ width: `${progress}%` }}
         />
       </div>
-      <p className="aeo-hero-row-detail">{summary.delta}</p>
     </div>
   )
 }
 
 function OverviewDisclosure({
   id,
-  eyebrow,
   title,
   meta,
   defaultOpen = false,
   children,
 }: {
   id?: string
-  eyebrow: string
   title: string
   meta?: string
   defaultOpen?: boolean
@@ -1176,10 +1173,7 @@ function OverviewDisclosure({
   return (
     <details id={id} className="overview-disclosure page-section-divider scroll-mt-24" open={defaultOpen || undefined}>
       <summary className="overview-disclosure-summary">
-        <span>
-          <span className="eyebrow eyebrow-soft">{eyebrow}</span>
-          <span className="overview-disclosure-title">{title}</span>
-        </span>
+        <h2 className="overview-disclosure-title">{title}</h2>
         <span className="overview-disclosure-meta">
           {meta && <span>{meta}</span>}
           <ChevronDown className="overview-disclosure-icon" size={16} aria-hidden="true" />
@@ -2017,8 +2011,8 @@ function ProjectPageContent({
     setCompetitorHistoryOpenForProject(null)
   }, [projectName])
   const competitorHistoryOpen = competitorHistoryOpenForProject === projectName
-  // Simple shows the card on arrival; Advanced reads it when its row opens.
-  const competitorLandscapeReadEnabled = competitorLandscapeAvailable && (isSimpleOverview || competitorHistoryOpen)
+  // Historical evidence is read when its disclosure opens.
+  const competitorLandscapeReadEnabled = competitorLandscapeAvailable && competitorHistoryOpen
   const competitorLandscapeQuery = useQuery({
     ...getApiV1ProjectsByNameAnalyticsCompetitorsOptions(competitorLandscapeQueryInput),
     enabled: competitorLandscapeReadEnabled,
@@ -2888,16 +2882,13 @@ function ProjectPageContent({
           </section>
 
           <section className="page-section-divider">
-            <div className="section-head section-head-inline">
-              <div>
-                <p className="eyebrow eyebrow-soft">Competitive</p>
-                <h2>Where competitors are winning</h2>
-                <p className="supporting-copy">Latest measured results against pinned competitors.</p>
-              </div>
+            <div className="av-card-head">
+              <h2 className="av-card-title">Where competitors are winning</h2>
+              {hasVisibilityBaseline ? <p className="av-card-meta">Latest sweep</p> : null}
             </div>
 
             {hasVisibilityBaseline ? (
-              <div className="aeo-hero competitive-summary">
+              <div className="competitive-summary">
                 <MentionShare
                   key={model.project.name}
                   summary={model.mentionShareSummary}
@@ -2906,18 +2897,19 @@ function ProjectPageContent({
                 />
 
                 <div className="competitive-gaps">
+                  <p className="competitive-gaps-scope">All queries</p>
                   <div className="aeo-hero-rows">
                     <OverviewMetricRow
                       label="Mention gaps"
                       summary={model.mentionGaps}
-                      displayValue={<><span className="text-primary">{model.mentionGaps.value}</span><span className="text-faint"> / {model.queryCounts.total}</span></>}
-                      tooltip="Queries where a competitor was mentioned in the answer but your brand was not."
+                      displayValue={<><span className="text-primary">{model.mentionGaps.value}</span><span className="text-secondary"> / {model.queryCounts.total}</span><span className="sr-only"> queries, all queries</span></>}
+                      tooltip="Across all queries, branded and non-brand: a competitor was mentioned in an answer and your brand was not mentioned by any engine. The mention-share query type does not filter these counts."
                     />
                     <OverviewMetricRow
                       label="Citation gaps"
                       summary={model.gapQueries}
-                      displayValue={<><span className="text-primary">{model.gapQueries.value}</span><span className="text-faint"> / {model.queryCounts.total}</span></>}
-                      tooltip="Queries where a competitor was cited as a source but you were not."
+                      displayValue={<><span className="text-primary">{model.gapQueries.value}</span><span className="text-secondary"> / {model.queryCounts.total}</span><span className="sr-only"> queries, all queries</span></>}
+                      tooltip="Across all queries, branded and non-brand: a competitor was cited as a source and your domain was not cited by any engine. The mention-share query type does not filter these counts."
                     />
                   </div>
                 </div>
@@ -2930,9 +2922,12 @@ function ProjectPageContent({
 
           </section>
 
+          <div className="page-section-divider">
+            <CitationVisibilitySection projectName={model.project.name} classify={classifyQuery} hasCompetitors={competitorDomains.length > 0} providerScores={model.providerScores} />
+          </div>
+
           <OverviewDisclosure
             id="evidence-section"
-            eyebrow="Tracked coverage"
             title="Query evidence"
             meta={`${model.queryCounts.total} ${model.queryCounts.total === 1 ? 'query' : 'queries'}`}
             defaultOpen
@@ -3039,13 +3034,9 @@ function ProjectPageContent({
             )}
           </OverviewDisclosure>
 
-          <div className="page-section-divider">
-            <CitationVisibilitySection projectName={model.project.name} classify={classifyQuery} hasCompetitors={competitorDomains.length > 0} providerScores={model.providerScores} />
-          </div>
-
           {!isEmbed() && (
             <div className="page-section-divider">
-              <PastSweeps runs={model.recentRuns} />
+              <PastSweeps runs={model.recentRuns} collapsed />
             </div>
           )}
 
@@ -3107,17 +3098,10 @@ function ProjectPageContent({
             )}
           </details> : null}
           {competitorLandscapeCard !== null ? (
-            // Simple shows the card among its page sections, loaded on arrival.
-            // Advanced keeps it in its stack of collapsed rows, loaded on open.
-            isSimpleOverview ? (
-              <div className="page-section-divider">{competitorLandscapeCard}</div>
-            ) : (
-              <details className="visibility-disclosure" open={competitorHistoryOpen} onToggle={event => setCompetitorHistoryOpenForProject(event.currentTarget.open ? projectName : null)}>
-                <summary className="visibility-disclosure-summary"><span className="visibility-disclosure-label">Competitor history</span></summary>
-                <p className="pb-3 text-sm text-secondary">History for this scope uses the time window below.</p>
-                {competitorLandscapeCard}
-              </details>
-            )
+            <details className={`visibility-disclosure${isSimpleOverview ? ' page-section-divider' : ''}`} open={competitorHistoryOpen} onToggle={event => setCompetitorHistoryOpenForProject(event.currentTarget.open ? projectName : null)}>
+              <summary className="visibility-disclosure-summary"><span className="visibility-disclosure-label">Competitor history</span></summary>
+              <div className="visibility-disclosure-panel">{competitorLandscapeCard}</div>
+            </details>
           ) : null}
         </>
         )

@@ -1453,17 +1453,21 @@
   /* ── Project overview ── */
 
   .overview-brief {
-    @apply overflow-hidden rounded-xl border border-default bg-surface-subtle;
+    @apply overflow-hidden;
   }
 
   /* An AI Visibility card: a short title with the sweep time, a compact grid of
      counts with one status word per row, then everything else in Details. */
   .av-card-head {
-    @apply flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 pb-1 pt-[1.1rem];
+    @apply flex flex-wrap items-center justify-between gap-x-6 gap-y-2 pb-2;
   }
 
   .av-card-title {
-    @apply inline-flex items-center text-[11px] font-medium uppercase tracking-[0.18em] text-muted;
+    @apply inline-flex items-center text-base font-semibold tracking-tight text-heading;
+  }
+
+  .visibility-trend .av-card-head {
+    @apply px-5 pb-1 pt-5;
   }
 
   .av-card-meta {
@@ -1471,7 +1475,7 @@
   }
 
   .av-card-body {
-    @apply overflow-x-auto px-5 pb-[0.9rem] pt-3;
+    @apply overflow-x-auto pb-4 pt-3;
   }
 
   .av-grid {
@@ -1653,7 +1657,23 @@
 
   /* "Details ▸" under a card. Starts closed; bullets, bold key numbers. */
   .av-details {
-    @apply border-t border-subtle px-5;
+    @apply border-t border-subtle;
+  }
+
+  .visibility-trend > .av-details {
+    @apply px-5;
+  }
+
+  .av-history > summary {
+    @apply min-h-11 cursor-pointer list-none rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
+  }
+
+  .av-history > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .av-history[open] .overview-disclosure-icon {
+    @apply rotate-180;
   }
 
   .av-details > summary {
@@ -1687,11 +1707,11 @@
   /* "What changed": one line collapsed, a table by engine opened. The summary
      and its toggle swap with the open state, so neither needs script. */
   .av-wc {
-    @apply rounded-xl border border-default bg-surface-subtle;
+    @apply border-t border-subtle;
   }
 
   .av-wc > summary {
-    @apply flex min-h-11 cursor-pointer list-none flex-wrap items-center gap-x-6 gap-y-1 rounded-xl px-5 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
+    @apply flex min-h-11 cursor-pointer list-none flex-wrap items-center gap-x-6 gap-y-1 rounded-md py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
   }
 
   .av-wc > summary::-webkit-details-marker {
@@ -1720,7 +1740,7 @@
   }
 
   .av-wc-body {
-    @apply px-5 pb-1;
+    @apply pb-1;
   }
 
   .av-wc-body > .av-details-list {
@@ -1780,7 +1800,7 @@
   }
 
   .competitive-summary {
-    @apply px-5 py-4;
+    @apply pt-4;
   }
 
   /* Mention share: one chrome line (metric + class control), one figure, one
@@ -1912,6 +1932,21 @@
     @apply mt-5 pt-4 border-t border-mono-800/50;
   }
 
+  .competitive-gaps-scope {
+    @apply mb-3 text-[13px] font-medium text-secondary;
+  }
+
+  .competitive-gaps .aeo-hero-row {
+    grid-template-areas: "label" "value" "bar";
+  }
+
+  @media (min-width: 480px) {
+    .competitive-gaps .aeo-hero-row {
+      grid-template-columns: 130px 90px minmax(0, 1fr);
+      grid-template-areas: "label value bar";
+    }
+  }
+
   /* ── Movement banner (Since Last Run) ── */
 
   .movement-banner {
@@ -2034,7 +2069,7 @@
   }
 
   .overview-disclosure-title {
-    @apply mt-1 block text-sm font-semibold tracking-[-0.01em] text-strong;
+    @apply block text-base font-semibold tracking-tight text-heading;
   }
 
   .overview-disclosure-meta {

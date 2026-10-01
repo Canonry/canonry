@@ -62,8 +62,8 @@ beside its rating count. Empty classes show a short state. Coverage and confiden
 data-processing disclosure belongs in Enable/Manage sentiment.
 
 Simple projects render `VisibilityTrendSection` ("AI answers over time"), the
-competitive summary, and `EvidenceTable` directly, in that order, including in
-embeds and when an unpublished Advanced draft exists. The trend chart is the
+competitive summary, By engine, and `EvidenceTable` directly, in that order,
+including in embeds and when an unpublished Advanced draft exists. The trend chart is the
 first section after the tabs; do not put a summary card or table above it. Do
 not replace that layout with `VisibilityWorkspace` when a unified report
 becomes available. Published Advanced plans retain their own report workspace
@@ -107,26 +107,30 @@ model rides on its row instead. Model notes name engines as the page does
 the adjacent one (`sweepBefore`); a pooled point hides the sweeps inside it. On
 a phone the table wraps to the card rather than scrolling.
 
-"Where competitors are winning" (eyebrow "Competitive", `MentionShare` in
+"Where competitors are winning" (`MentionShare` in
 `MentionShare.tsx` plus two `OverviewMetricRow` gap rows in `ProjectPage.tsx`)
-keeps its original layout. Its own Non-brand/Branded radiogroup switches the
-mention share figure, its "X of Y brand mentions" caption and the brand ranking
+uses the same sentence-case heading and flat section layout as By engine.
+Its own Non-brand/Branded radiogroup switches the mention share figure, its "X of Y brand mentions" caption and the brand ranking
 table (Domain with "(you)", share bar, Mentions, Share) together; a pooled share
 shows "All queries" and the "Set a brand name" note instead of the control.
 Under a rule, "Mention gaps" and "Citation gaps" read GET /overview's
-`mentionGaps` and `gapQueries` over all queries, with the server's caption. They
-have no class split, so the class control never touches them. The card needs no
+`mentionGaps` and `gapQueries` over all queries. Show "All queries" above them
+and include that scope in each value's accessible text. Show the denominator
+once, beside the count, rather than repeating the server's caption. They have
+no class split, so the class control never touches them. The section needs no
 read beyond /overview.
 
-Under the query table, in order: "By engine" (`CitationVisibilitySection`,
+Above the query table, "By engine" (`CitationVisibilitySection`,
 `byEngineClasses`) is one class at a time, Mentioned and Cited query counts per
 engine from GET /citations/visibility, one "Competitor cited instead of you"
 answer count with its base, and the cited-but-not-named split in Details; no
-summary tiles or per-model rate table. "Past sweeps" (`PastSweeps`, operator
-only) is one line per sweep: time, trigger ("Spot check" for a probe) and
-duration in words, with a partial or failed sweep's error detail kept; the time
+summary tiles or per-model rate table. Below query evidence, "Past sweeps"
+(`PastSweeps`, operator only) starts collapsed and retains one line per sweep:
+time, trigger ("Spot check" for a probe) and duration in words, with a partial or failed sweep's error detail kept; the time
 opens the run, and RunsPage keeps `RunRow`. "Competitors over time" is the
-`CompetitorLandscape` card described under Competitor landscapes. Every class,
+`CompetitorLandscape` section described under Competitor landscapes, inside
+closed "Competitor history" in both Simple and Advanced. Fetch historical
+competitors when that disclosure opens. Every class,
 metric and window control on these cards, the trend's included, uses
 `SegmentedRadioGroup`. On a phone all three fit the card with no inner
 scroller, in CSS only: By engine closes up its columns and wraps "Of 11
