@@ -2343,6 +2343,10 @@
     @apply bg-positive-400;
   }
 
+  .progress-fill-info {
+    @apply bg-info-400;
+  }
+
   .progress-fill-caution {
     @apply bg-caution-400;
   }

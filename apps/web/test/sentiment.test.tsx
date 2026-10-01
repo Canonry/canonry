@@ -734,12 +734,12 @@ describe('sentiment bars', () => {
       expect(group.lastElementChild).toBe(legend)
       expect(legend.getAttribute('aria-hidden')).toBe('true')
       expect([...legend.querySelectorAll('li')].map(item => [item.textContent, item.querySelector('span')!.className])).toEqual([
-        ['Favorable', 'sentiment-legend-swatch progress-fill-positive'],
+        ['Favorable', 'sentiment-legend-swatch progress-fill-info'],
         ['Mixed', 'sentiment-legend-swatch progress-fill-caution'],
         ['Unfavorable', 'sentiment-legend-swatch progress-fill-negative'],
       ])
       // Segments wear the same tone fills as the legend.
-      expect([...barFor('Branded').children].map(segment => segment.className)).toEqual(['sentiment-bar-segment progress-fill-positive', 'sentiment-bar-segment progress-fill-caution'])
+      expect([...barFor('Branded').children].map(segment => segment.className)).toEqual(['sentiment-bar-segment progress-fill-info', 'sentiment-bar-segment progress-fill-caution'])
       // The bars are images with text, never focus stops; the ⓘ and Details stay the only controls.
       for (const bar of document.querySelectorAll('.sentiment-bar')) {
         expect(bar.getAttribute('tabindex')).toBeNull()

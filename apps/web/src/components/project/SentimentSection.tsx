@@ -51,8 +51,8 @@ const CLASS_ORDER: readonly QueryClass[] = ['branded', 'non-brand']
 function sentimentIntervalText(score: Pick<SentimentHeadline['score'], 'interval'>): string | null {
   return score.interval ? `${formatPercent(score.interval.low, RatioUnits.fraction)} to ${formatPercent(score.interval.high, RatioUnits.fraction)}` : null
 }
-/** The tone fill each rated outcome draws with, shared with the metric progress bars. */
-const OUTCOME_FILL: Record<typeof RATED_OUTCOMES[number], string> = { favorable: 'progress-fill-positive', mixed: 'progress-fill-caution', unfavorable: 'progress-fill-negative' }
+/** The fill each rated outcome draws with: blue favorable, amber mixed, red unfavorable (blue and red stay apart for red-green color blindness). */
+const OUTCOME_FILL: Record<typeof RATED_OUTCOMES[number], string> = { favorable: 'progress-fill-info', mixed: 'progress-fill-caution', unfavorable: 'progress-fill-negative' }
 function ratingCount(judged: number) { return `${judged} ${judged === 1 ? 'rating' : 'ratings'}` }
 function hasRatings(value: Pick<SentimentHeadline, 'score' | 'coverage'>) { return value.score.favorableRate !== null && value.coverage.judged > 0 }
 /** A bar splits into outcome segments only where the favorable share shows too. */
