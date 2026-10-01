@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { AGENT_PROVIDER_IDS } from '@ainyc/canonry-contracts'
 import { GA_AUTH_CHECKS } from '../src/doctor/checks/ga-auth.js'
 import { PROVIDERS_CHECKS } from '../src/doctor/checks/providers.js'
 import type { DoctorContext, ProjectInfo } from '../src/doctor/types.js'
@@ -274,44 +275,46 @@ function agentEntry(id: string, configured: boolean, keySource: 'config' | 'env'
 }
 
 describe('config.agent-providers', () => {
-  it('returns ok and reports the configured agent providers (incl. deepinfra)', () => {
+  it('returns ok and reports the configured agent providers', () => {
     const result = agentProvidersCheck.run({
       db: {} as DoctorContext['db'],
       project: null,
       getAgentProviderSummary: () => [
         agentEntry('claude', true, 'env'),
-        agentEntry('deepinfra', true, 'config'),
-        agentEntry('zai', false),
+        agentEntry('zai', true, 'config'),
+        agentEntry('gemini', false),
       ],
     })
     expect(result.status).toBe('ok')
     expect(result.code).toBe('agent-providers.configured')
-    expect(result.summary).toContain('deepinfra')
-    expect(result.details).toMatchObject({ configured: ['claude', 'deepinfra'] })
+    expect(result.summary).toContain('zai')
+    expect(result.details).toMatchObject({ configured: ['claude', 'zai'] })
   })
 
   it('warns (not fails) when no agent provider has a key', () => {
     const result = agentProvidersCheck.run({
       db: {} as DoctorContext['db'],
       project: null,
-      getAgentProviderSummary: () => [agentEntry('claude', false), agentEntry('deepinfra', false)],
+      getAgentProviderSummary: () => [agentEntry('claude', false), agentEntry('zai', false)],
     })
     expect(result.status).toBe('warn')
     expect(result.code).toBe('agent-providers.none-configured')
-    expect(result.remediation).toMatch(/DEEPINFRA_TOKEN/)
+    // The remediation names every agent provider an operator can add a key for.
+    for (const id of AGENT_PROVIDER_IDS) expect(result.remediation).toContain(id)
+    expect(result.remediation).toMatch(/ANTHROPIC_API_KEY/)
   })
 
   it('warns on an agent.provider pin with no key, even while other providers are configured', () => {
     const result = agentProvidersCheck.run({
       db: {} as DoctorContext['db'],
       project: null,
-      getAgentProviderSummary: () => [agentEntry('claude', true, 'config'), agentEntry('deepinfra', false)],
-      getAgentPin: () => ({ provider: 'deepinfra', model: 'deepseek-ai/DeepSeek-V4-Flash', configured: false, envVar: 'DEEPINFRA_TOKEN', modelError: null }),
+      getAgentProviderSummary: () => [agentEntry('claude', true, 'config'), agentEntry('zai', false)],
+      getAgentPin: () => ({ provider: 'zai', model: 'glm-5.2', configured: false, envVar: 'ZAI_API_KEY', modelError: null }),
     })
     expect(result.status).toBe('warn')
     expect(result.code).toBe('agent-providers.pin-unconfigured')
-    expect(result.remediation).toMatch(/DEEPINFRA_TOKEN/)
-    expect(result.details).toMatchObject({ pin: { provider: 'deepinfra' } })
+    expect(result.remediation).toMatch(/ZAI_API_KEY/)
+    expect(result.details).toMatchObject({ pin: { provider: 'zai' } })
   })
 
   it('warns when the pinned agent.model does not resolve', () => {
@@ -330,11 +333,11 @@ describe('config.agent-providers', () => {
     const result = agentProvidersCheck.run({
       db: {} as DoctorContext['db'],
       project: null,
-      getAgentProviderSummary: () => [agentEntry('claude', true, 'config'), agentEntry('deepinfra', true, 'config')],
-      getAgentPin: () => ({ provider: 'deepinfra', model: 'zai-org/GLM-5.2', configured: true, envVar: 'DEEPINFRA_TOKEN', modelError: null }),
+      getAgentProviderSummary: () => [agentEntry('claude', true, 'config'), agentEntry('zai', true, 'config')],
+      getAgentPin: () => ({ provider: 'zai', model: 'glm-5-turbo', configured: true, envVar: 'ZAI_API_KEY', modelError: null }),
     })
     expect(result.status).toBe('ok')
-    expect(result.summary).toContain('pinned to deepinfra (zai-org/GLM-5.2)')
+    expect(result.summary).toContain('pinned to zai (glm-5-turbo)')
   })
 
   it('skips when the agent provider summary is unavailable (e.g. cloud)', () => {
@@ -350,14 +353,14 @@ describe('config.agent-providers', () => {
       callerIsInstanceAdministrator: false,
       getAgentProviderSummary: () => [
         agentEntry('claude', false),
-        agentEntry('deepinfra', true, 'config'),
+        agentEntry('zai', true, 'config'),
       ],
     })
     expect(result.status).toBe('skipped')
     expect(result.code).toBe('agent-providers.restricted')
     // Which providers exist and that one is configured is most of the answer,
     // so a count is as disclosing as a name.
-    expect(result.summary).not.toContain('deepinfra')
+    expect(result.summary).not.toContain('zai')
     expect(result.summary).not.toMatch(/\d+ of \d+/)
     expect(result.details).toBeUndefined()
   })
@@ -366,9 +369,9 @@ describe('config.agent-providers', () => {
     const result = agentProvidersCheck.run({
       db: {} as DoctorContext['db'],
       project: null,
-      getAgentProviderSummary: () => [agentEntry('deepinfra', true, 'config')],
+      getAgentProviderSummary: () => [agentEntry('zai', true, 'config')],
     })
     expect(result.status).toBe('ok')
-    expect(result.summary).toContain('deepinfra')
+    expect(result.summary).toContain('zai')
   })
 })

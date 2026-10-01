@@ -9,14 +9,12 @@
  *   Perplexity is an answer engine; `local` is an OpenAI-compatible local
  *   LLM; `cdp:chatgpt` is a browser-automation adapter.
  * - `AgentProviderIds`  — LLM backends that can drive the Aero conversation
- *   loop (tool-calling + streaming). Subset of ProviderIds plus `zai` and
- *   `deepinfra` (both agent-only, no sweep adapter).
+ *   loop (tool-calling + streaming). Subset of ProviderIds plus `zai`
+ *   (agent-only, no sweep adapter).
  *
  * Agent-side code maps these to pi-ai's vendor names (e.g. `claude` →
  * pi-ai's `anthropic`) inside `packages/canonry/src/agent/providers.ts`.
- * `deepinfra` is an OpenAI-compatible host with no pi-ai catalog entry —
- * the agent registry constructs a custom `openai-completions` model pointed
- * at its base URL. External consumers only see the canonical IDs here.
+ * External consumers only see the canonical IDs here.
  */
 
 export const ProviderIds = {
@@ -28,7 +26,6 @@ export const ProviderIds = {
   local: 'local',
   cdpChatgpt: 'cdp:chatgpt',
   zai: 'zai',
-  deepinfra: 'deepinfra',
 } as const
 
 export type ProviderId = (typeof ProviderIds)[keyof typeof ProviderIds]
@@ -53,17 +50,15 @@ export const SWEEP_PROVIDER_IDS: readonly SweepProviderId[] = Object.values(Swee
 /**
  * Providers that can drive the built-in Aero agent loop. Perplexity / local /
  * cdp:chatgpt are excluded (answer engine, unreliable tool-calling, browser
- * scraper respectively). `zai` and `deepinfra` are agent-only — both serve
- * open-weight models (GLM, DeepSeek) but have no answer-visibility sweep
- * adapter (no live web-search grounding), so they stay out of SweepProviderIds.
- * `deepinfra` is a Western-hosted (US/EU) OpenAI-compatible endpoint.
+ * scraper respectively). `zai` is agent-only: it has no answer-visibility
+ * sweep adapter (no live web-search grounding), so it stays out of
+ * SweepProviderIds.
  */
 export const AgentProviderIds = {
   claude: ProviderIds.claude,
   openai: ProviderIds.openai,
   gemini: ProviderIds.gemini,
   zai: ProviderIds.zai,
-  deepinfra: ProviderIds.deepinfra,
 } as const
 
 export type AgentProviderId = (typeof AgentProviderIds)[keyof typeof AgentProviderIds]
@@ -72,6 +67,17 @@ export const AGENT_PROVIDER_IDS: readonly AgentProviderId[] = Object.values(Agen
 
 export function isAgentProviderId(value: string): value is AgentProviderId {
   return (AGENT_PROVIDER_IDS as readonly string[]).includes(value)
+}
+
+/**
+ * Agent provider ids Canonry used to accept and has since removed. Config and
+ * CLI validation still reject them, but say the provider was removed rather
+ * than calling the id unknown, so a stale pin reads as a migration step.
+ */
+export const RETIRED_AGENT_PROVIDER_IDS: readonly string[] = ['deepinfra']
+
+export function isRetiredAgentProviderId(value: string): boolean {
+  return RETIRED_AGENT_PROVIDER_IDS.includes(value)
 }
 
 export function isSweepProviderId(value: string): value is SweepProviderId {

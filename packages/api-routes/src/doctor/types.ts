@@ -82,8 +82,8 @@ export interface DoctorContext {
   redirectUri?: string
   providerSummary?: ProviderSummaryEntry[]
   /**
-   * Resolves which agent LLM providers (claude / openai / gemini / zai /
-   * deepinfra) currently have a usable key, for the `config.agent-providers`
+   * Resolves which agent LLM providers (claude / openai / gemini / zai)
+   * currently have a usable key, for the `config.agent-providers`
    * check. A closure (not a snapshot) so it reflects keys added at runtime
    * via the settings API. Wired by `canonry serve`; cloud deployments that
    * don't run the built-in agent leave it undefined and the check `skipped`.

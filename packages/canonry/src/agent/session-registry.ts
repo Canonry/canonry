@@ -15,7 +15,9 @@ import type { CanonryConfig } from '../config.js'
 import {
   buildApiKeyResolver,
   createAeroSession,
+  detectAgentProvider,
   loadAeroSystemPrompt,
+  missingProviderMessage,
   resolveAeroModel,
   resolveConfiguredAgentProvider,
   resolveSessionProviderAndModel,
@@ -596,10 +598,17 @@ export class SessionRegistry {
     current: { provider?: string | null; modelId?: string | null },
   ): { provider: SupportedAgentProvider; modelId: string } {
     const pinned = resolveConfiguredAgentProvider(this.opts.config)
-    const provider = (preferences?.provider
+    // A row written by a provider Canonry has since removed (e.g. deepinfra)
+    // keeps its transcript and resumes on whatever detection picks now. With no
+    // key to detect, the turn fails like a fresh install's and the row is left
+    // alone: a provider recorded on a guess would outrank detection on every
+    // later turn, so a key added afterwards would never be picked up.
+    const stored = coerceAgentProvider(current.provider ?? undefined)
+    const provider = preferences?.provider
       ?? pinned
-      ?? current.provider
-      ?? AgentProviderIds.claude) as SupportedAgentProvider
+      ?? stored
+      ?? detectAgentProvider(this.opts.config)
+    if (!provider) throw new Error(missingProviderMessage())
     // A stored model the installed catalog no longer has (pi-ai drops retired
     // ids, e.g. glm-5.1 in 0.87) falls back to the provider default instead of
     // failing every turn. Only the stored value: a request or pin is kept, so
@@ -629,7 +638,7 @@ export class SessionRegistry {
     // keeps the pre-existing behaviour of never issuing an UPDATE that matches
     // nothing.
     if (!row) return
-    const currentProvider = row.modelProvider as SupportedAgentProvider
+    const currentProvider = row.modelProvider
     const currentModelId = row.modelId
     const { provider: nextProvider, modelId: nextModelId } =
       this.resolveTurnModel(preferences, { provider: row.modelProvider, modelId: row.modelId })
@@ -822,6 +831,10 @@ export class SessionRegistry {
       })
       return
     }
+    // A row no provider can answer for (one left on a removed provider, with
+    // no key to detect) refuses the wake as the no-row branch above does, so
+    // the first keyed turn does not inherit every wake raised meanwhile.
+    this.resolveTurnModel(undefined, { provider: row.modelProvider, modelId: row.modelId })
     const existing = parseJsonColumn<AgentMessage[]>(row.followUpQueue, [])
     this.updateRow(projectId, { followUpQueue: JSON.stringify([...existing, message]) })
   }

@@ -1,6 +1,4 @@
 import {
-  createProvider,
-  envApiKeyAuth,
   type Api,
   type AssistantMessage,
   type Context,
@@ -8,28 +6,17 @@ import {
   type SimpleStreamOptions,
 } from '@earendil-works/pi-ai'
 import { builtinModels } from '@earendil-works/pi-ai/providers/all'
-import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
 import type { StreamFn } from '@earendil-works/pi-agent-core'
 
 /**
  * The one pi-ai model collection Canonry streams through: every built-in
- * catalog provider plus the custom OpenAI-compatible hosts Canonry builds
- * models for by hand (`buildOpenAiCompatibleModel`). pi-ai 0.80 made the root
- * entry side-effect free, so a model is only streamable through a collection
- * that owns its provider.
+ * catalog provider. pi-ai 0.80 made the root entry side-effect free, so a model
+ * is only streamable through a collection that owns its provider.
  *
  * Canonry always resolves the API key itself and passes it as `apiKey`, which
- * wins over provider auth. The DeepInfra auth below is only a fallback that
- * reads the same env var Canonry documents; a missing key fails the request
- * ("Provider is not configured") instead of sending another vendor's key.
+ * wins over provider auth.
  */
 export const aeroModels = builtinModels()
-aeroModels.setProvider(createProvider({
-  id: 'deepinfra',
-  auth: { apiKey: envApiKeyAuth('DeepInfra', ['DEEPINFRA_TOKEN']) },
-  models: [],
-  api: openAICompletionsApi(),
-}))
 
 /**
  * Request defaults Canonry sets itself instead of taking pi's:

@@ -1316,7 +1316,6 @@ cnry agent ask <project> "<prompt>" --provider claude
 cnry agent ask <project> "<prompt>" --provider zai
 cnry agent ask <project> "<prompt>" --provider openai
 cnry agent ask <project> "<prompt>" --provider gemini
-cnry agent ask <project> "<prompt>" --provider deepinfra   # agent tier defaults to deepseek-ai/DeepSeek-V4-Flash (key: DEEPINFRA_TOKEN)
 
 # Restrict the tool surface. Default is --scope all (full read+write surface).
 # --scope read-only matches the dashboard bar default so pasted "Copy as CLI"
@@ -1344,13 +1343,10 @@ cnry agent memory forget <project> --key <k>
 ```
 
 **Provider detection order** when `--provider` is omitted: `claude` →
-`openai` → `gemini` → `zai` → `deepinfra`, whichever has an API key present
-first (from `~/.canonry/config.yaml` providers block, or the matching env var
-`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `ZAI_API_KEY` /
-`DEEPINFRA_TOKEN`). `deepinfra` (DeepSeek-V4-Flash for the agent, GLM-5.2 for
-the analyze and classify tiers) is a Western-hosted OpenAI-compatible host,
-useful when the agent / analyze / classify tiers must avoid PRC-hosted GLM
-(`zai`).
+`openai` → `gemini` → `zai`, whichever has an API key present first (from
+`~/.canonry/config.yaml` providers block, or the matching env var
+`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `ZAI_API_KEY`).
+The `deepinfra` provider was removed; pin one of the four above.
 
 Conversations **persist per project** — `cnry agent ask` continues the
 active conversation each invocation. Use `cnry agent conversations list <project>`
