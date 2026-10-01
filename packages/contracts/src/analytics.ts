@@ -449,6 +449,12 @@ export type SourceCategoryCount = z.infer<typeof sourceCategoryCountSchema>
  */
 export const sourceRankEntrySchema = z.object({
   domain: z.string(),
+  /**
+   * 1-based position by `count` over the whole scope, before any `limit`.
+   * Domains with equal counts share a rank (competition ranking: 1, 2, 2, 4).
+   * Optional only so an older server's response still parses.
+   */
+  rank: z.number().int().positive().optional(),
   count: z.number().int(),
   /** Share of the list's `totalCitedSlots`, 0..1 (at wire precision). */
   percentage: fraction(),

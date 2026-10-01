@@ -27,8 +27,8 @@ const ADMIN_PASSWORD = 'a-long-enough-admin-password'
 const VIEWER_PASSWORD = 'a-long-enough-viewer-password'
 
 /** The configured agent provider, and the label that names its models. */
-const CONFIGURED_PROVIDER = 'deepinfra'
-const PROVIDER_LABEL = 'DeepInfra'
+const CONFIGURED_PROVIDER = 'zai'
+const PROVIDER_LABEL = 'Z.ai (GLM)'
 
 const AGENT_PROVIDERS_CHECK = 'config.agent-providers'
 
@@ -108,7 +108,7 @@ describe('the agent provider configuration is not disclosed through doctor', () 
         apiUrl: ORIGIN,
         database: dbPath,
         apiKey,
-        providers: { [CONFIGURED_PROVIDER]: { apiKey: 'deepinfra-key' } },
+        providers: { [CONFIGURED_PROVIDER]: { apiKey: 'zai-key' } },
       } as CanonryConfig,
       db,
       logger: false,

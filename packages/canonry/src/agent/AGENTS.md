@@ -9,13 +9,13 @@ consume Canonry through the external-agent webhook.
 
 - **CLI**: `canonry agent ask <project> "<prompt>"` — one-shot turn. Streams
   `AgentEvent` lines to stdout (or JSON with `--format json`). Supports
-  `--provider claude|openai|gemini|zai|deepinfra` and `--model <id>`. `zai` and
-  `deepinfra` are agent-only; `deepinfra` is an OpenAI-compatible host outside
-  pi-ai's catalog (`agent/providers.ts` builds a custom `openai-completions`
-  model against `https://api.deepinfra.com/v1/openai`; key from `DEEPINFRA_TOKEN` or `providers.deepinfra.apiKey`,
-  base URL overridable via `DEEPINFRA_BASE_URL` for proxy/LiteLLM-gateway routing).
-  The agent tier is `deepseek-ai/DeepSeek-V4-Flash`; analyze and classify stay on
-  `zai-org/GLM-5.2` (see "Model tiers and upgrades").
+  `--provider claude|openai|gemini|zai` and `--model <id>`. `zai` is
+  agent-only. Every provider resolves its models from pi-ai's catalog and
+  authenticates with that vendor's own key (a proxied deployment can route
+  Gemini through `GEMINI_BASE_URL`). The `deepinfra` provider was removed:
+  config load and `--provider` reject it as removed (not unknown), and stored
+  sessions it answered resume on the current provider (see "Model tiers and
+  upgrades").
 - **Dashboard**: bottom command bar (`AeroBar`) on every project-scoped
   route. SSE-streamed via `POST /api/v1/projects/:name/agent/prompt`.
 - **Proactive**: `RunCoordinator` enqueues a synthesized `[system]` follow-up
@@ -309,17 +309,17 @@ self-starting), and `disabled` (off entirely).
 
 `PROVIDER_MODELS` maps each provider to an agent, analyze and classify model, and
 `AGENT_PROVIDERS[x].defaultModel` derives from the agent tier
-(`validateAgentProviderRegistry` throws if they desync). DeepInfra splits by tier:
-`deepseek-ai/DeepSeek-V4-Flash` drives the agent loop, while analyze and classify
-stay on `zai-org/GLM-5.2`, because those tiers suppress the reasoning trace
-through GLM's chat-template switch and that branch applies only to a model
-declared `reasoning: true`.
+(`validateAgentProviderRegistry` throws if they desync). Every provider resolves
+models from pi-ai's catalog.
 
-A session persists its model id as provenance. Migration 158 moves existing
-DeepInfra GLM-5.2 sessions to DeepSeek-V4-Flash once, without changing their
-transcript, queue, or activity timestamp. Future default-model upgrades use a
-new versioned migration rather than repeatedly replacing stored models during
-hydration.
+A session persists its provider and model id as provenance. Future
+default-model upgrades use a new versioned migration rather than repeatedly
+replacing stored models during hydration. A stored provider Canonry no longer
+ships (rows written by the removed `deepinfra` provider) keeps its transcript
+and resumes on the pinned or auto-detected provider. With no key to detect, the
+turn fails with the fresh-install message, proactive wakes are refused rather
+than queued, and the row keeps its provider and model, so the first key added
+later is the one it resumes on.
 
 `agent.provider` / `agent.model` in config.yaml pin the model Aero reasons with.
 `SessionRegistry.resolveTurnModel` picks the model for every turn and every
@@ -363,7 +363,7 @@ Aero's rules live in `src/agent/AGENTS.md` (see "Agent layer (Aero)" below). The
 - `packages/canonry/src/agent/runtime.ts` — progressive schemas and execution budgets
 - `packages/canonry/src/agent/view-context.ts` — authoritative view evidence
 - `packages/canonry/src/agent/session.ts` — `createAeroSession` (pi integration)
-- `packages/canonry/src/agent/pi-models.ts` — the one pi-ai model collection (`aeroModels`: built-in catalog plus the DeepInfra provider), the Agent's `aeroStreamFn`, and `completeOnce` for one-shot calls. Every request gets 2 retries (pi 0.76 made it 0), an output cap of min(model max, 32K) (streaming used that cap before pi 0.74; one-shot calls now get it too, where each API used to apply its own default), and a `canonry` User-Agent instead of pi's, which names the host OS and architecture.
+- `packages/canonry/src/agent/pi-models.ts` — the one pi-ai model collection (`aeroModels`: the built-in catalog), the Agent's `aeroStreamFn`, and `completeOnce` for one-shot calls. Every request gets 2 retries (pi 0.76 made it 0), an output cap of min(model max, 32K) (streaming used that cap before pi 0.74; one-shot calls now get it too, where each API used to apply its own default), and a `canonry` User-Agent instead of pi's, which names the host OS and architecture.
 - `packages/canonry/src/agent/session-registry.ts` — hybrid in-memory + DB registry
 - `packages/canonry/src/agent/tools.ts` — thin wrapper that exposes the entire MCP tool registry to Aero via `mcp-to-agent-tool.ts`
 - `packages/canonry/src/agent/mcp-to-agent-tool.ts` — adapter; new MCP tools flow into Aero with no second registration

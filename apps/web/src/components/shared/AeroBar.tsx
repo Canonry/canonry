@@ -1195,8 +1195,6 @@ function envVarHint(id: AgentProviderId): string {
       return 'GEMINI_API_KEY'
     case 'zai':
       return 'ZAI_API_KEY'
-    case 'deepinfra':
-      return 'DEEPINFRA_TOKEN'
   }
 }
 
