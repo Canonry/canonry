@@ -1,5 +1,5 @@
 import { agentConversations, type ConversationAction } from '../commands/agent-conversations.js'
-import { agentConversationListQuerySchema, agentViewContextSchema, agentTurnLimitsSchema, describeError, type AgentViewContext } from '@ainyc/canonry-contracts'
+import { agentConversationListQuerySchema, agentViewContextSchema, agentTurnLimitsSchema, describeError, isRetiredAgentProviderId, type AgentViewContext } from '@ainyc/canonry-contracts'
 import { agentAttach, agentDetach } from '../commands/agent.js'
 import { agentAsk, type AgentAskProfile, type AgentAskScope } from '../commands/agent-ask.js'
 import { agentProviders } from '../commands/agent-providers.js'
@@ -60,8 +60,11 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       }
       const providerInput = getString(input.values, 'provider')
       if (providerInput && !coerceAgentProvider(providerInput)) {
-        throw usageError(`Error: --provider must be one of: ${listAgentProviders().join(', ')}\nUsage: ${usage}`, {
-          message: `--provider must be one of: ${listAgentProviders().join(', ')}`,
+        const message = isRetiredAgentProviderId(providerInput)
+          ? `--provider ${providerInput} was removed; use one of: ${listAgentProviders().join(', ')}`
+          : `--provider must be one of: ${listAgentProviders().join(', ')}`
+        throw usageError(`Error: ${message}\nUsage: ${usage}`, {
+          message,
           details: {
             command: 'agent.ask',
             usage,

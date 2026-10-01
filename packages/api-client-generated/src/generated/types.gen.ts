@@ -1747,7 +1747,7 @@ export type QueryTrackingCommitResponse = {
 export type AgentPromptRequest = {
     prompt: string;
     conversationId?: string | null;
-    provider?: 'claude' | 'openai' | 'gemini' | 'zai' | 'deepinfra';
+    provider?: 'claude' | 'openai' | 'gemini' | 'zai';
     modelId?: string;
     scope?: 'all' | 'read-only';
     profile?: 'default' | 'ads-operator';
@@ -1825,13 +1825,13 @@ export type AgentConversationDelete = {
 
 export type AgentProvidersResponseDto = {
     providers: Array<{
-        id: 'claude' | 'openai' | 'gemini' | 'zai' | 'deepinfra';
+        id: 'claude' | 'openai' | 'gemini' | 'zai';
         label: string;
         defaultModel: string;
         configured: boolean;
         keySource: 'config' | 'env';
     }>;
-    defaultProvider: 'claude' | 'openai' | 'gemini' | 'zai' | 'deepinfra';
+    defaultProvider: 'claude' | 'openai' | 'gemini' | 'zai';
 };
 
 export type AdsAccountDto = {
@@ -7910,6 +7910,8 @@ export type MeasurementChangesResponse = {
             citationAnswersDelta?: number | null;
             denominatorChanged?: boolean;
             withinNoise?: boolean;
+            mentionWithinNoise?: boolean | null;
+            citationWithinNoise?: boolean | null;
         }>;
         totalProperties: number;
         truncated: boolean;
@@ -8496,6 +8498,7 @@ export type MeasurementPortfolioSummaryResponse = {
             answers: number;
         }>;
         domainTotal: number;
+        ownDomainAnswers?: number;
     } | null;
     mentionRanking: {
         eligiblePropertyCount: number;
@@ -13597,6 +13600,7 @@ export type SourceBreakdownDto = {
         domainTotal: number;
         entries: Array<{
             domain: string;
+            rank?: number;
             count: number;
             percentage: number;
             answerShare?: number;
@@ -13622,6 +13626,7 @@ export type SourceBreakdownDto = {
             domainTotal: number;
             entries: Array<{
                 domain: string;
+                rank?: number;
                 count: number;
                 percentage: number;
                 answerShare?: number;

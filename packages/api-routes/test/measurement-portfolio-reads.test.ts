@@ -787,6 +787,7 @@ describe('measurement portfolio reads', () => {
       answers: 2,
       domains: [{ domain: 'listings.example', answers: 2 }, { domain: 'rentals.example', answers: 1 }, { domain: 'reviews.example', answers: 1 }],
       domainTotal: 3,
+      ownDomainAnswers: 0,
     })
 
     // Once Harbor is named, nothing ties: the sources cover the displayed rows only.
@@ -876,6 +877,7 @@ describe('measurement portfolio reads', () => {
       answers: 1,
       domains: [{ domain: 'listings.example', answers: 1 }, { domain: 'northstar.example', answers: 1 }],
       domainTotal: 2,
+      ownDomainAnswers: 1,
     })
 
     const everyEngine = await portfolio('limit=2')
@@ -914,6 +916,7 @@ describe('measurement portfolio reads', () => {
       answers: 2,
       domains: [{ domain: 'listings.example', answers: 2 }, { domain: 'northstar.example', answers: 2 }],
       domainTotal: 2,
+      ownDomainAnswers: 2,
     })
   })
 
@@ -1614,6 +1617,16 @@ describe('classifyPropertyMove', () => {
   const move = (mention: [MetricValue, MetricValue], citation: [MetricValue, MetricValue]) =>
     classifyPropertyMove({ previous: mention[0], current: mention[1] }, { previous: citation[0], current: citation[1] })
 
+  it('flags each signal within noise on its own, so one signal beyond noise does not carry the other', () => {
+    // Mention moved four answers, citation two: the Property is beyond noise,
+    // but its citation move alone is noise and is not a loss.
+    expect(move([answers(8), answers(4)], [answers(3), answers(1)])).toMatchObject({
+      withinNoise: false, bucket: 'declined', mentionWithinNoise: false, citationWithinNoise: true,
+    })
+    // A signal measured in only one run cannot be sized, so it has no flag.
+    expect(move([answers(4), answers(4)], [gone, answers(2)])).toMatchObject({ mentionWithinNoise: true, citationWithinNoise: null })
+  })
+
   it('sizes moves in answers and holds two answers each way within noise', () => {
     expect(move([answers(4), answers(6)], [answers(3), answers(1)])).toMatchObject({
       mentionAnswersDelta: 2, citationAnswersDelta: -2, withinNoise: true, bucket: 'withinNoise', mentionSize: 2, citationSize: 2,
@@ -1626,7 +1639,7 @@ describe('classifyPropertyMove', () => {
     // rate the 8 answers would all have named it, so it is four down.
     expect(move([answers(1, 1), answers(4, 8)], [answers(0, 1), answers(0, 8)])).toEqual({
       mentionAnswersDelta: 3, citationAnswersDelta: 0, denominatorChanged: true,
-      withinNoise: false, bucket: 'declined', mentionSize: 4, citationSize: 0,
+      withinNoise: false, bucket: 'declined', mentionSize: 4, citationSize: 0, mentionWithinNoise: false, citationWithinNoise: true,
     })
     // 2 of 10 to 5 of 40: three more answers on a rate down from 20% to 12.5%.
     expect(move([answers(2), answers(5, 40)], [answers(1), answers(4, 40)])).toMatchObject({
@@ -1644,7 +1657,7 @@ describe('classifyPropertyMove', () => {
     // unresolved. Sized on the 2 current answers this would read as noise.
     expect(move([answers(10, 12), answers(0, 2)], [answers(0, 12), answers(0, 2)])).toEqual({
       mentionAnswersDelta: -10, citationAnswersDelta: 0, denominatorChanged: true,
-      withinNoise: false, bucket: 'declined', mentionSize: 10, citationSize: 0,
+      withinNoise: false, bucket: 'declined', mentionSize: 10, citationSize: 0, mentionWithinNoise: false, citationWithinNoise: true,
     })
     // The same pair the other way round is the same size, rising.
     expect(move([answers(0, 2), answers(10, 12)], [answers(0, 2), answers(0, 12)])).toMatchObject({
@@ -1655,7 +1668,7 @@ describe('classifyPropertyMove', () => {
   it('keeps the answer delta as the move when the denominator held', () => {
     expect(move([answers(4), answers(7)], [answers(3), answers(1)])).toEqual({
       mentionAnswersDelta: 3, citationAnswersDelta: -2, denominatorChanged: false,
-      withinNoise: false, bucket: 'improved', mentionSize: 3, citationSize: 2,
+      withinNoise: false, bucket: 'improved', mentionSize: 3, citationSize: 2, mentionWithinNoise: false, citationWithinNoise: true,
     })
   })
 
@@ -1663,7 +1676,7 @@ describe('classifyPropertyMove', () => {
     // 2 of 10 to 3 of 20: one more answer, but 20% to 15% is one answer down.
     expect(move([answers(2), answers(3, 20)], [answers(1), answers(2, 20)])).toEqual({
       mentionAnswersDelta: 1, citationAnswersDelta: 1, denominatorChanged: true,
-      withinNoise: true, bucket: 'withinNoise', mentionSize: 1, citationSize: 0,
+      withinNoise: true, bucket: 'withinNoise', mentionSize: 1, citationSize: 0, mentionWithinNoise: true, citationWithinNoise: true,
     })
   })
 

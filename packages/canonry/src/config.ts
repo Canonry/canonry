@@ -5,7 +5,7 @@ import crypto from 'node:crypto'
 import { parse, stringify } from 'yaml'
 import { agentAllowViewersSchema, agentModelSchema, agentProviderSchema, dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@ainyc/canonry-config'
 import type { SentimentInstallConfigInput } from '@ainyc/canonry-config'
-import { AGENT_PROVIDER_IDS } from '@ainyc/canonry-contracts'
+import { AGENT_PROVIDER_IDS, isRetiredAgentProviderId } from '@ainyc/canonry-contracts'
 import type { AgentProviderId, EmbedConfigEntry, ProviderBatchConfig, ProviderPricing, ProviderQuotaPolicy, SchedulableRunKind } from '@ainyc/canonry-contracts'
 import { CliError } from './cli-error.js'
 import { normalizeProviderBatchSettings } from './provider-batch-config.js'
@@ -640,9 +640,14 @@ export function loadConfig(): CanonryConfig {
     })
   }
   if (!agentProviderSchema.safeParse(parsed.agent?.provider).success) {
+    const pinned: unknown = parsed.agent?.provider
+    const retired = typeof pinned === 'string' && isRetiredAgentProviderId(pinned)
     throw new CliError({
       code: 'CONFIG_INVALID',
-      message: `Invalid config at ${configPath}: agent.provider must be one of ${AGENT_PROVIDER_IDS.join(', ')}, or left blank.`,
+      message: retired
+        ? `Invalid config at ${configPath}: agent.provider ${pinned} was removed. `
+          + `Pin one of ${AGENT_PROVIDER_IDS.join(', ')} (with a key under providers.<name>.apiKey), or leave it blank.`
+        : `Invalid config at ${configPath}: agent.provider must be one of ${AGENT_PROVIDER_IDS.join(', ')}, or left blank.`,
     })
   }
   if (!agentModelSchema.safeParse(parsed.agent?.model).success) {

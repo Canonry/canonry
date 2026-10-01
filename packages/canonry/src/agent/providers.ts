@@ -1,7 +1,6 @@
 import {
   type KnownProvider,
   type Model,
-  type OpenAICompletionsCompat,
 } from '@earendil-works/pi-ai'
 import { aeroModels } from './pi-models.js'
 import {
@@ -25,9 +24,8 @@ import {
  * metadata: pi-ai vendor mapping, per-capability models, priority, label.
  *
  * Intentionally does NOT list sweep-only providers (`perplexity`, `local`,
- * `cdp:chatgpt`) — they can't drive an agent loop. `zai` and `deepinfra`
- * are agent-only with no sweep adapter; `deepinfra` is an OpenAI-compatible
- * host outside pi-ai's catalog (see `OpenAiCompatibleHost`).
+ * `cdp:chatgpt`) — they can't drive an agent loop. `zai` is agent-only with
+ * no sweep adapter. Every provider resolves its models from pi-ai's catalog.
  *
  * Model selection is two-dimensional: `(provider, capability) → modelId`.
  * Provider is configured by the user (API key + default); capability is
@@ -37,83 +35,24 @@ import {
  * exposes `defaultModel` as a shortcut to the `agent`-tier model for
  * backward-compatible callers (DTO + CLI display).
  */
-/**
- * Per-model metadata used to build a `Model<'openai-completions'>` object
- * for a custom OpenAI-compatible host that isn't in pi-ai's catalog. Costs
- * are USD per 1M tokens (same unit pi-ai's `calculateCost` consumes).
- * `contextWindow` does not gate Aero's compaction, which fires on a fixed
- * token budget (`COMPACTION_TOKEN_THRESHOLD`). pi-ai 0.74+ does read it: each
- * request's output cap is clamped to the window minus the estimated prompt.
- * So it must be the real serving window, or 0 when unknown (0 skips the clamp).
- */
-export interface OpenAiCompatibleModelMeta {
-  contextWindow: number
-  maxTokens: number
-  reasoning: boolean
-  cost: { input: number; output: number; cacheRead: number; cacheWrite: number }
-}
-
-/**
- * Config for an OpenAI-compatible host (e.g. DeepInfra) that pi-ai can reach
- * through its `openai-completions` API but does not ship in its model
- * catalog. When an `AgentProviderEntry` carries this block, model resolution
- * constructs a custom `Model<'openai-completions'>` pointed at `baseUrl`
- * instead of looking the id up in pi-ai's catalog, and API-key resolution
- * reads `apiKeyEnvVar`.
- */
-export interface OpenAiCompatibleHost {
-  /** OpenAI-compatible completions base URL, e.g. `https://api.deepinfra.com/v1/openai`. */
-  baseUrl: string
-  /**
-   * Optional env var that overrides `baseUrl` at model-construction time. Lets
-   * a proxied deployment (e.g. a LiteLLM gateway that injects the upstream key
-   * out-of-container) repoint the host without a rebuild. Unset / empty env →
-   * the `baseUrl` constant is used, so the default self-hosted path is unchanged.
-   */
-  baseUrlEnvVar?: string
-  /** Env var carrying the API key; this host has no pi-ai catalog entry. */
-  apiKeyEnvVar: string
-  /**
-   * pi-ai compat overrides for the host's quirks. pi-ai auto-detects compat
-   * from the base URL for hosts it knows; an unknown host like DeepInfra
-   * falls back to the strict OpenAI profile, so we set the open-model
-   * profile explicitly. See `detectCompat` in pi-ai's openai-completions.
-   */
-  compat?: OpenAICompletionsCompat
-  /** Per-slug metadata for `org/Model` ids we ship as tiers; falls back to `defaultModelMeta`. */
-  knownModels: Record<string, OpenAiCompatibleModelMeta>
-  /** Metadata for user-supplied `--model` slugs not present in `knownModels`. */
-  defaultModelMeta: OpenAiCompatibleModelMeta
-}
-
 export interface AgentProviderEntry {
   /**
-   * The `model.provider` string the agent loop passes to `getApiKey`. For
-   * pi-ai catalog providers this is the pi-ai vendor id (e.g. `anthropic`)
-   * that the catalog lookup and `CATALOG_API_KEY_ENV_VARS` accept. For a
-   * custom OpenAI-compatible host (see `openaiCompatible`) it's the canonical
-   * `AgentProviderId` (e.g. `deepinfra`) — not a pi-ai catalog provider —
-   * which `resolveAgentId` maps back to the config/env key lookup.
+   * The pi-ai vendor id (e.g. `anthropic`): the catalog lookup key, the
+   * `model.provider` string the agent loop passes to `getApiKey`, and the key
+   * into `CATALOG_API_KEY_ENV_VARS`.
    */
-  piAiProvider: KnownProvider | string
+  piAiProvider: KnownProvider
   /** User-facing label shown in CLI help and dashboard pickers. */
   label: string
   /**
    * Default model when the caller doesn't specify one and didn't pass a
    * capability. Equals `PROVIDER_MODELS[id].agent` — the `agent`-tier
    * model is the historical default since Aero was the only consumer.
-   * Validated against pi-ai's catalog at module load (catalog providers
-   * only; custom hosts validate that the model object builds).
+   * Validated against pi-ai's catalog at module load.
    */
   defaultModel: string
   /** Lower = higher priority in auto-detect. Used when no `--provider` is passed. */
   autoDetectPriority: number
-  /**
-   * Present only for OpenAI-compatible hosts outside pi-ai's catalog. Drives
-   * custom model construction + env-var key resolution. Absent for pi-ai
-   * catalog providers (claude / openai / gemini / zai).
-   */
-  openaiCompatible?: OpenAiCompatibleHost
 }
 
 /**
@@ -134,14 +73,6 @@ export interface AgentProviderEntry {
  *     model. All three tiers point at flash.
  *   - Zai: glm-5.2 is the agent tier; glm-5-turbo is the cheap tier
  *     for analyze + classify.
- *   - DeepInfra: Western-hosted open weights, split by tier. DeepSeek-V4-Flash
- *     drives the agent loop at ~$0.09/$0.18 per 1M; GLM-5.2 stays on analyze +
- *     classify, where suppressing the reasoning trace rides GLM's chat-template
- *     switch and so needs a reasoning model to apply. Both undercut the Claude
- *     tiers they replace. These are DeepInfra `org/Model` slugs, not pi-ai
- *     catalog ids — model resolution builds a custom openai-completions model
- *     (see `buildOpenAiCompatibleModel`). Serving is quantized (FP8/FP4);
- *     validate quality before production use.
  */
 export const PROVIDER_MODELS = {
   [AgentProviderIds.claude]: {
@@ -170,27 +101,8 @@ export const PROVIDER_MODELS = {
     [LlmCapabilities.analyze]: 'glm-5-turbo',
     [LlmCapabilities.classify]: 'glm-5-turbo',
   },
-  [AgentProviderIds.deepinfra]: {
-    // DeepInfra `org/Model` slugs, resolved into a custom openai-completions
-    // model rather than pi-ai's catalog.
-    //
-    // The agent tier is pinned explicitly: the dashboard picker sends a
-    // provider and no model, so whatever sits here is what selecting DeepInfra
-    // pins a session to.
-    //
-    // analyze + classify stay on GLM on purpose. Those tiers suppress the
-    // reasoning trace through GLM's chat-template switch, and that branch
-    // applies only to a model declared `reasoning: true`; moving them to
-    // DeepSeek-V4-Flash (which is not) would quietly stop suppressing anything.
-    [LlmCapabilities.agent]: 'deepseek-ai/DeepSeek-V4-Flash',
-    [LlmCapabilities.analyze]: 'zai-org/GLM-5.2',
-    [LlmCapabilities.classify]: 'zai-org/GLM-5.2',
-  },
 } as const satisfies Record<AgentProviderId, Record<LlmCapability, string>>
 
-// Explicitly typed as the widened entry record (not `as const satisfies`) so
-// `AGENT_PROVIDERS[id].openaiCompatible` is visible on every member — the
-// const-narrowed union would only expose it on the one entry that sets it.
 export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderEntry> = {
   [AgentProviderIds.claude]: {
     piAiProvider: 'anthropic',
@@ -215,72 +127,6 @@ export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderEntry> = {
     label: 'Z.ai (GLM)',
     defaultModel: PROVIDER_MODELS[AgentProviderIds.zai][LlmCapabilities.agent],
     autoDetectPriority: 3,
-  },
-  [AgentProviderIds.deepinfra]: {
-    // `piAiProvider` is the canonical id here (not a pi-ai vendor) — it's the
-    // `model.provider` string the agent loop hands to `getApiKey`, which
-    // `resolveAgentId` maps straight back to the deepinfra config/env key.
-    piAiProvider: AgentProviderIds.deepinfra,
-    label: 'DeepInfra (GLM / DeepSeek)',
-    defaultModel: PROVIDER_MODELS[AgentProviderIds.deepinfra][LlmCapabilities.agent],
-    autoDetectPriority: 4,
-    openaiCompatible: {
-      baseUrl: 'https://api.deepinfra.com/v1/openai',
-      baseUrlEnvVar: 'DEEPINFRA_BASE_URL',
-      apiKeyEnvVar: 'DEEPINFRA_TOKEN',
-      // DeepInfra serves open-weight models (GLM, DeepSeek) behind an
-      // OpenAI-compatible vLLM endpoint. pi-ai's `detectCompat` has no rule
-      // for api.deepinfra.com, so it would apply the strict OpenAI profile;
-      // we set the same open-model profile pi-ai uses for deepseek.com /
-      // cerebras / z.ai. `developer` role and `reasoning_effort` are
-      // OpenAI-platform-isms these models reject, `store` is response
-      // persistence DeepInfra doesn't implement, and DeepInfra documents
-      // `max_tokens` (not `max_completion_tokens`) on its OpenAI route.
-      compat: {
-        supportsStore: false,
-        supportsDeveloperRole: false,
-        supportsReasoningEffort: false,
-        maxTokensField: 'max_tokens',
-      },
-      // Best-effort metadata. Costs are USD/1M tokens (DeepInfra published
-      // rates: GLM-5.2 ~$0.95 in / $0.18 cached / $3.00 out; DeepSeek-V4-Flash
-      // $0.09 in / $0.018 cached (0.2x input) / $0.18 out; DeepSeek-V4-Flash-0731
-      // $0.06 in / $0.015 cached (0.25x input) / $0.18 out). cacheRead must carry
-      // the cached rate, or cached input tokens are logged as free.
-      // contextWindow is DeepInfra's 1M (fp4) serving window for these models;
-      // it's descriptive (see OpenAiCompatibleModelMeta), so it documents the
-      // real window rather than gating compaction.
-      knownModels: {
-        'zai-org/GLM-5.2': {
-          contextWindow: 1_048_576,
-          maxTokens: 98304,
-          reasoning: true,
-          cost: { input: 0.95, output: 3.0, cacheRead: 0.18, cacheWrite: 0 },
-        },
-        'deepseek-ai/DeepSeek-V4-Flash': {
-          contextWindow: 1_048_576,
-          maxTokens: 32768,
-          reasoning: false,
-          cost: { input: 0.09, output: 0.18, cacheRead: 0.018, cacheWrite: 0 },
-        },
-        'deepseek-ai/DeepSeek-V4-Flash-0731': {
-          contextWindow: 1_048_576,
-          maxTokens: 32768,
-          reasoning: false,
-          cost: { input: 0.06, output: 0.18, cacheRead: 0.015, cacheWrite: 0 },
-        },
-      },
-      // Fallback for arbitrary `--model` slugs we don't ship as tiers. cost is
-      // 0, so an unknown slug isn't cost-tracked by pi-ai's `calculateCost`;
-      // contextWindow is 0 (unknown) because a guessed window would clamp a long
-      // turn's output cap toward 1 token; the host enforces its real window.
-      defaultModelMeta: {
-        contextWindow: 0,
-        maxTokens: 32768,
-        reasoning: false,
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      },
-    },
   },
 }
 
@@ -350,10 +196,7 @@ export function resolveModelForProvider(
  * mid-tier for synthesis) without hand-coding model names at every
  * call site.
  *
- * For a pi-ai catalog provider, throws if the model isn't in pi-ai's
- * catalog. For a custom OpenAI-compatible host (`entry.openaiCompatible`,
- * e.g. DeepInfra) the model is constructed directly — any slug is accepted
- * and forwarded to the host, which validates it at request time.
+ * Throws if the model isn't in pi-ai's catalog.
  */
 export function resolveModelForCapability(
   provider: AgentProviderId,
@@ -362,15 +205,6 @@ export function resolveModelForCapability(
 ): Model<never> {
   const entry = AGENT_PROVIDERS[provider]
   const id = modelIdOverride ?? PROVIDER_MODELS[provider][capability]
-  // Custom OpenAI-compatible host (e.g. DeepInfra): the slug isn't in pi-ai's
-  // catalog, so construct the model object directly against the host base URL.
-  if (entry.openaiCompatible) {
-    // The single-shot cheap tiers (analyze/classify) don't need the model's
-    // reasoning trace; suppress it so they don't burn thinking tokens. The
-    // agent tier keeps the host's default thinking for its multi-step loop.
-    const suppressThinking = capability !== LlmCapabilities.agent
-    return buildOpenAiCompatibleModel(entry, id, suppressThinking) as Model<never>
-  }
   const model = aeroModels.getModel(entry.piAiProvider, id) as Model<never> | undefined
   if (!model) {
     throw new Error(
@@ -400,59 +234,9 @@ export function resolveModelForCapability(
   return model
 }
 
-/**
- * Build a `Model<'openai-completions'>` for a custom OpenAI-compatible host.
- * pi-ai's `streamSimple` dispatches on `model.api`, hits `model.baseUrl`, and
- * passes `model.provider` to the agent loop's `getApiKey` callback — so the
- * canonical id in `entry.piAiProvider` lands back in our key resolver.
- */
-export function buildOpenAiCompatibleModel(
-  entry: AgentProviderEntry,
-  id: string,
-  suppressThinking = false,
-): Model<'openai-completions'> {
-  const host = entry.openaiCompatible
-  if (!host) {
-    throw new Error(`buildOpenAiCompatibleModel called for non-custom provider '${entry.piAiProvider}'`)
-  }
-  const meta = host.knownModels[id] ?? host.defaultModelMeta
-  // A proxied deployment can repoint the host via `baseUrlEnvVar` (e.g. a
-  // LiteLLM gateway); an unset/empty env var falls back to the configured
-  // constant, so the default self-hosted path is byte-for-byte unchanged.
-  const baseUrl = (host.baseUrlEnvVar ? process.env[host.baseUrlEnvVar] : undefined) || host.baseUrl
-  // When the caller wants thinking off (the cheap single-shot tiers), pin GLM's
-  // chat-template thinking switch. With `thinkingFormat: 'chat-template'`, the
-  // `enable_thinking` kwarg bound to pi's thinking state and no request-time
-  // reasoning effort (the explain/classify callers pass none), pi-ai emits
-  // exactly `chat_template_kwargs: { enable_thinking: false }` on DeepInfra's
-  // vLLM route. (`qwen-chat-template` now also sends `preserve_thinking`.) That
-  // branch requires `reasoning: true`, which the GLM tier sets — so the trace
-  // is suppressed at the request, not the model.
-  const compat: OpenAICompletionsCompat | undefined = suppressThinking
-    ? { ...host.compat, thinkingFormat: 'chat-template', chatTemplateKwargs: { enable_thinking: { $var: 'thinking.enabled' } } }
-    : host.compat
-  return {
-    id,
-    name: id,
-    api: 'openai-completions',
-    provider: entry.piAiProvider,
-    baseUrl,
-    reasoning: meta.reasoning,
-    input: ['text'],
-    cost: meta.cost,
-    contextWindow: meta.contextWindow,
-    maxTokens: meta.maxTokens,
-    ...(compat ? { compat } : {}),
-  }
-}
-
-/**
- * Whether `id` resolves for `provider` in the installed pi-ai catalog. A custom
- * OpenAI-compatible host accepts any slug (the host validates it per request).
- */
+/** Whether `id` resolves for `provider` in the installed pi-ai catalog. */
 export function isAgentModelAvailable(provider: AgentProviderId, id: string): boolean {
-  const entry = AGENT_PROVIDERS[provider]
-  return !!entry.openaiCompatible || !!aeroModels.getModel(entry.piAiProvider, id)
+  return !!aeroModels.getModel(AGENT_PROVIDERS[provider].piAiProvider, id)
 }
 
 /**
@@ -534,14 +318,13 @@ const CATALOG_API_KEY_ENV_VARS: Record<string, readonly string[]> = {
 
 function agentProviderApiKeyEnvVars(id: AgentProviderId): readonly string[] {
   const entry = AGENT_PROVIDERS[id]
-  if (entry.openaiCompatible) return [entry.openaiCompatible.apiKeyEnvVar]
   return CATALOG_API_KEY_ENV_VARS[entry.piAiProvider] ?? [`${entry.piAiProvider.toUpperCase()}_API_KEY`]
 }
 
 /**
  * The environment variable an operator sets to supply this provider's key,
  * shown in onboarding hints: the last (plain API key) entry of the lookup
- * order, e.g. `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `DEEPINFRA_TOKEN`.
+ * order, e.g. `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `ZAI_API_KEY`.
  */
 export function agentProviderApiKeyEnvVar(id: AgentProviderId): string {
   const names = agentProviderApiKeyEnvVars(id)

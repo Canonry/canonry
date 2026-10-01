@@ -9,7 +9,8 @@ import { RATIO_UNIT_META_KEY, formatPercent, ratioUnitSchema, type RatioUnit } f
  * contracts `ratio-unit.ts`), and the OpenAPI response schema of each tool's
  * operation carries it. This renders those numbers as the percent text the
  * CLI, dashboard and reports show (`formatPercent`), in the model-facing text
- * only; the tool's programmatic result keeps the raw number.
+ * only; the tool's programmatic result keeps the raw number. A rate object that
+ * also carries `numerator` and `denominator` gets them beside its percent.
  */
 
 type JsonSchema = Record<string, unknown>
@@ -110,6 +111,12 @@ function render(schema: JsonSchema, value: unknown, components: Record<string, J
       const rendered = childSchema ? render(childSchema, child, components, depth + 1) : child
       if (rendered !== child) changed = true
       out[key] = rendered
+    }
+    // A rate that carries its counts renders them beside the percent, so the
+    // model quotes "25.0% (6/24)" instead of dropping the denominator.
+    if (typeof current.value === 'number' && typeof out.value === 'string'
+      && Number.isInteger(current.numerator) && Number.isInteger(current.denominator)) {
+      out.value = `${out.value} (${current.numerator as number}/${current.denominator as number})`
     }
     return changed ? out : current
   }

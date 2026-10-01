@@ -135,7 +135,7 @@ export function appendSystemPromptExtras(
   return `${base.trimEnd()}\n\n---\n\n${extras.join('\n\n')}`
 }
 
-function missingProviderMessage(): string {
+export function missingProviderMessage(): string {
   const configHints = agentProvidersByPriority().join(', ')
   const envHints = agentProvidersByPriority().map(agentProviderApiKeyEnvVar).join(' / ')
   return (

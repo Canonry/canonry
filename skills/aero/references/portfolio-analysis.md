@@ -56,9 +56,18 @@ change the plan to make a read work.
 
 ## Interpret the denominator
 
-- Quote the server's numerator and denominator with a rate. Mention and
-  citation are independent signals; `mentioned: null` or
-  `answerMentioned: null` means unchecked, not a measured miss.
+- Quote the server's numerator and denominator with a rate, headline and
+  branded figures included; Aero's tool text renders them beside the percent,
+  as in `25.0% (6/24)`. Mention and citation are independent signals;
+  `mentioned: null` or `answerMentioned: null` means unchecked, not a
+  measured miss.
+- A Property's citation coverage counts only citations of its own page, so
+  0% does not mean the brand's domain went uncited.
+  `weakestAnswerSources.ownDomainAnswers` counts the weakest Properties'
+  answers that cite any own domain.
+- State where a domain places only from its `rank` (equal counts share a
+  rank), never by counting rows; claim any rank or superlative only from a
+  rank field or a list seen in full.
 - Coverage denominators count answers, one per query per engine: 8 queries
   on 3 engines is 24 answers. Label them answers, never queries.
 - An empty result with `measurement.state: not_measured` means no
@@ -95,6 +104,9 @@ For Simple month comparisons, honor the returned interval, continuity,
 Between two sweeps, a Property that moved 2 answers or fewer
 (`withinNoise: true`) is within noise: one answer on a 12-answer denominator
 is 8.3 points. Never call it real, a trend, structural, or a regression.
+Judge each signal on its own too: `mentionWithinNoise` and
+`citationWithinNoise` mark a signal that moved 2 answers or fewer, which is
+noise even when the Property's other signal moved more.
 Report the `distribution` (how many Properties improved, declined, moved
 within noise, or did not change), and flag only moves beyond noise, or the
 same move repeated over several sweeps, as worth checking.

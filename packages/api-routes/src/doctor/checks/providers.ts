@@ -110,9 +110,9 @@ const agentProvidersConfiguredCheck: CheckDefinition = {
         code: 'agent-providers.none-configured',
         summary: 'No agent LLM provider has credentials configured — the built-in Aero agent cannot run.',
         remediation:
-          'Add a key for one of the agent providers (claude, openai, gemini, zai, deepinfra) under ' +
+          'Add a key for one of the agent providers (claude, openai, gemini, zai) under ' +
           '`providers.<name>.apiKey` in ~/.canonry/config.yaml, or export its env var ' +
-          '(e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY, DEEPINFRA_TOKEN).',
+          '(e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY).',
         details,
       }
     }
