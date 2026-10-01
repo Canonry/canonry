@@ -67,9 +67,11 @@ only admitted ones). The server counts every eligible answer, admitted or not,
 and an answer assessed for several subjects once. Its counts ("16 of 20 answers
 rated", `coverage.ratedAnswers` of `coverage.eligibleAnswers`) are its tooltip
 and screen-reader text, and Details lists them as "Rated answers"; a class with
-eligible answers and none admitted reads a measured 0%. The empty value with
-"No answers yet" appears only when there are no eligible answers (or a server
-too old to send them), never a second metric or a sentence; the last column is the class's Details chevron, a
+eligible answers and none admitted reads a measured 0%. The empty value appears
+only with no eligible answers ("No answers yet"), while sentiment is off
+("Sentiment is off.") or from a server too old to send the counts
+("Unavailable", which makes no claim about answers), never a second metric or a
+sentence; the last column is the class's Details chevron, a
 chevron-only button named "Branded details" / "Non-brand details". A class's
 state while it has no ratings, or "Partial results", is a note under its bar.
 The header and lines share one column grid (subgrid), so the bars start and end

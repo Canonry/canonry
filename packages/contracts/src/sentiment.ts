@@ -145,7 +145,7 @@ export type SentimentCounts = z.infer<typeof sentimentCountsSchema>
 /**
  * `selected`, `eligibleAssessments`, `unadmittedAssessments` and `judged` count answer-subject
  * assessments; `distinctSourceAnswers` counts the admitted source answers. The answer-level Rated
- * figure has its own fields, optional because servers before 6.0.1 do not send them:
+ * figure has its own fields, optional because older servers do not send them:
  * `eligibleAnswers` is every distinct source answer in the selection, admitted or not;
  * `ratedAnswers` is those with at least one favorable, mixed or unfavorable assessment in it
  * (an answer assessed for two subjects counts once); `ratedAnswerRate` is their share, null with
@@ -248,15 +248,18 @@ const JUDGED_OUTCOMES: ReadonlySet<SentimentOutcome> = new Set(['favorable', 'mi
 /**
  * Every selected answer-subject assessment appears once within the selected population.
  * `eligibleAnswers` is the number of distinct source answers in the selection, admitted or not;
- * it is the Rated share's denominator and never falls below the admitted answers.
+ * it is the Rated share's denominator and never falls below the admitted answers. `ratedAnswers`
+ * is the caller's count when the rated population is wider than `items` (a comparison scores its
+ * matched units but rates every answer in the period); it never falls below the answers `items` rate.
  */
-export function aggregateSentiment(items: readonly SentimentAggregateItem[], options: { disabled?: boolean; eligibleAssessments?: number; eligibleAnswers?: number; expectedProviderSlots?: number; completedProviderSlots?: number } = {}) {
+export function aggregateSentiment(items: readonly SentimentAggregateItem[], options: { disabled?: boolean; eligibleAssessments?: number; eligibleAnswers?: number; ratedAnswers?: number; expectedProviderSlots?: number; completedProviderSlots?: number } = {}) {
   const unique = [...new Map(items.map(item => [item.assessmentId, item])).values()]
   const counts = emptySentimentCounts()
   for (const item of unique) counts[item.outcome]++
   const judged = counts.favorable + counts.mixed + counts.unfavorable
   const distinctSourceAnswers = new Set(unique.map(item => item.sourceSnapshotId)).size
-  const ratedAnswers = new Set(unique.filter(item => JUDGED_OUTCOMES.has(item.outcome)).map(item => item.sourceSnapshotId)).size
+  const ratedInItems = new Set(unique.filter(item => JUDGED_OUTCOMES.has(item.outcome)).map(item => item.sourceSnapshotId)).size
+  const ratedAnswers = Math.max(options.ratedAnswers ?? ratedInItems, ratedInItems)
   const eligibleAnswers = Math.max(options.eligibleAnswers ?? distinctSourceAnswers, distinctSourceAnswers)
   const ratedAnswerRate = options.disabled || eligibleAnswers === 0 ? null : roundRatio(ratedAnswers / eligibleAnswers, RatioUnits.fraction)
   const processing = counts.pending + counts.running + counts['waiting-to-retry']

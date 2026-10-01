@@ -53,6 +53,8 @@ const FULL_ROWS: RowDetail = { include: new Set(['assessments', 'locations']), l
 const COMPACT_ROWS: RowDetail = { include: new Set(), limit: null, after: null }
 /** Operational states stay readable while sentiment is off; every classified or abstained outcome is withheld. */
 const OPERATIONAL_OUTCOMES: ReadonlySet<SentimentOutcome> = new Set([SentimentOutcomes.pending, SentimentOutcomes.running, SentimentOutcomes['waiting-to-retry'], SentimentOutcomes.failed, SentimentOutcomes.canceled])
+/** The outcomes that rate an answer for the Rated share. */
+const RATED_OUTCOMES: ReadonlySet<SentimentOutcome> = new Set([SentimentOutcomes.favorable, SentimentOutcomes.mixed, SentimentOutcomes.unfavorable])
 
 export class SentimentService {
   readonly repository: SentimentRepository
@@ -273,10 +275,15 @@ export class SentimentService {
       return [{ ...item, input, evidence } satisfies DetailedItem]
     })
   }
-  private aggregate(selection: SentimentResolvedSelection, items: readonly StoredItem[], source: SentimentSourceSelection, settings: SentimentSettings, rows: RowDetail | null): Aggregate {
+  /**
+   * `ratedPopulation` is the stored items whose rated assessments count toward every row's Rated
+   * share. It defaults to `items`; a comparison scores only its matched units but passes the whole
+   * period, so each period's Rated share is the one its own summary read shows.
+   */
+  private aggregate(selection: SentimentResolvedSelection, items: readonly StoredItem[], source: SentimentSourceSelection, settings: SentimentSettings, rows: RowDetail | null, ratedPopulation: readonly StoredItem[] = items): Aggregate {
     const definition = selection.evaluationDefinitionId ? this.definition(selection.evaluationDefinitionId) : null
     const disabled = !settings.enabled || !settings.installEnabled
-    const options = { disabled, incomplete: Boolean(source.skipped['incomplete-run']) }
+    const options = { disabled, incomplete: Boolean(source.skipped['incomplete-run']), rated: ratedAssessments(ratedPopulation) }
     const base = { ...scoreAssessments(items, source.assessments, { ...options, slots: source.sourceCoverage }), configured: settings.enabled && settings.installEnabled, selection, evaluationDefinition: definition }
     if (!rows) return { summary: { ...base, breakdowns: [] }, queries: [], total: 0, next: null }
     const filter = sourceFilter(selection)
@@ -422,8 +429,9 @@ export class SentimentService {
     const fromUnits = units(fromItems), toUnits = units(toItems)
     const common = new Set([...fromUnits.byUnit.keys()].filter(key => toUnits.byUnit.has(key)))
     const settings = this.settings(projectId)
-    const fromSummary = withoutNodeKeys(this.aggregate(from.selection, fromItems.filter(item => common.has(fromUnits.byItem.get(item)!)), from.source, settings, COMPACT_ROWS))
-    const toSummary = withoutNodeKeys(this.aggregate(to.selection, toItems.filter(item => common.has(toUnits.byItem.get(item)!)), to.source, settings, COMPACT_ROWS))
+    // Scores use the matched units; each period's Rated share still counts every answer in that period.
+    const fromSummary = withoutNodeKeys(this.aggregate(from.selection, fromItems.filter(item => common.has(fromUnits.byItem.get(item)!)), from.source, settings, COMPACT_ROWS, fromItems))
+    const toSummary = withoutNodeKeys(this.aggregate(to.selection, toItems.filter(item => common.has(toUnits.byItem.get(item)!)), to.source, settings, COMPACT_ROWS, toItems))
     const refusalReasons: string[] = []
     const expectedFrom = from.source.assessments.length, expectedTo = to.source.assessments.length
     if (fromItems.length < expectedFrom || toItems.length < expectedTo) refusalReasons.push('classification-coverage-gap')
@@ -476,7 +484,6 @@ function incompatibleSelectionReason(selections: readonly SentimentResolvedSelec
 
 /** Overview alone combines the classes, counting each saved answer-subject assessment once. */
 function overallSentiment(reads: readonly Read<StoredItem>[], disabled: boolean): SentimentOverallHeadline {
-  const assessmentKey = (item: SentimentSourceAssessment) => JSON.stringify([item.snapshotId, item.subject.key])
   const assessments = reads.flatMap(read => read.source.assessments)
   const eligible = [...new Map(assessments.map(item => [assessmentKey(item), item])).values()]
   const selected = [...new Map(reads.flatMap(read => read.items).map(item => [assessmentKey(item.member), item])).values()]
@@ -509,15 +516,25 @@ function compareRows(left: RowKey, right: RowKey): number {
 function withheldCounts(counts: SentimentCounts): SentimentCounts {
   return Object.fromEntries(Object.entries(counts).map(([key, value]) => [key, OPERATIONAL_OUTCOMES.has(key as SentimentOutcome) ? value : 0])) as SentimentCounts
 }
+/** One answer-subject assessment's identity, the same in every read of its run. */
+function assessmentKey(item: Pick<SentimentSourceAssessment, 'snapshotId' | 'subject'>): string { return JSON.stringify([item.snapshotId, item.subject.key]) }
+/** The assessments rated favorable, mixed or unfavorable among stored items. */
+function ratedAssessments(items: readonly StoredItem[]): ReadonlySet<string> {
+  return new Set(items.filter(item => RATED_OUTCOMES.has(item.outcome)).map(item => assessmentKey(item.member)))
+}
 /**
  * One selected assessment aggregate. A disabled read withholds judged, rated-answer and
  * completed-outcome counts along with the rates. The Rated share's denominator is every distinct
- * eligible source answer, admitted or not, so an answer assessed for several subjects counts once.
+ * eligible source answer, admitted or not, so an answer assessed for several subjects counts once;
+ * an eligible answer is rated when any of its assessments is in `rated` (by default the rated
+ * assessments among `selected`).
  */
-function scoreAssessments(selected: readonly StoredItem[], eligible: readonly SentimentSourceAssessment[], options: { disabled: boolean; incomplete: boolean; slots?: { expected: number; completed: number } }) {
+function scoreAssessments(selected: readonly StoredItem[], eligible: readonly SentimentSourceAssessment[], options: { disabled: boolean; incomplete: boolean; slots?: { expected: number; completed: number }; rated?: ReadonlySet<string> }) {
   const eligibleAnswers = new Set(eligible.map(item => item.snapshotId)).size
+  const rated = options.rated ?? ratedAssessments(selected)
+  const ratedAnswers = new Set(eligible.filter(item => rated.has(assessmentKey(item))).map(item => item.snapshotId)).size
   const slots = options.slots ?? { expected: eligibleAnswers, completed: eligibleAnswers }
-  const result = aggregateSentiment(selected.map(item => ({ assessmentId: item.work.id, sourceSnapshotId: item.work.snapshotId, outcome: item.outcome })), { disabled: options.disabled, eligibleAssessments: eligible.length, eligibleAnswers, expectedProviderSlots: slots.expected, completedProviderSlots: slots.completed })
+  const result = aggregateSentiment(selected.map(item => ({ assessmentId: item.work.id, sourceSnapshotId: item.work.snapshotId, outcome: item.outcome })), { disabled: options.disabled, eligibleAssessments: eligible.length, eligibleAnswers, ratedAnswers, expectedProviderSlots: slots.expected, completedProviderSlots: slots.completed })
   const gap = selected.length > 0 && selected.length < eligible.length
   const coverage = options.disabled ? { ...result.coverage, judged: 0, ratedAnswers: 0, counts: withheldCounts(result.coverage.counts) } : result.coverage
   return { ...result, coverage, ...((gap || options.incomplete) && !options.disabled ? { state: selected.length ? 'partial' as const : 'not-measured' as const, provisional: true } : {}), reason: options.disabled ? 'Sentiment is disabled.' : options.incomplete ? 'Source sweep is incomplete.' : gap ? 'classification-coverage-gap: some source assessments have not been admitted.' : null }

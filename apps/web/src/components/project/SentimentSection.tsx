@@ -37,6 +37,8 @@ export const SENTIMENT_COPY = {
   rated: 'Share of answers rated favorable, mixed or unfavorable',
   /** Why a Rated column is empty: no eligible answers. Its tooltip and its screen-reader text. */
   noAnswers: 'No answers yet',
+  /** Why a Rated column is empty when the server sends no answer counts (one older than the Rated fields): no claim about answers. */
+  ratedUnavailable: 'Unavailable',
   /** Details row labels: Rated counts answers; the unadmitted count is of assessments (one per answer and subject). */
   details: { ratedAnswers: 'Rated answers', unadmitted: 'Assessments not yet analyzed' },
   overall: 'Overall sentiment is the share of favorable judgments across branded and non-brand queries. Each saved answer-subject assessment counts once. Factual, unmentioned, unsupported, and unclassified answers are excluded.',
@@ -100,11 +102,13 @@ function ratedAnswersText({ ratedAnswers = 0, eligibleAnswers = 0 }: RatedCovera
  * shared percent format, and the counts behind it ("16 of 20 answers rated").
  * The server counts every eligible answer, admitted or not, and an answer
  * assessed for several subjects once; nothing here divides. With no eligible
- * answers (or a server too old to send them) it is the app's empty value, and
- * its detail says why. `empty` marks either empty value.
+ * answers it is the app's empty value with "No answers yet"; from a server too
+ * old to send the counts it is the empty value with "Unavailable", which makes
+ * no claim about answers. `empty` marks every empty value.
  */
 export function sentimentRatedShare(coverage: RatedCoverage): { display: string; detail: string; empty: boolean } {
-  const eligibleAnswers = coverage.eligibleAnswers ?? 0
+  const { eligibleAnswers } = coverage
+  if (eligibleAnswers === undefined) return { display: EM_DASH, detail: SENTIMENT_COPY.ratedUnavailable, empty: true }
   if (eligibleAnswers <= 0) return { display: EM_DASH, detail: SENTIMENT_COPY.noAnswers, empty: true }
   // A null share with eligible answers means the server withholds it: sentiment is off.
   if (coverage.ratedAnswerRate === null || coverage.ratedAnswerRate === undefined) return { display: EM_DASH, detail: SENTIMENT_COPY.states.disabled, empty: true }
@@ -113,8 +117,9 @@ export function sentimentRatedShare(coverage: RatedCoverage): { display: string;
 
 /**
  * The Rated column: only the share of answers rated, or the muted empty value
- * with no eligible answers. The count behind it is its tooltip and its
- * screen-reader text, and Details lists it as "Rated answers".
+ * with no eligible answers or no answer counts from the server. The count
+ * behind it is its tooltip and its screen-reader text, and Details lists it as
+ * "Rated answers".
  */
 function RatedCell({ coverage, label }: { coverage: RatedCoverage; label: string }) {
   const { display, detail, empty } = sentimentRatedShare(coverage)

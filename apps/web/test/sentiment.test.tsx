@@ -90,17 +90,18 @@ function expectRated(row: Element, label: string, display: string, detail: strin
   expect(figure!.title).toBe(detail)
   expect(spoken!.textContent).toBe(`${display}, ${detail}`)
 }
-/** A Rated column with no answers: the muted empty value, saying why in its tooltip and to a screen reader. */
-function expectEmptyRated(row: Element, label: string) {
+/** An empty Rated column: the muted empty value, saying why (no answers by default) in its tooltip and to a screen reader. */
+function expectEmptyRated(row: Element, label: string, detail: string = SENTIMENT_COPY.noAnswers) {
   const cell = row.querySelector<HTMLElement>(':scope > .sentiment-class-ratings')!
   expect(cell.getAttribute('aria-label')).toBe(`${label} share rated`)
   expect([...cell.children].map(child => [child.className, child.getAttribute('aria-hidden')])).toEqual([['sentiment-class-empty', 'true'], ['sr-only', null]])
   const [mark, spoken] = [...cell.children] as HTMLElement[]
   expect(visibleText(cell)).toBe(EMPTY_VALUE)
   expect(mark!.textContent).toBe(EMPTY_VALUE)
-  expect(mark!.title).toBe(SENTIMENT_COPY.noAnswers)
-  expect(spoken!.textContent).toBe(SENTIMENT_COPY.noAnswers)
+  expect(mark!.title).toBe(detail)
+  expect(spoken!.textContent).toBe(detail)
   expect(SENTIMENT_COPY.noAnswers).toBe('No answers yet')
+  expect(SENTIMENT_COPY.ratedUnavailable).toBe('Unavailable')
 }
 function assessment(overrides: Partial<SentimentAssessmentSummary> = {}): SentimentAssessmentSummary {
   return { assessmentId: 'assessment-openai', sourceSnapshotId: 'snapshot-openai', runId: 'run', subjectId: 'north', subjectLabel: 'North Hall', executionNodeKey: null, provider: 'openai', requestedModel: 'source-model', servedModel: 'source-model', location: 'Chicago', evaluationDefinitionId: 'definition-a', state: 'complete', outcome: 'favorable', reason: null, ...overrides }
@@ -219,6 +220,18 @@ describe('sentiment presentation', () => {
       expect(classDetails(headline.parentElement!).toggle).toBeNull()
       expect(headline.parentElement!.querySelector('.sentiment-class-details')).toBeNull()
       expect(screen.queryByText(/0 judged|Unavailable|95%/)).toBeNull()
+    } finally { page.close() }
+  })
+  it('reads Unavailable, never "No answers yet", when an older server sends no answer counts', async () => {
+    // A class with answers and ratings from a server that predates the Rated fields.
+    const { eligibleAnswers: _eligible, ratedAnswers: _rated, ratedAnswerRate: _rate, ...older } = summary().coverage
+    const page = renderScope(<SentimentHeadlines queryClass="branded" />, { branded: { ...summary(), coverage: older } })
+    try {
+      const headline = await screen.findByLabelText('Branded favorable share')
+      expect(figures(headline.parentElement!)).toMatchObject({ rated: EMPTY_VALUE })
+      expectEmptyRated(headline.parentElement!, 'Branded', SENTIMENT_COPY.ratedUnavailable)
+      expect(screen.queryByText(SENTIMENT_COPY.noAnswers)).toBeNull()
+      expect([...classDetails(headline.parentElement!).panel!.querySelectorAll('dt')].map(term => term.textContent)).not.toContain(SENTIMENT_COPY.details.ratedAnswers)
     } finally { page.close() }
   })
   it('rates over every eligible answer: 0 of 2 before admission, 1 of 2 once one is rated, with no judged over selected', async () => {
@@ -566,8 +579,9 @@ describe('sentiment share rated', () => {
   })
   it('shows the empty value and "No answers yet" only when there are no eligible answers', () => {
     expect(sentimentRatedShare({ ratedAnswers: 0, eligibleAnswers: 0, ratedAnswerRate: null })).toEqual({ display: EMPTY_VALUE, detail: 'No answers yet', empty: true })
-    // A server older than the answer fields sends none of them.
-    expect(sentimentRatedShare({})).toEqual({ display: EMPTY_VALUE, detail: 'No answers yet', empty: true })
+    // A server older than the answer fields sends none of them: unavailable, with no claim about answers.
+    expect(sentimentRatedShare({})).toEqual({ display: EMPTY_VALUE, detail: 'Unavailable', empty: true })
+    expect(sentimentRatedShare({ ratedAnswers: 3, ratedAnswerRate: 0.5 })).toEqual({ display: EMPTY_VALUE, detail: 'Unavailable', empty: true })
     // A withheld share (sentiment off) is empty too, but never claims there are no answers.
     expect(sentimentRatedShare({ ratedAnswers: 0, eligibleAnswers: 4, ratedAnswerRate: null })).toEqual({ display: EMPTY_VALUE, detail: SENTIMENT_COPY.states.disabled, empty: true })
   })

@@ -70,6 +70,13 @@ describe('sentiment measurement invariants', () => {
     // Disabled withholds the share like every other rate.
     expect(aggregateSentiment(canonical, { disabled: true, eligibleAnswers: 10 }).coverage.ratedAnswerRate).toBeNull()
   })
+  it('takes a wider rated count from the caller, never one below the answers its items rate', () => {
+    const answer = (assessmentId: string, sourceSnapshotId: string, outcome: SentimentOutcome): SentimentAggregateItem => ({ assessmentId, sourceSnapshotId, outcome })
+    // A comparison scores one matched unit but its period rated both answers: 2 of 2, not 1 of 2.
+    expect(aggregateSentiment([answer('a', 'one', 'favorable')], { eligibleAssessments: 2, eligibleAnswers: 2, ratedAnswers: 2 }).coverage).toMatchObject({ selected: 1, judged: 1, eligibleAnswers: 2, ratedAnswers: 2, ratedAnswerRate: 1 })
+    // A caller count below the rated items is raised to them.
+    expect(aggregateSentiment([answer('a', 'one', 'favorable'), answer('b', 'two', 'mixed')], { eligibleAnswers: 4, ratedAnswers: 1 }).coverage).toMatchObject({ ratedAnswers: 2, ratedAnswerRate: 0.5 })
+  })
   it('adds the answer-level Rated fields optionally, so a response from an older server stays valid', () => {
     const { eligibleAnswers, ratedAnswers, ratedAnswerRate, ...older } = sentimentFixtureSummary.coverage
     expect({ eligibleAnswers, ratedAnswers, ratedAnswerRate }).toEqual({ eligibleAnswers: 10, ratedAnswers: 5, ratedAnswerRate: 0.5 })
