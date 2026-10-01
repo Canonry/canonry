@@ -1,5 +1,28 @@
 # Portable Agent Plugin with Codex and Claude Code adapters
 
+## ChatGPT public package
+
+The skills-only public package helps users set up their own Canonry instance,
+interpret supplied reports and exports, and plan measurement. Its canonical
+skill is `skills/canonry-guide/SKILL.md`. It includes no MCP configuration,
+hosted audit service, credentials, or automatic project access.
+
+Build the submission ZIP with Python 3:
+
+```bash
+python3 scripts/package_chatgpt_plugin.py /tmp/canonry-chatgpt.zip
+```
+
+The packager uses the current Canonry version and brand assets, with listing
+copy specific to the skills-only offering. Upload the ZIP through the
+[OpenAI plugin submission portal](https://platform.openai.com/plugins), resolve
+automated findings, submit for review, and publish after approval. A built ZIP
+or repository marketplace entry does not establish public availability.
+
+Live Canonry MCP access is a separate connection. Adding an MCP server to an
+existing skills-only directory plugin is currently unsupported; a future
+hosted website-check offering requires its own MCP-enabled submission.
+
 Canonry's plugin targets the [Agent Plugins 1.0.0 format](https://agent-plugins.org/). The portable core is `plugins/canonry/plugin.json`, `skills/`, and `mcp.json`. It bundles the Canonry and Aero playbooks and launches the existing `canonry-mcp` stdio adapter. It does not add a second API, execution path, or credential store.
 
 Plugins and skills are optional. A connected remote agent starts with
