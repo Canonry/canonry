@@ -1,6 +1,6 @@
 {
   "name": "canonry",
-  "version": "6.0.0",
+  "version": "6.0.1",
   "description": "Operate Canonry AEO projects through guided skills and the typed Canonry MCP server.",
   "author": {
     "name": "Canonry",
@@ -20,8 +20,8 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Canonry",
-    "shortDescription": "Operate Canonry AEO projects from Codex",
-    "longDescription": "Inspect citation and mention coverage, run technical AEO audits, and act through Canonry's typed MCP tools.",
+    "shortDescription": "AI citations and mentions",
+    "longDescription": "Inspect citation and mention coverage, review technical AEO findings, and act through Canonry MCP tools. Requires a separately configured Canonry instance and MCP connection; available tools follow your credential scope.",
     "developerName": "Canonry",
     "category": "Productivity",
     "capabilities": [
@@ -37,6 +37,9 @@
     "brandColor": "#940000",
     "logo": "./assets/logo.svg",
     "logoDark": "./assets/logo-dark.svg",
-    "composerIcon": "./assets/logo.svg"
+    "composerIcon": "./assets/logo.svg",
+    "supportURL": "https://github.com/Canonry/canonry/issues",
+    "privacyPolicyURL": "https://canonry.ai/privacy",
+    "termsOfServiceURL": "https://canonry.ai/terms"
   }
 }
