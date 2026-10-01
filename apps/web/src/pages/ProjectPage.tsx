@@ -35,7 +35,7 @@ import { ProviderBadge } from '../components/shared/ProviderBadge.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { SentimentScopeProvider, SentimentControls } from '../components/project/SentimentSection.js'
 import { sentimentSelectionFromVisibility, sentimentSelectionForSimpleEvidence } from '../queries/sentiment.js'
-import { EvidenceTable } from '../components/project/EvidenceTable.js'
+import { EvidenceTable, QueryEvidenceSummary } from '../components/project/EvidenceTable.js'
 import { BingSummaryMetric } from '../components/project/BingSummaryMetric.js'
 import { ActivitySection } from '../components/project/ActivitySection.js'
 import { GscSection } from '../components/project/GscSection.js'
@@ -3027,7 +3027,7 @@ function ProjectPageContent({
             )}
             {evidenceDashboard.evidenceLoading || evidenceDashboard.evidenceError ? (
               <>
-                {evidenceActions && <div className="query-evidence-summary"><div className="query-evidence-actions">{evidenceActions}</div></div>}
+                {evidenceActions && <QueryEvidenceSummary actions={evidenceActions} />}
                 {evidenceQueryEditor}
                 {evidenceDashboard.evidenceLoading ? (
                   <p role="status" className="text-sm text-secondary">Loading query evidence…</p>

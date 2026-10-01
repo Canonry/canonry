@@ -12,7 +12,7 @@ import {
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { SourceLink } from '../shared/SourceLink.js'
 import { AnswerMarkdown } from '../shared/AnswerMarkdown.js'
-import { SentimentHeadlines, SentimentQueryScore, SentimentAnswerOutcome, useSentimentConfigured } from './SentimentSection.js'
+import { SentimentHeadlines, SentimentLegend, SentimentQueryScore, SentimentAnswerOutcome, useSentimentConfigured } from './SentimentSection.js'
 import { CitationTimeline, mergeProviderHistories } from './CitationTimeline.js'
 import { useDrawer } from '../../hooks/use-drawer.js'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
@@ -188,6 +188,29 @@ function SignalStrip({ items }: { items: CitationInsightVm[] }) {
   )
 }
 
+/**
+ * The top of Query evidence, one row: the sentiment bars on the left; on the
+ * right the section's actions with the bar legend under them. Narrow, it stacks
+ * as bars, legend, actions. With no actions (an embed) the legend stays under
+ * the last bar. Without a query class it is the actions alone, for while the
+ * evidence loads or after it fails.
+ */
+export function QueryEvidenceSummary({ queryClass, actions }: { queryClass?: QueryClassSelection; actions?: ReactNode }) {
+  return (
+    <div className="query-evidence-summary">
+      <div className="query-evidence-summary-row">
+        {queryClass ? <SentimentHeadlines queryClass={queryClass} legend={!actions} /> : null}
+        {actions ? (
+          <div className="query-evidence-aside">
+            <div className="query-evidence-actions">{actions}</div>
+            {queryClass ? <SentimentLegend queryClass={queryClass} /> : null}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 export function EvidenceTable({
   evidence,
   compareLocations = false,
@@ -285,10 +308,7 @@ export function EvidenceTable({
 
   return (
     <div className="query-evidence">
-      <div className="query-evidence-summary">
-        <SentimentHeadlines queryClass={queryClassSelection} />
-        {actions ? <div className="query-evidence-actions">{actions}</div> : null}
-      </div>
+      <QueryEvidenceSummary queryClass={queryClassSelection} actions={actions} />
       {actionPanel}
       <div className="query-evidence-view-row">
         <div className="flex items-center gap-3">

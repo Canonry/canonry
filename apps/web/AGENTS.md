@@ -55,19 +55,21 @@ Hide the metric and its layout slot when no judged overall score exists. Keep
 counts, class scope, confidence and provisional status in its tooltip; detailed
 sentiment analysis retains separate branded and non-brand populations. Each class
 headline is one line: the class label and its ⓘ, a stacked bar of the class's
-favorable, mixed and unfavorable counts, then the score, rating count and any
-partial-results state, with that class's closed Details under its bar. Each
-segment grows by its own API count (no UI math) in the `progress-fill-*` tones;
-a legend names the tones once any bar has segments; the bar is `role="img"`
-with every count in its label and is never a tab stop. Below
-`SENTIMENT_MIN_RATED` (10) ratings a class headline, and the portfolio's
-overall figure, reads "too few" instead of its score, the bar stays but muted,
-and its Details list the rated outcomes. No ratings draws an empty bar beside
-the class's short state. In Query evidence the bars share a row with Manage
-sentiment and Manage queries (`EvidenceTable`'s `actions`, on the right,
-wrapping under the bars when narrow), and the query editor opens directly
-under that row (`actionPanel`); never a separate band of actions above the
-bars. Query rows keep their score
+favorable, mixed and unfavorable counts, the score, rating count and any
+partial-results state, then that class's Details toggle; the closed panel opens
+on the line below, under the bar (a button and panel, not `<details>`, so the
+two can sit on different grid rows). Each segment grows by its own API count
+(no UI math) in the `progress-fill-*` tones; a legend names the tones once any
+bar has segments; the bar is `role="img"` with every count in its label and is
+never a tab stop. Below `SENTIMENT_MIN_RATED` (10) ratings a class headline, and
+the portfolio's overall figure, reads "too few" instead of its score, the bar is
+a plain track with no segments (they would draw the hidden share), and its
+Details list the rated outcomes. No ratings draws an empty track beside the
+class's short state. In Query evidence (`QueryEvidenceSummary`) the bars share
+one row with Manage sentiment and Manage queries on the right and the legend
+under them; narrow, it stacks as bars, legend, actions. The query editor opens
+directly under that row (`actionPanel`); never a separate band of actions or
+legend above the bars. Query rows keep their score
 beside its rating count. Coverage and confidence belong in closed Details disclosures;
 data-processing disclosure belongs in Enable/Manage sentiment.
 

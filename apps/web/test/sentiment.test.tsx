@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { useState, type ComponentProps, type ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -39,6 +41,12 @@ function renderScope(children: ReactNode, options: { enabled?: boolean; configur
   const view = render(<QueryClientProvider client={client}><SentimentScopeProvider projectName="project" selection={{ mode: 'advanced', queryClass: 'branded', scope: 'property', scopeKey: 'north', marketKey: 'chicago', provider: 'openai', model: 'source-model', runId: 'run', revision: 3 }}>{children}</SentimentScopeProvider></QueryClientProvider>)
   return { requests, client, view, close: () => { cleanup(); client.clear(); restore() } }
 }
+/** A class row's Details toggle, on its bar row, and the panel it opens under the bar. */
+function classDetails(row: Element) {
+  const toggle = row.querySelector<HTMLButtonElement>(':scope > button.sentiment-class-details-toggle')
+  const panel = toggle ? document.getElementById(toggle.getAttribute('aria-controls')!) : null
+  return { toggle, panel }
+}
 function assessment(overrides: Partial<SentimentAssessmentSummary> = {}): SentimentAssessmentSummary {
   return { assessmentId: 'assessment-openai', sourceSnapshotId: 'snapshot-openai', runId: 'run', subjectId: 'north', subjectLabel: 'North Hall', executionNodeKey: null, provider: 'openai', requestedModel: 'source-model', servedModel: 'source-model', location: 'Chicago', evaluationDefinitionId: 'definition-a', state: 'complete', outcome: 'favorable', reason: null, ...overrides }
 }
@@ -68,9 +76,10 @@ describe('sentiment presentation', () => {
       expect(branded.compareDocumentPosition(nonBrand) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
       expect(branded.textContent).toBe('60.1% favorable · 10 ratings')
       expect(branded.textContent).not.toContain('interval')
-      const details = branded.parentElement!.querySelector('details')!
-      expect(details.open).toBe(false)
-      expect(details.querySelector('summary')!.textContent).toBe('Details')
+      const { toggle, panel: details } = classDetails(branded.parentElement!) as { toggle: HTMLButtonElement; panel: HTMLElement }
+      expect(toggle.getAttribute('aria-expanded')).toBe('false')
+      expect(details.hidden).toBe(true)
+      expect(within(branded.parentElement!).getByRole('button', { name: 'Details' })).toBe(toggle)
       expect(within(details).getByText('10 of 12')).toBeTruthy()
       expect(within(details).getByText('8')).toBeTruthy()
       expect(within(details).getByText('Factual')).toBeTruthy()
@@ -93,8 +102,9 @@ describe('sentiment presentation', () => {
       const headline = await screen.findByLabelText('Branded favorable share')
       expect(headline.textContent).toBe(`${SENTIMENT_COPY.tooFew} · 2 ratings`)
       expect(document.body.textContent).not.toContain('50.0%')
-      const details = headline.parentElement!.querySelector('details')!
-      expect(details.open).toBe(false)
+      const { toggle, panel: details } = classDetails(headline.parentElement!) as { toggle: HTMLButtonElement; panel: HTMLElement }
+      expect(toggle.getAttribute('aria-expanded')).toBe('false')
+      expect(details.hidden).toBe(true)
       const rows = [...details.querySelectorAll('dl > div')].map(row => [row.querySelector('dt')!.textContent, row.querySelector('dd')!.textContent])
       expect(rows).toEqual(expect.arrayContaining([
         ['Rated assessments', '2 of 12'],
@@ -111,7 +121,7 @@ describe('sentiment presentation', () => {
     try {
       const headline = await screen.findByLabelText('Branded favorable share')
       expect(headline.textContent).toBe('60.1% favorable · 10 ratings')
-      const details = headline.parentElement!.querySelector('details')!
+      const details = classDetails(headline.parentElement!).panel!
       expect(within(details).queryByText('Favorable share')).toBeNull()
       expect(within(details).queryByText('Mixed')).toBeNull()
     } finally { page.close() }
@@ -136,7 +146,8 @@ describe('sentiment presentation', () => {
     try {
       const headline = await screen.findByLabelText('Branded favorable share')
       expect(headline.textContent).toBe('No ratings yet.')
-      expect(headline.parentElement!.querySelector('details')).toBeNull()
+      expect(classDetails(headline.parentElement!).toggle).toBeNull()
+      expect(headline.parentElement!.querySelector('.sentiment-class-details')).toBeNull()
       expect(screen.queryByText(/0 judged|Unavailable|95%/)).toBeNull()
     } finally { page.close() }
   })
@@ -146,7 +157,7 @@ describe('sentiment presentation', () => {
     try {
       const headline = await screen.findByLabelText('Branded favorable share')
       expect(headline.textContent).toBe('No ratings available.')
-      expect(within(headline.parentElement!.querySelector('details')!).getByText('Unsupported language')).toBeTruthy()
+      expect(within(classDetails(headline.parentElement!).panel!).getByText('Unsupported language')).toBeTruthy()
       expect(headline.textContent).not.toContain('0%')
     } finally { page.close() }
   })
@@ -158,7 +169,7 @@ describe('sentiment presentation', () => {
     try {
       const headline = await screen.findByLabelText('Branded favorable share')
       expect(headline.textContent).toBe('0% favorable · 10 ratingsPartial results')
-      const details = headline.parentElement!.querySelector('details')!
+      const details = classDetails(headline.parentElement!).panel!
       expect(within(details).getByText('Not yet analyzed')).toBeTruthy()
       expect(within(details).getByText('3')).toBeTruthy()
       expect(within(details).queryByText('Pending')).toBeNull()
@@ -469,7 +480,7 @@ describe('sentiment bars', () => {
     } finally { page.close() }
   })
 
-  it('reads Tank Air branded as one bar line: label, bar, then favorable share and rating count', async () => {
+  it('reads Tank Air branded as one bar line: label, bar, favorable share and rating count, then Details', async () => {
     const page = renderScope(<SentimentHeadlines />, { branded: branded(), nonBrand: nonBrand() })
     try {
       const value = await screen.findByLabelText('Branded favorable share')
@@ -477,27 +488,39 @@ describe('sentiment bars', () => {
       const row = value.closest('.sentiment-class')!
       const children = [...row.children]
       const bar = barFor('Branded')
-      // Label with its ⓘ, then the bar, then the share, then Details under the bar.
-      expect(children.map(child => child.className.split(' ')[0])).toEqual(['sentiment-class-label', 'sentiment-bar', 'sentiment-class-value', 'sentiment-class-details'])
+      // Label with its ⓘ, the bar, the share, the Details toggle after it on the
+      // same line, then the panel it opens under the bar.
+      expect(children.map(child => child.className.split(' ')[0])).toEqual(['sentiment-class-label', 'sentiment-bar', 'sentiment-class-value', 'sentiment-class-details-toggle', 'sentiment-class-details'])
+      expect(row.classList.contains('sentiment-class-has-details')).toBe(true)
       expect(children[0]!.textContent).toBe('Branded')
       expect(within(children[0] as HTMLElement).getByRole('button', { name: SENTIMENT_COPY.favorable })).toBeTruthy()
       expect(bar.getAttribute('role')).toBe('img')
       expect(bar.getAttribute('aria-label')).toBe('Branded: 9 favorable, 7 mixed, 0 unfavorable, 56.3% favorable of 16 ratings')
       // An outcome with no ratings draws no segment.
       expect(segments(bar).map(([outcome, grow]) => [outcome, grow])).toEqual([['favorable', 9], ['mixed', 7]])
-      const details = row.querySelector('details')!
-      expect(details.open).toBe(false)
-      expect(within(details).getByText('16 of 20')).toBeTruthy()
-      expect(within(details).getByText('Factual')).toBeTruthy()
-      expect(within(details).getByText(/to/, { selector: 'dd' })).toBeTruthy()
+      const { toggle, panel } = classDetails(row) as { toggle: HTMLButtonElement; panel: HTMLElement }
+      expect(toggle.getAttribute('type')).toBe('button')
+      expect(toggle.getAttribute('aria-expanded')).toBe('false')
+      expect(panel.id).toBe(toggle.getAttribute('aria-controls'))
+      expect(panel.hidden).toBe(true)
+      expect(within(panel).getByText('16 of 20')).toBeTruthy()
+      expect(within(panel).getByText('Factual')).toBeTruthy()
+      expect(within(panel).getByText(/to/, { selector: 'dd' })).toBeTruthy()
+      fireEvent.click(toggle)
+      expect(toggle.getAttribute('aria-expanded')).toBe('true')
+      expect(panel.hidden).toBe(false)
+      expect(within(panel).getByRole('button', { name: branded().score.limitation })).toBeTruthy()
+      fireEvent.click(toggle)
+      expect(panel.hidden).toBe(true)
       // Both classes keep their own ⓘ and their own Details.
       const group = screen.getByRole('group', { name: 'Favorable answer scores' })
       expect(within(group).getAllByRole('button', { name: SENTIMENT_COPY.favorable })).toHaveLength(2)
-      expect(group.querySelectorAll('.sentiment-class > details')).toHaveLength(2)
+      expect(within(group).getAllByRole('button', { name: 'Details' })).toHaveLength(2)
+      expect(new Set(within(group).getAllByRole('button', { name: 'Details' }).map(button => button.getAttribute('aria-controls'))).size).toBe(2)
     } finally { page.close() }
   })
 
-  it('keeps a too-few class bar, muted, beside "too few" and its rating count, with no share anywhere', async () => {
+  it('draws a too-few class as a plain track beside "too few" and its rating count, with no share anywhere', async () => {
     const page = renderScope(<SentimentHeadlines />, { branded: branded(), nonBrand: nonBrand() })
     try {
       const value = await screen.findByLabelText('Non-brand favorable share')
@@ -505,17 +528,39 @@ describe('sentiment bars', () => {
       expect(value.textContent).toBe(`${SENTIMENT_COPY.tooFew} · 1 rating`)
       const bar = barFor('Non-brand')
       expect(bar.getAttribute('data-sentiment-bar')).toBe('too-few')
-      expect(bar.classList.contains('sentiment-bar-muted')).toBe(true)
-      expect(segments(bar)).toEqual([['favorable', 1, 'Favorable: 1 of 1 rating']])
+      expect(bar.classList.contains('sentiment-bar-track')).toBe(true)
+      // No proportional segments: one favorable rating would fill the bar and
+      // show the 100% share that "too few" hides.
+      expect(bar.querySelectorAll('[data-outcome]')).toHaveLength(0)
+      expect(bar.children).toHaveLength(0)
+      // The counts stay in the bar's label and in Details.
+      expect(bar.getAttribute('role')).toBe('img')
       expect(bar.getAttribute('aria-label')).toBe(`Non-brand: 1 favorable, 0 mixed, 0 unfavorable, 1 rating, ${SENTIMENT_COPY.tooFew} to show a favorable share`)
-      // The one-rating share never shows; only the closed Details keep the 95% range.
       expect(bar.getAttribute('aria-label')).not.toContain('100%')
-      const details = bar.closest('.sentiment-class')!.querySelector('details')!
-      expect(bar.closest('.sentiment-class')!.textContent!.replace(details.textContent!, '')).not.toContain('100%')
-      expect(details.open).toBe(false)
-      expect(details.textContent).toContain(`Shown from ${SENTIMENT_MIN_RATED} ratings`)
-      // The branded bar beside it is not muted.
-      expect(barFor('Branded').classList.contains('sentiment-bar-muted')).toBe(false)
+      const row = bar.closest('.sentiment-class')!
+      const { toggle, panel } = classDetails(row) as { toggle: HTMLButtonElement; panel: HTMLElement }
+      expect(row.textContent!.replace(panel.textContent!, '')).not.toContain('100%')
+      expect(toggle.getAttribute('aria-expanded')).toBe('false')
+      expect(panel.textContent).toContain(`Shown from ${SENTIMENT_MIN_RATED} ratings`)
+      expect([...panel.querySelectorAll('dl > div')].map(item => [item.querySelector('dt')!.textContent, item.querySelector('dd')!.textContent])).toEqual(expect.arrayContaining([['Rated assessments', '1 of 32'], ['Favorable', '1']]))
+      // The branded bar beside it keeps its segments.
+      expect(barFor('Branded').querySelectorAll('[data-outcome]')).toHaveLength(2)
+    } finally { page.close() }
+  })
+
+  it('draws no segments and no legend when every class is below ten ratings (ainyc)', async () => {
+    // ainyc on Sep 30: branded 1 favorable and 2 mixed of 3 ratings, non-brand 4 favorable of 4.
+    const page = renderScope(<SentimentHeadlines />, { branded: measured('branded', { favorable: 1, mixed: 2, factual: 6 }), nonBrand: measured('non-brand', { favorable: 4, 'subject-not-mentioned': 9 }) })
+    try {
+      expect((await screen.findByLabelText('Branded favorable share')).textContent).toBe(`${SENTIMENT_COPY.tooFew} · 3 ratings`)
+      expect((await screen.findByLabelText('Non-brand favorable share')).textContent).toBe(`${SENTIMENT_COPY.tooFew} · 4 ratings`)
+      for (const label of ['Branded', 'Non-brand']) expect(barFor(label).getAttribute('data-sentiment-bar')).toBe('too-few')
+      expect(document.querySelectorAll('[data-outcome]')).toHaveLength(0)
+      expect(document.querySelector('.sentiment-legend')).toBeNull()
+      expect(barFor('Branded').getAttribute('aria-label')).toBe(`Branded: 1 favorable, 2 mixed, 0 unfavorable, 3 ratings, ${SENTIMENT_COPY.tooFew} to show a favorable share`)
+      const rows = (label: string) => [...classDetails(barFor(label).closest('.sentiment-class')!).panel!.querySelectorAll('dl > div')].map(item => [item.querySelector('dt')!.textContent, item.querySelector('dd')!.textContent])
+      expect(rows('Branded')).toEqual(expect.arrayContaining([['Favorable', '1'], ['Mixed', '2']]))
+      expect(rows('Non-brand')).toEqual(expect.arrayContaining([['Favorable', '4']]))
     } finally { page.close() }
   })
 
@@ -533,16 +578,20 @@ describe('sentiment bars', () => {
         expect(bar.getAttribute('role')).toBeNull()
         expect(bar.children).toHaveLength(0)
       }
+      // A class with nothing to disclose has no Details, so its bar runs full width.
+      expect(barFor('Branded').closest('.sentiment-class')!.classList.contains('sentiment-class-has-details')).toBe(false)
       expect(screen.queryByRole('img')).toBeNull()
       expect(document.querySelector('.sentiment-legend')).toBeNull()
     } finally { page.close() }
   })
 
-  it('names the segment colors in a legend once a bar has segments, and adds no tab stop', async () => {
+  it('names the segment colors in a legend under the last bar once a bar has segments, and adds no tab stop', async () => {
     const page = renderScope(<SentimentHeadlines />, { branded: branded(), nonBrand: nonBrand() })
     try {
       await screen.findByLabelText('Branded favorable share')
+      const group = screen.getByRole('group', { name: 'Favorable answer scores' })
       const legend = document.querySelector<HTMLElement>('.sentiment-legend')!
+      expect(group.lastElementChild).toBe(legend)
       expect(legend.getAttribute('aria-hidden')).toBe('true')
       expect([...legend.querySelectorAll('li')].map(item => [item.textContent, item.querySelector('span')!.className])).toEqual([
         ['Favorable', 'sentiment-legend-swatch progress-fill-positive'],
@@ -556,27 +605,46 @@ describe('sentiment bars', () => {
         expect(bar.getAttribute('tabindex')).toBeNull()
         expect(bar.querySelector('button, a, [tabindex], summary')).toBeNull()
       }
-      const group = screen.getByRole('group', { name: 'Favorable answer scores' })
-      // Controls inside a closed Details are not reachable until it opens.
-      const focusable = [...group.querySelectorAll<HTMLElement>('button, summary')].filter(element => !element.closest('details > dl')).map(element => element.tagName === 'SUMMARY' ? 'Details' : element.getAttribute('aria-label'))
+      // Controls inside a closed Details panel are not reachable until it opens.
+      const focusable = [...group.querySelectorAll<HTMLElement>('button')].filter(element => !element.closest('[hidden]')).map(element => element.classList.contains('sentiment-class-details-toggle') ? 'Details' : element.getAttribute('aria-label'))
       expect(focusable).toEqual([SENTIMENT_COPY.favorable, 'Details', SENTIMENT_COPY.favorable, 'Details'])
     } finally { page.close() }
   })
 
-  it('puts the section actions on the bars row and opens their panel directly under it', async () => {
+  it('puts the bars, the section actions and the legend under them in one row, and opens the action panel directly under it', async () => {
     const seed = createDashboardFixture({}).dashboard.projects[0]!.visibilityEvidence[0]!
     const actions = <><button type="button">Manage sentiment</button><button type="button">Manage queries</button></>
     const page = renderScope(<EvidenceTable evidence={[{ ...seed, id: 'north', queryId: 'q', sourceSnapshotId: 'snapshot', query: 'Is North Hall good?', queryClass: 'branded' }]} actions={actions} actionPanel={<div data-testid="query-editor" />} />, { branded: branded(), nonBrand: nonBrand() })
     try {
       const scores = await screen.findByRole('group', { name: 'Favorable answer scores' })
+      await screen.findByLabelText('Non-brand favorable share')
       const row = scores.parentElement!
-      expect(row.className).toBe('query-evidence-summary')
-      // Bars first, then the actions on the same row; no row of actions alone above them.
-      expect([...row.children].map(child => child.className)).toEqual(['sentiment-headlines', 'query-evidence-actions'])
-      expect(within(row.children[1] as HTMLElement).getAllByRole('button').map(button => button.textContent)).toEqual(['Manage sentiment', 'Manage queries'])
-      expect(row.previousElementSibling).toBeNull()
-      expect(row.nextElementSibling).toBe(screen.getByTestId('query-editor'))
+      expect(row.className).toBe('query-evidence-summary-row')
+      // Bars on the left; on the right the actions, then the legend under them.
+      // No row of actions or legend alone above the bars.
+      expect([...row.children].map(child => child.className)).toEqual(['sentiment-headlines', 'query-evidence-aside'])
+      const aside = row.children[1] as HTMLElement
+      expect([...aside.children].map(child => child.className)).toEqual(['query-evidence-actions', 'sentiment-legend'])
+      expect(within(aside.children[0] as HTMLElement).getAllByRole('button').map(button => button.textContent)).toEqual(['Manage sentiment', 'Manage queries'])
+      // One legend, beside the bars rather than inside them.
+      expect(document.querySelectorAll('.sentiment-legend')).toHaveLength(1)
+      expect(scores.querySelector('.sentiment-legend')).toBeNull()
+      const summary = row.parentElement!
+      expect(summary.className).toBe('query-evidence-summary')
+      expect(summary.previousElementSibling).toBeNull()
+      expect(summary.nextElementSibling).toBe(screen.getByTestId('query-editor'))
       expect(screen.getByTestId('query-editor').nextElementSibling!.className).toBe('query-evidence-view-row')
+    } finally { page.close() }
+  })
+
+  it('keeps the legend under the last bar when the section has no actions (an embed)', async () => {
+    const seed = createDashboardFixture({}).dashboard.projects[0]!.visibilityEvidence[0]!
+    const page = renderScope(<EvidenceTable evidence={[{ ...seed, id: 'north', query: 'Is North Hall good?', queryClass: 'branded' }]} />, { branded: branded(), nonBrand: nonBrand() })
+    try {
+      const scores = await screen.findByRole('group', { name: 'Favorable answer scores' })
+      await screen.findByLabelText('Non-brand favorable share')
+      expect([...scores.parentElement!.children].map(child => child.className)).toEqual(['sentiment-headlines'])
+      expect(scores.lastElementChild!.className).toBe('sentiment-legend')
     } finally { page.close() }
   })
 
@@ -586,9 +654,47 @@ describe('sentiment bars', () => {
     try {
       const manage = await screen.findByRole('button', { name: 'Manage queries' })
       expect(manage.parentElement!.className).toBe('query-evidence-actions')
-      expect(manage.parentElement!.parentElement!.className).toBe('query-evidence-summary')
+      expect(manage.parentElement!.parentElement!.className).toBe('query-evidence-aside')
+      expect(manage.parentElement!.parentElement!.parentElement!.className).toBe('query-evidence-summary-row')
       expect(screen.queryByRole('group', { name: 'Favorable answer scores' })).toBeNull()
+      expect(document.querySelector('.sentiment-legend')).toBeNull()
     } finally { page.close() }
+  })
+})
+
+describe('sentiment bar styles', () => {
+  const css = readFileSync(resolve(import.meta.dirname, '../src/styles.css'), 'utf8')
+  /** The text inside the braces that open right after `prelude`. */
+  function body(prelude: string, source = css): string {
+    const start = source.indexOf(`${prelude} {`)
+    expect(start, prelude).toBeGreaterThanOrEqual(0)
+    let depth = 0
+    for (let index = source.indexOf('{', start); index < source.length; index++) {
+      if (source[index] === '{') depth++
+      else if (source[index] === '}' && --depth === 0) return source.slice(source.indexOf('{', start) + 1, index)
+    }
+    throw new Error(`unclosed ${prelude}`)
+  }
+  /** One rule's declarations as a property map. */
+  function declarations(selector: string, source: string): Record<string, string> {
+    return Object.fromEntries(body(selector, source).split(';').map(line => line.trim()).filter(line => line && !line.startsWith('@')).map(line => [line.slice(0, line.indexOf(':')).trim(), line.slice(line.indexOf(':') + 1).trim()]))
+  }
+
+  it('keeps the legend swatches in their colors under forced colors, like the bar segments', () => {
+    const forced = [...css.matchAll(/@media \(forced-colors: active\) \{/g)].map(match => body('@media (forced-colors: active)', css.slice(match.index)))
+    const rule = forced.find(text => text.includes('.sentiment-bar-segment'))!
+    expect(declarations('.sentiment-bar-segment,\n    .sentiment-legend-swatch', rule)).toEqual({ 'forced-color-adjust': 'none' })
+  })
+
+  it('puts each Details toggle on its bar row and its panel under the bar, and the legend under the actions', () => {
+    const line = body('@container sentiment-headlines (min-width: 30rem)')
+    expect(declarations('.sentiment-class-details-toggle', line)).toMatchObject({ 'grid-column': '4', 'grid-row': '1' })
+    expect(declarations('.sentiment-class-details', line)).toMatchObject({ 'grid-column': '2 / -1', 'grid-row': '2' })
+    const wide = body('@container query-evidence-summary (min-width: 48rem)')
+    expect(declarations('.query-evidence-summary-row', wide)).toMatchObject({ 'grid-template-columns': 'minmax(0, 1fr) auto' })
+    expect(declarations('.query-evidence-aside > .sentiment-legend', wide)).toMatchObject({ order: '0' })
+    // Narrow, the legend comes first in the aside: under the last bar, above the actions.
+    expect(declarations('.query-evidence-aside > .sentiment-legend', css)).toMatchObject({ order: '-1' })
   })
 })
 
