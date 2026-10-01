@@ -608,7 +608,6 @@ function adaptOverviewToCommandCenter(
 
   return {
     project,
-    dateRangeLabel: overview.dateRangeLabel,
     contextLabel: overview.contextLabel,
     mentionSummary: overview.scores.mention as ScoreSummaryVm,
     visibilitySummary: overview.scores.visibility as ScoreSummaryVm,
@@ -670,7 +669,6 @@ function emptyCommandCenter(
   }
   return {
     project,
-    dateRangeLabel: 'All time',
     contextLabel: `${project.country} / ${project.language.toUpperCase()}`,
     mentionSummary: { ...placeholder, label: 'Mention Coverage' },
     visibilitySummary: { ...placeholder, label: 'Citation Coverage' },

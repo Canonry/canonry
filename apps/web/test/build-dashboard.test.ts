@@ -719,12 +719,10 @@ test('buildProjectCommandCenter populates score gauges from the overview DTO whe
   // The per-model citation rates the By engine card lists (restored after the cleanup).
   expect(vm.providerScores).toEqual([{ provider: 'gemini', model: 'flash', score: 75, cited: 3, total: 4 }])
   expect(buildProjectCommandCenter({ ...data, overview: null }).providerScores).toEqual([])
-  // The Simple header's range and the all-queries gap counts, also restored.
-  expect(vm.dateRangeLabel).toBe('All time')
+  // The all-queries gap counts, also restored.
   expect(vm.gapQueries).toMatchObject({ value: '0', delta: '0 of 4 queries' })
   expect(vm.mentionGaps).toMatchObject({ value: '1', delta: '1 of 4 queries', progress: 25 })
   expect(buildProjectCommandCenter({ ...data, overview: null })).toMatchObject({
-    dateRangeLabel: 'All time',
     gapQueries: { value: 'No data' },
     mentionGaps: { value: 'No data' },
   })

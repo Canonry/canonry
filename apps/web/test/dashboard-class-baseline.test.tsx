@@ -236,7 +236,7 @@ test('project route keeps the core metric and evidence class baseline stable', a
       "pageTitle": null,
       "projectContextActions": "project-context-actions",
       "projectContextDomain": "project-context-domain",
-      "projectContextMeta": "project-context-meta",
+      "projectContextMeta": null,
       "projectContextRow": "project-context-row",
       "projectContextTitle": "project-context-title md:sr-only",
     }

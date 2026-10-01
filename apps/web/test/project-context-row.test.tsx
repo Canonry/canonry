@@ -298,12 +298,12 @@ const RANGE_QUERY = '?measurementFrom=2026-09-01T00:00:00.000Z&measurementTo=202
 
 test.each([
   {
-    // The server's range label for the overview (dateRangeLabel), after the domain.
+    // No range label: the Simple overview's cards read different windows.
     label: 'Simple overview',
     path: '/projects/project_citypoint',
     advanced: false,
-    parts: [CONTEXT_TITLE_CLASS, 'project-context-domain', 'project-context-meta', 'project-context-actions'],
-    meta: 'Last 7 days',
+    parts: [CONTEXT_TITLE_CLASS, 'project-context-domain', 'project-context-actions'],
+    meta: null,
   },
   {
     label: 'Simple Site Health',
@@ -365,7 +365,7 @@ test.each([
 
 // ── Embed ──
 
-test('an embed keeps its page header, with the date range and no project context row', async () => {
+test('an embed keeps its page header, with no Simple date range and no project context row', async () => {
   const { doc } = await renderAt('/projects/project_citypoint', { embed: true })
 
   expect(doc.querySelector('.project-context-row')).toBeNull()
@@ -375,7 +375,7 @@ test('an embed keeps its page header, with the date range and no project context
     '<div class="page-header"><div class="page-header-left">'
     + '<h1 class="page-title">Citypoint Dental NYC</h1>'
     + '<p class="page-subtitle">citypointdental.com · US / English / Local-intent monitoring</p>'
-    + '</div><div class="page-header-right"><p class="text-sm text-muted">Last 7 days</p></div></div>',
+    + '</div><div class="page-header-right"></div></div>',
   )
 })
 

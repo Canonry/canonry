@@ -2675,17 +2675,14 @@ function ProjectPageContent({
     }
   }
 
-  // Overview's date range. Simple always shows the server's label
-  // (`dateRangeLabel`); an Advanced portfolio shows only an explicit historical
-  // range, and renders no element otherwise.
-  const overviewRangeLabel = tab === 'overview' && (isSimpleOverview || visibilitySelection.from || visibilitySelection.to)
-    ? isSimpleOverview
-      ? model.dateRangeLabel
-      : `${visibilitySelection.from?.slice(0, 10) ?? 'First measurement'} to ${visibilitySelection.to?.slice(0, 10) ?? 'Latest measurement'}`
+  // Overview's date range: only an Advanced portfolio's explicit historical
+  // range, shown in the embed header. Simple shows no range label: its cards
+  // read different windows (latest sweep, the chart's own window), so no one
+  // label is true of the page. An Advanced range is a filter token in the
+  // operator's results toolbar.
+  const overviewRangeLabel = tab === 'overview' && !isSimpleOverview && (visibilitySelection.from || visibilitySelection.to)
+    ? `${visibilitySelection.from?.slice(0, 10) ?? 'First measurement'} to ${visibilitySelection.to?.slice(0, 10) ?? 'Latest measurement'}`
     : null
-  // The operator row keeps only the Simple range. An Advanced explicit range is a
-  // filter token in the results toolbar; the embed header keeps its text.
-  const contextMetaLabel = isSimpleOverview ? overviewRangeLabel : null
   const scopeSlotContent = renderScopeSlot()
   const competitorLandscapeCard = competitorLandscapeAvailable ? (
     <CompetitorLandscape
@@ -2746,7 +2743,6 @@ function ProjectPageContent({
           ) : null}
           {scopeSlotContent !== null ? <div className="project-context-scope">{scopeSlotContent}</div> : null}
           {model.project.canonicalDomain ? <span className="project-context-domain">{model.project.canonicalDomain}</span> : null}
-          {contextMetaLabel !== null ? <p className="project-context-meta">{contextMetaLabel}</p> : null}
           <div className="project-context-actions" data-project-actions>
             {isDashboardManagedSweeps() ? (
               <ManagedSweepStatus projectName={projectName} running={hasActiveVisibilitySweep} portfolio={!isSimpleOverview} />

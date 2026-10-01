@@ -209,8 +209,6 @@ export interface QueryCountsVm {
 
 export interface ProjectCommandCenterVm {
   project: ProjectDto
-  /** The server's label for the period the overview reads ("All time"), shown in the Simple header. */
-  dateRangeLabel: string
   contextLabel: string
   /** Primary headline gauge — Mention Coverage. The dashboard renders this as the big radial gauge. */
   mentionSummary: ScoreSummaryVm

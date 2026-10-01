@@ -389,7 +389,6 @@ const citypointEvidence: CitationInsightVm[] = [
 const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
   {
     project: projects[0],
-    dateRangeLabel: 'Last 7 days',
     contextLabel: 'US / English / Local-intent monitoring',
     mentionSummary: {
       label: 'Mention Coverage',
@@ -604,7 +603,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
   },
   {
     project: projects[1],
-    dateRangeLabel: 'Last 14 days',
     contextLabel: 'US / English / Service-area legal prompts',
     mentionSummary: {
       label: 'Mention Coverage',
@@ -791,7 +789,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
   },
   {
     project: projects[2],
-    dateRangeLabel: 'Last 7 days',
     contextLabel: 'US / English / Multi-location treatment prompts',
     mentionSummary: {
       label: 'Mention Coverage',
