@@ -102,12 +102,22 @@ function isReadOnly(tool: RemoteToolDescriptor): boolean {
 }
 
 /**
+ * True when a remote `callTool` result reports a tool-level failure. The MCP SDK
+ * returns a failed call as a `CallToolResult` with `isError: true` rather than
+ * throwing, so this flag is the only signal that the call failed.
+ */
+function isRemoteToolError(result: unknown): boolean {
+  return typeof result === 'object' && result !== null && 'isError' in result && result.isError === true
+}
+
+/**
  * Adapt one remote read-only MCP tool into a pi-agent-core `AgentTool`. Mirrors
  * the AgentTool shape produced by `mcp-to-agent-tool.ts` (name/label/description/
  * parameters/execute). The remote tool's JSON Schema is wrapped in `Type.Unsafe`
  * so pi-agent-core's TSchema-typed `parameters` accepts it without conversion;
  * `execute` forwards the validated args to `client.callTool` and returns the
- * remote result under the 20 KB truncation guard.
+ * remote result under the 20 KB truncation guard, carrying the remote
+ * `isError` flag so pi-agent-core records a failed call as an error.
  *
  * No `project` stripping/injection here (unlike the local adapter): a remote
  * server defines its own argument surface and we never inject a canonry project
@@ -126,6 +136,7 @@ function adaptRemoteTool(client: RemoteMcpClient, tool: RemoteToolDescriptor): A
     return {
       content: [{ type: 'text', text: truncate(JSON.stringify(result, null, 2)) }],
       details: result,
+      isError: isRemoteToolError(result),
     }
   }
 
