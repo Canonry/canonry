@@ -16,7 +16,8 @@ afterEach(cleanup)
 function summary(): SentimentSummary {
   return { ...aggregateSentiment([]), state: 'complete', provisional: false, reason: null,
     selection: { mode: 'advanced', queryClass: 'branded', scope: 'property', scopeKey: 'north', marketKey: 'chicago', runId: 'run', revision: 3, provider: 'openai', model: 'source-model', location: 'Chicago', evaluationDefinitionId: 'definition-a' }, evaluationDefinition: createSentimentEvaluationDefinition(),
-    coverage: { selected: 12, eligibleAssessments: 12, unadmittedAssessments: 0, judged: 10, distinctSourceAnswers: 8, expectedProviderSlots: 12, completedProviderSlots: 12, counts: { ...emptySentimentCounts(), favorable: 6, mixed: 2, unfavorable: 2, factual: 2 } },
+    // 12 assessments of 8 answers: 10 judged assessments rate 6 of the 8 answers, 75.0%, never 10 of 12.
+    coverage: { selected: 12, eligibleAssessments: 12, unadmittedAssessments: 0, judged: 10, distinctSourceAnswers: 8, eligibleAnswers: 8, ratedAnswers: 6, ratedAnswerRate: 0.75, expectedProviderSlots: 12, completedProviderSlots: 12, counts: { ...emptySentimentCounts(), favorable: 6, mixed: 2, unfavorable: 2, factual: 2 } },
     score: { ...aggregateSentiment([]).score, favorableRate: 0.601, favorableDisplay: '60.1%', mixedRate: 0.2, mixedDisplay: '20%', unfavorableRate: 0.199, unfavorableDisplay: '19.9%', interval: { low: 0.23, high: 0.88 } },
     configured: true, queries: [], breakdowns: [] }
 }
@@ -116,7 +117,9 @@ describe('sentiment presentation', () => {
     try {
       expect((await screen.findByLabelText('Branded favorable share')).textContent).toContain('60.1%')
       expect((await screen.findByLabelText('Non-brand favorable share')).textContent).toContain('25%')
-      expect(screen.getAllByText('10 of 12')).toHaveLength(2)
+      // Each class's Details count answers rated, 6 of 8, never assessments judged, 10 of 12.
+      expect(screen.getAllByText('6 of 8')).toHaveLength(2)
+      expect(screen.queryByText('10 of 12')).toBeNull()
       expect(screen.queryByText(/theme/i)).toBeNull()
       expect(screen.queryByRole('button', { name: 'Manage sentiment' })).toBeNull()
       expect(page.requests.filter(url => url.pathname.endsWith('/sentiment'))).toHaveLength(2)
@@ -129,14 +132,15 @@ describe('sentiment presentation', () => {
       const nonBrand = await screen.findByLabelText('Non-brand favorable share')
       expect(branded.compareDocumentPosition(nonBrand) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
       expect(branded.textContent).toBe('60.1%')
-      expect(figures(branded.parentElement!)).toEqual({ favorable: '60.1%', rated: '83.3%', note: null })
+      expect(figures(branded.parentElement!)).toEqual({ favorable: '60.1%', rated: '75.0%', note: null })
       expect(branded.parentElement!.textContent).not.toContain('interval')
       const { toggle, panel: details } = classDetails(branded.parentElement!) as { toggle: HTMLButtonElement; panel: HTMLElement }
       expect(toggle.getAttribute('aria-expanded')).toBe('false')
       expect(details.hidden).toBe(true)
       expect(within(branded.parentElement!).getByRole('button', { name: 'Branded details' })).toBe(toggle)
-      expect(within(details).getByText('10 of 12')).toBeTruthy()
-      expect(within(details).getByText('8')).toBeTruthy()
+      expect(within(details).getByText('6 of 8')).toBeTruthy()
+      // Admitted answers alone ("Source answers") are no longer a row: Rated answers carries the answer count.
+      expect(within(details).queryByText('Source answers')).toBeNull()
       expect(within(details).getByText('Factual')).toBeTruthy()
       expect(within(details).getByText('23.0% to 88.0%')).toBeTruthy()
       expect(within(details).getByRole('button', { name: summary().score.limitation, hidden: true })).toBeTruthy()
@@ -150,7 +154,7 @@ describe('sentiment presentation', () => {
     expect([0, 1, 9, 10, 44].map(showsFavorableShare)).toEqual([false, false, false, true, true])
     // ainyc's branded class: 2 of 12 rated, 1 favorable and 1 mixed, 50.0% on the wire.
     const dto = summary()
-    dto.coverage = { ...dto.coverage, judged: 2, counts: { ...emptySentimentCounts(), favorable: 1, mixed: 1, factual: 6, 'ambiguous-subject': 3, 'wrong-subject': 1 } }
+    dto.coverage = { ...dto.coverage, judged: 2, distinctSourceAnswers: 12, eligibleAnswers: 12, ratedAnswers: 2, ratedAnswerRate: 0.16666667, counts: { ...emptySentimentCounts(), favorable: 1, mixed: 1, factual: 6, 'ambiguous-subject': 3, 'wrong-subject': 1 } }
     dto.score = { ...dto.score, favorableRate: 0.5, favorableDisplay: '50.0%' }
     const page = renderScope(<SentimentHeadlines queryClass="branded" />, { branded: dto })
     try {
@@ -165,7 +169,7 @@ describe('sentiment presentation', () => {
       expect(details.hidden).toBe(true)
       const rows = [...details.querySelectorAll('dl > div')].map(row => [row.querySelector('dt')!.textContent, row.querySelector('dd')!.textContent])
       expect(rows).toEqual(expect.arrayContaining([
-        ['Rated assessments', '2 of 12'],
+        [SENTIMENT_COPY.details.ratedAnswers, '2 of 12'],
         ['Favorable', '1'],
         ['Mixed', '1'],
         ['Favorable share', 'Shown from 10 ratings'],
@@ -180,7 +184,7 @@ describe('sentiment presentation', () => {
       const headline = await screen.findByLabelText('Branded favorable share')
       expect(headline.textContent).toBe('60.1%')
       expect(headline.querySelector('.sentiment-class-share')!.textContent).toBe('60.1%')
-      expect(figures(headline.parentElement!)).toEqual({ favorable: '60.1%', rated: '83.3%', note: null })
+      expect(figures(headline.parentElement!)).toEqual({ favorable: '60.1%', rated: '75.0%', note: null })
       expect(headline.querySelector('.sentiment-class-empty')).toBeNull()
       const details = classDetails(headline.parentElement!).panel!
       expect(within(details).queryByText('Favorable share')).toBeNull()
@@ -188,11 +192,11 @@ describe('sentiment presentation', () => {
     } finally { page.close() }
   })
   it('shows only the selected query class and preserves zero judgments as unavailable', async () => {
-    const dto = summary(); dto.coverage.judged = 0; dto.score = aggregateSentiment([]).score
+    const dto = summary(); dto.coverage = { ...dto.coverage, judged: 0, ratedAnswers: 0, ratedAnswerRate: 0 }; dto.score = aggregateSentiment([]).score
     const page = renderScope(<SentimentHeadlines queryClass="branded" />, { branded: dto })
     try {
       const headline = await screen.findByLabelText('Branded favorable share')
-      // Zero ratings of 12 answers: the same empty value, a measured 0% rated, and the state under the bar.
+      // Zero ratings of 8 answers: the same empty value, a measured 0% rated, and the state under the bar.
       expect(figures(headline.parentElement!)).toEqual({ favorable: EMPTY_VALUE, rated: '0%', note: SENTIMENT_COPY.noJudgments })
       expectEmptyFavorable(headline)
       expect(screen.queryByText('Unavailable')).toBeNull()
@@ -210,11 +214,29 @@ describe('sentiment presentation', () => {
     try {
       const headline = await screen.findByLabelText('Branded favorable share')
       expect(figures(headline.parentElement!)).toEqual({ favorable: EMPTY_VALUE, rated: EMPTY_VALUE, note: 'No ratings yet.' })
-      // No answers selected: Rated is the empty value too, never 0%.
+      // No eligible answers: Rated is the empty value too, never 0%.
       expectEmptyRated(headline.parentElement!, 'Branded')
       expect(classDetails(headline.parentElement!).toggle).toBeNull()
       expect(headline.parentElement!.querySelector('.sentiment-class-details')).toBeNull()
       expect(screen.queryByText(/0 judged|Unavailable|95%/)).toBeNull()
+    } finally { page.close() }
+  })
+  it('rates over every eligible answer: 0 of 2 before admission, 1 of 2 once one is rated, with no judged over selected', async () => {
+    const before = { ...summary(), ...aggregateSentiment([], { eligibleAssessments: 2, eligibleAnswers: 2 }) }
+    const rated = { ...summary(), ...aggregateSentiment([{ assessmentId: 'openai', sourceSnapshotId: 'openai', outcome: 'favorable' }], { eligibleAssessments: 2, eligibleAnswers: 2 }), selection: { ...summary().selection, queryClass: 'non-brand' as const } }
+    expect([before.coverage.selected, rated.coverage.judged, rated.coverage.selected]).toEqual([0, 1, 1])
+    const page = renderScope(<SentimentHeadlines />, { branded: before, nonBrand: rated })
+    try {
+      await screen.findByLabelText('Non-brand favorable share')
+      const lineFor = (label: string) => screen.getByLabelText(`${label} favorable share`).closest('.sentiment-class')!
+      const rows = (label: string) => [...classDetails(lineFor(label)).panel!.querySelectorAll('dl > div')].map(item => [item.querySelector('dt')!.textContent, item.querySelector('dd')!.textContent])
+      // Nothing admitted yet, but two answers are eligible: a measured 0%, never "No answers yet".
+      expectRated(lineFor('Branded'), 'Branded', '0%', '0 of 2 answers rated')
+      expect(rows('Branded')).toEqual([[SENTIMENT_COPY.details.ratedAnswers, '0 of 2'], [SENTIMENT_COPY.details.unadmitted, '2']])
+      // One answer rated, one not admitted: 50.0%, never 100% of the one admitted.
+      expectRated(lineFor('Non-brand'), 'Non-brand', '50.0%', '1 of 2 answers rated')
+      expect(rows('Non-brand')).toEqual(expect.arrayContaining([[SENTIMENT_COPY.details.ratedAnswers, '1 of 2'], [SENTIMENT_COPY.details.unadmitted, '1']]))
+      expect(lineFor('Non-brand').querySelector('.sentiment-class-ratings')!.textContent).not.toContain('100%')
     } finally { page.close() }
   })
   it('does not claim opinions are absent when completed assessments could not be rated', async () => {
@@ -235,10 +257,11 @@ describe('sentiment presentation', () => {
     try {
       const headline = await screen.findByLabelText('Branded favorable share')
       // A measured 0% is a figure, not the empty value; partial results sit under the bar.
-      expect(figures(headline.parentElement!)).toEqual({ favorable: '0%', rated: '83.3%', note: 'Partial results' })
+      expect(figures(headline.parentElement!)).toEqual({ favorable: '0%', rated: '75.0%', note: 'Partial results' })
       expect(headline.parentElement!.querySelector('.sentiment-class-note')!.className).toBe('sentiment-class-note text-caution')
       const details = classDetails(headline.parentElement!).panel!
-      expect(within(details).getByText('Not yet analyzed')).toBeTruthy()
+      expect(within(details).getByText(SENTIMENT_COPY.details.unadmitted)).toBeTruthy()
+      expect(SENTIMENT_COPY.details.unadmitted).toBe('Assessments not yet analyzed')
       expect(within(details).getByText('3')).toBeTruthy()
       expect(within(details).queryByText('Pending')).toBeNull()
     } finally { page.close() }
@@ -522,19 +545,31 @@ function barFor(label: string) { return screen.getByLabelText(`${label} favorabl
 function segments(bar: HTMLElement) { return [...bar.querySelectorAll<HTMLElement>('[data-outcome]')].map(segment => [segment.dataset.outcome, Number(segment.style.flexGrow), segment.title]) }
 
 describe('sentiment share rated', () => {
-  it('divides judged by selected and formats it like the Favorable column, at one decimal, half up', () => {
-    const cases: [judged: number, selected: number, display: string][] = [
-      [16, 20, '80.0%'], [1, 32, '3.1%'], [3, 12, '25.0%'], [4, 44, '9.1%'],
-      [10, 12, '83.3%'], [2, 12, '16.7%'], [1, 3, '33.3%'], [2, 3, '66.7%'], [1, 8, '12.5%'], [1, 16, '6.3%'],
-      [0, 12, '0%'], [20, 20, '100%'], [1, 3000, '<0.1%'], [2999, 3000, '>99.9%'],
+  it('formats the server share of answers rated like the Favorable column, with the server counts behind it', () => {
+    const cases: [ratedAnswers: number, eligibleAnswers: number, ratedAnswerRate: number, display: string][] = [
+      [16, 20, 0.8, '80.0%'], [1, 32, 0.03125, '3.1%'], [3, 12, 0.25, '25.0%'], [4, 44, 0.09090909, '9.1%'],
+      [2, 12, 0.16666667, '16.7%'], [1, 3, 0.33333333, '33.3%'], [2, 3, 0.66666667, '66.7%'], [1, 16, 0.0625, '6.3%'],
+      [0, 12, 0, '0%'], [20, 20, 1, '100%'], [1, 3000, 0.00033333, '<0.1%'], [2999, 3000, 0.99966667, '>99.9%'],
     ]
-    expect(cases.map(([judged, selected]) => sentimentRatedShare({ judged, selected }).display)).toEqual(cases.map(([, , display]) => display))
-    expect(sentimentRatedShare({ judged: 16, selected: 20 }).detail).toBe('16 of 20 answers rated')
-    expect(sentimentRatedShare({ judged: 0, selected: 12 }).detail).toBe('0 of 12 answers rated')
-    expect(sentimentRatedShare({ judged: 1, selected: 1 }).detail).toBe('1 of 1 answer rated')
+    expect(cases.map(([ratedAnswers, eligibleAnswers, ratedAnswerRate]) => sentimentRatedShare({ ratedAnswers, eligibleAnswers, ratedAnswerRate }).display)).toEqual(cases.map(([, , , display]) => display))
+    expect(sentimentRatedShare({ ratedAnswers: 16, eligibleAnswers: 20, ratedAnswerRate: 0.8 }).detail).toBe('16 of 20 answers rated')
+    expect(sentimentRatedShare({ ratedAnswers: 1, eligibleAnswers: 1, ratedAnswerRate: 1 }).detail).toBe('1 of 1 answer rated')
   })
-  it('shows the empty value and "No answers yet" when no answers were selected', () => {
-    expect(sentimentRatedShare({ judged: 0, selected: 0 })).toEqual({ display: EMPTY_VALUE, detail: 'No answers yet' })
+  it('shows the server share, never a judged over selected division', () => {
+    // The review's case: two eligible answers, one rated, one not yet admitted. 1 of 2, not 1 of 1.
+    expect(sentimentRatedShare({ ratedAnswers: 1, eligibleAnswers: 2, ratedAnswerRate: 0.5 })).toEqual({ display: '50.0%', detail: '1 of 2 answers rated', empty: false })
+    // The figure is the server's rate as sent; the counts only label it.
+    expect(sentimentRatedShare({ ratedAnswers: 1, eligibleAnswers: 2, ratedAnswerRate: 0.25 }).display).toBe('25.0%')
+  })
+  it('shows a measured 0% before admission, while answers are eligible', () => {
+    expect(sentimentRatedShare({ ratedAnswers: 0, eligibleAnswers: 2, ratedAnswerRate: 0 })).toEqual({ display: '0%', detail: '0 of 2 answers rated', empty: false })
+  })
+  it('shows the empty value and "No answers yet" only when there are no eligible answers', () => {
+    expect(sentimentRatedShare({ ratedAnswers: 0, eligibleAnswers: 0, ratedAnswerRate: null })).toEqual({ display: EMPTY_VALUE, detail: 'No answers yet', empty: true })
+    // A server older than the answer fields sends none of them.
+    expect(sentimentRatedShare({})).toEqual({ display: EMPTY_VALUE, detail: 'No answers yet', empty: true })
+    // A withheld share (sentiment off) is empty too, but never claims there are no answers.
+    expect(sentimentRatedShare({ ratedAnswers: 0, eligibleAnswers: 4, ratedAnswerRate: null })).toEqual({ display: EMPTY_VALUE, detail: SENTIMENT_COPY.states.disabled, empty: true })
   })
 })
 
@@ -611,20 +646,20 @@ describe('sentiment bars', () => {
     } finally { page.close() }
   })
 
-  it('shows the share of answers rated in Rated, judged over selected, with the count in its tooltip, its screen-reader text and Details', async () => {
+  it('shows the server share of answers rated in Rated, with its counts in its tooltip, its screen-reader text and Details', async () => {
     const page = renderScope(<SentimentHeadlines />, { branded: branded(), nonBrand: nonBrand() })
     try {
       await screen.findByLabelText('Non-brand favorable share')
       const lineFor = (label: string) => screen.getByLabelText(`${label} favorable share`).closest('.sentiment-class')!
       // Tank Air: branded 16 of 20 answers rated, non-brand 1 of 32.
-      expect([branded(), nonBrand()].map(value => [value.coverage.judged, value.coverage.selected])).toEqual([[16, 20], [1, 32]])
+      expect([branded(), nonBrand()].map(value => [value.coverage.ratedAnswers, value.coverage.eligibleAnswers, value.coverage.ratedAnswerRate])).toEqual([[16, 20, 0.8], [1, 32, 0.03125]])
       expectRated(lineFor('Branded'), 'Branded', '80.0%', '16 of 20 answers rated')
       expectRated(lineFor('Non-brand'), 'Non-brand', '3.1%', '1 of 32 answers rated')
       expect(screen.getByRole('group', { name: 'Branded share rated' })).toBe(lineFor('Branded').querySelector('.sentiment-class-ratings'))
       // The raw count is not removed: Details still lists it beside the share.
       for (const [label, count] of [['Branded', '16 of 20'], ['Non-brand', '1 of 32']] as const) {
         const panel = classDetails(lineFor(label)).panel!
-        expect([...panel.querySelectorAll('dl > div')].map(item => [item.querySelector('dt')!.textContent, item.querySelector('dd')!.textContent])).toContainEqual(['Rated assessments', count])
+        expect([...panel.querySelectorAll('dl > div')].map(item => [item.querySelector('dt')!.textContent, item.querySelector('dd')!.textContent])).toContainEqual([SENTIMENT_COPY.details.ratedAnswers, count])
       }
       // The Favorable column is untouched: the share from ten ratings, the empty value below.
       expect(figures(lineFor('Branded')).favorable).toBe('56.3%')
@@ -676,7 +711,7 @@ describe('sentiment bars', () => {
       expect(said).not.toMatch(/too few|\bof 10\b|needed/i)
       expect(toggle.getAttribute('aria-expanded')).toBe('false')
       expect(panel.textContent).toContain(`Shown from ${SENTIMENT_MIN_RATED} ratings`)
-      expect([...panel.querySelectorAll('dl > div')].map(item => [item.querySelector('dt')!.textContent, item.querySelector('dd')!.textContent])).toEqual(expect.arrayContaining([['Rated assessments', '1 of 32'], ['Favorable', '1']]))
+      expect([...panel.querySelectorAll('dl > div')].map(item => [item.querySelector('dt')!.textContent, item.querySelector('dd')!.textContent])).toEqual(expect.arrayContaining([[SENTIMENT_COPY.details.ratedAnswers, '1 of 32'], ['Favorable', '1']]))
       // The branded bar beside it keeps its segments.
       expect(barFor('Branded').querySelectorAll('[data-outcome]')).toHaveLength(2)
     } finally { page.close() }
@@ -886,18 +921,16 @@ describe('sentiment Details dropdown', () => {
       await screen.findByLabelText('Non-brand favorable share')
       const brandedPanel = dropdownFor('Branded').panel
       expect(rows(brandedPanel)).toEqual([
-        ['Rated assessments', '16 of 20'],
-        ['Source answers', '20'],
+        [SENTIMENT_COPY.details.ratedAnswers, '16 of 20'],
         ['Factual', '4'],
         ['95% confidence range', '33.2% to 76.9%'],
       ])
       // Too few: the rated outcomes and the share's threshold join the rows.
       const nonBrandPanel = dropdownFor('Non-brand').panel
       expect(rows(nonBrandPanel)).toEqual([
-        ['Rated assessments', '1 of 32'],
+        [SENTIMENT_COPY.details.ratedAnswers, '1 of 32'],
         ['Favorable', '1'],
         ['Favorable share', `Shown from ${SENTIMENT_MIN_RATED} ratings`],
-        ['Source answers', '32'],
         ['Subject not mentioned', '30'],
         ['Ambiguous subject', '1'],
         ['95% confidence range', '20.7% to 100%'],
@@ -930,7 +963,8 @@ describe('sentiment Details dropdown', () => {
       const { toggle, panel } = dropdownFor('Non-brand')
       fireEvent.click(toggle)
       expect(panel.hidden).toBe(false)
-      expect(rows(panel)).toEqual([['Rated assessments', '0 of 1'], ['Source answers', '1'], ['Unsupported language', '1']])
+      expect(rows(panel)).toEqual([[SENTIMENT_COPY.details.ratedAnswers, '0 of 1'], ['Unsupported language', '1']])
+      expect(SENTIMENT_COPY.details.ratedAnswers).toBe('Rated answers')
       expect(panel.lastElementChild!.textContent).toBe('Answers were in an unsupported language.')
       expect(panel.lastElementChild!.className).toBe('sentiment-class-details-reason')
     } finally { page.close() }

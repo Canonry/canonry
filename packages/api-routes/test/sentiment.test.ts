@@ -123,7 +123,7 @@ describe('sentiment stored API', () => {
       repository.completeWork({ workItemId: work.id, owner: 'comparison', now: clock, outcome: 'favorable', returnedModel: 'jev-1.13.0', result: { kind: 'classified', outcome: 'favorable', returnedModel: 'jev-1.13.0', usage: { kind: 'reported', inputTokens: 10, outputTokens: 1 }, conclusion: input.sentences.slice(0, 1), complaint: null, confidence: null } })
     }
     const query = { mode: 'auto' as const, queryClass: 'branded' as const, scope: 'project' as const }
-    expect(service.compare('p', query, 'r', 'r2')).toMatchObject({ verdict: 'no-clear-change', commonUnits: 1, refusalReasons: [] })
+    expect(service.compare('p', query, 'r', 'r2')).toMatchObject({ verdict: 'no-clear-change', commonUnits: 1, refusalReasons: [], from: { coverage: { eligibleAnswers: 1, ratedAnswers: 1, ratedAnswerRate: 1 } }, to: { coverage: { eligibleAnswers: 1, ratedAnswers: 1, ratedAnswerRate: 1 } } })
     expect(service.compare('p', query, 'r', 'r3')).toMatchObject({ verdict: null, refusalReasons: ['source-model-changed'] })
   })
   it('discloses unadmitted assessments and keeps page state bound to the full selection', () => {
@@ -134,11 +134,13 @@ describe('sentiment stored API', () => {
     db.insert(simpleMeasurementDefinitions).values({ ...stored, runId: 'wide', definition }).run()
     db.insert(querySnapshots).values({ id: 'wide-openai', runId: 'wide', queryId: 'q', provider: 'openai', model: 'gpt-test', servedModel: 'gpt-v1', answerText: 'Acme is excellent.', citationState: 'cited', createdAt: clock }).run()
     db.insert(querySnapshots).values({ id: 's-gemini', runId: 'wide', queryId: 'q', provider: 'gemini', model: 'gemini-test', servedModel: 'gemini-v1', answerText: 'Acme is excellent.', citationState: 'cited', createdAt: clock }).run()
+    const query = { mode: 'auto' as const, queryClass: 'branded' as const, scope: 'project' as const, runId: 'wide' }
+    // Before admission both answers are eligible: 0 of 2 rated, not "no answers".
+    expect(service.summary('p', query)).toMatchObject({ state: 'not-measured', coverage: { selected: 0, eligibleAssessments: 2, eligibleAnswers: 2, ratedAnswers: 0, ratedAnswerRate: 0 } })
     const preview = service.preview('p', { runId: 'wide', provider: 'openai' })
     service.submit('p', preview.previewToken!, 'partial', 'test')
-    const query = { mode: 'auto' as const, queryClass: 'branded' as const, scope: 'project' as const, runId: 'wide' }
     const summary = service.summary('p', query)
-    expect(summary).toMatchObject({ state: 'partial', provisional: true, coverage: { selected: 1, eligibleAssessments: 2, unadmittedAssessments: 1 } })
+    expect(summary).toMatchObject({ state: 'partial', provisional: true, coverage: { selected: 1, eligibleAssessments: 2, unadmittedAssessments: 1, eligibleAnswers: 2, ratedAnswers: 0, ratedAnswerRate: 0 } })
     const all = service.preview('p', { runId: 'wide' })
     service.submit('p', all.previewToken!, 'all', 'test')
     const page = service.evidence('p', query, 1)

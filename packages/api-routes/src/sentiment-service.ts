@@ -509,13 +509,17 @@ function compareRows(left: RowKey, right: RowKey): number {
 function withheldCounts(counts: SentimentCounts): SentimentCounts {
   return Object.fromEntries(Object.entries(counts).map(([key, value]) => [key, OPERATIONAL_OUTCOMES.has(key as SentimentOutcome) ? value : 0])) as SentimentCounts
 }
-/** One selected assessment aggregate. A disabled read withholds judged and completed-outcome counts along with the rates. */
+/**
+ * One selected assessment aggregate. A disabled read withholds judged, rated-answer and
+ * completed-outcome counts along with the rates. The Rated share's denominator is every distinct
+ * eligible source answer, admitted or not, so an answer assessed for several subjects counts once.
+ */
 function scoreAssessments(selected: readonly StoredItem[], eligible: readonly SentimentSourceAssessment[], options: { disabled: boolean; incomplete: boolean; slots?: { expected: number; completed: number } }) {
-  const distinct = new Set(eligible.map(item => item.snapshotId)).size
-  const slots = options.slots ?? { expected: distinct, completed: distinct }
-  const result = aggregateSentiment(selected.map(item => ({ assessmentId: item.work.id, sourceSnapshotId: item.work.snapshotId, outcome: item.outcome })), { disabled: options.disabled, eligibleAssessments: eligible.length, expectedProviderSlots: slots.expected, completedProviderSlots: slots.completed })
+  const eligibleAnswers = new Set(eligible.map(item => item.snapshotId)).size
+  const slots = options.slots ?? { expected: eligibleAnswers, completed: eligibleAnswers }
+  const result = aggregateSentiment(selected.map(item => ({ assessmentId: item.work.id, sourceSnapshotId: item.work.snapshotId, outcome: item.outcome })), { disabled: options.disabled, eligibleAssessments: eligible.length, eligibleAnswers, expectedProviderSlots: slots.expected, completedProviderSlots: slots.completed })
   const gap = selected.length > 0 && selected.length < eligible.length
-  const coverage = options.disabled ? { ...result.coverage, judged: 0, counts: withheldCounts(result.coverage.counts) } : result.coverage
+  const coverage = options.disabled ? { ...result.coverage, judged: 0, ratedAnswers: 0, counts: withheldCounts(result.coverage.counts) } : result.coverage
   return { ...result, coverage, ...((gap || options.incomplete) && !options.disabled ? { state: selected.length ? 'partial' as const : 'not-measured' as const, provisional: true } : {}), reason: options.disabled ? 'Sentiment is disabled.' : options.incomplete ? 'Source sweep is incomplete.' : gap ? 'classification-coverage-gap: some source assessments have not been admitted.' : null }
 }
 function jobReceipt(row: typeof sentimentJobs.$inferSelect, tally: JobTally, attempts: readonly AttemptRow[]): SentimentJob {

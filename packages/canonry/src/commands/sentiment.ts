@@ -28,13 +28,26 @@ export async function showSentiment(project: string, selection: z.infer<typeof s
   printSummary(value)
 }
 
+/**
+ * The dashboard's Rated figure: the server's share of eligible answers with a favorable, mixed or
+ * unfavorable rating. Null when the server predates the answer fields, so nothing is recomputed here.
+ */
+function ratedAnswersLine({ ratedAnswers, eligibleAnswers, ratedAnswerRate }: SentimentSummaryRead['coverage']): string | null {
+  if (ratedAnswers === undefined || eligibleAnswers === undefined) return null
+  if (eligibleAnswers === 0) return 'Rated: no answers yet'
+  if (ratedAnswerRate === null || ratedAnswerRate === undefined) return `Rated: Unavailable · ${eligibleAnswers} eligible ${eligibleAnswers === 1 ? 'answer' : 'answers'}`
+  return `Rated: ${formatPercent(ratedAnswerRate, RatioUnits.fraction)} · ${ratedAnswers} of ${eligibleAnswers} ${eligibleAnswers === 1 ? 'answer' : 'answers'} rated`
+}
+
 function printSummary(value: SentimentSummaryRead): void {
   const label = value.selection.queryClass === 'branded' ? 'Branded' : 'Non-brand'
   console.log(`${label} sentiment: ${value.state}${value.provisional ? ' · provisional' : ''}`)
   if (value.reason) console.log(value.reason)
   console.log(`Favorable: ${value.score.favorableDisplay} · Mixed: ${value.score.mixedDisplay} · Unfavorable: ${value.score.unfavorableDisplay}`)
   console.log(`${label} favorable % = favorable / (favorable + mixed + unfavorable).`)
-  console.log(`${value.coverage.judged} of ${value.coverage.selected} assessments judged · ${value.coverage.distinctSourceAnswers} distinct source answers`)
+  const rated = ratedAnswersLine(value.coverage)
+  if (rated) console.log(rated)
+  console.log(`${value.coverage.judged} of ${value.coverage.selected} assessments judged · ${value.coverage.distinctSourceAnswers} admitted source answers`)
   console.log(`${value.coverage.eligibleAssessments} eligible assessments · ${value.coverage.unadmittedAssessments} not yet admitted`)
   console.log(`Source provider slots: ${value.coverage.completedProviderSlots} of ${value.coverage.expectedProviderSlots}`)
   console.log(`Evaluation definition: ${value.selection.evaluationDefinitionId ?? 'not measured'}`)

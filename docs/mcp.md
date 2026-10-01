@@ -487,7 +487,8 @@ Load `monitoring` for `canonry_sentiment_settings`, `canonry_sentiment`,
 `canonry_sentiment_evidence`, `canonry_sentiment_compare`,
 `canonry_sentiment_backfill_preview`, `canonry_sentiment_jobs`, and
 `canonry_sentiment_job`. Reads use stored data and never call TypeSafe. The response
-keeps judged/selected denominators, exclusions, distinct source answers, nullable
+keeps judged/selected assessment denominators, rated and eligible answers with the
+server's `ratedAnswerRate` (each answer once, admitted or not), exclusions, nullable
 rates, per-query and location summaries, and comparison refusal reasons. Select
 `queryClass` explicitly; branded and non-brand have separate denominators. An absent
 intended subject is excluded, never unfavorable. Use `queryId` for a specific frozen

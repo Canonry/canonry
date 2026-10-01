@@ -59,11 +59,17 @@ headline is one full-width line under a small eyebrow header ("Favorable",
 "Share of answers rated favorable, mixed or unfavorable"): the class label and
 its ⓘ, a stacked bar of the class's favorable, mixed and unfavorable counts that
 takes all remaining width, then three fixed columns. Favorable holds only the
-server's score; Rated holds only the share of answers rated, `coverage.judged`
-over `coverage.selected` in `formatPercent` (Tank Air branded 16 of 20 reads
-80.0%), with the count ("16 of 20 answers rated") as its tooltip and
-screen-reader text and the empty value with "No answers yet" when nothing was
-selected, never a second metric or a sentence; the last column is the class's Details chevron, a
+server's score; Rated holds only the server's share of answers rated,
+`coverage.ratedAnswerRate` in `formatPercent` (Tank Air branded 16 of 20 reads
+80.0%), never a division in the component and never `coverage.judged` over
+`coverage.selected` (those count assessments, one per answer and subject, and
+only admitted ones). The server counts every eligible answer, admitted or not,
+and an answer assessed for several subjects once. Its counts ("16 of 20 answers
+rated", `coverage.ratedAnswers` of `coverage.eligibleAnswers`) are its tooltip
+and screen-reader text, and Details lists them as "Rated answers"; a class with
+eligible answers and none admitted reads a measured 0%. The empty value with
+"No answers yet" appears only when there are no eligible answers (or a server
+too old to send them), never a second metric or a sentence; the last column is the class's Details chevron, a
 chevron-only button named "Branded details" / "Non-brand details". A class's
 state while it has no ratings, or "Partial results", is a note under its bar.
 The header and lines share one column grid (subgrid), so the bars start and end

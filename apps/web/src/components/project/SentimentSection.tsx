@@ -17,10 +17,10 @@ type QueryClassView = QueryClass | 'all' | 'unclassified' | 'unknown'
 type RunOption = { id: string; label: string }
 const CLASS_LABEL: Record<QueryClass, string> = { branded: 'Branded', 'non-brand': 'Non-brand' }
 /**
- * Fewer rated answers than this and a class line's Favorable column shows the
- * empty value instead of a favorable share, and the portfolio figure reads "too
- * few": one or two ratings swing the share from 0% to 100%. The Rated column
- * still shows, its rating count in its tooltip, and the rated counts stay in
+ * Fewer ratings than this and a class line's Favorable column shows the empty
+ * value instead of a favorable share, and the portfolio figure reads "too few":
+ * one or two ratings swing the share from 0% to 100%. The Rated column still
+ * shows its share of answers rated, and the rated outcome counts stay in
  * Details. Query rows keep their share beside its rating count.
  */
 export const SENTIMENT_MIN_RATED = 10
@@ -35,8 +35,10 @@ export const SENTIMENT_COPY = {
   columns: { favorable: 'Favorable', rated: 'Rated' },
   /** The Rated column header's tooltip. */
   rated: 'Share of answers rated favorable, mixed or unfavorable',
-  /** Why a Rated column is empty: its tooltip and its screen-reader text. */
+  /** Why a Rated column is empty: no eligible answers. Its tooltip and its screen-reader text. */
   noAnswers: 'No answers yet',
+  /** Details row labels: Rated counts answers; the unadmitted count is of assessments (one per answer and subject). */
+  details: { ratedAnswers: 'Rated answers', unadmitted: 'Assessments not yet analyzed' },
   overall: 'Overall sentiment is the share of favorable judgments across branded and non-brand queries. Each saved answer-subject assessment counts once. Factual, unmentioned, unsupported, and unclassified answers are excluded.',
   favorable: 'The favorable share of favorable, mixed and unfavorable ratings. Each rating evaluates one subject in an answer. Branded and non-brand queries are measured separately.',
 } as const
@@ -89,25 +91,33 @@ function FavorableCell({ value, label }: { value: Pick<SentimentHeadline, 'score
   </div>
 }
 
+type RatedCoverage = Pick<SentimentHeadline['coverage'], 'ratedAnswers' | 'eligibleAnswers' | 'ratedAnswerRate'>
+/** "16 of 20 answers rated": the server's rated and eligible answer counts. */
+function ratedAnswersText({ ratedAnswers = 0, eligibleAnswers = 0 }: RatedCoverage) { return `${ratedAnswers} of ${eligibleAnswers} ${eligibleAnswers === 1 ? 'answer' : 'answers'} rated` }
 /**
- * The Rated column's figure: the share of a class's answers that got a rating
- * (favorable, mixed or unfavorable), its judged over its selected in the shared
- * percent format, and the count behind it ("16 of 20 answers rated"). With no
- * answers it is the app's empty value, and its detail says why.
+ * The Rated column's figure: the server's share of a class's answers that got a
+ * rating (favorable, mixed or unfavorable), `coverage.ratedAnswerRate`, in the
+ * shared percent format, and the counts behind it ("16 of 20 answers rated").
+ * The server counts every eligible answer, admitted or not, and an answer
+ * assessed for several subjects once; nothing here divides. With no eligible
+ * answers (or a server too old to send them) it is the app's empty value, and
+ * its detail says why. `empty` marks either empty value.
  */
-export function sentimentRatedShare({ judged, selected }: Pick<SentimentHeadline['coverage'], 'judged' | 'selected'>): { display: string; detail: string } {
-  if (selected <= 0) return { display: EM_DASH, detail: SENTIMENT_COPY.noAnswers }
-  return { display: formatPercent(judged / selected, RatioUnits.fraction), detail: `${judged} of ${selected} ${selected === 1 ? 'answer' : 'answers'} rated` }
+export function sentimentRatedShare(coverage: RatedCoverage): { display: string; detail: string; empty: boolean } {
+  const eligibleAnswers = coverage.eligibleAnswers ?? 0
+  if (eligibleAnswers <= 0) return { display: EM_DASH, detail: SENTIMENT_COPY.noAnswers, empty: true }
+  // A null share with eligible answers means the server withholds it: sentiment is off.
+  if (coverage.ratedAnswerRate === null || coverage.ratedAnswerRate === undefined) return { display: EM_DASH, detail: SENTIMENT_COPY.states.disabled, empty: true }
+  return { display: formatPercent(coverage.ratedAnswerRate, RatioUnits.fraction), detail: ratedAnswersText(coverage), empty: false }
 }
 
 /**
  * The Rated column: only the share of answers rated, or the muted empty value
- * with no answers. The count behind it is its tooltip and its screen-reader
- * text, and Details lists it as "Rated assessments".
+ * with no eligible answers. The count behind it is its tooltip and its
+ * screen-reader text, and Details lists it as "Rated answers".
  */
-function RatedCell({ coverage, label }: { coverage: Pick<SentimentHeadline['coverage'], 'judged' | 'selected'>; label: string }) {
-  const { display, detail } = sentimentRatedShare(coverage)
-  const empty = coverage.selected <= 0
+function RatedCell({ coverage, label }: { coverage: RatedCoverage; label: string }) {
+  const { display, detail, empty } = sentimentRatedShare(coverage)
   return <div role="group" aria-label={`${label} share rated`} className="sentiment-class-ratings">
     <span aria-hidden="true" className={empty ? 'sentiment-class-empty' : undefined} title={detail}>{display}</span><span className="sr-only">{empty ? detail : `${display}, ${detail}`}</span>
   </div>
@@ -170,11 +180,10 @@ function SentimentHeadlineDetails({ value, queryClass, open, setOpenClass }: { v
     <div ref={panelRef} id={panelId} role="group" aria-labelledby={titleId} className="sentiment-class-details" hidden={!open}>
       <p id={titleId} className="sentiment-class-details-title">{CLASS_LABEL[queryClass]}</p>
       <dl className="sentiment-details-list">
-        {coverage.selected > 0 && <div><dt>Rated assessments</dt><dd>{coverage.judged} of {coverage.selected}</dd></div>}
+        {(coverage.eligibleAnswers ?? 0) > 0 && <div><dt>{SENTIMENT_COPY.details.ratedAnswers}</dt><dd>{coverage.ratedAnswers ?? 0} of {coverage.eligibleAnswers}</dd></div>}
         {tooFew && RATED_OUTCOMES.filter(outcome => coverage.counts[outcome] > 0).map(outcome => <div key={outcome}><dt>{outcomeLabel(outcome)}</dt><dd>{coverage.counts[outcome]}</dd></div>)}
         {tooFew && <div><dt>Favorable share</dt><dd>{SENTIMENT_COPY.minRated}</dd></div>}
-        {coverage.distinctSourceAnswers > 0 && <div><dt>Source answers</dt><dd>{coverage.distinctSourceAnswers}</dd></div>}
-        {coverage.unadmittedAssessments > 0 && <div><dt>Not yet analyzed</dt><dd>{coverage.unadmittedAssessments}</dd></div>}
+        {coverage.unadmittedAssessments > 0 && <div><dt>{SENTIMENT_COPY.details.unadmitted}</dt><dd>{coverage.unadmittedAssessments}</dd></div>}
         {Object.entries(coverage.counts).filter(([outcome, count]) => count > 0 && !['favorable', 'mixed', 'unfavorable'].includes(outcome)).map(([outcome, count]) => <div key={outcome}><dt>{outcomeLabel(outcome)}</dt><dd>{count}</dd></div>)}
         {interval && <div><dt>95% confidence range <InfoTooltip text={score.limitation} placement="bottom" /></dt><dd>{interval}</dd></div>}
       </dl>
