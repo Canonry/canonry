@@ -351,3 +351,24 @@ test('every static className token has a stylesheet selector or Tailwind utility
 
   expect(missing).toEqual([])
 })
+
+// The AI Visibility card classes (`av-*`) are hand-written, so a card that is
+// removed can leave its rules behind. Every one must still have a user.
+function avStylesheetClasses(styles: string) {
+  return [...new Set([...styles.matchAll(/\.(av-[\w-]+)/g)].map((match) => match[1]))].sort()
+}
+
+test('every av- stylesheet class is used by a source className', () => {
+  const used = new Set(staticClassNames())
+  const unused = avStylesheetClasses(readFileSync(stylesPath, 'utf8')).filter((token) => !used.has(token))
+
+  expect(unused).toEqual([])
+})
+
+test('every av- class the web AGENTS.md names has a stylesheet rule', () => {
+  const defined = new Set(avStylesheetClasses(readFileSync(stylesPath, 'utf8')))
+  const agents = readFileSync(resolve(import.meta.dirname, '../AGENTS.md'), 'utf8')
+  const named = [...new Set([...agents.matchAll(/`\.?(av-[\w-]+)`/g)].map((match) => match[1]))].sort()
+
+  expect(named.filter((token) => !defined.has(token))).toEqual([])
+})

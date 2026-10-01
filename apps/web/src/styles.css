@@ -1502,12 +1502,6 @@
     @apply text-sm font-medium text-strong;
   }
 
-  /* A key figure in its tone; the denominator stays quiet. Same size as the
-     hero values so the card reads at a glance. */
-  .av-n {
-    @apply text-2xl font-bold tracking-tight tabular-nums;
-  }
-
   /* A real space separates the figure for screen readers; the margin tops it
      up to the design's gap. */
   .av-of {
