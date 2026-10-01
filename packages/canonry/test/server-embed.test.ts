@@ -793,7 +793,6 @@ describe('server embed mode (#716)', () => {
         `/api/v1/projects/${name}/competitors`,
         `/api/v1/projects/${name}/timeline`,
         `/api/v1/projects/${name}/analytics/metrics`,
-        `/api/v1/projects/${name}/analytics/gaps?window=7d`,
         `/api/v1/projects/${name}/google/gsc/coverage`,
         `/api/v1/projects/${name}/bing/coverage`,
         `/api/v1/projects/${name}/insights`,

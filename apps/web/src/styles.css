@@ -1405,7 +1405,17 @@
     @apply bg-mono-700/90 text-primary shadow-sm;
   }
 
-  /* ── AEO hero rows (a Property's paired metrics, MeasurementPropertyPage) ── */
+  /* ── AEO hero rows (the competitive card's gap rows, and a Property's paired
+     metrics on MeasurementPropertyPage) ── */
+
+  .aeo-hero {
+    @apply rounded-xl border border-default bg-surface px-5 py-5;
+  }
+
+
+  .aeo-hero-rows {
+    @apply space-y-4 sm:space-y-3;
+  }
 
   .aeo-hero-row {
     @apply grid items-center gap-x-4 gap-y-1;
@@ -1779,17 +1789,137 @@
     @apply col-span-2 row-start-2 sm:col-span-1 sm:row-start-auto;
   }
 
-  /* "Where competitors beat you": the population's name where the class
-     control goes when there is only one class. Load bearing, so 13px
-     text-secondary, never a 10px muted eyebrow. */
+  .competitive-summary {
+    @apply px-5 py-4;
+  }
+
+  /* Mention share: one chrome line (metric + class control), one figure, one
+     ranked list. The class control owns the denominator for everything above
+     `.competitive-gaps`, so branded and non-brand figures are never on screen
+     together. */
+  .mention-share {
+    @apply space-y-2;
+  }
+
+  .mention-share-head {
+    @apply flex flex-wrap items-center justify-between gap-x-3 gap-y-2;
+  }
+
+  .mention-share-label {
+    @apply inline-flex items-center gap-1.5;
+  }
+
+  .mention-share-label-text {
+    @apply text-sm font-medium text-strong;
+  }
+
+  /* Scope label when there is no control. Load bearing, so 13px text-secondary,
+     never a 10px muted eyebrow. */
   .mention-share-class {
     @apply text-[13px] font-medium text-secondary;
   }
 
-  /* Non-numeric mention share states are words, not figures, so they never
-     take the card's numeral size. */
+  .mention-share-value {
+    @apply text-2xl font-bold tracking-tight tabular-nums;
+  }
+
+  /* Non-numeric states are sentences, not figures, so they never take the 24px
+     numeral size. */
   .mention-share-value-text {
     @apply text-[15px] font-medium text-secondary;
+  }
+
+  /* Carries the denominator's name next to its counts, so a crop of the figure
+     is still self-describing. */
+  .mention-share-caption {
+    @apply text-[13px] text-secondary tabular-nums;
+  }
+
+  .mention-share-caption-scope {
+    @apply font-medium text-heading;
+  }
+
+  .mention-share-note {
+    @apply text-[13px] text-secondary;
+  }
+
+  /* A real <table> for semantics, laid out as the same four-column grid it was
+     before. `display: block` on the table and its sections hands layout back to
+     the per-row grid; the columns are still declared in one place. */
+  .mention-share-table {
+    @apply block pt-1;
+  }
+
+  .mention-share-table thead,
+  .mention-share-table tbody {
+    @apply block;
+  }
+
+  /* A `th` defaults to bold and centred; the row header must look exactly like
+     the span it replaced, so weight comes from the row's own classes. */
+  .mention-share-table th {
+    @apply text-left;
+    font-weight: inherit;
+  }
+
+  .mention-share-rows {
+    @apply space-y-1.5;
+  }
+
+  /* Under 480px the bar track COLLAPSES to zero width rather than the bar being
+     `display: none`. Two reasons, both learned by measuring:
+     - The bar is redundant with the share percentage printed beside it, but the
+       competitor's name is not redundant with anything. At 390px a 1fr label
+       against a 2fr bar truncated `rival-one.example` and `rival-two.example`
+       to the same `rival-...`, which destroys the one thing this list says.
+     - `display: none` removes a grid ITEM from the grid, it does not leave its
+       track empty. Hiding the bar that way reflowed each row's remaining three
+       cells into columns 1-3 while the header kept four, putting the `Share`
+       heading 68px right of the numbers under it. A zero-width track keeps
+       every row and the header on the same four columns.
+     `.mention-share-bar` is `w-full overflow-hidden`, so at a zero-width track
+     it paints nothing. */
+  .mention-share-row {
+    @apply grid items-center gap-x-3 text-[13px];
+    grid-template-columns: minmax(0, 1fr) 0 64px 56px;
+  }
+
+  @media (min-width: 480px) {
+    .mention-share-row {
+      grid-template-columns: minmax(140px, 1fr) minmax(80px, 2fr) 64px 60px;
+    }
+  }
+
+  /* MUST stay after `.mention-share-row` and its media query: equal specificity,
+     so source order decides the font size. */
+  .mention-share-row-head {
+    @apply mb-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted;
+  }
+
+  .mention-share-row-label {
+    @apply truncate;
+  }
+
+  .mention-share-bar {
+    @apply h-1.5 w-full rounded-full bg-surface-inset overflow-hidden;
+  }
+
+  .mention-share-bar-fill {
+    @apply h-full rounded-full;
+  }
+
+  .mention-share-count {
+    @apply inline-flex items-center justify-end gap-1 text-secondary tabular-nums text-right;
+  }
+
+  .mention-share-share {
+    @apply text-primary tabular-nums text-right;
+  }
+
+  /* The gap rows sit below a rule because the class control has no authority
+     over them: `mentionGaps` and `gapQueries` have no class split in the DTO. */
+  .competitive-gaps {
+    @apply mt-5 pt-4 border-t border-mono-800/50;
   }
 
   /* ── Movement banner (Since Last Run) ── */
@@ -1839,7 +1969,7 @@
   }
 
   .metric-card-bar-fill {
-    /* Color comes from the paired `progress-fill-neutral` class. Transition
+    /* Tone color comes from the paired `progress-fill-{tone}` class. Transition
        is scoped to `width` (not `all`, which also crossfaded tone swaps) and
        gated behind `motion-safe` so reduced-motion users get no animation. */
     @apply h-full rounded-full motion-safe:transition-[width] motion-safe:duration-300;
@@ -2177,12 +2307,24 @@
     @apply mt-0.5 text-[12px] text-faint;
   }
 
-  /* ── Metric progress-bar fill ──
-     The one untoned fill, shared by `.metric-card-bar-fill` (a Property's
-     metric cards) and the report strip's rate bars. The metric card / grid
+  /* ── Metric progress-bar tone fills ──
+     Shared by `.metric-card-bar-fill` (a Property's metric cards and the AEO
+     hero rows) and the report strip's rate bars. The metric card / grid
      layout itself lives in the "Metric cards (non-gauge)" block above; the
      duplicate definitions that once lived here silently overrode it (flipping
      `lg:grid-cols-3` to `md:grid-cols-2`) and have been removed. */
+
+  .progress-fill-positive {
+    @apply bg-positive-400;
+  }
+
+  .progress-fill-caution {
+    @apply bg-caution-400;
+  }
+
+  .progress-fill-negative {
+    @apply bg-negative-400;
+  }
 
   .progress-fill-neutral {
     @apply bg-mono-500;

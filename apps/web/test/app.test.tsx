@@ -215,8 +215,14 @@ test('project route renders a concise visibility summary with progressive detail
   const doc = new DOMParser().parseFromString(html, 'text/html')
   expect(doc.getElementById('overview-brief-title')).toBeNull()
   expect([...doc.querySelectorAll('.av-card-title')].map(title => title.textContent)).toEqual([
-    'AI answers over time', 'Where competitors beat you', 'By engine', 'Past sweeps', 'Competitors over time',
+    'AI answers over time', 'By engine', 'Past sweeps', 'Competitors over time',
   ])
+  // The competitive card keeps its own section head, after the trend and before the query table.
+  const trend = html.indexOf('class="av-card-title">AI answers over time<')
+  const competitive = html.indexOf('<h2>Where competitors are winning</h2>')
+  expect(trend).toBeGreaterThan(-1)
+  expect(competitive).toBeGreaterThan(trend)
+  expect(competitive).toBeLessThan(html.indexOf('<details id="evidence-section"'))
   expect(html).toMatch(/<details class="av-details"><summary>Details<\/summary>/)
   expect(html).not.toMatch(/Coverage now|Tracking scope changed|comparable queries/)
   expect(html).toMatch(/Mentioned/)

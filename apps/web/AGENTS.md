@@ -107,12 +107,16 @@ model rides on its row instead. Model notes name engines as the page does
 the adjacent one (`sweepBefore`); a pooled point hides the sweeps inside it. On
 a phone the table wraps to the card rather than scrolling.
 
-"Where competitors beat you" (`CompetitiveCard` in `MentionShare.tsx`) is one
-class at a time behind a Non-brand/Branded control: mention share and the
-"Named instead of you" / "Cited instead of you" query counts, with the brand
-counts and gap query names in Details. The counts come from GET
-/analytics/gaps (latest sweep), classified by query text with the page's
-classifier; the overview embed allowlist includes that read.
+"Where competitors are winning" (eyebrow "Competitive", `MentionShare` in
+`MentionShare.tsx` plus two `OverviewMetricRow` gap rows in `ProjectPage.tsx`)
+keeps its original layout. Its own Non-brand/Branded radiogroup switches the
+mention share figure, its "X of Y brand mentions" caption and the brand ranking
+table (Domain with "(you)", share bar, Mentions, Share) together; a pooled share
+shows "All queries" and the "Set a brand name" note instead of the control.
+Under a rule, "Mention gaps" and "Citation gaps" read GET /overview's
+`mentionGaps` and `gapQueries` over all queries, with the server's caption. They
+have no class split, so the class control never touches them. The card needs no
+read beyond /overview.
 
 Under the query table, in order: "By engine" (`CitationVisibilitySection`,
 `byEngineClasses`) is one class at a time, Mentioned and Cited query counts per

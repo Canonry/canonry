@@ -18,7 +18,7 @@ import { MARKET_SCOPE_COPY } from '../src/components/project/VisibilityScopePick
 import { parseVisibilitySelection, visibilityReportFirstPageQuery } from '../src/lib/measurement-view-url.js'
 import { PROJECT_SCOPE_COPY } from '../src/lib/project-scope.js'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
-import { AINYC_LATEST_RUN, ainycCitationVisibility, ainycComparison, ainycEvidence, ainycGaps, ainycLandscape, ainycMentionShare, ainycMetrics, ainycProviderScores, ainycRuns } from './ainyc-visibility-fixture.js'
+import { AINYC_LATEST_RUN, ainycCitationVisibility, ainycComparison, ainycEvidence, ainycLandscape, ainycMentionShare, ainycMetrics, ainycProviderScores, ainycRuns } from './ainyc-visibility-fixture.js'
 import { toRunListItem } from '../src/build-dashboard.js'
 import {
   getApiV1CdpStatusQueryKey,
@@ -106,8 +106,6 @@ async function renderAt(
     siteHealthScan?: 'completed' | 'partial' | 'failed'
     /** GET /analytics/metrics for every window, so the trend and What changed render in one pass. */
     analyticsMetrics?: unknown
-    /** GET /analytics/gaps, so the competitive card's gap counts render in one pass. */
-    analyticsGaps?: unknown
     /** GET /citations/visibility, so the By engine card renders in one pass. */
     citationVisibility?: unknown
   } = {},
@@ -128,10 +126,6 @@ async function renderAt(
   }
   if (options.citationVisibility !== undefined) {
     queryClient.setQueryData(getApiV1ProjectsByNameCitationsVisibilityQueryKey({ client: heyClient, path: { name: projectName } }), options.citationVisibility)
-  }
-  if (options.analyticsGaps !== undefined) {
-    // Keyed like the trend: project, competitor frame and sweep revision.
-    queryClient.setQueryDefaults(['analytics-gaps'], { initialData: options.analyticsGaps })
   }
   if (options.cdpStatus !== undefined) {
     queryClient.setQueryData(
@@ -789,9 +783,9 @@ test.each([false, true])('a Simple project retains its overview with or without 
   expect(html).toContain('AI answers over time')
   expect(html).toContain('Time window')
   expectTrendChartFirst(html)
-  expect(html).toContain('Where competitors beat you')
-  expect(html).toContain('Named instead of you')
-  expect(html).toContain('Cited instead of you')
+  expect(html).toContain('Where competitors are winning')
+  expect(html).toContain('Mention gaps')
+  expect(html).toContain('Citation gaps')
   expect(html).toContain('Query evidence')
   expect(html).toContain('AI sweep running')
   expect(html).not.toContain('Set up advanced measurement')
@@ -933,7 +927,7 @@ test('an active setup uses the unified report without flashing legacy metrics', 
   // Competitor history remains available on the legacy Advanced Measurement
   // surface; group-only scope does not exist until a v2 plan is active.
   expect(html).toContain('Competitors over time')
-  expect(html).not.toContain('Where competitors beat you')
+  expect(html).not.toContain('Where competitors are winning')
   expect(html).not.toContain('Republish setup')
 })
 
@@ -953,7 +947,7 @@ test('a version-two setup never renders version-one class metrics as if they wer
   expect(html).toContain('1 of 1')
   expect(html).not.toContain('Republish setup')
   expect(html).not.toContain('Republish setup to enable Non-brand and Branded reporting.')
-  expect(html).not.toContain('Where competitors beat you')
+  expect(html).not.toContain('Where competitors are winning')
 })
 
 test('the unified visibility report owns scope, class, paging, search, and answer drill-in', async () => {
@@ -1677,7 +1671,7 @@ test('a fresh project offers one AI Visibility setup action instead of an unread
   expect(html).toContain('>Map site<')
   expect(html).toContain('Set up AI Visibility')
   expectTrendChartFirst(html)
-  expect(html).toContain('Where competitors beat you')
+  expect(html).toContain('Where competitors are winning')
   expect(html).toContain('Competitors over time')
   expect(html).toContain('Add competitor')
   expect(html).toContain('Competitive mention and citation gaps appear after the first AI Visibility sweep.')
@@ -1809,8 +1803,10 @@ test.each([false, true])('ainyc\'s Simple overview opens on the trend chart, wit
   // The chart is the first section after the tabs, then the cards in page order.
   expect(doc.querySelector('nav.project-subnav + section .av-card-title')?.textContent).toBe('AI answers over time')
   const at = (title: string) => html.indexOf(`class="av-card-title">${title}<`)
-  expect(at('AI answers over time')).toBeLessThan(at('Where competitors beat you'))
-  expect(at('Where competitors beat you')).toBeLessThan(html.indexOf('Query evidence'))
+  const competitive = html.indexOf('<h2>Where competitors are winning</h2>')
+  expect(at('AI answers over time')).toBeGreaterThan(-1)
+  expect(at('AI answers over time')).toBeLessThan(competitive)
+  expect(competitive).toBeLessThan(html.indexOf('Query evidence'))
   expect(html).not.toMatch(/Coverage signals|No sweep yet|first AI sweep|Compared with the|Visibility by query type/)
 })
 
@@ -1836,43 +1832,39 @@ test('What changed names ainyc\'s added queries as written and dates the sweep b
   expect(html).not.toContain('Query set changed')
 })
 
-test('Where competitors beat you and the query table read ainyc\'s latest sweep by class', async () => {
+test('Where competitors are winning and the query table read ainyc\'s latest sweep', async () => {
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
     configureFixture(dashboard) {
       const project = withAinycSweeps(dashboard)
       project.mentionShareSummary = ainycMentionShare()
       project.competitors = [{ id: 'competitor_pbj', domain: 'pbjmarketing.com', citationCount: 5, totalQueries: 14, pressureLabel: '', citedQueries: [], movement: '', notes: '' }]
     },
-    analyticsGaps: ainycGaps(),
   })
   const doc = new DOMParser().parseFromString(html, 'text/html')
-  const visible = (element: Element) => {
-    const clone = element.cloneNode(true) as Element
-    for (const hidden of clone.querySelectorAll('.sr-only')) hidden.remove()
-    return clone.textContent
-  }
-  const card = [...doc.querySelectorAll('section[aria-labelledby]')]
-    .find(section => section.querySelector('h2')?.textContent === 'Where competitors beat you')!
+  const card = [...doc.querySelectorAll('section.page-section-divider')]
+    .find(section => section.querySelector('h2')?.textContent === 'Where competitors are winning')!
 
-  // Each tracked competitor's share sits under yours, from the latest sweep.
-  expect(card.querySelector('.av-card-meta')?.textContent).toBe('Latest sweep')
-  // You are ranked among them by name, as the server ranked the brands.
-  expect([...card.querySelectorAll('.av-grid tbody tr')].map(row => [...row.children].map(visible))).toEqual([
-    ['Mention share', '33.3% 7 of 21 tracked-brand mentions'],
-    ['pbjmarketing.com', '66.7% 14 of 21 mentions'],
-    ['Citypoint Dental NYC (you)', '33.3% 7 of 21 mentions'],
-    ['Named instead of you', '1 of 11 queries'],
-    ['Cited instead of you', '1 of 11 queries'],
+  expect(card.querySelector('.supporting-copy')?.textContent).toBe('Latest measured results against pinned competitors.')
+  // Non-brand mention share, its caption and the server's brand ranking.
+  expect(card.querySelector('.mention-share-value')?.textContent).toBe('33.3%')
+  expect(card.querySelector('.mention-share-caption')?.textContent).toBe('Non-brand · 7 of 21 brand mentions')
+  expect([...card.querySelectorAll('.mention-share-rows .mention-share-row')].map(row => [
+    row.querySelector('th')?.textContent,
+    row.querySelector('.mention-share-count')?.textContent,
+    row.querySelector('.mention-share-share')?.textContent,
+  ])).toEqual([
+    ['pbjmarketing.com', '14', '66.7%'],
+    ['Citypoint Dental NYC (you)', '7', '33.3%'],
   ])
-  expect(card.querySelector<HTMLDetailsElement>('details.av-details')!.open).toBe(false)
-  expect([...card.querySelectorAll('.av-details-list li')].map(item => item.textContent)).toEqual([
-    'Base: 44 non-brand answers',
-    'Named and cited instead: "best AEO agency New York"',
-    'All queries: named instead of you 1 of 14 queries, cited instead of you 1 of 14 queries',
+  // The two gap rows read GET /overview's all-queries scores, with the server's caption.
+  expect([...card.querySelectorAll('.competitive-gaps .aeo-hero-row')].map(row => [
+    row.querySelector('.aeo-hero-row-label')?.firstChild?.textContent,
+    row.querySelector('.aeo-hero-row-value')?.textContent,
+    row.querySelector('.aeo-hero-row-detail')?.textContent,
+  ])).toEqual([
+    ['Mention gaps', '1 / 14', '1 of 14 queries'],
+    ['Citation gaps', '1 / 14', '1 of 14 queries'],
   ])
-  // The pooled "1 of 14" of the old card is a labelled Details line, never a grid figure.
-  expect(visible(card.querySelector('.av-grid')!)).not.toMatch(/of 14/)
-  expect(visible(card)).not.toMatch(/at risk|Mention gaps/)
 
   // The query table: Non-brand first, then Branded; "new query" only on the added three.
   const table = doc.querySelector('#evidence-section table')!
@@ -1882,7 +1874,7 @@ test('Where competitors beat you and the query table read ainyc\'s latest sweep 
   expect(table.textContent).not.toContain('First mention')
   expect([...table.querySelector('tbody .query-evidence-meta')!.children].map(item => item.textContent)).toEqual(['Non-brand', 'Claude', 'Gemini', 'OpenAI', 'Perplexity'])
   expect(doc.querySelector('#evidence-section')!.textContent).toContain('1 to 14 of 14 queries')
-  expect(html.indexOf('Where competitors beat you')).toBeLessThan(html.indexOf('Query evidence'))
+  expect(html.indexOf('Where competitors are winning')).toBeLessThan(html.indexOf('Query evidence'))
 })
 
 test('By engine, Past sweeps and Competitors over time read ainyc as the approved cards', async () => {
@@ -1990,7 +1982,7 @@ test('a frozen visibility baseline remains visible when five newer failed runs f
     },
   })
 
-  expect(html).toContain('Named instead of you')
+  expect(html).toContain('Mention gaps')
   expect(html).not.toContain('Competitive mention and citation gaps appear after the first AI Visibility sweep.')
 })
 
@@ -2512,7 +2504,7 @@ test('an unresolved measurement plan shows a skeleton instead of flashing legacy
 
   expect(html).toContain('Loading project overview')
   // Neither the old overview nor a cached report can answer an unresolved plan.
-  expect(html).not.toContain('Where competitors beat you')
+  expect(html).not.toContain('Where competitors are winning')
   expect(html).not.toContain('Non-brand queries')
 })
 

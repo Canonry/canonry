@@ -3,9 +3,9 @@ import type { MetricTone } from '../view-models.js'
 
 /**
  * Query classes for the AI Visibility cards that split by class (the trend,
- * Where competitors beat you, By engine). Branded and non-brand never share a
- * count. A project whose brand identity cannot classify queries gets one
- * `unclassified` class instead. Tested in `apps/web/test/answer-movement.test.ts`.
+ * By engine). Branded and non-brand never share a count. A project whose brand
+ * identity cannot classify queries gets one `unclassified` class instead.
+ * Tested in `apps/web/test/answer-movement.test.ts`.
  */
 
 export type VisibilityRowKey = QueryClass | 'unclassified'

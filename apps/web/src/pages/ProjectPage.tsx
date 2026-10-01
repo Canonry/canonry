@@ -25,7 +25,7 @@ import { useDrawer } from '../hooks/use-drawer.js'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet.js'
 import { WriteButton } from '../components/shared/AccessControls.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
-import { CompetitiveCard, type CompetitiveGapsState } from '../components/project/MentionShare.js'
+import { MentionShare } from '../components/project/MentionShare.js'
 import {
   CompetitorLandscape,
   type CompetitorLandscapeRow,
@@ -62,9 +62,9 @@ import {
   areV2OverviewPagesCompatible,
 } from '../components/project/advanced-measurement/v2-overview-adapter.js'
 import { ReportPage } from './ReportPage.js'
-import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric } from '../lib/format-helpers.js'
+import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric, splitPercentSign } from '../lib/format-helpers.js'
+import { METRIC_TONE_TEXT_CLASS } from '../lib/tone-helpers.js'
 import type { QueryClassLookup } from '../lib/answer-movement.js'
-import { competitorFrameKey } from '../lib/visibility-trend-helpers.js'
 import { addToast } from '../lib/toast-store.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
@@ -73,7 +73,6 @@ import { ManagedSweepStatus, managedSweepDate } from '../components/project/Mana
 import { ScheduleSection } from '../components/project/ScheduleSection.js'
 import { NotificationsSection } from '../components/project/NotificationsSection.js'
 import {
-  fetchAnalyticsGaps,
   fetchTimeline,
   deleteProject as apiDeleteProject,
   appendQueries as apiAppendQueries,
@@ -1116,51 +1115,46 @@ function SearchConsoleSection({
   )
 }
 
-/**
- * "Where competitors beat you" on the Simple overview. The gap counts come from
- * the latest sweep's GET /analytics/gaps; its key follows the sweep revision and
- * the tracked competitor set, like the trend's, so a new sweep or a new
- * competitor costs one fetch.
- */
-function OverviewCompetitive({
-  projectName,
-  projectLabel,
+function OverviewMetricRow({
+  label,
   summary,
-  allQueryGaps,
-  competitorDomains,
-  analyticsRevision,
-  classify,
-  hasVisibilityBaseline,
+  displayValue,
+  tooltip,
 }: {
-  projectName: string
-  projectLabel: string
-  summary: ProjectCommandCenterVm['mentionShareSummary']
-  allQueryGaps: { named: ProjectCommandCenterVm['mentionGaps']; cited: ProjectCommandCenterVm['gapQueries'] }
-  competitorDomains: string[]
-  analyticsRevision: string
-  classify: QueryClassLookup
-  hasVisibilityBaseline: boolean
+  label: string
+  summary: ProjectCommandCenterVm['mentionSummary']
+  displayValue?: React.ReactNode
+  tooltip?: string
 }) {
-  const gapsQuery = useQuery({
-    queryKey: ['analytics-gaps', projectName, competitorFrameKey(competitorDomains), analyticsRevision],
-    queryFn: () => fetchAnalyticsGaps(projectName),
-    enabled: hasVisibilityBaseline,
-    staleTime: STATIC_VISIBILITY_STALE_MS,
-  })
-  const gaps: CompetitiveGapsState = gapsQuery.data
-    ? { status: 'ready', data: gapsQuery.data }
-    : gapsQuery.isError ? { status: 'error' } : { status: 'loading' }
+  // A ratio gauge's value arrives already formatted ("66.7%"); the sign is
+  // set apart, never appended, so a count or a label ("No data") shows as sent.
+  const { figure, sign } = splitPercentSign(summary.value)
+  const progress = summary.progress !== undefined
+    ? Math.min(Math.max(summary.progress, 0), 100)
+    : 0
+
   return (
-    <CompetitiveCard
-      key={projectName}
-      summary={summary}
-      competitorDomains={competitorDomains}
-      gaps={gaps}
-      classify={classify}
-      hasBaseline={hasVisibilityBaseline}
-      projectLabel={projectLabel}
-      allQueryGaps={allQueryGaps}
-    />
+    <div className="aeo-hero-row">
+      <p className="aeo-hero-row-label">
+        {label}
+        {(tooltip || summary.tooltip) && <InfoTooltip text={tooltip || summary.tooltip || ''} />}
+      </p>
+      <p className={`aeo-hero-row-value ${METRIC_TONE_TEXT_CLASS[summary.tone]}`}>
+        {displayValue ?? (
+          <>
+            {figure}
+            {sign ? <span className="text-faint">{sign}</span> : null}
+          </>
+        )}
+      </p>
+      <div className="aeo-hero-row-bar" aria-hidden="true">
+        <div
+          className={`metric-card-bar-fill progress-fill-${summary.tone}`}
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+      <p className="aeo-hero-row-detail">{summary.delta}</p>
+    </div>
   )
 }
 
@@ -2436,8 +2430,7 @@ function ProjectPageContent({
       // Invalidating first refetched the outgoing key too: a second
       // full-history analytics scan whose result is unreachable once the
       // frame key moves. If `refetch()` fails, the project detail query polls
-      // every PROJECT_DETAIL_REFRESH_MS, so the rotation still lands. The
-      // competitive card's `['analytics-gaps', ...]` key rotates the same way.
+      // every PROJECT_DETAIL_REFRESH_MS, so the rotation still lands.
       void refetch()
       // The refreshed pin set changes the landscape revision above.
       return true
@@ -2898,18 +2891,48 @@ function ProjectPageContent({
             />
           </section>
 
-          <div className="page-section-divider">
-            <OverviewCompetitive
-              projectName={model.project.name}
-              projectLabel={model.project.displayName || model.project.name}
-              summary={model.mentionShareSummary}
-              allQueryGaps={{ named: model.mentionGaps, cited: model.gapQueries }}
-              competitorDomains={competitorDomains}
-              analyticsRevision={latestVisibilityRevision}
-              classify={classifyQuery}
-              hasVisibilityBaseline={hasVisibilityBaseline}
-            />
-          </div>
+          <section className="page-section-divider">
+            <div className="section-head section-head-inline">
+              <div>
+                <p className="eyebrow eyebrow-soft">Competitive</p>
+                <h2>Where competitors are winning</h2>
+                <p className="supporting-copy">Latest measured results against pinned competitors.</p>
+              </div>
+            </div>
+
+            {hasVisibilityBaseline ? (
+              <div className="aeo-hero competitive-summary">
+                <MentionShare
+                  key={model.project.name}
+                  summary={model.mentionShareSummary}
+                  projectLabel={model.project.displayName || model.project.name}
+                  competitorDomains={competitorDomains}
+                />
+
+                <div className="competitive-gaps">
+                  <div className="aeo-hero-rows">
+                    <OverviewMetricRow
+                      label="Mention gaps"
+                      summary={model.mentionGaps}
+                      displayValue={<><span className="text-primary">{model.mentionGaps.value}</span><span className="text-faint"> / {model.queryCounts.total}</span></>}
+                      tooltip="Queries where a competitor was mentioned in the answer but your brand was not."
+                    />
+                    <OverviewMetricRow
+                      label="Citation gaps"
+                      summary={model.gapQueries}
+                      displayValue={<><span className="text-primary">{model.gapQueries.value}</span><span className="text-faint"> / {model.queryCounts.total}</span></>}
+                      tooltip="Queries where a competitor was cited as a source but you were not."
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-secondary">
+                Competitive mention and citation gaps appear after the first AI Visibility sweep.
+              </p>
+            )}
+
+          </section>
 
           <OverviewDisclosure
             id="evidence-section"

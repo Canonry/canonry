@@ -1034,7 +1034,7 @@ interface TooltipPayloadItem {
   color?: string
 }
 
-/** The answers mention share reads, as the title's ⓘ and the competitive card name them. */
+/** The answers mention share reads, as the title's ⓘ names them. */
 function mentionShareScopeLabel(scope: MentionShareScope): string {
   return scope === 'non-brand' ? 'non-brand answers' : 'all answers'
 }

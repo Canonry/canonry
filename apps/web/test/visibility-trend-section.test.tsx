@@ -416,7 +416,7 @@ test('labels a pooled mention-share trend as classification unavailable', async 
   await screen.findByRole('list', { name: 'Engines' })
   act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Mention share' })) })
 
-  // "All answers", as the title's ⓘ and the competitive card say, never "pooled".
+  // "All answers", as the title's ⓘ says, never "pooled".
   expect(screen.getByRole('img', { name: /^Mention share in all answers trend chart/ })).toBeTruthy()
   expect(document.querySelector('.visibility-trend-current-label')?.textContent).toBe('Mention share in all answers')
   expect(screen.queryByText(/pooled|classification unavailable/i)).toBeNull()
