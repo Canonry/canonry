@@ -10,7 +10,7 @@ import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, onTestFinished, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { compileQueryClassifier } from '@ainyc/canonry-contracts'
+import { compileQueryClassifier, formatPercent } from '@ainyc/canonry-contracts'
 
 /** What the chart's hover tooltip is showing, set per test: Recharts itself is inert in jsdom. */
 const tooltip: { current: Record<string, unknown> | null } = { current: null }
@@ -101,7 +101,7 @@ function readout(): Record<'value' | 'change' | 'base', string | null> {
   }
 }
 
-test('reads 25.0% of 100 answers on Sep 29 with no change figure, and says why', async () => {
+test('reads 25.0% of 100 answers on Sep 29, with its change qualified in view and why in Details', async () => {
   renderAinyc()
 
   const legend = await screen.findByRole('list', { name: 'Engines' })
@@ -112,14 +112,15 @@ test('reads 25.0% of 100 answers on Sep 29 with no change figure, and says why',
     name: 'Mentioned = share of answers that name you. Cited = share that link to your site. Mention share = your share of tracked-brand mentions in non-brand answers.',
   })).toBeTruthy()
 
-  // +4.5 would come entirely from the 3 branded queries added Sep 29, so the
-  // headline carries no change figure (decision 3).
-  expect(readout()).toEqual({ value: '25.0%', change: null, base: '· 25 of 100 answers' })
+  // +4.5 comes partly from the 3 branded queries added Sep 29, so the change
+  // says so where it is read, rather than being withheld.
+  expect(readout()).toEqual({ value: '25.0%', change: 'up 4.5 points (not the same queries)', base: '· 25 of 100 answers' })
   expect(bullets(card.querySelector(':scope > details.av-details'))).toEqual([
-    'No change figure: Sep 29 point mixes the 5:41 AM sweep and the 5:59 AM sweep, with 3 queries added between them',
+    'Not the same queries: Sep 29 point mixes the 5:41 AM sweep and the 5:59 AM sweep, with 3 queries added between them',
+    'Base: Mar 13 to Apr 8 point',
     '25.0% pools all answers; not an average of engines',
   ])
-  expect(screen.getByText('Mentioned rate across 5 sweeps. Latest 25.0%.')).toBeTruthy()
+  expect(screen.getByText('Mentioned rate across 5 sweeps. Latest 25.0%, up 4.5 points over the period, not the same queries.')).toBeTruthy()
 
   // The legend names engines and their latest rate, never a model.
   expect([...legend.querySelectorAll('li')].map(item => item.textContent)).toEqual([
@@ -138,12 +139,12 @@ test('reads 25.0% of 100 answers on Sep 29 with no change figure, and says why',
     .toEqual(['7 days', '30 days', '90 days', 'All'])
 })
 
-test('keeps the Cited change hidden too, and mention share\'s change because only branded queries were added', async () => {
+test('qualifies the Cited change too, and keeps mention share\'s plain because only branded queries were added', async () => {
   renderAinyc()
   await screen.findByRole('list', { name: 'Engines' })
 
   act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Cited' })) })
-  expect(readout()).toEqual({ value: '27.0%', change: null, base: '· 27 of 100 answers' })
+  expect(readout()).toEqual({ value: '27.0%', change: 'up 7.0 points (not the same queries)', base: '· 27 of 100 answers' })
 
   act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Mention share' })) })
   expect(readout()).toEqual({ value: '31.7%', change: 'down 2.9 points', base: '· 13 of 41 tracked-brand mentions' })
@@ -188,9 +189,14 @@ test('collapses What changed to one line and opens a table by engine, newest fir
   expect(within(changes).getByRole('button', { name: 'Preset picks its own model. Answered with openai/gpt-6-luna (was sonar).' })).toBeTruthy()
   expect(screen.queryByRole('list', { name: 'Model substitutions' })).toBeNull()
 
-  // Stored keys are lowercase; Details names the queries as they were written.
+  // Stored keys are lowercase; Details names the queries as they were written,
+  // then what every engine last answered with, as the old model list did.
   expect(bullets(changes.querySelector('.av-wc-body > details.av-details'))).toEqual([
     'Added Sep 29: Canonry, Canonry AEO agency, Canonry reviews',
+    'Claude last answered with claude-sonnet-5 on Sep 29',
+    'Gemini last answered with gemini-3.5-flash on Sep 29',
+    'OpenAI last answered with chat-latest on Sep 29',
+    'Perplexity last answered with openai/gpt-6-luna on Sep 29',
   ])
 })
 
@@ -218,6 +224,10 @@ test('dates every model change "on or before" Sep 29 on 7 days, bounded by the J
   expect(bullets(changes.querySelector('.av-wc-body > details.av-details'))).toEqual([
     'Added Sep 29: Canonry, Canonry AEO agency, Canonry reviews',
     'Changed before this date range, after the Jul 14 sweep: Claude, Gemini, OpenAI and Perplexity',
+    'Claude last answered with claude-sonnet-5 on Sep 29',
+    'Gemini last answered with gemini-3.5-flash on Sep 29',
+    'OpenAI last answered with chat-latest on Sep 29',
+    'Perplexity last answered with openai/gpt-6-luna on Sep 29',
   ])
   expect(within(changes).getByRole('button', { name: /Sweep before: Jul 14\.$/ })).toBeTruthy()
 
@@ -240,7 +250,7 @@ test('the first and latest point tooltips carry their own dates, counts and mode
     'Gemini3.3%10 of 307',
     'OpenAI22.3%67 of 300',
     'Perplexity1.8%4 of 220',
-    'claude-opus-4-6, claude-sonnet-4-6; gemini-2.5-flash, gemini-3-flash-preview; gpt-4o, gpt-5.4; sonar',
+    'Claude: claude-opus-4-6, claude-sonnet-4-6; Gemini: gemini-2.5-flash, gemini-3-flash-preview; OpenAI: gpt-4o, gpt-5.4; Perplexity: sonar',
   ])
   cleanup()
 
@@ -254,6 +264,22 @@ test('the first and latest point tooltips carry their own dates, counts and mode
     'Gemini36.0%9 of 25',
     'OpenAI12.0%3 of 25',
     'Perplexity32.0%8 of 25',
-    'claude-sonnet-5; gemini-3.5-flash; chat-latest; fast',
+    'Claude: claude-sonnet-5; Gemini: gemini-3.5-flash; OpenAI: chat-latest; Perplexity: fast',
   ])
+})
+
+test('mention share names its class in the headline and tooltip, and the tooltip counts competitors (restored)', async () => {
+  const metrics = ainycMetrics('all')
+  const tooltipText = () => [...screen.getByTestId('trend-tooltip').querySelectorAll('p, .trend-tooltip-row')].map(node => node.textContent)
+
+  tooltip.current = { active: true, label: metrics.buckets.at(-1)!.startDate, payload: [] }
+  renderAinyc()
+  await screen.findByRole('list', { name: 'Engines' })
+  act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Mention share' })) })
+
+  expect(document.querySelector('.visibility-trend-current-label')?.textContent).toBe('Mention share in non-brand answers')
+  const bucket = metrics.buckets.at(-1)!.mentionShare
+  const total = bucket.projectMentionSnapshots + bucket.competitorMentionSnapshots
+  expect(tooltipText()).toContain(`Mention share in non-brand answers${formatPercent(bucket.rate)}`)
+  expect(tooltipText()).toContain(`You ${bucket.projectMentionSnapshots} of ${total} tracked-brand mentions. Competitors ${bucket.competitorMentionSnapshots}.`)
 })

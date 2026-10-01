@@ -49,8 +49,7 @@ export function invalidateQueriesForRunKind(
       void invalidateProjectQueryDomain(queryClient, 'queryTracking')
       // No explicit `['analytics-metrics', project]` invalidation here. That
       // key's last segment is `analyticsRevision` (`VisibilityTrendSection`,
-      // fed by `latestVisibilityRevision` in `use-project-dashboard.ts`). The
-      // competitive card's `['analytics-gaps', ...]` key ends the same way.
+      // fed by `latestVisibilityRevision` in `use-project-dashboard.ts`).
       //
       // What the revision actually is: the createdAt + sibling run ids of the
       // NEWEST completed|partial non-probe answer-visibility sweep. That is

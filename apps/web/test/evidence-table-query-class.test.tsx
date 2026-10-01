@@ -263,7 +263,7 @@ test('"new query" marks only the latest sweep\'s added queries; an engine new to
     ]}
   />)
 
-  // Matched case-insensitively against the stored key, as the Visibility card does.
+  // Matched case-insensitively against the stored key.
   const added = screen.getByText('Canonry reviews').closest('tr')!
   expect(within(added).getByText('new query').className).toContain('query-evidence-new')
   expect(within(added).queryByText('First mention')).toBeNull()

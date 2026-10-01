@@ -298,8 +298,7 @@ const RANGE_QUERY = '?measurementFrom=2026-09-01T00:00:00.000Z&measurementTo=202
 
 test.each([
   {
-    // No "All time" (or any range) above cards that each state their own
-    // sweep, point or window.
+    // No range label: the Simple overview's cards read different windows.
     label: 'Simple overview',
     path: '/projects/project_citypoint',
     advanced: false,
@@ -366,7 +365,7 @@ test.each([
 
 // ── Embed ──
 
-test('an embed keeps its page header and renders no project context row or date range', async () => {
+test('an embed keeps its page header, with no Simple date range and no project context row', async () => {
   const { doc } = await renderAt('/projects/project_citypoint', { embed: true })
 
   expect(doc.querySelector('.project-context-row')).toBeNull()

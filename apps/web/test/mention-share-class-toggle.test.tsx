@@ -1,16 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import type { GapAnalysisDto, GapQuery, QueryClass } from '@ainyc/canonry-contracts'
-import {
-  CompetitiveCard,
-  gapQueryLines,
-  scopeGaps,
-  type CompetitiveGapsState,
-  type MentionShareBreakdownVm,
-} from '../src/components/project/MentionShare.js'
+import { MentionShare, type MentionShareBreakdownVm } from '../src/components/project/MentionShare.js'
 import { METRIC_TONE_TEXT_CLASS } from '../src/lib/tone-helpers.js'
 import type { ProjectCommandCenterVm } from '../src/view-models.js'
-import { ainycClassify, ainycGaps, ainycMentionShare } from './ainyc-visibility-fixture.js'
 
 afterEach(cleanup)
 
@@ -47,7 +39,7 @@ function summary(over: Partial<Summary> = {}): Summary {
 }
 
 /**
- * The lopsided shape this whole card exists for: the project is named on
+ * The lopsided shape this whole feature exists for: the project is named on
  * every branded answer and loses the category. Pooled it would read as a win.
  */
 function lopsided(): Summary {
@@ -82,117 +74,42 @@ function lopsided(): Summary {
   })
 }
 
-const CLASSES: Record<string, QueryClass | null> = {
-  'best widgets': 'non-brand',
-  'widget repair': 'non-brand',
-  'cheap widgets': 'non-brand',
-  'acme tanks reviews': 'branded',
-  'imported question': null,
-}
-const classify = (text: string) => CLASSES[text] ?? null
-
-function gap(query: string): GapQuery {
-  return {
-    query,
-    queryId: `id-${query}`,
-    category: 'gap',
-    providers: [],
-    competitorsCiting: ['rival-one.example'],
-    competitorsMentioned: ['rival-one.example'],
-    consistency: { citedRuns: 0, totalRuns: 1, mentionedRuns: 0 },
-  }
-}
-
-/** Four non-brand queries, one branded, one the classifier cannot place. */
-function gapAnalysis(): GapAnalysisDto {
-  return {
-    cited: [gap('acme tanks reviews'), gap('cheap widgets')],
-    gap: [gap('best widgets'), gap('widget repair')],
-    uncited: [gap('imported question')],
-    mentionedQueries: [gap('acme tanks reviews'), gap('cheap widgets'), gap('widget repair')],
-    // A query named and cited instead, and a second one only cited instead.
-    mentionGap: [gap('best widgets')],
-    notMentioned: [gap('imported question')],
-    runId: 'run-latest',
-    window: '7d',
-  }
-}
-
-function renderCard(
-  over: Partial<Summary> = {},
-  { competitorDomains = ['rival-one.example'], gaps = { status: 'ready', data: gapAnalysis() }, hasBaseline = true }: {
-    competitorDomains?: string[]
-    gaps?: CompetitiveGapsState
-    hasBaseline?: boolean
-  } = {},
-) {
+function renderShare(over: Partial<Summary> = {}, competitorDomains = ['rival-one.example']) {
   return render(
-    <CompetitiveCard
+    <MentionShare
       summary={{ ...lopsided(), ...over }}
+      projectLabel="Acme Tanks"
       competitorDomains={competitorDomains}
-      gaps={gaps}
-      classify={classify}
-      hasBaseline={hasBaseline}
     />,
   )
 }
 
-function card(): HTMLElement {
-  return document.querySelector('section[aria-labelledby]') as HTMLElement
+function block(): HTMLElement {
+  return document.querySelector('.mention-share') as HTMLElement
 }
 
-/** What a sighted reader sees: the `sr-only` class suffixes are left out. */
-function visibleText(element: Element): string {
-  const clone = element.cloneNode(true) as Element
-  for (const hidden of clone.querySelectorAll('.sr-only')) hidden.remove()
-  return clone.textContent ?? ''
-}
-
-function rows(): string[][] {
-  return [...card().querySelectorAll('.av-grid tbody tr')].map(row => [...row.children].map(visibleText))
-}
-
-function bullets(): string[] {
-  return [...card().querySelectorAll('.av-details-list li')].map(item => item.textContent ?? '')
-}
-
-function shareValue(): HTMLElement {
-  return card().querySelector('.av-grid tbody tr:first-child td > span') as HTMLElement
-}
-
-describe('CompetitiveCard class control', () => {
+describe('MentionShare class control', () => {
   it('defaults to non-brand and never shows the branded figure beside it', () => {
-    renderCard()
-    const group = screen.getByRole('radiogroup', { name: 'Query type' })
+    renderShare()
+    const group = screen.getByRole('radiogroup')
     expect(within(group).getByRole('radio', { name: 'Non-brand' }).getAttribute('aria-checked')).toBe('true')
     expect(within(group).getByRole('radio', { name: 'Branded' }).getAttribute('aria-checked')).toBe('false')
 
-    expect(rows()).toEqual([
-      ['Mention share', '10.0%'],
-      ['Named instead of you', '1 of 3 queries'],
-      ['Cited instead of you', '2 of 3 queries'],
-    ])
+    // The competitive figure, and only it, through the shared percent format.
+    expect(block().querySelector('.mention-share-value')?.textContent).toBe('10.0%')
+    expect(block().textContent).toContain('Non-brand · 1 of 10 brand mentions')
     // 100 is the branded score. It must not be on screen while non-brand is.
-    expect(card().textContent).not.toContain('100%')
-    expect(card().querySelector<HTMLDetailsElement>('details.av-details')!.open).toBe(false)
-    expect(bullets()).toEqual([
-      'Mention share: you 1, rival-one.example 9 tracked-brand mentions',
-      'Base: 32 non-brand answers',
-      'Named and cited instead: "best widgets"',
-      'Cited instead: "widget repair"',
-    ])
-  })
-
-  it('names the class in each figure\'s own accessible text', () => {
-    renderCard()
-    for (const cell of card().querySelectorAll('.av-grid td')) {
-      expect(cell.querySelector('.sr-only')?.textContent).toBe(' · non-brand queries')
-    }
+    expect(block().textContent).not.toContain('100%')
+    expect(block().textContent).not.toContain('Branded ·')
+    // Each row is its share of the 10 brand mentions, most mentioned first.
+    const shares = [...block().querySelectorAll('.mention-share-rows .mention-share-row')]
+      .map(row => row.querySelector('.mention-share-share')?.textContent)
+    expect(shares).toEqual(['90.0%', '10.0%'])
   })
 
   it('shows the API share to one decimal, with the sign set apart and never doubled', () => {
     // 1 of 3 named brands is 33.333333 on the wire.
-    renderCard({
+    renderShare({
       breakdown: breakdown({
         projectMentionSnapshots: 1,
         competitorMentionSnapshots: 2,
@@ -207,80 +124,81 @@ describe('CompetitiveCard class control', () => {
         score: 33.333333,
       }),
     })
-    expect(visibleText(shareValue())).toBe('33.3%')
-    expect(shareValue().querySelector('.text-faint')?.textContent).toBe('%')
-    expect(card().textContent).not.toContain('%%')
+    const value = block().querySelector('.mention-share-value')!
+    expect(value.textContent).toBe('33.3%')
+    expect(value.querySelector('.text-faint')?.textContent).toBe('%')
+    expect(block().textContent).not.toContain('%%')
   })
 
-  it('switching to Branded swaps the figure, the gap counts, the Details and the spoken class together', () => {
-    renderCard()
+  it('switching to Branded swaps the denominator, the caption word, and the rows together', () => {
+    renderShare()
     fireEvent.click(screen.getByRole('radio', { name: 'Branded' }))
 
-    expect(rows()).toEqual([
-      ['Mention share', '100%'],
-      ['Named instead of you', '0 of 1 query'],
-      ['Cited instead of you', '0 of 1 query'],
-    ])
-    // Every tracked competitor is listed, at its branded count of zero, so
-    // "no competitor was named here" is visible rather than absent.
-    expect(bullets()).toEqual([
-      'Mention share: you 20, rival-one.example 0 tracked-brand mentions',
-      'Base: 20 branded answers',
-    ])
-    expect(card().textContent).not.toContain('10.0%')
-    expect(card().querySelector('.av-grid td .sr-only')?.textContent).toBe(' · branded queries')
+    expect(block().querySelector('.mention-share-value')?.textContent).toBe('100%')
+    expect(block().textContent).toContain('Branded · 20 of 20 brand mentions')
+    // The non-brand figure is now absent, not merely de-emphasised.
+    expect(block().textContent).not.toContain('Non-brand ·')
+    expect(block().textContent).not.toContain('1 of 10')
+
+    // Every tracked competitor still gets a row, at its branded count of zero,
+    // so "no competitor was named here" is visible rather than an absent row.
+    const rows = block().querySelectorAll('.mention-share-rows .mention-share-row')
+    expect(rows).toHaveLength(2)
+    expect(rows[1]!.textContent).toContain('rival-one.example')
+    // An exact zero and an exact whole read without a decimal in the shared format.
+    expect(rows[1]!.querySelector('.mention-share-share')?.textContent).toBe('0%')
+    expect(rows[0]!.querySelector('.mention-share-share')?.textContent).toBe('100%')
   })
 
   it('never tone-colours a branded figure, because the band is calibrated for placement', () => {
     // Resolved from the shared tone map so the assertion tracks the design
     // tokens rather than pinning a literal colour class.
     const negative = METRIC_TONE_TEXT_CLASS.negative
-    renderCard()
-    expect(shareValue().className).toContain(negative)
+    renderShare()
+    expect(block().querySelector('.mention-share-value')!.className).toContain(negative)
 
     fireEvent.click(screen.getByRole('radio', { name: 'Branded' }))
-    expect(shareValue().className).toContain('text-primary')
-    expect(shareValue().className).not.toContain(negative)
+    const brandedValue = block().querySelector('.mention-share-value')!
+    expect(brandedValue.className).toContain('text-secondary')
+    expect(brandedValue.className).not.toContain(negative)
   })
 
-  it('pooled renders no control, says so, counts every query and offers the recovery step', () => {
-    renderCard({ scope: 'pooled' })
+  it('pooled renders no control, says so, and offers the recovery step', () => {
+    renderShare({ scope: 'pooled' })
     expect(screen.queryByRole('radiogroup')).toBeNull()
-    expect(card().querySelector('.mention-share-class')?.textContent).toBe('All answers')
-    expect(rows().slice(1)).toEqual([
-      ['Named instead of you', '1 of 5 queries'],
-      ['Cited instead of you', '2 of 5 queries'],
-    ])
-    expect(bullets()).toContain('Base: 32 answers')
-    expect(bullets().at(-1)).toBe('No brand name: branded and non-brand not split')
+    expect(block().querySelector('.mention-share-class')?.textContent).toBe('All queries')
+    expect(block().textContent).toContain('All queries · 1 of 10 brand mentions')
+    expect(block().textContent).toContain('Set a brand name to split branded from non-brand.')
     // A pooled figure is not a competitive read, so it is never tone-coloured.
-    expect(shareValue().className).toContain('text-primary')
+    expect(block().querySelector('.mention-share-value')!.className).toContain('text-secondary')
     // And it is never labelled with a class it was not split by.
-    expect(visibleText(card())).not.toMatch(/Non-brand|Branded/)
+    expect(block().textContent).not.toContain('Non-brand')
+    expect(block().textContent).not.toContain('Branded')
   })
 
   it('hides the control when the project has no branded queries at all', () => {
-    renderCard({ branded: breakdown() })
+    renderShare({ branded: breakdown() })
     expect(screen.queryByRole('radiogroup')).toBeNull()
-    expect(card().querySelector('.mention-share-class')?.textContent).toBe('Non-brand')
-    expect(rows()[0]).toEqual(['Mention share', '10.0%'])
+    expect(block().querySelector('.mention-share-class')?.textContent).toBe('Non-brand')
+    expect(block().textContent).toContain('Non-brand · 1 of 10 brand mentions')
   })
 
-  it('renders no share figure when there is no competitive frame', () => {
-    renderCard({}, { competitorDomains: [] })
-    expect(rows()[0]).toEqual(['Mention share', 'Add competitors'])
-    expect(card().querySelector('.mention-share-value-text')?.textContent).toBe('Add competitors')
-    expect(bullets()[0]).toBe('Mention share: you were named in 1 of 32 answers')
+  it('renders no share figure and no ranking when there is no competitive frame', () => {
+    renderShare({}, [])
+    expect(block().textContent).not.toContain('%')
+    expect(block().querySelector('.mention-share-rows')).toBeNull()
+    expect(block().querySelector('.mention-share-value-text')?.textContent).toBe('Add competitors')
+    expect(block().textContent).toContain('you were named in 1 of 32 answers')
   })
 
   it('arrow keys move the selection across the two classes and wrap', () => {
-    renderCard()
+    renderShare()
     const group = screen.getByRole('radiogroup')
     const branded = within(group).getByRole('radio', { name: 'Branded' })
 
     fireEvent.keyDown(group, { key: 'ArrowRight' })
     expect(branded.getAttribute('aria-checked')).toBe('true')
-    expect(bullets()[1]).toBe('Base: 20 branded answers')
+    expect(block().textContent).toContain('Branded ·')
 
     // Wraps back around rather than dead-ending.
     fireEvent.keyDown(group, { key: 'ArrowRight' })
@@ -293,168 +211,116 @@ describe('CompetitiveCard class control', () => {
     // "no sweep has run yet" on a project with a year of sweeps.
     const empty = { breakdown: breakdown(), branded: breakdown() }
 
-    renderCard({ ...empty, unavailable: true })
-    expect(rows()[0]).toEqual(['Mention share', 'No data'])
-    expect(bullets()[0]).toBe('Mention share: could not load, refresh to retry')
-    expect(card().textContent).not.toContain('no sweep has run yet')
+    renderShare({ ...empty, unavailable: true })
+    expect(block().querySelector('.mention-share-value-text')?.textContent).toBe('No data')
+    expect(block().textContent).toContain('could not load, refresh to retry')
+    expect(block().textContent).not.toContain('no sweep has run yet')
 
     cleanup()
-    renderCard(empty)
-    expect(bullets()[0]).toBe('Mention share: no sweep has run yet')
-    expect(card().textContent).not.toContain('could not load')
+    renderShare(empty)
+    expect(block().textContent).toContain('no sweep has run yet')
+    expect(block().textContent).not.toContain('could not load')
   })
 
   it('keeps the heading name free of the tooltip paragraph', () => {
-    renderCard()
-    const heading = screen.getByRole('heading', { level: 2 })
+    renderShare()
+    const heading = screen.getByRole('heading', { level: 3 })
     // A heading takes its accessible name from its content, so the tooltip has
-    // to be a sibling. Nesting it made the heading announce the methodology.
-    expect(heading.textContent).toBe('Where competitors beat you')
+    // to be a sibling. Nesting it made the h3 announce the whole methodology.
+    expect(heading.textContent).toBe('Mention share')
     expect(heading.querySelector('button')).toBeNull()
-    expect(card().getAttribute('aria-labelledby')).toBe(heading.id)
-    // The tooltip explains the rendered scope, never a class that is not on screen.
-    const tip = heading.parentElement!.querySelector('button[aria-label]')!.getAttribute('aria-label')!
-    expect(tip).toMatch(/^Queries that do not contain your name\. Mention share: your share of tracked-brand mentions/)
-    expect(tip).toContain('Named instead of you: queries where an engine named a tracked competitor and none named you.')
+    // And the radiogroup is still labelled by it.
+    expect(screen.getByRole('radiogroup').getAttribute('aria-labelledby')).toBe(heading.id)
   })
 
   it('renders a truthful state instead of vanishing when a run named nobody', () => {
-    renderCard({
+    // The old component returned null here and silently deleted real evidence.
+    renderShare({
       breakdown: breakdown({ snapshotsWithAnswerText: 24, snapshotsTotal: 24 }),
       branded: breakdown(),
     })
-    expect(rows()[0]).toEqual(['Mention share', 'No mentions'])
-    expect(bullets().slice(0, 2)).toEqual(['Mention share: no brand named in 24 answers', 'Base: 24 non-brand answers'])
+    expect(block().querySelector('.mention-share-value-text')?.textContent).toBe('No mentions')
+    expect(block().textContent).toContain('no brand named in 24 answers')
+    expect(block().querySelector('.mention-share-rows')).toBeNull()
   })
 })
 
-describe('CompetitiveCard gap counts', () => {
-  it('waits for GET /analytics/gaps without inventing counts', () => {
-    renderCard({}, { gaps: { status: 'loading' } })
-    expect(rows().slice(1)).toEqual([
-      ['Named instead of you', 'Loading…'],
-      ['Cited instead of you', 'Loading…'],
-    ])
-    expect(bullets().some(line => line.includes('instead'))).toBe(false)
-  })
-
-  it('says a failed read failed, and keeps mention share', () => {
-    renderCard({}, { gaps: { status: 'error' } })
-    expect(rows()).toEqual([
-      ['Mention share', '10.0%'],
-      ['Named instead of you', 'Could not load'],
-      ['Cited instead of you', 'Could not load'],
-    ])
-  })
-
-  it('says "No queries" for a class with none in the latest sweep', () => {
-    renderCard({}, { gaps: { status: 'ready', data: { ...gapAnalysis(), cited: [gap('cheap widgets')], gap: [gap('best widgets')] } } })
-    fireEvent.click(screen.getByRole('radio', { name: 'Branded' }))
-    expect(rows().slice(1)).toEqual([
-      ['Named instead of you', 'No queries'],
-      ['Cited instead of you', 'No queries'],
-    ])
-  })
-
-  it('before the first sweep says what will appear, with no figures, control or Details', () => {
-    renderCard({}, { hasBaseline: false, gaps: { status: 'loading' } })
-    expect(card().textContent).toContain('Competitive mention and citation gaps appear after the first AI Visibility sweep.')
-    expect(card().querySelector('table')).toBeNull()
-    expect(screen.queryByRole('radiogroup')).toBeNull()
-    expect(card().querySelector('details')).toBeNull()
-  })
-})
-
-describe('CompetitiveCard empty-class copy', () => {
+describe('MentionShare empty-class copy', () => {
   it('an all-branded basket says so instead of claiming nothing is tracked', () => {
     // The default selection is non-brand, which is empty here, but 20 branded
     // snapshots sit one click away. "none tracked" would contradict the control
     // beside it, and the server already names this state.
-    renderCard({ breakdown: breakdown() })
-    expect(rows()[0]).toEqual(['Mention share', 'No non-brand queries'])
-    expect(bullets()[0]).toBe('Mention share: every tracked query names your brand')
-    expect(card().textContent).not.toContain('none tracked')
+    renderShare({ breakdown: breakdown() })
+    expect(block().querySelector('.mention-share-value-text')?.textContent).toBe('No non-brand queries')
+    expect(block().textContent).toContain('every tracked query names your brand')
+    expect(block().textContent).not.toContain('none tracked')
     // The branded data is reachable, and reads normally once selected.
     fireEvent.click(screen.getByRole('radio', { name: 'Branded' }))
-    expect(rows()[0]).toEqual(['Mention share', '100%'])
+    expect(block().querySelector('.mention-share-value')?.textContent).toBe('100%')
   })
 
-  it('still says "no sweep has run yet" when the project really tracks nothing', () => {
-    renderCard({ breakdown: breakdown({ snapshotsTotal: 0 }), branded: breakdown({ snapshotsTotal: 0 }) })
-    expect(bullets()[0]).toBe('Mention share: no sweep has run yet')
-    expect(card().textContent).not.toContain('No non-brand queries')
+  it('still says "none tracked" when the project really tracks nothing', () => {
+    renderShare({ breakdown: breakdown({ snapshotsTotal: 0 }), branded: breakdown({ snapshotsTotal: 0 }) })
+    expect(block().textContent).toContain('no sweep has run yet')
+
+    cleanup()
+    // A run happened for branded, none for non-brand, and no branded queries
+    // either: nothing is tracked in either class beyond the run itself.
+    renderShare({ breakdown: breakdown(), branded: breakdown() , unavailable: false })
+    expect(block().textContent).not.toContain('No non-brand queries')
   })
 })
 
-describe('CompetitiveCard mention counts', () => {
-  it('lists the server ranking as sent: its order and its counts, you first', () => {
-    // Deliberately not in mention order: the bullet must print the server's
-    // own order and counts, never re-sort or re-derive them.
-    renderCard({
+describe('MentionShare ranking semantics', () => {
+  it('lays out the server ranking as sent: its order, its counts and its shares', () => {
+    // Deliberately NOT mentions / combined, and not in mention order: the rows
+    // must print the server's own values, so a component that re-derived a
+    // share from the counts, or re-sorted the rows, would fail here.
+    renderShare({
       breakdown: breakdown({
         projectMentionSnapshots: 1,
         competitorMentionSnapshots: 9,
         combinedMentionSnapshots: 10,
         ranking: [
-          { kind: 'competitor', domain: 'rival-two.example', mentionSnapshots: 2, share: 0.2 },
-          { kind: 'project', domain: null, mentionSnapshots: 1, share: 0.1 },
-          { kind: 'competitor', domain: 'rival-one.example', mentionSnapshots: 7, share: 0.7 },
+          { kind: 'project', domain: null, mentionSnapshots: 1, share: 0.0004 },
+          { kind: 'competitor', domain: 'rival-one.example', mentionSnapshots: 9, share: 0.9996 },
         ],
         snapshotsWithAnswerText: 32,
         snapshotsTotal: 32,
         score: 10,
       }),
-    }, { competitorDomains: ['rival-one.example', 'rival-two.example'] })
-    expect(bullets()[0]).toBe('Mention share: you 1, rival-two.example 2, rival-one.example 7 tracked-brand mentions')
-    // Key numbers are bold in Details.
-    expect([...card().querySelectorAll('.av-details-list li:first-child strong')].map(bold => bold.textContent)).toEqual(['1', '2', '7'])
+    })
+    const rows = [...block().querySelectorAll('.mention-share-rows .mention-share-row')]
+    expect(rows.map(row => row.querySelector('th')?.textContent)).toEqual(['Acme Tanks (you)', 'rival-one.example'])
+    expect(rows.map(row => row.querySelector('.mention-share-count')?.textContent)).toEqual(['1', '9'])
+    // formatPercent of the server fraction: a sliver and a near-whole keep their edges.
+    expect(rows.map(row => row.querySelector('.mention-share-share')?.textContent)).toEqual(['<0.1%', '>99.9%'])
+    // The caption's denominator is the server's combined count, not a client sum.
+    expect(block().textContent).toContain('Non-brand · 1 of 10 brand mentions')
   })
 
-  it('reads ainyc\'s stored latest sweep as the approved card', () => {
-    render(<CompetitiveCard summary={ainycMentionShare()} competitorDomains={['pbjmarketing.com']} gaps={{ status: 'ready', data: ainycGaps() }} classify={ainycClassify} hasBaseline />)
-    expect(rows()).toEqual([
-      ['Mention share', '33.3%'],
-      ['Named instead of you', '1 of 11 queries'],
-      ['Cited instead of you', '1 of 11 queries'],
-    ])
-    expect(shareValue().className).toContain(METRIC_TONE_TEXT_CLASS.caution)
-    expect(bullets()).toEqual([
-      'Mention share: you 7, pbjmarketing.com 14 tracked-brand mentions',
-      'Base: 44 non-brand answers',
-      'Named and cited instead: "best AEO agency New York"',
-    ])
+  it('exposes the columns to assistive tech, not just to the eye', () => {
+    renderShare()
+    const table = screen.getByRole('table')
+    expect(table).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Branded' }))
-    expect(rows()).toEqual([
-      ['Mention share', '100%'],
-      ['Named instead of you', '0 of 3 queries'],
-      ['Cited instead of you', '0 of 3 queries'],
-    ])
-    expect(bullets()).toEqual([
-      'Mention share: you 12, pbjmarketing.com 0 tracked-brand mentions',
-      'Base: 12 branded answers',
-    ])
-  })
-})
+    // Column headers exist and are associated by scope, so a value is announced
+    // with what it means rather than as a bare number.
+    const columnHeaders = within(table).getAllByRole('columnheader')
+    expect(columnHeaders.map(h => h.textContent?.replace(/\s+/g, ' ').trim())).toEqual(
+      expect.arrayContaining(['Domain', 'Share']),
+    )
+    for (const header of columnHeaders) {
+      if (header.getAttribute('aria-hidden') === 'true') continue
+      expect(header.getAttribute('scope')).toBe('col')
+    }
 
-describe('scopeGaps and gapQueryLines', () => {
-  it('splits the latest sweep\'s lanes by class and counts each query once', () => {
-    const data = gapAnalysis()
-    expect(scopeGaps(data, 'non-brand', classify)).toEqual({ total: 3, named: ['best widgets'], cited: ['best widgets', 'widget repair'] })
-    expect(scopeGaps(data, 'branded', classify)).toEqual({ total: 1, named: [], cited: [] })
-    // An unclassifiable query belongs to neither class, only to the pooled read.
-    expect(scopeGaps(data, 'pooled', classify)).toEqual({ total: 5, named: ['best widgets'], cited: ['best widgets', 'widget repair'] })
-    // Lanes can repeat a query id (mention lanes mirror citation lanes); the denominator does not.
-    expect(scopeGaps({ ...data, uncited: [...data.uncited, gap('best widgets')] }, 'non-brand', classify).total).toBe(3)
-  })
+    // Each row is identified by its domain, as a row header.
+    const rowHeaders = within(table).getAllByRole('rowheader')
+    expect(rowHeaders[0]!.getAttribute('scope')).toBe('row')
+    expect(rowHeaders.map(h => h.textContent)).toContain('rival-one.example')
 
-  it('names a query in both lanes once, and each lane\'s others separately', () => {
-    expect(gapQueryLines(['a', 'b'], ['a', 'c'])).toEqual([
-      'Named and cited instead: "a"',
-      'Named instead: "b"',
-      'Cited instead: "c"',
-    ])
-    expect(gapQueryLines([], [])).toEqual([])
-    expect(gapQueryLines(['x', 'y'], [])).toEqual(['Named instead: "x", "y"'])
+    // The bar restates the share cell, so it is decorative and hidden.
+    expect(table.querySelector('.mention-share-bar')!.closest('[aria-hidden="true"]')).toBeTruthy()
   })
 })

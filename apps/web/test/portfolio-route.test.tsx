@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-libra
 import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 import type { VisibilityReportResponse } from '@ainyc/canonry-contracts'
-import { aggregateSentiment, queryTrackingWorkspaceResponseSchema, sentimentSettingsSchema, sentimentSummarySchema, visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
+import { aggregateSentiment, emptyCitationVisibility, queryTrackingWorkspaceResponseSchema, sentimentSettingsSchema, sentimentSummarySchema, visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
 
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
@@ -18,8 +18,7 @@ import { MARKET_SCOPE_COPY } from '../src/components/project/VisibilityScopePick
 import { parseVisibilitySelection, visibilityReportFirstPageQuery } from '../src/lib/measurement-view-url.js'
 import { PROJECT_SCOPE_COPY } from '../src/lib/project-scope.js'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
-import { formatSweepInstant } from '../src/lib/format-helpers.js'
-import { AINYC_LATEST_RUN, AINYC_PREVIOUS_RUN, ainycCitationVisibility, ainycComparison, ainycEvidence, ainycGaps, ainycLandscape, ainycMentionShare, ainycMetrics, ainycMovement, ainycRuns } from './ainyc-visibility-fixture.js'
+import { AINYC_LATEST_RUN, ainycCitationVisibility, ainycComparison, ainycEvidence, ainycLandscape, ainycMentionShare, ainycMetrics, ainycProviderScores, ainycRuns } from './ainyc-visibility-fixture.js'
 import { toRunListItem } from '../src/build-dashboard.js'
 import {
   getApiV1CdpStatusQueryKey,
@@ -39,7 +38,13 @@ import {
 
 type EmbedBlock = { enabled: boolean; views?: string[]; projectTabs?: string[] }
 
-const VISIBILITY_CARD_TIP = 'A query counts once if any engine mentions or cites you. Rows compare only queries in both sweeps.'
+/** The Simple overview opens on the trend chart: no Visibility card or table above it. */
+function expectTrendChartFirst(html: string) {
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  expect(doc.getElementById('overview-brief-title')).toBeNull()
+  expect(doc.querySelector('table[aria-label="Visibility by query type"]')).toBeNull()
+  expect(doc.querySelector('.av-card-title')?.textContent).toBe('AI answers over time')
+}
 
 beforeAll(async () => {
   await preloadAllLazyRoutes()
@@ -101,8 +106,6 @@ async function renderAt(
     siteHealthScan?: 'completed' | 'partial' | 'failed'
     /** GET /analytics/metrics for every window, so the trend and What changed render in one pass. */
     analyticsMetrics?: unknown
-    /** GET /analytics/gaps, so the competitive card's gap counts render in one pass. */
-    analyticsGaps?: unknown
     /** GET /citations/visibility, so the By engine card renders in one pass. */
     citationVisibility?: unknown
   } = {},
@@ -123,10 +126,6 @@ async function renderAt(
   }
   if (options.citationVisibility !== undefined) {
     queryClient.setQueryData(getApiV1ProjectsByNameCitationsVisibilityQueryKey({ client: heyClient, path: { name: projectName } }), options.citationVisibility)
-  }
-  if (options.analyticsGaps !== undefined) {
-    // Keyed like the trend: project, competitor frame and sweep revision.
-    queryClient.setQueryDefaults(['analytics-gaps'], { initialData: options.analyticsGaps })
   }
   if (options.cdpStatus !== undefined) {
     queryClient.setQueryData(
@@ -715,7 +714,7 @@ function competitorLandscapeResponse({
   scope?: { kind: 'project' } | { kind: 'group'; groupKey: string } | { kind: 'all-markets' }
   pinnedLabel?: string
   observedLabel?: string
-  /** The card names competitors by domain, so a test tells responses apart by these. */
+  /** The card names competitors by display name and domain, so a test tells responses apart by these. */
   pinnedDomain?: string
   observedDomain?: string
 } = {}) {
@@ -783,11 +782,10 @@ test.each([false, true])('a Simple project retains its overview with or without 
 
   expect(html).toContain('AI answers over time')
   expect(html).toContain('Time window')
-  expect(html).toContain(VISIBILITY_CARD_TIP)
-  expect(html).toContain('<p class="av-card-meta">Sweep running</p>')
-  expect(html).toContain('Where competitors beat you')
-  expect(html).toContain('Named instead of you')
-  expect(html).toContain('Cited instead of you')
+  expectTrendChartFirst(html)
+  expect(html).toContain('Where competitors are winning')
+  expect(html).toContain('Mention gaps')
+  expect(html).toContain('Citation gaps')
   expect(html).toContain('Query evidence')
   expect(html).toContain('AI sweep running')
   expect(html).not.toContain('Set up advanced measurement')
@@ -822,7 +820,7 @@ test('an unpublished Advanced draft and stale report filters do not replace the 
   })
 
   expect(html).toContain('AI answers over time')
-  expect(html).toContain(VISIBILITY_CARD_TIP)
+  expectTrendChartFirst(html)
   expect(html).toContain('Query evidence')
   expect(html).toContain('pinned.example')
   expectNoResultsToolbar(html)
@@ -854,7 +852,7 @@ test.each([false, true])('a clean Simple dashboard shows older saved results imm
   expect((within(evidence!).getByLabelText('Query class') as HTMLSelectElement).value).toBe('all')
   expect(evidence?.querySelector('.evidence-table')?.textContent).toContain('Older saved query')
   expect(evidence?.querySelector('.evidence-table')?.textContent).toContain('Unclassified')
-  expect(html).toContain(VISIBILITY_CARD_TIP)
+  expectTrendChartFirst(html)
   expect(doc.querySelector('select[aria-label="Query type"]')).toBeNull()
   expect(html).not.toContain('frozen query classification')
 })
@@ -929,7 +927,7 @@ test('an active setup uses the unified report without flashing legacy metrics', 
   // Competitor history remains available on the legacy Advanced Measurement
   // surface; group-only scope does not exist until a v2 plan is active.
   expect(html).toContain('Competitors over time')
-  expect(html).not.toContain('Where competitors beat you')
+  expect(html).not.toContain('Where competitors are winning')
   expect(html).not.toContain('Republish setup')
 })
 
@@ -949,7 +947,7 @@ test('a version-two setup never renders version-one class metrics as if they wer
   expect(html).toContain('1 of 1')
   expect(html).not.toContain('Republish setup')
   expect(html).not.toContain('Republish setup to enable Non-brand and Branded reporting.')
-  expect(html).not.toContain('Where competitors beat you')
+  expect(html).not.toContain('Where competitors are winning')
 })
 
 test('the unified visibility report owns scope, class, paging, search, and answer drill-in', async () => {
@@ -1170,7 +1168,7 @@ test('pinning a market competitor writes only a draft action and refetches that 
   await waitFor(() => expect(calls.slice(mutationIndex + 1).some(call => (
     call.method === 'GET' && call.path.includes('/analytics/competitors?') && call.path.includes('groupKey=north')
   ))).toBe(true))
-  expect(await page.findByRole('rowheader', { name: 'draft-rival.example' })).toBeTruthy()
+  expect(await page.findByRole('rowheader', { name: 'Draft rival draft-rival.example' })).toBeTruthy()
   expect(calls.some(call => call.path.includes('/measurement-plan/draft/actions/publish'))).toBe(false)
 })
 
@@ -1568,7 +1566,12 @@ test('cached competitor history remains visible when its background refresh fail
     </QueryClientProvider>,
   )
 
-  // Simple shows the card on arrival, so its refresh starts without a click.
+  // Cached history stays dormant until the operator opens it.
+  expect(queryClient.getQueryState(getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey({
+    client: heyClient, path: { name: projectName }, query: { window: '30d', queryClass: 'non-brand' },
+  }))?.fetchStatus).toBe('idle')
+  expect(page.getByRole('rowheader', { name: 'Pinned operator cached-pin.example' }).closest<HTMLDetailsElement>('details.visibility-disclosure')?.open).toBe(false)
+  fireEvent.click(await page.findByText('Competitor history', { selector: 'summary, summary > span' }))
   await waitFor(() => expect(queryClient.getQueryState(
     getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey({
       client: heyClient,
@@ -1576,8 +1579,8 @@ test('cached competitor history remains visible when its background refresh fail
       query: { window: '30d', queryClass: 'non-brand' },
     }),
   )?.status).toBe('error'))
-  expect(page.getByRole('rowheader', { name: 'cached-pin.example' })).toBeTruthy()
-  expect(page.getByRole('rowheader', { name: 'cached-observed.example' })).toBeTruthy()
+  expect(page.getByRole('rowheader', { name: 'Pinned operator cached-pin.example' })).toBeTruthy()
+  expect(page.getByRole('rowheader', { name: 'Observed rival cached-observed.example' })).toBeTruthy()
   expect(page.queryByLabelText('Favorable answer scores')).toBeNull()
   expect(page.getByRole('alert').textContent).toContain('Could not refresh competitors over time. Showing the last available data.')
 })
@@ -1672,12 +1675,8 @@ test('a fresh project offers one AI Visibility setup action instead of an unread
 
   expect(html).toContain('>Map site<')
   expect(html).toContain('Set up AI Visibility')
-  expect(html).toContain('<p class="av-card-meta">No sweep yet</p>')
-  expect(html).toContain('Coverage signals')
-  expect(html).toContain('Your brand or domain appears in the answer text.')
-  expect(html).toContain('Your domain appears in the engine')
-  expect(html).toContain('Complete your first AI Visibility sweep to measure both signals.')
-  expect(html).toContain('Where competitors beat you')
+  expectTrendChartFirst(html)
+  expect(html).toContain('Where competitors are winning')
   expect(html).toContain('Competitors over time')
   expect(html).toContain('Add competitor')
   expect(html).toContain('Competitive mention and citation gaps appear after the first AI Visibility sweep.')
@@ -1774,95 +1773,46 @@ test('a first sweep in flight replaces empty-state instructions with one live st
     readiness: true,
   })
 
-  expect(html).toContain('<p class="av-card-meta">Sweep running</p>')
+  expectTrendChartFirst(html)
   // Past sweeps says the queued sweep is waiting to start.
   expect(html).toContain('<td class="text-[13px] text-secondary">Waiting</td>')
-  expect(html).not.toContain('No sweep yet')
-  expect(html.match(/Your first sweep is running\. Results will appear when it completes\./g)).toHaveLength(1)
   expect(html.match(/Competitive mention and citation gaps appear after the first AI Visibility sweep\./g)).toHaveLength(1)
   expect(html.match(/No data/g) ?? []).toHaveLength(0)
   expect(html.match(/Run a sweep first/g) ?? []).toHaveLength(0)
-  expect(html).not.toContain('Complete your first AI Visibility sweep')
   expect(html).not.toContain('No comparison yet')
 })
 
-/** Puts ainyc's two Sep 29 sweeps behind the Simple overview's Visibility card. */
+/** Puts ainyc's two Sep 29 sweeps behind the Simple overview's cards. */
 function withAinycSweeps(dashboard: ReturnType<typeof createDashboardFixture>['dashboard']) {
   const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
   const completed = project.recentRuns.find(run => run.status === 'completed')!
   project.visibilityEvidence = ainycEvidence()
   project.movementComparison = ainycComparison()
-  project.mentionMovement = ainycMovement()
-  project.citationMovement = ainycMovement()
   project.queryCounts = { cited: 7, total: 14 }
   project.recentRuns = [{ ...completed, id: AINYC_LATEST_RUN.id, trigger: 'manual', createdAt: AINYC_LATEST_RUN.createdAt, startedAt: 'Sep 29, 5:59 AM' }]
   project.visibilitySweeps = [...project.recentRuns]
+  // GET /overview's all-queries scores for the same sweep: 7 of 14 named, 7 of
+  // 14 cited, and 1 of 14 queries each named and cited instead of you.
+  project.mentionSummary = { ...project.mentionSummary, value: '50.0%', delta: '7 of 14 queries mentioned', progress: 50 }
+  project.visibilitySummary = { ...project.visibilitySummary, value: '50.0%', delta: '7 of 14 queries cited', progress: 50 }
+  project.mentionGaps = { ...project.mentionGaps, value: '1', delta: '1 of 14 queries', progress: 100 / 14 }
+  project.gapQueries = { ...project.gapQueries, value: '1', delta: '1 of 14 queries', progress: 100 / 14 }
   return project
 }
 
-function visibilityCard(html: string) {
+test.each([false, true])('ainyc\'s Simple overview opens on the trend chart, with no Visibility card above it (embed: %s)', async embed => {
+  const html = await renderAt('/projects/project_citypoint', embed ? { enabled: true } : undefined, undefined, { configureFixture: withAinycSweeps })
   const doc = new DOMParser().parseFromString(html, 'text/html')
-  const card = doc.querySelector('section[aria-labelledby="overview-brief-title"]')!
-  return {
-    card,
-    meta: card.querySelector('.av-card-meta')?.textContent ?? null,
-    rows: [...card.querySelectorAll('.av-grid tbody tr')].map(row => [...row.children].map(cell => cell.textContent)),
-    details: card.querySelector<HTMLDetailsElement>('details.av-details'),
-    bullets: [...card.querySelectorAll('.av-details-list li')].map(item => item.textContent),
-  }
-}
 
-test('the Visibility card reads ainyc\'s two sweeps by class, above the trend chart, with the rest in closed Details', async () => {
-  const html = await renderAt('/projects/project_citypoint', undefined, undefined, { configureFixture: withAinycSweeps })
-  const { card, meta, rows, details, bullets } = visibilityCard(html)
-
-  expect(meta).toBe('Sep 29, 5:59 AM')
-  // Never the pooled 7 of 14: the branded queries added this sweep get their own row.
-  expect(rows).toEqual([
-    ['Non-brand', '4 of 11', '4 of 11', 'no change'],
-    ['Branded', '3 of 3', '3 of 3', 'first AI sweep'],
-  ])
-  // Non-brand under 70% reads amber, as the approved card draws it; branded is never toned.
-  expect(card.querySelector('tbody tr:first-child .av-n')!.className).toContain('text-caution-400')
-  expect(card.querySelector('tbody tr:nth-child(2) .av-n')!.className).toContain('text-primary')
-  expect(details!.open).toBe(false)
-  expect(bullets).toEqual([
-    `Compared with the ${formatSweepInstant(AINYC_PREVIOUS_RUN.createdAt, AINYC_LATEST_RUN.createdAt)} sweep, same 11 queries`,
-    'Answers: mentioned 7 of 44 (was 6), cited 9 of 44 (was 8)',
-    'Perplexity: now mentions and cites you for "NYC AEO Agency"',
-    'Added: Canonry, Canonry AEO agency, Canonry reviews',
-  ])
-  // Decision 1: the card sits above the chart.
-  expect(html.indexOf('id="overview-brief-title"')).toBeLessThan(html.indexOf('AI answers over time'))
-  expect(html).not.toMatch(/Coverage now|Tracking scope changed|comparable queries/)
-})
-
-test('the Visibility card says when no query is in both sweeps and names removed queries', async () => {
-  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
-    configureFixture(dashboard) {
-      const project = withAinycSweeps(dashboard)
-      // The same latest sweep, against a previous one of two non-brand queries
-      // that were both removed: every latest query is new.
-      const latest = [...new Set(project.visibilityEvidence.map(row => row.query))]
-      project.movementComparison = {
-        ...ainycComparison(),
-        previousQueryCount: 2,
-        comparableQueryCount: 0,
-        addedQueryCount: latest.length,
-        addedQueries: latest,
-        removedQueryCount: 2,
-        removedQueries: ['aeo consultant nyc', 'geo agency'],
-      }
-    },
-  })
-  const { rows, bullets } = visibilityCard(html)
-
-  // Non-brand had queries last sweep but none in both; branded had none at all.
-  expect(rows.map(row => row.at(-1))).toEqual(['not compared · 11 added', 'first AI sweep'])
-  expect(bullets).toContain(`Compared with the ${formatSweepInstant(AINYC_PREVIOUS_RUN.createdAt, AINYC_LATEST_RUN.createdAt)} sweep, no queries in both`)
-  expect(bullets).toContain('Removed: aeo consultant nyc, geo agency')
-  // Nothing is in both sweeps, so there is no answer movement to report.
-  expect(bullets.some(bullet => bullet?.startsWith('Answers:'))).toBe(false)
+  expectTrendChartFirst(html)
+  // The chart is the first section after the tabs, then the cards in page order.
+  expect(doc.querySelector('nav.project-subnav + section .av-card-title')?.textContent).toBe('AI answers over time')
+  const at = (title: string) => html.indexOf(`class="av-card-title">${title}<`)
+  const competitive = at('Where competitors are winning')
+  expect(at('AI answers over time')).toBeGreaterThan(-1)
+  expect(at('AI answers over time')).toBeLessThan(competitive)
+  expect(competitive).toBeLessThan(html.indexOf('Query evidence'))
+  expect(html).not.toMatch(/Coverage signals|No sweep yet|first AI sweep|Compared with the|Visibility by query type/)
 })
 
 test('What changed names ainyc\'s added queries as written and dates the sweep before the change', async () => {
@@ -1875,44 +1825,53 @@ test('What changed names ainyc\'s added queries as written and dates the sweep b
 
   expect(changes.querySelector('.av-wc-summary')?.textContent).toMatch(/^Sep 29(, 2026)? · 3 queries added · 4 new models$/)
   // Stored basket keys are lowercase; the page hands the section the tracked and added query text.
-  expect([...changes.querySelectorAll('.av-details-list li')].map(item => item.textContent))
-    .toEqual([expect.stringMatching(/^Added Sep 29(, 2026)?: Canonry, Canonry AEO agency, Canonry reviews$/)])
+  expect([...changes.querySelectorAll('.av-details-list li')].map(item => item.textContent)).toEqual([
+    expect.stringMatching(/^Added Sep 29(, 2026)?: Canonry, Canonry AEO agency, Canonry reviews$/),
+    expect.stringMatching(/^Claude last answered with claude-sonnet-5 on Sep 29(, 2026)?$/),
+    expect.stringMatching(/^Gemini last answered with gemini-3.5-flash on Sep 29(, 2026)?$/),
+    expect.stringMatching(/^OpenAI last answered with chat-latest on Sep 29(, 2026)?$/),
+    expect.stringMatching(/^Perplexity last answered with openai\/gpt-6-luna on Sep 29(, 2026)?$/),
+  ])
   expect([...changes.querySelectorAll('button[aria-label]')].map(button => button.getAttribute('aria-label')))
     .toContainEqual(expect.stringMatching(/ Sweep before: Jul 14(, 2026)?\.$/))
   expect(html).not.toContain('Query set changed')
 })
 
-test('Where competitors beat you and the query table read ainyc\'s latest sweep by class', async () => {
+test('Where competitors are winning and the query table read ainyc\'s latest sweep', async () => {
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
     configureFixture(dashboard) {
       const project = withAinycSweeps(dashboard)
       project.mentionShareSummary = ainycMentionShare()
       project.competitors = [{ id: 'competitor_pbj', domain: 'pbjmarketing.com', citationCount: 5, totalQueries: 14, pressureLabel: '', citedQueries: [], movement: '', notes: '' }]
     },
-    analyticsGaps: ainycGaps(),
   })
   const doc = new DOMParser().parseFromString(html, 'text/html')
-  const visible = (element: Element) => {
-    const clone = element.cloneNode(true) as Element
-    for (const hidden of clone.querySelectorAll('.sr-only')) hidden.remove()
-    return clone.textContent
-  }
-  const card = [...doc.querySelectorAll('section[aria-labelledby]')]
-    .find(section => section.querySelector('h2')?.textContent === 'Where competitors beat you')!
+  const card = [...doc.querySelectorAll('section.page-section-divider')]
+    .find(section => section.querySelector('h2')?.textContent === 'Where competitors are winning')!
 
-  expect([...card.querySelectorAll('.av-grid tbody tr')].map(row => [...row.children].map(visible))).toEqual([
-    ['Mention share', '33.3%'],
-    ['Named instead of you', '1 of 11 queries'],
-    ['Cited instead of you', '1 of 11 queries'],
+  expect(card.querySelector('.av-card-meta')?.textContent).toBe('Latest sweep')
+  // Non-brand mention share, its caption and the server's brand ranking.
+  expect(card.querySelector('.mention-share-value')?.textContent).toBe('33.3%')
+  expect(card.querySelector('.mention-share-caption')?.textContent).toBe('Non-brand · 7 of 21 brand mentions')
+  expect([...card.querySelectorAll('.mention-share-rows .mention-share-row')].map(row => [
+    row.querySelector('th')?.textContent,
+    row.querySelector('.mention-share-count')?.textContent,
+    row.querySelector('.mention-share-share')?.textContent,
+  ])).toEqual([
+    ['pbjmarketing.com', '14', '66.7%'],
+    ['Citypoint Dental NYC (you)', '7', '33.3%'],
   ])
-  expect(card.querySelector<HTMLDetailsElement>('details.av-details')!.open).toBe(false)
-  expect([...card.querySelectorAll('.av-details-list li')].map(item => item.textContent)).toEqual([
-    'Mention share: you 7, pbjmarketing.com 14 tracked-brand mentions',
-    'Base: 44 non-brand answers',
-    'Named and cited instead: "best AEO agency New York"',
+  // The gap scope remains explicit beside a separately scoped mention-share control.
+  expect(card.querySelector('.competitive-gaps-scope')?.textContent).toBe('All queries')
+  // Each value also carries its scope for assistive technology; the denominator appears once.
+  expect([...card.querySelectorAll('.competitive-gaps .aeo-hero-row')].map(row => [
+    row.querySelector('.aeo-hero-row-label')?.firstChild?.textContent,
+    row.querySelector('.aeo-hero-row-value')?.textContent,
+    row.querySelector('.aeo-hero-row-detail')?.textContent,
+  ])).toEqual([
+    ['Mention gaps', '1 / 14 queries, all queries', undefined],
+    ['Citation gaps', '1 / 14 queries, all queries', undefined],
   ])
-  // Never the pooled "1 / 14" of the old card.
-  expect(visible(card)).not.toMatch(/of 14|at risk|Mention gaps/)
 
   // The query table: Non-brand first, then Branded; "new query" only on the added three.
   const table = doc.querySelector('#evidence-section table')!
@@ -1922,7 +1881,32 @@ test('Where competitors beat you and the query table read ainyc\'s latest sweep 
   expect(table.textContent).not.toContain('First mention')
   expect([...table.querySelector('tbody .query-evidence-meta')!.children].map(item => item.textContent)).toEqual(['Non-brand', 'Claude', 'Gemini', 'OpenAI', 'Perplexity'])
   expect(doc.querySelector('#evidence-section')!.textContent).toContain('1 to 14 of 14 queries')
-  expect(html.indexOf('Where competitors beat you')).toBeLessThan(html.indexOf('Query evidence'))
+  expect(html.indexOf('Where competitors are winning')).toBeLessThan(html.indexOf('Query evidence'))
+})
+
+test('switching mention share to branded leaves gaps explicitly scoped to all queries', async () => {
+  const { page } = await renderScopeRoute('/projects/project_citypoint', url => {
+    if (url.pathname.endsWith('/measurement-plan')) return jsonResponse({ active: null })
+    if (url.pathname.endsWith('/measurement-setup')) return jsonResponse(simpleMeasurementSetupResponse())
+    return undefined
+  }, {
+    configureFixture(dashboard) {
+      const project = withAinycSweeps(dashboard)
+      project.mentionShareSummary = ainycMentionShare()
+      project.competitors = [{ id: 'competitor_pbj', domain: 'pbjmarketing.com', citationCount: 5, totalQueries: 14, pressureLabel: '', citedQueries: [], movement: '', notes: '' }]
+    },
+  })
+  const heading = await page.findByRole('heading', { name: 'Where competitors are winning' })
+  const section = heading.closest('section')!
+  const gaps = () => [...section.querySelectorAll('.aeo-hero-row-value')].map(value => value.textContent)
+  const expectedGaps = ['1 / 14 queries, all queries', '1 / 14 queries, all queries']
+  expect(gaps()).toEqual(expectedGaps)
+  fireEvent.click(within(section).getByRole('radio', { name: 'Branded' }))
+  expect(section.querySelector('.mention-share-caption')?.textContent).toBe('Branded · 12 of 12 brand mentions')
+  expect(section.querySelector('.mention-share-value')?.textContent).toBe('100%')
+  expect(section.querySelector('.competitive-gaps-scope')?.textContent).toBe('All queries')
+  expect(gaps()).toEqual(expectedGaps)
+  expect(section.querySelector('.competitive-gaps')?.textContent).not.toContain('1 of 14 queries')
 })
 
 test('By engine, Past sweeps and Competitors over time read ainyc as the approved cards', async () => {
@@ -1931,6 +1915,7 @@ test('By engine, Past sweeps and Competitors over time read ainyc as the approve
       const project = withAinycSweeps(dashboard)
       project.recentRuns = ainycRuns().map(run => toRunListItem(run, project.project.name))
       project.competitors = [{ id: 'competitor_pbj', domain: 'pbjmarketing.com', citationCount: 5, totalQueries: 14, pressureLabel: '', citedQueries: [], movement: '', notes: '' }]
+      project.providerScores = ainycProviderScores()
     },
     citationVisibility: ainycCitationVisibility(),
   })
@@ -1946,8 +1931,27 @@ test('By engine, Past sweeps and Competitors over time read ainyc as the approve
     ['Cited', '2', '3', '0', '4'],
   ])
   expect(byEngine.querySelector('.av-card-line')?.textContent).toBe('Competitor cited instead of you8 of 44 answers · non-brand queries')
-  expect([...byEngine.querySelectorAll('.av-details-list li')].map(item => item.textContent))
-    .toEqual(['Cited but not named: 0 of 11 queries', 'Named but not cited: 0 of 11 queries'])
+  // The tiles, engine counts, per-model rates and competitor gap rows of the
+  // old diagnostics are Details lines; the per-model rates come from /overview.
+  expect([...byEngine.querySelectorAll('.av-details-list li')].map(item => item.textContent)).toEqual([
+    'Cited and named: 4 of 11 queries',
+    'Cited but not named: 0 of 11 queries',
+    'Named but not cited: 0 of 11 queries',
+    'Not cited or named: 7 of 11 queries',
+    'All queries: cited by 4 of 4 engines, named by 4 of 4',
+    'Claude (claude-sonnet-5) citation rate: 28.6%, 4 of 14 answers, all queries',
+    'Gemini (gemini-3.5-flash) citation rate: 42.9%, 6 of 14 answers, all queries',
+    'OpenAI (chat-latest) citation rate: 14.3%, 2 of 14 answers, all queries',
+    'Perplexity (fast) citation rate: 50.0%, 7 of 14 answers, all queries',
+    '"AEO Agency in NYC" (Claude): pbjmarketing.com cited instead of you',
+    '"AEO Agency in NYC" (OpenAI): pbjmarketing.com cited instead of you',
+    '"AEO Agency NYC" (Claude): pbjmarketing.com cited instead of you',
+    '"AEO Agency NYC" (OpenAI): pbjmarketing.com cited instead of you',
+    '"Answer Engine Optimization Agency NYC" (OpenAI): pbjmarketing.com cited instead of you',
+    '"best AEO agency New York" (Claude): pbjmarketing.com cited instead of you',
+    '"best AEO agency New York" (Perplexity): pbjmarketing.com cited instead of you',
+    '"NYC AEO Agency" (OpenAI): pbjmarketing.com cited instead of you',
+  ])
 
   // Trigger and duration in words; times follow the viewer's zone.
   const sweeps = [...card('Past sweeps').querySelectorAll('tbody tr')].map(cells)
@@ -1960,22 +1964,27 @@ test('By engine, Past sweeps and Competitors over time read ainyc as the approve
   ])
 
   const competitors = card('Competitors over time')
-  expect(competitors.querySelector('.av-card-meta')?.textContent).toBe('Non-brand · last 30 days')
-  expect([...competitors.querySelectorAll('.av-grid[aria-label="Competitors over time"] tbody tr')].map(row => cells(row).slice(0, 4))).toEqual([
-    ['You', '31.7%', '13 of 88', '17 of 88'],
-    ['pbjmarketing.com', '68.3%', '28 of 88', '28 of 88'],
+  // Simple names its scope again, as Advanced does.
+  expect(competitors.querySelector('.av-card-meta')?.textContent).toBe('Project-wide · Non-brand · last 30 days · tracked competitors only')
+  expect([...competitors.querySelectorAll('.av-grid[aria-label="Competitors over time"] tbody tr')].map(row => cells(row).slice(0, 5))).toEqual([
+    ['Canonry (you)', 'Your brand', '31.7%', '13 of 88', '17 of 88'],
+    ['pbjmarketing.com', 'Competitor', '68.3%', '28 of 88', '28 of 88'],
   ])
+  // Two incomplete source lists qualify the Cited figures without opening Details.
+  expect([...competitors.querySelectorAll('.av-card-body p')].map(line => line.textContent)).toEqual(['Citation data incomplete'])
   expect(competitors.querySelector<HTMLDetailsElement>('details.av-details')!.open).toBe(false)
 
-  // Page order under the query table, and nothing left of the old sections.
+  // Engine results precede the evidence table; both histories start collapsed below it.
   const at = (title: string) => html.indexOf(`class="av-card-title">${title}<`)
-  expect(html.indexOf('Query evidence')).toBeLessThan(at('By engine'))
-  expect(at('By engine')).toBeLessThan(at('Past sweeps'))
+  expect(at('By engine')).toBeLessThan(html.indexOf('Query evidence'))
+  expect(html.indexOf('Query evidence')).toBeLessThan(at('Past sweeps'))
   expect(at('Past sweeps')).toBeLessThan(at('Competitors over time'))
-  expect(html).not.toMatch(/All time|Citation rate by model|Citation and engine diagnostics|Recent execution history|Competitor landscape|No additional competitors/)
+  expect(card('Past sweeps').querySelector<HTMLDetailsElement>('details.av-history')?.open).toBe(false)
+  expect(competitors.closest<HTMLDetailsElement>('details.visibility-disclosure')?.open).toBe(false)
+  expect(html).not.toMatch(/All time|Citation and engine diagnostics|Recent execution history|Competitor landscape/)
 })
 
-test('a spot check never flips the Visibility card, while the Run button still waits for it', async () => {
+test('a running spot check keeps the Run button waiting', async () => {
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
     configureFixture(dashboard) {
       const project = withAinycSweeps(dashboard)
@@ -1988,72 +1997,9 @@ test('a spot check never flips the Visibility card, while the Run button still w
     },
   })
 
-  // The header keeps the last real sweep's time; neither probe reaches it.
-  expect(visibilityCard(html).meta).toBe('Sep 29, 5:59 AM')
   // The server refuses a sweep while the probe runs, so the button keeps waiting.
   const doc = new DOMParser().parseFromString(html, 'text/html')
   expect([...doc.querySelectorAll('[data-project-actions] button')].map(button => button.textContent)).toContain('AI sweep running…')
-})
-
-test('the Visibility card marks a partial sweep and a row that gained queries', async () => {
-  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
-    configureFixture(dashboard) {
-      const project = withAinycSweeps(dashboard)
-      project.mentionSummary = { ...project.mentionSummary, providerCoverage: '3 of 4 engines' }
-      project.movementComparison = {
-        ...ainycComparison(),
-        addedQueries: [...ainycComparison().addedQueries, 'best AEO agency New York'],
-        addedQueryCount: 4,
-        comparableQueryCount: 10,
-      }
-    },
-  })
-  const { card, meta, rows, bullets } = visibilityCard(html)
-
-  expect(meta).toBe('Sep 29, 5:59 AM · partial')
-  expect(rows.map(row => row[3])).toEqual(['no change · 1 added', 'first AI sweep'])
-  // A partial sweep reads caution, as the server's coverage tone does.
-  expect(card.querySelector('tbody tr:first-child .av-n')!.className).toContain('text-caution-400')
-  expect(bullets.at(-1)).toBe('Partial: 3 of 4 engines')
-})
-
-test('the Visibility card keeps its sweep time and partial mark when five newer failed runs fill the recent-run slice', async () => {
-  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
-    configureFixture(dashboard) {
-      const project = withAinycSweeps(dashboard)
-      project.mentionSummary = { ...project.mentionSummary, providerCoverage: '3 of 4 engines' }
-      const sweep = project.recentRuns[0]!
-      // What the builder hands the page: the five-row slice is newer failures,
-      // while the sweeps come from the whole run list.
-      project.visibilitySweeps = [sweep, { ...sweep, id: AINYC_PREVIOUS_RUN.id, createdAt: AINYC_PREVIOUS_RUN.createdAt, startedAt: 'Sep 29, 5:41 AM' }]
-      project.recentRuns = Array.from({ length: 5 }, (_, index) => ({
-        ...sweep,
-        id: `failed-after-${index}`,
-        status: 'failed' as const,
-        createdAt: `2026-09-29T1${4 - index}:00:00.000Z`,
-        startedAt: `Sep 29, ${10 - index}:00 AM`,
-      }))
-    },
-  })
-  const { meta, bullets } = visibilityCard(html)
-
-  expect(meta).toBe('Sep 29, 5:59 AM · partial')
-  // Same day as the latest sweep, so the previous one reads as a time.
-  expect(bullets[0]).toBe(`Compared with the ${formatSweepInstant(AINYC_PREVIOUS_RUN.createdAt, AINYC_LATEST_RUN.createdAt)} sweep, same 11 queries`)
-})
-
-test('the Visibility card names a first sweep and compares nothing', async () => {
-  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
-    configureFixture(dashboard) {
-      const project = withAinycSweeps(dashboard)
-      project.movementComparison = { ...ainycComparison(), hasPreviousRun: false, previousRunAt: null, addedQueries: [], addedQueryCount: 0 }
-    },
-  })
-  const { meta, rows, details } = visibilityCard(html)
-
-  expect(meta).toBe('First sweep')
-  expect(rows.map(row => row[3])).toEqual(['first AI sweep', 'first AI sweep'])
-  expect(details).toBeNull()
 })
 
 test('a frozen visibility baseline remains visible when five newer failed runs fill the recent-run slice', async () => {
@@ -2070,11 +2016,7 @@ test('a frozen visibility baseline remains visible when five newer failed runs f
     },
   })
 
-  expect(html).toContain('Compared with the')
-  expect(html).toContain('Named instead of you')
-  expect(html).not.toContain('No sweep yet')
-  expect(html).not.toContain('Coverage signals')
-  expect(html).not.toContain('Complete your first AI Visibility sweep')
+  expect(html).toContain('Mention gaps')
   expect(html).not.toContain('Competitive mention and citation gaps appear after the first AI Visibility sweep.')
 })
 
@@ -2173,7 +2115,7 @@ test('a query-ready project with a configured provider can run an AI sweep', asy
   })
 
   expect(html).toContain('Run AI sweep')
-  expect(html).toContain('<p class="av-card-meta">No sweep yet</p>')
+  expectTrendChartFirst(html)
   expect(html).not.toContain('Set up AI Visibility to capture a baseline')
   expect(html).not.toContain('Checking AI readiness')
 })
@@ -2596,7 +2538,7 @@ test('an unresolved measurement plan shows a skeleton instead of flashing legacy
 
   expect(html).toContain('Loading project overview')
   // Neither the old overview nor a cached report can answer an unresolved plan.
-  expect(html).not.toContain('Where competitors beat you')
+  expect(html).not.toContain('Where competitors are winning')
   expect(html).not.toContain('Non-brand queries')
 })
 
@@ -2860,7 +2802,7 @@ async function rowTrigger(root: ParentNode): Promise<HTMLElement> {
 async function renderScopeRoute(
   entry: string,
   respond: (url: URL) => Response | Promise<Response> | undefined,
-  options: { accountRole?: 'admin' | 'viewer' } = {},
+  options: { accountRole?: 'admin' | 'viewer'; configureFixture?: (dashboard: ReturnType<typeof createDashboardFixture>['dashboard']) => void } = {},
 ) {
   const observed: URL[] = []
   const realFetch = globalThis.fetch
@@ -2876,6 +2818,7 @@ async function renderScopeRoute(
   onTestFinished(() => { globalThis.fetch = realFetch })
 
   const fixture = createDashboardFixture({})
+  options.configureFixture?.(fixture.dashboard)
   const projectName = fixture.dashboard.projects.find(project => project.project.id === 'project_citypoint')!.project.name
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const router = createAppRouter(queryClient, { initialEntries: [entry] })
@@ -3560,11 +3503,12 @@ test('managed header does not label an active Site Health scan as a sweep', asyn
 })
 
 test('managed sweeps removes Simple empty-state launch instructions', async () => {
+  // By engine's empty state, now the first one a fresh Simple overview settles.
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
-    managedSweeps: true, configureFixture: forceNoisyFreshVisibility,
+    managedSweeps: true, configureFixture: forceNoisyFreshVisibility, citationVisibility: emptyCitationVisibility('no-runs-yet'),
   })
   expect(html).toContain(MANAGED_SWEEPS_COPY)
-  expect(html).not.toMatch(/Run another sweep|Complete your first AI Visibility sweep|Run a sweep/)
+  expect(html).not.toMatch(/Run another sweep|Complete your first AI Visibility sweep|Run a sweep|Engine results appear after the first AI Visibility sweep/)
 })
 
 test('legacy managedSweeps alone still leaves Site Health scan controls available', async () => {

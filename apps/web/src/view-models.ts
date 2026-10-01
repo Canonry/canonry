@@ -1,4 +1,4 @@
-import type { McpHealth, ProjectDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, SuggestedQueriesSummaryDto, SentimentOverview } from '@ainyc/canonry-contracts'
+import type { McpHealth, ProjectDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, ProjectOverviewProviderScoreDto, SuggestedQueriesSummaryDto, SentimentOverview } from '@ainyc/canonry-contracts'
 
 export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 /** `disabled` is a service switched off on purpose, such as the public demo's worker. */
@@ -200,15 +200,6 @@ export interface CompetitorVm {
   notes: string
 }
 
-export interface MovementSummaryVm {
-  gained: number
-  lost: number
-  tone: MetricTone
-  hasPreviousRun: boolean
-  gainedQueries?: string[]
-  lostQueries?: string[]
-}
-
 export type MovementComparisonVm = MovementComparisonDto
 
 export interface QueryCountsVm {
@@ -231,11 +222,15 @@ export interface ProjectCommandCenterVm {
    *  explicitly rather than inferred. */
   mentionShareSummary: MentionShareDto & { unavailable?: boolean }
   queryCounts: QueryCountsVm
+  /** The latest sweep's citation gaps over all queries together (`overview.scores.gapQueries`). */
+  gapQueries: ScoreSummaryVm
+  /** The latest sweep's mention gaps over all queries together (`overview.scores.mentionGaps`). */
+  mentionGaps: ScoreSummaryVm
   indexCoverage: ScoreSummaryVm
+  /** The latest sweep's citation rate per engine and model, over all queries (`overview.providerScores`). */
+  providerScores: ProjectOverviewProviderScoreDto[]
   competitorPressure: ScoreSummaryVm
   runStatus: ScoreSummaryVm
-  citationMovement: MovementSummaryVm
-  mentionMovement: MovementSummaryVm
   movementComparison: MovementComparisonVm
   insights: ProjectInsightVm[]
   visibilityEvidence: CitationInsightVm[]

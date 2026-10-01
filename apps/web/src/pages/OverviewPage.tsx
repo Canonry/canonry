@@ -19,11 +19,14 @@ import type { PortfolioProjectVm } from '../view-models.js'
 
 function OverviewProjectCard({
   project,
+  sentimentColumn,
 }: {
   project: PortfolioProjectVm
+  /** The list reserves the Sentiment column for every row when any row shows it, so Mentioned and Pressure line up across rows. */
+  sentimentColumn: boolean
 }) {
   return (
-    <div className={`project-row relative${showsSentimentOverview(project.sentiment) ? ' project-row-with-sentiment' : ''}`}>
+    <div className={`project-row relative${sentimentColumn ? ' project-row-with-sentiment' : ''}`}>
       <div className="project-row-chart">
         <Sparkline points={project.trend} tone={toneFromRunStatus(project.lastRun.status)} />
       </div>
@@ -77,7 +80,9 @@ function OverviewProjectCard({
           <p className="metric-inline-caption" aria-hidden="true"></p>
         </div>
       </div>
-      <SentimentOverviewMetric value={project.sentiment} />
+      {showsSentimentOverview(project.sentiment)
+        ? <SentimentOverviewMetric value={project.sentiment} />
+        : sentimentColumn && <div className="project-row-stat" aria-hidden="true" data-sentiment-placeholder />}
       <span className="project-row-link">
         <ChevronRight className="h-4 w-4 text-muted" />
       </span>
@@ -147,6 +152,7 @@ export function OverviewPage() {
 
   const model = safeDashboard.portfolioOverview
   const awaitingBaseline = model.projects.length > 0 && model.projects.every(project => project.hasMeasurement === false)
+  const sentimentColumn = model.projects.some(project => showsSentimentOverview(project.sentiment))
   const attentionItems = model.attentionItems.map(item => awaitingBaseline && item.id === 'attention_stable'
     ? { ...item, tone: 'neutral' as const, title: 'Awaiting first measurement', detail: 'Visibility results will appear after the first sweep.' }
     : item)
@@ -166,7 +172,11 @@ export function OverviewPage() {
       {model.projects.length > 0 ? (
         <div className="project-list project-list-scrollable">
           {model.projects.map((project) => (
-            <OverviewProjectCard key={project.project.id} project={project} />
+            <OverviewProjectCard
+              key={project.project.id}
+              project={project}
+              sentimentColumn={sentimentColumn}
+            />
           ))}
         </div>
       ) : (

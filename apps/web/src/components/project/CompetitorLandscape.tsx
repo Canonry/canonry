@@ -1,4 +1,4 @@
-import { formatPercent, RatioUnits } from '@ainyc/canonry-contracts'
+import { competitorLabelFromDomain, formatPercent, RatioUnits } from '@ainyc/canonry-contracts'
 import React, { useId, useState } from 'react'
 import type { CompetitorLandscapeResponse, CompetitorLandscapeRow as CompetitorLandscapeRowDto, ShareOfVoiceContext } from '@ainyc/canonry-contracts'
 
@@ -60,7 +60,7 @@ const MENTION_SHARE_REASON: Record<NonNullable<ShareOfVoiceContext['reason']>, s
   unavailable: 'competitor data unavailable',
 }
 
-const LANDSCAPE_DEFINITIONS = 'Mention share: your share of the brand mentions in these answers, each brand counted at most once per answer. Named: answers that name the brand. Cited: answers whose sources link to its site.'
+const LANDSCAPE_DEFINITIONS = 'Mention share: your share of the brand mentions in these answers, each brand counted at most once per answer. Named: answers that name the brand. Cited: answers whose sources link to its site. Company names in answers are observations. Only competitor sites count toward mention share.'
 
 /** The server's cap on ranked observed and source rows (COMPETITOR_LANDSCAPE_RANKED_ROW_LIMIT); pins are never cut. */
 const RANKED_ROW_LIMIT = 100
@@ -93,6 +93,25 @@ function sourceClassLabel(sourceClass: CompetitorLandscapeRow['surfaceClass']): 
 
 function plural(count: number, one: string, many: string): string {
   return count === 1 ? one : many
+}
+
+/** A display name that says more than its domain, or null when it only repeats it. */
+function displayName(row: Pick<CompetitorLandscapeRow, 'domain' | 'label'>): string | null {
+  const label = row.label.trim()
+  const generated = competitorLabelFromDomain(row.domain)
+  return label && label.toLowerCase() !== row.domain.toLowerCase() && label.toLowerCase() !== generated.toLowerCase() ? label : null
+}
+
+/** A brand's display name with its domain beside it, or the domain alone. */
+function BrandName({ row }: { row: Pick<CompetitorLandscapeRow, 'domain' | 'label'> }) {
+  const name = displayName(row)
+  return name ? <>{name} <span className="av-of">{row.domain}</span></> : <>{row.domain}</>
+}
+
+/** The same, as plain text for a list line: "Review site (review.example)". */
+function brandText(row: Pick<CompetitorLandscapeRow, 'domain' | 'label'>): string {
+  const name = displayName(row)
+  return name ? `${name} (${row.domain})` : row.domain
 }
 
 /** "top 100" when the server cut the list at its cap, else the count. */
@@ -202,7 +221,7 @@ function OtherCompetitors({
         <tbody>
           {rows.map(row => (
             <tr key={row.domain}>
-              <th scope="row" className="av-row-label">{row.domain}</th>
+              <th scope="row" className="av-row-label"><BrandName row={row} /></th>
               <td className="text-[13px] text-secondary">{sourceClassLabel(row.surfaceClass)}</td>
               <td><Count count={row.mentionCount} of={named} state={state} toneClass="text-primary" /></td>
               <td><Count count={row.citationCount} of={cited} state={state} toneClass="text-primary" /></td>
@@ -277,9 +296,11 @@ function ManageCompetitors({ onAddCompetitor }: { onAddCompetitor: CompetitorMut
 
 /**
  * "Competitors over time": you and the competitors behind mention share, with
- * Mention share, Named and Cited over the selected window, and everything else
- * (the base, the brand counts, which competitors count, data-quality notes and
- * the longer lists) in Details. The rows are the tracked (pinned) competitors,
+ * their type, Mention share, Named and Cited over the selected window. Under
+ * the grid, lines that qualify the figures: why share is missing, incomplete
+ * data, pending competitors and how many others were seen. Everything else (the
+ * base, the brand counts, data-quality counts and the longer lists) is in
+ * Details. The rows are the tracked (pinned) competitors,
  * or, with none pinned, the observed competitors the server admitted to the
  * frame; any other competitor sits in Details with its type and a Pin action.
  */
@@ -347,16 +368,41 @@ export function CompetitorLandscape({
     scopeLabel,
     queryClass ? CLASS_WORD[queryClass] : null,
     WINDOW_PHRASE[window],
+    // Which competitors the rows are, in view: the grid has no group headings.
+    landscape?.basis ? (observedBasis ? 'observed competitors only' : 'tracked competitors only') : null,
   ].filter(Boolean).join(' · ')
+
+  // Lines that qualify the grid's figures, shown without opening Details.
+  const notes: { key: string; text: string; className?: string }[] = []
+  if (landscape && !observedBasis && frameRows.length === 0) notes.push({ key: 'no-pins', text: 'No pinned competitors.' })
+  if (landscape?.reason) notes.push({ key: 'reason', text: `Mention share: ${MENTION_SHARE_REASON[landscape.reason]}` })
+  if (landscape && otherCompetitors.length > 0) {
+    const count = otherCompetitors.length
+    notes.push({
+      key: 'others',
+      text: truncated && count >= RANKED_ROW_LIMIT
+        ? `${RANKED_ROW_LIMIT} or more other competitors seen`
+        : `${count} other ${plural(count, 'competitor', 'competitors')} seen`,
+    })
+  }
+  if (pendingDraftCompetitorCount > 0) {
+    notes.push({
+      key: 'pending',
+      text: `${landscape?.scope.kind === 'all-markets' ? 'Pending publication across markets' : 'Pending publication'}: ${pendingDraftCompetitorCount} ${plural(pendingDraftCompetitorCount, 'competitor', 'competitors')}`,
+    })
+  }
+  const incomplete = [
+    evidence && evidence.missingAnswerTextResults > 0 ? 'Answer data incomplete' : null,
+    evidence && evidence.incompleteSourceResults > 0 ? 'Citation data incomplete' : null,
+  ].filter(Boolean)
+  if (incomplete.length > 0) notes.push({ key: 'incomplete', text: incomplete.join(' · '), className: METRIC_TONE_TEXT_CLASS.caution })
 
   const details: React.ReactNode[] = []
   if (landscape && evidence) {
     details.push(landscape.runCount !== undefined
       ? <>Base: <strong>{landscape.runCount}</strong> {plural(landscape.runCount, 'sweep', 'sweeps')}, <strong>{evidence.answeredResults}</strong> {plural(evidence.answeredResults, 'answer', 'answers')}</>
       : <>Base: <strong>{evidence.answeredResults}</strong> {plural(evidence.answeredResults, 'answer', 'answers')}</>)
-    if (landscape.reason) {
-      details.push(`Mention share: ${MENTION_SHARE_REASON[landscape.reason]}`)
-    } else if (metricState === 'measured' && landscape.project.shareOfVoice !== null) {
+    if (!landscape.reason && metricState === 'measured' && landscape.project.shareOfVoice !== null) {
       details.push(
         <>
           Mention share: you <strong>{landscape.project.mentionCount}</strong>
@@ -365,7 +411,8 @@ export function CompetitorLandscape({
         </>,
       )
     }
-    if (landscape.basis) details.push(observedBasis ? 'Observed competitors only' : 'Tracked competitors only')
+    details.push(<>Answers with source links: <strong>{evidence.sourceResults}</strong></>)
+    if (otherCompetitors.length === 0) details.push('Other competitors seen: none')
     if (evidence.missingAnswerTextResults > 0) {
       details.push(<>No answer text: <strong>{evidence.missingAnswerTextResults}</strong> {plural(evidence.missingAnswerTextResults, 'answer', 'answers')}, left out of mention share</>)
     }
@@ -376,9 +423,6 @@ export function CompetitorLandscape({
     if (excluded > 0) {
       details.push(<>Left out: <strong>{excluded}</strong> {plural(excluded, 'answer', 'answers')} from spot checks or unfinished sweeps</>)
     }
-  }
-  if (pendingDraftCompetitorCount > 0) {
-    details.push(<>{landscape?.scope.kind === 'all-markets' ? 'Pending publication across markets' : 'Pending publication'}: <strong>{pendingDraftCompetitorCount}</strong> {plural(pendingDraftCompetitorCount, 'competitor', 'competitors')}</>)
   }
   const pages = [...(landscape ? [{ name: 'You', row: landscape.project }] : []), ...frameRows.map(row => ({ name: row.domain, row }))]
     .filter(entry => entry.row.sampleUrls.length > 0)
@@ -432,7 +476,7 @@ export function CompetitorLandscape({
         <ul className="av-subdetails-body">
           {otherSources.map(source => (
             <li key={source.domain}>
-              <span>{source.domain} · {sourceClassLabel(source.surfaceClass)} · {source.citationCount} {plural(source.citationCount, 'citation', 'citations')}</span>
+              <span>{brandText(source)} · {sourceClassLabel(source.surfaceClass)} · {source.citationCount} {plural(source.citationCount, 'citation', 'citations')}</span>
               {source.sampleUrls.length > 0 ? (
                 <ul className="mt-1 space-y-1 font-mono text-[11px] text-muted">
                   {source.sampleUrls.map(url => <li key={url} className="break-all">{url}</li>)}
@@ -477,33 +521,45 @@ export function CompetitorLandscape({
             <thead>
               <tr>
                 <th scope="col"><span className="sr-only">Brand</span></th>
+                <th scope="col" className="av-brand-type">Type</th>
                 <th scope="col">Mention share</th>
                 <th scope="col">Named</th>
                 <th scope="col">Cited</th>
-                {showActions ? <th scope="col"><span className="sr-only">Actions</span></th> : null}
+                {showActions ? <th scope="col" className="av-brand-actions"><span className="sr-only">Actions</span></th> : null}
               </tr>
             </thead>
             <tbody>
               {landscape ? (
                 <tr>
-                  <th scope="row" className="av-row-label">You</th>
+                  {/* Named as before the cleanup: "Canonry (you)", or "You" with no name to show. */}
+                  <th scope="row" className="av-row-label">
+                    {landscape.project.label.trim() ? <>{landscape.project.label.trim()} <span className="av-of">(you)</span></> : 'You'}
+                  </th>
+                  <td className="av-brand-type text-[13px] text-secondary">Your brand</td>
                   <td><Share percent={landscape.project.shareOfVoice} state={metricState} toneClass={youTone} /></td>
                   <td><Count count={landscape.project.mentionCount} of={named} state={metricState} toneClass={youTone} /></td>
                   <td><Count count={landscape.project.citationCount} of={cited} state={metricState} toneClass={youTone} /></td>
-                  {showActions ? <td /> : null}
+                  {showActions ? <td className="av-brand-actions" /> : null}
                 </tr>
               ) : null}
               {frameRows.map(row => (
                 <tr key={row.domain}>
-                  <th scope="row" className="av-row-label">{row.domain}</th>
+                  <th scope="row" className="av-row-label"><BrandName row={row} /></th>
+                  <td className="av-brand-type text-[13px] text-secondary">{sourceClassLabel(row.surfaceClass)}</td>
                   <td><Share percent={row.shareOfVoice} state={metricState} toneClass="text-primary" /></td>
                   <td><Count count={row.mentionCount} of={named} state={metricState} toneClass="text-primary" /></td>
                   <td><Count count={row.citationCount} of={cited} state={metricState} toneClass="text-primary" /></td>
-                  {showActions ? <td>{rowAction(row)}</td> : null}
+                  {showActions ? <td className="av-brand-actions">{rowAction(row)}</td> : null}
                 </tr>
               ))}
             </tbody>
           </table>
+        ) : null}
+
+        {notes.length > 0 ? (
+          <div className="space-y-1 text-[13px] text-secondary">
+            {notes.map(note => <p key={note.key} className={note.className}>{note.text}</p>)}
+          </div>
         ) : null}
       </div>
 

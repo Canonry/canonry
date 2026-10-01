@@ -5,17 +5,28 @@ import { getApiV1ProjectsByNameCitationsVisibilityQueryKey } from '@ainyc/canonr
 import { emptyCitationVisibility, type CitationVisibilityResponse } from '@ainyc/canonry-contracts'
 
 import { heyClient } from '../src/api.js'
-import { byEngineClasses, CitationVisibilitySection } from '../src/components/project/CitationVisibilitySection.js'
-import { ainycCitationVisibility, ainycClassify } from './ainyc-visibility-fixture.js'
+import { byEngineClasses, CitationVisibilitySection, uncountedCompetitorGaps } from '../src/components/project/CitationVisibilitySection.js'
+import { formatSweepInstant } from '../src/lib/format-helpers.js'
+import type { ProjectCommandCenterVm } from '../src/view-models.js'
+import { ainycCitationVisibility, ainycClassify, ainycProviderScores } from './ainyc-visibility-fixture.js'
 
 afterEach(cleanup)
 
-function renderCard(data: CitationVisibilityResponse, { hasCompetitors = true, classify = ainycClassify } = {}) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  queryClient.setQueryData(getApiV1ProjectsByNameCitationsVisibilityQueryKey({ client: heyClient, path: { name: 'ainyc' } }), data)
+function renderCard(
+  data: CitationVisibilityResponse | { failed: unknown },
+  { hasCompetitors = true, classify = ainycClassify, providerScores = [] as ProjectCommandCenterVm['providerScores'] } = {},
+) {
+  // A read that already failed stays failed on mount, so the card shows its error.
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, retryOnMount: false } } })
+  const key = getApiV1ProjectsByNameCitationsVisibilityQueryKey({ client: heyClient, path: { name: 'ainyc' } })
+  if ('failed' in data) {
+    queryClient.getQueryCache().build(queryClient, { queryKey: key }).setState({ status: 'error', error: data.failed as Error, fetchStatus: 'idle' })
+  } else {
+    queryClient.setQueryData(key, data)
+  }
   return render(
     <QueryClientProvider client={queryClient}>
-      <CitationVisibilitySection projectName="ainyc" classify={classify} hasCompetitors={hasCompetitors} />
+      <CitationVisibilitySection projectName="ainyc" classify={classify} hasCompetitors={hasCompetitors} providerScores={providerScores} />
     </QueryClientProvider>,
   )
 }
@@ -95,9 +106,22 @@ describe('By engine card', () => {
 
     const details = container.querySelector<HTMLDetailsElement>('details.av-details')!
     expect(details.open).toBe(false)
-    expect(bullets(container)).toEqual(['Cited but not named: 0 of 11 queries', 'Named but not cited: 0 of 11 queries'])
-    // The tiles, per-query dots and per-model rate table are gone.
-    expect(container.textContent).not.toMatch(/Invisible|Cited by \d|Citation rate by model|Competitor gaps/)
+    // The old tiles, engine counts and competitor gap rows are Details lines.
+    expect(bullets(container)).toEqual([
+      'Cited and named: 4 of 11 queries',
+      'Cited but not named: 0 of 11 queries',
+      'Named but not cited: 0 of 11 queries',
+      'Not cited or named: 7 of 11 queries',
+      'All queries: cited by 4 of 4 engines, named by 4 of 4',
+      '"AEO Agency in NYC" (Claude): pbjmarketing.com cited instead of you',
+      '"AEO Agency in NYC" (OpenAI): pbjmarketing.com cited instead of you',
+      '"AEO Agency NYC" (Claude): pbjmarketing.com cited instead of you',
+      '"AEO Agency NYC" (OpenAI): pbjmarketing.com cited instead of you',
+      '"Answer Engine Optimization Agency NYC" (OpenAI): pbjmarketing.com cited instead of you',
+      '"best AEO agency New York" (Claude): pbjmarketing.com cited instead of you',
+      '"best AEO agency New York" (Perplexity): pbjmarketing.com cited instead of you',
+      '"NYC AEO Agency" (OpenAI): pbjmarketing.com cited instead of you',
+    ])
   })
 
   test('the Branded tab has its own base and is never tone-coloured', () => {
@@ -139,5 +163,125 @@ describe('By engine card', () => {
     expect(screen.getByText(copy)).toBeTruthy()
     expect(screen.queryByRole('table')).toBeNull()
     expect(container.querySelector('details.av-details')).toBeNull()
+  })
+})
+
+describe('By engine restored figures (a cleanup never removes data)', () => {
+  const GAP_LINES = [
+    '"AEO Agency in NYC" (Claude): pbjmarketing.com cited instead of you',
+    '"AEO Agency in NYC" (OpenAI): pbjmarketing.com cited instead of you',
+    '"AEO Agency NYC" (Claude): pbjmarketing.com cited instead of you',
+    '"AEO Agency NYC" (OpenAI): pbjmarketing.com cited instead of you',
+    '"Answer Engine Optimization Agency NYC" (OpenAI): pbjmarketing.com cited instead of you',
+    '"best AEO agency New York" (Claude): pbjmarketing.com cited instead of you',
+    '"best AEO agency New York" (Perplexity): pbjmarketing.com cited instead of you',
+    '"NYC AEO Agency" (OpenAI): pbjmarketing.com cited instead of you',
+  ]
+
+  test('names the competitors cited on each gap answer in the active class', () => {
+    const { container } = renderCard(ainycCitationVisibility())
+    for (const line of GAP_LINES) expect(bullets(container)).toContain(line)
+    // Every ainyc gap is non-brand, so the Branded tab lists none.
+    fireEvent.click(screen.getByRole('radio', { name: 'Branded' }))
+    expect(bullets(container).some(line => line.includes('cited instead of you'))).toBe(false)
+  })
+
+  test('lists a gap only for an answer the card counts, and every competitor on it', () => {
+    const data = ainycCitationVisibility()
+    const gap = data.competitorGaps[0]!
+    data.competitorGaps[0] = { ...gap, citingCompetitors: ['pbjmarketing.com', 'rival.example'] }
+    data.competitorGaps.push({ ...gap, provider: 'muse' })
+    const { container } = renderCard(data)
+    expect(bullets(container)).toContain('"AEO Agency in NYC" (Claude): pbjmarketing.com, rival.example cited instead of you')
+    expect(bullets(container).filter(line => line.endsWith('cited instead of you'))).toHaveLength(8)
+    // The engine the counts leave out is listed on its own, as not counted.
+    expect(bullets(container).filter(line => line.includes('not counted'))).toEqual([
+      '"AEO Agency in NYC" (Muse): pbjmarketing.com cited instead of you, not counted (engine no longer configured)',
+    ])
+  })
+
+  test('restores the cited-and-named and neither counts beside the other two splits', () => {
+    const { container } = renderCard(ainycCitationVisibility())
+    expect(bullets(container).slice(0, 4)).toEqual([
+      'Cited and named: 4 of 11 queries',
+      'Cited but not named: 0 of 11 queries',
+      'Named but not cited: 0 of 11 queries',
+      'Not cited or named: 7 of 11 queries',
+    ])
+    fireEvent.click(screen.getByRole('radio', { name: 'Branded' }))
+    expect(bullets(container).slice(0, 4)).toEqual([
+      'Cited and named: 3 of 3 queries',
+      'Cited but not named: 0 of 3 queries',
+      'Named but not cited: 0 of 3 queries',
+      'Not cited or named: 0 of 3 queries',
+    ])
+  })
+
+  test('restores the citation rate by model, labelled as all queries', () => {
+    const { container } = renderCard(ainycCitationVisibility(), { providerScores: ainycProviderScores() })
+    expect(bullets(container)).toEqual(expect.arrayContaining([
+      'Claude (claude-sonnet-5) citation rate: 28.6%, 4 of 14 answers, all queries',
+      'Gemini (gemini-3.5-flash) citation rate: 42.9%, 6 of 14 answers, all queries',
+      'OpenAI (chat-latest) citation rate: 14.3%, 2 of 14 answers, all queries',
+      'Perplexity (fast) citation rate: 50.0%, 7 of 14 answers, all queries',
+    ]))
+    // Per-model figures pool both classes, so they never enter the class grid.
+    expect(gridText(screen.getByRole('table')).flat().some(cell => cell.includes('%'))).toBe(false)
+  })
+
+  test('names an engine without a recorded model by the engine alone', () => {
+    const { container } = renderCard(ainycCitationVisibility(), { providerScores: [{ provider: 'gemini', model: null, score: 75, cited: 3, total: 4 }] })
+    expect(bullets(container)).toContain('Gemini citation rate: 75.0%, 3 of 4 answers, all queries')
+  })
+
+  test('restores the latest run time in the card head', () => {
+    const { container } = renderCard(ainycCitationVisibility())
+    const latestRunAt = ainycCitationVisibility().summary.latestRunAt!
+    expect(container.querySelector('.av-card-head .av-card-meta')?.textContent).toBe(`Latest run ${formatSweepInstant(latestRunAt)}`)
+    cleanup()
+    const data = ainycCitationVisibility()
+    data.summary = { ...data.summary, latestRunAt: null }
+    const without = renderCard(data)
+    expect(without.container.querySelector('.av-card-head .av-card-meta')).toBeNull()
+  })
+
+  test('lists the gap answers outside the counts, from an engine no longer configured or a query no longer tracked', () => {
+    const data = ainycCitationVisibility()
+    const gap = data.competitorGaps[0]!
+    data.competitorGaps.push(
+      { ...gap, provider: 'mistral', citingCompetitors: ['beta.example'] },
+      { ...gap, queryId: 'query_removed', query: 'removed query', provider: 'claude', citingCompetitors: ['beta.example', 'gamma.example'] },
+    )
+    expect(uncountedCompetitorGaps(data)).toEqual([
+      { query: 'AEO Agency in NYC', provider: 'mistral', competitors: ['beta.example'], reason: 'engine' },
+      { query: 'removed query', provider: 'claude', competitors: ['beta.example', 'gamma.example'], reason: 'query' },
+    ])
+    const { container } = renderCard(data)
+    const outside = [
+      '"AEO Agency in NYC" (Mistral): beta.example cited instead of you, not counted (engine no longer configured)',
+      '"removed query" (Claude): beta.example, gamma.example cited instead of you, not counted (query no longer tracked)',
+    ]
+    expect(bullets(container).slice(-2)).toEqual(outside)
+    // They belong to no class, so every tab lists them; the counts never include them.
+    expect(container.querySelector('.av-card-line')?.textContent).toBe('Competitor cited instead of you8 of 44 answers · non-brand queries')
+    fireEvent.click(screen.getByRole('radio', { name: 'Branded' }))
+    expect(bullets(container).slice(-2)).toEqual(outside)
+  })
+
+  test.each([
+    ['an Error', new Error('engine results store unavailable')],
+    // What the generated SDK throws for a failed read: the API's error envelope.
+    ['the API error envelope', { error: { code: 'INTERNAL_ERROR', message: 'engine results store unavailable' } }],
+  ])('says why engine results could not load (%s)', (_shape, failed) => {
+    renderCard({ failed })
+    expect(screen.getByText('Could not load engine results: engine results store unavailable')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
+  })
+
+  test('restores how many engines cite you and name you', () => {
+    const data = ainycCitationVisibility()
+    data.summary = { ...data.summary, providersCiting: 3, providersMentioning: 4 }
+    const { container } = renderCard(data)
+    expect(bullets(container)).toContain('All queries: cited by 3 of 4 engines, named by 4 of 4')
   })
 })

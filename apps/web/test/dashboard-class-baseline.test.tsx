@@ -207,7 +207,9 @@ test('project route keeps the core metric and evidence class baseline stable', a
 
   // Operator project pages render the project context row instead of the
   // page header; only embeds keep `.page-header`. The AI Visibility cards are
-  // number grids, so the overview draws no metric bar at all.
+  // number grids, so the first metric bar is the competitive card's Mention
+  // gaps row, in its tone. The trend chart is the first section after the
+  // tabs, with no Visibility card above it.
   expect({
     pageContainer: classFor(html, '.page-container'),
     pageHeader: classOrNull(html, '.page-header'),
@@ -218,6 +220,7 @@ test('project route keeps the core metric and evidence class baseline stable', a
     projectContextMeta: classOrNull(html, '.project-context-meta'),
     projectContextActions: classFor(html, '.project-context-actions'),
     firstSectionDivider: classFor(html, '.page-section-divider'),
+    firstSectionCard: classFor(html, 'nav.project-subnav + .page-section-divider section'),
     firstMetricFill: classOrNull(html, '.metric-card-bar-fill'),
     firstCard: classFor(html, '.overview-brief'),
     evidenceDisclosure: classFor(html, '#evidence-section'),
@@ -225,7 +228,8 @@ test('project route keeps the core metric and evidence class baseline stable', a
     {
       "evidenceDisclosure": "overview-disclosure page-section-divider scroll-mt-24",
       "firstCard": "overview-brief",
-      "firstMetricFill": null,
+      "firstMetricFill": "metric-card-bar-fill progress-fill-caution",
+      "firstSectionCard": "visibility-trend",
       "firstSectionDivider": "page-section-divider",
       "pageContainer": "page-container",
       "pageHeader": null,
@@ -346,4 +350,25 @@ test('every static className token has a stylesheet selector or Tailwind utility
   const missing = classNames.filter((token) => !isTailwindMarker(token) && !cssClassSelector(token).test(css))
 
   expect(missing).toEqual([])
+})
+
+// The AI Visibility card classes (`av-*`) are hand-written, so a card that is
+// removed can leave its rules behind. Every one must still have a user.
+function avStylesheetClasses(styles: string) {
+  return [...new Set([...styles.matchAll(/\.(av-[\w-]+)/g)].map((match) => match[1]))].sort()
+}
+
+test('every av- stylesheet class is used by a source className', () => {
+  const used = new Set(staticClassNames())
+  const unused = avStylesheetClasses(readFileSync(stylesPath, 'utf8')).filter((token) => !used.has(token))
+
+  expect(unused).toEqual([])
+})
+
+test('every av- class the web AGENTS.md names has a stylesheet rule', () => {
+  const defined = new Set(avStylesheetClasses(readFileSync(stylesPath, 'utf8')))
+  const agents = readFileSync(resolve(import.meta.dirname, '../AGENTS.md'), 'utf8')
+  const named = [...new Set([...agents.matchAll(/`\.?(av-[\w-]+)`/g)].map((match) => match[1]))].sort()
+
+  expect(named.filter((token) => !defined.has(token))).toEqual([])
 })

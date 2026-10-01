@@ -61,33 +61,28 @@ rated outcomes. Query rows keep their score
 beside its rating count. Empty classes show a short state. Coverage and confidence belong in closed Details disclosures;
 data-processing disclosure belongs in Enable/Manage sentiment.
 
-Simple projects render the existing `OverviewBrief`, `VisibilityTrendSection`,
-competitive summary, and `EvidenceTable` directly, including in embeds and
-when an unpublished Advanced draft exists. Do not replace that layout with
-`VisibilityWorkspace` when a unified report becomes available. Published
-Advanced plans retain their own report workspace and scope controls.
+Simple projects render `VisibilityTrendSection` ("AI answers over time"), the
+competitive summary, By engine, and `EvidenceTable` directly, in that order,
+including in embeds and when an unpublished Advanced draft exists. The trend chart is the
+first section after the tabs; do not put a summary card or table above it. Do
+not replace that layout with `VisibilityWorkspace` when a unified report
+becomes available. Published Advanced plans retain their own report workspace
+and scope controls.
 
-`OverviewBrief` is the Visibility card: a short title with the latest sweep's
-time, one row per query class (never a pooled figure) with Mentioned and Cited
-query counts and one status word, and everything else in the shared closed
-`Disclosure` ("Details"). `lib/answer-movement.ts` owns the rows, the status
-words and the answer-level movement. The rows read the latest completed
-sweep's own `GET /runs/:id` snapshots, never the capped timeline alone: newer
-failed sweeps can fill that window, and a query answered there still gets its
-row (`buildEvidenceFromTimeline`). The timeline holds runs of every status, so
-a row's state and change read its history only up to the snapshot's own run; a
-cancelled run or a sweep still running after it never moves the row. An engine
-answer counts only when it was observed in both sweeps with a mention result in
-each. The card's time, "Compared with" line, the trend's sweep dates and the
-sentiment backfill's sweeps read `visibilitySweeps` (every completed or partial
-sweep, from the whole run list), never the five-row `recentRuns`. Probe runs
-never set the card's time or its "Sweep running" state; the Run button still
-waits for them.
-Non-brand counts here and on By engine read amber below 70% of their base and
-green from it (`coverageTone`), never red; branded and unclassified counts are
-never toned.
+The query table's evidence rows read the latest completed sweep's own
+`GET /runs/:id` snapshots, never the capped timeline alone: newer failed sweeps
+can fill that window, and a query answered there still gets its row
+(`buildEvidenceFromTimeline`). The timeline holds runs of every status, so a
+row's state and change read its history only up to the snapshot's own run; a
+cancelled run or a sweep still running after it never moves the row. The
+trend's sweep dates and the sentiment backfill's sweeps read `visibilitySweeps`
+(every completed or partial sweep, from the whole run list), never the five-row
+`recentRuns`.
+Non-brand counts on By engine read amber below 70% of their base and green from
+it (`coverageTone` in `lib/answer-movement.ts`), never red; branded and
+unclassified counts are never toned.
 
-`VisibilityTrendSection` ("AI answers over time") uses the same card shape: the
+`VisibilityTrendSection` ("AI answers over time") is an AI Visibility card: the
 latest point's date and sweep count, one headline figure with its base, the
 chart, and a closed Details. It prints no change figure while the first and
 latest points measured different queries (`querySetShift`), except mention
@@ -112,22 +107,30 @@ model rides on its row instead. Model notes name engines as the page does
 the adjacent one (`sweepBefore`); a pooled point hides the sweeps inside it. On
 a phone the table wraps to the card rather than scrolling.
 
-"Where competitors beat you" (`CompetitiveCard` in `MentionShare.tsx`) is one
-class at a time behind a Non-brand/Branded control: mention share and the
-"Named instead of you" / "Cited instead of you" query counts, with the brand
-counts and gap query names in Details. The counts come from GET
-/analytics/gaps (latest sweep), classified by query text with the page's
-classifier; the overview embed allowlist includes that read.
+"Where competitors are winning" (`MentionShare` in
+`MentionShare.tsx` plus two `OverviewMetricRow` gap rows in `ProjectPage.tsx`)
+uses the same sentence-case heading and flat section layout as By engine.
+Its own Non-brand/Branded radiogroup switches the mention share figure, its "X of Y brand mentions" caption and the brand ranking
+table (Domain with "(you)", share bar, Mentions, Share) together; a pooled share
+shows "All queries" and the "Set a brand name" note instead of the control.
+Under a rule, "Mention gaps" and "Citation gaps" read GET /overview's
+`mentionGaps` and `gapQueries` over all queries. Show "All queries" above them
+and include that scope in each value's accessible text. Show the denominator
+once, beside the count, rather than repeating the server's caption. They have
+no class split, so the class control never touches them. The section needs no
+read beyond /overview.
 
-Under the query table, in order: "By engine" (`CitationVisibilitySection`,
+Above the query table, "By engine" (`CitationVisibilitySection`,
 `byEngineClasses`) is one class at a time, Mentioned and Cited query counts per
 engine from GET /citations/visibility, one "Competitor cited instead of you"
 answer count with its base, and the cited-but-not-named split in Details; no
-summary tiles or per-model rate table. "Past sweeps" (`PastSweeps`, operator
-only) is one line per sweep: time, trigger ("Spot check" for a probe) and
-duration in words, with a partial or failed sweep's error detail kept; the time
+summary tiles or per-model rate table. Below query evidence, "Past sweeps"
+(`PastSweeps`, operator only) starts collapsed and retains one line per sweep:
+time, trigger ("Spot check" for a probe) and duration in words, with a partial or failed sweep's error detail kept; the time
 opens the run, and RunsPage keeps `RunRow`. "Competitors over time" is the
-`CompetitorLandscape` card described under Competitor landscapes. Every class,
+`CompetitorLandscape` section described under Competitor landscapes, inside
+closed "Competitor history" in both Simple and Advanced. Fetch historical
+competitors when that disclosure opens. Every class,
 metric and window control on these cards, the trend's included, uses
 `SegmentedRadioGroup`. On a phone all three fit the card with no inner
 scroller, in CSS only: By engine closes up its columns and wraps "Of 11
@@ -544,7 +547,7 @@ Token migration guardrails:
 - Pills are status/tag indicators only. Use tabs, selects, segmented controls,
   checkboxes, or shared rectangular buttons for interactive choices. Topbar
   health pills use `rounded-full` with tone-colored borders.
-- **AI Visibility cards:** the Simple overview is a stack of `.overview-brief` cards, each a short `av-card-title`, a compact `av-grid` of counts (`av-n`, or `av-n-sm` in dense grids) with at most one status word per row, and everything else in the shared closed `Disclosure` ("Details"). No hero, progress bars or metric tiles; a count reads "4 of 11" with its base. Keep a single `.metric-grid` / `.metric-card` definition for the pages that still use metric cards; a duplicate once overrode the column count.
+- **AI Visibility cards:** the Simple overview is a stack of `.overview-brief` cards, each a short `av-card-title`, a compact `av-grid` of counts (`av-n-sm`) with at most one status word per row, and everything else in the shared closed `Disclosure` ("Details"). No hero, progress bars or metric tiles; a count reads "4 of 11" with its base. The one exception is the competitive card ("Where competitors are winning"), which keeps its original `.aeo-hero` / `.competitive-summary` layout: the `MentionShare` brand table with share bars, then the "Mention gaps" and "Citation gaps" rows with their linear bars. Keep a single `.metric-grid` / `.metric-card` definition for the pages that still use metric cards; a duplicate once overrode the column count.
 - **Insight cards** use a left-border accent color based on tone (`insight-card-positive`, `insight-card-caution`, `insight-card-negative`).
 - **Sparklines** show inline trends in overview project rows.
 - Keep 10-11px eyebrow labels only for nonessential section context. Meaningful supporting copy is at least 13px and uses `text-secondary` or stronger.

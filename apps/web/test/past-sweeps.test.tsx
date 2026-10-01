@@ -57,17 +57,40 @@ describe('run list items', () => {
   })
 })
 
+function card(): HTMLElement {
+  return screen.getByRole('heading', { name: 'Past sweeps' }).closest('section')!
+}
+
+function bullets(): string[] {
+  return [...card().querySelectorAll('details.av-details li')].map(item => item.textContent ?? '')
+}
+
 describe('PastSweeps', () => {
+  test('history opens and closes without losing sweep detail actions', () => {
+    const runs = ainycRuns().map(run => toRunListItem(run, 'ainyc'))
+    render(<PastSweeps runs={runs} collapsed />)
+    const history = card().querySelector<HTMLDetailsElement>('details.av-history')!
+    expect(history.open).toBe(false)
+    const summary = screen.getByRole('heading', { name: 'Past sweeps' }).closest('summary')!
+    fireEvent.click(summary)
+    expect(history.open).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: `View the ${runs[0]!.startedAt} sweep` }))
+    expect(openRun).toHaveBeenCalledWith(runs[0]!.id)
+    fireEvent.click(summary)
+    expect(history.open).toBe(false)
+  })
+
   test('one line per sweep, the spot check labelled and the time opening its run', () => {
     render(<PastSweeps runs={ainycRuns().map(run => toRunListItem(run, 'ainyc'))} />)
 
     expect(screen.getByRole('heading', { name: 'Past sweeps' })).toBeTruthy()
+    // Every sweep says its status, a completed one included.
     expect(rows()).toEqual([
-      ['Sep 29, 5:59 AM', 'Manual', '2 minutes 28 seconds', ''],
-      ['Sep 29, 5:41 AM', 'Manual', '2 minutes 10 seconds', ''],
-      ['Jul 14, 2:00 AM', 'Scheduled', '3 minutes 53 seconds', ''],
-      ['May 28, 4:30 PM', 'Manual', '3 minutes 54 seconds', ''],
-      ['May 16, 10:28 PM', 'Spot check', '5 seconds', ''],
+      ['Sep 29, 5:59 AM', 'Manual', '2 minutes 28 seconds', 'completed'],
+      ['Sep 29, 5:41 AM', 'Manual', '2 minutes 10 seconds', 'completed'],
+      ['Jul 14, 2:00 AM', 'Scheduled', '3 minutes 53 seconds', 'completed'],
+      ['May 28, 4:30 PM', 'Manual', '3 minutes 54 seconds', 'completed'],
+      ['May 16, 10:28 PM', 'Spot check', '5 seconds', 'completed'],
     ])
 
     fireEvent.click(screen.getByRole('button', { name: 'View the Jul 14, 2:00 AM sweep' }))
@@ -88,6 +111,40 @@ describe('PastSweeps', () => {
     expect(failed![3]).toBe('failedRun failed.')
     // A cancelled sweep says so, with no error detail to repeat.
     expect(cancelled![3]).toBe('cancelled')
+  })
+
+  test('restores the run count, each run\'s summary and status detail, and a word for a running or queued sweep', () => {
+    const [latest, previous, older] = ainycRuns()
+    const runs = [
+      toRunListItem({ ...latest!, status: 'running', finishedAt: null }, 'ainyc'),
+      toRunListItem({ ...previous!, status: 'queued', startedAt: null, finishedAt: null }, 'ainyc'),
+      toRunListItem(older!, 'ainyc'),
+    ]
+    render(<PastSweeps runs={runs} />)
+
+    expect(card().querySelector('.av-card-head .av-card-meta')?.textContent).toBe('3 recent')
+    expect(rows().map(row => row.at(-1))).toEqual(['running', 'queued', 'completed'])
+    expect(card().querySelector('tbody tr:first-child .av-status')!.className).toContain('text-info-300')
+    // The old run card's title and detail line, one bullet per run, in closed Details.
+    expect(card().querySelector<HTMLDetailsElement>('details.av-details')!.open).toBe(false)
+    expect(bullets()).toEqual([
+      'Sep 29, 5:59 AM: Answer visibility sweep in progress. Provider queries in progress.',
+      `${runs[1]!.startedAt}: Answer visibility sweep queued. Waiting for execution slot.`,
+      'Jul 14, 2:00 AM: Answer visibility sweep completed. All queries checked.',
+    ])
+  })
+
+  test('names each run\'s kind in a column when the list holds more than AI sweeps', () => {
+    const [latest, previous] = ainycRuns()
+    render(<PastSweeps runs={[toRunListItem(latest!, 'ainyc'), toRunListItem({ ...previous!, kind: 'gsc-sync' }, 'ainyc')]} />)
+
+    const table = screen.getByRole('table', { name: 'Past sweeps' })
+    expect(within(table).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Started', 'Type', 'Trigger', 'Duration', 'Status'])
+    expect(rows().map(row => row[1])).toEqual(['Answer visibility sweep', 'GSC sync'])
+    cleanup()
+    // Only AI sweeps: the card's title already says what they are.
+    render(<PastSweeps runs={[toRunListItem(latest!, 'ainyc')]} />)
+    expect(within(screen.getByRole('table', { name: 'Past sweeps' })).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Started', 'Trigger', 'Duration', 'Status'])
   })
 
   test('adds a location column only when the sweeps span locations', () => {
