@@ -41,7 +41,7 @@ function renderScope(children: ReactNode, options: { enabled?: boolean; configur
   const view = render(<QueryClientProvider client={client}><SentimentScopeProvider projectName="project" selection={{ mode: 'advanced', queryClass: 'branded', scope: 'property', scopeKey: 'north', marketKey: 'chicago', provider: 'openai', model: 'source-model', runId: 'run', revision: 3 }}>{children}</SentimentScopeProvider></QueryClientProvider>)
   return { requests, client, view, close: () => { cleanup(); client.clear(); restore() } }
 }
-/** A class row's Details toggle, on its bar row, and the panel it opens under the bar. */
+/** A class line's Details button, at the end of its bar line, and the dropdown panel it opens. */
 function classDetails(row: Element) {
   const toggle = row.querySelector<HTMLButtonElement>(':scope > button.sentiment-class-details-toggle')
   const panel = toggle ? document.getElementById(toggle.getAttribute('aria-controls')!) : null
@@ -488,8 +488,8 @@ describe('sentiment bars', () => {
       const row = value.closest('.sentiment-class')!
       const children = [...row.children]
       const bar = barFor('Branded')
-      // Label with its ⓘ, the bar, the share, the Details toggle after it on the
-      // same line, then the panel it opens under the bar.
+      // Label with its ⓘ, the bar, the share, the Details button at the end of
+      // the same line, then the dropdown panel it opens.
       expect(children.map(child => child.className.split(' ')[0])).toEqual(['sentiment-class-label', 'sentiment-bar', 'sentiment-class-value', 'sentiment-class-details-toggle', 'sentiment-class-details'])
       expect(row.classList.contains('sentiment-class-has-details')).toBe(true)
       expect(children[0]!.textContent).toBe('Branded')
@@ -611,40 +611,39 @@ describe('sentiment bars', () => {
     } finally { page.close() }
   })
 
-  it('puts the bars, the section actions and the legend under them in one row, and opens the action panel directly under it', async () => {
+  it('puts the legend and the section actions in one row above the full-width bars, and opens the action panel under the bars', async () => {
     const seed = createDashboardFixture({}).dashboard.projects[0]!.visibilityEvidence[0]!
     const actions = <><button type="button">Manage sentiment</button><button type="button">Manage queries</button></>
     const page = renderScope(<EvidenceTable evidence={[{ ...seed, id: 'north', queryId: 'q', sourceSnapshotId: 'snapshot', query: 'Is North Hall good?', queryClass: 'branded' }]} actions={actions} actionPanel={<div data-testid="query-editor" />} />, { branded: branded(), nonBrand: nonBrand() })
     try {
       const scores = await screen.findByRole('group', { name: 'Favorable answer scores' })
       await screen.findByLabelText('Non-brand favorable share')
-      const row = scores.parentElement!
-      expect(row.className).toBe('query-evidence-summary-row')
-      // Bars on the left; on the right the actions, then the legend under them.
-      // No row of actions or legend alone above the bars.
-      expect([...row.children].map(child => child.className)).toEqual(['sentiment-headlines', 'query-evidence-aside'])
-      const aside = row.children[1] as HTMLElement
-      expect([...aside.children].map(child => child.className)).toEqual(['query-evidence-actions', 'sentiment-legend'])
-      expect(within(aside.children[0] as HTMLElement).getAllByRole('button').map(button => button.textContent)).toEqual(['Manage sentiment', 'Manage queries'])
-      // One legend, beside the bars rather than inside them.
+      const section = scores.parentElement!
+      expect(section.className).toBe('query-evidence')
+      // First one compact row (legend left, actions right), then the bars on
+      // their own at the section's full width (nothing sits beside them), then
+      // the query editor.
+      expect([...section.children].slice(0, 4).map(child => child.className || child.getAttribute('data-testid'))).toEqual(['query-evidence-toolbar', 'sentiment-headlines', 'query-editor', 'query-evidence-view-row'])
+      const toolbar = section.children[0] as HTMLElement
+      expect([...toolbar.children].map(child => child.className)).toEqual(['sentiment-legend', 'query-evidence-actions'])
+      expect(within(toolbar.children[1] as HTMLElement).getAllByRole('button').map(button => button.textContent)).toEqual(['Manage sentiment', 'Manage queries'])
+      expect([...scores.children].map(child => child.getAttribute('data-query-class'))).toEqual(['branded', 'non-brand'])
+      // One legend, in the row above the bars rather than inside them.
       expect(document.querySelectorAll('.sentiment-legend')).toHaveLength(1)
       expect(scores.querySelector('.sentiment-legend')).toBeNull()
-      const summary = row.parentElement!
-      expect(summary.className).toBe('query-evidence-summary')
-      expect(summary.previousElementSibling).toBeNull()
-      expect(summary.nextElementSibling).toBe(screen.getByTestId('query-editor'))
-      expect(screen.getByTestId('query-editor').nextElementSibling!.className).toBe('query-evidence-view-row')
     } finally { page.close() }
   })
 
-  it('keeps the legend under the last bar when the section has no actions (an embed)', async () => {
+  it('keeps the legend alone in the row above the bars when the section has no actions (an embed)', async () => {
     const seed = createDashboardFixture({}).dashboard.projects[0]!.visibilityEvidence[0]!
     const page = renderScope(<EvidenceTable evidence={[{ ...seed, id: 'north', query: 'Is North Hall good?', queryClass: 'branded' }]} />, { branded: branded(), nonBrand: nonBrand() })
     try {
       const scores = await screen.findByRole('group', { name: 'Favorable answer scores' })
       await screen.findByLabelText('Non-brand favorable share')
-      expect([...scores.parentElement!.children].map(child => child.className)).toEqual(['sentiment-headlines'])
-      expect(scores.lastElementChild!.className).toBe('sentiment-legend')
+      const section = scores.parentElement!
+      expect([...section.children].slice(0, 3).map(child => child.className)).toEqual(['query-evidence-toolbar', 'sentiment-headlines', 'query-evidence-view-row'])
+      expect([...section.children[0]!.children].map(child => child.className)).toEqual(['sentiment-legend'])
+      expect(scores.querySelector('.sentiment-legend')).toBeNull()
     } finally { page.close() }
   })
 
@@ -654,10 +653,139 @@ describe('sentiment bars', () => {
     try {
       const manage = await screen.findByRole('button', { name: 'Manage queries' })
       expect(manage.parentElement!.className).toBe('query-evidence-actions')
-      expect(manage.parentElement!.parentElement!.className).toBe('query-evidence-aside')
-      expect(manage.parentElement!.parentElement!.parentElement!.className).toBe('query-evidence-summary-row')
+      const toolbar = manage.parentElement!.parentElement!
+      expect(toolbar.className).toBe('query-evidence-toolbar')
+      expect([...toolbar.children].map(child => child.className)).toEqual(['query-evidence-actions'])
+      expect(toolbar.nextElementSibling!.className).toBe('query-evidence-view-row')
       expect(screen.queryByRole('group', { name: 'Favorable answer scores' })).toBeNull()
       expect(document.querySelector('.sentiment-legend')).toBeNull()
+    } finally { page.close() }
+  })
+})
+
+describe('sentiment Details dropdown', () => {
+  const branded = () => measured('branded', { favorable: 9, mixed: 7, factual: 4 })
+  const nonBrand = () => measured('non-brand', { favorable: 1, 'subject-not-mentioned': 30, 'ambiguous-subject': 1 })
+  /** A panel's rows as [label, value], the ⓘ's trailing space trimmed. */
+  const rows = (panel: HTMLElement) => [...panel.querySelectorAll('dl > div')].map(row => [row.querySelector('dt')!.textContent!.trim(), row.querySelector('dd')!.textContent])
+  const lineFor = (label: string) => screen.getByLabelText(`${label} favorable share`).closest('.sentiment-class')!
+  const dropdownFor = (label: string) => classDetails(lineFor(label)) as { toggle: HTMLButtonElement; panel: HTMLElement }
+
+  it('is a "Details" button with a non-modal panel named by its class, not a menu', async () => {
+    const page = renderScope(<SentimentHeadlines />, { branded: branded(), nonBrand: nonBrand() })
+    try {
+      await screen.findByLabelText('Non-brand favorable share')
+      for (const label of ['Branded', 'Non-brand']) {
+        const { toggle, panel } = dropdownFor(label)
+        expect(toggle.getAttribute('aria-expanded')).toBe('false')
+        expect(toggle.getAttribute('aria-controls')).toBe(panel.id)
+        expect(toggle.hasAttribute('aria-haspopup')).toBe(false)
+        expect(toggle.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true')
+        expect(within(lineFor(label) as HTMLElement).getByRole('button', { name: 'Details' })).toBe(toggle)
+        expect(panel.getAttribute('role')).toBe('group')
+        expect(document.getElementById(panel.getAttribute('aria-labelledby')!)!.textContent).toBe(label)
+        expect(panel.querySelector('.sentiment-class-details-title')!.textContent).toBe(label)
+        // The panel follows its button in the DOM, so it is next in tab order once open.
+        expect(toggle.nextElementSibling).toBe(panel)
+      }
+      expect(screen.queryByRole('menu')).toBeNull()
+      expect(screen.queryByRole('menuitem')).toBeNull()
+      fireEvent.click(dropdownFor('Branded').toggle)
+      expect(screen.getByRole('group', { name: 'Branded' })).toBe(dropdownFor('Branded').panel)
+    } finally { page.close() }
+  })
+
+  it('opens on click, keeps one panel open at a time, and closes on a second click, an outside click, Escape and focus leaving', async () => {
+    const page = renderScope(<SentimentHeadlines />, { branded: branded(), nonBrand: nonBrand() })
+    try {
+      await screen.findByLabelText('Non-brand favorable share')
+      const brandedDropdown = dropdownFor('Branded')
+      const nonBrandDropdown = dropdownFor('Non-brand')
+      const state = () => [brandedDropdown, nonBrandDropdown].map(({ toggle, panel }) => [toggle.getAttribute('aria-expanded'), panel.hidden])
+      expect(state()).toEqual([['false', true], ['false', true]])
+      fireEvent.click(brandedDropdown.toggle)
+      expect(state()).toEqual([['true', false], ['false', true]])
+      // Only one open: opening non-brand closes branded.
+      fireEvent.click(nonBrandDropdown.toggle)
+      expect(state()).toEqual([['false', true], ['true', false]])
+      fireEvent.click(nonBrandDropdown.toggle)
+      expect(state()).toEqual([['false', true], ['false', true]])
+      // A click inside the open panel keeps it open; one outside closes it.
+      fireEvent.click(brandedDropdown.toggle)
+      fireEvent.pointerDown(brandedDropdown.panel.querySelector('dd')!)
+      expect(state()).toEqual([['true', false], ['false', true]])
+      fireEvent.pointerDown(document.body)
+      expect(state()).toEqual([['false', true], ['false', true]])
+      // Escape closes it and returns focus to its button.
+      fireEvent.click(brandedDropdown.toggle)
+      brandedDropdown.panel.querySelector<HTMLButtonElement>('.info-tooltip-trigger')!.focus()
+      fireEvent.focusIn(brandedDropdown.panel.querySelector('.info-tooltip-trigger')!)
+      expect(state()).toEqual([['true', false], ['false', true]])
+      fireEvent.keyDown(document, { key: 'Escape' })
+      expect(state()).toEqual([['false', true], ['false', true]])
+      expect(document.activeElement).toBe(brandedDropdown.toggle)
+      // Other keys leave it open.
+      fireEvent.click(brandedDropdown.toggle)
+      fireEvent.keyDown(document, { key: 'ArrowDown' })
+      expect(state()).toEqual([['true', false], ['false', true]])
+      // Focus moving past the panel (Tab to the next line) closes it.
+      fireEvent.focusIn(within(lineFor('Non-brand') as HTMLElement).getByRole('button', { name: SENTIMENT_COPY.favorable }))
+      expect(state()).toEqual([['false', true], ['false', true]])
+    } finally { page.close() }
+  })
+
+  it('lists every Details row in the panel: label, value, the 95% range with its ⓘ', async () => {
+    const page = renderScope(<SentimentHeadlines />, { branded: branded(), nonBrand: nonBrand() })
+    try {
+      await screen.findByLabelText('Non-brand favorable share')
+      const brandedPanel = dropdownFor('Branded').panel
+      expect(rows(brandedPanel)).toEqual([
+        ['Rated assessments', '16 of 20'],
+        ['Source answers', '20'],
+        ['Factual', '4'],
+        ['95% confidence range', '33.2% to 76.9%'],
+      ])
+      // Too few: the rated outcomes and the share's threshold join the rows.
+      const nonBrandPanel = dropdownFor('Non-brand').panel
+      expect(rows(nonBrandPanel)).toEqual([
+        ['Rated assessments', '1 of 32'],
+        ['Favorable', '1'],
+        ['Favorable share', `Shown from ${SENTIMENT_MIN_RATED} ratings`],
+        ['Source answers', '32'],
+        ['Subject not mentioned', '30'],
+        ['Ambiguous subject', '1'],
+        ['95% confidence range', '20.7% to 100%'],
+      ])
+      for (const panel of [brandedPanel, nonBrandPanel]) {
+        expect(panel.querySelector('dl')!.className).toBe('sentiment-details-list')
+        const range = [...panel.querySelectorAll('dl > div')].at(-1)!
+        expect(within(range as HTMLElement).getByRole('button', { name: branded().score.limitation, hidden: true })).toBeTruthy()
+      }
+      // The too-few line keeps its grey track, "too few" and its rating count, with no share.
+      expect(barFor('Non-brand').getAttribute('data-sentiment-bar')).toBe('too-few')
+      expect(screen.getByLabelText('Non-brand favorable share').textContent).toBe(`${SENTIMENT_COPY.tooFew} · 1 rating`)
+    } finally { page.close() }
+  })
+
+  it('keeps a reason under the rows and shows no Details for a class with nothing to disclose', async () => {
+    const unmeasured = { ...summary(), ...aggregateSentiment([]) }
+    const unrated = { ...summary(), ...aggregateSentiment([{ assessmentId: 'foreign', sourceSnapshotId: 'foreign', outcome: 'unsupported-language' }]), reason: 'Answers were in an unsupported language.', selection: { ...summary().selection, queryClass: 'non-brand' as const } }
+    const page = renderScope(<SentimentHeadlines />, { branded: unmeasured, nonBrand: unrated })
+    try {
+      await screen.findByLabelText('Non-brand favorable share')
+      // Zero ratings, nothing measured: the empty bar and the state, no Details.
+      expect(screen.getByLabelText('Branded favorable share').textContent).toBe(SENTIMENT_COPY.states['not-measured'])
+      expect(classDetails(lineFor('Branded')).toggle).toBeNull()
+      expect(lineFor('Branded').querySelector('.sentiment-class-details')).toBeNull()
+      expect(barFor('Branded').getAttribute('data-sentiment-bar')).toBe('empty')
+      // Zero ratings with assessments: its Details still opens with what was found.
+      expect(screen.getByLabelText('Non-brand favorable share').textContent).toBe(SENTIMENT_COPY.noJudgments)
+      const { toggle, panel } = dropdownFor('Non-brand')
+      fireEvent.click(toggle)
+      expect(panel.hidden).toBe(false)
+      expect(rows(panel)).toEqual([['Rated assessments', '0 of 1'], ['Source answers', '1'], ['Unsupported language', '1']])
+      expect(panel.lastElementChild!.textContent).toBe('Answers were in an unsupported language.')
+      expect(panel.lastElementChild!.className).toBe('sentiment-class-details-reason')
     } finally { page.close() }
   })
 })
@@ -675,7 +803,7 @@ describe('sentiment bar styles', () => {
     }
     throw new Error(`unclosed ${prelude}`)
   }
-  /** One rule's declarations as a property map. */
+  /** One rule's declarations as a property map; a repeated property keeps its last value, as the cascade does. */
   function declarations(selector: string, source: string): Record<string, string> {
     return Object.fromEntries(body(selector, source).split(';').map(line => line.trim()).filter(line => line && !line.startsWith('@')).map(line => [line.slice(0, line.indexOf(':')).trim(), line.slice(line.indexOf(':') + 1).trim()]))
   }
@@ -686,15 +814,36 @@ describe('sentiment bar styles', () => {
     expect(declarations('.sentiment-bar-segment,\n    .sentiment-legend-swatch', rule)).toEqual({ 'forced-color-adjust': 'none' })
   })
 
-  it('puts each Details toggle on its bar row and its panel under the bar, and the legend under the actions', () => {
-    const line = body('@container sentiment-headlines (min-width: 30rem)')
-    expect(declarations('.sentiment-class-details-toggle', line)).toMatchObject({ 'grid-column': '4', 'grid-row': '1' })
-    expect(declarations('.sentiment-class-details', line)).toMatchObject({ 'grid-column': '2 / -1', 'grid-row': '2' })
-    const wide = body('@container query-evidence-summary (min-width: 48rem)')
-    expect(declarations('.query-evidence-summary-row', wide)).toMatchObject({ 'grid-template-columns': 'minmax(0, 1fr) auto' })
-    expect(declarations('.query-evidence-aside > .sentiment-legend', wide)).toMatchObject({ order: '0' })
-    // Narrow, the legend comes first in the aside: under the last bar, above the actions.
-    expect(declarations('.query-evidence-aside > .sentiment-legend', css)).toMatchObject({ order: '-1' })
+  it('runs each class line the full width with the bar as its one flexible column', () => {
+    // The top-level rules, not `.report-headline + .sentiment-headlines`.
+    const headlines = declarations('\n  .sentiment-headlines', css)
+    expect(headlines).toMatchObject({ display: 'grid', 'grid-template-columns': 'auto 1fr auto auto' })
+    // Label, bar, share, Details: only the bar's column grows.
+    expect(headlines['grid-template-columns']!.split(' ').map(track => track === '1fr')).toEqual([false, true, false, false])
+    // Each line spans every column and shares them, so the bars start and end level.
+    expect(declarations('\n  .sentiment-class', css)).toMatchObject({ position: 'relative', display: 'grid', 'grid-column': '1 / -1', 'grid-template-columns': 'subgrid' })
+    const wide = body('@container sentiment-headlines (min-width: 40rem)')
+    expect(declarations('.sentiment-class-label', css)).toMatchObject({ 'grid-column': '1' })
+    expect(declarations('.sentiment-bar,\n    .sentiment-class-has-details > .sentiment-bar', wide)).toMatchObject({ 'grid-column': '2', 'grid-row': '1' })
+    expect(declarations('.sentiment-class-value', wide)).toMatchObject({ 'grid-column': '3', 'grid-row': '1' })
+    expect(declarations('.sentiment-class-details-toggle', wide)).toMatchObject({ 'grid-column': '4', 'grid-row': '1' })
+    // The legend and actions share one row above the bars, actions at its right.
+    expect(body('.query-evidence-toolbar', css)).toContain('justify-between')
+    expect(body('.query-evidence-actions', css)).toContain('ml-auto')
+    expect(declarations('.query-evidence-toolbar:empty', css)).toEqual({ display: 'none' })
+  })
+
+  it('floats the Details panel under its button, on screen and past the section clip', () => {
+    const panel = body('.sentiment-class-details', css)
+    // Anchored under the line's end (its button), over the rows below, never wider than the line.
+    for (const utility of ['absolute', 'right-0', 'top-full', 'z-10', 'w-80', 'max-w-full']) expect(panel).toContain(utility)
+    // `hidden` must still hide it.
+    expect(declarations('.sentiment-class-details', css)).not.toHaveProperty('display')
+    expect(declarations('.overview-disclosure:has(.sentiment-class-details:not([hidden]))', css)).toEqual({ overflow: 'visible' })
+    // Label left, value right beside it, one row height, tabular figures.
+    expect(body('.sentiment-details-list > div', css)).toContain('justify-between')
+    expect(body('.sentiment-details-list > div', css)).toContain('min-h-7')
+    expect(body('.sentiment-details-list dd', css)).toContain('tabular-nums')
   })
 })
 

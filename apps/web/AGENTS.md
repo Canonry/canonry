@@ -54,22 +54,29 @@ Portfolio overview sentiment shows only the server's `sentiment.overall` score.
 Hide the metric and its layout slot when no judged overall score exists. Keep
 counts, class scope, confidence and provisional status in its tooltip; detailed
 sentiment analysis retains separate branded and non-brand populations. Each class
-headline is one line: the class label and its ⓘ, a stacked bar of the class's
-favorable, mixed and unfavorable counts, the score, rating count and any
-partial-results state, then that class's Details toggle; the closed panel opens
-on the line below, under the bar (a button and panel, not `<details>`, so the
-two can sit on different grid rows). Each segment grows by its own API count
-(no UI math) in the `progress-fill-*` tones; a legend names the tones once any
-bar has segments; the bar is `role="img"` with every count in its label and is
-never a tab stop. Below `SENTIMENT_MIN_RATED` (10) ratings a class headline, and
-the portfolio's overall figure, reads "too few" instead of its score, the bar is
-a plain track with no segments (they would draw the hidden share), and its
-Details list the rated outcomes. No ratings draws an empty track beside the
-class's short state. In Query evidence (`QueryEvidenceSummary`) the bars share
-one row with Manage sentiment and Manage queries on the right and the legend
-under them; narrow, it stacks as bars, legend, actions. The query editor opens
-directly under that row (`actionPanel`); never a separate band of actions or
-legend above the bars. Query rows keep their score
+headline is one full-width line: the class label and its ⓘ, a stacked bar of the
+class's favorable, mixed and unfavorable counts that takes all remaining width,
+the score, rating count and any partial-results state, then that class's
+"Details" button at the end. The lines share one column grid (subgrid), so the
+bars start and end level. Details opens a floating panel anchored under its
+button, right-aligned to the line's end, over the content below rather than
+pushing it down: a non-modal popover (button with `aria-expanded` and
+`aria-controls`, panel `role="group"` named by its class heading, never
+`role="menu"`) that follows the button in tab order and closes on outside
+pointerdown, Escape (focus returns to the button) and focus leaving, like the
+project "More" menu. Only one panel is open at a time, and an open panel lifts
+the section's overflow clip. Inside, the rows are a compact label/value list
+with tabular numbers in a fixed-width panel. Each segment grows by its own API
+count (no UI math) in the `progress-fill-*` tones; a legend names the tones once
+any bar has segments; the bar is `role="img"` with every count in its label and
+is never a tab stop. Below `SENTIMENT_MIN_RATED` (10) ratings a class headline,
+and the portfolio's overall figure, reads "too few" instead of its score, the
+bar is a plain track with no segments (they would draw the hidden share), and
+its Details list the rated outcomes. No ratings draws an empty track beside the
+class's short state. In Query evidence (`QueryEvidenceSummary`) one compact row
+above the bars holds the legend on the left and Manage sentiment and Manage
+queries on the right (the legend alone in an embed), so nothing sits beside the
+bars. The query editor opens directly under the bars (`actionPanel`). Query rows keep their score
 beside its rating count. Coverage and confidence belong in closed Details disclosures;
 data-processing disclosure belongs in Enable/Manage sentiment.
 

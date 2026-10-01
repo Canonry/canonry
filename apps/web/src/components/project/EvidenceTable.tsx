@@ -189,25 +189,21 @@ function SignalStrip({ items }: { items: CitationInsightVm[] }) {
 }
 
 /**
- * The top of Query evidence, one row: the sentiment bars on the left; on the
- * right the section's actions with the bar legend under them. Narrow, it stacks
- * as bars, legend, actions. With no actions (an embed) the legend stays under
- * the last bar. Without a query class it is the actions alone, for while the
- * evidence loads or after it fails.
+ * The top of Query evidence: one compact row with the bar legend on the left
+ * and the section's actions on the right, then the sentiment bars under it at
+ * the section's full width. In an embed (no actions) the row is the legend
+ * alone, and with neither it takes no space. Without a query class it is the
+ * actions alone, for while the evidence loads or after it fails.
  */
 export function QueryEvidenceSummary({ queryClass, actions }: { queryClass?: QueryClassSelection; actions?: ReactNode }) {
   return (
-    <div className="query-evidence-summary">
-      <div className="query-evidence-summary-row">
-        {queryClass ? <SentimentHeadlines queryClass={queryClass} legend={!actions} /> : null}
-        {actions ? (
-          <div className="query-evidence-aside">
-            <div className="query-evidence-actions">{actions}</div>
-            {queryClass ? <SentimentLegend queryClass={queryClass} /> : null}
-          </div>
-        ) : null}
+    <>
+      <div className="query-evidence-toolbar">
+        {queryClass ? <SentimentLegend queryClass={queryClass} /> : null}
+        {actions ? <div className="query-evidence-actions">{actions}</div> : null}
       </div>
-    </div>
+      {queryClass ? <SentimentHeadlines queryClass={queryClass} legend={false} /> : null}
+    </>
   )
 }
 
@@ -232,9 +228,9 @@ export function EvidenceTable({
    * engine new to an old query, a first sweep) keeps its signal labels.
    */
   addedQueries?: readonly string[]
-  /** The section's actions, on the sentiment bars' row at its right. */
+  /** The section's actions, at the right of the row above the sentiment bars. */
   actions?: ReactNode
-  /** What an action opens (the query editor), directly under that row. */
+  /** What an action opens (the query editor), directly under the bars. */
   actionPanel?: ReactNode
 }) {
   const { openEvidence } = useDrawer()

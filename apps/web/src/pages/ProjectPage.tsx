@@ -2711,8 +2711,9 @@ function ProjectPageContent({
     />
   ) : null
 
-  // Query evidence's actions sit on the sentiment bars' row, and the query
-  // editor they open sits directly under that row. Embeds are read-only.
+  // Query evidence's actions sit at the right of the legend row above the
+  // sentiment bars, and the query editor they open sits directly under the
+  // bars. Embeds are read-only.
   const evidenceActions = isEmbed() ? null : (
     <>
       <SentimentControls />

@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
+import { ChevronDown } from 'lucide-react'
 import type { SentimentEvidenceItem, SentimentJobSummary, SentimentSettings, SentimentSummary, SentimentSelection, SentimentBackfillPreview, SentimentBackfillSelection, SentimentOverview, SentimentOverallHeadline, SentimentHeadline, SentimentAssessmentSummary, SentimentEvidenceSelection } from '@ainyc/canonry-contracts'
 import { describeError, formatPercent, RatioUnits } from '@ainyc/canonry-contracts'
 import { Button } from '../ui/button.js'
@@ -81,31 +82,58 @@ function FavorableValue({ value, label }: { value: Pick<SentimentHeadline, 'scor
 function hasHeadlineDetails(value: SentimentSummary) { return Boolean(value.coverage.selected || value.coverage.eligibleAssessments || value.reason) }
 
 /**
- * A class's Details: a toggle after its share on the bar line, and a panel
- * that opens on the line below, under the bar. A button and a panel rather
- * than <details>, so the two can sit on different rows of the class grid.
+ * A class's Details: a "Details" button at the end of its bar line and a
+ * floating panel of facts anchored under it, over the content below rather
+ * than pushing it down. A non-modal popover, not a menu: the button carries
+ * aria-expanded and aria-controls, and the panel is a group named by its class
+ * heading that follows the button in tab order. Outside click, Escape (focus
+ * returns to the button) and focus moving elsewhere close it, as the project
+ * "More" menu does. {@link SentimentHeadlines} keeps one panel open at a time.
  */
-function SentimentHeadlineDetails({ value }: { value: SentimentSummary }) {
-  const [open, setOpen] = useState(false)
+function SentimentHeadlineDetails({ value, queryClass, open, setOpenClass }: { value: SentimentSummary; queryClass: QueryClass; open: boolean; setOpenClass: Dispatch<SetStateAction<QueryClass | null>> }) {
   const panelId = useId()
+  const titleId = useId()
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const close = useCallback(() => setOpenClass(current => current === queryClass ? null : current), [setOpenClass, queryClass])
+  useEffect(() => {
+    if (!open) return
+    const inside = (target: EventTarget | null) => target instanceof Node && Boolean(triggerRef.current?.contains(target) || panelRef.current?.contains(target))
+    const onPointerDown = (event: PointerEvent) => { if (!inside(event.target)) close() }
+    const onFocusIn = (event: FocusEvent) => { if (!inside(event.target)) close() }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      close()
+      triggerRef.current?.focus()
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('focusin', onFocusIn)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('focusin', onFocusIn)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open, close])
   const { coverage, score } = value
   const interval = sentimentIntervalText(score)
   // With the share hidden, the rated outcomes are the only view of the ratings.
   const tooFew = coverage.judged > 0 && !showsFavorableShare(coverage.judged)
   if (!hasHeadlineDetails(value)) return null
   return <>
-    <button type="button" className="sentiment-class-details-toggle" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen(current => !current)}>Details<span aria-hidden="true">{open ? '\u00a0▴' : '\u00a0▸'}</span></button>
-    <div id={panelId} className="sentiment-class-details" hidden={!open}>
-      <dl className="space-y-1">
-        {coverage.selected > 0 && <div className="flex flex-wrap justify-between gap-x-6"><dt>Rated assessments</dt><dd>{coverage.judged} of {coverage.selected}</dd></div>}
-        {tooFew && RATED_OUTCOMES.filter(outcome => coverage.counts[outcome] > 0).map(outcome => <div key={outcome} className="flex flex-wrap justify-between gap-x-6"><dt>{outcomeLabel(outcome)}</dt><dd>{coverage.counts[outcome]}</dd></div>)}
-        {tooFew && <div className="flex flex-wrap justify-between gap-x-6"><dt>Favorable share</dt><dd>Shown from {SENTIMENT_MIN_RATED} ratings</dd></div>}
-        {coverage.distinctSourceAnswers > 0 && <div className="flex flex-wrap justify-between gap-x-6"><dt>Source answers</dt><dd>{coverage.distinctSourceAnswers}</dd></div>}
-        {coverage.unadmittedAssessments > 0 && <div className="flex flex-wrap justify-between gap-x-6"><dt>Not yet analyzed</dt><dd>{coverage.unadmittedAssessments}</dd></div>}
-        {Object.entries(coverage.counts).filter(([outcome, count]) => count > 0 && !['favorable', 'mixed', 'unfavorable'].includes(outcome)).map(([outcome, count]) => <div key={outcome} className="flex flex-wrap justify-between gap-x-6"><dt>{outcomeLabel(outcome)}</dt><dd>{count}</dd></div>)}
-        {interval && <div className="flex flex-wrap justify-between gap-x-6"><dt className="flex items-center gap-1">95% confidence range <InfoTooltip text={score.limitation} placement="bottom" /></dt><dd>{interval}</dd></div>}
+    <button ref={triggerRef} type="button" className="sentiment-class-details-toggle" aria-expanded={open} aria-controls={panelId} onClick={() => setOpenClass(current => current === queryClass ? null : queryClass)}>Details<ChevronDown className="sentiment-class-details-chevron" aria-hidden="true" /></button>
+    <div ref={panelRef} id={panelId} role="group" aria-labelledby={titleId} className="sentiment-class-details" hidden={!open}>
+      <p id={titleId} className="sentiment-class-details-title">{CLASS_LABEL[queryClass]}</p>
+      <dl className="sentiment-details-list">
+        {coverage.selected > 0 && <div><dt>Rated assessments</dt><dd>{coverage.judged} of {coverage.selected}</dd></div>}
+        {tooFew && RATED_OUTCOMES.filter(outcome => coverage.counts[outcome] > 0).map(outcome => <div key={outcome}><dt>{outcomeLabel(outcome)}</dt><dd>{coverage.counts[outcome]}</dd></div>)}
+        {tooFew && <div><dt>Favorable share</dt><dd>Shown from {SENTIMENT_MIN_RATED} ratings</dd></div>}
+        {coverage.distinctSourceAnswers > 0 && <div><dt>Source answers</dt><dd>{coverage.distinctSourceAnswers}</dd></div>}
+        {coverage.unadmittedAssessments > 0 && <div><dt>Not yet analyzed</dt><dd>{coverage.unadmittedAssessments}</dd></div>}
+        {Object.entries(coverage.counts).filter(([outcome, count]) => count > 0 && !['favorable', 'mixed', 'unfavorable'].includes(outcome)).map(([outcome, count]) => <div key={outcome}><dt>{outcomeLabel(outcome)}</dt><dd>{count}</dd></div>)}
+        {interval && <div><dt>95% confidence range <InfoTooltip text={score.limitation} placement="bottom" /></dt><dd>{interval}</dd></div>}
       </dl>
-      {value.reason && <p className="mt-2 max-w-prose break-words">{value.reason}</p>}
+      {value.reason && <p className="sentiment-class-details-reason">{value.reason}</p>}
     </div>
   </>
 }
@@ -228,15 +256,19 @@ export function SentimentLegend({ queryClass = 'all' }: { queryClass?: QueryClas
 }
 
 /**
- * One line per query class: its label, a stacked bar of the rated outcomes, the
- * favorable share and rating count, then that class's Details toggle; its panel
- * opens under the bar. Branded and non-brand keep their own bars and
- * denominators. The legend follows the last bar unless the caller places it
- * (`legend={false}` with its own {@link SentimentLegend}).
+ * One line per query class across the full width: its label and ⓘ, a stacked
+ * bar of the rated outcomes that takes all the remaining space, the favorable
+ * share and rating count, then that class's "Details" dropdown at the end.
+ * The lines share columns, so both bars start and end level. Branded and
+ * non-brand keep their own bars and denominators. The legend follows the last
+ * bar unless the caller places it (`legend={false}` with its own
+ * {@link SentimentLegend}).
  */
 export function SentimentHeadlines({ queryClass = 'all', legend = true }: { queryClass?: QueryClassView; legend?: boolean }) {
   const scope = useContext(SentimentContext)
   const classes = headlineClasses(scope, queryClass)
+  // One Details panel open at a time.
+  const [openClass, setOpenClass] = useState<QueryClass | null>(null)
   if (!scope || !classes) return null
   return <div className="sentiment-headlines" role="group" aria-label="Favorable answer scores">
     {classes.map(value => {
@@ -247,7 +279,7 @@ export function SentimentHeadlines({ queryClass = 'all', legend = true }: { quer
         {!scope.hasSourceEvidence ? <p className="sentiment-class-status">No saved answers.</p> : query.data ? <>
           <SentimentBar value={query.data} label={CLASS_LABEL[value]} />
           <FavorableValue value={query.data} label={CLASS_LABEL[value]} />
-          <SentimentHeadlineDetails value={query.data} />
+          <SentimentHeadlineDetails value={query.data} queryClass={value} open={openClass === value} setOpenClass={setOpenClass} />
         </> : query.isError ? <p role="alert" className="sentiment-class-status">Couldn’t load sentiment. <Button variant="ghost" onClick={() => { void query.refetch() }}>Retry</Button></p> : <p role="status" className="sentiment-class-status">Loading sentiment…</p>}
       </div>
     })}

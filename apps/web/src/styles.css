@@ -2625,71 +2625,37 @@
     @apply px-4 py-3 text-neutral;
   }
 
-  /* The top of Query evidence, one row: the sentiment bars on the left; on the
-     right the section's actions with the bar legend under them. A named
-     container, so it lays out by the section's width; narrow, it stacks as
-     bars, legend, actions. A row with nothing in it (sentiment off, an embed)
-     takes no space. */
-  .query-evidence-summary {
-    container: query-evidence-summary / inline-size;
+  /* The top of Query evidence: one compact row with the bar legend on the
+     left and the section's actions on the right, then the sentiment bars
+     under it at full width. A row with nothing in it (sentiment off in an
+     embed) takes no space. */
+  .query-evidence-toolbar {
+    @apply mb-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-2;
   }
 
-  .query-evidence-summary-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    @apply mb-4 gap-x-6 gap-y-2.5;
-  }
-
-  .query-evidence-summary-row:empty {
+  .query-evidence-toolbar:empty {
     display: none;
   }
 
-  .query-evidence-summary-row > .sentiment-headlines {
-    @apply mb-0;
-  }
-
-  .query-evidence-aside {
-    @apply flex min-w-0 flex-col gap-2.5;
-  }
-
-  /* Narrow, the legend comes first: under the last bar, above the actions. */
-  .query-evidence-aside > .sentiment-legend {
-    order: -1;
-  }
-
+  /* On the right even when there is no legend to push them there. */
   .query-evidence-actions {
-    @apply flex flex-wrap items-center justify-end gap-2;
+    @apply ml-auto flex flex-wrap items-center justify-end gap-2;
   }
 
-  @container query-evidence-summary (min-width: 48rem) {
-    .query-evidence-summary-row {
-      grid-template-columns: minmax(0, 1fr) auto;
-      @apply items-start;
-    }
-
-    .query-evidence-summary-row > .sentiment-headlines {
-      grid-column: 1;
-      grid-row: 1;
-    }
-
-    .query-evidence-aside {
-      grid-column: 2;
-      grid-row: 1;
-    }
-
-    /* Under the actions, level with the second bar. */
-    .query-evidence-aside > .sentiment-legend {
-      order: 0;
-      @apply min-h-8 justify-end;
-    }
-  }
-
-  /* Sentiment by query class: one line each, label, stacked bar, share,
-     Details. A named container, so a line lays out by the width it has (beside
-     the actions, in an Advanced report, on a phone), not by the viewport. */
+  /* Sentiment by query class: one full-width line each. The lines share the
+     columns label, bar, share, Details, so every bar starts and ends level and
+     the bar takes all the width the others leave. A named container, so a
+     line lays out by the width it has (Query evidence, an Advanced report, a
+     phone), not by the viewport. */
   .sentiment-headlines {
     container: sentiment-headlines / inline-size;
-    @apply mb-4 flex min-w-0 flex-col gap-2.5;
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    @apply mb-4 min-w-0 gap-x-3 gap-y-2.5;
+  }
+
+  .sentiment-headlines > .sentiment-legend {
+    grid-column: 1 / -1;
   }
 
   .sentiment-legend {
@@ -2705,17 +2671,21 @@
   }
 
   /* Narrow: the label and share share a line; the bar runs under them with
-     the Details toggle at its end, and the open panel takes the line below. */
+     the Details button at its end. Without subgrid each line keeps its own
+     columns, still full width. The line anchors its Details panel. */
   .sentiment-class {
+    position: relative;
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-column: 1 / -1;
+    grid-template-columns: auto 1fr auto auto;
+    grid-template-columns: subgrid;
     @apply items-center gap-x-3 gap-y-1 text-sm text-secondary;
   }
 
   .sentiment-class-label {
     grid-column: 1;
     grid-row: 1;
-    @apply flex min-w-0 items-center gap-1;
+    @apply flex min-w-0 items-center gap-1 whitespace-nowrap;
   }
 
   .sentiment-class-value {
@@ -2730,15 +2700,66 @@
   }
 
   .sentiment-class-details-toggle {
-    grid-column: 3;
+    grid-column: 4;
     grid-row: 2;
-    @apply min-h-6 w-fit cursor-pointer whitespace-nowrap rounded-sm text-secondary transition-colors hover:text-heading focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2;
+    @apply inline-flex min-h-6 w-fit cursor-pointer items-center gap-0.5 whitespace-nowrap rounded-sm text-secondary transition-colors hover:text-heading focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2;
   }
 
+  .sentiment-class-details-chevron {
+    @apply size-3.5 transition-transform duration-150;
+  }
+
+  .sentiment-class-details-toggle[aria-expanded='true'] {
+    @apply text-heading;
+  }
+
+  .sentiment-class-details-toggle[aria-expanded='true'] .sentiment-class-details-chevron {
+    @apply rotate-180;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sentiment-class-details-chevron {
+      transition: none;
+    }
+  }
+
+  /* A class's Details: a floating panel under its button, right-aligned to
+     the line's end so it stays on screen at phone width, over the rows below
+     instead of pushing them down. Floating, so a real shadow is allowed, as
+     on the project "More" menu. */
   .sentiment-class-details {
-    grid-column: 1 / -1;
-    grid-row: 3;
-    @apply max-w-sm pt-1;
+    @apply absolute right-0 top-full z-10 mt-1 w-80 max-w-full rounded-md border border-mono-800/80 bg-bg-elevated px-3 py-2.5 text-[13px] shadow-[0_12px_28px_var(--color-shadow-panel)];
+  }
+
+  /* The section clips its overflow; an open panel near its end must not be. */
+  .overview-disclosure:has(.sentiment-class-details:not([hidden])) {
+    overflow: visible;
+  }
+
+  .sentiment-class-details-title {
+    @apply mb-1 text-xs font-semibold text-heading;
+  }
+
+  /* Label left, value right beside it on the same line, every row the same
+     height, numbers in tabular figures. */
+  .sentiment-details-list > div {
+    @apply flex min-h-7 items-center justify-between gap-4 py-1;
+  }
+
+  .sentiment-details-list > div + div {
+    @apply border-t border-subtle;
+  }
+
+  .sentiment-details-list dt {
+    @apply flex min-w-0 items-center gap-1 text-secondary;
+  }
+
+  .sentiment-details-list dd {
+    @apply shrink-0 text-right tabular-nums text-heading;
+  }
+
+  .sentiment-class-details-reason {
+    @apply mt-2 break-words text-secondary;
   }
 
   /* The bar is the counts: each segment grows by its own count, with a 2px
@@ -2746,11 +2767,12 @@
   .sentiment-bar {
     grid-column: 1 / -1;
     grid-row: 2;
-    @apply flex h-2 w-full gap-0.5 overflow-hidden rounded-full;
+    @apply flex h-2 w-full min-w-0 gap-0.5 overflow-hidden rounded-full;
   }
 
+  /* Narrow, the Details button takes the end of the bar's row. */
   .sentiment-class-has-details > .sentiment-bar {
-    grid-column: 1 / 3;
+    grid-column: 1 / 4;
   }
 
   /* No segments to draw: no ratings, or too few to show the share. */
@@ -2771,23 +2793,18 @@
     }
   }
 
-  /* Wide: label, bar, share, then Details on one line; the open panel spans
-     from the bar to the end on the line below. */
-  @container sentiment-headlines (min-width: 30rem) {
+  /* Wide: label, bar, share, then Details on one line, the bar filling the
+     space between. */
+  @container sentiment-headlines (min-width: 40rem) {
     .sentiment-class {
-      grid-template-columns: 7rem minmax(6rem, 16rem) auto minmax(0, 1fr);
-    }
-
-    /* Beside the actions, a line is as tall as their buttons, so the first
-       bar sits level with them and the legend with the second. */
-    .query-evidence-summary .sentiment-class {
-      grid-template-rows: minmax(2rem, auto);
+      @apply min-h-6;
     }
 
     .sentiment-bar,
     .sentiment-class-has-details > .sentiment-bar {
       grid-column: 2;
       grid-row: 1;
+      @apply min-w-24;
     }
 
     .sentiment-class-value {
@@ -2804,11 +2821,6 @@
     .sentiment-class-details-toggle {
       grid-column: 4;
       grid-row: 1;
-    }
-
-    .sentiment-class-details {
-      grid-column: 2 / -1;
-      grid-row: 2;
     }
   }
 
