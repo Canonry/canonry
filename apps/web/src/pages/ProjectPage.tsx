@@ -2711,6 +2711,55 @@ function ProjectPageContent({
     />
   ) : null
 
+  // Query evidence's actions sit on the sentiment bars' row, and the query
+  // editor they open sits directly under that row. Embeds are read-only.
+  const evidenceActions = isEmbed() ? null : (
+    <>
+      <SentimentControls />
+      <WriteButton type="button" variant="outline" size="sm" onClick={() => setManagingQueries(!managingQueries)}>
+        {managingQueries ? 'Done' : 'Manage queries'}
+      </WriteButton>
+    </>
+  )
+  const evidenceQueryEditor = !isEmbed() && managingQueries ? (
+    <div className="mb-3 rounded-lg border border-base bg-bg-elevated/40 p-3">
+      {trackedQueries.length > 0 ? (
+        <ul className="mb-3 max-h-64 divide-y divide-mono-800/60 overflow-y-auto rounded border border-default">
+          {trackedQueries.map((q) => (
+            <li key={q} className="flex items-center justify-between gap-3 px-3 py-2">
+              <span className="min-w-0 truncate text-sm text-strong" title={q}>{q}</span>
+              <button
+                type="button"
+                className="shrink-0 rounded px-1.5 py-0.5 text-xs text-muted transition-colors hover:text-negative-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-negative-500 disabled:opacity-50"
+                aria-label={`Remove query ${q}`}
+                title={`Stop tracking "${q}"`}
+                disabled={removingQuery !== null}
+                onClick={() => { void handleRemoveQuery(q) }}
+              >
+                {removingQuery === q ? 'Removing…' : 'Remove'}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mb-3 text-xs text-muted">No queries tracked yet. Add some below.</p>
+      )}
+      <textarea
+        className="w-full resize-none rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+        rows={3}
+        placeholder="Enter queries to add, one per line"
+        value={newQueryText}
+        onChange={(e) => setNewQueryText(e.target.value)}
+      />
+      <div className="mt-2 flex items-center justify-between">
+        <p className="text-xs text-muted">{newQueryText.split('\n').filter(k => k.trim()).length} to add</p>
+        <WriteButton type="button" size="sm" disabled={!newQueryText.trim() || querySaving} onClick={asyncHandler(handleAddQueries)}>
+          {querySaving ? 'Adding...' : 'Add queries'}
+        </WriteButton>
+      </div>
+    </div>
+  ) : null
+
   return (
     <div className="page-container">
       {isEmbed() ? (
@@ -2932,52 +2981,6 @@ function ProjectPageContent({
             meta={`${model.queryCounts.total} ${model.queryCounts.total === 1 ? 'query' : 'queries'}`}
             defaultOpen
           >
-            {!isEmbed() && (
-              <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
-                <SentimentControls />
-                <WriteButton type="button" variant="outline" size="sm" onClick={() => setManagingQueries(!managingQueries)}>
-                  {managingQueries ? 'Done' : 'Manage queries'}
-                </WriteButton>
-              </div>
-            )}
-            {!isEmbed() && managingQueries && (
-              <div className="mb-3 rounded-lg border border-base bg-bg-elevated/40 p-3">
-                {trackedQueries.length > 0 ? (
-                  <ul className="mb-3 max-h-64 divide-y divide-mono-800/60 overflow-y-auto rounded border border-default">
-                    {trackedQueries.map((q) => (
-                      <li key={q} className="flex items-center justify-between gap-3 px-3 py-2">
-                        <span className="min-w-0 truncate text-sm text-strong" title={q}>{q}</span>
-                        <button
-                          type="button"
-                          className="shrink-0 rounded px-1.5 py-0.5 text-xs text-muted transition-colors hover:text-negative-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-negative-500 disabled:opacity-50"
-                          aria-label={`Remove query ${q}`}
-                          title={`Stop tracking "${q}"`}
-                          disabled={removingQuery !== null}
-                          onClick={() => { void handleRemoveQuery(q) }}
-                        >
-                          {removingQuery === q ? 'Removing…' : 'Remove'}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mb-3 text-xs text-muted">No queries tracked yet. Add some below.</p>
-                )}
-                <textarea
-                  className="w-full resize-none rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
-                  rows={3}
-                  placeholder="Enter queries to add, one per line"
-                  value={newQueryText}
-                  onChange={(e) => setNewQueryText(e.target.value)}
-                />
-                <div className="mt-2 flex items-center justify-between">
-                  <p className="text-xs text-muted">{newQueryText.split('\n').filter(k => k.trim()).length} to add</p>
-                  <WriteButton type="button" size="sm" disabled={!newQueryText.trim() || querySaving} onClick={asyncHandler(handleAddQueries)}>
-                    {querySaving ? 'Adding...' : 'Add queries'}
-                  </WriteButton>
-                </div>
-              </div>
-            )}
             {model.project.locations.length > 0 && (
               <div className="filter-row mb-3" role="toolbar" aria-label="Location filters">
                 <button
@@ -3022,15 +3025,21 @@ function ProjectPageContent({
                 )}
               </div>
             )}
-            {evidenceDashboard.evidenceLoading ? (
-              <p role="status" className="text-sm text-secondary">Loading query evidence…</p>
-            ) : evidenceDashboard.evidenceError ? (
-              <div role="alert" className="text-sm text-secondary">
-                <p>Could not load query evidence.</p>
-                <Button type="button" variant="outline" onClick={() => { void evidenceDashboard.refetch() }}>Retry</Button>
-              </div>
+            {evidenceDashboard.evidenceLoading || evidenceDashboard.evidenceError ? (
+              <>
+                {evidenceActions && <div className="query-evidence-summary"><div className="query-evidence-actions">{evidenceActions}</div></div>}
+                {evidenceQueryEditor}
+                {evidenceDashboard.evidenceLoading ? (
+                  <p role="status" className="text-sm text-secondary">Loading query evidence…</p>
+                ) : (
+                  <div role="alert" className="text-sm text-secondary">
+                    <p>Could not load query evidence.</p>
+                    <Button type="button" variant="outline" onClick={() => { void evidenceDashboard.refetch() }}>Retry</Button>
+                  </div>
+                )}
+              </>
             ) : (
-              <EvidenceTable evidence={filteredEvidence} compareLocations={compareLocations} providerSelection={evidenceProvider} onProviderSelectionChange={setEvidenceProvider} addedQueries={model.movementComparison.addedQueries} />
+              <EvidenceTable evidence={filteredEvidence} compareLocations={compareLocations} providerSelection={evidenceProvider} onProviderSelectionChange={setEvidenceProvider} addedQueries={model.movementComparison.addedQueries} actions={evidenceActions} actionPanel={evidenceQueryEditor} />
             )}
           </OverviewDisclosure>
 

@@ -2625,6 +2625,138 @@
     @apply px-4 py-3 text-neutral;
   }
 
+  /* The top of Query evidence: the sentiment bars with the section's actions
+     on their right. The actions wrap under the bars when the row is narrow,
+     and a row with neither (sentiment off, an embed) takes no space. */
+  .query-evidence-summary {
+    @apply mb-4 flex flex-wrap items-start justify-between gap-x-6 gap-y-3;
+  }
+
+  .query-evidence-summary:empty {
+    display: none;
+  }
+
+  .query-evidence-actions {
+    @apply ml-auto flex flex-wrap items-center justify-end gap-2;
+  }
+
+  /* Sentiment by query class: one line each, label, stacked bar, share. A
+     named container, so a line lays out by the width it has (beside the
+     actions, in an Advanced report, on a phone), not by the viewport. */
+  .sentiment-headlines {
+    container: sentiment-headlines / inline-size;
+    @apply mb-4 flex min-w-0 flex-col gap-2.5;
+  }
+
+  .query-evidence-summary > .sentiment-headlines {
+    @apply mb-0;
+    flex: 1 1 28rem;
+  }
+
+  .sentiment-legend {
+    @apply flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-secondary;
+  }
+
+  /* Level with the action buttons beside it. */
+  .query-evidence-summary .sentiment-legend {
+    @apply md:min-h-8;
+  }
+
+  .sentiment-legend > li {
+    @apply inline-flex items-center gap-1.5;
+  }
+
+  .sentiment-legend-swatch {
+    @apply size-2 shrink-0 rounded-[2px];
+  }
+
+  /* Narrow: the label and share share a line and the bar runs full width
+     under them. */
+  .sentiment-class {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    @apply items-center gap-x-3 gap-y-1 text-sm text-secondary;
+  }
+
+  .sentiment-class-label {
+    grid-column: 1;
+    grid-row: 1;
+    @apply flex min-w-0 items-center gap-1;
+  }
+
+  .sentiment-class-value {
+    grid-column: 2;
+    grid-row: 1;
+    @apply min-w-0 text-right;
+  }
+
+  .sentiment-class-status {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .sentiment-class-details {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    @apply max-w-sm;
+  }
+
+  /* The bar is the counts: each segment grows by its own count, with a 2px
+     gap between segments. No ratings leaves an empty track. */
+  .sentiment-bar {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    @apply flex h-2 w-full gap-0.5 overflow-hidden rounded-full;
+  }
+
+  .sentiment-bar-empty {
+    @apply bg-surface-inset;
+  }
+
+  /* Below the minimum rating count the share reads "too few"; the bar stays,
+     quieter. */
+  .sentiment-bar-muted {
+    @apply opacity-40;
+  }
+
+  .sentiment-bar-segment {
+    flex-basis: 0;
+    @apply h-full min-w-0.5;
+  }
+
+  @media (forced-colors: active) {
+    .sentiment-bar-segment {
+      forced-color-adjust: none;
+    }
+  }
+
+  @container sentiment-headlines (min-width: 30rem) {
+    .sentiment-class {
+      grid-template-columns: 7rem minmax(6rem, 16rem) minmax(0, 1fr);
+    }
+
+    .sentiment-bar {
+      grid-column: 2;
+      grid-row: 1;
+    }
+
+    .sentiment-class-value {
+      grid-column: 3;
+      grid-row: 1;
+      @apply text-left;
+    }
+
+    .sentiment-class-status {
+      grid-column: 2 / -1;
+      grid-row: 1;
+    }
+
+    .sentiment-class-details {
+      grid-column: 2 / -1;
+      grid-row: 2;
+    }
+  }
+
   .query-evidence-view-row {
     @apply mb-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-default;
   }

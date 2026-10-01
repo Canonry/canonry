@@ -1,4 +1,4 @@
-import { Fragment, useId, useMemo, useState } from 'react'
+import { Fragment, useId, useMemo, useState, type ReactNode } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { CitationStates, brandLabelFromDomain, hostOf, normalizeQueryText, type QueryClass } from '@ainyc/canonry-contracts'
 
@@ -195,6 +195,8 @@ export function EvidenceTable({
   providerSelection: controlledProvider,
   onProviderSelectionChange,
   addedQueries = [],
+  actions,
+  actionPanel,
 }: {
   evidence: CitationInsightVm[]
   compareLocations?: boolean
@@ -207,6 +209,10 @@ export function EvidenceTable({
    * engine new to an old query, a first sweep) keeps its signal labels.
    */
   addedQueries?: readonly string[]
+  /** The section's actions, on the sentiment bars' row at its right. */
+  actions?: ReactNode
+  /** What an action opens (the query editor), directly under that row. */
+  actionPanel?: ReactNode
 }) {
   const { openEvidence } = useDrawer()
   const panelId = useId()
@@ -279,7 +285,11 @@ export function EvidenceTable({
 
   return (
     <div className="query-evidence">
-      <SentimentHeadlines queryClass={queryClassSelection} />
+      <div className="query-evidence-summary">
+        <SentimentHeadlines queryClass={queryClassSelection} />
+        {actions ? <div className="query-evidence-actions">{actions}</div> : null}
+      </div>
+      {actionPanel}
       <div className="query-evidence-view-row">
         <div className="flex items-center gap-3">
           <div className="query-evidence-tabs" role="tablist" aria-label="Citation tracking view">
