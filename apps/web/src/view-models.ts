@@ -200,15 +200,6 @@ export interface CompetitorVm {
   notes: string
 }
 
-export interface MovementSummaryVm {
-  gained: number
-  lost: number
-  tone: MetricTone
-  hasPreviousRun: boolean
-  gainedQueries?: string[]
-  lostQueries?: string[]
-}
-
 export type MovementComparisonVm = MovementComparisonDto
 
 export interface QueryCountsVm {
@@ -242,8 +233,6 @@ export interface ProjectCommandCenterVm {
   providerScores: ProjectOverviewProviderScoreDto[]
   competitorPressure: ScoreSummaryVm
   runStatus: ScoreSummaryVm
-  citationMovement: MovementSummaryVm
-  mentionMovement: MovementSummaryVm
   movementComparison: MovementComparisonVm
   insights: ProjectInsightVm[]
   visibilityEvidence: CitationInsightVm[]

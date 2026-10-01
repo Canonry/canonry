@@ -484,22 +484,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       { provider: 'claude', model: 'claude-sonnet-4-6', score: 44.44, cited: 4, total: 9 },
     ],
     queryCounts: { cited: 6, total: 9 },
-    citationMovement: {
-      gained: 1,
-      lost: 2,
-      tone: 'negative',
-      hasPreviousRun: true,
-      gainedQueries: ['invisalign dentist downtown brooklyn'],
-      lostQueries: ['emergency dentist brooklyn', 'pediatric dentist brooklyn heights'],
-    },
-    mentionMovement: {
-      gained: 0,
-      lost: 1,
-      tone: 'negative',
-      hasPreviousRun: true,
-      gainedQueries: [],
-      lostQueries: ['emergency dentist brooklyn'],
-    },
     movementComparison: {
       hasPreviousRun: true,
       comparable: false,
@@ -709,8 +693,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       { provider: 'openai', model: 'gpt-5.4', score: 50, cited: 2, total: 4 },
     ],
     queryCounts: { cited: 3, total: 4 },
-    citationMovement: { gained: 1, lost: 0, tone: 'positive', hasPreviousRun: true },
-    mentionMovement: { gained: 1, lost: 0, tone: 'positive', hasPreviousRun: true },
     movementComparison: {
       hasPreviousRun: true,
       comparable: true,
@@ -897,8 +879,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       { provider: 'openai', model: 'gpt-5.4', score: 57.14, cited: 4, total: 7 },
     ],
     queryCounts: { cited: 4, total: 7 },
-    citationMovement: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
-    mentionMovement: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
     movementComparison: {
       hasPreviousRun: false,
       comparable: false,

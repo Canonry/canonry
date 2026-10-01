@@ -2,7 +2,6 @@ import { test, expect } from 'vitest'
 
 import { buildDashboard, buildPortfolioProject, buildProjectCommandCenter, type ProjectData } from '../src/build-dashboard.js'
 import type { ApiSettings } from '../src/api.js'
-import { buildVisibilityRows } from '../src/lib/answer-movement.js'
 
 test('buildProjectCommandCenter evidence summary uses canonical mention vocabulary, not legacy "visible"', () => {
   // AGENTS.md vocabulary rule: new UI labels for the answer-text-presence
@@ -715,8 +714,6 @@ test('buildProjectCommandCenter populates score gauges from the overview DTO whe
   expect(vm.visibilitySummary.value).toBe('75.0%')
   expect(vm.visibilitySummary.tone).toBe('positive')
   expect(vm.queryCounts).toEqual({ cited: 3, total: 4 })
-  expect(vm.citationMovement).toEqual({ gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false })
-  expect(vm.mentionMovement).toEqual({ gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false })
   expect(vm.movementComparison).toMatchObject({ hasPreviousRun: false, comparable: false })
   expect(vm.contextLabel).toBe('US / EN')
   // The per-model citation rates the By engine card lists (restored after the cleanup).
@@ -1446,24 +1443,6 @@ test('buildProjectCommandCenter keeps the latest completed sweep when newer fail
     ['polyurea vs silicone roof coating', 'run_ok', false, 'not-cited', 'Not cited in latest run', 'Not visible in latest run'],
     ['roof coating contractors', null, undefined, 'pending', 'Awaiting first run', 'Awaiting first run'],
   ])
-
-  // What /overview returns for this project's one completed sweep.
-  const noMovement = { gained: 0, lost: 0, tone: 'neutral' as const, hasPreviousRun: false, gainedQueries: [], lostQueries: [] }
-  const rows = buildVisibilityRows({
-    evidence: cc.visibilityEvidence,
-    mentionMovement: noMovement,
-    citationMovement: noMovement,
-    comparison: {
-      hasPreviousRun: false, comparable: false, querySetChanged: false, previousRunAt: null,
-      currentQueryCount: 2, previousQueryCount: 0, comparableQueryCount: 0,
-      addedQueryCount: 0, removedQueryCount: 0, addedQueries: [], removedQueries: [],
-    },
-    classify: () => 'non-brand',
-  })
-  // No rows is what the card prints as "Query results unavailable."
-  expect(rows.map(row => [row.key, row.mentioned, row.cited, row.total, row.status.kind])).toEqual([
-    ['non-brand', 1, 1, 2, 'first-sweep'],
-  ])
 })
 
 /**
@@ -1513,21 +1492,6 @@ function sweepFixture() {
   return { project, run, queries, snapshot, entry }
 }
 
-function citedRow(evidence: ReturnType<typeof buildProjectCommandCenter>['visibilityEvidence'], hasPreviousRun: boolean) {
-  const noMovement = { gained: 0, lost: 0, tone: 'neutral' as const, hasPreviousRun, gainedQueries: [], lostQueries: [] }
-  return buildVisibilityRows({
-    evidence,
-    mentionMovement: noMovement,
-    citationMovement: noMovement,
-    comparison: {
-      hasPreviousRun, comparable: hasPreviousRun, querySetChanged: false, previousRunAt: hasPreviousRun ? '2026-09-01T00:00:00Z' : null,
-      currentQueryCount: 2, previousQueryCount: hasPreviousRun ? 2 : 0, comparableQueryCount: hasPreviousRun ? 2 : 0,
-      addedQueryCount: 0, removedQueryCount: 0, addedQueries: [], removedQueries: [],
-    },
-    classify: () => 'non-brand',
-  }).map(row => [row.cited, row.total])
-}
-
 test('the latest completed sweep\'s answer keeps its own state when cancelled runs after it fill the timeline', () => {
   // run_ok cited q0, then 18 failed runs, then two cancelled runs that wrote q0
   // cited and then not cited. The 20-run window holds only those 20.
@@ -1552,8 +1516,6 @@ test('the latest completed sweep\'s answer keeps its own state when cancelled ru
     ['best polyurea roof coating', 'run_ok', 'cited', 'Cited in latest run', 'Visible in latest run'],
     ['polyurea vs silicone roof coating', 'run_ok', 'not-cited', 'Not cited in latest run', 'Not visible in latest run'],
   ])
-  // /overview's baseline has q0 cited: Cited 1 of 2, never 0.
-  expect(citedRow(cc.visibilityEvidence, false)).toEqual([[1, 2]])
 })
 
 test('a sweep still running never changes the latest completed sweep\'s answer', () => {
@@ -1583,7 +1545,6 @@ test('a sweep still running never changes the latest completed sweep\'s answer',
     ['best polyurea roof coating', 'cited', 'Cited for 2 runs', 'Visible for 2 runs'],
     ['polyurea vs silicone roof coating', 'not-cited', 'Not cited across 2 runs', 'Not visible across 2 runs'],
   ])
-  expect(citedRow(cc.visibilityEvidence, true)).toEqual([[1, 2]])
 })
 
 test('buildProjectCommandCenter lists completed sweeps from the whole run list, past any number of newer failures', () => {

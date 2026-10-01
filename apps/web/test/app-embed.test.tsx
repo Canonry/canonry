@@ -292,7 +292,9 @@ test('embed hides the project sweep action that leaks on every tab', async () =>
   // not content.
   expect(embed).toContain('Citypoint Dental NYC')
   expect(embed).toContain('AI answers over time')
-  expect(embed).toContain('id="overview-brief-title"')
+  // The trend chart is the embed's first card too: no Visibility card above it.
+  expect(embed).not.toContain('id="overview-brief-title"')
+  expect(embedDoc.querySelector('.av-card-title')?.textContent).toBe('AI answers over time')
   expect(embed).toContain('Query evidence')
   expect(embed).toContain('Mention share')
 })

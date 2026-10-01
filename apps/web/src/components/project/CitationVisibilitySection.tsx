@@ -57,9 +57,9 @@ export interface ByEngineClass {
 /**
  * The By engine figures per query class. GET /citations/visibility carries no
  * class, so each query is classified by its text with the page's classifier,
- * the one the Visibility card and the query table use. Branded and non-brand
- * never share a count; a project that cannot classify gets one Unclassified
- * class. Classes come back in the card's order and only when they have queries.
+ * the one the trend and the query table use. Branded and non-brand never share
+ * a count; a project that cannot classify gets one Unclassified class. Classes
+ * come back in `VISIBILITY_ROW_ORDER` and only when they have queries.
  */
 export function byEngineClasses(data: CitationVisibilityResponse, classify: QueryClassLookup): ByEngineClass[] {
   const providers = [...new Set(data.byQuery.flatMap(row => row.providers.map(entry => entry.provider)))].sort()

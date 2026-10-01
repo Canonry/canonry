@@ -207,7 +207,8 @@ test('project route keeps the core metric and evidence class baseline stable', a
 
   // Operator project pages render the project context row instead of the
   // page header; only embeds keep `.page-header`. The AI Visibility cards are
-  // number grids, so the overview draws no metric bar at all.
+  // number grids, so the overview draws no metric bar at all. The trend chart
+  // is the first section after the tabs, with no Visibility card above it.
   expect({
     pageContainer: classFor(html, '.page-container'),
     pageHeader: classOrNull(html, '.page-header'),
@@ -218,6 +219,7 @@ test('project route keeps the core metric and evidence class baseline stable', a
     projectContextMeta: classOrNull(html, '.project-context-meta'),
     projectContextActions: classFor(html, '.project-context-actions'),
     firstSectionDivider: classFor(html, '.page-section-divider'),
+    firstSectionCard: classFor(html, 'nav.project-subnav + .page-section-divider section'),
     firstMetricFill: classOrNull(html, '.metric-card-bar-fill'),
     firstCard: classFor(html, '.overview-brief'),
     evidenceDisclosure: classFor(html, '#evidence-section'),
@@ -226,6 +228,7 @@ test('project route keeps the core metric and evidence class baseline stable', a
       "evidenceDisclosure": "overview-disclosure page-section-divider scroll-mt-24",
       "firstCard": "overview-brief",
       "firstMetricFill": null,
+      "firstSectionCard": "visibility-trend",
       "firstSectionDivider": "page-section-divider",
       "pageContainer": "page-container",
       "pageHeader": null,

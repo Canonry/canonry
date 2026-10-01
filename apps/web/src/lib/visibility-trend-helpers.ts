@@ -115,8 +115,8 @@ export function readBucketObservedRange(
 
 /**
  * A real instant as a day in the viewer's timezone: "Sep 29", with the year
- * only outside the current one. The same en-US style as the Visibility card's
- * sweep times, so one page never mixes "Sep 29" with "29 Sept".
+ * only outside the current one. The same en-US style as the page's other sweep
+ * times, so one page never mixes "Sep 29" with "29 Sept".
  */
 export function formatObservedDay(instant: ObservedInstant, now: Date = new Date()): string {
   return formatSweepDay(instant, now)

@@ -1450,18 +1450,6 @@
     @apply overflow-hidden rounded-xl border border-default bg-surface-subtle;
   }
 
-  .overview-brief-grid {
-    @apply grid border-t border-mono-800/50 lg:grid-cols-[1.35fr_0.825fr];
-  }
-
-  .overview-brief-panel {
-    @apply min-w-0 px-5 py-4;
-  }
-
-  .overview-brief-label {
-    @apply mb-3 text-[11px] font-medium uppercase tracking-[0.14em] text-muted;
-  }
-
   /* An AI Visibility card: a short title with the sweep time, a compact grid of
      counts with one status word per row, then everything else in Details. */
   .av-card-head {
@@ -1493,8 +1481,8 @@
     @apply whitespace-nowrap py-[0.3rem] pr-4 text-left align-baseline sm:pr-9;
   }
 
-  /* On a phone the status word may drop its "· n added" to a second line
-     rather than push the grid wider than the card. */
+  /* On a phone the last column may wrap to a second line rather than push
+     the grid wider than the card. */
   .av-grid thead th:last-child,
   .av-grid td:last-child {
     @apply whitespace-normal pr-0 sm:whitespace-nowrap;
@@ -1516,7 +1504,7 @@
     @apply ml-px text-[13px] tabular-nums text-muted;
   }
 
-  /* Wraps on a phone ("first AI / sweep") rather than push the grid past the card. */
+  /* A status word wraps on a phone rather than push the grid past the card. */
   .av-status {
     @apply text-[13px] font-medium sm:whitespace-nowrap;
   }

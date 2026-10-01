@@ -1,6 +1,6 @@
 import { percentOf } from '@ainyc/canonry-contracts'
-import type { CitationVisibilityResponse, CompetitorLandscapeResponse, CompetitorLandscapeRow, GapAnalysisDto, GapCategory, GapQuery, QueryClass, RunDto } from '@ainyc/canonry-contracts'
-import type { CitationInsightVm, MovementComparisonVm, MovementSummaryVm, ProjectCommandCenterVm, RunHistoryPoint } from '../src/view-models.js'
+import type { CitationVisibilityResponse, CompetitorLandscapeResponse, CompetitorLandscapeRow, GapAnalysisDto, GapCategory, GapQuery, MovementSummaryDto, QueryClass, RunDto } from '@ainyc/canonry-contracts'
+import type { CitationInsightVm, MovementComparisonVm, ProjectCommandCenterVm, RunHistoryPoint } from '../src/view-models.js'
 
 /**
  * ainyc's two Sep 29 sweeps, in the shape the dashboard builds from stored
@@ -196,8 +196,8 @@ export function ainycComparison(): MovementComparisonVm {
   }
 }
 
-/** ainyc's `mentionMovement` and `citationMovement`: no query gained or lost. */
-export function ainycMovement(): MovementSummaryVm {
+/** ainyc's GET /overview `mentionMovement` and `citationMovement`: no query gained or lost. */
+export function ainycMovement(): MovementSummaryDto {
   return { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: true, gainedQueries: [], lostQueries: [] }
 }
 

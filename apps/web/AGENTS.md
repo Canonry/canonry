@@ -61,33 +61,28 @@ rated outcomes. Query rows keep their score
 beside its rating count. Empty classes show a short state. Coverage and confidence belong in closed Details disclosures;
 data-processing disclosure belongs in Enable/Manage sentiment.
 
-Simple projects render the existing `OverviewBrief`, `VisibilityTrendSection`,
-competitive summary, and `EvidenceTable` directly, including in embeds and
-when an unpublished Advanced draft exists. Do not replace that layout with
-`VisibilityWorkspace` when a unified report becomes available. Published
-Advanced plans retain their own report workspace and scope controls.
+Simple projects render `VisibilityTrendSection` ("AI answers over time"), the
+competitive summary, and `EvidenceTable` directly, in that order, including in
+embeds and when an unpublished Advanced draft exists. The trend chart is the
+first section after the tabs; do not put a summary card or table above it. Do
+not replace that layout with `VisibilityWorkspace` when a unified report
+becomes available. Published Advanced plans retain their own report workspace
+and scope controls.
 
-`OverviewBrief` is the Visibility card: a short title with the latest sweep's
-time, one row per query class (never a pooled figure) with Mentioned and Cited
-query counts and one status word, and everything else in the shared closed
-`Disclosure` ("Details"). `lib/answer-movement.ts` owns the rows, the status
-words and the answer-level movement. The rows read the latest completed
-sweep's own `GET /runs/:id` snapshots, never the capped timeline alone: newer
-failed sweeps can fill that window, and a query answered there still gets its
-row (`buildEvidenceFromTimeline`). The timeline holds runs of every status, so
-a row's state and change read its history only up to the snapshot's own run; a
-cancelled run or a sweep still running after it never moves the row. An engine
-answer counts only when it was observed in both sweeps with a mention result in
-each. The card's time, "Compared with" line, the trend's sweep dates and the
-sentiment backfill's sweeps read `visibilitySweeps` (every completed or partial
-sweep, from the whole run list), never the five-row `recentRuns`. Probe runs
-never set the card's time or its "Sweep running" state; the Run button still
-waits for them.
-Non-brand counts here and on By engine read amber below 70% of their base and
-green from it (`coverageTone`), never red; branded and unclassified counts are
-never toned.
+The query table's evidence rows read the latest completed sweep's own
+`GET /runs/:id` snapshots, never the capped timeline alone: newer failed sweeps
+can fill that window, and a query answered there still gets its row
+(`buildEvidenceFromTimeline`). The timeline holds runs of every status, so a
+row's state and change read its history only up to the snapshot's own run; a
+cancelled run or a sweep still running after it never moves the row. The
+trend's sweep dates and the sentiment backfill's sweeps read `visibilitySweeps`
+(every completed or partial sweep, from the whole run list), never the five-row
+`recentRuns`.
+Non-brand counts on By engine read amber below 70% of their base and green from
+it (`coverageTone` in `lib/answer-movement.ts`), never red; branded and
+unclassified counts are never toned.
 
-`VisibilityTrendSection` ("AI answers over time") uses the same card shape: the
+`VisibilityTrendSection` ("AI answers over time") is an AI Visibility card: the
 latest point's date and sweep count, one headline figure with its base, the
 chart, and a closed Details. It prints no change figure while the first and
 latest points measured different queries (`querySetShift`), except mention

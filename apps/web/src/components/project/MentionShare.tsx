@@ -122,7 +122,7 @@ export interface ScopeGaps {
 /**
  * One scope's gap lanes from GET /analytics/gaps (the latest sweep). The
  * endpoint carries no class, so each query is classified by its text with the
- * page's classifier, the same one the Visibility card uses. The denominator is
+ * page's classifier, the same one the trend and By engine use. The denominator is
  * every query the endpoint classified, since every query lands in exactly one
  * citation lane.
  */

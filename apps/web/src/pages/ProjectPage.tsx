@@ -15,7 +15,7 @@ import {
   type QueryWorkspace,
 } from '../lib/project-scope.js'
 import { useQueryClient } from '@tanstack/react-query'
-import { compileQueryClassifier, effectiveBrandNames, formatPercent, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RatioUnits, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
+import { compileQueryClassifier, effectiveBrandNames, formatPercent, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RatioUnits, RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
 import type { MeasurementOverviewSort } from '@ainyc/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
@@ -25,7 +25,6 @@ import { useDrawer } from '../hooks/use-drawer.js'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet.js'
 import { WriteButton } from '../components/shared/AccessControls.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
-import { Disclosure } from '../components/shared/Disclosure.js'
 import { CompetitiveCard, type CompetitiveGapsState } from '../components/project/MentionShare.js'
 import {
   CompetitorLandscape,
@@ -63,26 +62,14 @@ import {
   areV2OverviewPagesCompatible,
 } from '../components/project/advanced-measurement/v2-overview-adapter.js'
 import { ReportPage } from './ReportPage.js'
-import { formatSweepInstant, formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric } from '../lib/format-helpers.js'
-import {
-  buildAnswerMovement,
-  buildVisibilityRows,
-  coverageTone,
-  groupAnswerChanges,
-  signalMovePhrase,
-  visibilityStatusLabel,
-  VISIBILITY_ROW_LABEL,
-  VISIBILITY_ROW_ORDER,
-  type QueryClassLookup,
-  type VisibilityRowStatus,
-} from '../lib/answer-movement.js'
-import { competitorFrameKey, providerDisplayName } from '../lib/visibility-trend-helpers.js'
-import { METRIC_TONE_TEXT_CLASS } from '../lib/tone-helpers.js'
+import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric } from '../lib/format-helpers.js'
+import type { QueryClassLookup } from '../lib/answer-movement.js'
+import { competitorFrameKey } from '../lib/visibility-trend-helpers.js'
 import { addToast } from '../lib/toast-store.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
 import { ProjectEngineSettingsSection } from '../components/project/ProjectEngineSettingsSection.js'
-import { ManagedSweepStatus, MANAGED_SWEEPS_COPY, managedSweepDate } from '../components/project/ManagedSweepStatus.js'
+import { ManagedSweepStatus, managedSweepDate } from '../components/project/ManagedSweepStatus.js'
 import { ScheduleSection } from '../components/project/ScheduleSection.js'
 import { NotificationsSection } from '../components/project/NotificationsSection.js'
 import {
@@ -154,7 +141,7 @@ import {
   normalizeProviderName,
   resolveAiVisibilityProviderReadiness,
 } from '../lib/ai-visibility-provider-readiness.js'
-import type { CitationInsightVm, ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
+import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
 export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'queries' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
 
@@ -1177,192 +1164,6 @@ function OverviewCompetitive({
   )
 }
 
-// One status word per row. Only movement is tone-coloured; the first sweep of a
-// class is news, not a result.
-const VISIBILITY_STATUS_TONE: Record<VisibilityRowStatus['kind'], string> = {
-  'first-sweep': 'text-info-300',
-  'not-compared': 'text-secondary',
-  'no-change': 'text-secondary',
-  up: 'text-positive-400',
-  down: 'text-negative-400',
-  changed: 'text-caution-400',
-}
-
-/** "4 of 11 (36.4%)": the count, its class base and its share of it. On a phone the share drops under the count. */
-function VisibilityCount({ count, total, toneClass }: { count: number; total: number; toneClass: string }) {
-  return (
-    <>
-      <span className={`av-n ${toneClass}`}>{count}</span>{' '}
-      <span className="av-of">of {total}</span>
-      {total > 0 ? <>{' '}<span className="av-of max-sm:block">({formatPercent(count / total)})</span></> : null}
-    </>
-  )
-}
-
-/** "A, B, C", plus how many more when some names could not be resolved. */
-function queryNameList(names: readonly string[], count: number): string {
-  const unnamed = count - names.length
-  return (unnamed > 0 ? [...names, `${unnamed} more`] : names).join(', ')
-}
-
-function OverviewBrief({
-  model,
-  evidence,
-  classify,
-  evidenceState,
-  sweepRunning,
-  hasVisibilityBaseline,
-}: {
-  model: ProjectCommandCenterVm
-  /** The Simple evidence rows, each engine's latest answer with its run history. */
-  evidence: readonly CitationInsightVm[]
-  classify: QueryClassLookup
-  evidenceState: 'loading' | 'error' | 'ready'
-  /** A real sweep in flight. A spot check (probe) never flips the card. */
-  sweepRunning: boolean
-  hasVisibilityBaseline: boolean
-}) {
-  const comparison = model.movementComparison
-  // From the whole run list: newer failed runs can fill `recentRuns`.
-  const latestBaselineSweep = model.visibilitySweeps.at(0)
-  const partialCoverage = model.mentionSummary.providerCoverage
-
-  const rows = useMemo(() => buildVisibilityRows({
-    evidence,
-    mentionMovement: model.mentionMovement,
-    citationMovement: model.citationMovement,
-    comparison,
-    classify,
-  }), [evidence, model.mentionMovement, model.citationMovement, comparison, classify])
-  const answers = useMemo(() => buildAnswerMovement({
-    evidence,
-    previousRunAt: comparison.previousRunAt,
-    addedQueries: comparison.addedQueries,
-    classify,
-  }), [evidence, comparison.previousRunAt, comparison.addedQueries, classify])
-
-  const sweepLabel = !comparison.hasPreviousRun ? 'First sweep' : latestBaselineSweep?.startedAt ?? null
-  const header = sweepRunning
-    ? 'Sweep running'
-    : !hasVisibilityBaseline
-      ? 'No sweep yet'
-      : sweepLabel && partialCoverage ? `${sweepLabel} · partial` : sweepLabel
-
-  const details: React.ReactNode[] = []
-  if (hasVisibilityBaseline && comparison.hasPreviousRun && comparison.previousRunAt) {
-    const previous = formatSweepInstant(comparison.previousRunAt, latestBaselineSweep?.createdAt)
-    details.push(comparison.comparableQueryCount > 0
-      ? <>Compared with the <strong>{previous}</strong> sweep, same <strong>{comparison.comparableQueryCount}</strong> {comparison.comparableQueryCount === 1 ? 'query' : 'queries'}</>
-      : <>Compared with the <strong>{previous}</strong> sweep, no queries in both</>)
-  }
-  for (const row of rows) {
-    if (row.status.kind !== 'changed' || !row.mention || !row.citation) continue
-    details.push(`${VISIBILITY_ROW_LABEL[row.key]}: mentioned ${signalMovePhrase(row.mention)}, cited ${signalMovePhrase(row.citation)}`)
-  }
-  // Answer counts stay per class, like the rows: a label only when two show.
-  const answerKeys = VISIBILITY_ROW_ORDER.filter(key => (answers.byRow.get(key)?.total ?? 0) > 0)
-  for (const key of answerKeys) {
-    const counts = answers.byRow.get(key)!
-    details.push(
-      <>
-        {answerKeys.length > 1 ? `${VISIBILITY_ROW_LABEL[key]} answers` : 'Answers'}: mentioned <strong>{counts.mentionedNow} of {counts.total}</strong> (was {counts.mentionedBefore}), cited <strong>{counts.citedNow} of {counts.total}</strong> (was {counts.citedBefore})
-      </>,
-    )
-  }
-  for (const group of groupAnswerChanges(answers.changes)) {
-    const engine = group.location ? `${providerDisplayName(group.provider)} (${group.location})` : providerDisplayName(group.provider)
-    details.push(`${engine}: ${group.phrase} for ${group.queries.map(query => `"${query}"`).join(', ')}`)
-  }
-  if (comparison.addedQueryCount > 0) details.push(`Added: ${queryNameList(comparison.addedQueries, comparison.addedQueryCount)}`)
-  if (comparison.removedQueryCount > 0) details.push(`Removed: ${queryNameList(comparison.removedQueries, comparison.removedQueryCount)}`)
-  // GET /overview's coverage over every query together. It pools both classes,
-  // so it is labelled as such and never a row of the class grid.
-  const allQueries = [model.mentionSummary, model.visibilitySummary]
-    .filter(summary => summary.progress !== undefined)
-    .map(summary => `${summary.delta} (${summary.value})`)
-  if (hasVisibilityBaseline && allQueries.length > 0) details.push(`All queries: ${allQueries.join(', ')}`)
-  if (hasVisibilityBaseline && partialCoverage) details.push(<>Partial: <strong>{partialCoverage}</strong></>)
-
-  return (
-    <section className="overview-brief" aria-labelledby="overview-brief-title">
-      <div className="av-card-head">
-        {/* A sibling of the heading, so the heading's name stays the title. */}
-        <div className="inline-flex items-center">
-          <h2 id="overview-brief-title" className="av-card-title">Visibility</h2>
-          <InfoTooltip text="A query counts once if any engine mentions or cites you. Rows compare only queries in both sweeps." />
-        </div>
-        {header ? <p className="av-card-meta">{header}</p> : null}
-      </div>
-
-      {!hasVisibilityBaseline ? (
-        <div className="overview-brief-grid">
-          <div className="overview-brief-panel">
-            <p className="overview-brief-label">Coverage signals</p>
-            <dl className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <dt className="text-sm font-medium text-heading">Mentioned</dt>
-                <dd className="mt-1 text-sm text-secondary">Your brand or domain appears in the answer text.</dd>
-              </div>
-              <div>
-                <dt className="text-sm font-medium text-heading">Cited</dt>
-                <dd className="mt-1 text-sm text-secondary">Your domain appears in the engine's source list.</dd>
-              </div>
-            </dl>
-            <p className="mt-4 border-t border-subtle pt-4 text-sm font-medium text-strong">
-              {sweepRunning
-                ? 'Your first sweep is running. Results will appear when it completes.'
-                : isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Complete your first AI Visibility sweep to measure both signals.'}
-            </p>
-          </div>
-        </div>
-      ) : (
-        <div className="av-card-body">
-          {evidenceState === 'loading' ? (
-            <p role="status" className="text-sm text-secondary">Loading query results…</p>
-          ) : evidenceState === 'error' ? (
-            <p className="text-sm text-secondary">Could not load query results.</p>
-          ) : rows.length === 0 ? (
-            <p className="text-sm text-secondary">Query results unavailable.</p>
-          ) : (
-            <table className="av-grid" aria-label="Visibility by query type">
-              <thead>
-                <tr>
-                  <th scope="col"><span className="sr-only">Query type</span></th>
-                  <th scope="col">Mentioned</th>
-                  <th scope="col">Cited</th>
-                  <th scope="col"><span className="sr-only">Since last sweep</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(row => {
-                  const status = visibilityStatusLabel(row)
-                  // Only non-brand is a competitive read. Branded sits near 100% by
-                  // construction and unclassified pools both, so neither is tone-coloured.
-                  const toneClass = (count: number) => row.key !== 'non-brand'
-                    ? 'text-primary'
-                    : METRIC_TONE_TEXT_CLASS[partialCoverage ? 'caution' : coverageTone(count, row.total)]
-                  return (
-                    <tr key={row.key}>
-                      <th scope="row" className="av-row-label">{VISIBILITY_ROW_LABEL[row.key]}</th>
-                      <td><VisibilityCount count={row.mentioned} total={row.total} toneClass={toneClass(row.mentioned)} /></td>
-                      <td><VisibilityCount count={row.cited} total={row.total} toneClass={toneClass(row.cited)} /></td>
-                      <td>
-                        <span className={`av-status ${VISIBILITY_STATUS_TONE[row.status.kind]}`}>{status.word}</span>
-                        {status.suffix ? <>{' '}<span className="av-status text-muted">{status.suffix}</span></> : null}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-      <Disclosure items={details} />
-    </section>
-  )
-}
-
 function OverviewDisclosure({
   id,
   eyebrow,
@@ -2148,7 +1949,7 @@ function ProjectPageContent({
   const needsSimpleEvidence = tab === 'overview' && isSimpleOverview && !isMeasurementModeUnresolved
   const evidenceDashboard = useProjectDashboard(projectName, { evidence: needsSimpleEvidence })
   const visibilityEvidence = evidenceDashboard.commandCenter?.visibilityEvidence ?? model.visibilityEvidence
-  // One query classifier for the Visibility card and the trend. Evidence rows
+  // One query classifier for the trend and the class-split cards. Evidence rows
   // carry the class the query table shows; anything else (a removed query, a
   // stored basket key) goes through the brand matcher the metrics route uses.
   const classifyQuery = useMemo<QueryClassLookup>(() => {
@@ -2365,13 +2166,6 @@ function ProjectPageContent({
         : 'ready' as const
   const hasActiveVisibilitySweep = (model?.recentRuns ?? []).some(
     r => r.kind === RunKinds['answer-visibility'] && (r.status === RunStatuses.running || r.status === RunStatuses.queued),
-  )
-  // The Visibility card reports sweeps only. A spot check (probe) still blocks
-  // the Run button above, because the server refuses a sweep while one runs.
-  const visibilitySweepRunning = model.recentRuns.some(
-    r => r.kind === RunKinds['answer-visibility']
-      && r.trigger !== RunTriggers.probe
-      && (r.status === RunStatuses.running || r.status === RunStatuses.queued),
   )
   // `queryCounts` is derived from the authoritative latest completed/partial
   // visibility-run snapshot group. `recentRuns` is only a five-row
@@ -3093,15 +2887,6 @@ function ProjectPageContent({
             canEdit={canWrite && !isEmbed() && !isActiveMeasurementPlanLoading && !isActiveMeasurementPlanError}
             simpleOverview={(
               <>
-          <OverviewBrief
-            model={model}
-            evidence={visibilityEvidence}
-            classify={classifyQuery}
-            evidenceState={evidenceDashboard.evidenceLoading ? 'loading' : evidenceDashboard.evidenceError ? 'error' : 'ready'}
-            sweepRunning={visibilitySweepRunning}
-            hasVisibilityBaseline={hasVisibilityBaseline}
-          />
-
           <section className="page-section-divider">
             <VisibilityTrendSection
               projectName={model.project.name}

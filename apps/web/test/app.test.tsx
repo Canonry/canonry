@@ -211,13 +211,13 @@ test('project route renders a concise visibility summary with progressive detail
   // The route/embed token remains `technical-aeo`; only the product label changes.
   expect(html).toMatch(/Site Health/)
   expect(html).toMatch(/Queries/)
-  // The Visibility card: a short title, the sweep state, and the rest behind a
-  // closed Details. The queued sweep is a real one, so the card says so.
-  // The title's ⓘ sits beside the heading, so the heading's name stays "Visibility".
-  expect(html).toMatch(/<h2 id="overview-brief-title" class="av-card-title">Visibility<\/h2>/)
-  expect(html).toContain('<p class="av-card-meta">Sweep running</p>')
+  // The trend chart is the first card after the tabs: no Visibility card above it.
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  expect(doc.getElementById('overview-brief-title')).toBeNull()
+  expect([...doc.querySelectorAll('.av-card-title')].map(title => title.textContent)).toEqual([
+    'AI answers over time', 'Where competitors beat you', 'By engine', 'Past sweeps', 'Competitors over time',
+  ])
   expect(html).toMatch(/<details class="av-details"><summary>Details<\/summary>/)
-  expect(html).toContain('Added: dental implants downtown brooklyn')
   expect(html).not.toMatch(/Coverage now|Tracking scope changed|comparable queries/)
   expect(html).toMatch(/Mentioned/)
   expect(html).toMatch(/Cited/)
