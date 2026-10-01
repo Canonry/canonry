@@ -362,6 +362,8 @@ describe('agent routes with viewers allowed', () => {
         model: 'secret-model-id', responseId: 'resp_1', usage: { cost: { total: 0.01 } }, errorMessage: 'org org-123 rate limited', stopReason: 'stop', timestamp: 3,
         // Fields pi-ai 0.83+ adds: the model that actually served, provider diagnostics, thinking level, raw stop reason.
         responseModel: 'secret-served-model', diagnostics: [{ note: 'secret-diagnostic' }], providerThinkingLevel: 'secret-level', rawStopReason: 'secret-raw-stop',
+        // pi-agent-core 1.0 stamps the thinking level the loop requested on every answer.
+        thinkingLevel: 'secret-requested-reasoning',
       },
     ] as never
     turn.release()
@@ -370,7 +372,7 @@ describe('agent routes with viewers allowed', () => {
 
     expect(res.statusCode).toBe(200)
     expect(res.body).toContain('Mentioned in 3 of 4 answers.')
-    for (const hidden of ['secret-model-id', 'deepinfra', 'openai-completions', 'resp_1', 'cost', 'org-123', 'payload', 'secret-served-model', 'secret-diagnostic', 'secret-level', 'secret-raw-stop']) {
+    for (const hidden of ['secret-model-id', 'deepinfra', 'openai-completions', 'resp_1', 'cost', 'org-123', 'payload', 'secret-served-model', 'secret-diagnostic', 'secret-level', 'secret-raw-stop', 'secret-requested-reasoning']) {
       expect(res.body).not.toContain(hidden)
     }
   })

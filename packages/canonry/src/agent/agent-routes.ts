@@ -61,8 +61,12 @@ function viewerAeroCaller(request: FastifyRequest, opts: AgentRoutesOptions): st
   return principal?.kind === 'user' && principal.role === UserRoles.viewer ? principal.id : null
 }
 
-/** Assistant-message fields a viewer never receives: which model answered, and what it cost. */
-const VIEWER_HIDDEN_ASSISTANT_KEYS = ['api', 'provider', 'model', 'responseId', 'usage', 'responseModel', 'diagnostics', 'providerThinkingLevel', 'rawStopReason'] as const
+/**
+ * Assistant-message fields a viewer never receives: which model answered, how
+ * hard it was asked to reason, and what it cost. pi-agent-core 1.0 stamps
+ * `thinkingLevel` on every answer, so it sits beside `providerThinkingLevel`.
+ */
+const VIEWER_HIDDEN_ASSISTANT_KEYS = ['api', 'provider', 'model', 'responseId', 'usage', 'responseModel', 'diagnostics', 'providerThinkingLevel', 'thinkingLevel', 'rawStopReason'] as const
 const VIEWER_ERROR_MESSAGE = 'Aero could not finish this answer. Try again, or ask an administrator if it keeps happening.'
 
 /**
