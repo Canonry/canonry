@@ -1,19 +1,36 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect } from 'vitest'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai'
+import type { ToolResultMessage } from '@earendil-works/pi-ai'
 import {
   loadExternalMcpTools,
   connectStreamableHttp,
   type RemoteMcpClient,
 } from '../src/agent/remote-mcp.js'
-import { parseExternalMcpEnv, type ExternalMcpServerConfig } from '../src/config.js'
+import { createAeroSession } from '../src/agent/session.js'
+import { parseExternalMcpEnv, type CanonryConfig, type ExternalMcpServerConfig } from '../src/config.js'
+import type { ApiClient } from '../src/client.js'
+import { registerAeroFaux, type AeroFaux } from './helpers/aero-faux.js'
 
 const READ_TOOL = 'demo_read_artifact'
 const WRITE_TOOL = 'demo_write_thing'
 const EXCLUDED_TOOL = 'demo_excluded_tool'
+const FAILING_TOOL = 'demo_failing_read'
 const KNOWN_ARTIFACT = { reasonCode: 'R7', value: 42 }
+const REMOTE_ERROR_TEXT = 'upstream index unavailable'
+
+/** Link a real MCP SDK Client to `server` over an InMemory transport pair. */
+async function connectInMemory(server: McpServer): Promise<RemoteMcpClient> {
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+  await server.connect(serverTransport)
+
+  const client = new Client({ name: 'test-aero', version: '1.0.0' }, { capabilities: {} })
+  await client.connect(clientTransport)
+  return client as unknown as RemoteMcpClient
+}
 
 /**
  * Stand up an in-process MCP server exposing three tools:
@@ -61,12 +78,7 @@ async function makeInMemoryServerClient(): Promise<RemoteMcpClient> {
     async () => ({ content: [{ type: 'text', text: 'should-not-load' }] }),
   )
 
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
-  await server.connect(serverTransport)
-
-  const client = new Client({ name: 'test-aero', version: '1.0.0' }, { capabilities: {} })
-  await client.connect(clientTransport)
-  return client as unknown as RemoteMcpClient
+  return connectInMemory(server)
 }
 
 const SERVER: ExternalMcpServerConfig = { url: 'http://remote.invalid/mcp', token: 'tok_abc', label: 'demo' }
@@ -137,6 +149,100 @@ describe('loadExternalMcpTools', () => {
     )
     // The good server's read tool still loads; the bad one is skipped silently.
     expect(tools.map((t) => t.name)).toEqual([READ_TOOL])
+  })
+})
+
+/** A stub remote client advertising one read-only tool whose call answers `result`. */
+function stubClient(result: unknown): RemoteMcpClient {
+  return {
+    listTools: async () => ({
+      tools: [{ name: FAILING_TOOL, inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true } }],
+    }),
+    callTool: async () => result,
+  }
+}
+
+describe('remote tool errors', () => {
+  it('flags a remote isError result as a failed AgentToolResult and keeps the content the model sees', async () => {
+    // The MCP SDK hands a tool-level failure back as a CallToolResult with
+    // isError: true rather than throwing, so the flag is the only failure signal.
+    const envelope = { content: [{ type: 'text', text: REMOTE_ERROR_TEXT }], isError: true }
+    const [tool] = await loadExternalMcpTools([SERVER], { connect: async () => stubClient(envelope) })
+
+    const result = await tool!.execute('call-err', {})
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(envelope, null, 2) }])
+    expect(result.details).toEqual(envelope)
+  })
+
+  it.each([
+    ['a plain result', { content: [{ type: 'text', text: 'ok' }] }],
+    ['an explicit isError: false', { content: [{ type: 'text', text: 'ok' }], isError: false }],
+    ['a non-boolean isError', { content: [{ type: 'text', text: 'ok' }], isError: 'true' }],
+    ['a null result', null],
+    ['a non-object result', 'ok'],
+  ])('leaves %s unflagged', async (_label, envelope) => {
+    const [tool] = await loadExternalMcpTools([SERVER], { connect: async () => stubClient(envelope) })
+
+    const result = await tool!.execute('call-ok', {})
+    expect(result.isError ?? false).toBe(false)
+    expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(envelope, null, 2) }])
+  })
+})
+
+describe('remote tool errors through the agent loop', () => {
+  let faux: AeroFaux
+
+  beforeEach(() => {
+    faux = registerAeroFaux({ api: 'aero-remote-mcp-test', provider: 'aero-remote-mcp-test', models: [{ id: 'test' }] })
+  })
+
+  afterEach(() => {
+    faux.unregister()
+  })
+
+  it('reports a failed remote call as an error on tool_execution_end and the toolResult message', async () => {
+    // A real MCP server: the read tool succeeds, the failing tool throws, which
+    // the SDK server turns into an isError CallToolResult carrying the message.
+    const connect = async (): Promise<RemoteMcpClient> => {
+      const server = new McpServer({ name: 'demo-remote', version: '1.0.0' })
+      server.registerTool(
+        READ_TOOL,
+        { description: 'Read a known artifact (read-only).', inputSchema: {}, annotations: { readOnlyHint: true } },
+        async () => ({ content: [{ type: 'text', text: JSON.stringify(KNOWN_ARTIFACT) }] }),
+      )
+      server.registerTool(
+        FAILING_TOOL,
+        { description: 'A read-only tool whose backend is down.', inputSchema: {}, annotations: { readOnlyHint: true } },
+        async () => {
+          throw new Error(REMOTE_ERROR_TEXT)
+        },
+      )
+      return connectInMemory(server)
+    }
+    const tools = await loadExternalMcpTools([SERVER], { connect })
+    expect(tools.map((t) => t.name)).toEqual([READ_TOOL, FAILING_TOOL])
+
+    const config = { apiUrl: 'http://localhost:4100', database: ':memory:', apiKey: 'cnry_test', providers: { claude: { apiKey: 'anthropic-key' } } } as CanonryConfig
+    const agent = createAeroSession({ projectName: 'demo', client: {} as ApiClient, config, systemPromptOverride: 'You are a test agent.', tools })
+    agent.state.model = faux.getModel('test')!
+    const ended: Record<string, boolean> = {}
+    agent.subscribe((event) => {
+      if (event.type === 'tool_execution_end') ended[event.toolName] = event.isError
+    })
+    faux.setResponses([
+      fauxAssistantMessage([fauxToolCall(READ_TOOL, {}), fauxToolCall(FAILING_TOOL, {})], { stopReason: 'toolUse' }),
+      fauxAssistantMessage('The remote read failed.'),
+    ])
+    await agent.prompt('Read both')
+
+    expect(ended).toEqual({ [READ_TOOL]: false, [FAILING_TOOL]: true })
+    const results = agent.state.messages.filter((m): m is ToolResultMessage => m.role === 'toolResult')
+    expect(Object.fromEntries(results.map((r) => [r.toolName, r.isError]))).toEqual({ [READ_TOOL]: false, [FAILING_TOOL]: true })
+    // The model still reads the remote server's own error text.
+    const failed = results.find((r) => r.toolName === FAILING_TOOL)!
+    const text = failed.content.find((c) => c.type === 'text') as { text: string } | undefined
+    expect(text?.text).toContain(REMOTE_ERROR_TEXT)
   })
 })
 
