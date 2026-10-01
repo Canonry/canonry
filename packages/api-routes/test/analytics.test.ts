@@ -1890,6 +1890,21 @@ describe('GET /projects/:name/analytics/sources — ranked + byProvider + classi
     expect(body.byProvider.gemini.entries.map((e: { domain: string }) => e.domain)).toContain('booking.com')
   })
 
+  it('ranks every entry by count over the whole scope, with equal counts sharing a rank', async () => {
+    const body = JSON.parse((await app.inject({ method: 'GET', url: '/api/v1/projects/rank-site/analytics/sources' })).payload)
+    type Entry = { domain: string; count: number; rank: number }
+    for (const list of [body.ranked, ...Object.values(body.byProvider)] as Array<{ entries: Entry[] }>) {
+      // Competition rank: one more than the domains cited strictly more often.
+      for (const entry of list.entries) expect(entry.rank).toBe(1 + list.entries.filter(other => other.count > entry.count).length)
+    }
+    const tied = (body.byProvider.gemini.entries as Entry[]).filter(entry => entry.count === 1)
+    expect(tied.length).toBeGreaterThan(1)
+    expect(new Set(tied.map(entry => entry.rank)).size).toBe(1)
+    // A limit trims the list, never the ranks.
+    const limited = JSON.parse((await app.inject({ method: 'GET', url: '/api/v1/projects/rank-site/analytics/sources?limit=2' })).payload)
+    expect((limited.ranked.entries as Entry[]).map(entry => entry.rank)).toEqual((body.ranked.entries as Entry[]).slice(0, 2).map(entry => entry.rank))
+  })
+
   it('credits a domain once per answer and reports answer shares over every answer in scope', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/projects/rank-site/analytics/sources' })
     const body = JSON.parse(res.payload)

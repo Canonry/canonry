@@ -1380,8 +1380,13 @@ function buildRankedList(
   all.sort((a, b) => b.count - a.count || a.domain.localeCompare(b.domain))
   const shownEntries = limit != null && limit < all.length ? all.slice(0, limit) : all
 
-  const entries: SourceRankEntry[] = shownEntries.map(d => ({
+  // Competition rank over the full list: domains with equal counts share a
+  // rank (1, 2, 2, 4), so a rank never orders a tie.
+  let rank = 0
+  const ranks = all.map((d, i) => (rank = i > 0 && d.count === all[i - 1]!.count ? rank : i + 1))
+  const entries: SourceRankEntry[] = shownEntries.map((d, i) => ({
     domain: d.domain,
+    rank: ranks[i]!,
     count: d.count,
     percentage: totalCitedSlots > 0 ? roundRatio(d.count / totalCitedSlots, RatioUnits.fraction) : 0,
     answerShare: answerTotal > 0 ? roundRatio(d.count / answerTotal, RatioUnits.fraction) : 0,

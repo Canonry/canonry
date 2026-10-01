@@ -60,6 +60,10 @@ describe('aeroProjectShapePrompt', () => {
     const shape = aeroProjectShape(db, 'proj_acme')
     expect(shape.prompt).toContain('an Advanced Measurement portfolio (plan revision 7) with 3 Properties in 3 groups (1 top-level, 2 nested), 2 branded and 2 non-brand queries')
     expect(shape.prompt).toContain('never pool branded and non-brand')
+    // Grounding rules the benchmark showed a cheaper model needs spelled out.
+    for (const rule of ['mentionWithinNoise, citationWithinNoise', 'Quote every coverage figure with its counts', 'ownDomainAnswers', 'Property names often carry the brand']) {
+      expect(shape.prompt).toContain(rule)
+    }
     // Every tool the prompt tells Aero to start with is pinned visible.
     for (const tool of shape.pinned) expect(shape.prompt).toContain(tool)
     expect(shape.pinned).toContain('canonry_measurement_portfolio_summary')
