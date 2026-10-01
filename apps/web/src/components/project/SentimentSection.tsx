@@ -19,9 +19,9 @@ const CLASS_LABEL: Record<QueryClass, string> = { branded: 'Branded', 'non-brand
 /**
  * Fewer rated answers than this and a class line's Favorable column shows the
  * empty value instead of a favorable share, and the portfolio figure reads "too
- * few": one or two ratings swing the share from 0% to 100%. The rating count
- * still shows, and the rated counts stay in Details. Query rows keep their
- * share beside its rating count.
+ * few": one or two ratings swing the share from 0% to 100%. The Rated column
+ * still shows, its rating count in its tooltip, and the rated counts stay in
+ * Details. Query rows keep their share beside its rating count.
  */
 export const SENTIMENT_MIN_RATED = 10
 export function showsFavorableShare(judged: number): boolean { return judged >= SENTIMENT_MIN_RATED }
@@ -32,7 +32,11 @@ export const SENTIMENT_COPY = {
   /** Why a Favorable column is empty: its tooltip, its screen-reader text and the Details row. */
   minRated: `Shown from ${SENTIMENT_MIN_RATED} ratings`,
   partial: 'Partial results',
-  columns: { favorable: 'Favorable', ratings: 'Ratings' },
+  columns: { favorable: 'Favorable', rated: 'Rated' },
+  /** The Rated column header's tooltip. */
+  rated: 'Share of answers rated favorable, mixed or unfavorable',
+  /** Why a Rated column is empty: its tooltip and its screen-reader text. */
+  noAnswers: 'No answers yet',
   overall: 'Overall sentiment is the share of favorable judgments across branded and non-brand queries. Each saved answer-subject assessment counts once. Factual, unmentioned, unsupported, and unclassified answers are excluded.',
   favorable: 'The favorable share of favorable, mixed and unfavorable ratings. Each rating evaluates one subject in an answer. Branded and non-brand queries are measured separately.',
 } as const
@@ -85,9 +89,28 @@ function FavorableCell({ value, label }: { value: Pick<SentimentHeadline, 'score
   </div>
 }
 
-/** The Ratings column: always the class's rating count and nothing else, 0 included. */
-function RatingsCell({ judged }: { judged: number }) {
-  return <p className="sentiment-class-ratings"><span>{judged}</span><span className="sr-only">{judged === 1 ? ' rating' : ' ratings'}</span></p>
+/**
+ * The Rated column's figure: the share of a class's answers that got a rating
+ * (favorable, mixed or unfavorable), its judged over its selected in the shared
+ * percent format, and the count behind it ("16 of 20 answers rated"). With no
+ * answers it is the app's empty value, and its detail says why.
+ */
+export function sentimentRatedShare({ judged, selected }: Pick<SentimentHeadline['coverage'], 'judged' | 'selected'>): { display: string; detail: string } {
+  if (selected <= 0) return { display: EM_DASH, detail: SENTIMENT_COPY.noAnswers }
+  return { display: formatPercent(judged / selected, RatioUnits.fraction), detail: `${judged} of ${selected} ${selected === 1 ? 'answer' : 'answers'} rated` }
+}
+
+/**
+ * The Rated column: only the share of answers rated, or the muted empty value
+ * with no answers. The count behind it is its tooltip and its screen-reader
+ * text, and Details lists it as "Rated assessments".
+ */
+function RatedCell({ coverage, label }: { coverage: Pick<SentimentHeadline['coverage'], 'judged' | 'selected'>; label: string }) {
+  const { display, detail } = sentimentRatedShare(coverage)
+  const empty = coverage.selected <= 0
+  return <div role="group" aria-label={`${label} share rated`} className="sentiment-class-ratings">
+    <span aria-hidden="true" className={empty ? 'sentiment-class-empty' : undefined} title={detail}>{display}</span><span className="sr-only">{empty ? detail : `${display}, ${detail}`}</span>
+  </div>
 }
 
 /**
@@ -281,8 +304,8 @@ export function SentimentLegend({ queryClass = 'all' }: { queryClass?: QueryClas
  * One line per query class across the full width, under a small header that
  * names the figure columns: the class label and ⓘ, a stacked bar of the rated
  * outcomes that takes all the remaining space, then Favorable (the share),
- * Ratings (the rating count) and the class's Details chevron, each in a fixed
- * column. Every line uses the same columns, so the bars start and end level
+ * Rated (the share of answers rated) and the class's Details chevron, each in
+ * a fixed column. Every line uses the same columns, so the bars start and end level
  * and each figure sits under its header. A note under the bar carries a state
  * or partial results when there is one. Branded and non-brand keep their own
  * bars and denominators. The legend follows the last bar unless the caller
@@ -297,7 +320,7 @@ export function SentimentHeadlines({ queryClass = 'all', legend = true }: { quer
   // The header names columns only a loaded class fills. Each figure also names itself to a screen reader.
   const columns = scope.hasSourceEvidence && classes.some(value => scope.summaries[value].data)
   return <div className="sentiment-headlines" role="group" aria-label="Favorable answer scores">
-    {columns && <div className="sentiment-headlines-columns" aria-hidden="true"><span className="sentiment-headlines-favorable">{SENTIMENT_COPY.columns.favorable}</span><span className="sentiment-headlines-ratings">{SENTIMENT_COPY.columns.ratings}</span></div>}
+    {columns && <div className="sentiment-headlines-columns" aria-hidden="true"><span className="sentiment-headlines-favorable">{SENTIMENT_COPY.columns.favorable}</span><span className="sentiment-headlines-ratings" title={SENTIMENT_COPY.rated}>{SENTIMENT_COPY.columns.rated}</span></div>}
     {classes.map(value => {
       const query = scope.summaries[value]
       return <div key={value} className="sentiment-class" data-query-class={value}>
@@ -305,7 +328,7 @@ export function SentimentHeadlines({ queryClass = 'all', legend = true }: { quer
         {!scope.hasSourceEvidence ? <p className="sentiment-class-status">No saved answers.</p> : query.data ? <>
           <SentimentBar value={query.data} label={CLASS_LABEL[value]} />
           <FavorableCell value={query.data} label={CLASS_LABEL[value]} />
-          <RatingsCell judged={query.data.coverage.judged} />
+          <RatedCell coverage={query.data.coverage} label={CLASS_LABEL[value]} />
           <SentimentClassNote value={query.data} />
           <SentimentHeadlineDetails value={query.data} queryClass={value} open={openClass === value} setOpenClass={setOpenClass} />
         </> : query.isError ? <p role="alert" className="sentiment-class-status">Couldn’t load sentiment. <Button variant="ghost" onClick={() => { void query.refetch() }}>Retry</Button></p> : <p role="status" className="sentiment-class-status">Loading sentiment…</p>}

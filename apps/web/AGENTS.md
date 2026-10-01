@@ -55,11 +55,15 @@ Hide the metric and its layout slot when no judged overall score exists. Keep
 counts, class scope, confidence and provisional status in its tooltip; detailed
 sentiment analysis retains separate branded and non-brand populations. Each class
 headline is one full-width line under a small eyebrow header ("Favorable",
-"Ratings", right-aligned over their columns, `aria-hidden`): the class label and
+"Rated", right-aligned over their columns, `aria-hidden`; Rated's `title` is
+"Share of answers rated favorable, mixed or unfavorable"): the class label and
 its ⓘ, a stacked bar of the class's favorable, mixed and unfavorable counts that
 takes all remaining width, then three fixed columns. Favorable holds only the
-server's score; Ratings holds only the rating count (0 included), never a second
-metric or a sentence; the last column is the class's Details chevron, a
+server's score; Rated holds only the share of answers rated, `coverage.judged`
+over `coverage.selected` in `formatPercent` (Tank Air branded 16 of 20 reads
+80.0%), with the count ("16 of 20 answers rated") as its tooltip and
+screen-reader text and the empty value with "No answers yet" when nothing was
+selected, never a second metric or a sentence; the last column is the class's Details chevron, a
 chevron-only button named "Branded details" / "Non-brand details". A class's
 state while it has no ratings, or "Partial results", is a note under its bar.
 The header and lines share one column grid (subgrid), so the bars start and end
