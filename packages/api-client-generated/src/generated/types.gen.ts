@@ -7910,6 +7910,8 @@ export type MeasurementChangesResponse = {
             citationAnswersDelta?: number | null;
             denominatorChanged?: boolean;
             withinNoise?: boolean;
+            mentionWithinNoise?: boolean | null;
+            citationWithinNoise?: boolean | null;
         }>;
         totalProperties: number;
         truncated: boolean;
@@ -8496,6 +8498,7 @@ export type MeasurementPortfolioSummaryResponse = {
             answers: number;
         }>;
         domainTotal: number;
+        ownDomainAnswers?: number;
     } | null;
     mentionRanking: {
         eligiblePropertyCount: number;
@@ -13597,6 +13600,7 @@ export type SourceBreakdownDto = {
         domainTotal: number;
         entries: Array<{
             domain: string;
+            rank?: number;
             count: number;
             percentage: number;
             answerShare?: number;
@@ -13622,6 +13626,7 @@ export type SourceBreakdownDto = {
             domainTotal: number;
             entries: Array<{
                 domain: string;
+                rank?: number;
                 count: number;
                 percentage: number;
                 answerShare?: number;

@@ -23,6 +23,7 @@ import {
   RunStatuses,
   RunTriggers,
   brandKeyFromText,
+  effectiveDomains,
   hostMatchesAnyDomain,
   hostOf,
   measurementChangesQuerySchema,
@@ -745,6 +746,7 @@ function portfolioResponse(
   active: ActiveMeasurementPlan,
   plan: MeasurementPlanV2,
   query: MeasurementPortfolioSummaryQuery,
+  ownDomains: readonly string[],
 ): MeasurementPortfolioSummaryResponse {
   const group = query.groupKey === undefined ? undefined : requireGroup(plan, query.groupKey)
   const run = selectMeasurementQuestionRun(db, active.version.projectId, active, query.runId)
@@ -844,7 +846,7 @@ function portfolioResponse(
     },
     weakestProperties: rows,
     tiedAtWeakest: tie.summary,
-    weakestAnswerSources: weakestAnswerSources([...displayed, ...tie.rows]),
+    weakestAnswerSources: weakestAnswerSources([...displayed, ...tie.rows], ownDomains),
     mentionRanking: mentionRanking(ranked, limit),
     ...marketRollup(plan, { run, evaluator }, group, includeNestedMarkets),
     totalProperties: ranked.length,
@@ -950,10 +952,14 @@ function tieNamedInstead(
 
 /**
  * Cited domains over the weakest Properties' measured answers, each stored
- * answer counted once, whether or not its text was captured.
+ * answer counted once, whether or not its text was captured. `ownDomainAnswers`
+ * counts the answers citing any of the project's own domains, so whether the
+ * brand's site was cited for these Properties is read, not inferred from a
+ * top-domains list (a Property's own citation coverage counts only its page).
  */
 function weakestAnswerSources(
   rows: readonly { targetKey: string; population: TargetPopulation }[],
+  ownDomains: readonly string[],
 ): MeasurementPortfolioAnswerSources {
   const properties = new Set<string>()
   const answers = new Map<string, SourceAnswer>()
@@ -962,7 +968,11 @@ function weakestAnswerSources(
     for (const answer of row.population.sourceAnswers) answers.set(answer.snapshot.id, answer)
   }
   const domains = domainRows([...answers.values()], MEASUREMENT_PORTFOLIO_ANSWER_SOURCES_LIMIT)
-  return { properties: properties.size, answers: answers.size, domains: domains.rows, domainTotal: domains.total }
+  let ownDomainAnswers = 0
+  for (const answer of answers.values()) {
+    if ([...answerDomains(answer)].some(host => hostMatchesAnyDomain(host, ownDomains))) ownDomainAnswers++
+  }
+  return { properties: properties.size, answers: answers.size, domains: domains.rows, domainTotal: domains.total, ownDomainAnswers }
 }
 
 function propertyCompetitorsResponse(
@@ -1192,6 +1202,13 @@ export interface PropertyMove {
   denominatorChanged: boolean
   /** Every measured move is at most `MEASUREMENT_CHANGES_NOISE_ANSWERS` answers. */
   withinNoise: boolean
+  /**
+   * The same rule per signal: a Property beyond noise overall can still have
+   * one signal that moved two answers or fewer. Null when that signal cannot
+   * be sized (measured in only one run, or over no answers).
+   */
+  mentionWithinNoise: boolean | null
+  citationWithinNoise: boolean | null
   /** A direction counts only signals that moved beyond noise. */
   bucket: MoveBucket
   /** Absolute sizes for the magnitude order; -1 when the signal cannot be sized. */
@@ -1261,11 +1278,15 @@ export function classifyPropertyMove(
     const down = directions.some(move => move < 0)
     bucket = up && down ? 'mixed' : up ? 'improved' : 'declined'
   }
+  const signalWithinNoise = (move: number | null): boolean | null =>
+    move === null ? null : Math.abs(move) <= MEASUREMENT_CHANGES_NOISE_ANSWERS
   return {
     mentionAnswersDelta: answersDelta(mention),
     citationAnswersDelta: answersDelta(citation),
     denominatorChanged: baseChanged(mention) || baseChanged(citation),
     withinNoise: changed && withinNoise,
+    mentionWithinNoise: signalWithinNoise(mentionMove),
+    citationWithinNoise: signalWithinNoise(citationMove),
     bucket,
     mentionSize: mentionMove === null ? -1 : Math.abs(mentionMove),
     citationSize: citationMove === null ? -1 : Math.abs(citationMove),
@@ -1389,6 +1410,8 @@ function changesResponse(
         citationAnswersDelta: move.citationAnswersDelta,
         denominatorChanged: move.denominatorChanged,
         withinNoise: move.withinNoise,
+        mentionWithinNoise: move.mentionWithinNoise,
+        citationWithinNoise: move.citationWithinNoise,
       },
       move,
     }]
@@ -1590,7 +1613,7 @@ export async function measurementPortfolioReadRoutes(app: FastifyInstance) {
         : request.query
       const query = parseLimitQuery(raw, measurementPortfolioSummaryQuerySchema, 'Invalid measurement portfolio summary query')
       const { active, plan } = activeV2Plan(app.db, project.id, 'Portfolio summary')
-      return portfolioResponse(app.db, active, plan, query)
+      return portfolioResponse(app.db, active, plan, query, effectiveDomains(project))
     },
   )
 

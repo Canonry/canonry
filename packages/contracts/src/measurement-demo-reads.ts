@@ -243,7 +243,15 @@ export const measurementPortfolioAnswerSourcesSchema = z.object({
   answers: measurementDemoCountSchema,
   domains: z.array(measurementPortfolioCountedDomainSchema).max(MEASUREMENT_PORTFOLIO_ANSWER_SOURCES_LIMIT),
   domainTotal: measurementDemoCountSchema,
+  /**
+   * Answers in the basis that cite any of the project's own domains, each
+   * answer once. Optional only so an older server's response still parses.
+   */
+  ownDomainAnswers: measurementDemoCountSchema.optional(),
 }).strict().superRefine((sources, ctx) => {
+  if (sources.ownDomainAnswers !== undefined && sources.ownDomainAnswers > sources.answers) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['ownDomainAnswers'], message: 'Own-domain answers cannot exceed the basis' })
+  }
   if (sources.domains.length > sources.domainTotal) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['domainTotal'], message: 'Total cannot be smaller than the returned domains' })
   }
@@ -706,6 +714,13 @@ export const measurementChangedPropertySchema = measurementDemoPropertySchema.ex
    * run only.
    */
   withinNoise: z.boolean().optional(),
+  /**
+   * The same noise rule for each signal alone: a Property beyond noise overall
+   * can still have one signal that moved two answers or fewer, which is not a
+   * gain or loss on its own. Null when that signal cannot be sized.
+   */
+  mentionWithinNoise: z.boolean().nullable().optional(),
+  citationWithinNoise: z.boolean().nullable().optional(),
 }).strict()
 export type MeasurementChangedProperty = z.output<typeof measurementChangedPropertySchema>
 

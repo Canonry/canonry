@@ -622,7 +622,12 @@ describe('MCP tool registry', () => {
     expect(getMeasurementChanges.mock.lastCall?.[1]).not.toHaveProperty('sort')
     await tool.handler(client, tool.inputSchema.parse({ project: 'acme', sort: 'label' }))
     expect(getMeasurementChanges.mock.lastCall?.[1]).toMatchObject({ sort: 'label' })
-    for (const phrase of ['largest move first', 'distribution counts every Property', 'withinNoise true means every move was 2 answers or fewer', 'denominatorChanged true means a rate was taken over a different number of answers', 'metricsByClass', 'totalProperties above the rows returned']) {
+    // The full agent page by default, so every move beyond noise shows; an explicit limit wins.
+    await tool.handler(client, tool.inputSchema.parse({ project: 'acme' }))
+    expect(getMeasurementChanges.mock.lastCall?.[1]).toMatchObject({ limit: 20 })
+    await tool.handler(client, tool.inputSchema.parse({ project: 'acme', limit: 5 }))
+    expect(getMeasurementChanges.mock.lastCall?.[1]).toMatchObject({ limit: 5 })
+    for (const phrase of ['largest move first', 'distribution counts every Property', 'withinNoise true means every move was 2 answers or fewer', 'mentionWithinNoise and citationWithinNoise apply the same rule to each signal alone', 'denominatorChanged true means a rate was taken over a different number of answers', 'metricsByClass', 'totalProperties above the rows returned']) {
       expect(tool.description).toContain(phrase)
     }
   })

@@ -111,7 +111,7 @@ describe('Aero tool results', () => {
     const tool = mcpToAgentTool({ ...summary, handler: async () => payload }, { client, projectName: 'demo' })
     const text = ((await tool.execute('call-2', {})).content[0] as { text: string }).text
     expect(text).toContain('"propertiesMentioned":{"state":"available","value":12,"numerator":12,"denominator":40}')
-    expect(text).toContain('"mentionCoverage":{"state":"available","value":"25.0%","numerator":10,"denominator":40}')
+    expect(text).toContain('"mentionCoverage":{"state":"available","value":"25.0% (10/40)","numerator":10,"denominator":40}')
     expect(text).toContain('"citationCoverage":{"state":"unavailable","reason":"no_population"}')
     expect(text).toContain('"propertiesMentioned":{"state":"available","value":3,')
     expect(text).not.toContain('1200')
