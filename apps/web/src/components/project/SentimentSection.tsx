@@ -16,22 +16,29 @@ type QueryClass = 'branded' | 'non-brand'
 type QueryClassView = QueryClass | 'all' | 'unclassified' | 'unknown'
 type RunOption = { id: string; label: string }
 const CLASS_LABEL: Record<QueryClass, string> = { branded: 'Branded', 'non-brand': 'Non-brand' }
+/**
+ * Fewer rated answers than this and a class line's Favorable column shows the
+ * empty value instead of a favorable share, and the portfolio figure reads "too
+ * few": one or two ratings swing the share from 0% to 100%. The rating count
+ * still shows, and the rated counts stay in Details. Query rows keep their
+ * share beside its rating count.
+ */
+export const SENTIMENT_MIN_RATED = 10
+export function showsFavorableShare(judged: number): boolean { return judged >= SENTIMENT_MIN_RATED }
 export const SENTIMENT_COPY = {
   states: { disabled: 'Sentiment is off.', 'not-measured': 'No ratings yet.', processing: 'Analyzing sentiment…', canceled: 'Analysis canceled.', partial: 'Partial results.', failed: 'Analysis failed.', complete: 'Analysis complete.', unsupported: 'Sentiment unavailable.' },
   noJudgments: 'No ratings available.',
   tooFew: 'too few',
+  /** Why a Favorable column is empty: its tooltip, its screen-reader text and the Details row. */
+  minRated: `Shown from ${SENTIMENT_MIN_RATED} ratings`,
+  partial: 'Partial results',
+  columns: { favorable: 'Favorable', ratings: 'Ratings' },
   overall: 'Overall sentiment is the share of favorable judgments across branded and non-brand queries. Each saved answer-subject assessment counts once. Factual, unmentioned, unsupported, and unclassified answers are excluded.',
   favorable: 'The favorable share of favorable, mixed and unfavorable ratings. Each rating evaluates one subject in an answer. Branded and non-brand queries are measured separately.',
 } as const
+/** The app's empty value for a metric with no figure, as the Property and query-group tables write it. */
+const EM_DASH = '\u2014'
 function outcomeLabel(value: string) { return value.replaceAll('-', ' ').replace(/^./, character => character.toUpperCase()) }
-
-/**
- * Fewer rated answers than this and a class headline says "too few" instead of
- * a favorable share: one or two ratings swing it from 0% to 100%. The rated
- * counts stay in Details. Query rows keep their share beside its rating count.
- */
-export const SENTIMENT_MIN_RATED = 10
-export function showsFavorableShare(judged: number): boolean { return judged >= SENTIMENT_MIN_RATED }
 const RATED_OUTCOMES = ['favorable', 'mixed', 'unfavorable'] as const
 
 /** Branded is the headline sentiment figure; non-brand follows it as its own population. */
@@ -50,45 +57,60 @@ function drawsSegments(value: Pick<SentimentHeadline, 'score' | 'coverage'> | un
 /**
  * A class's rated outcomes as one stacked bar. Each segment grows by its own
  * count from the API, so the bar is the counts and computes nothing. Below
- * {@link SENTIMENT_MIN_RATED} ratings it is a plain track beside "too few":
- * segments would draw the share that state hides (one favorable rating fills
- * the bar). Its counts stay in its label and in Details. With no ratings it is
- * an empty track and the text beside it says why.
+ * {@link SENTIMENT_MIN_RATED} ratings it is a plain track beside an empty
+ * Favorable column: segments would draw the share that column hides (one
+ * favorable rating fills the bar). Its counts stay in its label and in
+ * Details. With no ratings it is an empty track and the note under it says why.
  */
 function SentimentBar({ value, label }: { value: Pick<SentimentHeadline, 'score' | 'coverage'>; label: string }) {
   const { counts, judged } = value.coverage
   if (!hasRatings(value)) return <div className="sentiment-bar sentiment-bar-track" data-sentiment-bar="empty" aria-hidden="true" />
   const outcomes = RATED_OUTCOMES.map(outcome => `${counts[outcome]} ${outcome}`).join(', ')
-  if (!drawsSegments(value)) return <div role="img" aria-label={`${label}: ${outcomes}, ${ratingCount(judged)}, ${SENTIMENT_COPY.tooFew} to show a favorable share`} className="sentiment-bar sentiment-bar-track" data-sentiment-bar="too-few" />
+  if (!drawsSegments(value)) return <div role="img" aria-label={`${label}: ${outcomes}, ${ratingCount(judged)}, favorable share ${SENTIMENT_COPY.minRated.toLowerCase()}`} className="sentiment-bar sentiment-bar-track" data-sentiment-bar="too-few" />
   return <div role="img" aria-label={`${label}: ${outcomes}, ${value.score.favorableDisplay} favorable of ${ratingCount(judged)}`} className="sentiment-bar" data-sentiment-bar="rated">
     {RATED_OUTCOMES.filter(outcome => counts[outcome] > 0).map(outcome => <span key={outcome} data-outcome={outcome} className={`sentiment-bar-segment ${OUTCOME_FILL[outcome]}`} style={{ flexGrow: counts[outcome] }} title={`${outcomeLabel(outcome)}: ${counts[outcome]} of ${ratingCount(judged)}`} />)}
   </div>
 }
 
-function FavorableValue({ value, label }: { value: Pick<SentimentHeadline, 'score' | 'coverage' | 'provisional' | 'state' | 'reason'>; label: string }) {
-  const judged = value.coverage.judged
-  return <div role="group" aria-label={`${label} favorable share`} className="sentiment-class-value">
-    {hasRatings(value) ? <p>
-      {showsFavorableShare(judged)
-        ? <><span className="font-medium tabular-nums text-primary">{value.score.favorableDisplay}</span> favorable</>
-        : <span className="font-medium">{SENTIMENT_COPY.tooFew}</span>}
-      {` · ${ratingCount(judged)}`}
-      {value.provisional && <span className="ml-2 text-caution">Partial results</span>}
-    </p> : <p>{value.state === 'complete' ? SENTIMENT_COPY.noJudgments : SENTIMENT_COPY.states[value.state]}</p>}
+/**
+ * The Favorable column: the server's favorable share, or from no ratings up to
+ * {@link SENTIMENT_MIN_RATED} the app's empty value, which says why in its
+ * tooltip and to a screen reader. Only ever the share, never a count or a word.
+ */
+function FavorableCell({ value, label }: { value: Pick<SentimentHeadline, 'score' | 'coverage'>; label: string }) {
+  return <div role="group" aria-label={`${label} favorable share`} className="sentiment-class-favorable">
+    {drawsSegments(value)
+      ? <span className="sentiment-class-share">{value.score.favorableDisplay}</span>
+      : <><span aria-hidden="true" className="sentiment-class-empty" title={SENTIMENT_COPY.minRated}>{EM_DASH}</span><span className="sr-only">{SENTIMENT_COPY.minRated}</span></>}
   </div>
+}
+
+/** The Ratings column: always the class's rating count and nothing else, 0 included. */
+function RatingsCell({ judged }: { judged: number }) {
+  return <p className="sentiment-class-ratings"><span>{judged}</span><span className="sr-only">{judged === 1 ? ' rating' : ' ratings'}</span></p>
+}
+
+/**
+ * A short note under the bar, only when a class has one: its state while it
+ * has no ratings ("No ratings yet."), or "Partial results" beside rated ones.
+ */
+function SentimentClassNote({ value }: { value: Pick<SentimentHeadline, 'score' | 'coverage' | 'provisional' | 'state'> }) {
+  if (hasRatings(value)) return value.provisional ? <p className="sentiment-class-note text-caution">{SENTIMENT_COPY.partial}</p> : null
+  return <p className="sentiment-class-note">{value.state === 'complete' ? SENTIMENT_COPY.noJudgments : SENTIMENT_COPY.states[value.state]}</p>
 }
 
 /** Whether a class has anything for its Details to show. */
 function hasHeadlineDetails(value: SentimentSummary) { return Boolean(value.coverage.selected || value.coverage.eligibleAssessments || value.reason) }
 
 /**
- * A class's Details: a "Details" button at the end of its bar line and a
- * floating panel of facts anchored under it, over the content below rather
- * than pushing it down. A non-modal popover, not a menu: the button carries
- * aria-expanded and aria-controls, and the panel is a group named by its class
- * heading that follows the button in tab order. Outside click, Escape (focus
- * returns to the button) and focus moving elsewhere close it, as the project
- * "More" menu does. {@link SentimentHeadlines} keeps one panel open at a time.
+ * A class's Details: a chevron button in the last column of its line, named
+ * "<class> details", and a floating panel of facts anchored under it, over the
+ * content below rather than pushing it down. A non-modal popover, not a menu:
+ * the button carries aria-expanded and aria-controls, and the panel is a group
+ * named by its class heading that follows the button in tab order. Outside
+ * click, Escape (focus returns to the button) and focus moving elsewhere close
+ * it, as the project "More" menu does. {@link SentimentHeadlines} keeps one
+ * panel open at a time.
  */
 function SentimentHeadlineDetails({ value, queryClass, open, setOpenClass }: { value: SentimentSummary; queryClass: QueryClass; open: boolean; setOpenClass: Dispatch<SetStateAction<QueryClass | null>> }) {
   const panelId = useId()
@@ -121,13 +143,13 @@ function SentimentHeadlineDetails({ value, queryClass, open, setOpenClass }: { v
   const tooFew = coverage.judged > 0 && !showsFavorableShare(coverage.judged)
   if (!hasHeadlineDetails(value)) return null
   return <>
-    <button ref={triggerRef} type="button" className="sentiment-class-details-toggle" aria-expanded={open} aria-controls={panelId} onClick={() => setOpenClass(current => current === queryClass ? null : queryClass)}>Details<ChevronDown className="sentiment-class-details-chevron" aria-hidden="true" /></button>
+    <button ref={triggerRef} type="button" className="sentiment-class-details-toggle" aria-label={`${CLASS_LABEL[queryClass]} details`} aria-expanded={open} aria-controls={panelId} onClick={() => setOpenClass(current => current === queryClass ? null : queryClass)}><ChevronDown className="sentiment-class-details-chevron" aria-hidden="true" /></button>
     <div ref={panelRef} id={panelId} role="group" aria-labelledby={titleId} className="sentiment-class-details" hidden={!open}>
       <p id={titleId} className="sentiment-class-details-title">{CLASS_LABEL[queryClass]}</p>
       <dl className="sentiment-details-list">
         {coverage.selected > 0 && <div><dt>Rated assessments</dt><dd>{coverage.judged} of {coverage.selected}</dd></div>}
         {tooFew && RATED_OUTCOMES.filter(outcome => coverage.counts[outcome] > 0).map(outcome => <div key={outcome}><dt>{outcomeLabel(outcome)}</dt><dd>{coverage.counts[outcome]}</dd></div>)}
-        {tooFew && <div><dt>Favorable share</dt><dd>Shown from {SENTIMENT_MIN_RATED} ratings</dd></div>}
+        {tooFew && <div><dt>Favorable share</dt><dd>{SENTIMENT_COPY.minRated}</dd></div>}
         {coverage.distinctSourceAnswers > 0 && <div><dt>Source answers</dt><dd>{coverage.distinctSourceAnswers}</dd></div>}
         {coverage.unadmittedAssessments > 0 && <div><dt>Not yet analyzed</dt><dd>{coverage.unadmittedAssessments}</dd></div>}
         {Object.entries(coverage.counts).filter(([outcome, count]) => count > 0 && !['favorable', 'mixed', 'unfavorable'].includes(outcome)).map(([outcome, count]) => <div key={outcome}><dt>{outcomeLabel(outcome)}</dt><dd>{count}</dd></div>)}
@@ -256,13 +278,15 @@ export function SentimentLegend({ queryClass = 'all' }: { queryClass?: QueryClas
 }
 
 /**
- * One line per query class across the full width: its label and ⓘ, a stacked
- * bar of the rated outcomes that takes all the remaining space, the favorable
- * share and rating count, then that class's "Details" dropdown at the end.
- * The lines share columns, so both bars start and end level. Branded and
- * non-brand keep their own bars and denominators. The legend follows the last
- * bar unless the caller places it (`legend={false}` with its own
- * {@link SentimentLegend}).
+ * One line per query class across the full width, under a small header that
+ * names the figure columns: the class label and ⓘ, a stacked bar of the rated
+ * outcomes that takes all the remaining space, then Favorable (the share),
+ * Ratings (the rating count) and the class's Details chevron, each in a fixed
+ * column. Every line uses the same columns, so the bars start and end level
+ * and each figure sits under its header. A note under the bar carries a state
+ * or partial results when there is one. Branded and non-brand keep their own
+ * bars and denominators. The legend follows the last bar unless the caller
+ * places it (`legend={false}` with its own {@link SentimentLegend}).
  */
 export function SentimentHeadlines({ queryClass = 'all', legend = true }: { queryClass?: QueryClassView; legend?: boolean }) {
   const scope = useContext(SentimentContext)
@@ -270,15 +294,19 @@ export function SentimentHeadlines({ queryClass = 'all', legend = true }: { quer
   // One Details panel open at a time.
   const [openClass, setOpenClass] = useState<QueryClass | null>(null)
   if (!scope || !classes) return null
+  // The header names columns only a loaded class fills. Each figure also names itself to a screen reader.
+  const columns = scope.hasSourceEvidence && classes.some(value => scope.summaries[value].data)
   return <div className="sentiment-headlines" role="group" aria-label="Favorable answer scores">
+    {columns && <div className="sentiment-headlines-columns" aria-hidden="true"><span className="sentiment-headlines-favorable">{SENTIMENT_COPY.columns.favorable}</span><span className="sentiment-headlines-ratings">{SENTIMENT_COPY.columns.ratings}</span></div>}
     {classes.map(value => {
       const query = scope.summaries[value]
-      const details = scope.hasSourceEvidence && query.data ? hasHeadlineDetails(query.data) : false
-      return <div key={value} className={details ? 'sentiment-class sentiment-class-has-details' : 'sentiment-class'} data-query-class={value}>
+      return <div key={value} className="sentiment-class" data-query-class={value}>
         <div className="sentiment-class-label"><span>{CLASS_LABEL[value]}</span><InfoTooltip text={SENTIMENT_COPY.favorable} /></div>
         {!scope.hasSourceEvidence ? <p className="sentiment-class-status">No saved answers.</p> : query.data ? <>
           <SentimentBar value={query.data} label={CLASS_LABEL[value]} />
-          <FavorableValue value={query.data} label={CLASS_LABEL[value]} />
+          <FavorableCell value={query.data} label={CLASS_LABEL[value]} />
+          <RatingsCell judged={query.data.coverage.judged} />
+          <SentimentClassNote value={query.data} />
           <SentimentHeadlineDetails value={query.data} queryClass={value} open={openClass === value} setOpenClass={setOpenClass} />
         </> : query.isError ? <p role="alert" className="sentiment-class-status">Couldn’t load sentiment. <Button variant="ghost" onClick={() => { void query.refetch() }}>Retry</Button></p> : <p role="status" className="sentiment-class-status">Loading sentiment…</p>}
       </div>

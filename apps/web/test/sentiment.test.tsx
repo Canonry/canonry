@@ -41,11 +41,37 @@ function renderScope(children: ReactNode, options: { enabled?: boolean; configur
   const view = render(<QueryClientProvider client={client}><SentimentScopeProvider projectName="project" selection={{ mode: 'advanced', queryClass: 'branded', scope: 'property', scopeKey: 'north', marketKey: 'chicago', provider: 'openai', model: 'source-model', runId: 'run', revision: 3 }}>{children}</SentimentScopeProvider></QueryClientProvider>)
   return { requests, client, view, close: () => { cleanup(); client.clear(); restore() } }
 }
-/** A class line's Details button, at the end of its bar line, and the dropdown panel it opens. */
+/** A class line's Details chevron, in the line's last column, and the dropdown panel it opens. */
 function classDetails(row: Element) {
   const toggle = row.querySelector<HTMLButtonElement>(':scope > button.sentiment-class-details-toggle')
   const panel = toggle ? document.getElementById(toggle.getAttribute('aria-controls')!) : null
   return { toggle, panel }
+}
+/** The app's empty value for a metric with no figure. */
+const EMPTY_VALUE = '\u2014'
+/** An element's text as a sighted reader sees it: without its screen-reader-only parts. */
+function visibleText(element: Element): string {
+  const copy = element.cloneNode(true) as Element
+  copy.querySelectorAll('.sr-only').forEach(node => node.remove())
+  return copy.textContent ?? ''
+}
+/** A class line's Favorable and Ratings columns and the note under its bar, as they read on screen. */
+function figures(row: Element) {
+  return {
+    favorable: visibleText(row.querySelector(':scope > .sentiment-class-favorable')!),
+    ratings: visibleText(row.querySelector(':scope > .sentiment-class-ratings')!),
+    note: row.querySelector(':scope > .sentiment-class-note')?.textContent ?? null,
+  }
+}
+/** An empty Favorable column: the muted empty value, saying why in its tooltip and to a screen reader. */
+function expectEmptyFavorable(cell: Element) {
+  const mark = cell.querySelector<HTMLElement>(':scope > .sentiment-class-empty')!
+  expect(mark.textContent).toBe(EMPTY_VALUE)
+  expect(mark.getAttribute('aria-hidden')).toBe('true')
+  expect(mark.title).toBe(SENTIMENT_COPY.minRated)
+  expect(cell.querySelector('.sr-only')!.textContent).toBe(SENTIMENT_COPY.minRated)
+  expect(cell.querySelector('.sentiment-class-share')).toBeNull()
+  expect(SENTIMENT_COPY.minRated).toBe(`Shown from ${SENTIMENT_MIN_RATED} ratings`)
 }
 function assessment(overrides: Partial<SentimentAssessmentSummary> = {}): SentimentAssessmentSummary {
   return { assessmentId: 'assessment-openai', sourceSnapshotId: 'snapshot-openai', runId: 'run', subjectId: 'north', subjectLabel: 'North Hall', executionNodeKey: null, provider: 'openai', requestedModel: 'source-model', servedModel: 'source-model', location: 'Chicago', evaluationDefinitionId: 'definition-a', state: 'complete', outcome: 'favorable', reason: null, ...overrides }
@@ -74,12 +100,13 @@ describe('sentiment presentation', () => {
       const branded = await screen.findByLabelText('Branded favorable share')
       const nonBrand = await screen.findByLabelText('Non-brand favorable share')
       expect(branded.compareDocumentPosition(nonBrand) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-      expect(branded.textContent).toBe('60.1% favorable · 10 ratings')
-      expect(branded.textContent).not.toContain('interval')
+      expect(branded.textContent).toBe('60.1%')
+      expect(figures(branded.parentElement!)).toEqual({ favorable: '60.1%', ratings: '10', note: null })
+      expect(branded.parentElement!.textContent).not.toContain('interval')
       const { toggle, panel: details } = classDetails(branded.parentElement!) as { toggle: HTMLButtonElement; panel: HTMLElement }
       expect(toggle.getAttribute('aria-expanded')).toBe('false')
       expect(details.hidden).toBe(true)
-      expect(within(branded.parentElement!).getByRole('button', { name: 'Details' })).toBe(toggle)
+      expect(within(branded.parentElement!).getByRole('button', { name: 'Branded details' })).toBe(toggle)
       expect(within(details).getByText('10 of 12')).toBeTruthy()
       expect(within(details).getByText('8')).toBeTruthy()
       expect(within(details).getByText('Factual')).toBeTruthy()
@@ -100,7 +127,10 @@ describe('sentiment presentation', () => {
     const page = renderScope(<SentimentHeadlines queryClass="branded" />, { branded: dto })
     try {
       const headline = await screen.findByLabelText('Branded favorable share')
-      expect(headline.textContent).toBe(`${SENTIMENT_COPY.tooFew} · 2 ratings`)
+      // The Favorable column holds only the empty value; Ratings still holds the count.
+      expect(figures(headline.parentElement!)).toEqual({ favorable: EMPTY_VALUE, ratings: '2', note: null })
+      expectEmptyFavorable(headline)
+      expect(headline.textContent).toBe(`${EMPTY_VALUE}${SENTIMENT_COPY.minRated}`)
       expect(document.body.textContent).not.toContain('50.0%')
       const { toggle, panel: details } = classDetails(headline.parentElement!) as { toggle: HTMLButtonElement; panel: HTMLElement }
       expect(toggle.getAttribute('aria-expanded')).toBe('false')
@@ -120,7 +150,10 @@ describe('sentiment presentation', () => {
     const page = renderScope(<SentimentHeadlines queryClass="branded" />)
     try {
       const headline = await screen.findByLabelText('Branded favorable share')
-      expect(headline.textContent).toBe('60.1% favorable · 10 ratings')
+      expect(headline.textContent).toBe('60.1%')
+      expect(headline.querySelector('.sentiment-class-share')!.textContent).toBe('60.1%')
+      expect(figures(headline.parentElement!)).toEqual({ favorable: '60.1%', ratings: '10', note: null })
+      expect(headline.querySelector('.sentiment-class-empty')).toBeNull()
       const details = classDetails(headline.parentElement!).panel!
       expect(within(details).queryByText('Favorable share')).toBeNull()
       expect(within(details).queryByText('Mixed')).toBeNull()
@@ -130,7 +163,10 @@ describe('sentiment presentation', () => {
     const dto = summary(); dto.coverage.judged = 0; dto.score = aggregateSentiment([]).score
     const page = renderScope(<SentimentHeadlines queryClass="branded" />, { branded: dto })
     try {
-      expect((await screen.findByLabelText('Branded favorable share')).textContent).toBe(SENTIMENT_COPY.noJudgments)
+      const headline = await screen.findByLabelText('Branded favorable share')
+      // Zero ratings: the same empty value, a count of 0, and the state under the bar.
+      expect(figures(headline.parentElement!)).toEqual({ favorable: EMPTY_VALUE, ratings: '0', note: SENTIMENT_COPY.noJudgments })
+      expectEmptyFavorable(headline)
       expect(screen.queryByText('Unavailable')).toBeNull()
       expect(screen.queryByLabelText('Non-brand favorable share')).toBeNull()
     } finally { page.close() }
@@ -145,7 +181,7 @@ describe('sentiment presentation', () => {
     const page = renderScope(<SentimentHeadlines queryClass="branded" />, { branded: dto })
     try {
       const headline = await screen.findByLabelText('Branded favorable share')
-      expect(headline.textContent).toBe('No ratings yet.')
+      expect(figures(headline.parentElement!)).toEqual({ favorable: EMPTY_VALUE, ratings: '0', note: 'No ratings yet.' })
       expect(classDetails(headline.parentElement!).toggle).toBeNull()
       expect(headline.parentElement!.querySelector('.sentiment-class-details')).toBeNull()
       expect(screen.queryByText(/0 judged|Unavailable|95%/)).toBeNull()
@@ -156,7 +192,7 @@ describe('sentiment presentation', () => {
     const page = renderScope(<SentimentHeadlines queryClass="branded" />, { branded: dto })
     try {
       const headline = await screen.findByLabelText('Branded favorable share')
-      expect(headline.textContent).toBe('No ratings available.')
+      expect(figures(headline.parentElement!)).toEqual({ favorable: EMPTY_VALUE, ratings: '0', note: 'No ratings available.' })
       expect(within(classDetails(headline.parentElement!).panel!).getByText('Unsupported language')).toBeTruthy()
       expect(headline.textContent).not.toContain('0%')
     } finally { page.close() }
@@ -168,7 +204,9 @@ describe('sentiment presentation', () => {
     const page = renderScope(<SentimentHeadlines queryClass="branded" />, { branded: dto })
     try {
       const headline = await screen.findByLabelText('Branded favorable share')
-      expect(headline.textContent).toBe('0% favorable · 10 ratingsPartial results')
+      // A measured 0% is a figure, not the empty value; partial results sit under the bar.
+      expect(figures(headline.parentElement!)).toEqual({ favorable: '0%', ratings: '10', note: 'Partial results' })
+      expect(headline.parentElement!.querySelector('.sentiment-class-note')!.className).toBe('sentiment-class-note text-caution')
       const details = classDetails(headline.parentElement!).panel!
       expect(within(details).getByText('Not yet analyzed')).toBeTruthy()
       expect(within(details).getByText('3')).toBeTruthy()
@@ -480,18 +518,20 @@ describe('sentiment bars', () => {
     } finally { page.close() }
   })
 
-  it('reads Tank Air branded as one bar line: label, bar, favorable share and rating count, then Details', async () => {
+  it('reads Tank Air branded as one bar line: label, bar, Favorable, Ratings, then the Details chevron', async () => {
     const page = renderScope(<SentimentHeadlines />, { branded: branded(), nonBrand: nonBrand() })
     try {
       const value = await screen.findByLabelText('Branded favorable share')
-      expect(value.textContent).toBe('56.3% favorable · 16 ratings')
       const row = value.closest('.sentiment-class')!
+      // The share alone in Favorable, the count alone in Ratings: no sentence.
+      expect(figures(row)).toEqual({ favorable: '56.3%', ratings: '16', note: null })
+      expect(value.textContent).toBe('56.3%')
+      expect(row.querySelector('.sentiment-class-ratings')!.textContent).toBe('16 ratings')
       const children = [...row.children]
       const bar = barFor('Branded')
-      // Label with its ⓘ, the bar, the share, the Details button at the end of
-      // the same line, then the dropdown panel it opens.
-      expect(children.map(child => child.className.split(' ')[0])).toEqual(['sentiment-class-label', 'sentiment-bar', 'sentiment-class-value', 'sentiment-class-details-toggle', 'sentiment-class-details'])
-      expect(row.classList.contains('sentiment-class-has-details')).toBe(true)
+      // Label with its ⓘ, the bar, the two figure columns, the chevron in the
+      // last column, then the dropdown panel it opens.
+      expect(children.map(child => child.className.split(' ')[0])).toEqual(['sentiment-class-label', 'sentiment-bar', 'sentiment-class-favorable', 'sentiment-class-ratings', 'sentiment-class-details-toggle', 'sentiment-class-details'])
       expect(children[0]!.textContent).toBe('Branded')
       expect(within(children[0] as HTMLElement).getByRole('button', { name: SENTIMENT_COPY.favorable })).toBeTruthy()
       expect(bar.getAttribute('role')).toBe('img')
@@ -500,6 +540,9 @@ describe('sentiment bars', () => {
       expect(segments(bar).map(([outcome, grow]) => [outcome, grow])).toEqual([['favorable', 9], ['mixed', 7]])
       const { toggle, panel } = classDetails(row) as { toggle: HTMLButtonElement; panel: HTMLElement }
       expect(toggle.getAttribute('type')).toBe('button')
+      // Chevron only: no visible word, named for its class.
+      expect(toggle.textContent).toBe('')
+      expect(toggle.getAttribute('aria-label')).toBe('Branded details')
       expect(toggle.getAttribute('aria-expanded')).toBe('false')
       expect(panel.id).toBe(toggle.getAttribute('aria-controls'))
       expect(panel.hidden).toBe(true)
@@ -515,31 +558,37 @@ describe('sentiment bars', () => {
       // Both classes keep their own ⓘ and their own Details.
       const group = screen.getByRole('group', { name: 'Favorable answer scores' })
       expect(within(group).getAllByRole('button', { name: SENTIMENT_COPY.favorable })).toHaveLength(2)
-      expect(within(group).getAllByRole('button', { name: 'Details' })).toHaveLength(2)
-      expect(new Set(within(group).getAllByRole('button', { name: 'Details' }).map(button => button.getAttribute('aria-controls'))).size).toBe(2)
+      const chevrons = within(group).getAllByRole('button', { name: /details$/ })
+      expect(chevrons.map(button => button.getAttribute('aria-label'))).toEqual(['Branded details', 'Non-brand details'])
+      expect(new Set(chevrons.map(button => button.getAttribute('aria-controls'))).size).toBe(2)
     } finally { page.close() }
   })
 
-  it('draws a too-few class as a plain track beside "too few" and its rating count, with no share anywhere', async () => {
+  it('draws a class below ten ratings as a plain track beside an empty Favorable column and its rating count, with no share anywhere', async () => {
     const page = renderScope(<SentimentHeadlines />, { branded: branded(), nonBrand: nonBrand() })
     try {
       const value = await screen.findByLabelText('Non-brand favorable share')
       expect(nonBrand().score.favorableDisplay).toBe('100%')
-      expect(value.textContent).toBe(`${SENTIMENT_COPY.tooFew} · 1 rating`)
+      expect(figures(value.parentElement!)).toEqual({ favorable: EMPTY_VALUE, ratings: '1', note: null })
+      expectEmptyFavorable(value)
+      expect(value.parentElement!.querySelector('.sentiment-class-ratings')!.textContent).toBe('1 rating')
       const bar = barFor('Non-brand')
       expect(bar.getAttribute('data-sentiment-bar')).toBe('too-few')
       expect(bar.classList.contains('sentiment-bar-track')).toBe(true)
       // No proportional segments: one favorable rating would fill the bar and
-      // show the 100% share that "too few" hides.
+      // show the 100% share the empty Favorable column hides.
       expect(bar.querySelectorAll('[data-outcome]')).toHaveLength(0)
       expect(bar.children).toHaveLength(0)
       // The counts stay in the bar's label and in Details.
       expect(bar.getAttribute('role')).toBe('img')
-      expect(bar.getAttribute('aria-label')).toBe(`Non-brand: 1 favorable, 0 mixed, 0 unfavorable, 1 rating, ${SENTIMENT_COPY.tooFew} to show a favorable share`)
+      expect(bar.getAttribute('aria-label')).toBe('Non-brand: 1 favorable, 0 mixed, 0 unfavorable, 1 rating, favorable share shown from 10 ratings')
       expect(bar.getAttribute('aria-label')).not.toContain('100%')
       const row = bar.closest('.sentiment-class')!
       const { toggle, panel } = classDetails(row) as { toggle: HTMLButtonElement; panel: HTMLElement }
       expect(row.textContent!.replace(panel.textContent!, '')).not.toContain('100%')
+      // No column or label in the line says "too few" or counts toward the minimum.
+      const said = [row.textContent!.replace(panel.textContent!, ''), ...[...row.querySelectorAll('[aria-label], [title]')].filter(element => !panel.contains(element)).flatMap(element => [element.getAttribute('aria-label') ?? '', element.getAttribute('title') ?? ''])].join(' | ')
+      expect(said).not.toMatch(/too few|of 10|1 of/i)
       expect(toggle.getAttribute('aria-expanded')).toBe('false')
       expect(panel.textContent).toContain(`Shown from ${SENTIMENT_MIN_RATED} ratings`)
       expect([...panel.querySelectorAll('dl > div')].map(item => [item.querySelector('dt')!.textContent, item.querySelector('dd')!.textContent])).toEqual(expect.arrayContaining([['Rated assessments', '1 of 32'], ['Favorable', '1']]))
@@ -552,12 +601,15 @@ describe('sentiment bars', () => {
     // ainyc on Sep 30: branded 1 favorable and 2 mixed of 3 ratings, non-brand 4 favorable of 4.
     const page = renderScope(<SentimentHeadlines />, { branded: measured('branded', { favorable: 1, mixed: 2, factual: 6 }), nonBrand: measured('non-brand', { favorable: 4, 'subject-not-mentioned': 9 }) })
     try {
-      expect((await screen.findByLabelText('Branded favorable share')).textContent).toBe(`${SENTIMENT_COPY.tooFew} · 3 ratings`)
-      expect((await screen.findByLabelText('Non-brand favorable share')).textContent).toBe(`${SENTIMENT_COPY.tooFew} · 4 ratings`)
+      for (const [label, ratings] of [['Branded', '3'], ['Non-brand', '4']] as const) {
+        const value = await screen.findByLabelText(`${label} favorable share`)
+        expect(figures(value.parentElement!)).toEqual({ favorable: EMPTY_VALUE, ratings, note: null })
+        expectEmptyFavorable(value)
+      }
       for (const label of ['Branded', 'Non-brand']) expect(barFor(label).getAttribute('data-sentiment-bar')).toBe('too-few')
       expect(document.querySelectorAll('[data-outcome]')).toHaveLength(0)
       expect(document.querySelector('.sentiment-legend')).toBeNull()
-      expect(barFor('Branded').getAttribute('aria-label')).toBe(`Branded: 1 favorable, 2 mixed, 0 unfavorable, 3 ratings, ${SENTIMENT_COPY.tooFew} to show a favorable share`)
+      expect(barFor('Branded').getAttribute('aria-label')).toBe('Branded: 1 favorable, 2 mixed, 0 unfavorable, 3 ratings, favorable share shown from 10 ratings')
       const rows = (label: string) => [...classDetails(barFor(label).closest('.sentiment-class')!).panel!.querySelectorAll('dl > div')].map(item => [item.querySelector('dt')!.textContent, item.querySelector('dd')!.textContent])
       expect(rows('Branded')).toEqual(expect.arrayContaining([['Favorable', '1'], ['Mixed', '2']]))
       expect(rows('Non-brand')).toEqual(expect.arrayContaining([['Favorable', '4']]))
@@ -569,8 +621,8 @@ describe('sentiment bars', () => {
     const unrated = { ...summary(), ...aggregateSentiment([{ assessmentId: 'foreign', sourceSnapshotId: 'foreign', outcome: 'unsupported-language' }]), selection: { ...summary().selection, queryClass: 'non-brand' as const } }
     const page = renderScope(<SentimentHeadlines />, { branded: unmeasured, nonBrand: unrated })
     try {
-      expect((await screen.findByLabelText('Branded favorable share')).textContent).toBe(SENTIMENT_COPY.states['not-measured'])
-      expect((await screen.findByLabelText('Non-brand favorable share')).textContent).toBe(SENTIMENT_COPY.noJudgments)
+      expect(figures((await screen.findByLabelText('Branded favorable share')).parentElement!)).toEqual({ favorable: EMPTY_VALUE, ratings: '0', note: SENTIMENT_COPY.states['not-measured'] })
+      expect(figures((await screen.findByLabelText('Non-brand favorable share')).parentElement!)).toEqual({ favorable: EMPTY_VALUE, ratings: '0', note: SENTIMENT_COPY.noJudgments })
       for (const label of ['Branded', 'Non-brand']) {
         const bar = barFor(label)
         expect(bar.getAttribute('data-sentiment-bar')).toBe('empty')
@@ -578,8 +630,9 @@ describe('sentiment bars', () => {
         expect(bar.getAttribute('role')).toBeNull()
         expect(bar.children).toHaveLength(0)
       }
-      // A class with nothing to disclose has no Details, so its bar runs full width.
-      expect(barFor('Branded').closest('.sentiment-class')!.classList.contains('sentiment-class-has-details')).toBe(false)
+      // A class with nothing to disclose has no chevron; its column stays, so its bar still ends level.
+      expect(classDetails(barFor('Branded').closest('.sentiment-class')!).toggle).toBeNull()
+      expect(classDetails(barFor('Non-brand').closest('.sentiment-class')!).toggle).not.toBeNull()
       expect(screen.queryByRole('img')).toBeNull()
       expect(document.querySelector('.sentiment-legend')).toBeNull()
     } finally { page.close() }
@@ -605,9 +658,11 @@ describe('sentiment bars', () => {
         expect(bar.getAttribute('tabindex')).toBeNull()
         expect(bar.querySelector('button, a, [tabindex], summary')).toBeNull()
       }
+      // Neither the column header nor a figure is a tab stop.
+      expect(group.querySelector('.sentiment-headlines-columns')!.querySelector('button, a, [tabindex]')).toBeNull()
       // Controls inside a closed Details panel are not reachable until it opens.
-      const focusable = [...group.querySelectorAll<HTMLElement>('button')].filter(element => !element.closest('[hidden]')).map(element => element.classList.contains('sentiment-class-details-toggle') ? 'Details' : element.getAttribute('aria-label'))
-      expect(focusable).toEqual([SENTIMENT_COPY.favorable, 'Details', SENTIMENT_COPY.favorable, 'Details'])
+      const focusable = [...group.querySelectorAll<HTMLElement>('button')].filter(element => !element.closest('[hidden]')).map(element => element.getAttribute('aria-label'))
+      expect(focusable).toEqual([SENTIMENT_COPY.favorable, 'Branded details', SENTIMENT_COPY.favorable, 'Non-brand details'])
     } finally { page.close() }
   })
 
@@ -627,7 +682,8 @@ describe('sentiment bars', () => {
       const toolbar = section.children[0] as HTMLElement
       expect([...toolbar.children].map(child => child.className)).toEqual(['sentiment-legend', 'query-evidence-actions'])
       expect(within(toolbar.children[1] as HTMLElement).getAllByRole('button').map(button => button.textContent)).toEqual(['Manage sentiment', 'Manage queries'])
-      expect([...scores.children].map(child => child.getAttribute('data-query-class'))).toEqual(['branded', 'non-brand'])
+      // The column header, then one line per class.
+      expect([...scores.children].map(child => child.getAttribute('data-query-class') ?? child.className)).toEqual(['sentiment-headlines-columns', 'branded', 'non-brand'])
       // One legend, in the row above the bars rather than inside them.
       expect(document.querySelectorAll('.sentiment-legend')).toHaveLength(1)
       expect(scores.querySelector('.sentiment-legend')).toBeNull()
@@ -671,7 +727,7 @@ describe('sentiment Details dropdown', () => {
   const lineFor = (label: string) => screen.getByLabelText(`${label} favorable share`).closest('.sentiment-class')!
   const dropdownFor = (label: string) => classDetails(lineFor(label)) as { toggle: HTMLButtonElement; panel: HTMLElement }
 
-  it('is a "Details" button with a non-modal panel named by its class, not a menu', async () => {
+  it('is a chevron button named "<class> details" with a non-modal panel named by its class, not a menu', async () => {
     const page = renderScope(<SentimentHeadlines />, { branded: branded(), nonBrand: nonBrand() })
     try {
       await screen.findByLabelText('Non-brand favorable share')
@@ -681,7 +737,10 @@ describe('sentiment Details dropdown', () => {
         expect(toggle.getAttribute('aria-controls')).toBe(panel.id)
         expect(toggle.hasAttribute('aria-haspopup')).toBe(false)
         expect(toggle.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true')
-        expect(within(lineFor(label) as HTMLElement).getByRole('button', { name: 'Details' })).toBe(toggle)
+        expect(toggle.textContent).toBe('')
+        expect(within(lineFor(label) as HTMLElement).getByRole('button', { name: `${label} details` })).toBe(toggle)
+        // Last in the line before its panel, after both figure columns.
+        expect(toggle.previousElementSibling!.className).toBe('sentiment-class-ratings')
         expect(panel.getAttribute('role')).toBe('group')
         expect(document.getElementById(panel.getAttribute('aria-labelledby')!)!.textContent).toBe(label)
         expect(panel.querySelector('.sentiment-class-details-title')!.textContent).toBe(label)
@@ -761,9 +820,9 @@ describe('sentiment Details dropdown', () => {
         const range = [...panel.querySelectorAll('dl > div')].at(-1)!
         expect(within(range as HTMLElement).getByRole('button', { name: branded().score.limitation, hidden: true })).toBeTruthy()
       }
-      // The too-few line keeps its grey track, "too few" and its rating count, with no share.
+      // The line below ten ratings keeps its grey track, the empty Favorable value and its rating count, with no share.
       expect(barFor('Non-brand').getAttribute('data-sentiment-bar')).toBe('too-few')
-      expect(screen.getByLabelText('Non-brand favorable share').textContent).toBe(`${SENTIMENT_COPY.tooFew} · 1 rating`)
+      expect(figures(lineFor('Non-brand'))).toEqual({ favorable: EMPTY_VALUE, ratings: '1', note: null })
     } finally { page.close() }
   })
 
@@ -774,12 +833,12 @@ describe('sentiment Details dropdown', () => {
     try {
       await screen.findByLabelText('Non-brand favorable share')
       // Zero ratings, nothing measured: the empty bar and the state, no Details.
-      expect(screen.getByLabelText('Branded favorable share').textContent).toBe(SENTIMENT_COPY.states['not-measured'])
+      expect(figures(lineFor('Branded'))).toEqual({ favorable: EMPTY_VALUE, ratings: '0', note: SENTIMENT_COPY.states['not-measured'] })
       expect(classDetails(lineFor('Branded')).toggle).toBeNull()
       expect(lineFor('Branded').querySelector('.sentiment-class-details')).toBeNull()
       expect(barFor('Branded').getAttribute('data-sentiment-bar')).toBe('empty')
       // Zero ratings with assessments: its Details still opens with what was found.
-      expect(screen.getByLabelText('Non-brand favorable share').textContent).toBe(SENTIMENT_COPY.noJudgments)
+      expect(figures(lineFor('Non-brand'))).toEqual({ favorable: EMPTY_VALUE, ratings: '0', note: SENTIMENT_COPY.noJudgments })
       const { toggle, panel } = dropdownFor('Non-brand')
       fireEvent.click(toggle)
       expect(panel.hidden).toBe(false)
@@ -814,23 +873,59 @@ describe('sentiment bar styles', () => {
     expect(declarations('.sentiment-bar-segment,\n    .sentiment-legend-swatch', rule)).toEqual({ 'forced-color-adjust': 'none' })
   })
 
-  it('runs each class line the full width with the bar as its one flexible column', () => {
+  it('runs each class line the full width on shared columns: label, the bar as the one flexible column, then fixed Favorable, Ratings and chevron columns', () => {
     // The top-level rules, not `.report-headline + .sentiment-headlines`.
     const headlines = declarations('\n  .sentiment-headlines', css)
-    expect(headlines).toMatchObject({ display: 'grid', 'grid-template-columns': 'auto 1fr auto auto' })
-    // Label, bar, share, Details: only the bar's column grows.
-    expect(headlines['grid-template-columns']!.split(' ').map(track => track === '1fr')).toEqual([false, true, false, false])
-    // Each line spans every column and shares them, so the bars start and end level.
-    expect(declarations('\n  .sentiment-class', css)).toMatchObject({ position: 'relative', display: 'grid', 'grid-column': '1 / -1', 'grid-template-columns': 'subgrid' })
-    const wide = body('@container sentiment-headlines (min-width: 40rem)')
+    expect(headlines).toMatchObject({ display: 'grid', 'grid-template-columns': 'auto minmax(0, 1fr) 4.5rem 4rem 1.75rem' })
+    // Label, bar, Favorable, Ratings, chevron: only the bar's column grows, and
+    // the figure and chevron columns are fixed, so the bars end at the same x
+    // whatever the figures read.
+    const tracks = headlines['grid-template-columns']!.split(/ (?![^(]*\))/)
+    expect(tracks.map(track => track.includes('fr'))).toEqual([false, true, false, false, false])
+    expect(tracks.slice(2).every(track => /^\d+(?:\.\d+)?rem$/.test(track))).toBe(true)
+    // Each line and the header span every column and share them (subgrid), so
+    // the bars start and end level and each figure sits under its header.
+    const line = declarations('\n  .sentiment-class', css)
+    expect(line).toMatchObject({ position: 'relative', display: 'grid', 'grid-column': '1 / -1', 'grid-template-columns': 'subgrid' })
+    // Without subgrid a line falls back to the same columns, so its figures still line up.
+    expect(body('\n  .sentiment-class', css)).toContain(`grid-template-columns: ${headlines['grid-template-columns']};`)
+    expect(declarations('.sentiment-headlines-columns', css)).toMatchObject({ display: 'grid', 'grid-column': '1 / -1', 'grid-template-columns': 'subgrid' })
+    // The header names sit over their figures, right-aligned like them, in the competitor table's eyebrow.
+    for (const [name, column] of [['favorable', '3'], ['ratings', '4']] as const) {
+      expect(declarations(`.sentiment-headlines-${name}`, css)).toMatchObject({ 'grid-column': column })
+      expect(body(`.sentiment-headlines-${name}`, css)).toContain('text-right')
+      expect(declarations(`.sentiment-class-${name}`, css)).toMatchObject({ 'grid-column': column, 'grid-row': '1' })
+      expect(body(`.sentiment-class-${name}`, css)).toContain('text-right')
+      expect(body(`.sentiment-class-${name}`, css)).toContain('tabular-nums')
+    }
+    for (const utility of ['text-[10px]', 'font-medium', 'uppercase', 'tracking-[0.08em]', 'text-muted']) {
+      expect(body('.sentiment-headlines-columns', css)).toContain(utility)
+      expect(body('.mention-share-row-head', css)).toContain(utility)
+    }
+    expect(body('.sentiment-class-empty', css)).toContain('text-muted')
+    // The chevron has its own last column on every line, at any width.
+    expect(declarations('.sentiment-class-details-toggle', css)).toMatchObject({ 'grid-column': '5', 'grid-row': '1' })
     expect(declarations('.sentiment-class-label', css)).toMatchObject({ 'grid-column': '1' })
-    expect(declarations('.sentiment-bar,\n    .sentiment-class-has-details > .sentiment-bar', wide)).toMatchObject({ 'grid-column': '2', 'grid-row': '1' })
-    expect(declarations('.sentiment-class-value', wide)).toMatchObject({ 'grid-column': '3', 'grid-row': '1' })
-    expect(declarations('.sentiment-class-details-toggle', wide)).toMatchObject({ 'grid-column': '4', 'grid-row': '1' })
+    // Narrow: the bar runs the full width under the label and figures.
+    expect(declarations('.sentiment-bar', css)).toMatchObject({ 'grid-column': '1 / -1', 'grid-row': '2' })
+    // Wide: the bar takes the flexible column on the same line, and any note runs under it.
+    const wide = body('@container sentiment-headlines (min-width: 40rem)')
+    expect(declarations('.sentiment-bar', wide)).toMatchObject({ 'grid-column': '2', 'grid-row': '1' })
+    expect(declarations('.sentiment-class-note', wide)).toMatchObject({ 'grid-column': '2 / -1', 'grid-row': '2' })
+    // The figures and chevron keep their columns when wide; nothing in the wide rules moves them.
+    for (const selector of ['.sentiment-class-favorable', '.sentiment-class-ratings', '.sentiment-class-details-toggle', '.sentiment-headlines-columns']) expect(wide).not.toContain(selector)
     // The legend and actions share one row above the bars, actions at its right.
     expect(body('.query-evidence-toolbar', css)).toContain('justify-between')
     expect(body('.query-evidence-actions', css)).toContain('ml-auto')
     expect(declarations('.query-evidence-toolbar:empty', css)).toEqual({ display: 'none' })
+  })
+
+  it('gives the chevron a 44px hit area that fits the line pitch', () => {
+    // A 28px button, a 16px row gap: 44px per line, and the hit area reaches 44px square.
+    expect(body('.sentiment-class-details-toggle', css)).toContain('size-7')
+    expect(declarations('.sentiment-class-details-toggle', css)).toMatchObject({ position: 'relative' })
+    expect(declarations('.sentiment-class-details-toggle::before', css)).toMatchObject({ content: "''", position: 'absolute', inset: '-0.5rem' })
+    expect(body('\n  .sentiment-headlines', css)).toContain('gap-y-4')
   })
 
   it('floats the Details panel under its button, on screen and past the section clip', () => {
