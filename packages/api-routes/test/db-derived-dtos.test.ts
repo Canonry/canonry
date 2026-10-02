@@ -195,6 +195,7 @@ describe('drizzle-zod derived row schemas', () => {
       enabled: true,
       providers: ['gemini', 'openai'] as const,
       sourceId: null,
+      siteAuditOptions: null,
       lastRunAt: '2026-05-16T08:00:00Z',
       nextRunAt: '2026-05-17T08:00:00Z',
       createdAt: '2026-05-01T00:00:00Z',
@@ -202,6 +203,28 @@ describe('drizzle-zod derived row schemas', () => {
     }
     const parsed = scheduleRowSchema.parse(row)
     expect(parsed).toEqual(row)
+  })
+
+  it('scheduleRowSchema round-trips typed site-audit options', () => {
+    const row = {
+      id: 's_2',
+      projectId: 'p_1',
+      kind: 'site-audit' as const,
+      cronExpr: '0 5 1 * *',
+      recurrence: null,
+      preset: null,
+      timezone: 'UTC',
+      enabled: true,
+      providers: [],
+      sourceId: null,
+      siteAuditOptions: { sitemapUrl: 'https://example.com/sitemap.xml', maxPages: 25_000, maxEdges: 600_000, maxDepth: 6, checkDeadLinks: true },
+      lastRunAt: null,
+      nextRunAt: '2026-11-01T05:00:00Z',
+      createdAt: '2026-10-01T00:00:00Z',
+      updatedAt: '2026-10-01T00:00:00Z',
+    }
+    expect(scheduleRowSchema.parse(row)).toEqual(row)
+    expect(scheduleRowSchema.safeParse({ ...row, siteAuditOptions: { maxPages: 50_001 } }).success).toBe(false)
   })
 
   it('notificationRowSchema round-trips with typed config object', () => {

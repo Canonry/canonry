@@ -4,7 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
 import { createClient, migrate, projects, schedules, runs, siteCrawlRunRequests } from '@ainyc/canonry-db'
-import { Scheduler } from '../src/scheduler.js'
+import { SITE_AUDIT_MAX_PAGE_LIMIT, siteAuditRequestIdentity, type SiteAuditScheduleOptions } from '@ainyc/canonry-contracts'
+import { Scheduler, type SchedulerCallbacks } from '../src/scheduler.js'
 
 /**
  * Count registered cron tasks, ignoring the health schedule the scheduler seeds
@@ -604,7 +605,9 @@ test('ads-sync trigger skips (no new run, no callback) when one is already in fl
   fs.rmSync(tmpDir, { recursive: true, force: true })
 })
 
-test('site-audit schedule persists default request identity before dispatch', () => {
+type SiteAuditDispatch = { runId: string; projectId: string; opts: Parameters<NonNullable<SchedulerCallbacks['onSiteAuditRequested']>>[2] }
+
+function seedSiteAuditSchedule(siteAuditOptions?: SiteAuditScheduleOptions | null) {
   const { db, tmpDir } = createTempDb()
   const now = new Date().toISOString()
   db.insert(projects).values({
@@ -626,33 +629,92 @@ test('site-audit schedule persists default request identity before dispatch', ()
     enabled: true,
     providers: [],
     sourceId: null,
+    ...(siteAuditOptions === undefined ? {} : { siteAuditOptions }),
     createdAt: now,
     updatedAt: now,
   }).run()
 
-  const calls: Array<{ runId: string; projectId: string }> = []
+  const calls: SiteAuditDispatch[] = []
   const scheduler = new Scheduler(db, {
     onRunCreated: () => {},
-    onSiteAuditRequested: (runId, projectId) => calls.push({ runId, projectId }),
+    onSiteAuditRequested: (runId, projectId, opts) => calls.push({ runId, projectId, opts }),
   })
   ;(scheduler as unknown as {
     triggerRun: (scheduleId: string, projectId: string, kind: 'site-audit') => void
   }).triggerRun('sched_site_audit', 'proj_site_audit', 'site-audit')
 
+  const request = () => db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, calls[0]!.runId)).get()
+  const cleanup = () => {
+    scheduler.stop()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+  return { calls, request, cleanup }
+}
+
+test('site-audit schedule with no stored options scans the full site', () => {
+  const { calls, request, cleanup } = seedSiteAuditSchedule()
+
   expect(calls).toHaveLength(1)
-  expect(db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, calls[0]!.runId)).get()).toMatchObject({
+  const expected = {
+    schemaVersion: 2,
+    sitemapUrl: null,
+    // The hard page limit, not the 1,000-page manual default: the crawl stops
+    // when it runs out of pages, so a scheduled audit covers the whole site.
+    maxPages: SITE_AUDIT_MAX_PAGE_LIMIT,
+    // Unattended crawls set no edge budget; the engine derives it.
+    maxEdges: null,
+    maxDepth: null,
+    checkDeadLinks: false,
+  }
+  expect(request()).toMatchObject({
     projectId: 'proj_site_audit',
-    effectiveOptions: {
-      schemaVersion: 2,
-      sitemapUrl: null,
-      maxPages: 1_000,
-      // Unattended crawls set no edge budget; the engine derives it.
-      maxEdges: null,
-      maxDepth: null,
-      checkDeadLinks: false,
-    },
+    effectiveOptions: expected,
+    identityKey: siteAuditRequestIdentity(expected),
+  })
+  // The executor receives what was persisted, so the stored effective options
+  // describe the crawl that actually ran.
+  expect(calls[0]!.opts).toEqual({
+    sitemapUrl: undefined,
+    maxPages: SITE_AUDIT_MAX_PAGE_LIMIT,
+    maxEdges: undefined,
+    maxDepth: undefined,
+    checkDeadLinks: false,
   })
 
-  scheduler.stop()
-  fs.rmSync(tmpDir, { recursive: true, force: true })
+  cleanup()
+})
+
+test('site-audit schedule runs exactly its stored options', () => {
+  const stored = { sitemapUrl: 'https://example.com/sitemap.xml', maxPages: 25_000, maxEdges: 600_000, maxDepth: 6, checkDeadLinks: true }
+  const { calls, request, cleanup } = seedSiteAuditSchedule(stored)
+
+  expect(calls).toHaveLength(1)
+  const expected = { schemaVersion: 2, ...stored }
+  expect(request()).toMatchObject({ effectiveOptions: expected, identityKey: siteAuditRequestIdentity(expected) })
+  expect(calls[0]!.opts).toEqual(stored)
+
+  cleanup()
+})
+
+test('site-audit schedule with stored options that no longer parse runs the full-site default', () => {
+  // Only a hand-edited row can hold this; the route validates every write.
+  const { calls, request, cleanup } = seedSiteAuditSchedule({ maxPages: 'lots', maxDepth: 3 } as unknown as SiteAuditScheduleOptions)
+
+  expect(calls).toHaveLength(1)
+  expect(request()!.effectiveOptions).toEqual({
+    schemaVersion: 2, sitemapUrl: null, maxPages: SITE_AUDIT_MAX_PAGE_LIMIT, maxEdges: null, maxDepth: null, checkDeadLinks: false,
+  })
+
+  cleanup()
+})
+
+test('site-audit schedule options it does not store keep the full-site default', () => {
+  const { calls, request, cleanup } = seedSiteAuditSchedule({ maxDepth: 3 })
+
+  expect(request()!.effectiveOptions).toEqual({
+    schemaVersion: 2, sitemapUrl: null, maxPages: SITE_AUDIT_MAX_PAGE_LIMIT, maxEdges: null, maxDepth: 3, checkDeadLinks: false,
+  })
+  expect(calls[0]!.opts).toMatchObject({ maxPages: SITE_AUDIT_MAX_PAGE_LIMIT, maxDepth: 3, checkDeadLinks: false })
+
+  cleanup()
 })

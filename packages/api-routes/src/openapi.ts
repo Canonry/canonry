@@ -2971,7 +2971,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'put',
     path: '/api/v1/projects/{name}/schedule',
     summary: 'Create or update a schedule',
-    description: 'Provide exactly one of preset, cron, or recurrence. Calendar recurrence repeats every N local calendar days from startDate at time in the IANA timezone; it retains the anchor across daylight-saving changes.',
+    description: 'Provide exactly one of preset, cron, or recurrence. Calendar recurrence repeats every N local calendar days from startDate at time in the IANA timezone; it retains the anchor across daylight-saving changes. A site-audit schedule with no stored siteAuditOptions scans the full site, up to the 50,000-page hard limit; a manual technical-aeo run keeps its 1,000-page default.',
     tags: ['schedules'],
     parameters: [nameParameter, scheduleKindQueryParameter],
     requestBody: {
@@ -2989,6 +2989,11 @@ const routeCatalog: OpenApiOperation[] = [
               providers: stringArraySchema,
               enabled: booleanSchema,
               sourceId: stringSchema,
+              siteAuditOptions: {
+                allOf: [{ $ref: '#/components/schemas/SiteAuditScheduleOptions' }],
+                nullable: true,
+                description: 'Crawl options for kind site-audit only (400 for any other kind), with the same limits as a manual technical-aeo run. Omit to keep the stored options; null or {} clears them, and the schedule then scans the full site up to the 50,000-page hard limit. Each stored option wins over that default.',
+              },
               expectedUpdatedAt: {
                 type: 'string',
                 format: 'date-time',
@@ -3003,7 +3008,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Schedule updated.', 'ScheduleDto'),
       201: jsonResponse('Schedule created.', 'ScheduleDto'),
-      400: errorResponse('Invalid payload (e.g. sourceId missing for kind=traffic-sync, or providers set for kind=traffic-sync).'),
+      400: errorResponse('Invalid payload (e.g. sourceId missing for kind=traffic-sync, providers set for kind=traffic-sync, or siteAuditOptions set for a kind other than site-audit).'),
       409: errorResponse('The schedule changed since the caller loaded it.'),
     },
   },

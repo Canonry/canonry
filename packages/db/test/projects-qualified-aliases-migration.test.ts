@@ -53,8 +53,10 @@ describe('projects qualified aliases (v166)', () => {
     db.update(projects).set({ qualifiedAliases: ['Former Name'] }).where(eq(projects.id, 'project-1')).run()
     const migration = MIGRATION_VERSIONS.filter(mv => mv.version === QUALIFIED_VERSION)
     // A retry after a crash between the ALTER and the `_migrations` row re-runs
-    // the statement; the runner swallows the duplicate-column error.
-    db.$client.prepare('DELETE FROM _migrations WHERE version = ?').run(QUALIFIED_VERSION)
+    // the statement; the runner swallows the duplicate-column error. A crash
+    // there means no later version ran either, and the runner skips anything at
+    // or below the highest recorded version, so forget those rows too.
+    db.$client.prepare('DELETE FROM _migrations WHERE version >= ?').run(QUALIFIED_VERSION)
     expect(() => migrate(db, migration)).not.toThrow()
     expect(() => migrate(db)).not.toThrow()
     expect(db.select({ qualifiedAliases: projects.qualifiedAliases }).from(projects).where(eq(projects.id, 'project-1')).get())

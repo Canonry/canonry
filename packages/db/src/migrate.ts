@@ -4481,6 +4481,16 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE projects ADD COLUMN qualified_aliases TEXT NOT NULL DEFAULT '[]'`,
     ],
   },
+  {
+    // Crawl options a site-audit schedule runs with. Nullable with no default:
+    // null means none are stored, and the scheduled audit then scans the full
+    // site, so every existing schedule keeps working without a backfill.
+    version: 167,
+    name: 'schedules-site-audit-options',
+    statements: [
+      `ALTER TABLE schedules ADD COLUMN site_audit_options TEXT`,
+    ],
+  },
 ]
 
 /**

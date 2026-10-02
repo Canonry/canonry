@@ -32,6 +32,18 @@ describe('scheduleUpsertRequestSchema', () => {
     expect(scheduleUpsertRequestSchema.safeParse({ preset: 'daily', expectedUpdatedAt: null }).success).toBe(true)
     expect(scheduleUpsertRequestSchema.safeParse({ preset: 'daily', expectedUpdatedAt: 'yesterday' }).success).toBe(false)
   })
+
+  it('accepts site-audit options, null to clear them, and rejects unknown or out-of-range ones', () => {
+    expect(scheduleUpsertRequestSchema.parse({
+      kind: 'site-audit', preset: 'weekly', siteAuditOptions: { maxPages: 25_000, checkDeadLinks: true },
+    }).siteAuditOptions).toEqual({ maxPages: 25_000, checkDeadLinks: true })
+    expect(scheduleUpsertRequestSchema.parse({ kind: 'site-audit', preset: 'weekly', siteAuditOptions: null }).siteAuditOptions).toBeNull()
+    expect(scheduleUpsertRequestSchema.parse({ kind: 'site-audit', preset: 'weekly' })).not.toHaveProperty('siteAuditOptions')
+    expect(scheduleUpsertRequestSchema.safeParse({ kind: 'site-audit', preset: 'weekly', siteAuditOptions: { maxPages: 50_001 } }).success).toBe(false)
+    // Strict: a misspelled budget must not be silently dropped.
+    expect(scheduleUpsertRequestSchema.safeParse({ kind: 'site-audit', preset: 'weekly', siteAuditOptions: { maxPage: 5 } }).success).toBe(false)
+    expect(scheduleUpsertRequestSchema.safeParse({ kind: 'site-audit', preset: 'weekly', siteAuditOptions: { limit: 5 } }).success).toBe(false)
+  })
 })
 
 describe('nextScheduleUpdatedAt', () => {

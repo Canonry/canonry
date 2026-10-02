@@ -31,6 +31,7 @@ import {
   notFound,
   operationInProgress,
   siteAuditPageFactorSchema,
+  siteAuditExecutorOptions,
   siteAuditRequestIdentity,
   siteAuditRunRequestSchema,
   siteCrawlAuditFactorSchema,
@@ -2538,14 +2539,10 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
 
     if (result.created) {
       opts.onSiteAuditRequested(result.runId, project.id, {
-        sitemapUrl: effectiveRequest.sitemapUrl ?? undefined,
-        limit: parsed.data.limit,
-        maxPages: effectiveRequest.maxPages,
-        // Stays undefined when unset so the engine derives the edge budget
+        // Unset budgets stay undefined so the engine derives the edge budget
         // from the page count instead of inheriting a flat ceiling here.
-        maxEdges: effectiveRequest.maxEdges ?? undefined,
-        maxDepth: effectiveRequest.maxDepth ?? undefined,
-        checkDeadLinks: effectiveRequest.checkDeadLinks,
+        ...siteAuditExecutorOptions(effectiveRequest),
+        limit: parsed.data.limit,
       })
     }
 

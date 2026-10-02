@@ -1597,7 +1597,8 @@ export const SITE_AUDIT_MAX_PAGE_LIMIT = 50_000
 export const SITE_AUDIT_DEFAULT_MAX_DEPTH = 10
 /**
  * First-run Site Health budget. Onboarding is a bounded first look at the top
- * of the site, not the full audit: the scheduled scan keeps the page default.
+ * of the site, not the full audit: a scheduled scan covers the whole site
+ * (`normalizeScheduledSiteAuditRequest`).
  */
 export const SITE_AUDIT_ONBOARDING_PAGE_LIMIT = 100
 /**
@@ -1614,7 +1615,7 @@ export const siteAuditRunRequestSchema = z.object({
   sitemapUrl: z.string().url().optional(),
   /** @deprecated Prefer `maxPages`; retained for compatibility. */
   limit: z.number().int().positive().max(2000).optional(),
-  /** Crawl page budget. When omitted, Canonry crawls up to 1,000 pages. */
+  /** Crawl page budget. When omitted, a manual run crawls up to 1,000 pages. */
   maxPages: z.number().int().positive().max(50_000).optional(),
   /** Internal-link observation budget. When omitted, the crawl engine derives it from the page count. */
   maxEdges: z.number().int().positive().max(1_000_000).optional(),
@@ -1674,6 +1675,55 @@ export function siteAuditRequestIdentity(request: SiteAuditEffectiveRequest): st
     request.maxDepth,
     request.checkDeadLinks,
   ])
+}
+
+/**
+ * Crawl options a `site-audit` schedule stores (`schedules.site_audit_options`).
+ * The manual run body without its deprecated `limit` alias, under the same
+ * limits. `checkDeadLinks` has no default here, so an option the operator never
+ * set stays absent and falls through to the scheduled default.
+ */
+export const siteAuditScheduleOptionsSchema = siteAuditRunRequestSchema
+  .omit({ limit: true })
+  .extend({ checkDeadLinks: z.boolean().optional() })
+export type SiteAuditScheduleOptions = z.infer<typeof siteAuditScheduleOptionsSchema>
+
+/**
+ * Effective request for a scheduled crawl. A schedule is the unattended full
+ * audit, so when it stores no page budget it uses the hard limit; the crawl
+ * still stops when it runs out of pages. The manual 1,000-page default is an
+ * interactive first look: applied here, every scheduled scan of a larger site
+ * covered the same first slice. Each stored option wins over its default.
+ */
+export function normalizeScheduledSiteAuditRequest(
+  options: SiteAuditScheduleOptions | null | undefined,
+): SiteAuditEffectiveRequest {
+  return normalizeSiteAuditRunRequest({
+    ...options,
+    maxPages: options?.maxPages ?? SITE_AUDIT_MAX_PAGE_LIMIT,
+  })
+}
+
+/**
+ * The executor's view of an effective request. Unset budgets stay `undefined`
+ * so the crawl engine derives them rather than receiving a flat number.
+ */
+export interface SiteAuditExecutorOptions {
+  sitemapUrl: string | undefined
+  maxPages: number
+  maxEdges: number | undefined
+  maxDepth: number | undefined
+  checkDeadLinks: boolean
+}
+
+export function siteAuditExecutorOptions(request: SiteAuditEffectiveRequest): SiteAuditExecutorOptions {
+  return {
+    sitemapUrl: request.sitemapUrl ?? undefined,
+    maxPages: request.maxPages,
+    maxEdges: request.maxEdges ?? undefined,
+    maxDepth: request.maxDepth ?? undefined,
+    checkDeadLinks: request.checkDeadLinks,
+  }
 }
 
 export const siteAuditRunResponseSchema = z.object({

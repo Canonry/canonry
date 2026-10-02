@@ -1,4 +1,4 @@
-import type { ScheduleDto } from '@ainyc/canonry-contracts'
+import { SITE_AUDIT_MAX_PAGE_LIMIT, SchedulableRunKinds, type ScheduleDto, type SiteAuditScheduleOptions } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -45,6 +45,10 @@ export async function setSchedule(project: string, opts: {
   at?: string
   timezone?: string
   providers?: string[]
+  /** Site-audit crawl options to change; merged over the stored ones. */
+  siteAuditOptions?: SiteAuditScheduleOptions
+  /** Drop every stored crawl option, so the scheduled audit scans the full site. */
+  clearSiteAuditOptions?: boolean
   format?: string
 }): Promise<void> {
   const client = getClient()
@@ -76,6 +80,11 @@ export async function setSchedule(project: string, opts: {
 
   if (opts.sourceId) body.sourceId = opts.sourceId
   else if (current?.sourceId) body.sourceId = current.sourceId
+
+  // Crawl options carry forward per option like everything else. Omitted
+  // entirely, the server keeps the stored options as they are.
+  if (opts.clearSiteAuditOptions) body.siteAuditOptions = null
+  else if (opts.siteAuditOptions) body.siteAuditOptions = { ...current?.siteAuditOptions, ...opts.siteAuditOptions }
 
   // Only guard when there is a row to guard; a create must stay a create.
   if (current) body.expectedUpdatedAt = current.updatedAt
@@ -171,6 +180,21 @@ export function formatNextRun(nextRunAt: string, timezone: string): string {
   }
 }
 
+/**
+ * The crawl a site-audit schedule runs, in one line. Without a stored page
+ * budget the scheduled audit scans the full site, up to the hard page limit.
+ */
+function describeSiteAuditCrawl(options: SiteAuditScheduleOptions | null | undefined): string {
+  const parts = [options?.maxPages === undefined
+    ? `full site (up to ${SITE_AUDIT_MAX_PAGE_LIMIT.toLocaleString('en-US')} pages)`
+    : `up to ${options.maxPages.toLocaleString('en-US')} pages`]
+  if (options?.maxEdges !== undefined) parts.push(`up to ${options.maxEdges.toLocaleString('en-US')} links`)
+  if (options?.maxDepth !== undefined) parts.push(`depth ${options.maxDepth}`)
+  if (options?.sitemapUrl) parts.push(`sitemap ${options.sitemapUrl}`)
+  if (options?.checkDeadLinks) parts.push('dead-link checks on')
+  return parts.join(', ')
+}
+
 export function printSchedule(s: ScheduleDto): void {
   console.log(`  Kind:      ${s.kind}`)
   // Only show the friendly preset name when set — without this guard, schedules
@@ -190,6 +214,9 @@ export function printSchedule(s: ScheduleDto): void {
   console.log(`  Enabled:   ${s.enabled ? 'yes' : 'no'}`)
   if (s.kind === 'traffic-sync' && s.sourceId) {
     console.log(`  Source:    ${s.sourceId}`)
+  }
+  if (s.kind === SchedulableRunKinds['site-audit']) {
+    console.log(`  Crawl:     ${describeSiteAuditCrawl(s.siteAuditOptions)}`)
   }
   if (s.providers.length) {
     console.log(`  Providers: ${s.providers.join(', ')}`)

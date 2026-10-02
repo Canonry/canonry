@@ -1842,6 +1842,12 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_competitors_add', input: { project: 'acme', request: { competitors: ['other.example.com'] } }, methods: ['appendCompetitors'] },
   { tool: 'canonry_competitors_remove', input: { project: 'acme', request: { competitors: ['other.example.com'] } }, methods: ['deleteCompetitors'] },
   { tool: 'canonry_schedule_set', input: { project: 'acme', schedule: { preset: 'daily', timezone: 'UTC' } }, methods: ['putSchedule'] },
+  {
+    tool: 'canonry_schedule_set',
+    input: { project: 'acme', schedule: { kind: 'site-audit', preset: 'weekly', siteAuditOptions: { maxPages: 25_000, checkDeadLinks: true } } },
+    methods: ['putSchedule'],
+    expectedArgs: [['acme', { kind: 'site-audit', preset: 'weekly', siteAuditOptions: { maxPages: 25_000, checkDeadLinks: true } }]],
+  },
   { tool: 'canonry_schedule_delete', input: { project: 'acme', kind: 'traffic-sync' }, methods: ['deleteSchedule'], expectedArgs: [['acme', 'traffic-sync']] },
   { tool: 'canonry_schedule_delete', input: projectInput, methods: ['deleteSchedule'], expectedArgs: [['acme', undefined]] },
   { tool: 'canonry_insight_dismiss', input: { project: 'acme', insightId: 'insight-1' }, methods: ['dismissInsight'] },

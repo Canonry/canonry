@@ -3140,7 +3140,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_schedule_set',
     title: 'Set schedule',
-    description: 'Create or replace the scheduled run configuration for a Canonry project.',
+    description: 'Create or replace the scheduled run configuration for a Canonry project. For kind "site-audit", `siteAuditOptions` sets the crawl the scheduled audit runs (maxPages, maxEdges, maxDepth, checkDeadLinks, sitemapUrl; same limits as canonry_technical_aeo_run): omitted keeps the stored options, null clears them. With no stored options a scheduled site audit scans the full site up to 50,000 pages, unlike the 1,000-page default of a manual run. Other kinds reject siteAuditOptions.',
     access: 'write',
     tier: 'setup',
     inputSchema: scheduleSetInputSchema,

@@ -346,6 +346,8 @@ Multiple projects can be defined in one file using `---` document separators. Ap
 
 One row per (project, kind), where kind ∈ {answer-visibility, traffic-sync, gbp-sync, data-refresh, backlinks-sync, site-audit, ads-sync, doctor}. `--every-days` / `--start-date` schedules are a calendar recurrence, anchored to the local date/time.
 
+`siteAuditOptions` (`schedules.site_audit_options`, migration 167) holds a site-audit schedule's crawl options, validated by `siteAuditScheduleOptionsSchema` (the manual run body without `limit`, same limits). An object on any other kind is a 400; null is accepted on every kind so a client can echo a schedule it read. Unlike the timing fields, an omitted `siteAuditOptions` on PUT keeps the stored value, so a timing edit, pause, or older client never resets the crawl; null or `{}` clears it. With nothing stored, a scheduled audit scans the full site up to the 50,000-page hard limit.
+
 ### Measurement plan property reads
 
 - `measurement-plan property` returns one Property out of the scoped overview: mention/citation coverage plus the per-answer-engine split. A class with no assigned query reads "not measured", never 0%.
@@ -615,7 +617,7 @@ WordPress backfill is forbidden while either continuation field is set.
 
 ### Technical AEO crawl (Site Health)
 
-- Powered by the `site-audit` run kind and `@canonry/aeo-audit`'s `runSiteCrawl`. A run crawls the sitemap plus internal-link discoveries. Defaults: 1,000 pages; edges derived by the engine from the page count (pages × 50, floor 100,000) unless `--max-edges` is set. Hard limits: 50,000 pages / 1,000,000 edges. Dead-link analysis is off unless requested.
+- Powered by the `site-audit` run kind and `@canonry/aeo-audit`'s `runSiteCrawl`. A run crawls the sitemap plus internal-link discoveries. Manual-run defaults: 1,000 pages; a scheduled run with no stored `siteAuditOptions` uses the 50,000-page hard limit instead (see "Schedules"); edges derived by the engine from the page count (pages × 50, floor 100,000) unless `--max-edges` is set. Hard limits: 50,000 pages / 1,000,000 edges. Dead-link analysis is off unless requested.
 - Progress reports the exact durable phase and raw pages found / checked / failed counters — never a synthesized percentage.
 - Dead-link reports are disabled unless the run used `--check-dead-links`. A listed dead link ALWAYS has a real 4xx/5xx status: an internal target the crawler could not fetch at all (timeout, reset connection, throttling under crawl concurrency) is counted separately as `unverified` and is never listed, because a failed fetch is a fact about the crawl and not about the link. `found` and `checked` both exclude unverified targets, so "0 found, 6 unverified" reads as "nothing broken, six we could not check" rather than as a clean bill of health.
 

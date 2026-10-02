@@ -12644,10 +12644,25 @@ export type ScheduleDto = {
     enabled: boolean;
     providers: Array<string>;
     sourceId?: string | null;
+    siteAuditOptions?: {
+        sitemapUrl?: string;
+        maxPages?: number;
+        maxEdges?: number;
+        maxDepth?: number;
+        checkDeadLinks?: boolean;
+    } | null;
     lastRunAt?: string | null;
     nextRunAt?: string | null;
     createdAt: string;
     updatedAt: string;
+};
+
+export type SiteAuditScheduleOptions = {
+    sitemapUrl?: string;
+    maxPages?: number;
+    maxEdges?: number;
+    maxDepth?: number;
+    checkDeadLinks?: boolean;
 };
 
 export type SettingsDto = {
@@ -20996,6 +21011,10 @@ export type PutApiV1ProjectsByNameScheduleData = {
         enabled?: boolean;
         sourceId?: string;
         /**
+         * Crawl options for kind site-audit only (400 for any other kind), with the same limits as a manual technical-aeo run. Omit to keep the stored options; null or {} clears them, and the schedule then scans the full site up to the 50,000-page hard limit. Each stored option wins over that default.
+         */
+        siteAuditOptions?: SiteAuditScheduleOptions | null;
+        /**
          * Update only this exact version; null creates only while absent. Omit for legacy unconditional behavior.
          */
         expectedUpdatedAt?: string | null;
@@ -21017,7 +21036,7 @@ export type PutApiV1ProjectsByNameScheduleData = {
 
 export type PutApiV1ProjectsByNameScheduleErrors = {
     /**
-     * Invalid payload (e.g. sourceId missing for kind=traffic-sync, or providers set for kind=traffic-sync).
+     * Invalid payload (e.g. sourceId missing for kind=traffic-sync, providers set for kind=traffic-sync, or siteAuditOptions set for a kind other than site-audit).
      */
     400: ErrorEnvelope;
     /**

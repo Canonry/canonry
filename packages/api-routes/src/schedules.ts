@@ -7,6 +7,7 @@ import {
   type CalendarRecurrence,
   type ProviderName,
   type SchedulableRunKind,
+  type SiteAuditScheduleOptions,
   SchedulableRunKinds,
   schedulableRunKindSchema,
   nextScheduleUpdatedAt,
@@ -61,7 +62,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
   app.put<{
     Params: { name: string }
     Querystring: { kind?: string }
-    Body: { kind?: string; preset?: string; cron?: string; recurrence?: CalendarRecurrence; timezone?: string; providers?: string[]; enabled?: boolean; sourceId?: string; expectedUpdatedAt?: string | null }
+    Body: { kind?: string; preset?: string; cron?: string; recurrence?: CalendarRecurrence; timezone?: string; providers?: string[]; enabled?: boolean; sourceId?: string; siteAuditOptions?: SiteAuditScheduleOptions | null; expectedUpdatedAt?: string | null }
   }>('/projects/:name/schedule', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
@@ -78,6 +79,12 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
     // 'answer-visibility' so the legacy URL still works unchanged.
     const kind = parsedBody.data.kind ?? parseKindParam(request.query?.kind)
     const { preset, cron, recurrence, timezone, providers, enabled, sourceId, expectedUpdatedAt } = parsedBody.data
+    // Unlike the timing fields, an omitted `siteAuditOptions` keeps the stored
+    // value: a timing edit or pause from a client that does not know about crawl
+    // options must not reset the crawl. `{}` is the same as null (none stored).
+    const siteAuditOptions = parsedBody.data.siteAuditOptions === undefined
+      ? undefined
+      : siteAuditOptionsOrNull(parsedBody.data.siteAuditOptions)
 
     // Per-kind invariants
     if (kind === SchedulableRunKinds['traffic-sync']) {
@@ -103,6 +110,11 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
     // site-audit (Technical AEO) crawls the sitemap — no answer-engine providers.
     if (kind === SchedulableRunKinds['site-audit'] && providers && providers.length > 0) {
       throw validationError('"providers" is not valid for kind "site-audit"')
+    }
+    // Crawl options belong to site-audit alone. Null stays accepted for every
+    // kind so a client can echo back a schedule it read (the DTO carries null).
+    if (siteAuditOptions && kind !== SchedulableRunKinds['site-audit']) {
+      throw validationError('"siteAuditOptions" is only valid when kind is "site-audit"')
     }
 
     // Validate provider names against registered adapters
@@ -164,6 +176,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
         timezone,
         providers: (providers ?? []) as ProviderName[],
         sourceId: sourceId ?? null,
+        ...(siteAuditOptions === undefined ? {} : { siteAuditOptions }),
         enabled: enabledBool,
         updatedAt: now,
       }
@@ -201,7 +214,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
         actor: 'api',
         action: existing ? 'schedule.updated' : 'schedule.created',
         entityType: 'schedule',
-        diff: { kind, cronExpr, preset, recurrence, timezone, providers, sourceId },
+        diff: { kind, cronExpr, preset, recurrence, timezone, providers, sourceId, siteAuditOptions },
       })
 
       return {
@@ -297,6 +310,11 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
   })
 }
 
+/** One stored representation for "no crawl options": null, never `{}`. */
+function siteAuditOptionsOrNull(options: SiteAuditScheduleOptions | null): SiteAuditScheduleOptions | null {
+  return options && Object.keys(options).length > 0 ? options : null
+}
+
 function formatSchedule(row: typeof schedules.$inferSelect): ScheduleDto {
   return {
     id: row.id,
@@ -309,6 +327,7 @@ function formatSchedule(row: typeof schedules.$inferSelect): ScheduleDto {
     enabled: row.enabled,
     providers: row.providers,
     sourceId: row.sourceId,
+    siteAuditOptions: row.siteAuditOptions ?? null,
     lastRunAt: row.lastRunAt,
     nextRunAt: row.nextRunAt,
     createdAt: row.createdAt,

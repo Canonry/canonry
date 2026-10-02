@@ -4,8 +4,11 @@ import {
   SITE_AUDIT_MAX_EDGE_LIMIT,
   SITE_AUDIT_MAX_PAGE_LIMIT,
   deriveSiteHealthState,
+  normalizeScheduledSiteAuditRequest,
   normalizeSiteAuditRunRequest,
+  siteAuditExecutorOptions,
   siteAuditRequestIdentity,
+  siteAuditScheduleOptionsSchema,
   siteAuditFactorSummarySchema,
   siteAuditLivePageHealthSchema,
   siteAuditPageFactorSchema,
@@ -410,5 +413,89 @@ describe('audit factor shares', () => {
     expect(ratioUnitOf(siteAuditPageFactorSchema.shape.sharePct)).toBe('percent')
     expect(ratioUnitOf(siteCrawlAuditFactorSchema.shape.sharePct)).toBe('percent')
     expect(ratioUnitOf(siteAuditFactorSummarySchema.shape.sharePct)).toBe('percent')
+  })
+})
+
+describe('scheduled site-audit request', () => {
+  it('scans the whole site when the schedule stores no options', () => {
+    // A schedule is the unattended full audit. The 1,000-page manual default
+    // made every scheduled scan of a larger site cover the same first slice.
+    const expected = {
+      schemaVersion: 2,
+      sitemapUrl: null,
+      maxPages: SITE_AUDIT_MAX_PAGE_LIMIT,
+      maxEdges: null,
+      maxDepth: null,
+      checkDeadLinks: false,
+    }
+    expect(normalizeScheduledSiteAuditRequest(null)).toEqual(expected)
+    expect(normalizeScheduledSiteAuditRequest(undefined)).toEqual(expected)
+    expect(normalizeScheduledSiteAuditRequest({})).toEqual(expected)
+    // The manual default is untouched.
+    expect(normalizeSiteAuditRunRequest({}).maxPages).toBe(SITE_AUDIT_DEFAULT_PAGE_LIMIT)
+  })
+
+  it('lets every stored option win over the scheduled default', () => {
+    expect(normalizeScheduledSiteAuditRequest({
+      sitemapUrl: 'https://example.com/sitemap.xml',
+      maxPages: 25_000,
+      maxEdges: 600_000,
+      maxDepth: 6,
+      checkDeadLinks: true,
+    })).toEqual({
+      schemaVersion: 2,
+      sitemapUrl: 'https://example.com/sitemap.xml',
+      maxPages: 25_000,
+      maxEdges: 600_000,
+      maxDepth: 6,
+      checkDeadLinks: true,
+    })
+    // An option the schedule does not store keeps the scheduled default.
+    expect(normalizeScheduledSiteAuditRequest({ maxDepth: 3 })).toMatchObject({
+      maxPages: SITE_AUDIT_MAX_PAGE_LIMIT,
+      maxDepth: 3,
+      checkDeadLinks: false,
+    })
+  })
+
+  it('gives the full-site default its own identity, distinct from the manual default', () => {
+    const scheduled = siteAuditRequestIdentity(normalizeScheduledSiteAuditRequest(null))
+    expect(scheduled).not.toBe(siteAuditRequestIdentity(normalizeSiteAuditRunRequest({})))
+    expect(scheduled).toBe(siteAuditRequestIdentity(normalizeSiteAuditRunRequest({ maxPages: SITE_AUDIT_MAX_PAGE_LIMIT })))
+  })
+
+  it('validates stored options with the manual run limits and drops the legacy limit alias', () => {
+    expect(siteAuditScheduleOptionsSchema.parse({ maxPages: 50_000, maxEdges: 1_000_000, maxDepth: 100 })).toEqual({
+      maxPages: 50_000, maxEdges: 1_000_000, maxDepth: 100,
+    })
+    // Unset dead-link checking stays unset rather than being written as false.
+    expect(siteAuditScheduleOptionsSchema.parse({})).toEqual({})
+    for (const invalid of [
+      { maxPages: 50_001 },
+      { maxPages: 0 },
+      { maxEdges: 1_000_001 },
+      { maxDepth: 101 },
+      { sitemapUrl: 'not a url' },
+    ]) {
+      expect(siteAuditScheduleOptionsSchema.safeParse(invalid).success, JSON.stringify(invalid)).toBe(false)
+    }
+    // `limit` is not a schedule option. The read shape drops it; the write
+    // shape (scheduleUpsertRequestSchema) rejects it outright.
+    expect(siteAuditScheduleOptionsSchema.parse({ limit: 20 })).toEqual({})
+  })
+
+  it('hands the executor the effective request, leaving unset budgets unset', () => {
+    expect(siteAuditExecutorOptions(normalizeScheduledSiteAuditRequest(null))).toEqual({
+      sitemapUrl: undefined,
+      maxPages: SITE_AUDIT_MAX_PAGE_LIMIT,
+      maxEdges: undefined,
+      maxDepth: undefined,
+      checkDeadLinks: false,
+    })
+    expect(siteAuditExecutorOptions(normalizeScheduledSiteAuditRequest({
+      sitemapUrl: 'https://example.com/sitemap.xml', maxPages: 20, maxEdges: 30, maxDepth: 0, checkDeadLinks: true,
+    }))).toEqual({
+      sitemapUrl: 'https://example.com/sitemap.xml', maxPages: 20, maxEdges: 30, maxDepth: 0, checkDeadLinks: true,
+    })
   })
 })

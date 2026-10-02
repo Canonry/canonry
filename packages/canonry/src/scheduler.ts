@@ -4,7 +4,7 @@ import { and, eq, inArray, notExists, sql } from 'drizzle-orm'
 import { queueRunIfProjectIdle, nextRunFromCron, nextRunFromSchedule, ensureCurrentQueryBasketRevision, hasOutstandingProviderBatch, latestQueryBasketRevision } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { schedules, projects, runs, siteCrawlRunRequests } from '@ainyc/canonry-db'
-import type { CalendarRecurrence, ProviderName, LocationContext, SchedulableRunKind } from '@ainyc/canonry-contracts'
+import type { CalendarRecurrence, ProviderName, LocationContext, SchedulableRunKind, SiteAuditExecutorOptions } from '@ainyc/canonry-contracts'
 import {
   SchedulableRunKinds,
   calendarRecurrenceSchema,
@@ -12,9 +12,11 @@ import {
   RunKinds,
   RunStatuses,
   RunTriggers,
-  normalizeSiteAuditRunRequest,
+  normalizeScheduledSiteAuditRequest,
   nextScheduleUpdatedAt,
+  siteAuditExecutorOptions,
   siteAuditRequestIdentity,
+  siteAuditScheduleOptionsSchema,
   describeError,
 } from '@ainyc/canonry-contracts'
 import { createLogger } from './logger.js'
@@ -124,12 +126,16 @@ export interface SchedulerCallbacks {
   /**
    * Fired when a site-audit (Technical AEO) schedule triggers. The scheduler
    * owns run-row creation (like gbp-sync) so it can hand the host a runId; the
-   * host runs the same worker the manual POST /technical-aeo/runs route uses.
+   * host runs the same worker the manual POST /technical-aeo/runs route uses,
+   * with `opts` exactly as persisted on the run's `site_crawl_run_requests`
+   * row. Those are the schedule's stored `siteAuditOptions` over the scheduled
+   * default, which scans the full site up to the hard page limit; the host must
+   * pass them through, or the crawl falls back to the 1,000-page manual default.
    * A site-audit needs no `sourceId` / providers. Skipped (without orphaning a
    * run row) when a site-audit run is already in flight for the project, since
    * a full-site crawl can run for minutes. Fire-and-forget.
    */
-  onSiteAuditRequested?: (runId: string, projectId: string) => void
+  onSiteAuditRequested?: (runId: string, projectId: string, opts: SiteAuditExecutorOptions) => void
 }
 
 /** Scheduler tasks are keyed by `(projectId, kind)` so a project can run an
@@ -630,7 +636,8 @@ export class Scheduler {
       if (kind === SchedulableRunKinds['site-audit']) {
         // Technical AEO: crawl root, sitemap, and linked pages. Like
         // gbp-sync, the scheduler creates the run row and hands the host a
-        // runId. A full-site crawl can run for minutes, so skip (without
+        // runId. With no stored options the crawl covers the full site, up to
+        // the hard page limit, so it can run for minutes: skip (without
         // orphaning a run row) when one is already queued/running.
         if (!this.callbacks.onSiteAuditRequested) {
           log.warn('site-audit.no-callback', { scheduleId, projectId, msg: 'host did not register onSiteAuditRequested' })
@@ -651,7 +658,15 @@ export class Scheduler {
           return
         }
         const runId = crypto.randomUUID()
-        const effectiveRequest = normalizeSiteAuditRunRequest({})
+        // The route validates options on write; a row edited by hand that no
+        // longer parses runs the scheduled default rather than a guess.
+        const storedOptions = siteAuditScheduleOptionsSchema.nullable().safeParse(currentSchedule.siteAuditOptions ?? null)
+        if (!storedOptions.success) {
+          log.warn('site-audit.invalid-options', { scheduleId, projectName: project.name, error: describeError(storedOptions.error) })
+        }
+        // Persisted before dispatch and handed to the host unchanged, so the
+        // run's effective options and identity key describe the crawl that ran.
+        const effectiveRequest = normalizeScheduledSiteAuditRequest(storedOptions.data)
         this.db.transaction((tx) => {
           tx.insert(runs).values({
             id: runId,
@@ -673,8 +688,8 @@ export class Scheduler {
           lastRunAt: now,
           nextRunAt,
         })
-        log.info('site-audit.triggered', { runId, projectName: project.name })
-        this.callbacks.onSiteAuditRequested(runId, projectId)
+        log.info('site-audit.triggered', { runId, projectName: project.name, maxPages: effectiveRequest.maxPages })
+        this.callbacks.onSiteAuditRequested(runId, projectId, siteAuditExecutorOptions(effectiveRequest))
         return
       }
 

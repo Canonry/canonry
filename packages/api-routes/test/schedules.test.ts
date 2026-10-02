@@ -483,6 +483,109 @@ describe('schedule per-kind invariants', () => {
   })
 })
 
+describe('site-audit schedule options', () => {
+  let harness: Harness
+  beforeEach(async () => { harness = await buildHarness() })
+  afterEach(async () => { await teardown(harness) })
+
+  async function put(payload: Record<string, unknown>) {
+    const res = await harness.app.inject({ method: 'PUT', url: '/api/v1/projects/site-a/schedule', payload })
+    return { statusCode: res.statusCode, body: JSON.parse(res.payload) }
+  }
+
+  async function get(kind = 'site-audit') {
+    const res = await harness.app.inject({ method: 'GET', url: `/api/v1/projects/site-a/schedule?kind=${kind}` })
+    expect(res.statusCode).toBe(200)
+    return JSON.parse(res.payload)
+  }
+
+  function storedOptions() {
+    return harness.db.select({ siteAuditOptions: schedules.siteAuditOptions }).from(schedules)
+      .where(and(eq(schedules.projectId, harness.projectId), eq(schedules.kind, 'site-audit'))).get()?.siteAuditOptions
+  }
+
+  it('reports no stored options for a site-audit schedule created without them', async () => {
+    const created = await put({ kind: 'site-audit', preset: 'weekly' })
+    expect(created.statusCode).toBe(201)
+    expect(created.body.siteAuditOptions).toBeNull()
+    expect(storedOptions()).toBeNull()
+  })
+
+  it('stores, returns and lists site-audit options exactly as sent', async () => {
+    const options = {
+      sitemapUrl: 'https://site-a.example.com/sitemap.xml', maxPages: 25_000, maxEdges: 600_000, maxDepth: 6, checkDeadLinks: true,
+    }
+    const created = await put({ kind: 'site-audit', preset: 'weekly', siteAuditOptions: options })
+    expect(created.statusCode).toBe(201)
+    expect(created.body.siteAuditOptions).toEqual(options)
+    expect(storedOptions()).toEqual(options)
+    expect((await get()).siteAuditOptions).toEqual(options)
+
+    const list = await harness.app.inject({ method: 'GET', url: '/api/v1/projects/site-a/schedules' })
+    expect(JSON.parse(list.payload).find((row: { kind: string }) => row.kind === 'site-audit').siteAuditOptions).toEqual(options)
+  })
+
+  it('keeps stored options when an update omits them, replaces them when sent, and clears them with null', async () => {
+    await put({ kind: 'site-audit', preset: 'weekly', siteAuditOptions: { maxPages: 25_000 } })
+
+    // A client that only edits timing (the dashboard, enable/disable, an older
+    // CLI) must not silently reset the crawl back to the scheduled default.
+    const retimed = await put({ kind: 'site-audit', preset: 'daily', enabled: false })
+    expect(retimed.statusCode).toBe(200)
+    expect(retimed.body).toMatchObject({ preset: 'daily', enabled: false, siteAuditOptions: { maxPages: 25_000 } })
+
+    const replaced = await put({ kind: 'site-audit', preset: 'daily', siteAuditOptions: { maxDepth: 4 } })
+    expect(replaced.body.siteAuditOptions).toEqual({ maxDepth: 4 })
+
+    const cleared = await put({ kind: 'site-audit', preset: 'daily', siteAuditOptions: null })
+    expect(cleared.body.siteAuditOptions).toBeNull()
+    expect(storedOptions()).toBeNull()
+  })
+
+  it('stores an empty options object as no stored options', async () => {
+    const created = await put({ kind: 'site-audit', preset: 'weekly', siteAuditOptions: {} })
+    expect(created.body.siteAuditOptions).toBeNull()
+    expect(storedOptions()).toBeNull()
+  })
+
+  it.each([
+    ['answer-visibility', {}],
+    ['data-refresh', {}],
+    ['backlinks-sync', {}],
+    ['doctor', {}],
+    ['traffic-sync', { sourceId: 'TRAFFIC_SOURCE' }],
+  ])('rejects site-audit options on kind %s with a 400', async (kind, extra) => {
+    const payload: Record<string, unknown> = { kind, preset: 'daily', siteAuditOptions: { maxPages: 5_000 }, ...extra }
+    if (payload.sourceId === 'TRAFFIC_SOURCE') payload.sourceId = harness.trafficSourceId
+    const res = await put(payload)
+    expect(res.statusCode).toBe(400)
+    expect(res.body.error.code).toBe('VALIDATION_ERROR')
+    expect(res.body.error.message).toBe('"siteAuditOptions" is only valid when kind is "site-audit"')
+    expect(harness.db.select().from(schedules).where(eq(schedules.kind, kind)).get()).toBeUndefined()
+  })
+
+  it('accepts null options on other kinds so a client can echo a schedule it read', async () => {
+    const created = await put({ kind: 'answer-visibility', preset: 'daily', siteAuditOptions: null })
+    expect(created.statusCode).toBe(201)
+    expect(created.body.siteAuditOptions).toBeNull()
+  })
+
+  it.each([
+    [{ maxPages: 50_001 }],
+    [{ maxPages: 0 }],
+    [{ maxEdges: 1_000_001 }],
+    [{ maxDepth: 101 }],
+    [{ sitemapUrl: 'not-a-url' }],
+    [{ limit: 20 }],
+    [{ maxPage: 20 }],
+  ])('rejects invalid site-audit options %j with the manual run limits', async (options) => {
+    const res = await put({ kind: 'site-audit', preset: 'weekly', siteAuditOptions: options })
+    expect(res.statusCode).toBe(400)
+    expect(res.body.error.code).toBe('VALIDATION_ERROR')
+    expect(storedOptions()).toBeUndefined()
+  })
+})
+
 describe('apply preserves traffic-sync schedules', () => {
   let harness: Harness
   beforeEach(async () => { harness = await buildHarness() })

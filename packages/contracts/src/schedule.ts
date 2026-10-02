@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { providerNameSchema } from './provider.js'
+import { siteAuditScheduleOptionsSchema } from './technical-aeo.js'
 
 /**
  * Run kinds that can be scheduled by the project schedule system. Subset of
@@ -14,6 +15,7 @@ import { providerNameSchema } from './provider.js'
  *   projects with `autoExtractBacklinks`). Workspace-global: no `sourceId`, no `providers`.
  * - `site-audit` — Technical AEO: crawl the project's sitemap and audit every reachable page across the
  *   aeo-audit ranking factors, persisting a site-level score + per-page breakdown. No `sourceId`, no `providers`.
+ *   Scans the full site up to the hard page limit unless the schedule stores `siteAuditOptions`.
  * - `ads-sync` — OpenAI Advertiser API (ChatGPT ads) pull: entity snapshots + daily paid-performance
  *   rollups for the project's connected ad account. No `sourceId`, no `providers`.
  */
@@ -53,6 +55,12 @@ export const scheduleDtoSchema = z.object({
   providers: z.array(providerNameSchema).default([]),
   /** Traffic-source UUID for `kind === 'traffic-sync'` schedules. Null otherwise. */
   sourceId: z.string().nullable().optional(),
+  /**
+   * Crawl options for `kind === 'site-audit'` schedules. Null when none are
+   * stored: the scheduled audit then scans the full site up to the hard page
+   * limit. Always null for other kinds.
+   */
+  siteAuditOptions: siteAuditScheduleOptionsSchema.nullable().optional(),
   lastRunAt: z.string().nullable().optional(),
   nextRunAt: z.string().nullable().optional(),
   createdAt: z.string(),
@@ -82,6 +90,14 @@ export const scheduleUpsertRequestSchema = z.object({
   providers: z.array(providerNameSchema).optional().default([]),
   /** Required when kind === 'traffic-sync'. Forbidden for other kinds. Validated server-side. */
   sourceId: z.string().optional(),
+  /**
+   * Crawl options for kind === 'site-audit' only; an object for any other kind
+   * is rejected server-side. Unlike the timing fields, omitting it keeps the
+   * stored options (a timing edit or pause must not reset the crawl); null or
+   * `{}` clears them, and the schedule then scans the full site. Strict, so a
+   * misspelled budget is an error rather than a silently ignored key.
+   */
+  siteAuditOptions: siteAuditScheduleOptionsSchema.strict().nullable().optional(),
   /**
    * Optimistic concurrency guard. A timestamp updates only that exact version;
    * null creates only while the schedule is absent. Omit for legacy behavior.

@@ -65,6 +65,7 @@ import {
   runStatusSchema,
   runTriggerSchema,
   schedulableRunKindSchema,
+  siteAuditScheduleOptionsSchema,
 } from '@ainyc/canonry-contracts'
 
 // --- projects ---
@@ -116,6 +117,7 @@ export const scheduleRowSchema = createSelectSchema(schedules, {
   recurrence: calendarRecurrenceSchema.nullable(),
   kind: schedulableRunKindSchema,
   providers: z.array(providerNameSchema),
+  siteAuditOptions: siteAuditScheduleOptionsSchema.nullable(),
 })
 
 // --- notifications ---

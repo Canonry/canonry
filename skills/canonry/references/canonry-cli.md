@@ -327,7 +327,7 @@ cnry visibility-compare <project> --from 2026-05 --to 2026-06 --scope property -
 Site-wide technical audit (structured data, AI-readable content, AI-crawler access, content depth/freshness/extractability, …) powered by `@canonry/aeo-audit`'s `runSiteCrawl`. Runs as the `site-audit` run kind — discovers in-scope URLs from the project root, sitemaps, and internal links; stores the URL/link graph; audits eligible HTML pages; and rolls the results into one 0–100 site score. Pure HTTP, no LLM cost; a large site can take minutes, so it runs in the background. `site-health` is the operator-facing CLI name; `technical-aeo` remains compatible.
 
 ```bash
-cnry technical-aeo run <project> --wait                 # full crawl + audit; defaults to 1,000 pages, edges derived from the page count unless --max-edges is set; waits for terminal state
+cnry technical-aeo run <project> --wait                 # full crawl + audit; a manual run defaults to 1,000 pages, edges derived from the page count unless --max-edges is set; waits for terminal state
 cnry technical-aeo run <project> --sitemap-url <url> --max-pages 5000 --max-edges 250000 --max-depth 12   # optional crawl seeds and custom budgets; hard caps are 50,000 pages / 1,000,000 edges
 cnry technical-aeo run <project> --check-dead-links --wait   # opt in to dead-link checks; they are off by default
 cnry technical-aeo progress <project> --run-id <id> [--format json] # exact durable phase and pages found / checked / failed counters; never a synthesized percentage
@@ -347,7 +347,8 @@ cnry technical-aeo dead-links <project> [--cursor <cursor>] [--limit <n>] [--for
 cnry technical-aeo score <project> [--format json]      # site score + per-factor scorecard (avg + pass/partial/fail per page) + delta vs the previous audit
 cnry technical-aeo pages <project> [--status error] [--sort score-asc|score-desc|url] [--format json|jsonl]   # audited-page compatibility view (worst-first by default)
 cnry technical-aeo trend <project> [--format json|jsonl] # aggregate-score history across past audits
-cnry schedule set <project> --kind site-audit --preset weekly   # keep it fresh
+cnry schedule set <project> --kind site-audit --preset weekly   # keep it fresh: a scheduled audit scans the full site, up to 50,000 pages
+cnry schedule set <project> --kind site-audit --preset weekly --max-pages 25000 --max-depth 8   # store crawl options for the scheduled audit (same flags and limits as technical-aeo run)
 ```
 
 For agent site readiness, begin with `cnry technical-aeo score <project> --format json`. Use `cnry site-health overview <project>` only to add crawl metadata; it never replaces the score. Use `cnry site-health page-audit` (MCP: `canonry_site_health_page_audit`) to tie a selected graph page's audit score to exact findings and fixes. Link score is importance, not an audit verdict. Then request a focused neighborhood, a shortest path, or scan-to-scan changes. Do not ask an agent to materialize the interactive graph: it can exceed the MCP tool-result limit. The matching traversal tools are `canonry_site_health_subgraph`, `canonry_site_health_path`, and `canonry_site_health_changes`; the subgraph tool defaults to a small focused result and should be expanded only when needed.
@@ -436,13 +437,19 @@ cnry schedule set <project> --cron "0 9 * * *" --timezone America/New_York
 cnry schedule set <project> --kind data-refresh --preset daily   # refresh all connected GSC/Bing/GA/GBP integrations (no --source)
 cnry schedule set <project> --kind backlinks-sync --preset weekly # re-probe Common Crawl; sync only when a newer rolling window is published (no --source/--provider)
 cnry doctor <project> --check site.reachability   # probe the homepage now; the server also probes every 10 min and pages health.degraded after two failed passes
-cnry schedule set <project> --kind site-audit --preset weekly     # Technical AEO: bounded full-site crawl and audit (no --source/--provider)
+cnry schedule set <project> --kind site-audit --preset weekly     # Technical AEO: full-site crawl and audit, up to 50,000 pages (no --source/--provider)
+cnry schedule set <project> --kind site-audit --preset weekly --max-pages 25000 --check-dead-links   # store crawl options; also --max-edges, --max-depth, --sitemap-url, --no-check-dead-links
+cnry schedule set <project> --kind site-audit --preset weekly --clear-site-audit-options          # back to the full-site default
 cnry schedule show <project>
 cnry schedule list <project> --format json      # all configured schedule kinds
 cnry schedule enable <project>
 cnry schedule disable <project>
 cnry schedule remove <project>
+```
 
+Site-audit crawl options are only valid with `--kind site-audit`. Flags you leave out keep their stored values, as do timing-only edits and `enable`/`disable`. With no stored options a scheduled audit scans the full site up to the 50,000-page hard limit, with dead-link checks off; a manual `technical-aeo run` keeps its 1,000-page default. `schedule show --kind site-audit` prints the crawl the schedule will run, and the JSON carries `siteAuditOptions` (null when none are stored).
+
+```bash
 cnry notify add <project> --webhook <url> --events citation.lost,citation.gained
 cnry notify events                             # list all available event types
 cnry notify list <project>

@@ -3311,7 +3311,7 @@ export const getApiV1ProjectsByNameScheduleOptions = (options: Options<GetApiV1P
 /**
  * Create or update a schedule
  *
- * Provide exactly one of preset, cron, or recurrence. Calendar recurrence repeats every N local calendar days from startDate at time in the IANA timezone; it retains the anchor across daylight-saving changes.
+ * Provide exactly one of preset, cron, or recurrence. Calendar recurrence repeats every N local calendar days from startDate at time in the IANA timezone; it retains the anchor across daylight-saving changes. A site-audit schedule with no stored siteAuditOptions scans the full site, up to the 50,000-page hard limit; a manual technical-aeo run keeps its 1,000-page default.
  */
 export const putApiV1ProjectsByNameScheduleMutation = (options?: Partial<Options<PutApiV1ProjectsByNameScheduleData>>): UseMutationOptions<PutApiV1ProjectsByNameScheduleResponse, PutApiV1ProjectsByNameScheduleError, Options<PutApiV1ProjectsByNameScheduleData>> => {
     const mutationOptions: UseMutationOptions<PutApiV1ProjectsByNameScheduleResponse, PutApiV1ProjectsByNameScheduleError, Options<PutApiV1ProjectsByNameScheduleData>> = {

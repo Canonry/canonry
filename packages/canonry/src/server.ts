@@ -1835,10 +1835,13 @@ export async function createServer(opts: {
       })();
 
     },
-    onSiteAuditRequested: (runId, projectId) => {
-      // The scheduler already created the site-audit run row; run the same
-      // worker the manual POST /technical-aeo/runs route uses (default limit).
-      runSiteAudit(runId, projectId);
+    onSiteAuditRequested: (runId, projectId, auditOpts) => {
+      // The scheduler already created the site-audit run row and persisted
+      // these options on it; run the same worker the manual
+      // POST /technical-aeo/runs route uses with exactly those options.
+      // Dropping them here made every scheduled audit fall back to the
+      // 1,000-page manual default.
+      runSiteAudit(runId, projectId, auditOpts);
     },
   });
 
