@@ -13,6 +13,7 @@ import {
   RunStatuses,
   RunTriggers,
   normalizeSiteAuditRunRequest,
+  SITE_AUDIT_MAX_PAGE_LIMIT,
   nextScheduleUpdatedAt,
   siteAuditRequestIdentity,
   describeError,
@@ -124,12 +125,14 @@ export interface SchedulerCallbacks {
   /**
    * Fired when a site-audit (Technical AEO) schedule triggers. The scheduler
    * owns run-row creation (like gbp-sync) so it can hand the host a runId; the
-   * host runs the same worker the manual POST /technical-aeo/runs route uses.
+   * host runs the same worker the manual POST /technical-aeo/runs route uses,
+   * with `opts.maxPages` as its page budget: a scheduled audit covers the full
+   * site, up to the hard page limit, where a manual run defaults to 1,000.
    * A site-audit needs no `sourceId` / providers. Skipped (without orphaning a
    * run row) when a site-audit run is already in flight for the project, since
    * a full-site crawl can run for minutes. Fire-and-forget.
    */
-  onSiteAuditRequested?: (runId: string, projectId: string) => void
+  onSiteAuditRequested?: (runId: string, projectId: string, opts: { maxPages: number }) => void
 }
 
 /** Scheduler tasks are keyed by `(projectId, kind)` so a project can run an
@@ -651,7 +654,9 @@ export class Scheduler {
           return
         }
         const runId = crypto.randomUUID()
-        const effectiveRequest = normalizeSiteAuditRunRequest({})
+        // Nobody is waiting on a scheduled crawl, so it covers the full site;
+        // the crawl still ends when it runs out of pages to fetch.
+        const effectiveRequest = normalizeSiteAuditRunRequest({ maxPages: SITE_AUDIT_MAX_PAGE_LIMIT })
         this.db.transaction((tx) => {
           tx.insert(runs).values({
             id: runId,
@@ -674,7 +679,7 @@ export class Scheduler {
           nextRunAt,
         })
         log.info('site-audit.triggered', { runId, projectName: project.name })
-        this.callbacks.onSiteAuditRequested(runId, projectId)
+        this.callbacks.onSiteAuditRequested(runId, projectId, { maxPages: effectiveRequest.maxPages })
         return
       }
 
