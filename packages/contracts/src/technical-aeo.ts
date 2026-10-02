@@ -1165,10 +1165,22 @@ export type SiteCrawlPageAuditDto = z.infer<typeof siteCrawlPageAuditSchema>
 export const siteCrawlPagesFilterStateSchema = z.enum(['applied', 'unavailable-legacy-scan'])
 export type SiteCrawlPagesFilterState = z.infer<typeof siteCrawlPagesFilterStateSchema>
 
+/**
+ * Whether the scan a crawl read answered from finished. `complete: false` means
+ * it stopped at the budget `termination` names, so a page or link missing from
+ * the result may exist beyond what was crawled. With no crawl to read, both are
+ * `false` / null.
+ */
+const siteCrawlCompletenessShape = {
+  complete: z.boolean(),
+  termination: z.string().nullable(),
+}
+
 export const siteCrawlPagesResponseSchema = z.object({
   project: z.string(),
   hasCrawlData: z.boolean(),
   runId: z.string().nullable(),
+  ...siteCrawlCompletenessShape,
   total: z.number().int().nonnegative(),
   nextCursor: z.string().nullable(),
   /** Null when no `healthState` filter was requested. */
@@ -1192,6 +1204,7 @@ export const siteCrawlStructureResponseSchema = z.object({
   project: z.string(),
   hasCrawlData: z.boolean(),
   runId: z.string().nullable(),
+  ...siteCrawlCompletenessShape,
   parentPath: z.string(),
   nextCursor: z.string().nullable(),
   children: z.array(siteCrawlStructureChildSchema).default([]),
@@ -1327,6 +1340,7 @@ export const siteCrawlGraphResponseSchema = z.object({
    * and it can name a page that graph sampling left out of `nodes`.
    */
   rootNodeKey: z.string().nullable(),
+  ...siteCrawlCompletenessShape,
   layout: siteCrawlGraphLayoutSchema,
   /** Whether nav and footer links could be told apart for this scan. */
   templateDetection: siteHealthTemplateDetectionSchema,
@@ -1521,6 +1535,7 @@ export const siteCrawlInternalLinksResponseSchema = z.object({
   project: z.string(),
   hasCrawlData: z.boolean(),
   runId: z.string().nullable(),
+  ...siteCrawlCompletenessShape,
   /** Total links matching every requested filter, `linkKind` included. */
   total: z.number().int().nonnegative(),
   nextCursor: z.string().nullable(),
@@ -1536,6 +1551,7 @@ export const siteCrawlNeighborsResponseSchema = z.object({
   project: z.string(),
   hasCrawlData: z.boolean(),
   runId: z.string().nullable(),
+  ...siteCrawlCompletenessShape,
   nodeKey: z.string().nullable(),
   url: z.string().nullable(),
   /** Whether nav and footer links could be told apart for this scan. */

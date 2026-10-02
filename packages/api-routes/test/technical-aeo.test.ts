@@ -767,6 +767,7 @@ describe('GET /technical-aeo crawl reads', () => {
     const empty = await get<SiteCrawlGraphResponseDto>('/api/v1/projects/graph-fresh/technical-aeo/graph')
     expect(empty.body).toEqual({
       project: 'graph-fresh', hasCrawlData: false, runId: null, rootNodeKey: null,
+      complete: false, termination: null,
       layout: { state: 'unavailable', version: null, reason: 'no-crawl' },
       // Nothing was classified because nothing was crawled, and saying so
       // beats letting an empty edge list read as "this site has no nav".
@@ -2027,11 +2028,11 @@ describe('crawl reads without a runId use the newest crawl-bearing scan', () => 
     })
 
     const pages = await get<SiteCrawlPagesResponseDto>(`${base}/crawl/pages?sort=path`)
-    expect(pages.body).toMatchObject({ hasCrawlData: true, runId: site.newestPartial, total: 2 })
+    expect(pages.body).toMatchObject({ hasCrawlData: true, runId: site.newestPartial, complete: false, termination: 'max-pages', total: 2 })
     expect(pages.body.pages.map((page) => [page.nodeKey, page.auditScore])).toEqual([['home', 90], ['target', 77]])
 
     const graph = await get<SiteCrawlGraphResponseDto>(`${base}/graph`)
-    expect(graph.body).toMatchObject({ hasCrawlData: true, runId: site.newestPartial, rootNodeKey: 'home' })
+    expect(graph.body).toMatchObject({ hasCrawlData: true, runId: site.newestPartial, complete: false, termination: 'max-pages', rootNodeKey: 'home' })
 
     const subgraph = await get<SiteHealthSubgraphResponseDto>(`${base}/subgraph`)
     expect(subgraph.body).toMatchObject({
@@ -2042,14 +2043,14 @@ describe('crawl reads without a runId use the newest crawl-bearing scan', () => 
     expect(path.body).toMatchObject({ state: 'found', runId: site.newestPartial, complete: false })
 
     const structure = await get<SiteCrawlStructureResponseDto>(`${base}/structure`)
-    expect(structure.body).toMatchObject({ hasCrawlData: true, runId: site.newestPartial })
+    expect(structure.body).toMatchObject({ hasCrawlData: true, runId: site.newestPartial, complete: false, termination: 'max-pages' })
     expect(structure.body.children.map((child) => child.path)).toEqual(['/target'])
 
     const links = await get<SiteCrawlInternalLinksResponseDto>(`${base}/internal-links`)
-    expect(links.body).toMatchObject({ hasCrawlData: true, runId: site.newestPartial, total: 2 })
+    expect(links.body).toMatchObject({ hasCrawlData: true, runId: site.newestPartial, complete: false, termination: 'max-pages', total: 2 })
 
     const neighbors = await get<SiteCrawlNeighborsResponseDto>(`${base}/internal-links/neighbors?nodeKey=target`)
-    expect(neighbors.body).toMatchObject({ hasCrawlData: true, runId: site.newestPartial })
+    expect(neighbors.body).toMatchObject({ hasCrawlData: true, runId: site.newestPartial, complete: false, termination: 'max-pages' })
     expect(neighbors.body.inbound.map((edge) => edge.edgeKey)).toEqual(['home-target'])
 
     const deadLinks = await get<SiteCrawlDeadLinksResponseDto>(`${base}/dead-links`)
@@ -2063,6 +2064,46 @@ describe('crawl reads without a runId use the newest crawl-bearing scan', () => 
     for (const runId of [crawl.body.runId, pages.body.runId, graph.body.runId, subgraph.body.runId, path.body.runId]) {
       expect(runId).not.toBe(site.probeRun)
     }
+  })
+
+  it('marks an empty neighbor list from a capped crawl as partial, not as a site-wide absence', async () => {
+    // An older complete crawl saw `docs -> home`; the newer capped one stopped
+    // before reaching `docs`, so it observed no inbound link to home at all.
+    const base = Date.now()
+    const projectId = crypto.randomUUID()
+    ctx.db.insert(projects).values({
+      id: projectId, name: CAPPED, displayName: 'Capped', canonicalDomain: 'capped.example',
+      country: 'US', language: 'en', providers: [], locations: [], createdAt: new Date(base - 500_000).toISOString(),
+      updatedAt: new Date(base - 500_000).toISOString(),
+    }).run()
+    const olderComplete = seedCrawl({
+      projectId, status: 'completed', trigger: 'scheduled', createdAt: new Date(base - 300_000).toISOString(),
+      complete: true, homeScore: 80, targetScore: 70,
+    })
+    const docsAttempt = ctx.db.select({ attemptId: siteCrawlSnapshots.attemptId }).from(siteCrawlSnapshots)
+      .where(eq(siteCrawlSnapshots.runId, olderComplete)).get()!.attemptId!
+    const at = new Date(base - 300_000).toISOString()
+    ctx.db.insert(siteCrawlEdges).values({
+      id: crypto.randomUUID(), projectId, runId: olderComplete, attemptId: docsAttempt, edgeKey: 'docs-home',
+      sourceNodeKey: 'docs', sourceUrl: 'https://capped.example/docs', targetNodeKey: 'home', targetUrl: 'https://capped.example/',
+      relation: 'anchor', internal: true, followable: true, occurrences: 1, followableOccurrences: 1, nofollowOccurrences: 0,
+      anchors: ['Home'], isTemplate: false, createdAt: at, updatedAt: at,
+    }).run()
+    const newerCapped = seedCrawl({
+      projectId, status: 'partial', trigger: 'scheduled', createdAt: new Date(base - 100_000).toISOString(),
+      complete: false, homeScore: 90, targetScore: 77,
+    })
+
+    const current = await get<SiteCrawlNeighborsResponseDto>(`/api/v1/projects/${CAPPED}/technical-aeo/internal-links/neighbors?nodeKey=home`)
+    expect(current.body).toMatchObject({
+      runId: newerCapped, complete: false, termination: 'max-pages', inbound: [], inboundTruncated: false,
+    })
+
+    const pinned = await get<SiteCrawlNeighborsResponseDto>(
+      `/api/v1/projects/${CAPPED}/technical-aeo/internal-links/neighbors?runId=${olderComplete}&nodeKey=home`,
+    )
+    expect(pinned.body).toMatchObject({ runId: olderComplete, complete: true, termination: 'complete' })
+    expect(pinned.body.inbound.map((edge) => edge.edgeKey)).toEqual(['docs-home'])
   })
 
   it('says a page-capped history is not comparable instead of claiming no crawl exists', async () => {
@@ -2097,6 +2138,10 @@ describe('crawl reads without a runId use the newest crawl-bearing scan', () => 
     expect((await get<SiteCrawlPageAuditDto>(`${base}/crawl/pages/audit?nodeKey=home`)).body)
       .toEqual({ state: 'no-crawl', project: 'scorecard-only', runId: null })
     expect((await get<SiteCrawlSummaryDto>(`${base}/crawl`)).body).toMatchObject({ hasCrawlData: false, runId: null })
+    for (const read of ['crawl/pages', 'graph', 'structure', 'internal-links', 'internal-links/neighbors?nodeKey=home']) {
+      expect((await get<{ hasCrawlData: boolean; complete: boolean; termination: string | null }>(`${base}/${read}`)).body, read)
+        .toMatchObject({ hasCrawlData: false, complete: false, termination: null })
+    }
     expect((await get<SiteHealthChangesResponseDto>(`${base}/changes`)).body).toMatchObject({
       state: 'unavailable', reason: 'no-crawl', fromRunId: null, toRunId: null,
     })

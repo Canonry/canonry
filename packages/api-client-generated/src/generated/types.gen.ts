@@ -12867,6 +12867,8 @@ export type SiteCrawlGraphResponseDto = {
     hasCrawlData: boolean;
     runId: string | null;
     rootNodeKey: string | null;
+    complete: boolean;
+    termination: string | null;
     layout: {
         state: 'ready';
         version: string;
@@ -12917,6 +12919,8 @@ export type SiteCrawlInternalLinksResponseDto = {
     project: string;
     hasCrawlData: boolean;
     runId: string | null;
+    complete: boolean;
+    termination: string | null;
     total: number;
     nextCursor: string | null;
     templateDetection: 'applied' | 'applied-placement' | 'applied-placement-with-ubiquity' | 'applied-placement-partial' | 'unavailable-too-few-pages' | 'unavailable-legacy-scan';
@@ -12949,6 +12953,8 @@ export type SiteCrawlNeighborsResponseDto = {
     project: string;
     hasCrawlData: boolean;
     runId: string | null;
+    complete: boolean;
+    termination: string | null;
     nodeKey: string | null;
     url: string | null;
     templateDetection: 'applied' | 'applied-placement' | 'applied-placement-with-ubiquity' | 'applied-placement-partial' | 'unavailable-too-few-pages' | 'unavailable-legacy-scan';
@@ -13086,6 +13092,8 @@ export type SiteCrawlPagesResponseDto = {
     project: string;
     hasCrawlData: boolean;
     runId: string | null;
+    complete: boolean;
+    termination: string | null;
     total: number;
     nextCursor: string | null;
     healthStateFilter: 'applied' | 'unavailable-legacy-scan' | null;
@@ -13119,6 +13127,8 @@ export type SiteCrawlStructureResponseDto = {
     project: string;
     hasCrawlData: boolean;
     runId: string | null;
+    complete: boolean;
+    termination: string | null;
     parentPath: string;
     nextCursor: string | null;
     children: Array<{

@@ -288,6 +288,16 @@ function formatSiteHealthChangeRecord(record: SiteHealthChangeRecordDto): string
   return `${record.entity} ${record.change}: ${target}${fields}`
 }
 
+/**
+ * The caveat for a read answered from a crawl that stopped at its budget: a
+ * page or link the list leaves out may exist beyond what was crawled. Null for
+ * a complete crawl, and for a server too old to report completeness.
+ */
+function partialCrawlNote(res: { hasCrawlData: boolean; complete?: boolean; termination?: string | null }): string | null {
+  if (!res.hasCrawlData || res.complete !== false) return null
+  return `Partial crawl (${res.termination ?? 'incomplete'}): pages and links beyond the crawl budget were not observed, so a missing page or link is not proof it does not exist.`
+}
+
 /** `canonry technical-aeo crawl-pages <project>` — cursor-paged crawl nodes. */
 export async function technicalAeoCrawlPages(
   project: string,
@@ -309,6 +319,8 @@ export async function technicalAeoCrawlPages(
       kind: 'technical-aeo-crawl-pages-header',
       project,
       runId: res.runId,
+      complete: res.complete,
+      termination: res.termination,
       total: res.total,
       nextCursor: res.nextCursor,
     }])
@@ -319,8 +331,9 @@ export async function technicalAeoCrawlPages(
     console.log(JSON.stringify(res, null, 2))
     return
   }
+  const note = partialCrawlNote(res)
   if (res.pages.length === 0) {
-    console.log(`No persisted crawl pages for "${project}".`)
+    console.log([`No persisted crawl pages for "${project}".`, ...(note ? [note] : [])].join('\n'))
     return
   }
   const lines = [`${res.pages.length} of ${res.total} crawl page(s)${res.nextCursor ? ' (more available)' : ''}:`, '']
@@ -329,6 +342,7 @@ export async function technicalAeoCrawlPages(
     lines.push(`${String(page.depth ?? '-').padStart(5)}  ${String(page.auditScore ?? '-').padStart(5)}  ${page.indexabilityState.slice(0, 15).padEnd(15)}  ${page.url}`)
   }
   if (res.nextCursor) lines.push(`\nNext cursor: ${res.nextCursor}`)
+  if (note) lines.push('', note)
   console.log(lines.join('\n'))
 }
 
@@ -411,6 +425,8 @@ export async function technicalAeoStructure(
       kind: 'technical-aeo-structure-header',
       project,
       runId: res.runId,
+      complete: res.complete,
+      termination: res.termination,
       parentPath: res.parentPath,
       returned: res.children.length,
       nextCursor: res.nextCursor,
@@ -422,8 +438,9 @@ export async function technicalAeoStructure(
     console.log(JSON.stringify(res, null, 2))
     return
   }
+  const note = partialCrawlNote(res)
   if (res.children.length === 0) {
-    console.log(`No crawl structure below ${res.parentPath} for "${project}".`)
+    console.log([`No crawl structure below ${res.parentPath} for "${project}".`, ...(note ? [note] : [])].join('\n'))
     return
   }
   const lines = [`${res.children.length} child path(s) below ${res.parentPath}${res.nextCursor ? ' (more available)' : ''}:`, '']
@@ -431,6 +448,7 @@ export async function technicalAeoStructure(
     lines.push(`${String(child.pageCount).padStart(5)} pages  ${String(child.inventoryEligibleCount).padStart(5)} eligible  ${child.path}`)
   }
   if (res.nextCursor) lines.push(`\nNext cursor: ${res.nextCursor}`)
+  if (note) lines.push('', note)
   console.log(lines.join('\n'))
 }
 
@@ -445,6 +463,8 @@ export async function technicalAeoInternalLinks(
       kind: 'technical-aeo-internal-links-header',
       project,
       runId: res.runId,
+      complete: res.complete,
+      termination: res.termination,
       total: res.total,
       nextCursor: res.nextCursor,
     }])
@@ -455,8 +475,9 @@ export async function technicalAeoInternalLinks(
     console.log(JSON.stringify(res, null, 2))
     return
   }
+  const note = partialCrawlNote(res)
   if (res.edges.length === 0) {
-    console.log(`No persisted internal links for "${project}".`)
+    console.log([`No persisted internal links for "${project}".`, ...(note ? [note] : [])].join('\n'))
     return
   }
   const lines = [`${res.edges.length} of ${res.total} internal link(s)${res.nextCursor ? ' (more available)' : ''}:`, '']
@@ -464,6 +485,7 @@ export async function technicalAeoInternalLinks(
     lines.push(`${edge.followable ? 'follow' : 'nofollow'} ×${edge.occurrences}  ${edge.sourceUrl} → ${edge.targetUrl}`)
   }
   if (res.nextCursor) lines.push(`\nNext cursor: ${res.nextCursor}`)
+  if (note) lines.push('', note)
   console.log(lines.join('\n'))
 }
 
@@ -478,14 +500,17 @@ export async function technicalAeoLinkNeighbors(
     return
   }
   const title = res.url ?? res.nodeKey ?? 'page'
+  const note = partialCrawlNote(res)
+  const none = note ? '  (none observed in this partial crawl)' : '  (none)'
   const lines = [`Internal links for ${title}:`, '', 'Inbound:']
   for (const edge of res.inbound) lines.push(`  ${edge.sourceUrl} → ${edge.targetUrl}`)
-  if (res.inbound.length === 0) lines.push('  (none)')
+  if (res.inbound.length === 0) lines.push(none)
   if (res.inboundTruncated) lines.push('  (truncated)')
   lines.push('', 'Outbound:')
   for (const edge of res.outbound) lines.push(`  ${edge.sourceUrl} → ${edge.targetUrl}`)
-  if (res.outbound.length === 0) lines.push('  (none)')
+  if (res.outbound.length === 0) lines.push(none)
   if (res.outboundTruncated) lines.push('  (truncated)')
+  if (note) lines.push('', note)
   console.log(lines.join('\n'))
 }
 

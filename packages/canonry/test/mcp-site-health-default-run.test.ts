@@ -148,8 +148,25 @@ describe('Site Health MCP reads without a runId', () => {
     expect(result.structuredContent).toMatchObject({
       hasCrawlData: true,
       runId: newestPartial,
+      complete: false,
+      termination: 'max-pages',
       total: 1,
       pages: [{ nodeKey: 'pricing', url: PAGE_URL, auditScore: 64 }],
+    })
+  })
+
+  it('qualifies an empty neighbor list from canonry_technical_aeo_link_neighbors as partial', async () => {
+    const { origin, newestPartial } = await cappedSiteServer()
+    const mcp = await connect(origin)
+    const result = await mcp.callTool({ name: 'canonry_technical_aeo_link_neighbors', arguments: { project: PROJECT, nodeKey: 'pricing' } })
+    expect(result.isError).not.toBe(true)
+    expect(result.structuredContent).toMatchObject({
+      hasCrawlData: true,
+      runId: newestPartial,
+      complete: false,
+      termination: 'max-pages',
+      inbound: [],
+      inboundTruncated: false,
     })
   })
 })

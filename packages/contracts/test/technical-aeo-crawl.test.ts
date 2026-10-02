@@ -150,6 +150,7 @@ describe('Technical AEO crawl contracts', () => {
   it('models a bounded graph projection separately from the full crawl', () => {
     expect(siteCrawlGraphResponseSchema.parse({
       project: 'example', hasCrawlData: true, runId: 'run-1', rootNodeKey: 'home',
+      complete: false, termination: 'max-pages',
       layout: {
         state: 'ready', version: 'site-health-fa2-v1', computedAt: '2026-08-09T12:00:00.000Z',
         templateLinksExcluded: true,
@@ -165,6 +166,7 @@ describe('Technical AEO crawl contracts', () => {
       }], edges: [], omittedNodes: 684, omittedEdges: 15_402, sampled: true,
     })).toMatchObject({
       project: 'example', runId: 'run-1', sampled: true,
+      complete: false, termination: 'max-pages',
       // Root identity is server-owned so the home page never has to be
       // inferred from a path, a depth, or a link score.
       rootNodeKey: 'home',
@@ -179,7 +181,7 @@ describe('Technical AEO crawl contracts', () => {
     })
 
     const empty = siteCrawlGraphResponseSchema.parse({
-      project: 'example', hasCrawlData: false, runId: null, rootNodeKey: null,
+      project: 'example', hasCrawlData: false, runId: null, rootNodeKey: null, complete: false, termination: null,
       layout: { state: 'unavailable', version: null, reason: 'no-crawl' },
       templateDetection: 'unavailable-legacy-scan', linkKind: 'all',
       totalNodes: 0, totalEdges: 0, totalTemplateEdges: 0, totalContentEdges: 0,
@@ -189,7 +191,7 @@ describe('Technical AEO crawl contracts', () => {
     expect(empty.rootNodeKey).toBeNull()
 
     expect(siteCrawlGraphResponseSchema.parse({
-      project: 'example', hasCrawlData: true, runId: 'legacy-run', rootNodeKey: 'home',
+      project: 'example', hasCrawlData: true, runId: 'legacy-run', rootNodeKey: 'home', complete: true, termination: 'complete',
       layout: { state: 'unavailable', version: null, reason: 'legacy-snapshot' },
       templateDetection: 'unavailable-legacy-scan', linkKind: 'all',
       totalNodes: 0, totalEdges: 0, totalTemplateEdges: 0, totalContentEdges: 0,
