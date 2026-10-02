@@ -343,8 +343,8 @@ function trackSiteAuditOutcome(db: DatabaseClient, input: {
  *
  * Events update an attempt-local graph durably as they arrive.  A distinct
  * immutable `site_crawl_snapshot` records every terminal traversal. Default
- * reads publish only complete snapshots as current; an explicitly selected
- * partial run remains inspectable without replacing the last known-good graph.
+ * reads use the newest snapshot, complete or stopped at its budget (`partial`);
+ * an explicitly selected run stays inspectable after a newer scan replaces it.
  */
 
 export async function executeSiteAudit(

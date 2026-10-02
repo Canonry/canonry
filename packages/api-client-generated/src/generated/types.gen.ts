@@ -29693,7 +29693,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoGraphData = {
     };
     query?: {
         /**
-         * Historical site-audit run ID. Omit for the latest complete crawl.
+         * Historical site-audit run ID. Omit for the latest crawl.
          */
         runId?: string;
         /**
@@ -29740,7 +29740,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoSubgraphData = {
     };
     query?: {
         /**
-         * Historical site-audit run ID. Omit for the latest complete crawl.
+         * Historical site-audit run ID. Omit for the latest crawl.
          */
         runId?: string;
         /**
@@ -29795,7 +29795,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoPathData = {
     };
     query?: {
         /**
-         * Historical site-audit run ID. Omit for the latest complete crawl.
+         * Historical site-audit run ID. Omit for the latest crawl.
          */
         runId?: string;
         /**
@@ -29913,7 +29913,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditData = {
     };
     query?: {
         /**
-         * Historical site-audit run ID. Omit for the latest complete crawl.
+         * Historical site-audit run ID. Omit for the latest crawl.
          */
         runId?: string;
         /**

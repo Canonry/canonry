@@ -1100,14 +1100,18 @@ const technicalAeoTrendInputSchema = z.object({
   limit: z.number().int().positive().max(365).optional(),
 })
 
+const crawlRunIdSchema = runIdSchema.optional().describe(
+  'Historical crawl-bearing site-audit run ID. Omit for the newest scan with a crawl, complete or stopped at its budget.',
+)
+
 const technicalAeoCrawlInputSchema = z.object({
   project: projectNameSchema,
-  runId: runIdSchema.optional().describe('Historical crawl-bearing site-audit run ID. Omit for the latest persisted crawl.'),
+  runId: crawlRunIdSchema,
 })
 
 const siteHealthPageAuditInputSchema = z.object({
   project: projectNameSchema,
-  runId: runIdSchema.optional().describe('Historical crawl-bearing site-audit run ID. Omit for the latest persisted crawl.'),
+  runId: crawlRunIdSchema,
   nodeKey: z.string().min(1).optional().describe('Exact crawl node key, as returned by Site Health page or subgraph reads.'),
   url: z.string().url().optional().describe('Exact page URL. Use this only when a crawl node key is unavailable.'),
 }).refine((value) => Boolean(value.nodeKey || value.url), {
@@ -1123,7 +1127,7 @@ const SITE_HEALTH_MCP_MAX_EDGES = 50
 
 const siteHealthSubgraphInputSchema = z.object({
   project: projectNameSchema,
-  runId: runIdSchema.optional().describe('Historical crawl-bearing site-audit run ID. Omit for the latest complete crawl.'),
+  runId: crawlRunIdSchema,
   nodeKey: z.string().min(1).optional().describe('Focus crawl node key. Omit with url to focus the crawl root.'),
   url: z.string().url().optional().describe('Focus canonical URL. Omit with nodeKey to focus the crawl root.'),
   hops: z.number().int().min(0).max(3).optional().describe('Neighborhood depth from the focus node. Keep this small.'),
@@ -1136,7 +1140,7 @@ const siteHealthSubgraphInputSchema = z.object({
 
 const siteHealthPathInputSchema = z.object({
   project: projectNameSchema,
-  runId: runIdSchema.optional().describe('Historical crawl-bearing site-audit run ID. Omit for the latest complete crawl.'),
+  runId: crawlRunIdSchema,
   fromNodeKey: z.string().min(1).optional().describe('Origin node key. Omit with fromUrl to start at the crawl root.'),
   fromUrl: z.string().url().optional().describe('Origin URL. Omit with fromNodeKey to start at the crawl root.'),
   toNodeKey: z.string().min(1).optional().describe('Required destination node key.'),

@@ -6725,7 +6725,7 @@ export const getApiV1ProjectsByNameTechnicalAeoTrend = <ThrowOnError extends boo
 /**
  * Get persisted Technical AEO crawl metadata
  *
- * Returns the latest complete non-probe site-audit crawl, or the selected historical run (which may be partial). `hasCrawlData=false` never synthesizes a graph from legacy scorecard rows; `legacyAuditAvailable` says that the old score/pages/trend data can still be read separately.
+ * Returns the newest non-probe site-audit crawl, or the selected historical run. The default is the newest scan that published a crawl, whether it finished (`completed`) or stopped at its page, edge, depth, or duration budget (`partial`); `complete` and `termination` say which. Every crawl-scoped read without a `runId` resolves this same scan. `hasCrawlData=false` never synthesizes a graph from legacy scorecard rows; `legacyAuditAvailable` says that the old score/pages/trend data can still be read separately.
  */
 export const getApiV1ProjectsByNameTechnicalAeoCrawl = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameTechnicalAeoCrawlData, ThrowOnError>) => {
     return (options.client ?? client).get<GetApiV1ProjectsByNameTechnicalAeoCrawlResponses, GetApiV1ProjectsByNameTechnicalAeoCrawlErrors, ThrowOnError>({
@@ -6743,7 +6743,7 @@ export const getApiV1ProjectsByNameTechnicalAeoCrawl = <ThrowOnError extends boo
 /**
  * Get a persisted Site Health graph projection
  *
- * Returns the deterministic graph projection computed once when the latest complete or selected historical crawl was published. ForceAtlas2 positions and the exact internal-anchor edge sample are persisted, so reads run no layout physics and never rescan the crawl edge table. Nav, header, and footer links are excluded from the layout physics but retained in the sample and tagged `isTemplate`, so a viewer can draw them without a refetch and without any node moving. The response is bounded to 20,000 nodes / 50,000 edges; `layout`, `omittedNodes`, `omittedEdges`, and `sampled` disclose legacy/unavailable layouts and intentional truncation, and `templateDetection` says whether template links could be told apart at all and by which rule.
+ * Returns the deterministic graph projection computed once when the latest or selected historical crawl was published. ForceAtlas2 positions and the exact internal-anchor edge sample are persisted, so reads run no layout physics and never rescan the crawl edge table. Nav, header, and footer links are excluded from the layout physics but retained in the sample and tagged `isTemplate`, so a viewer can draw them without a refetch and without any node moving. The response is bounded to 20,000 nodes / 50,000 edges; `layout`, `omittedNodes`, `omittedEdges`, and `sampled` disclose legacy/unavailable layouts and intentional truncation, and `templateDetection` says whether template links could be told apart at all and by which rule.
  */
 export const getApiV1ProjectsByNameTechnicalAeoGraph = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameTechnicalAeoGraphData, ThrowOnError>) => {
     return (options.client ?? client).get<GetApiV1ProjectsByNameTechnicalAeoGraphResponses, GetApiV1ProjectsByNameTechnicalAeoGraphErrors, ThrowOnError>({
@@ -6797,7 +6797,7 @@ export const getApiV1ProjectsByNameTechnicalAeoPath = <ThrowOnError extends bool
 /**
  * Compare canonical Site Health snapshots
  *
- * Returns exact page and internal-link additions, removals, and semantic field changes between immutable complete crawl snapshots. Omitted toRunId selects the latest complete crawl; omitted fromRunId selects the complete crawl immediately before the target. ForceAtlas2 positions are presentation data and never count as a change. The first page includes exact post-filter summary counts; cursor pages set summary and total to null so they never repeat full snapshot joins or trust caller-carried counts. Results use a snapshot- and filter-bound keyset cursor.
+ * Returns exact page and internal-link additions, removals, and semantic field changes between immutable complete crawl snapshots. Omitted toRunId selects the latest complete crawl; omitted fromRunId selects the complete crawl immediately before the target. A crawl stopped at its budget is never compared: when every crawl is partial, the result is `partial-not-comparable` with the newest crawl as `toRunId`, and `no-crawl` means no scan published a crawl. ForceAtlas2 positions are presentation data and never count as a change. The first page includes exact post-filter summary counts; cursor pages set summary and total to null so they never repeat full snapshot joins or trust caller-carried counts. Results use a snapshot- and filter-bound keyset cursor.
  */
 export const getApiV1ProjectsByNameTechnicalAeoChanges = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameTechnicalAeoChangesData, ThrowOnError>) => {
     return (options.client ?? client).get<GetApiV1ProjectsByNameTechnicalAeoChangesResponses, GetApiV1ProjectsByNameTechnicalAeoChangesErrors, ThrowOnError>({

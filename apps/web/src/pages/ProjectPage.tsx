@@ -2206,12 +2206,10 @@ function ProjectPageContent({
   // so it needs the one fact the sweep-readiness flags never carry: whether
   // this project already has a Site Health scan.
   //
-  // Scan history, not the crawl summary. Without a `runId` the crawl summary
-  // deliberately resolves only a COMPLETE crawl of a COMPLETED run, because it
-  // answers "what is the current graph". A first run bounded by the page or
-  // duration budget lands as `partial`, so asking the crawl summary reports no
-  // scan for a project that plainly has one, and the button comes back. Scan
-  // history is the list of readable scans and already excludes probes.
+  // Scan history, not the crawl summary: a scorecard-only scan published no
+  // crawl, so the crawl summary reports no scan for a project that has one and
+  // the button comes back. Scan history is the list of readable scans and
+  // already excludes probes.
   const mapSiteCandidate = !isEmbed() && tab === 'overview' && sweepSetupRequired && !hasVisibilityInputs
   const siteAuditScansQuery = useQuery({
     ...getApiV1ProjectsByNameTechnicalAeoRunsOptions({

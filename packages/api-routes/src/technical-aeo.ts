@@ -566,7 +566,19 @@ function changedFields<T extends Record<string, unknown>>(
 }
 
 export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAeoRoutesOptions) {
-  /** Resolve only a real, visible site-audit crawl in this exact project. */
+  /**
+   * Resolve only a real, visible site-audit crawl in this exact project: the
+   * selected run, or by default the newest scan that published one.
+   *
+   * The default is the newest crawl-bearing snapshot of a `completed` OR
+   * `partial` run. Every `partial` termination is a budget the operator chose
+   * (pages, edges, depth, duration), and a site larger than the page budget
+   * never produces anything else, so preferring complete crawls left such a
+   * project with no current crawl at all. The snapshot carries `complete` and
+   * `termination`, so every read still qualifies a capped result. Snapshots
+   * exist only for terminal publications, so in-progress attempts, failed
+   * and cancelled runs, and scorecard-only scans can never be the default.
+   */
   const resolveCrawl = (projectId: string, runId?: string) => {
     const filters = [
       eq(siteCrawlSnapshots.projectId, projectId),
@@ -575,16 +587,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       inArray(runs.status, SURFACEABLE_STATUSES),
       notProbeRun(),
     ]
-    if (runId) {
-      // Historical inspection may intentionally select an older partial
-      // snapshot. It is never the default current graph.
-      filters.push(eq(siteCrawlSnapshots.runId, runId))
-    } else {
-      // A live/current graph is an immutable successful publication only.
-      // In-progress attempt rows are deliberately excluded, and a later
-      // partial crawl cannot displace the prior complete graph.
-      filters.push(eq(siteCrawlSnapshots.complete, true), eq(runs.status, RunStatuses.completed))
-    }
+    if (runId) filters.push(eq(siteCrawlSnapshots.runId, runId))
     return app.db
       .select({ snapshot: siteCrawlSnapshots, runStatus: runs.status })
       .from(siteCrawlSnapshots)
@@ -1489,6 +1492,16 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
         : undefined
     if (request.query.fromRunId && !beforeTarget) throw notFound('Site crawl run', request.query.fromRunId)
     if (!afterTarget) {
+      // No complete crawl to compare is not the same as no crawl: a project
+      // whose every scan stopped at its budget has crawls, just none that a
+      // diff can be trusted on.
+      const latestCrawl = resolveCrawl(project.id)
+      if (latestCrawl) {
+        return {
+          project: project.name, state: 'unavailable', reason: 'partial-not-comparable',
+          fromRunId: null, toRunId: latestCrawl.snapshot.runId,
+        }
+      }
       return { project: project.name, state: 'unavailable', reason: 'no-crawl', fromRunId: null, toRunId: null }
     }
     if (!beforeTarget) {
