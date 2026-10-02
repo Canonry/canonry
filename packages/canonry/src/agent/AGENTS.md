@@ -279,6 +279,17 @@ generic role gate refuses a viewer only on write methods), so the
 returns `agent-providers.restricted`, with no summary count and no details, to
 anyone who is not an install administrator.
 
+## Managed personal inference
+
+`managed-inference.ts` opens host-encrypted, operation-bound grants only alongside
+instance-administrator API authorization. `managed-sessions.ts` persists personal
+transcripts separately by project, actor and connection, with no operator memory,
+queued follow-ups or background wakes. `managed-chatgpt.ts` uses the public
+Responses API with per-turn account credentials and namespaced functions. The
+host-only `CANONRY_MANAGED_INFERENCE_KEY` enables this lane; `/health` advertises
+`managedInferenceAvailable` only when it is ready. Full wire contract and
+deliberate host/engine surface boundaries: `docs/managed-chatgpt-aero.md`.
+
 ## Prompt-only Aero
 
 Aero wakes itself after every `run.completed`. To keep the agent fully usable but

@@ -976,6 +976,14 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Aero session state (transcript + queue). Exposed via the agent transcript composite, not as a direct row DTO.',
   },
+  managedAgentSessions: {
+    kind: 'internal-only',
+    reason: 'Private actor/connection conversation state. Exposed only through the scoped transcript composite, not as a direct row DTO.',
+  },
+  managedAgentTurnGrants: {
+    kind: 'internal-only',
+    reason: 'One-use personal inference replay ledger. Grant IDs and expiry bookkeeping are never exposed.',
+  },
   agentMemory: {
     kind: 'internal-only',
     reason: 'Aero durable notes. Surfaced via AgentMemoryEntryDto (TS interface only — not a Zod schema, so out of scope for this DTO-shape check).',

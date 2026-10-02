@@ -478,6 +478,8 @@ export default tseslint.config(
       'packages/canonry/src/sitemap-parser.ts',
       'packages/canonry/src/telemetry.ts',
       'packages/canonry/src/update-check.ts',
+      // Personal SIWC inference calls the public OpenAI Responses API.
+      'packages/canonry/src/agent/managed-chatgpt.ts',
     ],
     plugins: { 'canonry-guards': canonryGuardsPlugin },
     rules: { 'canonry-guards/no-raw-http-cli': 'error' },

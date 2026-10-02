@@ -641,6 +641,26 @@ export const apiKeys = sqliteTable('api_keys', {
   index('idx_api_keys_project').on(table.projectId),
 ])
 
+/** Personal Managed Aero transcripts; inference tokens are never stored here. */
+export const managedAgentSessions = sqliteTable('managed_agent_sessions', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  actorId: text('actor_id').notNull(),
+  connectionId: text('connection_id').notNull(),
+  modelId: text('model_id').notNull(),
+  messages: text('messages', { mode: 'json' }).$type<unknown[]>().notNull().default([]),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, table => [
+  uniqueIndex('idx_managed_agent_session_identity').on(table.projectId, table.actorId, table.connectionId),
+])
+
+/** One-use turn admission survives restarts; no credential material is stored. */
+export const managedAgentTurnGrants = sqliteTable('managed_agent_turn_grants', {
+  id: text('id').primaryKey(),
+  expiresAt: integer('expires_at').notNull(),
+}, table => [index('idx_managed_agent_turn_grant_expires').on(table.expiresAt)])
+
 /**
  * Named sign-in accounts.
  *

@@ -48,7 +48,7 @@ describe('projects qualified aliases (v166)', () => {
   })
 
   it('is idempotent when the statement runs again', () => {
-    const db = tempDb()
+    const db = tempDb(MIGRATION_VERSIONS.filter(mv => mv.version <= QUALIFIED_VERSION))
     insertLegacyProject(db, { id: 'project-1', createdAt: NOW })
     db.update(projects).set({ qualifiedAliases: ['Former Name'] }).where(eq(projects.id, 'project-1')).run()
     const migration = MIGRATION_VERSIONS.filter(mv => mv.version === QUALIFIED_VERSION)

@@ -16,6 +16,14 @@ export const dashboardManagedRunKindsSchema = z.array(schedulableRunKindSchema).
 export const agentProviderSchema = agentProviderIdSchema.nullish()
 export const agentModelSchema = z.string().trim().min(1).nullish()
 
+/** Explicit host opt-in for authenticated Managed personal-inference grants. */
+export function resolveManagedInferenceKey(source: NodeJS.ProcessEnv): string | undefined {
+  const key = source.CANONRY_MANAGED_INFERENCE_KEY?.trim()
+  if (!key) return undefined
+  if (!/^[\da-f]{64}$/i.test(key)) throw new Error('CANONRY_MANAGED_INFERENCE_KEY must be a 64-character hexadecimal key.')
+  return key
+}
+
 /** Host-only trust anchor. No API, account role, or key scope can modify it. */
 export function resolveOperatorApiKeyIds(source: NodeJS.ProcessEnv): string[] {
   const raw = source.CANONRY_OPERATOR_KEY_IDS?.trim()
