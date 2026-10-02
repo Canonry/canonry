@@ -67,7 +67,7 @@ describe('class-separated sentiment headlines', () => {
     finish({ 'engines-q-0-gemini': 'unfavorable' })
     const jobs = db.select().from(sentimentJobs).all(), attempts = db.select().from(sentimentAttempts).all()
     const result = summary('engines', 'non-brand')
-    expect(result).toMatchObject({ coverage: { selected: 2, eligibleAssessments: 3, judged: 2 }, score: { favorableRate: 0.5 } })
+    expect(result).toMatchObject({ coverage: { selected: 2, eligibleAssessments: 3, judged: 2, eligibleAnswers: 3, ratedAnswers: 2, ratedAnswerRate: 0.66666667 }, score: { favorableRate: 0.5 } })
     const rows = result.queries[0]!.assessments
     expect(rows).toHaveLength(3)
     expect(rows.find(row => row.provider === 'openai')).toMatchObject({ sourceSnapshotId: 'engines-q-0', runId: 'engines', subjectId: 'p', subjectLabel: 'Acme', provider: 'openai', requestedModel: 'source-model', servedModel: 'served-model', location: 'Harbor', state: 'complete', outcome: 'favorable' })
@@ -117,7 +117,8 @@ describe('class-separated sentiment headlines', () => {
     admit('shared', 'non-brand'); finish({ 'exec-nearby-openai:bayside': 'unfavorable', 'exec-nearby-gemini:harbor': 'unfavorable' })
     const result = summary('shared', 'non-brand')
     const assessments = result.queries[0]!.assessments
-    expect(result).toMatchObject({ coverage: { selected: 4, distinctSourceAnswers: 2, judged: 4 }, score: { favorableRate: 0.5 } })
+    // Two answers, each assessed for two Properties: four assessments, but two answers rated of two.
+    expect(result).toMatchObject({ coverage: { selected: 4, distinctSourceAnswers: 2, judged: 4, eligibleAnswers: 2, ratedAnswers: 2, ratedAnswerRate: 1 }, score: { favorableRate: 0.5 } })
     expect(assessments).toHaveLength(4)
     expect(assessments.filter(row => row.sourceSnapshotId === 'exec-nearby-openai').map(row => [row.subjectId, row.outcome]).sort()).toEqual([['bayside', 'unfavorable'], ['harbor', 'favorable']])
     expect(assessments.filter(row => row.sourceSnapshotId === 'exec-nearby-gemini').map(row => [row.subjectId, row.outcome]).sort()).toEqual([['bayside', 'favorable'], ['harbor', 'unfavorable']])
@@ -129,9 +130,28 @@ describe('class-separated sentiment headlines', () => {
     expect(summary('shared', 'non-brand', { marketKey: 'beta' }).queries[0]!.assessments).toEqual(assessments)
   })
 
+  it('counts an Advanced answer assessed for two Properties once in the Rated share, admitted or not', () => {
+    const plan = measurementPlanV2Fixture()
+    db.insert(measurementPlanVersions).values({ id: 'v', projectId: 'p', revision: 1, canonicalJson: canonicalMeasurementPlanV2Json(plan), checksum: 'v', schemaVersion: 2, compiledChecksum: plan.compiledChecksum, createdAt: NOW }).run()
+    db.insert(runs).values({ id: 'shared', projectId: 'p', kind: 'answer-visibility', status: 'completed', trigger: 'manual', measurementPlanVersionId: 'v', measurementManifest: buildMeasurementPlanV2Manifest(plan), measurementExecutionIdentity: { language: 'en' }, createdAt: NOW }).run()
+    for (const node of plan.executionNodes) for (const provider of ['openai', 'gemini']) db.insert(querySnapshots).values({ id: `${node.stableKey}-${provider}`, runId: 'shared', measurementExecutionId: node.stableKey, queryText: node.queryText, provider, model: `${provider}-requested`, servedModel: `${provider}-served`, answerText: 'Harbor Homes and Bayside Homes receive different reviews.', citationState: 'cited', createdAt: NOW }).run()
+    expect(summary('shared', 'non-brand').coverage).toMatchObject({ selected: 0, eligibleAssessments: 4, eligibleAnswers: 2, ratedAnswers: 0, ratedAnswerRate: 0 })
+    // Mixed admitted and unadmitted: only the openai answer is admitted, so 1 of 2.
+    admit('shared', 'non-brand', { provider: 'openai' }); finish({ 'exec-nearby-openai:bayside': 'factual' })
+    expect(summary('shared', 'non-brand').coverage).toMatchObject({ selected: 2, eligibleAssessments: 4, unadmittedAssessments: 2, judged: 1, eligibleAnswers: 2, ratedAnswers: 1, ratedAnswerRate: 0.5 })
+    // One subject of each answer rated, the other factual or absent: each answer is still rated, once.
+    admit('shared', 'non-brand'); finish({ 'exec-nearby-gemini:harbor': 'subject-not-mentioned' })
+    const all = summary('shared', 'non-brand')
+    expect(all.coverage).toMatchObject({ selected: 4, judged: 2, distinctSourceAnswers: 2, eligibleAnswers: 2, ratedAnswers: 2, ratedAnswerRate: 1 })
+    expect(all.queries[0]!.coverage).toMatchObject({ eligibleAnswers: 2, ratedAnswers: 2, ratedAnswerRate: 1 })
+    // A Property scope rates its own subject: harbor is rated on the openai answer only.
+    expect(summary('shared', 'non-brand', { scope: 'property', scopeKey: 'harbor' }).coverage).toMatchObject({ selected: 2, judged: 1, eligibleAnswers: 2, ratedAnswers: 1, ratedAnswerRate: 0.5 })
+    expect(all.breakdowns.filter(row => row.dimension === 'property').map(row => [row.key, row.coverage.ratedAnswers, row.coverage.eligibleAnswers]).sort()).toEqual([['bayside', 1, 2], ['harbor', 1, 2]])
+  })
+
   it('returns a strict unavailable DTO before any source exists', () => {
     const result = sentimentSummarySchema.parse(service.summary('p', sentimentSelectionSchema.parse({})))
-    expect(result).toMatchObject({ state: 'not-measured', selection: { runId: null }, score: { favorableRate: null } })
+    expect(result).toMatchObject({ state: 'not-measured', selection: { runId: null }, coverage: { eligibleAnswers: 0, ratedAnswers: 0, ratedAnswerRate: null }, score: { favorableRate: null } })
     expect(result.selection.runIds).toBeUndefined()
     expect(service.overview('p', []).branded.runIds).toEqual([])
     expect(() => service.summary('p', sentimentSelectionSchema.parse({ runIds: ['missing'] }))).toThrow()

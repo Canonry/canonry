@@ -113,6 +113,27 @@ describe('sentiment CLI transport contract', () => {
     expect(output).toContain('17 eligible assessments · 7 not yet admitted')
     expect(output).toContain(fixture.score.limitation)
   })
+  it('prints the server share of answers rated beside the assessments judged, as the dashboard Rated column does', async () => {
+    expect(sentimentFixtureSummary.coverage).toMatchObject({ judged: 5, selected: 10, eligibleAnswers: 10, ratedAnswers: 5, ratedAnswerRate: 0.5 })
+    const coverage = { ...sentimentFixtureSummary.coverage, selected: 1, eligibleAssessments: 2, unadmittedAssessments: 1, judged: 1, distinctSourceAnswers: 1, eligibleAnswers: 2, ratedAnswers: 1, ratedAnswerRate: 0.5 }
+    const output = await invoke(['demo'], { ...sentimentFixtureSummary, coverage }, 'getSentiment', 'text')
+    // One of two eligible answers rated: 50.0%, never the 1 of 1 judged over selected.
+    expect(output).toContain('Rated: 50.0% · 1 of 2 answers rated')
+    expect(output).toContain('1 of 1 assessments judged · 1 admitted source answers')
+    // The JSON carries the same fields the dashboard reads.
+    expect(JSON.parse(await invoke(['demo'], { ...sentimentFixtureSummary, coverage }, 'getSentiment')).coverage).toMatchObject({ eligibleAnswers: 2, ratedAnswers: 1, ratedAnswerRate: 0.5 })
+    // Before admission the eligible answers still count: a measured 0%.
+    const before = await invoke(['demo'], { ...sentimentFixtureSummary, coverage: { ...coverage, selected: 0, judged: 0, ratedAnswers: 0, ratedAnswerRate: 0 } }, 'getSentiment', 'text')
+    expect(before).toContain('Rated: 0% · 0 of 2 answers rated')
+    expect(await invoke(['demo'], { ...sentimentFixtureSummary, coverage: { ...coverage, eligibleAnswers: 1, ratedAnswers: 1, ratedAnswerRate: 1 } }, 'getSentiment', 'text')).toContain('Rated: 100% · 1 of 1 answer rated')
+    expect(await invoke(['demo'], { ...sentimentFixtureSummary, coverage: { ...coverage, eligibleAnswers: 0, ratedAnswers: 0, ratedAnswerRate: null } }, 'getSentiment', 'text')).toContain('Rated: no answers yet')
+    // Withheld while sentiment is off: no share and no rated count.
+    const off = await invoke(['demo'], { ...sentimentFixtureSummary, state: 'disabled', coverage: { ...coverage, judged: 0, ratedAnswers: 0, ratedAnswerRate: null } }, 'getSentiment', 'text')
+    expect(off).toContain('Rated: Unavailable · 2 eligible answers')
+    // A server older than the answer fields prints no Rated line rather than a client-side division.
+    const { eligibleAnswers: _eligible, ratedAnswers: _rated, ratedAnswerRate: _rate, ...older } = coverage
+    expect(await invoke(['demo'], { ...sentimentFixtureSummary, coverage: older }, 'getSentiment', 'text')).not.toContain('Rated:')
+  })
   it.each(['branded', 'non-brand'] as const)('preserves %s per-query JSON and prints the server-owned favorable display', async queryClass => {
     const query = { queryId: 'frozen-query', queryText: 'Which apartments are good?', queryClass, sourceSnapshotIds: ['frozen-snapshot'], locations: [], assessments: [], state: 'partial', reason: 'Classification is incomplete.', provisional: true, coverage: sentimentFixtureSummary.coverage, score: { ...sentimentFixtureSummary.score, favorableDisplay: '61%' } }
     const fixture = sentimentSummarySchema.parse({ ...sentimentFixtureSummary, selection: { ...sentimentFixtureSummary.selection, queryClass, queryId: query.queryId }, queries: [query] })

@@ -1,7 +1,7 @@
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  buildSimpleMeasurementDefinition, canonicalMeasurementPlanV2Json, sentimentBackfillPreviewSchema, sentimentSelectionSchema,
+  buildSimpleMeasurementDefinition, canonicalMeasurementPlanV2Json, formatPercent, RatioUnits, sentimentBackfillPreviewSchema, sentimentSelectionSchema,
   sentimentSummarySchema, sentimentOverviewSchema, storedSentimentClassifierInputSchema, type SentimentClassifierOutput, type SentimentOutcome,
 } from '@ainyc/canonry-contracts'
 import { eq } from 'drizzle-orm'
@@ -78,7 +78,7 @@ async function overviewSentiment() {
 describe('sentiment service reads', () => {
   it('answers the overview of an unconfigured or switched-off project without selecting any source', async () => {
     simple('harbor', ['Acme reviews'], 'Harbor'); simple('bayside', ['Acme reviews'], 'Bayside')
-    const off = { configured: false, branded: { state: 'disabled', runIds: [], coverage: { selected: 0, eligibleAssessments: 0 }, score: { favorableRate: null } }, nonBrand: { state: 'disabled', runIds: [] }, overall: { queryClass: 'all', state: 'disabled', runIds: [], coverage: { selected: 0, judged: 0 }, score: { favorableRate: null } } }
+    const off = { configured: false, branded: { state: 'disabled', runIds: [], coverage: { selected: 0, eligibleAssessments: 0, eligibleAnswers: 0, ratedAnswers: 0, ratedAnswerRate: null }, score: { favorableRate: null } }, nonBrand: { state: 'disabled', runIds: [] }, overall: { queryClass: 'all', state: 'disabled', runIds: [], coverage: { selected: 0, judged: 0, eligibleAnswers: 0, ratedAnswers: 0, ratedAnswerRate: null }, score: { favorableRate: null } } }
     expect(await overviewSentiment()).toMatchObject(off)
     expect(selections.count).toBe(0)
     service.configure('p', { enabled: true }); admit('harbor'); finish()
@@ -97,9 +97,9 @@ describe('sentiment service reads', () => {
     finish(snapshotId => ({ outcome: snapshotId === 'bayside-q-0' ? 'unfavorable' : 'favorable' }))
     selections.count = 0
     const overview = service.overview('p', ['harbor', 'bayside'])
-    expect(overview).toMatchObject({ configured: true, branded: { coverage: { selected: 2, judged: 2 }, score: { favorableRate: 0.5 } }, nonBrand: { coverage: { selected: 2, judged: 2 }, score: { favorableRate: 1 } } })
+    expect(overview).toMatchObject({ configured: true, branded: { coverage: { selected: 2, judged: 2, eligibleAnswers: 2, ratedAnswers: 2, ratedAnswerRate: 1 }, score: { favorableRate: 0.5 } }, nonBrand: { coverage: { selected: 2, judged: 2, eligibleAnswers: 2, ratedAnswers: 2, ratedAnswerRate: 1 }, score: { favorableRate: 1 } } })
     expect(overview.branded.runIds).toEqual(['bayside', 'harbor'])
-    expect(overview.overall).toMatchObject({ queryClass: 'all', coverage: { selected: 4, judged: 4, distinctSourceAnswers: 4, expectedProviderSlots: 4, completedProviderSlots: 4 }, score: { favorableRate: 0.75, favorableDisplay: '75.0%' }, runIds: ['bayside', 'harbor'] })
+    expect(overview.overall).toMatchObject({ queryClass: 'all', coverage: { selected: 4, judged: 4, distinctSourceAnswers: 4, eligibleAnswers: 4, ratedAnswers: 4, ratedAnswerRate: 1, expectedProviderSlots: 4, completedProviderSlots: 4 }, score: { favorableRate: 0.75, favorableDisplay: '75.0%' }, runIds: ['bayside', 'harbor'] })
     expect(selections.count).toBe(4)
     selections.count = 0
     expect(service.summary('p', sentimentSelectionSchema.parse({ runId: 'harbor' }))).toMatchObject({ coverage: { selected: 1, judged: 1 } })
@@ -142,9 +142,15 @@ describe('sentiment service reads', () => {
     service.configure('p', { enabled: true })
     expect(service.overview('p', []).overall).toMatchObject({ queryClass: 'all', state: 'not-measured', runIds: [], score: { favorableRate: null, favorableDisplay: 'Unavailable' } })
     simple('partial', ['Acme reviews', 'best services'])
-    expect(service.overview('p', ['partial']).overall).toMatchObject({ state: 'not-measured', coverage: { selected: 0, eligibleAssessments: 2, unadmittedAssessments: 2, judged: 0 }, score: { favorableRate: null } })
+    // Before admission both answers are eligible and none is rated: 0 of 2, not "no answers".
+    expect(service.overview('p', ['partial'])).toMatchObject({
+      overall: { state: 'not-measured', coverage: { selected: 0, eligibleAssessments: 2, unadmittedAssessments: 2, judged: 0, distinctSourceAnswers: 0, eligibleAnswers: 2, ratedAnswers: 0, ratedAnswerRate: 0 }, score: { favorableRate: null } },
+      branded: { coverage: { selected: 0, eligibleAnswers: 1, ratedAnswers: 0, ratedAnswerRate: 0 } }, nonBrand: { coverage: { selected: 0, eligibleAnswers: 1, ratedAnswers: 0, ratedAnswerRate: 0 } },
+    })
     admit('partial'); finish()
-    expect(service.overview('p', ['partial']).overall).toMatchObject({ state: 'partial', provisional: true, coverage: { selected: 1, eligibleAssessments: 2, unadmittedAssessments: 1, judged: 1 }, score: { favorableRate: 1, favorableDisplay: '100%' } })
+    expect(service.overview('p', ['partial']).overall).toMatchObject({ state: 'partial', provisional: true, coverage: { selected: 1, eligibleAssessments: 2, unadmittedAssessments: 1, judged: 1, eligibleAnswers: 2, ratedAnswers: 1, ratedAnswerRate: 0.5 }, score: { favorableRate: 1, favorableDisplay: '100%' } })
+    // The never-admitted non-brand class still has its one answer: 0 of 1.
+    expect(service.overview('p', ['partial'])).toMatchObject({ branded: { coverage: { eligibleAnswers: 1, ratedAnswers: 1, ratedAnswerRate: 1 } }, nonBrand: { state: 'not-measured', coverage: { selected: 0, eligibleAnswers: 1, ratedAnswers: 0, ratedAnswerRate: 0 } } })
     simple('unjudged', ['Acme facts', 'service facts']); admit('unjudged'); admit('unjudged', 'non-brand')
     finish(snapshotId => ({ outcome: snapshotId.endsWith('0') ? 'factual' : 'subject-not-mentioned' }))
     expect(service.overview('p', ['unjudged']).overall).toMatchObject({ state: 'complete', coverage: { selected: 2, judged: 0, counts: { factual: 1, 'subject-not-mentioned': 1 } }, score: { favorableRate: null, favorableDisplay: 'Unavailable', interval: null } })
@@ -163,9 +169,45 @@ describe('sentiment service reads', () => {
     const overview = sentimentOverviewSchema.parse(service.overview('p', ['advanced']))
     expect(overview.branded.coverage.judged).toBe(2)
     expect(overview.nonBrand.coverage.judged).toBe(4)
-    expect(overview.overall).toMatchObject({ queryClass: 'all', coverage: { selected: 6, eligibleAssessments: 6, judged: 4, distinctSourceAnswers: 4, expectedProviderSlots: 4, completedProviderSlots: 4, counts: { favorable: 1, mixed: 1, unfavorable: 2, factual: 2 } }, score: { favorableRate: 0.25, favorableDisplay: '25.0%' } })
+    expect(overview.overall).toMatchObject({ queryClass: 'all', coverage: { selected: 6, eligibleAssessments: 6, judged: 4, distinctSourceAnswers: 4, eligibleAnswers: 4, ratedAnswers: 4, ratedAnswerRate: 1, expectedProviderSlots: 4, completedProviderSlots: 4, counts: { favorable: 1, mixed: 1, unfavorable: 2, factual: 2 } }, score: { favorableRate: 0.25, favorableDisplay: '25.0%' } })
+    // The answer shared by both classes is one answer in each class and once overall.
+    expect(overview.branded.coverage).toMatchObject({ eligibleAnswers: 2, ratedAnswers: 2 })
+    expect(overview.nonBrand.coverage).toMatchObject({ selected: 6, eligibleAnswers: 4, ratedAnswers: 4 })
     db.$client.prepare("DELETE FROM query_snapshots WHERE id = 'exec-brand-gemini'").run()
-    expect(service.overview('p', ['advanced']).overall).toMatchObject({ state: 'not-measured', provisional: true, reason: 'Source sweep is incomplete.', coverage: { selected: 0, judged: 0, expectedProviderSlots: 4, completedProviderSlots: 3 }, score: { favorableRate: null } })
+    // An incomplete sweep contributes no eligible answers, so it has no Rated share.
+    expect(service.overview('p', ['advanced']).overall).toMatchObject({ state: 'not-measured', provisional: true, reason: 'Source sweep is incomplete.', coverage: { selected: 0, judged: 0, eligibleAnswers: 0, ratedAnswers: 0, ratedAnswerRate: null, expectedProviderSlots: 4, completedProviderSlots: 3 }, score: { favorableRate: null } })
+  })
+
+  it('rates answers over every eligible answer, admitted or not, and withholds the share while disabled', () => {
+    service.configure('p', { enabled: true })
+    simple('wide', ['Acme reviews'], null, ['openai', 'gemini'])
+    const read = () => sentimentSummarySchema.parse(service.summary('p', sentimentSelectionSchema.parse({ runId: 'wide', queryClass: 'branded' })))
+    // Before admission: two eligible answers, none rated. 0 of 2, never "no answers".
+    expect(read()).toMatchObject({ state: 'not-measured', coverage: { selected: 0, eligibleAssessments: 2, distinctSourceAnswers: 0, eligibleAnswers: 2, ratedAnswers: 0, ratedAnswerRate: 0 } })
+    const preview = service.preview('p', { runId: 'wide', queryClass: 'branded', provider: 'openai' })
+    service.submit('p', preview.previewToken!, 'wide-openai', 'fixture')
+    // Admitted and pending is still not rated.
+    expect(read().coverage).toMatchObject({ selected: 1, judged: 0, eligibleAnswers: 2, ratedAnswers: 0, ratedAnswerRate: 0 })
+    finish()
+    // One of the two answers rated favorable: 50.0%, never 1 of 1.
+    const half = read()
+    expect(half.coverage).toMatchObject({ selected: 1, judged: 1, unadmittedAssessments: 1, distinctSourceAnswers: 1, eligibleAnswers: 2, ratedAnswers: 1, ratedAnswerRate: 0.5 })
+    expect(formatPercent(half.coverage.ratedAnswerRate!, RatioUnits.fraction)).toBe('50.0%')
+    expect(half.queries[0]!.coverage).toMatchObject({ eligibleAnswers: 2, ratedAnswers: 1, ratedAnswerRate: 0.5 })
+    expect(half.breakdowns.filter(row => row.dimension === 'provider').map(row => [row.key, row.coverage.ratedAnswers, row.coverage.eligibleAnswers, row.coverage.ratedAnswerRate])).toEqual([['openai', 1, 1, 1], ['gemini', 0, 1, 0]])
+    admit('wide'); finish()
+    expect(read().coverage).toMatchObject({ selected: 2, judged: 2, eligibleAnswers: 2, ratedAnswers: 2, ratedAnswerRate: 1 })
+    // Disabled keeps the denominator and withholds what was rated, as it withholds judged.
+    service.configure('p', { enabled: false })
+    expect(read()).toMatchObject({ state: 'disabled', coverage: { judged: 0, eligibleAnswers: 2, ratedAnswers: 0, ratedAnswerRate: null } })
+  })
+
+  it('has no Rated share when the selection has no eligible answers', () => {
+    service.configure('p', { enabled: true })
+    expect(service.summary('p', sentimentSelectionSchema.parse({})).coverage).toMatchObject({ selected: 0, eligibleAnswers: 0, ratedAnswers: 0, ratedAnswerRate: null })
+    simple('brand-only', ['Acme reviews']); admit('brand-only'); finish()
+    expect(service.summary('p', sentimentSelectionSchema.parse({ runId: 'brand-only', queryClass: 'non-brand' })).coverage).toMatchObject({ selected: 0, eligibleAnswers: 0, ratedAnswers: 0, ratedAnswerRate: null })
+    expect(service.overview('p', []).overall!.coverage).toMatchObject({ eligibleAnswers: 0, ratedAnswers: 0, ratedAnswerRate: null })
   })
 
   it('lets an administrator switch a project off while the install switch is off, and it stays off on resume', () => {

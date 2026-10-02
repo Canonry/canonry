@@ -123,8 +123,53 @@ describe('sentiment stored API', () => {
       repository.completeWork({ workItemId: work.id, owner: 'comparison', now: clock, outcome: 'favorable', returnedModel: 'jev-1.13.0', result: { kind: 'classified', outcome: 'favorable', returnedModel: 'jev-1.13.0', usage: { kind: 'reported', inputTokens: 10, outputTokens: 1 }, conclusion: input.sentences.slice(0, 1), complaint: null, confidence: null } })
     }
     const query = { mode: 'auto' as const, queryClass: 'branded' as const, scope: 'project' as const }
-    expect(service.compare('p', query, 'r', 'r2')).toMatchObject({ verdict: 'no-clear-change', commonUnits: 1, refusalReasons: [] })
+    expect(service.compare('p', query, 'r', 'r2')).toMatchObject({ verdict: 'no-clear-change', commonUnits: 1, refusalReasons: [], from: { coverage: { eligibleAnswers: 1, ratedAnswers: 1, ratedAnswerRate: 1 } }, to: { coverage: { eligibleAnswers: 1, ratedAnswers: 1, ratedAnswerRate: 1 } } })
     expect(service.compare('p', query, 'r', 'r3')).toMatchObject({ verdict: null, refusalReasons: ['source-model-changed'] })
+  })
+  it('rates every answer in each compared period, not only the matched units its scores use', () => {
+    service.configure('p', { enabled: true })
+    const original = db.select().from(simpleMeasurementDefinitions).get()!
+    db.insert(queries).values({ id: 'q2', projectId: 'p', query: 'Acme pricing', createdAt: clock }).run()
+    const both = buildSimpleMeasurementDefinition({ capturedAt: clock, identity: { displayName: 'Acme', aliases: [], canonicalDomain: 'https://Acme.Example/', ownedDomains: [] }, country: 'US', language: 'en', location: null, engines: [{ provider: 'openai', requestedModel: 'gpt-test' }], queries: [{ queryId: 'q', queryText: 'Acme reviews', provenance: null }, { queryId: 'q2', queryText: 'Acme pricing', provenance: null }] })
+    // 'wide' and 'later' answer both branded queries; 'narrow' answers only the first.
+    for (const [runId, queryIds] of [['wide', ['q', 'q2']], ['narrow', ['q']], ['later', ['q', 'q2']]] as const) {
+      db.insert(runs).values({ id: runId, projectId: 'p', kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt: clock }).run()
+      db.insert(simpleMeasurementDefinitions).values({ ...original, runId, definition: queryIds.length === 2 ? both : original.definition }).run()
+      for (const queryId of queryIds) db.insert(querySnapshots).values({ id: `${runId}-${queryId}`, runId, queryId, provider: 'openai', model: 'gpt-test', servedModel: 'gpt-test-v1', answerText: 'Acme is excellent.', citationState: 'cited', createdAt: clock }).run()
+    }
+    const repository = new SentimentRepository(db)
+    const finish = () => {
+      for (;;) {
+        const work = repository.claim({ owner: 'rated', now: clock, leaseMs: 10_000 })
+        if (!work) break
+        const input = work.input as { sentences: Array<{ id: string; text: string; start: number; end: number }> }
+        repository.completeWork({ workItemId: work.id, owner: 'rated', now: clock, outcome: 'favorable', returnedModel: 'jev-1.13.0', result: { kind: 'classified', outcome: 'favorable', returnedModel: 'jev-1.13.0', usage: { kind: 'reported', inputTokens: 10, outputTokens: 1 }, conclusion: input.sentences.slice(0, 1), complaint: null, confidence: null } })
+      }
+    }
+    for (const runId of ['wide', 'narrow']) service.submit('p', service.preview('p', { runId }).previewToken!, runId, 'test')
+    // 'later' admits only its first query, so its second answer stays unadmitted.
+    service.submit('p', service.preview('p', { runId: 'later', queryId: 'q' }).previewToken!, 'later', 'test')
+    finish()
+    const query = { mode: 'auto' as const, queryClass: 'branded' as const, scope: 'project' as const }
+    const rated = (coverage: { ratedAnswers?: number; eligibleAnswers?: number; ratedAnswerRate?: number | null }) => [coverage.ratedAnswers, coverage.eligibleAnswers, coverage.ratedAnswerRate]
+    const summaryOf = (runId: string) => service.summary('p', { ...query, runId })
+    // A period whose second query has no counterpart: both of its answers are rated, 2 of 2.
+    const narrowed = service.compare('p', query, 'wide', 'narrow')
+    expect(narrowed).toMatchObject({ verdict: null, commonUnits: 1, changedScope: true })
+    expect(rated(narrowed.from.coverage)).toEqual([2, 2, 1])
+    expect(rated(narrowed.to.coverage)).toEqual([1, 1, 1])
+    expect(narrowed.from.coverage).toMatchObject({ selected: 1, judged: 1 })
+    expect(narrowed.from.queries.map(row => [row.queryId, ...rated(row.coverage)])).toEqual([['q2', 1, 1, 1], ['q', 1, 1, 1]])
+    expect(narrowed.from.breakdowns.filter(row => row.dimension === 'provider').map(row => [row.key, ...rated(row.coverage)])).toEqual([['openai', 2, 2, 1]])
+    // A later period that left one answer unadmitted: 2 of 2 before it, 1 of 2 in it.
+    const unadmitted = service.compare('p', query, 'wide', 'later')
+    expect(unadmitted).toMatchObject({ verdict: null, commonUnits: 1 })
+    expect(rated(unadmitted.from.coverage)).toEqual([2, 2, 1])
+    expect(rated(unadmitted.to.coverage)).toEqual([1, 2, 0.5])
+    // Each period's Rated figure is the one its own summary read shows.
+    for (const [period, runId] of [[narrowed.from, 'wide'], [narrowed.to, 'narrow'], [unadmitted.to, 'later']] as const) {
+      expect(rated(period.coverage)).toEqual(rated(summaryOf(runId).coverage))
+    }
   })
   it('discloses unadmitted assessments and keeps page state bound to the full selection', () => {
     service.configure('p', { enabled: true })
@@ -134,11 +179,13 @@ describe('sentiment stored API', () => {
     db.insert(simpleMeasurementDefinitions).values({ ...stored, runId: 'wide', definition }).run()
     db.insert(querySnapshots).values({ id: 'wide-openai', runId: 'wide', queryId: 'q', provider: 'openai', model: 'gpt-test', servedModel: 'gpt-v1', answerText: 'Acme is excellent.', citationState: 'cited', createdAt: clock }).run()
     db.insert(querySnapshots).values({ id: 's-gemini', runId: 'wide', queryId: 'q', provider: 'gemini', model: 'gemini-test', servedModel: 'gemini-v1', answerText: 'Acme is excellent.', citationState: 'cited', createdAt: clock }).run()
+    const query = { mode: 'auto' as const, queryClass: 'branded' as const, scope: 'project' as const, runId: 'wide' }
+    // Before admission both answers are eligible: 0 of 2 rated, not "no answers".
+    expect(service.summary('p', query)).toMatchObject({ state: 'not-measured', coverage: { selected: 0, eligibleAssessments: 2, eligibleAnswers: 2, ratedAnswers: 0, ratedAnswerRate: 0 } })
     const preview = service.preview('p', { runId: 'wide', provider: 'openai' })
     service.submit('p', preview.previewToken!, 'partial', 'test')
-    const query = { mode: 'auto' as const, queryClass: 'branded' as const, scope: 'project' as const, runId: 'wide' }
     const summary = service.summary('p', query)
-    expect(summary).toMatchObject({ state: 'partial', provisional: true, coverage: { selected: 1, eligibleAssessments: 2, unadmittedAssessments: 1 } })
+    expect(summary).toMatchObject({ state: 'partial', provisional: true, coverage: { selected: 1, eligibleAssessments: 2, unadmittedAssessments: 1, eligibleAnswers: 2, ratedAnswers: 0, ratedAnswerRate: 0 } })
     const all = service.preview('p', { runId: 'wide' })
     service.submit('p', all.previewToken!, 'all', 'test')
     const page = service.evidence('p', query, 1)

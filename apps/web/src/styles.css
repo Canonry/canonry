@@ -2343,6 +2343,10 @@
     @apply bg-positive-400;
   }
 
+  .progress-fill-info {
+    @apply bg-info-400;
+  }
+
   .progress-fill-caution {
     @apply bg-caution-400;
   }
@@ -2623,6 +2627,243 @@
 
   .evidence-table td {
     @apply px-4 py-3 text-neutral;
+  }
+
+  /* The top of Query evidence: one compact row with the bar legend on the
+     left and the section's actions on the right, then the sentiment bars
+     under it at full width. A row with nothing in it (sentiment off in an
+     embed) takes no space. */
+  .query-evidence-toolbar {
+    @apply mb-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-2;
+  }
+
+  .query-evidence-toolbar:empty {
+    display: none;
+  }
+
+  /* On the right even when there is no legend to push them there. */
+  .query-evidence-actions {
+    @apply ml-auto flex flex-wrap items-center justify-end gap-2;
+  }
+
+  /* Sentiment by query class: one full-width line each, under a small header
+     naming the figure columns. The lines share the columns label, bar,
+     Favorable, Ratings and the Details chevron, so every bar starts and ends
+     level, each figure sits under its header, and the bar takes all the width
+     the others leave. The figure and chevron columns are fixed widths, so the
+     bars end at the same x whatever the figures read. A named container, so a
+     line lays out by the width it has (Query evidence, an Advanced report, a
+     phone), not by the viewport. A 16px row gap makes each line 44px tall, the
+     chevron's touch target. */
+  .sentiment-headlines {
+    container: sentiment-headlines / inline-size;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) 4.5rem 4rem 1.75rem;
+    @apply mb-4 min-w-0 gap-x-3 gap-y-4;
+  }
+
+  .sentiment-headlines > .sentiment-legend {
+    grid-column: 1 / -1;
+  }
+
+  .sentiment-legend {
+    @apply flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-secondary;
+  }
+
+  .sentiment-legend > li {
+    @apply inline-flex items-center gap-1.5;
+  }
+
+  .sentiment-legend-swatch {
+    @apply size-2 shrink-0 rounded-[2px];
+  }
+
+  /* The column header: the same eyebrow as the competitor table's Mentions and
+     Share, each name right-aligned over its figures. It sits closer to the
+     first line than the lines sit to each other. */
+  .sentiment-headlines-columns {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
+    @apply -mb-2 text-[10px] font-medium uppercase tracking-[0.08em] text-muted;
+  }
+
+  .sentiment-headlines-favorable {
+    grid-column: 3;
+    @apply text-right;
+  }
+
+  .sentiment-headlines-ratings {
+    grid-column: 4;
+    @apply text-right;
+  }
+
+  /* Narrow: the label, the two figures and the chevron share the first row,
+     under the header; the bar runs the full width under them, then any note.
+     Without subgrid each line keeps its own copy of the columns; the fixed
+     figure columns still line up. The line anchors its Details panel. */
+  .sentiment-class {
+    position: relative;
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: auto minmax(0, 1fr) 4.5rem 4rem 1.75rem;
+    grid-template-columns: subgrid;
+    @apply items-center gap-x-3 gap-y-1.5 text-sm text-secondary;
+  }
+
+  .sentiment-class-label {
+    grid-column: 1;
+    grid-row: 1;
+    @apply flex min-w-0 items-center gap-1 whitespace-nowrap;
+  }
+
+  .sentiment-class-favorable {
+    grid-column: 3;
+    grid-row: 1;
+    @apply text-right tabular-nums;
+  }
+
+  .sentiment-class-share {
+    @apply font-medium text-primary;
+  }
+
+  .sentiment-class-empty {
+    @apply text-muted;
+  }
+
+  .sentiment-class-ratings {
+    grid-column: 4;
+    grid-row: 1;
+    @apply text-right tabular-nums text-secondary;
+  }
+
+  .sentiment-class-note {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    @apply text-[13px];
+  }
+
+  .sentiment-class-status {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  /* Chevron only, in its own last column on every line. Its hit area reaches
+     44px square without growing the line. */
+  .sentiment-class-details-toggle {
+    position: relative;
+    grid-column: 5;
+    grid-row: 1;
+    @apply inline-flex size-7 cursor-pointer items-center justify-center justify-self-end rounded-sm text-secondary transition-colors hover:bg-surface-hover hover:text-heading focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2;
+  }
+
+  .sentiment-class-details-toggle::before {
+    content: '';
+    position: absolute;
+    inset: -0.5rem;
+  }
+
+  .sentiment-class-details-chevron {
+    @apply size-4 transition-transform duration-150;
+  }
+
+  .sentiment-class-details-toggle[aria-expanded='true'] {
+    @apply text-heading;
+  }
+
+  .sentiment-class-details-toggle[aria-expanded='true'] .sentiment-class-details-chevron {
+    @apply rotate-180;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sentiment-class-details-chevron {
+      transition: none;
+    }
+  }
+
+  /* A class's Details: a floating panel under its button, right-aligned to
+     the line's end so it stays on screen at phone width, over the rows below
+     instead of pushing them down. Floating, so a real shadow is allowed, as
+     on the project "More" menu. */
+  .sentiment-class-details {
+    @apply absolute right-0 top-full z-10 mt-1 w-80 max-w-full rounded-md border border-mono-800/80 bg-bg-elevated px-3 py-2.5 text-[13px] shadow-[0_12px_28px_var(--color-shadow-panel)];
+  }
+
+  /* The section clips its overflow; an open panel near its end must not be. */
+  .overview-disclosure:has(.sentiment-class-details:not([hidden])) {
+    overflow: visible;
+  }
+
+  .sentiment-class-details-title {
+    @apply mb-1 text-xs font-semibold text-heading;
+  }
+
+  /* Label left, value right beside it on the same line, every row the same
+     height, numbers in tabular figures. */
+  .sentiment-details-list > div {
+    @apply flex min-h-7 items-center justify-between gap-4 py-1;
+  }
+
+  .sentiment-details-list > div + div {
+    @apply border-t border-subtle;
+  }
+
+  .sentiment-details-list dt {
+    @apply flex min-w-0 items-center gap-1 text-secondary;
+  }
+
+  .sentiment-details-list dd {
+    @apply shrink-0 text-right tabular-nums text-heading;
+  }
+
+  .sentiment-class-details-reason {
+    @apply mt-2 break-words text-secondary;
+  }
+
+  /* The bar is the counts: each segment grows by its own count, with a 2px
+     gap between segments. */
+  .sentiment-bar {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    @apply flex h-2 w-full min-w-0 gap-0.5 overflow-hidden rounded-full;
+  }
+
+  /* No segments to draw: no ratings, or too few to show the share. */
+  .sentiment-bar-track {
+    @apply bg-surface-inset;
+  }
+
+  .sentiment-bar-segment {
+    flex-basis: 0;
+    @apply h-full min-w-0.5;
+  }
+
+  /* Keep the tones in High Contrast, or the legend's words match nothing. */
+  @media (forced-colors: active) {
+    .sentiment-bar-segment,
+    .sentiment-legend-swatch {
+      forced-color-adjust: none;
+    }
+  }
+
+  /* Wide: label, bar, Favorable, Ratings, then the chevron on one line, the
+     bar filling the space between; any note runs under the bar. */
+  @container sentiment-headlines (min-width: 40rem) {
+    .sentiment-bar {
+      grid-column: 2;
+      grid-row: 1;
+      @apply min-w-24;
+    }
+
+    .sentiment-class-note {
+      grid-column: 2 / -1;
+      grid-row: 2;
+    }
+
+    .sentiment-class-status {
+      grid-column: 2 / -1;
+      grid-row: 1;
+    }
   }
 
   .query-evidence-view-row {

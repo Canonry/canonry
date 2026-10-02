@@ -1,4 +1,4 @@
-import { Fragment, useId, useMemo, useState } from 'react'
+import { Fragment, useId, useMemo, useState, type ReactNode } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { CitationStates, brandLabelFromDomain, hostOf, normalizeQueryText, type QueryClass } from '@ainyc/canonry-contracts'
 
@@ -12,7 +12,7 @@ import {
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { SourceLink } from '../shared/SourceLink.js'
 import { AnswerMarkdown } from '../shared/AnswerMarkdown.js'
-import { SentimentHeadlines, SentimentQueryScore, SentimentAnswerOutcome, useSentimentConfigured } from './SentimentSection.js'
+import { SentimentHeadlines, SentimentLegend, SentimentQueryScore, SentimentAnswerOutcome, useSentimentConfigured } from './SentimentSection.js'
 import { CitationTimeline, mergeProviderHistories } from './CitationTimeline.js'
 import { useDrawer } from '../../hooks/use-drawer.js'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
@@ -188,6 +188,25 @@ function SignalStrip({ items }: { items: CitationInsightVm[] }) {
   )
 }
 
+/**
+ * The top of Query evidence: one compact row with the bar legend on the left
+ * and the section's actions on the right, then the sentiment bars under it at
+ * the section's full width. In an embed (no actions) the row is the legend
+ * alone, and with neither it takes no space. Without a query class it is the
+ * actions alone, for while the evidence loads or after it fails.
+ */
+export function QueryEvidenceSummary({ queryClass, actions }: { queryClass?: QueryClassSelection; actions?: ReactNode }) {
+  return (
+    <>
+      <div className="query-evidence-toolbar">
+        {queryClass ? <SentimentLegend queryClass={queryClass} /> : null}
+        {actions ? <div className="query-evidence-actions">{actions}</div> : null}
+      </div>
+      {queryClass ? <SentimentHeadlines queryClass={queryClass} legend={false} /> : null}
+    </>
+  )
+}
+
 export function EvidenceTable({
   evidence,
   compareLocations = false,
@@ -195,6 +214,8 @@ export function EvidenceTable({
   providerSelection: controlledProvider,
   onProviderSelectionChange,
   addedQueries = [],
+  actions,
+  actionPanel,
 }: {
   evidence: CitationInsightVm[]
   compareLocations?: boolean
@@ -207,6 +228,10 @@ export function EvidenceTable({
    * engine new to an old query, a first sweep) keeps its signal labels.
    */
   addedQueries?: readonly string[]
+  /** The section's actions, at the right of the row above the sentiment bars. */
+  actions?: ReactNode
+  /** What an action opens (the query editor), directly under the bars. */
+  actionPanel?: ReactNode
 }) {
   const { openEvidence } = useDrawer()
   const panelId = useId()
@@ -279,7 +304,8 @@ export function EvidenceTable({
 
   return (
     <div className="query-evidence">
-      <SentimentHeadlines queryClass={queryClassSelection} />
+      <QueryEvidenceSummary queryClass={queryClassSelection} actions={actions} />
+      {actionPanel}
       <div className="query-evidence-view-row">
         <div className="flex items-center gap-3">
           <div className="query-evidence-tabs" role="tablist" aria-label="Citation tracking view">

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { wilsonInterval } from './statistics.js'
 import { formatPercent } from './formatting.js'
-import { fraction, RatioUnits } from './ratio-unit.js'
+import { fraction, RatioUnits, roundRatio } from './ratio-unit.js'
 import { locationContextSchema } from './provider.js'
 
 export const SENTIMENT_MODEL = 'jev-1.13.0' as const
@@ -142,7 +142,20 @@ export const sentimentResolvedSelectionSchema = sentimentSelectionBaseSchema.ext
 export type SentimentResolvedSelection = z.infer<typeof sentimentResolvedSelectionSchema>
 export const sentimentCountsSchema = z.object(Object.fromEntries(sentimentOutcomeSchema.options.map(outcome => [outcome, count])) as Record<SentimentOutcome, typeof count>).strict()
 export type SentimentCounts = z.infer<typeof sentimentCountsSchema>
-export const sentimentCoverageSchema = z.object({ selected: count, eligibleAssessments: count, unadmittedAssessments: count, judged: count, distinctSourceAnswers: count, counts: sentimentCountsSchema, expectedProviderSlots: count, completedProviderSlots: count }).strict()
+/**
+ * `selected`, `eligibleAssessments`, `unadmittedAssessments` and `judged` count answer-subject
+ * assessments; `distinctSourceAnswers` counts the admitted source answers. The answer-level Rated
+ * figure has its own fields, optional because older servers do not send them:
+ * `eligibleAnswers` is every distinct source answer in the selection, admitted or not;
+ * `ratedAnswers` is those with at least one favorable, mixed or unfavorable assessment in it
+ * (an answer assessed for two subjects counts once); `ratedAnswerRate` is their share, null with
+ * no eligible answers or while sentiment is disabled.
+ */
+export const sentimentCoverageSchema = z.object({
+  selected: count, eligibleAssessments: count, unadmittedAssessments: count, judged: count, distinctSourceAnswers: count,
+  eligibleAnswers: count.optional(), ratedAnswers: count.optional(), ratedAnswerRate: rate.optional(),
+  counts: sentimentCountsSchema, expectedProviderSlots: count, completedProviderSlots: count,
+}).strict()
 export const sentimentScoreSchema = z.object({ favorableRate: rate, mixedRate: rate, unfavorableRate: rate, favorableDisplay: z.string(), mixedDisplay: z.string(), unfavorableDisplay: z.string(), interval: z.object({ low: z.number(), high: z.number() }).strict().nullable(), method: z.literal('wilson-independent-v1'), limitation: z.string() }).strict()
 const headlineFields = { state: sentimentStateSchema, reason: z.string().nullable(), provisional: z.boolean(), coverage: sentimentCoverageSchema, score: sentimentScoreSchema }
 export const sentimentHeadlineSchema = z.object({ ...headlineFields, selection: sentimentResolvedSelectionSchema, runIds: z.array(id) }).strict()
@@ -231,12 +244,24 @@ export function emptySentimentCounts(): SentimentCounts {
 export function sentimentRateDisplay(value: number | null): string {
   return value === null ? 'Unavailable' : formatPercent(value, RatioUnits.fraction)
 }
-/** Every selected answer-subject assessment appears once within the selected population. */
-export function aggregateSentiment(items: readonly SentimentAggregateItem[], options: { disabled?: boolean; eligibleAssessments?: number; expectedProviderSlots?: number; completedProviderSlots?: number } = {}) {
+const JUDGED_OUTCOMES: ReadonlySet<SentimentOutcome> = new Set(['favorable', 'mixed', 'unfavorable'])
+/**
+ * Every selected answer-subject assessment appears once within the selected population.
+ * `eligibleAnswers` is the number of distinct source answers in the selection, admitted or not;
+ * it is the Rated share's denominator and never falls below the admitted answers. `ratedAnswers`
+ * is the caller's count when the rated population is wider than `items` (a comparison scores its
+ * matched units but rates every answer in the period); it never falls below the answers `items` rate.
+ */
+export function aggregateSentiment(items: readonly SentimentAggregateItem[], options: { disabled?: boolean; eligibleAssessments?: number; eligibleAnswers?: number; ratedAnswers?: number; expectedProviderSlots?: number; completedProviderSlots?: number } = {}) {
   const unique = [...new Map(items.map(item => [item.assessmentId, item])).values()]
   const counts = emptySentimentCounts()
   for (const item of unique) counts[item.outcome]++
   const judged = counts.favorable + counts.mixed + counts.unfavorable
+  const distinctSourceAnswers = new Set(unique.map(item => item.sourceSnapshotId)).size
+  const ratedInItems = new Set(unique.filter(item => JUDGED_OUTCOMES.has(item.outcome)).map(item => item.sourceSnapshotId)).size
+  const ratedAnswers = Math.max(options.ratedAnswers ?? ratedInItems, ratedInItems)
+  const eligibleAnswers = Math.max(options.eligibleAnswers ?? distinctSourceAnswers, distinctSourceAnswers)
+  const ratedAnswerRate = options.disabled || eligibleAnswers === 0 ? null : roundRatio(ratedAnswers / eligibleAnswers, RatioUnits.fraction)
   const processing = counts.pending + counts.running + counts['waiting-to-retry']
   const provisional = processing + counts.failed + counts.canceled > 0
   const state: SentimentState = options.disabled ? 'disabled' : unique.length === 0 ? 'not-measured' : counts.canceled === unique.length ? 'canceled' : counts.failed === unique.length ? 'failed' : processing === unique.length ? 'processing' : provisional ? 'partial' : 'complete'
@@ -245,7 +270,7 @@ export function aggregateSentiment(items: readonly SentimentAggregateItem[], opt
   const unfavorableRate = judged && !options.disabled ? counts.unfavorable / judged : null
   return {
     state, provisional,
-    coverage: { selected: unique.length, eligibleAssessments: Math.max(options.eligibleAssessments ?? unique.length, unique.length), unadmittedAssessments: Math.max(0, (options.eligibleAssessments ?? unique.length) - unique.length), judged, distinctSourceAnswers: new Set(unique.map(item => item.sourceSnapshotId)).size, counts, expectedProviderSlots: options.expectedProviderSlots ?? 0, completedProviderSlots: options.completedProviderSlots ?? 0 },
+    coverage: { selected: unique.length, eligibleAssessments: Math.max(options.eligibleAssessments ?? unique.length, unique.length), unadmittedAssessments: Math.max(0, (options.eligibleAssessments ?? unique.length) - unique.length), judged, distinctSourceAnswers, eligibleAnswers, ratedAnswers, ratedAnswerRate, counts, expectedProviderSlots: options.expectedProviderSlots ?? 0, completedProviderSlots: options.completedProviderSlots ?? 0 },
     score: { favorableRate, mixedRate, unfavorableRate, favorableDisplay: sentimentRateDisplay(favorableRate), mixedDisplay: sentimentRateDisplay(mixedRate), unfavorableDisplay: sentimentRateDisplay(unfavorableRate), interval: options.disabled ? null : wilsonInterval(counts.favorable, judged), method: 'wilson-independent-v1' as const, limitation: SENTIMENT_INTERVAL_LIMITATION },
   }
 }

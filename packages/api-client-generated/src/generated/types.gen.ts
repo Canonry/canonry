@@ -14,6 +14,9 @@ export type SentimentSummary = {
         unadmittedAssessments: number;
         judged: number;
         distinctSourceAnswers: number;
+        eligibleAnswers?: number;
+        ratedAnswers?: number;
+        ratedAnswerRate?: number | null;
         counts: {
             favorable: number;
             mixed: number;
@@ -97,6 +100,9 @@ export type SentimentSummary = {
             unadmittedAssessments: number;
             judged: number;
             distinctSourceAnswers: number;
+            eligibleAnswers?: number;
+            ratedAnswers?: number;
+            ratedAnswerRate?: number | null;
             counts: {
                 favorable: number;
                 mixed: number;
@@ -149,6 +155,9 @@ export type SentimentSummary = {
             unadmittedAssessments: number;
             judged: number;
             distinctSourceAnswers: number;
+            eligibleAnswers?: number;
+            ratedAnswers?: number;
+            ratedAnswerRate?: number | null;
             counts: {
                 favorable: number;
                 mixed: number;
@@ -217,6 +226,9 @@ export type SentimentSummary = {
                 unadmittedAssessments: number;
                 judged: number;
                 distinctSourceAnswers: number;
+                eligibleAnswers?: number;
+                ratedAnswers?: number;
+                ratedAnswerRate?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;
@@ -379,6 +391,9 @@ export type SentimentComparison = {
             unadmittedAssessments: number;
             judged: number;
             distinctSourceAnswers: number;
+            eligibleAnswers?: number;
+            ratedAnswers?: number;
+            ratedAnswerRate?: number | null;
             counts: {
                 favorable: number;
                 mixed: number;
@@ -462,6 +477,9 @@ export type SentimentComparison = {
                 unadmittedAssessments: number;
                 judged: number;
                 distinctSourceAnswers: number;
+                eligibleAnswers?: number;
+                ratedAnswers?: number;
+                ratedAnswerRate?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;
@@ -514,6 +532,9 @@ export type SentimentComparison = {
                 unadmittedAssessments: number;
                 judged: number;
                 distinctSourceAnswers: number;
+                eligibleAnswers?: number;
+                ratedAnswers?: number;
+                ratedAnswerRate?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;
@@ -582,6 +603,9 @@ export type SentimentComparison = {
                     unadmittedAssessments: number;
                     judged: number;
                     distinctSourceAnswers: number;
+                    eligibleAnswers?: number;
+                    ratedAnswers?: number;
+                    ratedAnswerRate?: number | null;
                     counts: {
                         favorable: number;
                         mixed: number;
@@ -639,6 +663,9 @@ export type SentimentComparison = {
             unadmittedAssessments: number;
             judged: number;
             distinctSourceAnswers: number;
+            eligibleAnswers?: number;
+            ratedAnswers?: number;
+            ratedAnswerRate?: number | null;
             counts: {
                 favorable: number;
                 mixed: number;
@@ -722,6 +749,9 @@ export type SentimentComparison = {
                 unadmittedAssessments: number;
                 judged: number;
                 distinctSourceAnswers: number;
+                eligibleAnswers?: number;
+                ratedAnswers?: number;
+                ratedAnswerRate?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;
@@ -774,6 +804,9 @@ export type SentimentComparison = {
                 unadmittedAssessments: number;
                 judged: number;
                 distinctSourceAnswers: number;
+                eligibleAnswers?: number;
+                ratedAnswers?: number;
+                ratedAnswerRate?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;
@@ -842,6 +875,9 @@ export type SentimentComparison = {
                     unadmittedAssessments: number;
                     judged: number;
                     distinctSourceAnswers: number;
+                    eligibleAnswers?: number;
+                    ratedAnswers?: number;
+                    ratedAnswerRate?: number | null;
                     counts: {
                         favorable: number;
                         mixed: number;
@@ -10765,6 +10801,9 @@ export type ProjectOverviewDto = {
                 unadmittedAssessments: number;
                 judged: number;
                 distinctSourceAnswers: number;
+                eligibleAnswers?: number;
+                ratedAnswers?: number;
+                ratedAnswerRate?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;
@@ -10830,6 +10869,9 @@ export type ProjectOverviewDto = {
                 unadmittedAssessments: number;
                 judged: number;
                 distinctSourceAnswers: number;
+                eligibleAnswers?: number;
+                ratedAnswers?: number;
+                ratedAnswerRate?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;
@@ -10895,6 +10937,9 @@ export type ProjectOverviewDto = {
                 unadmittedAssessments: number;
                 judged: number;
                 distinctSourceAnswers: number;
+                eligibleAnswers?: number;
+                ratedAnswers?: number;
+                ratedAnswerRate?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;

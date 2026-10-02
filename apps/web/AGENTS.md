@@ -53,12 +53,52 @@ Other Vite options use the native CLI without caching, preserving custom output 
 Portfolio overview sentiment shows only the server's `sentiment.overall` score.
 Hide the metric and its layout slot when no judged overall score exists. Keep
 counts, class scope, confidence and provisional status in its tooltip; detailed
-sentiment analysis retains separate branded and non-brand populations. Keep class
-headlines to the score, rating count and any partial-results state. Below
-`SENTIMENT_MIN_RATED` (10) ratings a class headline, and the portfolio's
-overall figure, reads "too few" instead of its score, and its Details list the
-rated outcomes. Query rows keep their score
-beside its rating count. Empty classes show a short state. Coverage and confidence belong in closed Details disclosures;
+sentiment analysis retains separate branded and non-brand populations. Each class
+headline is one full-width line under a small eyebrow header ("Favorable",
+"Rated", right-aligned over their columns, `aria-hidden`; Rated's `title` is
+"Share of answers rated favorable, mixed or unfavorable"): the class label and
+its ⓘ, a stacked bar of the class's favorable, mixed and unfavorable counts that
+takes all remaining width, then three fixed columns. Favorable holds only the
+server's score; Rated holds only the server's share of answers rated,
+`coverage.ratedAnswerRate` in `formatPercent` (Tank Air branded 16 of 20 reads
+80.0%), never a division in the component and never `coverage.judged` over
+`coverage.selected` (those count assessments, one per answer and subject, and
+only admitted ones). The server counts every eligible answer, admitted or not,
+and an answer assessed for several subjects once. Its counts ("16 of 20 answers
+rated", `coverage.ratedAnswers` of `coverage.eligibleAnswers`) are its tooltip
+and screen-reader text, and Details lists them as "Rated answers"; a class with
+eligible answers and none admitted reads a measured 0%. The empty value appears
+only with no eligible answers ("No answers yet"), while sentiment is off
+("Sentiment is off.") or from a server too old to send the counts
+("Unavailable", which makes no claim about answers), never a second metric or a
+sentence; the last column is the class's Details chevron, a
+chevron-only button named "Branded details" / "Non-brand details". A class's
+state while it has no ratings, or "Partial results", is a note under its bar.
+The header and lines share one column grid (subgrid), so the bars start and end
+level and each figure sits under its header; on a phone the bar drops under the
+label and figures and the columns stay aligned. Details opens a floating panel
+anchored under its button, right-aligned to the line's end, over the content
+below rather than pushing it down: a non-modal popover (button with
+`aria-expanded` and `aria-controls`, panel `role="group"` named by its class
+heading, never `role="menu"`) that follows the button in tab order and closes on outside
+pointerdown, Escape (focus returns to the button) and focus leaving, like the
+project "More" menu. Only one panel is open at a time, and an open panel lifts
+the section's overflow clip. Inside, the rows are a compact label/value list
+with tabular numbers in a fixed-width panel. Each segment grows by its own API
+count (no UI math) in the `progress-fill-*` tones; a legend names the tones once
+any bar has segments; the bar is `role="img"` with every count in its label and
+is never a tab stop. Below `SENTIMENT_MIN_RATED` (10) ratings, zero included, a
+class's Favorable column shows the app's empty value (`\u2014`, muted) with
+"Shown from 10 ratings" as its tooltip and screen-reader text, never "too few"
+or a count toward the minimum; the portfolio's overall figure reads "too few"
+instead of its score. The bar is then a plain track with no segments (they would
+draw the hidden share), and its Details list the rated outcomes and the
+"Favorable share: Shown from 10 ratings" row. No ratings draws an empty track
+over the class's short state. In Query evidence (`QueryEvidenceSummary`) one compact row
+above the bars holds the legend on the left and Manage sentiment and Manage
+queries on the right (the legend alone in an embed), so nothing sits beside the
+bars. The query editor opens directly under the bars (`actionPanel`). Query rows keep their score
+beside its rating count. Coverage and confidence belong in closed Details disclosures;
 data-processing disclosure belongs in Enable/Manage sentiment.
 
 Simple projects render `VisibilityTrendSection` ("AI answers over time"), the

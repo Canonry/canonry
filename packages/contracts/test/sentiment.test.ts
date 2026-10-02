@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { sentimentFixtureSummary, sentimentCompleteFixtureSummary } from './fixtures/sentiment.js'
-import { sentimentSummarySchema, sentimentOverviewSchema, sentimentOverallHeadlineSchema } from '../src/sentiment.js'
+import { sentimentCoverageSchema, sentimentSummarySchema, sentimentOverviewSchema, sentimentOverallHeadlineSchema } from '../src/sentiment.js'
+import { RatioUnits, ratioUnitOf } from '../src/ratio-unit.js'
 import { aggregateSentiment, canonicalSentimentDefinitionJson, createSentimentEvaluationDefinition, hasCurrentSentimentTemplate, sentimentJobRequestSchema, sentimentJobsSchema, sentimentSummaryRequestSchema, sentimentClassifierOutputSchema, sentimentRateDisplay, sentimentSettingsUpdateSchema, sentimentSelectionSchema, sentimentCompareRequestSchema, sentimentAssessmentSummarySchema, sentimentEvidenceRequestSchema, storedSentimentEvaluationDefinitionSchema, storedSentimentClassifierOutputSchema, type SentimentAggregateItem, type SentimentOutcome } from '../src/sentiment.js'
 
 const outcomes: SentimentOutcome[] = ['favorable', 'favorable', 'favorable', 'mixed', 'unfavorable', 'factual', 'wrong-subject', 'invalid-conclusion-evidence', 'failed', 'pending']
@@ -34,7 +35,7 @@ describe('sentiment measurement invariants', () => {
   })
   it('counts five judgments out of ten assessments with no mixed favorable credit', () => {
     const result = aggregateSentiment(canonical)
-    expect(result.coverage).toMatchObject({ selected: 10, judged: 5, distinctSourceAnswers: 10 })
+    expect(result.coverage).toMatchObject({ selected: 10, judged: 5, distinctSourceAnswers: 10, eligibleAnswers: 10, ratedAnswers: 5, ratedAnswerRate: 0.5 })
     expect(Object.values(result.coverage.counts).reduce((a, b) => a + b, 0)).toBe(10)
     expect(result.score).toMatchObject({ favorableRate: 0.6, mixedRate: 0.2, unfavorableRate: 0.2, favorableDisplay: '60.0%', mixedDisplay: '20.0%', unfavorableDisplay: '20.0%', interval: { low: 0.2307, high: 0.8824 } })
     expect(result.state).toBe('partial')
@@ -46,8 +47,45 @@ describe('sentiment measurement invariants', () => {
   })
   it('deduplicates usage edges, preserving two subjects for one source answer', () => {
     const items = [{ ...canonical[0]!, sourceSnapshotId: 'shared' }, { ...canonical[4]!, sourceSnapshotId: 'shared' }]
-    expect(aggregateSentiment([...items, items[0]!]).coverage).toMatchObject({ selected: 2, judged: 2, distinctSourceAnswers: 1 })
+    expect(aggregateSentiment([...items, items[0]!]).coverage).toMatchObject({ selected: 2, judged: 2, distinctSourceAnswers: 1, eligibleAnswers: 1, ratedAnswers: 1, ratedAnswerRate: 1 })
     expect(aggregateSentiment(items).score.favorableRate).toBe(0.5)
+  })
+  it('rates answers, not assessments: each source answer counts once over every eligible answer, admitted or not', () => {
+    const answer = (assessmentId: string, sourceSnapshotId: string, outcome: SentimentOutcome): SentimentAggregateItem => ({ assessmentId, sourceSnapshotId, outcome })
+    // Two eligible answers, one admitted and rated favorable: 1 of 2, never 1 of 1.
+    expect(aggregateSentiment([answer('a', 'openai', 'favorable')], { eligibleAssessments: 2, eligibleAnswers: 2 }).coverage).toMatchObject({ selected: 1, judged: 1, distinctSourceAnswers: 1, eligibleAnswers: 2, ratedAnswers: 1, ratedAnswerRate: 0.5 })
+    // Before admission the eligible answers are still the denominator: a measured 0 of 2.
+    expect(aggregateSentiment([], { eligibleAssessments: 2, eligibleAnswers: 2 }).coverage).toMatchObject({ selected: 0, judged: 0, distinctSourceAnswers: 0, eligibleAnswers: 2, ratedAnswers: 0, ratedAnswerRate: 0 })
+    // Admitted but still pending, failed or nonjudged answers are not rated.
+    expect(aggregateSentiment([answer('a', 'one', 'pending'), answer('b', 'two', 'failed'), answer('c', 'three', 'factual')], { eligibleAnswers: 4 }).coverage).toMatchObject({ eligibleAnswers: 4, ratedAnswers: 0, ratedAnswerRate: 0 })
+    // No eligible answers: no share at all, not 0%.
+    expect(aggregateSentiment([]).coverage).toMatchObject({ eligibleAnswers: 0, ratedAnswers: 0, ratedAnswerRate: null })
+    // An Advanced answer assessed for two subjects is one answer: rated once when either subject is judged.
+    const advanced = [answer('harbor', 'shared', 'favorable'), answer('bayside', 'shared', 'factual'), answer('harbor-2', 'other', 'unfavorable'), answer('bayside-2', 'other', 'mixed')]
+    expect(aggregateSentiment(advanced, { eligibleAssessments: 4, eligibleAnswers: 2 }).coverage).toMatchObject({ selected: 4, judged: 3, distinctSourceAnswers: 2, eligibleAnswers: 2, ratedAnswers: 2, ratedAnswerRate: 1 })
+    // Mixed admitted and unadmitted: 3 eligible answers, 2 admitted, 1 rated.
+    expect(aggregateSentiment([answer('a', 'one', 'mixed'), answer('b', 'two', 'subject-not-mentioned')], { eligibleAssessments: 3, eligibleAnswers: 3 }).coverage).toMatchObject({ selected: 2, unadmittedAssessments: 1, judged: 1, eligibleAnswers: 3, ratedAnswers: 1, ratedAnswerRate: 0.33333333 })
+    // A denominator below the admitted answers never shrinks under them.
+    expect(aggregateSentiment(canonical, { eligibleAnswers: 3 }).coverage).toMatchObject({ distinctSourceAnswers: 10, eligibleAnswers: 10, ratedAnswers: 5, ratedAnswerRate: 0.5 })
+    // Disabled withholds the share like every other rate.
+    expect(aggregateSentiment(canonical, { disabled: true, eligibleAnswers: 10 }).coverage.ratedAnswerRate).toBeNull()
+  })
+  it('takes a wider rated count from the caller, never one below the answers its items rate', () => {
+    const answer = (assessmentId: string, sourceSnapshotId: string, outcome: SentimentOutcome): SentimentAggregateItem => ({ assessmentId, sourceSnapshotId, outcome })
+    // A comparison scores one matched unit but its period rated both answers: 2 of 2, not 1 of 2.
+    expect(aggregateSentiment([answer('a', 'one', 'favorable')], { eligibleAssessments: 2, eligibleAnswers: 2, ratedAnswers: 2 }).coverage).toMatchObject({ selected: 1, judged: 1, eligibleAnswers: 2, ratedAnswers: 2, ratedAnswerRate: 1 })
+    // A caller count below the rated items is raised to them.
+    expect(aggregateSentiment([answer('a', 'one', 'favorable'), answer('b', 'two', 'mixed')], { eligibleAnswers: 4, ratedAnswers: 1 }).coverage).toMatchObject({ ratedAnswers: 2, ratedAnswerRate: 0.5 })
+  })
+  it('adds the answer-level Rated fields optionally, so a response from an older server stays valid', () => {
+    const { eligibleAnswers, ratedAnswers, ratedAnswerRate, ...older } = sentimentFixtureSummary.coverage
+    expect({ eligibleAnswers, ratedAnswers, ratedAnswerRate }).toEqual({ eligibleAnswers: 10, ratedAnswers: 5, ratedAnswerRate: 0.5 })
+    expect(sentimentSummarySchema.parse({ ...sentimentFixtureSummary, coverage: older }).coverage).toEqual(older)
+    expect(sentimentCoverageSchema.parse({ ...older, eligibleAnswers: 0, ratedAnswers: 0, ratedAnswerRate: null }).ratedAnswerRate).toBeNull()
+    for (const bad of [{ eligibleAnswers: -1 }, { ratedAnswers: 1.5 }, { ratedAnswerRate: 1.01 }, { ratedAnswerRate: -0.1 }]) {
+      expect(sentimentCoverageSchema.safeParse({ ...sentimentFixtureSummary.coverage, ...bad }).success, JSON.stringify(bad)).toBe(false)
+    }
+    expect(ratioUnitOf(sentimentCoverageSchema.shape.ratedAnswerRate)).toBe(RatioUnits.fraction)
   })
   it('does not fabricate zero when no judgments or when disabled', () => {
     for (const items of [[], [canonical[5]!]]) expect(aggregateSentiment(items).score).toMatchObject({ favorableRate: null, mixedRate: null, unfavorableRate: null, interval: null, favorableDisplay: 'Unavailable' })
