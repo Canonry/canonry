@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
 import { createClient, migrate, projects, schedules, runs, siteCrawlRunRequests } from '@ainyc/canonry-db'
+import { SITE_AUDIT_MAX_PAGE_LIMIT } from '@ainyc/canonry-contracts'
 import { Scheduler } from '../src/scheduler.js'
 
 /**
@@ -604,7 +605,7 @@ test('ads-sync trigger skips (no new run, no callback) when one is already in fl
   fs.rmSync(tmpDir, { recursive: true, force: true })
 })
 
-test('site-audit schedule persists default request identity before dispatch', () => {
+test('site-audit schedule scans the full site and hands the host its page budget', () => {
   const { db, tmpDir } = createTempDb()
   const now = new Date().toISOString()
   db.insert(projects).values({
@@ -630,22 +631,24 @@ test('site-audit schedule persists default request identity before dispatch', ()
     updatedAt: now,
   }).run()
 
-  const calls: Array<{ runId: string; projectId: string }> = []
+  const calls: Array<{ runId: string; projectId: string; opts: { maxPages: number } }> = []
   const scheduler = new Scheduler(db, {
     onRunCreated: () => {},
-    onSiteAuditRequested: (runId, projectId) => calls.push({ runId, projectId }),
+    onSiteAuditRequested: (runId, projectId, opts) => calls.push({ runId, projectId, opts }),
   })
   ;(scheduler as unknown as {
     triggerRun: (scheduleId: string, projectId: string, kind: 'site-audit') => void
   }).triggerRun('sched_site_audit', 'proj_site_audit', 'site-audit')
 
   expect(calls).toHaveLength(1)
+  // A scheduled audit covers the whole site; 1,000 is only the manual default.
+  expect(calls[0]!.opts).toEqual({ maxPages: SITE_AUDIT_MAX_PAGE_LIMIT })
   expect(db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, calls[0]!.runId)).get()).toMatchObject({
     projectId: 'proj_site_audit',
     effectiveOptions: {
       schemaVersion: 2,
       sitemapUrl: null,
-      maxPages: 1_000,
+      maxPages: SITE_AUDIT_MAX_PAGE_LIMIT,
       // Unattended crawls set no edge budget; the engine derives it.
       maxEdges: null,
       maxDepth: null,

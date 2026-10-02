@@ -1835,10 +1835,11 @@ export async function createServer(opts: {
       })();
 
     },
-    onSiteAuditRequested: (runId, projectId) => {
+    onSiteAuditRequested: (runId, projectId, auditOpts) => {
       // The scheduler already created the site-audit run row; run the same
-      // worker the manual POST /technical-aeo/runs route uses (default limit).
-      runSiteAudit(runId, projectId);
+      // worker the manual POST /technical-aeo/runs route uses, with the
+      // scheduler's full-site page budget.
+      runSiteAudit(runId, projectId, auditOpts);
     },
   });
 
