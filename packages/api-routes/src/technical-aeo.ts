@@ -566,7 +566,19 @@ function changedFields<T extends Record<string, unknown>>(
 }
 
 export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAeoRoutesOptions) {
-  /** Resolve only a real, visible site-audit crawl in this exact project. */
+  /**
+   * Resolve only a real, visible site-audit crawl in this exact project: the
+   * selected run, or by default the newest scan that published one.
+   *
+   * The default is the newest crawl-bearing snapshot of a `completed` OR
+   * `partial` run. Every `partial` termination is a budget the operator chose
+   * (pages, edges, depth, duration), and a site larger than the page budget
+   * never produces anything else, so preferring complete crawls left such a
+   * project with no current crawl at all. The snapshot carries `complete` and
+   * `termination`, so every read still qualifies a capped result. Snapshots
+   * exist only for terminal publications, so in-progress attempts, failed
+   * and cancelled runs, and scorecard-only scans can never be the default.
+   */
   const resolveCrawl = (projectId: string, runId?: string) => {
     const filters = [
       eq(siteCrawlSnapshots.projectId, projectId),
@@ -575,16 +587,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       inArray(runs.status, SURFACEABLE_STATUSES),
       notProbeRun(),
     ]
-    if (runId) {
-      // Historical inspection may intentionally select an older partial
-      // snapshot. It is never the default current graph.
-      filters.push(eq(siteCrawlSnapshots.runId, runId))
-    } else {
-      // A live/current graph is an immutable successful publication only.
-      // In-progress attempt rows are deliberately excluded, and a later
-      // partial crawl cannot displace the prior complete graph.
-      filters.push(eq(siteCrawlSnapshots.complete, true), eq(runs.status, RunStatuses.completed))
-    }
+    if (runId) filters.push(eq(siteCrawlSnapshots.runId, runId))
     return app.db
       .select({ snapshot: siteCrawlSnapshots, runStatus: runs.status })
       .from(siteCrawlSnapshots)
@@ -600,6 +603,17 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       ? { projectId, runId: snapshot.runId, attemptId: snapshot.attemptId }
       : null
   )
+
+  /**
+   * Which scan answered and whether it finished. A default read can land on a
+   * crawl that stopped at its budget, so every crawl read says so rather than
+   * letting a missing page or link pass for a site-wide absence.
+   */
+  const completenessOf = (snapshot: typeof siteCrawlSnapshots.$inferSelect) => ({
+    complete: snapshot.complete,
+    termination: snapshot.termination,
+  })
+  const NO_CRAWL_COMPLETENESS = { complete: false, termination: null }
 
   const pageInScope = (
     scope: CrawlDetailScope,
@@ -918,7 +932,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     if (!target) {
       assertKnownAuditRun(project.id, request.query.runId)
       return {
-        project: project.name, hasCrawlData: false, runId: null, rootNodeKey: null,
+        project: project.name, hasCrawlData: false, runId: null, ...NO_CRAWL_COMPLETENESS, rootNodeKey: null,
         layout: { state: 'unavailable', version: null, reason: 'no-crawl' },
         // Nothing was classified because nothing was crawled.
         templateDetection: SiteHealthTemplateDetections['unavailable-legacy-scan'],
@@ -932,7 +946,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     const templateDetection = templateDetectionOf(snapshot.templateDetection)
     if (!snapshot.detailsAvailable || !snapshot.attemptId) {
       return {
-        project: project.name, hasCrawlData: true, runId: snapshot.runId, rootNodeKey: null,
+        project: project.name, hasCrawlData: true, runId: snapshot.runId, ...completenessOf(snapshot), rootNodeKey: null,
         layout: { state: 'unavailable', version: null, reason: 'details-unavailable' },
         templateDetection, linkKind,
         totalNodes: 0, totalEdges: 0, totalTemplateEdges: 0, totalContentEdges: 0,
@@ -953,7 +967,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     )).limit(1).get()
     if (!persistedLayout) {
       return {
-        project: project.name, hasCrawlData: true, runId: snapshot.runId, rootNodeKey,
+        project: project.name, hasCrawlData: true, runId: snapshot.runId, ...completenessOf(snapshot), rootNodeKey,
         layout: { state: 'unavailable', version: null, reason: 'legacy-snapshot' },
         templateDetection, linkKind,
         totalNodes: 0, totalEdges: 0, totalTemplateEdges: 0, totalContentEdges: 0,
@@ -964,7 +978,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       const totalNodes = persistedLayout.totalNodes
       const totalEdges = persistedLayout.totalEdges
       return {
-        project: project.name, hasCrawlData: true, runId: snapshot.runId, rootNodeKey,
+        project: project.name, hasCrawlData: true, runId: snapshot.runId, ...completenessOf(snapshot), rootNodeKey,
         layout: {
           state: 'unavailable', version: null,
           reason: persistedLayout.failureCode === 'empty-crawl' ? 'empty-crawl' : 'layout-failed',
@@ -1059,6 +1073,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       project: project.name,
       hasCrawlData: true,
       runId: snapshot.runId,
+      ...completenessOf(snapshot),
       rootNodeKey,
       layout: {
         state: 'ready',
@@ -1489,6 +1504,16 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
         : undefined
     if (request.query.fromRunId && !beforeTarget) throw notFound('Site crawl run', request.query.fromRunId)
     if (!afterTarget) {
+      // No complete crawl to compare is not the same as no crawl: a project
+      // whose every scan stopped at its budget has crawls, just none that a
+      // diff can be trusted on.
+      const latestCrawl = resolveCrawl(project.id)
+      if (latestCrawl) {
+        return {
+          project: project.name, state: 'unavailable', reason: 'partial-not-comparable',
+          fromRunId: null, toRunId: latestCrawl.snapshot.runId,
+        }
+      }
       return { project: project.name, state: 'unavailable', reason: 'no-crawl', fromRunId: null, toRunId: null }
     }
     if (!beforeTarget) {
@@ -1889,11 +1914,11 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     const target = resolveCrawl(project.id, request.query.runId)
     if (!target) {
       assertKnownAuditRun(project.id, request.query.runId)
-      return { project: project.name, hasCrawlData: false, runId: null, total: 0, nextCursor: null, healthStateFilter: null, pages: [] }
+      return { project: project.name, hasCrawlData: false, runId: null, ...NO_CRAWL_COMPLETENESS, total: 0, nextCursor: null, healthStateFilter: null, pages: [] }
     }
     const snapshot = target.snapshot
     if (!snapshot.detailsAvailable || !snapshot.attemptId) {
-      return { project: project.name, hasCrawlData: true, runId: snapshot.runId, total: 0, nextCursor: null, healthStateFilter: null, pages: [] }
+      return { project: project.name, hasCrawlData: true, runId: snapshot.runId, ...completenessOf(snapshot), total: 0, nextCursor: null, healthStateFilter: null, pages: [] }
     }
 
     const filters = [
@@ -1948,6 +1973,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
         project: project.name,
         hasCrawlData: true,
         runId: snapshot.runId,
+        ...completenessOf(snapshot),
         total: 0,
         nextCursor: null,
         healthStateFilter,
@@ -1963,6 +1989,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       project: project.name,
       hasCrawlData: true,
       runId: snapshot.runId,
+      ...completenessOf(snapshot),
       total,
       nextCursor: nextOffset < total ? encodeCursor(nextOffset) : null,
       healthStateFilter,
@@ -1981,11 +2008,11 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     const target = resolveCrawl(project.id, request.query.runId)
     if (!target) {
       assertKnownAuditRun(project.id, request.query.runId)
-      return { project: project.name, hasCrawlData: false, runId: null, parentPath, nextCursor: null, children: [] }
+      return { project: project.name, hasCrawlData: false, runId: null, ...NO_CRAWL_COMPLETENESS, parentPath, nextCursor: null, children: [] }
     }
     const snapshot = target.snapshot
     if (!snapshot.detailsAvailable || !snapshot.attemptId) {
-      return { project: project.name, hasCrawlData: true, runId: snapshot.runId, parentPath, nextCursor: null, children: [] }
+      return { project: project.name, hasCrawlData: true, runId: snapshot.runId, ...completenessOf(snapshot), parentPath, nextCursor: null, children: [] }
     }
 
     // A crawl cannot persist more than MAX_STRUCTURE_SOURCE_ROWS pages. Read
@@ -2051,6 +2078,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       project: project.name,
       hasCrawlData: true,
       runId: snapshot.runId,
+      ...completenessOf(snapshot),
       parentPath,
       nextCursor: hasMore ? encodeCursor(offset + visible.length) : null,
       children: visible.map(([path, child]) => ({
@@ -2084,7 +2112,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     if (!target) {
       assertKnownAuditRun(project.id, request.query.runId)
       return {
-        project: project.name, hasCrawlData: false, runId: null, total: 0, nextCursor: null,
+        project: project.name, hasCrawlData: false, runId: null, ...NO_CRAWL_COMPLETENESS, total: 0, nextCursor: null,
         templateDetection: SiteHealthTemplateDetections['unavailable-legacy-scan'], linkKind, edges: [],
       }
     }
@@ -2092,7 +2120,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     const templateDetection = templateDetectionOf(snapshot.templateDetection)
     if (!snapshot.detailsAvailable || !snapshot.attemptId) {
       return {
-        project: project.name, hasCrawlData: true, runId: snapshot.runId, total: 0, nextCursor: null,
+        project: project.name, hasCrawlData: true, runId: snapshot.runId, ...completenessOf(snapshot), total: 0, nextCursor: null,
         templateDetection, linkKind, edges: [],
       }
     }
@@ -2125,6 +2153,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       project: project.name,
       hasCrawlData: true,
       runId: snapshot.runId,
+      ...completenessOf(snapshot),
       total,
       nextCursor: nextOffset < total ? encodeCursor(nextOffset) : null,
       templateDetection,
@@ -2148,7 +2177,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     if (!target) {
       assertKnownAuditRun(project.id, request.query.runId)
       return {
-        project: project.name, hasCrawlData: false, runId: null, nodeKey: request.query.nodeKey ?? null, url: request.query.url ?? null,
+        project: project.name, hasCrawlData: false, runId: null, ...NO_CRAWL_COMPLETENESS, nodeKey: request.query.nodeKey ?? null, url: request.query.url ?? null,
         templateDetection: SiteHealthTemplateDetections['unavailable-legacy-scan'], linkKind,
         inbound: [], outbound: [], inboundTruncated: false, outboundTruncated: false,
       }
@@ -2157,7 +2186,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     const templateDetection = templateDetectionOf(snapshot.templateDetection)
     if (!snapshot.detailsAvailable || !snapshot.attemptId) {
       return {
-        project: project.name, hasCrawlData: true, runId: snapshot.runId, nodeKey: request.query.nodeKey ?? null, url: request.query.url ?? null,
+        project: project.name, hasCrawlData: true, runId: snapshot.runId, ...completenessOf(snapshot), nodeKey: request.query.nodeKey ?? null, url: request.query.url ?? null,
         templateDetection, linkKind,
         inbound: [], outbound: [], inboundTruncated: false, outboundTruncated: false,
       }
@@ -2186,6 +2215,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       project: project.name,
       hasCrawlData: true,
       runId: snapshot.runId,
+      ...completenessOf(snapshot),
       nodeKey: request.query.nodeKey ?? null,
       url: request.query.url ?? null,
       templateDetection,

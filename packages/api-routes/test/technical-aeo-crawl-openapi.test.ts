@@ -103,5 +103,9 @@ test('crawl summary nullability and run budgets are machine-readable in OpenAPI'
   expect(properties.maxDepth).toMatchObject({ minimum: 0, maximum: 100 })
   expect(run.responses?.['409']).toBeDefined()
   expect(run.description).toMatch(/reused only when.*match exactly/i)
-  expect(paths['/api/v1/projects/{name}/technical-aeo/crawl']!.get?.description).toMatch(/latest complete/i)
+  // The default crawl includes one that stopped at its budget, and says so.
+  const crawlDescription = paths['/api/v1/projects/{name}/technical-aeo/crawl']!.get?.description
+  expect(crawlDescription).toMatch(/newest scan that published a crawl/i)
+  expect(crawlDescription).toMatch(/`partial`/)
+  expect(crawlDescription).not.toMatch(/latest complete/i)
 })

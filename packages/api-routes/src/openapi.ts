@@ -7124,7 +7124,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/technical-aeo/crawl',
     summary: 'Get persisted Technical AEO crawl metadata',
-    description: 'Returns the latest complete non-probe site-audit crawl, or the selected historical run (which may be partial). `hasCrawlData=false` never synthesizes a graph from legacy scorecard rows; `legacyAuditAvailable` says that the old score/pages/trend data can still be read separately.',
+    description: 'Returns the newest non-probe site-audit crawl, or the selected historical run. The default is the newest scan that published a crawl, whether it finished (`completed`) or stopped at its page, edge, depth, or duration budget (`partial`); `complete` and `termination` say which. Every crawl-scoped read without a `runId` resolves this same scan. `hasCrawlData=false` never synthesizes a graph from legacy scorecard rows; `legacyAuditAvailable` says that the old score/pages/trend data can still be read separately.',
     tags: ['technical-aeo'],
     parameters: [
       nameParameter,
@@ -7139,11 +7139,11 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/technical-aeo/graph',
     summary: 'Get a persisted Site Health graph projection',
-    description: 'Returns the deterministic graph projection computed once when the latest complete or selected historical crawl was published. ForceAtlas2 positions and the exact internal-anchor edge sample are persisted, so reads run no layout physics and never rescan the crawl edge table. Nav, header, and footer links are excluded from the layout physics but retained in the sample and tagged `isTemplate`, so a viewer can draw them without a refetch and without any node moving. The response is bounded to 20,000 nodes / 50,000 edges; `layout`, `omittedNodes`, `omittedEdges`, and `sampled` disclose legacy/unavailable layouts and intentional truncation, and `templateDetection` says whether template links could be told apart at all and by which rule.',
+    description: 'Returns the deterministic graph projection computed once when the latest or selected historical crawl was published. ForceAtlas2 positions and the exact internal-anchor edge sample are persisted, so reads run no layout physics and never rescan the crawl edge table. Nav, header, and footer links are excluded from the layout physics but retained in the sample and tagged `isTemplate`, so a viewer can draw them without a refetch and without any node moving. The response is bounded to 20,000 nodes / 50,000 edges; `layout`, `omittedNodes`, `omittedEdges`, and `sampled` disclose legacy/unavailable layouts and intentional truncation, and `templateDetection` says whether template links could be told apart at all and by which rule.',
     tags: ['technical-aeo'],
     parameters: [
       nameParameter,
-      { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest complete crawl.', schema: stringSchema },
+      { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
       { name: 'maxNodes', in: 'query', description: 'Maximum graph nodes. Defaults to and is capped at 20,000.', schema: { type: 'integer', minimum: 1, maximum: 20_000 } },
       { name: 'maxEdges', in: 'query', description: 'Maximum graph edges. Defaults to and is capped at 50,000.', schema: { type: 'integer', minimum: 1, maximum: 50_000 } },
       linkKindParameter,
@@ -7161,7 +7161,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['technical-aeo'],
     parameters: [
       nameParameter,
-      { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest complete crawl.', schema: stringSchema },
+      { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
       { name: 'nodeKey', in: 'query', description: 'Focus page canonical node key. Omit nodeKey and url to use the crawl root.', schema: stringSchema },
       { name: 'url', in: 'query', description: 'Focus page canonical URL. Omit nodeKey and url to use the crawl root.', schema: stringSchema },
       { name: 'hops', in: 'query', description: 'Undirected neighborhood radius. Defaults to 1; maximum 3.', schema: { type: 'integer', minimum: 0, maximum: 3 } },
@@ -7181,7 +7181,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['technical-aeo'],
     parameters: [
       nameParameter,
-      { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest complete crawl.', schema: stringSchema },
+      { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
       { name: 'fromNodeKey', in: 'query', description: 'Source canonical node key. Omit both source selectors to start at the crawl root.', schema: stringSchema },
       { name: 'fromUrl', in: 'query', description: 'Source canonical URL. Omit both source selectors to start at the crawl root.', schema: stringSchema },
       { name: 'toNodeKey', in: 'query', description: 'Target canonical node key. Required when toUrl is omitted.', schema: stringSchema },
@@ -7198,7 +7198,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/technical-aeo/changes',
     summary: 'Compare canonical Site Health snapshots',
-    description: 'Returns exact page and internal-link additions, removals, and semantic field changes between immutable complete crawl snapshots. Omitted toRunId selects the latest complete crawl; omitted fromRunId selects the complete crawl immediately before the target. ForceAtlas2 positions are presentation data and never count as a change. The first page includes exact post-filter summary counts; cursor pages set summary and total to null so they never repeat full snapshot joins or trust caller-carried counts. Results use a snapshot- and filter-bound keyset cursor.',
+    description: 'Returns exact page and internal-link additions, removals, and semantic field changes between immutable complete crawl snapshots. Omitted toRunId selects the latest complete crawl; omitted fromRunId selects the complete crawl immediately before the target. A crawl stopped at its budget is never compared: when every crawl is partial, the result is `partial-not-comparable` with the newest crawl as `toRunId`, and `no-crawl` means no scan published a crawl. ForceAtlas2 positions are presentation data and never count as a change. The first page includes exact post-filter summary counts; cursor pages set summary and total to null so they never repeat full snapshot joins or trust caller-carried counts. Results use a snapshot- and filter-bound keyset cursor.',
     tags: ['technical-aeo'],
     parameters: [
       nameParameter,
@@ -7223,7 +7223,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['technical-aeo'],
     parameters: [
       nameParameter,
-      { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest complete crawl.', schema: stringSchema },
+      { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
       { name: 'nodeKey', in: 'query', description: 'Exact canonical crawl node key. Required when url is omitted.', schema: stringSchema },
       { name: 'url', in: 'query', description: 'Exact persisted crawl URL. Required when nodeKey is omitted.', schema: stringSchema },
     ],

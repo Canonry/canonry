@@ -502,7 +502,7 @@ describe('GET /technical-aeo crawl reads', () => {
     expect(body.runId).toBe(highRunId)
   })
 
-  it('keeps the last complete graph current when a newer partial crawl exists', async () => {
+  it('makes a newer page-capped crawl current while the older complete one stays selectable', async () => {
     const now = new Date(Date.now() + 60_000).toISOString()
     const partialRun = crypto.randomUUID()
     const partialAttempt = crypto.randomUUID()
@@ -536,12 +536,14 @@ describe('GET /technical-aeo crawl reads', () => {
     }).run()
 
     const current = await get<SiteCrawlSummaryDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl')
-    const historical = await get<SiteCrawlSummaryDto>(`/api/v1/projects/tech-aeo/technical-aeo/crawl?runId=${partialRun}`)
-    const subgraph = await get<SiteHealthSubgraphResponseDto>(`/api/v1/projects/tech-aeo/technical-aeo/subgraph?runId=${partialRun}`)
-    const path = await get<SiteHealthPathResponseDto>(`/api/v1/projects/tech-aeo/technical-aeo/path?runId=${partialRun}&toNodeKey=partial-target`)
-    expect(current.body.runId).toBe(ctx.runB)
-    expect(historical.body.runId).toBe(partialRun)
-    expect(historical.body.complete).toBe(false)
+    const historical = await get<SiteCrawlSummaryDto>(`/api/v1/projects/tech-aeo/technical-aeo/crawl?runId=${ctx.runB}`)
+    const subgraph = await get<SiteHealthSubgraphResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/subgraph')
+    const path = await get<SiteHealthPathResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/path?toNodeKey=partial-target')
+    const changes = await get<SiteHealthChangesResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/changes')
+    expect(current.body).toMatchObject({ runId: partialRun, runStatus: 'partial', complete: false, termination: 'max-pages' })
+    expect(historical.body).toMatchObject({ runId: ctx.runB, runStatus: 'completed', complete: true })
+    // A diff still needs two complete crawls, so the partial one never enters it.
+    expect(changes.body).toMatchObject({ state: 'unavailable', reason: 'insufficient-history', toRunId: ctx.runB })
     expect(subgraph.body).toMatchObject({
       runId: partialRun,
       state: 'ready',
@@ -765,6 +767,7 @@ describe('GET /technical-aeo crawl reads', () => {
     const empty = await get<SiteCrawlGraphResponseDto>('/api/v1/projects/graph-fresh/technical-aeo/graph')
     expect(empty.body).toEqual({
       project: 'graph-fresh', hasCrawlData: false, runId: null, rootNodeKey: null,
+      complete: false, termination: null,
       layout: { state: 'unavailable', version: null, reason: 'no-crawl' },
       // Nothing was classified because nothing was crawled, and saying so
       // beats letting an empty edge list read as "this site has no nav".
@@ -1827,6 +1830,321 @@ describe('legacy score-only runs stay honest instead of 404ing', () => {
   it('keeps a probe run unreachable through the crawl reads', async () => {
     expect((await get(`/api/v1/projects/tech-aeo/technical-aeo/crawl?runId=${ctx.probeRun}`)).status).toBe(404)
     expect((await get(`/api/v1/projects/tech-aeo/technical-aeo/graph?runId=${ctx.probeRun}`)).status).toBe(404)
+  })
+})
+
+describe('crawl reads without a runId use the newest crawl-bearing scan', () => {
+  // The history a site larger than the page budget actually accumulates: every
+  // crawl stops at the cap and lands `partial`, and the only `completed` run is
+  // an older scorecard-only audit that published no crawl at all. Newer runs
+  // that never published a crawl (failed, still running) and a probe must not
+  // take the default either.
+  const CAPPED = 'capped-site'
+  const TARGET_URL = 'https://capped.example/target'
+
+  interface CappedSite {
+    projectId: string
+    legacyRun: string
+    olderPartial: string
+    newestPartial: string
+    probeRun: string
+  }
+
+  function seedCrawl(input: {
+    projectId: string
+    status: 'completed' | 'partial'
+    trigger: 'manual' | 'scheduled' | 'probe'
+    createdAt: string
+    complete: boolean
+    homeScore: number
+    targetScore: number
+    deadLinkFound?: boolean
+  }): string {
+    const { projectId, createdAt } = input
+    const runId = crypto.randomUUID()
+    const attemptId = crypto.randomUUID()
+    ctx.db.insert(runs).values({
+      id: runId, projectId, kind: 'site-audit', status: input.status, trigger: input.trigger, createdAt, finishedAt: createdAt,
+    }).run()
+    ctx.db.insert(siteCrawlAttempts).values({
+      id: attemptId, projectId, runId, attemptNumber: 1, state: input.status,
+      pagesDiscovered: 3, pagesFetched: 2, pagesEligible: 2, edgesDiscovered: 2,
+      startedAt: createdAt, finishedAt: createdAt, createdAt, updatedAt: createdAt,
+    }).run()
+    ctx.db.insert(siteCrawlSnapshots).values({
+      id: crypto.randomUUID(), projectId, runId, attemptId,
+      requestedRootUrl: 'https://capped.example/', rootUrl: 'https://capped.example/', crawlSchemaVersion: '1.0', engineVersion: 'crawl-test',
+      normalizationVersion: 'url-v1', indexabilityVersion: 'index-v1', linkScoreVersion: 'links-v1',
+      effectiveOptions: { maxPages: 2, checkDeadLinks: Boolean(input.deadLinkFound) }, pageBudget: 2,
+      checkDeadLinks: Boolean(input.deadLinkFound),
+      complete: input.complete, termination: input.complete ? 'complete' : 'max-pages', detailsAvailable: true,
+      pagesDiscovered: 3, pagesFetched: 2, pagesEligible: 2, edgesDiscovered: 2, findingsCount: input.deadLinkFound ? 1 : 0,
+      deadLinkState: input.deadLinkFound ? 'partial' : 'disabled',
+      deadLinksChecked: input.deadLinkFound ? 1 : 0, deadLinksFound: input.deadLinkFound ? 1 : 0, deadLinksUnverified: 0,
+      createdAt, updatedAt: createdAt,
+    }).run()
+    // A real crawl derives the node key from the normalized URL, so the same
+    // page keeps its key across scans; only the score tells the scans apart.
+    ctx.db.insert(siteCrawlPages).values([
+      {
+        id: crypto.randomUUID(), projectId, runId, attemptId, nodeKey: 'home',
+        url: 'https://capped.example/', finalUrl: 'https://capped.example/', path: '/', parentPath: '/', discoverySource: 'sitemap',
+        fetchState: 'html', httpStatus: 200, indexabilityState: 'indexable', auditState: 'complete', auditScore: input.homeScore,
+        auditFields: { schemaVersion: '1.0', factors: [], criticalDefects: [] },
+        inventoryEligible: true, depth: 0, outboundUniqueEdges: 2, createdAt, updatedAt: createdAt,
+      },
+      {
+        id: crypto.randomUUID(), projectId, runId, attemptId, nodeKey: 'target',
+        url: TARGET_URL, finalUrl: TARGET_URL, path: '/target', parentPath: '/', discoverySource: 'link',
+        fetchState: 'html', httpStatus: 200, indexabilityState: 'indexable', auditState: 'complete', auditScore: input.targetScore,
+        auditFields: {
+          schemaVersion: '1.0',
+          factors: [{
+            id: 'content-depth', name: 'Content Depth', weight: 12, score: input.targetScore, status: 'partial', applicable: true,
+            findings: [{ type: 'missing', code: 'content-depth.word-count.low', message: 'Low content depth.' }],
+            recommendations: ['Expand the page.'],
+          }],
+          criticalDefects: [],
+        },
+        inventoryEligible: true, depth: 1, inboundUniqueEdges: 1, createdAt, updatedAt: createdAt,
+      },
+    ]).run()
+    ctx.db.insert(siteCrawlEdges).values([
+      {
+        id: crypto.randomUUID(), projectId, runId, attemptId, edgeKey: 'home-target',
+        sourceNodeKey: 'home', sourceUrl: 'https://capped.example/', targetNodeKey: 'target', targetUrl: TARGET_URL,
+        relation: 'anchor', internal: true, followable: true, occurrences: 1, followableOccurrences: 1, nofollowOccurrences: 0,
+        anchors: ['Target'], isTemplate: false, createdAt, updatedAt: createdAt,
+      },
+      {
+        id: crypto.randomUUID(), projectId, runId, attemptId, edgeKey: 'home-missing',
+        sourceNodeKey: 'home', sourceUrl: 'https://capped.example/', targetNodeKey: null, targetUrl: 'https://capped.example/missing',
+        relation: 'anchor', internal: true, followable: true, occurrences: 1, followableOccurrences: 1, nofollowOccurrences: 0,
+        anchors: ['Missing'], isTemplate: false, createdAt, updatedAt: createdAt,
+      },
+    ]).run()
+    if (input.deadLinkFound) {
+      ctx.db.insert(siteCrawlFindings).values({
+        id: crypto.randomUUID(), projectId, runId, attemptId, findingKey: 'dead:missing', findingType: 'dead-link', severity: 'error',
+        sourceNodeKey: 'home', sourceUrl: 'https://capped.example/', targetNodeKey: null, targetUrl: 'https://capped.example/missing',
+        evidence: { statusCode: 404, reason: 'http-error' }, createdAt, updatedAt: createdAt,
+      }).run()
+    }
+    // A run that audited at least one page also publishes the scorecard.
+    ctx.db.insert(siteAuditSnapshots).values({
+      id: crypto.randomUUID(), projectId, runId, sitemapUrl: 'https://capped.example/sitemap.xml', auditedAt: createdAt,
+      aggregateScore: input.targetScore, aggregateGrade: 'C', pagesDiscovered: 3, pagesAudited: 2, pagesSkipped: 1, pagesErrored: 0,
+      factorAverages: [], crossCuttingIssues: [], prioritizedFixes: [], createdAt,
+    }).run()
+    return runId
+  }
+
+  function seedCappedSite(): CappedSite {
+    const base = Date.now()
+    const at = (offsetSeconds: number) => new Date(base + offsetSeconds * 1000).toISOString()
+    const projectId = crypto.randomUUID()
+    ctx.db.insert(projects).values({
+      id: projectId, name: CAPPED, displayName: 'Capped', canonicalDomain: 'capped.example',
+      country: 'US', language: 'en', providers: [], locations: [], createdAt: at(-500), updatedAt: at(-500),
+    }).run()
+
+    const legacyRun = crypto.randomUUID()
+    ctx.db.insert(runs).values({
+      id: legacyRun, projectId, kind: 'site-audit', status: 'completed', trigger: 'manual', createdAt: at(-400), finishedAt: at(-400),
+    }).run()
+    ctx.db.insert(siteAuditSnapshots).values({
+      id: crypto.randomUUID(), projectId, runId: legacyRun, sitemapUrl: 'https://capped.example/sitemap.xml', auditedAt: at(-400),
+      aggregateScore: 55, aggregateGrade: 'D', pagesDiscovered: 2, pagesAudited: 2, pagesSkipped: 0, pagesErrored: 0,
+      factorAverages: [], crossCuttingIssues: [], prioritizedFixes: [], createdAt: at(-400),
+    }).run()
+
+    const olderPartial = seedCrawl({
+      projectId, status: 'partial', trigger: 'scheduled', createdAt: at(-300), complete: false, homeScore: 50, targetScore: 31,
+    })
+    const newestPartial = seedCrawl({
+      projectId, status: 'partial', trigger: 'scheduled', createdAt: at(-200), complete: false, homeScore: 90, targetScore: 77,
+      deadLinkFound: true,
+    })
+
+    // Newer runs that never published a crawl: one failed, one still running.
+    ctx.db.insert(runs).values({
+      id: crypto.randomUUID(), projectId, kind: 'site-audit', status: 'failed', trigger: 'scheduled', createdAt: at(-100), finishedAt: at(-100),
+    }).run()
+    const runningRun = crypto.randomUUID()
+    ctx.db.insert(runs).values({
+      id: runningRun, projectId, kind: 'site-audit', status: 'running', trigger: 'manual', createdAt: at(-50),
+    }).run()
+    ctx.db.insert(siteCrawlAttempts).values({
+      id: crypto.randomUUID(), projectId, runId: runningRun, attemptNumber: 1, state: 'running',
+      pagesDiscovered: 1, pagesFetched: 1, startedAt: at(-50), createdAt: at(-50), updatedAt: at(-50),
+    }).run()
+
+    // Newest of all, and complete, but a probe: it must never become current.
+    const probeRun = seedCrawl({
+      projectId, status: 'completed', trigger: 'probe', createdAt: at(0), complete: true, homeScore: 1, targetScore: 2,
+    })
+
+    return { projectId, legacyRun, olderPartial, newestPartial, probeRun }
+  }
+
+  it('audits a page from the newest page-capped crawl instead of answering no-crawl', async () => {
+    const site = seedCappedSite()
+    const { status, body } = await get<SiteCrawlPageAuditDto>(
+      `/api/v1/projects/${CAPPED}/technical-aeo/crawl/pages/audit?url=${encodeURIComponent(TARGET_URL)}`,
+    )
+    expect(status).toBe(200)
+    expect(body).toMatchObject({
+      state: 'ready',
+      project: CAPPED,
+      runId: site.newestPartial,
+      complete: false,
+      termination: 'max-pages',
+      nodeKey: 'target',
+      url: TARGET_URL,
+      auditScore: 77,
+      factors: [{ id: 'content-depth', score: 77 }],
+    })
+
+    // An explicit run still pins the read to that run.
+    const pinned = await get<SiteCrawlPageAuditDto>(
+      `/api/v1/projects/${CAPPED}/technical-aeo/crawl/pages/audit?runId=${site.olderPartial}&nodeKey=target`,
+    )
+    expect(pinned.body).toMatchObject({ state: 'ready', runId: site.olderPartial, auditScore: 31 })
+  })
+
+  it('resolves every crawl-scoped read to that same scan', async () => {
+    const site = seedCappedSite()
+    const base = `/api/v1/projects/${CAPPED}/technical-aeo`
+
+    const crawl = await get<SiteCrawlSummaryDto>(`${base}/crawl`)
+    expect(crawl.body).toMatchObject({
+      hasCrawlData: true,
+      legacyAuditAvailable: true,
+      runId: site.newestPartial,
+      runStatus: 'partial',
+      complete: false,
+      termination: 'max-pages',
+      counts: { pagesDiscovered: 3, pagesFetched: 2, pagesEligible: 2, edges: 2, findings: 1 },
+    })
+
+    const pages = await get<SiteCrawlPagesResponseDto>(`${base}/crawl/pages?sort=path`)
+    expect(pages.body).toMatchObject({ hasCrawlData: true, runId: site.newestPartial, complete: false, termination: 'max-pages', total: 2 })
+    expect(pages.body.pages.map((page) => [page.nodeKey, page.auditScore])).toEqual([['home', 90], ['target', 77]])
+
+    const graph = await get<SiteCrawlGraphResponseDto>(`${base}/graph`)
+    expect(graph.body).toMatchObject({ hasCrawlData: true, runId: site.newestPartial, complete: false, termination: 'max-pages', rootNodeKey: 'home' })
+
+    const subgraph = await get<SiteHealthSubgraphResponseDto>(`${base}/subgraph`)
+    expect(subgraph.body).toMatchObject({
+      state: 'ready', runId: site.newestPartial, complete: false, termination: 'max-pages', focusNodeKey: 'home',
+    })
+
+    const path = await get<SiteHealthPathResponseDto>(`${base}/path?toUrl=${encodeURIComponent(TARGET_URL)}`)
+    expect(path.body).toMatchObject({ state: 'found', runId: site.newestPartial, complete: false })
+
+    const structure = await get<SiteCrawlStructureResponseDto>(`${base}/structure`)
+    expect(structure.body).toMatchObject({ hasCrawlData: true, runId: site.newestPartial, complete: false, termination: 'max-pages' })
+    expect(structure.body.children.map((child) => child.path)).toEqual(['/target'])
+
+    const links = await get<SiteCrawlInternalLinksResponseDto>(`${base}/internal-links`)
+    expect(links.body).toMatchObject({ hasCrawlData: true, runId: site.newestPartial, complete: false, termination: 'max-pages', total: 2 })
+
+    const neighbors = await get<SiteCrawlNeighborsResponseDto>(`${base}/internal-links/neighbors?nodeKey=target`)
+    expect(neighbors.body).toMatchObject({ hasCrawlData: true, runId: site.newestPartial, complete: false, termination: 'max-pages' })
+    expect(neighbors.body.inbound.map((edge) => edge.edgeKey)).toEqual(['home-target'])
+
+    const deadLinks = await get<SiteCrawlDeadLinksResponseDto>(`${base}/dead-links`)
+    expect(deadLinks.body).toMatchObject({ runId: site.newestPartial, state: 'partial', checked: 1, found: 1, total: 1 })
+
+    // The scorecard already defaulted to the newest scan that published one;
+    // the crawl reads now agree with it, so Aero can pair the two.
+    const score = await get<SiteAuditScoreDto>(base)
+    expect(score.body).toMatchObject({ hasData: true, runId: site.newestPartial, aggregateScore: 77 })
+
+    for (const runId of [crawl.body.runId, pages.body.runId, graph.body.runId, subgraph.body.runId, path.body.runId]) {
+      expect(runId).not.toBe(site.probeRun)
+    }
+  })
+
+  it('marks an empty neighbor list from a capped crawl as partial, not as a site-wide absence', async () => {
+    // An older complete crawl saw `docs -> home`; the newer capped one stopped
+    // before reaching `docs`, so it observed no inbound link to home at all.
+    const base = Date.now()
+    const projectId = crypto.randomUUID()
+    ctx.db.insert(projects).values({
+      id: projectId, name: CAPPED, displayName: 'Capped', canonicalDomain: 'capped.example',
+      country: 'US', language: 'en', providers: [], locations: [], createdAt: new Date(base - 500_000).toISOString(),
+      updatedAt: new Date(base - 500_000).toISOString(),
+    }).run()
+    const olderComplete = seedCrawl({
+      projectId, status: 'completed', trigger: 'scheduled', createdAt: new Date(base - 300_000).toISOString(),
+      complete: true, homeScore: 80, targetScore: 70,
+    })
+    const docsAttempt = ctx.db.select({ attemptId: siteCrawlSnapshots.attemptId }).from(siteCrawlSnapshots)
+      .where(eq(siteCrawlSnapshots.runId, olderComplete)).get()!.attemptId!
+    const at = new Date(base - 300_000).toISOString()
+    ctx.db.insert(siteCrawlEdges).values({
+      id: crypto.randomUUID(), projectId, runId: olderComplete, attemptId: docsAttempt, edgeKey: 'docs-home',
+      sourceNodeKey: 'docs', sourceUrl: 'https://capped.example/docs', targetNodeKey: 'home', targetUrl: 'https://capped.example/',
+      relation: 'anchor', internal: true, followable: true, occurrences: 1, followableOccurrences: 1, nofollowOccurrences: 0,
+      anchors: ['Home'], isTemplate: false, createdAt: at, updatedAt: at,
+    }).run()
+    const newerCapped = seedCrawl({
+      projectId, status: 'partial', trigger: 'scheduled', createdAt: new Date(base - 100_000).toISOString(),
+      complete: false, homeScore: 90, targetScore: 77,
+    })
+
+    const current = await get<SiteCrawlNeighborsResponseDto>(`/api/v1/projects/${CAPPED}/technical-aeo/internal-links/neighbors?nodeKey=home`)
+    expect(current.body).toMatchObject({
+      runId: newerCapped, complete: false, termination: 'max-pages', inbound: [], inboundTruncated: false,
+    })
+
+    const pinned = await get<SiteCrawlNeighborsResponseDto>(
+      `/api/v1/projects/${CAPPED}/technical-aeo/internal-links/neighbors?runId=${olderComplete}&nodeKey=home`,
+    )
+    expect(pinned.body).toMatchObject({ runId: olderComplete, complete: true, termination: 'complete' })
+    expect(pinned.body.inbound.map((edge) => edge.edgeKey)).toEqual(['docs-home'])
+  })
+
+  it('says a page-capped history is not comparable instead of claiming no crawl exists', async () => {
+    const site = seedCappedSite()
+    const { status, body } = await get<SiteHealthChangesResponseDto>(`/api/v1/projects/${CAPPED}/technical-aeo/changes`)
+    expect(status).toBe(200)
+    expect(body).toEqual({
+      project: CAPPED,
+      state: 'unavailable',
+      reason: 'partial-not-comparable',
+      fromRunId: null,
+      toRunId: site.newestPartial,
+    })
+  })
+
+  it('still answers no-crawl when no scan ever published a crawl', async () => {
+    const now = new Date().toISOString()
+    const projectId = crypto.randomUUID()
+    ctx.db.insert(projects).values({
+      id: projectId, name: 'scorecard-only', displayName: 'Scorecard only', canonicalDomain: 'scorecard.example',
+      country: 'US', language: 'en', providers: [], locations: [], createdAt: now, updatedAt: now,
+    }).run()
+    const runId = crypto.randomUUID()
+    ctx.db.insert(runs).values({ id: runId, projectId, kind: 'site-audit', status: 'completed', trigger: 'manual', createdAt: now, finishedAt: now }).run()
+    ctx.db.insert(siteAuditSnapshots).values({
+      id: crypto.randomUUID(), projectId, runId, sitemapUrl: 'https://scorecard.example/sitemap.xml', auditedAt: now,
+      aggregateScore: 60, aggregateGrade: 'D-', pagesDiscovered: 1, pagesAudited: 1, pagesSkipped: 0, pagesErrored: 0,
+      factorAverages: [], crossCuttingIssues: [], prioritizedFixes: [], createdAt: now,
+    }).run()
+
+    const base = '/api/v1/projects/scorecard-only/technical-aeo'
+    expect((await get<SiteCrawlPageAuditDto>(`${base}/crawl/pages/audit?nodeKey=home`)).body)
+      .toEqual({ state: 'no-crawl', project: 'scorecard-only', runId: null })
+    expect((await get<SiteCrawlSummaryDto>(`${base}/crawl`)).body).toMatchObject({ hasCrawlData: false, runId: null })
+    for (const read of ['crawl/pages', 'graph', 'structure', 'internal-links', 'internal-links/neighbors?nodeKey=home']) {
+      expect((await get<{ hasCrawlData: boolean; complete: boolean; termination: string | null }>(`${base}/${read}`)).body, read)
+        .toMatchObject({ hasCrawlData: false, complete: false, termination: null })
+    }
+    expect((await get<SiteHealthChangesResponseDto>(`${base}/changes`)).body).toMatchObject({
+      state: 'unavailable', reason: 'no-crawl', fromRunId: null, toRunId: null,
+    })
   })
 })
 

@@ -1100,14 +1100,18 @@ const technicalAeoTrendInputSchema = z.object({
   limit: z.number().int().positive().max(365).optional(),
 })
 
+const crawlRunIdSchema = runIdSchema.optional().describe(
+  'Historical crawl-bearing site-audit run ID. Omit for the newest scan with a crawl, complete or stopped at its budget.',
+)
+
 const technicalAeoCrawlInputSchema = z.object({
   project: projectNameSchema,
-  runId: runIdSchema.optional().describe('Historical crawl-bearing site-audit run ID. Omit for the latest persisted crawl.'),
+  runId: crawlRunIdSchema,
 })
 
 const siteHealthPageAuditInputSchema = z.object({
   project: projectNameSchema,
-  runId: runIdSchema.optional().describe('Historical crawl-bearing site-audit run ID. Omit for the latest persisted crawl.'),
+  runId: crawlRunIdSchema,
   nodeKey: z.string().min(1).optional().describe('Exact crawl node key, as returned by Site Health page or subgraph reads.'),
   url: z.string().url().optional().describe('Exact page URL. Use this only when a crawl node key is unavailable.'),
 }).refine((value) => Boolean(value.nodeKey || value.url), {
@@ -1123,7 +1127,7 @@ const SITE_HEALTH_MCP_MAX_EDGES = 50
 
 const siteHealthSubgraphInputSchema = z.object({
   project: projectNameSchema,
-  runId: runIdSchema.optional().describe('Historical crawl-bearing site-audit run ID. Omit for the latest complete crawl.'),
+  runId: crawlRunIdSchema,
   nodeKey: z.string().min(1).optional().describe('Focus crawl node key. Omit with url to focus the crawl root.'),
   url: z.string().url().optional().describe('Focus canonical URL. Omit with nodeKey to focus the crawl root.'),
   hops: z.number().int().min(0).max(3).optional().describe('Neighborhood depth from the focus node. Keep this small.'),
@@ -1136,7 +1140,7 @@ const siteHealthSubgraphInputSchema = z.object({
 
 const siteHealthPathInputSchema = z.object({
   project: projectNameSchema,
-  runId: runIdSchema.optional().describe('Historical crawl-bearing site-audit run ID. Omit for the latest complete crawl.'),
+  runId: crawlRunIdSchema,
   fromNodeKey: z.string().min(1).optional().describe('Origin node key. Omit with fromUrl to start at the crawl root.'),
   fromUrl: z.string().url().optional().describe('Origin URL. Omit with fromNodeKey to start at the crawl root.'),
   toNodeKey: z.string().min(1).optional().describe('Required destination node key.'),
@@ -3559,7 +3563,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_technical_aeo_crawl_pages',
     title: 'List Technical AEO crawl pages',
-    description: 'Read one bounded, cursor-paged list of canonical crawl nodes. Filter crawler-derived indexability and audit state, then follow nextCursor; this is technical inventory eligibility, not a claim about Google index coverage.',
+    description: 'Read one bounded, cursor-paged list of canonical crawl nodes. Filter crawler-derived indexability and audit state, then follow nextCursor; this is technical inventory eligibility, not a claim about Google index coverage. `complete: false` means the crawl stopped at the budget named by `termination`, so a missing page or link is not proof it does not exist.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoCrawlPagesInputSchema,
@@ -3579,7 +3583,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_technical_aeo_structure',
     title: 'List Technical AEO site structure',
-    description: 'Read one bounded level of the persisted site hierarchy below parentPath. Follow nextCursor for more siblings; request a child path separately rather than attempting to materialize the entire website tree.',
+    description: 'Read one bounded level of the persisted site hierarchy below parentPath. Follow nextCursor for more siblings; request a child path separately rather than attempting to materialize the entire website tree. `complete: false` means the crawl stopped at the budget named by `termination`, so a missing page or link is not proof it does not exist.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoStructureInputSchema,
@@ -3595,7 +3599,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_technical_aeo_internal_links',
     title: 'List Technical AEO internal links',
-    description: 'Read a bounded, cursor-paged list of persisted internal crawl edges. Filter by source URL, target URL, followability, or link kind. Nav, header, and footer links are marked isTemplate; templateSource says which rule decided each one (placement, ubiquity, or unmeasured when neither had evidence) and templateDetection reports the same for the scan, so an empty content-only list is not evidence of no content links and two scans classified by different rules are never compared as if they were the same measurement. Use the neighbors tool for one page rather than loading a graph.',
+    description: 'Read a bounded, cursor-paged list of persisted internal crawl edges. Filter by source URL, target URL, followability, or link kind. Nav, header, and footer links are marked isTemplate; templateSource says which rule decided each one (placement, ubiquity, or unmeasured when neither had evidence) and templateDetection reports the same for the scan, so an empty content-only list is not evidence of no content links and two scans classified by different rules are never compared as if they were the same measurement. Use the neighbors tool for one page rather than loading a graph. `complete: false` means the crawl stopped at the budget named by `termination`, so a missing page or link is not proof it does not exist.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoInternalLinksInputSchema,
@@ -3614,7 +3618,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_technical_aeo_link_neighbors',
     title: 'Get Technical AEO page link neighbors',
-    description: 'Read bounded inbound and outbound internal links for exactly one crawl node, selected by nodeKey or URL. Filter by link kind to separate editorial links from nav, header, and footer links. It returns independent truncation flags for inbound and outbound edges, not a transitive traversal.',
+    description: 'Read bounded inbound and outbound internal links for exactly one crawl node, selected by nodeKey or URL. Filter by link kind to separate editorial links from nav, header, and footer links. It returns independent truncation flags for inbound and outbound edges, not a transitive traversal. `complete: false` means the crawl stopped at the budget named by `termination`, so a missing page or link is not proof it does not exist.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoLinkNeighborsInputSchema,

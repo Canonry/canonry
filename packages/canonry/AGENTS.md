@@ -449,7 +449,7 @@ Every field after `version` is optional and is omitted rather than nulled, so co
 
 `src/execute-site-audit.ts` — `executeSiteAudit` runs `@canonry/aeo-audit`'s `runSiteCrawl`:
 
-- Events update an attempt graph with idempotent receipts. Terminal runs keep immutable complete or partial snapshots. Default reads select only the latest complete snapshot.
+- Events update an attempt graph with idempotent receipts. Terminal runs keep immutable complete or partial snapshots. Default reads select the newest one, complete or partial; only the `changes` diff is limited to complete snapshots.
 - The page budget defaults to 1,000; an unset edge budget is left unset so the engine derives it from the resolved page count (floored at 100,000), and an explicit one is a ceiling that replaces the derivation. Hard limits are 50,000 pages and 1,000,000 edges.
 - The engine (>= 7.1.0) derives `maxFetches`/`maxDurationMs`/`maxBytes`/`maxEdges` from the page budget natively and honours explicit values exactly, so this file passes ONLY `maxPages`/`maxEdges` (the operator-facing limits) and never a fetch-side budget — setting one would pin it and fight the derivation.
 - The engine also makes the dead-link split itself (6.0.0+): `deadLinks.findings` always carry a real 4xx/5xx status and `deadLinks.unverified` carries the targets the crawl could not check (timeout, reset socket, throttled 429), and ONLY findings are written to `site_crawl_findings` — every reader of that table renders a row as a broken link, and a crawl timeout is not evidence of one.
