@@ -7,7 +7,7 @@ import { createClient, migrate, type DatabaseClient } from '@ainyc/canonry-db'
 import { createServer } from '../src/server.js'
 import type { CanonryConfig } from '../src/config.js'
 
-const AGENT_ENV = ['CANONRY_AGENT_DISABLED'] as const
+const AGENT_ENV = ['CANONRY_AGENT_DISABLED', 'CANONRY_MANAGED_INFERENCE_KEY'] as const
 
 // Every route mounted by registerAgentRoutes. The kill-switch gates all of
 // them through a single guard, so the test asserts the whole surface flips —
@@ -91,6 +91,23 @@ describe('Aero agent kill-switch', () => {
     for (const key of AGENT_ENV) {
       if (saved[key] === undefined) delete process.env[key]
       else process.env[key] = saved[key]
+    }
+  })
+
+  it.each([
+    [undefined, undefined, false],
+    ['01'.repeat(32), undefined, true],
+    ['01'.repeat(32), { mode: 'disabled' as const }, false],
+  ])('advertises personal inference only when its host key and Aero lane are ready', async (key, agent, expected) => {
+    if (key) process.env.CANONRY_MANAGED_INFERENCE_KEY = key
+    const { app, cleanup } = await buildServer(agent)
+    try {
+      const response = await app.inject('/health')
+      expect(response.statusCode).toBe(200)
+      expect(response.json().managedInferenceAvailable).toBe(expected)
+      expect(response.body).not.toContain('01'.repeat(32))
+    } finally {
+      await cleanup()
     }
   })
 

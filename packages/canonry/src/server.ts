@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { and, eq } from "drizzle-orm";
-import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds, sentimentInstallReadiness } from "@ainyc/canonry-config";
+import { dashboardManagedRunKindsSchema, resolveManagedInferenceKey, resolveOperatorApiKeyIds, sentimentInstallReadiness } from "@ainyc/canonry-config";
 import { CliError } from "./cli-error.js";
 import { createTypeSafeClassifier, buildJevSentimentRequest } from "@ainyc/canonry-integration-typesafe";
 import { SentimentWorker } from "./sentiment-worker.js";
@@ -250,6 +250,7 @@ import { describeAgentPin } from "./agent/session.js";
 import { registerMcpHttpRoutes, mcpTransportPaths, mcpHttpHealth } from "./mcp-http.js";
 import { registerOAuthRoutes, registerOAuthAdminRoutes, createCredentialChecker, parseCookieHeader, resolveUserSession, createUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME } from "@ainyc/canonry-api-routes";
 import { registerAgentRoutes } from "./agent/agent-routes.js";
+import { ManagedAeroSessions } from "./agent/managed-sessions.js";
 import {
   createRecommendationExplainer,
   createRecommendationBriefSynthesizer,
@@ -984,6 +985,15 @@ export async function createServer(opts: {
         client: aeroClient,
         config: opts.config,
         proactive: agentProactive,
+        managedSweeps: dashboardManagedRunKinds.includes(SchedulableRunKinds['answer-visibility']),
+      })
+    : undefined;
+  const managedInferenceKey = resolveManagedInferenceKey(process.env);
+  const managedAeroSessions = agentEnabled && managedInferenceKey
+    ? new ManagedAeroSessions({
+        db: opts.db,
+        client: aeroClient,
+        config: opts.config,
         managedSweeps: dashboardManagedRunKinds.includes(SchedulableRunKinds['answer-visibility']),
       })
     : undefined;
@@ -2692,7 +2702,7 @@ export async function createServer(opts: {
       registerOAuthAdminRoutes(scope, { db: opts.db });
       // Aero kill-switch: don't serve the interactive agent routes when disabled.
       if (!sessionRegistry) return;
-      registerAgentRoutes(scope, { db: opts.db, sessionRegistry, viewerSessions: viewerAeroSessions });
+      registerAgentRoutes(scope, { db: opts.db, sessionRegistry, viewerSessions: viewerAeroSessions, managedInferenceKey, managedSessions: managedAeroSessions });
     },
     getGoogleAuthConfig: () => getGoogleAuthConfig(opts.config),
     getPlacesConfig: () => getPlacesConfig(opts.config),
@@ -3661,6 +3671,7 @@ export async function createServer(opts: {
     return {
       status: "ok",
       service: "canonry",
+      managedInferenceAvailable: Boolean(managedAeroSessions),
       version: PKG_VERSION,
       mcp: mcpHttpHealth(app, apiPrefix),
       ...(buildCommit ? { commit: buildCommit } : {}),

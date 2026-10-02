@@ -4481,6 +4481,21 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE projects ADD COLUMN qualified_aliases TEXT NOT NULL DEFAULT '[]'`,
     ],
   },
+  {
+    version: 167,
+    name: 'managed-personal-aero-sessions',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS managed_agent_sessions (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        actor_id TEXT NOT NULL, connection_id TEXT NOT NULL, model_id TEXT NOT NULL,
+        messages TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_managed_agent_session_identity ON managed_agent_sessions(project_id, actor_id, connection_id)`,
+      `CREATE TABLE IF NOT EXISTS managed_agent_turn_grants (id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL)`,
+      `CREATE INDEX IF NOT EXISTS idx_managed_agent_turn_grant_expires ON managed_agent_turn_grants(expires_at)`,
+    ],
+  },
 ]
 
 /**

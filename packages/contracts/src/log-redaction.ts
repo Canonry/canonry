@@ -8,8 +8,8 @@ const MAX_ARRAY_ITEMS = 50
 const MAX_OBJECT_KEYS = 100
 const MAX_STRING_LENGTH = 4_096
 
-const secretKey = /api[ _-]?key|authorization|auth(?:entication)?|cookie|password|secret|token|credential/i
-const escapedSecretAssignment = /\\+["'][\w -]*(?:api[ _-]?key|auth|cookie|password|secret|token|credential)[\w -]*\\+["']\s*:/i
+const secretKey = /api[ _-]?key|authorization|auth(?:entication)?|cookie|password|secret|token|credential|managed[ _-]?inference/i
+const escapedSecretAssignment = /\\+["'][\w -]*(?:api[ _-]?key|auth|cookie|password|secret|token|credential|managed[ _-]?inference)[\w -]*\\+["']\s*:/i
 const unsafeGraphKey = /^(?:req|res|request|reply|raw|socket|headers?|body|responsebody|apiresponse|rawresponse|providerbody|providerresponse)$/i
 // `provider` names the answer engine ('claude'), the one field that says which
 // engine a sweep failure came from. Only an object logged under it is a raw
@@ -48,12 +48,12 @@ export function redactLogString(value: string): string {
       // first name=value pair. Include folded header continuation lines.
       .replace(/\b((?:set-cookie|cookie)\s*[:=]\s*)[^\r\n]*(?:\r?\n[ \t][^\r\n]*)*/gi, `$1${REDACTED}`)
       .replace(
-        /(["']?[\w-]*(?:api[ _-]?key|auth|cookie|password|secret|token|credential)[\w-]*["']?\s*[=:]\s*)(?:"(?:\\.|[^"\\])*(?:"|$)|'(?:\\.|[^'\\])*(?:'|$))/gi,
+        /(["']?[\w-]*(?:api[ _-]?key|auth|cookie|password|secret|token|credential|managed[ _-]?inference)[\w-]*["']?\s*[=:]\s*)(?:"(?:\\.|[^"\\])*(?:"|$)|'(?:\\.|[^'\\])*(?:'|$))/gi,
         `$1${REDACTED}`,
       )
       .replace(/\b(Bearer|Basic)\s+[^\s,;]+/gi, (_match, scheme: string) => `${scheme} ${REDACTED}`)
       .replace(
-        /(api[ _-]?key|authorization|auth(?:entication)?|cookie|password|secret|token|credential)\s*([=:])\s*(?!\[REDACTED\])[^\s&,'")\]}]+/gi,
+        /(api[ _-]?key|authorization|auth(?:entication)?|cookie|password|secret|token|credential|managed[ _-]?inference)\s*([=:])\s*(?!\[REDACTED\])[^\s&,'")\]}]+/gi,
         `$1$2${REDACTED}`,
       ).slice(0, MAX_STRING_LENGTH)
   } catch {

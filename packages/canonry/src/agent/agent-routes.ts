@@ -1,4 +1,4 @@
-import { UserRoles, agentBusy } from '@ainyc/canonry-contracts'
+import { UserRoles, agentBusy, forbidden } from '@ainyc/canonry-contracts'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import {
@@ -23,6 +23,8 @@ import type { Agent, AgentEvent, AgentMessage } from '@earendil-works/pi-agent-c
 import { registerAgentConversationRoutes, requireInstanceAdministrator } from '@ainyc/canonry-api-routes'
 import type { SessionRegistry } from './session-registry.js'
 import { VIEWER_AERO_MAX_PROMPT_CHARS, type ViewerAeroSessions } from './viewer-sessions.js'
+import type { ManagedAeroSessions } from './managed-sessions.js'
+import { MANAGED_INFERENCE_HEADER, openManagedInferenceGrant, type ManagedInferenceTurnGrant } from './managed-inference.js'
 import { aeroTurnStatus, isRunFailureMessage, isSystemMessage } from './runtime.js'
 import {
   AeroToolProfiles,
@@ -48,6 +50,18 @@ export interface AgentRoutesOptions {
    * separate lane; everyone else still meets the administrator gate.
    */
   viewerSessions?: ViewerAeroSessions
+  /** Host-only opt-in. An encrypted grant cannot authorize an API request. */
+  managedInferenceKey?: string
+  managedSessions?: ManagedAeroSessions
+}
+
+function managedGrant(request: FastifyRequest<{ Params: { name: string } }>, opts: AgentRoutesOptions, purpose: 'turn' | 'read') {
+  const header = request.headers[MANAGED_INFERENCE_HEADER]
+  if (header === undefined) return undefined
+  requireInstanceAdministrator(request)
+  const grant = openManagedInferenceGrant(header, opts.managedInferenceKey, request.params.name, purpose)
+  if (!opts.managedSessions) throw forbidden('Personal Aero inference is not enabled on this instance.')
+  return grant
 }
 
 /**
@@ -135,6 +149,8 @@ async function streamAgentTurn(
     detach: () => void
     /** Set for a viewer: redact every frame and replace raw error text. */
     viewer?: boolean
+    /** Personal providers report HTTP failures as completed error messages, without throwing. */
+    reportProviderFailure?: boolean
   },
 ): Promise<void> {
   reply.raw.writeHead(200, {
@@ -174,6 +190,10 @@ async function streamAgentTurn(
   try {
     await agent.prompt(turn.batch)
     await agent.waitForIdle()
+    if (turn.reportProviderFailure && agent.state.errorMessage) {
+      failed = true
+      write({ type: 'error', message: agent.state.errorMessage })
+    }
   } catch (err) {
     failed = true
     write({ type: 'error', message: describeError(err) })
@@ -242,6 +262,48 @@ async function streamViewerTurn(
   return reply
 }
 
+async function streamManagedTurn(
+  opts: AgentRoutesOptions,
+  project: { id: string; name: string },
+  grant: ManagedInferenceTurnGrant,
+  body: AgentPromptBody,
+  reply: FastifyReply,
+): Promise<FastifyReply> {
+  const disconnected = new AbortController()
+  const live: { agent?: Agent } = {}
+  const onClose = () => {
+    if (!reply.raw.writableEnded) {
+      disconnected.abort()
+      live.agent?.abort()
+    }
+  }
+  reply.raw.once('close', onClose)
+  let turn: Awaited<ReturnType<ManagedAeroSessions['acquireForTurn']>>
+  try {
+    turn = await opts.managedSessions!.acquireForTurn(project, grant, body, disconnected.signal)
+  } catch (error) {
+    reply.raw.off('close', onClose)
+    if (disconnected.signal.aborted) return reply
+    throw error
+  }
+  const agent = turn.agent
+  live.agent = agent
+  try {
+    if (!disconnected.signal.aborted) {
+      await streamAgentTurn(reply, agent, {
+        batch: promptMessage(body.prompt, body.context),
+        save: turn.save,
+        detach: () => reply.raw.off('close', onClose),
+        reportProviderFailure: true,
+      })
+    }
+  } finally {
+    reply.raw.off('close', onClose)
+    turn.release()
+  }
+  return reply
+}
+
 /**
  * Registers the built-in Aero routes on the supplied Fastify scope. Callers
  * are expected to invoke this inside the authenticated api-routes scope so
@@ -301,10 +363,22 @@ async function streamViewerTurn(
  * (so clients can distinguish clean closes from network drops).
  */
 export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptions): void {
+  app.addHook('preHandler', async request => {
+    if (request.headers[MANAGED_INFERENCE_HEADER] === undefined || !request.routeOptions.url?.includes('/agent/')) return
+    requireInstanceAdministrator(request)
+    if (!request.routeOptions.url.endsWith('/agent/prompt') && !request.routeOptions.url.endsWith('/agent/transcript')) {
+      throw forbidden('Personal Aero cannot access the operator conversation or memory.')
+    }
+  })
   registerAgentConversationRoutes(app, { db: opts.db, runtime: opts.sessionRegistry })
   app.get<{ Params: { name: string } }>(
     '/projects/:name/agent/transcript',
     async (request) => {
+      const grant = managedGrant(request, opts, 'read')
+      if (grant) {
+        const project = resolveProject(opts.db, request.params.name)
+        return opts.managedSessions!.transcript(project.id, grant)
+      }
       const viewerId = viewerAeroCaller(request, opts)
       if (viewerId) {
         const project = resolveProject(opts.db, request.params.name)
@@ -349,6 +423,12 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
     // before anything is written, so the grant widens nothing for them.
     { config: { readSemantic: true } },
     async (request) => {
+      const grant = managedGrant(request, opts, 'read')
+      if (grant) {
+        const project = resolveProject(opts.db, request.params.name)
+        opts.managedSessions!.reset(project, grant)
+        return { status: 'reset' }
+      }
       const viewerId = viewerAeroCaller(request, opts)
       if (viewerId) {
         const project = resolveProject(opts.db, request.params.name)
@@ -381,12 +461,14 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
     // caller still meets `requireInstanceAdministrator`.
     config: { paidRead: true },
   }, async (request, reply) => {
+    const grant = managedGrant(request, opts, 'turn')
     const viewerId = viewerAeroCaller(request, opts)
     if (!viewerId) requireInstanceAdministrator(request)
     const project = resolveProject(opts.db, request.params.name)
     const parsed = agentPromptRequestSchema.safeParse(request.body)
     if (!parsed.success) throw validationError(parsed.error.issues.map(issue => issue.message).join('; '))
     const body = parsed.data
+    if (grant?.purpose === 'turn') return streamManagedTurn(opts, project, grant, body, reply)
     if (viewerId) {
       if (body.prompt.length > VIEWER_AERO_MAX_PROMPT_CHARS) {
         throw validationError(`Keep questions under ${VIEWER_AERO_MAX_PROMPT_CHARS} characters.`)

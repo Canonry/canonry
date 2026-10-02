@@ -6,6 +6,8 @@ describe('log redaction', () => {
     'Cookie: theme=dark; canonry_user_session=fixture-secret',
     'Set-Cookie: theme=dark;\r\n canonry_user_session=fixture-secret',
     'API key: fixture-secret',
+    'x-canonry-managed-inference: fixture-secret',
+    JSON.stringify({ managedInferenceGrant: 'fixture-secret' }),
     'https://gateway.invalid/v1?key=fixture-secret&safe=yes',
     JSON.stringify({ message: JSON.stringify({ apiKey: 'fixture-secret' }) }),
     JSON.stringify(JSON.stringify({ authorization: 'fixture-secret' })),
@@ -39,6 +41,13 @@ describe('log redaction', () => {
     expect(serialized).not.toMatch(/bearer-secret|user:password|query-secret|object-secret|raw-secret/)
     expect(serialized).toContain('example.test')
     expect(serialized).toContain('safe=yes')
+  })
+
+  it('redacts encrypted personal inference grants as credentials', () => {
+    expect(redactLogValue({ 'x-canonry-managed-inference': 'iv.tag.ciphertext', managedInferenceGrant: 'ciphertext' })).toEqual({
+      'x-canonry-managed-inference': '[REDACTED]', managedInferenceGrant: '[REDACTED]',
+    })
+    expect(redactLogString('https://internal.test/a?managedInferenceGrant=ciphertext')).not.toContain('ciphertext')
   })
 
   it('keeps the provider name at any depth and in any letter case', () => {
