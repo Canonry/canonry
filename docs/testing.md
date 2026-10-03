@@ -21,7 +21,7 @@ pnpm check
 `pnpm check` and `pnpm lint:changed` lint staged, unstaged, and untracked JS/TS files using their working content.
 They skip deleted files, symlinks, and ESLint-ignored files.
 They run syntax rules and repository guards without loading TypeScript projects. They do not run tests, builds, or code generation.
-They cover local changes, not every committed change on the branch. CI checks the full workspace.
+They cover local changes, not every committed change on the branch. Contributor CI checks the full workspace; owner changes require local validation.
 
 ### Shared lint cache
 
@@ -62,7 +62,7 @@ Changes to `eslint.config.*` or `eslint-rules/` trigger `pnpm run lint` across t
 This fallback does not use the fast cache. It can find new violations in unchanged files.
 For staged checks, code and configuration must match the index before the fallback runs.
 The hook refuses partially staged inputs for full typed lint, because TypeScript reads the project from disk.
-Ordinary code commits retain the fast path. Type-aware findings in those commits remain CI's responsibility.
+Ordinary code commits retain the fast path. Agents must run affected package typechecks and type-aware lint locally before pushing code.
 
 The commit-message hook checks Conventional Commits.
 Pre-push runs `pnpm gen:check --committed`, `pnpm plugin:check`, and `pnpm val:skills:check`, in that order.
@@ -107,10 +107,32 @@ Recursive builds order the dashboard before Canonry, which reuses its output.
 
 ## Full Workspace Checks
 
-CI owns full workspace validation. For a requested full local check or a CI failure reproduction, run `pnpm verify`.
-This command includes generated-file drift and documentation assertions. It is not required before each commit or push.
+Run `pnpm verify` locally when shared runtime, contracts, dependencies, database, or authorization changes span the workspace, or when requested or reproducing a CI failure.
+This command includes generated-file drift and documentation assertions. Focused changes use affected package checks.
+
+## Before Merging
+
+Agents must validate locally before pushing code or handing it off as ready:
+
+1. Run `pnpm check`, affected package tests, typechecks, and type-aware lint. Cover meaningful invalid, boundary, and permission cases; broaden validation for shared runtime, contracts, dependencies, migrations, and authorization changes.
+2. Build the affected surface and smoke its actual behavior through the relevant API, CLI, MCP, or browser. Packaging changes require a packed install smoke check; database changes require applicable fresh-install and upgrade migration checks.
+3. Run applicable SDK, plugin, and Val drift checks. Regenerate at the source and review generated changes; never weaken checks to make them pass. Hooks check staged lint and drift; they do not replace tests, typechecks, builds, or smoke checks.
+4. Fetch the latest PR target, integrate upstream changes, inspect the complete target-to-head diff, and resolve conflicts. After another edit, rebase, or conflict resolution, rerun affected checks.
+5. Recheck an attempted version bump against the current target tip and published npm versions immediately before pushing. Publish compares against the previous main commit; reusing the target's version skips npm and Homebrew even if merge-base checks pass.
+6. After pushing, before handoff or merge, verify the validated commit matches the remote branch and PR `headRefOid`; require GitHub `mergeable: MERGEABLE`. Report remaining working-tree changes without discarding another agent's work. Record exact commands, results, validated SHA, and blockers; failed or unrun required checks mean the change is not ready.
+
+For stacked PRs after a squash merge, rebase away the old parent commits with `git rebase --onto origin/main <old-base-tip> <branch>`; retargeting alone does not rewrite history.
+For contributor CI, an empty `gh pr checks` result means no evidence, not success. Owner validation jobs intentionally skip; cite local results instead.
+Auto-merge is disabled; passing validation and approval still require a manual merge.
+Docs/comment-only changes use diff and documentation checks. Workflow configuration uses Actionlint and live GitHub verification; do not add tests solely to mirror workflow YAML.
 
 ## CI Mapping
+
+`arberx` changes skip automatic validation; outside or unknown authorship runs full CI.
+The shared metadata policy checks PR and commit authors, so merging an outside PR as the owner does not exempt it.
+All release workflows stay enabled: npm, Homebrew, Docker, ClawHub, and WordPress. GitHub handles merge conflicts.
+Owner releases build and pack directly in Publish; outside releases use the exact validated CI artifact.
+For owner changes, report local checks instead of treating skipped CI as a pass.
 
 Separate jobs in `ci.yml` cover the checks in `pnpm verify`:
 
@@ -144,7 +166,7 @@ Successful `main` runs warm caches that PRs can restore. Each PR can also reuse 
 A cache miss runs the checks normally. Local test commands keep their existing behavior.
 To bypass the test compilation caches in CI, omit the two `--experimental` flags and set `NODE_DISABLE_COMPILE_CACHE=1`.
 
-Npm publishing waits for the `validate` job of the `ci.yml` push run on the exact release commit and branch.
+For outside contributions, npm publishing waits for the `validate` job of the `ci.yml` push run on the exact release commit and branch.
 `validate` requires typecheck, tests, lint, the drift checks, the WordPress plugin suite, the package build, and the install smoke test.
 The Docker image build is outside it, so a Docker failure cannot skip npm; Docker publishes from its own Publish job.
 It does not repeat typechecks or an unsharded test suite. Failed, cancelled, missing, or timed-out validation blocks publication.
@@ -161,7 +183,7 @@ the server, CLI, HTTP MCP, and stdio MCP behavior comes from the installed binar
 The scenario covers Simple and Advanced portfolios, credential scopes, idempotent replay, and exact stored results.
 Provider requests go to a bounded loopback stub; CI uses no live provider credentials.
 Reports, provider receipts, and redacted failure logs are uploaded as `packaged-sentiment-smoke` artifacts.
-Publish downloads the artifact from the push CI run whose `validate` job passed for the exact release commit.
+For outside contributions, Publish downloads the artifact from the push CI run whose `validate` job passed for the exact release commit.
 It publishes the tested primary tarball unchanged and repacks its contents with the compatibility package name.
 Neither publication runs build or lifecycle scripts. Missing artifacts or a mismatched package name or version stop publication.
 Artifacts remain available for seven days; after expiry, rerun CI before retrying publication.

@@ -39,6 +39,16 @@ docs/                     Architecture, data model, setup guides, testing
 
 Key types, scope gates, read-only keys, `keys.write`, and what a multi-tenant migration would cost: `packages/api-routes/AGENTS.md` → "Deployment posture and key authority".
 
+## Local validation and merging (Critical)
+
+- Before push or handoff, run `pnpm check`, affected package **tests, typechecks, and type-aware lint**. Run `pnpm verify` for workspace-wide runtime, contract, dependency, DB, or auth changes.
+- Build and smoke affected CLI/API/MCP/UI surfaces; smoke installed tarballs for packaging changes. Check SDK/plugin/Val drift; fix its source.
+- Fetch and integrate the latest target, resolve conflicts, review the full PR diff, and rerun affected checks. Recheck release versions against the target tip and npm.
+- After pushing, match the tested SHA to the remote branch and PR head; require GitHub `MERGEABLE` before handoff or merge. Report commands, results, SHA, and blockers; failed or unrun required checks block readiness. Skipped owner CI proves nothing.
+- Outside work runs full CI; `arberx` validation is local. All releases stay enabled. Hooks remain staged lint and drift only. Docs/config: diff/live checks; no new tests needed.
+- Vals remain manual; see [Val kit rules](packages/val-kit/AGENTS.md).
+- Merge traps and commands: [Testing Guide](docs/testing.md#before-merging).
+
 ## Commands
 
 ```bash
@@ -270,7 +280,7 @@ Canonry can run behind a reverse proxy sub-path (e.g. `/canonry/`); code that ig
 
 - Test the public API of each module, not internals. Cover the happy path plus meaningful edge cases (invalid input, env var overrides, error handling).
 - CLI tests capture stdout/stderr and assert on the output, not only side effects. File-system tests use `os.tmpdir()` and clean up in `afterEach`.
-- Run focused tests during development; CI runs the full suite. Hooks never run tests or builds.
+- Run focused tests locally before pushing code; owner changes rely on this validation. Outside contributions also run the full suite in CI. Hooks never run tests or builds.
 - **Test boundary matchers with data as STORED, not idealized.** Check how a column is actually populated before matching on it (project upsert/apply store `canonicalDomain` raw — full URLs and mixed case included) and use the canonical helpers (`hostOf`, `normalizeQueryText`). A clean-fixture-only suite passes while production values miss the match.
 - **Test default-value propagation end-to-end.** When a stored default (e.g. a project's `defaultLocation`) feeds another feature (run creation), exercise the full path with no explicit override — not just "the default is stored" and "the consumer accepts a value".
 
@@ -283,23 +293,6 @@ Canonry can run behind a reverse proxy sub-path (e.g. `/canonry/`); code that ig
 
 Several rules in this file are true only because a lint guard enforces them — see `docs/GUARDS.md` for the full guard table and `Adding a guard` procedure. Every guard has its own rule id in `eslint.config.js`; **never add options to core `no-restricted-syntax`** (flat config last-wins override clobbers prior guards with no diagnostic — 4 dead guards found 2026-08-05). Key guards: `canonry-guards/no-raw-http-web` (apps/web → SDK), `canonry-guards/no-raw-http-cli` (canonry → ApiClient), `canonry-vocabulary/no-banned-metric-literal`, `design-tokens/no-literal-palette` — full list in `docs/GUARDS.md`.
 
-## CI Guidance
-
-- **CI owns full workspace validation** (typecheck, test, lint on PRs, explicit job permissions). Locally, run `pnpm check` plus the tests or package typechecks relevant to your change; run `pnpm verify` only when asked or reproducing a CI failure. After another edit or rebase, rerun only the affected checks. Report local results and CI status separately.
-- **Git hooks stay fast.** Commits lint staged JS/TS only (content caches shared across worktrees; `--no-cache` to diagnose) and never run tests, builds, or typechecks; documentation-only commits skip ESLint. ESLint config or rule changes trigger full type-aware lint, so code and config must match the index — don't hide staged errors with unstaged fixes. The commit-message hook checks Conventional Commits. Pre-push runs only `gen:check --committed`, `plugin:check`, and `val:skills:check`, and drift inputs must match each pushed commit.
-- **Build only the affected surface:** `pnpm build:cli` for CLI/server, `pnpm build:web` for the dashboard.
-- **Fix drift at its source** (`pnpm gen`, `pnpm plugin:sync`, `pnpm val:skills`), review the generated changes, and stage generated SDK changes before `gen:check`. Never weaken assertions to obtain a pass.
-- **Vals have no CI/CD** — manual validation, publish, and deploy order: `packages/val-kit/AGENTS.md`. **Adding a guard:** `docs/GUARDS.md`.
-
-### Landing a PR here (read before opening one)
-
-Four traps have cost real time here. CI validates the branch, and these are all about the branch's relationship to `main`, so a green run never reveals them.
-
-1. **The version race.** `publish.yml` releases only when `packages/canonry/package.json` differs from the *previous commit on main*. A PR bumping to a version `main` has since reached merges with no version change: npm and Homebrew are skipped while Docker still moves `latest` — a silent half-release. `plugin:check --base-ref` compares against the merge base, so it passes in exactly this case; the `version-guard` job (base-branch tip and npm) predicts the post-merge outcome. **Re-check the version right before you push**, not when you branch.
-2. **Stacked PRs after a squash merge.** `main` squashes, so a branch stacked on a merged parent still carries the parent's individual commits. GitHub retargets the base but does not rewrite history. Rebase with `git rebase --onto origin/main <old-base-tip> <branch>`.
-3. **Waiting for CI.** `gh pr checks` returns an EMPTY list between a push landing and the workflows queueing, so a "wait until nothing is pending" loop reports success against no checks. Require a non-empty list before believing a green result.
-4. **Auto-merge is disabled repo-wide**, so `gh pr merge --auto` is rejected and a green, approved PR still needs a manual merge.
-
 ## Keeping Documentation Current
 
 Per-package `AGENTS.md` must stay in sync — see `docs/DOC_UPDATE.md` for the full “When you… → Update…” table (route/CLI/MCP/doctor/guard/provider etc.).
@@ -307,5 +300,3 @@ Per-package `AGENTS.md` must stay in sync — see `docs/DOC_UPDATE.md` for the f
 Put a new rule in the `AGENTS.md` closest to the code it governs; add it here only if every change must follow it. Point to the source (`path` or `file:line`) instead of copying it, and leave out what an agent can learn from the code, `--help`, or `docs/CODEMAP.md`.
 
 `AGENTS.md` is the only agent-instruction file. Claude Code v2.1.277+ reads it directly, but only where no `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` is on the path, so never add one: it hides the `AGENTS.md` beside and below it. Claude Code sessions that cannot read `AGENTS.md` directly (before v2.1.277, on Bedrock / Vertex / Foundry, or with telemetry disabled) get no project instructions from this repo.
-
-**Documentation-only changes do not require a version bump.**

@@ -47,7 +47,7 @@ fi`)
 }
 
 test('packaged scenario consumes the build artifact installed outside the checkout', () => {
-  expect(smokeJob.needs).toBe('build')
+  expect(smokeJob.needs).toEqual(['policy', 'build'])
   const uploaded = workflow.jobs.build!.steps.find(step => step.uses?.startsWith('actions/upload-artifact@'))!
   const downloaded = smokeJob.steps.find(step => step.uses?.startsWith('actions/download-artifact@'))!
   expect(downloaded.with?.name).toBe(uploaded.with?.name)
