@@ -270,7 +270,7 @@ Canonry can run behind a reverse proxy sub-path (e.g. `/canonry/`); code that ig
 
 - Test the public API of each module, not internals. Cover the happy path plus meaningful edge cases (invalid input, env var overrides, error handling).
 - CLI tests capture stdout/stderr and assert on the output, not only side effects. File-system tests use `os.tmpdir()` and clean up in `afterEach`.
-- Run focused tests during development; CI runs the full suite. Hooks never run tests or builds.
+- Run focused tests during development; contributor CI runs the full suite. Owner changes use local validation. Hooks never run tests or builds.
 - **Test boundary matchers with data as STORED, not idealized.** Check how a column is actually populated before matching on it (project upsert/apply store `canonicalDomain` raw — full URLs and mixed case included) and use the canonical helpers (`hostOf`, `normalizeQueryText`). A clean-fixture-only suite passes while production values miss the match.
 - **Test default-value propagation end-to-end.** When a stored default (e.g. a project's `defaultLocation`) feeds another feature (run creation), exercise the full path with no explicit override — not just "the default is stored" and "the consumer accepts a value".
 
@@ -285,7 +285,8 @@ Several rules in this file are true only because a lint guard enforces them — 
 
 ## CI Guidance
 
-- **CI owns full workspace validation** (typecheck, test, lint on PRs, explicit job permissions). Locally, run `pnpm check` plus the tests or package typechecks relevant to your change; run `pnpm verify` only when asked or reproducing a CI failure. After another edit or rebase, rerun only the affected checks. Report local results and CI status separately.
+- **Outside contributions run full CI/CD.** `.github/workflows/change-policy.yml` exempts changes attributed exclusively to `arberx` (GitHub user ID `14798762`); owner changes skip CI and Docker, ClawHub, and WordPress releases. GitHub handles merge conflicts. npm and Homebrew publication remain automated: owner releases build and pack directly, while outside releases reuse the exact validated CI artifact. Unknown or mixed attribution runs the full pipeline, including outside PRs merged or rerun by the owner.
+- **Validate owner changes locally.** Run `pnpm check` plus the tests or package typechecks relevant to your change; run `pnpm verify` only when asked or reproducing a CI failure. After another edit or rebase, rerun only the affected checks. Report local results and CI status separately; skipped CI is not validation evidence.
 - **Git hooks stay fast.** Commits lint staged JS/TS only (content caches shared across worktrees; `--no-cache` to diagnose) and never run tests, builds, or typechecks; documentation-only commits skip ESLint. ESLint config or rule changes trigger full type-aware lint, so code and config must match the index — don't hide staged errors with unstaged fixes. The commit-message hook checks Conventional Commits. Pre-push runs only `gen:check --committed`, `plugin:check`, and `val:skills:check`, and drift inputs must match each pushed commit.
 - **Build only the affected surface:** `pnpm build:cli` for CLI/server, `pnpm build:web` for the dashboard.
 - **Fix drift at its source** (`pnpm gen`, `pnpm plugin:sync`, `pnpm val:skills`), review the generated changes, and stage generated SDK changes before `gen:check`. Never weaken assertions to obtain a pass.
@@ -293,11 +294,11 @@ Several rules in this file are true only because a lint guard enforces them — 
 
 ### Landing a PR here (read before opening one)
 
-Four traps have cost real time here. CI validates the branch, and these are all about the branch's relationship to `main`, so a green run never reveals them.
+Four traps have cost real time here. These concern the branch's relationship to `main`, so passing local checks or contributor CI never reveals them.
 
-1. **The version race.** `publish.yml` releases only when `packages/canonry/package.json` differs from the *previous commit on main*. A PR bumping to a version `main` has since reached merges with no version change: npm and Homebrew are skipped while Docker still moves `latest` — a silent half-release. `plugin:check --base-ref` compares against the merge base, so it passes in exactly this case; the `version-guard` job (base-branch tip and npm) predicts the post-merge outcome. **Re-check the version right before you push**, not when you branch.
+1. **The version race.** `publish.yml` releases only when `packages/canonry/package.json` differs from the *previous commit on main*. A PR bumping to a version `main` has since reached merges with no version change skips npm and Homebrew. `plugin:check --base-ref` compares against the merge base, so it passes in exactly this case; contributor CI's `version-guard` checks the base-branch tip and npm. **Re-check the version right before you push**, not when you branch.
 2. **Stacked PRs after a squash merge.** `main` squashes, so a branch stacked on a merged parent still carries the parent's individual commits. GitHub retargets the base but does not rewrite history. Rebase with `git rebase --onto origin/main <old-base-tip> <branch>`.
-3. **Waiting for CI.** `gh pr checks` returns an EMPTY list between a push landing and the workflows queueing, so a "wait until nothing is pending" loop reports success against no checks. Require a non-empty list before believing a green result.
+3. **Waiting for contributor CI.** `gh pr checks` returns an EMPTY list between a push landing and the workflows queueing, so a "wait until nothing is pending" loop reports success against no checks. Require a non-empty list before believing a green result. For owner changes, CI skips validation intentionally; cite the local checks instead.
 4. **Auto-merge is disabled repo-wide**, so `gh pr merge --auto` is rejected and a green, approved PR still needs a manual merge.
 
 ## Keeping Documentation Current

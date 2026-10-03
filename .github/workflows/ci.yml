@@ -3,74 +3,9 @@ name: CI
 on:
   push:
     branches: [main]
-    paths:
-      # Every workflow, not just this one: a change to a deploy workflow is a
-      # change to how something reaches production, and it went unvalidated
-      # while only `ci.yml` was listed.
-      - '.github/workflows/**'
-      - '.github/actions/setup/action.yml'
-      - '.husky/**'
-      - '.dockerignore'
-      - 'Dockerfile'
-      - 'docker/**'
-      - 'apps/**'
-      - 'packages/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'pnpm-workspace.yaml'
-      - 'tsconfig.base.json'
-      - 'eslint.config.js'
-      - 'scripts/**'
-      # Workspace-level guards live here and belong to no single package.
-      # Without this, a PR that changes only a guard never runs it.
-      - 'test/**'
-      - 'test-setup/**'
-      - 'vitest.config.ts'
-      - 'skills/**'
-      - 'plugins/**'
-      - '.agents/**'
-      - '.claude-plugin/**'
-      - 'docs/CODEMAP.md'
-      - 'docs/GUARDS.md'
-      - 'docs/DOC_UPDATE.md'
-      - 'docs/agent-operations/**'
-      - 'AGENTS.md'
+  # Every contribution, including docs-only changes and stacked PRs, reaches
+  # the policy job. Ownership determines whether full validation runs.
   pull_request:
-    # No `branches:` filter — run CI on every PR, including stacked PRs
-    # targeting feature branches. This keeps each step of a stack green
-    # without waiting until rebase-to-main.
-    paths:
-      # Every workflow, not just this one: a change to a deploy workflow is a
-      # change to how something reaches production, and it went unvalidated
-      # while only `ci.yml` was listed.
-      - '.github/workflows/**'
-      - '.github/actions/setup/action.yml'
-      - '.husky/**'
-      - '.dockerignore'
-      - 'Dockerfile'
-      - 'docker/**'
-      - 'apps/**'
-      - 'packages/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'pnpm-workspace.yaml'
-      - 'tsconfig.base.json'
-      - 'eslint.config.js'
-      - 'scripts/**'
-      # Workspace-level guards live here and belong to no single package.
-      # Without this, a PR that changes only a guard never runs it.
-      - 'test/**'
-      - 'test-setup/**'
-      - 'vitest.config.ts'
-      - 'skills/**'
-      - 'plugins/**'
-      - '.agents/**'
-      - '.claude-plugin/**'
-      - 'docs/CODEMAP.md'
-      - 'docs/GUARDS.md'
-      - 'docs/DOC_UPDATE.md'
-      - 'docs/agent-operations/**'
-      - 'AGENTS.md'
 
 # New PR commits replace obsolete validation. Keep main runs for release evidence.
 concurrency:
@@ -78,7 +13,15 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  policy:
+    uses: ./.github/workflows/change-policy.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
   typecheck:
+    needs: policy
+    if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -109,6 +52,8 @@ jobs:
           tar -cf .tmp/ci/tsbuildinfo.tar --files-from /dev/null "${files[@]}"
 
   test_shards:
+    needs: policy
+    if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' }}
     name: test ${{ matrix.shard }} (node ${{ matrix.node }})
     runs-on: ubuntu-latest
     permissions:
@@ -172,8 +117,8 @@ jobs:
 
   test:
     name: test
-    needs: test_shards
-    if: always()
+    needs: [policy, test_shards]
+    if: always() && needs.policy.outputs.owner_only != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -189,6 +134,8 @@ jobs:
           echo "All test shards passed"
 
   lint:
+    needs: policy
+    if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -205,6 +152,8 @@ jobs:
   # plugin change would ship to client sites untested. ubuntu-latest bundles
   # PHP, and the suite is a dependency-free custom runner (no composer).
   wp-plugin-tests:
+    needs: policy
+    if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -216,6 +165,8 @@ jobs:
         name: WordPress traffic-logger plugin suite
 
   ts-prune:
+    needs: policy
+    if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' }}
     # Lightweight dead-export check via npx (no heavy dep in repo). Reports unused exports not used outside their module; filtered to exclude "used in module" noise. Non-blocking — surfaces in logs without failing CI.
     runs-on: ubuntu-latest
     permissions:
@@ -227,6 +178,8 @@ jobs:
         name: Report unused exports (ts-prune, no heavy dep)
 
   codegen-drift:
+    needs: policy
+    if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' }}
     # Regenerates the hey-api client from the OpenAPI spec and fails if the
     # committed output differs. Run separately from `lint` so a stale client
     # surfaces as its own check name and a contributor knows to run
@@ -241,6 +194,8 @@ jobs:
         name: Verify generated API client matches OpenAPI spec
 
   plugin-drift:
+    needs: policy
+    if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' }}
     # The native plugin mirrors the canonical Canonry/Aero skills and package
     # version, and CODEMAP.md indexes key files. Fail with a focused check when a generated copy is stale, CODEMAP is stale, or a plugin-affecting change reuses the version already present on the base.
     runs-on: ubuntu-latest
@@ -284,7 +239,8 @@ jobs:
     #
     # So compare against the BASE BRANCH TIP, which is what the version will be
     # measured against after the merge lands.
-    if: github.event_name == 'pull_request'
+    needs: policy
+    if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' && github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -336,6 +292,8 @@ jobs:
           echo "OK: $HEAD_V is ahead of the base tip ($TIP_V) and unpublished."
 
   build:
+    needs: policy
+    if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -367,7 +325,8 @@ jobs:
     # directory — exactly what external users do when they `npm i -g`.
     # Source dependencies only seed synthetic fixtures and run the harness;
     # runtime behavior uses the completed build installed outside the checkout.
-    needs: build
+    needs: [policy, build]
+    if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -413,8 +372,8 @@ jobs:
 
   validate:
     runs-on: ubuntu-latest
-    needs: [typecheck, test, lint, codegen-drift, plugin-drift, build, publish-smoke-test, wp-plugin-tests]
-    if: always()
+    needs: [policy, typecheck, test, lint, codegen-drift, plugin-drift, build, publish-smoke-test, wp-plugin-tests]
+    if: always() && needs.policy.outputs.owner_only != 'true'
     steps:
       - name: Verify all validate jobs succeeded
         run: |
@@ -432,6 +391,8 @@ jobs:
           echo "All validate jobs passed"
 
   docker-build:
+    needs: policy
+    if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

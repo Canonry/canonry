@@ -1,0 +1,116 @@
+name: Change policy
+
+on:
+  workflow_call:
+    outputs:
+      owner_only:
+        description: Whether complete change provenance belongs exclusively to arberx
+        value: ${{ jobs.classify.outputs.owner_only }}
+
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      owner_only: ${{ steps.policy.outputs.owner_only }}
+    steps:
+      # Read GitHub metadata only: never check out or execute contributor code.
+      - name: Classify authenticated change provenance
+        id: policy
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const ownerId = 14798762;
+            const maxCommits = 100;
+            const maxRequests = 120;
+            const shaPattern = /^[a-f0-9]{40}$/;
+            const repository = `${context.repo.owner}/${context.repo.repo}`;
+            let requests = 0;
+            const pulls = new Map();
+            const metadata = async (method, params) => {
+              if (++requests > maxRequests) throw new Error('Metadata request limit reached');
+              return (await method({ ...context.repo, ...params })).data;
+            };
+            const isOwner = user => user?.id === ownerId && user.type === 'User';
+            const sameRepository = repo => repo?.full_name === repository &&
+              repo.id === context.payload.repository?.id;
+            const ownerCommits = commits => Array.isArray(commits) && commits.length > 0 &&
+              commits.every(commit => shaPattern.test(commit.sha) && isOwner(commit.author));
+
+            const ownerPull = async (number, expectedHead) => {
+              if (pulls.has(number)) return pulls.get(number);
+              const pull = await metadata(github.rest.pulls.get, { pull_number: number });
+              if (!isOwner(pull.user) || !sameRepository(pull.head?.repo) ||
+                  !sameRepository(pull.base?.repo) || !shaPattern.test(pull.head?.sha) ||
+                  (expectedHead && pull.head.sha !== expectedHead) ||
+                  !Number.isInteger(pull.commits) || pull.commits < 1 || pull.commits > maxCommits) {
+                return false;
+              }
+              const commits = await metadata(github.rest.pulls.listCommits, {
+                pull_number: number, per_page: maxCommits, page: 1,
+              });
+              if (commits.length !== pull.commits || !ownerCommits(commits) ||
+                  commits.at(-1).sha !== pull.head.sha) return false;
+              // A synchronize event can arrive while metadata is being read.
+              const current = await metadata(github.rest.pulls.get, { pull_number: number });
+              const result = current.head?.sha === pull.head.sha &&
+                current.commits === pull.commits && isOwner(current.user) &&
+                sameRepository(current.head?.repo) && sameRepository(current.base?.repo);
+              pulls.set(number, result);
+              return result;
+            };
+
+            const ownerProvenance = async commits => {
+              if (!ownerCommits(commits)) return false;
+              for (const commit of commits) {
+                const associated = await metadata(github.rest.repos.listPullRequestsAssociatedWithCommit, {
+                  commit_sha: commit.sha, per_page: 100, page: 1,
+                });
+                // A full page could hide another introducing PR; do not guess.
+                if (!Array.isArray(associated) || associated.length >= 100) return false;
+                for (const pull of associated) {
+                  if (!isOwner(pull.user) || !await ownerPull(pull.number)) return false;
+                }
+              }
+              return true;
+            };
+
+            let ownerOnly = false;
+            try {
+              if (context.eventName === 'pull_request') {
+                const pull = context.payload.pull_request;
+                if (isOwner(context.payload.sender) && isOwner(pull?.user) && sameRepository(pull.head?.repo) &&
+                    sameRepository(pull.base?.repo) && shaPattern.test(pull.head?.sha)) {
+                  ownerOnly = await ownerPull(pull.number, pull.head.sha);
+                }
+              } else if (context.eventName === 'push') {
+                const event = context.payload;
+                if (isOwner(event.sender) && event.forced === false && event.deleted === false &&
+                    shaPattern.test(event.before) && !/^0+$/.test(event.before) &&
+                    shaPattern.test(event.after) && event.after === context.sha) {
+                  const comparison = await metadata(github.rest.repos.compareCommitsWithBasehead, {
+                    basehead: `${event.before}...${event.after}`, per_page: maxCommits, page: 1,
+                  });
+                  if (comparison.status === 'ahead' && comparison.base_commit?.sha === event.before &&
+                      comparison.merge_base_commit?.sha === event.before &&
+                      Number.isInteger(comparison.total_commits) && comparison.total_commits > 0 &&
+                      comparison.total_commits <= maxCommits &&
+                      comparison.commits?.length === comparison.total_commits &&
+                      comparison.commits.at(-1).sha === event.after) {
+                    ownerOnly = await ownerProvenance(comparison.commits);
+                  }
+                }
+              } else if (context.eventName === 'workflow_dispatch' &&
+                         isOwner(context.payload.sender) && shaPattern.test(context.sha)) {
+                const commit = await metadata(github.rest.repos.getCommit, { ref: context.sha });
+                if (commit.sha === context.sha) ownerOnly = await ownerProvenance([commit]);
+              }
+            } catch (error) {
+              core.info(`Change provenance unavailable; full contributor checks apply: ${error.message}`);
+            }
+            core.info(ownerOnly ? 'Authenticated owner-only change: skip automatic validation and deployment' :
+              'External, mixed, or unknown provenance: run full validation and deployment');
+            core.setOutput('owner_only', String(ownerOnly));
