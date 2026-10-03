@@ -15,7 +15,8 @@ test.each([false, true])('GA backfill pages and upper bounds use indexes without
     db.$client.close()
     fs.rmSync(dir, { recursive: true, force: true })
   })
-  migrate(db, upgrade ? MIGRATION_VERSIONS.filter(migration => migration.version < BACKFILL_INDEX_VERSION) : MIGRATION_VERSIONS)
+  const throughBackfillIndex = MIGRATION_VERSIONS.filter(migration => migration.version <= BACKFILL_INDEX_VERSION)
+  migrate(db, upgrade ? throughBackfillIndex.filter(migration => migration.version < BACKFILL_INDEX_VERSION) : throughBackfillIndex)
   const now = '2026-10-03T00:00:00.000Z'
   insertLegacyProject(db, { id: 'project-a', createdAt: now })
   insertLegacyProject(db, { id: 'project-b', createdAt: now })
@@ -33,9 +34,10 @@ test.each([false, true])('GA backfill pages and upper bounds use indexes without
     expect(db.all<{ name: string }>(sql.raw("PRAGMA index_list('ga_traffic_snapshots')")).map(row => row.name))
       .not.toContain('idx_ga_traffic_project_id')
   }
-  migrate(db)
+  migrate(db, throughBackfillIndex)
   // Replaying the additive migration must preserve existing records and indexes.
   db.run(sql`DELETE FROM _migrations WHERE version = ${BACKFILL_INDEX_VERSION}`)
+  migrate(db, throughBackfillIndex)
   migrate(db)
   expect(db.all(sql`SELECT * FROM ga_traffic_snapshots ORDER BY id`)).toEqual(before)
   expect(db.all<{ name: string }>(sql.raw("PRAGMA index_info('idx_ga_traffic_project_id')")).map(row => row.name))

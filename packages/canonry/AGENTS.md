@@ -394,6 +394,14 @@ That is not a style preference. The gate used to be a `let` inside `inspectUrlsP
 
 ### Backfill behavior
 
+`startup-path-repairs.ts` runs GA traffic and AI-referral path repairs once per
+`URL_PATH_NORMALIZATION_VERSION`, with independent `data_repair_completions`
+records. Mark a version complete only after the whole pass succeeds without
+conditional-write conflicts; interrupted/failed passes retry next startup.
+The explicit backfill commands always run and never mark a project-scoped
+repair as database-wide completion. Increment the contracts normalization
+version when historical paths need recalculation.
+
 `canonry backfill answer-visibility` does more than recompute `answerMentioned`. It also reparses stored provider `raw_response` payloads for supported API providers (OpenAI, Claude, Gemini, Perplexity, Muse) and refreshes derived snapshot fields such as `citationState`, `citedDomains`, `groundingSources`, and `searchQueries`.
 
 It writes retrieval fields in exactly one case: OpenAI rows labelled `native-auto-v1` (written by 4.139.0 through 5.19.0, which all sent a forced-search request) become `search-required-v1`, with `retrievalStatus` re-derived from the stored `apiResponse` (`correctStoredOpenAIRetrieval`, counted as `retrievalRelabeled`). NULL contracts predate the field and stay NULL; no other provider's retrieval fields are touched. Never widen this into "set every row to the adapter's current contract": a future contract change would then relabel history.

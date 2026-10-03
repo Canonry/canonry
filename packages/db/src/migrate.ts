@@ -4488,6 +4488,17 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_ga_traffic_project_id ON ga_traffic_snapshots(project_id, id)`,
     ],
   },
+  {
+    version: 168,
+    name: 'data-repair-completions',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS data_repair_completions (
+        name TEXT PRIMARY KEY NOT NULL,
+        version INTEGER NOT NULL,
+        completed_at TEXT NOT NULL
+      )`,
+    ],
+  },
 ]
 
 /**

@@ -7,7 +7,7 @@ import { closeWithIdleSweep } from '../server-shutdown.js'
 import { trackEvent, setTelemetrySource } from '../telemetry.js'
 import { cliRuntimeContext } from '../runtime-context.js'
 import { CliError, type CliFormat, isMachineFormat } from '../cli-error.js'
-import { backfillAiReferralPaths, backfillNormalizedPaths } from './backfill.js'
+import { repairAiReferralPathsOnStartup, repairNormalizedPathsOnStartup } from '../startup-path-repairs.js'
 import { getMissingUserSkillsNudge, shouldPrintServeSkillsNudge } from './skills.js'
 import { getPrintedUpdateAvailable } from '../update-check.js'
 import { detectCanonryAgentPlugin } from '../agent-plugin.js'
@@ -102,13 +102,11 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
   const db = createClient(config.database)
   migrate(db)
 
-  // Repair missing and stale landing_page_normalized values in bounded
-  // pages. Without this, click-ID-fragmented ga_traffic_snapshots would only
-  // collapse in dashboards after the user manually ran
-  // `canonry backfill normalized-paths`.
+  // Repair historical paths once per normalization version. Successful
+  // passes are recorded in this database; failed passes retry next startup.
   try {
-    const result = await backfillNormalizedPaths(db)
-    if (result.updated > 0 && format === 'text') {
+    const result = await repairNormalizedPathsOnStartup(db)
+    if (result && result.updated > 0 && format === 'text') {
       console.log(
         `Migrated ${result.updated} GA landing-page row${result.updated === 1 ? '' : 's'} to canonical form.`,
       )
@@ -121,13 +119,11 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     process.stderr.write(`warning: normalized-path backfill skipped: ${msg}\n`)
   }
 
-  // Same idea for ga_ai_referrals — landing_page_normalized was added in
-  // v46. Without this, the dashboard's "Known AI referrers by landing page"
-  // panel surfaces legacy rows as a synthetic '(not set)' bucket until the
-  // user re-syncs.
+  // Keep a separate completion marker so one failed repair does not rerun
+  // the other table's successful pass on every restart.
   try {
-    const result = backfillAiReferralPaths(db)
-    if (result.updated > 0 && format === 'text') {
+    const result = await repairAiReferralPathsOnStartup(db)
+    if (result && result.updated > 0 && format === 'text') {
       console.log(
         `Migrated ${result.updated} GA AI referral row${result.updated === 1 ? '' : 's'} to canonical form.`,
       )

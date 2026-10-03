@@ -272,6 +272,9 @@ export function textContainsDomain(
   return extractDomainsFromText(text).some(candidate => hostMatchesDomain(candidate, domain))
 }
 
+/** Bump when path normalization changes require repairing previously stored GA paths. */
+export const URL_PATH_NORMALIZATION_VERSION = 1
+
 export function normalizeUrlPath(input: string | null | undefined): string | null {
   if (input == null) return null
   let trimmed = input.trim()

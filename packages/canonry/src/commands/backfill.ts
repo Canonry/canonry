@@ -255,6 +255,12 @@ export interface NormalizedPathsBackfillResult {
   unchanged: number
 }
 
+interface PathBackfillOptions {
+  projectId?: string
+  /** A concurrent change left a candidate unwritten; called after its page commits. */
+  onConflict?: () => void
+}
+
 /**
  * Repair missing and stale `ga_traffic_snapshots.landing_page_normalized`
  * values in bounded pages, using the caller's database. Each page commits
@@ -271,7 +277,7 @@ export interface NormalizedPathsBackfillResult {
  */
 export async function backfillNormalizedPaths(
   db: ReturnType<typeof createClient>,
-  opts?: { projectId?: string },
+  opts?: PathBackfillOptions,
 ): Promise<NormalizedPathsBackfillResult> {
   const projectScope = opts?.projectId ? eq(gaTrafficSnapshots.projectId, opts.projectId) : undefined
   // Do not chase new ids beyond the end of this pass while yielding to writers.
@@ -302,7 +308,7 @@ export async function backfillNormalizedPaths(
       return next === null || row.landingPageNormalized === next ? [] : [{ row, next }]
     })
     if (changes.length > 0) {
-      updated += db.transaction((tx) => {
+      const written = db.transaction((tx) => {
         let written = 0
         for (const { row, next } of changes) {
           // A concurrent sync may replace or repair a row after the page read.
@@ -318,6 +324,8 @@ export async function backfillNormalizedPaths(
         }
         return written
       })
+      updated += written
+      if (written < changes.length) opts?.onConflict?.()
     }
 
     cursor = rows.at(-1)!.id
@@ -388,8 +396,8 @@ export async function backfillNormalizedPathsCommand(opts?: {
 }
 
 /**
- * Pure helper: backfill `ga_ai_referrals.landing_page_normalized` for rows
- * where it is currently null. Mirrors `backfillNormalizedPaths` but for the
+ * Repair missing and stale `ga_ai_referrals.landing_page_normalized` values.
+ * Mirrors `backfillNormalizedPaths` but for the
  * AI referral table, which gained landing-page columns in v46. Idempotent.
  *
  * Used by both the CLI command (`canonry backfill ai-referral-paths`) and
@@ -398,7 +406,7 @@ export async function backfillNormalizedPathsCommand(opts?: {
  */
 export function backfillAiReferralPaths(
   db: ReturnType<typeof createClient>,
-  opts?: { projectId?: string },
+  opts?: PathBackfillOptions,
 ): NormalizedPathsBackfillResult {
   const baseConditions = []
   if (opts?.projectId) {
@@ -408,6 +416,7 @@ export function backfillAiReferralPaths(
   const rows = db
     .select({
       id: gaAiReferrals.id,
+      projectId: gaAiReferrals.projectId,
       landingPage: gaAiReferrals.landingPage,
       landingPageNormalized: gaAiReferrals.landingPageNormalized,
     })
@@ -416,30 +425,29 @@ export function backfillAiReferralPaths(
     .all()
 
   let updated = 0
-  let unchanged = 0
-
-  if (rows.length > 0) {
-    db.transaction((tx) => {
-      for (const row of rows) {
-        const next = normalizeUrlPath(row.landingPage)
-        if (next === null) {
-          unchanged++
-          continue
-        }
-        if (row.landingPageNormalized === next) {
-          unchanged++
-          continue
-        }
-        tx.update(gaAiReferrals)
-          .set({ landingPageNormalized: next })
-          .where(eq(gaAiReferrals.id, row.id))
-          .run()
-        updated++
+  const changes = rows.flatMap(row => {
+    const next = normalizeUrlPath(row.landingPage)
+    return next === null || row.landingPageNormalized === next ? [] : [{ row, next }]
+  })
+  if (changes.length > 0) {
+    updated = db.transaction((tx) => {
+      let written = 0
+      for (const { row, next } of changes) {
+        written += tx.update(gaAiReferrals).set({ landingPageNormalized: next }).where(and(
+          eq(gaAiReferrals.id, row.id),
+          eq(gaAiReferrals.projectId, row.projectId),
+          row.landingPage === null ? isNull(gaAiReferrals.landingPage) : eq(gaAiReferrals.landingPage, row.landingPage),
+          row.landingPageNormalized === null
+            ? isNull(gaAiReferrals.landingPageNormalized)
+            : eq(gaAiReferrals.landingPageNormalized, row.landingPageNormalized),
+        )).run().changes
       }
+      return written
     })
+    if (updated < changes.length) opts?.onConflict?.()
   }
 
-  return { examined: rows.length, updated, unchanged }
+  return { examined: rows.length, updated, unchanged: rows.length - updated }
 }
 
 export async function backfillAiReferralPathsCommand(opts?: {
