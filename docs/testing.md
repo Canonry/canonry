@@ -21,7 +21,7 @@ pnpm check
 `pnpm check` and `pnpm lint:changed` lint staged, unstaged, and untracked JS/TS files using their working content.
 They skip deleted files, symlinks, and ESLint-ignored files.
 They run syntax rules and repository guards without loading TypeScript projects. They do not run tests, builds, or code generation.
-They cover local changes, not every committed change on the branch. Contributor CI checks the full workspace.
+They cover local changes, not every committed change on the branch. CI checks the full workspace.
 
 ### Shared lint cache
 
@@ -62,7 +62,7 @@ Changes to `eslint.config.*` or `eslint-rules/` trigger `pnpm run lint` across t
 This fallback does not use the fast cache. It can find new violations in unchanged files.
 For staged checks, code and configuration must match the index before the fallback runs.
 The hook refuses partially staged inputs for full typed lint, because TypeScript reads the project from disk.
-Ordinary code commits retain the fast path. Run relevant typechecks locally for owner changes; contributor CI checks types across the workspace.
+Ordinary code commits retain the fast path. Type-aware findings in those commits remain CI's responsibility.
 
 The commit-message hook checks Conventional Commits.
 Pre-push runs `pnpm gen:check --committed`, `pnpm plugin:check`, and `pnpm val:skills:check`, in that order.
@@ -107,26 +107,18 @@ Recursive builds order the dashboard before Canonry, which reuses its output.
 
 ## Full Workspace Checks
 
-Outside contributions run full workspace validation in CI. Owner changes rely on local checks.
-For a requested full local check or a CI failure reproduction, run `pnpm verify`.
+CI owns full workspace validation. For a requested full local check or a CI failure reproduction, run `pnpm verify`.
 This command includes generated-file drift and documentation assertions. It is not required before each commit or push.
 
 ## CI Mapping
 
-`.github/workflows/change-policy.yml` reads GitHub metadata without checking out or executing contributed code.
-It exempts changes attributed exclusively to `arberx` (GitHub user ID `14798762`).
-An owner PR must come from this repository, have an authenticated owner sender, and contain only owner-authored commits.
-Pushes check every introduced commit and its associated PRs, so merging an outside contribution remains outside work.
-Mixed authorship, unknown attribution, incomplete metadata, or API errors retain the full pipeline.
-Rerunning an outside contribution as the owner does not exempt it.
-The metadata lookup is bounded; changes over 100 commits or 120 API reads use contributor checks.
+`arberx` changes skip automatic validation; outside or unknown authorship runs full CI.
+The shared metadata policy checks PR and commit authors, so merging an outside PR as the owner does not exempt it.
+All release workflows stay enabled: npm, Homebrew, Docker, ClawHub, and WordPress. GitHub handles merge conflicts.
+Owner releases build and pack directly in Publish; outside releases use the exact validated CI artifact.
+For owner changes, report local checks instead of treating skipped CI as a pass.
 
-Owner changes skip all CI validation and Docker, ClawHub, and WordPress deployment.
-Only npm and Homebrew publishing remain automated. GitHub's native merge-conflict handling applies; there is no conflict workflow.
-The metadata job routes the policy; its success and skipped jobs are not validation evidence.
-Scheduled dependency and crawler maintenance keep their existing checks and bot PRs.
-
-For outside contributions, separate jobs in `ci.yml` cover the checks in `pnpm verify`:
+Separate jobs in `ci.yml` cover the checks in `pnpm verify`:
 
 - `pnpm gen:check`
 - `pnpm plugin:check` (CI also supplies `--base-ref`)
@@ -154,7 +146,7 @@ Cache keys separate the OS, architecture, Node major, shard, lockfiles, manifest
 Adding or removing tracked files also invalidates the cache because it can change import resolution.
 Vitest checks module contents before reusing a transform. Changes to transform plugins or their external inputs must also invalidate the CI cache key.
 
-Successful contributor `main` runs warm caches that PRs can restore. Each contributor PR can also reuse its own caches.
+Successful `main` runs warm caches that PRs can restore. Each PR can also reuse its own caches.
 A cache miss runs the checks normally. Local test commands keep their existing behavior.
 To bypass the test compilation caches in CI, omit the two `--experimental` flags and set `NODE_DISABLE_COMPILE_CACHE=1`.
 
@@ -163,14 +155,12 @@ For outside contributions, npm publishing waits for the `validate` job of the `c
 The Docker image build is outside it, so a Docker failure cannot skip npm; Docker publishes from its own Publish job.
 It does not repeat typechecks or an unsharded test suite. Failed, cancelled, missing, or timed-out validation blocks publication.
 The wait has a 25-minute deadline. After fixing CI, rerun the failed Publish jobs to retry the gate.
-If metadata lookup failures caused CI and Publish to choose different policies, rerun both workflows;
-Publish refuses a skipped validation job when its own policy requires contributor checks.
 
 Before each image build, CI and Publish run `scripts/pull-docker-base-images.sh Dockerfile`.
 It retries failed pulls with backoff. For ECR Public's Docker Official Images, it also tries the same image on Docker Hub, which has a separate quota.
 BuildKit then uses the local copy instead of the registry, so leave `pull` off in `docker/build-push-action`.
 
-The contributor build job includes the root README, packs Canonry once, and uploads the tarball for the install smoke test and npm publication.
+The build job includes the root README, packs Canonry once, and uploads the tarball for the install smoke test and npm publication.
 The smoke job installs that artifact in a scratch directory outside the checkout and checks `canonry --version`.
 It then runs `scripts/smoke-sentiment.mjs` against the installed package. Checkout dependencies only seed synthetic data and run the harness;
 the server, CLI, HTTP MCP, and stdio MCP behavior comes from the installed binaries.
@@ -180,9 +170,7 @@ Reports, provider receipts, and redacted failure logs are uploaded as `packaged-
 For outside contributions, Publish downloads the artifact from the push CI run whose `validate` job passed for the exact release commit.
 It publishes the tested primary tarball unchanged and repacks its contents with the compatibility package name.
 Neither publication runs build or lifecycle scripts. Missing artifacts or a mismatched package name or version stop publication.
-Owner releases build and pack in Publish without running tests, lint, drift checks, or the CI wait.
-They publish that release artifact through the same tarball publisher, then update Homebrew.
-Artifacts remain available for seven days; after expiry, rerun the build workflow for the applicable policy before retrying publication.
+Artifacts remain available for seven days; after expiry, rerun CI before retrying publication.
 
 For a local artifact dry run, set `CANONRY_NPM_PUBLISH_TARBALL` to the absolute tarball path and run
 `CANONRY_NPM_PUBLISH_DRY_RUN=1 node scripts/publish-canonry-npm.mjs`.

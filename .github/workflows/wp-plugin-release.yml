@@ -10,15 +10,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  policy:
-    uses: ./.github/workflows/change-policy.yml
-    permissions:
-      contents: read
-      pull-requests: read
-
   release:
-    needs: policy
-    if: needs.policy.outputs.owner_only != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -119,31 +119,6 @@ jobs:
             echo "docker_changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-  owner-build:
-    name: Build owner release package
-    needs: [policy, version]
-    if: github.ref_name == github.event.repository.default_branch && github.event_name == 'push' && needs.policy.outputs.owner_only == 'true' && needs.version.outputs.version_changed == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup
-      - run: pnpm run build
-        name: Build Canonry package
-      - name: Pack owner release package
-        working-directory: packages/canonry
-        run: |
-          cp ../../README.md README.md
-          pnpm pack --pack-destination "$RUNNER_TEMP/canonry-package"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: canonry-package
-          path: ${{ runner.temp }}/canonry-package/*.tgz
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 7
-
   ci:
     name: Wait for CI
     needs: [policy, version]
@@ -210,12 +185,12 @@ jobs:
             throw new Error(`Timed out waiting for successful CI on ${context.sha}`);
 
   publish-npm:
-    needs: [policy, version, plugin-drift, ci, owner-build]
+    needs: [policy, version, plugin-drift, ci]
     if: >-
       !cancelled() && needs.policy.result == 'success' && needs.version.result == 'success' &&
       github.ref_name == github.event.repository.default_branch && github.event_name == 'push' &&
       needs.version.outputs.version_changed == 'true' &&
-      ((needs.policy.outputs.owner_only == 'true' && needs['owner-build'].result == 'success') ||
+      (needs.policy.outputs.owner_only == 'true' ||
        (needs.policy.outputs.owner_only == 'false' && needs['plugin-drift'].result == 'success' &&
         needs.ci.result == 'success' && needs.ci.outputs.run_id != ''))
     runs-on: ubuntu-latest
@@ -231,13 +206,24 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      # Owner releases use this workflow's package build. Outside contributions
-      # use the smoke-tested artifact from the successful exact-SHA CI run.
+      - uses: ./.github/actions/setup
+        if: needs.policy.outputs.owner_only == 'true'
+
+      - name: Build and pack owner release
+        if: needs.policy.outputs.owner_only == 'true'
+        run: |
+          pnpm build
+          cp README.md packages/canonry/README.md
+          cd packages/canonry
+          pnpm pack --pack-destination "$RUNNER_TEMP/canonry-package"
+
+      # Outside contributions reuse the smoke-tested exact-SHA CI artifact.
       - uses: actions/download-artifact@v4
+        if: needs.policy.outputs.owner_only == 'false'
         with:
           name: canonry-package
           path: ${{ runner.temp }}/canonry-package
-          run-id: ${{ needs.policy.outputs.owner_only == 'true' && github.run_id || needs.ci.outputs.run_id }}
+          run-id: ${{ needs.ci.outputs.run_id }}
           github-token: ${{ github.token }}
 
       - name: Publish built npm package
@@ -324,7 +310,11 @@ jobs:
 
   publish-clawhub:
     needs: [policy, version, plugin-drift]
-    if: needs.policy.outputs.owner_only == 'false' && github.ref_name == github.event.repository.default_branch && github.event_name == 'push' && needs.version.outputs.version_changed == 'true' && needs.version.outputs.canonry_skill_changed == 'true'
+    if: >-
+      !cancelled() && needs.policy.result == 'success' && needs.version.result == 'success' &&
+      (needs.policy.outputs.owner_only == 'true' || needs['plugin-drift'].result == 'success') &&
+      github.ref_name == github.event.repository.default_branch && github.event_name == 'push' &&
+      needs.version.outputs.version_changed == 'true' && needs.version.outputs.canonry_skill_changed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -354,7 +344,11 @@ jobs:
 
   publish-docker:
     needs: [policy, version, plugin-drift]
-    if: needs.policy.outputs.owner_only == 'false' && github.ref_name == github.event.repository.default_branch && (github.event_name == 'workflow_dispatch' || needs.version.outputs.docker_changed == 'true')
+    if: >-
+      !cancelled() && needs.policy.result == 'success' && needs.version.result == 'success' &&
+      (needs.policy.outputs.owner_only == 'true' || needs['plugin-drift'].result == 'success') &&
+      github.ref_name == github.event.repository.default_branch &&
+      (github.event_name == 'workflow_dispatch' || needs.version.outputs.docker_changed == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read

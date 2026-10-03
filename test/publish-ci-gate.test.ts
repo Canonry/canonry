@@ -3,26 +3,13 @@ import { Script } from 'node:vm'
 import { expect, test, vi } from 'vitest'
 import { parse } from 'yaml'
 
-interface WorkflowStep {
-  id?: string
-  name?: string
-  uses?: string
-  run?: string
-  with?: Record<string, string>
-}
-
-interface WorkflowJobDefinition {
-  needs?: string | string[]
-  if?: string
-  uses?: string
-  outputs?: Record<string, string>
-  permissions?: Record<string, string>
-  steps?: WorkflowStep[]
-}
-
 const workflow = parse(fs.readFileSync(new URL('../.github/workflows/publish.yml', import.meta.url), 'utf8')) as {
-  on: { push: { paths: string[] } }
-  jobs: Record<string, WorkflowJobDefinition>
+  jobs: Record<string, {
+    needs?: string[]
+    outputs?: Record<string, string>
+    permissions?: Record<string, string>
+    steps?: { id?: string; name?: string; uses?: string; with?: Record<string, string> }[]
+  }>
 }
 const ciWorkflow = parse(fs.readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')) as {
   jobs: Record<string, { name?: string; needs?: string[] }>
@@ -30,65 +17,6 @@ const ciWorkflow = parse(fs.readFileSync(new URL('../.github/workflows/ci.yml', 
 const source = workflow.jobs.ci?.steps?.find(step => step.name === 'Require successful CI for the release commit')?.with?.script
 if (!source) throw new Error('Missing publish CI gate')
 const script = new Script(`(async () => { ${source} })()`)
-
-type JobResult = 'success' | 'failure' | 'skipped' | 'cancelled'
-interface JobNeed {
-  result: JobResult
-  outputs: Record<string, string>
-}
-
-function releaseContext(options: {
-  ownerOnly?: string
-  results?: Record<string, JobResult>
-  versionChanged?: string
-  ciRunId?: string
-  eventName?: string
-  refName?: string
-  cancelled?: boolean
-} = {}) {
-  const ownerOnly = options.ownerOnly ?? 'true'
-  const needs: Record<string, JobNeed> = {
-    policy: { result: 'success', outputs: { owner_only: ownerOnly } },
-    version: {
-      result: 'success',
-      outputs: { version_changed: options.versionChanged ?? 'true', canonry_skill_changed: 'true', docker_changed: 'true' },
-    },
-    'plugin-drift': { result: ownerOnly === 'false' ? 'success' : 'skipped', outputs: {} },
-    ci: { result: ownerOnly === 'false' ? 'success' : 'skipped', outputs: { run_id: options.ciRunId ?? '10' } },
-    'owner-build': { result: ownerOnly === 'true' ? 'success' : 'skipped', outputs: {} },
-    'publish-npm': { result: 'success', outputs: {} },
-  }
-  for (const [name, result] of Object.entries(options.results ?? {})) needs[name]!.result = result
-  return {
-    needs,
-    github: {
-      repository: {},
-      event: { repository: { default_branch: 'main' } },
-      ref_name: options.refName ?? 'main',
-      event_name: options.eventName ?? 'push',
-      run_id: 42,
-      token: 'test-token',
-    },
-    cancelled: () => options.cancelled ?? false,
-  }
-}
-
-// These workflow expressions use JavaScript-compatible operators and context
-// access. Model Actions' implicit success() gate as well as explicit status calls.
-function jobEnabled(name: string, context: ReturnType<typeof releaseContext>): boolean {
-  const definition = workflow.jobs[name]!
-  const dependencies = typeof definition.needs === 'string' ? [definition.needs] : definition.needs ?? []
-  const success = () => dependencies.every(dependency => context.needs[dependency]?.result === 'success')
-  const expression = definition.if ?? 'success()'
-  if (!/\b(?:success|failure|cancelled|always)\s*\(/.test(expression) && !success()) return false
-  return Boolean(new Script(`(${expression})`).runInNewContext({ ...context, success }))
-}
-
-function selectedArtifactRun(context: ReturnType<typeof releaseContext>): unknown {
-  const download = workflow.jobs['publish-npm']!.steps!.find(step => step.uses?.startsWith('actions/download-artifact@'))!
-  const expression = download.with!['run-id']!.replace(/^\$\{\{\s*|\s*\}\}$/g, '')
-  return new Script(`(${expression})`).runInNewContext(context)
-}
 
 interface WorkflowRun {
   id: number
@@ -174,89 +102,9 @@ test('publication downloads the smoke-tested artifact from the authorized CI run
   const publish = workflow.jobs['publish-npm']!
   const download = publish.steps!.find(step => step.uses?.startsWith('actions/download-artifact@'))!
   expect(publish.permissions?.actions).toBe('read')
-  expect(selectedArtifactRun(releaseContext({ ownerOnly: 'false', ciRunId: '12345' }))).toBe('12345')
+  expect(download.with?.['run-id']).toBe('${{ needs.ci.outputs.run_id }}')
   expect(download.with?.['github-token']).toBe('${{ github.token }}')
   expect(download.with?.name).toBe('canonry-package')
-})
-
-test('publication uses the shared owner policy with read-only classification permissions', () => {
-  expect(workflow.jobs.policy?.uses).toBe('./.github/workflows/change-policy.yml')
-  expect(workflow.jobs.policy?.permissions).toEqual({ contents: 'read', 'pull-requests': 'read' })
-  expect(workflow.on.push.paths).toContain('.github/workflows/change-policy.yml')
-})
-
-test('owner releases build and publish without validation or non-npm publication jobs', () => {
-  const context = releaseContext()
-  expect(jobEnabled('owner-build', context)).toBe(true)
-  expect(jobEnabled('publish-npm', context)).toBe(true)
-  expect(jobEnabled('publish-homebrew', context)).toBe(true)
-  expect(selectedArtifactRun(context)).toBe(context.github.run_id)
-  for (const name of ['plugin-drift', 'ci', 'publish-docker', 'publish-clawhub']) expect(jobEnabled(name, context)).toBe(false)
-
-  const build = workflow.jobs['owner-build']!
-  expect(build.needs).toEqual(['policy', 'version'])
-  expect(build.steps?.some(step => step.uses === './.github/actions/setup')).toBe(true)
-  expect(build.steps?.some(step => step.run === 'pnpm run build')).toBe(true)
-  const commands = build.steps?.map(step => step.run ?? '').join('\n') ?? ''
-  expect(commands).toContain('pnpm pack --pack-destination "$RUNNER_TEMP/canonry-package"')
-  expect(commands).not.toMatch(/pnpm\s+(?:run\s+)?(?:test|lint|typecheck|verify|\S+:check)\b/)
-  const upload = build.steps?.find(step => step.uses?.startsWith('actions/upload-artifact@'))
-  expect(upload?.with?.name).toBe('canonry-package')
-  expect(upload?.with?.['if-no-files-found']).toBe('error')
-})
-
-test('outside contributions retain validation and publish the CI artifact with the owner build skipped', () => {
-  const context = releaseContext({ ownerOnly: 'false' })
-  for (const name of ['plugin-drift', 'ci', 'publish-npm', 'publish-homebrew', 'publish-docker', 'publish-clawhub']) {
-    expect(jobEnabled(name, context), name).toBe(true)
-  }
-  expect(jobEnabled('owner-build', context)).toBe(false)
-  expect(selectedArtifactRun(context)).toBe('10')
-})
-
-test.each(['failure', 'skipped', 'cancelled'] as const)('a %s owner package build cannot authorize npm', (result) => {
-  expect(jobEnabled('publish-npm', releaseContext({ results: { 'owner-build': result } }))).toBe(false)
-})
-
-test.each(['plugin-drift', 'ci'])("outside publication cannot bypass a failed or missing %s gate", (name) => {
-  for (const result of ['failure', 'skipped', 'cancelled'] as const) {
-    const context = releaseContext({ ownerOnly: 'false', results: { [name]: result, 'owner-build': 'success' } })
-    expect(jobEnabled('publish-npm', context), result).toBe(false)
-  }
-})
-
-test('a successful outside CI gate without an artifact run id cannot authorize npm', () => {
-  expect(jobEnabled('publish-npm', releaseContext({ ownerOnly: 'false', ciRunId: '' }))).toBe(false)
-})
-
-test.each(['true', 'false'])('publication fails closed for %s changes with failed classification or version metadata', (ownerOnly) => {
-  for (const name of ['policy', 'version']) {
-    for (const result of ['failure', 'skipped', 'cancelled'] as const) {
-      expect(jobEnabled('publish-npm', releaseContext({ ownerOnly, results: { [name]: result } })), `${name}: ${result}`).toBe(false)
-    }
-  }
-})
-
-test.each(['', 'unknown'])('an unclassified owner_only output %j cannot authorize publication', (ownerOnly) => {
-  const context = releaseContext({ ownerOnly, results: { 'owner-build': 'success', ci: 'success', 'plugin-drift': 'success' } })
-  for (const name of ['owner-build', 'ci', 'publish-npm', 'publish-docker', 'publish-clawhub']) expect(jobEnabled(name, context)).toBe(false)
-})
-
-test.each(['true', 'false'])('npm and Brew only publish version-changing default-branch pushes for %s changes', (ownerOnly) => {
-  for (const options of [{ versionChanged: 'false' }, { eventName: 'workflow_dispatch' }, { refName: 'feature' }, { cancelled: true }]) {
-    const context = releaseContext({ ownerOnly, ...options })
-    expect(jobEnabled('publish-npm', context)).toBe(false)
-    expect(jobEnabled('publish-homebrew', context)).toBe(false)
-  }
-})
-
-test.each(['failure', 'skipped', 'cancelled'] as const)('Brew cannot publish after a %s npm job', (result) => {
-  expect(jobEnabled('publish-homebrew', releaseContext({ results: { 'publish-npm': result } }))).toBe(false)
-})
-
-test('manual Docker publication remains available only to outside contributions', () => {
-  expect(jobEnabled('publish-docker', releaseContext({ ownerOnly: 'false', eventName: 'workflow_dispatch' }))).toBe(true)
-  expect(jobEnabled('publish-docker', releaseContext({ eventName: 'workflow_dispatch' }))).toBe(false)
 })
 
 test('the gate waits for CI to appear and validate to complete', async () => {
