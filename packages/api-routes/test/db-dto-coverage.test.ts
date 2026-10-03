@@ -866,6 +866,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
   // Add to this set when you create a table that has no consumer-facing
   // shape — write-only audit rows, auth secrets, internal aggregates,
   // hot-path rollups consumed via composite endpoints, etc.
+  dataRepairCompletions: {
+    kind: 'internal-only',
+    reason: 'Install-wide startup repair versions and completion timestamps; internal migration bookkeeping with no public DTO.',
+  },
   auditLog: {
     kind: 'internal-only',
     reason: 'Write-only audit trail; queried via composite endpoints, not directly mapped to a DTO.',

@@ -207,6 +207,21 @@ test('migrate renames legacy keyword schema before bootstrap indexes run', () =>
       created_at  TEXT NOT NULL
     );
 
+    -- This fixture records v46; GA traffic already exists from v13, v29, v44 and v45.
+    CREATE TABLE ga_traffic_snapshots (
+      id                      TEXT PRIMARY KEY,
+      project_id              TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      date                    TEXT NOT NULL,
+      landing_page            TEXT NOT NULL,
+      sessions                INTEGER NOT NULL DEFAULT 0,
+      organic_sessions        INTEGER NOT NULL DEFAULT 0,
+      users                   INTEGER NOT NULL DEFAULT 0,
+      synced_at               TEXT NOT NULL,
+      sync_run_id             TEXT REFERENCES runs(id) ON DELETE CASCADE,
+      landing_page_normalized TEXT,
+      direct_sessions         INTEGER
+    );
+
     CREATE TABLE query_snapshots (
       id                      TEXT PRIMARY KEY,
       run_id                  TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
