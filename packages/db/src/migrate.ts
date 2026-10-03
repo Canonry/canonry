@@ -4481,6 +4481,17 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE projects ADD COLUMN qualified_aliases TEXT NOT NULL DEFAULT '[]'`,
     ],
   },
+  {
+    version: 167,
+    name: 'data-repair-completions',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS data_repair_completions (
+        name TEXT PRIMARY KEY NOT NULL,
+        version INTEGER NOT NULL,
+        completed_at TEXT NOT NULL
+      )`,
+    ],
+  },
 ]
 
 /**

@@ -117,6 +117,57 @@ test('evicts by bounded count and age, including while idle until the next read'
   expect(store.list({ limit: 10 })).toMatchObject({ entries: [], dropped: 3 })
 })
 
+test('enforces retention on append alone, including expired arrivals and overlapping limits', () => {
+  const { db } = fixture()
+  let now = new Date('2026-09-11T00:00:00.000Z')
+  const store = new OperationalLogStore(db, { maxEntries: 2, maxAgeMs: 1_000, now: () => now })
+  append(store, 1)
+  append(store, 2, { ts: '2026-09-11T00:00:00.500Z' })
+  now = new Date('2026-09-11T00:00:01.500Z')
+  append(store, 3, { ts: now.toISOString() })
+  // Inspect storage directly so list-time cleanup cannot conceal a failed append bound.
+  expect(db.all(sql`SELECT sequence, action FROM runtime_logs ORDER BY sequence`)).toEqual([
+    { sequence: 2, action: 'run.2' },
+    { sequence: 3, action: 'run.3' },
+  ])
+  expect(db.all(sql`SELECT next_sequence, dropped FROM runtime_log_metadata`)).toEqual([
+    { next_sequence: 4, dropped: 1 },
+  ])
+
+  append(store, 4)
+  expect(db.all(sql`SELECT sequence, action FROM runtime_logs ORDER BY sequence`)).toEqual([
+    { sequence: 3, action: 'run.3' },
+  ])
+  expect(db.all(sql`SELECT next_sequence, dropped FROM runtime_log_metadata`)).toEqual([
+    { next_sequence: 5, dropped: 3 },
+  ])
+  expect(db.$client.pragma('busy_timeout', { simple: true })).toBe(5_000)
+})
+
+test('rolls back the appended entry and sequence when retention fails', () => {
+  const { db } = fixture()
+  const store = new OperationalLogStore(db, { maxEntries: 1 })
+  append(store, 1)
+  db.run(sql.raw(`
+    CREATE TRIGGER runtime_logs_reject_delete
+    BEFORE DELETE ON runtime_logs
+    BEGIN SELECT RAISE(ABORT, 'simulated retention failure'); END
+  `))
+  append(store, 2)
+  expect(db.all(sql`SELECT sequence, action FROM runtime_logs`)).toEqual([
+    { sequence: 1, action: 'run.1' },
+  ])
+  expect(db.all(sql`SELECT next_sequence, dropped, capture_errors FROM runtime_log_metadata`)).toEqual([
+    { next_sequence: 2, dropped: 0, capture_errors: 1 },
+  ])
+  db.run(sql.raw('DROP TRIGGER runtime_logs_reject_delete'))
+  append(store, 3)
+  expect(db.all(sql`SELECT sequence, action FROM runtime_logs`)).toEqual([
+    { sequence: 2, action: 'run.3' },
+  ])
+  expect(store.list({ limit: 10 })).toMatchObject({ dropped: 1, captureErrors: 1 })
+})
+
 test('paginates stable same-timestamp filters and rejects foreign or changed-filter cursors', () => {
   const { db } = fixture()
   const store = new OperationalLogStore(db)

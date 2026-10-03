@@ -76,11 +76,12 @@ export class OperationalLogStore {
   append(event: RuntimeLogEvent): void {
     try {
       const entry = projectEvent(event)
-      if (Buffer.byteLength(JSON.stringify(entry), 'utf8') > MAX_ENTRY_BYTES) {
+      const entryBytes = Buffer.byteLength(JSON.stringify(entry), 'utf8')
+      if (entryBytes > MAX_ENTRY_BYTES) {
         throw new RangeError(`Operational log entry exceeds ${MAX_ENTRY_BYTES} bytes.`)
       }
+      // Acquire the writer lock before reading the sequence; prune once after insert.
       this.withoutLockWait(() => this.db.transaction((tx) => {
-        this.prune(tx)
         const metadata = readMetadata(tx)
         tx.run(sql`
           INSERT INTO runtime_logs (
@@ -88,12 +89,12 @@ export class OperationalLogStore {
           ) VALUES (
             ${metadata.nextSequence}, ${entry.ts}, ${entry.level}, ${entry.module}, ${entry.action}, ${entry.message ?? null},
             ${entry.projectId ?? null}, ${entry.runId ?? null}, ${entry.context.actor ?? null}, ${entry.context.requestId ?? null},
-            ${JSON.stringify(entry.context)}, ${Buffer.byteLength(JSON.stringify(entry), 'utf8')}
+            ${JSON.stringify(entry.context)}, ${entryBytes}
           )
         `)
         tx.run(sql`UPDATE runtime_log_metadata SET next_sequence = ${metadata.nextSequence + 1} WHERE id = ${METADATA_ID}`)
         this.prune(tx)
-      }))
+      }, { behavior: 'immediate' }))
     } catch {
       this.recordCaptureError()
     }
