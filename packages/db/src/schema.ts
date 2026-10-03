@@ -1672,6 +1672,7 @@ export const gaTrafficSnapshots = sqliteTable('ga_traffic_snapshots', {
   syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),
 }, (table) => [
   index('idx_ga_traffic_project_date').on(table.projectId, table.date),
+  index('idx_ga_traffic_project_id').on(table.projectId, table.id),
   index('idx_ga_traffic_page').on(table.landingPage),
   index('idx_ga_traffic_page_normalized').on(table.projectId, table.date, table.landingPageNormalized),
   index('idx_ga_traffic_run').on(table.syncRunId),

@@ -1,5 +1,6 @@
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import { createRunCompetitorResolver } from '@ainyc/canonry-api-routes'
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from 'drizzle-orm'
 import type { GroundingSource, NormalizedQueryResult, NormalizedTrafficRequest, RetrievalContract, RetrievalStatus } from '@ainyc/canonry-contracts'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { aiUserFetchEventsHourly, auditLog, crawlerEventsHourly, createClient, gaAiReferrals, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, rawEventSamples, runs } from '@ainyc/canonry-db'
@@ -20,6 +21,7 @@ import {
 } from '../citation-utils.js'
 
 const SNAPSHOT_BATCH_SIZE = 500
+const NORMALIZED_PATHS_BATCH_SIZE = 128
 
 export async function backfillAnswerVisibilityCommand(opts?: {
   project?: string
@@ -254,9 +256,9 @@ export interface NormalizedPathsBackfillResult {
 }
 
 /**
- * Pure helper: backfill `ga_traffic_snapshots.landing_page_normalized` for
- * rows where it is currently null, using whatever DB client the caller has
- * already opened. Idempotent — only touches rows with null normalized.
+ * Repair missing and stale `ga_traffic_snapshots.landing_page_normalized`
+ * values in bounded pages, using the caller's database. Each page commits
+ * before yielding; completed pages remain repaired if a later page fails.
  *
  * Used by both the CLI command (`canonry backfill normalized-paths`) and
  * the server startup path (`canonry serve` runs it post-migrate so users
@@ -267,59 +269,69 @@ export interface NormalizedPathsBackfillResult {
  * the canonical form. Click-ID-fragmented variants (e.g. `/?fbclid=A` vs
  * `/?fbclid=B`) only collapse after this backfill runs.
  */
-export function backfillNormalizedPaths(
+export async function backfillNormalizedPaths(
   db: ReturnType<typeof createClient>,
   opts?: { projectId?: string },
-): NormalizedPathsBackfillResult {
-  const baseConditions = []
-  if (opts?.projectId) {
-    baseConditions.push(eq(gaTrafficSnapshots.projectId, opts.projectId))
-  }
+): Promise<NormalizedPathsBackfillResult> {
+  const projectScope = opts?.projectId ? eq(gaTrafficSnapshots.projectId, opts.projectId) : undefined
+  // Do not chase new ids beyond the end of this pass while yielding to writers.
+  const lastId = db.select({ id: gaTrafficSnapshots.id }).from(gaTrafficSnapshots)
+    .where(projectScope).orderBy(desc(gaTrafficSnapshots.id)).limit(1).get()?.id
+  if (lastId === undefined) return { examined: 0, updated: 0, unchanged: 0 }
 
-  const rows = db
-    .select({
+  let cursor: string | undefined
+  let examined = 0
+  let updated = 0
+
+  do {
+    const rows = db.select({
       id: gaTrafficSnapshots.id,
+      projectId: gaTrafficSnapshots.projectId,
       landingPage: gaTrafficSnapshots.landingPage,
       landingPageNormalized: gaTrafficSnapshots.landingPageNormalized,
+    }).from(gaTrafficSnapshots).where(and(
+      projectScope,
+      lte(gaTrafficSnapshots.id, lastId),
+      cursor === undefined ? undefined : gt(gaTrafficSnapshots.id, cursor),
+    )).orderBy(asc(gaTrafficSnapshots.id)).limit(NORMALIZED_PATHS_BATCH_SIZE).all()
+    if (rows.length === 0) break
+    examined += rows.length
+
+    const changes = rows.flatMap(row => {
+      const next = normalizeUrlPath(row.landingPage)
+      return next === null || row.landingPageNormalized === next ? [] : [{ row, next }]
     })
-    .from(gaTrafficSnapshots)
-    .where(baseConditions.length > 0 ? and(...baseConditions) : undefined)
-    .all()
-
-  let updated = 0
-  let unchanged = 0
-
-  if (rows.length > 0) {
-    db.transaction((tx) => {
-      for (const row of rows) {
-        const next = normalizeUrlPath(row.landingPage)
-        // If normalization still can't produce a canonical path, leave the
-        // row as-is. Otherwise, rewrite whenever the stored normalized value
-        // is missing or stale, so improved normalization logic can repair
-        // older rows after upgrades.
-        if (next === null) {
-          unchanged++
-          continue
+    if (changes.length > 0) {
+      updated += db.transaction((tx) => {
+        let written = 0
+        for (const { row, next } of changes) {
+          // A concurrent sync may replace or repair a row after the page read.
+          // Leave that row untouched; a later pass can inspect its new value.
+          written += tx.update(gaTrafficSnapshots).set({ landingPageNormalized: next }).where(and(
+            eq(gaTrafficSnapshots.id, row.id),
+            eq(gaTrafficSnapshots.projectId, row.projectId),
+            eq(gaTrafficSnapshots.landingPage, row.landingPage),
+            row.landingPageNormalized === null
+              ? isNull(gaTrafficSnapshots.landingPageNormalized)
+              : eq(gaTrafficSnapshots.landingPageNormalized, row.landingPageNormalized),
+          )).run().changes
         }
-        if (row.landingPageNormalized === next) {
-          unchanged++
-          continue
-        }
-        tx.update(gaTrafficSnapshots)
-          .set({ landingPageNormalized: next })
-          .where(eq(gaTrafficSnapshots.id, row.id))
-          .run()
-        updated++
-      }
-    })
-  }
+        return written
+      })
+    }
 
-  return { examined: rows.length, updated, unchanged }
+    cursor = rows.at(-1)!.id
+    if (rows.length < NORMALIZED_PATHS_BATCH_SIZE || cursor === lastId) break
+    await yieldToEventLoop()
+  } while (cursor !== lastId)
+
+  // Unchanged means this pass did not write the examined row, including races.
+  return { examined, updated, unchanged: examined - updated }
 }
 
 /**
  * CLI entrypoint. Loads config, opens the DB, runs migrations, calls the
- * pure helper, and prints a human or JSON summary.
+ * bounded repair, and prints a human or JSON summary.
  */
 export async function backfillNormalizedPathsCommand(opts?: {
   project?: string
@@ -354,7 +366,7 @@ export async function backfillNormalizedPathsCommand(opts?: {
     projectId = project.id
   }
 
-  const { examined, updated, unchanged } = backfillNormalizedPaths(db, { projectId })
+  const { examined, updated, unchanged } = await backfillNormalizedPaths(db, { projectId })
 
   const result = {
     project: projectFilter ?? null,

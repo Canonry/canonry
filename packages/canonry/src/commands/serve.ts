@@ -102,14 +102,12 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
   const db = createClient(config.database)
   migrate(db)
 
-  // Auto-backfill landing_page_normalized for any rows still null after
-  // migration v44. Idempotent: only touches rows with null normalized,
-  // returns immediately when there's nothing to do. Without this, click-
-  // ID-fragmented historical rows in ga_traffic_snapshots would only
+  // Repair missing and stale landing_page_normalized values in bounded
+  // pages. Without this, click-ID-fragmented ga_traffic_snapshots would only
   // collapse in dashboards after the user manually ran
   // `canonry backfill normalized-paths`.
   try {
-    const result = backfillNormalizedPaths(db)
+    const result = await backfillNormalizedPaths(db)
     if (result.updated > 0 && format === 'text') {
       console.log(
         `Migrated ${result.updated} GA landing-page row${result.updated === 1 ? '' : 's'} to canonical form.`,

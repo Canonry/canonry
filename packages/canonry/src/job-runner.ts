@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import { and, asc, count, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { recordSentimentCompletion, parseJsonColumn, providerBatches, providerBatchRequests, runFills, runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
@@ -51,6 +52,8 @@ export async function runWithConcurrency<T>(
 }
 
 const PROVIDER_FANOUT_DEFAULT = 8
+const BATCH_INGEST_CHUNK_SIZE = 32
+const BATCH_INGEST_PAYLOAD_BYTES = 1024 * 1024
 
 /**
  * One expected slot of a run's frozen manifest, ready to dispatch: one
@@ -120,6 +123,19 @@ interface SlotDispatch {
   providerBatchId: string | null
   /** The price tier the answer was billed at, for its cost estimate. */
   pricingTier: PricingTier
+}
+
+interface PreparedSlot {
+  snapshot: typeof querySnapshots.$inferInsert
+  report: (inserted: boolean) => void
+}
+
+interface PreparedBatchLine {
+  requestId: string
+  slot: PreparedSlot | null
+  outcome: ProviderBatchRequestOutcome
+  error: string | null
+  report?: () => void
 }
 
 const SYNC_SLOT_DISPATCH: SlotDispatch = {
@@ -1946,10 +1962,10 @@ export class JobRunner {
   /**
    * Read an ended batch's results into its run: every line mapped by
    * `custom_id` to its slot, parsed by the adapter's own parser and recorded
-   * through `recordSlot`, exactly like a sync answer but at the batch tier.
+   * through the shared slot preparation, like a sync answer at the batch tier.
    *
-   * Idempotent across crashes. Each line's outcome is written as soon as it is
-   * handled and a handled line is skipped on the next pass; the insert does
+   * Idempotent across crashes. Bounded chunks commit each snapshot together
+   * with its outcome; handled lines are skipped on the next pass. The insert does
    * nothing on a slot that is already answered; the reservation of unbilled
    * lines is released under `quota_released`, in the same transaction that
    * marks the batch `ingested`. Answers are scored against the project's
@@ -1973,86 +1989,164 @@ export class JobRunner {
       .where(eq(providerBatchRequests.batchId, batch.id)).all()
       .map(row => [row.id, row]))
     const ctx: SlotRecordingContext = { ...this.buildRunRecordingContext(batch.runId, batch.projectId), onInserted: () => {} }
+    const pending: PreparedBatchLine[] = []
+    let pendingBytes = 0
+    const queued = new Set<string>()
+    const flush = (): boolean => {
+      if (pending.length === 0) return true
+      // Remove the attempted chunk before writing: a failed transaction is
+      // replayed by the next ingest, never silently retried by the stream catch.
+      const chunk = pending.splice(0)
+      pendingBytes = 0
+      const settled = this.persistBatchLines(batch, chunk)
+      if (!settled) return false
+      for (const result of settled) {
+        const request = requests.get(result.line.requestId)!
+        requests.set(request.id, { ...request, outcome: result.outcome, error: result.line.error })
+        result.line.slot?.report(result.inserted)
+        result.line.report?.()
+      }
+      queued.clear()
+      return true
+    }
     try {
+      let linesSinceYield = 0
       for await (const line of capability.results(batch.providerBatchId, registered.config)) {
+        // Also yield when replaying handled or unknown lines from a large stream.
+        if (linesSinceYield === BATCH_INGEST_CHUNK_SIZE) {
+          await yieldToEventLoop()
+          linesSinceYield = 0
+        }
+        linesSinceYield++
+        if (this.db.select({ status: providerBatches.status }).from(providerBatches)
+          .where(eq(providerBatches.id, batch.id)).get()?.status !== ProviderBatchStatuses.ended) return { kind: 'cancelled' }
         const request = requests.get(line.customId)
         if (!request) {
           log.warn('batch.unknown-line', { batchId: batch.id, provider: batch.provider, customId: line.customId })
           continue
         }
-        // Handled by an earlier pass that was interrupted.
-        if (request.outcome !== null) continue
-        // Cancelled with its run while the lines were streaming: record nothing more.
-        if (this.db.select({ status: providerBatches.status }).from(providerBatches).where(eq(providerBatches.id, batch.id)).get()?.status !== ProviderBatchStatuses.ended) {
-          return { kind: 'cancelled' }
+        if (request.outcome !== null || queued.has(request.id)) continue
+        // Preparation can await remote citation resolution; no write lock is held.
+        const prepared = await this.prepareBatchLine(ctx, registered, batch, request, line)
+        // These serialized fields dominate retained answer data. Avoid another
+        // whole-payload serialization just to budget a chunk; one oversized
+        // answer is allowed alone and flushed immediately.
+        const payloadBytes = Buffer.byteLength(prepared.slot?.snapshot.rawResponse ?? '')
+          + Buffer.byteLength(prepared.slot?.snapshot.answerText ?? '')
+          + Buffer.byteLength(prepared.error ?? '')
+        if (pending.length > 0 && pendingBytes + payloadBytes > BATCH_INGEST_PAYLOAD_BYTES) {
+          if (!flush()) return { kind: 'cancelled' }
+          await yieldToEventLoop()
+          linesSinceYield = 0
         }
-        const settled = await this.ingestBatchLine(ctx, registered, batch, request, line)
-        this.db.update(providerBatchRequests)
-          .set({ outcome: settled.outcome, error: settled.error })
-          .where(and(eq(providerBatchRequests.id, request.id), isNull(providerBatchRequests.outcome)))
-          .run()
-        requests.set(request.id, { ...request, outcome: settled.outcome })
+        pending.push(prepared)
+        pendingBytes += payloadBytes
+        queued.add(request.id)
+        if (pending.length === BATCH_INGEST_CHUNK_SIZE || pendingBytes >= BATCH_INGEST_PAYLOAD_BYTES) {
+          if (!flush()) return { kind: 'cancelled' }
+          await yieldToEventLoop()
+          linesSinceYield = 0
+        }
       }
+      if (!flush()) return { kind: 'cancelled' }
     } catch (err: unknown) {
-      if (!(err instanceof RunCancelledError)) throw err
+      let failure = err
+      if (!(failure instanceof RunCancelledError)) {
+        // Keep the successfully prepared tail when a remote stream drops. The
+        // next pass skips its committed ledger rows and resumes the missing ones.
+        try {
+          if (!flush()) return { kind: 'cancelled' }
+        } catch (flushError: unknown) {
+          failure = flushError
+        }
+      }
+      if (!(failure instanceof RunCancelledError)) throw failure
       this.markBatchesCancelled([batch.id], 'Cancelled because its run is no longer running.')
       return { kind: 'cancelled' }
     }
     return this.completeBatchIngest(batch)
   }
 
-  private async ingestBatchLine(
+  private async prepareBatchLine(
     ctx: SlotRecordingContext,
     registered: RegisteredProvider,
     batch: typeof providerBatches.$inferSelect,
     request: typeof providerBatchRequests.$inferSelect,
     line: ProviderBatchResultLine,
-  ): Promise<{ outcome: ProviderBatchRequestOutcome; error: string | null }> {
-    if (line.type !== 'succeeded') return { outcome: unansweredOutcome(line.type), error: line.error }
+  ): Promise<PreparedBatchLine> {
+    const base = { requestId: request.id, slot: null }
+    if (line.type !== 'succeeded') return { ...base, outcome: unansweredOutcome(line.type), error: line.error }
     const { adapter } = registered
     if (!adapter.parseTrackedQueryResponse) throw new Error(`Provider ${adapter.name} cannot read a batch answer`)
     let raw: RawQueryResult
     try {
       raw = adapter.parseTrackedQueryResponse(line.body, resolveProviderModel(adapter.name, request.requestedModel))
     } catch (err: unknown) {
-      // Where the sync call would have thrown on the same body (Claude: a
-      // failed web search). The answer was billed but cannot be read.
       const error = describeError(err)
-      log.warn('batch.parse-failed', { runId: batch.runId, batchId: batch.id, provider: batch.provider, executionId: request.executionId, error })
-      return { outcome: ProviderBatchRequestOutcomes.parse_failed, error }
+      return {
+        ...base,
+        outcome: ProviderBatchRequestOutcomes.parse_failed,
+        error,
+        report: () => log.warn('batch.parse-failed', { runId: batch.runId, batchId: batch.id, provider: batch.provider, executionId: request.executionId, error }),
+      }
     }
-    const unit: PlanExecutionUnit = {
+    const slot = await this.prepareSlot(ctx, registered, {
       executionId: request.executionId,
       queryText: request.queryText,
       context: request.requestedContext,
       queryId: request.queryId,
       requestedModel: request.requestedModel,
-    }
-    const written = await this.recordSlot(ctx, registered, unit, raw, {
+    }, raw, {
       idempotent: true,
       mode: ProviderDispatchModes.batch,
       providerBatchId: batch.id,
       pricingTier: PricingTiers.batch,
     })
-    if (written) return { outcome: ProviderBatchRequestOutcomes.recorded, error: null }
-    // The slot already has an answer: this batch's own, from a pass that died
-    // before writing the outcome, or another writer's.
-    const existing = this.db.select({ providerBatchId: querySnapshots.providerBatchId }).from(querySnapshots)
-      .where(and(
-        eq(querySnapshots.runId, batch.runId),
-        eq(querySnapshots.measurementExecutionId, request.executionId),
-        eq(querySnapshots.provider, registered.adapter.name),
-      ))
-      .get()
-    return existing?.providerBatchId === batch.id
-      ? { outcome: ProviderBatchRequestOutcomes.recorded, error: null }
-      : { outcome: ProviderBatchRequestOutcomes.duplicate, error: null }
+    return { requestId: request.id, slot, outcome: ProviderBatchRequestOutcomes.recorded, error: null }
+  }
+
+  /** Snapshots and their replay ledger commit together, with no callbacks or awaits. */
+  private persistBatchLines(batch: typeof providerBatches.$inferSelect, lines: readonly PreparedBatchLine[]) {
+    return this.db.transaction((tx) => {
+      if (tx.select({ status: providerBatches.status }).from(providerBatches)
+        .where(eq(providerBatches.id, batch.id)).get()?.status !== ProviderBatchStatuses.ended) return null
+      if (tx.select({ status: runs.status }).from(runs)
+        .where(eq(runs.id, batch.runId)).get()?.status !== RunStatuses.running) throw new RunCancelledError(batch.runId)
+      const settled: Array<{ line: PreparedBatchLine; outcome: ProviderBatchRequestOutcome; inserted: boolean }> = []
+      for (const line of lines) {
+        // Another ingester may have settled this line, or its query may have
+        // been deleted while preparation awaited network evidence.
+        const request = tx.select().from(providerBatchRequests).where(eq(providerBatchRequests.id, line.requestId)).get()
+        if (!request || request.outcome !== null) continue
+        let outcome = line.outcome
+        let inserted = false
+        if (line.slot) {
+          const snapshot = { ...line.slot.snapshot, queryId: request.queryId }
+          inserted = tx.insert(querySnapshots).values(snapshot).onConflictDoNothing().run().changes > 0
+          if (!inserted) {
+            const existing = tx.select({ providerBatchId: querySnapshots.providerBatchId }).from(querySnapshots)
+              .where(and(
+                eq(querySnapshots.runId, batch.runId),
+                eq(querySnapshots.measurementExecutionId, request.executionId),
+                eq(querySnapshots.provider, batch.provider),
+              )).get()
+            outcome = existing?.providerBatchId === batch.id
+              ? ProviderBatchRequestOutcomes.recorded
+              : ProviderBatchRequestOutcomes.duplicate
+          }
+        }
+        tx.update(providerBatchRequests).set({ outcome, error: line.error })
+          .where(and(eq(providerBatchRequests.id, request.id), isNull(providerBatchRequests.outcome))).run()
+        settled.push({ line, outcome, inserted })
+      }
+      return settled
+    }, { behavior: 'immediate' })
   }
 
   /** Close an ingest: counts, the unbilled lines' quota, and `ingested`, in one transaction. */
   private completeBatchIngest(batch: typeof providerBatches.$inferSelect): ProviderBatchIngestResult {
     const at = new Date().toISOString()
-    return this.db.transaction((tx) => {
+    const result = this.db.transaction((tx) => {
       const txDb = tx as unknown as DatabaseClient
       const current = txDb.select().from(providerBatches).where(eq(providerBatches.id, batch.id)).get()
       // Cancelled while its lines were being read: it keeps what was recorded
@@ -2077,9 +2171,15 @@ export class JobRunner {
         .where(and(eq(providerBatches.id, batch.id), eq(providerBatches.status, ProviderBatchStatuses.ended)))
         .run()
       const { recordedCount: recorded, notRecorded } = tally
-      log.info('batch.ingested', { runId: batch.runId, batchId: batch.id, provider: batch.provider, recorded, notRecorded, released })
       return { kind: 'ingested', recorded, notRecorded, released } as const
     })
+    if (result.kind === 'ingested') {
+      log.info('batch.ingested', {
+        runId: batch.runId, batchId: batch.id, provider: batch.provider,
+        recorded: result.recorded, notRecorded: result.notRecorded, released: result.released,
+      })
+    }
+    return result
   }
 
   /**
@@ -2475,6 +2575,22 @@ export class JobRunner {
     raw: RawQueryResult,
     dispatch: SlotDispatch,
   ): Promise<boolean> {
+    const prepared = await this.prepareSlot(ctx, registeredProvider, unit, raw, dispatch)
+    this.throwIfRunCancelled(ctx.runId)
+    const insert = this.db.insert(querySnapshots).values(prepared.snapshot)
+    const written = ctx.fill || dispatch.idempotent ? insert.onConflictDoNothing().run() : insert.run()
+    prepared.report(written.changes > 0)
+    return written.changes > 0
+  }
+
+  /** Resolve network/file evidence and derived fields before opening a write transaction. */
+  private async prepareSlot(
+    ctx: SlotRecordingContext,
+    registeredProvider: RegisteredProvider,
+    unit: PlanExecutionUnit,
+    raw: RawQueryResult,
+    dispatch: SlotDispatch,
+  ): Promise<PreparedSlot> {
     const { adapter } = registeredProvider
     const providerName = adapter.name
     const { domains: competitorDomains, aliases: competitorAliases } = ctx.competitorsFor(unit.executionId)
@@ -2544,7 +2660,7 @@ export class JobRunner {
       screenshotRelPath = `${ctx.runId}/${snapshotId}.png`
     }
 
-    const insert = this.db.insert(querySnapshots).values({
+    const snapshot: typeof querySnapshots.$inferInsert = {
       id: snapshotId,
       runId: ctx.runId,
       queryId: unit.queryId,
@@ -2596,22 +2712,23 @@ export class JobRunner {
         overrides: registeredProvider.config.pricing,
       }),
       createdAt: new Date().toISOString(),
-    })
-    // A fill never overwrites or duplicates a recorded slot: the slot index
-    // decides, and a lost race records nothing rather than failing.
-    const written = ctx.fill || dispatch.idempotent ? insert.onConflictDoNothing().run() : insert.run()
-    if (written.changes > 0) ctx.onInserted()
-    ctx.fill?.onOutcome(providerName, true)
-    log.info('query.citation', {
-      runId: ctx.runId,
-      provider: providerName,
-      query: unit.queryText,
-      executionId: unit.executionId,
-      location: requestedContext?.label ?? null,
-      citationState,
-      answerMentioned,
-    })
-    return written.changes > 0
+    }
+    return {
+      snapshot,
+      report: (inserted) => {
+        if (inserted) ctx.onInserted()
+        ctx.fill?.onOutcome(providerName, true)
+        log.info('query.citation', {
+          runId: ctx.runId,
+          provider: providerName,
+          query: unit.queryText,
+          executionId: unit.executionId,
+          location: requestedContext?.label ?? null,
+          citationState,
+          answerMentioned,
+        })
+      },
+    }
   }
 
   /**

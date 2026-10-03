@@ -4481,6 +4481,13 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE projects ADD COLUMN qualified_aliases TEXT NOT NULL DEFAULT '[]'`,
     ],
   },
+  {
+    version: 167,
+    name: 'ga-traffic-backfill-pagination-index',
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_ga_traffic_project_id ON ga_traffic_snapshots(project_id, id)`,
+    ],
+  },
 ]
 
 /**

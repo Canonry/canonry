@@ -270,7 +270,16 @@ Provider batch lifecycle (`docs/batch-mode.md`):
 - `src/provider-batch-poller.ts` polls with a per-batch backoff, cancels at the
   deadline (then waits an hour for the batch to end), and drives
   `ingestProviderBatch`: lines map by `custom_id` → `parseTrackedQueryResponse`
-  → `recordSlot` (idempotent, `dispatch_mode: batch`, batch price tier).
+  → the shared slot preparation/recording path (idempotent,
+  `dispatch_mode: batch`, batch price tier). Prepare network/file evidence
+  outside transactions, then commit at most 32 snapshots with their request
+  outcomes in one immediate transaction. Flush earlier when the retained
+  serialized raw responses, answer text and errors would exceed 1 MiB; one
+  oversized answer commits alone. Recheck batch/run state and the
+  ledger's current query references before writing. Report each committed
+  result only after commit and yield between count- or byte-limited chunks. A broken stream flushes
+  its prepared tail; cancellation discards the uncommitted tail. An individual
+  answer's preparation cost still depends on its payload size.
   Unbilled lines (`errored|expired|canceled`) release their reservation under
   `quota_released`. Ingest scores answers against the project's identity at
   ingest time, as a fill does. An ended batch whose results stay unreadable is
