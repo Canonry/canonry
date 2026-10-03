@@ -1,2 +1,2 @@
-# Lint staged content only. Full lint, typechecks, and tests run in CI.
+# Lint staged content only. Agents run tests, typechecks, and builds locally.
 node scripts/lint-changed.mjs --staged
