@@ -94,7 +94,7 @@ describe('canonry-api-client', () => {
     expectTypeOf<PostApiV1ProjectsByNameMeasurementDiscoveryData['body']>()
       .toEqualTypeOf<MeasurementDiscoveryRequest>()
     expectTypeOf<GetApiV1ProjectsByNameMeasurementReportData['query']>()
-      .toEqualTypeOf<{ revision: number }>()
+      .toEqualTypeOf<{ revision: number; runId?: string }>()
     expectTypeOf<MeasurementDiscoveryResponse['proposed'][number]['classification']>()
       .toEqualTypeOf<'proposed'>()
     expectTypeOf<MeasurementReportResponse['groups'][number]['targetIds']>()
@@ -103,9 +103,9 @@ describe('canonry-api-client', () => {
 
   it('generates the bounded Site Health graph adapter surface', async () => {
     expectTypeOf<GetApiV1ProjectsByNameTechnicalAeoGraphData['query']>()
-      .toEqualTypeOf<{ runId?: string; maxNodes?: number; maxEdges?: number }>()
+      .toEqualTypeOf<{ runId?: string; maxNodes?: number; maxEdges?: number; linkKind?: 'all' | 'content' | 'template' } | undefined>()
 
-    const fakeFetch = vi.fn(async () =>
+    const fakeFetch = vi.fn(async (_request: Request) =>
       new Response(JSON.stringify({}), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -127,9 +127,9 @@ describe('canonry-api-client', () => {
 
   it('generates task-shaped Site Health agent reads', async () => {
     expectTypeOf<GetApiV1ProjectsByNameTechnicalAeoSubgraphData['query']>()
-      .toEqualTypeOf<{ runId?: string; nodeKey?: string; url?: string; hops?: number; maxNodes?: number; maxEdges?: number }>()
+      .toEqualTypeOf<{ runId?: string; nodeKey?: string; url?: string; hops?: number; maxNodes?: number; maxEdges?: number } | undefined>()
     expectTypeOf<GetApiV1ProjectsByNameTechnicalAeoPathData['query']>()
-      .toEqualTypeOf<{ runId?: string; fromNodeKey?: string; fromUrl?: string; toNodeKey?: string; toUrl?: string; maxDepth?: number }>()
+      .toEqualTypeOf<{ runId?: string; fromNodeKey?: string; fromUrl?: string; toNodeKey?: string; toUrl?: string; maxDepth?: number } | undefined>()
     expectTypeOf<GetApiV1ProjectsByNameTechnicalAeoChangesData['query']>()
       .toEqualTypeOf<{
         fromRunId?: string
@@ -138,9 +138,9 @@ describe('canonry-api-client', () => {
         change?: 'all' | 'added' | 'removed' | 'changed'
         cursor?: string
         limit?: number
-      }>()
+      } | undefined>()
 
-    const fakeFetch = vi.fn(async () => new Response('{}', {
+    const fakeFetch = vi.fn(async (_request: Request) => new Response('{}', {
       status: 200,
       headers: { 'content-type': 'application/json' },
     }))
@@ -167,7 +167,7 @@ describe('canonry-api-client', () => {
     expectTypeOf<GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewData['path']>()
       .toEqualTypeOf<{ name: string; runId: string }>()
 
-    const fakeFetch = vi.fn(async () => new Response('{}', {
+    const fakeFetch = vi.fn(async (_request: Request) => new Response('{}', {
       status: 200,
       headers: { 'content-type': 'application/json' },
     }))
@@ -182,7 +182,7 @@ describe('canonry-api-client', () => {
   })
 
   it('serializes measurement discovery bodies and report revisions', async () => {
-    const fakeFetch = vi.fn(async () =>
+    const fakeFetch = vi.fn(async (_request: Request) =>
       new Response(JSON.stringify({}), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -219,7 +219,7 @@ describe('canonry-api-client', () => {
   })
 
   it('createClient applies bearer auth + base URL to generated operations', async () => {
-    const fakeFetch = vi.fn(async () =>
+    const fakeFetch = vi.fn(async (_request: Request) =>
       new Response(JSON.stringify([]), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -241,7 +241,7 @@ describe('canonry-api-client', () => {
   })
 
   it('createClient omits authorization when no apiKey is given', async () => {
-    const fakeFetch = vi.fn(async () =>
+    const fakeFetch = vi.fn(async (_request: Request) =>
       new Response(JSON.stringify([]), {
         status: 200,
         headers: { 'content-type': 'application/json' },

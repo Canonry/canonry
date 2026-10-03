@@ -365,21 +365,22 @@ jobs:
     # aren't published). Packs canonry the same way the publish workflow
     # does and runs `npm install` against the build job's tarball from a scratch
     # directory — exactly what external users do when they `npm i -g`.
-    # No checkout or workspace dependencies: reuse the completed build while
-    # keeping the install independent of workspace resolution.
+    # Source dependencies only seed synthetic fixtures and run the harness;
+    # runtime behavior uses the completed build installed outside the checkout.
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
       - uses: actions/download-artifact@v4
         with:
           name: canonry-package
           path: ${{ runner.temp }}/canonry-package
       - name: Install canonry from tarball into scratch project
+        id: install
         shell: bash
         run: |
           shopt -s nullglob
@@ -388,11 +389,27 @@ jobs:
             echo "Expected exactly one Canonry package tarball" >&2
             exit 1
           fi
-          SCRATCH=$(mktemp -d)
+          SCRATCH=$(mktemp -d "$RUNNER_TEMP/canonry-install.XXXXXX")
           cd "$SCRATCH"
           npm init -y > /dev/null
           npm install "${tarballs[0]}"
           ./node_modules/.bin/canonry --version
+          echo "package_root=$SCRATCH/node_modules/@canonry/canonry" >> "$GITHUB_OUTPUT"
+      - name: Run synthetic packaged sentiment scenario
+        env:
+          CANONRY_SMOKE_PACKAGE_ROOT: ${{ steps.install.outputs.package_root }}
+          TMPDIR: ${{ runner.temp }}
+        run: pnpm exec tsx scripts/smoke-sentiment.mjs --package-root "$CANONRY_SMOKE_PACKAGE_ROOT"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: packaged-sentiment-smoke
+          path: |
+            ${{ runner.temp }}/canonry-sentiment-stub-*/report.json
+            ${{ runner.temp }}/canonry-sentiment-stub-*/provider-receipts.jsonl
+            ${{ runner.temp }}/canonry-sentiment-stub-*/server-redacted.log
+          if-no-files-found: ignore
+          retention-days: 7
 
   validate:
     runs-on: ubuntu-latest
