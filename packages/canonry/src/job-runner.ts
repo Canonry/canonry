@@ -2018,14 +2018,16 @@ export class JobRunner {
           linesSinceYield = 0
         }
         linesSinceYield++
-        if (this.db.select({ status: providerBatches.status }).from(providerBatches)
-          .where(eq(providerBatches.id, batch.id)).get()?.status !== ProviderBatchStatuses.ended) return { kind: 'cancelled' }
         const request = requests.get(line.customId)
         if (!request) {
           log.warn('batch.unknown-line', { batchId: batch.id, provider: batch.provider, customId: line.customId })
           continue
         }
         if (request.outcome !== null || queued.has(request.id)) continue
+        // Cancelled while the lines were streaming: prepare nothing more. Lines
+        // already handled skip this read; each chunk's write rechecks status.
+        if (this.db.select({ status: providerBatches.status }).from(providerBatches)
+          .where(eq(providerBatches.id, batch.id)).get()?.status !== ProviderBatchStatuses.ended) return { kind: 'cancelled' }
         // Preparation can await remote citation resolution; no write lock is held.
         const prepared = await this.prepareBatchLine(ctx, registered, batch, request, line)
         // These serialized fields dominate retained answer data. Avoid another
@@ -2112,12 +2114,22 @@ export class JobRunner {
         .where(eq(providerBatches.id, batch.id)).get()?.status !== ProviderBatchStatuses.ended) return null
       if (tx.select({ status: runs.status }).from(runs)
         .where(eq(runs.id, batch.runId)).get()?.status !== RunStatuses.running) throw new RunCancelledError(batch.runId)
+      // Another ingester may have settled a line, or its query may have been
+      // deleted while preparation awaited network evidence. One read per chunk.
+      const current = new Map(tx.select({
+        id: providerBatchRequests.id,
+        outcome: providerBatchRequests.outcome,
+        queryId: providerBatchRequests.queryId,
+        executionId: providerBatchRequests.executionId,
+      }).from(providerBatchRequests)
+        .where(inArray(providerBatchRequests.id, lines.map(line => line.requestId))).all()
+        .map(row => [row.id, row]))
       const settled: Array<{ line: PreparedBatchLine; outcome: ProviderBatchRequestOutcome; inserted: boolean }> = []
       for (const line of lines) {
-        // Another ingester may have settled this line, or its query may have
-        // been deleted while preparation awaited network evidence.
-        const request = tx.select().from(providerBatchRequests).where(eq(providerBatchRequests.id, line.requestId)).get()
+        const request = current.get(line.requestId)
         if (!request || request.outcome !== null) continue
+        // Settle each ledger row once, even if a chunk repeats its line.
+        current.delete(line.requestId)
         let outcome = line.outcome
         let inserted = false
         if (line.slot) {
