@@ -16,7 +16,7 @@
   },
   "types": "./src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run --config ../../vitest.package.config.ts",
     "lint": "eslint src/ test/ codegen.ts",
     "gen": "node --import tsx codegen.ts",

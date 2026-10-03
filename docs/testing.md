@@ -47,6 +47,10 @@ pnpm --filter @ainyc/canonry-contracts typecheck
 Replace the project, test path, and package with the affected scope.
 After another edit or rebase, rerun only the affected checks.
 
+The generated SDK package's `typecheck` also compiles its tests through
+`packages/api-client-generated/tsconfig.test.json`. This checks `expectTypeOf`
+assertions that runtime Vitest execution does not verify.
+
 ## Git Hooks
 
 Pre-commit runs `node scripts/lint-changed.mjs --staged` directly, without a pnpm startup or dependency scan.
@@ -151,7 +155,12 @@ It retries failed pulls with backoff. For ECR Public's Docker Official Images, i
 BuildKit then uses the local copy instead of the registry, so leave `pull` off in `docker/build-push-action`.
 
 The build job includes the root README, packs Canonry once, and uploads the tarball for the install smoke test and npm publication.
-The smoke job installs that artifact in a scratch directory without a repository checkout or workspace dependencies.
+The smoke job installs that artifact in a scratch directory outside the checkout and checks `canonry --version`.
+It then runs `scripts/smoke-sentiment.mjs` against the installed package. Checkout dependencies only seed synthetic data and run the harness;
+the server, CLI, HTTP MCP, and stdio MCP behavior comes from the installed binaries.
+The scenario covers Simple and Advanced portfolios, credential scopes, idempotent replay, and exact stored results.
+Provider requests go to a bounded loopback stub; CI uses no live provider credentials.
+Reports, provider receipts, and redacted failure logs are uploaded as `packaged-sentiment-smoke` artifacts.
 Publish downloads the artifact from the push CI run whose `validate` job passed for the exact release commit.
 It publishes the tested primary tarball unchanged and repacks its contents with the compatibility package name.
 Neither publication runs build or lifecycle scripts. Missing artifacts or a mismatched package name or version stop publication.
