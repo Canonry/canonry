@@ -74,13 +74,13 @@ describe('backfillAiReferralPaths', () => {
     return row?.landingPageNormalized
   }
 
-  it('populates landing_page_normalized for rows where it is null', () => {
+  it('populates landing_page_normalized for rows where it is null', async () => {
     insertReferral({ id: 'r1', source: 'chatgpt.com', landingPage: '/pricing?utm_source=chatgpt.com' })
     insertReferral({ id: 'r2', source: 'claude.ai', landingPage: '/about/' })
     insertReferral({ id: 'r3', source: 'perplexity.ai', landingPage: '/' })
     insertReferral({ id: 'r4', source: 'gemini.google.com', landingPage: '(not set)' })
 
-    const result = backfillAiReferralPaths(db)
+    const result = await backfillAiReferralPaths(db)
     expect(result.examined).toBe(4)
     expect(result.updated).toBe(3)
     expect(result.unchanged).toBe(1)
@@ -91,7 +91,7 @@ describe('backfillAiReferralPaths', () => {
     expect(readNormalized('r4')).toBeNull()
   })
 
-  it('repairs stale normalized values', () => {
+  it('repairs stale normalized values', async () => {
     insertReferral({
       id: 'r_stale',
       source: 'chatgpt.com',
@@ -100,18 +100,18 @@ describe('backfillAiReferralPaths', () => {
     })
     insertReferral({ id: 'r_null', source: 'claude.ai', landingPage: '/about/' })
 
-    backfillAiReferralPaths(db)
+    await backfillAiReferralPaths(db)
 
     expect(readNormalized('r_stale')).toBe('/about')
     expect(readNormalized('r_null')).toBe('/about')
   })
 
-  it('handles multiple landing pages under the same source × dimension', () => {
+  it('handles multiple landing pages under the same source × dimension', async () => {
     insertReferral({ id: 'p1', source: 'chatgpt.com', sourceDimension: 'session', landingPage: '/pricing' })
     insertReferral({ id: 'p2', source: 'chatgpt.com', sourceDimension: 'first_user', landingPage: '/guide/' })
     insertReferral({ id: 'p3', source: 'claude.ai', sourceDimension: 'session', landingPage: '/comparison/' })
 
-    const result = backfillAiReferralPaths(db)
+    const result = await backfillAiReferralPaths(db)
     expect(result.examined).toBe(3)
     expect(result.updated).toBe(3)
     expect(readNormalized('p1')).toBe('/pricing')
@@ -119,18 +119,18 @@ describe('backfillAiReferralPaths', () => {
     expect(readNormalized('p3')).toBe('/comparison')
   })
 
-  it('is idempotent — second run touches nothing', () => {
+  it('is idempotent — second run touches nothing', async () => {
     insertReferral({ id: 'r1', source: 'chatgpt.com', landingPage: '/about/' })
-    const first = backfillAiReferralPaths(db)
+    const first = await backfillAiReferralPaths(db)
     expect(first.updated).toBe(1)
 
-    const second = backfillAiReferralPaths(db)
+    const second = await backfillAiReferralPaths(db)
     expect(second.updated).toBe(0)
     expect(second.examined).toBe(1)
     expect(second.unchanged).toBe(1)
   })
 
-  it('scopes to a project when projectId is provided', () => {
+  it('scopes to a project when projectId is provided', async () => {
     const now = new Date().toISOString()
     db.insert(projects).values({
       id: 'proj_2',
@@ -145,7 +145,7 @@ describe('backfillAiReferralPaths', () => {
     insertReferral({ id: 'r_other', projectId: 'proj_2', source: 'chatgpt.com', landingPage: '/?fbclid=skip' })
     insertReferral({ id: 'r_in_scope', source: 'claude.ai', landingPage: '/?fbclid=touch' })
 
-    backfillAiReferralPaths(db, { projectId: 'proj_1' })
+    await backfillAiReferralPaths(db, { projectId: 'proj_1' })
 
     expect(readNormalized('r_in_scope')).toBe('/')
     expect(readNormalized('r_other')).toBeNull()

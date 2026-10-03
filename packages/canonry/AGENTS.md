@@ -402,6 +402,15 @@ The explicit backfill commands always run and never mark a project-scoped
 repair as database-wide completion. Increment the contracts normalization
 version when historical paths need recalculation.
 
+Both tables share one paged repair (`repairStoredPaths` in
+`src/commands/backfill.ts`) that walks the primary-key id index. A
+project-scoped pass filters with unary `+project_id`: a plain project filter
+makes SQLite sort that project's rows for every page.
+`test/path-repair-query-plan.test.ts` pins both plans. The explicit commands
+commit 128-row pages so a running server's writers can interleave. Startup
+runs before the server listens, so it uses `STARTUP_REPAIR_PAGE_SIZE` (4096)
+pages, which keeps the one-time pass close to single-transaction cost.
+
 `canonry backfill answer-visibility` does more than recompute `answerMentioned`. It also reparses stored provider `raw_response` payloads for supported API providers (OpenAI, Claude, Gemini, Perplexity, Muse) and refreshes derived snapshot fields such as `citationState`, `citedDomains`, `groundingSources`, and `searchQueries`.
 
 It writes retrieval fields in exactly one case: OpenAI rows labelled `native-auto-v1` (written by 4.139.0 through 5.19.0, which all sent a forced-search request) become `search-required-v1`, with `retrievalStatus` re-derived from the stored `apiResponse` (`correctStoredOpenAIRetrieval`, counted as `retrievalRelabeled`). NULL contracts predate the field and stay NULL; no other provider's retrieval fields are touched. Never widen this into "set every row to the adapter's current contract": a future contract change would then relabel history.

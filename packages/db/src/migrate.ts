@@ -4483,13 +4483,6 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
   },
   {
     version: 167,
-    name: 'ga-traffic-backfill-pagination-index',
-    statements: [
-      `CREATE INDEX IF NOT EXISTS idx_ga_traffic_project_id ON ga_traffic_snapshots(project_id, id)`,
-    ],
-  },
-  {
-    version: 168,
     name: 'data-repair-completions',
     statements: [
       `CREATE TABLE IF NOT EXISTS data_repair_completions (

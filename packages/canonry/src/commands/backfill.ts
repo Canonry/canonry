@@ -21,7 +21,8 @@ import {
 } from '../citation-utils.js'
 
 const SNAPSHOT_BATCH_SIZE = 500
-const NORMALIZED_PATHS_BATCH_SIZE = 128
+// Short pages keep each write transaction brief while a server shares the database.
+const PATH_REPAIR_PAGE_SIZE = 128
 
 export async function backfillAnswerVisibilityCommand(opts?: {
   project?: string
@@ -255,11 +256,15 @@ export interface NormalizedPathsBackfillResult {
   unchanged: number
 }
 
-interface PathBackfillOptions {
+export interface PathBackfillOptions {
   projectId?: string
   /** A concurrent change left a candidate unwritten; called after its page commits. */
   onConflict?: () => void
+  /** Rows read and committed per page. */
+  pageSize?: number
 }
+
+type StoredPathTable = typeof gaTrafficSnapshots | typeof gaAiReferrals
 
 /**
  * Repair missing and stale `ga_traffic_snapshots.landing_page_normalized`
@@ -275,32 +280,42 @@ interface PathBackfillOptions {
  * the canonical form. Click-ID-fragmented variants (e.g. `/?fbclid=A` vs
  * `/?fbclid=B`) only collapse after this backfill runs.
  */
-export async function backfillNormalizedPaths(
+export function backfillNormalizedPaths(
   db: ReturnType<typeof createClient>,
   opts?: PathBackfillOptions,
 ): Promise<NormalizedPathsBackfillResult> {
-  const projectScope = opts?.projectId ? eq(gaTrafficSnapshots.projectId, opts.projectId) : undefined
+  return repairStoredPaths(db, gaTrafficSnapshots, opts)
+}
+
+async function repairStoredPaths(
+  db: ReturnType<typeof createClient>,
+  table: StoredPathTable,
+  opts?: PathBackfillOptions,
+): Promise<NormalizedPathsBackfillResult> {
+  const pageSize = opts?.pageSize ?? PATH_REPAIR_PAGE_SIZE
+  // Unary `+` keeps SQLite walking the id index for a project-scoped pass,
+  // filtering as it goes, instead of sorting the project's rows for every page.
+  const projectScope = opts?.projectId ? sql`+${table.projectId} = ${opts.projectId}` : undefined
   // Do not chase new ids beyond the end of this pass while yielding to writers.
-  const lastId = db.select({ id: gaTrafficSnapshots.id }).from(gaTrafficSnapshots)
-    .where(projectScope).orderBy(desc(gaTrafficSnapshots.id)).limit(1).get()?.id
+  const lastId = db.select({ id: table.id }).from(table)
+    .where(projectScope).orderBy(desc(table.id)).limit(1).get()?.id
   if (lastId === undefined) return { examined: 0, updated: 0, unchanged: 0 }
 
   let cursor: string | undefined
   let examined = 0
   let updated = 0
 
-  do {
+  for (;;) {
     const rows = db.select({
-      id: gaTrafficSnapshots.id,
-      projectId: gaTrafficSnapshots.projectId,
-      landingPage: gaTrafficSnapshots.landingPage,
-      landingPageNormalized: gaTrafficSnapshots.landingPageNormalized,
-    }).from(gaTrafficSnapshots).where(and(
+      id: table.id,
+      projectId: table.projectId,
+      landingPage: table.landingPage,
+      landingPageNormalized: table.landingPageNormalized,
+    }).from(table).where(and(
       projectScope,
-      lte(gaTrafficSnapshots.id, lastId),
-      cursor === undefined ? undefined : gt(gaTrafficSnapshots.id, cursor),
-    )).orderBy(asc(gaTrafficSnapshots.id)).limit(NORMALIZED_PATHS_BATCH_SIZE).all()
-    if (rows.length === 0) break
+      lte(table.id, lastId),
+      cursor === undefined ? undefined : gt(table.id, cursor),
+    )).orderBy(asc(table.id)).limit(pageSize).all()
     examined += rows.length
 
     const changes = rows.flatMap(row => {
@@ -313,13 +328,13 @@ export async function backfillNormalizedPaths(
         for (const { row, next } of changes) {
           // A concurrent sync may replace or repair a row after the page read.
           // Leave that row untouched; a later pass can inspect its new value.
-          written += tx.update(gaTrafficSnapshots).set({ landingPageNormalized: next }).where(and(
-            eq(gaTrafficSnapshots.id, row.id),
-            eq(gaTrafficSnapshots.projectId, row.projectId),
-            eq(gaTrafficSnapshots.landingPage, row.landingPage),
+          written += tx.update(table).set({ landingPageNormalized: next }).where(and(
+            eq(table.id, row.id),
+            eq(table.projectId, row.projectId),
+            eq(table.landingPage, row.landingPage),
             row.landingPageNormalized === null
-              ? isNull(gaTrafficSnapshots.landingPageNormalized)
-              : eq(gaTrafficSnapshots.landingPageNormalized, row.landingPageNormalized),
+              ? isNull(table.landingPageNormalized)
+              : eq(table.landingPageNormalized, row.landingPageNormalized),
           )).run().changes
         }
         return written
@@ -328,10 +343,11 @@ export async function backfillNormalizedPaths(
       if (written < changes.length) opts?.onConflict?.()
     }
 
+    if (rows.length < pageSize) break
     cursor = rows.at(-1)!.id
-    if (rows.length < NORMALIZED_PATHS_BATCH_SIZE || cursor === lastId) break
+    if (cursor === lastId) break
     await yieldToEventLoop()
-  } while (cursor !== lastId)
+  }
 
   // Unchanged means this pass did not write the examined row, including races.
   return { examined, updated, unchanged: examined - updated }
@@ -396,9 +412,9 @@ export async function backfillNormalizedPathsCommand(opts?: {
 }
 
 /**
- * Repair missing and stale `ga_ai_referrals.landing_page_normalized` values.
- * Mirrors `backfillNormalizedPaths` but for the
- * AI referral table, which gained landing-page columns in v46. Idempotent.
+ * Repair missing and stale `ga_ai_referrals.landing_page_normalized` values
+ * with the same bounded pages as `backfillNormalizedPaths`. The AI referral
+ * table gained landing-page columns in v46. Idempotent.
  *
  * Used by both the CLI command (`canonry backfill ai-referral-paths`) and
  * the server startup path (`canonry serve` runs it post-migrate so legacy
@@ -407,47 +423,8 @@ export async function backfillNormalizedPathsCommand(opts?: {
 export function backfillAiReferralPaths(
   db: ReturnType<typeof createClient>,
   opts?: PathBackfillOptions,
-): NormalizedPathsBackfillResult {
-  const baseConditions = []
-  if (opts?.projectId) {
-    baseConditions.push(eq(gaAiReferrals.projectId, opts.projectId))
-  }
-
-  const rows = db
-    .select({
-      id: gaAiReferrals.id,
-      projectId: gaAiReferrals.projectId,
-      landingPage: gaAiReferrals.landingPage,
-      landingPageNormalized: gaAiReferrals.landingPageNormalized,
-    })
-    .from(gaAiReferrals)
-    .where(baseConditions.length > 0 ? and(...baseConditions) : undefined)
-    .all()
-
-  let updated = 0
-  const changes = rows.flatMap(row => {
-    const next = normalizeUrlPath(row.landingPage)
-    return next === null || row.landingPageNormalized === next ? [] : [{ row, next }]
-  })
-  if (changes.length > 0) {
-    updated = db.transaction((tx) => {
-      let written = 0
-      for (const { row, next } of changes) {
-        written += tx.update(gaAiReferrals).set({ landingPageNormalized: next }).where(and(
-          eq(gaAiReferrals.id, row.id),
-          eq(gaAiReferrals.projectId, row.projectId),
-          row.landingPage === null ? isNull(gaAiReferrals.landingPage) : eq(gaAiReferrals.landingPage, row.landingPage),
-          row.landingPageNormalized === null
-            ? isNull(gaAiReferrals.landingPageNormalized)
-            : eq(gaAiReferrals.landingPageNormalized, row.landingPageNormalized),
-        )).run().changes
-      }
-      return written
-    })
-    if (updated < changes.length) opts?.onConflict?.()
-  }
-
-  return { examined: rows.length, updated, unchanged: rows.length - updated }
+): Promise<NormalizedPathsBackfillResult> {
+  return repairStoredPaths(db, gaAiReferrals, opts)
 }
 
 export async function backfillAiReferralPathsCommand(opts?: {
@@ -483,7 +460,7 @@ export async function backfillAiReferralPathsCommand(opts?: {
     projectId = project.id
   }
 
-  const { examined, updated, unchanged } = backfillAiReferralPaths(db, { projectId })
+  const { examined, updated, unchanged } = await backfillAiReferralPaths(db, { projectId })
 
   const result = {
     project: projectFilter ?? null,

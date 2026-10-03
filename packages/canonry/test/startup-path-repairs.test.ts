@@ -11,7 +11,9 @@ import {
   backfillAiReferralPaths, backfillAiReferralPathsCommand,
   backfillNormalizedPaths, backfillNormalizedPathsCommand,
 } from '../src/commands/backfill.js'
-import { repairAiReferralPathsOnStartup, repairNormalizedPathsOnStartup } from '../src/startup-path-repairs.js'
+import {
+  repairAiReferralPathsOnStartup, repairNormalizedPathsOnStartup, STARTUP_REPAIR_PAGE_SIZE,
+} from '../src/startup-path-repairs.js'
 
 const NOW = '2026-10-03T12:00:00.000Z'
 const TRAFFIC_REPAIR = 'ga-traffic-paths'
@@ -120,23 +122,28 @@ describe('durable startup path repairs', () => {
   })
 
   it('withholds completion after a late-page failure and safely retries after reopening', async () => {
+    // One full startup page, then a second page that fails partway through.
+    const total = STARTUP_REPAIR_PAGE_SIZE + 300
+    const rowId = (index: number) => `row_${String(index).padStart(5, '0')}`
     db.transaction(() => {
-      for (let index = 0; index < 300; index++) seed('traffic', `row_${String(index).padStart(4, '0')}`, `/page-${index}/`)
+      for (let index = 0; index < total; index++) seed('traffic', rowId(index), `/page-${index}/`)
     })
-    db.run(sql`CREATE TRIGGER reject_startup_path_page BEFORE UPDATE ON ga_traffic_snapshots
-      WHEN NEW.id = 'row_0150' BEGIN SELECT RAISE(ABORT, 'startup page failed'); END`)
+    db.run(sql.raw(`CREATE TRIGGER reject_startup_path_page BEFORE UPDATE ON ga_traffic_snapshots
+      WHEN NEW.id = '${rowId(STARTUP_REPAIR_PAGE_SIZE + 150)}' BEGIN SELECT RAISE(ABORT, 'startup page failed'); END`))
 
     await expect(repairNormalizedPathsOnStartup(db)).rejects.toThrow('startup page failed')
 
     expect(marker(TRAFFIC_REPAIR)).toBeUndefined()
     expect(db.get<{ count: number }>(sql`SELECT COUNT(*) AS count FROM ga_traffic_snapshots WHERE landing_page_normalized IS NOT NULL`))
-      .toEqual({ count: 128 })
+      .toEqual({ count: STARTUP_REPAIR_PAGE_SIZE })
+    expect(normalized('traffic', rowId(STARTUP_REPAIR_PAGE_SIZE - 1))).toBe(`/page-${STARTUP_REPAIR_PAGE_SIZE - 1}`)
+    expect(normalized('traffic', rowId(STARTUP_REPAIR_PAGE_SIZE))).toBeNull()
     reopen()
     expect(marker(TRAFFIC_REPAIR)).toBeUndefined()
     db.run(sql`DROP TRIGGER reject_startup_path_page`)
 
-    expect(await repairNormalizedPathsOnStartup(db)).toEqual({ examined: 300, updated: 172, unchanged: 128 })
-    expect(normalized('traffic', 'row_0299')).toBe('/page-299')
+    expect(await repairNormalizedPathsOnStartup(db)).toEqual({ examined: total, updated: 300, unchanged: STARTUP_REPAIR_PAGE_SIZE })
+    expect(normalized('traffic', rowId(total - 1))).toBe(`/page-${total - 1}`)
     expect(marker(TRAFFIC_REPAIR)?.version).toBe(contracts.URL_PATH_NORMALIZATION_VERSION)
   })
 

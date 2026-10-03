@@ -6,7 +6,7 @@ import { expect, onTestFinished, test } from 'vitest'
 import { createClient, dataRepairCompletions, migrate, MIGRATION_VERSIONS } from '../src/index.js'
 import { insertLegacyProject, insertLegacyRow } from './legacy-rows.js'
 
-const REPAIR_COMPLETIONS_VERSION = 168
+const REPAIR_COMPLETIONS_VERSION = 167
 const NOW = '2026-10-03T00:00:00.000Z'
 
 function createTestClient() {

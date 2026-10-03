@@ -5,20 +5,30 @@ import {
   backfillAiReferralPaths,
   backfillNormalizedPaths,
   type NormalizedPathsBackfillResult,
+  type PathBackfillOptions,
 } from './commands/backfill.js'
 
+/**
+ * Startup repairs run before the server listens, so no request waits on the
+ * event loop. Larger pages keep the one-time pass close to the cost of a
+ * single transaction while still bounding memory and each write lock.
+ */
+export const STARTUP_REPAIR_PAGE_SIZE = 4096
+
+type PathRepair = (db: DatabaseClient, opts: PathBackfillOptions) => Promise<NormalizedPathsBackfillResult>
+
 export function repairNormalizedPathsOnStartup(db: DatabaseClient): Promise<NormalizedPathsBackfillResult | null> {
-  return repairPathsOnce(db, 'ga-traffic-paths', onConflict => backfillNormalizedPaths(db, { onConflict }))
+  return repairPathsOnce(db, 'ga-traffic-paths', backfillNormalizedPaths)
 }
 
 export function repairAiReferralPathsOnStartup(db: DatabaseClient): Promise<NormalizedPathsBackfillResult | null> {
-  return repairPathsOnce(db, 'ga-ai-referral-paths', onConflict => backfillAiReferralPaths(db, { onConflict }))
+  return repairPathsOnce(db, 'ga-ai-referral-paths', backfillAiReferralPaths)
 }
 
 async function repairPathsOnce(
   db: DatabaseClient,
   name: 'ga-traffic-paths' | 'ga-ai-referral-paths',
-  repair: (onConflict: () => void) => NormalizedPathsBackfillResult | Promise<NormalizedPathsBackfillResult>,
+  repair: PathRepair,
 ): Promise<NormalizedPathsBackfillResult | null> {
   const completed = db.select({ version: dataRepairCompletions.version }).from(dataRepairCompletions)
     .where(eq(dataRepairCompletions.name, name)).get()
@@ -27,7 +37,7 @@ async function repairPathsOnce(
   // Pages commit separately. A crash or failed completion write leaves this
   // version pending, so the next startup can safely repeat the idempotent pass.
   let conflicted = false
-  const result = await repair(() => { conflicted = true })
+  const result = await repair(db, { pageSize: STARTUP_REPAIR_PAGE_SIZE, onConflict: () => { conflicted = true } })
   if (!conflicted) {
     const completion = { version: URL_PATH_NORMALIZATION_VERSION, completedAt: new Date().toISOString() }
     db.insert(dataRepairCompletions).values({ name, ...completion }).onConflictDoUpdate({
