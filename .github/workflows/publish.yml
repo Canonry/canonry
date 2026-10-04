@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/publish.yml'
+      - '.github/workflows/change-policy.yml'
       - '.dockerignore'
       - 'Dockerfile'
       - 'docker/**'
@@ -25,7 +26,15 @@ on:
   workflow_dispatch:
 
 jobs:
+  policy:
+    uses: ./.github/workflows/change-policy.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
   plugin-drift:
+    needs: policy
+    if: needs.policy.outputs.owner_only == 'false'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -112,8 +121,8 @@ jobs:
 
   ci:
     name: Wait for CI
-    needs: version
-    if: github.ref_name == github.event.repository.default_branch && github.event_name == 'push' && needs.version.outputs.version_changed == 'true'
+    needs: [policy, version]
+    if: github.ref_name == github.event.repository.default_branch && github.event_name == 'push' && needs.policy.outputs.owner_only == 'false' && needs.version.outputs.version_changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -176,8 +185,14 @@ jobs:
             throw new Error(`Timed out waiting for successful CI on ${context.sha}`);
 
   publish-npm:
-    needs: [version, plugin-drift, ci]
-    if: github.ref_name == github.event.repository.default_branch && github.event_name == 'push' && needs.version.outputs.version_changed == 'true'
+    needs: [policy, version, plugin-drift, ci]
+    if: >-
+      !cancelled() && needs.policy.result == 'success' && needs.version.result == 'success' &&
+      github.ref_name == github.event.repository.default_branch && github.event_name == 'push' &&
+      needs.version.outputs.version_changed == 'true' &&
+      (needs.policy.outputs.owner_only == 'true' ||
+       (needs.policy.outputs.owner_only == 'false' && needs['plugin-drift'].result == 'success' &&
+        needs.ci.result == 'success' && needs.ci.outputs.run_id != ''))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -191,22 +206,33 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      # Download only from the successful push CI run selected for this SHA.
-      # That artifact has already passed the external-install smoke test.
+      - uses: ./.github/actions/setup
+        if: needs.policy.outputs.owner_only == 'true'
+
+      - name: Build and pack owner release
+        if: needs.policy.outputs.owner_only == 'true'
+        run: |
+          pnpm build
+          cp README.md packages/canonry/README.md
+          cd packages/canonry
+          pnpm pack --pack-destination "$RUNNER_TEMP/canonry-package"
+
+      # Outside contributions reuse the smoke-tested exact-SHA CI artifact.
       - uses: actions/download-artifact@v4
+        if: needs.policy.outputs.owner_only == 'false'
         with:
           name: canonry-package
           path: ${{ runner.temp }}/canonry-package
           run-id: ${{ needs.ci.outputs.run_id }}
           github-token: ${{ github.token }}
 
-      - name: Publish tested npm package
+      - name: Publish built npm package
         shell: bash
         run: |
           shopt -s nullglob
           tarballs=("$RUNNER_TEMP"/canonry-package/*.tgz)
           if [ "${#tarballs[@]}" -ne 1 ]; then
-            echo "Expected exactly one tested Canonry package tarball" >&2
+            echo "Expected exactly one Canonry package tarball" >&2
             exit 1
           fi
           CANONRY_NPM_PUBLISH_TARBALL="${tarballs[0]}" node scripts/publish-canonry-npm.mjs
@@ -215,7 +241,10 @@ jobs:
 
   publish-homebrew:
     needs: [version, publish-npm]
-    if: github.ref_name == github.event.repository.default_branch && github.event_name == 'push' && needs.version.outputs.version_changed == 'true'
+    if: >-
+      !cancelled() && needs.version.result == 'success' && needs['publish-npm'].result == 'success' &&
+      github.ref_name == github.event.repository.default_branch && github.event_name == 'push' &&
+      needs.version.outputs.version_changed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -280,8 +309,12 @@ jobs:
           client-payload: '{"version": "${{ needs.version.outputs.version }}"}'
 
   publish-clawhub:
-    needs: [version, plugin-drift]
-    if: github.ref_name == github.event.repository.default_branch && github.event_name == 'push' && needs.version.outputs.version_changed == 'true' && needs.version.outputs.canonry_skill_changed == 'true'
+    needs: [policy, version, plugin-drift]
+    if: >-
+      !cancelled() && needs.policy.result == 'success' && needs.version.result == 'success' &&
+      (needs.policy.outputs.owner_only == 'true' || needs['plugin-drift'].result == 'success') &&
+      github.ref_name == github.event.repository.default_branch && github.event_name == 'push' &&
+      needs.version.outputs.version_changed == 'true' && needs.version.outputs.canonry_skill_changed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -310,8 +343,12 @@ jobs:
             --changelog "Sync with canonry v${VERSION} (${SHORT_SHA})"
 
   publish-docker:
-    needs: [version, plugin-drift]
-    if: github.ref_name == github.event.repository.default_branch && (github.event_name == 'workflow_dispatch' || needs.version.outputs.docker_changed == 'true')
+    needs: [policy, version, plugin-drift]
+    if: >-
+      !cancelled() && needs.policy.result == 'success' && needs.version.result == 'success' &&
+      (needs.policy.outputs.owner_only == 'true' || needs['plugin-drift'].result == 'success') &&
+      github.ref_name == github.event.repository.default_branch &&
+      (github.event_name == 'workflow_dispatch' || needs.version.outputs.docker_changed == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
