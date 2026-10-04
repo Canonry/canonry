@@ -63,10 +63,15 @@ async function captureHeaders(model: Model<Api>): Promise<http.IncomingHttpHeade
   return requests
 }
 
-/** The headers whose value names this host, as `name: value`. */
+/**
+ * The headers whose value names this host, as `name: value`. `host` is skipped:
+ * it holds the test server's own address, and a loopback address can contain a
+ * kernel release (macOS 27 is Darwin 27.0.0, which is inside 127.0.0.1).
+ */
 function hostDetailHeaders(headers: http.IncomingHttpHeaders): string[] {
   const details = [os.platform(), os.release(), os.arch(), process.version].map(detail => detail.toLowerCase())
   return Object.entries(headers)
+    .filter(([name]) => name !== 'host')
     .map(([name, value]) => [name, [value ?? ''].flat().join(', ')] as const)
     .filter(([, value]) => details.some(detail => value.toLowerCase().includes(detail)))
     .map(([name, value]) => `${name}: ${value}`)

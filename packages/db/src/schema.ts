@@ -617,6 +617,13 @@ export const runtimeLogMetadata = sqliteTable('runtime_log_metadata', {
   captureErrors: integer('capture_errors').notNull().default(0),
 })
 
+/** Highest fully completed version of each install-wide data repair. */
+export const dataRepairCompletions = sqliteTable('data_repair_completions', {
+  name: text('name').primaryKey().notNull(),
+  version: integer('version').notNull(),
+  completedAt: text('completed_at').notNull(),
+})
+
 export const apiKeys = sqliteTable('api_keys', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),

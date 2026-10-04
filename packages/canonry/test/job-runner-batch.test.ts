@@ -763,7 +763,7 @@ describe('a run that already reached a provider batch', () => {
   })
 
   it('stops an ingest midway when the run is cancelled, recording nothing after it', async () => {
-    const { db, projectId } = seedPlannedProject({ count: 3 })
+    const { db, projectId } = seedPlannedProject({ count: 35 })
     const runId = queueBatchRun(db, projectId)
     const { runner, transport, completed } = harness(db)
     await runner.executeRun(runId, projectId)
@@ -771,17 +771,17 @@ describe('a run that already reached a provider batch', () => {
     transport.end(batch!.providerBatchId!)
     db.update(providerBatches).set({ status: 'ended' }).where(eq(providerBatches.id, batch!.id)).run()
     transport.onResultLine = (index) => {
-      if (index !== 1) return
+      if (index !== 33) return
       cancelLikeTheRoute(db, runId)
       void runner.cancelRunBatches(runId, projectId)
     }
 
     expect(await runner.ingestProviderBatch(batch!.id)).toEqual({ kind: 'cancelled' })
 
-    expect(snapshotRows(db, runId).filter(row => row.provider === 'claude')).toHaveLength(1)
-    // It reports the line it recorded before the cancel; its reservation stays.
-    expect(batchRows(db, runId)[0]).toMatchObject({ status: 'cancelled', ingestedCount: 1, recordedCount: 1, quotaReleased: 0 })
-    expect(quotaUsed(db, projectId, 'claude')).toBe(3)
+    expect(snapshotRows(db, runId).filter(row => row.provider === 'claude')).toHaveLength(32)
+    // Only the committed chunk is retained; the prepared tail is discarded.
+    expect(batchRows(db, runId)[0]).toMatchObject({ status: 'cancelled', ingestedCount: 32, recordedCount: 32, quotaReleased: 0 })
+    expect(quotaUsed(db, projectId, 'claude')).toBe(35)
     expect(runRow(db, runId).status).toBe('cancelled')
     expect(events('run.completed').map(([, props]) => (props as { status: string }).status)).toEqual(['cancelled'])
     expect(completed).toHaveBeenCalledTimes(1)

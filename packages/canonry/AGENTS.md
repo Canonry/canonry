@@ -270,7 +270,16 @@ Provider batch lifecycle (`docs/batch-mode.md`):
 - `src/provider-batch-poller.ts` polls with a per-batch backoff, cancels at the
   deadline (then waits an hour for the batch to end), and drives
   `ingestProviderBatch`: lines map by `custom_id` → `parseTrackedQueryResponse`
-  → `recordSlot` (idempotent, `dispatch_mode: batch`, batch price tier).
+  → the shared slot preparation/recording path (idempotent,
+  `dispatch_mode: batch`, batch price tier). Prepare network/file evidence
+  outside transactions, then commit at most 32 snapshots with their request
+  outcomes in one immediate transaction. Flush earlier when the retained
+  serialized raw responses, answer text and errors would exceed 1 MiB; one
+  oversized answer commits alone. Recheck batch/run state and the
+  ledger's current query references before writing. Report each committed
+  result only after commit and yield between count- or byte-limited chunks. A broken stream flushes
+  its prepared tail; cancellation discards the uncommitted tail. An individual
+  answer's preparation cost still depends on its payload size.
   Unbilled lines (`errored|expired|canceled`) release their reservation under
   `quota_released`. Ingest scores answers against the project's identity at
   ingest time, as a fill does. An ended batch whose results stay unreadable is
@@ -384,6 +393,23 @@ That is not a style preference. The gate used to be a `let` inside `inspectUrlsP
 `src/data-refresh.ts`: `refreshAllIntegrations` — fires GSC + Bing + GA + GBP + ads syncs for a project via the in-process API client, `Promise.allSettled` for per-integration isolation. Wired to the scheduler's `data-refresh` kind in `server.ts`.
 
 ### Backfill behavior
+
+`startup-path-repairs.ts` runs GA traffic and AI-referral path repairs once per
+`URL_PATH_NORMALIZATION_VERSION`, with independent `data_repair_completions`
+records. Mark a version complete only after the whole pass succeeds without
+conditional-write conflicts; interrupted/failed passes retry next startup.
+The explicit backfill commands always run and never mark a project-scoped
+repair as database-wide completion. Increment the contracts normalization
+version when historical paths need recalculation.
+
+Both tables share one paged repair (`repairStoredPaths` in
+`src/commands/backfill.ts`) that walks the primary-key id index. A
+project-scoped pass filters with unary `+project_id`: a plain project filter
+makes SQLite sort that project's rows for every page.
+`test/path-repair-query-plan.test.ts` pins both plans. The explicit commands
+commit 128-row pages so a running server's writers can interleave. Startup
+runs before the server listens, so it uses `STARTUP_REPAIR_PAGE_SIZE` (4096)
+pages, which keeps the one-time pass close to single-transaction cost.
 
 `canonry backfill answer-visibility` does more than recompute `answerMentioned`. It also reparses stored provider `raw_response` payloads for supported API providers (OpenAI, Claude, Gemini, Perplexity, Muse) and refreshes derived snapshot fields such as `citationState`, `citedDomains`, `groundingSources`, and `searchQueries`.
 

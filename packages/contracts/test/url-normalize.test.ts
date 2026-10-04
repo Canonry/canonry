@@ -11,6 +11,7 @@ import {
   registrableDomain,
   safeLinkHref,
   textContainsDomain,
+  URL_PATH_NORMALIZATION_VERSION,
 } from '../src/url-normalize.js'
 
 describe('hostOf', () => {
@@ -361,5 +362,49 @@ describe('describeLandingPage', () => {
     for (const [raw, querySummary] of cases) {
       expect(describeLandingPage(raw), raw).toEqual({ path: raw.slice(0, raw.indexOf('?')), querySummary, raw })
     }
+  })
+})
+
+describe('URL_PATH_NORMALIZATION_VERSION', () => {
+  // Stored GA paths keep the normalization that wrote them, and startup only
+  // repairs them again when this version increases. A change to any output
+  // below needs a version bump: record the new outputs under the new version
+  // and leave earlier versions' rows unchanged.
+  const NORMALIZED_PATHS_BY_VERSION: Record<number, ReadonlyArray<readonly [string, string | null]>> = {
+    1: [
+      ['', null],
+      ['   ', null],
+      ['/', '/'],
+      ['(not set)', null],
+      ['/index.html', '/'],
+      ['/index.php', '/'],
+      ['/about/', '/about'],
+      ['/Blog/Post/', '/Blog/Post'],
+      ['/docs//', '/docs'],
+      ['/pricing?utm_source=chatgpt&utm_medium=referral', '/pricing'],
+      ['/?fbclid=A', '/'],
+      ['/?gclid=B&msclkid=C', '/'],
+      ['/search?q=shoes&page=2', '/search?page=2&q=shoes'],
+      ['/search?page=2&q=shoes', '/search?page=2&q=shoes'],
+      ['/landing?ref&b=2&a=1', '/landing?a=1&b=2&ref'],
+      ['/guide#section-2', '/guide'],
+      ['/guide/?utm_campaign=x#top', '/guide'],
+      ['https://www.example.com/Store/?b=2&a=1&utm_content=y', '/Store?a=1&b=2'],
+      ['https://example.com', '/'],
+      ['/blog/post).', '/blog/post'],
+      ['/) open', '/'],
+      ['/features&nbsp;page', '/features'],
+      ['  /contact  ', '/contact'],
+      ['http://[bad', null],
+    ],
+  }
+
+  it('pins normalizeUrlPath output to the stored-path repair version', () => {
+    const golden = NORMALIZED_PATHS_BY_VERSION[URL_PATH_NORMALIZATION_VERSION]
+    expect(golden, `record normalizeUrlPath outputs for version ${URL_PATH_NORMALIZATION_VERSION}`).toBeDefined()
+    expect(
+      golden!.map(([input]) => [input, normalizeUrlPath(input)]),
+      'normalizeUrlPath output changed: bump URL_PATH_NORMALIZATION_VERSION so startup repairs stored GA paths',
+    ).toEqual(golden)
   })
 })
