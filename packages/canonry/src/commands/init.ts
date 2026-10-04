@@ -115,7 +115,7 @@ const DEFAULT_AGENT_MODELS: Record<string, string> = {
   openai: 'openai/gpt-4o',
   openrouter: 'openrouter/anthropic/claude-sonnet-4-6',
   groq: 'groq/llama-4-scout-17b',
-  google: 'google/gemini-flash-latest',
+  google: 'google/gemini-3.8-flash',
   mistral: 'mistral/mistral-large-latest',
   xai: 'xai/grok-2',
 }

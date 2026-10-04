@@ -86,12 +86,17 @@ export const PROVIDER_MODELS = {
     [LlmCapabilities.classify]: 'gpt-5-nano',
   },
   [AgentProviderIds.gemini]: {
-    // Gemini's 2.5-flash is already cheap + capable; flash-lite is the
+    // Gemini's Flash is already cheap + capable; Flash-Lite is the
     // dedicated micro tier for classify. Analyze stays on flash because
     // flash-lite drops too much quality for structured synthesis.
-    [LlmCapabilities.agent]: 'gemini-flash-latest',
-    [LlmCapabilities.analyze]: 'gemini-flash-latest',
-    [LlmCapabilities.classify]: 'gemini-flash-lite-latest',
+    // Exact IDs, never Google's `-latest` aliases: pi-ai derives request
+    // options (thinking level) from the catalog entry for the ID it is given,
+    // and an alias entry can lag the model it serves. `gemini-flash-latest`
+    // allows MINIMAL thinking while the 3.8 Flash it resolves to rejects it,
+    // so every Aero turn failed. Sweeps can use the alias; Aero cannot.
+    [LlmCapabilities.agent]: 'gemini-3.8-flash',
+    [LlmCapabilities.analyze]: 'gemini-3.8-flash',
+    [LlmCapabilities.classify]: 'gemini-3.5-flash-lite',
   },
   [AgentProviderIds.zai]: {
     // GLM lineage: 5.2 replaced 5.1, which pi-ai 0.87 dropped from its

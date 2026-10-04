@@ -73,7 +73,19 @@ describe('agent provider registry', () => {
 
 
   it('uses a Gemini default model that does not require separate thinking-mode config', () => {
-    expect(getAgentProvider('gemini').defaultModel).toBe('gemini-flash-latest')
+    expect(getAgentProvider('gemini').defaultModel).toBe('gemini-3.8-flash')
+  })
+
+  it('pins every agent tier to an exact model ID, never a moving -latest alias', () => {
+    // pi-ai picks request options such as the thinking level from the catalog
+    // entry for the ID it is given. An alias entry can lag the model behind
+    // it: gemini-flash-latest allowed MINIMAL while the 3.8 Flash it served
+    // rejected it, failing every Aero turn.
+    for (const [provider, tiers] of Object.entries(PROVIDER_MODELS)) {
+      for (const [tier, modelId] of Object.entries(tiers)) {
+        expect(modelId, `${provider} ${tier}`).not.toMatch(/-latest$/)
+      }
+    }
   })
 
   it('registry rows each carry every required field', () => {
