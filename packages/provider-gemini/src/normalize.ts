@@ -20,7 +20,7 @@ import type {
   GroundingSource,
 } from './types.js'
 
-const DEFAULT_MODEL = 'gemini-2.5-flash'
+const DEFAULT_MODEL = 'gemini-flash-latest'
 
 /**
  * Whether this config targets Vertex AI instead of AI Studio.

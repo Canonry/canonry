@@ -1487,7 +1487,7 @@ function ReadySetupPage({
               </div>
               {competitorsSaved ? <ToneBadge tone="positive">Saved</ToneBadge> : null}
             </div>
-            <p className="supporting-copy">Domains that compete for the same queries. One per line.</p>
+            <p className="supporting-copy">Optional. Domains that compete for the same queries, one per line. You can add them later from the project.</p>
             {competitorsSaved ? (
               <div className="compact-stack">
                 <ul className="detail-list">
@@ -1515,12 +1515,23 @@ function ReadySetupPage({
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={goBack}>Back</Button>
                   <div className="flex gap-2">
-                    <Button type="button" variant="outline" onClick={skipCompetitors}>
-                      Skip
-                    </Button>
-                    <Button type="button" disabled={parsedCompetitors.length === 0 || competitorsSaving} onClick={asyncHandler(handleSaveCompetitors)}>
-                      {competitorsSaving ? 'Saving...' : `Save ${parsedCompetitors.length} competitor${parsedCompetitors.length !== 1 ? 's' : ''}`}
-                    </Button>
+                    {parsedCompetitors.length === 0 ? (
+                      // Optional step: with nothing entered, the primary action
+                      // moves on. A disabled "Save 0 competitors" read as a dead
+                      // end, and half of the users who reached this step left.
+                      <Button type="button" onClick={skipCompetitors}>
+                        Continue without competitors
+                      </Button>
+                    ) : (
+                      <>
+                        <Button type="button" variant="outline" onClick={skipCompetitors}>
+                          Skip
+                        </Button>
+                        <Button type="button" disabled={competitorsSaving} onClick={asyncHandler(handleSaveCompetitors)}>
+                          {competitorsSaving ? 'Saving...' : `Save ${parsedCompetitors.length} competitor${parsedCompetitors.length !== 1 ? 's' : ''}`}
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>

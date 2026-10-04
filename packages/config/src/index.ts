@@ -280,7 +280,7 @@ export function getBootstrapEnv(
   if (parsed.GEMINI_API_KEY || parsed.GEMINI_VERTEX_PROJECT) {
     providers.gemini = {
       apiKey: parsed.GEMINI_API_KEY ?? '',
-      model: parsed.GEMINI_MODEL || 'gemini-2.5-flash',
+      model: parsed.GEMINI_MODEL || 'gemini-flash-latest',
       baseUrl: parsed.GEMINI_BASE_URL,
       quota: providerQuotaPolicySchema.parse({
         maxConcurrency: 2,

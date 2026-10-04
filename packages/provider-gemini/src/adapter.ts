@@ -70,10 +70,20 @@ export const geminiAdapter: ProviderAdapter = {
   keyUrl: 'https://aistudio.google.com/apikey',
   // Upstream model list: https://ai.google.dev/gemini-api/docs/models
   modelRegistry: {
-    defaultModel: 'gemini-2.5-flash',
+    defaultModel: 'gemini-flash-latest',
     validationPattern: /./,
-    validationHint: 'any valid Google model name (e.g. gemini-2.5-flash, learnlm-1.5-pro-experimental)',
+    validationHint: 'any valid Google model name (e.g. gemini-flash-latest, gemini-3.8-flash)',
     knownModels: [
+      // Google's moving aliases: always the newest Flash / Flash-Lite, with
+      // 2 weeks' email notice before a breaking change. The model actually
+      // served is recorded per snapshot (`servedModel`), so trends still show
+      // when the model behind an alias changed.
+      { id: 'gemini-flash-latest', displayName: 'Gemini Flash (latest)', tier: 'standard' },
+      { id: 'gemini-flash-lite-latest', displayName: 'Gemini Flash-Lite (latest)', tier: 'economy' },
+      { id: 'gemini-3.8-flash', displayName: 'Gemini 3.8 Flash', tier: 'standard' },
+      { id: 'gemini-3.5-flash-lite', displayName: 'Gemini 3.5 Flash-Lite', tier: 'economy' },
+      // Google limits the 2.5 models to projects that already used them, so a
+      // new key may be refused. Listed for installs that still pin them.
       { id: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro', tier: 'flagship' },
       { id: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', tier: 'standard' },
       { id: 'gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash-Lite', tier: 'economy' },
