@@ -276,15 +276,54 @@ describe('executeRun completion', () => {
 })
 
 describe('run.completed error telemetry', () => {
-  function priorRuns(db: DatabaseClient, projectId: string, statuses: string[]) {
-    // Oldest first, each strictly before the run under test.
+  function priorRuns(
+    db: DatabaseClient,
+    projectId: string,
+    statuses: string[],
+    row: { kind?: string; error?: string; createdAt?: (i: number) => string } = {},
+  ) {
+    // Oldest first, each strictly before the run under test unless overridden.
     statuses.forEach((status, i) => {
       db.insert(runs).values({
-        id: crypto.randomUUID(), projectId, kind: 'answer-visibility', trigger: 'manual', status,
-        createdAt: new Date(Date.UTC(2020, 0, 1, 0, i)).toISOString(),
+        id: crypto.randomUUID(), projectId, kind: row.kind ?? 'answer-visibility', trigger: 'manual', status,
+        ...(row.error ? { error: row.error } : {}),
+        createdAt: row.createdAt?.(i) ?? new Date(Date.UTC(2020, 0, 1, 0, i)).toISOString(),
       }).run()
     })
   }
+
+  const streakOf = (db: DatabaseClient, projectId: string, runId: string) => {
+    const { runner } = runnerWithSpies(db)
+    runner.finalizeRun(finalization(runId, projectId, {
+      providerErrors: new Map([['gemini', '[provider-gemini] 500 Internal']]),
+      executionContext: { providerCount: 2, providers: ['gemini', 'openai'], queryCount: 1, trigger: 'manual', canonicalDomain: 'example.com' },
+    }))
+    return (events('run.completed')[0]![1] as { failureStreak?: number }).failureStreak
+  }
+
+  it('counts only runs of the same kind: other kinds neither break nor extend a streak', () => {
+    const { db, projectId, runId } = seed('running')
+    priorRuns(db, projectId, ['failed', 'failed'])
+    // Newer than the failures: a daily sync that completes, and one that fails.
+    priorRuns(db, projectId, ['completed', 'failed'], { kind: 'gsc-sync', createdAt: i => new Date(Date.UTC(2020, 0, 2, 0, i)).toISOString() })
+    expect(streakOf(db, projectId, runId)).toBe(2)
+  })
+
+  it('skips runs aborted before any provider was called', () => {
+    const { db, projectId, runId } = seed('running')
+    priorRuns(db, projectId, ['failed'])
+    priorRuns(db, projectId, ['failed', 'failed', 'failed'], {
+      error: 'Daily quota exceeded for project finalize',
+      createdAt: i => new Date(Date.UTC(2020, 0, 2, 0, i)).toISOString(),
+    })
+    expect(streakOf(db, projectId, runId)).toBe(1)
+  })
+
+  it('does not count runs created after this one', () => {
+    const { db, projectId, runId } = seed('running')
+    priorRuns(db, projectId, ['failed', 'failed', 'failed'], { createdAt: i => new Date(Date.UTC(2099, 0, 1, 0, i)).toISOString() })
+    expect(streakOf(db, projectId, runId)).toBe(0)
+  })
 
   it('breaks a partial run down by provider, with the streak behind it', () => {
     const { db, projectId, runId } = seed('running')

@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { recordSentimentCompletion, parseJsonColumn, providerBatches, providerBatchRequests, runFills, runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
 import type { PricingTier, ProviderBatchRequestOutcome, ProviderBatchResultLine, ProviderBatchStatus, ProviderBatchSubmitResult, ProviderDispatchMode, ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RawQueryResult, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto, RunStatus, TrackedQueryRequest } from '@ainyc/canonry-contracts'
@@ -2817,28 +2817,41 @@ export class JobRunner {
   }
 
   /**
-   * How many of the project's most recent finished runs before this one failed
-   * or came back partial in a row. Telemetry only: it feeds `failureStreak` and
-   * the sampling of runs stuck failing the same way. Probes and site audits are
-   * not sweeps and do not break or extend a streak.
+   * How many runs of the same kind, created before this one, failed or came
+   * back partial in a row. Telemetry only: it feeds `failureStreak` and the
+   * sampling of runs stuck failing the same way. Probes do not count, other run
+   * kinds (syncs, audits) neither break nor extend a streak, and a run aborted
+   * before any provider was called (`run.aborted`, never a failed
+   * `run.completed`) is skipped, so every failure counted was also reported.
    */
   private priorFailureStreak(projectId: string, currentRunId: string): number {
     try {
+      const current = this.db
+        .select({ kind: runs.kind, createdAt: runs.createdAt })
+        .from(runs)
+        .where(eq(runs.id, currentRunId))
+        .get()
+      if (!current) return 0
       const recent = this.db
-        .select({ status: runs.status })
+        .select({ status: runs.status, error: runs.error })
         .from(runs)
         .where(and(
           eq(runs.projectId, projectId),
-          ne(runs.id, currentRunId),
-          ne(runs.kind, RunKinds['site-audit']),
+          eq(runs.kind, current.kind),
+          lt(runs.createdAt, current.createdAt),
           ne(runs.trigger, RunTriggers.probe),
           inArray(runs.status, ['completed', 'partial', 'failed']),
         ))
         .orderBy(desc(runs.createdAt))
         .limit(FAILURE_STREAK_LOOKBACK)
         .all()
-      const firstSuccess = recent.findIndex(row => row.status === 'completed')
-      return firstSuccess === -1 ? recent.length : firstSuccess
+      let streak = 0
+      for (const row of recent) {
+        if (row.status === 'completed') break
+        if (row.status === 'failed' && row.error && classifyRunAbortReason(row.error)) continue
+        streak++
+      }
+      return streak
     } catch {
       // A lookup failure must never cost the run its telemetry.
       return 0
