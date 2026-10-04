@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
-import { and, asc, count, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { recordSentimentCompletion, parseJsonColumn, providerBatches, providerBatchRequests, runFills, runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
 import type { PricingTier, ProviderBatchRequestOutcome, ProviderBatchResultLine, ProviderBatchStatus, ProviderBatchSubmitResult, ProviderDispatchMode, ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RawQueryResult, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto, RunStatus, TrackedQueryRequest } from '@ainyc/canonry-contracts'
@@ -12,7 +12,7 @@ import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunStatus
 import { captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep, type RunCompetitors } from '@ainyc/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
-import { buildRunCompletedProps, buildSiteAuditCompletedProps, hashDomain, type RunPhaseTimings } from './run-telemetry.js'
+import { buildProviderOutcomeProps, buildRunCompletedProps, buildSiteAuditCompletedProps, describeRunFailure, failureStreakSampling, hashDomain, runFailureSite, type RunPhaseTimings } from './run-telemetry.js'
 import { createLogger } from './logger.js'
 import { ProviderExecutionGate, getSharedProviderExecutionGate } from './provider-execution-gate.js'
 import { getCurrentUsageDay, releaseDailyQueryQuota, reserveDailyQueryQuota } from './usage-quota.js'
@@ -478,6 +478,9 @@ function classifyRunAbortReason(message: string): RunAbortReason | undefined {
  * just a histogram bucket so dashboards can answer "why are real audit
  * failures happening?" without reading raw error strings.
  */
+/** How far back `priorFailureStreak` looks; a longer streak reports as this. */
+const FAILURE_STREAK_LOOKBACK = 50
+
 function classifyProviderErrors(
   errors: ReadonlyMap<ProviderName, string>,
 ): ProviderErrorCode {
@@ -1315,21 +1318,32 @@ export class JobRunner {
           ...(executionContext.location ? { location: executionContext.location } : {}),
         })
       } else {
-        trackEvent(
-          'run.completed',
-          buildRunCompletedProps({
-            status: 'failed',
-            providerCount: executionContext.providerCount,
-            providers: executionContext.providers,
-            queryCount: executionContext.queryCount,
-            startTime,
-            trigger: executionContext.trigger,
-            canonicalDomain: executionContext.canonicalDomain,
-            phases,
-            location: executionContext.location,
-          }),
-          { errorCode: 'UNKNOWN' },
-        )
+        // Not a provider failure (those are caught per query and finalize the
+        // run normally): an exception escaped the runner itself. `INTERNAL`
+        // keeps it apart from provider text that matched no pattern, and the
+        // class name and site say where to look without sending the message.
+        const sampling = failureStreakSampling('failed', this.priorFailureStreak(projectId, runId), runId)
+        if (sampling.report) {
+          trackEvent(
+            'run.completed',
+            {
+              ...buildRunCompletedProps({
+                status: 'failed',
+                providerCount: executionContext.providerCount,
+                providers: executionContext.providers,
+                queryCount: executionContext.queryCount,
+                startTime,
+                trigger: executionContext.trigger,
+                canonicalDomain: executionContext.canonicalDomain,
+                phases,
+                location: executionContext.location,
+              }),
+              ...describeRunFailure(err, runFailureSite(providerCallStart, providerCallEnd)),
+              ...sampling.props,
+            },
+            { errorCode: 'INTERNAL' },
+          )
+        }
       }
 
       // Notify on failure too
@@ -1413,21 +1427,28 @@ export class JobRunner {
     const failureCode = providerErrors.size > 0
       ? classifyProviderErrors(providerErrors)
       : undefined
-    trackEvent(
-      'run.completed',
-      buildRunCompletedProps({
-        status: finalStatus,
-        providerCount: executionContext.providerCount,
-        providers: executionContext.providers,
-        queryCount: executionContext.queryCount,
-        startTime: input.startTime,
-        trigger: executionContext.trigger,
-        canonicalDomain: executionContext.canonicalDomain,
-        phases: input.phases,
-        location: executionContext.location,
-      }),
-      failureCode ? { errorCode: failureCode } : undefined,
-    )
+    const sampling = failureStreakSampling(finalStatus, this.priorFailureStreak(projectId, runId), runId)
+    if (sampling.report) {
+      trackEvent(
+        'run.completed',
+        {
+          ...buildRunCompletedProps({
+            status: finalStatus,
+            providerCount: executionContext.providerCount,
+            providers: executionContext.providers,
+            queryCount: executionContext.queryCount,
+            startTime: input.startTime,
+            trigger: executionContext.trigger,
+            canonicalDomain: executionContext.canonicalDomain,
+            phases: input.phases,
+            location: executionContext.location,
+          }),
+          ...buildProviderOutcomeProps(executionContext.providers, providerErrors),
+          ...sampling.props,
+        },
+        failureCode ? { errorCode: failureCode } : undefined,
+      )
+    }
 
     // Activation is a non-empty first answer-visibility result, not merely a
     // run row reaching "completed". This excludes probes, zero-query runs,
@@ -2793,6 +2814,48 @@ export class JobRunner {
       releaseDailyQueryQuota(this.db, { scope: reservation.scope, period: reservation.period, count: Math.max(0, reservation.reserved - dispatched) })
     }
     providerReservations.clear()
+  }
+
+  /**
+   * How many runs of the same kind, created before this one, failed or came
+   * back partial in a row. Telemetry only: it feeds `failureStreak` and the
+   * sampling of runs stuck failing the same way. Probes do not count, other run
+   * kinds (syncs, audits) neither break nor extend a streak, and a run aborted
+   * before any provider was called (`run.aborted`, never a failed
+   * `run.completed`) is skipped, so every failure counted was also reported.
+   */
+  private priorFailureStreak(projectId: string, currentRunId: string): number {
+    try {
+      const current = this.db
+        .select({ kind: runs.kind, createdAt: runs.createdAt })
+        .from(runs)
+        .where(eq(runs.id, currentRunId))
+        .get()
+      if (!current) return 0
+      const recent = this.db
+        .select({ status: runs.status, error: runs.error })
+        .from(runs)
+        .where(and(
+          eq(runs.projectId, projectId),
+          eq(runs.kind, current.kind),
+          lt(runs.createdAt, current.createdAt),
+          ne(runs.trigger, RunTriggers.probe),
+          inArray(runs.status, ['completed', 'partial', 'failed']),
+        ))
+        .orderBy(desc(runs.createdAt))
+        .limit(FAILURE_STREAK_LOOKBACK)
+        .all()
+      let streak = 0
+      for (const row of recent) {
+        if (row.status === 'completed') break
+        if (row.status === 'failed' && row.error && classifyRunAbortReason(row.error)) continue
+        streak++
+      }
+      return streak
+    } catch {
+      // A lookup failure must never cost the run its telemetry.
+      return 0
+    }
   }
 
   private hasPriorActivation(projectId: string, currentRunId: string): boolean {

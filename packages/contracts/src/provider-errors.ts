@@ -15,6 +15,7 @@
 export type ProviderErrorCode =
   | 'PROVIDER_AUTH'
   | 'RATE_LIMITED'
+  | 'PROVIDER_UNAVAILABLE'
   | 'NETWORK'
   | 'TIMEOUT'
   | 'PARSE_ERROR'
@@ -28,6 +29,7 @@ export type ProviderErrorCode =
 const PROVIDER_ERROR_PRIORITY: readonly ProviderErrorCode[] = [
   'PROVIDER_AUTH',
   'RATE_LIMITED',
+  'PROVIDER_UNAVAILABLE',
   'TIMEOUT',
   'NETWORK',
   'PARSE_ERROR',
@@ -40,6 +42,13 @@ export function classifyProviderErrorMessage(message: string): ProviderErrorCode
   }
   if (/\b429\b|rate[_ -]?limit|too many requests|quota[_ -]?exceeded/i.test(message)) {
     return 'RATE_LIMITED'
+  }
+  // A provider-side outage (5xx, Anthropic's 529 "overloaded") is not ours to
+  // fix and not the operator's either. Checked before timeout/network so a
+  // "503 Service Unavailable" is never counted as a local connectivity issue.
+  const status = extractProviderHttpStatus(message)
+  if ((status !== undefined && status >= 500) || /overloaded|service unavailable|bad gateway|internal server error/i.test(message)) {
+    return 'PROVIDER_UNAVAILABLE'
   }
   if (/timeout|timed out|ETIMEDOUT/i.test(message)) {
     return 'TIMEOUT'
@@ -65,4 +74,21 @@ export function classifyProviderErrorMessages(
     if (codes.has(code)) return code
   }
   return 'UNKNOWN'
+}
+
+/**
+ * The HTTP status a provider failure carried, read back out of its message.
+ *
+ * Provider adapters rethrow SDK errors as plain `Error`s, and batch runs persist
+ * only the message, so the text is the one place the status survives on every
+ * path. The OpenAI and Anthropic SDKs lead the message with it (`429 Rate limit
+ * reached…`), Gemini embeds it in its JSON body (`"code":429`) or as `got status:
+ * 429`. Telemetry only: an unparseable message yields `undefined`, never a guess.
+ */
+export function extractProviderHttpStatus(message: string): number | undefined {
+  const text = message.replace(/^(?:\[[^\]]+\]\s*)+/, '')
+  const match = /^([1-5]\d\d)\b/.exec(text)
+    ?? /\b(?:status(?: code)?|http)[:=]?\s*([1-5]\d\d)\b/i.exec(text)
+    ?? /"(?:code|status)"\s*:\s*([1-5]\d\d)\b/.exec(text)
+  return match ? Number(match[1]) : undefined
 }

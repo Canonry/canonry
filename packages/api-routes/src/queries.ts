@@ -24,6 +24,7 @@ function generationFailure(err: unknown, fallbackMessage: string): AppError {
       return providerAuthError(message)
     case 'RATE_LIMITED':
       return quotaExceeded('provider requests', { message })
+    case 'PROVIDER_UNAVAILABLE':
     case 'NETWORK':
     case 'TIMEOUT':
       return providerError(message)
