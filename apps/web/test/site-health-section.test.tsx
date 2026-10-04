@@ -1335,10 +1335,14 @@ test('releases a stale exact handoff after the stored progress route returns not
   }))
 
   renderSection(queryClient, { initialRunId: 'run_missing', onReleaseInitialRun })
+  screen.getByRole('status', { name: 'Current scan progress' })
 
   await waitFor(() => expect(onReleaseInitialRun).toHaveBeenCalledOnce())
-  expect(screen.queryByRole('status', { name: 'Current scan progress' })).toBeNull()
-  expect(screen.getByRole('img', { name: 'Interactive site map' })).not.toBeNull()
+  // The callback fires inside the effect that clears the selection, before
+  // React re-renders without the progress status, so wait for that render.
+  await waitFor(() => expect(screen.queryByRole('status', { name: 'Current scan progress' })).toBeNull())
+  await screen.findByRole('img', { name: 'Interactive site map' })
+  expect(onReleaseInitialRun).toHaveBeenCalledOnce()
 })
 
 test('releases local exact-run selection when durable handoff state is cleared', () => {
