@@ -1,8 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import crypto from 'node:crypto'
 import {
+  FAILURE_STREAK_SAMPLE_AFTER,
+  FAILURE_STREAK_SAMPLE_RATE,
+  buildProviderOutcomeProps,
   buildRunCompletedProps,
   buildSiteAuditCompletedProps,
+  describeRunFailure,
+  failureStreakSampling,
+  runFailureSite,
   extractRegistrableHost,
   hashDomain,
 } from '../src/run-telemetry.js'
@@ -208,5 +214,83 @@ describe('buildSiteAuditCompletedProps', () => {
       crawl: { ...crawl, termination: 'max-pages', checkDeadLinks: true, deadLinksFound: 4 },
     })
     expect(checked).toMatchObject({ termination: 'max-pages', checkDeadLinks: true, deadLinksFound: 4 })
+  })
+})
+
+describe('buildProviderOutcomeProps', () => {
+  it('sends nothing when every provider succeeded', () => {
+    expect(buildProviderOutcomeProps(['gemini', 'openai'], new Map())).toEqual({})
+  })
+
+  it('reports which provider failed and why, alongside the ones that did not', () => {
+    const props = buildProviderOutcomeProps(['gemini', 'openai', 'claude'], new Map([
+      ['openai', '[provider-openai] 401 Incorrect API key provided'],
+      ['claude', '[provider-claude] 529 {"type":"error","error":{"type":"overloaded_error"}}'],
+    ]))
+    expect(props).toEqual({
+      providerOutcomes: { gemini: 'ok', openai: 'PROVIDER_AUTH', claude: 'PROVIDER_UNAVAILABLE' },
+      providerHttpStatus: { openai: 401, claude: 529 },
+    })
+  })
+
+  it('omits providerHttpStatus when no failure carried a status', () => {
+    expect(buildProviderOutcomeProps(['gemini'], new Map([['gemini', 'fetch failed']]))).toEqual({
+      providerOutcomes: { gemini: 'NETWORK' },
+    })
+  })
+
+  it('stays within the collector limit of 12 nested keys', () => {
+    const providers = Array.from({ length: 15 }, (_, i) => `p${i}`)
+    const props = buildProviderOutcomeProps(providers, new Map([['p0', 'boom']]))
+    expect(Object.keys(props.providerOutcomes!)).toHaveLength(12)
+  })
+})
+
+describe('describeRunFailure', () => {
+  it('sends the class name and system code, never the message', () => {
+    const err = Object.assign(new TypeError('secret path /Users/me/x'), { code: 'SQLITE_BUSY' })
+    const props = describeRunFailure(err, 'provider_call')
+    expect(props).toEqual({ errorName: 'TypeError', errorSysCode: 'SQLITE_BUSY', errorSite: 'provider_call' })
+    expect(JSON.stringify(props)).not.toContain('secret')
+  })
+
+  it('drops values that do not look like identifiers', () => {
+    const err = Object.assign(new Error('x'), { code: 'not a code' })
+    err.name = 'has spaces in it'
+    expect(describeRunFailure(err)).toEqual({})
+  })
+
+  it('describes a non-Error throw by its type', () => {
+    expect(describeRunFailure('boom', 'setup')).toEqual({ errorName: 'string', errorSite: 'setup' })
+  })
+})
+
+describe('runFailureSite', () => {
+  it('places the failure by which provider phase had started and ended', () => {
+    expect(runFailureSite(undefined, undefined)).toBe('setup')
+    expect(runFailureSite(1, undefined)).toBe('provider_call')
+    expect(runFailureSite(1, 2)).toBe('finalize')
+  })
+})
+
+describe('failureStreakSampling', () => {
+  it('always reports a success, without streak fields', () => {
+    expect(failureStreakSampling('completed', 40, 'run-1')).toEqual({ report: true, props: {} })
+  })
+
+  it('reports every failure early in a streak, stamped with the streak', () => {
+    for (let streak = 0; streak < FAILURE_STREAK_SAMPLE_AFTER; streak++) {
+      expect(failureStreakSampling('failed', streak, `run-${streak}`)).toEqual({ report: true, props: { failureStreak: streak } })
+    }
+  })
+
+  it('samples a long streak at a stable 1-in-N, stamped so it can be weighted back up', () => {
+    const decisions = Array.from({ length: 2000 }, (_, i) => failureStreakSampling('partial', 30, `run-${i}`))
+    for (const d of decisions) expect(d.props).toEqual({ failureStreak: 30, sampleRate: FAILURE_STREAK_SAMPLE_RATE })
+    const reported = decisions.filter(d => d.report).length
+    expect(reported).toBeGreaterThan(2000 / FAILURE_STREAK_SAMPLE_RATE / 2)
+    expect(reported).toBeLessThan(2000 / FAILURE_STREAK_SAMPLE_RATE * 2)
+    // Same run id, same answer: a retried emission cannot double-count.
+    expect(failureStreakSampling('failed', 30, 'run-7').report).toBe(decisions[7]!.report)
   })
 })

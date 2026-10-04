@@ -1193,7 +1193,7 @@ describe('executeSiteAudit', () => {
       expect(byEvent(payloads, 'activation.completed')[0]!.properties).toMatchObject({ kind: 'site_health', status: 'partial' })
     })
 
-    it('reports a failed crawl without crawl counts, with UNKNOWN, and does not activate', async () => {
+    it('reports a failed crawl without crawl counts, as INTERNAL with its error class, and does not activate', async () => {
       vi.mocked(runSiteCrawl).mockImplementation(async () => { throw new Error('provider connection failed') })
 
       const { payloads } = await captureTelemetry(async () => {
@@ -1202,9 +1202,10 @@ describe('executeSiteAudit', () => {
 
       const audits = byEvent(payloads, 'site_audit.completed')
       expect(audits).toHaveLength(1)
-      expect(audits[0]!.errorCode).toBe('UNKNOWN')
-      expect(Object.keys(audits[0]!.properties as object).sort()).toEqual(['domainHash', 'durationMs', 'status', 'trigger'])
-      expect(audits[0]!.properties).toMatchObject({ status: 'failed' })
+      expect(audits[0]!.errorCode).toBe('INTERNAL')
+      expect(Object.keys(audits[0]!.properties as object).sort()).toEqual(['domainHash', 'durationMs', 'errorName', 'status', 'trigger'])
+      expect(audits[0]!.properties).toMatchObject({ status: 'failed', errorName: 'Error' })
+      expect(JSON.stringify(audits[0])).not.toContain('provider connection failed')
       expect(byEvent(payloads, 'activation.completed')).toEqual([])
     })
 

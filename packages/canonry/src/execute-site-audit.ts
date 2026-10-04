@@ -44,6 +44,7 @@ import { resolvePublicHttpTarget, resolveWebhookTarget } from '@ainyc/canonry-ap
 import { createLogger } from './logger.js'
 import {
   buildSiteAuditCompletedProps,
+  describeRunFailure,
   type SiteAuditCrawlOutcome,
   type SiteAuditTelemetryStatus,
 } from './run-telemetry.js'
@@ -308,12 +309,17 @@ function trackSiteAuditOutcome(db: DatabaseClient, input: {
   trigger: string | null
   canonicalDomain: string | null
   crawl?: SiteAuditCrawlOutcome
+  /** The exception that failed the audit, described without its message. */
+  error?: unknown
 }): void {
   try {
-    const errorCode = input.status === 'cancelled' ? 'RUN_CANCELLED' : input.status === 'failed' ? 'UNKNOWN' : undefined
+    const errorCode = input.status === 'cancelled' ? 'RUN_CANCELLED' : input.status === 'failed' ? 'INTERNAL' : undefined
     trackEvent(
       'site_audit.completed',
-      buildSiteAuditCompletedProps(input),
+      {
+        ...buildSiteAuditCompletedProps(input),
+        ...(input.status === 'failed' ? describeRunFailure(input.error) : {}),
+      },
       errorCode ? { errorCode } : undefined,
     )
 
@@ -1016,6 +1022,7 @@ export async function executeSiteAudit(
       startTime,
       trigger,
       canonicalDomain,
+      error,
     })
     throw error
   }

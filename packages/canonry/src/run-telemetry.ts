@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { classifyProviderErrorMessage, extractProviderHttpStatus, type ProviderErrorCode } from '@ainyc/canonry-contracts'
 
 /**
  * Extract the registrable host part of a domain string for non-PII telemetry
@@ -74,6 +75,13 @@ export interface RunTelemetryProps {
   domainHash?: string
   phases?: RunPhaseTimings
   location?: string
+  providerOutcomes?: Record<string, ProviderOutcome>
+  providerHttpStatus?: Record<string, number>
+  errorName?: string
+  errorSysCode?: string
+  errorSite?: RunFailureSite
+  failureStreak?: number
+  sampleRate?: number
 }
 
 export function buildRunCompletedProps(input: {
@@ -176,4 +184,102 @@ export function buildSiteAuditCompletedProps(input: {
   props.checkDeadLinks = crawl.checkDeadLinks
   if (crawl.checkDeadLinks) props.deadLinksFound = crawl.deadLinksFound
   return props
+}
+
+/** `ok`, or why that provider failed this run. */
+export type ProviderOutcome = 'ok' | ProviderErrorCode
+
+/** The collector caps a nested property object at 12 keys. */
+const MAX_NESTED_KEYS = 12
+
+/**
+ * Per-provider outcome of one run, so a partial run says WHICH provider failed
+ * and why. The run-level `errorCode` keeps reporting one code (the most
+ * actionable); this is the breakdown behind it.
+ *
+ * `providerHttpStatus` is sent only for providers whose failure message carried
+ * a status. Everything is derived from the message because that is all the
+ * batch path persists; no message text leaves the machine.
+ */
+export function buildProviderOutcomeProps(
+  providers: readonly string[],
+  providerErrors: ReadonlyMap<string, string>,
+): Pick<RunTelemetryProps, 'providerOutcomes' | 'providerHttpStatus'> {
+  if (providerErrors.size === 0) return {}
+  const names = [...new Set([...providers, ...providerErrors.keys()])].slice(0, MAX_NESTED_KEYS)
+  const providerOutcomes: Record<string, ProviderOutcome> = {}
+  const providerHttpStatus: Record<string, number> = {}
+  for (const name of names) {
+    const message = providerErrors.get(name)
+    if (message === undefined) {
+      providerOutcomes[name] = 'ok'
+      continue
+    }
+    providerOutcomes[name] = classifyProviderErrorMessage(message)
+    const status = extractProviderHttpStatus(message)
+    if (status !== undefined) providerHttpStatus[name] = status
+  }
+  return Object.keys(providerHttpStatus).length > 0
+    ? { providerOutcomes, providerHttpStatus }
+    : { providerOutcomes }
+}
+
+/** Where in a run an unexpected exception escaped: before any provider was
+ *  called, while providers were running, or after they all returned. */
+export type RunFailureSite = 'setup' | 'provider_call' | 'finalize'
+
+export function runFailureSite(providerCallStart?: number, providerCallEnd?: number): RunFailureSite {
+  if (providerCallStart === undefined) return 'setup'
+  return providerCallEnd === undefined ? 'provider_call' : 'finalize'
+}
+
+const ERROR_NAME_RE = /^[a-z_$][\w$]{0,39}$/i
+const ERROR_SYS_CODE_RE = /^[A-Z][A-Z0-9_]{1,39}$/
+
+/**
+ * A stable, message-free description of an unexpected exception: its class
+ * name (`TypeError`, `SqliteError`) and, when it has one, its system code
+ * (`SQLITE_BUSY`, `ENOSPC`). Raw error text is never sent; values that do not
+ * look like identifiers are dropped rather than truncated.
+ */
+export function describeRunFailure(
+  err: unknown,
+  site?: RunFailureSite,
+): Pick<RunTelemetryProps, 'errorName' | 'errorSysCode' | 'errorSite'> {
+  const props: Pick<RunTelemetryProps, 'errorName' | 'errorSysCode' | 'errorSite'> = site ? { errorSite: site } : {}
+  const name = err instanceof Error ? err.name : typeof err
+  if (ERROR_NAME_RE.test(name)) props.errorName = name
+  const code = err && typeof err === 'object' && 'code' in err ? (err as { code: unknown }).code : undefined
+  if (typeof code === 'string' && ERROR_SYS_CODE_RE.test(code)) props.errorSysCode = code
+  return props
+}
+
+/** Failed or partial runs in a row before telemetry starts sampling. */
+export const FAILURE_STREAK_SAMPLE_AFTER = 5
+/** One in this many runs is reported once a streak is past the threshold. */
+export const FAILURE_STREAK_SAMPLE_RATE = 20
+
+/**
+ * Decide whether to report a run that failed again, and stamp the streak.
+ *
+ * An install stuck on a bad key retries the same failure indefinitely, and one
+ * such install has produced over 90% of every real failure the collector has
+ * seen. The first few failures of a streak are always reported; past that, a
+ * stable 1-in-N sample by run id, carrying `sampleRate` so analysis can weight
+ * it back up. A run that succeeds is never sampled.
+ */
+export function failureStreakSampling(
+  status: RunTelemetryProps['status'],
+  priorStreak: number,
+  runId: string,
+): { report: boolean; props: Pick<RunTelemetryProps, 'failureStreak' | 'sampleRate'> } {
+  if (status !== 'failed' && status !== 'partial') return { report: true, props: {} }
+  if (priorStreak < FAILURE_STREAK_SAMPLE_AFTER) {
+    return { report: true, props: { failureStreak: priorStreak } }
+  }
+  const bucket = crypto.createHash('sha256').update(runId).digest().readUInt32BE(0) % FAILURE_STREAK_SAMPLE_RATE
+  return {
+    report: bucket === 0,
+    props: { failureStreak: priorStreak, sampleRate: FAILURE_STREAK_SAMPLE_RATE },
+  }
 }
