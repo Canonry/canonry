@@ -73,7 +73,7 @@ describe('agent provider registry', () => {
 
 
   it('uses a Gemini default model that does not require separate thinking-mode config', () => {
-    expect(getAgentProvider('gemini').defaultModel).toBe('gemini-2.5-flash')
+    expect(getAgentProvider('gemini').defaultModel).toBe('gemini-3.8-flash')
   })
 
   it('registry rows each carry every required field', () => {

@@ -461,7 +461,7 @@ Available events: `citation.lost`, `citation.gained`, `run.completed`, `run.fail
 ```bash
 cnry settings                                  # show config: providers, apiUrl, db path
 cnry settings --format json
-cnry settings provider gemini --api-key <KEY> --model gemini-2.5-flash
+cnry settings provider gemini --api-key <KEY> --model gemini-3.8-flash
 cnry settings provider openai --max-per-day 1000 --max-per-minute 20
 cnry settings provider perplexity --api-key <KEY> --model fast
 cnry settings provider muse --api-key <KEY> --model muse-spark-1.3
