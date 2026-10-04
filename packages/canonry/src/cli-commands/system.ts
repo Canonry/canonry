@@ -3,6 +3,7 @@ import { startDaemon, stopDaemon } from '../commands/daemon.js'
 import { initCommand } from '../commands/init.js'
 import { serveCommand } from '../commands/serve.js'
 import { telemetryCommand } from '../commands/telemetry.js'
+import { FEEDBACK_USAGE, feedbackCommand } from '../commands/feedback.js'
 import { showOperationalLogs } from '../commands/logs.js'
 import type { CliCommandSpec, CliValues } from '../cli-dispatch.js'
 import { getBoolean, getString, getStringArray, multiStringOption, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
@@ -150,6 +151,22 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
     allowPositionals: false,
     run: (input) => {
       stopDaemon(input.format)
+    },
+  },
+  {
+    path: ['feedback'],
+    usage: FEEDBACK_USAGE,
+    help: 'Send a struggle, bug, improvement or note about Canonry itself to the Canonry team. Credentials are redacted before sending; never include customer data. The anonymous install id is attached only while telemetry is enabled.',
+    options: { kind: stringOption(), details: stringOption(), area: stringOption(), command: stringOption(), 'error-code': stringOption() },
+    run: async (input) => {
+      await feedbackCommand({
+        summary: input.positionals.join(' ').trim() || undefined,
+        kind: getString(input.values, 'kind'),
+        details: getString(input.values, 'details'),
+        area: getString(input.values, 'area'),
+        command: getString(input.values, 'command'),
+        errorCode: getString(input.values, 'error-code'),
+      }, input.format)
     },
   },
   {

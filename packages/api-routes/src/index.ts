@@ -59,8 +59,10 @@ import type { UserSessionCookieOptions } from './user-session.js'
 import { snapshotRoutes } from './snapshot.js'
 import type { SnapshotRoutesOptions } from './snapshot.js'
 import { telemetryRoutes } from './telemetry.js'
+import { feedbackRoutes } from './feedback.js'
 import { operationalLogsRoutes } from './operational-logs.js'
 import type { TelemetryRoutesOptions } from './telemetry.js'
+import type { FeedbackRoutesOptions } from './feedback.js'
 import { scheduleRoutes } from './schedules.js'
 import type { ScheduleRoutesOptions } from './schedules.js'
 import { notificationRoutes, type NotificationRoutesOptions } from './notifications.js'
@@ -122,6 +124,7 @@ export {
 export type { OAuthRoutesOptions } from './oauth.js'
 export type { CredentialChecker } from './user-session.js'
 export type { ApiRequestCompletedInfo, RequestContextOptions } from './request-context.js'
+export type { FeedbackRequestContext, FeedbackRoutesOptions } from './feedback.js'
 export { SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS } from './doctor/checks/site-reachability.js'
 export { runChecks } from './doctor/runner.js'
 export { scheduledHealthCheckIds } from './doctor/registry.js'
@@ -256,6 +259,8 @@ export interface ApiRoutesOptions {
   setTelemetryEnabled?: TelemetryRoutesOptions['setTelemetryEnabled']
   /** Privacy-safe dashboard onboarding milestones. */
   recordOnboardingEvent?: TelemetryRoutesOptions['recordOnboardingEvent']
+  /** Forwards product feedback (CLI, MCP, dashboard) to the canonry.ai collector. */
+  submitFeedback?: FeedbackRoutesOptions['submitFeedback']
   /** Per-request usage telemetry hook (route template + usage labels only). The host validates labels and applies rate limits. */
   onRequestCompleted?: RequestContextOptions['onRequestCompleted']
   /** Google auth config and storage */
@@ -645,6 +650,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       setTelemetryEnabled: opts.setTelemetryEnabled,
       recordOnboardingEvent: opts.recordOnboardingEvent,
     } satisfies TelemetryRoutesOptions)
+    await api.register(feedbackRoutes, {
+      submitFeedback: opts.submitFeedback,
+    } satisfies FeedbackRoutesOptions)
     await api.register(adsRoutes, {
       adsCredentialStore: opts.adsCredentialStore,
       verifyAdsAccount: opts.verifyAdsAccount,

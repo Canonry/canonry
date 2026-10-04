@@ -196,6 +196,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   // Dashboard-to-local-server observability protocol. It records no product
   // capability and is intentionally not an agent tool.
   'POST /api/v1/telemetry/onboarding': 'excluded-protocol',
+  'POST /api/v1/feedback': 'included',
   'GET /api/v1/screenshots/{snapshotId}': 'excluded-protocol',
   'GET /api/v1/cdp/status': 'deferred',
   'POST /api/v1/cdp/screenshot': 'deferred',

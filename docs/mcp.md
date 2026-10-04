@@ -338,6 +338,7 @@ Core tier (always loaded):
 - `canonry_settings_get`
 - `canonry_apply_config`, `canonry_run_trigger`, `canonry_run_cancel`
 - `canonry_agent_webhook_attach`
+- `canonry_feedback` — send a struggle, bug, or improvement about Canonry itself to the Canonry team (canonry.ai); credentials are redacted, and the install id is attached only while telemetry is enabled
 
 Toolkits (loaded on demand):
 
