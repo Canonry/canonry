@@ -89,9 +89,9 @@ export const PROVIDER_MODELS = {
     // Gemini's 2.5-flash is already cheap + capable; flash-lite is the
     // dedicated micro tier for classify. Analyze stays on flash because
     // flash-lite drops too much quality for structured synthesis.
-    [LlmCapabilities.agent]: 'gemini-3.8-flash',
-    [LlmCapabilities.analyze]: 'gemini-3.8-flash',
-    [LlmCapabilities.classify]: 'gemini-3.5-flash-lite',
+    [LlmCapabilities.agent]: 'gemini-flash-latest',
+    [LlmCapabilities.analyze]: 'gemini-flash-latest',
+    [LlmCapabilities.classify]: 'gemini-flash-lite-latest',
   },
   [AgentProviderIds.zai]: {
     // GLM lineage: 5.2 replaced 5.1, which pi-ai 0.87 dropped from its

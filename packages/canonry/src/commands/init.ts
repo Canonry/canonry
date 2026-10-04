@@ -115,7 +115,7 @@ const DEFAULT_AGENT_MODELS: Record<string, string> = {
   openai: 'openai/gpt-4o',
   openrouter: 'openrouter/anthropic/claude-sonnet-4-6',
   groq: 'groq/llama-4-scout-17b',
-  google: 'google/gemini-3.8-flash',
+  google: 'google/gemini-flash-latest',
   mistral: 'mistral/mistral-large-latest',
   xai: 'xai/grok-2',
 }
@@ -220,7 +220,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
     // Gemini
     const geminiApiKey = await promptProviderApiKey('Gemini', 'GEMINI_API_KEY')
     if (geminiApiKey) {
-      const geminiModel = await prompt('  Gemini model [gemini-3.8-flash]: ') || 'gemini-3.8-flash'
+      const geminiModel = await prompt('  Gemini model [gemini-flash-latest]: ') || 'gemini-flash-latest'
       providers.gemini = { apiKey: geminiApiKey, model: geminiModel, quota: DEFAULT_QUOTA }
     }
 

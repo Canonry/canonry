@@ -17,7 +17,7 @@ test('validateConfig accepts a non-empty API key', () => {
   expect(result.ok).toBe(true)
   expect(result.provider).toBe('gemini')
   expect(result.message).toBe('config valid')
-  expect(result.model).toBe('gemini-3.8-flash')
+  expect(result.model).toBe('gemini-flash-latest')
 })
 
 test('validateConfig rejects empty API key', () => {
@@ -50,7 +50,7 @@ test('validateConfig accepts Vertex AI config without API key', () => {
   })
   expect(result.ok).toBe(true)
   expect(result.message).toBe('config valid (Vertex AI)')
-  expect(result.model).toBe('gemini-3.8-flash')
+  expect(result.model).toBe('gemini-flash-latest')
 })
 
 test('validateConfig accepts Vertex AI config with custom model', () => {

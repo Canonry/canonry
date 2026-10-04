@@ -21,7 +21,7 @@ Sends the query to Gemini with the `googleSearch` tool enabled. The query is sen
 - `rawResponse` — the full Gemini API response (candidates, usage metadata)
 - `groundingSources` — extracted `{ uri, title }` pairs from the grounding chunks referenced by `groundingSupports`
 - `searchQueries` — the web search queries Gemini used internally
-- `model` — the model used (default: `gemini-3.8-flash`)
+- `model` — the model used (default: `gemini-flash-latest`)
 
 ### `normalizeResult(raw: GeminiRawResult): GeminiNormalizedResult`
 
@@ -34,7 +34,7 @@ Extracts analyst-relevant fields from the raw response:
 
 ## Model
 
-Default: `gemini-3.8-flash`. Google limits the 2.5 models to projects that already used them, so new keys should stay on 3.x. Configurable via `GeminiConfig.model`.
+Default: `gemini-flash-latest`, Google's alias for the newest Flash model (2 weeks' email notice before a breaking change behind it). The served model is recorded per snapshot as `servedModel`, so trends show when it moved. Pin an exact ID such as `gemini-3.8-flash` for a fixed model. Google limits the 2.5 models to projects that already used them. Configurable via `GeminiConfig.model`.
 
 ## Custom Endpoint
 

@@ -78,9 +78,11 @@ export function buildApp(env: PlatformEnv) {
   const providerAdapters = [
     {
       name: 'gemini', displayName: 'Gemini', mode: 'api' as const, modelConfigurable: true,
-      defaultModel: 'gemini-3.8-flash',
+      defaultModel: 'gemini-flash-latest',
       knownModels: [
         { id: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro', tier: 'flagship' as const },
+        { id: 'gemini-flash-latest', displayName: 'Gemini Flash (latest)', tier: 'standard' as const },
+        { id: 'gemini-flash-lite-latest', displayName: 'Gemini Flash-Lite (latest)', tier: 'economy' as const },
         { id: 'gemini-3.8-flash', displayName: 'Gemini 3.8 Flash', tier: 'standard' as const },
         { id: 'gemini-3.5-flash-lite', displayName: 'Gemini 3.5 Flash-Lite', tier: 'economy' as const },
         { id: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', tier: 'standard' as const },
@@ -88,7 +90,7 @@ export function buildApp(env: PlatformEnv) {
         { id: 'gemini-2.0-flash', displayName: 'Gemini 2.0 Flash', tier: 'standard' as const },
       ],
       modelValidationPattern: /./,
-      modelValidationHint: 'any valid Google model name (e.g. gemini-3.8-flash, gemini-3.5-flash-lite)',
+      modelValidationHint: 'any valid Google model name (e.g. gemini-flash-latest, gemini-3.8-flash)',
     },
     {
       name: 'openai', displayName: 'OpenAI', mode: 'api' as const, modelConfigurable: true,

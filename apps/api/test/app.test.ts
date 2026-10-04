@@ -438,5 +438,5 @@ test('a plan-pinned run queued on Cloud freezes the inherited provider model int
   expect(run.measurementExecutionIdentity!.providers).toEqual(['gemini'])
   // The inherited default, not an empty object — this is the assertion that
   // fails when apps/api omits `getEffectiveProviderModels`.
-  expect(run.measurementExecutionIdentity!.models).toEqual({ gemini: 'gemini-3.8-flash' })
+  expect(run.measurementExecutionIdentity!.models).toEqual({ gemini: 'gemini-flash-latest' })
 })
