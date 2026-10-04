@@ -1262,6 +1262,18 @@ cnry telemetry status --target server --format json  # connected server, effecti
 cnry telemetry disable --target server --format json # requires settings.write
 ```
 
+## Feedback
+
+Send feedback about Canonry itself to the Canonry team. Agents: when you uncover a struggle (a failure, confusing output, a workaround) or a concrete improvement, tell the user and send one report per issue. Be specific about the command, error code, and what you did instead. Never include secrets or customer data; credentials are redacted before sending. The anonymous install id is attached only while telemetry is enabled.
+
+```bash
+cnry feedback "run fails with RATE_LIMITED on a free Gemini key" --kind struggle --command "cnry run acme" --error-code RATE_LIMITED
+cnry feedback "let me skip competitors from the CLI setup" --kind improvement --area setup
+cnry feedback "<summary>" --kind bug --details "<what happened, what you expected>" --format json
+```
+
+Kinds: `struggle`, `bug`, `improvement`, `other` (default). MCP equivalent: `canonry_feedback`.
+
 ## Operational diagnostics
 
 `cnry logs [--level trace|debug|info|warn|error|fatal] [--module <name>]

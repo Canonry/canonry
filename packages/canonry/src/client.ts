@@ -27,7 +27,7 @@ import { connectionFailureMessage, httpErrorDetails, isConnectionFailure, redact
 import { PACKAGE_VERSION } from './package-version.js'
 import { getApiV1ProjectsByNameSchedules, getApiV1NotificationsEvents } from '@ainyc/canonry-api-client'
 import type { LogQuery, OperationalLogListDto, NotificationEvent } from '@ainyc/canonry-contracts'
-import { normalizeTelemetryStatus, type TelemetryStatusInput } from '@ainyc/canonry-contracts'
+import { normalizeTelemetryStatus, type FeedbackAcceptedDto, type FeedbackSubmission, type TelemetryStatusInput } from '@ainyc/canonry-contracts'
 import { OPERATIONAL_LOG_FIELDS_HEADER, OPERATIONAL_LOG_OPT_IN_CONTEXT_FIELDS, operationalLogListReadSchema } from '@ainyc/canonry-contracts'
 import { getApiV1OperationsLogs } from '@ainyc/canonry-api-client'
 import type {
@@ -359,6 +359,7 @@ import {
   postApiV1Snapshot,
   getApiV1Telemetry,
   putApiV1Telemetry,
+  postApiV1Feedback,
   // API key management
   getApiV1Keys,
   getApiV1KeysSelf,
@@ -2477,6 +2478,11 @@ export class ApiClient {
 
   async updateTelemetry(enabled: boolean): Promise<TelemetryDto> {
     return normalizeTelemetryStatus(await this.invoke<TelemetryStatusInput>(() => putApiV1Telemetry({ client: this.heyClient, body: { enabled } })))
+  }
+
+  /** Forward product feedback about Canonry to canonry.ai through the server. */
+  async sendFeedback(body: FeedbackSubmission): Promise<FeedbackAcceptedDto> {
+    return this.invoke<FeedbackAcceptedDto>(() => postApiV1Feedback({ client: this.heyClient, body }))
   }
 
   // ── Schedules / notifications / locations ───────────────────────────────

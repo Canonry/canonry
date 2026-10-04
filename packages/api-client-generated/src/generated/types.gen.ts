@@ -13749,6 +13749,20 @@ export type TelemetryEventAcceptedDto = {
     accepted: boolean;
 };
 
+export type FeedbackSubmission = {
+    kind: 'struggle' | 'bug' | 'improvement' | 'other';
+    summary: string;
+    details?: string;
+    area?: string;
+    command?: string;
+    errorCode?: string;
+};
+
+export type FeedbackAcceptedDto = {
+    accepted: boolean;
+    id: string;
+};
+
 export type TelemetryStatusDto = {
     enabled: boolean;
     configuredEnabled: boolean;
@@ -21384,6 +21398,43 @@ export type PostApiV1TelemetryOnboardingResponses = {
 };
 
 export type PostApiV1TelemetryOnboardingResponse = PostApiV1TelemetryOnboardingResponses[keyof PostApiV1TelemetryOnboardingResponses];
+
+export type PostApiV1FeedbackData = {
+    body: FeedbackSubmission;
+    path?: never;
+    query?: never;
+    url: '/api/v1/feedback';
+};
+
+export type PostApiV1FeedbackErrors = {
+    /**
+     * Invalid feedback.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Feedback rate limit reached; try again later.
+     */
+    429: ErrorEnvelope;
+    /**
+     * Feedback is not available in this deployment.
+     */
+    501: ErrorEnvelope;
+    /**
+     * The feedback collector could not be reached or rejected the submission.
+     */
+    502: ErrorEnvelope;
+};
+
+export type PostApiV1FeedbackError = PostApiV1FeedbackErrors[keyof PostApiV1FeedbackErrors];
+
+export type PostApiV1FeedbackResponses = {
+    /**
+     * Feedback accepted by the collector.
+     */
+    202: FeedbackAcceptedDto;
+};
+
+export type PostApiV1FeedbackResponse = PostApiV1FeedbackResponses[keyof PostApiV1FeedbackResponses];
 
 export type GetApiV1ScreenshotsBySnapshotIdData = {
     body?: never;

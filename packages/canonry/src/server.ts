@@ -147,6 +147,7 @@ import {
   trackEvent,
 } from "./telemetry.js";
 import { createApiUsageTelemetry } from "./usage-telemetry.js";
+import { sendFeedback } from "./feedback.js";
 import { checkLatestVersionForServer, getServerUpdateStatus } from "./update-check.js";
 import { resolveBuildCommit, resolveInstanceIdentity } from "./instance-identity.js";
 import { JobRunner } from "./job-runner.js";
@@ -3321,6 +3322,7 @@ export async function createServer(opts: {
       const { event: eventName, eventId, ...properties } = event;
       trackEvent(eventName, properties, { source: "dashboard", eventId });
     },
+    submitFeedback: (submission, context) => sendFeedback(submission, context),
     onCdpConfigure: async (host: string, port: number) => {
       if (!opts.config.cdp) opts.config.cdp = {};
       opts.config.cdp.host = host;

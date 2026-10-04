@@ -168,6 +168,7 @@ const expectedToolNames = [
   'canonry_measurement_query_template_apply',
   'canonry_measurement_report',
   'canonry_run_trigger',
+  'canonry_feedback',
   'canonry_run_cancel',
   'canonry_queries_add',
   'canonry_keywords_add',
@@ -894,7 +895,7 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(240)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(241)
     expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(161)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name)
@@ -905,7 +906,7 @@ describe('MCP tool registry', () => {
     for (const tool of canonryMcpTools) {
       expect(CANONRY_MCP_TIERS).toContain(tool.tier)
     }
-    expect(CANONRY_MCP_CORE_TOOL_COUNT).toBe(11)
+    expect(CANONRY_MCP_CORE_TOOL_COUNT).toBe(12)
     const coreNames = canonryMcpTools.filter(tool => tool.tier === 'core').map(tool => tool.name)
     expect(coreNames).toEqual([
       'canonry_projects_list',
@@ -917,6 +918,7 @@ describe('MCP tool registry', () => {
       'canonry_key_self',
       'canonry_apply_config',
       'canonry_run_trigger',
+      'canonry_feedback',
       'canonry_run_cancel',
       'canonry_agent_webhook_attach',
     ])
@@ -1477,6 +1479,7 @@ describe('Dynamic tool catalog', () => {
       'canonry_key_self',
       'canonry_apply_config',
       'canonry_run_trigger',
+      'canonry_feedback',
       'canonry_run_cancel',
       'canonry_agent_webhook_attach',
     ])
@@ -1834,6 +1837,7 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_queries_replace_preview', input: { project: 'acme', request: { queries: ['alpha'] } }, methods: ['previewReplaceQueries'] },
   { tool: 'canonry_keywords_replace', input: { project: 'acme', request: { keywords: ['alpha'] } }, methods: ['putKeywords'] },
   { tool: 'canonry_run_trigger', input: { project: 'acme', request: { providers: ['gemini'] } }, methods: ['triggerRun'] },
+  { tool: 'canonry_feedback', input: { kind: 'struggle', summary: 'sweep fails on a free Gemini key' }, methods: ['sendFeedback'] },
   { tool: 'canonry_run_cancel', input: { runId: 'run-1' }, methods: ['cancelRun'] },
   { tool: 'canonry_queries_add', input: { project: 'acme', request: { queries: ['alpha'] } }, methods: ['appendQueries'] },
   { tool: 'canonry_keywords_add', input: { project: 'acme', request: { keywords: ['alpha'] } }, methods: ['appendKeywords'] },
