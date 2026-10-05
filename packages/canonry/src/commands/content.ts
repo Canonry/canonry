@@ -1,10 +1,51 @@
 import { createApiClient } from '../client.js'
 import { emitJsonl } from '../cli-output.js'
-import { isMachineFormat, CliError } from '../cli-error.js'
-import { formatPercent } from '@ainyc/canonry-contracts'
-import type { CheckResultDto, RecommendationBriefDto, WinnabilityClass } from '@ainyc/canonry-contracts'
+import { isMachineFormat, CliError, usageError } from '../cli-error.js'
+import { formatPercent, contentTargetDismissRequestSchema } from '@ainyc/canonry-contracts'
+import type { CheckResultDto, RecommendationBriefDto, WinnabilityClass, ContentTargetDismissRequest } from '@ainyc/canonry-contracts'
 
 const WINNABILITY_COVERAGE_CHECK_ID = 'content.winnability.coverage'
+
+export async function listContentDismissals(project: string, opts: { format?: string }): Promise<void> {
+  const response = await createApiClient().getContentDismissals(project)
+  if (opts.format === 'jsonl') {
+    emitJsonl(response.dismissals.map(row => ({ project, ...row })))
+    return
+  }
+  if (isMachineFormat(opts.format)) {
+    console.log(JSON.stringify(response, null, 2))
+    return
+  }
+  if (response.dismissals.length === 0) {
+    console.log('No addressed content targets.')
+    return
+  }
+  for (const row of response.dismissals) {
+    console.log(`${row.targetRef} · ${row.dismissedAt}`)
+    if (row.addressedUrl) console.log(`  Addressed URL: ${row.addressedUrl}`)
+    if (row.note) console.log(`  Note: ${row.note}`)
+  }
+}
+
+export async function dismissContentTarget(project: string, request: ContentTargetDismissRequest, opts: { format?: string }): Promise<void> {
+  const parsed = contentTargetDismissRequestSchema.safeParse(request)
+  if (!parsed.success) throw usageError(parsed.error.issues[0]?.message ?? 'Invalid content dismissal.')
+  const response = await createApiClient().dismissContentTarget(project, parsed.data)
+  if (isMachineFormat(opts.format)) {
+    console.log(JSON.stringify(response, null, 2))
+    return
+  }
+  console.log(`Marked ${response.targetRef} addressed. Restore with canonry content restore ${project} ${response.targetRef}.`)
+}
+
+export async function restoreContentTarget(project: string, targetRef: string, opts: { format?: string }): Promise<void> {
+  await createApiClient().restoreContentTarget(project, targetRef)
+  if (isMachineFormat(opts.format)) {
+    console.log(JSON.stringify({ targetRef, restored: true }, null, 2))
+    return
+  }
+  console.log(`Restored ${targetRef}. It can appear in content targets when still eligible.`)
+}
 
 interface TargetsOpts {
   limit?: number
@@ -58,6 +99,7 @@ export async function listContentTargets(project: string, opts: TargetsOpts): Pr
     const conf = target.actionConfidence.padEnd(6)
     const surface = target.winnabilityClass === 'ceded' ? 'CEDED  ' : 'ownable'
     console.log(`${action} ${score}  conf=${conf}  [${surface}]  ${target.query}`)
+    console.log(`            target ref: ${target.targetRef}`)
     if (target.ourBestPage) {
       const posLabel =
         target.ourBestPage.gscAvgPosition !== null

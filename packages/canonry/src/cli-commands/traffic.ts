@@ -370,7 +370,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       unknownSubcommand(input.positionals[0], {
         command: 'traffic',
         usage: 'canonry traffic <subcommand> <project> [args]',
-        available: ['connect', 'activate', 'sync', 'backfill', 'status', 'sources', 'events', 'analytics', 'referral-assessment'],
+        available: ['connect', 'activate', 'sync', 'backfill', 'reset', 'status', 'sources', 'events', 'analytics', 'referral-assessment'],
       })
     },
   },

@@ -22,7 +22,7 @@ export function parseTrafficAnalyticsPeriod(value: string | number | undefined |
   return result.data
 }
 
-/** Count during the selected period, equal preceding period, and signed percent change. */
+/** Recorded counts in adjacent equal periods; change is null when prior recording is incomplete. */
 export const trafficActivityCountSchema = z.object({ current: z.number(), prior: z.number(), deltaPct: percent().nullable() })
 export type TrafficActivityCount = z.infer<typeof trafficActivityCountSchema>
 
@@ -32,7 +32,11 @@ export const trafficActivitySummarySchema = z.object({
   windowStart: z.string(),
   /** ISO8601 inclusive upper bound. */
   windowEnd: z.string(),
-  hasData: z.boolean(),
+  /** Earliest stored project observation across crawler, user-fetch and referral hourly rows; not window-bound. */
+  coverageStart: z.string().nullable(),
+  /** Recording began on or before the prior window start. This does not establish uninterrupted ingestion. */
+  priorWindowComplete: z.boolean(),
+  hasData: z.boolean().describe('True when the selected or prior window has stored crawler, user-fetch, countable referral or operator evidence, or the selected window has referral redirects. False means no qualifying stored evidence; it can occur with no, paused, errored or never-synced ingestion and out-of-window observations. It does not establish measured zero traffic or source health.'),
 
   /** Verified crawler hits during the selected period and the equal preceding period. */
   verifiedCrawlerHits: trafficActivityCountSchema,

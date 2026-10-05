@@ -201,8 +201,11 @@ Routes fire lifecycle hooks via `opts` callbacks — `onRunCreated`, `onProvider
   `comparison` domain/count set. Pins are exclusive; observed direct identities
   are a fallback requiring 3 rivals with 3 answer mentions each in the selected
   scope. Empty sets never produce a percentage. Raw `observedNames` remain
-  descriptive only. Stats and report shares call `readCompetitorLandscape` with
+  descriptive only. Visibility-stat shares call `readCompetitorLandscape` with
   their selected run population; Advanced readers retain frozen assignments.
+
+- Historical landscape percentages require explicit `queryClass=non-brand` or
+  `branded`. Omitted class and `all` return pooled counts with null shares.
 
 - `GET /projects/:name/analytics/competitors` is a stored-evidence read. It
   must never start discovery, classify a domain live, call a provider, or write.
@@ -402,7 +405,7 @@ The dimensioned search-data table is valid for RANKING and invalid for TOTALS. R
 
 `src/google.ts` (GSC):
 
-- GSC routes: OAuth connect/callback, property selection, sync, coverage, plus `GET /gsc/top-pages` (one row per page, `GROUP BY page` + `SUM(clicks)` in SQL so the response is bounded by distinct pages, not by the dimensioned rows behind them), and `GET /gsc/query-totals` (one row per named query over a window, folded, ordered and paged in SQL by `readGscQueryTotalsPage`, which a parity test holds to `mergeGscQueryTotalsWithFallback` so it matches the report; a page reads only its own rows; read-only, no Google call).
+- GSC routes: OAuth connect/callback, property selection, sync, coverage, plus `GET /gsc/top-pages` (one row per page, `GROUP BY page` + `SUM(clicks)` in SQL so the response is bounded by distinct pages, not by the dimensioned rows behind them), and `GET /gsc/query-totals` (one row per named query over a window, folded, ordered and paged in SQL by `readGscQueryTotalsPage`, which a parity test holds to `mergeGscQueryTotalsWithFallback` so paged and unpaged readers agree; a page reads only its own rows; read-only, no Google call).
 - **The dimensioned `gsc_search_data` table is valid for RANKING and invalid for TOTALS**: Google withholds rare/anonymised queries so its sum under-counts clicks, and one impression fans out across every query x page x country x device combination so its sum over-counts impressions (792 vs 1,142 clicks and 45,266 vs 34,916 impressions on one real property-month).
 - `top-pages` therefore sources `totals` from the un-dimensioned `gsc_daily_totals` table, labels it `totalsSource: 'property-daily'`, and returns `null` when no property figure covers the window rather than falling back to the sum; `/gsc/performance/daily` reads the same table through `readGscDailyTotals`.
 - Guarded by `test/gsc-top-pages.test.ts`, whose fixture makes the two sources deliberately disagree.

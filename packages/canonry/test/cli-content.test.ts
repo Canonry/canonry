@@ -366,6 +366,41 @@ describe('content CLI commands + CLI/API parity', () => {
 
   // ─── Phase M: CLI/API parity ───────────────────────────────────────
 
+  it('can list and reverse a dismissal after Report removal, restoring the same content target', async () => {
+    const targets = await client.getContentTargets('example')
+    const target = targets.targets[0]!
+    expect(target).toBeDefined()
+    const dismissed = await invokeCli(['content', 'dismiss', 'example', target.targetRef,
+      '--addressed-url', 'https://example.com/new-guide', '--note', 'Published the guide', '--format', 'json'])
+    expect(dismissed.exitCode).toBeUndefined()
+    const row = parseJsonOutput(dismissed.stdout)
+    expect(row).toEqual({ targetRef: target.targetRef, addressedUrl: 'https://example.com/new-guide',
+      note: 'Published the guide', dismissedAt: expect.any(String) })
+    expect((await client.getContentTargets('example')).targets.map(item => item.targetRef)).not.toContain(target.targetRef)
+
+    const list = await invokeCli(['content', 'dismissals', 'example', '--format', 'json'])
+    expect(list.exitCode).toBeUndefined()
+    expect(parseJsonOutput(list.stdout)).toEqual({ dismissals: [row] })
+
+    const restored = await invokeCli(['content', 'restore', 'example', target.targetRef, '--format', 'jsonl'])
+    expect(restored.exitCode).toBeUndefined()
+    expect(parseJsonOutput(restored.stdout)).toEqual({ targetRef: target.targetRef, restored: true })
+    expect((await client.getContentTargets('example')).targets.map(item => item.targetRef)).toContain(target.targetRef)
+    const empty = await invokeCli(['content', 'dismissals', 'example', '--format', 'json'])
+    expect(parseJsonOutput(empty.stdout)).toEqual({ dismissals: [] })
+  })
+
+  it.each([
+    ['dismiss'], ['restore'], ['dismiss', 'example'], ['restore', 'example'],
+    ['dismiss', 'example', 'target', '--addressed-url', 'invalid'],
+    ['dismiss', 'example', 'target', '--note', 'x'.repeat(501)],
+  ].map(args => ({ args })))('rejects invalid content dismissal arguments: $args', async ({ args }) => {
+    const result = await invokeCli(['content', ...args, '--format', 'json'])
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toBe('')
+    expect(JSON.parse(result.stderr).error.code).toBe('CLI_USAGE_ERROR')
+  })
+
   it('parity: content targets CLI matches API byte-for-byte', async () => {
     const apiResponse = await client.getContentTargets('example')
     const cliOut = await captureStdout(() => listContentTargets('example', { format: 'json' }))

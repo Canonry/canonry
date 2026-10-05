@@ -4,11 +4,26 @@ import {
   parseOriginList,
   frameAncestorsHeaderValue,
   buildEmbedClientConfig,
+  embedProjectTabsError,
   embedClientConfigForRequest,
   normalizeIdTokens,
   serializeForInlineScript,
   type ResolvedEmbedConfig,
 } from '../src/embed.js'
+
+describe('embedProjectTabsError', () => {
+  it('requires explicit replacement of retired Report grants, including mixed and legacy-cased lists', () => {
+    for (const projectTabs of [['report'], ['report', 'overview'], ['technical-aeo', ' REPORT ']]) {
+      expect(embedProjectTabsError(projectTabs)).toContain('The report embed tab has been retired')
+    }
+  })
+
+  it('accepts absent and supported allowlists without changing their grants', () => {
+    expect(embedProjectTabsError(undefined)).toBeUndefined()
+    expect(embedProjectTabsError([])).toBeUndefined()
+    expect(embedProjectTabsError(['overview', 'technical-aeo'])).toBeUndefined()
+  })
+})
 
 describe('normalizeFrameOrigin', () => {
   it('lowercases scheme + host and strips a trailing slash / path', () => {

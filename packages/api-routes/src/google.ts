@@ -1242,8 +1242,8 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   //
   // One row per query over the window, read from stored rows only: no call to
   // Google and no writes. The fold is `readGscQueryTotalsPage`, the SQL form of
-  // `mergeGscQueryTotalsWithFallback` (which the report, suggested queries and
-  // content data use), held to identical numbers by a parity test: the accurate
+  // `mergeGscQueryTotalsWithFallback` (used by suggested queries and content
+  // data), held to identical numbers by a parity test: the accurate
   // `['date','query']` table wins per day and the legacy page-dimensioned table
   // fills days it does not cover.
   //

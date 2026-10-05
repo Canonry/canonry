@@ -50,6 +50,7 @@ import {
   forbidden,
   notFound,
   validationError,
+  embedProjectTabsError,
   embedClientConfigForRequest,
   serializeForInlineScript,
   frameAncestorsHeaderValue,
@@ -843,6 +844,7 @@ export async function createServer(opts: {
   /** Live user-global native Canonry plugin state for agent-skills doctor checks. */
   getAgentPluginState?: () => AgentPluginState;
 }): Promise<FastifyInstance> {
+  const embed = resolveEmbedConfig(process.env, opts.config);
   const operatorApiKeyIds = resolveOperatorApiKeyIds(process.env);
   const dashboardManagedRunKinds = resolveDashboardManagedRunKinds(process.env, opts.config);
   const operationalLogs = new OperationalLogStore(opts.db, {
@@ -2187,7 +2189,6 @@ export async function createServer(opts: {
   // When disabled, the injected SPA config stays byte-for-byte unchanged and no
   // framing header is emitted. When enabled, every SPA document gets a
   // fail-closed `Content-Security-Policy: frame-ancestors` header.
-  const embed = resolveEmbedConfig(process.env, opts.config);
   const embedCsp = embed.enabled
     ? frameAncestorsHeaderValue(embed.allowedOrigins)
     : undefined;
@@ -3473,6 +3474,8 @@ export async function createServer(opts: {
       // to set any of these headers; absent headers keep the boot config.
       if (embed.enabled) {
         const embedClient = embedClientConfigForRequest(embed, projectTabsOverride, themeOverride, renderTokenOverride);
+        const projectTabsError = embedProjectTabsError(embedClient?.projectTabs);
+        if (projectTabsError) throw validationError(projectTabsError);
         if (embedClient) clientConfig.embed = embedClient;
       }
 

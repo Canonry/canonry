@@ -48,7 +48,7 @@ The silent `report.ai-referral-bursts` doctor advisory warns
 to review; otherwise it passes (`no-bursts`) with these coverage limits in its
 details. It skips a project whose traffic sources are all archived.
 A high quotient does not confirm automation, and this diagnostic does not
-replace GA or change any existing report headline.
+replace GA or change the raw traffic totals.
 
 ## Architecture
 
@@ -1029,6 +1029,16 @@ schema change, the stored rollups are untouched.
 | `cnry doctor --project <name>` | Source health checks, including last-observed Worker drift for direct and Queue sources plus Queue local credential/sync state |
 | MCP toolkit `traffic` | Read/status tools plus pull-source setup/sync tools. Cloudflare connect is local-CLI-only so Worker secrets cannot enter an MCP transcript. |
 
+Traffic analytics aggregates every matching stored row before limiting ranked
+paths. A zero count means no matching events were stored for that metric and
+window; it does not prove source sync or measurement coverage. Preserve
+`coverageStart`, the earliest project
+observation or null, and `priorWindowComplete`, which tests whether recording
+began by the prior window's start. If false, headline, arrival-class, and
+operator changes are unavailable (`deltaPct: null`) while raw totals remain.
+These fields do not establish continuous collection or matching sources in
+both windows. Check source status and sync evidence before interpreting changes.
+
 ## Doctor signals
 
 The doctor checks are adapter-agnostic. When they fail or warn:
@@ -1123,10 +1133,11 @@ domains, or PII are surfaced.
   citation store is domain-grain (`query_snapshots.cited_domains`). A
   future iteration that lands URL-grain citation evidence will extend
   the `topCrawledPaths` entry with a `citationState` flag. Until then,
-  treat the report's crawled-paths table as "engine attention" — the
+  treat traffic analytics' crawled-paths table as "engine attention" — the
   signal is the bot fetched it, not whether it was cited.
-- **Verified vs unverified.** The headline numbers count only
-  published-IP-range-verified hits. Unverified bots claim a known UA but
+- **Verified vs unverified.** Verified crawler counts include only
+  published-IP-range-verified hits. Unverified crawler counts remain separate:
+  those bots claim a known UA but
   do not match the operator's published IP ranges. The bot can be real or an
   imitator. Do not promote unverified counts in client-facing copy.
   **Vercel sources are a special case:** the Vercel pull API returns

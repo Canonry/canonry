@@ -70,6 +70,14 @@ export interface EmbedClientConfig {
   renderToken?: string
 }
 
+/** Retired tab grants require an explicit replacement rather than an automatic fallback. */
+export function embedProjectTabsError(projectTabs: readonly string[] | undefined): string | undefined {
+  if (projectTabs?.some(tab => tab.trim().toLowerCase() === 'report')) {
+    return 'The report embed tab has been retired. Remove report from the allowed tabs; explicitly configure overview to display AI Visibility.'
+  }
+  return undefined
+}
+
 /** The CSP keyword for same-origin framing, passed through verbatim when configured. */
 const SELF_TOKEN = "'self'"
 

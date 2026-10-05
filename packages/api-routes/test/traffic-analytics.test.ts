@@ -12,6 +12,7 @@ import {
   trafficAnalyticsResponseSchema,
   type TrafficAnalyticsResponse,
   type TrafficEventsResponse,
+  type TrafficSourceStatus,
 } from '@ainyc/canonry-contracts'
 import {
   aiReferralEventsHourly,
@@ -58,11 +59,11 @@ function seedKey(raw: string, projectId?: string): void {
   }).run()
 }
 
-function seedSource(projectId: string, archived = false): string {
+function seedSource(projectId: string, archived = false, status: TrafficSourceStatus = TrafficSourceStatuses.connected): string {
   const id = crypto.randomUUID()
   db.insert(trafficSources).values({
     id, projectId, sourceType: TrafficSourceTypes['cloud-run'], displayName: 'Stored traffic',
-    status: archived ? TrafficSourceStatuses.archived : TrafficSourceStatuses.connected,
+    status: archived ? TrafficSourceStatuses.archived : status,
     configJson: {}, archivedAt: archived ? NOW : null, createdAt: NOW, updatedAt: NOW,
   }).run()
   return id
@@ -140,12 +141,12 @@ describe('GET /projects/:name/traffic/analytics', () => {
     expect(await readAnalytics('no-source')).toEqual({ activity: null })
   })
 
-  test('a connected source without events preserves zero counts and empty breakdowns', async () => {
-    seedSource(seedProject('connected'))
+  test.each([TrafficSourceStatuses.connected, TrafficSourceStatuses.paused, TrafficSourceStatuses.error])('a never-synced %s source without events preserves the same empty evidence payload', async status => {
+    seedSource(seedProject('connected'), false, status)
     const { activity } = await readAnalytics('connected')
     const zero = { current: 0, prior: 0, deltaPct: null }
     expect(activity).toEqual({
-      windowStart: daysAgo(30), windowEnd: NOW, hasData: false,
+      windowStart: daysAgo(30), windowEnd: NOW, coverageStart: null, priorWindowComplete: false, hasData: false,
       verifiedCrawlerHits: zero, unverifiedCrawlerHits: zero, aiUserFetchHits: zero,
       referralArrivals: zero, referralRedirects: 0,
       referralArrivalsByClass: { paid: zero, organic: zero, unclassified: zero },
@@ -154,16 +155,160 @@ describe('GET /projects/:name/traffic/analytics', () => {
     })
   })
 
+  test('prior-only qualified evidence remains data while current totals stay zero', async () => {
+    const projectId = seedProject('prior-only')
+    const sourceId = seedSource(projectId, false, TrafficSourceStatuses.paused)
+    seedCrawler(projectId, sourceId, { tsHour: daysAgo(45), hits: 7 })
+    seedUserFetch(projectId, sourceId, { tsHour: daysAgo(45), hits: 11 })
+    seedReferral(projectId, sourceId, { tsHour: daysAgo(45), sessionsOrHits: 13, paidSessionsOrHits: 3, organicSessionsOrHits: 4 })
+    const { activity } = await readAnalytics('prior-only')
+    expect(activity!.hasData).toBe(true)
+    expect(activity!.coverageStart).toBe(daysAgo(45))
+    expect(activity!.priorWindowComplete).toBe(false)
+    expect(activity!.verifiedCrawlerHits).toEqual({ current: 0, prior: 7, deltaPct: null })
+    expect(activity!.aiUserFetchHits).toEqual({ current: 0, prior: 11, deltaPct: null })
+    expect(activity!.referralArrivals).toEqual({ current: 0, prior: 13, deltaPct: null })
+    expect(activity!.byOperator).toEqual([
+      { operator: 'OpenAI', verifiedHits: 0, unverifiedHits: 0, userFetchHits: 0, referralArrivals: 0, deltaPct: null },
+    ])
+    expect(activity!.dailyTrend).toEqual([])
+  })
+
+  test('out-of-window observations establish recording onset without establishing window data', async () => {
+    const projectId = seedProject('older-only')
+    const sourceId = seedSource(projectId)
+    seedCrawler(projectId, sourceId, { tsHour: daysAgo(65), hits: 7 })
+    seedUserFetch(projectId, sourceId, { tsHour: daysAgo(65), hits: 11 })
+    seedReferral(projectId, sourceId, { tsHour: daysAgo(65), sessionsOrHits: 13 })
+    const { activity } = await readAnalytics('older-only')
+    expect(activity!.hasData).toBe(false)
+    expect(activity!.coverageStart).toBe(daysAgo(65))
+    expect(activity!.priorWindowComplete).toBe(true)
+    expect(activity!.verifiedCrawlerHits).toEqual({ current: 0, prior: 0, deltaPct: null })
+    expect(activity!.byOperator).toEqual([])
+  })
+
   test.each([7, 14, 30, 90])('period=%s selects that exact window and its equal-length prior', async period => {
     const projectId = seedProject('window')
     const sourceId = seedSource(projectId)
+    seedReferral(projectId, sourceId, { tsHour: daysAgo(period * 2), status: 301 })
     seedCrawler(projectId, sourceId, { tsHour: daysAgo(period - 1), hits: 10 })
     seedCrawler(projectId, sourceId, { tsHour: daysAgo(period + 1), hits: 5 })
     const { activity } = await readAnalytics('window', period)
     expect(activity!.windowStart).toBe(daysAgo(period))
     expect(activity!.windowEnd).toBe(NOW)
+    expect(activity!.coverageStart).toBe(daysAgo(period * 2))
+    expect(activity!.priorWindowComplete).toBe(true)
     expect(activity!.verifiedCrawlerHits).toEqual({ current: 10, prior: 5, deltaPct: 100 })
     expect(activity!.dailyTrend.reduce((sum, day) => sum + day.verifiedCrawlerHits, 0)).toBe(10)
+  })
+
+  test('partial prior recording preserves raw totals without reporting growth for flat hourly traffic', async () => {
+    const projectId = seedProject('partial-recording')
+    const sourceId = seedSource(projectId)
+    db.transaction(() => {
+      for (let hour = 0; hour < 240; hour++) {
+        const tsHour = daysAgo(hour / 24)
+        seedCrawler(projectId, sourceId, { tsHour, hits: 10 })
+        seedCrawler(projectId, sourceId, { tsHour, hits: 20, verificationStatus: VerificationStatuses.claimed_unverified })
+        seedUserFetch(projectId, sourceId, { tsHour, hits: 30 })
+        seedReferral(projectId, sourceId, { tsHour, sessionsOrHits: 40, paidSessionsOrHits: 10, organicSessionsOrHits: 20 })
+      }
+    })
+    const { activity } = await readAnalytics('partial-recording', 7)
+    expect(activity!.coverageStart).toBe(daysAgo(239 / 24))
+    expect(activity!.priorWindowComplete).toBe(false)
+    // The inclusive current boundary contains 169 hourly rows; only 71 prior
+    // rows were recorded. Comparing their totals would claim +138.028169%.
+    expect(activity!.verifiedCrawlerHits).toEqual({ current: 1690, prior: 710, deltaPct: null })
+    expect(activity!.unverifiedCrawlerHits).toEqual({ current: 3380, prior: 1420, deltaPct: null })
+    expect(activity!.aiUserFetchHits).toEqual({ current: 5070, prior: 2130, deltaPct: null })
+    expect(activity!.referralArrivals).toEqual({ current: 6760, prior: 2840, deltaPct: null })
+    expect(activity!.referralArrivalsByClass).toEqual({
+      paid: { current: 1690, prior: 710, deltaPct: null },
+      organic: { current: 3380, prior: 1420, deltaPct: null },
+      unclassified: { current: 1690, prior: 710, deltaPct: null },
+    })
+    expect(activity!.byOperator).toEqual([
+      { operator: 'OpenAI', verifiedHits: 1690, unverifiedHits: 3380, userFetchHits: 5070, referralArrivals: 6760, deltaPct: null },
+    ])
+    expect(activity!.dailyTrend.reduce((sum, day) => sum + day.verifiedCrawlerHits, 0)).toBe(1690)
+  })
+
+  test.each([
+    ['crawler', seedCrawler], ['user-fetch', seedUserFetch], ['referral', seedReferral],
+  ] as const)('recording onset includes the earliest %s observation without borrowing sibling coverage', async (_kind, seedEarliest) => {
+    const projectId = seedProject('coverage-scope')
+    const sourceId = seedSource(projectId)
+    seedCrawler(projectId, sourceId, { tsHour: daysAgo(45) })
+    seedUserFetch(projectId, sourceId, { tsHour: daysAgo(45) })
+    seedReferral(projectId, sourceId, { tsHour: daysAgo(45) })
+    seedEarliest(projectId, sourceId, { tsHour: daysAgo(60) })
+    const sibling = seedProject('older-sibling')
+    seedCrawler(sibling, seedSource(sibling), { tsHour: daysAgo(365) })
+    const short = await readAnalytics('coverage-scope', 7)
+    const long = await readAnalytics('coverage-scope', 90)
+    expect(short.activity).toMatchObject({ coverageStart: daysAgo(60), priorWindowComplete: true })
+    expect(long.activity).toMatchObject({ coverageStart: daysAgo(60), priorWindowComplete: false })
+  })
+
+  test('operator growth compares all-unverified crawler totals in both fully recorded windows', async () => {
+    const projectId = seedProject('unverified-growth')
+    const sourceId = seedSource(projectId)
+    seedReferral(projectId, sourceId, { tsHour: daysAgo(60), status: 301 })
+    seedCrawler(projectId, sourceId, { tsHour: daysAgo(45), hits: 100, verificationStatus: VerificationStatuses.claimed_unverified })
+    seedCrawler(projectId, sourceId, { hits: 200, verificationStatus: VerificationStatuses.claimed_unverified })
+    const { activity } = await readAnalytics('unverified-growth')
+    expect(activity!.coverageStart).toBe(daysAgo(60))
+    expect(activity!.priorWindowComplete).toBe(true)
+    expect(activity!.verifiedCrawlerHits).toEqual({ current: 0, prior: 0, deltaPct: null })
+    expect(activity!.unverifiedCrawlerHits).toEqual({ current: 200, prior: 100, deltaPct: 100 })
+    expect(activity!.byOperator).toEqual([
+      { operator: 'OpenAI', verifiedHits: 0, unverifiedHits: 200, userFetchHits: 0, referralArrivals: 0, deltaPct: 100 },
+    ])
+  })
+
+  test('mixed verification tiers use their combined crawler denominator for operator growth', async () => {
+    const projectId = seedProject('mixed-growth')
+    const sourceId = seedSource(projectId)
+    seedReferral(projectId, sourceId, { tsHour: daysAgo(60), status: 301 })
+    seedCrawler(projectId, sourceId, { tsHour: daysAgo(45), hits: 90 })
+    seedCrawler(projectId, sourceId, { tsHour: daysAgo(45), hits: 10, verificationStatus: VerificationStatuses.claimed_unverified })
+    seedCrawler(projectId, sourceId, { hits: 10 })
+    seedCrawler(projectId, sourceId, { hits: 190, verificationStatus: VerificationStatuses.claimed_unverified })
+    const { activity } = await readAnalytics('mixed-growth')
+    expect(activity!.priorWindowComplete).toBe(true)
+    expect(activity!.verifiedCrawlerHits).toEqual({ current: 10, prior: 90, deltaPct: -88.888889 })
+    expect(activity!.unverifiedCrawlerHits).toEqual({ current: 190, prior: 10, deltaPct: 1800 })
+    // Verified traffic shrank, but combined crawler traffic doubled: 200/100.
+    expect(activity!.byOperator).toEqual([
+      { operator: 'OpenAI', verifiedHits: 10, unverifiedHits: 190, userFetchHits: 0, referralArrivals: 0, deltaPct: 100 },
+    ])
+  })
+
+  test('ranked paths aggregate repeated rows before selecting the top ten without reducing totals', async () => {
+    const projectId = seedProject('ranked-cutoff')
+    const sourceId = seedSource(projectId)
+    for (let hits = 1; hits <= 12; hits++) {
+      seedCrawler(projectId, sourceId, { pathNormalized: `/rank-${hits}`, hits })
+      seedReferral(projectId, sourceId, { landingPathNormalized: `/rank-${hits}`, sessionsOrHits: hits, paidSessionsOrHits: hits })
+    }
+    for (const days of [1, 2]) {
+      seedCrawler(projectId, sourceId, { tsHour: daysAgo(days), pathNormalized: '/aggregate-winner', hits: 7 })
+      seedReferral(projectId, sourceId, { tsHour: daysAgo(days), landingPathNormalized: '/aggregate-winner', sessionsOrHits: 7, paidSessionsOrHits: 7 })
+    }
+    const { activity } = await readAnalytics('ranked-cutoff')
+    const ranked = [{ path: '/aggregate-winner', hits: 14 }, ...Array.from({ length: 9 }, (_, index) => ({ path: `/rank-${12 - index}`, hits: 12 - index }))]
+    expect(activity!.topCrawledPaths).toEqual(ranked.map(row => ({ path: row.path, verifiedHits: row.hits, unverifiedHits: 0, distinctOperators: 1 })))
+    expect(activity!.topReferralLandingPaths).toEqual(ranked.map(row => ({ path: row.path, arrivals: row.hits, distinctProducts: 1 })))
+    expect(activity!.topCrawledPaths.reduce((sum, row) => sum + row.verifiedHits, 0)).toBe(86)
+    expect(activity!.topReferralLandingPaths.reduce((sum, row) => sum + row.arrivals, 0)).toBe(86)
+    expect(activity!.verifiedCrawlerHits.current).toBe(92)
+    expect(activity!.referralArrivals.current).toBe(92)
+    expect(activity!.byOperator[0]!.verifiedHits).toBe(92)
+    expect(activity!.byOperator[0]!.referralArrivals).toBe(92)
+    expect(activity!.referralProducts).toEqual([{ product: 'ChatGPT', arrivals: 92, distinctLandingPaths: 13 }])
+    expect(activity!.dailyTrend.reduce((sum, day) => sum + day.referralArrivals, 0)).toBe(92)
   })
 
   test('more than 5000 hourly detail rows contribute to every aggregate before ranking', async () => {

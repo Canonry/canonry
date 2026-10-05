@@ -82,6 +82,12 @@ describe('ratio units on the wire', () => {
 
     // A traffic signed change uses whole percent; a GSC period change is a fraction.
     expect(unitAt('TrafficAnalyticsResponse', 'activity', 'verifiedCrawlerHits', 'deltaPct')).toBe('percent')
+    expect(unitAt('TrafficAnalyticsResponse', 'activity', 'unverifiedCrawlerHits', 'deltaPct')).toBe('percent')
+    expect(unitAt('TrafficAnalyticsResponse', 'activity', 'aiUserFetchHits', 'deltaPct')).toBe('percent')
+    expect(unitAt('TrafficAnalyticsResponse', 'activity', 'referralArrivals', 'deltaPct')).toBe('percent')
+    for (const trafficClass of ['paid', 'organic', 'unclassified']) {
+      expect(unitAt('TrafficAnalyticsResponse', 'activity', 'referralArrivalsByClass', trafficClass, 'deltaPct')).toBe('percent')
+    }
     expect(unitAt('TrafficAnalyticsResponse', 'activity', 'byOperator', '[]', 'deltaPct')).toBe('percent')
     expect(unitAt('GscPerformanceDailyDto', 'periodComparison', 'change', 'ctr')).toBe('fraction')
     expect(unitAt('GscPerformanceDailyDto', 'periodComparison', 'change', 'clicks')).toBe('fraction')
@@ -132,5 +138,6 @@ describe('ratio units on the wire', () => {
     // An exclusion stays undeclared rather than borrowing a unit, and a path
     // that names nothing reads as missing, never as a unit.
     expect(unitAt('VisibilityCompareDto', 'metrics', '[]', 'rateRatio')).toBe('undeclared')
+    expect(unitAt('VisibilityCompareDto', 'metrics', '[]', 'notAContractField')).toBe('missing')
   })
 })

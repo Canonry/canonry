@@ -46,8 +46,8 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
   {
     name: 'monitoring',
     title: 'Measurement, runs, insights, health',
-    description: 'Inspect portfolio and Property measurement, question results, experimental branded and non-brand sentiment and evidence, run history, intelligence insights, health timelines, and bounded Site Health reads (overview, page audit evidence, focused subgraphs, paths, and scan changes).',
-    whenToLoad: 'Load when finding weak Properties, reviewing answers, sentiment and competitors, checking data quality, tying a Site Health page score to concrete findings, investigating site architecture, comparing scans, or diagnosing regressions.',
+    description: 'Inspect portfolio and Property measurement, question results, experimental branded and non-brand sentiment and evidence, content opportunities and addressed-target records, run history, intelligence insights, health timelines, and bounded Site Health reads (overview, page audit evidence, focused subgraphs, paths, and scan changes).',
+    whenToLoad: 'Load when finding weak Properties, reviewing answers, sentiment and competitors, marking or restoring addressed content targets, checking data quality, tying a Site Health page score to concrete findings, investigating site architecture, comparing scans, or diagnosing regressions.',
   },
   {
     name: 'setup',

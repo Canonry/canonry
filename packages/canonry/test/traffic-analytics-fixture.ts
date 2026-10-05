@@ -4,6 +4,8 @@ export const TRAFFIC_ANALYTICS_FIXTURE: TrafficAnalyticsResponse = {
   activity: {
     windowStart: '2026-09-01T12:00:00.000Z',
     windowEnd: '2026-10-01T12:00:00.000Z',
+    coverageStart: '2026-08-01T12:00:00.000Z',
+    priorWindowComplete: true,
     hasData: true,
     verifiedCrawlerHits: { current: 501, prior: 400, deltaPct: 25.25 },
     unverifiedCrawlerHits: { current: 8, prior: 4, deltaPct: 100 },

@@ -43,6 +43,8 @@ describe('traffic analytics response', () => {
     const activity: TrafficActivitySummary = {
       windowStart: '2026-09-05T12:00:00.000Z',
       windowEnd: '2026-10-05T12:00:00.000Z',
+      coverageStart: '2026-08-01T12:00:00.000Z',
+      priorWindowComplete: true,
       hasData: true,
       verifiedCrawlerHits: { current: 6, prior: 4, deltaPct: 50 },
       unverifiedCrawlerHits: { current: 2, prior: 4, deltaPct: -50 },
@@ -63,6 +65,9 @@ describe('traffic analytics response', () => {
     }
 
     expect(trafficAnalyticsResponseSchema.parse({ activity })).toEqual({ activity })
+    expect(trafficAnalyticsResponseSchema.parse({ activity: { ...activity, coverageStart: null, priorWindowComplete: false } }).activity).toMatchObject({ coverageStart: null, priorWindowComplete: false })
+    const { coverageStart: _coverageStart, priorWindowComplete: _priorWindowComplete, ...withoutCoverage } = activity
+    expect(trafficAnalyticsResponseSchema.safeParse({ activity: withoutCoverage }).success).toBe(false)
   })
 
   it('uses null to represent no connected source, while requiring the activity field', () => {

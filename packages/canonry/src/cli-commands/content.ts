@@ -4,13 +4,50 @@ import {
   listContentGaps,
   generateContentBrief,
   contentMap,
+  listContentDismissals,
+  dismissContentTarget,
+  restoreContentTarget,
 } from '../commands/content.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
-import { requireProject, requirePositional, parseIntegerOption } from '../cli-command-helpers.js'
+import { requireProject, requirePositional, parseIntegerOption, getString } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
 import { winnabilityClassSchema } from '@ainyc/canonry-contracts'
 
 export const CONTENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
+  {
+    path: ['content', 'dismissals'],
+    usage: 'canonry content dismissals <project> [--format json|jsonl]',
+    help: 'List persisted addressed content targets, including those hidden from content targets.',
+    options: {},
+    run: async input => {
+      const project = requireProject(input, 'content dismissals', 'canonry content dismissals <project> [--format json|jsonl]')
+      await listContentDismissals(project, { format: input.format })
+    },
+  },
+  {
+    path: ['content', 'dismiss'],
+    usage: 'canonry content dismiss <project> <targetRef> [--addressed-url <url>] [--note <text>] [--format json]',
+    help: 'Mark a content target addressed. Restore it with content restore.',
+    options: { 'addressed-url': { type: 'string' }, note: { type: 'string' } },
+    run: async input => {
+      const usage = 'canonry content dismiss <project> <targetRef> [--addressed-url <url>] [--note <text>] [--format json]'
+      const project = requireProject(input, 'content dismiss', usage)
+      const targetRef = requirePositional(input, 1, { command: 'content dismiss', usage, message: 'targetRef is required (from content targets)' })
+      await dismissContentTarget(project, { targetRef, addressedUrl: getString(input.values, 'addressed-url'), note: getString(input.values, 'note') }, { format: input.format })
+    },
+  },
+  {
+    path: ['content', 'restore'],
+    usage: 'canonry content restore <project> <targetRef> [--format json]',
+    help: 'Remove a persisted dismissal so an eligible target can appear again.',
+    options: {},
+    run: async input => {
+      const usage = 'canonry content restore <project> <targetRef> [--format json]'
+      const project = requireProject(input, 'content restore', usage)
+      const targetRef = requirePositional(input, 1, { command: 'content restore', usage, message: 'targetRef is required (from content dismissals)' })
+      await restoreContentTarget(project, targetRef, { format: input.format })
+    },
+  },
   {
     path: ['content', 'targets'],
     usage:

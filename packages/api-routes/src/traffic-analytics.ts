@@ -43,6 +43,20 @@ function readTrafficActivity(db: DatabaseClient, projectId: string, windowDays: 
   const headlineStart = new Date(headlineStartMs).toISOString()
   const priorStart = new Date(priorStartMs).toISOString()
   const trendStart = new Date(trendStartMs).toISOString()
+  // Match traffic/events recording onset: earliest project observation across
+  // all three hourly tables, independent of the selected window or row limits.
+  const firstObservations = [
+    db.select({ first: sql<string>`MIN(${crawlerEventsHourly.tsHour})` })
+      .from(crawlerEventsHourly).where(eq(crawlerEventsHourly.projectId, projectId)).get()?.first,
+    db.select({ first: sql<string>`MIN(${aiUserFetchEventsHourly.tsHour})` })
+      .from(aiUserFetchEventsHourly).where(eq(aiUserFetchEventsHourly.projectId, projectId)).get()?.first,
+    db.select({ first: sql<string>`MIN(${aiReferralEventsHourly.tsHour})` })
+      .from(aiReferralEventsHourly).where(eq(aiReferralEventsHourly.projectId, projectId)).get()?.first,
+  ].filter((first): first is string => typeof first === 'string' && first.length > 0)
+  const coverageStart = firstObservations.sort().at(0) ?? null
+  const priorWindowComplete = coverageStart !== null && Date.parse(coverageStart) <= priorStartMs
+  const recordedChange = (current: number, prior: number) =>
+    priorWindowComplete ? deltaPercent(current, prior) : null
 
   // 2. Headline + prior totals (verified crawlers + referral sessions).
   // The headline upper bound uses `lte` (inclusive) so the current hour bucket
@@ -263,7 +277,7 @@ function readTrafficActivity(db: DatabaseClient, projectId: string, windowDays: 
       unverifiedHits: v.unverified,
       userFetchHits: v.userFetch,
       referralArrivals: v.referrals,
-      deltaPct: deltaPercent(v.verified + v.unverified, v.prior),
+      deltaPct: recordedChange(v.verified + v.unverified, v.prior),
     }))
     // Sort by total signal: verified hits first, then user-fetch, then unverified and referrals.
     .sort((a, b) =>
@@ -434,6 +448,8 @@ function readTrafficActivity(db: DatabaseClient, projectId: string, windowDays: 
   return {
     windowStart: headlineStart,
     windowEnd: headlineEnd,
+    coverageStart,
+    priorWindowComplete,
     hasData: verifiedCurrent + unverifiedCurrent + userFetchCurrent + referralCurrent.total
       + verifiedPrior + unverifiedPrior + userFetchPrior + referralPrior.total
       + referralRedirects > 0
@@ -443,39 +459,39 @@ function readTrafficActivity(db: DatabaseClient, projectId: string, windowDays: 
     verifiedCrawlerHits: {
       current: verifiedCurrent,
       prior: verifiedPrior,
-      deltaPct: deltaPercent(verifiedCurrent, verifiedPrior),
+      deltaPct: recordedChange(verifiedCurrent, verifiedPrior),
     },
     unverifiedCrawlerHits: {
       current: unverifiedCurrent,
       prior: unverifiedPrior,
-      deltaPct: deltaPercent(unverifiedCurrent, unverifiedPrior),
+      deltaPct: recordedChange(unverifiedCurrent, unverifiedPrior),
     },
     aiUserFetchHits: {
       current: userFetchCurrent,
       prior: userFetchPrior,
-      deltaPct: deltaPercent(userFetchCurrent, userFetchPrior),
+      deltaPct: recordedChange(userFetchCurrent, userFetchPrior),
     },
     referralArrivals: {
       current: referralCurrent.total,
       prior: referralPrior.total,
-      deltaPct: deltaPercent(referralCurrent.total, referralPrior.total),
+      deltaPct: recordedChange(referralCurrent.total, referralPrior.total),
     },
     referralRedirects,
     referralArrivalsByClass: {
       paid: {
         current: referralCurrent.paid,
         prior: referralPrior.paid,
-        deltaPct: deltaPercent(referralCurrent.paid, referralPrior.paid),
+        deltaPct: recordedChange(referralCurrent.paid, referralPrior.paid),
       },
       organic: {
         current: referralCurrent.organic,
         prior: referralPrior.organic,
-        deltaPct: deltaPercent(referralCurrent.organic, referralPrior.organic),
+        deltaPct: recordedChange(referralCurrent.organic, referralPrior.organic),
       },
       unclassified: {
         current: referralCurrent.unknown,
         prior: referralPrior.unknown,
-        deltaPct: deltaPercent(referralCurrent.unknown, referralPrior.unknown),
+        deltaPct: recordedChange(referralCurrent.unknown, referralPrior.unknown),
       },
     },
     referralArrivalsClassSummary: formatAiReferralClassSummary(referralCurrent),

@@ -51,4 +51,16 @@ describe('traffic analytics CLI', () => {
     expect(output).toHaveBeenCalledWith('  /page-500  1  0  1')
     expect(output).toHaveBeenCalledWith('  /page-500  17  1')
   })
+
+  it('explains server-withheld deltas when prior recording is incomplete', async () => {
+    getTrafficAnalytics.mockResolvedValue({ activity: { ...TRAFFIC_ANALYTICS_FIXTURE.activity,
+      coverageStart: '2026-10-01T00:00:00.000Z', priorWindowComplete: false,
+      verifiedCrawlerHits: { current: 200, prior: 84, deltaPct: null },
+    } })
+    const output = vi.spyOn(console, 'log').mockImplementation(() => {})
+    await trafficAnalytics('acme', {})
+    expect(output).toHaveBeenCalledWith('  First stored observation: 2026-10-01T00:00:00.000Z')
+    expect(output).toHaveBeenCalledWith('  Prior recording window is incomplete; percentage changes are unavailable.')
+    expect(output).toHaveBeenCalledWith('  Verified crawler hits: 200 (prior 84; change unavailable)')
+  })
 })

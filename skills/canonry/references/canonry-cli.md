@@ -361,6 +361,31 @@ cnry backfill insights <project> --from-run <id> --to-run <id>  # backfill a ran
 
 > **Known gap (mention-first read):** `cnry health` is **citation-only** today — it has no mention dimension. For the primary mention-first read, use `cnry overview` and `cnry get <project> scores.mentionCoverage.value` / `cnry get <project> scores.mentionShare.value` until health is extended.
 
+### Content-target dismissals
+
+```bash
+cnry content targets <project> --format json
+cnry content dismissals <project> --format json
+cnry content dismiss <project> <targetRef> --addressed-url https://example.com/page --note "Addressed" --format json
+cnry content restore <project> <targetRef> --format json
+```
+
+Use a `targetRef` from the content-target response. Dismissal records remain
+project-scoped and hide that recommendation on later content reads. Listing
+uses `GET /projects/:name/content/dismissals`; dismiss uses `POST` with
+`targetRef` and optional `addressedUrl` and `note`. Re-dismissing updates those
+optional values and the dismissal time. Restore uses
+`DELETE /projects/:name/content/dismissals/:targetRef` and returns HTTP 204; CLI and
+MCP acknowledge it as `{ targetRef, restored: true }`. A missing record returns
+the API's not-found error.
+
+All three commands support `json` and `jsonl`. The list JSON envelope is
+`{ dismissals: [...] }`; JSONL streams its records. Dismiss and restore return
+one document. MCP equivalents are `canonry_content_dismissals` (read),
+`canonry_content_dismiss` (write), and `canonry_content_restore` (write), in the
+`monitoring` toolkit. Dismiss and restore require write authority and explicit
+approval; reading a recommendation does not authorize either action.
+
 ## Queries & Competitors
 
 ```bash
@@ -374,7 +399,13 @@ cnry query generate <project> --provider gemini --count 10 --save
 
 cnry competitor add <project> competitor1.com competitor2.com
 cnry competitor list <project>
+cnry competitor landscape <project> --query-class non-brand --window 30d --format json
 ```
+
+Historical competitor landscapes require explicit `--query-class non-brand`
+for competitive percentages (REST `queryClass=non-brand`, MCP
+`queryClass: "non-brand"`). Omitted class or `all` returns pooled counts and
+null shares. Request branded evidence separately for brand recall.
 
 ## Target Measurement Plans
 
@@ -732,7 +763,14 @@ human-visit count.
 `GET /api/v1/projects/<name>/traffic/analytics?period=30` and the
 `canonry_traffic_analytics` MCP tool. JSON preserves `{ activity }` unchanged;
 JSONL emits the same document. With no non-archived source, `activity` is null.
-Connected sources without events return measured zeros. It retains crawler
+Connected sources without events return zero stored aggregate counts; those
+zeros do not prove measurement coverage or a successful source sync. Retain
+`coverageStart` (the earliest stored project observation, or null) and
+`priorWindowComplete` (whether it reaches the prior window's start). Incomplete
+prior recording withholds all headline, arrival-class, and operator `deltaPct`
+values while preserving current and prior counts. These fields do not prove
+continuous collection or matching source coverage across the two windows.
+It retains crawler
 verification, user fetches, paid/organic/unclassified arrivals, redirect hops,
 operators, crawled paths, referral products, landing paths, daily history, and
 equal prior-window changes. It does not start a sync or provider work. The

@@ -59,7 +59,13 @@ async function buildServer(
     ...configPatch,
   }
 
-  const app = await createServer({ config, db, logger: false, assetsDir })
+  let app: Built['app']
+  try {
+    app = await createServer({ config, db, logger: false, assetsDir })
+  } catch (error) {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+    throw error
+  }
   return {
     app,
     apiKey,
@@ -102,6 +108,54 @@ describe('server embed mode (#716)', () => {
     for (const key of EMBED_ENV) {
       if (saved[key] === undefined) delete process.env[key]
       else process.env[key] = saved[key]
+    }
+  })
+
+  it.each([
+    { projectTabs: ['report'] },
+    { projectTabs: ['report', 'overview'] },
+    { projectTabs: ['technical-aeo', 'report'], basePath: '/canonry/' },
+  ])('refuses to boot a retired Report embed instead of silently granting overview: %j', async ({ projectTabs, basePath }) => {
+    await expect(buildServer({ enabled: true, projectTabs }, true, { basePath }))
+      .rejects.toThrow('The report embed tab has been retired')
+  })
+
+  it('refuses legacy Report tabs configured through the environment', async () => {
+    process.env.CANONRY_EMBED = 'true'
+    process.env.CANONRY_EMBED_PROJECT_TABS = 'REPORT,technical-aeo'
+    await expect(buildServer()).rejects.toThrow('The report embed tab has been retired')
+  })
+
+  it('rejects retired Report request overrides on root and base-path project documents', async () => {
+    const { app, apiKey, db, cleanup } = await buildServer({
+      enabled: true,
+      projectTabs: ['overview', 'technical-aeo'],
+    }, true, { basePath: '/canonry/' })
+    try {
+      const { name } = seedProject(db)
+      for (const projectTabs of ['report', 'report,overview', 'technical-aeo,REPORT']) {
+        for (const url of ['/canonry/', `/canonry/projects/${name}/report`]) {
+          const response = await app.inject({ method: 'GET', url, headers: { 'x-canonry-embed-tabs': projectTabs } })
+          expect(response.statusCode, `${url}: ${projectTabs}`).toBe(400)
+          expect(response.json()).toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' })
+          expect(response.body).toContain('The report embed tab has been retired')
+          expect(response.body).not.toContain('id="root"')
+        }
+      }
+      const denied = await app.inject({
+        method: 'GET',
+        url: `/canonry/api/v1/projects/${name}/overview`,
+        headers: { authorization: `Bearer ${apiKey}`, 'x-canonry-embed-tabs': 'report' },
+      })
+      expect(denied.statusCode).toBe(403)
+      const notWidened = await app.inject({
+        method: 'GET',
+        url: `/canonry/api/v1/projects/${name}/technical-aeo`,
+        headers: { authorization: `Bearer ${apiKey}`, 'x-canonry-embed-tabs': 'report,overview' },
+      })
+      expect(notWidened.statusCode).toBe(403)
+    } finally {
+      await cleanup()
     }
   })
 

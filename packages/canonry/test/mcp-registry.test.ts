@@ -60,6 +60,9 @@ const expectedToolNames = [
   'canonry_visibility_stats',
   'canonry_visibility_compare',
   'canonry_content_targets',
+  'canonry_content_dismissals',
+  'canonry_content_dismiss',
+  'canonry_content_restore',
   'canonry_content_brief',
   'canonry_content_map',
   'canonry_content_sources',
@@ -896,8 +899,8 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(242)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(162)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(245)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(163)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -935,7 +938,7 @@ describe('MCP tool registry', () => {
     for (const tool of canonryMcpTools) {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
-    expect(counts.get('monitoring')).toBe(58)
+    expect(counts.get('monitoring')).toBe(61)
     expect(counts.get('setup')).toBe(60)
     expect(counts.get('gsc')).toBe(11)
     expect(counts.get('ga')).toBe(11)

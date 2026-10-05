@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react'
+import { embedProjectTabsError } from '@ainyc/canonry-contracts'
 
 /**
  * Read-only embed mode (issue #716) — presentational helpers for the chromeless
@@ -61,9 +62,11 @@ const EMBED_PROJECT_TAB_SET = new Set<string>(EMBED_PROJECT_TABS)
 /**
  * Normalize host-provided project tabs before either navigation or rendering.
  * Unknown values and operator-only surfaces are dropped. A fully-invalid list
- * falls back to Overview so an embed can never resolve to a blank project page.
+ * falls back to Overview. A retired Report grant stays closed until explicitly
+ * replaced; the app shell renders recovery instructions instead of a project.
  */
 export function filterEmbedProjectTabs(allow: readonly string[] | undefined): Array<(typeof EMBED_PROJECT_TABS)[number]> {
+  if (embedProjectTabsError(allow)) return []
   const source = allow ?? EMBED_PROJECT_TABS
   const filtered = [...new Set(source.filter((tab): tab is (typeof EMBED_PROJECT_TABS)[number] =>
     EMBED_PROJECT_TAB_SET.has(tab),
