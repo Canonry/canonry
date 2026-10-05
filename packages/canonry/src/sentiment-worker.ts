@@ -101,8 +101,13 @@ export class SentimentWorker {
     // A provider refusal pauses the whole install; when the pause ends, one request tests the provider first.
     const gate = this.repository.dispatchGate({ now: this.now(), credentialFingerprint: credentialFingerprint(config.apiKey) })
     if (gate === 'closed') return 0
+    // Claim only what this minute's budget still allows. startAttempt enforces the same window,
+    // but work claimed past it is deferred a minute instead of waiting for the next free slot.
+    const used = this.repository.recentDispatch(this.now())
+    if (used.tokens >= config.maxInputTokensPerMinute) return 0
+    const allowed = Math.min(gate === 'probe' ? 1 : config.maxConcurrency, config.maxRequestsPerMinute - used.requests)
     const claims = []
-    for (let index = 0; index < (gate === 'probe' ? 1 : config.maxConcurrency); index++) {
+    for (let index = 0; index < allowed; index++) {
       const claim = this.repository.claim({ owner: randomUUID(), now: this.now(), leaseMs: 120_000, maxConcurrent: config.maxConcurrency })
       if (!claim) break
       claims.push(claim)
@@ -161,3 +166,26 @@ export class SentimentWorker {
     }
   }
 }
+
+/**
+ * Runs `tick` again straight away while it keeps claiming work, so a queued backfill drains at the
+ * install's rate limits rather than one batch per poll interval. A poll that arrives while a tick
+ * is in flight is dropped; a failed tick reports through `onError` and waits for the next poll.
+ */
+export function createSentimentPoller(tick: () => Promise<number>, onError: () => void, schedule: (next: () => void) => void = setImmediate) {
+  let inFlight: Promise<void> | null = null
+  let stopped = false
+  const poll = (): void => {
+    if (inFlight || stopped) return
+    inFlight = tick()
+      .catch(() => { onError(); return 0 })
+      .then(claimed => { inFlight = null; if (claimed > 0 && !stopped) schedule(poll) })
+  }
+  return {
+    poll,
+    /** The tick in flight, if any. */
+    settled: (): Promise<void> | null => inFlight,
+    stop: (): void => { stopped = true },
+  }
+}
+

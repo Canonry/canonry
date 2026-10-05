@@ -145,6 +145,13 @@ function cancelProject(db: SentimentDb, projectId: string, now: string, reason: 
 }
 
 /** Synchronous transactional storage; no provider or other asynchronous I/O belongs in these methods. */
+/** Attempts dispatched in the minute before `now`, shared by the claim-time and attempt-time rate checks. */
+function dispatchedInLastMinute(db: Pick<DatabaseClient, 'select'>, now: string): { requests: number; tokens: number } {
+  const since = new Date(Date.parse(now) - 60_000).toISOString()
+  return db.select({ requests: sql<number>`count(*)`, tokens: sql<number>`coalesce(sum(${sentimentAttempts.estimatedInputTokens}), 0)` })
+    .from(sentimentAttempts).where(gt(sentimentAttempts.dispatchedAt, since)).get()!
+}
+
 export class SentimentRepository {
   constructor(private readonly db: DatabaseClient) {}
 
@@ -313,6 +320,11 @@ export class SentimentRepository {
     }, { behavior: 'immediate' })
   }
 
+  /** Requests and estimated input tokens dispatched in the minute before `now`: the window `startAttempt` enforces. */
+  recentDispatch(now: string): { requests: number; tokens: number } {
+    return dispatchedInLastMinute(this.db, now)
+  }
+
   startAttempt(input: {
     workItemId: string; owner: string; requestedModel: string; now: string; estimatedInputTokens?: number
     maxRequestsPerMinute?: number; maxInputTokensPerMinute?: number; maxAttempts?: number
@@ -328,9 +340,7 @@ export class SentimentRepository {
       if (input.maxAttempts !== undefined && work.attemptCount - work.attemptBudgetStart >= input.maxAttempts) return undefined
       const estimate = input.estimatedInputTokens ?? 0
       if (!Number.isSafeInteger(estimate) || estimate < 0) throw new Error('Invalid sentiment token estimate')
-      const since = new Date(Date.parse(input.now) - 60_000).toISOString()
-      const used = tx.select({ requests: sql<number>`count(*)`, tokens: sql<number>`coalesce(sum(${sentimentAttempts.estimatedInputTokens}), 0)` })
-        .from(sentimentAttempts).where(gt(sentimentAttempts.dispatchedAt, since)).get()!
+      const used = dispatchedInLastMinute(tx, input.now)
       if (input.maxRequestsPerMinute !== undefined && used.requests >= input.maxRequestsPerMinute) return undefined
       if (input.maxInputTokensPerMinute !== undefined && used.tokens + estimate > input.maxInputTokensPerMinute) return undefined
       const attemptNumber = work.attemptCount + 1
