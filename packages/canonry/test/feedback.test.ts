@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { FEEDBACK_ENDPOINT, sendFeedback } from '../src/feedback.js'
+import { FEEDBACK_ENDPOINT, FEEDBACK_MAX_BODY_BYTES, sendFeedback } from '../src/feedback.js'
 
 function collector(status: number, body: unknown = { accepted: true, id: 'srv-id' }) {
   const calls: Array<{ url: string; payload: Record<string, unknown> }> = []
@@ -62,5 +62,34 @@ describe('sendFeedback', () => {
     const fetchFn = vi.fn(async () => { throw new TypeError('fetch failed') }) as unknown as typeof fetch
     await expect(sendFeedback({ kind: 'bug', summary: 'x' }, {}, { fetch: fetchFn, telemetryEnabled: () => false }))
       .rejects.toMatchObject({ code: 'DELIVERY_FAILED' })
+  })
+
+  it('redacts credentials in every free-text field, including area and errorCode', async () => {
+    const { calls, fetchFn } = collector(202)
+    await sendFeedback(
+      { kind: 'bug', summary: 'see command', command: 'cnry settings provider openai --api-key sk-live-1111', area: 'token=abc123', errorCode: 'sk-proj-abcdefghijklmnop1234' },
+      {}, { fetch: fetchFn, telemetryEnabled: () => false },
+    )
+    const sent = JSON.stringify(calls[0]!.payload)
+    for (const secret of ['sk-live-1111', 'abc123', 'sk-proj-abcdefghijklmnop1234']) expect(sent).not.toContain(secret)
+  })
+
+  it('keeps a valid long non-ASCII report under the collector body limit', async () => {
+    const { calls, fetchFn } = collector(202)
+    await sendFeedback(
+      { kind: 'struggle', summary: '首次运行失败'.repeat(80), details: '日本語の詳細'.repeat(666) + '詳細' },
+      {}, { fetch: fetchFn, telemetryEnabled: () => false },
+    )
+    const body = String((fetchFn as unknown as { mock: { calls: Array<[unknown, RequestInit]> } }).mock.calls[0]![1].body)
+    expect(Buffer.byteLength(body, 'utf8')).toBeLessThanOrEqual(FEEDBACK_MAX_BODY_BYTES)
+    expect(String(calls[0]!.payload.summary).length).toBe(480)
+    expect(String(calls[0]!.payload.details).length).toBeGreaterThan(1000)
+  })
+
+  it('treats the "none" agent sentinel as absent so the MCP client still names the agent', async () => {
+    const { calls, fetchFn } = collector(202)
+    await sendFeedback({ kind: 'other', summary: 'x' }, { surface: 'mcp-stdio', agent: 'none', mcpClient: 'claude-desktop' },
+      { fetch: fetchFn, telemetryEnabled: () => false })
+    expect(calls[0]!.payload.agent).toBe('claude-desktop')
   })
 })

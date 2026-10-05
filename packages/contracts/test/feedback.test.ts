@@ -28,6 +28,19 @@ describe('redactFeedbackText', () => {
     expect(out).not.toMatch(/supersecretvalue|abc\.def\.ghi/)
   })
 
+  it('removes space-separated credential flag values from pasted command lines', () => {
+    const out = redactFeedbackText(
+      'ran cnry settings provider gemini --api-key REALKEY111 --client-secret "two words" --token=tok333 --gemini-key k444',
+      500,
+    )
+    for (const secret of ['REALKEY111', 'two words', 'tok333', 'k444']) expect(out).not.toContain(secret)
+    expect(out).toContain('--api-key [REDACTED]')
+  })
+
+  it('leaves ordinary flags that merely contain "key" alone', () => {
+    expect(redactFeedbackText('cnry query add acme --keyword "dentist brooklyn"', 500)).toContain('dentist brooklyn')
+  })
+
   it('keeps the result within the limit', () => {
     expect(redactFeedbackText('x'.repeat(600), 500)).toHaveLength(500)
   })
