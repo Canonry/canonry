@@ -48,19 +48,35 @@ export type FeedbackAcceptedDto = z.infer<typeof feedbackAcceptedDtoSchema>
  * then truncates to the collector limit again since redaction can lengthen.
  */
 export function redactFeedbackText(value: string, limit: number): string {
-  return redactLogString(value)
-    .replace(SECRET_FLAG_VALUE, '$1 [REDACTED]')
-    .replace(BARE_CREDENTIAL, '[REDACTED]')
-    .slice(0, limit)
+  return truncateUtf16(
+    redactLogString(value)
+      .replace(SECRET_FLAG_VALUE, '$1 [REDACTED]')
+      .replace(BARE_CREDENTIAL, '[REDACTED]'),
+    limit,
+  )
+}
+
+/**
+ * Cut to `limit` UTF-16 code units (the unit the collector's length limits
+ * count), without leaving half of a surrogate pair: a split emoji would send
+ * a lone surrogate.
+ */
+export function truncateUtf16(value: string, limit: number): string {
+  if (value.length <= limit) return value
+  const cut = value.slice(0, limit)
+  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut
 }
 
 /**
  * A command line pasted with a credential flag: `--api-key sk-…`,
  * `--client-secret=…`, `--token "…"`. The log policy only catches `key=value`,
- * so the space-separated form reached the collector intact. Flag names are
- * matched by whole hyphen segments, so `--keyword` is left alone.
+ * so the space-separated form reached the collector intact. A flag counts
+ * only at the start of a line or after a space or tab, and its value only on
+ * the same line, so prose like "the gemini-key setting" or "access-token
+ * expired" keeps its words; flag names match by whole hyphen segments, so
+ * `--keyword` is left alone.
  */
-const SECRET_FLAG_VALUE = /(--?(?:[a-z\d]+-)*(?:key|token|secret|password|passwd|credential|credentials|auth|authorization|bearer)(?:-[a-z\d]+)*)(?:\s*=\s*|\s+)(?!\[REDACTED\])(?:"[^"]*"|'[^']*'|\S+)/gi
+const SECRET_FLAG_VALUE = /(?<=^|[ \t])(--?(?:[a-z\d]+-)*(?:key|token|secret|password|passwd|credential|credentials|auth|authorization|bearer)(?:-[a-z\d]+)*)(?:[ \t]*=[ \t]*|[ \t]+)(?!\[REDACTED\])(?:"[^"\n]*"|'[^'\n]*'|\S+)/gim
 
 /**
  * Credentials pasted bare, with no `key=` in front for the log policy to key

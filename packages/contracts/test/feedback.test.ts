@@ -41,6 +41,18 @@ describe('redactFeedbackText', () => {
     expect(redactFeedbackText('cnry query add acme --keyword "dentist brooklyn"', 500)).toContain('dentist brooklyn')
   })
 
+  it('does not mistake hyphenated words in prose for credential flags', () => {
+    for (const prose of ['the gemini-key setting is ignored', 'non-auth routes 404', 'access-token expired', 'the --token\nnext line stays']) {
+      expect(redactFeedbackText(prose, 500)).toBe(prose)
+    }
+  })
+
+  it('never ends a truncated text on half of an emoji', () => {
+    const out = redactFeedbackText(`${'a'.repeat(499)}😀tail`, 500)
+    expect(out).toBe('a'.repeat(499))
+    expect(out.length).toBeLessThanOrEqual(500)
+  })
+
   it('keeps the result within the limit', () => {
     expect(redactFeedbackText('x'.repeat(600), 500)).toHaveLength(500)
   })
