@@ -27,7 +27,7 @@ project pins + frozen market competitors + stored classifications
 - `basis` is `tracked` when any pin is configured. Only pins enter that denominator. Observed rows remain visible with null shares. Without pins, `basis` is `observed` if the selected history contains classified competitor evidence; otherwise it is null.
 - Observed comparisons require at least **3 direct competitors, each mentioned in at least 3 distinct answers**. Each candidate must meet the answer floor before entering the denominator. This publication floor rejects a lone alternative and one-answer lists; it is not a statistical confidence claim. Evaluate it separately after class, market, provider, model, location, run, and window filters, before display caps.
 - `availability` is `measured` or `not-measured`, with a machine-readable `reason`. No comparison set, an unsplit class, insufficient observed evidence, no answers, and no brand mentions all produce null percentages. Failed reads remain HTTP errors and render as `unavailable`.
-- `comparison` publishes the complete selected domain/count set even when display rows are capped. `evidence.mentionCredits` is the project count plus that set's mention counts. CLI, dashboard, and reports label each percentage with its basis and query class.
+- `comparison` publishes the complete selected domain/count set even when display rows are capped. `evidence.mentionCredits` is the project count plus that set's mention counts. CLI and dashboard label each percentage with its basis and query class. Include both labels when preparing a report from these reads.
 - `observedNames` lists raw provider recommendations and answer counts, including unknown names and platforms. They are observations, never rate inputs. Only stored direct-competitor classifications and frozen identities supply candidates. The shared exact brand matcher recounts their presence from answer text. Domain normalization deduplicates identities, and repeated names or domain aliases within an answer earn one credit. No suffix-stripping, fuzzy identity guesses, new classification calls, or provider requests occur during the read.
 - Share of voice needs one query class behind it. `queryClass=all`, and omitting the parameter, pool branded and non-brand queries, and a brand wins its own branded queries by definition. Pooled readings return `shareOfVoice: null` on every row and publish the counts instead. Request `queryClass=branded` or `queryClass=non-brand` for a ratio. A project with no brand name or alias cannot split the classes, so a class-scoped read on one is refused rather than answered with an empty landscape.
 - Citation count is independent from mention count. Each answer gives a domain at most one citation credit.
@@ -84,11 +84,12 @@ GET /api/v1/projects/{name}/analytics/competitors
 ```
 
 `groupKey` and `scope=all-markets` are mutually exclusive. An Advanced scope requires an active version 2 measurement plan.
+For a competitive percentage, explicitly select `queryClass=non-brand`, CLI `--query-class non-brand`, or MCP `queryClass: "non-brand"`. The default is `all`, which returns pooled counts and null shares.
 
 ```bash
-canonry competitor landscape <project> --window 30d
-canonry competitor landscape <project> --group-key north
-canonry competitor landscape <project> --scope all-markets --format json
+canonry competitor landscape <project> --window 30d --query-class non-brand
+canonry competitor landscape <project> --group-key north --query-class non-brand
+canonry competitor landscape <project> --scope all-markets --query-class non-brand --format json
 ```
 
 The read-only MCP equivalent is `canonry_competitor_landscape`. Advanced market pinning uses the revision-guarded draft action endpoint. MCP agents can use the generic measurement-draft action workflow.
@@ -126,10 +127,10 @@ Existing query-class, location, run, and window filters still apply. Advanced re
 The feature does not create model-specific pins or change sweep selection.
 
 ```bash
-canonry competitor landscape <project> --by-model --format json
-canonry competitor landscape <project> --by-model --provider gemini --model gemini-3-flash-preview --window 30d
+canonry competitor landscape <project> --by-model --query-class non-brand --format json
+canonry competitor landscape <project> --by-model --provider gemini --model gemini-3-flash-preview --window 30d --query-class non-brand
 canonry competitor landscape <project> --group-key north --by-model --query-class non-brand --format jsonl
-canonry competitor landscape <project> --scope all-markets --by-model --provider openai --format json
+canonry competitor landscape <project> --scope all-markets --by-model --provider openai --query-class non-brand --format json
 ```
 
 The CLI maps `--by-model` to `groupBy=model`. Text output shows each group with separate requested and served identities, counts, and share of voice.

@@ -244,6 +244,9 @@ import type {
   ContentTargetsResponseDto,
   ContentSourcesResponseDto,
   ContentGapsResponseDto,
+  ContentTargetDismissalDto,
+  ContentTargetDismissalsResponseDto,
+  ContentTargetDismissRequest,
   DomainClassificationsResponseDto,
   RecommendationBriefDto,
   WinnabilityClass,
@@ -580,6 +583,9 @@ import {
   getApiV1ProjectsByNameContentTargets,
   getApiV1ProjectsByNameContentSources,
   getApiV1ProjectsByNameContentGaps,
+  getApiV1ProjectsByNameContentDismissals,
+  postApiV1ProjectsByNameContentDismissals,
+  deleteApiV1ProjectsByNameContentDismissalsByTargetRef,
   getApiV1ProjectsByNameContentDomainClassifications,
   getApiV1ProjectsByNameContentRecommendationsByTargetRefBrief,
   postApiV1ProjectsByNameContentRecommendationsByTargetRefBrief,
@@ -4610,6 +4616,24 @@ export class ApiClient {
   async getContentGaps(project: string): Promise<ContentGapsResponseDto> {
     return this.invoke<ContentGapsResponseDto>(() =>
       getApiV1ProjectsByNameContentGaps({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getContentDismissals(project: string): Promise<ContentTargetDismissalsResponseDto> {
+    return this.invoke<ContentTargetDismissalsResponseDto>(() =>
+      getApiV1ProjectsByNameContentDismissals({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async dismissContentTarget(project: string, request: ContentTargetDismissRequest): Promise<ContentTargetDismissalDto> {
+    return this.invoke<ContentTargetDismissalDto>(() =>
+      postApiV1ProjectsByNameContentDismissals({ client: this.heyClient, path: { name: project }, body: request }),
+    )
+  }
+
+  async restoreContentTarget(project: string, targetRef: string): Promise<void> {
+    await this.invoke<unknown>(() =>
+      deleteApiV1ProjectsByNameContentDismissalsByTargetRef({ client: this.heyClient, path: { name: project, targetRef } }),
     )
   }
 

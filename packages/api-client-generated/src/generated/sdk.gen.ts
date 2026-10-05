@@ -5703,7 +5703,7 @@ export const getApiV1ProjectsByNameOrganicEvidence = <ThrowOnError extends boole
 /**
  * Full-window server traffic analytics
  *
- * Aggregates stored crawler, AI user-fetch, and countable referral evidence across the entire selected window, independently of the traffic events detail limit. Includes operator, path and referring-product breakdowns, daily history and the equal-length prior window. Preserves verified/unverified and paid/organic/unclassified counts. No provider calls or writes. Activity is null when no non-archived traffic source is connected. Replaces the retired Report serverActivity section.
+ * Aggregates stored crawler, AI user-fetch, and countable referral evidence across the entire selected window, independently of the traffic events detail limit. Includes operator, path and referring-product breakdowns, daily history and the equal-length prior window. Preserves verified/unverified and paid/organic/unclassified counts. coverageStart is the earliest stored project observation; priorWindowComplete states whether recording began by the prior window start, not whether ingestion was uninterrupted. All deltas are null when that prior window is incomplete. Zero counts and hasData do not certify source health or measurement coverage. No provider calls or writes. Activity is null when no non-archived traffic source is connected. Replaces the retired Report serverActivity section.
  */
 export const getApiV1ProjectsByNameTrafficAnalytics = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameTrafficAnalyticsData, ThrowOnError>) => {
     return (options.client ?? client).get<GetApiV1ProjectsByNameTrafficAnalyticsResponses, GetApiV1ProjectsByNameTrafficAnalyticsErrors, ThrowOnError>({

@@ -93,14 +93,23 @@ Rules for `canonry-mcp`, hosted MCP catalogs, guidance generation, MCP parity, a
 File-level rules for the MCP pieces in this package:
 
 - `src/mcp/server.ts` — `createCanonryMcpServer` registers all API tools, then disables non-core tiers unless `--eager`.
-- `src/mcp/tool-registry.ts` — all 242 API tools, including Site Health semantic graph and page-audit evidence reads, sitemap Target discovery, and revision-pinned measurement reports, each tagged with a `tier` (`core` or one of the toolkit names).
+- `src/mcp/tool-registry.ts` — all 245 API tools, including Site Health semantic graph and page-audit evidence reads, sitemap Target discovery, and revision-pinned measurement reports, each tagged with a `tier` (`core` or one of the toolkit names).
 - `src/mcp/cli.ts` — `canonry-mcp` stdio entrypoint; parses `--read-only`, `--eager`, `--scope`, plus `CANONRY_MCP_*` env. `resolveEffectiveScope()` best-effort probes `GET /keys/self` at startup and forces `read-only` when the configured key is read-only (auto-restricts the catalog to read tools; falls back to the flag scope on any probe failure).
 - `src/mcp/operations-guide.ts` — compact intent routing filtered against the connection's loaded tools; generated source is `docs/agent-operations/v1.md`. No provider calls or permission grants.
 - `src/commands/mcp.ts` — MCP client install helpers: `mcp install`, `mcp config` (writes to client config files only — separate from the `canonry-mcp` stdio bin). `src/mcp-clients.ts` is the registry of supported MCP clients (Claude Desktop, Cursor, Codex) — config-path resolvers and format hints used by `mcp install`/`mcp config`.
 
 ### Referral assessment
 
-`traffic referral-assessment` reads `/projects/:name/traffic/referral-assessment` through the SDK. UTC date bounds and source select stored evidence; thresholds and detail limit tune only this read. JSON and MCP preserve the full response. Raw traffic/report headlines stay unchanged. Server rows have no Property, Target or market attribution, so Simple and Advanced projects share the explicitly project/source-only diagnostic.
+`traffic referral-assessment` reads `/projects/:name/traffic/referral-assessment` through the SDK. UTC date bounds and source select stored evidence; thresholds and detail limit tune only this read. JSON and MCP preserve the full response. Raw traffic totals stay unchanged. Server rows have no Property, Target or market attribution, so Simple and Advanced projects share the explicitly project/source-only diagnostic.
+
+### Content-target dismissals
+
+`content dismissals`, `content dismiss`, and `content restore` use the public
+content-dismissal client methods. List JSON preserves `{ dismissals }`; JSONL
+streams the records. Dismiss and restore require write scope. Restore's API
+response is 204; CLI and MCP acknowledge it with `{ targetRef, restored: true }`.
+Their MCP equivalents live in monitoring: `canonry_content_dismissals` (read),
+`canonry_content_dismiss` and `canonry_content_restore` (write).
 
 ### Command output
 
@@ -196,7 +205,7 @@ Before provider dispatch, `JobRunner` captures the resolved inputs of each offic
 The frozen definition records exact query text, identity (including the project's sentiment-only qualified aliases, omitted when empty), classification, location, and requested models.
 Capture failure prevents provider calls. Probe and advanced runs retain their existing paths.
 Queue-time configuration does not define simple runs because their inputs resolve at dispatch.
-This capture does not change current report calculations or reconstruct historical definitions.
+This capture does not reconstruct historical definitions.
 
 Simple and Advanced snapshots use `isSearchLocationIgnored` to clear a search-tool location when retrieval is `not-used`. Preserve the requested location in `requestedContext` and record `supportedContext.status: 'ignored'` for these answers.
 
@@ -664,8 +673,12 @@ Insight date ranges:
 `traffic analytics <project> --period 7|14|30|90` reads complete stored aggregates
 through `ApiClient.getTrafficAnalytics`; omitted period is 30 days. JSON and
 JSONL preserve `TrafficAnalyticsResponse`. A null activity means no source;
-connected sources without events return zeros. Keep server-owned counts,
-prior-window changes, verification and arrival-class splits. This is a
+connected sources without events return stored aggregate zeros, not proof of
+sync or measurement coverage. Preserve `coverageStart` and `priorWindowComplete`:
+the latter tests whether the earliest project observation reaches the prior
+window's start; incomplete prior recording withholds all `deltaPct` values.
+Neither field proves continuous or matching source coverage. Keep server-owned
+counts, prior-window changes, verification and arrival-class splits. This is a
 project-wide read for Simple and Advanced, with no Property/Target/market
 attribution and no provider calls or sync.
 

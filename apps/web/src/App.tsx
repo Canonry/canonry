@@ -21,7 +21,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-import { CitationStates, formatRunErrorOneLine } from '@ainyc/canonry-contracts'
+import { CitationStates, embedProjectTabsError, formatRunErrorOneLine } from '@ainyc/canonry-contracts'
 
 import { asyncHandler } from './lib/async-handler.js'
 import { formatErrorLog } from './lib/format-helpers.js'
@@ -524,6 +524,7 @@ export function RootLayout() {
   // surfaces like /settings are never reachable inside the iframe. Placed after
   // every hook above so the Rules of Hooks hold on both render paths.
   if (embed) {
+    const projectTabsError = embedProjectTabsError(embed.projectTabs)
     const viewAllowed = !embed.views || embed.views.includes(embedViewIdForPath(location.pathname))
     return (
       <div
@@ -535,7 +536,11 @@ export function RootLayout() {
           Skip to content
         </a>
         <main id="content" className="page-shell">
-          {viewAllowed ? (
+          {projectTabsError ? (
+            <div className="embed-view-unavailable" role="status">
+              This embed uses the retired Report tab. Update its allowed tabs to show AI Visibility.
+            </div>
+          ) : viewAllowed ? (
             <Outlet />
           ) : (
             <div className="embed-view-unavailable" role="status">

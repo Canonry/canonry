@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { shareOfVoiceLabel, shareOfVoiceSummary } from '../src/share-of-voice.js'
+import { shareOfVoiceLabel } from '../src/share-of-voice.js'
 
 describe('shareOfVoiceLabel', () => {
   // `percent` is 0..100 on the wire, so it is shown the one way every percent is.
@@ -20,13 +20,5 @@ describe('shareOfVoiceLabel', () => {
     expect(shareOfVoiceLabel(null)).toBe('Not measured')
     expect(shareOfVoiceLabel(40, { availability: 'not-measured' })).toBe('Not measured')
     expect(shareOfVoiceLabel(40, { availability: 'unavailable', basis: 'observed' })).toBe('Unavailable · observed competitors')
-  })
-})
-
-describe('shareOfVoiceSummary', () => {
-  test('names the query class and the market scope beside the figure', () => {
-    expect(shareOfVoiceSummary(25, 'non-brand', { basis: 'observed', availability: 'measured' })).toBe('Share of voice · non-brand queries: 25.0% · observed competitors')
-    expect(shareOfVoiceSummary(100, 'branded', { measurementScope: 'all-markets' })).toBe('Share of voice · branded queries: 100% · all markets')
-    expect(shareOfVoiceSummary(null, 'branded', { availability: 'not-measured' })).toBe('Share of voice · branded queries: Not measured')
   })
 })

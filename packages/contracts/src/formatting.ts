@@ -406,12 +406,6 @@ export function startOfNextDayHourInTimeZone(isoDate: string, timeZone: string):
   return startOfDayHourInTimeZone(shiftIsoCalendarDate(isoDate, 1), timeZone)
 }
 
-export function formatDateRange(start: string, end: string): string {
-  if (!start && !end) return ''
-  if (start && end) return `${formatDate(start)} → ${formatDate(end)}`
-  return formatDate(start || end)
-}
-
 /** Matches a date-only ISO calendar date with no time component, e.g. "2026-06-30". */
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 
@@ -428,12 +422,6 @@ export function parseInclusiveEndMs(iso: string): number | null {
   const ms = Date.parse(iso)
   if (Number.isNaN(ms)) return null
   return DATE_ONLY_PATTERN.test(iso) ? ms + 86_400_000 - 1 : ms
-}
-
-export interface DeltaWindow {
-  current: number
-  prior: number
-  deltaPct: number | null
 }
 
 /**
@@ -476,18 +464,6 @@ export function deltaTone(deltaPct: number | null): DeltaTone {
   return deltaPct > 0 ? 'positive' : 'negative'
 }
 
-// Canonical subtitle copy for a "current vs prior window" tile. Used by
-// both the SPA and the HTML renderer so they stay verbatim-identical per
-// the report-parity rule. `deltaPct` is in percent units (`deltaPercent`).
-export function formatDeltaCopy(d: DeltaWindow, suffix: string, windowLabel = 'vs prior 7 days'): string {
-  if (d.deltaPct === null) {
-    return d.prior === 0 ? 'First baseline week' : ''
-  }
-  if (d.deltaPct > 0) return `Up ${formatPercent(d.deltaPct, RatioUnits.percent)} ${windowLabel} (${formatNumber(d.prior)} ${suffix})`
-  if (d.deltaPct < 0) return `Down ${formatPercent(Math.abs(d.deltaPct), RatioUnits.percent)} ${windowLabel} (${formatNumber(d.prior)} ${suffix})`
-  return `Flat ${windowLabel} (${formatNumber(d.prior)} ${suffix})`
-}
-
 /**
  * Smart-percent base threshold. When the PRIOR-window value is at least this
  * large, a delta is expressed as a percentage; below it, a raw rounded delta
@@ -495,51 +471,6 @@ export function formatDeltaCopy(d: DeltaWindow, suffix: string, windowLabel = 'v
  * (e.g. "+50%" off a base of 2). Same rule the Discord orchestrator uses.
  */
 export const MIN_PCT_BASE = 30
-
-/** Round to one decimal place: round1(0.3333) → 0.3, round1(3.3333) → 3.3. */
-function round1(value: number): number {
-  return Math.round(value * 10) / 10
-}
-
-/**
- * "Smart %" subtitle for an AVERAGE metric (e.g. cited-query count averaged
- * over a rolling window). When the prior average is a large-enough base
- * (`prior >= MIN_PCT_BASE`) and a percentage is computable, render the signed
- * percent — otherwise fall back to a clean rounded raw delta vs the prior
- * average. `deltaPct` is already signed (negative = down) and in percent
- * units; `formatSignedPercent` adds the '+' for positive values.
- *
- * Pure. Shared by the report SPA and HTML renderer so both surfaces produce
- * byte-identical copy per the report-parity rule.
- */
-export function formatAverageDelta(d: { deltaAbs: number; prior: number; deltaPct: number | null }): string {
-  if (d.prior >= MIN_PCT_BASE && d.deltaPct !== null) {
-    return `${formatSignedPercent(d.deltaPct, RatioUnits.percent)} vs prior`
-  }
-  const sign = d.deltaAbs > 0 ? '+' : ''
-  return `${sign}${round1(d.deltaAbs)} vs ${round1(d.prior)}`
-}
-
-/**
- * "Smart %" subtitle for a WINDOW-COUNT metric (e.g. GSC clicks summed over a
- * trailing window vs the prior window). When the prior total is a large-enough
- * base and a percentage is computable, render the signed percent followed by
- * the window label; otherwise render a rounded absolute delta with the count
- * label (`visits`, `clicks`, …) and the window label.
- *
- * Pure. Shared by the report SPA and HTML renderer.
- */
-export function formatWindowCountDelta(
-  d: { deltaAbs: number; prior: number; deltaPct: number | null },
-  countLabel: string,
-  windowLabel: string,
-): string {
-  if (d.prior >= MIN_PCT_BASE && d.deltaPct !== null) {
-    return `${formatSignedPercent(d.deltaPct, RatioUnits.percent)} ${windowLabel}`
-  }
-  const sign = d.deltaAbs > 0 ? '+' : ''
-  return `${sign}${formatNumber(Math.round(d.deltaAbs))} ${countLabel} ${windowLabel}`
-}
 
 export type PointDeltaDirection = 'up' | 'down' | 'none'
 

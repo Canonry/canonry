@@ -33,7 +33,7 @@ The class rates (`mention-rate-branded`, `mention-rate-non-brand`, and their `ci
 
 Never pool them into one headline. A branded question ("<brand> reviews") measures demand the brand already created: the answer names the brand because the question did, so a near-100% mention rate is the expected floor, not an achievement. A non-brand question ("best <category> for <use case>") measures demand to win, and it is the number that says whether the work is landing. A pooled figure mostly measures how famous the brand already is and hides whether anything moved.
 
-**This matters most for share of voice, and the split is now enforced.** `visibility-stats --share-of-voice`, `visibility-compare`, the project overview's Mention Share card and its breakdown chart, and stored competitor landscapes are all scoped to NON-BRAND queries by default. Every one of them echoes the class it served (`queryClass` / `scope`), and branded is returned beside the figure rather than inside it. Pass `--query-class branded` when you want brand recall.
+**This matters most for share of voice.** `visibility-stats --share-of-voice`, `visibility-compare`, the project overview's Mention Share card and its breakdown chart default to NON-BRAND queries. Historical competitor landscapes require explicit `queryClass: "non-brand"` (CLI: `--query-class non-brand`) for competitive percentages. Omitting the class or requesting `all` returns pooled counts and null shares. Keep the returned class (`queryClass` / `scope`) beside each figure; request branded evidence separately for brand recall.
 
 Why it is enforced rather than advised: on a real basket (13 queries × 4 engines, 5 branded), the subject was named in 20 of 20 branded answers and 1 of 32 category answers. Pooled, the chart put them FIRST at ~42%. Non-brand, they were LAST at ~3%, behind all seven tracked competitors. Same run, opposite conclusion, and the pooled version is the one a client would have read as category leadership.
 
@@ -74,6 +74,11 @@ Keep mention and citation signals independent. Use the scoped tool's numerator,
 denominator, and query class rather than recreating retired report metrics.
 Retain missing evidence and partial-sweep qualifications. Preparing a summary
 never authorizes a new sweep, provider read, or sync.
+
+Content reads honor saved addressed recommendations. Inspect those records with
+`canonry_content_dismissals` (CLI `cnry content dismissals <project>`). Saving
+or removing one uses `canonry_content_dismiss` or `canonry_content_restore`
+and requires explicit approval; preparing a summary does not authorize it.
 
 ## Weekly Report
 

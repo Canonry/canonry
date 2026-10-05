@@ -877,6 +877,8 @@ export async function trafficAnalytics(project: string, opts: { period?: string 
     return
   }
   console.log(`Traffic analytics for "${project}": ${activity.windowStart} to ${activity.windowEnd}`)
+  console.log(`  First stored observation: ${activity.coverageStart ?? 'none'}`)
+  if (!activity.priorWindowComplete) console.log('  Prior recording window is incomplete; percentage changes are unavailable.')
   for (const [label, counts] of [
     ['Verified crawler hits', activity.verifiedCrawlerHits],
     ['Unverified crawler hits', activity.unverifiedCrawlerHits],

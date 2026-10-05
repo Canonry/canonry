@@ -1,5 +1,5 @@
 import type { ResolvedEmbedConfig } from '@ainyc/canonry-contracts'
-import { normalizeIdTokens, parseOriginList, splitList } from '@ainyc/canonry-contracts'
+import { embedProjectTabsError, normalizeIdTokens, parseOriginList, splitList } from '@ainyc/canonry-contracts'
 import type { CanonryConfig } from './config.js'
 
 const DEFAULT_EMBED_PROJECT_TABS = ['overview']
@@ -58,6 +58,8 @@ export function resolveEmbedConfig(env: NodeJS.ProcessEnv, config: CanonryConfig
       ? splitList(env.CANONRY_EMBED_PROJECT_TABS)
       : splitList(embed?.projectTabs)
   const projectTabs = normalizeIdTokens(rawProjectTabs) ?? (enabled ? DEFAULT_EMBED_PROJECT_TABS : undefined)
+  const projectTabsError = enabled ? embedProjectTabsError(projectTabs) : undefined
+  if (projectTabsError) throw new Error(projectTabsError)
 
   return {
     enabled,

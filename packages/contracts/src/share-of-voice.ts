@@ -32,7 +32,3 @@ export function shareOfVoiceLabel(percent: number | null, context?: Partial<Shar
       : formatPercent(percent, RatioUnits.percent)
   return context?.basis ? `${value} · ${context.basis} competitors` : value
 }
-
-export function shareOfVoiceSummary(percent: number | null, queryClass: string, context?: Partial<ShareOfVoiceContext> & { measurementScope?: 'project' | 'all-markets' }): string {
-  return `Share of voice · ${queryClass} queries: ${shareOfVoiceLabel(percent, context)}${context?.measurementScope === 'all-markets' ? ' · all markets' : ''}`
-}

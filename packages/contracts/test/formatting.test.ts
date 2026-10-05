@@ -1,15 +1,11 @@
 import { describe, expect, test } from 'vitest'
 import {
-  MIN_PCT_BASE,
   compactDateToIso,
   deltaPercent,
   deltaTone,
-  formatAverageDelta,
   formatCalendarDay,
   formatDate,
   formatZonedTimestamp,
-  formatDateRange,
-  formatDeltaCopy,
   formatIsoDate,
   formatIsoDateInTimeZone,
   inclusiveDayCount,
@@ -18,7 +14,6 @@ import {
   formatPercent,
   formatSignedPercent,
   formatSignedPointDelta,
-  formatWindowCountDelta,
   isoDateDaysBeforeInTimeZone,
   parseInclusiveEndMs,
   relativeChangeRatio,
@@ -528,21 +523,6 @@ describe('isoDateDaysBeforeInTimeZone', () => {
   })
 })
 
-describe('formatDateRange', () => {
-  test('empty start and end produce empty string', () => {
-    expect(formatDateRange('', '')).toBe('')
-  })
-
-  test('start and end produce arrow-joined range', () => {
-    expect(formatDateRange('2026-05-01', '2026-05-08')).toBe('May 1, 2026 → May 8, 2026')
-  })
-
-  test('only one side falls through to a single formatted date', () => {
-    expect(formatDateRange('2026-05-01', '')).toBe('May 1, 2026')
-    expect(formatDateRange('', '2026-05-08')).toBe('May 8, 2026')
-  })
-})
-
 describe('relativeChangeRatio', () => {
   test('returns the signed unrounded change relative to a positive baseline', () => {
     expect(relativeChangeRatio(150, 100)).toBe(0.5)
@@ -615,119 +595,6 @@ describe('deltaTone', () => {
   test('negative deltas are negative tone', () => {
     expect(deltaTone(-1)).toBe('negative')
     expect(deltaTone(-100)).toBe('negative')
-  })
-})
-
-describe('formatDeltaCopy', () => {
-  test('null deltaPct with zero prior signals first baseline week', () => {
-    expect(formatDeltaCopy({ current: 100, prior: 0, deltaPct: null }, 'crawls'))
-      .toBe('First baseline week')
-  })
-
-  test('null deltaPct with non-zero prior renders empty (no signal)', () => {
-    expect(formatDeltaCopy({ current: 0, prior: 50, deltaPct: null }, 'crawls')).toBe('')
-  })
-
-  test('positive delta uses Up phrasing with prior count', () => {
-    expect(formatDeltaCopy({ current: 200, prior: 100, deltaPct: 100 }, 'crawls'))
-      .toBe('Up 100% vs prior 7 days (100 crawls)')
-  })
-
-  test('negative delta uses Down phrasing with absolute value', () => {
-    expect(formatDeltaCopy({ current: 50, prior: 100, deltaPct: -50 }, 'arrivals'))
-      .toBe('Down 50.0% vs prior 7 days (100 arrivals)')
-  })
-
-  test('the percentage is the wire deltaPct through formatPercent', () => {
-    // 3 → 4 is +33.333333%; 1,000 → 1,004 is +0.4%, which a whole-percent delta flattened to "Flat".
-    expect(formatDeltaCopy({ current: 4, prior: 3, deltaPct: deltaPercent(4, 3) }, 'crawls'))
-      .toBe('Up 33.3% vs prior 7 days (3 crawls)')
-    expect(formatDeltaCopy({ current: 2, prior: 3, deltaPct: deltaPercent(2, 3) }, 'crawls'))
-      .toBe('Down 33.3% vs prior 7 days (3 crawls)')
-    expect(formatDeltaCopy({ current: 1004, prior: 1000, deltaPct: deltaPercent(1004, 1000) }, 'hits'))
-      .toBe('Up 0.4% vs prior 7 days (1.0K hits)')
-  })
-
-  test('zero delta uses Flat phrasing', () => {
-    expect(formatDeltaCopy({ current: 100, prior: 100, deltaPct: 0 }, 'hits'))
-      .toBe('Flat vs prior 7 days (100 hits)')
-  })
-
-  test('windowLabel can be overridden', () => {
-    expect(formatDeltaCopy({ current: 200, prior: 100, deltaPct: 100 }, 'hits', 'vs prior 30 days'))
-      .toBe('Up 100% vs prior 30 days (100 hits)')
-  })
-})
-
-describe('formatAverageDelta', () => {
-  test('large base renders a signed percentage vs prior', () => {
-    expect(formatAverageDelta({ deltaAbs: 4.2, prior: 30, deltaPct: 14 })).toBe('+14.0% vs prior')
-    // 30 → 34.2 is +14%; 35 → 40 is +14.29%, shown to one decimal.
-    expect(formatAverageDelta({ deltaAbs: 5, prior: 35, deltaPct: deltaPercent(40, 35) })).toBe('+14.3% vs prior')
-  })
-
-  test('large base with a negative delta keeps the sign from deltaPct', () => {
-    expect(formatAverageDelta({ deltaAbs: -6, prior: 50, deltaPct: -12 })).toBe('-12.0% vs prior')
-  })
-
-  test(`base below MIN_PCT_BASE (${MIN_PCT_BASE}) falls back to a rounded raw delta`, () => {
-    // The float-parity case: 0.33333333333333304 → 0.3, 3.3333 → 3.3.
-    expect(formatAverageDelta({ deltaAbs: 0.33333333333333304, prior: 3.3333, deltaPct: 10 }))
-      .toBe('+0.3 vs 3.3')
-  })
-
-  test('small-base negative delta omits the plus sign', () => {
-    expect(formatAverageDelta({ deltaAbs: -0.5, prior: 2, deltaPct: -20 })).toBe('-0.5 vs 2')
-  })
-
-  test('zero prior (deltaPct null) takes the raw branch even though prior < MIN_PCT_BASE', () => {
-    expect(formatAverageDelta({ deltaAbs: 0.5, prior: 0, deltaPct: null })).toBe('+0.5 vs 0')
-  })
-
-  test('large base but null deltaPct still falls back to the raw branch', () => {
-    // prior >= MIN_PCT_BASE but no computable percentage — never render "%".
-    expect(formatAverageDelta({ deltaAbs: 5, prior: 40, deltaPct: null })).toBe('+5 vs 40')
-  })
-
-  test('zero delta on a small base renders without a sign', () => {
-    expect(formatAverageDelta({ deltaAbs: 0, prior: 3.3, deltaPct: 0 })).toBe('0 vs 3.3')
-  })
-})
-
-describe('formatWindowCountDelta', () => {
-  test('large base renders a signed percentage with the window label, no count word', () => {
-    expect(formatWindowCountDelta({ deltaAbs: -54, prior: 382, deltaPct: deltaPercent(328, 382) }, 'visits', 'vs prior 14 days'))
-      .toBe('-14.1% vs prior 14 days')
-  })
-
-  test('large base positive delta gets a plus sign', () => {
-    expect(formatWindowCountDelta({ deltaAbs: 60, prior: 300, deltaPct: 20 }, 'clicks', 'vs prior 14 days'))
-      .toBe('+20.0% vs prior 14 days')
-  })
-
-  test(`base below MIN_PCT_BASE (${MIN_PCT_BASE}) falls back to a rounded absolute delta with the count label`, () => {
-    expect(formatWindowCountDelta({ deltaAbs: 4, prior: 10, deltaPct: 40 }, 'visits', 'vs prior 14 days'))
-      .toBe('+4 visits vs prior 14 days')
-  })
-
-  test('small-base negative delta omits the plus sign and rounds', () => {
-    expect(formatWindowCountDelta({ deltaAbs: -2.6, prior: 5, deltaPct: -52 }, 'clicks', 'vs prior 14 days'))
-      .toBe('-3 clicks vs prior 14 days')
-  })
-
-  test('zero prior (deltaPct null) takes the count branch', () => {
-    expect(formatWindowCountDelta({ deltaAbs: 7, prior: 0, deltaPct: null }, 'visits', 'vs prior 14 days'))
-      .toBe('+7 visits vs prior 14 days')
-  })
-
-  test('large base but null deltaPct falls back to the count branch', () => {
-    expect(formatWindowCountDelta({ deltaAbs: -10, prior: 100, deltaPct: null }, 'visits', 'vs prior 14 days'))
-      .toBe('-10 visits vs prior 14 days')
-  })
-
-  test('large count deltas abbreviate via formatNumber', () => {
-    expect(formatWindowCountDelta({ deltaAbs: 1500, prior: 20, deltaPct: 7500 }, 'visits', 'vs prior 14 days'))
-      .toBe('+1.5K visits vs prior 14 days')
   })
 })
 

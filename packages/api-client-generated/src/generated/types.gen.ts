@@ -11447,6 +11447,11 @@ export type TrafficAnalyticsResponse = {
     activity: {
         windowStart: string;
         windowEnd: string;
+        coverageStart: string | null;
+        priorWindowComplete: boolean;
+        /**
+         * True when the selected or prior window has stored crawler, user-fetch, countable referral or operator evidence, or the selected window has referral redirects. False means no qualifying stored evidence; it can occur with no, paused, errored or never-synced ingestion and out-of-window observations. It does not establish measured zero traffic or source health.
+         */
         hasData: boolean;
         verifiedCrawlerHits: {
             current: number;

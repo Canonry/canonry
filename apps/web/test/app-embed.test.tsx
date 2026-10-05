@@ -18,7 +18,7 @@ import {
 } from '@ainyc/canonry-api-client/react-query'
 import { heyClient } from '../src/api.js'
 
-type EmbedBlock = { enabled: boolean; views?: string[]; theme?: Record<string, string> }
+type EmbedBlock = { enabled: boolean; views?: string[]; projectTabs?: string[]; theme?: Record<string, string> }
 type DashboardBlock = { showResourceLinks?: boolean; showUpdateNotification?: boolean; showAgentBar?: boolean }
 
 beforeAll(async () => {
@@ -253,6 +253,17 @@ test('embed view allowlist permits an allowlisted route', async () => {
   expect(html).toContain('Citypoint Dental NYC')
   expect(html).not.toContain('embed-view-unavailable')
 })
+
+test.each([[['report']], [['report', 'overview']], [['technical-aeo', 'report']]])(
+  'a legacy Report embed shows a retirement message without rendering another project tab: %j',
+  async (projectTabs) => {
+    const html = await renderAt('/projects/project_citypoint/report', { enabled: true, projectTabs })
+    expect(html).toContain('This embed uses the retired Report tab.')
+    expect(html).toContain('Update its allowed tabs to show AI Visibility.')
+    expect(html).not.toContain('Citypoint Dental NYC')
+    expect(html).not.toContain('project-subnav')
+  },
+)
 
 test('embed theme applies allowlisted CSS custom properties to the shell', async () => {
   const html = await renderAt('/projects/project_citypoint', {

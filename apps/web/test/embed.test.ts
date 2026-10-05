@@ -159,8 +159,14 @@ describe('resolveEmbedProjectTab', () => {
 })
 
 describe('filterEmbedProjectTabs', () => {
-  it('removes operator-only, retired, and unknown tabs', () => {
-    expect(filterEmbedProjectTabs(['overview', 'portfolio', 'unknown', 'report'])).toEqual(['overview'])
+  it('removes operator-only and unknown tabs', () => {
+    expect(filterEmbedProjectTabs(['overview', 'portfolio', 'unknown'])).toEqual(['overview'])
+  })
+
+  it('keeps retired Report grants closed, including mixed lists', () => {
+    expect(filterEmbedProjectTabs(['report'])).toEqual([])
+    expect(filterEmbedProjectTabs(['overview', 'report'])).toEqual([])
+    expect(filterEmbedProjectTabs(['technical-aeo', 'REPORT'])).toEqual([])
   })
 
   it('defaults an unset allowlist to every embed-safe project tab', () => {

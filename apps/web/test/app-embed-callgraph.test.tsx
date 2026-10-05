@@ -152,11 +152,11 @@ const baselineOverview = {
   contextLabel: 'US / EN',
 }
 
-async function renderEmbedOverview(overview: unknown) {
+async function renderEmbedOverview(overview: unknown, projectTabs = ['overview']) {
   window.__CANONRY_CONFIG__ = {
     embed: {
       enabled: true,
-      projectTabs: ['overview'],
+      projectTabs,
       renderToken: 'render-token-callgraph',
     },
   }
@@ -245,3 +245,13 @@ test('an embed with a completed sweep renders the competitive card from /overvie
   expect(disallowed).toEqual([])
   expect(Array.from(observed).some(path => path.includes('/analytics/gaps'))).toBe(false)
 })
+
+test.each([[['report']], [['report', 'overview']], [['report', 'technical-aeo']]])(
+  'a retired Report embed does not issue project analytics reads: %j',
+  async (projectTabs) => {
+    const { observed } = await renderEmbedOverview(null, projectTabs)
+    expect(await screen.findByText(/This embed uses the retired Report tab/)).toBeTruthy()
+    expect([...observed].filter(path => path.startsWith('/api/v1/projects/citypoint'))).toEqual([])
+    expect(screen.queryByRole('navigation', { name: 'Project views' })).toBeNull()
+  },
+)
