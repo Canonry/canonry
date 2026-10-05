@@ -49,9 +49,18 @@ export type FeedbackAcceptedDto = z.infer<typeof feedbackAcceptedDtoSchema>
  */
 export function redactFeedbackText(value: string, limit: number): string {
   return redactLogString(value)
+    .replace(SECRET_FLAG_VALUE, '$1 [REDACTED]')
     .replace(BARE_CREDENTIAL, '[REDACTED]')
     .slice(0, limit)
 }
+
+/**
+ * A command line pasted with a credential flag: `--api-key sk-…`,
+ * `--client-secret=…`, `--token "…"`. The log policy only catches `key=value`,
+ * so the space-separated form reached the collector intact. Flag names are
+ * matched by whole hyphen segments, so `--keyword` is left alone.
+ */
+const SECRET_FLAG_VALUE = /(--?(?:[a-z\d]+-)*(?:key|token|secret|password|passwd|credential|credentials|auth|authorization|bearer)(?:-[a-z\d]+)*)(?:\s*=\s*|\s+)(?!\[REDACTED\])(?:"[^"]*"|'[^']*'|\S+)/gi
 
 /**
  * Credentials pasted bare, with no `key=` in front for the log policy to key
