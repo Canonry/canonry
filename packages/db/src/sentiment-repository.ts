@@ -395,6 +395,16 @@ export class SentimentRepository {
     }, { behavior: 'immediate' })
   }
 
+  /** Hand claimed work back to the queue untouched: no error, no retry time, no attempt counted. */
+  releaseWork(input: { workItemId: string; owner: string; now: string }) {
+    return this.db.transaction(tx => {
+      const changed = tx.update(sentimentWorkItems).set({ status: 'pending', leaseOwner: null, leaseExpiresAt: null, updatedAt: input.now })
+        .where(and(eq(sentimentWorkItems.id, input.workItemId), eq(sentimentWorkItems.leaseOwner, input.owner), eq(sentimentWorkItems.status, 'running'))).returning().all()
+      if (changed.length > 0) shiftJobs(tx, changed[0].id, 'running', 'pending', input.now)
+      return changed.length > 0
+    }, { behavior: 'immediate' })
+  }
+
   failWork(input: { workItemId: string; owner: string; now: string; errorCode: string; retryAt?: string }) {
     return this.db.transaction(tx => {
       const changed = tx.update(sentimentWorkItems).set({ status: input.retryAt ? 'waiting-to-retry' : 'failed',

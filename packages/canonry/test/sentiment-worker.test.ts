@@ -63,6 +63,21 @@ describe('durable sentiment worker', () => {
     expect(await runtime.tick()).toBe(2)
     expect(classify).toHaveBeenCalledTimes(4)
   })
+  it('leaves work queued when the minute\'s token budget cannot fit it, and dispatches it once tokens free up', async () => {
+    service.configure('p', { enabled: true }); for (const id of ['t1', 't2', 't3', 't4', 't5']) source(id)
+    const classify = vi.fn(async (input: SentimentClassifierInput) => classified(input))
+    const budgeted = () => resolveSentimentInstallConfig({}, { enabled, apiKey, maxConcurrency: 8, maxInputTokensPerMinute: 2500 })
+    const prepare = () => ({ ok: true as const, estimatedInputTokens: 1000 })
+    const runtime = new SentimentWorker(db, { configuration: budgeted, classifier: () => ({ classify }), prepare, now })
+    expect(await runtime.tick()).toBe(2)
+    expect(await runtime.tick()).toBe(0)
+    expect(classify).toHaveBeenCalledTimes(2)
+    const waiting = db.select().from(sentimentWorkItems).where(eq(sentimentWorkItems.status, 'pending')).all()
+    expect(waiting.map(item => [item.errorCode, item.nextAttemptAt, item.attemptCount])).toEqual([[null, null, 0], [null, null, 0], [null, null, 0]])
+    time = later(61_000)
+    expect(await runtime.tick()).toBe(2)
+    expect(classify).toHaveBeenCalledTimes(4)
+  })
 
   it('admits both future query classes and persists absent non-brand preflight without a paid attempt', async () => {
     service.configure('p', { enabled: true }); source('branded'); source('non-brand', true, 'best service options')

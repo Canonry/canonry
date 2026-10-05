@@ -112,10 +112,11 @@ export class SentimentWorker {
       if (!claim) break
       claims.push(claim)
     }
-    await Promise.all(claims.map(work => this.execute(work)))
-    return claims.length
+    // Work released for lack of budget is not progress, so the poller waits for capacity instead of re-claiming it.
+    const outcomes = await Promise.all(claims.map(work => this.execute(work)))
+    return outcomes.filter(outcome => outcome !== 'released').length
   }
-  private async execute(work: NonNullable<ReturnType<SentimentRepository['claim']>>): Promise<void> {
+  private async execute(work: NonNullable<ReturnType<SentimentRepository['claim']>>): Promise<'released' | void> {
     const owner = work.leaseOwner!
     const parsed = storedSentimentClassifierInputSchema.safeParse(work.input)
     if (!parsed.success) { this.repository.failWork({ workItemId: work.id, owner, now: this.now(), errorCode: 'INVALID_FROZEN_INPUT' }); return }
@@ -138,6 +139,13 @@ export class SentimentWorker {
     if (work.attemptCount - work.attemptBudgetStart >= config.maxAttempts) { this.repository.failWork({ workItemId: work.id, owner, now: this.now(), errorCode: 'ATTEMPT_BUDGET_EXHAUSTED' }); return }
     const attempt = this.repository.startAttempt({ workItemId: work.id, owner, requestedModel: input.definition.requestedModel, now: this.now(), estimatedInputTokens: estimate, maxRequestsPerMinute: config.maxRequestsPerMinute, maxAttempts: config.maxAttempts, maxInputTokensPerMinute: config.maxInputTokensPerMinute })
     if (!attempt) {
+      // Out of this minute's request or token budget: leave the work queued so it dispatches as soon
+      // as capacity returns. Any other refusal keeps the one-minute wait.
+      const used = this.repository.recentDispatch(this.now())
+      if (used.requests >= config.maxRequestsPerMinute || used.tokens + estimate > config.maxInputTokensPerMinute) {
+        this.repository.releaseWork({ workItemId: work.id, owner, now: this.now() })
+        return 'released'
+      }
       this.repository.failWork({ workItemId: work.id, owner, now: this.now(), errorCode: 'RATE_LIMIT_WAIT', retryAt: new Date(Date.parse(this.now()) + 60_000).toISOString() })
       return
     }
