@@ -15,7 +15,7 @@ The `report.*` Doctor checks retain their public IDs for monthly completeness, m
 
 Old dashboard URLs at `/projects/:name/report` redirect to AI Visibility.
 The removed API routes return HTTP 404.
-Remove `report` from embed tab configuration. Server startup refuses enabled configurations that contain it, including mixed tab lists. Per-request overrides that select it are refused with a retirement error. The SPA also shows a retirement error for legacy injected embed configuration.
+Remove `report` from embed tab configuration. Server startup refuses enabled configurations that contain it, including mixed tab lists. Document request overrides that select it are refused with a retirement error. The SPA also shows a retirement error for legacy injected embed configuration. API requests retain the existing tab-permission intersection: a `report`-only override permits no project-tab reads, while `report,overview` permits only configured Overview reads.
 
 ## Replacement reads
 
