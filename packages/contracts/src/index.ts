@@ -83,6 +83,7 @@ export * from './users.js'
 export * from './embed.js'
 export * from './provider-errors.js'
 export * from './telemetry.js'
+export * from './ui-telemetry.js'
 export * from './feedback.js'
 export * from './trend-stability.js'
 

@@ -7,6 +7,8 @@ import {
   validationError,
   type OnboardingTelemetryEvent,
   type TelemetryStatusInput,
+  type UiTelemetryEvent,
+  uiTelemetryEventSchema,
 } from '@ainyc/canonry-contracts'
 import { requireOperator, requireScope } from './auth.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
@@ -16,6 +18,8 @@ export interface TelemetryRoutesOptions {
   getTelemetryStatus?: () => TelemetryStatusInput
   setTelemetryEnabled?: (enabled: boolean) => void
   recordOnboardingEvent?: (event: OnboardingTelemetryEvent) => void
+  /** Dashboard usage: page views, feature actions, UI errors, web vitals. */
+  recordUiEvent?: (event: UiTelemetryEvent) => void
 }
 
 export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoutesOptions) {
@@ -82,5 +86,23 @@ export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoute
     // telemetry (for example, apps/api or an opted-out local instance).
     opts.recordOnboardingEvent?.(normalizeOnboardingEventForCollection(parsed.data))
     return reply.status(202).send({ accepted: Boolean(opts.recordOnboardingEvent) })
+  })
+
+  app.post<{ Body: unknown }>('/telemetry/ui', async (request, reply) => {
+    const parsed = uiTelemetryEventSchema.safeParse(request.body)
+    if (!parsed.success) {
+      throw validationError('Invalid UI telemetry event', {
+        issues: parsed.error.issues.map(issue => ({
+          code: issue.code,
+          path: issue.path.join('.'),
+        })),
+      })
+    }
+
+    // Same posture as onboarding: a host that does not collect telemetry
+    // (apps/api, or an opted-out local instance) answers accepted:false and the
+    // dashboard stops sending for the session.
+    opts.recordUiEvent?.(parsed.data)
+    return reply.status(202).send({ accepted: Boolean(opts.recordUiEvent) })
   })
 }

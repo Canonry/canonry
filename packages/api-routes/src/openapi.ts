@@ -3176,6 +3176,25 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'post',
+    path: '/api/v1/telemetry/ui',
+    summary: 'Record a privacy-safe dashboard usage event',
+    description: 'Page views (route patterns), allowlisted feature actions, UI errors (class names and route templates only), and web vitals ratings from the dashboard. Forwarded through the opt-in anonymous telemetry path; accepted:false when this host does not collect telemetry.',
+    tags: ['telemetry'],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/UiTelemetryEvent' },
+        },
+      },
+    },
+    responses: {
+      202: jsonResponse('UI event accepted.', 'TelemetryEventAcceptedDto'),
+      400: errorResponse('Invalid UI telemetry event.'),
+    },
+  },
+  {
+    method: 'post',
     path: '/api/v1/feedback',
     summary: 'Send product feedback about Canonry',
     description: 'Forwards a struggle, bug, improvement, or other note about Canonry itself to the Canonry team (canonry.ai). Free text is redacted for credentials before it leaves the machine; never include customer data. The server adds version, OS, and the calling surface and agent; the anonymous install id is attached only while telemetry is enabled.',

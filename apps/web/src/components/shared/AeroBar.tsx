@@ -1,3 +1,4 @@
+import { trackUiAction } from '../../lib/ui-telemetry.js'
 import type { AgentViewContext, AgentConversationList, AgentConversation, AeroPreviewStarterId } from '@ainyc/canonry-contracts'
 import { useAeroView } from '../../contexts/aero-view-context.js'
 import { aeroViewFromLocation } from '../../lib/aero-view.js'
@@ -953,7 +954,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
         ) : (
           <button
             type="button"
-            onClick={() => setOpen(true)}
+            onClick={() => { setOpen(true); trackUiAction('aero.open') }}
             className="flex w-full items-center justify-between rounded-lg border border-mono-800/80 bg-bg/95 px-4 py-2 text-left text-sm text-secondary shadow-lg transition hover:border-strong hover:bg-bg-elevated/90 hover:text-strong"
           >
             <span className="flex items-center gap-2">

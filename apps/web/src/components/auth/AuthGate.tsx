@@ -21,6 +21,7 @@ import { AccountProvider, type SignedInAccount } from '../../contexts/account-co
 import { asyncHandler } from '../../lib/async-handler.js'
 import { createQueryClient } from '../../queries/query-client.js'
 import { createAppRouter } from '../../router/router.js'
+import { attachUiTelemetryRouter } from '../../lib/ui-telemetry-install.js'
 import { Button } from '../ui/button.js'
 import { Card, CardContent, CardDescription, CardHeader } from '../ui/card.js'
 
@@ -80,6 +81,8 @@ export function AuthGate() {
       const qc = createQueryClient()
       queryClientRef.current = qc
       routerRef.current = createAppRouter(qc)
+      // Page views follow the live router (a no-op until main.tsx installs telemetry).
+      attachUiTelemetryRouter(routerRef.current)
       cachedForPrincipalRef.current = principalKey
     }
     return { queryClient: queryClientRef.current!, router: routerRef.current! }

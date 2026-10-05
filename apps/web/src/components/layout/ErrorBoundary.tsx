@@ -1,9 +1,12 @@
 import { Component, type ReactNode } from 'react'
 import { AlertTriangle, RotateCcw } from 'lucide-react'
 import { Button } from '../ui/button.js'
+import { recordUiError } from '../../lib/ui-telemetry.js'
 
 interface Props {
   children: ReactNode
+  /** Slug reported with `ui.error` (`kind: render`): which boundary caught it. */
+  name?: string
 }
 
 interface State {
@@ -19,6 +22,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   override componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('[ErrorBoundary]', error, info.componentStack)
+    recordUiError({ kind: 'render', error, component: this.props.name ?? 'root' })
   }
 
   private handleReset = () => {
