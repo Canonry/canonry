@@ -7,7 +7,7 @@ import { and, eq } from "drizzle-orm";
 import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds, sentimentInstallReadiness } from "@ainyc/canonry-config";
 import { CliError } from "./cli-error.js";
 import { createTypeSafeClassifier, buildJevSentimentRequest } from "@ainyc/canonry-integration-typesafe";
-import { SentimentWorker } from "./sentiment-worker.js";
+import { SentimentWorker, createSentimentPoller } from "./sentiment-worker.js";
 import { loadSentimentInstallConfig } from "./sentiment-config.js";
 
 const _require = createRequire(import.meta.url);
@@ -2583,15 +2583,15 @@ export async function createServer(opts: {
       return built.ok ? { ok: true, estimatedInputTokens: built.estimate.inputTokens } : built;
     },
   });
-  let sentimentTick: Promise<number> | null = null;
-  const pollSentiment = () => {
-    if (sentimentTick) return;
-    sentimentTick = sentimentWorker.tick().catch(() => { log.error("sentiment.worker-failed", { reason: "Stored sentiment worker could not finish its tick." }); return 0; }).finally(() => { sentimentTick = null; });
-  };
+  const sentimentPoller = createSentimentPoller(
+    () => sentimentWorker.tick(),
+    () => { log.error("sentiment.worker-failed", { reason: "Stored sentiment worker could not finish its tick." }); },
+  );
+  const pollSentiment = sentimentPoller.poll;
   let sentimentTimer: ReturnType<typeof setInterval> | undefined;
   runCoordinator.onSentimentCompleted = async () => { pollSentiment(); };
   app.addHook("onReady", async () => { sentimentTimer = setInterval(pollSentiment, 5_000); sentimentTimer.unref(); pollSentiment(); });
-  app.addHook("onClose", async () => { clearInterval(sentimentTimer); await sentimentTick; });
+  app.addHook("onClose", async () => { clearInterval(sentimentTimer); sentimentPoller.stop(); await sentimentPoller.settled(); });
 
   const providerModelCatalog = createProviderModelCatalog(registry);
   await app.register(apiRoutes, {

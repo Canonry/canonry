@@ -4,7 +4,7 @@ import { buildSimpleMeasurementDefinition, createSentimentEvaluationDefinition, 
 import { createClient, llmUsageEvents, migrate, projects, queries, querySnapshots, recordSentimentCompletion, runs, SentimentRepository, sentimentAttempts, sentimentJobs, sentimentSettings, sentimentWorkItems, simpleMeasurementDefinitions, type DatabaseClient } from '@ainyc/canonry-db'
 import { SentimentService, selectSentimentSources, sentimentHash } from '@ainyc/canonry-api-routes'
 import { resolveSentimentInstallConfig, type SentimentInstallConfig } from '@ainyc/canonry-config'
-import { SentimentWorker, sentimentRateLimitDelayMs } from '../src/sentiment-worker.js'
+import { SentimentWorker, createSentimentPoller, sentimentRateLimitDelayMs } from '../src/sentiment-worker.js'
 
 // Pass-through spy: counts the worker's source selections without changing them.
 vi.mock('@ainyc/canonry-api-routes', async importOriginal => {
@@ -47,6 +47,22 @@ function secondProject() {
 function worker(classify = vi.fn(async (input: SentimentClassifierInput) => classified(input))) { return { classify, runtime: new SentimentWorker(db, { configuration, classifier: () => ({ classify }), now }) } }
 
 describe('durable sentiment worker', () => {
+
+  it('claims only what the minute\'s request budget allows, leaving the rest queued instead of deferred', async () => {
+    service.configure('p', { enabled: true }); for (const id of ['r1', 'r2', 'r3', 'r4', 'r5']) source(id)
+    const classify = vi.fn(async (input: SentimentClassifierInput) => classified(input))
+    const budgeted = () => resolveSentimentInstallConfig({}, { enabled, apiKey, maxConcurrency: 8, maxRequestsPerMinute: 2 })
+    const runtime = new SentimentWorker(db, { configuration: budgeted, classifier: () => ({ classify }), now })
+    expect(await runtime.tick()).toBe(2)
+    expect(await runtime.tick()).toBe(0)
+    expect(classify).toHaveBeenCalledTimes(2)
+    const waiting = db.select().from(sentimentWorkItems).where(eq(sentimentWorkItems.status, 'pending')).all()
+    expect(waiting).toHaveLength(3)
+    expect(waiting.map(item => [item.errorCode, item.nextAttemptAt])).toEqual([[null, null], [null, null], [null, null]])
+    time = later(61_000)
+    expect(await runtime.tick()).toBe(2)
+    expect(classify).toHaveBeenCalledTimes(4)
+  })
 
   it('admits both future query classes and persists absent non-brand preflight without a paid attempt', async () => {
     service.configure('p', { enabled: true }); source('branded'); source('non-brand', true, 'best service options')
@@ -374,3 +390,28 @@ describe('durable sentiment worker', () => {
     expect(db.select().from(llmUsageEvents).all()).toHaveLength(1)
   })
 })
+
+describe('sentiment poller', () => {
+  it('ticks again straight away while work is claimed, and drops a poll that arrives mid-tick', async () => {
+    const claimed = [3, 2, 0]
+    const tick = vi.fn(async () => claimed.shift() ?? 0)
+    const scheduled: Array<() => void> = []
+    const poller = createSentimentPoller(tick, () => {}, fn => scheduled.push(fn))
+    poller.poll(); poller.poll()
+    for (let index = 0; index < 5; index++) { await poller.settled(); scheduled.shift()?.() }
+    expect(tick).toHaveBeenCalledTimes(3)
+    expect(scheduled).toHaveLength(0)
+  })
+  it('stops after a failed tick and after stop()', async () => {
+    const onError = vi.fn()
+    const failing = createSentimentPoller(vi.fn(async () => { throw new Error('boom') }), onError, fn => fn())
+    failing.poll(); await failing.settled()
+    expect(onError).toHaveBeenCalledTimes(1)
+    const tick = vi.fn(async () => 1)
+    const scheduled: Array<() => void> = []
+    const poller = createSentimentPoller(tick, () => {}, fn => scheduled.push(fn))
+    poller.poll(); await poller.settled(); poller.stop(); scheduled.shift()?.(); poller.poll()
+    expect(tick).toHaveBeenCalledTimes(1)
+  })
+})
+
