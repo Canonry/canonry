@@ -188,4 +188,3 @@ export function createSentimentPoller(tick: () => Promise<number>, onError: () =
     stop: (): void => { stopped = true },
   }
 }
-
