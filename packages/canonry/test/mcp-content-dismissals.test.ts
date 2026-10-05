@@ -129,8 +129,9 @@ describe('content dismissal CLI/REST/MCP parity', () => {
     expect(await api.getContentDismissals('simple')).toEqual({ dismissals: [row] })
   })
 
-  it('enforces the project boundary for list, dismiss and restore through MCP', async () => {
+  it('preserves project-boundary refusals after the client loads MCP tool schemas', async () => {
     const mcp = await connect(keys.writer!)
+    await mcp.listTools()
     for (const [name, extra] of [
       ['canonry_content_dismissals', {}], ['canonry_content_dismiss', { targetRef: 'tgt_sibling' }],
       ['canonry_content_restore', { targetRef: 'tgt_sibling' }],
@@ -165,6 +166,7 @@ describe('content dismissal CLI/REST/MCP parity', () => {
     })
     await mcp.connect(transport)
     cleanups.push(() => mcp.close())
+    await mcp.listTools()
     const stored = await mcp.callTool({ name: 'canonry_content_dismiss', arguments: { project: 'simple', targetRef: 'tgt_http' } })
     expect(stored.isError, JSON.stringify(stored)).not.toBe(true)
     const read = await mcp.callTool({ name: 'canonry_content_dismissals', arguments: { project: 'simple' } })
@@ -173,5 +175,13 @@ describe('content dismissal CLI/REST/MCP parity', () => {
     expect(restored.structuredContent).toEqual({ targetRef: 'tgt_http', restored: true })
     expect((await mcp.callTool({ name: 'canonry_content_dismissals', arguments: { project: 'simple' } })).structuredContent)
       .toEqual({ dismissals: [] })
+    for (const [name, extra] of [
+      ['canonry_content_dismissals', {}], ['canonry_content_dismiss', { targetRef: 'tgt_sibling' }],
+      ['canonry_content_restore', { targetRef: 'tgt_sibling' }],
+    ] as const) {
+      const denied = await mcp.callTool({ name, arguments: { project: 'advanced', ...extra } })
+      expect(denied.isError).toBe(true)
+      expect(denied.structuredContent).toMatchObject({ error: { code: 'FORBIDDEN' } })
+    }
   })
 })
