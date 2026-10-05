@@ -13,6 +13,7 @@ describe('uiTelemetryEventSchema', () => {
     for (const event of [
       { ...ids, event: 'ui.page_viewed', page: '/projects/:projectName/report', tab: 'report' },
       { ...ids, event: 'ui.action', page: '/projects/:projectName/settings', action: 'integration.connect', integration: 'ga' },
+      { ...ids, event: 'ui.action', page: '/projects/:projectName/settings', action: 'integration.connect_started', integration: 'google_ads' },
       { ...ids, event: 'ui.error', page: '/runs', kind: 'api', route: '/api/v1/projects/{name}/runs', method: 'POST', statusClass: '5xx', status: 503 },
       { ...ids, event: 'ui.error', page: '/', kind: 'render', component: 'root', errorName: 'TypeError' },
       { ...ids, event: 'ui.vitals', page: '/', metric: 'LCP', rating: 'good' },

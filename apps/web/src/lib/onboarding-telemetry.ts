@@ -70,15 +70,24 @@ export function onboardingErrorReason(
 }
 
 export function getOrCreateOnboardingSessionId(): string {
+  return getOrCreateTabSessionId(SESSION_KEY)
+}
+
+/**
+ * A uuid that lives as long as the browser tab (sessionStorage), created on
+ * first use. Shared by onboarding and dashboard usage telemetry. Falls back to
+ * a fresh id per call when storage is unavailable.
+ */
+export function getOrCreateTabSessionId(storageKey: string): string {
   try {
     const existing = typeof window !== 'undefined'
-      ? window.sessionStorage.getItem(SESSION_KEY)
+      ? window.sessionStorage.getItem(storageKey)
       : null
     if (existing && UUID_PATTERN.test(existing)) return existing
 
     const id = createUuid()
     if (typeof window !== 'undefined') {
-      window.sessionStorage.setItem(SESSION_KEY, id)
+      window.sessionStorage.setItem(storageKey, id)
     }
     return id
   } catch {
@@ -225,7 +234,7 @@ export function clearOnboardingRunLaunched(): void {
   }
 }
 
-function createUuid(): string {
+export function createUuid(): string {
   const cryptoApi = globalThis.crypto as Partial<Pick<Crypto, 'randomUUID' | 'getRandomValues'>>
   if (cryptoApi.randomUUID) return cryptoApi.randomUUID()
 

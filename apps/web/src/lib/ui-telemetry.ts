@@ -1,5 +1,6 @@
 import {
   isUiApiRouteTemplate,
+  UI_COMPONENT_PATTERN,
   UI_ERROR_NAME_PATTERN,
   uiPageFromRoutePath,
   uiProjectTabFromPage,
@@ -9,6 +10,7 @@ import {
   type UiProjectTab,
   type UiTelemetryEvent,
 } from '@ainyc/canonry-contracts'
+import { createUuid, getOrCreateTabSessionId } from './onboarding-telemetry.js'
 
 /**
  * Dashboard usage telemetry: page views, feature actions, UI errors and web
@@ -29,20 +31,28 @@ type Sender = (event: UiTelemetryEvent) => Promise<{ accepted?: boolean } | unde
 
 type Distribute<T> = T extends unknown ? Omit<T, 'eventId' | 'uiSessionId' | 'page' | 'tab'> : never
 type PendingEvent = Distribute<UiTelemetryEvent>
+type VitalMetric = 'LCP' | 'INP' | 'CLS' | 'FCP' | 'TTFB'
+type VitalRating = 'good' | 'needs-improvement' | 'poor'
 
 const SESSION_KEY = 'canonry.ui-session.v1'
 const PAGES_KEY = 'canonry.ui-pages.v1'
 const ERRORS_KEY = 'canonry.ui-errors.v1'
-/** Hard cap per browser tab, so a render loop cannot flood the collector. */
+const SENT_KEY = 'canonry.ui-sent.v1'
+/** Hard caps per browser tab, so a render loop cannot flood the collector. */
 export const UI_TELEMETRY_MAX_PER_MINUTE = 30
+/** Persisted in sessionStorage, so reloading the tab does not reset it. */
+export const UI_TELEMETRY_MAX_PER_HOUR = 120
 const MAX_REMEMBERED_KEYS = 200
 
 const state = {
   sender: null as Sender | null,
   disabled: false,
   page: 'other' as UiPage,
-  sentAt: [] as number[],
+  /** The page this document loaded on: load metrics belong to it, whatever is open later. */
+  landingPage: null as UiPage | null,
+  pendingVitals: [] as Array<[VitalMetric, VitalRating]>,
   memory: new Map<string, Set<string>>(),
+  sentAt: null as number[] | null,
   now: () => Date.now(),
 }
 
@@ -52,16 +62,22 @@ export function configureUiTelemetry(options: { send: Sender; enabled?: boolean;
   if (options.now) state.now = options.now
 }
 
-/** Test-only: forget configuration, throttling and dedupe memory. */
-export function resetUiTelemetryForTests(): void {
+/**
+ * Test-only: forget configuration, throttling, dedupe memory and the landing
+ * page. `keepStorage` simulates a reload: memory goes, sessionStorage stays.
+ */
+export function resetUiTelemetryForTests(options: { keepStorage?: boolean } = {}): void {
   state.sender = null
   state.disabled = false
   state.page = 'other'
-  state.sentAt = []
+  state.landingPage = null
+  state.pendingVitals = []
   state.memory.clear()
+  state.sentAt = null
   state.now = () => Date.now()
+  if (options.keepStorage) return
   try {
-    for (const key of [SESSION_KEY, PAGES_KEY, ERRORS_KEY]) window.sessionStorage.removeItem(key)
+    for (const key of [SESSION_KEY, PAGES_KEY, ERRORS_KEY, SENT_KEY]) window.sessionStorage.removeItem(key)
   } catch { /* storage unavailable */ }
 }
 
@@ -73,9 +89,14 @@ export function currentUiPage(): UiPage {
 export function setUiPageFromRoute(fullPath: string | undefined | null): void {
   const page = uiPageFromRoutePath(fullPath)
   state.page = page
+  if (state.landingPage === null) {
+    state.landingPage = page
+    const queued = state.pendingVitals
+    state.pendingVitals = []
+    for (const [metric, rating] of queued) sendVital(metric, rating)
+  }
   const tab = uiProjectTabFromPage(page)
-  if (!rememberOnce(PAGES_KEY, `${page}|${tab ?? ''}`)) return
-  emit({ event: 'ui.page_viewed' })
+  sendOnce(PAGES_KEY, `${page}|${tab ?? ''}`, { event: 'ui.page_viewed' })
 }
 
 export function trackUiAction(action: UiAction, detail: { integration?: UiIntegration; format?: 'csv' | 'json' | 'html' } = {}): void {
@@ -101,10 +122,9 @@ export function recordUiError(input: UiErrorInput): void {
   const statusClass = input.network ? 'network' as const
     : status === undefined ? undefined
       : status >= 500 ? '5xx' as const : '4xx' as const
-  const component = input.component && /^[a-z][a-z0-9-]{0,39}$/.test(input.component) ? input.component : undefined
+  const component = input.component && UI_COMPONENT_PATTERN.test(input.component) ? input.component : undefined
   const key = [input.kind, state.page, component, errorName, method, route, status ?? statusClass].join('|')
-  if (!rememberOnce(ERRORS_KEY, key)) return
-  emit({
+  sendOnce(ERRORS_KEY, key, {
     event: 'ui.error',
     kind: input.kind,
     ...(component ? { component } : {}),
@@ -116,21 +136,42 @@ export function recordUiError(input: UiErrorInput): void {
   })
 }
 
-export function recordUiVital(metric: 'LCP' | 'INP' | 'CLS' | 'FCP' | 'TTFB', rating: 'good' | 'needs-improvement' | 'poor'): void {
-  emit({ event: 'ui.vitals', metric, rating })
+/**
+ * A load metric for THIS page load. It is attributed to the landing page (the
+ * first route the router resolved), never to whichever page is open when the
+ * tab is hidden, and is held until that page is known.
+ */
+export function recordUiVital(metric: VitalMetric, rating: VitalRating): void {
+  if (state.landingPage === null) {
+    state.pendingVitals.push([metric, rating])
+    return
+  }
+  sendVital(metric, rating)
+}
+
+function sendVital(metric: VitalMetric, rating: VitalRating): void {
+  const page = state.landingPage ?? 'other'
+  emit({ event: 'ui.vitals', metric, rating }, page)
 }
 
 /**
  * The feature a successful dashboard write stands for, keyed by the generated
  * client's route TEMPLATE. One table instead of a call at every button: every
  * write path (invokeWeb, generated TanStack mutations) goes through heyClient.
+ *
+ * `onlyStatus` narrows a row to one response status: the project upsert is a
+ * create on 201 and an update on 200. OAuth starts are `connect_started`; the
+ * connection counts as `connect` only where it is confirmed (a property or
+ * account chosen, or credentials accepted).
  */
-const ACTION_BY_ROUTE: ReadonlyArray<readonly [method: string, template: string, action: UiAction, integration?: UiIntegration]> = [
+type ActionRow = readonly [method: string, template: string, action: UiAction, integration?: UiIntegration, onlyStatus?: number]
+const ACTION_BY_ROUTE: ReadonlyArray<ActionRow> = [
   ['POST', '/api/v1/projects/{name}/runs', 'sweep.launch'],
   ['POST', '/api/v1/runs/{id}/cancel', 'sweep.cancel'],
   ['POST', '/api/v1/projects/{name}/technical-aeo/runs', 'site_audit.launch'],
   ['POST', '/api/v1/projects', 'project.create'],
-  ['PUT', '/api/v1/projects/{name}', 'project.update'],
+  ['PUT', '/api/v1/projects/{name}', 'project.create', undefined, 201],
+  ['PUT', '/api/v1/projects/{name}', 'project.update', undefined, 200],
   ['DELETE', '/api/v1/projects/{name}', 'project.delete'],
   ['POST', '/api/v1/projects/{name}/queries', 'query.add'],
   ['PUT', '/api/v1/projects/{name}/queries', 'query.add'],
@@ -147,8 +188,8 @@ const ACTION_BY_ROUTE: ReadonlyArray<readonly [method: string, template: string,
   ['PUT', '/api/v1/settings/bing', 'settings.save'],
   ['PUT', '/api/v1/settings/cdp', 'settings.save'],
   ['PUT', '/api/v1/projects/{name}/sentiment/settings', 'settings.save'],
-  ['POST', '/api/v1/projects/{name}/google/connect', 'integration.connect', 'google'],
-  ['DELETE', '/api/v1/projects/{name}/google/connections/{type}', 'integration.disconnect', 'google'],
+  ['POST', '/api/v1/projects/{name}/google/connect', 'integration.connect_started', 'google'],
+  // PUT /google/connections/{type}/property is resolved in googleConnectionAction.
   ['POST', '/api/v1/projects/{name}/ga/connect', 'integration.connect', 'ga'],
   ['DELETE', '/api/v1/projects/{name}/ga/disconnect', 'integration.disconnect', 'ga'],
   ['POST', '/api/v1/projects/{name}/bing/connect', 'integration.connect', 'bing'],
@@ -160,9 +201,11 @@ const ACTION_BY_ROUTE: ReadonlyArray<readonly [method: string, template: string,
   ['DELETE', '/api/v1/projects/{name}/wordpress/disconnect', 'integration.disconnect', 'wordpress'],
   ['POST', '/api/v1/projects/{name}/ads/connect', 'integration.connect', 'openai_ads'],
   ['DELETE', '/api/v1/projects/{name}/ads/connection', 'integration.disconnect', 'openai_ads'],
-  ['POST', '/api/v1/projects/{name}/google-ads/oauth/connect', 'integration.connect', 'google_ads'],
+  ['POST', '/api/v1/projects/{name}/google-ads/oauth/connect', 'integration.connect_started', 'google_ads'],
+  ['PUT', '/api/v1/projects/{name}/google-ads/selection', 'integration.connect', 'google_ads'],
   ['DELETE', '/api/v1/projects/{name}/google-ads/connection', 'integration.disconnect', 'google_ads'],
-  ['POST', '/api/v1/projects/{name}/gtm/oauth/connect', 'integration.connect', 'gtm'],
+  ['POST', '/api/v1/projects/{name}/gtm/oauth/connect', 'integration.connect_started', 'gtm'],
+  ['PUT', '/api/v1/projects/{name}/gtm/selection', 'integration.connect', 'gtm'],
   ['DELETE', '/api/v1/projects/{name}/gtm/connection', 'integration.disconnect', 'gtm'],
   ['POST', '/api/v1/projects/{name}/traffic/connect/cloudflare', 'integration.connect', 'traffic_cloudflare'],
   ['POST', '/api/v1/projects/{name}/traffic/connect/vercel', 'integration.connect', 'traffic_vercel'],
@@ -177,80 +220,147 @@ const ACTION_BY_ROUTE: ReadonlyArray<readonly [method: string, template: string,
   ['POST', '/api/v1/keys/{id}/revoke', 'api_key.revoke'],
 ]
 
+const GOOGLE_CONNECTION_TEMPLATE = '/api/v1/projects/{name}/google/connections/{type}'
+const GOOGLE_INTEGRATION_BY_TYPE: Readonly<Record<string, UiIntegration>> = { gsc: 'gsc', ga4: 'ga', gbp: 'gbp' }
+
+/**
+ * Google connections share one template per verb, and `{type}` (gsc, ga4,
+ * gbp) decides the integration. It is read from the real request path here,
+ * mapped to the closed enum, and only the enum is sent. Choosing a property is
+ * what confirms the connection.
+ */
+function googleConnectionAction(method: string, template: string, path: string | undefined): ActionRow | undefined {
+  const verb = method === 'PUT' && template === `${GOOGLE_CONNECTION_TEMPLATE}/property` ? 'integration.connect' as const
+    : method === 'DELETE' && template === GOOGLE_CONNECTION_TEMPLATE ? 'integration.disconnect' as const
+      : undefined
+  if (!verb) return undefined
+  const type = path ? /\/google\/connections\/([^/?#]+)/.exec(path)?.[1] : undefined
+  const integration = (type && GOOGLE_INTEGRATION_BY_TYPE[decodeURIComponent(type)]) || 'google'
+  return [method, template, verb, integration]
+}
+
+/**
+ * Statuses a read or write is EXPECTED to answer, which the calling code
+ * handles as a normal outcome rather than a failure: no schedule yet, a
+ * measurement draft that moved underneath an edit, an audit run that is gone,
+ * a project name that is taken. These are not UI defects and are not reported.
+ */
+const EXPECTED_STATUSES: ReadonlyArray<readonly [method: string | '*', template: RegExp, statuses: readonly number[]]> = [
+  ['GET', /^\/api\/v1\/projects\/\{name\}\/schedule$/, [404]],
+  ['*', /^\/api\/v1\/projects\/\{name\}\/measurement-plan(?:\/draft(?:\/.*)?)?$/, [404, 409, 412]],
+  ['GET', /^\/api\/v1\/projects\/\{name\}\/technical-aeo\/runs\/\{runId\}\/progress$/, [404]],
+  ['GET', /^\/api\/v1\/projects\/\{name\}\/backlinks\/domains$/, [404]],
+  ['POST', /^\/api\/v1\/projects$/, [409]],
+  ['PUT', /^\/api\/v1\/projects\/\{name\}$/, [409]],
+]
+
+function isExpectedStatus(method: string | undefined, template: string, status: number): boolean {
+  return EXPECTED_STATUSES.some(([m, pattern, statuses]) =>
+    (m === '*' || m === method) && pattern.test(template) && statuses.includes(status))
+}
+
 /** Routes whose own traffic must never feed back into this telemetry. */
 const IGNORED_ROUTE = /^\/api\/v1\/(?:telemetry|feedback)(?:\/|$)/
 
 /**
  * Turn one finished dashboard API call into usage: a successful mapped write
- * is a `ui.action`, a 4xx/5xx or network failure is a `ui.error` (`kind: api`).
+ * is a `ui.action`; an unexpected 4xx, any 5xx, or a network failure is a
+ * `ui.error` (`kind: api`). `path` is the real request path, read only to
+ * resolve a closed enum (never sent).
  */
-export function recordUiApiResult(input: { method?: string; route?: string; status?: number; network?: boolean }): void {
+export function recordUiApiResult(input: { method?: string; route?: string; path?: string; status?: number; network?: boolean }): void {
   if (!input.route || IGNORED_ROUTE.test(input.route)) return
   const method = normalizeMethod(input.method)
   if (input.network || (typeof input.status === 'number' && input.status >= 400)) {
     // A 401 is session expiry, handled by the login redirect, not a UI defect.
     if (input.status === 401) return
+    if (typeof input.status === 'number' && input.status < 500 && isExpectedStatus(method, input.route, input.status)) return
     recordUiError({ kind: 'api', route: input.route, method, status: input.status, network: input.network })
     return
   }
   if (!method || method === 'GET') return
-  const match = ACTION_BY_ROUTE.find(([m, template]) => m === method && template === input.route)
+  const match = googleConnectionAction(method, input.route, input.path)
+    ?? ACTION_BY_ROUTE.find(([m, template, , , onlyStatus]) =>
+      m === method && template === input.route && (onlyStatus === undefined || onlyStatus === input.status))
   if (match) trackUiAction(match[2], match[3] ? { integration: match[3] } : {})
 }
 
-function emit(pending: PendingEvent): void {
+/** Send at most once per session for `value`; mark it seen only once it was really sent. */
+function sendOnce(storageKey: string, value: string, pending: PendingEvent): void {
+  const seen = seenSet(storageKey)
+  if (seen.has(value)) return
+  if (!emit(pending)) return
+  seen.add(value)
+  try {
+    window.sessionStorage.setItem(storageKey, JSON.stringify([...seen].slice(-MAX_REMEMBERED_KEYS)))
+  } catch { /* storage unavailable: in-memory dedupe still holds */ }
+}
+
+/** Returns whether the event was handed to the sender. */
+function emit(pending: PendingEvent, pageOverride?: UiPage): boolean {
   try {
     const sender = state.sender
-    if (!sender || state.disabled) return
-    if (!allowByRate()) return
-    const tab: UiProjectTab | undefined = uiProjectTabFromPage(state.page)
+    if (!sender || state.disabled) return false
+    if (!takeRateSlot()) return false
+    const page = pageOverride ?? state.page
+    const tab: UiProjectTab | undefined = uiProjectTabFromPage(page)
     const event = {
       ...pending,
       eventId: createUuid(),
-      uiSessionId: getOrCreateUiSessionId(),
-      page: state.page,
+      uiSessionId: getOrCreateTabSessionId(SESSION_KEY),
+      page,
       ...(tab ? { tab } : {}),
     } as UiTelemetryEvent
     void sender(event).then(
       result => { if (result && result.accepted === false) state.disabled = true },
       () => { /* best effort: measurement never surfaces an error */ },
     )
+    return true
   } catch {
     // Never throw into the UI.
+    return false
   }
 }
 
-function allowByRate(): boolean {
+/** 30 a minute and 120 an hour per tab; the send log survives a reload. */
+function takeRateSlot(): boolean {
   const now = state.now()
-  state.sentAt = state.sentAt.filter(at => now - at < 60_000)
-  if (state.sentAt.length >= UI_TELEMETRY_MAX_PER_MINUTE) return false
-  state.sentAt.push(now)
+  const log = (state.sentAt ??= readNumberList(SENT_KEY)).filter(at => now - at < 3_600_000 && at <= now)
+  state.sentAt = log
+  if (log.length >= UI_TELEMETRY_MAX_PER_HOUR) return false
+  if (log.filter(at => now - at < 60_000).length >= UI_TELEMETRY_MAX_PER_MINUTE) return false
+  log.push(now)
+  try {
+    window.sessionStorage.setItem(SENT_KEY, JSON.stringify(log))
+  } catch { /* storage unavailable: the in-memory log still caps this page */ }
   return true
 }
 
-/** True the first time `value` is seen in this tab session, false after. */
-function rememberOnce(storageKey: string, value: string): boolean {
+function seenSet(storageKey: string): Set<string> {
   let seen = state.memory.get(storageKey)
   if (!seen) {
-    seen = new Set(readStoredList(storageKey))
+    seen = new Set(readStringList(storageKey))
     state.memory.set(storageKey, seen)
   }
-  if (seen.has(value)) return false
-  seen.add(value)
-  try {
-    window.sessionStorage.setItem(storageKey, JSON.stringify([...seen].slice(-MAX_REMEMBERED_KEYS)))
-  } catch { /* storage unavailable: in-memory dedupe still holds */ }
-  return true
+  return seen
 }
 
-function readStoredList(key: string): string[] {
+function readJsonList(key: string): unknown[] {
   try {
     const raw = window.sessionStorage.getItem(key)
     const parsed: unknown = raw ? JSON.parse(raw) : []
-    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : []
+    return Array.isArray(parsed) ? parsed : []
   } catch {
     return []
   }
+}
+
+function readStringList(key: string): string[] {
+  return readJsonList(key).filter((v): v is string => typeof v === 'string')
+}
+
+function readNumberList(key: string): number[] {
+  return readJsonList(key).filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
 }
 
 function errorNameOf(error: unknown): string | undefined {
@@ -263,31 +373,4 @@ function errorNameOf(error: unknown): string | undefined {
 function normalizeMethod(method: string | undefined): 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | undefined {
   const upper = method?.toUpperCase()
   return upper === 'GET' || upper === 'POST' || upper === 'PUT' || upper === 'PATCH' || upper === 'DELETE' ? upper : undefined
-}
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-
-function getOrCreateUiSessionId(): string {
-  try {
-    const existing = window.sessionStorage.getItem(SESSION_KEY)
-    if (existing && UUID_PATTERN.test(existing)) return existing
-    const id = createUuid()
-    window.sessionStorage.setItem(SESSION_KEY, id)
-    return id
-  } catch {
-    return fallbackSessionId ??= createUuid()
-  }
-}
-let fallbackSessionId: string | undefined
-
-function createUuid(): string {
-  const cryptoApi = globalThis.crypto as Partial<Pick<Crypto, 'randomUUID' | 'getRandomValues'>> | undefined
-  if (cryptoApi?.randomUUID) return cryptoApi.randomUUID()
-  const bytes = new Uint8Array(16)
-  if (cryptoApi?.getRandomValues) cryptoApi.getRandomValues(bytes)
-  else for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256)
-  bytes[6] = (bytes[6]! & 0x0f) | 0x40
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80
-  const hex = [...bytes].map(v => v.toString(16).padStart(2, '0')).join('')
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }

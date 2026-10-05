@@ -670,4 +670,6 @@ cannot silently send into a different conversation.
 - **A new route adds its pattern** to `UI_PAGES` (and a project section to `UI_PROJECT_TABS`); unknown routes report as `other`.
 - **Never put free text in an event**: no URLs, project names, query text, error messages or stacks. Pages are route patterns, API failures are route templates, errors are class names. The contract rejects anything else.
 - A new error boundary passes a `name` slug so `ui.error` says which boundary caught it.
+- **A read or write whose failure status is a normal outcome** (the code handles it as "none yet" or a conflict) adds its method, template and statuses to `EXPECTED_STATUSES`, so it is not reported as a UI error.
+- **An OAuth start is `integration.connect_started`**; record `integration.connect` only where the connection is confirmed.
 
