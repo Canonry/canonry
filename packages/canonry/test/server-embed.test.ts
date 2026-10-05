@@ -517,21 +517,21 @@ describe('server embed mode (#716)', () => {
     const { app, cleanup } = await buildServer({
       enabled: true,
       allowOrigins: ['https://host.example'],
-      projectTabs: ['overview', 'technical-aeo', 'report'],
+      projectTabs: ['overview', 'technical-aeo'],
     })
     try {
       // No header => the boot-wide projectTabs.
       const boot = await app.inject({ method: 'GET', url: '/' })
-      expect(boot.body).toContain('"projectTabs":["overview","technical-aeo","report"]')
+      expect(boot.body).toContain('"projectTabs":["overview","technical-aeo"]')
 
       // Header => THIS request's projectTabs, normalized; the boot value is replaced.
       const scoped = await app.inject({
         method: 'GET',
         url: '/',
-        headers: { 'x-canonry-embed-tabs': 'Overview, technical-aeo' },
+        headers: { 'x-canonry-embed-tabs': 'technical-aeo' },
       })
-      expect(scoped.body).toContain('"projectTabs":["overview","technical-aeo"]')
-      expect(scoped.body).not.toContain('"report"')
+      expect(scoped.body).toContain('"projectTabs":["technical-aeo"]')
+      expect(scoped.body).not.toContain('"projectTabs":["overview"')
 
       // The deep-link fallback (the embedded route) honors the header too.
       const deep = await app.inject({
@@ -828,51 +828,11 @@ describe('server embed mode (#716)', () => {
     }
   })
 
-  it('ON + per-request tabs: X-Canonry-Embed-Tabs narrows the configured allowlist to report', async () => {
-    // The per-request header only ever NARROWS what the operator configured —
-    // it cannot grant a tab the operator did not allow. `projectTabs` names
-    // all three here so the header has something to narrow FROM; see the
-    // "cannot widen past the overview-only default" test below for what
-    // happens when the operator never configured `projectTabs` at all.
-    const { app, apiKey, db, cleanup } = await buildServer({
-      enabled: true,
-      allowOrigins: ['https://host.example'],
-      projectTabs: ['overview', 'technical-aeo', 'report'],
-    })
-    try {
-      const { name } = seedProject(db)
-      const auth = {
-        authorization: `Bearer ${apiKey}`,
-        'x-canonry-embed-tabs': 'report',
-      }
-
-      for (const url of [
-        '/api/v1/projects',
-        `/api/v1/projects/${name}`,
-        `/api/v1/projects/${name}/runs?kind=answer-visibility`,
-        `/api/v1/projects/${name}/report`,
-        `/api/v1/projects/${name}/report.html?audience=client&period=30`,
-      ]) {
-        const res = await app.inject({ method: 'GET', url, headers: auth })
-        expect(res.statusCode, `${url} should be reachable for report embed data`).not.toBe(403)
-      }
-
-      const hidden = await app.inject({
-        method: 'GET',
-        url: `/api/v1/projects/${name}/technical-aeo`,
-        headers: auth,
-      })
-      expect(hidden.statusCode).toBe(403)
-    } finally {
-      await cleanup()
-    }
-  })
-
   it('ON + per-request tabs: X-Canonry-Embed-Tabs narrows the configured allowlist to technical-AEO', async () => {
     const { app, db, cleanup } = await buildServer({
       enabled: true,
       allowOrigins: ['https://host.example'],
-      projectTabs: ['overview', 'technical-aeo', 'report'],
+      projectTabs: ['overview', 'technical-aeo'],
     })
     try {
       const { id: projectId, name, now } = seedProject(db)
@@ -925,8 +885,7 @@ describe('server embed mode (#716)', () => {
   })
 
   it('ON, no explicit projectTabs config: X-Canonry-Embed-Tabs cannot widen past the overview-only default', async () => {
-    // Before this fix, a header naming a server-enforced tab (`report`,
-    // `technical-aeo`) was honored even when the operator never configured
+    // Before this fix, a header naming a server-enforced tab (`technical-aeo`) was honored even when the operator never configured
     // `projectTabs` and the install silently defaulted to overview-only — the
     // header REPLACED the allowlist instead of narrowing it. A caller-settable
     // header must never grant more than the operator configured, defaulted or

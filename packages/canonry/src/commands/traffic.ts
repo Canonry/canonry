@@ -11,7 +11,7 @@ import type {
   TrafficStatusResponse,
   TrafficSyncResponse,
 } from '@ainyc/canonry-contracts'
-import { RunStatuses, TrafficEventKinds, TrafficSeriesGranularities, describeError } from '@ainyc/canonry-contracts'
+import { RunStatuses, TrafficEventKinds, TrafficSeriesGranularities, describeError, formatPercent, parseTrafficAnalyticsPeriod } from '@ainyc/canonry-contracts'
 import fs from 'node:fs'
 import { getCloudflareTrafficConnectionBySourceId } from '../cloudflare-traffic-config.js'
 import {
@@ -24,7 +24,7 @@ import {
   writeCloudflareWorkerArtifacts,
 } from '../cloudflare-worker-deploy.js'
 import { createApiClient } from '../client.js'
-import { CliError, isMachineFormat } from '../cli-error.js'
+import { CliError, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 import { loadConfigRaw } from '../config.js'
 
@@ -857,6 +857,48 @@ export async function trafficSources(project: string, opts: { format?: string })
   for (const source of result.sources) {
     console.log(`  ${formatSourceLine(source)}`)
   }
+}
+
+export async function trafficAnalytics(project: string, opts: { period?: string | number; format?: string }): Promise<void> {
+  let period
+  try {
+    period = parseTrafficAnalyticsPeriod(opts.period)
+  } catch (error) {
+    throw usageError(`Error: ${describeError(error)}\n\nUsage: canonry traffic analytics <project> [--period 7|14|30|90] [--format json]`)
+  }
+  const result = await createApiClient().getTrafficAnalytics(project, period)
+  if (isMachineFormat(opts.format)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  const activity = result.activity
+  if (!activity) {
+    console.log(`No traffic sources connected for project "${project}".`)
+    return
+  }
+  console.log(`Traffic analytics for "${project}": ${activity.windowStart} to ${activity.windowEnd}`)
+  for (const [label, counts] of [
+    ['Verified crawler hits', activity.verifiedCrawlerHits],
+    ['Unverified crawler hits', activity.unverifiedCrawlerHits],
+    ['AI user-fetch hits', activity.aiUserFetchHits],
+    ['AI-referral arrivals', activity.referralArrivals],
+    ['Paid AI-referral arrivals', activity.referralArrivalsByClass.paid],
+    ['Organic AI-referral arrivals', activity.referralArrivalsByClass.organic],
+    ['Unclassified AI-referral arrivals', activity.referralArrivalsByClass.unclassified],
+  ] as const) {
+    console.log(`  ${label}: ${counts.current} (prior ${counts.prior}; change ${counts.deltaPct === null ? 'unavailable' : formatPercent(counts.deltaPct, 'percent')})`)
+  }
+  console.log(`  AI-referral redirect hops: ${activity.referralRedirects}`)
+  console.log('Operators: OPERATOR  VERIFIED  UNVERIFIED  USER_FETCH  REFERRALS  CHANGE')
+  for (const row of activity.byOperator) console.log(`  ${row.operator}  ${row.verifiedHits}  ${row.unverifiedHits}  ${row.userFetchHits}  ${row.referralArrivals}  ${row.deltaPct === null ? 'unavailable' : formatPercent(row.deltaPct, 'percent')}`)
+  console.log('Crawled paths: PATH  VERIFIED  UNVERIFIED  OPERATORS')
+  for (const row of activity.topCrawledPaths) console.log(`  ${row.path}  ${row.verifiedHits}  ${row.unverifiedHits}  ${row.distinctOperators}`)
+  console.log('AI-referral products: PRODUCT  ARRIVALS  LANDING_PATHS')
+  for (const row of activity.referralProducts) console.log(`  ${row.product}  ${row.arrivals}  ${row.distinctLandingPaths}`)
+  console.log('Daily history: DATE  VERIFIED  UNVERIFIED  USER_FETCH  REFERRALS')
+  for (const row of activity.dailyTrend) console.log(`  ${row.date}  ${row.verifiedCrawlerHits}  ${row.unverifiedCrawlerHits}  ${row.userFetchHits}  ${row.referralArrivals}`)
+  console.log('AI-referral landing paths: PATH  ARRIVALS  PRODUCTS')
+  for (const row of activity.topReferralLandingPaths) console.log(`  ${row.path}  ${row.arrivals}  ${row.distinctProducts}`)
 }
 
 export async function trafficStatus(project: string, opts: { format?: string }): Promise<void> {

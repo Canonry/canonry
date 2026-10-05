@@ -644,11 +644,6 @@ function isTechnicalAeoRead(request: FastifyRequest, url: string): boolean {
     || rest === 'technical-aeo/dead-links'
 }
 
-function isReportRead(url: string): boolean {
-  const rest = projectRouteRest(url)
-  return rest === 'report' || rest === 'report.html'
-}
-
 function enforceEmbedProjectTabs(request: FastifyRequest, configuredTabs: readonly string[] | undefined): void {
   const tabs = requestEmbedProjectTabs(request, configuredTabs)
   // `undefined` is the only "nothing to enforce" value now. An empty ARRAY is
@@ -670,7 +665,6 @@ function enforceEmbedProjectTabs(request: FastifyRequest, configuredTabs: readon
   if (isProjectShellRead(request, url)) return
   if (tabs.includes('overview') && isOverviewRead(url)) return
   if (tabs.includes('technical-aeo') && isTechnicalAeoRead(request, url)) return
-  if (tabs.includes('report') && isReportRead(url)) return
 
   throw forbidden('This endpoint is not available for the configured embed tabs.')
 }

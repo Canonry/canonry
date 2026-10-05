@@ -1484,9 +1484,6 @@ describe('share of voice comparison policy', () => {
     expect(body.observedNames).toContainEqual({ name: 'Apartments.com', answerCount: 3 })
     const stats = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/visibility-stats?shareOfVoice=1' })
     expect(stats.json().shareOfVoice).toMatchObject({ basis: 'observed', availability: 'measured', projectMentions: 3, competitorMentions: 9, competitorCount: 3, percent: 25 })
-    const report = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/report' })
-    expect(report.statusCode, report.body).toBe(200)
-    expect(report.json().mentionLandscape.shareOfVoice).toMatchObject({ basis: 'observed', availability: 'measured', projectMentions: 3, competitorMentions: 9, percent: 25 })
   })
   it('uses tracked competitors exclusively without dropping observed evidence', async () => {
     seed([answer + ' Rival.', answer + ' Rival.', answer + ' Rival.'])
@@ -1562,9 +1559,6 @@ describe('share of voice comparison policy', () => {
     const stats = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/visibility-stats?shareOfVoice=1' })
     expect(stats.json().shareOfVoice).toMatchObject({ measurementScope: 'all-markets', queryClass: 'non-brand', projectMentions: 3, competitorMentions: 9, percent: 25, basis: 'observed' })
     expect(readVisibilityReport(db, { id: 'project_northwind', displayName: 'Northwind', canonicalDomain: 'northwind.example' }, {}).selection.availability.state).toBe('available')
-    const report = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/report' })
-    expect(report.statusCode, report.body).toBe(200)
-    expect(report.json().mentionLandscape.shareOfVoice).toMatchObject({ measurementScope: 'all-markets', queryClass: 'non-brand', projectMentions: 3, competitorMentions: 9, percent: 25, basis: 'observed' })
   })
   it.each(['&groupKey=regional', '&scope=all-markets'])('preserves the frozen Advanced class and handles an empty set (%s)', async (scope) => {
     seed(['Northwind.'])
@@ -1582,9 +1576,6 @@ describe('share of voice comparison policy', () => {
     const stats = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/visibility-stats?shareOfVoice=1' })
     expect(stats.json().shareOfVoice).toMatchObject({ measurementScope: 'all-markets', queryClass: 'non-brand', projectMentions: 1, percent: null, reason: 'no-competitors' })
     expect(readVisibilityReport(db, { id: 'project_northwind', displayName: 'Northwind', canonicalDomain: 'northwind.example' }, {}).selection.availability.state).toBe('available')
-    const report = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/report' })
-    expect(report.statusCode, report.body).toBe(200)
-    expect(report.json().mentionLandscape.shareOfVoice).toMatchObject({ measurementScope: 'all-markets', queryClass: 'non-brand', projectMentions: 1, percent: null, reason: 'no-competitors' })
   })
 })
 

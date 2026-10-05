@@ -107,8 +107,6 @@ each choice.
 - Mention and citation labels must preserve their independent data semantics.
 - Recharts is the only chart library and is consumed through
   `ChartPrimitives.tsx`.
-- SPA and downloadable report copy remain in parity. Follow the report parity
-  instructions before changing `ReportPage.tsx`.
 - Embed mode remains read-only and may hide chrome, actions, or disallowed tabs.
 
 ## Review checklist

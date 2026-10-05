@@ -10,7 +10,7 @@ test('a project-wide paid sweep requires explicit confirmation and cancel starts
   const confirm = vi.fn()
   const close = vi.fn()
   render(<ProjectSweepConfirmation open projectLabel="Northstar Demo" onOpenChange={close} onConfirm={confirm} disabled={false} />)
-  expect(screen.getByRole('dialog').textContent).toContain('Report filters do not limit the sweep.')
+  expect(screen.getByRole('dialog').textContent).toContain('View filters do not limit the sweep.')
   expect(screen.getByRole('dialog').textContent).toContain('Provider charges apply.')
   expect(confirm).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))

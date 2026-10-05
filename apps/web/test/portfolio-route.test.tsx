@@ -2959,6 +2959,9 @@ test('a viewer on Advanced tracked Queries gets exactly one scope trigger, in th
   // The row reads the body's own workspace key, so it adds no request.
   expect(observed.filter(url => url.pathname.endsWith('/query-tracking'))).toHaveLength(1)
   expect(observed.some(url => url.pathname.endsWith('/measurement-setup') || url.pathname.endsWith('/measurement-plan'))).toBe(false)
+  const nav = page.getByRole('navigation', { name: 'Project sections' })
+  fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
+  expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual(['Change History'])
 })
 
 test('a viewer without research access who opens Research gets the tracked table and the row trigger', async () => {
@@ -2995,6 +2998,9 @@ test('Simple tracked Queries have no scope trigger', async () => {
   expect(await page.findByText('Citypoint dentist')).toBeTruthy()
   expect(page.container.querySelector('.visibility-scope-trigger')).toBeNull()
   expect(contextRow(page.container).querySelector('.project-context-scope')).toBeNull()
+  const nav = page.getByRole('navigation', { name: 'Project sections' })
+  fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
+  expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual(['Change History'])
 })
 
 test.each([

@@ -169,8 +169,8 @@ A real (non-probe) sweep is appropriate when the user explicitly asks to refresh
   and never follow a table with a paragraph that repeats its top rows.
 - Chat is not a report. No emoji, no rank medals, no `##` headings and no
   `---` rules inside an answer. A short bold line is the heaviest
-  structure available; `references/reporting.md` governs the HTML report
-  surface instead.
+  structure available; `references/reporting.md` governs requested weekly
+  and monthly documents instead.
 - The closing next step is a recommendation, not an offer. "Start with the
   Properties at zero coverage" beats "want me to drill into one?".
 

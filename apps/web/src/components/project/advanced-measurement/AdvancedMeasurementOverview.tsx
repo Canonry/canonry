@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import type { KeyboardEvent, ReactNode } from 'react'
-import { formatPercent, UNATTRIBUTED_MENTION_REASON, reportUnattributedAnswers } from '@ainyc/canonry-contracts'
+import { formatPercent, UNATTRIBUTED_MENTION_REASON, unattributedAnswersLabel } from '@ainyc/canonry-contracts'
 import type { MetricTone } from '../../../view-models.js'
 
 import { InfoTooltip } from '../../shared/InfoTooltip.js'
@@ -315,7 +315,7 @@ function MetricValue({
     ? isMeasured(metric) ? 'text-sm font-medium text-primary' : 'text-sm font-medium text-secondary'
     : isMeasured(metric) ? 'text-lg font-semibold text-heading' : 'text-lg font-semibold text-secondary'
   // Answers the server left out of this rate because they could not be tied to one property.
-  const unattributed = isMeasured(metric) ? reportUnattributedAnswers(metric) : null
+  const unattributed = isMeasured(metric) ? unattributedAnswersLabel(metric) : null
   return (
     <span
       className="inline-flex flex-wrap items-baseline gap-x-1.5 gap-y-1 tabular-nums"

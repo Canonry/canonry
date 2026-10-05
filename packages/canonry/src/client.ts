@@ -225,6 +225,7 @@ import type {
   InsightDto,
   HealthSnapshotDto,
   CitationVisibilityResponse,
+  BingCoverageSummaryDto,
   BingCoverageSnapshotDto,
   AgentProvidersResponse,
   BacklinkHistoryEntry,
@@ -252,8 +253,8 @@ import type {
   ProjectOverviewDto,
   ProjectSearchResponseDto,
   DoctorReportDto,
-  ProjectReportDto,
-  ReportPeriodDays,
+  TrafficAnalyticsResponse,
+  TrafficAnalyticsPeriodDays,
   OrganicEvidenceDto,
   OrganicEvidencePeriodDays,
   TrafficSourceDto,
@@ -314,7 +315,7 @@ import {
   getApiV1ProjectsByNameExport,
   getApiV1ProjectsByNameOverview,
   getApiV1ProjectsByNameSearch,
-  getApiV1ProjectsByNameReport,
+  getApiV1ProjectsByNameTrafficAnalytics,
   getApiV1ProjectsByNameOrganicEvidence,
   postApiV1Apply,
   // Queries / keywords / competitors
@@ -575,7 +576,7 @@ import {
   getApiV1ProjectsByNameInsights,
   getApiV1ProjectsByNameInsightsById,
   postApiV1ProjectsByNameInsightsByIdDismiss,
-  // Content / health / search / report / doctor / citation visibility
+  // Content / health / search / doctor / citation visibility
   getApiV1ProjectsByNameContentTargets,
   getApiV1ProjectsByNameContentSources,
   getApiV1ProjectsByNameContentGaps,
@@ -1305,16 +1306,6 @@ export class ApiClient {
         client: this.heyClient,
         path: { name: project },
         query: { q: opts.q, limit: opts.limit !== undefined ? String(opts.limit) : undefined } as never,
-      }),
-    )
-  }
-
-  async getReport(project: string, opts?: { period?: ReportPeriodDays }): Promise<ProjectReportDto> {
-    return this.invoke<ProjectReportDto>(() =>
-      getApiV1ProjectsByNameReport({
-        client: this.heyClient,
-        path: { name: project },
-        ...(opts?.period !== undefined && { query: { period: opts.period } }),
       }),
     )
   }
@@ -3534,8 +3525,8 @@ export class ApiClient {
     )
   }
 
-  async bingCoverage(project: string): Promise<object> {
-    return this.invoke<object>(() =>
+  async bingCoverage(project: string): Promise<BingCoverageSummaryDto> {
+    return this.invoke<BingCoverageSummaryDto>(() =>
       getApiV1ProjectsByNameBingCoverage({ client: this.heyClient, path: { name: project } }),
     )
   }
@@ -3839,6 +3830,16 @@ export class ApiClient {
   async trafficStatus(project: string): Promise<TrafficStatusResponse> {
     return this.invoke<TrafficStatusResponse>(() =>
       getApiV1ProjectsByNameTrafficStatus({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getTrafficAnalytics(project: string, period?: TrafficAnalyticsPeriodDays): Promise<TrafficAnalyticsResponse> {
+    return this.invoke<TrafficAnalyticsResponse>(() =>
+      getApiV1ProjectsByNameTrafficAnalytics({
+        client: this.heyClient,
+        path: { name: project },
+        ...(period !== undefined && { query: { period } }),
+      }),
     )
   }
 
@@ -4580,7 +4581,7 @@ export class ApiClient {
     )
   }
 
-  // ── Content / health / search / report / doctor / citation visibility ──
+  // ── Content / health / search / doctor / citation visibility ──
 
   async getContentTargets(
     project: string,

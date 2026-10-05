@@ -1,5 +1,5 @@
 import { SentimentControls, SentimentHeadlines, SentimentQueryScore, SentimentAnswerOutcome, useSentimentResolvedSource } from './SentimentSection.js'
-import { REPORT_VISIBILITY_COPY, reportUnattributedAnswers } from '@ainyc/canonry-contracts'
+import { VISIBILITY_DISPLAY_COPY, unattributedAnswersLabel } from '@ainyc/canonry-contracts'
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -162,12 +162,12 @@ function reportScopeLabel(scope: VisibilityReportResponse['selection']['scope'])
 }
 
 function reportRateReason(value: VisibilityReportRate): string {
-  return value.reason === 'identity-ambiguous' ? REPORT_VISIBILITY_COPY.ambiguous : value.reason === 'not-applicable' ? 'Not applicable' : 'Not measured'
+  return value.reason === 'identity-ambiguous' ? VISIBILITY_DISPLAY_COPY.ambiguous : value.reason === 'not-applicable' ? 'Not applicable' : 'Not measured'
 }
 
 function ReportRate({ value }: { value: VisibilityReportRate }) {
   if (value.rate === null) return <span className="text-sm text-secondary">{reportRateReason(value)}</span>
-  const unattributed = reportUnattributedAnswers(value)
+  const unattributed = unattributedAnswersLabel(value)
   return <span className="inline-flex flex-col gap-1"><strong className="tabular-nums text-heading">{formatPercent(value.rate)}</strong><span className="text-sm tabular-nums text-secondary">{value.numerator} of {value.denominator}</span>{unattributed ? <span className="text-sm tabular-nums text-secondary">{unattributed}</span> : null}</span>
 }
 
@@ -267,7 +267,7 @@ function ReportHeadlineCell({ label, help, value, unit, classNoun, change }: {
   // Answers the server left out of this rate because they could not be tied to
   // one property. The rate's own count already excludes them; this line keeps
   // them visible. Stated by the server, never derived here.
-  const unattributed = reportUnattributedAnswers(value)
+  const unattributed = unattributedAnswersLabel(value)
   return <div className="report-headline-tile">
     <dt className="flex items-center gap-1 text-sm text-secondary"><span>{label}</span><InfoTooltip text={help} /></dt>
     {value.rate === null ? <dd className="text-lg text-secondary">{reportRateReason(value)}{queryClassSuffix}</dd> : <>
@@ -747,7 +747,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
             {answer.model ? <span className="text-[13px] text-secondary">{answer.model}</span> : null}
             <span className="text-[13px] text-secondary">{answer.location === null ? VISIBILITY_TOOLBAR_COPY.noLocation : VISIBILITY_TOOLBAR_COPY.location(answer.location)}</span>
             <span className="text-[13px] text-secondary">{new Date(answer.createdAt).toLocaleDateString()}</span>
-            <ToneBadge tone="neutral">{answer.mentioned === null ? answer.mentionUnavailableReason === 'identity-ambiguous' ? REPORT_VISIBILITY_COPY.ambiguous : 'Mention not checked' : answer.mentioned ? 'Mentioned' : 'Not mentioned'}</ToneBadge>
+            <ToneBadge tone="neutral">{answer.mentioned === null ? answer.mentionUnavailableReason === 'identity-ambiguous' ? VISIBILITY_DISPLAY_COPY.ambiguous : 'Mention not checked' : answer.mentioned ? 'Mentioned' : 'Not mentioned'}</ToneBadge>
             <ToneBadge tone="neutral">{answer.cited === null ? 'Citation not checked' : answer.cited ? 'Cited' : 'Not cited'}</ToneBadge>
           </div>
           <div className="mt-4"><AnswerMarkdown headingLevel={4} copyable={Boolean(answer.answerText?.trim())}>{answer.answerText ?? 'Answer text unavailable.'}</AnswerMarkdown></div>

@@ -149,7 +149,7 @@ describe('resolveEmbedProjectTab', () => {
   })
 
   it('falls back to the first allowed tab when even overview is hidden', () => {
-    expect(resolveEmbedProjectTab('backlinks', ['technical-aeo', 'report'])).toBe('technical-aeo')
+    expect(resolveEmbedProjectTab('backlinks', ['technical-aeo', 'activity'])).toBe('technical-aeo')
   })
 
   it('falls back to overview when filtering leaves no valid tabs', () => {
@@ -159,8 +159,8 @@ describe('resolveEmbedProjectTab', () => {
 })
 
 describe('filterEmbedProjectTabs', () => {
-  it('removes operator-only and unknown tabs', () => {
-    expect(filterEmbedProjectTabs(['overview', 'portfolio', 'unknown', 'report'])).toEqual(['overview', 'report'])
+  it('removes operator-only, retired, and unknown tabs', () => {
+    expect(filterEmbedProjectTabs(['overview', 'portfolio', 'unknown', 'report'])).toEqual(['overview'])
   })
 
   it('defaults an unset allowlist to every embed-safe project tab', () => {

@@ -49,7 +49,6 @@ export const EMBED_PROJECT_TABS = [
   'overview',
   'search-console',
   'local',
-  'report',
   'activity',
   'backlinks',
   'technical-aeo',

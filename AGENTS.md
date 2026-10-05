@@ -124,7 +124,7 @@ Every (query × provider) snapshot carries two independent signals — a model c
 
 **Branded and non-brand queries never share a denominator, except the explicit overall sentiment score below.** A branded query names the project, so the model was handed the answer; pooling lets brand recall outvote the category and can invert a ranking (measured on a real basket: pooled ranked the subject FIRST at 42%, non-brand ranked it LAST at 3%).
 
-1. Competitive metrics default to non-brand: Mention Share (card, breakdown chart, trend buckets), `visibility-stats --share-of-voice`, `visibility-compare`, and the report's mention landscape.
+1. Competitive metrics default to non-brand: Mention Share (card, breakdown chart, trend buckets), `visibility-stats --share-of-voice`, `visibility-compare`, and competitor landscapes.
 2. Branded stays visible as a sibling field (`branded`) with its own labelled section and denominator — never dropped, never pooled.
 3. The class travels with the number: `scope` / `queryClass` on the wire; "· non-brand queries" in the delta, chart title, column header, and CLI line. A GROUP of figures sitting directly under a heading that names the class may rely on that heading for the visible label (the dashboard's AI Visibility headline strip names the class once in its `h2`), but each figure still carries the class in its own accessible text via an `sr-only` suffix beside the value. A reader who sees only the number, or hears only the figure, must still be able to tell which instrument produced it.
 4. `pooled` appears only when the project has no usable brand alias. Never label an unsplit figure `non-brand`, and never silently classify an unclassifiable basket.
@@ -136,7 +136,7 @@ Every (query × provider) snapshot carries two independent signals — a model c
 
 The tracked thing (`canonry query add`, the `queries` / `query_snapshots` tables, `queryText` / `queryId` / `queryClass` on the wire) is a **query**.
 
-1. Human-facing copy says `query`: UI labels, headings, tooltips, `aria-label`, placeholders, CLI output, and both report renderers — with correct agreement ("Assign at least one query", "3 query assignments").
+1. Human-facing copy says `query`: UI labels, headings, tooltips, `aria-label`, placeholders, CLI output, and exported output — with correct agreement ("Assign at least one query", "3 query assignments").
 2. The frozen wire names stay: routes `/measurement-property-questions` and `/measurement-question-result`, MCP tools `canonry_measurement_property_questions` and `canonry_measurement_question_result`, and every SDK symbol, field, prop, and file built on them. The copy/wire mismatch is deliberate.
 3. Discovery's generative framing ("questions your customers might ask") is a real-world noun; once a candidate is promoted into the basket it is a query.
 4. `canonry-vocabulary/no-question-ui-copy` enforces this in `apps/web/src`. Machine tokens (no whitespace, e.g. `property-questions`) and `className` / `id` / `aria-labelledby` values are exempt; only two files are excluded, permanently: `DiscoverySection.tsx` (rule 3's framing can't be separated by regex) and `mock-data.ts` (test fixture).
@@ -172,19 +172,6 @@ Every derived number — percentage, trend, score, rank, bucket, residual, roll-
 3. Cover zero totals, missing/partial data, duplicates, overlapping categories, rounding boundaries (`<1%`, `0%`, `100%`), clamping, and stale/legacy rows.
 4. The canonical calculation lives and is tested in the API/shared layer; UI tests check the UI renders API values without recomputing.
 5. Test the machine-readable contract (CLI JSON, reports, MCP/API) as well as any display string.
-
-### Report parity (Critical)
-
-The downloadable HTML report (`packages/api-routes/src/report-renderer.ts`, `canonry report`, `GET /report.html`) and the in-app report (`apps/web/src/pages/ReportPage.tsx`) are two renderers of one `ProjectReportDto` — clients and agencies see one report.
-
-1. Any change to one lands in the other in the same change.
-2. Per audience (`client` / `agency`), both render the same ordered sections with the same eyebrows, titles, and subtitles.
-3. Tile labels, headlines, action-card copy, evidence-card titles, and chart axis labels match verbatim.
-4. Every SPA chart, progress bar, hero block, and badge has an HTML equivalent (inline SVG, CSS, or table).
-5. Update `packages/api-routes/test/report-renderer.test.ts` when client/agency copy or structure changes, and check the SPA visually.
-6. Copy both renderers show lives in shared modules: `packages/contracts/src/report-sections.ts` (`REPORT_SECTION_COPY` plus copy functions such as `reportExecutiveHeadline` and `reportServerActivityHeading`) for section copy, `report-visibility.ts` for the visibility summary, and `share-of-voice.ts` for share of voice. Both renderers read all three; never write report copy inline in either one.
-7. `renderReportHtml` assembles its own ordered section list in `report-renderer.ts`, and `reportSectionOrder(report, audience)` encodes that same order for the SPA, which renders it through an exhaustive switch over `ReportSectionIds`. `report-renderer-bytes.test.ts` (`ORDER_CASES` / `ORDER_MATRIX`) asserts the two agree, so adding, removing or re-conditioning a section means editing both in the same commit.
-8. `packages/api-routes/test/report-renderer-bytes.test.ts` pins the HTML bytes and writes the outline goldens in `packages/api-routes/test/fixtures/report-outline/`. `apps/web/test/report-page.test.tsx` holds the SPA to them, whole and for both audiences, through its `data-report-*` hooks, and `apps/web/test/report-agency-*.test.tsx` pin the per-section values, rows, badges and tones an outline does not record. Only the api-routes suite regenerates the goldens, and never to make a failing test pass.
 
 ### Agent & automation design principles
 

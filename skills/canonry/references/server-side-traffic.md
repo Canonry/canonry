@@ -1025,7 +1025,7 @@ schema change, the stored rollups are untouched.
 |---|---|
 | Project dashboard `/projects/:name/activity` | Live source table + 24h totals + GA4 referrals (combined view) |
 | Top-level `/traffic` route | Cross-project source admin (connect, sync, archive) |
-| `cnry report <project>` (HTML + SPA) | "AI Visibility — Server-Side" section, ranked above Indexing Health |
+| `cnry traffic analytics <project> --period 30 --format json` | Complete stored 7/14/30/90-day totals, prior-window changes, operator/path/product breakdowns, and daily history |
 | `cnry doctor --project <name>` | Source health checks, including last-observed Worker drift for direct and Queue sources plus Queue local credential/sync state |
 | MCP toolkit `traffic` | Read/status tools plus pull-source setup/sync tools. Cloudflare connect is local-CLI-only so Worker secrets cannot enter an MCP transcript. |
 
@@ -1134,7 +1134,7 @@ domains, or PII are surfaced.
   construction (UA-only). A Vercel source reading 100% unverified is
   expected, not a misconfiguration.
 - **Four adapters ship: Cloud Run, WordPress, Vercel, and Cloudflare with
-  direct-push and queue-pull delivery. More adapters are planned.** The doctor checks and report renderer are
+  direct-push and queue-pull delivery. More adapters are planned.** The doctor checks and traffic analytics are
   adapter-agnostic — adding a new adapter is just a new entry in
   `traffic_sources.source_type` and a `TrafficSourceValidator`
   registration.

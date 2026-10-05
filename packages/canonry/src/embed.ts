@@ -3,7 +3,7 @@ import { normalizeIdTokens, parseOriginList, splitList } from '@ainyc/canonry-co
 import type { CanonryConfig } from './config.js'
 
 const DEFAULT_EMBED_PROJECT_TABS = ['overview']
-export const SERVER_ENFORCED_EMBED_PROJECT_TABS = ['overview', 'technical-aeo', 'report'] as const
+export const SERVER_ENFORCED_EMBED_PROJECT_TABS = ['overview', 'technical-aeo'] as const
 
 export function unsupportedEmbedProjectTabs(projectTabs: readonly string[] | undefined): string[] {
   if (!projectTabs) return []

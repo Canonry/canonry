@@ -33,7 +33,8 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 | `src/url-normalize.ts` | Canonical host extraction, Public Suffix List-aware domain identity, exact-or-subdomain matching, and prose-domain extraction. Bump `URL_PATH_NORMALIZATION_VERSION` when path-normalization changes require repairing stored GA paths; startup uses that version to skip completed repairs. `test/url-normalize.test.ts` pins `normalizeUrlPath` outputs per version and fails until you bump it. |
 | `src/brand-matching.ts` | Unicode-aware exact matching for approved brand aliases across case, spacing, and punctuation presentation variants; never fuzzy metric attribution |
 | `src/answer-prose.ts` | `answerProseForMentions`: the answer text with citation markup removed (chips, links labelled with a URL, a path, a lowercase host, or a citation number, reference and footnote markers, bare `http(s)://` URLs, provider citation markers), keeping ordinary and brand-cased link labels and hosts written in prose. Every mention matcher over stored answer text (project, competitor, Advanced Property) reads this, never the raw text; URL matchers read cited URLs, never answer text. `stripCitationChips` removes only chips, for the recommended-competitor extractor, which still needs prose links' `[Name](url)` markdown. |
-| `src/report-dedup.ts` | Report action / opportunity dedup utilities |
+| `src/traffic-analytics.ts` | Stored traffic activity totals, operators, paths, referrals, and daily trend DTOs. `parseTrafficAnalyticsPeriod` validates the supported periods (7, 14, 30, 90 days); omitted input defaults to 30. |
+| `src/visibility-display.ts` | Shared AI Visibility evidence labels and the unattributed-answer denominator line used by browser and CLI. |
 | `src/retry.ts` | Generic retry helpers: `backoffDelayMs`, `withRetry`, `isRetryableHttpError`, `isRateLimitError`, `retryAfterDelayMs`. Used by every API provider, GA4, GBP, and Bing — domain-specific code only supplies the `isRetryable` predicate; the math (jittered exponential backoff per Google's documented formula) lives here. **Rate limiting is detected semantically, not by status code**: a service may report a throttle on a 4xx (Bing answers `400` with `ErrorCode 5 ThrottleHost`), so `isRateLimitError` checks `Retry-After`, then 429, then documented throttle markers in the message. A new integration whose throttle signal is a private numeric code must surface that code's meaning in the error message or set `retryAfter`, or the shared predicate cannot see it. |
 | `src/concurrency.ts` | `mapWithConcurrency` — generic order-preserving bounded worker pool (fail-fast on the first rejection, in-flight tasks settle cleanly). Used by the discovery probe phase. |
 | `src/http-status.ts` | `LOCATION_REDIRECT_STATUSES` / `isLocationRedirectStatus` — the five statuses that mean "fetch a different URL" (301/302/303/307/308). Deliberately NOT all of 3xx: a 304 is a served page view from cache, so classing it as a redirect drops real visits. Shared by the AI-referral landed/hop split and the sitemap fetcher. |
@@ -65,7 +66,7 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 
 ### Adding a generic utility
 
-1. Pick the right home: `formatting.ts` for formatters, `url-normalize.ts` for URL helpers, `report-dedup.ts` for dedup logic. Create a new topic file (e.g. `parsing.ts`, `time.ts`) when no existing file fits.
+1. Pick the right home: `formatting.ts` for formatters, `url-normalize.ts` for URL helpers. Create a new topic file (e.g. `parsing.ts`, `time.ts`) when no existing file fits.
 2. Keep it pure — no side effects, no I/O, no logging, no DB. Take values, return values.
 3. Re-export from `src/index.ts`.
 4. Add a test file in `test/<topic>.test.ts` with happy path + edge cases (empty input, invalid input, boundary values).
@@ -82,7 +83,6 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 | Brand identity matching | `packages/contracts/src/brand-matching.ts` (exact approved aliases across case/spacing/punctuation variants; never fuzzy/edit-distance matching for metrics) |
 | Answer prose for mention matching | `packages/contracts/src/answer-prose.ts` (`answerProseForMentions`: strip citation chips, links and markers before any mention match; `stripCitationChips` for link-aware readers) |
 | Tracked-query text normalization | `packages/contracts/src/query-normalize.ts` (`normalizeQueryText` — trim + lowercase for dedup / FK-null text matching) |
-| Report action / opportunity dedup | `packages/contracts/src/report-dedup.ts` |
 | Error factories, and rendering a caught `unknown` | `packages/contracts/src/errors.ts` (`describeError` — the one way to turn a `catch` binding into text; never hand-write `err instanceof Error ? err.message : String(err)`, whose `String()` branch prints `[object Object]` for a thrown object) |
 | SQL `LIKE` wildcard escaping | `packages/contracts/src/sql-like.ts` (`escapeLikePattern` — caller adds `ESCAPE '\\'`) |
 | Retry / exponential backoff | `packages/contracts/src/retry.ts` (`withRetry`, `backoffDelayMs`, `isRetryableHttpError`) |
@@ -100,7 +100,7 @@ Add new utility files to `packages/contracts/src/` and re-export them from `inde
 
 ```typescript
 // ❌ Wrong — defining a generic helper inline in a domain file
-// packages/api-routes/src/report-renderer.ts
+// packages/canonry/src/commands/traffic.ts
 function formatNumber(value: number): string {
   if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(1)}K`
   return value.toLocaleString('en-US')
@@ -110,7 +110,7 @@ function formatNumber(value: number): string {
 // packages/contracts/src/formatting.ts
 export function formatNumber(value: number): string { /* ... */ }
 
-// packages/api-routes/src/report-renderer.ts
+// packages/canonry/src/commands/traffic.ts
 import { formatNumber } from '@ainyc/canonry-contracts'
 ```
 
@@ -118,7 +118,7 @@ import { formatNumber } from '@ainyc/canonry-contracts'
 // ❌ Wrong — three packages each define their own formatDate
 // packages/canonry/src/gsc-sync.ts: function formatDate(d: Date) { ... }
 // packages/integration-google-analytics/src/ga4-client.ts: function formatDate(d: Date) { ... }
-// packages/api-routes/src/report-renderer.ts: function formatDate(iso: string) { ... }
+// packages/canonry/src/commands/traffic.ts: function formatDate(iso: string) { ... }
 
 // ✅ Correct — one shared helper, imported by all three
 // packages/contracts/src/formatting.ts: export function formatIsoDate(iso: string) { ... }
@@ -175,7 +175,7 @@ function kindLabel(kind: string): string {
 
 ### Ratio units
 
-A field name never tells a reader the unit: `citationRate` is 0..1 in analytics and a whole 0..100 in the report, `percentage` is 0..1 in the source reads and 0..100 in the index-coverage reads. So every ratio number declares the unit its producer actually emits:
+A field name never tells a reader the unit: `citationRate` is 0..1 in analytics, while `percentage` is 0..1 in the source reads and 0..100 in the index-coverage reads. So every ratio number declares the unit its producer actually emits:
 
 1. Read the code that produces the value, not the name or the doc comment, then wrap the number: `citationRate: fraction()`, `sharePct: percent()`, `share: fraction(z.number().min(0).max(1))`. Put bounds inside the call and `.nullable()` / `.optional()` after it. A signed change takes the unit of its scale: `deltaPct` (whole-percent change) is `percent`, a relative change ratio (0.5 = +50%) is `fraction`.
 2. Declare ratios the name pattern cannot see too (`point`, `score`, `progress`, a metric `value`).

@@ -21,13 +21,13 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/analytics.ts` | Analytics and visibility score endpoints |
 | `src/visibility-stats.ts` / `src/visibility-compare.ts` | `GET /visibility-stats` and `GET /visibility-compare`; pure `computeVisibilityCompare` |
 | `src/visibility-attribution.ts` | `buildQueryAttribution` + `resolveCurrentQuery`: historical query attribution |
-| `src/report.ts` / `src/report-renderer.ts` | Client-facing AEO report bundle (JSON + HTML); `renderReportHtml(report)`. Strings and shared display helpers come from `packages/contracts/src/report-sections.ts`, which the SPA report also renders from. It assembles its own ordered section list rather than reading one: `reportSectionOrder(report, audience)` encodes that same order for the SPA, and `test/report-renderer-bytes.test.ts` (`ORDER_CASES` / `ORDER_MATRIX`) asserts the two agree. That suite also pins the output bytes for both audiences and writes the outline goldens in `test/fixtures/report-outline/` the SPA must match; update a snapshot or golden only for an intended change, in the same commit. |
 | `src/google.ts` | Google Search Console and Google Business Profile (GBP) routes |
 | `src/gsc-period-comparison.ts` / `src/gbp-summary.ts` | Pure calculations behind the GSC performance tiles and `/gbp/summary` |
 | `src/ga.ts` | Google Analytics 4 routes |
 | `src/ga-source-mover.ts` | Pure biggest-mover calculation behind `/ga/social-referral-trend` and `/ga/attribution-trend` (see "GA4 trend movers") |
 | `src/ads.ts` / `src/ads-live-delivery.ts` | OpenAI ads (ChatGPT ads) routes; pure live-vs-stored comparison engine |
 | `src/traffic.ts` / `src/ai-referral-status.ts` | Server-side traffic ingestion routes; shared `ai_referral_events_hourly` read conditions |
+| `src/traffic-analytics.ts` | Full-window stored crawler, user-fetch and referral aggregates, exposed through `/traffic/analytics`; detail-row caps do not limit totals, operator/path/product breakdowns or history. `period` is read-selection identity, not execution tuning. |
 | `src/referral-assessment.ts` | DB-only project/source burst diagnostic. Raw headlines unchanged; grouped candidate counts and separate adjusted estimate, with GA quotient coverage limits. |
 | `src/technical-aeo.ts` | Site Health / Technical AEO routes |
 | `src/measurement-property-evidence.ts` | `GET /projects/:name/measurement-property-evidence`: one Property's cursor-paged evidence |
@@ -384,11 +384,6 @@ One row per (project, kind), where kind ∈ {answer-visibility, traffic-sync, gb
   - `readVisibilityCompare(db, project, query)` is the shared monthly reader for REST, CLI and MCP; `readVisibilityContinuity(db, project, months)` returns only its continuity gates for readiness (the project frame, plus the frozen class frame when both months are schema-v2 history), without matching answer text. The four legacy unfiltered project metrics and their frame remain unchanged. Additive class rates use tri-state signal denominators and explicit `classification-unavailable` periods.
   - Advanced class rates use frozen report definitions, exact Property/group/market edges, execution location, provider, and assignment classes. Deduplicate shared answers per class. Match only comparable definition chains; material revisions cannot share a cohort. Runs of a display-only revision chain (relabels, an added market) read through the chain's newest definition, as the report does, so an added market compares across the revision. A scoped request leaves out runs whose definition lacks the scope and refuses only when no run in either month measured it. `classComparison` carries this cohort separately when no scope or marketKey is requested (provider/location narrow both frames with the reader's case-insensitive match); scoped requests use the frozen frame at the top level and refuse months with unreconstructable (schema-v1) runs rather than drop them. Frozen-frame answers with incomplete source capture leave every citation figure and are counted in `excludedUnknown`. Schema-v1 history preserves legacy output and makes class metrics unavailable.
 - `src/visibility-attribution.ts`: `buildQueryAttribution` + `resolveCurrentQuery` — historical query attribution by stable `queryId` then snapshot `queryText` fallback.
-
-### Report bundle
-
-- `src/report.ts`: `GET /projects/:name/report` (JSON DTO) and `GET /projects/:name/report.html` (standalone downloadable HTML) — aggregated client-facing AEO report bundle (13 sections). It uses `visibility-attribution` for historical query resolution.
-- `src/report-renderer.ts`: `renderReportHtml(report)` — server-side HTML renderer with inline SVG charts and inline CSS, re-exported from `@ainyc/canonry-api-routes` for the CLI.
 
 ### Results export
 

@@ -119,8 +119,7 @@ export interface ContentRoutesOptions {
 /**
  * Load the set of dismissed `targetRef`s for a project. Caller filters
  * orchestrator output through this set so dismissed recommendations don't
- * resurface on the next report load. Exported so `report.ts` can share the
- * same load path (single source of truth for the dismissal filter).
+ * resurface on the next content read.
  */
 export function loadDismissedTargetRefs(
   db: DatabaseClient,
@@ -210,8 +209,7 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
     if (!includeInProgress) {
       rows = rows.filter((r) => r.existingAction === null)
     }
-    // Filter persistently-dismissed recommendations. Same filter applied in
-    // report.ts so SPA report, HTML report, and this endpoint stay aligned.
+    // Filter persistently dismissed recommendations.
     const dismissed = loadDismissedTargetRefs(app.db, project.id)
     if (dismissed.size > 0) {
       rows = rows.filter((r) => !dismissed.has(r.targetRef))

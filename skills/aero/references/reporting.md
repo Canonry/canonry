@@ -33,7 +33,7 @@ The class rates (`mention-rate-branded`, `mention-rate-non-brand`, and their `ci
 
 Never pool them into one headline. A branded question ("<brand> reviews") measures demand the brand already created: the answer names the brand because the question did, so a near-100% mention rate is the expected floor, not an achievement. A non-brand question ("best <category> for <use case>") measures demand to win, and it is the number that says whether the work is landing. A pooled figure mostly measures how famous the brand already is and hides whether anything moved.
 
-**This matters most for share of voice, and the split is now enforced.** `visibility-stats --share-of-voice`, `visibility-compare`, the project overview's Mention Share card and its breakdown chart, and the client report's mention landscape are all scoped to NON-BRAND queries by default. Every one of them echoes the class it served (`queryClass` / `scope`), and branded is returned beside the figure rather than inside it. Pass `--query-class branded` when you want brand recall.
+**This matters most for share of voice, and the split is now enforced.** `visibility-stats --share-of-voice`, `visibility-compare`, the project overview's Mention Share card and its breakdown chart, and stored competitor landscapes are all scoped to NON-BRAND queries by default. Every one of them echoes the class it served (`queryClass` / `scope`), and branded is returned beside the figure rather than inside it. Pass `--query-class branded` when you want brand recall.
 
 Why it is enforced rather than advised: on a real basket (13 queries × 4 engines, 5 branded), the subject was named in 20 of 20 branded answers and 1 of 32 category answers. Pooled, the chart put them FIRST at ~42%. Non-brand, they were LAST at ~3%, behind all seven tracked competitors. Same run, opposite conclusion, and the pooled version is the one a client would have read as category leadership.
 
@@ -54,28 +54,26 @@ Two consequences for any report:
 
 A sweep crippled by a provider outage captures fewer questions and looks identical to a collapse in visibility. Before narrating any drop, check whether the latest run is `partial` and what its capture count was against the project's basket size. Report a capture failure as a capture failure.
 
-## One-Command HTML Report
+## Build summaries from stored evidence
 
-When a client asks for a "current state" or "AEO report" without a specific custom narrative, prefer the bundled report instead of hand-rolling sections:
+Use the project overview for current state, `canonry_visibility_compare` for
+calendar-month comparisons, and scoped measurement tools for Advanced
+Properties and markets. Read `canonry_organic_evidence` for the stored GSC,
+GA4, and server-traffic evidence ladder. The dedicated HTML Report surface has
+been retired; generate the requested document from these existing sources.
 
-```bash
-cnry report <project>                          # writes canonry-report-<project>-YYYY-MM-DD.html in cwd
-cnry report <project> --output dist/aeo.html   # custom path
-cnry report <project> --format json            # raw payload, useful for narrating in chat
-```
+For complete server-traffic totals and breakdowns, use
+`canonry_traffic_analytics` (CLI: `cnry traffic analytics <project> --period 30
+--format json`). Select 7, 14, 30, or 90 days, preserve its returned dates and
+prior-window counts, and keep paid, organic, and unclassified arrivals separate.
+Server sessions and GA sessions measure different evidence. Review
+`canonry_traffic_referral_assessment` for the same dates before attributing
+candidate bursts to people; an adjusted count is an estimate.
 
-The HTML is self-contained (inline CSS + SVG charts, no network dependencies) and leads visually with mention coverage (the primary gauge), then covers: executive summary, per-query × per-provider matrix (mention + citation), competitor landscape, AI citation sources, GSC + GA4 performance, social and AI referrals, indexing health, trend, prioritized insights, and recommended next steps. Same payload is available via `GET /api/v1/projects/<name>/report` and the `canonry_report` MCP tool — use `--format json` when you want to summarize specific numbers in a thread instead of attaching the file.
-
-Behaviors worth knowing before narrating numbers from the report:
-- **Mention is the primary metric; citation is secondary.** Narrate the mention figures first. `executiveSummary.mentionRate` is **per-query** — `mentionedQueryCount / totalQueryCount`, where a query counts as mentioned if any provider's answer text named the brand in the run. The report leads visually with mention coverage, but the machine field backing that headline is not confirmed in the CLI docs — [confirm field name against `cnry report --format json` / `ProjectReportDto`] before quoting it as the headline; `executiveSummary.mentionRate` / `mentionedQueryCount` are the confirmed per-query mention fields.
-- `executiveSummary.citationRate` is the **secondary**, per-query citation signal — `citedQueryCount / totalQueryCount`, where a query counts as cited if any provider in the run cited it. The denominator is total tracked queries (not (query × provider) pairs), so the rate stays comparable when provider count varies between runs. Use `citedQueryCount` / `totalQueryCount` directly when narrating ratios. Mention and citation are independent — never compute one from the other.
-- The same per-query definition powers every `citationsTrend[].citationRate` so trend deltas reflect real movement, not provider-mix variance.
-- `citationsTrend` excludes partial runs. A project with only one completed run shows `trend: "unknown"` — never claim a comparison that isn't there.
-- Project ownership and competitor tagging use subdomain-aware matching: `blog.example.com` counts as the project when `example.com` is the canonical domain or in `ownedDomains`; `blog.rival.com` is tagged `isCompetitor: true` when `rival.com` is tracked.
-- AI referral totals dedupe overlapping GA4 attribution dimensions (`session` / `first_user` / `manual_utm`).
-- Server-side AI referral sessions (the "AI Visibility — Server-Side" section) are server-log counts, not GA sessions. Before quoting one, run `cnry traffic referral-assessment <project> --start-date YYYY-MM-DD --end-date YYYY-MM-DD --format json` for the same dates (or read the silent `report.ai-referral-bursts` doctor check for the report month) and review any candidate bursts. Quote the unchanged headline (the assessment's `totals.countable`) beside the separate `totals.adjustedEstimate`; a candidate burst is not confirmed automation, and neither figure replaces GA.
-
-The hand-rolled templates below are still the right call when the user wants a focused weekly/monthly digest with custom regression and gain narratives that the bundled report doesn't surface.
+Keep mention and citation signals independent. Use the scoped tool's numerator,
+denominator, and query class rather than recreating retired report metrics.
+Retain missing evidence and partial-sweep qualifications. Preparing a summary
+never authorizes a new sweep, provider read, or sync.
 
 ## Weekly Report
 

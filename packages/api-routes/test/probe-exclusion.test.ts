@@ -278,14 +278,6 @@ describe('probe runs are excluded from dashboard / analytics aggregates', () => 
     expect(allRunIds.has(ctx.probeRunId)).toBe(false)
   })
 
-  it('report citations trend does not include the probe', async () => {
-    const { body } = await get<{ citationsTrend: { points: Array<{ runId: string }> } }>(
-      `/api/v1/projects/probe-excl/report`,
-    )
-    const trendRunIds = new Set((body.citationsTrend?.points ?? []).map(p => p.runId))
-    expect(trendRunIds.has(ctx.probeRunId)).toBe(false)
-  })
-
   it('visibility-report never compares against a probe between two sweeps', async () => {
     // A later real sweep makes the newer probe sit between two real sweeps.
     const realRun = ctx.db.select().from(runs).where(eq(runs.id, ctx.realRunId)).get()!

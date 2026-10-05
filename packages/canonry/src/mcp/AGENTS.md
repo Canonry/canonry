@@ -77,7 +77,7 @@ canonry mcp config  --client codex                   # print snippet for clients
 
 ## Agent workflow
 
-MCP workflows (agent): inspect → diagnose → act. Inspect: get-project / report / property / property-evidence / visibility-stats ; diagnose: doctor / coverage-refresh / technical-aeo score ; act: query add/replace, measurement-plan publish, gsc sitemap submit (gsc-sitemap-submission), discovery promote. Start with canonry_help(intent); native skills are optional. Only progressive stdio offers canonry_load_toolkit. Permissions remain server-enforced.
+MCP workflows (agent): inspect → diagnose → act. Inspect: get-project / visibility-report / property / property-evidence / visibility-stats / bing coverage ; diagnose: doctor / coverage-refresh / technical-aeo score ; act: query add/replace, measurement-plan publish, gsc sitemap submit (gsc-sitemap-submission), discovery promote. Start with canonry_help(intent); native skills are optional. Only progressive stdio offers canonry_load_toolkit. Permissions remain server-enforced.
 
 ## Kept out of MCP on purpose
 

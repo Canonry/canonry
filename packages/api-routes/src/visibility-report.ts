@@ -764,7 +764,6 @@ function advancedReaderInput(
   projectId: string,
   active: NonNullable<ReturnType<typeof activeMeasurementPlan>>,
   query: VisibilityReportQuery,
-  includeComparison: boolean,
 ): VisibilityReportReaderInput {
   if (active.plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) throw new Error('Expected a v2 active plan')
   const allVersionRows = db.select().from(measurementPlanVersions)
@@ -851,7 +850,7 @@ function advancedReaderInput(
     activeDefinition: activeV2Definition(presentationPlan, presentationVersion.revision),
     ...(preferredSource === undefined ? {} : { preferredRunId: preferredSource.run.id }),
     runs: candidates,
-    ...(includeComparison ? { previous: previousInput() } : {}),
+    previous: previousInput(),
   }
 }
 
@@ -887,7 +886,6 @@ function simpleReaderInput(
   db: DatabaseClient,
   project: { id: string; displayName: string; canonicalDomain: string },
   query: VisibilityReportQuery,
-  includeComparison: boolean,
 ): VisibilityReportReaderInput {
   const sourceRuns = completedVisibilityRuns(db, project.id, true, query)
   // Apply the run/time predicate before touching sidecars. A long-lived
@@ -919,25 +917,21 @@ function simpleReaderInput(
     selection: query,
     activeDefinition: simpleActiveDefinition(project),
     runs: candidates,
-    ...(includeComparison ? { previous: previousInput() } : {}),
+    previous: previousInput(),
   }
 }
 
 /**
  * Shared stored-evidence reader. Callers enforce authorization before resolving the project.
  *
- * `includeComparison` (default true) adds each population's change since the
- * previous eligible sweep. Report builds pass false: they keep only summary and
- * trend, so they skip the predecessor read entirely. A previous sweep that
- * cannot be read leaves the change off and never fails the report.
+ * Adds each population's change since the previous eligible sweep. An unreadable
+ * predecessor leaves the change off without failing the current measurement.
  */
 export function readVisibilityReport(
   db: DatabaseClient,
   project: { id: string; displayName: string; canonicalDomain: string },
   rawQuery: Record<string, unknown>,
-  options: { includeComparison?: boolean } = {},
 ) {
-  const includeComparison = options.includeComparison ?? true
   const query = parseQuery(rawQuery)
   const active = activeMeasurementPlan(db, project.id)
   const mode = query.mode === 'auto' ? (active === null ? 'simple' : 'advanced') : query.mode
@@ -945,9 +939,9 @@ export function readVisibilityReport(
     if (mode === 'advanced') {
       if (active === null) throw validationError('This project has no advanced measurement plan.')
       if (active.plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) return unsupportedAdvancedResponse(query, active)
-      return buildVisibilityReport(advancedReaderInput(db, project.id, active, query, includeComparison))
+      return buildVisibilityReport(advancedReaderInput(db, project.id, active, query))
     }
-    const simple = simpleReaderInput(db, project, query, includeComparison)
+    const simple = simpleReaderInput(db, project, query)
     // Simple mode reads planless sweeps only. On a v2 project with no planless
     // sweep at all, the default read would answer "not measured", which reads
     // as an empty project rather than as the wrong mode. Refuse only that

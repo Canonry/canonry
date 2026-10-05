@@ -11,7 +11,7 @@ Canonry is an **agent-first (CLI, MCP, API), open-source AEO operating platform 
 
 <p align="center">
   <a href="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/measure-act.svg">
-    <img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/measure-act.svg" alt="AI, search, analytics, and traffic sources feed Canonry on schedules or on demand. Historical evidence across multiple domains and portfolios runs from baseline through the latest checks. Your agent reads evidence and sends commands to Canonry tools, while using its own tools for code and content. Canonry publishes to WordPress, submits to Google and Bing, and supplies the dashboard, reports, and webhooks. Site changes loop back into measurement." width="100%" />
+    <img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/measure-act.svg" alt="AI, search, analytics, and traffic sources feed Canonry on schedules or on demand. Historical evidence across multiple domains and portfolios runs from baseline through the latest checks. Your agent reads evidence and sends commands to Canonry tools, while using its own tools for code and content. Canonry publishes to WordPress, submits to Google and Bing, and supplies the dashboard, evidence exports, and webhooks. Site changes loop back into measurement." width="100%" />
   </a>
 </p>
 
@@ -190,7 +190,7 @@ Your agent coordinates the work through Canonry and its own tools.
 
 - **Improve the site:** Combine your agent's coding tools with Canonry's content, [WordPress publishing](docs/wordpress-setup.md), JSON-LD, and [indexing workflows](skills/canonry/references/indexing.md).
 - **Measure after changes:** Configure [independent schedules](skills/canonry/references/canonry-cli.md#scheduling--notifications) for data syncs and checks. Compare new results with earlier evidence.
-- **Report and follow up:** Generate [HTML reports or JSON evidence](skills/canonry/references/canonry-cli.md#reports). Send [webhook alerts](skills/canonry/references/canonry-cli.md#agent) to Discord, Slack, or your systems.
+- **Export and follow up:** Read [AI visibility evidence](docs/report-retirement.md) and [traffic analytics](docs/report-retirement.md). Send [webhook alerts](skills/canonry/references/canonry-cli.md#agent) to Discord, Slack, or your systems.
 
 **An example job for your connected agent:**
 
@@ -220,7 +220,7 @@ Connect the sources you use. Each integration adds evidence or tools to the same
 
 Canonry is single-tenant. Run one instance for one operator or team. Keep unrelated teams on separate instances.
 
-The CLI and REST API are the primary interfaces. They expose measurements, diagnoses, actions, reports, and schedules.
+The CLI and REST API are the primary interfaces. They expose measurements, diagnoses, actions, evidence exports, and schedules.
 OpenAPI is available at `GET /api/v1/openapi.json`.
 
 See the [deployment guide](docs/deployment.md) for reverse proxies, daemon mode, Docker, systemd, and Tailscale.

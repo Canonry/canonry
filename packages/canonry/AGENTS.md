@@ -93,7 +93,7 @@ Rules for `canonry-mcp`, hosted MCP catalogs, guidance generation, MCP parity, a
 File-level rules for the MCP pieces in this package:
 
 - `src/mcp/server.ts` — `createCanonryMcpServer` registers all API tools, then disables non-core tiers unless `--eager`.
-- `src/mcp/tool-registry.ts` — all 188 API tools, including Site Health semantic graph and page-audit evidence reads, sitemap Target discovery, and revision-pinned measurement reports, each tagged with a `tier` (`core` or one of the toolkit names).
+- `src/mcp/tool-registry.ts` — all 242 API tools, including Site Health semantic graph and page-audit evidence reads, sitemap Target discovery, and revision-pinned measurement reports, each tagged with a `tier` (`core` or one of the toolkit names).
 - `src/mcp/cli.ts` — `canonry-mcp` stdio entrypoint; parses `--read-only`, `--eager`, `--scope`, plus `CANONRY_MCP_*` env. `resolveEffectiveScope()` best-effort probes `GET /keys/self` at startup and forces `read-only` when the configured key is read-only (auto-restricts the catalog to read tools; falls back to the flag scope on any probe failure).
 - `src/mcp/operations-guide.ts` — compact intent routing filtered against the connection's loaded tools; generated source is `docs/agent-operations/v1.md`. No provider calls or permission grants.
 - `src/commands/mcp.ts` — MCP client install helpers: `mcp install`, `mcp config` (writes to client config files only — separate from the `canonry-mcp` stdio bin). `src/mcp-clients.ts` is the registry of supported MCP clients (Claude Desktop, Cursor, Codex) — config-path resolvers and format hints used by `mcp install`/`mcp config`.
@@ -512,7 +512,7 @@ Every field after `version` is optional and is omitted rather than nulled, so co
 
 Registered via `src/cli-commands/measurement-plan.ts`.
 
-### Visibility stats, reports, and exports
+### Visibility stats and exports
 
 `src/commands/visibility-stats.ts`:
 
@@ -520,8 +520,6 @@ Registered via `src/cli-commands/measurement-plan.ts`.
 - Also `visibility-compare <project> --from <YYYY-MM> --to <YYYY-MM>` (`showVisibilityCompare`) — month-over-month AEO comparison rendered as the statistician-panel table (share-of-voice-led with `*` drift-robust marker, each cell `point [ci-lo, ci-hi]`, within-noise/moved verdict, basket + low-sweep caveat + model-change note); object command, `--format json` (jsonl degrades to json).
 - Monthly class rates have distinct branded/non-brand metric keys. `--scope`, `--scope-key`, `--market-key`, `--provider`, and `--location` map to the same REST/MCP selection. Print the Advanced `classComparison` cohort separately from the preserved legacy project basket, and print the selection whenever one is set; JSON retains the complete API response. A bad selector is a usage error (exit 1).
 - Delegates to `ApiClient.getVisibilityStats` / `getVisibilityCompare`. Registered via `src/cli-commands/visibility-stats.ts`.
-
-`src/commands/report.ts`: `runReportCommand` — `canonry report <project>` — fetches `/report` JSON, renders self-contained HTML to disk via `renderReportHtml` from `@ainyc/canonry-api-routes`.
 
 `src/commands/results-export.ts`: `exportResults` — `canonry results export <project>` — downloads the historical query × provider observations attachment via `ApiClient.downloadResultsExport`.
 
@@ -662,6 +660,14 @@ Insight date ranges:
 - Because today's row is partial and is re-read on every sync, the rollup upsert on (project, level, entity, date) is what keeps it correct, and the open day's `conversions` is deliberately NOT written (a placeholder 0 would turn a number the read could not obtain into a wrong one); the first sync after the day closes fills it from the ranged call.
 
 ### Server-side traffic
+
+`traffic analytics <project> --period 7|14|30|90` reads complete stored aggregates
+through `ApiClient.getTrafficAnalytics`; omitted period is 30 days. JSON and
+JSONL preserve `TrafficAnalyticsResponse`. A null activity means no source;
+connected sources without events return zeros. Keep server-owned counts,
+prior-window changes, verification and arrival-class splits. This is a
+project-wide read for Simple and Advanced, with no Property/Target/market
+attribution and no provider calls or sync.
 
 `src/commands/traffic.ts` — server-side traffic commands: pull-source connects for Cloud Run / WordPress / Vercel plus local-only `traffic connect cloudflare` for direct push or Queue pull.
 

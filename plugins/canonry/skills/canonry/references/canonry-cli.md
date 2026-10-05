@@ -74,11 +74,11 @@ cnry get <project> scores.mentionCoverage.value
 cnry get <project> scores.citationCoverage.value
 cnry get <project> insights[0].severity
 cnry get <project> latestRun.status
-cnry get <project> --from report scores.citationCoverage.value   # pick a registered source
+cnry get <project> --from overview scores.citationCoverage.value   # pick a registered source
 cnry get <project> <path> --format json                          # raw JSON output
 ```
 
-Resolves a dot/bracket path against the project's overview (default `--from overview`) or any registered source — `report`, `traffic`, `discovery`, etc. Returns the scalar (or sub-tree) at the path so an agent can lift a single number without pulling a 30 KB JSON payload. Use `--from <source> .` to see the available top-level keys for that source.
+Resolves a dot/bracket path against the project's overview (default `--from overview`) or any registered source: `overview`, `doctor`, `runs`, `queries`, or `competitors` Returns the scalar (or sub-tree) at the path so an agent can lift a single number without pulling a 30 KB JSON payload. Use `--from <source> .` to see the available top-level keys for that source.
 
 ### Locations
 
@@ -221,25 +221,6 @@ Legend: [C/c][M/m]  C=cited c=not-cited  M=mentioned m=not-mentioned  –=no sna
 ```
 
 Summary: `Mentioned: X / Y` (primary) and `Cited: X / Y` (secondary) are reported independently — a query can be one, both, or neither.
-
-## Reports
-
-```bash
-cnry report <project>                          # write canonry-report-<project>-YYYY-MM-DD.html
-cnry report <project> --period 14              # time window: 7|14|30|90 days (default 30) — scopes GSC/GA/server-activity + period-over-period deltas
-cnry report <project> --output dist/aeo.html   # custom path
-cnry report <project> --format json            # raw report payload to stdout
-```
-
-One-command client-facing AEO report. Bundles the latest visibility sweep, competitor landscape, AI citation sources, GSC + GA4 performance, social and AI referrals, indexing health, citations trend, prioritized insights, and recommended next steps into a self-contained HTML file (inline CSS + SVG charts, no network dependencies). Backed by `GET /api/v1/projects/<name>/report` and the `canonry_report` MCP tool.
-
-Behavior to know when narrating numbers from the report:
-- `executiveSummary.citationRate` is **per-query** — `citedQueryCount / totalQueryCount`, with a query counted as cited if any provider in the run cited it. The rate is invariant to provider count, so a gemini-only run and a 4-provider run can be compared honestly. The same definition powers `citationsTrend[].citationRate` so trend deltas track real movement, not provider-mix variance.
-- `citationsTrend` excludes partial runs to avoid skew. A project with only one completed run gets `trend: "unknown"` and the finding "No prior run to compare against." — not "Flat compared to the previous run."
-- Project ownership uses subdomain-aware matching against `project.canonicalDomain` plus any configured `ownedDomains`. `blog.example.com` and `brand.io` count as the project, not as external sources, when those rules apply.
-- Competitor tagging in `aiSourceOrigin.topDomains` uses the same subdomain-aware match — `blog.rival.com` is `isCompetitor: true` when `rival.com` is tracked.
-- AI referral totals dedupe overlapping GA4 attribution dimensions (`session` / `first_user` / `manual_utm`) by picking the largest dimension per `(date, source)`, breaking ties toward the `session` lens. Medium and traffic class are labels the lens assigns, not properties of the visit, so they are NOT part of the key: GA4 reports the manual-UTM lens with medium `(not set)` where the session lens reports `ai-assistant`, and keying on medium counted one visit twice. Two 10-session rows for the same tuple report 10 sessions, not 20.
-- GSC top-query CTR and avgPosition are impression-weighted, matching GSC's own metric semantics across multi-row queries.
 
 ## Results Export (historical observations)
 
@@ -697,6 +678,7 @@ cnry traffic activate <project> --source <source-id>
 cnry traffic sync <project> --source <source-id>      # pull adapters, including Cloudflare Queue pull
 cnry traffic sources <project> --format json
 cnry traffic status <project> --format json
+cnry traffic analytics <project> --period 30 --format json    # complete 7|14|30|90-day totals, prior-period changes and breakdowns
 cnry traffic events <project> --source <source-id> --format json
 cnry traffic referral-assessment <project> --start-date 2026-08-01 --end-date 2026-08-31 --burst-threshold 100 --ratio-threshold 3 --limit 100 --format json
 
@@ -745,6 +727,17 @@ The silent `report.ai-referral-bursts` doctor check warns only when candidate
 bursts exist, reports `candidateGroups`, and carries these limits in its
 details. Keep GA evidence; this assessment does not establish a replacement
 human-visit count.
+
+`traffic analytics` reads complete stored server-traffic aggregates through
+`GET /api/v1/projects/<name>/traffic/analytics?period=30` and the
+`canonry_traffic_analytics` MCP tool. JSON preserves `{ activity }` unchanged;
+JSONL emits the same document. With no non-archived source, `activity` is null.
+Connected sources without events return measured zeros. It retains crawler
+verification, user fetches, paid/organic/unclassified arrivals, redirect hops,
+operators, crawled paths, referral products, landing paths, daily history, and
+equal prior-window changes. It does not start a sync or provider work. The
+scope is project-wide for Simple and Advanced portfolios; there is no Property,
+Target, or market attribution. Server sessions and GA sessions remain separate.
 
 ## Google Analytics 4
 

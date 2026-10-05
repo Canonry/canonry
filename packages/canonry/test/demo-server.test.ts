@@ -17,7 +17,7 @@ afterAll(async () => { await app?.close(); network.mockRestore(); rmSync(dir, { 
 describe('populated demo integration', () => {
   it.each(['summit-roofing', 'harbor-resorts'])('serves populated feature reads for %s without any provider call', async name => {
     const paths = [
-      'overview', 'visibility-report', 'queries', 'runs', 'google/connections',
+      'overview', 'visibility-report', 'traffic/analytics', 'queries', 'runs', 'google/connections',
       'google/gsc/performance/daily?window=7d', 'bing/status', 'bing/performance', 'bing/coverage',
       'ga/status', 'ga/traffic', 'ga/ai-referral-history',
       'technical-aeo/crawl', 'technical-aeo/graph', 'gbp/summary',
@@ -57,14 +57,19 @@ describe('populated demo integration', () => {
     expect(integrity.json().assessment.contract.id).toBe(contracts[0].id)
     expect(network).not.toHaveBeenCalled()
   })
-  it('keeps the fictional-data disclosure in downloaded report HTML', async () => {
-    const response = await app.inject('/api/v1/projects/harbor-resorts/report.html')
-    expect(response.statusCode, response.body.slice(0, 200)).toBe(200)
+  it.each(['report', 'report.html'])('retires the dedicated %s endpoint', async endpoint => {
+    const response = await app.inject(`/api/v1/projects/harbor-resorts/${endpoint}`)
+    expect(response.statusCode).toBe(403)
+    expect(response.json().error.code).toBe('DEMO_READ_ONLY')
+    expect(response.headers['content-disposition']).toBeUndefined()
+    expect(network).not.toHaveBeenCalled()
+  })
+  it('serves a legacy Report document URL so the SPA can redirect to AI Visibility', async () => {
+    const response = await app.inject('/projects/harbor-resorts/report')
+    expect(response.statusCode).toBe(200)
     expect(response.headers['content-type']).toContain('text/html')
-    expect(response.headers['content-disposition']).toContain('attachment')
-    expect(response.body).toContain('Public Canonry demo')
-    expect(response.body).toContain('fictional sample data from stored demo records')
-    expect(response.body).toContain('No live provider query produced it')
+    expect(response.body).toContain('id="root"')
+    expect(response.headers['content-disposition']).toBeUndefined()
     expect(network).not.toHaveBeenCalled()
   })
 })

@@ -9,10 +9,10 @@ export const shareOfVoiceContextSchema = z.object({
 })
 export type ShareOfVoiceContext = z.infer<typeof shareOfVoiceContextSchema>
 
-// Additive wire fields: older servers and saved reports may omit the context.
+// Additive wire fields: older servers and saved responses may omit the context.
 export const shareOfVoiceContextFields = shareOfVoiceContextSchema.partial().shape
 
-/** One copy source for CLI, dashboard, and both report renderers. */
+/** One copy source for CLI and dashboard. */
 export function shareOfVoiceReason(reason: ShareOfVoiceContext['reason']): string {
   switch (reason) {
     case 'select-query-class': return 'Select a query class.'

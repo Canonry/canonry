@@ -34,7 +34,6 @@ const expectedToolNames = [
   'canonry_project_get',
   'canonry_project_delete_preview',
   'canonry_project_overview',
-  'canonry_report',
   'canonry_organic_evidence',
   'canonry_analytics_metrics',
   'canonry_analytics_sources',
@@ -89,6 +88,7 @@ const expectedToolNames = [
   'canonry_gsc_deindexed',
   'canonry_gsc_coverage',
   'canonry_gsc_coverage_history',
+  'canonry_bing_coverage',
   'canonry_gsc_sitemaps',
   'canonry_gsc_sitemaps_submit',
   'canonry_ga_status',
@@ -119,6 +119,7 @@ const expectedToolNames = [
   'canonry_traffic_sources_list',
   'canonry_traffic_source_get',
   'canonry_traffic_status',
+  'canonry_traffic_analytics',
   'canonry_traffic_referral_assessment',
   'canonry_traffic_events',
   'canonry_traffic_connect_cloud_run',
@@ -895,8 +896,8 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(241)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(161)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(242)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(162)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -934,7 +935,7 @@ describe('MCP tool registry', () => {
     for (const tool of canonryMcpTools) {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
-    expect(counts.get('monitoring')).toBe(59)
+    expect(counts.get('monitoring')).toBe(58)
     expect(counts.get('setup')).toBe(60)
     expect(counts.get('gsc')).toBe(11)
     expect(counts.get('ga')).toBe(11)
@@ -943,7 +944,7 @@ describe('MCP tool registry', () => {
     expect(counts.get('google-ads')).toBe(6)
     expect(counts.get('gtm')).toBe(7)
     expect(counts.get('conversion-tracking')).toBe(3)
-    expect(counts.get('traffic')).toBe(11)
+    expect(counts.get('traffic')).toBe(12)
     expect(counts.get('agent')).toBe(10)
     expect(counts.get('discovery')).toBe(11)
   })
@@ -1483,7 +1484,7 @@ describe('Dynamic tool catalog', () => {
       'canonry_run_cancel',
       'canonry_agent_webhook_attach',
     ])
-    expect(help.toolkits.map(t => t.name)).toEqual(['monitoring', 'setup', 'gsc', 'ga', 'gbp', 'ads', 'google-ads', 'gtm', 'conversion-tracking', 'traffic', 'agent', 'discovery'])
+    expect(help.toolkits.map(t => t.name)).toEqual(['monitoring', 'setup', 'gsc', 'bing', 'ga', 'gbp', 'ads', 'google-ads', 'gtm', 'conversion-tracking', 'traffic', 'agent', 'discovery'])
     expect(help.toolkits.every(t => !t.loaded)).toBe(true)
 
     const monitoringFirst = catalog.loadToolkit('monitoring')
@@ -1509,7 +1510,7 @@ describe('Dynamic tool catalog', () => {
 
     const help = catalog.helpResult()
     expect(help.eager).toBe(true)
-    expect(help.loadedToolkits.sort()).toEqual(['ads', 'agent', 'conversion-tracking', 'discovery', 'ga', 'gbp', 'google-ads', 'gsc', 'gtm', 'monitoring', 'setup', 'traffic'])
+    expect(help.loadedToolkits.sort()).toEqual(['ads', 'agent', 'bing', 'conversion-tracking', 'discovery', 'ga', 'gbp', 'google-ads', 'gsc', 'gtm', 'monitoring', 'setup', 'traffic'])
     expect(help.toolkits.every(t => t.loaded)).toBe(true)
   })
 
@@ -1765,6 +1766,8 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_traffic_sources_list', input: projectInput, methods: ['trafficListSources'] },
   { tool: 'canonry_traffic_source_get', input: { project: 'acme', sourceId: 'src-1' }, methods: ['trafficGetSource'] },
   { tool: 'canonry_traffic_status', input: projectInput, methods: ['trafficStatus'] },
+  { tool: 'canonry_traffic_analytics', input: { project: 'acme', period: 14 }, methods: ['getTrafficAnalytics'], expectedArgs: [['acme', 14]] },
+  { tool: 'canonry_traffic_analytics', input: projectInput, methods: ['getTrafficAnalytics'], expectedArgs: [['acme', undefined]] },
   { tool: 'canonry_traffic_referral_assessment', input: { project: 'acme', startDate: '2026-08-01', endDate: '2026-08-31' }, methods: ['trafficReferralAssessment'], expectedArgs: [['acme', { startDate: '2026-08-01', endDate: '2026-08-31' }]] },
   {
     tool: 'canonry_traffic_events',

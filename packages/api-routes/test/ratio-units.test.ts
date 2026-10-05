@@ -72,23 +72,17 @@ describe('ratio units on the wire', () => {
     expect(unitAt('BingCoverageSummaryDto', 'summary', 'percentage')).toBe('percent')
     expect(unitAt('GscCoverageSummaryDto', 'summary', 'percentage')).toBe('percent')
 
-    // `citationRate` is a fraction in analytics and a whole 0..100 percent in the report.
+    // Analytics coverage rates are fractions.
     expect(unitAt('BrandMetricsDto', 'overall', 'citationRate')).toBe('fraction')
     expect(unitAt('BrandMetricsDto', 'buckets', '[]', 'byProvider', '*', 'mentionRate')).toBe('fraction')
-    expect(unitAt('ProjectReportDto', 'executiveSummary', 'citationRate')).toBe('percent')
-    expect(unitAt('ProjectReportDto', 'citationScorecard', 'providerRates', '[]', 'citationRate')).toBe('percent')
-    expect(unitAt('ProjectReportDto', 'citationsTrend', '[]', 'mentionRate')).toBe('percent')
 
     // One DTO, two units: the overview's query counts are fractions, its run history whole percents.
     expect(unitAt('ProjectOverviewDto', 'queryCounts', 'citedRate')).toBe('fraction')
     expect(unitAt('ProjectOverviewDto', 'runHistory', '[]', 'citationRate')).toBe('percent')
 
-    // A click-through rate stays a fraction even inside the percent-heavy report.
-    expect(unitAt('ProjectReportDto', 'gsc', 'ctr')).toBe('fraction')
-    expect(unitAt('ProjectReportDto', 'gsc', 'categoryBreakdown', '[]', 'sharePct')).toBe('percent')
-
-    // A signed change: `deltaPct` is on the 0..100 scale, a GSC period change is a ratio (0.5 = +50%).
-    expect(unitAt('ProjectReportDto', 'whatsChanged', 'citationRate', 'deltaPct')).toBe('percent')
+    // A traffic signed change uses whole percent; a GSC period change is a fraction.
+    expect(unitAt('TrafficAnalyticsResponse', 'activity', 'verifiedCrawlerHits', 'deltaPct')).toBe('percent')
+    expect(unitAt('TrafficAnalyticsResponse', 'activity', 'byOperator', '[]', 'deltaPct')).toBe('percent')
     expect(unitAt('GscPerformanceDailyDto', 'periodComparison', 'change', 'ctr')).toBe('fraction')
     expect(unitAt('GscPerformanceDailyDto', 'periodComparison', 'change', 'clicks')).toBe('fraction')
     // GA trends and movers are whole-percent changes (`150` = +150%).
@@ -138,6 +132,5 @@ describe('ratio units on the wire', () => {
     // An exclusion stays undeclared rather than borrowing a unit, and a path
     // that names nothing reads as missing, never as a unit.
     expect(unitAt('VisibilityCompareDto', 'metrics', '[]', 'rateRatio')).toBe('undeclared')
-    expect(unitAt('ProjectReportDto', 'citationScorecard', 'rows', '[]', 'citationRate')).toBe('missing')
   })
 })

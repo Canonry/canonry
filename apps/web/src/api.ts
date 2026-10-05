@@ -1,7 +1,7 @@
 import type { AgentConversation, AgentConversationList, AgentConversationDelete } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@ainyc/canonry-api-client'
 import { mcpHealthSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, RunKinds } from '@ainyc/canonry-contracts'
-import type { ApiKeyDto, CalendarRecurrence, SchedulableRunKind, EmbedClientConfig, ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4ChannelBreakdownDto, GA4ChannelBucketDto, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, GaTrafficResponse, InsightDto, ProjectReportDto, ReportAudience, ResultsExportFormat, CitationVisibilityResponse, BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, ProjectCreateRequest, ProjectUpsertRequest, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, GscPerformanceResponseDto, GscPerformanceOrderBy, ContentTargetDismissalDto, ContentTargetDismissRequest, SiteAuditRunRequest, SiteAuditRunResponseDto, GscSitemapDto, GscSitemapListResponseDto, GscSubmitSitemapsResponseDto, GscDiscoverSitemapsResponseDto, OnboardingTelemetryEvent, TelemetryEventAcceptedDto } from '@ainyc/canonry-contracts'
+import type { ApiKeyDto, CalendarRecurrence, SchedulableRunKind, EmbedClientConfig, ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4ChannelBreakdownDto, GA4ChannelBucketDto, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, GaTrafficResponse, InsightDto, ResultsExportFormat, CitationVisibilityResponse, BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, ProjectCreateRequest, ProjectUpsertRequest, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, GscPerformanceResponseDto, GscPerformanceOrderBy, SiteAuditRunRequest, SiteAuditRunResponseDto, GscSitemapDto, GscSitemapListResponseDto, GscSubmitSitemapsResponseDto, GscDiscoverSitemapsResponseDto, OnboardingTelemetryEvent, TelemetryEventAcceptedDto } from '@ainyc/canonry-contracts'
 import {
   createClient as createHeyClient,
   // Projects + queries + competitors + locations + runs + apply + settings + telemetry
@@ -16,8 +16,6 @@ import {
   postApiV1ProjectsByNameQueries,
   deleteApiV1ProjectsByNameQueries,
   postApiV1ProjectsByNameQueriesGenerate,
-  postApiV1ProjectsByNameContentDismissals,
-  deleteApiV1ProjectsByNameContentDismissalsByTargetRef,
   deleteApiV1ProjectsByNameCompetitorsById,
   getApiV1ProjectsByNameCompetitors,
   postApiV1ProjectsByNameCompetitors,
@@ -90,8 +88,6 @@ import {
   postApiV1ProjectsByNameBingInspectSitemap,
   postApiV1ProjectsByNameBingRequestIndexing,
   getApiV1ProjectsByNameBingPerformance,
-  // Report
-  getApiV1ProjectsByNameReport,
   // GA4
   getApiV1ProjectsByNameGaStatus,
   postApiV1ProjectsByNameGaConnect,
@@ -844,34 +840,6 @@ export function appendQueries(projectName: string, queries: string[]): Promise<A
 export function removeQueries(projectName: string, queries: string[]): Promise<ApiQuery[]> {
   return invokeWeb<ApiQuery[]>(() =>
     deleteApiV1ProjectsByNameQueries({ client: heyClient, path: { name: projectName }, body: { queries } }),
-  )
-}
-
-/**
- * Persist a "mark addressed" dismissal for one content recommendation. The
- * backend (`POST /projects/:name/content/dismissals`) idempotently upserts a
- * row keyed by `(projectId, targetRef)`. Returns the stored dismissal so the
- * caller can confirm what landed (timestamp + audit fields).
- */
-export function dismissContentTarget(
-  projectName: string,
-  body: ContentTargetDismissRequest,
-): Promise<ContentTargetDismissalDto> {
-  return invokeWeb<ContentTargetDismissalDto>(() =>
-    postApiV1ProjectsByNameContentDismissals({ client: heyClient, path: { name: projectName }, body }),
-  )
-}
-
-/**
- * Reverse a dismissal. The recommendation reappears on the next report load
- * if the orchestrator still surfaces it.
- */
-export function undismissContentTarget(projectName: string, targetRef: string): Promise<void> {
-  return invokeWeb<void>(() =>
-    deleteApiV1ProjectsByNameContentDismissalsByTargetRef({
-      client: heyClient,
-      path: { name: projectName, targetRef },
-    }),
   )
 }
 
@@ -1787,48 +1755,10 @@ export function updateBingApiKey(apiKey: string): Promise<{ configured: boolean 
   )
 }
 
-// Report
-export function fetchReport(project: string): Promise<ProjectReportDto> {
-  return invokeWeb<ProjectReportDto>(() =>
-    getApiV1ProjectsByNameReport({ client: heyClient, path: { name: project } }),
-  )
-}
-
 function parseFilenameFromContentDisposition(header: string | null): string | null {
   if (!header) return null
   const match = /filename\s*=\s*"?([^";]+)"?/i.exec(header)
   return match?.[1] ?? null
-}
-
-// Blob download — keep raw fetch so we can read the binary body + parse
-// the Content-Disposition filename. The generated SDK would JSON-parse the
-// response and discard the binary payload.
-export async function downloadReportHtml(project: string, audience: ReportAudience = 'agency', period?: number): Promise<void> {
-  const key = getApiKey()
-  const params = new URLSearchParams({ audience })
-  if (period !== undefined) params.set('period', String(period))
-  const res = await fetch(
-    appendEmbedRenderToken(`${API_BASE}/projects/${encodeURIComponent(project)}/report.html?${params.toString()}`),
-    {
-      credentials: 'same-origin',
-      headers: key ? { Authorization: `Bearer ${key}` } : {},
-    },
-  )
-  if (!res.ok) {
-    throw new ApiError(`Failed to download report: ${res.status}`, res.status)
-  }
-  const blob = await res.blob()
-  const url = URL.createObjectURL(blob)
-  const filename =
-    parseFilenameFromContentDisposition(res.headers.get('Content-Disposition'))
-    ?? `canonry-report-${project}.html`
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
 }
 
 /** Download the historical query × provider results attachment from Project Settings. */

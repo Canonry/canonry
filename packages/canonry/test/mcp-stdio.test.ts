@@ -103,7 +103,7 @@ describe('canonry-mcp stdio', () => {
     const help = await client.callTool({ name: 'canonry_help', arguments: { includeCatalog: true } })
     expect(help.isError).not.toBe(true)
     const helpPayload = jsonText(help) as { toolkits: Array<{ name: string; toolCount: number }> }
-    expect(helpPayload.toolkits.map(t => t.name)).toEqual(['monitoring', 'setup', 'gsc', 'ga', 'gbp', 'ads', 'google-ads', 'gtm', 'conversion-tracking', 'traffic', 'agent', 'discovery'])
+    expect(helpPayload.toolkits.map(t => t.name)).toEqual(['monitoring', 'setup', 'gsc', 'bing', 'ga', 'gbp', 'ads', 'google-ads', 'gtm', 'conversion-tracking', 'traffic', 'agent', 'discovery'])
 
     const projects = await client.callTool({ name: 'canonry_projects_list', arguments: {} })
     expect(projects.isError).not.toBe(true)
@@ -214,7 +214,8 @@ describe('canonry-mcp stdio', () => {
     expect(list.tools.find(tool => tool.name === 'canonry_results_clear')?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true })
     expect(names).toContain('canonry_insights_list')
     expect(names).toContain('canonry_project_overview')
-    expect(names).toContain('canonry_report')
+    expect(names).not.toContain('canonry_report')
+    expect(names).toContain('canonry_traffic_analytics')
     expect(names).toContain('canonry_history_global')
     expect(names).toContain('canonry_search')
     expect(names).toContain('canonry_competitor_landscape')

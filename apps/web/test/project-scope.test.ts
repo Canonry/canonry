@@ -17,7 +17,7 @@ import {
 
 const TABS = [
   'overview', 'portfolio', 'search-console', 'conversions', 'local', 'queries', 'discovery',
-  'report', 'activity', 'backlinks', 'technical-aeo', 'history', 'settings',
+  'activity', 'backlinks', 'technical-aeo', 'history', 'settings',
 ] as const satisfies readonly ProjectPageTab[]
 
 const SURFACES = ['simple-overview', 'advanced-overview-v1', 'advanced-overview', 'unresolved'] as const satisfies readonly ProjectScopeSurface[]
@@ -32,7 +32,7 @@ const TRACKING: Record<string, ProjectScopeTracking> = {
 }
 
 const QUERY_TABS: readonly ProjectPageTab[] = ['queries', 'discovery']
-const SCOPE_BLIND_TABS: readonly ProjectPageTab[] = ['search-console', 'activity', 'technical-aeo', 'conversions', 'local', 'backlinks', 'report', 'history']
+const SCOPE_BLIND_TABS: readonly ProjectPageTab[] = ['search-console', 'activity', 'technical-aeo', 'conversions', 'local', 'backlinks', 'history']
 
 type SlotInput = Parameters<typeof projectScopeSlot>[0]
 
@@ -65,13 +65,13 @@ describe('projectScopeSlot', () => {
       }
     }
     expect(mismatches).toEqual([])
-    // 13 tabs x 4 surfaces x 2 scope states x 2 workspaces x 6 tracking states x 2 embed states.
+    // 12 tabs x 4 surfaces x 2 scope states x 2 workspaces x 6 tracking states x 2 embed states.
     expect(counts).toEqual({
       'report-picker': 24, // overview x v2 x 2 x 2 x 6
       'tracking-picker': 16, // queries+discovery x 4 surfaces x 2 x tracked x advanced
       'scope-unavailable': 16,
-      'project-wide': 96, // 8 scope-blind tabs x v2 x scoped x 2 x 6
-      none: 2344,
+      'project-wide': 84, // 7 scope-blind tabs x v2 x scoped x 2 x 6
+      none: 2164,
     })
   })
 

@@ -493,6 +493,19 @@ describe('traffic CLI commands', () => {
     expect(result.stderr).toMatch(/--limit/)
   })
 
+  it.each(['json', 'jsonl'])('reads the source-free traffic analytics envelope through the live API in %s', async format => {
+    const result = await invokeCli(['traffic', 'analytics', 'test-proj', '--period', '7', '--format', format])
+    expect(result.exitCode, result.stderr).toBeUndefined()
+    expect(parseJsonOutput(result.stdout)).toEqual({ activity: null })
+  })
+
+  it('rejects the retired dedicated report command', async () => {
+    const result = await invokeCli(['report', 'test-proj', '--format', 'json'])
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toContain('unknown command: report')
+  })
+
   it('reports no sources for `traffic status` when none are connected', async () => {
     const result = await invokeCli(['traffic', 'status', 'test-proj', '--format', 'json'])
     expect(result.exitCode).toBeUndefined()

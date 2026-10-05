@@ -643,19 +643,13 @@ function isPreviousSweepLookup(statement: string): boolean {
   return /"created_at" < \?/.test(statement)
 }
 
-describe('visibility report comparison opt-out', () => {
-  it('omits the field and never looks up the previous sweep when a report build opts out', () => {
+describe('visibility report comparison lookup', () => {
+  it('looks up the previous eligible sweep once', () => {
     seedSimpleRun({ id: 'simple-first', capturedAt: FIRST, frozen: true, answers: FIRST_SIMPLE })
     seedSimpleRun({ id: 'simple-second', capturedAt: SECOND, frozen: true, answers: SECOND_SIMPLE })
     const project = { id: projectId, displayName: 'Northstar', canonicalDomain: 'northstar.example' }
     const query = { mode: 'simple', queryClass: 'all', runId: 'simple-second' }
 
-    const optedOut = traced(() => readVisibilityReport(db, project, query, { includeComparison: false }))
-    expect(optedOut.result.selection.run.id).toBe('simple-second')
-    expect(optedOut.result.populations.map(population => Object.hasOwn(population, 'comparison'))).toEqual([false, false, false])
-    expect(optedOut.statements.filter(isPreviousSweepLookup)).toEqual([])
-
-    // The default read looks the previous sweep up exactly once, so the trace does see the lookup the opt-out skips.
     const compared = traced(() => readVisibilityReport(db, project, query))
     expect(compared.statements.filter(isPreviousSweepLookup)).toHaveLength(1)
     expect(compared.result.populations[1]!.comparison).toEqual(simpleChange('simple-first'))
