@@ -23,6 +23,12 @@ const SHARED_INCLUDE = ['test/**/*.test.ts', 'test/**/*.test.tsx']
 // `setupFiles` against THAT root. Resolve to the workspace once here so every
 // project points at the same shared file.
 const SHARED_SETUP = [path.resolve(import.meta.dirname, 'test-setup/vitest-defaults.ts')]
+const WEB_SETUP = [...SHARED_SETUP, path.resolve(import.meta.dirname, 'apps/web/test/testing-library-defaults.ts')]
+// The aggregate run executes every package's suite in one process, so tests
+// that spawn git, ESLint or npm, or seed a database, routinely pass 5s under
+// load while finishing in 1-3s on their own. Applies only to this root run;
+// each package's own `pnpm test` keeps Vitest's defaults.
+const AGGREGATE_TIMEOUTS = { testTimeout: 30_000, hookTimeout: 30_000 }
 
 const NODE_PACKAGES = [
   'api-client-generated',
@@ -70,6 +76,7 @@ export default defineConfig({
           root: `./packages/${name}`,
           include: SHARED_INCLUDE,
           setupFiles: SHARED_SETUP,
+          ...AGGREGATE_TIMEOUTS,
         },
       })),
       ...NODE_APPS.map((name) => ({
@@ -78,6 +85,7 @@ export default defineConfig({
           root: `./apps/${name}`,
           include: SHARED_INCLUDE,
           setupFiles: SHARED_SETUP,
+          ...AGGREGATE_TIMEOUTS,
         },
       })),
       {
@@ -85,7 +93,8 @@ export default defineConfig({
           name: 'web',
           root: './apps/web',
           include: SHARED_INCLUDE,
-          setupFiles: SHARED_SETUP,
+          setupFiles: WEB_SETUP,
+          ...AGGREGATE_TIMEOUTS,
           environment: 'jsdom',
         },
       },
@@ -97,6 +106,7 @@ export default defineConfig({
           root: '.',
           include: ['test/*.test.ts'],
           setupFiles: SHARED_SETUP,
+          ...AGGREGATE_TIMEOUTS,
         },
       },
     ],
