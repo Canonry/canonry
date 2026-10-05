@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react'
+import { trackUiSearchInput } from '../../lib/ui-telemetry.js'
 
 export const DEFAULT_TABLE_PAGE_SIZE = 25
 
@@ -136,7 +137,13 @@ export function DataTableSearch({
       <input
         type="search"
         value={value}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) => {
+          trackUiSearchInput(event.target.value)
+          onChange(event.target.value)
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') trackUiSearchInput(event.currentTarget.value, true)
+        }}
         aria-label={label}
         placeholder={placeholder}
         autoComplete="off"

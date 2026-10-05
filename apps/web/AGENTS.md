@@ -671,5 +671,6 @@ cannot silently send into a different conversation.
 - **Never put free text in an event**: no URLs, project names, query text, error messages or stacks. Pages are route patterns, API failures are route templates, errors are class names. The contract rejects anything else.
 - A new error boundary passes a `name` slug so `ui.error` says which boundary caught it.
 - **A read or write whose failure status is a normal outcome** (the code handles it as "none yet" or a conflict) adds its method, template and statuses to `EXPECTED_STATUSES`, so it is not reported as a UI error.
+- **A new shared filter** either writes a URL search param listed in `FILTER_BY_SEARCH_KEY` (picked up at the router) or calls `trackUiFilterChange(dimension)` when its value changes; a new table search uses `DataTableSearch`, which already reports `search.submit`. Never pass the value or the text.
 - **An OAuth start is `integration.connect_started`**; record `integration.connect` only where the connection is confirmed.
 

@@ -5,6 +5,7 @@ import {
   configureUiTelemetry,
   recordUiApiResult,
   recordUiError,
+  recordUiSearchParamsChange,
   recordUiVital,
   setUiPageFromRoute,
 } from './ui-telemetry.js'
@@ -78,12 +79,24 @@ export function installUiTelemetry(): void {
 /** Called whenever a router is (re)built. Page views follow resolved navigations. */
 export function attachUiTelemetryRouter(router: {
   subscribe: (event: 'onResolved', fn: () => void) => () => void
-  state: { matches: ReadonlyArray<{ fullPath?: string }> }
+  state: {
+    matches: ReadonlyArray<{ fullPath?: string }>
+    location?: { pathname: string; search: unknown }
+  }
 }): () => void {
+  let previous: { pathname: string; search: Record<string, unknown> } | null = null
   const report = () => {
     const leaf = router.state.matches.at(-1)
     // A router that has not resolved yet has no matches: that is not a page.
-    if (leaf) setUiPageFromRoute(leaf.fullPath)
+    if (!leaf) return
+    setUiPageFromRoute(leaf.fullPath)
+    // Shared filters live in the URL: a change of them on the SAME page is a
+    // filter change. Navigating elsewhere with the params carried is not.
+    const location = router.state.location
+    if (!location) return
+    const search = location.search && typeof location.search === 'object' ? location.search as Record<string, unknown> : {}
+    if (previous && previous.pathname === location.pathname) recordUiSearchParamsChange(previous.search, search)
+    previous = { pathname: location.pathname, search }
   }
   report()
   return router.subscribe('onResolved', report)

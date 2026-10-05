@@ -10355,10 +10355,11 @@ export type UiTelemetryEvent = {
     uiSessionId: string;
     page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.action';
-    action: 'sweep.launch' | 'sweep.cancel' | 'site_audit.launch' | 'project.create' | 'project.update' | 'project.delete' | 'query.add' | 'query.delete' | 'query.generate' | 'competitor.save' | 'competitor.delete' | 'schedule.save' | 'schedule.delete' | 'provider.save' | 'settings.save' | 'integration.connect_started' | 'integration.connect' | 'integration.disconnect' | 'traffic.sync' | 'notification.save' | 'notification.test' | 'measurement_plan.publish' | 'discovery.run' | 'api_key.create' | 'api_key.revoke' | 'export.download' | 'report.download' | 'aero.open' | 'aero.send';
+    action: 'sweep.launch' | 'sweep.cancel' | 'site_audit.launch' | 'project.create' | 'project.update' | 'project.delete' | 'query.add' | 'query.delete' | 'query.generate' | 'competitor.save' | 'competitor.delete' | 'schedule.save' | 'schedule.delete' | 'provider.save' | 'settings.save' | 'integration.connect_started' | 'integration.connect' | 'integration.disconnect' | 'traffic.sync' | 'notification.save' | 'notification.test' | 'measurement_plan.publish' | 'discovery.run' | 'api_key.create' | 'api_key.revoke' | 'export.download' | 'report.download' | 'aero.open' | 'aero.send' | 'filter.change' | 'search.submit';
     tab?: 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
     integration?: 'google' | 'gsc' | 'ga' | 'bing' | 'gbp' | 'wordpress' | 'openai_ads' | 'google_ads' | 'gtm' | 'traffic_cloudflare' | 'traffic_vercel' | 'traffic_cloud_run' | 'traffic_wordpress';
     format?: 'csv' | 'json' | 'html';
+    filter?: 'provider' | 'model' | 'location' | 'window' | 'query_class' | 'other';
 } | {
     eventId: string;
     uiSessionId: string;

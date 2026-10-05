@@ -5,6 +5,7 @@ import {
   uiPageFromRoutePath,
   uiProjectTabFromPage,
   type UiAction,
+  type UiFilter,
   type UiIntegration,
   type UiPage,
   type UiProjectTab,
@@ -75,6 +76,11 @@ export function resetUiTelemetryForTests(options: { keepStorage?: boolean } = {}
   state.memory.clear()
   state.sentAt = null
   state.now = () => Date.now()
+  for (const timer of filterTimers.values()) clearTimeout(timer)
+  filterTimers.clear()
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = undefined
+  lastSearchCounted = ''
   if (options.keepStorage) return
   try {
     for (const key of [SESSION_KEY, PAGES_KEY, ERRORS_KEY, SENT_KEY]) window.sessionStorage.removeItem(key)
@@ -99,8 +105,90 @@ export function setUiPageFromRoute(fullPath: string | undefined | null): void {
   sendOnce(PAGES_KEY, `${page}|${tab ?? ''}`, { event: 'ui.page_viewed' })
 }
 
-export function trackUiAction(action: UiAction, detail: { integration?: UiIntegration; format?: 'csv' | 'json' | 'html' } = {}): void {
+export function trackUiAction(action: UiAction, detail: { integration?: UiIntegration; format?: 'csv' | 'json' | 'html'; filter?: UiFilter } = {}): void {
   emit({ event: 'ui.action', action, ...detail })
+}
+
+/** A filter is "changed" once it stops moving for this long, so a slider drag is one event. */
+export const UI_FILTER_DEBOUNCE_MS = 800
+/** A table search counts once typing pauses this long (or on Enter). */
+export const UI_SEARCH_DEBOUNCE_MS = 1_000
+
+const filterTimers = new Map<UiFilter, ReturnType<typeof setTimeout>>()
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+/** In memory only, to avoid counting one query twice (debounce then Enter). Never sent. */
+let lastSearchCounted = ''
+
+/** One `filter.change` per settled change of `filter`. The value is never sent. */
+export function trackUiFilterChange(filter: UiFilter): void {
+  if (!state.sender) return
+  const pending = filterTimers.get(filter)
+  if (pending) clearTimeout(pending)
+  filterTimers.set(filter, setTimeout(() => {
+    filterTimers.delete(filter)
+    trackUiAction('filter.change', { filter })
+  }, UI_FILTER_DEBOUNCE_MS))
+}
+
+/**
+ * A table search input changed. Counts one `search.submit` once a NON-EMPTY
+ * query settles (`submitNow` for Enter). Clearing the box is not a search.
+ * The text never leaves this function.
+ */
+export function trackUiSearchInput(value: string, submitNow = false): void {
+  if (!state.sender) return
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = undefined
+  const query = value.trim()
+  if (query.length === 0) {
+    lastSearchCounted = ''
+    return
+  }
+  const count = () => {
+    searchTimer = undefined
+    if (query === lastSearchCounted) return
+    lastSearchCounted = query
+    trackUiAction('search.submit')
+  }
+  if (submitNow) count()
+  else searchTimer = setTimeout(count, UI_SEARCH_DEBOUNCE_MS)
+}
+
+/**
+ * URL search params that are shared filters, by dimension. The measurement
+ * views write them through `patchVisibilitySelection`, the runs list through
+ * its own keys; any of them changing on the same page is a filter change.
+ */
+const FILTER_BY_SEARCH_KEY: Readonly<Record<string, UiFilter>> = {
+  measurementProvider: 'provider',
+  measurementModel: 'model',
+  measurementLocation: 'location',
+  measurementFrom: 'window',
+  measurementTo: 'window',
+  runWindow: 'window',
+  queryClass: 'query_class',
+  class: 'query_class',
+  measurementScope: 'other',
+  measurementScopeKey: 'other',
+  measurementMarketKey: 'other',
+  scope: 'other',
+  runStatus: 'other',
+  runKind: 'other',
+  runProject: 'other',
+}
+
+/** Compare the search params of two locations on the same page; values are only compared, never sent. */
+export function recordUiSearchParamsChange(previous: Record<string, unknown>, next: Record<string, unknown>): void {
+  const changed = new Set<UiFilter>()
+  for (const [key, filter] of Object.entries(FILTER_BY_SEARCH_KEY)) {
+    if (!sameParam(previous[key], next[key])) changed.add(filter)
+  }
+  for (const filter of changed) trackUiFilterChange(filter)
+}
+
+function sameParam(a: unknown, b: unknown): boolean {
+  const norm = (v: unknown) => v === undefined || v === null || v === '' ? '' : JSON.stringify(v)
+  return norm(a) === norm(b)
 }
 
 export interface UiErrorInput {
