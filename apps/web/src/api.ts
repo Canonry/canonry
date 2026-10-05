@@ -1,6 +1,7 @@
 import type { AgentConversation, AgentConversationList, AgentConversationDelete } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@ainyc/canonry-api-client'
 import { mcpHealthSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, RunKinds } from '@ainyc/canonry-contracts'
+import { recordUiApiResult, trackUiAction } from './lib/ui-telemetry.js'
 import type { ApiKeyDto, CalendarRecurrence, SchedulableRunKind, EmbedClientConfig, ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4ChannelBreakdownDto, GA4ChannelBucketDto, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, GaTrafficResponse, InsightDto, ResultsExportFormat, CitationVisibilityResponse, BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, ProjectCreateRequest, ProjectUpsertRequest, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, GscPerformanceResponseDto, GscPerformanceOrderBy, SiteAuditRunRequest, SiteAuditRunResponseDto, GscSitemapDto, GscSitemapListResponseDto, GscSubmitSitemapsResponseDto, GscDiscoverSitemapsResponseDto, OnboardingTelemetryEvent, TelemetryEventAcceptedDto } from '@ainyc/canonry-contracts'
 import {
   createClient as createHeyClient,
@@ -1769,8 +1770,10 @@ export async function downloadResultsExport(project: string, format: ResultsExpo
     headers: key ? { Authorization: `Bearer ${key}` } : {},
   })
   if (!res.ok) {
+    recordUiApiResult({ method: 'GET', route: '/api/v1/projects/{name}/results/export', status: res.status })
     throw new ApiError(`Failed to download results: ${res.status}`, res.status)
   }
+  trackUiAction('export.download', { format })
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)
   const filename =

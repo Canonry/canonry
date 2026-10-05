@@ -1,3 +1,4 @@
+import { recordUiApiResult, trackUiAction } from './lib/ui-telemetry.js'
 import type { AgentViewContext, AgentTurnLimits } from '@ainyc/canonry-contracts'
 import { ApiError, handleAuthExpired } from './api.js'
 import type { AeroPreviewResponse, AgentProviderId, AgentProvidersResponse, ErrorCode } from '@ainyc/canonry-contracts'
@@ -213,9 +214,11 @@ export async function promptAero({
   })
   if (!res.ok || !res.body) {
     triggerAuthExpiredOn401(res.status)
+    recordUiApiResult({ method: 'POST', route: '/api/v1/projects/{name}/agent/prompt', status: res.status })
     const errBody = await parseErrorBody(res)
     throw new ApiError(errBody.error?.message ?? `prompt failed: ${res.status}`, res.status, errBody.error?.code)
   }
+  trackUiAction('aero.send')
 
   let closed = false
   const reader = res.body.getReader()

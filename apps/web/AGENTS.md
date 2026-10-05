@@ -661,3 +661,13 @@ and reopens saved conversations. Delete is a separate confirmed action. These
 controls use generated SDK operations and are disabled during context changes
 or active turns. A prompt carries the displayed conversation ID, so a stale tab
 cannot silently send into a different conversation.
+
+## Usage telemetry (`ui.*` events)
+
+`src/lib/ui-telemetry.ts` records page views, feature actions, UI errors and web vitals; `src/lib/ui-telemetry-install.ts` wires it once from `main.tsx` (tests never import it, so they stay silent). Rules:
+
+- **A new feature adds a `ui.action`.** Add the action to `UI_ACTIONS` in `packages/contracts/src/ui-telemetry.ts`. If the feature is a dashboard API write, add its method and route template to `ACTION_BY_ROUTE`; otherwise call `trackUiAction` at the one place the action completes. Never send a free-form name.
+- **A new route adds its pattern** to `UI_PAGES` (and a project section to `UI_PROJECT_TABS`); unknown routes report as `other`.
+- **Never put free text in an event**: no URLs, project names, query text, error messages or stacks. Pages are route patterns, API failures are route templates, errors are class names. The contract rejects anything else.
+- A new error boundary passes a `name` slug so `ui.error` says which boundary caught it.
+

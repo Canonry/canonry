@@ -146,6 +146,7 @@ import {
   getTelemetryStatus,
   setTelemetryPreference,
   trackEvent,
+  recordDashboardEvent,
 } from "./telemetry.js";
 import { createApiUsageTelemetry } from "./usage-telemetry.js";
 import { sendFeedback } from "./feedback.js";
@@ -3319,10 +3320,10 @@ export async function createServer(opts: {
       // Keep in-memory config in sync
       opts.config.telemetry = enabled;
     },
-    recordOnboardingEvent: (event) => {
-      const { event: eventName, eventId, ...properties } = event;
-      trackEvent(eventName, properties, { source: "dashboard", eventId });
-    },
+    recordOnboardingEvent: (event) => recordDashboardEvent(event),
+    // Opted-out installs send no dashboard usage: recordDashboardEvent goes
+    // through trackEvent, which drops everything while telemetry is disabled.
+    recordUiEvent: (event) => recordDashboardEvent(event),
     submitFeedback: (submission, context) => sendFeedback(submission, context),
     onCdpConfigure: async (host: string, port: number) => {
       if (!opts.config.cdp) opts.config.cdp = {};

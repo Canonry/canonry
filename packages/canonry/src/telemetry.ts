@@ -443,6 +443,16 @@ export function trackEvent(
   void deliverEvent(event, properties, options)
 }
 
+/**
+ * Forward a validated dashboard event (onboarding milestone or UI usage).
+ * `eventId` becomes the idempotency key and every other field a property.
+ * Goes through `trackEvent`, so an opted-out install sends nothing.
+ */
+export function recordDashboardEvent(event: { event: string; eventId: string } & TelemetryProperties): void {
+  const { event: eventName, eventId, ...properties } = event
+  trackEvent(eventName, properties, { source: 'dashboard', eventId: String(eventId) })
+}
+
 export type TelemetryPreferenceMethod = 'cli' | 'api'
 
 /**

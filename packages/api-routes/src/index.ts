@@ -259,6 +259,8 @@ export interface ApiRoutesOptions {
   setTelemetryEnabled?: TelemetryRoutesOptions['setTelemetryEnabled']
   /** Privacy-safe dashboard onboarding milestones. */
   recordOnboardingEvent?: TelemetryRoutesOptions['recordOnboardingEvent']
+  /** Dashboard usage telemetry (page views, actions, UI errors, web vitals). */
+  recordUiEvent?: TelemetryRoutesOptions['recordUiEvent']
   /** Forwards product feedback (CLI, MCP, dashboard) to the canonry.ai collector. */
   submitFeedback?: FeedbackRoutesOptions['submitFeedback']
   /** Per-request usage telemetry hook (route template + usage labels only). The host validates labels and applies rate limits. */
@@ -649,6 +651,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getTelemetryStatus: opts.getTelemetryStatus,
       setTelemetryEnabled: opts.setTelemetryEnabled,
       recordOnboardingEvent: opts.recordOnboardingEvent,
+      recordUiEvent: opts.recordUiEvent,
     } satisfies TelemetryRoutesOptions)
     await api.register(feedbackRoutes, {
       submitFeedback: opts.submitFeedback,
