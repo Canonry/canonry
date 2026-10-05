@@ -133,6 +133,10 @@ test('retired report URLs redirect to AI Visibility without reading the report A
 })
 
 test('/projects/$id/local renders the local presence tab', async () => {
+  const restore = mockFetch(url => pathOf(url).endsWith('/google/connections')
+    ? jsonResponse([])
+    : jsonResponse({ error: { message: 'not needed for local presence route' } }, 503))
+  onTestFinished(restore)
   const { container } = await renderRoute('/projects/project_citypoint/local')
   // Route resolves to the project shell...
   expect(container.innerHTML).toMatch(/Citypoint Dental NYC/)
