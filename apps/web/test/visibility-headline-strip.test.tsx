@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { REPORT_VISIBILITY_COPY, visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
+import { VISIBILITY_DISPLAY_COPY, visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
 import type { VisibilityReportComparison, VisibilityReportPopulationClass, VisibilityReportRate, VisibilityReportResponse } from '@ainyc/canonry-contracts'
 import { CHART_SERIES_COLORS, CHART_TONE } from '../src/components/shared/ChartPrimitives.js'
 import { REPORT_CHANGE_COPY, REPORT_CLASS_NOUN, REPORT_HEADLINE_HELP, VisibilityReportView } from '../src/components/project/VisibilityTrendSection.js'
@@ -296,7 +296,7 @@ describe('headline strip', () => {
       ['1055 of 1140 answers', DETAIL_CLASS],
       ['12 of 1152 answers could not be tied to one property', DETAIL_CLASS],
     ])
-    expect(visibleText(tile(MENTION_LABEL, 'branded'))).not.toContain(REPORT_VISIBILITY_COPY.ambiguous)
+    expect(visibleText(tile(MENTION_LABEL, 'branded'))).not.toContain(VISIBILITY_DISPLAY_COPY.ambiguous)
     // Cited is a separate signal with its own denominator and no such line.
     expect(cell(CITATION_LABEL, 'branded')).toEqual(figure(CITATION_LABEL, 'branded'))
   })
@@ -304,7 +304,7 @@ describe('headline strip', () => {
   it('keeps an all-unattributable rate unavailable with its reason and no count line', () => {
     const ambiguous: VisibilityReportRate = { numerator: null, denominator: null, rate: null, reason: 'identity-ambiguous' }
     render(<VisibilityReportView report={headlineReport({ queryClass: 'branded', summary: { mentionCoverage: ambiguous } })} onSelectionChange={() => {}} />)
-    expect(cell(MENTION_LABEL, 'branded')).toEqual([[`${REPORT_VISIBILITY_COPY.ambiguous} · ${REPORT_CLASS_NOUN.branded}`, REASON_CLASS]])
+    expect(cell(MENTION_LABEL, 'branded')).toEqual([[`${VISIBILITY_DISPLAY_COPY.ambiguous} · ${REPORT_CLASS_NOUN.branded}`, REASON_CLASS]])
   })
 
   it.each([

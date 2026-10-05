@@ -1,5 +1,4 @@
-import { aggregateSentiment, createSentimentEvaluationDefinition, REPORT_VISIBILITY_COPY, reportQueryClassLabel, reportVisibilityEvidence, reportVisibilityRate, reportVisibilityMeasurementLabel, reportVisibilityHistoryLabel } from '@ainyc/canonry-contracts'
-import { ReportVisibilitySummary } from '../src/components/project/ReportVisibilitySummary.js'
+import { aggregateSentiment, createSentimentEvaluationDefinition, VISIBILITY_DISPLAY_COPY } from '@ainyc/canonry-contracts'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -1114,65 +1113,13 @@ describe('shared production visibility view', () => {
 })
 
 
-it('client report renders server-provided independent populations without pooling or recalculating', () => {
-  const fixture = reportFixture()
-  const first = fixture.populations[0]!
-  const branded = { ...first, queryClass: 'branded' as const, summary: { ...first.summary, mentionCoverage: { numerator: 2, denominator: 2, rate: 1 }, queryCount: 2, answerCount: 2 } }
-  render(<ReportVisibilitySummary visibility={{ selection: fixture.selection, populations: [first, branded] }} />)
-  const region = screen.getByRole('region', { name: REPORT_VISIBILITY_COPY.title })
-  const firstRow = within(region).getByText(reportQueryClassLabel(first.queryClass)).closest('tr')!
-  expect(within(firstRow).getByText(reportVisibilityRate(first.summary.mentionCoverage))).toBeTruthy()
-  expect(within(firstRow).getByText(reportVisibilityEvidence(first.summary.mentionCoverage))).toBeTruthy()
-  const secondRow = within(region).getByText(reportQueryClassLabel(branded.queryClass)).closest('tr')!
-  expect(within(secondRow).getByText(reportVisibilityRate(branded.summary.mentionCoverage))).toBeTruthy()
-  expect(within(secondRow).getByText(reportVisibilityEvidence(branded.summary.mentionCoverage))).toBeTruthy()
-})
-
-it('client report states the answers a mention rate left out under its count', () => {
-  const fixture = reportFixture()
-  const first = fixture.populations[0]!
-  const branded = { ...first, queryClass: 'branded' as const, summary: { ...first.summary, mentionCoverage: { numerator: 10, denominator: 11, rate: 10 / 11, unattributed: 1 }, queryCount: 3, answerCount: 12 } }
-  render(<ReportVisibilitySummary visibility={{ selection: fixture.selection, populations: [branded] }} />)
-  const row = within(screen.getByRole('region', { name: REPORT_VISIBILITY_COPY.title })).getByText(reportQueryClassLabel('branded')).closest('tr')!
-  const [, , , mentioned, cited] = [...row.querySelectorAll('td')]
-  expect([...mentioned!.children].map(child => child.textContent)).toEqual([
-    reportVisibilityRate(branded.summary.mentionCoverage),
-    '10 of 11 answers',
-    '1 of 12 answers could not be tied to one property',
-  ])
-  expect(cited!.textContent).not.toContain('could not be tied')
-})
-
 it('ambiguous property identity remains unverified in rates and saved answer evidence', () => {
   const report = reportWithAnswer('query-context', 'Which same-named property do you mean?')
   const population = report.populations[0]!
   population.summary.mentionCoverage = { numerator: null, denominator: null, rate: null, reason: 'identity-ambiguous' }
   population.evidence.items[0] = { ...population.evidence.items[0]!, mentioned: null, mentionUnavailableReason: 'identity-ambiguous' }
   render(<VisibilityReportView report={report} onSelectionChange={() => {}} evidenceReport={report} queryKey="query-context" />)
-  expect(within(screen.getByRole('region', { name: VISIBILITY_ANSWERS_LABEL })).getByText(REPORT_VISIBILITY_COPY.ambiguous)).toBeTruthy()
-})
-
-
-it('client report preserves earlier unclassified history after a classified baseline', () => {
-  const fixture = reportFixture()
-  const populated = fixture.populations[0]!
-  const historicalDate = '2026-08-15T10:00:00Z'
-  const historicalOnly = { ...populated, queryClass: 'unknown' as const,
-    summary: { ...populated.summary, queryCount: 0, answerCount: 0 },
-    trend: [{ runId: 'earlier-unclassified', createdAt: historicalDate, revision: null,
-      provenance: { kind: 'legacy-simple' as const, definitionRevision: null }, queryCount: 1, answerCount: 3,
-      mentionCoverage: populated.summary.mentionCoverage, citationCoverage: populated.summary.citationCoverage,
-      continuity: { state: 'legacy-unknown' as const, comparedRunId: 'outside-period' } }],
-  }
-  const visibility = { selection: fixture.selection, populations: [populated, historicalOnly], historyWindow: { from: '2026-08-01T00:00:00.000Z', to: '2026-09-02T00:00:00.000Z' } }
-  render(<ReportVisibilitySummary visibility={visibility} />)
-  expect(screen.getByText(reportVisibilityMeasurementLabel(visibility))).toBeTruthy()
-  expect(screen.getByText(reportVisibilityHistoryLabel(visibility))).toBeTruthy()
-  expect(screen.getByText(REPORT_VISIBILITY_COPY.previousOutsideWindow, { exact: false })).toBeTruthy()
-  const tables = screen.getAllByRole('table')
-  expect(within(tables[0]!).queryByText(reportQueryClassLabel(historicalOnly.queryClass))).toBeNull()
-  expect(within(tables[1]!).getByText(reportQueryClassLabel(historicalOnly.queryClass))).toBeTruthy()
-  expect(within(tables[1]!).getByText(historicalDate.slice(0, 10))).toBeTruthy()
+  expect(within(screen.getByRole('region', { name: VISIBILITY_ANSWERS_LABEL })).getByText(VISIBILITY_DISPLAY_COPY.ambiguous)).toBeTruthy()
 })
 
 

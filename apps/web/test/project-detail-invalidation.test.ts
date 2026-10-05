@@ -8,7 +8,7 @@ import type { ApiProject } from '../src/api.js'
 
 /**
  * Regression test for the project-page-stops-refreshing bug fixed in this
- * change. The `useAppendQueries` / `useDismissContentTarget` mutations use
+ * change. The `useAppendQueries` mutation uses
  * `isProjectDetailQuery` to invalidate the composite dashboard cache after
  * a write. When `useProjectDashboard` was split out of the legacy
  * `useDashboard` hook, it changed its cache-key prefix from `'projects'`

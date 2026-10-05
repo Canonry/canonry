@@ -18,7 +18,6 @@ const items = [
   { key: 'backlinks', label: 'Backlinks' },
 ].map(item => ({ ...item, key: item.key as ProjectPageTab, href: `/projects/demo/${item.key}` }))
 const overflowItems = [
-  { key: 'report' as const, label: 'Report', href: '/projects/demo/report' },
   { key: 'history' as const, label: 'Change History', href: '/projects/demo/history' },
 ]
 const settingsItem = { key: 'settings' as const, label: 'Settings', href: '/projects/demo/settings' }
@@ -84,7 +83,7 @@ test('wide navigation keeps primary sections and Settings visible', async () => 
   const { nav } = await renderNav()
   expect(within(nav).getAllByRole('link')).toHaveLength(9)
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
-  expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual(['Report', 'Change History'])
+  expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual(['Change History'])
 })
 
 test('a narrow container moves excess sections into More without a viewport resize', async () => {
@@ -96,7 +95,7 @@ test('a narrow container moves excess sections into More without a viewport resi
   expect(within(nav).getByRole('link', { name: 'Site Health' })).toBeTruthy()
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
   expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual([
-    'Conversions', 'Local Presence', 'Queries', 'Backlinks', 'Report', 'Change History',
+    'Conversions', 'Local Presence', 'Queries', 'Backlinks', 'Change History',
   ])
   act(() => { containerWidth = 1600; resize?.() })
   expect(within(nav).getByRole('link', { name: 'Queries' })).toBeTruthy()
@@ -155,11 +154,11 @@ test('embed-filtered sections remain filtered when they overflow', async () => {
 })
 
 test('an active low-frequency section remains identified inside More', async () => {
-  const { nav } = await renderNav('report')
+  const { nav } = await renderNav('history')
   const trigger = within(nav).getByRole('button', { name: 'More' })
   expect(trigger.classList.contains('project-subnav-link-active')).toBe(true)
   fireEvent.click(trigger)
-  expect(within(nav).getByRole('menuitem', { name: 'Report' }).getAttribute('aria-current')).toBe('page')
+  expect(within(nav).getByRole('menuitem', { name: 'Change History' }).getAttribute('aria-current')).toBe('page')
   fireEvent.pointerDown(document.body)
   expect(within(nav).queryByRole('menu')).toBeNull()
 })

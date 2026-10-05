@@ -76,10 +76,10 @@ describe('universal MCP operations guidance', () => {
     const { client } = await connect({ scope: 'read-only' })
     const before = await client.callTool({ name: 'canonry_help', arguments: { intent: 'reports' } })
     expect(before.structuredContent).toMatchObject({ mode: 'stdio-progressive', loadToolkits: ['monitoring'] })
-    expect(before.structuredContent?.next).not.toContain('canonry_report')
+    expect(before.structuredContent?.next).not.toContain('canonry_organic_evidence')
     await client.callTool({ name: 'canonry_load_toolkit', arguments: { name: 'monitoring' } })
     const after = await client.callTool({ name: 'canonry_help', arguments: { intent: 'reports' } })
-    expect(after.structuredContent?.next).toContain('canonry_report')
+    expect(after.structuredContent?.next).toContain('canonry_organic_evidence')
     expect(after.structuredContent).not.toHaveProperty('loadToolkits')
   })
 

@@ -49,7 +49,7 @@ import {
   runTriggerRequestSchema,
   backlinkSourceSchema,
   organicEvidencePeriodSchema,
-  reportPeriodSchema,
+  trafficAnalyticsPeriodSchema,
   schedulableRunKindSchema,
   scheduleUpsertRequestSchema,
   scheduleDtoSchema,
@@ -1447,21 +1447,6 @@ export const canonryMcpTools = [
     }),
   }),
   defineTool({
-    name: 'canonry_report',
-    title: 'Get aggregated AEO report',
-    description:
-      'Returns the full canonical AEO report bundle for a project — executive summary, client summary, agency diagnostics, action plan, per-query × per-provider citation matrix, competitor landscape, AI citation sources, GSC/GA4 performance, social and AI referrals, indexing health, citations trend, prioritized insights, and recommended next steps. Same payload `canonry report <project>` consumes to render audience-specific HTML. Pass `period` (7/14/30/90 days, default 30) to scope the GSC/GA4/server-activity sections and the period-over-period comparisons.',
-    access: 'read',
-    tier: 'monitoring',
-    inputSchema: z.object({
-      project: projectNameSchema,
-      period: reportPeriodSchema.optional(),
-    }),
-    annotations: readAnnotations(),
-    openApiOperations: ['GET /api/v1/projects/{name}/report'],
-    handler: (client, input) => client.getReport(input.project, input.period !== undefined ? { period: input.period } : undefined),
-  }),
-  defineTool({
     name: 'canonry_organic_evidence',
     title: 'Reconcile organic and AI evidence',
     description:
@@ -2156,6 +2141,17 @@ export const canonryMcpTools = [
     handler: (client, input) => client.gscCoverageHistory(input.project, { limit: input.limit }),
   }),
   defineTool({
+    name: 'canonry_bing_coverage',
+    title: 'Get Bing coverage',
+    description: 'Read stored Bing index coverage counts and URL inspections for a Canonry project. Preserves indexed, not indexed and unknown evidence, the server percentage and last inspection time. Project-wide for Simple and Advanced portfolios; Property, Target and market attribution are unavailable. Requires the existing Bing connection. Never calls Bing or starts a sync.',
+    access: 'read',
+    tier: 'bing',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/bing/coverage'],
+    handler: (client, input) => client.bingCoverage(input.project),
+  }),
+  defineTool({
     name: 'canonry_gsc_sitemaps',
     title: 'Get GSC sitemaps',
     description: 'Get sitemap data from Google Search Console for a Canonry project.',
@@ -2498,6 +2494,17 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/traffic/status'],
     handler: (client, input) => client.trafficStatus(input.project),
+  }),
+  defineTool({
+    name: 'canonry_traffic_analytics',
+    title: 'Get traffic analytics',
+    description: 'Read complete stored server-traffic totals, daily history, crawler and AI-referral breakdowns, and prior-period changes for 7, 14, 30, or 90 days (default 30). Returns activity null when no traffic source is configured. Project-wide for Simple and Advanced portfolios; Property, Target, and market attribution are unavailable. Never starts provider work or a sync.',
+    access: 'read',
+    tier: 'traffic',
+    inputSchema: z.object({ project: projectNameSchema, period: trafficAnalyticsPeriodSchema.optional() }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/traffic/analytics'],
+    handler: (client, input) => client.getTrafficAnalytics(input.project, input.period),
   }),
   defineTool({
     name: 'canonry_traffic_referral_assessment',

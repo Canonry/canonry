@@ -40,7 +40,7 @@ import type { ApplyRoutesOptions } from './apply.js'
 import { historyRoutes } from './history.js'
 import { analyticsRoutes } from './analytics.js'
 import { intelligenceRoutes } from './intelligence.js'
-import { reportRoutes } from './report.js'
+import { trafficAnalyticsRoutes } from './traffic-analytics.js'
 import { referralAssessmentRoutes } from './referral-assessment.js'
 import { organicEvidenceRoutes } from './organic-evidence.js'
 import { citationRoutes } from './citations.js'
@@ -610,7 +610,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(historyRoutes)
     await api.register(analyticsRoutes)
     await api.register(intelligenceRoutes)
-    await api.register(reportRoutes)
+    await api.register(trafficAnalyticsRoutes)
     await api.register(organicEvidenceRoutes)
     await api.register(referralAssessmentRoutes)
     await api.register(citationRoutes)
@@ -838,8 +838,6 @@ export { resolveMeasurementSitemapTarget as resolvePublicHttpTarget } from './me
 export { redactNotificationDiff, redactNotificationUrl } from './notification-redaction.js'
 export type { SafeWebhookTarget } from './webhooks.js'
 export type { RunRoutesOptions } from './runs.js'
-export { renderReportHtml } from './report-renderer.js'
-export type { RenderReportHtmlOptions } from './report-renderer.js'
 // Pure GBP summary math — reused by the intelligence service to derive
 // per-location signals (window deltas, lodging/CTA flags) for gbp-sync insights.
 export {

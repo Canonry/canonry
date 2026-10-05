@@ -1,6 +1,7 @@
 import {
   trafficBackfill,
   trafficActivate,
+  trafficAnalytics,
   trafficConnectCloudflare,
   trafficConnectCloudRun,
   trafficConnectVercel,
@@ -17,6 +18,16 @@ import { getBoolean, getString, parseIntegerOption, requireProject, stringOption
 import { DEFAULT_CLOUDFLARE_QUEUE_RETENTION_SECONDS } from '../commands/traffic.js'
 
 export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
+  {
+    path: ['traffic', 'analytics'],
+    usage: 'canonry traffic analytics <project> [--period 7|14|30|90] [--format json]',
+    help: 'Complete stored traffic totals and breakdowns for the selected window. Project-wide for Simple and Advanced portfolios; no provider calls or sync.',
+    options: { period: stringOption() },
+    run: async input => {
+      const project = requireProject(input, 'traffic.analytics', 'canonry traffic analytics <project> [--period 7|14|30|90]')
+      await trafficAnalytics(project, { period: getString(input.values, 'period'), format: input.format })
+    },
+  },
   {
     path: ['traffic', 'referral-assessment'],
     usage: 'canonry traffic referral-assessment <project> --start-date YYYY-MM-DD --end-date YYYY-MM-DD [--source <id>] [--burst-threshold 100] [--ratio-threshold 3] [--limit 100] [--format json]',
@@ -359,7 +370,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       unknownSubcommand(input.positionals[0], {
         command: 'traffic',
         usage: 'canonry traffic <subcommand> <project> [args]',
-        available: ['connect', 'activate', 'sync', 'backfill', 'status', 'sources', 'events'],
+        available: ['connect', 'activate', 'sync', 'backfill', 'status', 'sources', 'events', 'analytics', 'referral-assessment'],
       })
     },
   },

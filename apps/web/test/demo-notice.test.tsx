@@ -28,7 +28,6 @@ const FEATURE_LINKS: readonly [string, string][] = [
   ['AI visibility', '/projects/summit-roofing'],
   ['Search engines', '/projects/summit-roofing/search-console'],
   ['Traffic & conversions', '/projects/summit-roofing/conversions'],
-  ['Reports', '/projects/harbor-resorts/report'],
   ['Properties & markets', '/projects/harbor-resorts'],
   ['Queries & research', '/projects/harbor-resorts/queries'],
   ['Activity', '/projects/harbor-resorts/activity'],
@@ -138,7 +137,7 @@ describe('public demo notice', () => {
 
     fireEvent.click(summary)
     expect(details.open).toBe(true)
-    fireEvent.keyDown(within(directory).getByRole('link', { name: 'Reports' }), { key: 'Escape' })
+    fireEvent.keyDown(within(directory).getByRole('link', { name: 'AI visibility' }), { key: 'Escape' })
     expect(details.open).toBe(false)
     expect(document.activeElement).toBe(summary)
   })

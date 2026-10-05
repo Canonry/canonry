@@ -3,6 +3,7 @@ export const CANONRY_MCP_TIERS = [
   'monitoring',
   'setup',
   'gsc',
+  'bing',
   'ga',
   'gbp',
   // `ads` is deliberately OpenAI / ChatGPT Ads. Google Ads has its own
@@ -21,6 +22,7 @@ export const CANONRY_MCP_TOOLKIT_NAMES = [
   'monitoring',
   'setup',
   'gsc',
+  'bing',
   'ga',
   'gbp',
   'ads',
@@ -58,6 +60,12 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
     title: 'Google Search Console',
     description: 'Read GSC performance, per-query totals, inspections, coverage, sitemaps, and deindexed URLs.',
     whenToLoad: 'Load when you need indexing, coverage, or sitemap data from Google Search Console.',
+  },
+  {
+    name: 'bing',
+    title: 'Bing Webmaster Tools',
+    description: 'Read stored project index coverage and URL inspection evidence without calling Bing.',
+    whenToLoad: 'Load when reviewing indexed, not indexed or unknown URLs from a connected Bing site.',
   },
   {
     name: 'ga',
@@ -98,7 +106,7 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
   {
     name: 'traffic',
     title: 'Server-side traffic ingestion',
-    description: 'Read crawler / AI-referral hourly rollups straight from server logs (no GA dependency), assess AI-referral bursts from stored evidence (raw counts, candidate bursts, a separate adjusted estimate, coverage limits), connect Cloud Run / WordPress / Vercel sources, trigger syncs, and backfill Cloud Run / Vercel windows.',
+    description: 'Read complete 7/14/30/90-day traffic analytics and crawler / AI-referral hourly rollups straight from server logs (no GA dependency), assess AI-referral bursts from stored evidence (raw counts, candidate bursts, a separate adjusted estimate, coverage limits), connect Cloud Run / WordPress / Vercel sources, trigger syncs, and backfill Cloud Run / Vercel windows.',
     whenToLoad: 'Load when you need server-log evidence of crawler hits or AI-referral sessions (e.g. confirming GPTBot or ChatGPT-User on a page), when reviewing candidate AI-referral bursts before quoting server-side AI referral totals, or when wiring up / syncing a traffic source.',
   },
   {

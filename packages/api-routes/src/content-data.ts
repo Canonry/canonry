@@ -373,10 +373,9 @@ function resolveContentGaWindow(
  * total by roughly the number of lenses (measured 800 vs 264, a 3.0x inflation,
  * on a live project).
  *
- * Every other consumer already guards this: `report.ts` pins `session` and
- * `ga.ts` takes the winning lens per tuple via `pickWinningDimension`. Pinning
- * the same lens here keeps the content engine's denominator consistent with the
- * report's numerator.
+ * `ga.ts` takes the winning lens per tuple via `pickWinningDimension`.
+ * Pinning one lens here prevents overlapping dimensions from inflating the
+ * content engine denominator.
  */
 function sumAiReferralSessions(
   db: DatabaseClient,

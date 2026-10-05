@@ -3,7 +3,7 @@ import type {
   MeasurementPlanResponse,
   MeasurementReportResponse,
 } from '@ainyc/canonry-api-client'
-import { REPORT_VISIBILITY_COPY } from '@ainyc/canonry-contracts'
+import { VISIBILITY_DISPLAY_COPY } from '@ainyc/canonry-contracts'
 
 import type {
   AdvancedMeasurementEvidence,
@@ -124,7 +124,7 @@ function propertyStatus(row: MeasurementOverviewResponse['properties']['items'][
   if (reasons.includes('plan_v1')) return { label: 'Update setup', tone: 'caution' }
   if (reasons.includes('evidence_incomplete')) return { label: 'Evidence incomplete', tone: 'caution' }
   // Every answer asked which property was meant: not complete, and not a zero.
-  if (reasons.includes('identity_ambiguous')) return { label: REPORT_VISIBILITY_COPY.ambiguous, tone: 'caution' }
+  if (reasons.includes('identity_ambiguous')) return { label: VISIBILITY_DISPLAY_COPY.ambiguous, tone: 'caution' }
   if (reasons.includes('no_population')) return { label: 'No queries', tone: 'neutral' }
   if (reasons.includes('not_applicable')) return { label: 'Not applicable', tone: 'neutral' }
   return { label: 'Complete', tone: 'positive' }

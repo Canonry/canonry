@@ -31,6 +31,7 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | [`../packages/val-kit/AGENTS.md`](../packages/val-kit/AGENTS.md) | current | contributors | `@canonry/val-kit`: the Vals' shared host kit — module boundaries, dev vs production graph, and the manual publish gate |
 | [`plugins.md`](plugins.md) | current | agent users | Portable Agent Plugin structure, client adapters, installation, coexistence, and security boundaries |
 | [`mcp.md`](mcp.md) | current | operators, agent users, contributors | MCP stdio adapter rationale, setup, auth model, safety rules, and limitations |
+| [`report-retirement.md`](report-retirement.md) | current | operators, agents | Canonry 7 Report retirement and replacement API, CLI, and MCP reads |
 | [`competitor-landscape.md`](competitor-landscape.md) | current | operators, engineers | Pinned-first historical competitor evidence for Simple and Advanced Measurement scopes |
 | [`query-visibility.md`](query-visibility.md) | current | operators, contributors | Query assignments, research promotion, market scopes, and frozen visibility results |
 | [`google-marketing.md`](google-marketing.md) | current | operators, agents | Google Ads and GTM setup, conversion evidence, integrity states, live-read authority, and v1 safety boundary |

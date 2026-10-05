@@ -74,10 +74,10 @@ describe('resolveEmbedConfig', () => {
 
   it('parses CANONRY_EMBED_PROJECT_TABS on comma + whitespace and lowercases', () => {
     const out = resolveEmbedConfig(
-      { CANONRY_EMBED: '1', CANONRY_EMBED_PROJECT_TABS: 'Overview, technical-aeo  report' },
+      { CANONRY_EMBED: '1', CANONRY_EMBED_PROJECT_TABS: 'Overview, technical-aeo  Overview' },
       baseConfig(),
     )
-    expect(out.projectTabs).toEqual(['overview', 'technical-aeo', 'report'])
+    expect(out.projectTabs).toEqual(['overview', 'technical-aeo'])
   })
 
   it('CANONRY_EMBED_PROJECT_TABS overrides config.embed.projectTabs (env wins)', () => {
@@ -107,6 +107,7 @@ describe('resolveEmbedConfig', () => {
 describe('unsupportedEmbedProjectTabs', () => {
   it('returns tab names that have no server-side read classifier', () => {
     expect(unsupportedEmbedProjectTabs(['overview', 'technical-aeo', 'report', 'backlinks', 'local'])).toEqual([
+      'report',
       'backlinks',
       'local',
     ])

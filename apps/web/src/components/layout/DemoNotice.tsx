@@ -11,7 +11,6 @@ const FEATURE_GROUPS = [
     ['AI visibility', '/projects/summit-roofing'],
     ['Search engines', '/projects/summit-roofing/search-console'],
     ['Traffic & conversions', '/projects/summit-roofing/conversions'],
-    ['Reports', '/projects/harbor-resorts/report'],
   ] },
   { title: 'Portfolio', links: [
     ['Properties & markets', '/projects/harbor-resorts'],

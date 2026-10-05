@@ -190,8 +190,8 @@ export const projectsRoute = createRoute({
 })
 
 // Project URLs key off the human-readable project name (a kebab-case slug),
-// not the opaque UUID — `/projects/acme-co/report` instead of
-// `/projects/<uuid>/report`. The API already resolves projects by name, so
+// not the opaque UUID — `/projects/acme-co/activity` instead of
+// `/projects/<uuid>/activity`. The API already resolves projects by name, so
 // the name is the canonical identifier across the whole surface.
 const PROJECT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -289,7 +289,9 @@ export const projectMeasurementPropertyRoute = createRoute({
 export const projectReportRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/report',
-  component: () => <LazyProjectPage tab="report" />,
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: '/projects/$projectName', params, replace: true })
+  },
 })
 
 export const projectActivityRoute = createRoute({

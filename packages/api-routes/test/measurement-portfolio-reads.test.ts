@@ -14,7 +14,6 @@ import {
   type MeasurementPortfolioSummaryResponse,
   type MeasurementPropertyCompetitorsResponse,
   type MetricValue,
-  type ProjectReportDto,
   type VisibilityReportResponse,
 } from '@ainyc/canonry-contracts'
 import {
@@ -328,10 +327,6 @@ describe('measurement portfolio reads', () => {
     const response = await app.inject({ method: 'GET', url: `/api/v1/projects/northstar/visibility-report?queryClass=non-brand&runId=${runId}` })
     expect(response.statusCode, response.body).toBe(200)
     const measured = response.json<VisibilityReportResponse>().populations[0]!.summary
-    const reportResponse = await app.inject({ method: 'GET', url: '/api/v1/projects/northstar/report' })
-    expect(reportResponse.statusCode, reportResponse.body).toBe(200)
-    const report = reportResponse.json<ProjectReportDto>().visibility!.populations.find(row => row.queryClass === 'non-brand')!.summary
-    expect(report).toEqual(measured)
     for (const key of ['mentionCoverage', 'citationCoverage'] as const) {
       const metric = summary.body.metrics[key]
       expect(metric.state === 'available' ? metric.value : null).toBe(measured[key].rate)

@@ -385,13 +385,6 @@ const runsListIncludeProbeQueryParameter: OpenApiParameter = {
   schema: stringSchema,
 }
 
-const reportAudienceQueryParameter: OpenApiParameter = {
-  name: 'audience',
-  in: 'query',
-  description: 'HTML report audience mode. Defaults to agency.',
-  schema: { type: 'string', enum: ['agency', 'client'] },
-}
-
 const analyticsWindowParameter: OpenApiParameter = {
   name: 'window',
   in: 'query',
@@ -507,14 +500,6 @@ const organicEvidencePeriodQueryParameter: OpenApiParameter = {
   description:
     'Evidence window in days — 60 or 90 (default 90). GSC and GA4 retain source-specific 30-day cohort dates.',
   schema: { type: 'integer', enum: [60, 90] },
-}
-
-const reportPeriodQueryParameter: OpenApiParameter = {
-  name: 'period',
-  in: 'query',
-  description:
-    'Report window in days — one of 7, 14, 30, 90 (default 30). Scopes the GSC, GA4, and server-side AI activity sections and the period-over-period comparisons to this window.',
-  schema: { type: 'integer', enum: [7, 14, 30, 90] },
 }
 
 const sinceQueryParameter: OpenApiParameter = {
@@ -6023,27 +6008,20 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/report',
-    summary: 'Aggregated canonical AEO report',
-    tags: ['report'],
+    path: '/api/v1/projects/{name}/traffic/analytics',
+    summary: 'Full-window server traffic analytics',
+    tags: ['traffic'],
     description:
-      'Bundles every section the canonry-report HTML output needs (executive summary, client summary, agency diagnostics, action plan, citation scorecard, competitor landscape — citation + mention landscapes, AI citation sources, GSC, GA4, social/AI referrals, indexing health, citations trend, insights, and recommended next steps) into a single canonical JSON payload. Backs `canonry report <project>` and MCP report reads.',
-    parameters: [nameParameter, reportPeriodQueryParameter],
+      'Aggregates stored crawler, AI user-fetch, and countable referral evidence across the entire selected window, independently of the traffic events detail limit. Includes operator, path and referring-product breakdowns, daily history and the equal-length prior window. Preserves verified/unverified and paid/organic/unclassified counts. No provider calls or writes. Activity is null when no non-archived traffic source is connected. Replaces the retired Report serverActivity section.',
+    parameters: [nameParameter, {
+      name: 'period',
+      in: 'query',
+      description: 'Window in days: 7, 14, 30 or 90. Defaults to 30. Selects stored evidence only.',
+      schema: { type: 'integer', enum: [7, 14, 30, 90] },
+    }],
     responses: {
-      200: jsonResponse('Report returned.', 'ProjectReportDto'),
-      404: errorResponse('Project not found.'),
-    },
-  },
-  {
-    method: 'get',
-    path: '/api/v1/projects/{name}/report.html',
-    summary: 'Standalone HTML AEO report',
-    tags: ['report'],
-    description:
-      'Server-rendered self-contained HTML version of the project report. Same data as `/projects/{name}/report` (JSON), rendered through the canonry HTML report renderer in agency or client mode. Returns `text/html` with `Content-Disposition: attachment` so browsers download it as `canonry-report-<project>-<audience>-YYYY-MM-DD.html`. Open in a browser and Print → Save as PDF for a PDF copy.',
-    parameters: [nameParameter, reportAudienceQueryParameter, reportPeriodQueryParameter],
-    responses: {
-      200: { description: 'HTML report returned.', content: { 'text/html': { schema: { type: 'string' } } } },
+      200: jsonResponse('Traffic analytics returned.', 'TrafficAnalyticsResponse'),
+      400: errorResponse('Invalid analytics period.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -6114,7 +6092,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/content/dismissals',
     summary: 'List content-target dismissals for a project',
     description:
-      'Returns every persisted "mark addressed" record for the project. Each row is `{targetRef, addressedUrl?, note?, dismissedAt}`. The report filters out any opportunity whose `targetRef` appears here; un-dismiss via `DELETE`.',
+      'Returns every persisted "mark addressed" record for the project. Each row is `{targetRef, addressedUrl?, note?, dismissedAt}`. Content reads filter out any opportunity whose `targetRef` appears here; un-dismiss via `DELETE`.',
     tags: ['content'],
     parameters: [nameParameter],
     responses: {
@@ -6127,7 +6105,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/content/dismissals',
     summary: 'Mark a content opportunity as addressed',
     description:
-      'Persists a dismissal for one content recommendation, identified by its stable `targetRef` (the value `ContentTargetRowDto.targetRef` exposes — hashed from project + query + action + targetPage by `computeTargetRef`). Idempotent upsert: re-dismissing the same ref overwrites `addressedUrl`/`note` and refreshes `dismissedAt`. The row drops off the report and the dedicated content endpoints on the next read.',
+      'Persists a dismissal for one content recommendation, identified by its stable `targetRef` (the value `ContentTargetRowDto.targetRef` exposes — hashed from project + query + action + targetPage by `computeTargetRef`). Idempotent upsert: re-dismissing the same ref overwrites `addressedUrl`/`note` and refreshes `dismissedAt`. The row drops off the content endpoints on the next read.',
     tags: ['content'],
     parameters: [nameParameter],
     requestBody: {
@@ -6157,7 +6135,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/content/dismissals/{targetRef}',
     summary: 'Un-dismiss a content opportunity',
     description:
-      'Removes a persisted dismissal. The recommendation reappears on the report on the next read if the orchestrator still surfaces it. 404 if no dismissal exists for that `(project, targetRef)`.',
+      'Removes a persisted dismissal. The recommendation reappears in content reads if the orchestrator still surfaces it. 404 if no dismissal exists for that `(project, targetRef)`.',
     tags: ['content'],
     parameters: [
       nameParameter,
@@ -6173,7 +6151,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/content/recommendations/{targetRef}/analysis',
     summary: 'Get cached LLM explanation for a content recommendation',
     description:
-      'Returns the most recent cached LLM-generated rationale + recommended next steps for one content recommendation, or 404 if none exists. Triggered by the report SPA when rendering an already-analyzed card without re-paying the LLM cost. Use `POST /analyze` to generate one (idempotent — POST returns the cached row if present).',
+      'Returns the most recent cached LLM-generated rationale + recommended next steps for one content recommendation, or 404 if none exists. Use this to read an already-analyzed recommendation without repeating the LLM call. Use `POST /analyze` to generate one (idempotent — POST returns the cached row if present).',
     tags: ['content'],
     parameters: [
       nameParameter,

@@ -3,8 +3,7 @@
  *
  * Pure: takes a query string + a precomputed brand-token list. The caller
  * builds the brand tokens once per project (or per render) and passes them
- * in, so the function stays cacheable and reusable across the report
- * builder, CLI text views, dashboards, and Aero's reasoning.
+ * in, so organic-evidence analysis and other consumers share one classifier.
  *
  * Brand matching uses the shared exact identity matcher: approved aliases
  * tolerate case, spacing, and punctuation presentation variants, but never

@@ -104,7 +104,7 @@ export interface OrchestratorInput {
   candidateQueries: CandidateQuery[]
   /**
    * Optional terms to ignore when grouping recommendation targets by user intent.
-   * Report callers pass the active market tokens here so "roof coating" and
+   * Content callers pass the active market tokens here so "roof coating" and
    * "roof coating michigan" do not become duplicate content recommendations.
    */
   queryIntentModifiers?: readonly string[]
@@ -409,7 +409,7 @@ function computeTargetRef(input: {
   action: string
 }): string {
   // The ref is the recommendation's *intent identity* — what the user
-  // would dismiss if they marked it "addressed" in the report. It must
+  // would dismiss if they marked it "addressed". It must
   // stay stable across orchestrator runs even when run-level state
   // shifts. Two run-level signals to deliberately exclude:
   //
@@ -417,8 +417,8 @@ function computeTargetRef(input: {
   //      page" shifts whenever GSC inventory updates (a different page
   //      starts ranking for the query, the previous best page drops
   //      off, etc.). Including it meant the SAME recommendation
-  //      (same query, same action) would get a NEW ref on every report
-  //      load if the inventory shifted at all, so persisted dismissals
+  //      (same query, same action) would get a NEW ref on every read
+  //      if the inventory shifted at all, so persisted dismissals
   //      stopped matching after one cycle.
   //   2. Anything tied to runId / location / sweep timestamp — same
   //      reason; the dismissal is on the recommendation, not the

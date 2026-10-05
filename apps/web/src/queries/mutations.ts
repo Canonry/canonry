@@ -10,22 +10,18 @@ import {
   type ApiRun,
   type ApiTriggerAllRunsResult,
   appendQueries,
-  dismissContentTarget,
   triggerRun,
   triggerAllRuns,
   triggerSiteAudit,
   triggerGscSync,
   triggerDiscoverSitemaps,
   triggerInspectSitemap,
-  undismissContentTarget,
 } from '../api.js'
-import type { ContentTargetDismissRequest } from '@ainyc/canonry-contracts'
 import { useAccount } from '../contexts/account-context.js'
 import { assertCanWrite } from '../lib/write-guard.js'
 import { createTrackedBatch, trackRun, type TrackedRunSourceAction } from '../lib/run-tracker-store.js'
 import { addToast } from '../lib/toast-store.js'
 import { invalidateQueriesForRunKind } from './run-invalidations.js'
-import { invalidateProjectQueryDomain } from './query-invalidation.js'
 
 /**
  * Invalidate the two top-level list endpoints. We use exact-key matches
@@ -397,46 +393,6 @@ export function useAppendQueries() {
       // string with at least one more element. The top-level invalidation
       // above uses a different key shape (from the generated SDK helper),
       // so there's no overlap.
-      void queryClient.invalidateQueries({ predicate: isProjectDetailQuery })
-    },
-  })
-}
-
-/**
- * Mark one content recommendation as addressed. Backed by
- * `POST /projects/:name/content/dismissals` — idempotent upsert keyed by
- * `(projectId, targetRef)`. After success, invalidates both the project
- * report query (where action cards render with `targetRef`) and the
- * per-project dashboard detail (where overview-derived suggestions also
- * reflect the dismissal). The recommendation drops off both surfaces on
- * the next read.
- */
-export function useDismissContentTarget() {
-  const guardWrite = useWriteGuard()
-  const queryClient = useQueryClient()
-  return useMutation({
-    onMutate: guardWrite,
-    mutationFn: ({ projectName, body }: { projectName: string; body: ContentTargetDismissRequest }) =>
-      dismissContentTarget(projectName, body),
-    onSuccess: () => {
-      // Match every per-project generated operation; the report endpoint is
-      // one of many DTOs derived from `buildContentTargetRows`.
-      void invalidateProjectQueryDomain(queryClient, 'project')
-      void queryClient.invalidateQueries({ predicate: isProjectDetailQuery })
-    },
-  })
-}
-
-/** Reverse a content dismissal. Symmetric to `useDismissContentTarget`. */
-export function useUndismissContentTarget() {
-  const guardWrite = useWriteGuard()
-  const queryClient = useQueryClient()
-  return useMutation({
-    onMutate: guardWrite,
-    mutationFn: ({ projectName, targetRef }: { projectName: string; targetRef: string }) =>
-      undismissContentTarget(projectName, targetRef),
-    onSuccess: () => {
-      void invalidateProjectQueryDomain(queryClient, 'project')
       void queryClient.invalidateQueries({ predicate: isProjectDetailQuery })
     },
   })

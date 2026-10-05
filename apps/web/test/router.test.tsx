@@ -67,7 +67,7 @@ test('a legacy UUID project URL redirects to the clean name URL', async () => {
   const project = { ...fixture.dashboard.projects[0]!.project, id: uuid, name: 'acme-co' }
   // Pre-seed the projects cache so the route-level redirect can resolve id → name
   queryClient.setQueryData(projectsCacheKey, [project])
-  const router = createAppRouter(queryClient, { initialEntries: [`/projects/${uuid}/report`] })
+  const router = createAppRouter(queryClient, { initialEntries: [`/projects/${uuid}/activity`] })
   await router.load()
 
   render(
@@ -78,8 +78,8 @@ test('a legacy UUID project URL redirects to the clean name URL', async () => {
     </QueryClientProvider>,
   )
 
-  // The UUID-shaped segment is swapped for the name; the /report tab is preserved.
-  expect(router.state.location.pathname).toBe('/projects/acme-co/report')
+  // The UUID-shaped segment is swapped for the name; the /activity tab is preserved.
+  expect(router.state.location.pathname).toBe('/projects/acme-co/activity')
 })
 
 test('/runs renders the runs page', async () => {
@@ -117,9 +117,18 @@ test('/projects/$id/conversions renders the conversion integrity workspace', asy
   expect(container.innerHTML).toMatch(/Loading conversion setup/)
 })
 
-test('/projects/$id/report renders the report tab', async () => {
-  const { container } = await renderRoute('/projects/project_citypoint/report')
-  expect(container.innerHTML).toMatch(/Loading report/)
+test('retired report URLs redirect to AI Visibility without reading the report API', async () => {
+  const requestedPaths: string[] = []
+  const restore = mockFetch(url => {
+    requestedPaths.push(pathOf(url))
+    return jsonResponse({ error: { message: 'not needed for route compatibility' } }, 503)
+  })
+  onTestFinished(restore)
+  const { container, router } = await renderRoute('/projects/project_citypoint/report')
+  expect(router.state.location.pathname).toBe('/projects/project_citypoint')
+  expect(container.querySelector('.project-subnav-current')?.textContent).toBe('AI Visibility')
+  await waitFor(() => expect(requestedPaths.length).toBeGreaterThan(0))
+  expect(requestedPaths.some(path => /\/report(?:\.html)?(?:\?|$)/.test(path))).toBe(false)
   expect([...container.querySelectorAll('h1')].map(heading => heading.textContent)).toEqual(['Citypoint Dental NYC'])
 })
 

@@ -4,8 +4,7 @@
  * The two signals consulted (search demand + recurrence) are derived by the
  * caller from data the analyzer doesn't have access to (GSC impressions,
  * prior `insights` rows). Keeping the rule pure lets the dashboard, CLI,
- * Aero, and the report renderer all classify the same way without each
- * re-implementing the thresholds.
+ * and Aero classify the same way without each re-implementing the thresholds.
  *
  * When both signals are unknown the function returns `'high'`, which
  * preserves the pre-existing default severity for regressions and keeps
@@ -21,7 +20,7 @@ export const SEVERITY_THRESHOLDS = {
 } as const
 
 export interface SeveritySignals {
-  /** GSC impressions for the regressed query over the report window. */
+  /** GSC impressions for the regressed query over the selected window. */
   gscImpressions?: number
   /** How many prior runs in recent history flagged this same (query, provider) regression. */
   recurrenceCount?: number

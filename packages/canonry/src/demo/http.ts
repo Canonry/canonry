@@ -22,11 +22,11 @@ const INLINE_SCRIPT = /<script(?<attributes>[^>]*)>(?<body>[\s\S]*?)<\/script>/g
 // Known dashboard locations. Arbitrary files, API paths and machine endpoints
 // never receive the document. The workspace backlink admin page is not part of
 // the demo, so it is not served.
+// Legacy Report documents reach the SPA's AI Visibility redirect; its APIs stay denied.
 const DEMO_DOCUMENT_PATH = /^\/(?:projects(?:\/[^/.]+(?:\/(?:portfolio|discovery|search-console|activity|technical-aeo|conversions|local|queries|backlinks|report|history|settings|properties)(?:\/[^/.]+)*)?)?|runs|history|traffic(?:\/[^/.]+(?:\/[^/.]+)?)?)\/?$/
 // Where a request whose path the router cannot decode is routed a second time.
 // No route or dashboard location matches it, so it lands in the not-found handler.
 const UNDECODABLE_PATH = '/.undecodable-path'
-const DEMO_REPORT_DISCLOSURE = '<aside role="note" style="box-sizing:border-box;margin:0;padding:12px 24px;background:#fff7d6;border-bottom:1px solid #e5c75c;color:#4a3a00;font:600 14px/1.5 system-ui,sans-serif;text-align:center">Public Canonry demo: this report contains fictional sample data from stored demo records. No live provider query produced it.</aside>'
 
 /**
  * Scripts may come from this origin, or be one of the inline scripts in the
@@ -179,17 +179,6 @@ export async function createDemoHttpServer(options: {
       }
 
     }
-  })
-  app.addHook('onSend', async (request, reply, payload) => {
-    if (request.routeOptions.url !== '/api/v1/projects/:name/report.html'
-      || typeof payload !== 'string'
-      || !String(reply.getHeader('content-type')).startsWith('text/html')) {
-      return payload
-    }
-    // Exported HTML can outlive the dashboard chrome, so keep the sample-data
-    // disclosure inside the downloaded artifact itself.
-    reply.removeHeader('content-length')
-    return payload.replace(/<body([^>]*)>/i, `<body$1>${DEMO_REPORT_DISCLOSURE}`)
   })
   app.get('/health', async () => ({ status: 'ok', service: 'canonry-demo', version: PACKAGE_VERSION, demo: true, workerEnabled: false }))
   app.get('/api/v1/session', async () => ({ authenticated: true, setupRequired: false }))

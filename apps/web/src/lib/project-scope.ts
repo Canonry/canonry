@@ -110,7 +110,6 @@ export function projectScopeSlot(input: ProjectScopeSlotInput): ProjectScopeSlot
     case 'conversions':
     case 'local':
     case 'backlinks':
-    case 'report':
     case 'history':
       return input.scoped && input.surface === 'advanced-overview' ? { kind: 'project-wide' } : { kind: 'none' }
     case 'settings':

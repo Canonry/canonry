@@ -135,6 +135,26 @@ function renderSection(competitorDomains: readonly string[] = []) {
   )
 }
 
+// These model events and anchors are observed instants at UTC midnight, not
+// calendar dates. A New York viewer saw them on the preceding evening.
+const MODEL_EVENT_TIMEZONES = [
+  { timezone: 'UTC', changeDay: 'Apr 8', anchorDay: 'Mar 25' },
+  { timezone: 'America/New_York', changeDay: 'Apr 7', anchorDay: 'Mar 24' },
+  { timezone: 'Pacific/Auckland', changeDay: 'Apr 8', anchorDay: 'Mar 25' },
+]
+
+function observeInTimezone(timezone: string) {
+  const original = process.env.TZ
+  process.env.TZ = timezone
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-09-29T14:00:00.000Z'))
+  onTestFinished(() => {
+    vi.useRealTimers()
+    if (original === undefined) delete process.env.TZ
+    else process.env.TZ = original
+  })
+}
+
 test('defaults to the by-engine view with a per-engine legend, and toggles to all-engines', async () => {
   const restore = mockFetch((url) => {
     const path = url.split('?')[0]!
@@ -201,7 +221,8 @@ test('defaults to the by-engine view with a per-engine legend, and toggles to al
   expect(screen.queryByText(/pools all answers/)).toBeNull()
 })
 
-test('keeps model names out of the legend and lists each model change in What changed', async () => {
+test.each(MODEL_EVENT_TIMEZONES)('keeps model names out of the legend and lists each model change in What changed ($timezone)', async ({ timezone, changeDay }) => {
+  observeInTimezone(timezone)
   const restore = mockFetch((url) => {
     const path = url.split('?')[0]!
     if (path.endsWith('/projects/test-project/analytics/metrics')) {
@@ -220,20 +241,21 @@ test('keeps model names out of the legend and lists each model change in What ch
 
   const changes = whatChanged()
   // The latest point (Apr 11) brought nothing new, so the line names the newest change.
-  expect(changes.querySelector('.av-wc-summary')?.textContent).toMatch(/^No changes since Apr 8(, 2026)?$/)
+  expect(changes.querySelector('.av-wc-summary')?.textContent).toBe(`No changes since ${changeDay}`)
   expect(changes.querySelector('.av-wc-toggle')?.textContent).toMatch(/^Show all 1/)
   expect(changeRows(changes)).toEqual([
-    ['Gemini', expect.stringMatching(/^Apr 8/), 'gemini-2.0-flash', 'gemini-2.0-flash, gemini-2.5-flash'],
+    ['Gemini', changeDay, 'gemini-2.0-flash', 'gemini-2.0-flash, gemini-2.5-flash'],
   ])
   // Model names left the legend, so a latest point that pools two models is said in Details.
-  expect(detailsText(changes)).toEqual([expect.stringMatching(/^Apr 11(, 2026)? point mixes Gemini models: gemini-2\.0-flash and gemini-2\.5-flash$/)])
+  expect(detailsText(changes)).toEqual(['Apr 11 point mixes Gemini models: gemini-2.0-flash and gemini-2.5-flash'])
   // Neither optional field is present on this DTO, so the change is dated
   // plainly and no partial-history note appears.
   expect(screen.queryByText(/on or before/)).toBeNull()
   expect(screen.queryByText(/most recent/)).toBeNull()
 })
 
-test('dates an anchored change "on or before" and says how much history is shown', async () => {
+test.each(MODEL_EVENT_TIMEZONES)('dates an anchored change "on or before" and says how much history is shown ($timezone)', async ({ timezone, changeDay }) => {
+  observeInTimezone(timezone)
   const anchored = metricsDto(TWO_BUCKETS, 'non-brand', TWO_BUCKETS_CHANGE)
   Object.assign(anchored.modelAttribution.gemini.events[0]!, { fromPreWindowAnchor: true })
   Object.assign(anchored.modelAttribution.gemini, { eventTotal: 84 })
@@ -251,7 +273,7 @@ test('dates an anchored change "on or before" and says how much history is shown
 
   // The change can only be dated to the last sweep BEFORE the window, so the
   // row must not read as an event that happened on that bucket's date.
-  expect(await screen.findByText(/^on or before Apr 8/)).toBeTruthy()
+  expect(await screen.findByText(`on or before ${changeDay}`)).toBeTruthy()
   // The server caps per provider, so the note must name the engine whose
   // history is clipped rather than implying every engine's list is partial.
   expect(detailsText(whatChanged())).toContain('Gemini: most recent 1 of 84 changes')
@@ -476,7 +498,8 @@ test('refetches mention-share metrics when the competitor frame changes', async 
   })
 })
 
-test('files a change inherited from before the window under its own heading, not among the dated changes', async () => {
+test.each(MODEL_EVENT_TIMEZONES)('files a change inherited from before the window under its own heading, not among the dated changes ($timezone)', async ({ timezone, changeDay, anchorDay }) => {
+  observeInTimezone(timezone)
   const anchored = metricsDto(TWO_BUCKETS, 'non-brand', TWO_BUCKETS_CHANGE)
   Object.assign(anchored.modelAttribution.gemini.events[0]!, {
     fromPreWindowAnchor: true,
@@ -495,9 +518,9 @@ test('files a change inherited from before the window under its own heading, not
   renderSection()
 
   // Dated "on or before", so nothing places it on a date inside the chart...
-  expect(await screen.findByText(/^on or before Apr 8/)).toBeTruthy()
+  expect(await screen.findByText(`on or before ${changeDay}`)).toBeTruthy()
   // ...and the lower bound is surfaced, so the operator gets a closed range.
-  expect(detailsText(whatChanged())).toContainEqual(expect.stringMatching(/^Changed before this date range, after the Mar 25(, 2026)? sweep: Gemini$/))
+  expect(detailsText(whatChanged())).toContain(`Changed before this date range, after the ${anchorDay} sweep: Gemini`)
 })
 
 test('flags a real substitution as its own amber row', async () => {

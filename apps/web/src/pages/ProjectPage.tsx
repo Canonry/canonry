@@ -61,7 +61,6 @@ import {
   adaptV2MeasurementOverview,
   areV2OverviewPagesCompatible,
 } from '../components/project/advanced-measurement/v2-overview-adapter.js'
-import { ReportPage } from './ReportPage.js'
 import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric, splitPercentSign } from '../lib/format-helpers.js'
 import { METRIC_TONE_TEXT_CLASS } from '../lib/tone-helpers.js'
 import type { QueryClassLookup } from '../lib/answer-movement.js'
@@ -142,7 +141,7 @@ import {
 } from '../lib/ai-visibility-provider-readiness.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
-export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'queries' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
+export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'queries' | 'discovery' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
 
 export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onConfirm, onClosed, disabled }: {
   open: boolean
@@ -157,7 +156,7 @@ export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onC
     <SheetContent onCloseAutoFocus={event => { if (onClosed) { event.preventDefault(); onClosed() } }}>
       <SheetHeader>
         <SheetTitle>Run AI sweep for the whole project?</SheetTitle>
-        <SheetDescription>Runs all tracked queries for {projectLabel}. Report filters do not limit the sweep. Provider charges apply.</SheetDescription>
+        <SheetDescription>Runs all tracked queries for {projectLabel}. View filters do not limit the sweep. Provider charges apply.</SheetDescription>
       </SheetHeader>
       <div className="mt-6 flex flex-wrap gap-3">
         <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -2549,7 +2548,7 @@ function ProjectPageContent({
 
   // Quiet underline tabs (Vercel/Linear lineage), not a pill rack. Section nav
   // is chrome: plain text that recedes, the active tab marked by a Snow
-  // underline on the bar's hairline. Low-frequency sections (Report) live in a
+  // underline on the bar's hairline. Low-frequency sections live in a
   // trailing "More" overflow; Settings is split out at the far right (universal
   // convention). "Local Presence" only appears once GBP is connected.
   const projectTabBase = `/projects/${encodeURIComponent(model.project.name)}`
@@ -2567,7 +2566,6 @@ function ProjectPageContent({
     { key: 'backlinks', label: 'Backlinks', href: `${projectTabBase}/backlinks` },
   ]
   const projectOverflowTabItemsAll: ProjectTabItem[] = [
-    { key: 'report', label: 'Report', href: `${projectTabBase}/report` },
     { key: 'history', label: 'Change History', href: `${projectTabBase}/history` },
   ]
   // In embed mode the effective allowlist narrows the subnav to the curated
@@ -2777,12 +2775,9 @@ function ProjectPageContent({
         </div>
       ) : (
         // The topbar breadcrumb names the project. The row keeps the page's one
-        // h1 for assistive tech and narrow screens, except on Report, which
-        // renders its own.
+        // h1 for assistive tech and narrow screens.
         <div className="project-context-row">
-          {tab !== 'report' ? (
-            <h1 className="project-context-title md:sr-only">{model.project.displayName || model.project.name}</h1>
-          ) : null}
+          <h1 className="project-context-title md:sr-only">{model.project.displayName || model.project.name}</h1>
           {scopeSlotContent !== null ? <div className="project-context-scope">{scopeSlotContent}</div> : null}
           {model.project.canonicalDomain ? <span className="project-context-domain">{model.project.canonicalDomain}</span> : null}
           <div className="project-context-actions" data-project-actions>
@@ -3185,8 +3180,6 @@ function ProjectPageContent({
             </section>
           ) : null}
         </>
-      ) : tab === 'report' ? (
-        <ReportPage projectName={model.project.name} projectTitle={model.project.displayName || model.project.name} />
       ) : tab === 'queries' || tab === 'discovery' ? (
         <QueriesSection
           projectName={projectName}

@@ -14,7 +14,7 @@ import {
   measurementPlanInputSchema,
   measurementPortfolioSummaryQuerySchema,
   measurementPropertyCompetitorsQuerySchema,
-  reportUnattributedAnswers,
+  unattributedAnswersLabel,
   UNATTRIBUTED_MENTION_REASON,
   type MeasurementAnswerEvidence,
   type MeasurementAttributionEvidence,
@@ -436,7 +436,7 @@ const METRIC_REASONS: Record<string, string> = {
 
 /** Answers a mention rate left out because they could not be tied to one property. */
 function unattributedText(metric: MetricValue): string | null {
-  return metric.state === 'available' ? reportUnattributedAnswers(metric) : null
+  return metric.state === 'available' ? unattributedAnswersLabel(metric) : null
 }
 
 function metricText(metric: MetricValue): string {

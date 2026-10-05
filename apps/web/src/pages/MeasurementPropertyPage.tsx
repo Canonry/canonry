@@ -3,7 +3,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
-import { formatPercent, MeasurementEvidenceShapes, UNATTRIBUTED_MENTION_REASON, reportUnattributedAnswers } from '@ainyc/canonry-contracts'
+import { formatPercent, MeasurementEvidenceShapes, UNATTRIBUTED_MENTION_REASON, unattributedAnswersLabel } from '@ainyc/canonry-contracts'
 import type {
   MeasurementOverviewResponse,
   MeasurementPlanResponse,
@@ -251,7 +251,7 @@ function MetricCell({ metric, emphasis = false }: { metric: MetricValue; emphasi
     : `${metric.numerator} of ${metric.denominator}`
   // Answers the server left out of this rate because they could not be tied to
   // one property. The count above already excludes them; this keeps them visible.
-  const unattributed = reportUnattributedAnswers(metric)
+  const unattributed = unattributedAnswersLabel(metric)
   return (
     <span className="inline-flex flex-col gap-0.5 tabular-nums">
       <span className={emphasis ? 'text-lg font-semibold text-heading' : 'text-sm font-medium text-primary'}>{percent}</span>
@@ -426,7 +426,7 @@ function CoverageHeroRow({ label, metric, failed = false }: { label: string; met
   const counted = metric.numerator === undefined || metric.denominator === undefined
     ? null
     : `${metric.numerator} of ${metric.denominator}`
-  const unattributed = reportUnattributedAnswers(metric)
+  const unattributed = unattributedAnswersLabel(metric)
   return (
     <div className="aeo-hero-row">
       <p className="aeo-hero-row-label">{label}</p>

@@ -48,7 +48,7 @@ const GUARD_COVERAGE: Array<{ file: string, rules: string[] }> = [
     ],
   },
   {
-    file: 'packages/api-routes/src/report-renderer.ts',
+    file: 'packages/api-routes/src/traffic-analytics.ts',
     rules: [
       'canonry-guards/no-inline-percent',
       'canonry-vocabulary/no-banned-metric-literal',
@@ -56,9 +56,8 @@ const GUARD_COVERAGE: Array<{ file: string, rules: string[] }> = [
     ],
   },
   {
-    // The report copy module holds the UI copy both report renderers show, so
-    // it carries the vocabulary guards the web tree does.
-    file: 'packages/contracts/src/report-sections.ts',
+    // Shared visibility labels carry the vocabulary guards the web tree does.
+    file: 'packages/contracts/src/visibility-display.ts',
     rules: [
       'canonry-guards/no-inline-percent',
       'canonry-vocabulary/no-banned-metric-literal',

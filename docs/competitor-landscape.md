@@ -160,10 +160,4 @@ The web table displays stored sample URLs for the selected window. It does not l
 
 ## Shared readers
 
-`visibility-stats --share-of-voice` and both report renderers use this same
-landscape reader and comparison policy. Their existing run windows still apply.
-Simple visibility stats retain the current tracked-query basket. Advanced
-portfolio stats and reports select all markets through frozen execution/Target
-assignments, retaining their query classes even when query text suggests another
-class. Reports publish non-brand and branded shares separately. Overview and
-trend mention-share instruments retain their explicitly tracked comparison sets.
+`visibility-stats --share-of-voice` uses this landscape reader and comparison policy. Its existing run windows still apply. Simple visibility stats retain the current tracked-query basket. Advanced portfolio stats select all markets through frozen execution/Target assignments. Their query classes remain fixed even when query text suggests another class. Branded and non-brand shares retain separate denominators. Overview and trend mention-share instruments retain their explicitly tracked comparison sets.
