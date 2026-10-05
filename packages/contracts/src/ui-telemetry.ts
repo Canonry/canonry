@@ -100,6 +100,10 @@ export const UI_ACTIONS = [
   'report.download',
   'aero.open',
   'aero.send',
+  /** A shared filter settled on a new value (debounced; the value is never sent). */
+  'filter.change',
+  /** A table search settled on a non-empty query (debounced or Enter; the text is never sent). */
+  'search.submit',
 ] as const
 export const uiActionSchema = z.enum(UI_ACTIONS)
 export type UiAction = z.infer<typeof uiActionSchema>
@@ -122,6 +126,11 @@ export const UI_INTEGRATIONS = [
 export const uiIntegrationSchema = z.enum(UI_INTEGRATIONS)
 export type UiIntegration = z.infer<typeof uiIntegrationSchema>
 
+/** Which shared filter a `filter.change` moved. Never the value itself. */
+export const UI_FILTERS = ['provider', 'model', 'location', 'window', 'query_class', 'other'] as const
+export const uiFilterSchema = z.enum(UI_FILTERS)
+export type UiFilter = z.infer<typeof uiFilterSchema>
+
 export const UI_EXPORT_FORMATS = ['csv', 'json', 'html'] as const
 
 export const UI_ERROR_KINDS = ['render', 'unhandled', 'api'] as const
@@ -133,22 +142,48 @@ export const UI_VITAL_RATINGS = ['good', 'needs-improvement', 'poor'] as const
 export const UI_COMPONENT_PATTERN = /^[a-z][a-z0-9-]{0,39}$/
 /** An exception class name such as `TypeError` or `ChunkLoadError`. */
 export const UI_ERROR_NAME_PATTERN = /^[a-z_$][\w$]{0,39}$/i
-/** A generated-client route TEMPLATE: `/api/v1/projects/{name}/runs`, never a real path. */
-export const UI_API_ROUTE_PATTERN = /^\/api\/v1(?:\/(?:[a-z0-9][\w.-]*|\{[a-z]\w*\})){1,12}$/i
-
-const UUID_SEGMENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
 /**
- * A route TEMPLATE, not a real path: the shape check alone would pass
- * `/api/v1/projects/acme-co/runs`. The project segment must be a `{param}`,
- * and no segment may be a raw id.
+ * A generated-client route TEMPLATE (`/api/v1/projects/{name}/runs`), never a
+ * real path.
+ *
+ * MIRRORED BY VALUE in canonry.ai `lib/telemetry/validation.ts` (the collector
+ * rejects anything this accepts and it does not) and canonry-telemetry
+ * `lib/metrics.py`. Change all three together. The upkeep test in
+ * api-routes (`ui-telemetry-route-templates.test.ts`) fails when a new API
+ * path does not pass, and says to add its fixed sub-path here and there.
  */
+export const UI_API_ROUTE_PATTERN = /^\/api\/v1(?:\/(?:[a-z][a-z0-9-]*(?:\.[a-z]+)?|\{[A-Za-z]+\}))*$/
+export const UI_API_ROUTE_MAX_LENGTH = 160
+
+/** Segments followed by an id: the next segment must be a `{param}` or a fixed child. */
+export const UI_ROUTE_ID_COLLECTIONS: ReadonlySet<string> = new Set([
+  'accounts', 'activation-grants', 'ad-groups', 'ads', 'cache', 'campaigns', 'competitors', 'confirm',
+  'connections', 'containers', 'contracts', 'conversations', 'dismissals', 'insights', 'jobs', 'keys',
+  'locations', 'measurement-query-sets', 'measurement-query-templates', 'notifications', 'operations',
+  'projects', 'providers', 'queries', 'recommendations', 'runs', 'screenshots', 'segments', 'sessions',
+  'snapshots', 'sources', 'users', 'versions',
+])
+
+/** `collection/child` pairs where a fixed word, not an id, follows an id collection. */
+export const UI_ROUTE_FIXED_CHILDREN: ReadonlySet<string> = new Set([
+  'ads/account', 'ads/activation-grants', 'ads/ad-groups', 'ads/ads', 'ads/campaigns', 'ads/connect',
+  'ads/connection', 'ads/conversions', 'ads/delivery-diagnostics', 'ads/files', 'ads/geo', 'ads/insights',
+  'ads/live-delivery', 'ads/operations', 'ads/status', 'ads/summary', 'ads/sync', 'keys/self',
+  'locations/default', 'locations/discover', 'notifications/events', 'operations/logs', 'queries/generate',
+  'queries/replace-preview', 'runs/latest', 'snapshots/diff',
+])
+
+const PARAM_SEGMENT = /^\{[a-z]+\}$/i
+
 export function isUiApiRouteTemplate(route: string): boolean {
+  if (route.length > UI_API_ROUTE_MAX_LENGTH || route.includes('://')) return false
   if (!UI_API_ROUTE_PATTERN.test(route)) return false
   const segments = route.split('/').slice(3)
-  return segments.every((segment, index) =>
-    !UUID_SEGMENT.test(segment)
-    && (segments[index - 1] !== 'projects' || /^\{[a-z]\w*\}$/i.test(segment)))
+  return segments.every((segment, index) => {
+    const previous = segments[index - 1]
+    if (previous === undefined || !UI_ROUTE_ID_COLLECTIONS.has(previous)) return true
+    return PARAM_SEGMENT.test(segment) || UI_ROUTE_FIXED_CHILDREN.has(`${previous}/${segment}`)
+  })
 }
 
 const uiEventBaseSchema = z.object({
@@ -168,6 +203,7 @@ export const uiTelemetryEventSchema = z.discriminatedUnion('event', [
     tab: uiProjectTabSchema.optional(),
     integration: uiIntegrationSchema.optional(),
     format: z.enum(UI_EXPORT_FORMATS).optional(),
+    filter: uiFilterSchema.optional(),
   }).strict(),
   uiEventBaseSchema.extend({
     event: z.literal('ui.error'),
@@ -175,7 +211,7 @@ export const uiTelemetryEventSchema = z.discriminatedUnion('event', [
     tab: uiProjectTabSchema.optional(),
     component: z.string().regex(UI_COMPONENT_PATTERN).optional(),
     errorName: z.string().regex(UI_ERROR_NAME_PATTERN).optional(),
-    route: z.string().max(200).refine(isUiApiRouteTemplate, 'route must be a route template').optional(),
+    route: z.string().max(UI_API_ROUTE_MAX_LENGTH).refine(isUiApiRouteTemplate, 'route must be a route template').optional(),
     method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).optional(),
     statusClass: z.enum(UI_STATUS_CLASSES).optional(),
     status: z.number().int().min(400).max(599).optional(),

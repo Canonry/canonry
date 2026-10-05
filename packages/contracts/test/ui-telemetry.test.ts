@@ -17,6 +17,8 @@ describe('uiTelemetryEventSchema', () => {
       { ...ids, event: 'ui.error', page: '/runs', kind: 'api', route: '/api/v1/projects/{name}/runs', method: 'POST', statusClass: '5xx', status: 503 },
       { ...ids, event: 'ui.error', page: '/', kind: 'render', component: 'root', errorName: 'TypeError' },
       { ...ids, event: 'ui.vitals', page: '/', metric: 'LCP', rating: 'good' },
+      { ...ids, event: 'ui.action', page: '/projects/:projectName', action: 'filter.change', filter: 'query_class' },
+      { ...ids, event: 'ui.action', page: '/runs', action: 'search.submit' },
     ]) {
       expect(uiTelemetryEventSchema.safeParse(event).success, JSON.stringify(event)).toBe(true)
     }
@@ -32,6 +34,8 @@ describe('uiTelemetryEventSchema', () => {
       { ...ids, event: 'ui.error', page: '/', kind: 'api', route: '/api/v1/runs/30ed4717-c740-433f-9d37-05421e3f1a75' },
       { ...ids, event: 'ui.error', page: '/', kind: 'render', component: 'Root Layout!' },
       { ...ids, event: 'ui.vitals', page: '/', metric: 'LCP', rating: 'good', value: 2400 },
+      { ...ids, event: 'ui.action', page: '/', action: 'filter.change', filter: 'gemini' },
+      { ...ids, event: 'ui.action', page: '/', action: 'search.submit', query: 'dentist brooklyn' },
       { event: 'ui.page_viewed', page: '/' },
     ]) {
       expect(uiTelemetryEventSchema.safeParse(event).success, JSON.stringify(event)).toBe(false)
@@ -63,5 +67,12 @@ describe('page and tab normalization', () => {
     expect(isUiApiRouteTemplate('/api/v1/runs/{id}/cancel')).toBe(true)
     expect(isUiApiRouteTemplate('/api/v1/projects/acme/queries')).toBe(false)
     expect(isUiApiRouteTemplate('https://evil.example/api/v1/x')).toBe(false)
+    expect(isUiApiRouteTemplate('/api/v1/keys/self')).toBe(true)
+    expect(isUiApiRouteTemplate('/api/v1/projects/{name}/ads/ads/{id}')).toBe(true)
+    expect(isUiApiRouteTemplate('/api/v1/projects/{name}/report.html')).toBe(true)
+    expect(isUiApiRouteTemplate('/api/v1/traffic/sources/abc')).toBe(false)
+    expect(isUiApiRouteTemplate('/api/v1/keys/cnry_abcdef')).toBe(false)
+    expect(isUiApiRouteTemplate('/api/v1/projects/{name}/competitors/acme.com')).toBe(false)
+    expect(isUiApiRouteTemplate(`/api/v1/${'a/'.repeat(80)}x`)).toBe(false)
   })
 })

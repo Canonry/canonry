@@ -26,6 +26,7 @@ import type { AnimateOptions } from 'sigma/utils'
 import { SITE_GRAPH_LEGEND_STATES, type SiteCrawlGraphLayoutUnavailableReason } from '@ainyc/canonry-contracts'
 
 import { cn } from '../../lib/utils.js'
+import { recordUiError } from '../../lib/ui-telemetry.js'
 import { displayPageLabel, siteHostFromUrl } from './site-health-paths.js'
 import { Button } from '../ui/button.js'
 import {
@@ -162,7 +163,8 @@ interface GraphRenderBoundaryState {
   failed: boolean
 }
 
-class GraphRenderBoundary extends Component<GraphRenderBoundaryProps, GraphRenderBoundaryState> {
+/** Exported for tests. */
+export class GraphRenderBoundary extends Component<GraphRenderBoundaryProps, GraphRenderBoundaryState> {
   override state: GraphRenderBoundaryState = { failed: false }
 
   static getDerivedStateFromError(): GraphRenderBoundaryState {
@@ -173,6 +175,8 @@ class GraphRenderBoundary extends Component<GraphRenderBoundaryProps, GraphRende
     // Surfaced, never swallowed: this is the only record of WHY the map died,
     // and the state it puts on screen deliberately does not blame the browser.
     console.error('[SiteGraphSigma] the map failed to render', error, info.componentStack)
+    // Class name and the page it happened on only: never the message or stack.
+    recordUiError({ kind: 'render', error, component: 'site-graph' })
   }
 
   override componentDidUpdate(previousProps: GraphRenderBoundaryProps): void {
