@@ -30,7 +30,7 @@ import { buildGbpSummary } from './gbp-summary.js'
 import {
   mergeGscDailyTotalsWithFallback, readGscDailyTotals,
   readGscQueryTotalsPage,
-  readEarliestGscDataDate, readLatestGscDataDate,
+  readEarliestGscDataDate, readEarliestGscQueryDataDate, readLatestGscDataDate,
   resolveGscRequestWindow, resolveGscWindowRange, resolveGscWindowDays, type GscWindowRange,
 } from './gsc-totals.js'
 import { assertNotProjectScoped } from './auth.js'
@@ -1290,7 +1290,9 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       // Measured from where this page ends, so a page past the end is not
       // reported as truncated.
       truncated: offsetVal + rows.length < totalMatching,
-      window,
+      // The floor beside the frontier, so a caller can tell a window the store
+      // does not reach from one with little traffic.
+      window: { ...window, earliestDataDate: readEarliestGscQueryDataDate(app.db, project.id) },
     }
   })
 

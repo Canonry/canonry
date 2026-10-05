@@ -127,6 +127,49 @@ describe('googleRoutes: GET /projects/:name/google/gsc/query-totals', () => {
 
   const JULY = 'startDate=2026-07-01&endDate=2026-07-31'
 
+  it('reports the first stored per-query date across both tables, ignoring the window', async () => {
+    seedAccurate('2026-07-10', 'blue widget', 1, 10, '1')
+    // The legacy table reaches back further, and the route reads it, so it sets the floor.
+    seedPage('2026-05-20', 'blue widget', 'https://widgets.example.com/a', 1, 10, '1')
+    // Property-level rows carry no query and must not move the per-query floor.
+    seedPropertyDaily('2026-01-05')
+    // Another project's rows never count.
+    seedAccurate('2026-02-01', 'gadget', 1, 10, '1', otherProjectId)
+    const data = await body(JULY)
+    expect(data.window.earliestDataDate).toBe('2026-05-20')
+    expect(data.window.startDate).toBe('2026-07-01')
+  })
+
+  it('reads the accurate table alone when it is the only per-query source', async () => {
+    seedAccurate('2026-06-15', 'blue widget', 1, 10, '1')
+    seedAccurate('2026-07-10', 'blue widget', 1, 10, '1')
+    expect((await body(JULY)).window.earliestDataDate).toBe('2026-06-15')
+  })
+
+  it('reads the legacy table alone when it is the only per-query source', async () => {
+    seedPage('2026-06-20', 'blue widget', 'https://widgets.example.com/a', 1, 10, '1')
+    expect((await body(JULY)).window.earliestDataDate).toBe('2026-06-20')
+  })
+
+  it('takes the accurate table when it starts earlier than the legacy one', async () => {
+    seedAccurate('2026-04-02', 'blue widget', 1, 10, '1')
+    seedPage('2026-05-20', 'blue widget', 'https://widgets.example.com/a', 1, 10, '1')
+    expect((await body(JULY)).window.earliestDataDate).toBe('2026-04-02')
+  })
+
+  it('ignores a stored row with an empty date', async () => {
+    seedPage('', 'blue widget', 'https://widgets.example.com/a', 1, 10, '1')
+    seedAccurate('2026-07-03', 'blue widget', 1, 10, '1')
+    expect((await body(JULY)).window.earliestDataDate).toBe('2026-07-03')
+  })
+
+  it('reports a null earliestDataDate when no per-query rows are stored', async () => {
+    seedPropertyDaily('2026-07-05')
+    const data = await body(JULY)
+    expect(data.rows).toEqual([])
+    expect(data.window.earliestDataDate).toBeNull()
+  })
+
   /** Seven queries with distinct click counts, for the paging cases. */
   function seedSeven() {
     for (let i = 0; i < 7; i++) {

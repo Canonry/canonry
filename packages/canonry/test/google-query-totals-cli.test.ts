@@ -19,6 +19,7 @@ const WINDOW: GscQueryTotalsDto['window'] = {
   endDate: '2026-06-30',
   latestDataDate: '2026-07-02',
   daysSinceLatestData: 3,
+  earliestDataDate: '2026-03-01',
 }
 
 /** Fictional per-query totals, as the route returns them. */
