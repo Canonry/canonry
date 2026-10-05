@@ -150,6 +150,7 @@ import {
 } from "./telemetry.js";
 import { createApiUsageTelemetry } from "./usage-telemetry.js";
 import { sendFeedback } from "./feedback.js";
+import { createUiTelemetryGate } from "./ui-telemetry-gate.js";
 import { checkLatestVersionForServer, getServerUpdateStatus } from "./update-check.js";
 import { resolveBuildCommit, resolveInstanceIdentity } from "./instance-identity.js";
 import { JobRunner } from "./job-runner.js";
@@ -3321,9 +3322,9 @@ export async function createServer(opts: {
       opts.config.telemetry = enabled;
     },
     recordOnboardingEvent: (event) => recordDashboardEvent(event),
-    // Opted-out installs send no dashboard usage: recordDashboardEvent goes
-    // through trackEvent, which drops everything while telemetry is disabled.
-    recordUiEvent: (event) => recordDashboardEvent(event),
+    // Answers false while telemetry is off or the per-process cap is spent, so
+    // the dashboard stops sending for the session.
+    recordUiEvent: createUiTelemetryGate(),
     submitFeedback: (submission, context) => sendFeedback(submission, context),
     onCdpConfigure: async (host: string, port: number) => {
       if (!opts.config.cdp) opts.config.cdp = {};

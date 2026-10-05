@@ -84,6 +84,9 @@ export const UI_ACTIONS = [
   'schedule.delete',
   'provider.save',
   'settings.save',
+  /** An OAuth flow was started; the connection is not confirmed yet. */
+  'integration.connect_started',
+  /** A connection was confirmed (credentials accepted, or a property/account chosen). */
   'integration.connect',
   'integration.disconnect',
   'traffic.sync',
@@ -127,7 +130,7 @@ export const UI_VITAL_METRICS = ['LCP', 'INP', 'CLS', 'FCP', 'TTFB'] as const
 export const UI_VITAL_RATINGS = ['good', 'needs-improvement', 'poor'] as const
 
 /** An error boundary's slug, never free text. */
-const COMPONENT_PATTERN = /^[a-z][a-z0-9-]{0,39}$/
+export const UI_COMPONENT_PATTERN = /^[a-z][a-z0-9-]{0,39}$/
 /** An exception class name such as `TypeError` or `ChunkLoadError`. */
 export const UI_ERROR_NAME_PATTERN = /^[a-z_$][\w$]{0,39}$/i
 /** A generated-client route TEMPLATE: `/api/v1/projects/{name}/runs`, never a real path. */
@@ -170,7 +173,7 @@ export const uiTelemetryEventSchema = z.discriminatedUnion('event', [
     event: z.literal('ui.error'),
     kind: z.enum(UI_ERROR_KINDS),
     tab: uiProjectTabSchema.optional(),
-    component: z.string().regex(COMPONENT_PATTERN).optional(),
+    component: z.string().regex(UI_COMPONENT_PATTERN).optional(),
     errorName: z.string().regex(UI_ERROR_NAME_PATTERN).optional(),
     route: z.string().max(200).refine(isUiApiRouteTemplate, 'route must be a route template').optional(),
     method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).optional(),

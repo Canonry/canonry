@@ -10344,6 +10344,43 @@ export type OnboardingTelemetryEvent = {
     reasonCode?: 'api_unavailable' | 'database_unavailable' | 'worker_unavailable' | 'no_provider' | 'no_queries' | 'provider_save_failed' | 'project_create_failed' | 'query_save_failed' | 'run_rejected' | 'run_failed' | 'run_cancelled' | 'rate_limited' | 'provider_auth' | 'network' | 'unknown';
 };
 
+export type UiTelemetryEvent = {
+    eventId: string;
+    uiSessionId: string;
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    event: 'ui.page_viewed';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+} | {
+    eventId: string;
+    uiSessionId: string;
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    event: 'ui.action';
+    action: 'sweep.launch' | 'sweep.cancel' | 'site_audit.launch' | 'project.create' | 'project.update' | 'project.delete' | 'query.add' | 'query.delete' | 'query.generate' | 'competitor.save' | 'competitor.delete' | 'schedule.save' | 'schedule.delete' | 'provider.save' | 'settings.save' | 'integration.connect_started' | 'integration.connect' | 'integration.disconnect' | 'traffic.sync' | 'notification.save' | 'notification.test' | 'measurement_plan.publish' | 'discovery.run' | 'api_key.create' | 'api_key.revoke' | 'export.download' | 'report.download' | 'aero.open' | 'aero.send';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    integration?: 'google' | 'gsc' | 'ga' | 'bing' | 'gbp' | 'wordpress' | 'openai_ads' | 'google_ads' | 'gtm' | 'traffic_cloudflare' | 'traffic_vercel' | 'traffic_cloud_run' | 'traffic_wordpress';
+    format?: 'csv' | 'json' | 'html';
+} | {
+    eventId: string;
+    uiSessionId: string;
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    event: 'ui.error';
+    kind: 'render' | 'unhandled' | 'api';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    component?: string;
+    errorName?: string;
+    route?: string;
+    method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+    statusClass?: '4xx' | '5xx' | 'network';
+    status?: number;
+} | {
+    eventId: string;
+    uiSessionId: string;
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    event: 'ui.vitals';
+    metric: 'LCP' | 'INP' | 'CLS' | 'FCP' | 'TTFB';
+    rating: 'good' | 'needs-improvement' | 'poor';
+};
+
 export type OrganicEvidenceDto = {
     contractVersion: 'organic-evidence/v1';
     periodDays: 60 | 90;
@@ -20756,6 +20793,31 @@ export type PostApiV1TelemetryOnboardingResponses = {
 };
 
 export type PostApiV1TelemetryOnboardingResponse = PostApiV1TelemetryOnboardingResponses[keyof PostApiV1TelemetryOnboardingResponses];
+
+export type PostApiV1TelemetryUiData = {
+    body: UiTelemetryEvent;
+    path?: never;
+    query?: never;
+    url: '/api/v1/telemetry/ui';
+};
+
+export type PostApiV1TelemetryUiErrors = {
+    /**
+     * Invalid UI telemetry event.
+     */
+    400: ErrorEnvelope;
+};
+
+export type PostApiV1TelemetryUiError = PostApiV1TelemetryUiErrors[keyof PostApiV1TelemetryUiErrors];
+
+export type PostApiV1TelemetryUiResponses = {
+    /**
+     * UI event accepted.
+     */
+    202: TelemetryEventAcceptedDto;
+};
+
+export type PostApiV1TelemetryUiResponse = PostApiV1TelemetryUiResponses[keyof PostApiV1TelemetryUiResponses];
 
 export type PostApiV1FeedbackData = {
     body: FeedbackSubmission;

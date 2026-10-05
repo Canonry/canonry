@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { UiTelemetryEvent } from '@ainyc/canonry-contracts'
 import { telemetryRoutes } from '../src/telemetry.js'
 
-async function buildApp(recordUiEvent?: (event: UiTelemetryEvent) => void) {
+async function buildApp(recordUiEvent?: (event: UiTelemetryEvent) => boolean) {
   const app = Fastify()
   await app.register(telemetryRoutes, { recordUiEvent })
   await app.ready()
@@ -18,7 +18,7 @@ const base = {
 describe('UI telemetry route', () => {
   it('accepts and forwards an allowlisted event', async () => {
     const events: UiTelemetryEvent[] = []
-    const app = await buildApp(event => events.push(event))
+    const app = await buildApp(event => { events.push(event); return true })
     const payload = { ...base, event: 'ui.action', page: '/projects/:projectName', action: 'sweep.launch' }
     const response = await app.inject({ method: 'POST', url: '/telemetry/ui', payload })
     expect(response.statusCode).toBe(202)
@@ -28,7 +28,7 @@ describe('UI telemetry route', () => {
 
   it('rejects free text before forwarding anything', async () => {
     const events: UiTelemetryEvent[] = []
-    const app = await buildApp(event => events.push(event))
+    const app = await buildApp(event => { events.push(event); return true })
     const response = await app.inject({
       method: 'POST',
       url: '/telemetry/ui',
@@ -40,6 +40,17 @@ describe('UI telemetry route', () => {
 
   it('answers accepted:false where telemetry is not collected', async () => {
     const app = await buildApp()
+    const response = await app.inject({
+      method: 'POST',
+      url: '/telemetry/ui',
+      payload: { ...base, event: 'ui.page_viewed', page: '/' },
+    })
+    expect(response.statusCode).toBe(202)
+    expect(response.json()).toEqual({ accepted: false })
+  })
+
+  it('answers accepted:false when the host declines (telemetry off or rate limited)', async () => {
+    const app = await buildApp(() => false)
     const response = await app.inject({
       method: 'POST',
       url: '/telemetry/ui',

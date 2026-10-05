@@ -18,8 +18,12 @@ export interface TelemetryRoutesOptions {
   getTelemetryStatus?: () => TelemetryStatusInput
   setTelemetryEnabled?: (enabled: boolean) => void
   recordOnboardingEvent?: (event: OnboardingTelemetryEvent) => void
-  /** Dashboard usage: page views, feature actions, UI errors, web vitals. */
-  recordUiEvent?: (event: UiTelemetryEvent) => void
+  /**
+   * Dashboard usage: page views, feature actions, UI errors, web vitals.
+   * Returns whether the event was accepted: `false` while telemetry is off or
+   * the host's rate limit is spent, which tells the dashboard to stop sending.
+   */
+  recordUiEvent?: (event: UiTelemetryEvent) => boolean
 }
 
 export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoutesOptions) {
@@ -99,10 +103,10 @@ export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoute
       })
     }
 
-    // Same posture as onboarding: a host that does not collect telemetry
-    // (apps/api, or an opted-out local instance) answers accepted:false and the
+    // A host that does not collect telemetry (apps/api), an opted-out local
+    // instance, or one past its rate limit answers accepted:false, and the
     // dashboard stops sending for the session.
-    opts.recordUiEvent?.(parsed.data)
-    return reply.status(202).send({ accepted: Boolean(opts.recordUiEvent) })
+    const accepted = opts.recordUiEvent ? opts.recordUiEvent(parsed.data) : false
+    return reply.status(202).send({ accepted })
   })
 }
