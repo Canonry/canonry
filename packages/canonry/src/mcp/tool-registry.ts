@@ -2127,7 +2127,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_gsc_query_totals',
     title: 'Get GSC query totals',
-    description: 'Get stored Google Search Console totals per search query for a date window (no call to Google): clicks, impressions, CTR, impression-weighted average position and the number of days the query appeared. Rows are ordered clicks desc, impressions desc, query asc; page with limit/offset until truncated is false. The rows are the queries Google names: Google leaves rare queries out, so never sum them for a property total, use canonry_gsc_performance_daily. Each row has `source`: google (Google\'s per-query figures), page-summed (legacy page table, impressions over-count) or mixed (both across the window).',
+    description: 'Get stored Google Search Console totals per search query for a date window (no call to Google): clicks, impressions, CTR, impression-weighted average position and the number of days the query appeared. Rows are ordered clicks desc, impressions desc, query asc; page with limit/offset until truncated is false. The rows are the queries Google names: Google leaves rare queries out, so never sum them for a property total, use canonry_gsc_performance_daily. Each row has `source`: google (Google\'s per-query figures), page-summed (legacy page table, impressions over-count) or mixed (both across the window). `window.earliestDataDate` is the first stored per-query date (null with none): a window that starts before it is only partly covered, so its missing days were never synced rather than zero traffic.',
     access: 'read',
     tier: 'gsc',
     inputSchema: gscQueryTotalsInputSchema,

@@ -237,6 +237,31 @@ export function readEarliestGscDataDate(db: DatabaseClient, projectId: string): 
 }
 
 /**
+ * The earliest date a project has stored per-QUERY rows for, across both tables
+ * `query-totals` reads: the accurate `['date','query']` table and the legacy
+ * page-dimensioned one that fills its gaps.
+ *
+ * Not `readEarliestGscDataDate`: that floor includes the property-level
+ * `gsc_daily_totals`, which can start before any per-query row was synced, and
+ * would then claim per-query coverage the route does not have.
+ */
+export function readEarliestGscQueryDataDate(db: DatabaseClient, projectId: string): string | null {
+  // The sync writes `date ?? ''`; an empty date would sort before every real
+  // one and report the whole history as covered.
+  const accurate = db.select({ earliest: min(gscQueryDailyTotals.date) })
+    .from(gscQueryDailyTotals)
+    .where(and(eq(gscQueryDailyTotals.projectId, projectId), sql`${gscQueryDailyTotals.date} <> ''`))
+    .get()?.earliest ?? null
+  const dimensioned = db.select({ earliest: min(gscSearchData.date) })
+    .from(gscSearchData)
+    .where(and(eq(gscSearchData.projectId, projectId), sql`${gscSearchData.date} <> ''`))
+    .get()?.earliest ?? null
+  return [accurate, dimensioned]
+    .filter((d): d is string => d !== null)
+    .reduce<string | null>((earliest, d) => (earliest === null || d < earliest ? d : earliest), null)
+}
+
+/**
  * Read the property-level daily GSC totals for a project over an inclusive
  * `[startDate, endDate]` window, ordered by date ascending.
  *

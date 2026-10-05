@@ -5687,6 +5687,7 @@ export type GscQueryTotalsDto = {
         endDate: string | null;
         latestDataDate: string | null;
         daysSinceLatestData: number | null;
+        earliestDataDate?: string | null;
     };
 };
 

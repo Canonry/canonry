@@ -354,7 +354,20 @@ export const gscQueryTotalsDtoSchema = z.object({
    * window paired with only `endDate` spans that many days ending on it. A
    * `null` side is unbounded.
    */
-  window: gscWindowRangeSchema,
+  window: gscWindowRangeSchema.extend({
+    /**
+     * The first date with stored per-query rows (either query table), ignoring
+     * the window; `null` with none. The lower edge of what this route can
+     * answer: a window starting before it is only partly covered, because
+     * Search Analytics stores no row for an unfetched day and the sum would
+     * read as low traffic rather than missing data.
+     *
+     * Optional on the wire, like `basis` above: a server older than the field
+     * omits it, which means coverage is unknown, not that no rows are stored.
+     * This route always sends it.
+     */
+    earliestDataDate: z.string().nullable().optional(),
+  }),
 })
 export type GscQueryTotalsDto = z.infer<typeof gscQueryTotalsDtoSchema>
 
