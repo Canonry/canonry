@@ -109,6 +109,7 @@ describe('query tracking errors', () => {
       statusCode: 409,
       details: { expectedWorkspaceVersion: 'qtw_expected', actualWorkspaceVersion: 'qtw_actual' },
     })
+    expect(error.details).toEqual({ expectedWorkspaceVersion: 'qtw_expected', actualWorkspaceVersion: 'qtw_actual' })
   })
 })
 

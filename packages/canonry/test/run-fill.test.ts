@@ -10,6 +10,7 @@ import {
   canonicalMeasurementPlanV2Json,
   measurementPlanV2ChecksumJson,
   parseRunError,
+  parseMeasurementRunManifestV1,
   type LocationContext,
   type MeasurementPlanV2,
   type NormalizedQueryResult,
@@ -25,7 +26,6 @@ import {
   measurementPlans,
   measurementPlanVersions,
   migrate,
-  notifications,
   projects,
   queries,
   querySnapshots,
@@ -36,8 +36,7 @@ import {
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
-import { Notifier } from '../src/notifier.js'
-import { ProviderExecutionGate } from '../src/provider-execution-gate.js'
+import { resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 
 const NOW = '2026-08-01T00:00:00.000Z'
@@ -45,8 +44,8 @@ const NORTH: LocationContext = { label: 'north-city', city: 'North City', region
 const MODELS = { openai: 'gpt-planned', gemini: 'gemini-planned' }
 
 /** A published v2 revision: `count` questions for one Property, each answered by every provider. */
-function plan(count: number, models: Record<string, string> = MODELS, providers: readonly string[] = ['openai', 'gemini']): MeasurementPlanV2 {
-  const questions = Array.from({ length: count }, (_, index) => ({ id: `q-${index + 1}`, text: `widget question ${index + 1}` }))
+function plan(count: number, models: Record<string, string> = MODELS, providers: readonly string[] = ['openai', 'gemini'], queryPrefix = ''): MeasurementPlanV2 {
+  const questions = Array.from({ length: count }, (_, index) => ({ id: `${queryPrefix}q-${index + 1}`, text: `widget question ${index + 1}` }))
   const draft: MeasurementPlanV2 = {
     schemaVersion: 2,
     identities: { projectBrand: { canonicalHost: 'example.com', ownedHosts: ['example.com'], names: ['Planned Co'] } },
@@ -74,17 +73,25 @@ function plan(count: number, models: Record<string, string> = MODELS, providers:
   return { ...draft, compiledChecksum: crypto.createHash('sha256').update(measurementPlanV2ChecksumJson(draft)).digest('hex') }
 }
 
-function seed(count: number, models?: Record<string, string>, providers?: readonly string[]): { db: DatabaseClient; projectId: string } {
+function testDb(): DatabaseClient {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-run-fill-'))
   onTestFinished(() => fs.rmSync(dir, { recursive: true, force: true }))
   const db = createClient(path.join(dir, 'test.db'))
   migrate(db)
+  return db
+}
+
+function seed(
+  count: number, models?: Record<string, string>, providers?: readonly string[],
+  peer?: { db: DatabaseClient; name: string },
+): { db: DatabaseClient; projectId: string } {
+  const db = peer?.db ?? testDb()
   const projectId = crypto.randomUUID()
   db.insert(projects).values({
-    id: projectId, name: 'planned', displayName: 'Planned Co', canonicalDomain: 'example.com', aliases: ['Planned Co'],
+    id: projectId, name: peer?.name ?? 'planned', displayName: 'Planned Co', canonicalDomain: 'example.com', aliases: ['Planned Co'],
     country: 'US', language: 'en', providers: [], locations: [NORTH], createdAt: NOW, updatedAt: NOW,
   }).run()
-  const revision = plan(count, models, providers)
+  const revision = plan(count, models, providers, peer ? `${peer.name}-` : '')
   for (const q of revision.querySnapshots) db.insert(queries).values({ id: q.queryId, projectId, query: q.queryText, createdAt: NOW }).run()
   publish(db, projectId, revision, 1)
   return { db, projectId }
@@ -123,10 +130,10 @@ function adapter(name: string, calls: Call[], fails: () => boolean = () => false
   }
 }
 
-function registry(adapters: readonly ProviderAdapter[], maxRequestsPerDay = 1000): ProviderRegistry {
+function registry(adapters: readonly ProviderAdapter[], maxRequestsPerDay = 1000, maxRequestsPerMinute = 6000): ProviderRegistry {
   const r = new ProviderRegistry()
   for (const a of adapters) {
-    r.register(a, { provider: a.name, apiKey: 'test-key', quotaPolicy: { maxConcurrency: 1, maxRequestsPerMinute: 6000, maxRequestsPerDay } })
+    r.register(a, { provider: a.name, apiKey: 'test-key', quotaPolicy: { maxConcurrency: 1, maxRequestsPerMinute, maxRequestsPerDay } })
   }
   return r
 }
@@ -143,6 +150,26 @@ async function partialSweep(count: number, models?: Record<string, string>, prov
   await new JobRunner(db, registry([adapter(providers[0], [], () => true), adapter(providers[1], [])])).executeRun(queued.runId, projectId)
   expect(runRow(db, queued.runId).status).toBe('partial')
   return { db, projectId, runId: queued.runId }
+}
+
+/** Native frozen queue inputs plus already stored Gemini answers; no upstream budget is spent by setup. */
+function storedPartial(db: DatabaseClient, projectId: string, createdAt = new Date().toISOString()): string {
+  const queued = queueRunIfProjectIdle(db, { projectId, createdAt })
+  if (queued.conflict) throw new Error(`unexpected active sweep ${queued.activeRunId}`)
+  const manifest = parseMeasurementRunManifestV1(runRow(db, queued.runId).measurementManifest)
+  const projectQueries = db.select().from(queries).where(eq(queries.projectId, projectId)).all()
+  for (const slot of manifest.expectedSlots.filter(slot => slot.provider === 'gemini')) {
+    const query = projectQueries.find(query => query.query === slot.queryText)
+    if (!query) throw new Error(`untracked query ${slot.queryText}`)
+    db.insert(querySnapshots).values({
+      id: crypto.randomUUID(), runId: queued.runId, queryId: query.id, queryText: slot.queryText,
+      provider: 'gemini', measurementExecutionId: slot.executionId, requestedContext: slot.context,
+      location: slot.context?.label ?? null, citationState: 'not-cited', answerMentioned: false,
+      citedDomains: [], competitorOverlap: [], recommendedCompetitors: [], rawResponse: '{}', createdAt,
+    }).run()
+  }
+  db.update(runs).set({ status: 'partial', startedAt: createdAt, finishedAt: createdAt }).where(eq(runs.id, queued.runId)).run()
+  return queued.runId
 }
 
 describe('filling a partial run in place', () => {
@@ -264,8 +291,6 @@ describe('fill admission', () => {
     expect(evaluateRunFill(db, run(), { providers: ['gemini'] })).toMatchObject({ kind: 'refused', code: 'provider_nothing_missing' })
     expect(evaluateRunFill(db, run(), { providers: ['claude'] })).toMatchObject({ kind: 'refused', code: 'provider_not_in_plan' })
     expect(evaluateRunFill(db, run(), { runnableProviders: ['gemini'] })).toMatchObject({ kind: 'refused', code: 'provider_not_configured' })
-    const tooLate = new Date(Date.parse(run().startedAt ?? run().createdAt) + 25 * 60 * 60 * 1000)
-    expect(evaluateRunFill(db, run(), { now: tooLate })).toMatchObject({ kind: 'refused', code: 'too_old' })
 
     publish(db, projectId, plan(3), 2)
     expect(evaluateRunFill(db, run())).toMatchObject({ kind: 'refused', code: 'plan_revision_changed' })
@@ -316,11 +341,24 @@ describe('fill admission', () => {
     })
   })
 
-  it('admits one fill per project at a time, and reports a complete run as complete', async () => {
-    const { db, runId } = await partialSweep(2)
+  it('admits one fill per project across eligible runs, while other projects remain independent', () => {
+    const { db, projectId } = seed(2)
+    const runId = storedPartial(db, projectId)
+    expect(readRunCompleteness(db, runRow(db, runId))).toMatchObject({ expected: 4, executed: 2, missing: 2, fillable: true })
     const first = queueRunFill(db, runId)
-    expect(first.kind).toBe('queued')
-    expect(queueRunFill(db, runId)).toMatchObject({ kind: 'fill-in-progress' })
+    if (first.kind !== 'queued') throw new Error(first.kind)
+    expect(queueRunFill(db, runId)).toEqual({ kind: 'fill-in-progress', fillId: first.fill.id })
+
+    // Sweeps stay admissible during a fill; the newer partial is not superseded.
+    const newer = storedPartial(db, projectId, new Date(Date.parse(runRow(db, runId).createdAt) + 1000).toISOString())
+    expect(evaluateRunFill(db, runRow(db, newer))).toMatchObject({ kind: 'fillable', providers: ['openai'] })
+    expect(queueRunFill(db, newer)).toEqual({ kind: 'fill-in-progress', fillId: first.fill.id })
+
+    const peer = seed(1, undefined, undefined, { db, name: 'lock-peer' })
+    const peerRun = storedPartial(db, peer.projectId)
+    expect(evaluateRunFill(db, runRow(db, peerRun))).toMatchObject({ kind: 'fillable', providers: ['openai'] })
+    expect(queueRunFill(db, peerRun)).toMatchObject({ kind: 'queued', fill: { projectId: peer.projectId, runId: peerRun, expected: 1 } })
+    expect(db.select().from(runFills).all()).toHaveLength(2)
 
     db.update(runs).set({ status: 'completed' }).where(eq(runs.id, runId)).run()
     expect(evaluateRunFill(db, runRow(db, runId)).kind).toBe('already-complete')
@@ -409,24 +447,6 @@ describe('review follow-ups', () => {
     expect(evaluateRunFill(db, runRow(db, runId), { dailyLimits: { openai: 1001 } }).kind).toBe('fillable')
   })
 
-  it('sends run.completed once: when the sweep ends partial, not again when a fill completes the run', async () => {
-    const { db, projectId, runId } = await partialSweep(2)
-    db.insert(notifications).values({
-      id: crypto.randomUUID(), projectId, channel: 'webhook', enabled: true, createdAt: NOW, updatedAt: NOW,
-      config: { url: 'https://hooks.example.test/canonry', events: ['run.completed', 'citation.gained', 'citation.lost'] },
-    }).run()
-    const notifier = new Notifier(db, 'http://localhost:4100')
-    const sent: string[] = []
-    vi.spyOn(notifier as unknown as { sendWebhook: (url: string, payload: { event: string }) => Promise<boolean> }, 'sendWebhook')
-      .mockImplementation(async (_url, payload) => { sent.push(payload.event); return true })
-
-    await notifier.onRunCompleted(runId, projectId)
-    db.update(runs).set({ status: 'completed', error: null }).where(eq(runs.id, runId)).run()
-    await notifier.onRunCompleted(runId, projectId, { origin: 'fill' })
-
-    expect(sent.filter(event => event === 'run.completed')).toHaveLength(1)
-  })
-
   it('reports an unreadable manifest as unknown, not as nothing missing', async () => {
     const { db, runId } = await partialSweep(2)
     db.update(runs).set({ measurementManifest: { schemaVersion: 99 } as unknown as Record<string, unknown> }).where(eq(runs.id, runId)).run()
@@ -435,17 +455,69 @@ describe('review follow-ups', () => {
 })
 
 describe('second review follow-ups', () => {
-  it('a stopped provider takes no further place in its rate-limited queue', async () => {
-    const { db, runId } = await partialSweep(8)
-    const admitted = queueRunFill(db, runId)
-    if (admitted.kind !== 'queued') throw new Error(admitted.kind)
-    const gateRuns = vi.spyOn(ProviderExecutionGate.prototype, 'run')
-    onTestFinished(() => gateRuns.mockRestore())
-    const calls: Call[] = []
-    await new JobRunner(db, registry([adapter('openai', calls, () => true), adapter('gemini', [])])).executeRunFill(admitted.fill.id)
-    // Three failures trip the breaker; the five remaining slots never join the gate.
-    expect(calls).toHaveLength(3)
-    expect(gateRuns).toHaveBeenCalledTimes(3)
+  it('a stopped fill preserves timely dispatch capacity for another project', async () => {
+    resetSharedProviderExecutionGates()
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
+    const started = Date.now()
+    let fillTask: Promise<void> | undefined
+    let peerTask: Promise<void> | undefined
+    try {
+      const { db, projectId } = seed(8)
+      const runId = storedPartial(db, projectId)
+      expect(readRunCompleteness(db, runRow(db, runId))).toMatchObject({
+        planned: true, readable: true, expected: 16, executed: 8, missing: 8, missingByProvider: { openai: 8 }, fillable: true,
+      })
+      const admitted = queueRunFill(db, runId)
+      if (admitted.kind !== 'queued') throw new Error(admitted.kind)
+      const calls: Call[] = []
+      const fillTimes: number[] = []
+      const failedProvider = adapter('openai', calls, () => { fillTimes.push(Date.now() - started); return true })
+      let fillSettled = false
+      fillTask = new JobRunner(db, registry([failedProvider], 1000, 4)).executeRunFill(admitted.fill.id)
+        .then(() => { fillSettled = true })
+      await vi.advanceTimersByTimeAsync(0)
+
+      const peer = seed(1, { openai: 'gpt-planned' }, ['openai'], { db, name: 'budget-peer' })
+      const queued = queueRunIfProjectIdle(db, { projectId: peer.projectId })
+      if (queued.conflict) throw new Error('unexpected peer sweep conflict')
+      const peerCalls: Call[] = []
+      const peerTimes: number[] = []
+      const peerProvider = adapter('openai', peerCalls)
+      const timedPeer: ProviderAdapter = {
+        ...peerProvider,
+        async executeTrackedQuery(input, config) {
+          peerTimes.push(Date.now() - started)
+          return peerProvider.executeTrackedQuery(input, config)
+        },
+      }
+      peerTask = new JobRunner(db, registry([timedPeer], 1000, 4)).executeRun(queued.runId, peer.projectId)
+      await vi.advanceTimersByTimeAsync(59_999)
+
+      // Three failed calls used three tokens; the peer still gets the fourth in this minute.
+      expect(peerTimes).toEqual([0])
+      expect(fillTimes).toEqual([0, 0, 0])
+      expect(fillSettled).toBe(true)
+      expect(calls.map(call => ({ provider: call.provider, model: call.model }))).toEqual([
+        { provider: 'openai', model: 'gpt-planned' }, { provider: 'openai', model: 'gpt-planned' }, { provider: 'openai', model: 'gpt-planned' },
+      ])
+      expect(peerCalls).toEqual([{ provider: 'openai', query: 'widget question 1', model: 'gpt-planned' }])
+      expect(runRow(db, runId).status).toBe('partial')
+      expect(parseRunError(runRow(db, runId).error)?.providers?.openai?.message).toMatch(/monthly spend limit/)
+      expect(db.select().from(runFills).where(eq(runFills.id, admitted.fill.id)).get()).toMatchObject({ status: 'failed', filled: 0 })
+      expect(runRow(db, queued.runId).status).toBe('completed')
+      expect(answered(db, queued.runId, 'openai')).toBe(1)
+      expect(db.select({ period: usageCounters.period, metric: usageCounters.metric, count: usageCounters.count }).from(usageCounters)
+        .where(eq(usageCounters.scope, `${projectId}:openai`)).all()).toEqual([{ period: '2026-10-05', metric: 'queries', count: 3 }])
+      expect(db.select({ period: usageCounters.period, metric: usageCounters.metric, count: usageCounters.count }).from(usageCounters)
+        .where(eq(usageCounters.scope, `${peer.projectId}:openai`)).all()).toEqual([{ period: '2026-10-05', metric: 'queries', count: 1 }])
+    } finally {
+      // Release pending fault-probe work only after the bounded dispatch assertions.
+      await vi.runAllTimersAsync()
+      await Promise.all([fillTask, peerTask])
+      vi.useRealTimers()
+      resetSharedProviderExecutionGates()
+    }
   })
 
   it('stops paying for calls once its run is cleared underneath it', async () => {

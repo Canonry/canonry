@@ -152,7 +152,7 @@ const ACTIVATION_MANIFEST = {
   },
 }
 const ACTIVATION_MANIFEST_HASH = 'b'.repeat(64)
-const APPROVED_GRANT: AdsActivationGrantResponse = {
+const APPROVED_GRANT = {
   grant: {
     id: 'grant_1',
     projectId: 'project_1',
@@ -173,7 +173,7 @@ const APPROVED_GRANT: AdsActivationGrantResponse = {
     revocationRequestedAt: null,
     expiredAt: null,
   },
-}
+} satisfies AdsActivationGrantResponse
 const REVOKED_GRANT: AdsActivationGrantResponse = {
   grant: {
     ...APPROVED_GRANT.grant,
@@ -358,7 +358,7 @@ const DELIVERY_DIAGNOSTICS: AdsDeliveryDiagnosticsDto = {
   },
   historicalCampaignRollups: {
     status: 'reported',
-    window: { from: '2026-07-20', to: '2026-07-20' },
+    window: { from: '2026-07-20', to: '2026-07-20', inProgressDate: null },
     totals: {
       impressions: 7,
       clicks: 1,
@@ -560,11 +560,20 @@ describe('ads lifecycle commands', () => {
     })
   })
 
-  it('rejects missing and out-of-range geo search input before an API call', async () => {
-    await expect(adsGeoSearch('canonry-audit', { q: ' ', limit: 101 })).rejects.toMatchObject({
-      code: 'ADS_GEO_QUERY_INVALID',
-    })
-    expect(mockSearchAdsGeo).not.toHaveBeenCalled()
+  it('rejects each invalid geo field before requesting locations', async () => {
+    mockSearchAdsGeo.mockResolvedValue(GEO_RESULTS)
+    const cases = [
+      { q: ' ', limit: 20, issuePath: 'q' },
+      { q: 'New York', limit: 101, issuePath: 'limit' },
+    ]
+    for (const { q, limit, issuePath } of cases) {
+      mockSearchAdsGeo.mockClear()
+      await expect(adsGeoSearch('canonry-audit', { q, limit })).rejects.toMatchObject({
+        code: 'ADS_GEO_QUERY_INVALID',
+        details: { project: 'canonry-audit', issues: [{ path: issuePath }] },
+      })
+      expect(mockSearchAdsGeo).not.toHaveBeenCalled()
+    }
   })
 
   it('streams conversion planning collections as JSONL', async () => {
@@ -651,22 +660,122 @@ describe('ads lifecycle commands', () => {
     expect(log.mock.calls.at(-1)?.[0]).toBe(guidance)
   })
 
-  it('resumes activation recovery by operation key without a request body', async () => {
-    mockResumeAdsActivation.mockResolvedValue(ACTIVATED_TREE)
-    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-
-    await adsOperationResumeActivation('canonry-audit', {
+  it('renders durable activation tallies for bodyless recovery and approved tree execution', async () => {
+    const inputPath = path.join(tmpDir, 'activate-tree.json')
+    const request = {
       operationKey: 'weekend:activate-tree:1',
-    })
+      grantId: 'grant_1',
+      manifestHash: ACTIVATION_MANIFEST_HASH,
+    }
+    fs.writeFileSync(inputPath, JSON.stringify(request))
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    type PendingStep = Extract<AdsActivateTreeResponse['steps'][number], { state: 'pending' }>
+    const pendingSteps = ACTIVATED_TREE.steps.map<PendingStep>((step) => ({
+      ...step,
+      state: 'pending',
+      providerUpdatedAt: null,
+      errorCode: null,
+      errorMessage: null,
+      remediation: null,
+      startedAt: null,
+      finishedAt: null,
+    }))
+    const executingGrant: AdsActivateTreeResponse['grant'] = {
+      ...APPROVED_GRANT.grant,
+      state: 'executing',
+      operationId: 'op_activate_1',
+      executionStartedAt: '2026-07-18T20:30:00.000Z',
+      consumedAt: null,
+      revokedAt: null,
+      expiredAt: null,
+    }
+    const unknownGrant: AdsActivateTreeResponse['grant'] = { ...executingGrant, state: 'unknown' }
+    const unknownOperation: AdsActivateTreeResponse['operation'] = {
+      ...ACTIVATED_TREE.operation, state: 'unknown', upstreamUpdatedAt: null,
+    }
+    const scenarios: Array<{ response: AdsActivateTreeResponse; expectedLines: string[] }> = [
+      {
+        response: ACTIVATED_TREE,
+        expectedLines: ['Activation weekend:activate-tree:1: succeeded', 'Steps:      3/3 active'],
+      },
+      {
+        response: {
+          grant: unknownGrant,
+          operation: unknownOperation,
+          steps: [
+            ACTIVATED_TREE.steps[0]!,
+            pendingSteps[1]!,
+            {
+              ...pendingSteps[2]!, state: 'failed', errorCode: 'version_conflict',
+              errorMessage: 'The ad changed after approval', remediation: 'Approve the current version',
+              startedAt: '2026-07-18T20:30:00.000Z', finishedAt: '2026-07-18T20:31:00.000Z',
+            },
+          ],
+        },
+        expectedLines: ['Activation weekend:activate-tree:1: unknown', 'Steps:      1/3 active'],
+      },
+      {
+        response: {
+          grant: unknownGrant,
+          operation: unknownOperation,
+          steps: [
+            {
+              ...pendingSteps[0]!, state: 'rolled_back', providerUpdatedAt: 106,
+              remediation: 'Entity paused after a later step failed',
+              startedAt: '2026-07-18T20:30:00.000Z', finishedAt: '2026-07-18T20:31:00.000Z',
+            },
+            {
+              ...pendingSteps[1]!, state: 'rollback_failed', providerUpdatedAt: 104,
+              errorCode: 'rollback_failed', errorMessage: 'Paused state was not confirmed',
+              remediation: 'Pause the entity manually before retrying',
+              startedAt: '2026-07-18T20:30:00.000Z', finishedAt: '2026-07-18T20:31:00.000Z',
+            },
+            {
+              ...pendingSteps[2]!, state: 'unknown', errorCode: 'ambiguous_outcome',
+              errorMessage: 'Provider response was interrupted', remediation: 'Inspect before retrying',
+              startedAt: '2026-07-18T20:30:00.000Z', finishedAt: '2026-07-18T20:31:00.000Z',
+            },
+          ],
+        },
+        expectedLines: ['Activation weekend:activate-tree:1: unknown', 'Steps:      0/3 active'],
+      },
+      {
+        response: {
+          grant: executingGrant,
+          operation: { ...ACTIVATED_TREE.operation, state: 'pending', upstreamUpdatedAt: null },
+          steps: [
+            { ...pendingSteps[0]!, state: 'executing', startedAt: '2026-07-18T20:30:00.000Z' },
+            {
+              ...pendingSteps[1]!, state: 'rollback_executing', providerUpdatedAt: 104,
+              remediation: 'Pausing after a later step failed', startedAt: '2026-07-18T20:30:00.000Z',
+            },
+          ],
+        },
+        expectedLines: ['Activation weekend:activate-tree:1: pending', 'Steps:      0/2 active'],
+      },
+      {
+        response: {
+          grant: executingGrant,
+          operation: { ...ACTIVATED_TREE.operation, state: 'pending', upstreamUpdatedAt: null },
+          steps: [],
+        },
+        expectedLines: ['Activation weekend:activate-tree:1: pending', 'Steps:      0/0 active'],
+      },
+    ]
 
-    expect(mockResumeAdsActivation).toHaveBeenCalledWith(
-      'canonry-audit',
-      'weekend:activate-tree:1',
-    )
-    expect(log.mock.calls.map(([line]) => line)).toEqual([
-      'Activation weekend:activate-tree:1: succeeded',
-      'Steps:      3/3 active',
-    ])
+    for (const { response, expectedLines } of scenarios) {
+      mockResumeAdsActivation.mockClear().mockResolvedValue(response)
+      log.mockClear()
+      await adsOperationResumeActivation('canonry-audit', { operationKey: 'weekend:activate-tree:1' })
+      expect(mockResumeAdsActivation.mock.calls).toEqual([['canonry-audit', 'weekend:activate-tree:1']])
+      expect(log.mock.calls.map(([line]) => line)).toEqual(expectedLines)
+
+      mockActivateAdsCampaignTree.mockClear().mockResolvedValue(response)
+      log.mockClear()
+      await adsCampaignActivateTree('canonry-audit', 'cmpn_1', { input: inputPath })
+      expect(mockActivateAdsCampaignTree.mock.calls).toEqual([['canonry-audit', 'cmpn_1', request]])
+      expect(log.mock.calls.map(([line]) => line)).toEqual(expectedLines)
+    }
   })
 
   it('creates an activation grant from validated JSON and emits the response as JSON', async () => {
@@ -714,26 +823,6 @@ describe('ads lifecycle commands', () => {
       'Requested: 2026-07-18T20:15:00.000Z',
       `Manifest: ${ACTIVATION_MANIFEST_HASH}`,
       'Expires:  2026-07-19T00:00:00.000Z',
-    ])
-  })
-
-  it('activates the exact approved campaign tree from validated JSON', async () => {
-    const inputPath = path.join(tmpDir, 'activate-tree.json')
-    const request = {
-      operationKey: 'weekend:activate-tree:1',
-      grantId: 'grant_1',
-      manifestHash: ACTIVATION_MANIFEST_HASH,
-    }
-    fs.writeFileSync(inputPath, JSON.stringify(request))
-    mockActivateAdsCampaignTree.mockResolvedValue(ACTIVATED_TREE)
-    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-
-    await adsCampaignActivateTree('canonry-audit', 'cmpn_1', { input: inputPath })
-
-    expect(mockActivateAdsCampaignTree).toHaveBeenCalledWith('canonry-audit', 'cmpn_1', request)
-    expect(log.mock.calls.map(([line]) => line)).toEqual([
-      'Activation weekend:activate-tree:1: succeeded',
-      'Steps:      3/3 active',
     ])
   })
 
@@ -811,9 +900,10 @@ describe('ads summary', () => {
     return lines
   }
 
-  it('prints the 0..1 CTR through formatPercent', async () => {
-    // 20 / 440 is 4.545...%: one decimal, half up on the tenth.
+  it('prints the API CTR fraction without recomputing it from clicks and impressions', async () => {
     expect(await summaryLines(summary)).toContain('Clicks:       20 (CTR 4.5%)')
+    const dto: AdsSummaryDto = { ...summary, totals: { ...summary.totals, ctr: 0.125 } }
+    expect(await summaryLines(dto)).toContain('Clicks:       20 (CTR 12.5%)')
   })
 
   it('omits the CTR when there were no impressions to divide by', async () => {

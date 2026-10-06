@@ -39,3 +39,9 @@ Note: The OpenAI `web_search` API returns fewer/different results than the ChatG
 - `docs/providers/openai.md` — OpenAI-specific API quirks
 - `docs/providers/README.md` — provider system overview
 - `packages/contracts/src/provider.ts` — `ProviderAdapter` interface definition
+
+## Test ownership
+
+- `test/base-url.test.ts` drives the real Responses SDK through the adapter for proxy, unset, empty and prefixed URLs.
+- `test/tracked-query-request.test.ts` independently pins request bytes and full sync/batch result projections, including captured model disclosures and the SDK-only `output_text` field.
+- `test/web-search-retrieval.test.ts` owns response-driven retrieval and stored-response reconstruction; malformed and unfinished results remain distinct from a completed no-search answer.

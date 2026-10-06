@@ -82,17 +82,17 @@ describe('mapWithConcurrency', () => {
     expect(order).toEqual(['start:a', 'end:a', 'start:b', 'end:b', 'start:c', 'end:c'])
   })
 
-  it('clamps a fractional / sub-1 concurrency to 1', async () => {
+  it.each([[0, 1], [0.5, 1], [1.9, 1], [2.9, 2]] as const)('floors concurrency %s and clamps it to at least one (%s workers)', async (concurrency, expected) => {
     let inFlight = 0
     let maxInFlight = 0
-    await mapWithConcurrency([1, 2, 3], 0, async (n) => {
+    await mapWithConcurrency([1, 2, 3], concurrency, async (n) => {
       inFlight++
       maxInFlight = Math.max(maxInFlight, inFlight)
       await tick()
       inFlight--
       return n
     })
-    expect(maxInFlight).toBe(1)
+    expect(maxInFlight).toBe(expected)
   })
 
   it('propagates the first error, stops claiming new items, and settles in-flight work', async () => {

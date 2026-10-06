@@ -182,7 +182,7 @@ function googleAdsConnectionVm(
  * operator recognises them: the container first, then the account it lives
  * under, then the draft workspace when one is pinned.
  */
-export function gtmSelectionSummary(
+function gtmSelectionSummary(
   containerId: string,
   accountId: string,
   workspaceId: string | null,

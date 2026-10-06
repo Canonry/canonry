@@ -16,7 +16,7 @@ import {
 } from './normalize.js'
 import type { MuseConfig } from './types.js'
 
-export function toMuseConfig(config: ProviderConfig): MuseConfig {
+function toMuseConfig(config: ProviderConfig): MuseConfig {
   return {
     apiKey: config.apiKey ?? '',
     model: config.model,

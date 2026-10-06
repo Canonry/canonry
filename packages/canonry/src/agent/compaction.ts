@@ -44,7 +44,7 @@ function conversationMessages(messages: readonly AgentMessage[]): AgentMessage[]
  * `COMPACTION_PRESERVE_TAIL_MESSAGES` messages remaining in the tail —
  * callers treat that as "skip compaction this turn."
  */
-export function findSafeSplit(messages: readonly AgentMessage[], targetIndex: number): number {
+function findSafeSplit(messages: readonly AgentMessage[], targetIndex: number): number {
   const maxSplit = messages.length - COMPACTION_PRESERVE_TAIL_MESSAGES
   if (maxSplit <= 0) return 0
   const boundedTarget = Math.max(0, Math.min(targetIndex, maxSplit))
@@ -85,15 +85,16 @@ function truncateToByteLimit(text: string, maxBytes: number): string {
   if (Buffer.byteLength(text, 'utf8') <= maxBytes) return text
   const suffix = '…[truncated]'
   const budget = maxBytes - Buffer.byteLength(suffix, 'utf8')
-  let buf = Buffer.from(text, 'utf8').subarray(0, budget)
-  // Drop a trailing partial UTF-8 sequence if we cut mid-codepoint.
-  while (buf.length > 0 && (buf[buf.length - 1] & 0b1100_0000) === 0b1000_0000) {
-    buf = buf.subarray(0, buf.length - 1)
+  const buf = Buffer.from(text, 'utf8')
+  let end = budget
+  // A continuation at the first excluded byte means the cut splits a glyph.
+  while (end > 0 && (buf[end] & 0b1100_0000) === 0b1000_0000) {
+    end -= 1
   }
-  return buf.toString('utf8') + suffix
+  return buf.subarray(0, end).toString('utf8') + suffix
 }
 
-export interface RunSummaryLlmArgs {
+interface RunSummaryLlmArgs {
   model: Model<Api>
   chunk: readonly AgentMessage[]
   getApiKey?: (provider: string) => string | undefined
@@ -105,7 +106,7 @@ export interface RunSummaryLlmArgs {
  * provider error or empty output so callers can fall back to "keep the
  * transcript uncompacted."
  */
-export async function runSummaryLlm(args: RunSummaryLlmArgs): Promise<string> {
+async function runSummaryLlm(args: RunSummaryLlmArgs): Promise<string> {
   const context: Context = {
     systemPrompt: SUMMARY_SYSTEM_PROMPT,
     messages: toLlmMessages(args.chunk),
@@ -125,8 +126,6 @@ export interface CompactMessagesArgs {
   messages: readonly AgentMessage[]
   model: Model<Api>
   getApiKey?: (provider: string) => string | undefined
-  /** Override the summarizer — used in tests to avoid a real LLM call. */
-  summarize?: (args: RunSummaryLlmArgs) => Promise<string>
 }
 
 export interface CompactMessagesResult {
@@ -154,8 +153,7 @@ export async function compactMessages(args: CompactMessagesArgs): Promise<Compac
   const chunk = messages.slice(0, split)
   const suffix = messages.slice(split)
 
-  const summarize = args.summarize ?? runSummaryLlm
-  const rawSummary = await summarize({ model: args.model, chunk, getApiKey: args.getApiKey })
+  const rawSummary = await runSummaryLlm({ model: args.model, chunk, getApiKey: args.getApiKey })
   const summary = truncateToByteLimit(rawSummary, AGENT_MEMORY_VALUE_MAX_BYTES)
 
   writeCompactionNote(args.db, {

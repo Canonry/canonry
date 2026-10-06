@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   canonicalMeasurementPlanV2Json,
   measurementPlanV2ChecksumJson,
@@ -21,10 +21,11 @@ import {
   providerBatches,
   queries,
   querySnapshots,
+  runFills,
   runs,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
-import { apiRoutes, evaluateRunFill } from '../src/index.js'
+import { apiRoutes } from '../src/index.js'
 import { queueRunIfProjectIdle, type QueueRunParams } from '../src/run-queue.js'
 import type { ProviderAdapterInfo } from '../src/settings.js'
 
@@ -522,6 +523,12 @@ describe.each(['simple', 'advanced'] as const)('fill age window (%s portfolio)',
   const DAY = 24 * 60 * 60 * 1000
   const at = (iso: string, offsetMs: number) => new Date(Date.parse(iso) + offsetMs)
 
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(STARTED)
+  })
+  afterEach(() => vi.useRealTimers())
+
   async function partialRun(finishedAt: string | null = FINISHED) {
     const projectId = await seedPortfolio(portfolio)
     const { runId } = queue(projectId, { trigger: 'scheduled' })
@@ -529,29 +536,63 @@ describe.each(['simple', 'advanced'] as const)('fill age window (%s portfolio)',
     return { projectId, runId }
   }
 
+  async function completenessAt(runId: string, instant: Date) {
+    vi.setSystemTime(instant)
+    const response = await inject('GET', `/api/v1/runs/${runId}/completeness`)
+    expect(response.statusCode).toBe(200)
+    return response.json()
+  }
+
+  async function refuseExpired(runId: string, basis: 'started' | 'finished') {
+    const dry = await inject('POST', `/api/v1/runs/${runId}/fill`, { dryRun: true })
+    expect(dry.statusCode).toBe(200)
+    expect(dry.json()).toMatchObject({ outcome: 'dry-run', fill: null, completeness: { fillable: false, refusal: { code: 'too_old' } } })
+    const response = await inject('POST', `/api/v1/runs/${runId}/fill`)
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error).toMatchObject({ code: 'RUN_FILL_REFUSED', details: { refusal: 'too_old', runId } })
+    expect(response.json().error.message).toContain(`${basis} more than 24 hours ago`)
+    expect(db.select().from(runFills).all()).toEqual([])
+  }
+
   it('measures an ordinary run from its start, to the millisecond', async () => {
-    const { runId } = await partialRun()
-    expect(evaluateRunFill(db, runRow(runId), { now: at(STARTED, DAY) }).kind).toBe('fillable')
-    const refused = evaluateRunFill(db, runRow(runId), { now: at(STARTED, DAY + 1) })
-    expect(refused).toMatchObject({ kind: 'refused', code: 'too_old' })
-    expect(refused.kind === 'refused' && refused.message).toContain('started more than 24 hours ago')
+    const { projectId, runId } = await partialRun()
+    expect(await completenessAt(runId, at(STARTED, DAY))).toMatchObject({ fillable: true, refusal: null, expected: 4, missing: 4 })
+    const dry = await inject('POST', `/api/v1/runs/${runId}/fill`, { dryRun: true })
+    expect(dry.statusCode).toBe(200)
+    expect(dry.json()).toMatchObject({ outcome: 'dry-run', fill: null, completeness: { fillable: true, refusal: null } })
+    expect(db.select().from(runFills).all()).toEqual([])
+
+    expect(await completenessAt(runId, at(STARTED, DAY + 1))).toMatchObject({ fillable: false, refusal: { code: 'too_old' } })
+    await refuseExpired(runId, 'started')
+
+    vi.setSystemTime(at(STARTED, DAY))
+    const queued = await inject('POST', `/api/v1/runs/${runId}/fill`)
+    expect(queued.statusCode).toBe(202)
+    expect(queued.json()).toMatchObject({ outcome: 'queued', fill: {
+      runId, projectId, status: 'queued', expected: 4, providers: ['claude', 'openai'], createdAt: '2026-09-25T00:00:02.000Z',
+    } })
+    expect(db.select().from(runFills).all()).toMatchObject([{ runId, projectId, createdAt: '2026-09-25T00:00:02.000Z' }])
   })
 
   it('measures a run that dispatched a provider batch from its finish, to the millisecond', async () => {
     const { projectId, runId } = await partialRun()
     insertBatch(runId, projectId, { status: 'ingested' })
 
-    expect(evaluateRunFill(db, runRow(runId), { now: at(STARTED, DAY + 1) }).kind).toBe('fillable')
-    expect(evaluateRunFill(db, runRow(runId), { now: at(FINISHED, DAY) }).kind).toBe('fillable')
-    const refused = evaluateRunFill(db, runRow(runId), { now: at(FINISHED, DAY + 1) })
-    expect(refused).toMatchObject({ kind: 'refused', code: 'too_old' })
-    expect(refused.kind === 'refused' && refused.message).toContain('finished more than 24 hours ago')
+    expect(await completenessAt(runId, at(STARTED, DAY + 1))).toMatchObject({ fillable: true, refusal: null })
+    expect(await completenessAt(runId, at(FINISHED, DAY))).toMatchObject({ fillable: true, refusal: null })
+    const dry = await inject('POST', `/api/v1/runs/${runId}/fill`, { dryRun: true })
+    expect(dry.statusCode).toBe(200)
+    expect(dry.json()).toMatchObject({ outcome: 'dry-run', fill: null, completeness: { fillable: true, refusal: null } })
+
+    expect(await completenessAt(runId, at(FINISHED, DAY + 1))).toMatchObject({ fillable: false, refusal: { code: 'too_old' } })
+    await refuseExpired(runId, 'finished')
   })
 
   it('falls back to the start for a batch run with no finish time', async () => {
     const { projectId, runId } = await partialRun(null)
     insertBatch(runId, projectId, { status: 'ingested' })
-    expect(evaluateRunFill(db, runRow(runId), { now: at(STARTED, DAY) }).kind).toBe('fillable')
-    expect(evaluateRunFill(db, runRow(runId), { now: at(STARTED, DAY + 1) })).toMatchObject({ kind: 'refused', code: 'too_old' })
+    expect(await completenessAt(runId, at(STARTED, DAY))).toMatchObject({ fillable: true, refusal: null })
+    expect(await completenessAt(runId, at(STARTED, DAY + 1))).toMatchObject({ fillable: false, refusal: { code: 'too_old' } })
+    await refuseExpired(runId, 'started')
   })
 })

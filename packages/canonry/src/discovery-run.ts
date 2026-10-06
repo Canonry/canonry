@@ -12,6 +12,7 @@ import {
   DiscoveryCompetitorTypes,
   effectiveBrandNames,
   effectiveDomains,
+  normalizeProjectDomain,
   isRetryableHttpError,
   RunStatuses,
   withRetry,
@@ -46,9 +47,9 @@ const DEFAULT_SEED_COUNT = 30
  * session immediately. Each attempt is bounded by a wall-clock timeout so a
  * hung connection cannot wedge the session past the route's zombie window.
  */
-export const EMBED_RETRY_MAX_RETRIES = 3
-export const EMBED_RETRY_MAX_DELAY_MS = 10_000
-export const EMBED_ATTEMPT_TIMEOUT_MS = 60_000
+const EMBED_RETRY_MAX_RETRIES = 3
+const EMBED_RETRY_MAX_DELAY_MS = 10_000
+const EMBED_ATTEMPT_TIMEOUT_MS = 60_000
 
 /** Race `promise` against a wall-clock ceiling. The timeout Error carries no
  *  `.status`, so `isRetryableHttpError` treats it as transient (retryable). */
@@ -67,29 +68,22 @@ function withAttemptTimeout<T>(promise: Promise<T>, timeoutMs: number, label: st
 
 /**
  * Wrap a raw embedding call with the transient-failure retry policy above.
- * `fn` is invoked fresh per attempt. Exported (with injectable knobs) so the
- * policy is unit-testable without the Gemini client.
+ * `fn` is invoked fresh per attempt; the installed Gemini client uses this
+ * default policy throughout native discovery.
  */
-export async function embedWithRetry(
+async function embedWithRetry(
   fn: () => Promise<number[][]>,
-  opts: {
-    maxRetries?: number
-    attemptTimeoutMs?: number
-    sleep?: (ms: number) => Promise<void>
-    onRetry?: (info: { attempt: number; err: unknown; delayMs: number }) => void
-  } = {},
 ): Promise<number[][]> {
-  const attemptTimeoutMs = opts.attemptTimeoutMs ?? EMBED_ATTEMPT_TIMEOUT_MS
+  const attemptTimeoutMs = EMBED_ATTEMPT_TIMEOUT_MS
   return withRetry(
     () => withAttemptTimeout(fn(), attemptTimeoutMs, 'Discovery embedding call'),
     {
-      maxRetries: opts.maxRetries ?? EMBED_RETRY_MAX_RETRIES,
+      maxRetries: EMBED_RETRY_MAX_RETRIES,
       isRetryable: isRetryableHttpError,
       maxDelayMs: EMBED_RETRY_MAX_DELAY_MS,
-      sleep: opts.sleep,
-      onRetry: opts.onRetry ?? (({ attempt, delayMs }) => {
+      onRetry: ({ attempt, delayMs }) => {
         log.warn('discovery.embed.retry', { attempt, delayMs })
-      }),
+      },
     },
   )
 }
@@ -134,8 +128,6 @@ export interface ExecuteDiscoveryRunOptions {
    * location-unaware — the behaviour for projects with no locations.
    */
   locations?: LocationContext[]
-  /** Override for tests / future multi-provider amplification. Defaults to Gemini-only. */
-  deps?: DiscoveryDeps
 }
 
 /**
@@ -171,7 +163,7 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
     const canonicalDomains = effectiveDomains({
       canonicalDomain: projectRow.canonicalDomain,
       ownedDomains: projectRow.ownedDomains,
-    })
+    }).map(normalizeProjectDomain)
     // Brand identity for answer-text mention matching, same shape the
     // answer-visibility snapshot writer (job-runner) uses.
     const brandNames = effectiveBrandNames({
@@ -187,7 +179,7 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
       competitorDomains: projectCompetitors,
     }
 
-    const deps = opts.deps ?? buildDefaultDeps(opts.registry)
+    const deps = buildDefaultDeps(opts.registry)
 
     const result = await executeDiscovery({
       db: opts.db,
@@ -246,7 +238,7 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
  * multiple deps in a composite and surface a label like `"gemini+chatgpt"`
  * in the `DiscoverySeedResult.provider` field.
  */
-export function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
+function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
   const gemini = registry.get('gemini')
   if (!gemini) {
     throw new Error('Gemini provider is not configured. Add a Gemini API key (or Vertex project) before running discovery.')
@@ -276,8 +268,8 @@ export function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
       const providerNames = input.seedProviders && input.seedProviders.length > 0
         ? [...input.seedProviders]
         : ['gemini']
-      const perProvider = await Promise.all(providerNames.map(async (name) => {
-        const seedProvider = seedProviderFor(name)
+      const admittedProviders = providerNames.map(name => ({ name, seedProvider: seedProviderFor(name) }))
+      const perProvider = await Promise.all(admittedProviders.map(async ({ name, seedProvider }) => {
         const raw = await seedProvider.adapter.executeTrackedQuery(
           {
             query: prompt,
@@ -399,9 +391,9 @@ const CLASSIFICATION_CATEGORY_MATCHERS: ReadonlyArray<{
 /**
  * Build the post-probe domain-classification prompt. Hands the model the
  * project context plus the deduped cited-domain list and asks for one
- * `domain => category` line per domain. Exported for unit testing.
+ * `domain => category` line per domain.
  */
-export function buildClassificationPrompt(input: {
+function buildClassificationPrompt(input: {
   project: DiscoveryProjectContext
   icpDescription: string
   domains: string[]
@@ -437,9 +429,9 @@ export function buildClassificationPrompt(input: {
  * design: it locates each input domain in the response and reads the category
  * to the right of `=>` (falling back to a whole-line scan). Any domain the
  * model omits or labels with an unrecognized category is left out of the map,
- * which the orchestrator treats as `unknown`. Exported for unit testing.
+ * which the orchestrator treats as `unknown`.
  */
-export function parseClassificationResponse(
+function parseClassificationResponse(
   text: string,
   domains: string[],
 ): DiscoveryDomainClassification {
@@ -521,9 +513,9 @@ function formatLocationLine(location: LocationContext): string {
  *   `floor(DEFAULT_SEED_COUNT / locationCount)` (min 1) so one service area
  *   cannot dominate the seed set.
  *
- * Exported for unit testing.
+ *
  */
-export function buildLocationConstraint(locations: readonly LocationContext[]): string[] {
+function buildLocationConstraint(locations: readonly LocationContext[]): string[] {
   if (locations.length === 0) return []
   const formatted = locations.map(formatLocationLine)
   if (locations.length === 1) {
@@ -543,9 +535,9 @@ export function buildLocationConstraint(locations: readonly LocationContext[]): 
  * Build the Gemini seed prompt. When `locations` is non-empty the prompt is
  * geo-constrained via `buildLocationConstraint` so discovered queries stay
  * inside the project's service area; otherwise the prompt is unchanged from
- * the pre-location behaviour. Exported for unit testing.
+ * the pre-location behaviour.
  */
-export function buildSeedPrompt(input: {
+function buildSeedPrompt(input: {
   project: DiscoveryProjectContext
   icpDescription: string
   buyerDescription?: string

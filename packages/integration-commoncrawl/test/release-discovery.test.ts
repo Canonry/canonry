@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'vitest'
-import { probeLatestRelease, probeRecentReleases, probeRelease } from '../src/release-discovery.js'
+import { describe, expect, test, vi } from 'vitest'
+import { probeLatestRelease, probeRelease } from '../src/release-discovery.js'
 
 function headOk(bytes: number, lastModified: string): Response {
   return new Response(null, {
@@ -28,30 +28,36 @@ function fetchFor(hits: Set<string>): typeof fetch {
 }
 
 describe('probeRelease', () => {
-  test('returns null when either file is missing', async () => {
+  test.each(['vertices', 'edges'])('returns null when %s is missing', async (missing) => {
     const fetchImpl = async (url: string | URL | Request): Promise<Response> => {
       const s = String(url)
-      return s.includes('vertices') ? headOk(100, 'Tue, 24 Mar 2026 00:00:00 GMT') : head404()
+      return s.includes(missing) ? head404() : headOk(100, 'Tue, 24 Mar 2026 00:00:00 GMT')
     }
     const got = await probeRelease('cc-main-2026-jan-feb-mar', fetchImpl as typeof fetch)
     expect(got).toBeNull()
   })
 
   test('returns sizes + last-modified when both files resolve', async () => {
-    const fetchImpl = async (url: string | URL | Request): Promise<Response> => {
+    const fetchImpl = vi.fn(async (url: string | URL | Request, _init?: RequestInit): Promise<Response> => {
       return String(url).includes('vertices')
         ? headOk(4_000_000_000, 'Tue, 24 Mar 2026 00:00:00 GMT')
         : headOk(13_000_000_000, 'Tue, 24 Mar 2026 00:00:00 GMT')
-    }
+    })
+    const vertexUrl = 'https://data.commoncrawl.org/projects/hyperlinkgraph/cc-main-2026-mar-apr-may/domain/cc-main-2026-mar-apr-may-domain-vertices.txt.gz'
+    const edgesUrl = 'https://data.commoncrawl.org/projects/hyperlinkgraph/cc-main-2026-mar-apr-may/domain/cc-main-2026-mar-apr-may-domain-edges.txt.gz'
     const got = await probeRelease('cc-main-2026-mar-apr-may', fetchImpl as typeof fetch)
     expect(got).toEqual({
       release: 'cc-main-2026-mar-apr-may',
-      vertexUrl: expect.stringContaining('/cc-main-2026-mar-apr-may/domain/cc-main-2026-mar-apr-may-domain-vertices.txt.gz'),
-      edgesUrl: expect.stringContaining('/cc-main-2026-mar-apr-may/domain/cc-main-2026-mar-apr-may-domain-edges.txt.gz'),
+      vertexUrl,
+      edgesUrl,
       vertexBytes: 4_000_000_000,
       edgesBytes: 13_000_000_000,
       lastModified: 'Tue, 24 Mar 2026 00:00:00 GMT',
     })
+    expect(fetchImpl.mock.calls.map(([url, init]) => ({ url: String(url), method: init?.method }))).toEqual([
+      { url: vertexUrl, method: 'HEAD' },
+      { url: edgesUrl, method: 'HEAD' },
+    ])
   })
 })
 
@@ -87,31 +93,16 @@ describe('probeLatestRelease', () => {
   })
 
   test('returns null when nothing published in the lookback window', async () => {
+    const fetchImpl = vi.fn(fetchFor(new Set()))
     const got = await probeLatestRelease({
       now: new Date('2026-04-19T00:00:00Z'),
-      fetchImpl: fetchFor(new Set()),
+      fetchImpl,
       maxMonthsBack: 1,
     })
     expect(got).toBeNull()
-  })
-})
-
-describe('probeRecentReleases', () => {
-  test('lists overlapping monthly windows newest-first, truncated to limit', async () => {
-    // Candidates from now=2026-04-19: apr-may-jun(miss), mar-apr-may(miss),
-    // feb-mar-apr(HIT), jan-feb-mar(HIT) → stops at limit 2.
-    const got = await probeRecentReleases({
-      now: new Date('2026-04-19T00:00:00Z'),
-      fetchImpl: fetchFor(new Set([
-        'cc-main-2026-feb-mar-apr',
-        'cc-main-2026-jan-feb-mar',
-        'cc-main-2025-dec-jan-feb',
-      ])),
-      limit: 2,
-    })
-    expect(got.map((r) => r.release)).toEqual([
-      'cc-main-2026-feb-mar-apr',
-      'cc-main-2026-jan-feb-mar',
+    expect(fetchImpl.mock.calls.map(([url]) => new URL(String(url)).pathname.split('/')[3])).toEqual([
+      'cc-main-2026-apr-may-jun', 'cc-main-2026-apr-may-jun',
+      'cc-main-2026-mar-apr-may', 'cc-main-2026-mar-apr-may',
     ])
   })
 })

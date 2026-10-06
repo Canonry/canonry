@@ -10,7 +10,8 @@ import {
 
 describe('install methods', () => {
   it('accepts only the closed set', () => {
-    for (const method of INSTALL_METHODS) expect(isInstallMethod(method)).toBe(true)
+    expect(INSTALL_METHODS).toEqual(['npm', 'homebrew', 'docker'])
+    for (const method of ['npm', 'homebrew', 'docker']) expect(isInstallMethod(method)).toBe(true)
     for (const value of ['curl', 'NPM', '', undefined, null, 1]) expect(isInstallMethod(value)).toBe(false)
   })
 

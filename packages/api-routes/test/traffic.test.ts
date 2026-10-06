@@ -7,10 +7,12 @@ import { eq } from 'drizzle-orm'
 import {
   createClient,
   migrate,
+  projects,
   trafficSources,
   crawlerEventsHourly,
   crawlerVerificationManifestsHourly,
   aiUserFetchEventsHourly,
+  aiUserFetchVerificationManifestsHourly,
   aiReferralEventsHourly,
   rawEventSamples,
   runs,
@@ -18,6 +20,8 @@ import {
   schedules,
 } from '@ainyc/canonry-db'
 import {
+  trafficEventsResponseSchema,
+  TrafficEventKinds,
   TrafficSourceTypes,
   TrafficSourceStatuses,
   TrafficSourceAuthModes,
@@ -164,7 +168,9 @@ async function buildHarness(
       endDate: number
       maxPages: number | undefined
       environment: string | undefined
-    }) => VercelTrafficEventsPage
+    }) => VercelTrafficEventsPage | Promise<VercelTrafficEventsPage>
+    onTrafficSynced?: (event: unknown, db: ReturnType<typeof createClient>) => void
+    onScheduleUpdated?: (event: { action: string; projectId: string; kind: string }, db: ReturnType<typeof createClient>) => void
     /** Wall-clock budget (ms) for the Vercel sync drain. Tests set a tiny/zero value to exercise the deadline path. */
     vercelSyncDeadlineMs?: number
   } = {},
@@ -237,7 +243,13 @@ async function buildHarness(
     pullCloudRunEvents: async (_token, pullOptions): Promise<CloudRunTrafficEventsPage> => {
       pullInvocations += 1
       await options.onCloudRunPull?.()
-      observedWindows.push({ startTime: pullOptions.startTime, endTime: pullOptions.endTime })
+      const { startTime, endTime } = pullOptions
+      if (startTime === undefined || endTime === undefined) {
+        throw new Error('Native Traffic pull requires bounded startTime/endTime')
+      }
+      const startIso = typeof startTime === 'string' ? startTime : startTime.toISOString()
+      const endIso = typeof endTime === 'string' ? endTime : endTime.toISOString()
+      observedWindows.push({ startTime: startIso, endTime: endIso })
       observedFirstSync.push(pullOptions.firstSync)
       if (options.failPullWith) throw new Error(options.failPullWith)
       // Default: mirror Cloud Logging's behavior and only return events inside the
@@ -248,8 +260,8 @@ async function buildHarness(
         ? events.slice()
         : events.filter((e) => {
           const t = new Date(e.observedAt).getTime()
-          return t >= new Date(pullOptions.startTime).getTime()
-            && t <= new Date(pullOptions.endTime).getTime()
+          return t >= new Date(startIso).getTime()
+            && t <= new Date(endIso).getTime()
         })
       return {
         events: filtered,
@@ -325,7 +337,7 @@ async function buildHarness(
         throw new Error(options.failVercelPullWith)
       }
       if (options.vercelPullPages) {
-        const page = options.vercelPullPages({
+        const page = await options.vercelPullPages({
           startDate: toMs(pullOptions.startDate),
           endDate: toMs(pullOptions.endDate),
           maxPages: pullOptions.maxPages,
@@ -344,8 +356,15 @@ async function buildHarness(
     vercelSyncDeadlineMs: options.vercelSyncDeadlineMs,
     cloudflareTrafficCredentialStore,
     cloudflareTrafficIngestUrl: 'https://canonry.test/api/v1/projects/{name}/traffic/cloudflare/ingest',
-    onTrafficSynced: (event) => { trafficSyncedEvents.push(event) },
-    onScheduleUpdated: (action, projectId, kind) => { scheduleUpdates.push({ action, projectId, kind }) },
+    onTrafficSynced: (event) => {
+      trafficSyncedEvents.push(event)
+      options.onTrafficSynced?.(event, db)
+    },
+    onScheduleUpdated: (action, projectId, kind) => {
+      const event = { action, projectId, kind }
+      scheduleUpdates.push(event)
+      options.onScheduleUpdated?.(event, db)
+    },
   })
   await app.ready()
 
@@ -387,6 +406,97 @@ const SA_KEY = JSON.stringify({
   client_email: 'sa@openclaw-nyc.iam.gserviceaccount.com',
   private_key: '-----BEGIN PRIVATE KEY-----\nfake-key\n-----END PRIVATE KEY-----',
 })
+
+
+const GPTBOT_MANIFEST = {
+  id: 'https://openai.com/gptbot.json#2025-10-30T11:00:00.000000#sha256:f4208aed7b2ecc420d0dd9f96c33b7a937fe37be4aef3cb7e6ef4cc87db84c22',
+  source: 'https://openai.com/gptbot.json',
+  version: '2025-10-30T11:00:00.000000',
+}
+const USER_FETCH_MANIFEST = {
+  id: 'https://openai.com/chatgpt-user.json#2026-09-04T18:03:29.248484#sha256:df0f56e8bdac220bef69f949887b7647ac76787efe374b1714cc8290ec6ccedc',
+  source: 'https://openai.com/chatgpt-user.json',
+  version: '2026-09-04T18:03:29.248484',
+}
+
+async function seedForeignSource(h: Awaited<ReturnType<typeof buildHarness>>) {
+  const created = await h.app.inject({
+    method: 'PUT', url: '/api/v1/projects/foreign-project',
+    payload: { displayName: 'Foreign', canonicalDomain: 'foreign.example', country: 'US', language: 'en' },
+  })
+  expect(created.statusCode).toBe(201)
+  for (const name of ['test-project', 'foreign-project']) {
+    const connected = await h.app.inject({
+      method: 'POST', url: `/api/v1/projects/${name}/traffic/connect/cloud-run`,
+      payload: { gcpProjectId: `gcp-${name}`, keyJson: SA_KEY },
+    })
+    expect(connected.statusCode).toBe(200)
+  }
+  const { projects } = await import('@ainyc/canonry-db')
+  const foreignProject = h.db.select().from(projects).all().find(row => row.name === 'foreign-project')!
+  const foreign = h.db.select().from(trafficSources).all().find(row => row.projectId === foreignProject.id)!
+  const allowed = await h.app.inject({ method: 'GET', url: `/api/v1/projects/foreign-project/traffic/sources/${foreign.id}` })
+  expect(allowed.statusCode).toBe(200)
+  expect(JSON.parse(allowed.payload).id).toBe(foreign.id)
+  return foreign
+}
+
+function evidenceSnapshot(db: ReturnType<typeof createClient>) {
+  const ordered = <T>(rows: T[]) => rows.map(row => JSON.stringify(row)).sort()
+  return {
+    crawler: ordered(db.select().from(crawlerEventsHourly).all()),
+    crawlerManifests: ordered(db.select().from(crawlerVerificationManifestsHourly).all()),
+    userFetch: ordered(db.select().from(aiUserFetchEventsHourly).all()),
+    userManifests: ordered(db.select().from(aiUserFetchVerificationManifestsHourly).all()),
+    referrals: ordered(db.select().from(aiReferralEventsHourly).all()),
+    samples: ordered(db.select().from(rawEventSamples).all()),
+  }
+}
+
+function seedPreservedHistory(db: ReturnType<typeof createClient>, sourceId: string) {
+  const source = db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+  const peerId = `${sourceId}-peer`
+  const now = new Date().toISOString()
+  db.insert(trafficSources).values({ ...source, id: peerId, status: TrafficSourceStatuses.paused }).run()
+  const foreignProjectId = `${source.projectId}-history-foreign`
+  const foreignSourceId = `${sourceId}-history-foreign`
+  const project = db.select().from(projects).where(eq(projects.id, source.projectId)).get()!
+  db.insert(projects).values({ ...project, id: foreignProjectId, name: `history-foreign-${sourceId}`, canonicalDomain: 'foreign-history.example' }).run()
+  db.insert(trafficSources).values({ ...source, id: foreignSourceId, projectId: foreignProjectId, status: TrafficSourceStatuses.paused }).run()
+  const scopes = [
+    { projectId: source.projectId, sourceId, tsHour: '2026-10-05T11:00:00.000Z', pathNormalized: '/old-in-window' },
+    { projectId: source.projectId, sourceId, tsHour: '2026-09-25T11:00:00.000Z', pathNormalized: '/outside-window' },
+    { projectId: source.projectId, sourceId: peerId, tsHour: '2026-10-05T11:00:00.000Z', pathNormalized: '/peer-window' },
+    { projectId: foreignProjectId, sourceId: foreignSourceId, tsHour: '2026-10-05T11:00:00.000Z', pathNormalized: '/foreign-window' },
+  ]
+  for (const [index, scope] of scopes.entries()) {
+    const common = {
+      ...scope, botId: 'stored-crawler', operator: 'Stored',
+      verificationStatus: 'verified', status: 200, hits: 7 + index, createdAt: now, updatedAt: now,
+    }
+    db.insert(crawlerEventsHourly).values(common).run()
+    db.insert(crawlerVerificationManifestsHourly).values({
+      ...common, manifestId: `stored-crawler-${index}`, manifestJson: { id: `stored-crawler-${index}`, source: 'https://stored.example/crawler', version: 'v1' },
+    }).run()
+    const user = { ...common, botId: 'stored-user', hits: 11 + index }
+    db.insert(aiUserFetchEventsHourly).values(user).run()
+    db.insert(aiUserFetchVerificationManifestsHourly).values({
+      ...user, manifestId: `stored-user-${index}`, manifestJson: { id: `stored-user-${index}`, source: 'https://stored.example/user', version: 'v2' },
+    }).run()
+    db.insert(aiReferralEventsHourly).values({
+      projectId: scope.projectId, sourceId: scope.sourceId, tsHour: scope.tsHour,
+      product: 'Stored', operator: 'Stored', sourceDomain: 'stored.example', evidenceType: 'utm',
+      landingPathNormalized: scope.pathNormalized, status: 200, sessionsOrHits: 13 + index,
+      paidSessionsOrHits: 5, organicSessionsOrHits: 8 + index, createdAt: now, updatedAt: now,
+    }).run()
+    db.insert(rawEventSamples).values({
+      id: `stored-sample-${index}`, projectId: scope.projectId, sourceId: scope.sourceId,
+      ts: scope.tsHour, eventType: 'unknown', pathNormalized: scope.pathNormalized,
+      classifierDetailsJson: { preserved: index }, createdAt: now,
+    }).run()
+  }
+  return peerId
+}
 
 describe('traffic source cutover staging', () => {
   let h: Awaited<ReturnType<typeof buildHarness>>
@@ -1236,14 +1346,22 @@ describe('POST /traffic/connect/vercel', () => {
   })
 
   it('registers the new schedule with the live scheduler via onScheduleUpdated', async () => {
-    await h.app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/test-project/traffic/connect/vercel',
-      payload: validBody,
-    })
-    const trafficUpdate = h.getScheduleUpdates().find((u) => u.kind === 'traffic-sync')
-    expect(trafficUpdate).toBeDefined()
-    expect(trafficUpdate?.action).toBe('upsert')
+    await h.close()
+    const observed: Array<{ event: { action: string; projectId: string; kind: string }; schedule: typeof schedules.$inferSelect | undefined }> = []
+    h = await buildHarness([], { onScheduleUpdated: (event) => {
+      observed.push({ event, schedule: reader.select().from(schedules).where(eq(schedules.projectId, event.projectId)).get() })
+    } })
+    const reader = createClient(path.join(h.tmpDir, 'test.db'))
+    try {
+      const response = await h.app.inject({ method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/vercel', payload: validBody })
+      expect(response.statusCode).toBe(200)
+      const sourceId = JSON.parse(response.payload).id as string
+      const source = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(h.getScheduleUpdates()).toEqual([{ action: 'upsert', projectId: source.projectId, kind: 'traffic-sync' }])
+      expect(observed).toHaveLength(1)
+      expect(observed[0]!.event).toEqual({ action: 'upsert', projectId: source.projectId, kind: 'traffic-sync' })
+      expect(observed[0]!.schedule).toMatchObject({ projectId: source.projectId, sourceId, kind: 'traffic-sync', cronExpr: '*/30 * * * *', enabled: true, timezone: 'UTC' })
+    } finally { reader.$client.close() }
   })
 
   it('does not create or re-register a second schedule on reconnect (idempotent)', async () => {
@@ -1265,36 +1383,34 @@ describe('POST /traffic/connect/vercel', () => {
 
 describe('POST /traffic/sources/:id/sync — Vercel', () => {
   it('never walks lastSyncedAt backward when the cursor moved ahead mid-sync', async () => {
-    // The reset rewind race. A sync already in flight when the cursor is
-    // advanced out from under it (an operator `--advance-to-now`, or a backfill
-    // committing a later window) used to commit its OWN older window end and
-    // silently undo that advance — the source resumed from the past and
-    // re-walked ground that had been deliberately skipped. Backfill always
-    // guarded this; the incremental path did not, so a reset only stuck if you
-    // first disabled the schedule and drained the in-flight run by hand.
-    const h = await buildHarness([])
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
+    let resetAt: string | undefined
+    let sourceId: string
+    const h = await buildHarness([], { vercelPullPages: async ({ maxPages }) => {
+      if (maxPages === 1) return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: false, endpoint: '' }
+      vi.setSystemTime(new Date('2026-10-05T12:10:00.000Z'))
+      const reset = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/reset`, payload: { advanceToNow: true } })
+      expect(reset.statusCode).toBe(200)
+      resetAt = JSON.parse(reset.payload).lastSyncedAt
+      return { events: [buildVercelEvent({ eventId: 'stale-generation-event', observedAt: '2026-10-05T11:59:00.000Z' })], rawEntryCount: 1, skippedEntryCount: 0, hasMore: false, endpoint: '' }
+    } })
     try {
-      const sourceId = await connectVercel(h)
-
-      // Stand in for the advance that lands while this sync is mid-flight: the
-      // stored watermark is already ahead of any window this sync can produce.
-      const ahead = new Date(Date.now() + 60 * 60_000).toISOString()
-      h.db.update(trafficSources)
-        .set({ lastSyncedAt: ahead })
-        .where(eq(trafficSources.id, sourceId))
-        .run()
-
-      const syncRes = await h.app.inject({
-        method: 'POST',
-        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
-        payload: {},
-      })
-      expect(syncRes.statusCode).toBe(200)
-
-      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
-      expect(new Date(sourceRow.lastSyncedAt!).getTime()).toBeGreaterThanOrEqual(new Date(ahead).getTime())
+      sourceId = await connectVercel(h)
+      backdateLastSyncedAt(h.db, sourceId, 60_000)
+      const sync = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`, payload: {} })
+      expect(sync.statusCode).toBe(400)
+      expect(JSON.parse(sync.payload).error).toMatchObject({ code: 'VALIDATION_ERROR', message: 'Traffic source is no longer active; discarded the in-flight sync' })
+      expect(resetAt).toBe('2026-10-05T12:10:00.000Z')
+      const row = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(row).toMatchObject({ lastSyncedAt: '2026-10-05T12:10:00.000Z', status: TrafficSourceStatuses.connected, lastError: null, lastEventIds: null })
+      expect(evidenceSnapshot(h.db)).toEqual({ crawler: [], crawlerManifests: [], userFetch: [], userManifests: [], referrals: [], samples: [] })
+      expect(h.db.select().from(runs).all()).toHaveLength(1)
+      expect(h.db.select().from(runs).get()).toMatchObject({ status: RunStatuses.failed, sourceId, error: 'Traffic source was deactivated or reconfigured during sync' })
+      expect(h.getTrafficSyncedEvents()).toEqual([])
     } finally {
-      await h.app.close()
+      await h.close()
+      vi.useRealTimers()
     }
   })
 
@@ -1349,6 +1465,8 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
   })
 
   it('drains the window, lands rollups, advances lastSyncedAt to windowEnd, and finalizes the run as completed', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
     const baseTime = new Date(Date.now() - 60 * 60_000)
     baseTime.setMinutes(0, 0, 0)
     const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
@@ -1367,15 +1485,18 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
     ]
 
     const observedMaxPages: Array<number | undefined> = []
+    const windows: Array<{ startDate: number; endDate: number }> = []
     const h = await buildHarness([], {
-      vercelPullPages: ({ maxPages }) => {
+      vercelPullPages: ({ maxPages, startDate, endDate }) => {
         observedMaxPages.push(maxPages)
         // Probe call (maxPages=1) returns nothing; the real sync pull walks
         // the whole window in one drained page (hasMore=false).
         if (maxPages === 1) {
           return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: false, endpoint: '' }
         }
-        return { events, rawEntryCount: 3, skippedEntryCount: 0, hasMore: false, endpoint: '' }
+        windows.push({ startDate, endDate })
+        vi.setSystemTime(new Date('2026-10-05T12:00:10.000Z'))
+        return { events: events.filter(event => Date.parse(event.observedAt) >= startDate && Date.parse(event.observedAt) < endDate), rawEntryCount: 3, skippedEntryCount: 0, hasMore: false, endpoint: '' }
       },
     })
     try {
@@ -1406,8 +1527,11 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
       const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
       // Time-window adapter — no opaque cursor is persisted.
       expect(sourceRow.lastCursor).toBeNull()
-      expect(sourceRow.lastSyncedAt).toBeTruthy()
-      expect(new Date(sourceRow.lastSyncedAt!).getTime()).toBeGreaterThan(0)
+      expect(windows[0]!.startDate).toBe(Date.parse('2026-10-05T10:30:00.000Z'))
+      expect(windows.at(-1)!.endDate).toBe(Date.parse('2026-10-05T12:00:00.000Z'))
+      expect(body.windowEnd).toBe('2026-10-05T12:00:00.000Z')
+      expect(sourceRow.lastSyncedAt).toBe('2026-10-05T12:00:00.000Z')
+      expect(body.syncedAt).toBe('2026-10-05T12:00:10.000Z')
       expect(sourceRow.lastError).toBeNull()
       expect(sourceRow.status).toBe(TrafficSourceStatuses.connected)
 
@@ -1430,69 +1554,63 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
       expect(runRows[0].sourceId).toBe(sourceId)
     } finally {
       await h.close()
+      vi.useRealTimers()
     }
   })
 
   it('drains a window that overflows the per-sub-window page budget via sub-windows', async () => {
-    // The first (full-window) pull reports hasMore=true; the drain halves the
-    // span and the narrower slices drain cleanly, so the sync succeeds
-    // instead of failing wholesale.
-    const observedAt = new Date(Date.now() - 2 * 86_400_000).toISOString()
-    let pullCount = 0
-    const h = await buildHarness([], {
-      vercelPullPages: ({ maxPages }) => {
-        if (maxPages === 1) {
-          return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: false, endpoint: '' }
-        }
-        pullCount += 1
-        if (pullCount === 1) {
-          return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: true, endpoint: '' }
-        }
-        return {
-          events: [buildVercelEvent({ eventId: `vercel:sub:${pullCount}`, userAgent: 'GPTBot/1.0', path: '/x', observedAt })],
-          rawEntryCount: 1,
-          skippedEntryCount: 0,
-          hasMore: false,
-          endpoint: '',
-        }
-      },
-    })
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
+    const events = [
+      buildVercelEvent({ eventId: 'split-first', path: '/first', observedAt: '2026-10-05T11:57:10.000Z' }),
+      buildVercelEvent({ eventId: 'split-boundary', path: '/boundary', observedAt: '2026-10-05T11:58:30.000Z' }),
+      buildVercelEvent({ eventId: 'split-last', path: '/last', observedAt: '2026-10-05T11:59:50.000Z' }),
+    ]
+    const calls: Array<{ start: string; end: string; budget: number | undefined; overflow: boolean }> = []
+    const h = await buildHarness([], { vercelPullPages: ({ startDate, endDate, maxPages }) => {
+      if (maxPages === 1) return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: false, endpoint: '' }
+      const overflow = startDate === Date.parse('2026-10-05T11:57:00.000Z') && endDate === Date.parse('2026-10-05T12:00:00.000Z')
+      calls.push({ start: new Date(startDate).toISOString(), end: new Date(endDate).toISOString(), budget: maxPages, overflow })
+      const selected = events.filter(event => Date.parse(event.observedAt) >= startDate && Date.parse(event.observedAt) < endDate)
+      return { events: selected, rawEntryCount: selected.length, skippedEntryCount: 0, hasMore: overflow, endpoint: '' }
+    } })
     try {
       const sourceId = await connectVercel(h)
-      // Connect seeds lastSyncedAt = NOW; widen past the 2-day-old test
-      // events so the drain has a window worth subdividing.
-      backdateLastSyncedAt(h.db, sourceId, 3 * 86_400_000)
+      backdateLastSyncedAt(h.db, sourceId, 180_000)
+      const response = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`, payload: {} })
+      expect(response.statusCode).toBe(200)
+      const completed = JSON.parse(response.payload)
+      expect(completed).toMatchObject({ pulledEvents: 3, crawlerHits: 3, sampleRows: 3, windowStart: '2026-10-05T11:57:00.000Z', windowEnd: '2026-10-05T12:00:00.000Z' })
+      expect(calls).toEqual([
+        { start: '2026-10-05T11:57:00.000Z', end: '2026-10-05T12:00:00.000Z', budget: 50, overflow: true },
+        { start: '2026-10-05T11:57:00.000Z', end: '2026-10-05T11:58:30.000Z', budget: 50, overflow: false },
+        { start: '2026-10-05T11:58:30.000Z', end: '2026-10-05T12:00:00.000Z', budget: 50, overflow: false },
+      ])
 
-      const syncRes = await h.app.inject({
-        method: 'POST',
-        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
-        payload: {},
-      })
-      expect(syncRes.statusCode).toBe(200)
-      // The drain made more than one sub-window pull to cover the window.
-      expect(pullCount).toBeGreaterThan(1)
-
-      // The cursor advanced and the sub-window events rolled up.
-      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
-      expect(sourceRow.lastSyncedAt).not.toBeNull()
-      expect(sourceRow.status).toBe(TrafficSourceStatuses.connected)
-      expect(h.db.select().from(crawlerEventsHourly).all().length).toBeGreaterThan(0)
-
-      const runRows = h.db.select().from(runs).all()
-      expect(runRows.length).toBe(1)
-      expect(runRows[0].status).toBe(RunStatuses.completed)
+      expect(h.db.select().from(crawlerEventsHourly).all().map(row => ({ path: row.pathNormalized, hits: row.hits })).sort((a, b) => a.path.localeCompare(b.path))).toEqual([
+        { path: '/boundary', hits: 1 }, { path: '/first', hits: 1 }, { path: '/last', hits: 1 },
+      ])
+      expect(h.db.select().from(rawEventSamples).all().map(row => row.pathNormalized).sort()).toEqual(['/boundary', '/first', '/last'])
+      const source = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(source.lastSyncedAt).toBe('2026-10-05T12:00:00.000Z')
+      expect(source.status).toBe(TrafficSourceStatuses.connected)
+      expect(h.db.select().from(runs).all()).toHaveLength(1)
+      expect(h.db.select().from(runs).get()).toMatchObject({ status: RunStatuses.completed, sourceId })
     } finally {
       await h.close()
+      vi.useRealTimers()
     }
   })
 
   it('samples-and-advances instead of wedging when a one-second slice is irreducibly dense', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
     // Regression: a single second holding more log pages than even the floor
     // budget used to throw, failing the sync so lastSyncedAt never advanced and
     // the source re-failed forever on that second. The incremental sync is
     // additive, so it now ingests the sample, advances past the slice, and
     // stays healthy.
-    const observedAt = new Date(Date.now() - 1_000).toISOString()
+    const observedAt = '2026-10-05T11:59:57.500Z'
     const h = await buildHarness([], {
       vercelPullPages: ({ maxPages, startDate }) => {
         if (maxPages === 1) {
@@ -1501,7 +1619,7 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
         // hasMore stays true at every span and page budget — the slice cannot be
         // drained and time cannot be sliced below the one-second floor.
         return {
-          events: [buildVercelEvent({ eventId: `vercel:dense:${startDate}`, userAgent: 'GPTBot/1.0', path: '/x', observedAt })],
+          events: startDate <= Date.parse(observedAt) && Date.parse(observedAt) < startDate + 1000 ? [buildVercelEvent({ eventId: 'vercel:dense:one-sample', userAgent: 'GPTBot/1.0', path: '/x', observedAt })] : [],
           rawEntryCount: 1,
           skippedEntryCount: 0,
           hasMore: true,
@@ -1526,13 +1644,19 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
       // The source advanced past the dense second instead of wedging.
       expect(sourceRow.status).toBe(TrafficSourceStatuses.connected)
       expect(sourceRow.lastError).toBeNull()
-      expect(new Date(sourceRow.lastSyncedAt!).getTime()).toBeGreaterThan(new Date(stale).getTime())
+      expect(stale).toBe('2026-10-05T11:59:57.000Z')
+      expect(sourceRow.lastSyncedAt).toBe('2026-10-05T12:00:00.000Z')
+      expect(JSON.parse(syncRes.payload)).toMatchObject({ pulledEvents: 1, crawlerHits: 1, sampleRows: 1, windowStart: '2026-10-05T11:59:57.000Z', windowEnd: '2026-10-05T12:00:00.000Z' })
+      expect(h.db.select().from(crawlerEventsHourly).all().map(row => ({ path: row.pathNormalized, hits: row.hits }))).toEqual([{ path: '/x', hits: 1 }])
+      expect(h.db.select().from(rawEventSamples).all().map(row => ({ ts: row.ts, path: row.pathNormalized }))).toEqual([{ ts: observedAt, path: '/x' }])
+      expect(sourceRow.lastEventIds).toEqual(['vercel:dense:one-sample'])
 
       const runRows = h.db.select().from(runs).all()
       expect(runRows.length).toBe(1)
       expect(runRows[0].status).toBe(RunStatuses.completed)
     } finally {
       await h.close()
+      vi.useRealTimers()
     }
   })
 
@@ -1643,13 +1767,16 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
   })
 
   it('caps a drifted sync window to the last 24h instead of pulling from the stale watermark', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
     // A watermark that drifted days back (schedule paused/missing) must not make
     // the drain request a multi-day window. The start is clamped forward to the
     // cap; the skipped span is surfaced and the watermark still advances to ~now.
     const observedStarts: number[] = []
+    const observedEnds: number[] = []
     const h = await buildHarness([], {
-      vercelPullPages: ({ startDate, maxPages }) => {
-        if (maxPages !== 1) observedStarts.push(startDate)
+      vercelPullPages: ({ startDate, endDate, maxPages }) => {
+        if (maxPages !== 1) { observedStarts.push(startDate); observedEnds.push(endDate) }
         return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: false, endpoint: '' }
       },
     })
@@ -1661,22 +1788,28 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
       const syncRes = await h.app.inject({
         method: 'POST',
         url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
-        payload: {},
+        payload: { sinceMinutes: 5 * 24 * 60 },
       })
       expect(syncRes.statusCode).toBe(200)
 
       // No real pull reached back past the 24h cap (with a minute of slack).
       expect(observedStarts.length).toBeGreaterThan(0)
       const earliestStart = Math.min(...observedStarts)
-      expect(earliestStart).toBeGreaterThanOrEqual(beforeMs - 24 * 60 * 60_000 - 60_000)
+      expect(earliestStart).toBe(Date.parse('2026-10-04T12:00:00.000Z'))
+      expect(observedEnds.at(-1)).toBe(Date.parse('2026-10-05T12:00:00.000Z'))
+      for (let i = 1; i < observedStarts.length; i++) expect(observedStarts[i]).toBe(observedEnds[i - 1])
+      expect(beforeMs).toBe(Date.parse('2026-10-05T12:00:00.000Z'))
 
       // The capped window drained and committed, advancing past the drift.
       const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
-      expect(new Date(sourceRow.lastSyncedAt!).getTime()).toBeGreaterThanOrEqual(beforeMs)
+      expect(sourceRow.lastSyncedAt).toBe('2026-10-05T12:00:00.000Z')
+      expect(sourceRow.skippedThroughAt).toBe('2026-10-04T12:00:00.000Z')
+      expect(JSON.parse(syncRes.payload)).toMatchObject({ windowStart: '2026-10-04T12:00:00.000Z', windowEnd: '2026-10-05T12:00:00.000Z', pulledEvents: 0 })
       expect(sourceRow.status).toBe(TrafficSourceStatuses.connected)
       expect(sourceRow.lastError).toBeNull()
     } finally {
       await h.close()
+      vi.useRealTimers()
     }
   })
 })
@@ -1798,45 +1931,49 @@ describe('POST /traffic/sources/:id/backfill — Vercel', () => {
   })
 
   it('drains a backfill window that overflows the per-sub-window budget via sub-windows', async () => {
-    // The first (full-window) pull reports hasMore=true; the drain halves the
-    // span so the backfill completes instead of failing wholesale.
-    const observedAt = new Date(Date.now() - 2 * 86_400_000).toISOString()
-    let pullCount = 0
-    const h = await buildHarness([], {
-      vercelPullPages: ({ maxPages }) => {
-        if (maxPages === 1) {
-          return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: false, endpoint: '' }
-        }
-        pullCount += 1
-        if (pullCount === 1) {
-          return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: true, endpoint: '' }
-        }
-        return {
-          events: [buildVercelEvent({ eventId: `vercel:bf:${pullCount}`, userAgent: 'GPTBot/1.0', path: '/x', observedAt })],
-          rawEntryCount: 1,
-          skippedEntryCount: 0,
-          hasMore: false,
-          endpoint: '',
-        }
-      },
-    })
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
+    const events = [
+      buildVercelEvent({ eventId: 'split-first', path: '/first', observedAt: '2026-10-04T12:01:10.000Z' }),
+      buildVercelEvent({ eventId: 'split-boundary', path: '/boundary', observedAt: '2026-10-04T12:02:30.000Z' }),
+      buildVercelEvent({ eventId: 'split-last', path: '/last', observedAt: '2026-10-04T12:04:50.000Z' }),
+    ]
+    const calls: Array<{ start: string; end: string; budget: number | undefined; overflow: boolean }> = []
+    const h = await buildHarness([], { vercelPullPages: ({ startDate, endDate, maxPages }) => {
+      if (maxPages === 1) return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: false, endpoint: '' }
+      const overflow = startDate === Date.parse('2026-10-04T12:00:00.000Z') && endDate === Date.parse('2026-10-04T12:05:00.000Z')
+      calls.push({ start: new Date(startDate).toISOString(), end: new Date(endDate).toISOString(), budget: maxPages, overflow })
+      const selected = events.filter(event => Date.parse(event.observedAt) >= startDate && Date.parse(event.observedAt) < endDate)
+      return { events: selected, rawEntryCount: selected.length, skippedEntryCount: 0, hasMore: overflow, endpoint: '' }
+    } })
     try {
       const sourceId = await connectVercel(h)
+      // One complete day, with the first five-minute attempt explicitly overflowing.
+      const response = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`, payload: { days: 1 } })
+      expect(response.statusCode).toBe(200)
+      const submitted = JSON.parse(response.payload)
+      expect((await waitForRunComplete(h.db, submitted.runId)).status).toBe(RunStatuses.completed)
+      const clean = calls.filter(call => !call.overflow)
+      expect(clean[0]!.start).toBe('2026-10-04T12:00:00.000Z')
+      expect(clean.at(-1)!.end).toBe('2026-10-05T12:00:00.000Z')
+      expect(clean.every(call => call.budget === 1000)).toBe(true)
+      for (let i = 1; i < clean.length; i++) expect(clean[i]!.start).toBe(clean[i - 1]!.end)
+      expect(calls.filter(call => call.overflow)).toHaveLength(1)
+      expect(calls[0]).toEqual({ start: '2026-10-04T12:00:00.000Z', end: '2026-10-04T12:05:00.000Z', budget: 1000, overflow: true })
+      expect(clean[0]).toEqual({ start: '2026-10-04T12:00:00.000Z', end: '2026-10-04T12:02:30.000Z', budget: 1000, overflow: false })
 
-      const submitRes = await h.app.inject({
-        method: 'POST',
-        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
-        payload: { days: 7 },
-      })
-      expect(submitRes.statusCode).toBe(200)
-      const submitted = JSON.parse(submitRes.payload)
-
-      const finalRun = await waitForRunComplete(h.db, submitted.runId)
-      expect(finalRun.status).toBe(RunStatuses.completed)
-      expect(pullCount).toBeGreaterThan(1)
-      expect(h.db.select().from(crawlerEventsHourly).all().length).toBeGreaterThan(0)
+      expect(h.db.select().from(crawlerEventsHourly).all().map(row => ({ path: row.pathNormalized, hits: row.hits })).sort((a, b) => a.path.localeCompare(b.path))).toEqual([
+        { path: '/boundary', hits: 1 }, { path: '/first', hits: 1 }, { path: '/last', hits: 1 },
+      ])
+      expect(h.db.select().from(rawEventSamples).all().map(row => row.pathNormalized).sort()).toEqual(['/boundary', '/first', '/last'])
+      const source = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(source.lastSyncedAt).toBe('2026-10-05T12:00:00.000Z')
+      expect(source.status).toBe(TrafficSourceStatuses.connected)
+      expect(h.db.select().from(runs).all()).toHaveLength(1)
+      expect(h.db.select().from(runs).get()).toMatchObject({ status: RunStatuses.completed, sourceId })
     } finally {
       await h.close()
+      vi.useRealTimers()
     }
   })
 
@@ -1879,6 +2016,8 @@ describe('POST /traffic/sources/:id/backfill — Vercel', () => {
   })
 
   it('fails the backfill without replacing rollups when Vercel retention cannot cover the requested window', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
     let enforceRetention = false
     const retentionBoundaryMs = Date.now() - 10 * 60_000
     const h = await buildHarness([], {
@@ -1891,6 +2030,8 @@ describe('POST /traffic/sources/:id/backfill — Vercel', () => {
     })
     try {
       const sourceId = await connectVercel(h)
+      seedPreservedHistory(h.db, sourceId)
+      const before = evidenceSnapshot(h.db)
       enforceRetention = true
 
       const submitRes = await h.app.inject({
@@ -1922,14 +2063,20 @@ describe('POST /traffic/sources/:id/backfill — Vercel', () => {
       expect(sourceRow.lastError).toBeNull()
       // The failed backfill must not advance lastSyncedAt past the connect-time value.
       expect(sourceRow.lastSyncedAt).toBe(connectSyncedAt)
-      expect(h.db.select().from(crawlerEventsHourly).all()).toEqual([])
-      expect(h.db.select().from(rawEventSamples).all()).toEqual([])
+      expect(evidenceSnapshot(h.db)).toEqual(before)
+      expect(before.crawler).toHaveLength(4)
+      expect(before.userFetch).toHaveLength(4)
+      expect(before.referrals).toHaveLength(4)
+      expect(before.samples).toHaveLength(4)
     } finally {
       await h.close()
+      vi.useRealTimers()
     }
   })
 
   it('fails fast (loud, no rollup replace) on an irreducibly dense one-second slice', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
     // Backfill is replace mode: a truncated sample must never overwrite a full
     // window's rollup. The drain runs with abortOnTruncation, so it throws on
     // the FIRST irreducible second — it does not sample-and-advance through the
@@ -1953,6 +2100,8 @@ describe('POST /traffic/sources/:id/backfill — Vercel', () => {
     })
     try {
       const sourceId = await connectVercel(h)
+      seedPreservedHistory(h.db, sourceId)
+      const before = evidenceSnapshot(h.db)
       const connectSyncedAt = h.db
         .select()
         .from(trafficSources)
@@ -1976,13 +2125,17 @@ describe('POST /traffic/sources/:id/backfill — Vercel', () => {
       expect(sourceRow.status).toBe(TrafficSourceStatuses.error)
       // No rollup was replaced and the cursor never advanced.
       expect(sourceRow.lastSyncedAt).toBe(connectSyncedAt)
-      expect(h.db.select().from(crawlerEventsHourly).all()).toEqual([])
-      expect(h.db.select().from(rawEventSamples).all()).toEqual([])
+      expect(evidenceSnapshot(h.db)).toEqual(before)
+      expect(before.crawler).toHaveLength(4)
+      expect(before.userFetch).toHaveLength(4)
+      expect(before.referrals).toHaveLength(4)
+      expect(before.samples).toHaveLength(4)
       // Fail-fast: bisecting one hour chunk down to the floor is a handful of
       // pulls — nowhere near the thousands a full sample-and-advance would make.
       expect(pullCount).toBeLessThan(50)
     } finally {
       await h.close()
+      vi.useRealTimers()
     }
   })
 
@@ -2021,12 +2174,23 @@ describe('POST /traffic/sources/:id/sync', () => {
   it('returns 404 when the source does not belong to the project', async () => {
     const h = await buildHarness([])
     try {
+      const foreign = await seedForeignSource(h)
+      const before = evidenceSnapshot(h.db)
+      const sourceBefore = h.db.select().from(trafficSources).all()
+      const callsBefore = h.getPullCount()
       const res = await h.app.inject({
         method: 'POST',
         url: '/api/v1/projects/test-project/traffic/sources/no-such-source/sync',
         payload: {},
       })
       expect(res.statusCode).toBe(404)
+      const forbidden = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${foreign.id}/sync`, payload: {}, })
+      expect(forbidden.statusCode).toBe(404)
+      expect(JSON.parse(forbidden.payload).error).toMatchObject({ code: 'NOT_FOUND', message: `Traffic source '${foreign.id}' not found` })
+      expect(h.getPullCount()).toBe(callsBefore)
+      expect(h.db.select().from(runs).all()).toEqual([])
+      expect(h.db.select().from(trafficSources).all()).toEqual(sourceBefore)
+      expect(evidenceSnapshot(h.db)).toEqual(before)
     } finally {
       await h.close()
     }
@@ -2147,7 +2311,9 @@ describe('POST /traffic/sources/:id/sync', () => {
   })
 
   it('prunes source-local stale samples and does not persist stale pull evidence', async () => {
-    const expiredAt = new Date(Date.now() - 31 * 86_400_000).toISOString()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
+    const expiredAt = '2026-09-05T11:59:59.999Z'
     const retainedAt = new Date(Date.now() - 60_000).toISOString()
     const h = await buildHarness([
       buildEvent({ eventId: 'expired-pull-event', observedAt: expiredAt, path: '/expired' }),
@@ -2172,6 +2338,13 @@ describe('POST /traffic/sources/:id/sync', () => {
         createdAt: new Date().toISOString(),
       }).run()
 
+      const peerId = `${sourceId}-peer`
+      h.db.insert(trafficSources).values({ ...source, id: peerId, status: TrafficSourceStatuses.paused }).run()
+      h.db.insert(rawEventSamples).values([
+        { id: 'peer-expired', projectId: source.projectId, sourceId: peerId, ts: expiredAt, eventType: 'unknown', pathNormalized: '/peer-expired', classifierDetailsJson: {}, createdAt: retainedAt },
+        { id: 'inclusive-boundary', projectId: source.projectId, sourceId, ts: '2026-09-05T12:00:00.000Z', eventType: 'unknown', pathNormalized: '/inclusive-boundary', classifierDetailsJson: {}, createdAt: retainedAt },
+        { id: 'retained-existing', projectId: source.projectId, sourceId, ts: retainedAt, eventType: 'unknown', pathNormalized: '/retained-existing', classifierDetailsJson: {}, createdAt: retainedAt },
+      ]).run()
       const synced = await h.app.inject({
         method: 'POST',
         url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
@@ -2180,9 +2353,15 @@ describe('POST /traffic/sources/:id/sync', () => {
 
       expect(synced.statusCode).toBe(200)
       expect(JSON.parse(synced.payload)).toMatchObject({ pulledEvents: 2, sampleRows: 1 })
-      expect(h.db.select().from(rawEventSamples).all().map(row => row.ts)).toEqual([retainedAt])
+      expect(h.db.select().from(rawEventSamples).all().map(row => ({ source: row.sourceId === peerId ? 'peer' : 'current', path: row.pathNormalized, ts: row.ts })).sort((a, b) => a.path!.localeCompare(b.path!))).toEqual([
+        { source: 'current', path: '/inclusive-boundary', ts: '2026-09-05T12:00:00.000Z' },
+        { source: 'peer', path: '/peer-expired', ts: '2026-09-05T11:59:59.999Z' },
+        { source: 'current', path: '/retained', ts: '2026-10-05T11:59:00.000Z' },
+        { source: 'current', path: '/retained-existing', ts: '2026-10-05T11:59:00.000Z' },
+      ])
     } finally {
       await h.close()
+      vi.useRealTimers()
     }
   })
 
@@ -2239,6 +2418,8 @@ describe('POST /traffic/sources/:id/sync', () => {
   })
 
   it('advances lastSyncedAt to windowEnd (not finishedAt) so events in the processing gap survive into the next sync', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
     // Regression: if lastSyncedAt rolled forward to the transaction's
     // finishedAt instead of the pull's windowEnd, then events with
     // observedAt in (windowEnd, finishedAt] would be lost forever — sync 1
@@ -2249,7 +2430,9 @@ describe('POST /traffic/sources/:id/sync', () => {
     const events: NormalizedTrafficRequest[] = [
       buildEvent({ eventId: 'evt-1', userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt }),
     ]
-    const h = await buildHarness(events)
+    const h = await buildHarness(events, { onCloudRunPull: () => {
+      vi.setSystemTime(new Date('2026-10-05T12:00:10.000Z'))
+    } })
     try {
       const connectRes = await h.app.inject({
         method: 'POST',
@@ -2270,7 +2453,9 @@ describe('POST /traffic/sources/:id/sync', () => {
         .from(trafficSources)
         .where(eq(trafficSources.id, sourceId))
         .get()!
-      expect(sourceAfterFirst.lastSyncedAt).toBe(firstWindow.endTime)
+      expect(firstWindow.endTime).toBe('2026-10-05T12:00:00.000Z')
+      expect(sourceAfterFirst.lastSyncedAt).toBe('2026-10-05T12:00:00.000Z')
+      expect(h.db.select().from(runs).get()!.finishedAt).toBe('2026-10-05T12:00:10.000Z')
 
       // Inject a new event AT the boundary timestamp — observable only by
       // sync 2 if its windowStart equals sync 1's windowEnd.
@@ -2279,7 +2464,7 @@ describe('POST /traffic/sources/:id/sync', () => {
         userAgent: 'GPTBot/1.0',
         path: '/blog/boundary',
         status: 200,
-        observedAt: firstWindow.endTime,
+        observedAt: '2026-10-05T12:00:05.000Z',
       }))
 
       const second = await h.app.inject({
@@ -2287,7 +2472,9 @@ describe('POST /traffic/sources/:id/sync', () => {
         url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
         payload: {},
       })
-      expect(JSON.parse(second.payload).pulledEvents).toBe(1)
+      expect(second.statusCode).toBe(200)
+      expect(JSON.parse(second.payload)).toMatchObject({ pulledEvents: 1, windowStart: '2026-10-05T12:00:00.000Z', windowEnd: '2026-10-05T12:00:10.000Z' })
+      expect(h.getObservedWindows()).toEqual([{ startTime: '2026-09-05T12:00:00.000Z', endTime: '2026-10-05T12:00:00.000Z' }, { startTime: '2026-10-05T12:00:00.000Z', endTime: '2026-10-05T12:00:10.000Z' }])
       const paths = h.db
         .select()
         .from(crawlerEventsHourly)
@@ -2297,10 +2484,13 @@ describe('POST /traffic/sources/:id/sync', () => {
       expect(paths).toEqual(['/blog/boundary', '/blog/foo'])
     } finally {
       await h.close()
+      vi.useRealTimers()
     }
   })
 
   it('clamps windowStart to lastSyncedAt so overlapping syncs do not double-count', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
     // Event sits inside the default sync window for the first sync. After
     // the first sync, lastSyncedAt is "now-ish", so the second sync's window
     // collapses to roughly [lastSyncedAt, now] and no longer covers the event.
@@ -2325,6 +2515,7 @@ describe('POST /traffic/sources/:id/sync', () => {
       })
       expect(JSON.parse(first.payload).pulledEvents).toBe(1)
 
+      vi.setSystemTime(new Date('2026-10-05T12:00:10.000Z'))
       const second = await h.app.inject({
         method: 'POST',
         url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
@@ -2340,11 +2531,10 @@ describe('POST /traffic/sources/:id/sync', () => {
       // lastSyncedAt — i.e. ≥ the first sync's endTime.
       const windows = h.getObservedWindows()
       expect(windows.length).toBe(2)
-      expect(new Date(windows[1].startTime).getTime()).toBeGreaterThanOrEqual(
-        new Date(windows[0].endTime).getTime(),
-      )
+      expect(windows).toEqual([{ startTime: '2026-09-05T12:00:00.000Z', endTime: '2026-10-05T12:00:00.000Z' }, { startTime: '2026-10-05T12:00:00.000Z', endTime: '2026-10-05T12:00:10.000Z' }])
     } finally {
       await h.close()
+      vi.useRealTimers()
     }
   })
 
@@ -2515,12 +2705,7 @@ describe('POST /traffic/sources/:id/sync', () => {
 
       const rows = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).all()
       const persisted: string[] = rows[0].lastEventIds ?? []
-      // Ring buffer must be bounded.
-      expect(persisted.length).toBeLessThanOrEqual(1_000)
-      expect(persisted.length).toBeGreaterThan(0)
-      // Must keep the most-recent IDs (highest indices), not the oldest.
-      expect(persisted).toContain('cloud-run:bulk:1099')
-      expect(persisted).not.toContain('cloud-run:bulk:0000')
+      expect(persisted).toEqual(Array.from({ length: 1000 }, (_, index) => `cloud-run:bulk:${(1099 - index).toString().padStart(4, '0')}`))
     } finally {
       await h.close()
     }
@@ -2645,12 +2830,19 @@ describe('POST /traffic/sources/:id/sync', () => {
   })
 
   it('fires onTrafficSynced with status=completed and aggregated counts on success', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
     const observedAt = new Date(Date.now() - 30 * 60_000).toISOString()
     const events: NormalizedTrafficRequest[] = [
       buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt }),
       buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/bar', status: 200, observedAt, eventId: 'evt-2' }),
     ]
-    const h = await buildHarness(events)
+    const committed: Array<{ run: typeof runs.$inferSelect | undefined; source: typeof trafficSources.$inferSelect | undefined; hits: number }> = []
+    const h = await buildHarness(events, {
+      onCloudRunPull: () => { vi.setSystemTime(new Date('2026-10-05T12:00:00.250Z')) },
+      onTrafficSynced: () => { committed.push({ run: reader.select().from(runs).get(), source: reader.select().from(trafficSources).get(), hits: reader.select().from(crawlerEventsHourly).all().reduce((sum, row) => sum + row.hits, 0) }) },
+    })
+    const reader = createClient(path.join(h.tmpDir, 'test.db'))
     try {
       const connectRes = await h.app.inject({
         method: 'POST',
@@ -2668,21 +2860,15 @@ describe('POST /traffic/sources/:id/sync', () => {
 
       const fired = h.getTrafficSyncedEvents()
       expect(fired.length).toBe(1)
-      const ev = fired[0] as {
-        status: string; sourceType: string; sourceId: string
-        pulledEvents: number; crawlerHits: number; aiReferralHits: number
-        durationMs: number; errorCode?: string
-      }
-      expect(ev.status).toBe('completed')
-      expect(ev.sourceType).toBe('cloud-run')
-      expect(ev.sourceId).toBe(sourceId)
-      expect(ev.pulledEvents).toBe(2)
-      expect(ev.crawlerHits).toBeGreaterThanOrEqual(2)
-      expect(ev.aiReferralHits).toBe(0)
-      expect(ev.durationMs).toBeGreaterThanOrEqual(0)
-      expect(ev.errorCode).toBeUndefined()
+      expect(fired[0]).toEqual({ status: 'completed', sourceType: 'cloud-run', sourceId, pulledEvents: 2, selfTrafficExcluded: 0, crawlerHits: 2, aiUserFetchHits: 0, aiReferralHits: 0, durationMs: 250 })
+      expect(committed).toHaveLength(1)
+      expect(committed[0]!.run).toMatchObject({ id: JSON.parse(syncRes.payload).runId, status: RunStatuses.completed, sourceId, finishedAt: '2026-10-05T12:00:00.250Z' })
+      expect(committed[0]!.source).toMatchObject({ id: sourceId, lastSyncedAt: '2026-10-05T12:00:00.000Z', status: TrafficSourceStatuses.connected })
+      expect(committed[0]!.hits).toBe(2)
     } finally {
+      reader.$client.close()
       await h.close()
+      vi.useRealTimers()
     }
   })
 
@@ -2792,6 +2978,8 @@ describe('POST /traffic/sources/:id/sync — WordPress', () => {
   })
 
   it('bounds every page of a WordPress drain, clears its terminal cursor, lands rollups, advances lastSyncedAt to windowEnd, and finalizes the run as completed', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
     const baseTime = new Date(Date.now() - 60 * 60_000)
     baseTime.setMinutes(0, 0, 0)
     const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
@@ -2827,6 +3015,7 @@ describe('POST /traffic/sources/:id/sync — WordPress', () => {
           return { events: page1Events, rawEntryCount: 2, skippedEntryCount: 0, nextCursor: 'PAGE2', hasMore: true, endpoint: '' }
         }
         if (cursor === 'PAGE2') {
+          vi.setSystemTime(new Date('2026-10-05T12:00:10.000Z'))
           return { events: page2Events, rawEntryCount: 1, skippedEntryCount: 0, nextCursor: undefined, hasMore: false, endpoint: '' }
         }
         throw new Error(`Unexpected cursor: ${cursor}`)
@@ -2871,12 +3060,12 @@ describe('POST /traffic/sources/:id/sync — WordPress', () => {
       const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
       expect(sourceRow.lastCursor).toBeNull()
 
-      // lastSyncedAt advances to windowEnd (which the WP path defines as the
-      // sync start moment) — not finishedAt. Asserting it is set + valid ISO is
-      // enough; the Cloud Run path's regression test covers the precise gap
-      // semantics and the same code path is reused.
-      expect(sourceRow.lastSyncedAt).toBeTruthy()
-      expect(new Date(sourceRow.lastSyncedAt!).getTime()).toBeGreaterThan(0)
+      // The terminal reservation advances to its fixed upper boundary, not the later completion.
+      expect(syncPulls[0]!.until).toBe('2026-10-05T12:00:00.000Z')
+      expect(sourceRow.lastSyncedAt).toBe('2026-10-05T12:00:00.000Z')
+      expect(sourceRow.wordpressPendingUntil).toBeNull()
+      expect(body.windowEnd).toBe('2026-10-05T12:00:00.000Z')
+      expect(body.syncedAt).toBe('2026-10-05T12:00:10.000Z')
       expect(sourceRow.lastError).toBeNull()
 
       // Crawler + AI referral rollups land in the same way as Cloud Run.
@@ -2900,6 +3089,7 @@ describe('POST /traffic/sources/:id/sync — WordPress', () => {
       expect(runRows[0].sourceId).toBe(sourceId)
     } finally {
       await h.close()
+      vi.useRealTimers()
     }
   })
 
@@ -3615,14 +3805,16 @@ describe('POST /traffic/sources/:id/backfill', () => {
   })
 
   it('replaces existing buckets in the window rather than accumulating (no double-counting)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
     // Seed via a normal sync, then backfill the same window with the same
     // source events. Crawler hits must stay at 2, not 4.
     const baseTime = new Date(Date.now() - 60 * 60_000)
     baseTime.setMinutes(0, 0, 0)
     const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
     const events: NormalizedTrafficRequest[] = [
-      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
-      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(15) }),
+      buildEvent({ eventId: 'replace-crawler-1', userAgent: 'GPTBot/1.0', remoteIp: '20.171.207.34', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
+      buildEvent({ eventId: 'replace-crawler-2', userAgent: 'GPTBot/1.0', remoteIp: '20.171.207.34', path: '/blog/foo', status: 200, observedAt: fromBase(15) }),
     ]
     const h = await buildHarness(events, { bypassTimeFilter: true })
     try {
@@ -3642,6 +3834,13 @@ describe('POST /traffic/sources/:id/backfill', () => {
       const afterSync = h.db.select().from(crawlerEventsHourly).all()
       expect(afterSync[0].hits).toBe(2)
 
+      const peerId = seedPreservedHistory(h.db, sourceId)
+      const stableBefore = evidenceSnapshot(h.db)
+      const stableOnly = (snapshot: ReturnType<typeof evidenceSnapshot>) => Object.fromEntries(Object.entries(snapshot).map(([name, values]) => [name, values.filter(value => value.includes('/outside-window') || value.includes('/peer-window') || value.includes('/foreign-window'))]))
+      events.push(
+        buildEvent({ eventId: 'replace-user-1', userAgent: 'ChatGPT-User/1.0', remoteIp: '104.210.139.193', path: '/new-user', observedAt: fromBase(25) }),
+        buildEvent({ eventId: 'replace-referral-1', userAgent: 'Mozilla/5.0', path: '/new-referral', queryString: 'utm_source=chatgpt.com', observedAt: fromBase(30) }),
+      )
       // Backfill the same window. Replace mode should reset to hits=2,
       // not add to existing for hits=4.
       const submitRes = await h.app.inject({
@@ -3650,17 +3849,39 @@ describe('POST /traffic/sources/:id/backfill', () => {
         payload: { days: 1 },
       })
       const submitted = JSON.parse(submitRes.payload)
-      await waitForRunComplete(h.db, submitted.runId)
+      expect(submitRes.statusCode).toBe(200)
+      expect((await waitForRunComplete(h.db, submitted.runId)).status).toBe(RunStatuses.completed)
 
-      const afterBackfill = h.db.select().from(crawlerEventsHourly).all()
-      expect(afterBackfill.length).toBe(1)
-      expect(afterBackfill[0].hits).toBe(2)
+      const afterBackfill = h.db.select().from(crawlerEventsHourly).all().filter(row => row.sourceId === sourceId && row.tsHour >= '2026-10-04T12:00:00.000Z')
+      expect(afterBackfill.map(row => ({ path: row.pathNormalized, hits: row.hits }))).toEqual([{ path: '/blog/foo', hits: 2 }])
+      expect(h.db.select().from(aiUserFetchEventsHourly).all().filter(row => row.sourceId === sourceId && row.tsHour >= '2026-10-04T12:00:00.000Z').map(row => ({ path: row.pathNormalized, hits: row.hits }))).toEqual([{ path: '/new-user', hits: 1 }])
+      expect(h.db.select().from(aiReferralEventsHourly).all().filter(row => row.sourceId === sourceId && row.tsHour >= '2026-10-04T12:00:00.000Z').map(row => ({ path: row.landingPathNormalized, hits: row.sessionsOrHits, paid: row.paidSessionsOrHits, organic: row.organicSessionsOrHits }))).toEqual([{ path: '/new-referral', hits: 1, paid: 0, organic: 1 }])
+      expect(stableOnly(evidenceSnapshot(h.db))).toEqual(stableOnly(stableBefore))
+      expect(h.db.select().from(rawEventSamples).all().filter(row => row.sourceId === sourceId && row.ts >= '2026-10-04T12:00:00.000Z').map(row => row.pathNormalized).sort()).toEqual(['/blog/foo', '/blog/foo', '/new-referral', '/new-user'])
+      expect(h.db.select().from(crawlerVerificationManifestsHourly).all().filter(row => row.sourceId === sourceId && row.tsHour >= '2026-10-04T12:00:00.000Z').map(row => ({ id: row.manifestId, manifest: row.manifestJson, hits: row.hits }))).toEqual([{ id: GPTBOT_MANIFEST.id, manifest: GPTBOT_MANIFEST, hits: 2 }])
+      expect(h.db.select().from(aiUserFetchVerificationManifestsHourly).all().filter(row => row.sourceId === sourceId && row.tsHour >= '2026-10-04T12:00:00.000Z').map(row => ({ id: row.manifestId, manifest: row.manifestJson, hits: row.hits }))).toEqual([{ id: USER_FETCH_MANIFEST.id, manifest: USER_FETCH_MANIFEST, hits: 1 }])
+      expect(h.db.select().from(trafficSources).where(eq(trafficSources.id, peerId)).get()!.status).toBe(TrafficSourceStatuses.paused)
+      const read = await h.app.inject({ method: 'GET', url: `/api/v1/projects/test-project/traffic/events?sourceId=${sourceId}` })
+      expect(read.statusCode).toBe(200)
+      const readBody = trafficEventsResponseSchema.parse(JSON.parse(read.payload))
+      expect(readBody.totals).toMatchObject({ crawlerHits: 2, aiUserFetchHits: 1, aiReferralHits: 1, aiReferralPaidHits: 0, aiReferralOrganicHits: 1, aiReferralUnknownHits: 0 })
+      expect(readBody.events.map(event => event.kind === TrafficEventKinds['ai-referral']
+        ? { kind: event.kind, landingPathNormalized: event.landingPathNormalized, hits: event.hits }
+        : { kind: event.kind, pathNormalized: event.pathNormalized, hits: event.hits },
+      ).sort((left, right) => left.kind.localeCompare(right.kind))).toEqual([
+        { kind: TrafficEventKinds['ai-referral'], landingPathNormalized: '/new-referral', hits: 1 },
+        { kind: TrafficEventKinds['ai-user-fetch'], pathNormalized: '/new-user', hits: 1 },
+        { kind: TrafficEventKinds.crawler, pathNormalized: '/blog/foo', hits: 2 },
+      ])
     } finally {
       await h.close()
+      vi.useRealTimers()
     }
   })
 
-  it('caps days at MAX_BACKFILL_DAYS (30) when a larger value is requested', async () => {
+  it('caps backfill at 90 days and sends the complete applied window to the provider', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
     const h = await buildHarness([])
     try {
       const connectRes = await h.app.inject({
@@ -3670,17 +3891,25 @@ describe('POST /traffic/sources/:id/backfill', () => {
       })
       const sourceId = JSON.parse(connectRes.payload).id
 
-      const submitRes = await h.app.inject({
-        method: 'POST',
-        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
-        payload: { days: 365 },
-      })
-      expect(submitRes.statusCode).toBe(200)
-      const submitted = JSON.parse(submitRes.payload)
-      expect(submitted.daysRequested).toBe(365)
-      expect(submitted.daysApplied).toBe(90)
+      for (const [requested, applied, start] of [
+        [undefined, 30, '2026-09-05T12:00:00.000Z'],
+        [89, 89, '2026-07-08T12:00:00.000Z'],
+        [90, 90, '2026-07-07T12:00:00.000Z'],
+        [91, 90, '2026-07-07T12:00:00.000Z'],
+        [365, 90, '2026-07-07T12:00:00.000Z'],
+      ] as const) {
+        const submittedResponse = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`, payload: requested === undefined ? {} : { days: requested } })
+        expect(submittedResponse.statusCode).toBe(200)
+        const submitted = JSON.parse(submittedResponse.payload)
+        expect(submitted).toMatchObject({ daysRequested: requested ?? 30, daysApplied: applied, status: RunStatuses.running, windowStart: start, windowEnd: '2026-10-05T12:00:00.000Z' })
+        expect((await waitForRunComplete(h.db, submitted.runId)).status).toBe(RunStatuses.completed)
+        expect(h.getObservedWindows().at(-1)).toEqual({ startTime: start, endTime: '2026-10-05T12:00:00.000Z' })
+      }
+      expect(h.getPullCount()).toBe(5)
+      expect(h.db.select().from(runs).all().map(row => row.status)).toEqual(Array(5).fill(RunStatuses.completed))
     } finally {
       await h.close()
+      vi.useRealTimers()
     }
   })
 
@@ -3714,12 +3943,23 @@ describe('POST /traffic/sources/:id/backfill', () => {
   it('returns 404 when the source does not belong to the project', async () => {
     const h = await buildHarness([])
     try {
+      const foreign = await seedForeignSource(h)
+      const before = evidenceSnapshot(h.db)
+      const sourceBefore = h.db.select().from(trafficSources).all()
+      const callsBefore = h.getPullCount()
       const res = await h.app.inject({
         method: 'POST',
         url: '/api/v1/projects/test-project/traffic/sources/no-such/backfill',
         payload: {},
       })
       expect(res.statusCode).toBe(404)
+      const forbidden = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${foreign.id}/backfill`, payload: { days: 1 }, })
+      expect(forbidden.statusCode).toBe(404)
+      expect(JSON.parse(forbidden.payload).error).toMatchObject({ code: 'NOT_FOUND', message: `Traffic source '${foreign.id}' not found` })
+      expect(h.getPullCount()).toBe(callsBefore)
+      expect(h.db.select().from(runs).all()).toEqual([])
+      expect(h.db.select().from(trafficSources).all()).toEqual(sourceBefore)
+      expect(evidenceSnapshot(h.db)).toEqual(before)
     } finally {
       await h.close()
     }
@@ -4102,8 +4342,19 @@ describe('GET /traffic/sources/:id', () => {
   it('returns 404 when the source does not belong to the project', async () => {
     const h = await buildHarness([])
     try {
+      const foreign = await seedForeignSource(h)
+      const before = evidenceSnapshot(h.db)
+      const sourceBefore = h.db.select().from(trafficSources).all()
+      const callsBefore = h.getPullCount()
       const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/sources/no-such' })
       expect(res.statusCode).toBe(404)
+      const forbidden = await h.app.inject({ method: 'GET', url: `/api/v1/projects/test-project/traffic/sources/${foreign.id}`,  })
+      expect(forbidden.statusCode).toBe(404)
+      expect(JSON.parse(forbidden.payload).error).toMatchObject({ code: 'NOT_FOUND', message: `Traffic source '${foreign.id}' not found` })
+      expect(h.getPullCount()).toBe(callsBefore)
+      expect(h.db.select().from(runs).all()).toEqual([])
+      expect(h.db.select().from(trafficSources).all()).toEqual(sourceBefore)
+      expect(evidenceSnapshot(h.db)).toEqual(before)
     } finally { await h.close() }
   })
 
@@ -4501,20 +4752,14 @@ describe('GET /traffic/events', () => {
       const kinds = body.events.map((e: { kind: string }) => e.kind).sort()
       expect(kinds).toEqual(['ai-referral', 'crawler'])
       const crawler = body.events.find((e: { kind: string }) => e.kind === 'crawler')
-      expect(crawler.verificationManifests).toEqual([expect.objectContaining({
-        manifestId: expect.any(String),
-        manifest: expect.objectContaining({
-          id: expect.any(String),
-          source: expect.any(String),
-          version: expect.any(String),
-        }),
-        hits: 2,
-      })])
+      expect(crawler.verificationManifests).toEqual([{ manifestId: GPTBOT_MANIFEST.id, manifest: GPTBOT_MANIFEST, hits: 2 }])
       expect(crawler.verificationUnattributedHits).toBe(0)
     } finally { await h.close() }
   })
 
   it('batch-loads provenance while preserving multi-manifest and legacy attribution', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
     const { h } = await syncedHarness()
     try {
       const row = h.db.select().from(crawlerEventsHourly).get()
@@ -4599,19 +4844,60 @@ describe('GET /traffic/events', () => {
       const crawler = events.find((event: { pathNormalized: string }) => (
         event.pathNormalized === row.pathNormalized
       ))
-      expect(crawler.verificationManifests).toHaveLength(2)
-      expect(crawler.verificationManifests).toContainEqual(expect.objectContaining({
-        manifestId: 'test-manifest-v2',
-        hits: 1,
-      }))
+      expect(crawler.verificationManifests).toEqual([
+        { manifestId: GPTBOT_MANIFEST.id, manifest: GPTBOT_MANIFEST, hits: 2 },
+        { manifestId: 'test-manifest-v2', manifest: { id: 'test-manifest-v2', source: 'https://example.test/bots.json', version: '2026-08-14T00:00:00Z' }, hits: 1 },
+      ])
+      expect(crawler.hits).toBe(5)
       expect(crawler.verificationUnattributedHits).toBe(2)
-      expect(events.find((event: { pathNormalized: string }) => (
-        event.pathNormalized === '/batch-0'
-      ))).toMatchObject({
-        verificationManifests: [expect.objectContaining({ manifestId: 'batch-manifest', hits: 1 })],
-        verificationUnattributedHits: 0,
-      })
-    } finally { await h.close() }
+      for (let index = 0; index < 24; index++) {
+        expect(events.find((event: { pathNormalized: string }) => event.pathNormalized === `/batch-${index}`)).toMatchObject({
+          sourceId: row.sourceId, tsHour: row.tsHour, botId: row.botId, status: row.status, verificationStatus: row.verificationStatus, hits: 1,
+          verificationManifests: [{ manifestId: 'batch-manifest', manifest: { id: 'batch-manifest', source: 'https://example.test/batch-bots.json', version: '2026-08-14T00:00:00Z' }, hits: 1 }],
+          verificationUnattributedHits: 0,
+        })
+      }
+      // Same path, different keys must carry their own manifest, including excluded project/source poisons.
+      const peerId = `${row.sourceId}-provenance-peer`
+      const source = h.db.select().from(trafficSources).where(eq(trafficSources.id, row.sourceId)).get()!
+      h.db.insert(trafficSources).values({ ...source, id: peerId, status: TrafficSourceStatuses.paused }).run()
+      expect(row).toMatchObject({ tsHour: '2026-10-05T11:00:00.000Z', verificationStatus: 'claimed_unverified', status: 200 })
+      const keys = [
+        { sourceId: row.sourceId, tsHour: row.tsHour, botId: row.botId, verificationStatus: row.verificationStatus, status: 404 },
+        { sourceId: row.sourceId, tsHour: '2026-10-05T10:00:00.000Z', botId: row.botId, verificationStatus: row.verificationStatus, status: row.status },
+        { sourceId: row.sourceId, tsHour: row.tsHour, botId: 'other-bot', verificationStatus: row.verificationStatus, status: row.status },
+        { sourceId: row.sourceId, tsHour: row.tsHour, botId: row.botId, verificationStatus: 'verified', status: row.status },
+        { sourceId: peerId, tsHour: row.tsHour, botId: row.botId, verificationStatus: row.verificationStatus, status: row.status },
+      ]
+      for (const [index, key] of keys.entries()) {
+        h.db.insert(crawlerEventsHourly).values({ ...row, ...key, hits: 7 + index }).run()
+        h.db.insert(crawlerVerificationManifestsHourly).values({ ...key, projectId: row.projectId, pathNormalized: row.pathNormalized, manifestId: `key-${index}`, manifestJson: { id: `key-${index}`, source: `https://key-${index}.example/feed`, version: `v${index}` }, hits: 7 + index, createdAt: now, updatedAt: now }).run()
+      }
+      const isolated = await h.app.inject({ method: 'GET', url: `/api/v1/projects/test-project/traffic/events?kind=crawler&sourceId=${row.sourceId}` })
+      expect(isolated.statusCode).toBe(200)
+      const samePath = JSON.parse(isolated.payload).events.filter((event: { pathNormalized: string }) => event.pathNormalized === row.pathNormalized)
+      expect(samePath).toHaveLength(5)
+      for (const [index, key] of keys.slice(0, 4).entries()) {
+        const selected = samePath.find((event: typeof key) => event.tsHour === key.tsHour && event.botId === key.botId && event.verificationStatus === key.verificationStatus && event.status === key.status)
+        expect(selected).toMatchObject({ ...key, hits: 7 + index, verificationManifests: [{ manifestId: `key-${index}`, manifest: { id: `key-${index}`, source: `https://key-${index}.example/feed`, version: `v${index}` }, hits: 7 + index }], verificationUnattributedHits: 0 })
+      }
+      expect(samePath.find((event: typeof row) => event.tsHour === row.tsHour && event.botId === row.botId && event.verificationStatus === row.verificationStatus && event.status === row.status).verificationManifests).toEqual(crawler.verificationManifests)
+      const project = h.db.select().from(projects).where(eq(projects.id, row.projectId)).get()!
+      const foreignProjectId = `${project.id}-provenance-foreign`
+      const foreignSourceId = `${source.id}-provenance-foreign`
+      h.db.insert(projects).values({ ...project, id: foreignProjectId, name: 'provenance-foreign', canonicalDomain: 'foreign-provenance.example' }).run()
+      h.db.insert(trafficSources).values({ ...source, id: foreignSourceId, projectId: foreignProjectId, status: TrafficSourceStatuses.paused }).run()
+      h.db.insert(crawlerEventsHourly).values({ ...row, projectId: foreignProjectId, sourceId: foreignSourceId, hits: 13 }).run()
+      h.db.insert(crawlerVerificationManifestsHourly).values({ ...row, projectId: foreignProjectId, sourceId: foreignSourceId, hits: 13, manifestId: 'foreign-manifest', manifestJson: { id: 'foreign-manifest', source: 'https://foreign.example/feed', version: 'foreign-v1' } }).run()
+      const wholeProject = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/events?kind=crawler' })
+      expect(wholeProject.statusCode).toBe(200)
+      const projectBody = JSON.parse(wholeProject.payload)
+      expect(projectBody.totals.crawlerHits).toBe(74)
+      expect(projectBody.events).toHaveLength(30)
+      expect(projectBody.events.filter((event: { pathNormalized: string }) => event.pathNormalized === row.pathNormalized)).toHaveLength(6)
+      expect(projectBody.events.some((event: { sourceId: string }) => event.sourceId === foreignSourceId)).toBe(false)
+      expect(projectBody.events.find((event: { sourceId: string }) => event.sourceId === peerId)).toMatchObject({ hits: 11, verificationManifests: [{ manifestId: 'key-4', manifest: { id: 'key-4', source: 'https://key-4.example/feed', version: 'v4' }, hits: 11 }], verificationUnattributedHits: 0 })
+    } finally { await h.close(); vi.useRealTimers() }
   })
 
   it('splits AI-referral sessions into paid / organic end-to-end through sync and read', async () => {
@@ -4771,15 +5057,8 @@ describe('GET /traffic/events', () => {
         kind: 'ai-user-fetch',
         botId: 'openai-chatgpt-user',
         operator: 'OpenAI',
-        verificationManifests: [expect.objectContaining({
-          manifestId: expect.any(String),
-          manifest: expect.objectContaining({
-            id: expect.any(String),
-            source: expect.any(String),
-            version: expect.any(String),
-          }),
-          hits: 1,
-        })],
+        verificationManifests: [{ manifestId: USER_FETCH_MANIFEST.id, manifest: USER_FETCH_MANIFEST, hits: 1 }],
+        sourceId, tsHour: fromBase(0), status: 200, verificationStatus: 'verified',
         verificationUnattributedHits: 0,
         pathNormalized: '/',
         hits: 1,
@@ -4984,74 +5263,49 @@ describe('GET /traffic/events', () => {
   })
 
   it('keeps the complete 90-day series when the detail-row limit truncates old rows', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-05-07T13:45:00.000Z'))
     const { h, sourceId } = await syncedHarness()
     try {
-      const source = h.db
-        .select()
-        .from(trafficSources)
-        .where(eq(trafficSources.id, sourceId))
-        .get()!
-      const end = new Date()
-      const start = new Date(end)
-      start.setUTCDate(start.getUTCDate() - 90)
-      start.setUTCHours(0, 0, 0, 0)
-      const middle = new Date(start)
-      middle.setUTCDate(middle.getUTCDate() + 45)
-      const writtenAt = end.toISOString()
-
+      const source = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()
+      if (!source) throw new Error('Expected connected traffic source')
       h.db.insert(crawlerEventsHourly).values([
-        {
-          projectId: source.projectId,
-          sourceId,
-          tsHour: start.toISOString(),
-          botId: 'openai-gptbot',
-          operator: 'OpenAI',
-          verificationStatus: 'claimed_unverified',
-          pathNormalized: '/oldest',
-          status: 200,
-          hits: 7,
-          sampledUserAgent: 'GPTBot/1.0',
-          createdAt: writtenAt,
-          updatedAt: writtenAt,
-        },
-        {
-          projectId: source.projectId,
-          sourceId,
-          tsHour: middle.toISOString(),
-          botId: 'openai-gptbot',
-          operator: 'OpenAI',
-          verificationStatus: 'claimed_unverified',
-          pathNormalized: '/middle',
-          status: 200,
-          hits: 11,
-          sampledUserAgent: 'GPTBot/1.0',
-          createdAt: writtenAt,
-          updatedAt: writtenAt,
-        },
-      ]).run()
+        { tsHour: '2026-02-06T00:00:00.000Z', pathNormalized: '/oldest', hits: 7 },
+        { tsHour: '2026-03-23T00:00:00.000Z', pathNormalized: '/middle', hits: 11 },
+      ].map(observation => ({
+        ...observation, projectId: source.projectId, sourceId,
+        botId: 'openai-gptbot', operator: 'OpenAI', verificationStatus: 'claimed_unverified',
+        status: 200, sampledUserAgent: 'GPTBot/1.0',
+        createdAt: '2026-05-07T13:45:00.000Z', updatedAt: '2026-05-07T13:45:00.000Z',
+      }))).run()
 
       const res = await h.app.inject({
         method: 'GET',
-        url: `/api/v1/projects/test-project/traffic/events?since=${encodeURIComponent(start.toISOString())}&until=${encodeURIComponent(end.toISOString())}&granularity=day&limit=1`,
+        url: '/api/v1/projects/test-project/traffic/events?since=2026-02-06T00%3A00%3A00.000Z&until=2026-05-07T13%3A45%3A00.000Z&granularity=day&limit=1',
       })
       expect(res.statusCode).toBe(200)
-      const body = JSON.parse(res.payload)
+      const body = trafficEventsResponseSchema.parse(JSON.parse(res.payload))
+      expect(body.windowStart).toBe('2026-02-06T00:00:00.000Z')
+      expect(body.windowEnd).toBe('2026-05-07T13:45:00.000Z')
       expect(body.events).toHaveLength(1)
       expect(body.eventRows).toEqual({ total: 4, returned: 1, truncated: true })
       expect(body.series.granularity).toBe('day')
-      expect(body.series.points).toHaveLength(91)
-      expect(body.series.points[0]).toEqual({
-        bucket: start.toISOString().slice(0, 10),
-        crawlerHits: 7,
-        aiUserFetchHits: 0,
-        aiReferralHits: 0,
-        aiReferralLandedHits: 0,
-        crawlerContentHits: 7,
-        measured: true,
+      expect(body.series.coverageStart).toBe('2026-02-06T00:00:00.000Z')
+      const expectedPoints = Array.from({ length: 91 }, (_, index) => ({
+        bucket: new Date(Date.UTC(2026, 1, 6) + index * 86_400_000).toISOString().slice(0, 10),
+        crawlerHits: index === 0 ? 7 : index === 45 ? 11 : index === 90 ? 2 : 0,
+        crawlerContentHits: index === 0 ? 7 : index === 45 ? 11 : index === 90 ? 2 : 0,
+        aiUserFetchHits: 0, aiReferralHits: index === 90 ? 1 : 0,
+        aiReferralLandedHits: index === 90 ? 1 : 0, measured: true,
+      }))
+      expect(body.series.points, 'all 91 full-window bucket allocations').toEqual(expectedPoints)
+      expect(body.totals).toEqual({
+        crawlerHits: 20, crawlerContentHits: 20, crawlerInfraHits: 0,
+        crawlerSegments: { content: 20, sitemap: 0, robots: 0, asset: 0, other: 0 },
+        aiUserFetchHits: 0, aiReferralHits: 1, aiReferralLandedHits: 1,
+        aiReferralRedirectedHits: 0, aiReferralPaidHits: 0,
+        aiReferralOrganicHits: 1, aiReferralUnknownHits: 0,
       })
-      expect(body.series.points[45].crawlerHits).toBe(11)
-      expect(body.series.points.reduce((sum: number, point: { crawlerHits: number }) => sum + point.crawlerHits, 0))
-        .toBe(body.totals.crawlerHits)
     } finally { await h.close() }
   })
 
@@ -5119,6 +5373,35 @@ describe('crawler-hit content/infra segmentation', () => {
       payload: { sinceMinutes: 120 },
     })
     return { h, sourceId }
+  }
+
+  afterEach(() => { vi.useRealTimers() })
+
+  async function emptySeriesHarness() {
+    const h = await buildHarness([])
+    try {
+      const connected = await h.app.inject({
+        method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'series-fixture', keyJson: SA_KEY },
+      })
+      expect(connected.statusCode).toBe(200)
+      const source = h.db.select().from(trafficSources).get()
+      if (!source) throw new Error('Expected connected traffic source')
+      return { h, source }
+    } catch (error) { await h.close(); throw error }
+  }
+
+  function insertSeriesCrawlerRows(
+    h: Awaited<ReturnType<typeof buildHarness>>,
+    source: typeof trafficSources.$inferSelect,
+    observations: { tsHour: string; pathNormalized: string; hits: number }[],
+  ) {
+    h.db.insert(crawlerEventsHourly).values(observations.map(observation => ({
+      ...observation, projectId: source.projectId, sourceId: source.id,
+      botId: 'openai-gptbot', operator: 'OpenAI', verificationStatus: 'claimed_unverified',
+      status: 200, sampledUserAgent: 'GPTBot/1.0',
+      createdAt: '2026-05-07T13:45:00.000Z', updatedAt: '2026-05-07T13:45:00.000Z',
+    }))).run()
   }
 
   const EXPECTED_SEGMENTS = { content: 3, sitemap: 6, robots: 4, asset: 1, other: 1 }
@@ -5240,44 +5523,66 @@ describe('crawler-hit content/infra segmentation', () => {
    * earliest across all of the project's sources.
    */
   it('marks buckets before the first observation as unmeasured', async () => {
-    const { h } = await mixedPathHarness()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-05-07T13:45:00.000Z'))
+    const { h, source } = await emptySeriesHarness()
     try {
-      const res = await h.app.inject({
-        method: 'GET',
-        // 30 days back, well before this harness's minutes-old fixture.
-        url: `/api/v1/projects/test-project/traffic/events?since=${encodeURIComponent(new Date(Date.now() - 30 * 24 * 60 * 60_000).toISOString())}&granularity=day`,
+      const project = h.db.select().from(projects).where(eq(projects.id, source.projectId)).get()
+      if (!project) throw new Error('Expected fixture project')
+      h.db.insert(projects).values({ ...project, id: 'foreign-project-id', name: 'foreign-project', canonicalDomain: 'foreign.test' }).run()
+      const sibling = { ...source, id: 'sibling-source', status: TrafficSourceStatuses.paused, displayName: 'Sibling source' }
+      const foreign = { ...source, id: 'foreign-source', projectId: 'foreign-project-id', displayName: 'Foreign source' }
+      h.db.insert(trafficSources).values([sibling, foreign]).run()
+      insertSeriesCrawlerRows(h, source, [{ tsHour: '2026-05-06T13:00:00.000Z', pathNormalized: '/selected', hits: 6 }])
+      insertSeriesCrawlerRows(h, sibling, [
+        { tsHour: '2026-04-01T00:00:00.000Z', pathNormalized: '/older-sibling', hits: 99 },
+        { tsHour: '2026-05-06T13:00:00.000Z', pathNormalized: '/sibling', hits: 99 },
+      ])
+      insertSeriesCrawlerRows(h, foreign, [
+        { tsHour: '2026-03-01T00:00:00.000Z', pathNormalized: '/older-foreign', hits: 777 },
+        { tsHour: '2026-05-06T13:00:00.000Z', pathNormalized: '/foreign', hits: 777 },
+      ])
+      h.db.insert(aiUserFetchEventsHourly).values({
+        projectId: source.projectId, sourceId: source.id, tsHour: '2026-05-06T12:00:00.000Z',
+        botId: 'openai-chatgpt-user', operator: 'OpenAI', verificationStatus: 'claimed_unverified',
+        pathNormalized: '/fetch', status: 200, hits: 2, sampledUserAgent: 'ChatGPT-User/1.0',
+        createdAt: '2026-05-07T13:45:00.000Z', updatedAt: '2026-05-07T13:45:00.000Z',
+      }).run()
+      h.db.insert(aiReferralEventsHourly).values({
+        projectId: source.projectId, sourceId: source.id, tsHour: '2026-05-06T14:00:00.000Z',
+        product: 'chatgpt', operator: 'OpenAI', sourceDomain: 'chatgpt.com', evidenceType: 'referer',
+        landingPathNormalized: '/landing', status: 200, sessionsOrHits: 3, organicSessionsOrHits: 3,
+        createdAt: '2026-05-07T13:45:00.000Z', updatedAt: '2026-05-07T13:45:00.000Z',
+      }).run()
+      const window = 'since=2026-05-01T00%3A00%3A00.000Z&until=2026-05-07T13%3A45%3A00.000Z&granularity=day'
+      const selected = await h.app.inject({ method: 'GET', url: `/api/v1/projects/test-project/traffic/events?${window}&sourceId=${source.id}` })
+      expect(selected.statusCode).toBe(200)
+      const body = trafficEventsResponseSchema.parse(JSON.parse(selected.payload))
+      expect(body.series.coverageStart, 'earliest selected-source observation across all three channels').toBe('2026-05-06T12:00:00.000Z')
+      expect(body.series.points).toEqual(Array.from({ length: 7 }, (_, index) => ({
+        bucket: `2026-05-0${index + 1}`, crawlerHits: index === 5 ? 6 : 0,
+        crawlerContentHits: index === 5 ? 6 : 0, aiUserFetchHits: index === 5 ? 2 : 0,
+        aiReferralHits: index === 5 ? 3 : 0, aiReferralLandedHits: index === 5 ? 3 : 0,
+        measured: index >= 5,
+      })))
+      expect(body.totals).toEqual({
+        crawlerHits: 6, crawlerContentHits: 6, crawlerInfraHits: 0,
+        crawlerSegments: { content: 6, sitemap: 0, robots: 0, asset: 0, other: 0 },
+        aiUserFetchHits: 2, aiReferralHits: 3, aiReferralLandedHits: 3,
+        aiReferralRedirectedHits: 0, aiReferralPaidHits: 0,
+        aiReferralOrganicHits: 3, aiReferralUnknownHits: 0,
       })
-      expect(res.statusCode).toBe(200)
-      const body = JSON.parse(res.payload)
-
-      expect(typeof body.series.coverageStart).toBe('string')
-      const points = body.series.points as Array<{ bucket: string; measured: boolean; crawlerHits: number }>
-
-      // Both states must be present, or the test proves nothing.
-      expect(points.some((pt) => !pt.measured)).toBe(true)
-      expect(points.some((pt) => pt.measured)).toBe(true)
-
-      const coverageDay = String(body.series.coverageStart).slice(0, 10)
-      for (const pt of points) {
-        expect(pt.measured).toBe(pt.bucket.slice(0, 10) >= coverageDay)
-        // An unmeasured bucket must never carry hits: that would mean we
-        // recorded something before we claim recording began.
-        if (!pt.measured) expect(pt.crawlerHits).toBe(0)
-      }
-
-      // The fit must not run across the unmeasured lead-in. Asserting an exact
-      // measured-day count was wall-clock dependent: the harness writes events
-      // an hour back, so a run between 00:00 and ~01:00 UTC straddles midnight
-      // and produces TWO measured days instead of one, failing for that hour
-      // only. Assert the invariant instead of the incidental count.
-      const measuredDays = points.filter((pt) => pt.measured).length
-      const trend = body.series.trends.crawlerContentHits
-      if (trend !== null) {
-        // Whatever the fit used, it can never include an unmeasured bucket, and
-        // the trailing partial bucket is excluded too.
-        expect(trend.n).toBeLessThanOrEqual(measuredDays)
-        expect(trend.startIndex).toBeGreaterThanOrEqual(points.findIndex((pt) => pt.measured))
-      }
+      expect(body.series.trends, 'neither partially measured day is a complete trend observation').toEqual({
+        crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null,
+      })
+      const allSources = await h.app.inject({ method: 'GET', url: `/api/v1/projects/test-project/traffic/events?${window}` })
+      expect(allSources.statusCode).toBe(200)
+      const all = trafficEventsResponseSchema.parse(JSON.parse(allSources.payload))
+      expect(all.series.coverageStart, 'project-wide coverage includes the sibling but excludes the foreign project').toBe('2026-04-01T00:00:00.000Z')
+      expect(all.series.points.map(point => point.measured)).toEqual([true, true, true, true, true, true, true])
+      expect(all.totals.crawlerHits).toBe(105)
+      expect(all.totals.aiUserFetchHits).toBe(2)
+      expect(all.totals.aiReferralLandedHits).toBe(3)
     } finally { await h.close() }
   })
 
@@ -5292,42 +5597,31 @@ describe('crawler-hit content/infra segmentation', () => {
    * it returns ~0.
    */
   it('excludes the trailing partial bucket from the trend fit', async () => {
-    const { h, sourceId } = await mixedPathHarness()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-05-07T13:45:00.000Z'))
+    const { h, source } = await emptySeriesHarness()
     try {
-      const source = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
-      const writtenAt = new Date().toISOString()
-      const row = (tsHour: string, pathNormalized: string, hits: number) => ({
-        projectId: source.projectId, sourceId, tsHour,
-        botId: 'openai-gptbot', operator: 'OpenAI', verificationStatus: 'claimed_unverified' as const,
-        pathNormalized, status: 200, hits, sampledUserAgent: 'GPTBot/1.0',
-        createdAt: writtenAt, updatedAt: writtenAt,
-      })
-
-      // Five complete days flat at 100, then a small slice for today.
-      const rows = []
-      for (let back = 5; back >= 1; back--) {
-        const d = new Date(); d.setUTCDate(d.getUTCDate() - back); d.setUTCHours(12, 0, 0, 0)
-        rows.push(row(d.toISOString(), `/blog/day-${back}`, 100))
-      }
-      const today = new Date(); today.setUTCHours(0, 30, 0, 0)
-      rows.push(row(today.toISOString(), '/blog/today', 4))
-      h.db.insert(crawlerEventsHourly).values(rows).run()
-
-      const since = new Date(); since.setUTCDate(since.getUTCDate() - 7)
-      const res = await h.app.inject({
-        method: 'GET',
-        url: `/api/v1/projects/test-project/traffic/events?since=${encodeURIComponent(since.toISOString())}&granularity=day`,
-      })
+      insertSeriesCrawlerRows(h, source, [
+        { tsHour: '2026-05-02T00:00:00.000Z', pathNormalized: '/blog/day-5', hits: 100 },
+        ...[3, 4, 5, 6].map(day => ({ tsHour: `2026-05-0${day}T12:00:00.000Z`, pathNormalized: `/blog/day-${7 - day}`, hits: 100 })),
+        { tsHour: '2026-05-07T00:30:00.000Z', pathNormalized: '/blog/today', hits: 4 },
+      ])
+      const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/events?since=2026-04-30T13%3A45%3A00.000Z&granularity=day' })
       expect(res.statusCode).toBe(200)
-      const body = JSON.parse(res.payload)
-      const trend = body.series.trends.crawlerContentHits
-      expect(trend).not.toBeNull()
-
-      // The partial day must not be in the fit. Including it drags the slope
-      // sharply negative on a series that is flat.
-      const lastIndex = body.series.points.length - 1
-      expect(trend.endIndex).toBeLessThan(lastIndex)
-      expect(trend.slope).toBeGreaterThan(-20)
+      const body = trafficEventsResponseSchema.parse(JSON.parse(res.payload))
+      expect(body.windowEnd).toBe('2026-05-07T13:45:00.000Z')
+      expect(body.series.coverageStart).toBe('2026-05-02T00:00:00.000Z')
+      expect(body.series.points).toEqual(Array.from({ length: 8 }, (_, index) => ({
+        bucket: new Date(Date.UTC(2026, 3, 30) + index * 86_400_000).toISOString().slice(0, 10),
+        crawlerHits: index < 2 ? 0 : index === 7 ? 4 : 100,
+        crawlerContentHits: index < 2 ? 0 : index === 7 ? 4 : 100,
+        aiUserFetchHits: 0, aiReferralHits: 0, aiReferralLandedHits: 0, measured: index >= 2,
+      })))
+      expect(body.totals.crawlerHits).toBe(504)
+      expect(body.totals.crawlerContentHits).toBe(504)
+      expect(body.series.trends.crawlerContentHits, 'exact five complete flat days, preserving their original bucket indices').toEqual({
+        slope: 0, intercept: 100, r2: 1, start: 100, end: 100, n: 5, startIndex: 2, endIndex: 6,
+      })
     } finally { await h.close() }
   })
 
@@ -5343,49 +5637,36 @@ describe('crawler-hit content/infra segmentation', () => {
    * Including the partial day fits slope = +60/day. Excluding it fits 0.
    */
   it('excludes the partial LEADING bucket from the trend fit', async () => {
-    const { h, sourceId } = await mixedPathHarness()
-    try {
-      const source = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
-      const writtenAt = new Date().toISOString()
-      const row = (tsHour: string, pathNormalized: string, hits: number) => ({
-        projectId: source.projectId, sourceId, tsHour,
-        botId: 'openai-gptbot', operator: 'OpenAI', verificationStatus: 'claimed_unverified' as const,
-        pathNormalized, status: 200, hits, sampledUserAgent: 'GPTBot/1.0',
-        createdAt: writtenAt, updatedAt: writtenAt,
-      })
-
-      const rows = []
-      // Recording begins late on day-5: a real partial day, not a quiet one.
-      const first = new Date(); first.setUTCDate(first.getUTCDate() - 5); first.setUTCHours(18, 0, 0, 0)
-      rows.push(row(first.toISOString(), '/blog/first', 40))
-      // Four COMPLETE days, perfectly flat.
-      for (let back = 4; back >= 1; back--) {
-        const d = new Date(); d.setUTCDate(d.getUTCDate() - back); d.setUTCHours(12, 0, 0, 0)
-        rows.push(row(d.toISOString(), `/blog/day-${back}`, 240))
-      }
-      h.db.insert(crawlerEventsHourly).values(rows).run()
-
-      const since = new Date(); since.setUTCDate(since.getUTCDate() - 7)
-      const res = await h.app.inject({
-        method: 'GET',
-        url: `/api/v1/projects/test-project/traffic/events?since=${encodeURIComponent(since.toISOString())}&granularity=day`,
-      })
-      expect(res.statusCode).toBe(200)
-      const body = JSON.parse(res.payload)
-      const points = body.series.points as { measured: boolean }[]
-      const trend = body.series.trends.crawlerContentHits
-      expect(trend).not.toBeNull()
-
-      // The fit must START AFTER the first measured bucket: that bucket is a
-      // fraction of a day and was read as a whole one.
-      const firstMeasured = points.findIndex((pt) => pt.measured)
-      expect(firstMeasured).toBeGreaterThanOrEqual(0)
-      expect(trend.startIndex).toBeGreaterThan(firstMeasured)
-
-      // Flat traffic must not report growth. Including the partial day fits +60.
-      expect(trend.slope).toBeLessThan(10)
-      expect(Math.abs(trend.slope)).toBeLessThan(10)
-    } finally { await h.close() }
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-05-07T13:45:00.000Z'))
+    for (const scenario of [
+      { name: 'partial first day', firstHour: '18', firstHits: 40, total: 1000, n: 4, startIndex: 3 },
+      { name: 'coverage begins exactly on the bucket boundary', firstHour: '00', firstHits: 240, total: 1200, n: 5, startIndex: 2 },
+    ]) {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        insertSeriesCrawlerRows(h, source, [
+          { tsHour: `2026-05-02T${scenario.firstHour}:00:00.000Z`, pathNormalized: '/blog/first', hits: scenario.firstHits },
+          ...[3, 4, 5, 6].map(day => ({ tsHour: `2026-05-0${day}T12:00:00.000Z`, pathNormalized: `/blog/day-${7 - day}`, hits: 240 })),
+        ])
+        const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/events?since=2026-04-30T13%3A45%3A00.000Z&granularity=day' })
+        expect(res.statusCode, scenario.name).toBe(200)
+        const body = trafficEventsResponseSchema.parse(JSON.parse(res.payload))
+        expect(body.series.coverageStart, scenario.name).toBe(`2026-05-02T${scenario.firstHour}:00:00.000Z`)
+        expect(body.series.points, scenario.name).toEqual(Array.from({ length: 8 }, (_, index) => ({
+          bucket: new Date(Date.UTC(2026, 3, 30) + index * 86_400_000).toISOString().slice(0, 10),
+          crawlerHits: index < 2 || index === 7 ? 0 : index === 2 ? scenario.firstHits : 240,
+          crawlerContentHits: index < 2 || index === 7 ? 0 : index === 2 ? scenario.firstHits : 240,
+          aiUserFetchHits: 0, aiReferralHits: 0, aiReferralLandedHits: 0, measured: index >= 2,
+        })))
+        expect(body.totals.crawlerHits, scenario.name).toBe(scenario.total)
+        expect(body.totals.crawlerContentHits, scenario.name).toBe(scenario.total)
+        expect(body.series.trends.crawlerContentHits, scenario.name).toEqual({
+          slope: 0, intercept: 240, r2: 1, start: 240, end: 240,
+          n: scenario.n, startIndex: scenario.startIndex, endIndex: 6,
+        })
+      } finally { await h.close() }
+    }
   })
 
   /**
@@ -5398,42 +5679,30 @@ describe('crawler-hit content/infra segmentation', () => {
    * Fixture: five complete hours flat at 100, current hour at 4.
    */
   it('excludes the partial trailing bucket on the HOURLY series', async () => {
-    const { h, sourceId } = await mixedPathHarness()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-05-07T13:45:00.000Z'))
+    const { h, source } = await emptySeriesHarness()
     try {
-      const source = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
-      const writtenAt = new Date().toISOString()
-      const row = (tsHour: string, pathNormalized: string, hits: number) => ({
-        projectId: source.projectId, sourceId, tsHour,
-        botId: 'openai-gptbot', operator: 'OpenAI', verificationStatus: 'claimed_unverified' as const,
-        pathNormalized, status: 200, hits, sampledUserAgent: 'GPTBot/1.0',
-        createdAt: writtenAt, updatedAt: writtenAt,
-      })
-
-      const rows = []
-      for (let back = 5; back >= 1; back--) {
-        const d = new Date(); d.setUTCMinutes(0, 0, 0); d.setUTCHours(d.getUTCHours() - back)
-        rows.push(row(d.toISOString(), `/blog/hour-${back}`, 100))
-      }
-      const thisHour = new Date(); thisHour.setUTCMinutes(0, 0, 0)
-      rows.push(row(thisHour.toISOString(), '/blog/now', 4))
-      h.db.insert(crawlerEventsHourly).values(rows).run()
-
-      const since = new Date(); since.setUTCMinutes(0, 0, 0); since.setUTCHours(since.getUTCHours() - 6)
-      const res = await h.app.inject({
-        method: 'GET',
-        url: `/api/v1/projects/test-project/traffic/events?since=${encodeURIComponent(since.toISOString())}&granularity=hour`,
-      })
+      insertSeriesCrawlerRows(h, source, [
+        ...[8, 9, 10, 11, 12].map(hour => ({ tsHour: `2026-05-07T${String(hour).padStart(2, '0')}:00:00.000Z`, pathNormalized: `/blog/hour-${13 - hour}`, hits: 100 })),
+        { tsHour: '2026-05-07T13:00:00.000Z', pathNormalized: '/blog/now', hits: 4 },
+      ])
+      const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/events?since=2026-05-07T07%3A00%3A00.000Z&granularity=hour' })
       expect(res.statusCode).toBe(200)
-      const body = JSON.parse(res.payload)
-      const trend = body.series.trends.crawlerContentHits
-      expect(trend).not.toBeNull()
-
-      // The in-progress hour must be out of the fit, exactly as the daily
-      // series already did. This is the assertion that was silently vacuous.
-      const lastIndex = body.series.points.length - 1
-      expect(trend.endIndex).toBeLessThan(lastIndex)
-      // Flat traffic must not report a decline.
-      expect(trend.slope).toBeGreaterThan(-20)
+      const body = trafficEventsResponseSchema.parse(JSON.parse(res.payload))
+      expect(body.windowEnd).toBe('2026-05-07T13:45:00.000Z')
+      expect(body.series.coverageStart).toBe('2026-05-07T08:00:00.000Z')
+      expect(body.series.points).toEqual(Array.from({ length: 7 }, (_, index) => ({
+        bucket: `2026-05-07T${String(index + 7).padStart(2, '0')}:00:00.000Z`,
+        crawlerHits: index === 0 ? 0 : index === 6 ? 4 : 100,
+        crawlerContentHits: index === 0 ? 0 : index === 6 ? 4 : 100,
+        aiUserFetchHits: 0, aiReferralHits: 0, aiReferralLandedHits: 0, measured: index >= 1,
+      })))
+      expect(body.totals.crawlerHits).toBe(504)
+      expect(body.totals.crawlerContentHits).toBe(504)
+      expect(body.series.trends.crawlerContentHits, 'exact five complete flat hours, excluding only the in-progress hour').toEqual({
+        slope: 0, intercept: 100, r2: 1, start: 100, end: 100, n: 5, startIndex: 1, endIndex: 5,
+      })
     } finally { await h.close() }
   })
 
@@ -5453,79 +5722,67 @@ describe('crawler-hit content/infra segmentation', () => {
   })
 
   it('keeps the series bounded by buckets, not paths x buckets, on a high-cardinality site', async () => {
-    const { h, sourceId } = await mixedPathHarness()
-    try {
-      const source = h.db
-        .select()
-        .from(trafficSources)
-        .where(eq(trafficSources.id, sourceId))
-        .get()!
-      const writtenAt = new Date().toISOString()
-      const rowFor = (tsHour: string, pathNormalized: string) => ({
-        projectId: source.projectId,
-        sourceId,
-        tsHour,
-        botId: 'openai-gptbot',
-        operator: 'OpenAI',
-        verificationStatus: 'claimed_unverified' as const,
-        pathNormalized,
-        status: 200,
-        hits: 1,
-        sampledUserAgent: 'GPTBot/1.0',
-        createdAt: writtenAt,
-        updatedAt: writtenAt,
-      })
-
-      // 6 days x 20 distinct content paths, plus 2 infrastructure paths per day.
-      const rows = []
-      for (let day = 0; day < 6; day++) {
-        const d = new Date()
-        d.setUTCDate(d.getUTCDate() - (day + 1))
-        d.setUTCHours(12, 0, 0, 0)
-        const ts = d.toISOString()
-        for (let n = 0; n < 20; n++) rows.push(rowFor(ts, `/blog/post-${day}-${n}`))
-        rows.push(rowFor(ts, '/robots.txt'))
-        rows.push(rowFor(ts, '/sitemap_index.xml'))
-      }
-      h.db.insert(crawlerEventsHourly).values(rows).run()
-      // Guard the fixture before asserting on the API. When this test first
-      // failed the rows looked missing, and the cause was the QUERY window, not
-      // the insert. This separates those two failures so the next person does
-      // not go hunting in the wrong place.
-      const inserted = h.db
-        .select()
-        .from(crawlerEventsHourly)
-        .where(eq(crawlerEventsHourly.sourceId, sourceId))
-        .all()
-      expect(inserted.length).toBeGreaterThanOrEqual(rows.length)
-
-      // The events route windows on ISO `since`/`until`, NOT sinceMinutes (that
-      // is a sync body param). Passing the wrong one silently falls back to 24h.
-      const windowStart = new Date()
-      windowStart.setUTCDate(windowStart.getUTCDate() - 10)
-      const res = await h.app.inject({
-        method: 'GET',
-        url: `/api/v1/projects/test-project/traffic/events?since=${encodeURIComponent(windowStart.toISOString())}&granularity=day`,
-      })
-      expect(res.statusCode).toBe(200)
-      const body = JSON.parse(res.payload)
-
-      // One point per calendar day, never one per path.
-      const buckets = body.series.points.map((pt: { bucket: string }) => pt.bucket)
-      expect(new Set(buckets).size).toBe(buckets.length)
-      expect(buckets.length).toBeLessThan(40)
-
-      const sum = (k: string) => body.series.points
-        .reduce((a: number, pt: Record<string, number>) => a + pt[k], 0)
-      // 120 content rows and 12 infrastructure rows ON TOP of the harness
-      // fixture, which is already inside this window. The split must survive the
-      // bounded query, not just the total.
-      const fixtureTotal = EXPECTED_SEGMENTS.content + EXPECTED_SEGMENTS.sitemap
-        + EXPECTED_SEGMENTS.robots + EXPECTED_SEGMENTS.asset + EXPECTED_SEGMENTS.other
-      expect(sum('crawlerContentHits')).toBe(120 + EXPECTED_SEGMENTS.content)
-      expect(sum('crawlerHits')).toBe(132 + fixtureTotal)
-      expect(sum('crawlerContentHits')).toBeLessThan(sum('crawlerHits'))
-    } finally { await h.close() }
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-05-07T13:45:00.000Z'))
+    for (const scenario of [
+      { pathCount: 20, total: 147, content: 123, eventRows: 139, distinctPaths: 27 },
+      { pathCount: 1200, total: 7227, content: 7203, eventRows: 7219, distinctPaths: 1207 },
+    ]) {
+      const { h, sourceId } = await mixedPathHarness()
+      try {
+        const source = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()
+        if (!source) throw new Error('Expected connected traffic source')
+        const rows = [1, 2, 3, 4, 5, 6].flatMap(day => [
+          ...Array.from({ length: scenario.pathCount }, (_, path) => ({
+            tsHour: `2026-05-0${day}T12:00:00.000Z`, pathNormalized: `/blog/post-${path}`, hits: 1,
+          })),
+          { tsHour: `2026-05-0${day}T12:00:00.000Z`, pathNormalized: '/robots.txt', hits: 1 },
+          { tsHour: `2026-05-0${day}T12:00:00.000Z`, pathNormalized: '/sitemap_index.xml', hits: 1 },
+        ])
+        for (let start = 0; start < rows.length; start += 1000) {
+          insertSeriesCrawlerRows(h, source, rows.slice(start, start + 1000))
+        }
+        const storedPaths = h.db.selectDistinct({ path: crawlerEventsHourly.pathNormalized })
+          .from(crawlerEventsHourly).where(eq(crawlerEventsHourly.sourceId, sourceId)).all()
+        expect(storedPaths, 'independent stored distinct-path premise').toHaveLength(scenario.distinctPaths)
+        // Observe actual SQLite reads only during this native HTTP request.
+        // The full-window path scan may return one row per distinct path; the
+        // chart scan must not materialize one per path per day. No SQL text or
+        // aliases are pinned, and this measures returned rows, not elapsed time.
+        const nativeStatement = h.db.$client.prepare('SELECT 1')
+        const statementPrototype: Pick<typeof nativeStatement, 'all'> = Object.getPrototypeOf(nativeStatement)
+        const readAll = statementPrototype.all
+        const materializedRows: number[] = []
+        const allSpy = vi.spyOn(statementPrototype, 'all').mockImplementation(function (
+          this: typeof nativeStatement, ...parameters
+        ) {
+          const read = readAll.apply(this, parameters)
+          materializedRows.push(read.length)
+          return read
+        })
+        try {
+          const res = await h.app.inject({
+            method: 'GET',
+            url: '/api/v1/projects/test-project/traffic/events?since=2026-04-27T13%3A45%3A00.000Z&granularity=day&kind=crawler&limit=1',
+          })
+          expect(res.statusCode, `${scenario.pathCount} repeated paths`).toBe(200)
+          const body = trafficEventsResponseSchema.parse(JSON.parse(res.payload))
+          expect(body.eventRows).toEqual({ total: scenario.eventRows, returned: 1, truncated: true })
+          expect(body.series.points).toEqual(Array.from({ length: 11 }, (_, index) => ({
+            bucket: new Date(Date.UTC(2026, 3, 27) + index * 86_400_000).toISOString().slice(0, 10),
+            crawlerHits: index < 4 ? 0 : index === 10 ? 15 : scenario.pathCount + 2,
+            crawlerContentHits: index < 4 ? 0 : index === 10 ? 3 : scenario.pathCount,
+            aiUserFetchHits: 0, aiReferralHits: 0, aiReferralLandedHits: 0, measured: index >= 4,
+          })))
+          expect(body.totals.crawlerHits).toBe(scenario.total)
+          expect(body.totals.crawlerContentHits).toBe(scenario.content)
+          expect(body.totals.crawlerInfraHits).toBe(23)
+          expect(body.totals.crawlerSegments).toEqual({ content: scenario.content, sitemap: 12, robots: 10, asset: 1, other: 1 })
+          expect(materializedRows.length, 'native SQLite read observer must be reached').toBeGreaterThan(0)
+          expect(Math.max(...materializedRows), 'largest native read must be bounded by distinct paths, not path x day rows').toBeLessThanOrEqual(scenario.distinctPaths)
+        } finally { allSpy.mockRestore() }
+      } finally { await h.close() }
+    }
   })
 
   it('reads 0 content crawls for an all-infrastructure source', async () => {

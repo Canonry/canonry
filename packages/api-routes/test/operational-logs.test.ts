@@ -65,16 +65,17 @@ describe('GET /operations/logs', () => {
 
   test('passes validated filters to the callback and returns its paginated process-local result', async () => {
     const calls: unknown[] = []
+    const expectedPage = {
+      entries: [{
+        cursor: 'buffer.2', ts: '2026-09-11T00:00:02.000Z', level: 'warn' as const, module: 'Runner', action: 'run.retry',
+        runId: 'run_2', projectId: 'project_1', context: { runId: 'run_2', errorCode: 'RATE_LIMIT', attempt: 2 },
+      }],
+      nextCursor: 'buffer.2', truncated: 4, dropped: 9, retention: 'process' as const,
+      observedAt: '2026-09-11T00:00:03.000Z',
+    }
     const app = await build((query) => {
       calls.push(query)
-      return {
-        entries: [{
-          cursor: 'buffer.2', ts: '2026-09-11T00:00:02.000Z', level: 'warn', module: 'Runner', action: 'run.retry',
-          runId: 'run_2', projectId: 'project_1', context: { runId: 'run_2', errorCode: 'RATE_LIMIT', attempt: 2 },
-        }],
-        nextCursor: 'buffer.2', truncated: 4, dropped: 9, retention: 'process' as const,
-        observedAt: '2026-09-11T00:00:03.000Z',
-      }
+      return expectedPage
     })
     apps.push(app)
     const response = await app.inject({
@@ -86,7 +87,7 @@ describe('GET /operations/logs', () => {
     expect(calls).toEqual([{
       level: 'warn', module: 'Runner', runId: 'run_2', projectId: 'project_1', limit: 1, cursor: 'buffer.1',
     }])
-    expect(response.json()).toMatchObject({ retention: 'process', truncated: 4, dropped: 9 })
+    expect(response.json()).toEqual(expectedPage)
   })
 
   test('returns the provider only to a caller that asks for it, so an older strict reader keeps its page', async () => {

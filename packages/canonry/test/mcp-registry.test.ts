@@ -1,3 +1,5 @@
+import { selectNativeDispatchCases, startNativeMcpDispatchFixture, type NativeDispatchCase } from './mcp-dispatch-fixture.js'
+import { registryDispatchCases, dedicatedDispatchCases } from './fixtures/mcp-dispatch-cases.js'
 import { createServer, type ServerResponse } from 'node:http'
 import { describe, expect, it, test, vi } from 'vitest'
 import { z } from 'zod'
@@ -5,9 +7,6 @@ import { buildOpenApiDocument } from '../../api-routes/src/openapi.js'
 import { CliError } from '../src/cli-error.js'
 import { ApiClient as RealApiClient, type ApiClient } from '../src/client.js'
 import {
-  CANONRY_MCP_CORE_TOOL_COUNT,
-  CANONRY_MCP_READ_TOOL_COUNT,
-  CANONRY_MCP_TOOL_COUNT,
   canonryMcpTools,
 } from '../src/mcp/tool-registry.js'
 import { MCP_OPENAPI_OPERATION_CLASSIFICATIONS } from '../src/mcp/openapi-classification.js'
@@ -304,9 +303,12 @@ describe('MCP tool registry', () => {
       .toMatchObject({ request: { qualifiedAliases: ['AcmeNYC'] } })
     expect(upsert.inputSchema.parse({ project: 'acme', request }).request).not.toHaveProperty('qualifiedAliases')
     expect(upsert.inputSchema.safeParse({ project: 'acme', request: { ...request, qualifiedAliases: Array.from({ length: 21 }, (_, i) => `Alias ${i}`) } }).success).toBe(false)
-    const requestSchema = z.toJSONSchema(upsert.inputSchema) as { properties: { request: { properties: Record<string, unknown>; required?: string[] } } }
-    expect(requestSchema.properties.request.properties).toHaveProperty('qualifiedAliases')
-    expect(requestSchema.properties.request.required ?? []).not.toContain('qualifiedAliases')
+    const requestSchema = z.toJSONSchema(upsert.inputSchema).properties?.request
+    if (typeof requestSchema !== 'object' || requestSchema === null) {
+      throw new Error('Expected the published upsert request to be an object schema')
+    }
+    expect(requestSchema.properties).toHaveProperty('qualifiedAliases')
+    expect(requestSchema.required ?? []).not.toContain('qualifiedAliases')
     expect(upsert.description).toContain('An omitted qualifiedAliases')
     expect(upsert.description).toContain('keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it')
 
@@ -368,7 +370,7 @@ describe('MCP tool registry', () => {
   })
 
   it('defers Cloudflare connect to the local secret-safe CLI workflow', () => {
-    expect(canonryMcpTools.some(tool => tool.name === 'canonry_traffic_connect_cloudflare')).toBe(false)
+    expect(canonryMcpTools.map(tool => tool.name)).not.toContain('canonry_traffic_connect_cloudflare')
     expect(MCP_OPENAPI_OPERATION_CLASSIFICATIONS[
       'POST /api/v1/projects/{name}/traffic/connect/cloudflare'
     ]).toBe('deferred')
@@ -478,18 +480,17 @@ describe('MCP tool registry', () => {
   })
 
   it('defaults MCP portfolio comparisons to non-brand without overriding an explicit class', async () => {
-    const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_measurement_portfolio_summary')!
-    const getMeasurementPortfolioSummary = vi.fn().mockResolvedValue({})
-    const client = { getMeasurementPortfolioSummary } as unknown as ApiClient
-    for (const queryClass of [undefined, 'branded', 'all'] as const) {
-      await tool.handler(client, tool.inputSchema.parse({ project: 'acme', queryClass }))
-      expect(getMeasurementPortfolioSummary).toHaveBeenLastCalledWith('acme', { queryClass: queryClass ?? 'non-brand' })
+    const fixture = await startNativeMcpDispatchFixture()
+    try {
+      for (const scenario of selectNativeDispatchCases(dedicatedDispatchCases, 'portfolio-defaults')) await fixture.verify(scenario)
+    } finally {
+      await fixture.close()
     }
   })
 
   it('documents the portfolio summary inputs that keep its result under the tool-result cap', () => {
     const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_measurement_portfolio_summary')!
-    const shape = (tool.inputSchema as unknown as z.ZodObject<z.ZodRawShape>).shape
+    const shape = tool.inputSchema.shape
     expect(shape.limit!.description).toContain('Default 4')
     expect(shape.groupKey!.description).toContain('metro.groupKey')
     expect(shape.includeNestedMarkets!.description).toContain('Off by default')
@@ -499,50 +500,31 @@ describe('MCP tool registry', () => {
 
   it('reads analytics sources without the per-query breakdown unless asked, forwarding run and class', async () => {
     const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_analytics_sources')!
-    const getAnalyticsSources = vi.fn().mockResolvedValue({})
-    const client = { getAnalyticsSources } as unknown as ApiClient
-    await tool.handler(client, tool.inputSchema.parse({ project: 'acme', runId: 'run-1', queryClass: 'non-brand' }))
-    expect(getAnalyticsSources).toHaveBeenLastCalledWith('acme', {
-      // The tool defaults the ranked lists to 10 so every engine list fits the agent's result cap.
-      window: undefined, limit: 10, runId: 'run-1', queryClass: 'non-brand', includeByQuery: false,
-    })
-    await tool.handler(client, tool.inputSchema.parse({ project: 'acme', window: '30d', limit: 20, includeByQuery: true }))
-    expect(getAnalyticsSources).toHaveBeenLastCalledWith('acme', {
-      window: '30d', limit: 20, runId: undefined, queryClass: undefined, includeByQuery: true,
-    })
     expect(tool.description).toContain('pass `window` to pool every sweep in it')
     expect(tool.description).toContain('Gemini')
+    const fixture = await startNativeMcpDispatchFixture()
+    try {
+      for (const scenario of selectNativeDispatchCases(dedicatedDispatchCases, 'sources-shape')) await fixture.verify(scenario)
+    } finally {
+      await fixture.close()
+    }
   })
 
   it('reads the latest sweep for class-scoped sources and landscape unless a run or window is given', async () => {
-    const getAnalyticsSources = vi.fn().mockResolvedValue({})
-    const getCompetitorLandscape = vi.fn().mockResolvedValue({})
-    const client = { getAnalyticsSources, getCompetitorLandscape } as unknown as ApiClient
     const sources = canonryMcpTools.find(candidate => candidate.name === 'canonry_analytics_sources')!
     const landscape = canonryMcpTools.find(candidate => candidate.name === 'canonry_competitor_landscape')!
-    const cases: Array<[Record<string, unknown>, string | undefined]> = [
-      [{ queryClass: 'non-brand' }, 'latest'],
-      [{ queryClass: 'branded' }, 'latest'],
-      // An explicit run, or a window, keeps what was asked for.
-      [{ queryClass: 'non-brand', runId: 'run-7' }, 'run-7'],
-      [{ queryClass: 'non-brand', window: '30d' }, undefined],
-      // Without one class the read pools both, as the HTTP default does.
-      [{ queryClass: 'all' }, undefined],
-      [{}, undefined],
-    ]
-    for (const [input, runId] of cases) {
-      // Raw arguments, as Aero passes them after JSON-schema validation.
-      await sources.handler(client, { project: 'acme', ...input } as never)
-      expect(getAnalyticsSources.mock.lastCall?.[1]?.runId, JSON.stringify(input)).toBe(runId)
-      await landscape.handler(client, landscape.inputSchema.parse({ project: 'acme', ...input }))
-      expect(getCompetitorLandscape.mock.lastCall?.[1]?.runId, JSON.stringify(input)).toBe(runId)
-    }
     for (const tool of [sources, landscape]) {
       expect(tool.description).toContain('runIds')
       expect(tool.description).toContain('countUnits')
     }
     expect(landscape.description).toContain('observedNamesTotal` counts distinct names, never answers')
     expect(sources.description).toContain('`domainTotal` is distinct domains, never answers or citations')
+    const fixture = await startNativeMcpDispatchFixture()
+    try {
+      for (const scenario of selectNativeDispatchCases(dedicatedDispatchCases, 'latest-selection')) await fixture.verify(scenario)
+    } finally {
+      await fixture.close()
+    }
   })
 
   it('lowers an agent portfolio limit to the rows that fit one result, and drops the deprecated name copy', async () => {
@@ -589,51 +571,28 @@ describe('MCP tool registry', () => {
   })
 
   it('defaults an agent\'s Property and change reads to non-brand without overriding an explicit class', async () => {
-    const client = {
-      getMeasurementChanges: vi.fn().mockResolvedValue({}),
-      getMeasurementPropertyCompetitors: vi.fn().mockResolvedValue({}),
-      getMeasurementPropertyEvidence: vi.fn().mockResolvedValue({}),
-    }
-    const reads = [
-      ['canonry_measurement_changes', 'getMeasurementChanges', {}],
-      ['canonry_measurement_property_competitors', 'getMeasurementPropertyCompetitors', { targetKey: 'harbor' }],
-      ['canonry_measurement_property_evidence', 'getMeasurementPropertyEvidence', { targetKey: 'harbor' }],
-    ] as const
-    for (const [name, method, input] of reads) {
-      const tool = canonryMcpTools.find(candidate => candidate.name === name)!
-      // Raw arguments (Aero applies no zod default) and parsed MCP input alike.
-      await tool.handler(client as unknown as ApiClient, { project: 'acme', ...input } as never)
-      expect(client[method].mock.lastCall?.[1]).toMatchObject({ queryClass: 'non-brand' })
-      await tool.handler(client as unknown as ApiClient, tool.inputSchema.parse({ project: 'acme', ...input }))
-      expect(client[method].mock.lastCall?.[1]).toMatchObject({ queryClass: 'non-brand' })
-      for (const queryClass of ['branded', 'all'] as const) {
-        await tool.handler(client as unknown as ApiClient, tool.inputSchema.parse({ project: 'acme', ...input, queryClass }))
-        expect(client[method].mock.lastCall?.[1]).toMatchObject({ queryClass })
-      }
+    const fixture = await startNativeMcpDispatchFixture()
+    try {
+      for (const scenario of selectNativeDispatchCases(dedicatedDispatchCases, 'property-defaults')) await fixture.verify(scenario)
+    } finally {
+      await fixture.close()
     }
   })
 
   it('bounds agent change reads and documents their order, distribution and noise', async () => {
     const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_measurement_changes')!
-    const getMeasurementChanges = vi.fn().mockResolvedValue({})
-    const client = { getMeasurementChanges } as unknown as ApiClient
     expect(tool.inputSchema.safeParse({ project: 'acme', limit: 20 }).success).toBe(true)
     expect(tool.inputSchema.safeParse({ project: 'acme', limit: 21 }).success).toBe(false)
-    // The scope rules still hold on the agent schema.
     expect(tool.inputSchema.safeParse({ project: 'acme', scope: 'all', groupKey: 'metro-east' }).success).toBe(false)
     expect(schemaProperty(inputSchemaFor(tool.name), 'queryClass')).toMatchObject({ default: 'non-brand' })
-    // The HTTP route orders by size of move; the tool leaves sort to it unless asked.
-    await tool.handler(client, tool.inputSchema.parse({ project: 'acme' }))
-    expect(getMeasurementChanges.mock.lastCall?.[1]).not.toHaveProperty('sort')
-    await tool.handler(client, tool.inputSchema.parse({ project: 'acme', sort: 'label' }))
-    expect(getMeasurementChanges.mock.lastCall?.[1]).toMatchObject({ sort: 'label' })
-    // The full agent page by default, so every move beyond noise shows; an explicit limit wins.
-    await tool.handler(client, tool.inputSchema.parse({ project: 'acme' }))
-    expect(getMeasurementChanges.mock.lastCall?.[1]).toMatchObject({ limit: 20 })
-    await tool.handler(client, tool.inputSchema.parse({ project: 'acme', limit: 5 }))
-    expect(getMeasurementChanges.mock.lastCall?.[1]).toMatchObject({ limit: 5 })
     for (const phrase of ['largest move first', 'distribution counts every Property', 'withinNoise true means every move was 2 answers or fewer', 'mentionWithinNoise and citationWithinNoise apply the same rule to each signal alone', 'denominatorChanged true means a rate was taken over a different number of answers', 'metricsByClass', 'totalProperties above the rows returned']) {
       expect(tool.description).toContain(phrase)
+    }
+    const fixture = await startNativeMcpDispatchFixture()
+    try {
+      for (const scenario of selectNativeDispatchCases(dedicatedDispatchCases, 'changes-bounds')) await fixture.verify(scenario)
+    } finally {
+      await fixture.close()
     }
   })
 
@@ -658,144 +617,11 @@ describe('MCP tool registry', () => {
   })
 
   it('forwards measurement-plan inputs to the matching ApiClient methods', async () => {
-    const client = {
-      getMeasurementPlan: vi.fn().mockResolvedValue({ active: null }),
-      listMeasurementPlanVersions: vi.fn().mockResolvedValue({ versions: [] }),
-      getMeasurementPlanVersion: vi.fn().mockResolvedValue({ version: { revision: 2 } }),
-      compileMeasurementPlanPreview: vi.fn().mockResolvedValue({ plan: {}, warnings: [], counts: {} }),
-      diffMeasurementPlanPreview: vi.fn().mockResolvedValue({ plan: {}, warnings: [], counts: {}, diff: {} }),
-      publishMeasurementPlan: vi.fn().mockResolvedValue({ active: { revision: 1 } }),
-      retireMeasurementPlanSegment: vi.fn().mockResolvedValue({ stableKey: 'nyc' }),
-      discoverMeasurementTargets: vi.fn().mockResolvedValue({ proposed: [] }),
-      getMeasurementOverview: vi.fn().mockResolvedValue({ mode: 'active-v2' }),
-      getMeasurementPropertyEvidence: vi.fn().mockResolvedValue({ evidence: { items: [], nextCursor: null } }),
-      getMeasurementPortfolioSummary: vi.fn().mockResolvedValue({ properties: [] }),
-      getMeasurementPropertyQuestions: vi.fn().mockResolvedValue({ questions: [] }),
-      getMeasurementQuestionResult: vi.fn().mockResolvedValue({ answer: null }),
-      getMeasurementPropertyCompetitors: vi.fn().mockResolvedValue({ competitors: [] }),
-      getMeasurementChanges: vi.fn().mockResolvedValue({ comparison: { state: 'unavailable' } }),
-      getMeasurementDataQuality: vi.fn().mockResolvedValue({ population: { state: 'no_population' } }),
-      getMeasurementReport: vi.fn().mockResolvedValue({ revision: 2 }),
-    } as unknown as ApiClient
-    const plan = {
-      schemaVersion: 1,
-      targets: [{ stableKey: 'acme', label: 'Acme', urls: [{ kind: 'host', host: 'acme.com' }], aliases: [] }],
-    }
-    const cases = [
-      ['canonry_measurement_plan_get', { project: 'acme' }, 'getMeasurementPlan', ['acme']],
-      ['canonry_measurement_plan_versions', { project: 'acme' }, 'listMeasurementPlanVersions', ['acme']],
-      ['canonry_measurement_plan_version_get', { project: 'acme', revision: 2 }, 'getMeasurementPlanVersion', ['acme', 2]],
-      ['canonry_measurement_plan_compile_preview', { project: 'acme', plan }, 'compileMeasurementPlanPreview', ['acme', plan]],
-      ['canonry_measurement_plan_diff_preview', { project: 'acme', plan }, 'diffMeasurementPlanPreview', ['acme', plan]],
-      [
-        'canonry_measurement_plan_publish',
-        { project: 'acme', expectedActiveRevision: null, plan },
-        'publishMeasurementPlan',
-        ['acme', { expectedActiveRevision: null, plan }],
-      ],
-      ['canonry_measurement_plan_segment_retire', { project: 'acme', stableKey: 'nyc' }, 'retireMeasurementPlanSegment', ['acme', 'nyc']],
-      ['canonry_measurement_discovery', {
-        project: 'acme',
-        sitemapUrl: 'https://acme.example/sitemap.xml',
-        rule: { primary: { host: 'acme.example', pathTemplate: '/locations/{slug}' } },
-        maxUrls: 250,
-      }, 'discoverMeasurementTargets', ['acme', {
-        sitemapUrl: 'https://acme.example/sitemap.xml',
-        rule: { primary: { host: 'acme.example', pathTemplate: '/locations/{slug}' } },
-        maxUrls: 250,
-      }]],
-      ['canonry_measurement_overview', {
-        project: 'acme',
-        scope: 'property',
-        targetKey: 'harbor-view',
-        queryClass: 'non-brand',
-        provider: 'openai',
-        location: 'New York, NY',
-        from: '2026-07-01',
-        to: '2026-07-31',
-        runId: 'run-7',
-        search: 'harbor',
-        cursor: 'next-page',
-        limit: 25,
-      }, 'getMeasurementOverview', ['acme', {
-        scope: 'property',
-        targetKey: 'harbor-view',
-        queryClass: 'non-brand',
-        provider: 'openai',
-        location: 'New York, NY',
-        from: '2026-07-01',
-        to: '2026-07-31',
-        runId: 'run-7',
-        search: 'harbor',
-        cursor: 'next-page',
-        limit: 25,
-      }]],
-      ['canonry_measurement_property_evidence', {
-        project: 'acme',
-        targetKey: 'harbor-view',
-        queryClass: 'branded',
-        provider: 'openai',
-        location: 'New York, NY',
-        runId: 'run-7',
-        shape: 'answers',
-        cursor: 'next-page',
-        limit: 25,
-      }, 'getMeasurementPropertyEvidence', ['acme', {
-        targetKey: 'harbor-view',
-        queryClass: 'branded',
-        provider: 'openai',
-        location: 'New York, NY',
-        runId: 'run-7',
-        shape: 'answers',
-        cursor: 'next-page',
-        limit: 25,
-      }]],
-      ['canonry_measurement_portfolio_summary', {
-        project: 'acme', groupKey: 'metro-east', queryClass: 'non-brand', provider: 'openai',
-        location: 'New York, NY', runId: 'run-7', limit: 4,
-      }, 'getMeasurementPortfolioSummary', ['acme', {
-        groupKey: 'metro-east', queryClass: 'non-brand', provider: 'openai',
-        location: 'New York, NY', runId: 'run-7', limit: 4,
-      }]],
-      ['canonry_measurement_property_questions', {
-        project: 'acme', targetKey: 'harbor-view', queryClass: 'non-brand', provider: 'openai',
-        location: 'New York, NY', runId: 'run-7', limit: 25,
-      }, 'getMeasurementPropertyQuestions', ['acme', {
-        targetKey: 'harbor-view', queryClass: 'non-brand', provider: 'openai',
-        location: 'New York, NY', runId: 'run-7', limit: 25,
-      }]],
-      ['canonry_measurement_question_result', {
-        project: 'acme', targetKey: 'harbor-view', resultId: 'result-7',
-      }, 'getMeasurementQuestionResult', ['acme', { targetKey: 'harbor-view', resultId: 'result-7' }]],
-      ['canonry_measurement_property_competitors', {
-        project: 'acme', targetKey: 'harbor-view', queryClass: 'non-brand', provider: 'openai',
-        location: 'New York, NY', runId: 'run-7', limit: 10,
-      }, 'getMeasurementPropertyCompetitors', ['acme', {
-        targetKey: 'harbor-view', queryClass: 'non-brand', provider: 'openai',
-        location: 'New York, NY', runId: 'run-7', limit: 10,
-      }]],
-      ['canonry_measurement_changes', {
-        project: 'acme', scope: 'group', groupKey: 'metro-east', queryClass: 'non-brand',
-        provider: 'openai', location: 'New York, NY', runId: 'run-7', limit: 10,
-      }, 'getMeasurementChanges', ['acme', {
-        scope: 'group', groupKey: 'metro-east', queryClass: 'non-brand', provider: 'openai',
-        location: 'New York, NY', runId: 'run-7', limit: 10,
-      }]],
-      ['canonry_measurement_data_quality', {
-        project: 'acme', runId: 'run-7',
-      }, 'getMeasurementDataQuality', ['acme', { runId: 'run-7' }]],
-      ['canonry_measurement_report', {
-        project: 'acme',
-        revision: 2,
-        runId: 'run-7',
-      }, 'getMeasurementReport', ['acme', 2, 'run-7']],
-    ] as const
-
-    for (const [name, input, method, args] of cases) {
-      const tool = canonryMcpTools.find(candidate => candidate.name === name)
-      expect(tool, name).toBeTruthy()
-      await tool!.handler(client, input)
-      expect(client[method as keyof typeof client]).toHaveBeenCalledWith(...args)
+    const fixture = await startNativeMcpDispatchFixture()
+    try {
+      for (const scenario of selectNativeDispatchCases(dedicatedDispatchCases, 'measurement-wire')) await fixture.verify(scenario)
+    } finally {
+      await fixture.close()
     }
   })
 
@@ -899,8 +725,7 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(245)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(163)
+    expect(canonryMcpTools.filter(tool => tool.access === 'read')).toHaveLength(163)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -910,7 +735,6 @@ describe('MCP tool registry', () => {
     for (const tool of canonryMcpTools) {
       expect(CANONRY_MCP_TIERS).toContain(tool.tier)
     }
-    expect(CANONRY_MCP_CORE_TOOL_COUNT).toBe(12)
     const coreNames = canonryMcpTools.filter(tool => tool.tier === 'core').map(tool => tool.name)
     expect(coreNames).toEqual([
       'canonry_projects_list',
@@ -1413,19 +1237,53 @@ describe('MCP tool registry', () => {
 })
 
 describe('MCP tool handlers', () => {
-  it('calls the expected ApiClient method for every tool', async () => {
-    for (const testCase of handlerCases) {
-      const calls: Array<{ method: string; args: unknown[] }> = []
-      const client = makeClient(calls, testCase.fixture)
-      const tool = canonryMcpTools.find(candidate => candidate.name === testCase.tool)
-      expect(tool, testCase.tool).toBeTruthy()
-      await tool!.handler(client, testCase.input)
-      expect(calls.map(call => call.method)).toEqual(testCase.methods)
-      if (testCase.expectedArgs) {
-        expect(calls.map(call => call.args)).toEqual(testCase.expectedArgs)
-      }
+  it('forwards every covered MCP input through the public HTTP client and returns its receipt', async () => {
+    const fixture = await startNativeMcpDispatchFixture()
+    try {
+      const upstreamCases: NativeDispatchCase[] = [
+        {
+          caseId: 'main-feedback',
+          tool: 'canonry_feedback',
+          channel: 'mcp',
+          input: { kind: 'struggle', summary: 'sweep fails on a free Gemini key' },
+          requests: [{
+            method: 'POST', path: '/native-mcp/api/v1/feedback', query: [],
+            body: { kind: 'struggle', summary: 'sweep fails on a free Gemini key' },
+            status: 202, response: { accepted: true, id: 'feedback-1' },
+          }],
+          expectedText: { accepted: true, id: 'feedback-1' },
+          expectedStructured: { accepted: true, id: 'feedback-1' },
+        },
+        {
+          caseId: 'main-traffic-analytics-period',
+          tool: 'canonry_traffic_analytics',
+          channel: 'mcp',
+          input: { project: 'acme', period: 14 },
+          requests: [{
+            method: 'GET', path: '/native-mcp/api/v1/projects/acme/traffic/analytics',
+            query: [['period', '14']], body: null, status: 200, response: { activity: null },
+          }],
+          expectedText: { activity: null },
+          expectedStructured: { activity: null },
+        },
+        {
+          caseId: 'main-traffic-analytics-default',
+          tool: 'canonry_traffic_analytics',
+          channel: 'mcp',
+          input: { project: 'acme' },
+          requests: [{
+            method: 'GET', path: '/native-mcp/api/v1/projects/acme/traffic/analytics',
+            query: [], body: null, status: 200, response: { activity: null },
+          }],
+          expectedText: { activity: null },
+          expectedStructured: { activity: null },
+        },
+      ]
+      for (const scenario of selectNativeDispatchCases([...registryDispatchCases, ...upstreamCases])) await fixture.verify(scenario)
+    } finally {
+      await fixture.close()
     }
-  })
+  }, 20_000)
 
   it('preserves completed sitemap results when a later MCP batch is unconfirmed', async () => {
     const childUrls = Array.from({ length: 100 }, (_, index) => `https://example.com/child-${index}.xml`)
@@ -1570,382 +1428,7 @@ describe('Dynamic tool catalog', () => {
   })
 })
 
-type HandlerCase = {
-  tool: string
-  input: Record<string, unknown>
-  methods: string[]
-  expectedArgs?: unknown[][]
-  fixture?: 'agent-notification'
-}
 
-const projectInput = { project: 'acme' }
-
-const handlerCases: HandlerCase[] = [
-  {
-    tool: 'canonry_snapshot',
-    input: { companyName: 'Acme', domain: 'acme.example.com', providers: ['gemini'], providerMode: 'api' },
-    methods: ['createSnapshot'],
-    expectedArgs: [[{ companyName: 'Acme', domain: 'acme.example.com', providers: ['gemini'], providerMode: 'api' }]],
-  },
-  { tool: 'canonry_projects_list', input: {}, methods: ['listProjects'] },
-  { tool: 'canonry_project_get', input: projectInput, methods: ['getProject'] },
-  { tool: 'canonry_project_overview', input: projectInput, methods: ['getProjectOverview'] },
-  { tool: 'canonry_analytics_metrics', input: { project: 'acme', window: '30d' }, methods: ['getAnalyticsMetrics'] },
-  {
-    tool: 'canonry_competitor_landscape',
-    input: { project: 'acme', window: '30d', scope: 'all-markets', provider: 'openai', queryClass: 'non-brand' },
-    methods: ['getCompetitorLandscape'],
-    expectedArgs: [['acme', { window: '30d', scope: 'all-markets', provider: 'openai', queryClass: 'non-brand' }]],
-  },
-  {
-    tool: 'canonry_competitor_landscape',
-    input: { project: 'acme', scope: 'all-markets', provider: 'openai', groupBy: 'model', model: 'gpt-test', queryClass: 'non-brand' },
-    methods: ['getCompetitorLandscape'],
-    // A class-scoped read with no run or window reads the latest sweep.
-    expectedArgs: [['acme', { scope: 'all-markets', provider: 'openai', groupBy: 'model', model: 'gpt-test', queryClass: 'non-brand', runId: 'latest' }]],
-  },
-  { tool: 'canonry_search', input: { project: 'acme', q: 'rival' }, methods: ['searchProject'] },
-  { tool: 'canonry_project_export', input: projectInput, methods: ['getExport'] },
-  {
-    tool: 'canonry_project_history',
-    input: projectInput,
-    methods: ['getHistory'],
-    expectedArgs: [['acme', { limit: undefined, offset: undefined, since: undefined, action: undefined, actor: undefined, entityType: undefined }]],
-  },
-  { tool: 'canonry_history_global', input: { limit: 50 }, methods: ['getGlobalHistory'], expectedArgs: [[{ limit: 50 }]] },
-  { tool: 'canonry_runs_list', input: { project: 'acme', limit: 5 }, methods: ['listRuns'] },
-  { tool: 'canonry_runs_latest', input: projectInput, methods: ['getLatestRun'] },
-  { tool: 'canonry_run_get', input: { runId: 'run-1' }, methods: ['getRun'] },
-  { tool: 'canonry_run_completeness', input: { runId: 'run-1' }, methods: ['getRunCompleteness'] },
-  { tool: 'canonry_run_fill', input: { runId: 'run-1', dryRun: true }, methods: ['fillRun'], expectedArgs: [['run-1', { dryRun: true }]] },
-  {
-    tool: 'canonry_timeline_get',
-    input: { project: 'acme', location: 'nyc', limit: 20 },
-    methods: ['getTimeline'],
-    expectedArgs: [['acme', 'nyc', 20]],
-  },
-  {
-    tool: 'canonry_visibility_stats',
-    input: { project: 'acme', month: '2026-06', groupBy: 'provider', shareOfVoice: true },
-    methods: ['getVisibilityStats'],
-    expectedArgs: [[
-      'acme',
-      {
-        since: undefined,
-        until: undefined,
-        lastRuns: undefined,
-        groupBy: 'provider',
-        month: '2026-06',
-        shareOfVoice: true,
-      },
-    ]],
-  },
-  { tool: 'canonry_snapshots_list', input: { project: 'acme', limit: 5 }, methods: ['getSnapshots'] },
-  { tool: 'canonry_snapshots_diff', input: { project: 'acme', run1: 'run-1', run2: 'run-2' }, methods: ['getSnapshotDiff'] },
-  { tool: 'canonry_insights_list', input: { project: 'acme', dismissed: true }, methods: ['getInsights'] },
-  { tool: 'canonry_insight_get', input: { project: 'acme', insightId: 'insight-1' }, methods: ['getInsight'] },
-  { tool: 'canonry_health_latest', input: projectInput, methods: ['getHealth'] },
-  { tool: 'canonry_health_history', input: { project: 'acme', limit: 10 }, methods: ['getHealthHistory'] },
-  { tool: 'canonry_queries_list', input: projectInput, methods: ['listQueries'] },
-  { tool: 'canonry_keywords_list', input: projectInput, methods: ['listKeywords'] },
-  { tool: 'canonry_competitors_list', input: projectInput, methods: ['listCompetitors'] },
-  { tool: 'canonry_schedule_get', input: { project: 'acme', kind: 'traffic-sync' }, methods: ['getSchedule'], expectedArgs: [['acme', 'traffic-sync']] },
-  { tool: 'canonry_schedule_get', input: projectInput, methods: ['getSchedule'], expectedArgs: [['acme', undefined]] },
-  { tool: 'canonry_schedules_list', input: projectInput, methods: ['listSchedules'], expectedArgs: [['acme']] },
-  { tool: 'canonry_backlinks_latest_release', input: {}, methods: ['backlinksLatestRelease'] },
-  { tool: 'canonry_settings_get', input: {}, methods: ['getSettings'] },
-  { tool: 'canonry_key_self', input: {}, methods: ['getApiKeySelf'] },
-  { tool: 'canonry_telemetry_get', input: {}, methods: ['getTelemetry'] },
-  { tool: 'canonry_telemetry_update', input: { enabled: false }, methods: ['updateTelemetry'], expectedArgs: [[false]] },
-  { tool: 'canonry_provider_settings_update', input: { provider: 'openai', model: 'gpt-test' }, methods: ['updateProvider'], expectedArgs: [['openai', { model: 'gpt-test' }]] },
-  { tool: 'canonry_logs_list', input: { limit: 5, module: 'Runner' }, methods: ['listOperationalLogs'], expectedArgs: [[{ limit: 5, module: 'Runner' }]] },
-  { tool: 'canonry_notification_events', input: {}, methods: ['listNotificationEvents'] },
-  { tool: 'canonry_google_connections_list', input: projectInput, methods: ['googleConnections'] },
-  { tool: 'canonry_gsc_performance', input: { project: 'acme', window: '30d' }, methods: ['gscPerformance'] },
-  { tool: 'canonry_gsc_performance_daily', input: { project: 'acme', window: '30d' }, methods: ['gscPerformanceDaily'] },
-  {
-    tool: 'canonry_gsc_query_totals',
-    input: { project: 'acme', startDate: '2026-06-01', endDate: '2026-06-30', limit: 100, offset: 100 },
-    methods: ['gscQueryTotals'],
-    expectedArgs: [['acme', { startDate: '2026-06-01', endDate: '2026-06-30', limit: '100', offset: '100' }]],
-  },
-  { tool: 'canonry_gsc_inspections', input: { project: 'acme', limit: 5 }, methods: ['gscInspections'] },
-  { tool: 'canonry_gsc_deindexed', input: projectInput, methods: ['gscDeindexed'] },
-  { tool: 'canonry_gsc_coverage', input: projectInput, methods: ['gscCoverage'] },
-  { tool: 'canonry_gsc_coverage_history', input: { project: 'acme', limit: 5 }, methods: ['gscCoverageHistory'] },
-  { tool: 'canonry_gsc_sitemaps', input: projectInput, methods: ['gscSitemaps'], expectedArgs: [['acme', { sitemapIndex: undefined }]] },
-  {
-    tool: 'canonry_gsc_sitemaps_submit',
-    input: { project: 'acme', sitemapUrls: ['https://example.com/sitemap.xml'] },
-    methods: ['gscSubmitSitemaps'],
-    expectedArgs: [['acme', { sitemapUrls: ['https://example.com/sitemap.xml'] }]],
-  },
-  {
-    tool: 'canonry_gsc_sitemaps_submit',
-    input: { project: 'acme', mode: 'indexes' },
-    methods: ['gscSitemaps', 'gscSubmitSitemaps'],
-    expectedArgs: [['acme'], ['acme', { sitemapUrls: ['https://example.com/index.xml'] }]],
-  },
-  {
-    tool: 'canonry_gsc_sitemaps_submit',
-    input: { project: 'acme', mode: 'all-files' },
-    methods: ['gscSitemaps', 'gscSitemaps', 'gscSubmitSitemaps'],
-    expectedArgs: [
-      ['acme'],
-      ['acme', { sitemapIndex: 'https://example.com/index.xml' }],
-      ['acme', { sitemapUrls: ['https://example.com/child.xml'] }],
-    ],
-  },
-  { tool: 'canonry_ga_status', input: projectInput, methods: ['gaStatus'] },
-  {
-    tool: 'canonry_ga_measurement_analysis',
-    input: { project: 'acme', window: '90d', hostScope: 'marketing', pathPrefix: '/blog', limit: 5 },
-    methods: ['gaMeasurementAnalysis'],
-  },
-  { tool: 'canonry_ga_traffic', input: { project: 'acme', limit: 5 }, methods: ['gaTraffic'] },
-  { tool: 'canonry_ga_coverage', input: projectInput, methods: ['gaCoverage'] },
-  { tool: 'canonry_ga_ai_referral_history', input: { project: 'acme', window: '7d' }, methods: ['gaAiReferralHistory'] },
-  { tool: 'canonry_ga_social_referral_history', input: { project: 'acme', window: '7d' }, methods: ['gaSocialReferralHistory'] },
-  { tool: 'canonry_ga_social_referral_trend', input: projectInput, methods: ['gaSocialReferralTrend'] },
-  { tool: 'canonry_ga_attribution_trend', input: projectInput, methods: ['gaAttributionTrend'] },
-  { tool: 'canonry_ga_session_history', input: { project: 'acme', window: '7d' }, methods: ['gaSessionHistory'] },
-  { tool: 'canonry_ads_account', input: projectInput, methods: ['getAdsAccount'] },
-  {
-    tool: 'canonry_ads_geo_search',
-    input: { project: 'acme', q: 'New York', limit: 20 },
-    methods: ['searchAdsGeo'],
-    expectedArgs: [['acme', { q: 'New York', limit: 20 }]],
-  },
-  { tool: 'canonry_ads_conversion_pixels', input: projectInput, methods: ['getAdsConversionPixels'] },
-  { tool: 'canonry_ads_conversion_event_settings', input: projectInput, methods: ['getAdsConversionEventSettings'] },
-  {
-    tool: 'canonry_ads_operations_unresolved',
-    input: {
-      project: 'acme',
-      state: ['pending', 'unknown', 'reconciling'],
-      limit: 100,
-      cursor: 'next-page',
-    },
-    methods: ['getUnresolvedAdsOperations'],
-    expectedArgs: [[
-      'acme',
-      { state: ['pending', 'unknown', 'reconciling'], limit: 100, cursor: 'next-page' },
-    ]],
-  },
-  {
-    tool: 'canonry_ads_operation_reconcile',
-    input: { project: 'acme', operationKey: 'weekend:campaign:pending' },
-    methods: ['reconcileAdsOperation'],
-    expectedArgs: [['acme', 'weekend:campaign:pending']],
-  },
-  {
-    tool: 'canonry_ads_operation_resume_activation',
-    input: { project: 'acme', operationKey: 'weekend:campaign:activate:1' },
-    methods: ['resumeAdsActivation'],
-    expectedArgs: [['acme', 'weekend:campaign:activate:1']],
-  },
-  {
-    tool: 'canonry_ads_campaign_activate_tree',
-    input: {
-      project: 'acme',
-      campaignId: 'cmpn_approved',
-      request: {
-        operationKey: 'weekend:campaign:activate:1',
-        grantId: 'grant_approved',
-        manifestHash: 'a'.repeat(64),
-      },
-    },
-    methods: ['activateAdsCampaignTree'],
-    expectedArgs: [[
-      'acme',
-      'cmpn_approved',
-      {
-        operationKey: 'weekend:campaign:activate:1',
-        grantId: 'grant_approved',
-        manifestHash: 'a'.repeat(64),
-      },
-    ]],
-  },
-  { tool: 'canonry_traffic_sources_list', input: projectInput, methods: ['trafficListSources'] },
-  { tool: 'canonry_traffic_source_get', input: { project: 'acme', sourceId: 'src-1' }, methods: ['trafficGetSource'] },
-  { tool: 'canonry_traffic_status', input: projectInput, methods: ['trafficStatus'] },
-  { tool: 'canonry_traffic_analytics', input: { project: 'acme', period: 14 }, methods: ['getTrafficAnalytics'], expectedArgs: [['acme', 14]] },
-  { tool: 'canonry_traffic_analytics', input: projectInput, methods: ['getTrafficAnalytics'], expectedArgs: [['acme', undefined]] },
-  { tool: 'canonry_traffic_referral_assessment', input: { project: 'acme', startDate: '2026-08-01', endDate: '2026-08-31' }, methods: ['trafficReferralAssessment'], expectedArgs: [['acme', { startDate: '2026-08-01', endDate: '2026-08-31' }]] },
-  {
-    tool: 'canonry_traffic_events',
-    input: { project: 'acme', kind: 'crawler', limit: 50, granularity: 'day' },
-    methods: ['trafficListEvents'],
-    expectedArgs: [['acme', { kind: 'crawler', limit: 50, granularity: 'day' }]],
-  },
-  {
-    tool: 'canonry_traffic_connect_cloud_run',
-    input: {
-      project: 'acme',
-      request: {
-        gcpProjectId: 'gcp-acme',
-        serviceName: 'web',
-        keyJson: '{"client_email":"sa@gcp-acme.iam.gserviceaccount.com","private_key":"-----BEGIN PRIVATE KEY-----\\nstub\\n-----END PRIVATE KEY-----\\n"}',
-      },
-    },
-    methods: ['trafficConnectCloudRun'],
-  },
-  {
-    tool: 'canonry_traffic_connect_vercel',
-    input: {
-      project: 'acme',
-      request: {
-        projectId: 'prj_abc',
-        teamId: 'team_xyz',
-        token: 'vcp_test_token',
-      },
-    },
-    methods: ['trafficConnectVercel'],
-  },
-  {
-    tool: 'canonry_traffic_sync',
-    input: { project: 'acme', sourceId: 'src-1', sinceMinutes: 120 },
-    methods: ['trafficSync'],
-  },
-  {
-    tool: 'canonry_project_upsert',
-    input: {
-      project: 'acme',
-      request: {
-        displayName: 'Acme',
-        canonicalDomain: 'acme.example.com',
-        country: 'US',
-        language: 'en',
-      },
-    },
-    methods: ['putProject'],
-  },
-  {
-    tool: 'canonry_apply_config',
-    input: {
-      config: {
-        apiVersion: 'canonry/v1',
-        kind: 'Project',
-        metadata: { name: 'acme' },
-        spec: {
-          displayName: 'Acme',
-          canonicalDomain: 'acme.example.com',
-          country: 'US',
-          language: 'en',
-        },
-      },
-    },
-    methods: ['apply'],
-  },
-  { tool: 'canonry_queries_generate', input: { project: 'acme', request: { provider: 'gemini', count: 3 } }, methods: ['generateQueries'] },
-  { tool: 'canonry_keywords_generate', input: { project: 'acme', request: { provider: 'gemini', count: 3 } }, methods: ['generateKeywords'] },
-  { tool: 'canonry_queries_replace', input: { project: 'acme', request: { queries: ['alpha'] } }, methods: ['putQueries'] },
-  { tool: 'canonry_queries_replace_preview', input: { project: 'acme', request: { queries: ['alpha'] } }, methods: ['previewReplaceQueries'] },
-  { tool: 'canonry_keywords_replace', input: { project: 'acme', request: { keywords: ['alpha'] } }, methods: ['putKeywords'] },
-  { tool: 'canonry_run_trigger', input: { project: 'acme', request: { providers: ['gemini'] } }, methods: ['triggerRun'] },
-  { tool: 'canonry_feedback', input: { kind: 'struggle', summary: 'sweep fails on a free Gemini key' }, methods: ['sendFeedback'] },
-  { tool: 'canonry_run_cancel', input: { runId: 'run-1' }, methods: ['cancelRun'] },
-  { tool: 'canonry_queries_add', input: { project: 'acme', request: { queries: ['alpha'] } }, methods: ['appendQueries'] },
-  { tool: 'canonry_keywords_add', input: { project: 'acme', request: { keywords: ['alpha'] } }, methods: ['appendKeywords'] },
-  { tool: 'canonry_queries_remove', input: { project: 'acme', request: { queries: ['alpha'] } }, methods: ['deleteQueries'] },
-  { tool: 'canonry_keywords_remove', input: { project: 'acme', request: { keywords: ['alpha'] } }, methods: ['deleteKeywords'] },
-  { tool: 'canonry_competitors_add', input: { project: 'acme', request: { competitors: ['other.example.com'] } }, methods: ['appendCompetitors'] },
-  { tool: 'canonry_competitors_remove', input: { project: 'acme', request: { competitors: ['other.example.com'] } }, methods: ['deleteCompetitors'] },
-  { tool: 'canonry_schedule_set', input: { project: 'acme', schedule: { preset: 'daily', timezone: 'UTC' } }, methods: ['putSchedule'] },
-  { tool: 'canonry_schedule_delete', input: { project: 'acme', kind: 'traffic-sync' }, methods: ['deleteSchedule'], expectedArgs: [['acme', 'traffic-sync']] },
-  { tool: 'canonry_schedule_delete', input: projectInput, methods: ['deleteSchedule'], expectedArgs: [['acme', undefined]] },
-  { tool: 'canonry_insight_dismiss', input: { project: 'acme', insightId: 'insight-1' }, methods: ['dismissInsight'] },
-  { tool: 'canonry_content_targets', input: { project: 'acme', limit: 5 }, methods: ['getContentTargets'] },
-  { tool: 'canonry_content_brief', input: { project: 'acme', targetRef: 'tgt_1' }, methods: ['synthesizeContentBrief'], expectedArgs: [['acme', 'tgt_1', { provider: undefined, model: undefined, forceRefresh: undefined }]] },
-  { tool: 'canonry_content_map', input: projectInput, methods: ['getDomainClassifications'] },
-  { tool: 'canonry_content_sources', input: projectInput, methods: ['getContentSources'] },
-  { tool: 'canonry_content_gaps', input: projectInput, methods: ['getContentGaps'] },
-  { tool: 'canonry_backlinks_domains', input: { project: 'acme', limit: 50 }, methods: ['backlinksDomains'] },
-  { tool: 'canonry_backlinks_sources', input: { project: 'acme' }, methods: ['backlinksSources'] },
-  { tool: 'canonry_memory_list', input: projectInput, methods: ['listAgentMemory'] },
-  { tool: 'canonry_memory_set', input: { project: 'acme', key: 'pref', value: 'note' }, methods: ['setAgentMemory'] },
-  { tool: 'canonry_memory_forget', input: { project: 'acme', key: 'pref' }, methods: ['forgetAgentMemory'] },
-  { tool: 'canonry_agent_conversations_list', input: { project: 'acme' }, methods: ['listAgentConversations'] },
-  { tool: 'canonry_agent_conversations_get', input: { project: 'acme', id: '00000000-0000-4000-8000-000000000001' }, methods: ['getAgentConversation'] },
-  { tool: 'canonry_agent_conversations_new', input: { project: 'acme', id: '00000000-0000-4000-8000-000000000001' }, methods: ['createAgentConversation'] },
-  { tool: 'canonry_agent_conversations_resume', input: { project: 'acme', id: '00000000-0000-4000-8000-000000000001' }, methods: ['resumeAgentConversation'] },
-  { tool: 'canonry_agent_conversations_delete', input: { project: 'acme', id: '00000000-0000-4000-8000-000000000001' }, methods: ['deleteAgentConversation'] },
-  { tool: 'canonry_agent_clear', input: projectInput, methods: ['resetAgentTranscript'] },
-  { tool: 'canonry_agent_webhook_attach', input: { project: 'acme', url: 'https://agent.example.com/hook' }, methods: ['listNotifications', 'createNotification'] },
-  { tool: 'canonry_agent_webhook_detach', input: projectInput, methods: ['listNotifications', 'deleteNotification'], fixture: 'agent-notification' },
-  { tool: 'canonry_research_run_start', input: { project: 'acme', request: { queries: ['best AEO software'], provider: 'openai' } }, methods: ['startResearchRun'] },
-  { tool: 'canonry_research_batch_start', input: { project: 'acme', request: { idempotencyKey: 'reviewed-1', runs: [{ queries: ['best AEO software'], provider: 'openai', model: 'gpt-test', location: null }] } }, methods: ['startResearchBatch'] },
-  { tool: 'canonry_research_runs_list', input: { project: 'acme', limit: 5 }, methods: ['listResearchRuns'] },
-  { tool: 'canonry_research_run_get', input: { project: 'acme', runId: 'research-1' }, methods: ['getResearchRun'] },
-  { tool: 'canonry_discover_run_start', input: { project: 'acme', request: { icpDescription: 'AEO analyst tool' } }, methods: ['triggerDiscoveryRun'] },
-  { tool: 'canonry_discover_sessions_list', input: { project: 'acme', limit: 5 }, methods: ['listDiscoverySessions'] },
-  { tool: 'canonry_discover_session_get', input: { project: 'acme', sessionId: 'sess-1' }, methods: ['getDiscoverySession'] },
-  { tool: 'canonry_discover_harvest', input: { project: 'acme', sessionId: 'sess-1' }, methods: ['getDiscoveryHarvest'] },
-  { tool: 'canonry_discover_promote_preview', input: { project: 'acme', sessionId: 'sess-1' }, methods: ['previewDiscoveryPromote'] },
-  { tool: 'canonry_discover_promote', input: { project: 'acme', sessionId: 'sess-1' }, methods: ['promoteDiscovery'] },
-  { tool: 'canonry_site_health_overview', input: { project: 'acme', runId: 'run-1' }, methods: ['getTechnicalAeoCrawl'], expectedArgs: [['acme', { runId: 'run-1' }]] },
-  {
-    tool: 'canonry_site_health_page_audit',
-    input: { project: 'acme', runId: 'run-1', nodeKey: 'page:root' },
-    methods: ['getTechnicalAeoPageAudit'],
-    expectedArgs: [['acme', { runId: 'run-1', nodeKey: 'page:root', url: undefined }]],
-  },
-  {
-    tool: 'canonry_site_health_subgraph',
-    input: { project: 'acme', nodeKey: 'page:root', hops: 2 },
-    methods: ['getSiteHealthSubgraph'],
-    expectedArgs: [['acme', { runId: undefined, nodeKey: 'page:root', url: undefined, hops: 2, maxNodes: undefined, maxEdges: undefined }]],
-  },
-  {
-    tool: 'canonry_site_health_path',
-    input: { project: 'acme', fromNodeKey: 'page:root', toUrl: 'https://acme.test/pricing', maxDepth: 8 },
-    methods: ['getSiteHealthPath'],
-    expectedArgs: [['acme', { runId: undefined, fromNodeKey: 'page:root', fromUrl: undefined, toNodeKey: undefined, toUrl: 'https://acme.test/pricing', maxDepth: 8 }]],
-  },
-  {
-    tool: 'canonry_site_health_changes',
-    input: { project: 'acme', fromRunId: 'run-1', toRunId: 'run-2', scope: 'pages', change: 'changed', cursor: 'changes-2', limit: 25 },
-    methods: ['getSiteHealthChanges'],
-    expectedArgs: [['acme', { fromRunId: 'run-1', toRunId: 'run-2', scope: 'pages', change: 'changed', cursor: 'changes-2', limit: 25 }]],
-  },
-  { tool: 'canonry_technical_aeo_crawl', input: { project: 'acme', runId: 'run-1' }, methods: ['getTechnicalAeoCrawl'], expectedArgs: [['acme', { runId: 'run-1' }]] },
-  {
-    tool: 'canonry_technical_aeo_crawl_pages',
-    input: { project: 'acme', runId: 'run-1', inventoryEligible: true, fetchState: 'html', indexabilityState: 'indexable', auditState: 'success', sort: 'score-asc', cursor: 'page-2', limit: 25 },
-    methods: ['getTechnicalAeoCrawlPages'],
-    expectedArgs: [['acme', { runId: 'run-1', inventoryEligible: true, fetchState: 'html', indexabilityState: 'indexable', auditState: 'success', sort: 'score-asc', cursor: 'page-2', limit: 25 }]],
-  },
-  {
-    tool: 'canonry_technical_aeo_structure',
-    input: { project: 'acme', runId: 'run-1', parentPath: '/guides', cursor: 'page-2', limit: 25 },
-    methods: ['getTechnicalAeoStructure'],
-    expectedArgs: [['acme', { runId: 'run-1', parentPath: '/guides', cursor: 'page-2', limit: 25 }]],
-  },
-  {
-    tool: 'canonry_technical_aeo_internal_links',
-    input: { project: 'acme', runId: 'run-1', sourceUrl: 'https://acme.test/a', targetUrl: 'https://acme.test/b', followable: false, cursor: 'page-2', limit: 25 },
-    methods: ['getTechnicalAeoInternalLinks'],
-    expectedArgs: [['acme', { runId: 'run-1', sourceUrl: 'https://acme.test/a', targetUrl: 'https://acme.test/b', followable: false, cursor: 'page-2', limit: 25 }]],
-  },
-  {
-    tool: 'canonry_technical_aeo_link_neighbors',
-    input: { project: 'acme', runId: 'run-1', nodeKey: 'node-1', limit: 25 },
-    methods: ['getTechnicalAeoInternalLinkNeighbors'],
-    expectedArgs: [['acme', { runId: 'run-1', nodeKey: 'node-1', url: undefined, limit: 25 }]],
-  },
-  {
-    tool: 'canonry_technical_aeo_dead_links',
-    input: { project: 'acme', runId: 'run-1', cursor: 'page-2', limit: 25 },
-    methods: ['getTechnicalAeoDeadLinks'],
-    expectedArgs: [['acme', { runId: 'run-1', cursor: 'page-2', limit: 25 }]],
-  },
-  {
-    tool: 'canonry_technical_aeo_run',
-    input: { project: 'acme', sitemapUrl: 'https://acme.test/sitemap.xml', maxPages: 50_000, maxEdges: 1_000_000, maxDepth: 12, checkDeadLinks: true },
-    methods: ['triggerSiteAudit'],
-    expectedArgs: [['acme', { sitemapUrl: 'https://acme.test/sitemap.xml', limit: undefined, maxPages: 50_000, maxEdges: 1_000_000, maxDepth: 12, checkDeadLinks: true }]],
-  },
-]
 
 function makeClient(calls: Array<{ method: string; args: unknown[] }>, fixture?: 'agent-notification'): ApiClient {
   const notifications = fixture === 'agent-notification'
@@ -2061,12 +1544,12 @@ test('the run-trigger tool tells an agent it can measure one slice of a plan', (
 describe('monthly comparison scope parity', () => {
   it('forwards the exact Property, market, provider and location selection through the existing read tool', async () => {
     const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_visibility_compare')!
-    const getVisibilityCompare = vi.fn().mockResolvedValue({ metrics: [], classComparison: { continuity: { status: 'comparable' } } })
-    const client = { getVisibilityCompare } as unknown as ApiClient
-    const selection = { scope: 'property', scopeKey: 'harbor', marketKey: 'coastal', provider: 'openai', location: 'Harbor' }
-    const result = await tool.handler(client, tool.inputSchema.parse({ project: 'acme', from: '2026-08', to: '2026-09', ...selection }))
-    expect(getVisibilityCompare).toHaveBeenCalledWith('acme', '2026-08', '2026-09', selection)
-    expect(result).toEqual({ metrics: [], classComparison: { continuity: { status: 'comparable' } } })
     expect(tool.access).toBe('read')
+    const fixture = await startNativeMcpDispatchFixture()
+    try {
+      for (const scenario of selectNativeDispatchCases(dedicatedDispatchCases, 'monthly-wire')) await fixture.verify(scenario)
+    } finally {
+      await fixture.close()
+    }
   })
 })

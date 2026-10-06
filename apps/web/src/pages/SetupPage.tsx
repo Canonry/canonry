@@ -1548,9 +1548,7 @@ function ReadySetupPage({
           || runStatus === 'failed'
           || runStatus === 'cancelled'
         const snapshots = run?.snapshots ?? []
-        const cited = snapshots.filter(s => s.citationState === 'cited').length
-        const mentioned = snapshots.filter(s => s.answerMentioned === true).length
-        const totalQueries = new Set(snapshots.map(s => s.query).filter((q): q is string => !!q)).size
+        const queryCounts = run?.queryCounts
         const successfulRun = runStatus ? isSuccessfulSetupRun(runStatus, snapshots.length) : false
         const persistedSetupComplete = hasExistingSuccessfulBaseline && !runTriggered
         const runFailureDetail = runError
@@ -1698,12 +1696,16 @@ function ReadySetupPage({
                 <div className="grid grid-cols-3 gap-2 mt-1">
                   <div className="rounded-md border border-default bg-surface p-3">
                     <p className="text-xs font-medium text-secondary">Mentioned</p>
-                    <p className="text-2xl font-bold tabular-nums text-primary mt-1">{mentioned}<span className="text-faint text-lg"> / {totalQueries}</span></p>
+                    <p className="text-2xl font-bold tabular-nums text-primary mt-1">
+                      {queryCounts ? <>{queryCounts.mentionedQueries}<span className="text-faint text-lg"> / {queryCounts.totalQueries}</span></> : 'Unavailable'}
+                    </p>
                     <p className="mt-0.5 text-sm text-secondary">queries naming your brand</p>
                   </div>
                   <div className="rounded-md border border-default bg-surface p-3">
                     <p className="text-xs font-medium text-secondary">Cited</p>
-                    <p className="text-2xl font-bold tabular-nums text-primary mt-1">{cited}<span className="text-faint text-lg"> / {totalQueries}</span></p>
+                    <p className="text-2xl font-bold tabular-nums text-primary mt-1">
+                      {queryCounts ? <>{queryCounts.citedQueries}<span className="text-faint text-lg"> / {queryCounts.totalQueries}</span></> : 'Unavailable'}
+                    </p>
                     <p className="mt-0.5 text-sm text-secondary">queries citing your site</p>
                   </div>
                   <div className="rounded-md border border-default bg-surface p-3">

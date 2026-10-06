@@ -1,35 +1,40 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { listSites, listSitemaps, submitSitemap, fetchSearchAnalytics, inspectUrl, publishUrlNotification, getUrlNotificationStatus } from '../src/gsc-client.js'
-import { GSC_API_BASE, URL_INSPECTION_API, INDEXING_API_BASE } from '../src/constants.js'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { listSites, listSitemaps, submitSitemap, fetchSearchAnalytics, inspectUrl, publishUrlNotification } from '../src/gsc-client.js'
+import { GSC_API_BASE } from '../src/constants.js'
+import { GoogleApiError } from '../src/types.js'
+
+let originalFetch: typeof globalThis.fetch
+beforeEach(() => { originalFetch = globalThis.fetch })
+afterEach(() => { globalThis.fetch = originalFetch })
+
+function expectRequest(
+  [url, init]: Parameters<typeof globalThis.fetch>,
+  expectedUrl: string,
+  method: 'GET' | 'POST' | 'PUT',
+  token: string,
+  body?: Record<string, unknown>,
+): void {
+  expect(String(url)).toBe(expectedUrl)
+  expect(init?.method).toBe(method)
+  const headers = new Headers(init?.headers)
+  expect(headers.get('authorization')).toBe(`Bearer ${token}`)
+  expect(headers.get('content-type')).toBe('application/json')
+  if (body == null) expect(init?.body).toBeUndefined()
+  else expect(JSON.parse(String(init?.body))).toEqual(body)
+}
 
 describe('listSites', () => {
-  let originalFetch: typeof globalThis.fetch
-
-  beforeEach(() => {
-    originalFetch = globalThis.fetch
-  })
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch
-  })
-
   it('returns parsed site entries', async () => {
-    const mockResponse = {
-      siteEntry: [
-        { siteUrl: 'https://example.com/', permissionLevel: 'siteOwner' },
-        { siteUrl: 'sc-domain:example.com', permissionLevel: 'siteFullUser' },
-      ],
-    }
+    const sites = [
+      { siteUrl: 'https://example.com/', permissionLevel: 'siteOwner' },
+      { siteUrl: 'sc-domain:example.com', permissionLevel: 'siteFullUser' },
+    ]
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(JSON.stringify({ siteEntry: sites }), { status: 200 }))
+    globalThis.fetch = fetch
 
-    globalThis.fetch = async (url: string | URL | Request) => {
-      expect(String(url)).toBe(`${GSC_API_BASE}/sites`)
-      return new Response(JSON.stringify(mockResponse), { status: 200 })
-    }
-
-    const sites = await listSites('test-token')
-    expect(sites.length).toBe(2)
-    expect(sites[0]!.siteUrl).toBe('https://example.com/')
-    expect(sites[1]!.permissionLevel).toBe('siteFullUser')
+    expect(await listSites('test-token')).toEqual(sites)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expectRequest(fetch.mock.calls[0]!, 'https://www.googleapis.com/webmasters/v3/sites', 'GET', 'test-token')
   })
 
   it('returns empty array when no sites', async () => {
@@ -40,12 +45,13 @@ describe('listSites', () => {
   })
 
   it('throws GoogleApiError on 401', async () => {
-    globalThis.fetch = async () => new Response('Unauthorized', { status: 401 })
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response('Unauthorized', { status: 401 }))
+    globalThis.fetch = fetch
 
-    await expect(
-      () => listSites('bad-token'),
-    ).rejects.toThrow(/expired or revoked/)
-    await expect(() => listSites('bad-token')).rejects.toMatchObject({ name: 'GoogleApiError' })
+    const result = listSites('bad-token')
+    await expect(result).rejects.toBeInstanceOf(GoogleApiError)
+    await expect(result).rejects.toMatchObject({ status: 401, message: 'Access token expired or revoked' })
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 
   it('sanitizes the access token from the error details on failure', async () => {
@@ -66,36 +72,17 @@ describe('listSites', () => {
 })
 
 describe('listSitemaps', () => {
-  let originalFetch: typeof globalThis.fetch
-
-  beforeEach(() => {
-    originalFetch = globalThis.fetch
-  })
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch
-  })
-
   it('returns parsed sitemaps for a site', async () => {
-    const mockResponse = {
-      sitemap: [
-        { path: 'https://example.com/sitemap.xml', type: 'sitemap', lastDownloaded: '2026-03-15T10:00:00Z' },
-        { path: 'https://example.com/sitemap-news.xml', type: 'sitemap', isSitemapsIndex: false },
-      ],
-    }
+    const sitemaps = [
+      { path: 'https://example.com/sitemap.xml', type: 'sitemap', lastDownloaded: '2026-03-15T10:00:00Z' },
+      { path: 'https://example.com/sitemap-news.xml', type: 'sitemap', isSitemapsIndex: false },
+    ]
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(JSON.stringify({ sitemap: sitemaps }), { status: 200 }))
+    globalThis.fetch = fetch
 
-    let capturedUrl = ''
-    globalThis.fetch = async (url: string | URL | Request) => {
-      capturedUrl = String(url)
-      return new Response(JSON.stringify(mockResponse), { status: 200 })
-    }
-
-    const sitemaps = await listSitemaps('test-token', 'https://example.com/')
-    expect(capturedUrl).toContain(`${GSC_API_BASE}/sites/`)
-    expect(capturedUrl).toContain('sitemaps')
-    expect(sitemaps.length).toBe(2)
-    expect(sitemaps[0]!.path).toBe('https://example.com/sitemap.xml')
-    expect(sitemaps[1]!.path).toBe('https://example.com/sitemap-news.xml')
+    expect(await listSitemaps('test-token', 'https://example.com/')).toEqual(sitemaps)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expectRequest(fetch.mock.calls[0]!, 'https://www.googleapis.com/webmasters/v3/sites/https%3A%2F%2Fexample.com%2F/sitemaps', 'GET', 'test-token')
   })
 
   it('returns empty array when no sitemaps', async () => {
@@ -117,15 +104,14 @@ describe('listSitemaps', () => {
   })
 
   it('passes an encoded sitemapIndex query when listing an index\'s children', async () => {
-    let capturedUrl = ''
-    globalThis.fetch = async (url: string | URL | Request) => {
-      capturedUrl = String(url)
-      return new Response(JSON.stringify({ sitemap: [] }), { status: 200 })
-    }
-
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(JSON.stringify({ sitemap: [] }), { status: 200 }))
+    globalThis.fetch = fetch
     const sitemapIndex = 'https://example.com/sitemaps/main index.xml'
-    await listSitemaps('test-token', 'sc-domain:example.com', sitemapIndex)
-    expect(capturedUrl).toBe(`${GSC_API_BASE}/sites/${encodeURIComponent('sc-domain:example.com')}/sitemaps?sitemapIndex=${encodeURIComponent(sitemapIndex)}`)
+
+    expect(await listSitemaps('test-token', 'sc-domain:example.com', sitemapIndex)).toEqual([])
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expectRequest(fetch.mock.calls[0]!, 'https://www.googleapis.com/webmasters/v3/sites/sc-domain%3Aexample.com/sitemaps?sitemapIndex=https%3A%2F%2Fexample.com%2Fsitemaps%2Fmain%20index.xml', 'GET', 'test-token')
+    expect(new URL(String(fetch.mock.calls[0]![0])).searchParams.get('sitemapIndex')).toBe(sitemapIndex)
   })
 
   it('accepts a numeric property ID and uses it in the request path', async () => {
@@ -154,93 +140,59 @@ describe('listSitemaps', () => {
 })
 
 describe('submitSitemap', () => {
-  let originalFetch: typeof globalThis.fetch
-
-  beforeEach(() => {
-    originalFetch = globalThis.fetch
-  })
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch
-  })
-
   it('PUTs the encoded property and sitemap URL and accepts an empty 204 response', async () => {
-    let capturedUrl = ''
-    let capturedMethod = ''
-    globalThis.fetch = async (url: string | URL | Request, init?: RequestInit) => {
-      capturedUrl = String(url)
-      capturedMethod = String(init?.method)
-      return new Response(null, { status: 204 })
-    }
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 204 }))
+    globalThis.fetch = fetch
 
     await expect(submitSitemap('test-token', 'sc-domain:example.com', 'https://example.com/sitemap.xml')).resolves.toBeUndefined()
-    expect(capturedMethod).toBe('PUT')
-    expect(capturedUrl).toBe(`${GSC_API_BASE}/sites/${encodeURIComponent('sc-domain:example.com')}/sitemaps/${encodeURIComponent('https://example.com/sitemap.xml')}`)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expectRequest(fetch.mock.calls[0]!, 'https://www.googleapis.com/webmasters/v3/sites/sc-domain%3Aexample.com/sitemaps/https%3A%2F%2Fexample.com%2Fsitemap.xml', 'PUT', 'test-token')
   })
 })
 
 describe('fetchSearchAnalytics', () => {
-  let originalFetch: typeof globalThis.fetch
-
-  beforeEach(() => {
-    originalFetch = globalThis.fetch
-  })
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch
-  })
-
   it('fetches and returns rows with correct request body', async () => {
-    const mockRows = [
+    const rows = [
       { keys: ['query1', 'https://example.com/page1', 'USA', 'DESKTOP', '2024-01-01'], clicks: 10, impressions: 100, ctr: 0.1, position: 5.2 },
       { keys: ['query2', 'https://example.com/page2', 'USA', 'MOBILE', '2024-01-01'], clicks: 5, impressions: 50, ctr: 0.1, position: 8.3 },
     ]
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(JSON.stringify({ rows }), { status: 200 }))
+    globalThis.fetch = fetch
 
-    let capturedBody: unknown
-    globalThis.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
-      capturedBody = JSON.parse(String(init?.body ?? '{}'))
-      return new Response(JSON.stringify({ rows: mockRows }), { status: 200 })
-    }
-
-    const rows = await fetchSearchAnalytics('token', 'sc-domain:example.com', {
-      startDate: '2024-01-01',
-      endDate: '2024-01-31',
+    expect(await fetchSearchAnalytics('token', 'sc-domain:example.com', {
+      startDate: '2024-01-01', endDate: '2024-01-31',
+    })).toEqual(rows)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expectRequest(fetch.mock.calls[0]!, 'https://www.googleapis.com/webmasters/v3/sites/sc-domain%3Aexample.com/searchAnalytics/query', 'POST', 'token', {
+      startDate: '2024-01-01', endDate: '2024-01-31',
+      dimensions: ['query', 'page', 'country', 'device', 'date'], rowLimit: 25000, startRow: 0,
     })
-
-    expect(rows.length).toBe(2)
-    expect(rows[0]!.clicks).toBe(10)
-    expect(rows[1]!.position).toBe(8.3)
-
-    const body = capturedBody as { startDate: string; endDate: string; dimensions: string[]; rowLimit: number }
-    expect(body.startDate).toBe('2024-01-01')
-    expect(body.endDate).toBe('2024-01-31')
-    expect(body.dimensions.includes('query')).toBeTruthy()
-    expect(body.rowLimit).toBe(25000)
   })
 
   it('handles pagination across multiple requests', async () => {
+    const firstPage = Array.from({ length: 25000 }, (_, i) => ({
+      keys: [`q${i}`, `p${i}`, 'US', 'DESKTOP', '2024-01-01'],
+      clicks: 1, impressions: 10, ctr: 0.1, position: 5,
+    }))
+    const tail = { keys: ['last', 'last', 'US', 'DESKTOP', '2024-01-01'], clicks: 1, impressions: 1, ctr: 1, position: 1 }
     let callCount = 0
-    globalThis.fetch = async () => {
-      callCount++
-      if (callCount === 1) {
-        // Return exactly 25000 rows to trigger pagination
-        const rows = Array.from({ length: 25000 }, (_, i) => ({
-          keys: [`q${i}`, `p${i}`, 'US', 'DESKTOP', '2024-01-01'],
-          clicks: 1, impressions: 10, ctr: 0.1, position: 5,
-        }))
-        return new Response(JSON.stringify({ rows }), { status: 200 })
-      }
-      // Second page: less than 25000, stops pagination
-      return new Response(JSON.stringify({ rows: [{ keys: ['last', 'last', 'US', 'DESKTOP', '2024-01-01'], clicks: 1, impressions: 1, ctr: 1, position: 1 }] }), { status: 200 })
-    }
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(JSON.stringify({ rows: callCount++ === 0 ? firstPage : [tail] }), { status: 200 }))
+    globalThis.fetch = fetch
 
     const rows = await fetchSearchAnalytics('token', 'sc-domain:example.com', {
-      startDate: '2024-01-01',
-      endDate: '2024-01-31',
+      startDate: '2024-01-01', endDate: '2024-01-31',
     })
-
-    expect(callCount).toBe(2)
-    expect(rows.length).toBe(25001)
+    expect(rows).toHaveLength(25001)
+    for (const [index, row] of [...firstPage, tail].entries()) {
+      expect(rows[index], `row ${index}`).toEqual(row)
+    }
+    expect(fetch).toHaveBeenCalledTimes(2)
+    for (const [index, startRow] of [0, 25000].entries()) {
+      expectRequest(fetch.mock.calls[index]!, 'https://www.googleapis.com/webmasters/v3/sites/sc-domain%3Aexample.com/searchAnalytics/query', 'POST', 'token', {
+        startDate: '2024-01-01', endDate: '2024-01-31',
+        dimensions: ['query', 'page', 'country', 'device', 'date'], rowLimit: 25000, startRow,
+      })
+    }
   })
 
   it('throws on 429 rate limit', async () => {
@@ -264,55 +216,26 @@ describe('fetchSearchAnalytics', () => {
 })
 
 describe('inspectUrl', () => {
-  let originalFetch: typeof globalThis.fetch
-
-  beforeEach(() => {
-    originalFetch = globalThis.fetch
-  })
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch
-  })
-
   it('sends correct request and returns inspection result', async () => {
-    const mockResult = {
+    const inspection = {
       inspectionResult: {
         indexStatusResult: {
-          verdict: 'PASS',
-          coverageState: 'Submitted and indexed',
-          indexingState: 'INDEXING_ALLOWED',
-          pageFetchState: 'SUCCESSFUL',
-          robotsTxtState: 'ALLOWED',
-          lastCrawlTime: '2024-01-15T10:00:00Z',
+          verdict: 'PASS', coverageState: 'Submitted and indexed', indexingState: 'INDEXING_ALLOWED',
+          pageFetchState: 'SUCCESSFUL', robotsTxtState: 'ALLOWED', lastCrawlTime: '2024-01-15T10:00:00Z',
           referringUrls: ['https://example.com/link1'],
         },
-        mobileUsabilityResult: {
-          verdict: 'PASS',
-        },
-        richResultsResult: {
-          verdict: 'PASS',
-          detectedItems: [{ richResultType: 'FAQ', items: [] }],
-        },
+        mobileUsabilityResult: { verdict: 'PASS' },
+        richResultsResult: { verdict: 'PASS', detectedItems: [{ richResultType: 'FAQ', items: [] }] },
       },
     }
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(JSON.stringify(inspection), { status: 200 }))
+    globalThis.fetch = fetch
 
-    let capturedUrl = ''
-    let capturedBody: unknown
-    globalThis.fetch = async (url: string | URL | Request, init?: RequestInit) => {
-      capturedUrl = String(url)
-      capturedBody = JSON.parse(String(init?.body ?? '{}'))
-      return new Response(JSON.stringify(mockResult), { status: 200 })
-    }
-
-    const result = await inspectUrl('token', 'https://example.com/page', 'sc-domain:example.com')
-
-    expect(capturedUrl).toBe(URL_INSPECTION_API)
-    const body = capturedBody as { inspectionUrl: string; siteUrl: string }
-    expect(body.inspectionUrl).toBe('https://example.com/page')
-    expect(body.siteUrl).toBe('sc-domain:example.com')
-    expect(result.inspectionResult.indexStatusResult?.verdict).toBe('PASS')
-    expect(result.inspectionResult.indexStatusResult?.indexingState).toBe('INDEXING_ALLOWED')
-    expect(result.inspectionResult.richResultsResult?.detectedItems?.[0]?.richResultType).toBe('FAQ')
+    expect(await inspectUrl('token', 'https://example.com/page', 'sc-domain:example.com')).toEqual(inspection)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expectRequest(fetch.mock.calls[0]!, 'https://searchconsole.googleapis.com/v1/urlInspection/index:inspect', 'POST', 'token', {
+      inspectionUrl: 'https://example.com/page', siteUrl: 'sc-domain:example.com',
+    })
   })
 
   it('accepts a numeric property ID for siteUrl', async () => {
@@ -332,43 +255,21 @@ describe('inspectUrl', () => {
 })
 
 describe('publishUrlNotification', () => {
-  let originalFetch: typeof globalThis.fetch
-
-  beforeEach(() => {
-    originalFetch = globalThis.fetch
-  })
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch
-  })
-
   it('sends URL_UPDATED notification and returns metadata', async () => {
-    const mockResponse = {
+    const metadata = {
       urlNotificationMetadata: {
         url: 'https://example.com/page',
-        latestUpdate: {
-          url: 'https://example.com/page',
-          type: 'URL_UPDATED',
-          notifyTime: '2026-03-17T17:40:00Z',
-        },
+        latestUpdate: { url: 'https://example.com/page', type: 'URL_UPDATED', notifyTime: '2026-03-17T17:40:00Z' },
       },
     }
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(JSON.stringify(metadata), { status: 200 }))
+    globalThis.fetch = fetch
 
-    let capturedUrl = ''
-    let capturedBody: unknown
-    globalThis.fetch = async (url: string | URL | Request, init?: RequestInit) => {
-      capturedUrl = String(url)
-      capturedBody = JSON.parse(String(init?.body ?? '{}'))
-      return new Response(JSON.stringify(mockResponse), { status: 200 })
-    }
-
-    const result = await publishUrlNotification('token', 'https://example.com/page')
-
-    expect(capturedUrl).toBe(`${INDEXING_API_BASE}/urlNotifications:publish`)
-    const body = capturedBody as { url: string; type: string }
-    expect(body.url).toBe('https://example.com/page')
-    expect(body.type).toBe('URL_UPDATED')
-    expect(result.urlNotificationMetadata.latestUpdate?.notifyTime).toBe('2026-03-17T17:40:00Z')
+    expect(await publishUrlNotification('token', 'https://example.com/page')).toEqual(metadata)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expectRequest(fetch.mock.calls[0]!, 'https://indexing.googleapis.com/v3/urlNotifications:publish', 'POST', 'token', {
+      url: 'https://example.com/page', type: 'URL_UPDATED',
+    })
   })
 
   it('sends URL_DELETED notification when type is specified', async () => {
@@ -389,41 +290,5 @@ describe('publishUrlNotification', () => {
     await expect(
       () => publishUrlNotification('token', 'https://example.com/page'),
     ).rejects.toThrow(/rate limit/)
-  })
-})
-
-describe('getUrlNotificationStatus', () => {
-  let originalFetch: typeof globalThis.fetch
-
-  beforeEach(() => {
-    originalFetch = globalThis.fetch
-  })
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch
-  })
-
-  it('fetches notification status for a URL', async () => {
-    const mockResponse = {
-      urlNotificationMetadata: {
-        url: 'https://example.com/page',
-        latestUpdate: {
-          url: 'https://example.com/page',
-          type: 'URL_UPDATED',
-          notifyTime: '2026-03-17T17:40:00Z',
-        },
-      },
-    }
-
-    let capturedUrl = ''
-    globalThis.fetch = async (url: string | URL | Request) => {
-      capturedUrl = String(url)
-      return new Response(JSON.stringify(mockResponse), { status: 200 })
-    }
-
-    const result = await getUrlNotificationStatus('token', 'https://example.com/page')
-
-    expect(capturedUrl).toBe(`${INDEXING_API_BASE}/urlNotifications/metadata?url=${encodeURIComponent('https://example.com/page')}`)
-    expect(result.urlNotificationMetadata.url).toBe('https://example.com/page')
   })
 })

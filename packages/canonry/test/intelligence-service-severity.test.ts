@@ -53,7 +53,7 @@ function seedRegressionScenario(
     canonicalDomain: 'sev.example.com',
     country: 'US',
     language: 'en',
-    providers: '["gemini"]',
+    providers: ['gemini'],
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   }).run()
@@ -276,6 +276,69 @@ describe('IntelligenceService — regression severity tiering', () => {
     expect(regression!.severity).toBe('critical')
     // The persisted row carries the same severity.
     expect(persistedSeverity(db, currentRunId)).toBe('critical')
+
+    // One prior two-location group counts once, even with duplicate current
+    // group receipts. At eight locations, two qualifying old groups must
+    // remain inside the five-group window despite forty newer sibling rows.
+    const scenarios = [
+      { locationCount: 2, priorGroups: 2, regressionDays: [2], expectedSeverity: 'high' },
+      { locationCount: 8, priorGroups: 5, regressionDays: [4, 5], expectedSeverity: 'critical' },
+    ]
+    for (const scenario of scenarios) {
+      const groupedDb = createTempDb('intel-sev-group-')
+      const { projectId: groupedProject, queryId, previousRunId, currentRunId: groupedCurrent } = seedRegressionScenario(groupedDb, {
+        gscImpressions: 500,
+      })
+      groupedDb.update(projects).set({
+        locations: Array.from({ length: scenario.locationCount }, (_, i) => ({ label: `loc${i}`, city: 'Orlando', region: 'Florida', country: 'US' })),
+      }).where(eq(projects.id, groupedProject)).run()
+      groupedDb.update(runs).set({ location: 'loc0' }).where(eq(runs.id, previousRunId)).run()
+      groupedDb.update(runs).set({ location: 'loc0' }).where(eq(runs.id, groupedCurrent)).run()
+      const anchor = groupedDb.select().from(runs).where(eq(runs.id, groupedCurrent)).get()!
+      for (let day = 0; day <= scenario.priorGroups; day++) {
+        const at = new Date(Date.parse(anchor.createdAt) - day * 24 * 60 * 60_000).toISOString()
+        for (let location = 0; location < scenario.locationCount; location++) {
+          let groupedRunId: string
+          if (location === 0 && day === 0) groupedRunId = groupedCurrent
+          else if (location === 0 && day === 1) groupedRunId = previousRunId
+          else {
+            groupedRunId = crypto.randomUUID()
+            groupedDb.insert(runs).values({
+              id: groupedRunId, projectId: groupedProject, kind: 'answer-visibility',
+              status: 'completed', trigger: 'manual', location: `loc${location}`, createdAt: at, finishedAt: at,
+            }).run()
+          }
+          // Existing current/previous snapshots come from the real regression seed.
+          if (!(location === 0 && (day === 0 || day === 1))) groupedDb.insert(querySnapshots).values({
+            id: crypto.randomUUID(), runId: groupedRunId, queryId,
+            provider: 'gemini', model: 'test', citationState: 'cited',
+            citedDomains: ['sev.example.com'], competitorOverlap: [], createdAt: at,
+          }).run()
+          if (scenario.regressionDays.includes(day) || (day === 0 && location > 0)) groupedDb.insert(insights).values({
+            id: crypto.randomUUID(), projectId: groupedProject, runId: groupedRunId,
+            type: 'regression', severity: 'high', title: 'Earlier citation loss',
+            query: 'foo query', provider: 'gemini', dismissed: false, createdAt: at,
+          }).run()
+        }
+      }
+      const groupedResult = new IntelligenceService(groupedDb).analyzeAndPersist(groupedCurrent, groupedProject)
+      expect(groupedResult, `${scenario.locationCount} locations`).not.toBeNull()
+      expect(groupedResult!.regressions, `${scenario.locationCount} locations`).toEqual([{
+        query: 'foo query', provider: 'gemini', currentRunId: groupedCurrent, previousRunId,
+        previousCitationUrl: 'sev.example.com', previousPosition: undefined,
+      }])
+      expect(groupedResult!.insights.filter(i => i.type === 'regression')
+        .map(({ query, provider, type, severity }) => ({ query, provider, type, severity })), `${scenario.locationCount} locations`).toEqual([
+        { query: 'foo query', provider: 'gemini', type: 'regression', severity: scenario.expectedSeverity },
+      ])
+      expect(groupedDb.select({
+        projectId: insights.projectId, runId: insights.runId, query: insights.query,
+        provider: insights.provider, type: insights.type, severity: insights.severity,
+      }).from(insights).where(eq(insights.runId, groupedCurrent)).all(), `${scenario.locationCount} locations`).toEqual([
+        { projectId: groupedProject, runId: groupedCurrent, query: 'foo query', provider: 'gemini', type: 'regression', severity: scenario.expectedSeverity },
+      ])
+      expect(persistedSeverity(groupedDb, groupedCurrent), `${scenario.locationCount} locations`).toBe(scenario.expectedSeverity)
+    }
   })
 
   it('counts recurrence only across answer-visibility runs (ignores intervening gsc-sync runs)', () => {

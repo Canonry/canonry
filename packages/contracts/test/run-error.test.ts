@@ -59,9 +59,7 @@ describe('parseRunError back-compat', () => {
   })
 
   it('passes through the new providers shape', () => {
-    const stored = serializeRunError({
-      providers: { gemini: { message: 'API key not valid', raw: { error: { code: 400 } } } },
-    })
+    const stored = '{"providers":{"gemini":{"message":"API key not valid","raw":{"error":{"code":400}}}}}'
     expect(parseRunError(stored)).toEqual({
       providers: { gemini: { message: 'API key not valid', raw: { error: { code: 400 } } } },
     })
@@ -85,17 +83,20 @@ describe('parseRunError back-compat', () => {
   })
 })
 
-describe('runErrorSchema', () => {
-  it('round-trips through serialize/parse', () => {
+describe('serializeRunError', () => {
+  it('serializes the durable provider-error envelope', () => {
     const err = { providers: { gemini: { message: 'boom', raw: { error: { code: 500 } } } } }
-    const serialized = serializeRunError(err)
-    expect(parseRunError(serialized)).toEqual(err)
+    expect(JSON.parse(serializeRunError(err))).toEqual({
+      providers: { gemini: { message: 'boom', raw: { error: { code: 500 } } } },
+    })
   })
 })
 
 describe('formatRunErrorOneLine', () => {
   it('formats a single provider as "name: message"', () => {
-    expect(formatRunErrorOneLine({ providers: { gemini: { message: 'API key not valid' } } }))
+    expect(formatRunErrorOneLine({
+      providers: { gemini: { message: 'API key not valid', raw: { weird: { circular: 1 } } } },
+    }))
       .toBe('gemini: API key not valid')
   })
 
@@ -114,10 +115,5 @@ describe('formatRunErrorOneLine', () => {
 
   it('falls back to a default when neither providers nor message is present', () => {
     expect(formatRunErrorOneLine({})).toBe('Run failed.')
-  })
-
-  it('never returns "[object Object]"', () => {
-    const err = { providers: { gemini: { message: 'boom', raw: { weird: { circular: 1 } } } } }
-    expect(formatRunErrorOneLine(err)).not.toContain('[object Object]')
   })
 })

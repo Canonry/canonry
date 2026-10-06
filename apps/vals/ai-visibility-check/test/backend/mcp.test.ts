@@ -316,12 +316,12 @@ Deno.test('tools/list advertises every tool with an input schema', async () => {
   truthy(siteHealth?.description.includes('siteMap'), 'get_site_health must advertise the link graph it returns')
 })
 
-Deno.test('resources/list exposes both skills with entry points first', async () => {
+Deno.test('resources/list advertises unique readable documents with entry points first', async () => {
   const { app } = createHarness()
   const { body } = await rpc(app, { jsonrpc: '2.0', id: 1, method: 'resources/list' })
   const resources = (body?.result as { resources: Array<{ uri: string; name: string; mimeType: string }> }).resources
 
-  equal(resources.length, 16, 'every bundled skill document should be listed')
+  equal(new Set(resources.map((resource) => resource.uri)).size, resources.length, 'resource URIs must be unique')
   equal(at(resources, 0).uri, 'canonry-skill://aero/SKILL.md')
   equal(at(resources, 1).uri, 'canonry-skill://canonry/SKILL.md')
   truthy(resources.every((resource) => resource.mimeType === 'text/markdown'), 'skills are markdown')
@@ -329,6 +329,20 @@ Deno.test('resources/list exposes both skills with entry points first', async ()
     resources.some((resource) => resource.name === 'canonry/references/canonry-cli.md'),
     'the chunked CLI reference must still appear as one resource',
   )
+  truthy(
+    resources.some((resource) => resource.uri === 'canonry-skill://aero/references/regression-playbook.md'),
+    'the regression reference must be discoverable',
+  )
+  for (const resource of resources) {
+    const { body: readBody } = await rpc(app, {
+      jsonrpc: '2.0', id: 2, method: 'resources/read', params: { uri: resource.uri },
+    })
+    equal(readBody?.error, undefined, `${resource.uri} must be readable`)
+    const content = at((readBody?.result as { contents: Array<{ uri: string; mimeType: string; text: string }> }).contents, 0)
+    equal(content.uri, resource.uri)
+    equal(content.mimeType, 'text/markdown')
+    truthy(content.text.trim(), `${resource.uri} must contain its document`)
+  }
 })
 
 Deno.test('resources/read returns a whole skill document, including a chunked one', async () => {

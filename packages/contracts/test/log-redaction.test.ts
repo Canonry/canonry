@@ -20,7 +20,9 @@ describe('log redaction', () => {
   it('preserves safe diagnostics and masks an entire quoted secret containing escaped quotes', () => {
     expect(redactLogString('request failed: HTTP 503')).toBe('request failed: HTTP 503')
     expect(redactLogString('https://gateway.invalid/v1?monkey=visible&safe=yes')).toContain('monkey=visible')
-    expect(redactLogString(JSON.stringify({ password: 'start"fixture-secret' }))).not.toContain('fixture-secret')
+    const quoted = redactLogString(JSON.stringify({ password: 'start"fixture-secret' }))
+    expect(quoted).not.toMatch(/start|fixture-secret/)
+    expect(quoted).toContain('[REDACTED]')
   })
 
   it('redacts quoted and whitespace-containing secret assignments in free-text failures', () => {
@@ -33,12 +35,13 @@ describe('log redaction', () => {
   it('redacts nested secrets, credentials, URLs, and diagnostic strings', () => {
     const error = new Error('upstream rejected Bearer bearer-secret at https://user:password@example.test/a?api_key=query-secret&safe=yes')
     ;(error as Error & { token: string }).token = 'object-secret'
-    const result = redactLogValue({ authorization: 'Basic raw-secret', nested: { error } })
+    const result = redactLogValue({ success: false, cancelled: true, missing: null, authorization: 'Basic raw-secret', nested: { error } })
     const serialized = JSON.stringify(result)
 
     expect(serialized).not.toMatch(/bearer-secret|user:password|query-secret|object-secret|raw-secret/)
     expect(serialized).toContain('example.test')
     expect(serialized).toContain('safe=yes')
+    expect(result).toMatchObject({ success: false, cancelled: true, missing: null })
   })
 
   it('keeps the provider name at any depth and in any letter case', () => {
@@ -90,15 +93,21 @@ describe('log redaction', () => {
     })
   })
 
-  it('never throws for circular values, throwing getters, and malformed URLs', () => {
+  it('bounds hostile values without reading getters or leaking credentials', () => {
     const circular: Record<string, unknown> = {}
     circular.self = circular
     const hostile = Object.create(null) as Record<string, unknown>
-    Object.defineProperty(hostile, 'password', { enumerable: true, get() { throw new Error('getter') } })
+    let getterReads = 0
+    Object.defineProperty(hostile, 'password', { enumerable: true, get() { getterReads++; throw new Error('getter') } })
 
     expect(() => redactLogValue({ circular, hostile })).not.toThrow()
+    expect(getterReads).toBe(0)
     const malformed = redactLogString('failed https://user:pass@example.test/?token=partial%zz')
     expect(malformed).not.toContain('user:pass')
     expect(malformed).not.toContain('partial%zz')
+    const oversized = `https://name:${'privatevalue'.repeat(800)}@example.invalid/`
+    const redacted = redactLogString(oversized)
+    expect(redacted).not.toContain('privatevalue')
+    expect(redacted.length).toBeLessThanOrEqual(4096)
   })
 })

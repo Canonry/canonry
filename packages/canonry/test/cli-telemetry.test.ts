@@ -7,6 +7,9 @@ const mocks = vi.hoisted(() => ({
   trackFinished: vi.fn(),
   buildSetupState: vi.fn(),
   isTelemetryEnabled: vi.fn(),
+  isFirstRun: vi.fn(),
+  getOrCreateAnonymousId: vi.fn(),
+  showFirstRunNotice: vi.fn(),
 }))
 
 vi.mock('../src/cli-dispatch.js', () => ({
@@ -21,9 +24,9 @@ vi.mock('../src/telemetry.js', () => ({
   trackEvent: mocks.trackEvent,
   trackCliCommandFinished: mocks.trackFinished,
   isTelemetryEnabled: mocks.isTelemetryEnabled,
-  isFirstRun: vi.fn().mockReturnValue(false),
-  getOrCreateAnonymousId: vi.fn(),
-  showFirstRunNotice: vi.fn(),
+  isFirstRun: mocks.isFirstRun,
+  getOrCreateAnonymousId: mocks.getOrCreateAnonymousId,
+  showFirstRunNotice: mocks.showFirstRunNotice,
   detectAndTrackUpgrade: vi.fn(),
 }))
 
@@ -62,6 +65,9 @@ describe('CLI command lifecycle telemetry', () => {
     mocks.buildSetupState.mockReset()
     mocks.isTelemetryEnabled.mockReset()
     mocks.isTelemetryEnabled.mockReturnValue(true)
+    mocks.isFirstRun.mockReset().mockReturnValue(false)
+    mocks.getOrCreateAnonymousId.mockReset()
+    mocks.showFirstRunNotice.mockReset()
     process.stderr.isTTY = false
   })
 
@@ -71,6 +77,7 @@ describe('CLI command lifecycle telemetry', () => {
   })
 
   it('uses the registered command path and captures post-command setup state', async () => {
+    mocks.isFirstRun.mockReturnValue(true)
     mocks.dispatch.mockResolvedValueOnce(true)
     mocks.buildSetupState
       .mockReturnValueOnce(beforeState)
@@ -80,6 +87,11 @@ describe('CLI command lifecycle telemetry', () => {
       .mockReturnValueOnce(1_250)
 
     await expect(runCli(['wordpress', 'schema', 'deploy'])).resolves.toBe(0)
+
+    expect(mocks.showFirstRunNotice).toHaveBeenCalledOnce()
+    expect(mocks.getOrCreateAnonymousId).toHaveBeenCalledOnce()
+    expect(mocks.showFirstRunNotice.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.getOrCreateAnonymousId.mock.invocationCallOrder[0]!)
 
     expect(mocks.trackEvent).toHaveBeenCalledWith('cli.command', {
       command: 'wordpress.schema.deploy',
@@ -183,17 +195,21 @@ describe('CLI command lifecycle telemetry', () => {
     expect(consoleError).toHaveBeenCalled()
   })
 
-  it('does not emit lifecycle events for telemetry controls', async () => {
+  it.each(['status', 'enable', 'disable'])('does not emit lifecycle events for telemetry %s controls', async subcommand => {
+    mocks.isFirstRun.mockReturnValue(true)
     mocks.dispatch.mockResolvedValueOnce(true)
 
-    await expect(runCli(['telemetry', 'disable'])).resolves.toBe(0)
+    await expect(runCli(['telemetry', subcommand])).resolves.toBe(0)
 
     expect(mocks.trackEvent).not.toHaveBeenCalled()
     expect(mocks.trackFinished).not.toHaveBeenCalled()
     expect(mocks.buildSetupState).not.toHaveBeenCalled()
+    expect(mocks.showFirstRunNotice).not.toHaveBeenCalled()
+    expect(mocks.getOrCreateAnonymousId).not.toHaveBeenCalled()
   })
 
   it('does no telemetry work when collection is disabled', async () => {
+    mocks.isFirstRun.mockReturnValue(true)
     mocks.isTelemetryEnabled.mockReturnValue(false)
     mocks.dispatch.mockResolvedValueOnce(true)
 
@@ -202,15 +218,20 @@ describe('CLI command lifecycle telemetry', () => {
     expect(mocks.trackEvent).not.toHaveBeenCalled()
     expect(mocks.trackFinished).not.toHaveBeenCalled()
     expect(mocks.buildSetupState).not.toHaveBeenCalled()
+    expect(mocks.showFirstRunNotice).not.toHaveBeenCalled()
+    expect(mocks.getOrCreateAnonymousId).not.toHaveBeenCalled()
   })
 
   it('waits until init has persisted its install identity before lifecycle telemetry', async () => {
+    mocks.isFirstRun.mockReturnValue(true)
     mocks.dispatch.mockResolvedValueOnce(true)
     mocks.buildSetupState.mockReturnValueOnce(afterState)
 
     await expect(runCli(['init', '--yes'])).resolves.toBe(0)
 
     expect(mocks.trackEvent).not.toHaveBeenCalled()
+    expect(mocks.showFirstRunNotice).not.toHaveBeenCalled()
+    expect(mocks.getOrCreateAnonymousId).not.toHaveBeenCalled()
     expect(mocks.trackFinished).toHaveBeenCalledWith(
       expect.objectContaining({
         command: 'init',

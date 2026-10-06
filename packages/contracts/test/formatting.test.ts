@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, onTestFinished, test, vi } from 'vitest'
 import {
   compactDateToIso,
   deltaPercent,
@@ -28,6 +28,8 @@ describe('formatPercent', () => {
     expect(formatPercent(0.5)).toBe('50.0%')
     expect(formatPercent(0.123)).toBe('12.3%')
     expect(formatPercent(0.998)).toBe('99.8%')
+    expect(formatPercent(1 / 3)).toBe('33.3%')
+    expect(formatPercent(10 / 11)).toBe('90.9%')
   })
 
   test('a value already in percent units renders the same way', () => {
@@ -46,6 +48,7 @@ describe('formatPercent', () => {
   test('a non-zero value too small to show reads <0.1%, never 0%', () => {
     expect(formatPercent(0.0004)).toBe('<0.1%')
     expect(formatPercent(0.000001)).toBe('<0.1%')
+    expect(formatPercent(0.04, 'percent')).toBe('<0.1%')
     // Exactly 0.05 points is on the boundary and rounds up to a real 0.1%.
     expect(formatPercent(0.0005)).toBe('0.1%')
   })
@@ -118,11 +121,15 @@ describe('formatDate', () => {
   })
 
   test('YYYY-MM-DD strings format in UTC (no timezone drift)', () => {
+    vi.stubEnv('TZ', 'America/Denver')
+    onTestFinished(() => { vi.unstubAllEnvs() })
     expect(formatDate('2026-05-08')).toBe('May 8, 2026')
   })
 
   test('full ISO timestamps format using local convention', () => {
-    expect(formatDate('2026-05-08T12:00:00.000Z')).toMatch(/May (7|8), 2026/)
+    vi.stubEnv('TZ', 'America/Denver')
+    onTestFinished(() => { vi.unstubAllEnvs() })
+    expect(formatDate('2026-05-08T01:00:00.000Z')).toBe('May 7, 2026')
   })
 
   test('invalid input falls back to original string', () => {
@@ -326,23 +333,6 @@ describe('startOfNextDayHourInTimeZone', () => {
     expect(startOfNextDayHourInTimeZone('2026-11-01', 'America/New_York')).toBe('2026-11-02T00')
     // A spring-forward day (23 hours) at the other end of the same zone.
     expect(startOfNextDayHourInTimeZone('2026-03-08', 'America/New_York')).toBe('2026-03-09T00')
-  })
-
-  test('it is the exclusive edge that covers the whole day it closes', () => {
-    // The pairing that matters to a range: the day starts where
-    // startOfDayHourInTimeZone says and ends where this says, and the second is
-    // strictly after the first for both the short and the long local day.
-    for (const [date, zone] of [
-      ['2026-03-08', 'America/New_York'],
-      ['2026-11-01', 'America/New_York'],
-      ['2026-09-05', 'America/Santiago'],
-      ['2026-06-10', 'America/Denver'],
-    ] as const) {
-      const since = startOfDayHourInTimeZone(date, zone)
-      const until = startOfNextDayHourInTimeZone(date, zone)
-      expect(until > since).toBe(true)
-      expect(until.slice(0, 10) > date).toBe(true)
-    }
   })
 
   test('an unknown zone degrades to the next date at hour 00 instead of throwing', () => {
@@ -682,13 +672,6 @@ describe('parseInclusiveEndMs', () => {
     expect(parseInclusiveEndMs('2026-06-30')).toBe(Date.parse('2026-06-30T23:59:59.999Z'))
   })
 
-  test('a run from that afternoon falls within the date-only bound', () => {
-    const bound = parseInclusiveEndMs('2026-06-30')!
-    expect(Date.parse('2026-06-30T15:30:00.000Z') <= bound).toBe(true)
-    // ...and the first instant of the next day does not.
-    expect(Date.parse('2026-07-01T00:00:00.000Z') <= bound).toBe(false)
-  })
-
   test('keeps the exact instant for a full date-time', () => {
     expect(parseInclusiveEndMs('2026-06-30T14:00:00.000Z')).toBe(Date.parse('2026-06-30T14:00:00.000Z'))
   })
@@ -716,6 +699,8 @@ describe('compactDateToIso', () => {
   })
 
   test('does not shift the day across timezones', () => {
+    vi.stubEnv('TZ', 'America/Los_Angeles')
+    onTestFinished(() => { vi.unstubAllEnvs() })
     // Pure string surgery — no Date construction, so a UTC-negative offset
     // cannot roll the date back to the 19th.
     expect(compactDateToIso('20260101')).toBe('2026-01-01')
@@ -740,9 +725,12 @@ describe('inclusiveDayCount', () => {
   })
 
   test('spans a daylight-saving transition without drifting', () => {
+    onTestFinished(() => { vi.unstubAllEnvs() })
     // UTC midnights, so a 23- or 25-hour local day cannot move the count. US
     // DST began 2026-03-08; EU DST began 2026-03-29.
+    vi.stubEnv('TZ', 'America/New_York')
     expect(inclusiveDayCount('2026-03-07', '2026-03-09')).toBe(3)
+    vi.stubEnv('TZ', 'Europe/Berlin')
     expect(inclusiveDayCount('2026-03-28', '2026-03-30')).toBe(3)
   })
 

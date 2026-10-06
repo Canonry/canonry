@@ -1,5 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { extractServedModel, museAdapter, reparseStoredResult, toMuseConfig, validateConfig } from '../src/index.js'
+import type { ProviderConfig, RawQueryResult } from '@ainyc/canonry-contracts'
+import { museAdapter, reparseStoredResult } from '../src/index.js'
 
 const quotaPolicy = { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 }
 const config = { provider: 'muse', apiKey: 'test-key', quotaPolicy }
@@ -274,21 +275,73 @@ test('healthcheck and generateText omit web search', async () => {
 })
 
 test('preserves response model and allows explicit contributor variants', async () => {
-  vi.stubGlobal('fetch', async () => fakeResponse({ status: 'completed', model: 'muse-spark-1.2', output: [
+  vi.stubEnv('OPENAI_ORG_ID', 'org-openai-only')
+  vi.stubEnv('OPENAI_PROJECT_ID', 'proj-openai-only')
+  const answer = { status: 'completed', output: [
     { type: 'message', content: [{ type: 'output_text', text: 'ok' }] },
-  ] }))
-  const raw = await museAdapter.executeTrackedQuery({ query: 'hello', canonicalDomains: [], competitorDomains: [] }, config)
-  expect(raw.model).toBe('muse-spark-1.3')
-  expect(raw.servedModel).toBe('muse-spark-1.2')
-  expect(extractServedModel({ status: 'completed' })).toBeUndefined()
-  expect(validateConfig({ ...toMuseConfig(config), model: 'muse-spark-1.3-contributor' }).ok).toBe(true)
+  ] }
+  const cases: Array<{
+    label: string
+    inputConfig: ProviderConfig
+    response: Record<string, unknown>
+    requestedModel: string
+    servedModel: string | undefined
+    url: string
+  }> = [
+    {
+      label: 'original divergent disclosure', inputConfig: config,
+      response: { ...answer, model: 'muse-spark-1.2' },
+      requestedModel: 'muse-spark-1.3', servedModel: 'muse-spark-1.2',
+      url: 'https://api.meta.ai/v1/responses',
+    },
+    {
+      label: 'missing disclosure', inputConfig: config, response: answer,
+      requestedModel: 'muse-spark-1.3', servedModel: undefined,
+      url: 'https://api.meta.ai/v1/responses',
+    },
+    {
+      label: 'blank disclosure', inputConfig: config, response: { ...answer, model: '  \t  ' },
+      requestedModel: 'muse-spark-1.3', servedModel: undefined,
+      url: 'https://api.meta.ai/v1/responses',
+    },
+    {
+      label: 'explicit Contributor through configured endpoint',
+      inputConfig: { ...config, model: 'muse-spark-1.3-contributor', baseUrl: 'https://muse-proxy.example/tenant/v1' },
+      response: { ...answer, model: 'muse-spark-1.2' },
+      requestedModel: 'muse-spark-1.3-contributor', servedModel: 'muse-spark-1.2',
+      url: 'https://muse-proxy.example/tenant/v1/responses',
+    },
+  ]
+  for (const row of cases) {
+    const requests: Array<{ method: string; url: string; authorization: string | null; organization: string | null; project: string | null; body: unknown }> = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = requestOf(input, init)
+      requests.push({
+        method: request.method, url: request.url, authorization: request.headers.get('authorization'),
+        organization: request.headers.get('openai-organization'), project: request.headers.get('openai-project'),
+        body: await request.json(),
+      })
+      return fakeResponse(row.response)
+    })
+    const raw = await museAdapter.executeTrackedQuery(helloQuery, row.inputConfig)
+    expect(requests, row.label).toEqual([{
+      method: 'POST', url: row.url, authorization: 'Bearer test-key', organization: null, project: null,
+      body: { model: row.requestedModel, input: 'hello', tools: [{ type: 'web_search' }] },
+    }])
+    expect(raw.model, row.label).toBe(row.requestedModel)
+    expect(raw.servedModel, row.label).toBe(row.servedModel)
+    expect(raw.retrievalContract, row.label).toBe('native-auto-v1')
+    expect(museAdapter.normalizeResult(raw), row.label).toEqual({
+      provider: 'muse', answerText: 'ok', citedDomains: [], groundingSources: [], searchQueries: [], retrievalStatus: 'not-used',
+    })
+  }
 })
 
 test('config validation rejects a blank key and non-Spark models before any request', async () => {
   let calls = 0
   vi.stubGlobal('fetch', async () => { calls++; return fakeResponse({}) })
-  expect(validateConfig({ ...toMuseConfig(config), apiKey: '  ' })).toEqual({ ok: false, provider: 'muse', message: 'missing api key' })
-  expect(validateConfig({ ...toMuseConfig(config), model: 'muse-image-1.0' }))
+  expect(museAdapter.validateConfig({ ...config, apiKey: '  ' })).toEqual({ ok: false, provider: 'muse', message: 'missing api key' })
+  expect(museAdapter.validateConfig({ ...config, model: 'muse-image-1.0' }))
     .toEqual({ ok: false, provider: 'muse', message: 'model must be a Muse Spark text model' })
   await expect(museAdapter.executeTrackedQuery(helloQuery, { ...config, apiKey: '' })).rejects.toThrow('[provider-muse] missing api key')
   await expect(museAdapter.generateText('hello', { ...config, model: 'muse-image-1.0' }))
@@ -357,20 +410,60 @@ test('a Retry-After beyond the ceiling fails the query instead of waiting it out
 })
 
 test('rate limit response uses shared retry and honors Retry-After', async () => {
-  let calls = 0
-  vi.stubGlobal('fetch', async () => {
-    calls++
-    if (calls === 1) {
+  let retryAfter = '0'
+  const requests: Array<{ at: number; method: string; url: string; authorization: string | null; body: unknown }> = []
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = requestOf(input, init)
+    requests.push({ at: Date.now(), method: request.method, url: request.url, authorization: request.headers.get('authorization'), body: await request.json() })
+    if (requests.length === 1) {
       return new Response(JSON.stringify({ error: { message: 'slow down' } }), {
-        status: 429,
-        headers: { 'content-type': 'application/json', 'retry-after': '0' },
+        status: 429, headers: { 'content-type': 'application/json', 'retry-after': retryAfter },
       })
     }
     return fakeResponse({ status: 'completed', output: [
       { type: 'message', content: [{ type: 'output_text', text: 'ok' }] },
     ] })
   })
-  const raw = await museAdapter.executeTrackedQuery({ query: 'hello', canonicalDomains: [], competitorDomains: [] }, config)
-  expect(raw.retrievalStatus).toBe('not-used')
-  expect(calls).toBe(2)
+  const immediate = await museAdapter.executeTrackedQuery(helloQuery, config)
+  expect(immediate.retrievalStatus, 'original zero-delay success').toBe('not-used')
+  expect(requests, 'original zero-delay success').toHaveLength(2)
+
+  requests.length = 0
+  retryAfter = '2'
+  vi.useFakeTimers()
+  vi.setSystemTime(0)
+  const observation: { settled: boolean; result?: RawQueryResult; failure?: unknown } = { settled: false }
+  const pending = museAdapter.executeTrackedQuery(helloQuery, config).then(
+    raw => { observation.result = raw; observation.settled = true },
+    error => { observation.failure = error; observation.settled = true },
+  )
+  try {
+    await vi.advanceTimersByTimeAsync(0)
+    expect(requests.map(request => request.at), 'first dispatch before retry interval').toEqual([0])
+    expect(observation.settled, 'retry is pending at time zero').toBe(false)
+    await vi.advanceTimersByTimeAsync(1999)
+    expect(requests.map(request => request.at), 'no retry before two seconds').toEqual([0])
+    expect(observation.settled, 'retry is pending at 1999ms').toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(requests.map(request => request.at), 'retry occurs at exactly 2000ms').toEqual([0, 2000])
+    await pending
+    expect(observation.failure, 'successful response after retry').toBeUndefined()
+    expect(observation.settled, 'successful response after retry').toBe(true)
+    if (!observation.result) throw new Error('Expected a completed Muse result after retry')
+    expect(requests, 'retry preserves native request').toEqual([
+      { at: 0, method: 'POST', url: 'https://api.meta.ai/v1/responses', authorization: 'Bearer test-key', body: { model: 'muse-spark-1.3', input: 'hello', tools: [{ type: 'web_search' }] } },
+      { at: 2000, method: 'POST', url: 'https://api.meta.ai/v1/responses', authorization: 'Bearer test-key', body: { model: 'muse-spark-1.3', input: 'hello', tools: [{ type: 'web_search' }] } },
+    ])
+    expect(observation.result.retrievalContract).toBe('native-auto-v1')
+    expect(museAdapter.normalizeResult(observation.result)).toEqual({
+      provider: 'muse', answerText: 'ok', citedDomains: [], groundingSources: [], searchQueries: [], retrievalStatus: 'not-used',
+    })
+  } finally {
+    try {
+      await vi.runAllTimersAsync()
+      await pending
+    } finally {
+      vi.useRealTimers()
+    }
+  }
 })

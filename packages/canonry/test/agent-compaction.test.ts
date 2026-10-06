@@ -2,146 +2,61 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import {
-  agentMemory,
-  createClient,
-  migrate,
-  projects,
-  type DatabaseClient,
-} from '@ainyc/canonry-db'
+import { agentMemory, createClient, migrate, projects, type DatabaseClient } from '@ainyc/canonry-db'
 import { MemorySources } from '@ainyc/canonry-contracts'
-import type { Api, Model } from '@earendil-works/pi-ai'
+import { fauxAssistantMessage, fauxToolCall, type Message, type FauxResponseFactory } from '@earendil-works/pi-ai'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
-import { and, eq, like } from 'drizzle-orm'
-import {
-  COMPACTION_MAX_MESSAGES,
-  COMPACTION_PRESERVE_TAIL_MESSAGES,
-  COMPACTION_TOKEN_THRESHOLD,
-} from '../src/agent/compaction-config.js'
-import {
-  compactMessages,
-  findSafeSplit,
-  shouldCompact,
-} from '../src/agent/compaction.js'
-import { COMPACTION_KEY_PREFIX } from '../src/agent/memory-store.js'
+import { eq } from 'drizzle-orm'
+import { compactMessages, shouldCompact } from '../src/agent/compaction.js'
+import { registerAeroFaux, type AeroFaux } from './helpers/aero-faux.js'
 
-function userMsg(content: string): AgentMessage {
-  return { role: 'user', content, timestamp: 0 } as AgentMessage
+function userMsg(content: string, timestamp = 0): AgentMessage {
+  return { role: 'user', content, timestamp }
 }
 
-function assistantTextMsg(text: string): AgentMessage {
-  return {
-    role: 'assistant',
-    content: [{ type: 'text', text }],
-    api: 'faux-api',
-    provider: 'faux',
-    model: 'faux-model',
-    usage: {
-      input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason: 'stop',
-    timestamp: 0,
-  } as AgentMessage
+function pairs(start: number, turns: number): AgentMessage[] {
+  return Array.from({ length: turns }, (_, offset) => {
+    const i = start + offset * 2
+    return [userMsg(`u${i}`, i), fauxAssistantMessage(`a${i + 1}`, { timestamp: i + 1 })]
+  }).flat()
 }
 
-function insertProject(db: DatabaseClient, name: string): string {
-  const id = `proj_${name}_${Math.random().toString(36).slice(2)}`
+const installedSystem = {
+  role: 'system', content: [{ type: 'text', text: 'Installed operator prompt' }], timestamp: -1,
+} as AgentMessage
+
+function insertProject(db: DatabaseClient): string {
+  const id = 'project-demo'
   const now = new Date().toISOString()
   db.insert(projects).values({
-    id,
-    name,
-    displayName: name,
-    canonicalDomain: `${name}.example.com`,
-    country: 'US',
-    language: 'en',
-    createdAt: now,
-    updatedAt: now,
+    id, name: 'demo', displayName: 'Demo', canonicalDomain: 'demo.example.com',
+    country: 'US', language: 'en', createdAt: now, updatedAt: now,
   }).run()
   return id
 }
-
-const FAUX_MODEL = { id: 'faux-model', provider: 'faux', api: 'faux-api' } as unknown as Model<Api>
 
 describe('shouldCompact', () => {
   it('returns false for an empty transcript', () => {
     expect(shouldCompact([])).toBe(false)
   })
 
-  it('returns true when message count crosses the hard cap', () => {
-    const messages: AgentMessage[] = Array.from(
-      { length: COMPACTION_MAX_MESSAGES },
-      () => userMsg('x'),
-    )
-    expect(shouldCompact(messages)).toBe(true)
+  it.each([[399, false], [400, true]] as const)('triggers at the independent %i-message edge: %s', (count, expected) => {
+    const messages = Array.from({ length: count }, () => userMsg('x'))
+    expect(shouldCompact(messages)).toBe(expected)
+    expect(shouldCompact([installedSystem, ...messages])).toBe(expected)
   })
 
   it('ignores the leading system message pi keeps in the transcript', () => {
-    // pi-agent-core 0.86+ stores the prompt and tool schemas as a system
-    // message; it is rebuilt every turn and must not trigger compaction.
-    const system = { role: 'system', content: 'x'.repeat(COMPACTION_TOKEN_THRESHOLD * 8), timestamp: 0 } as unknown as AgentMessage
-    expect(shouldCompact([system, { role: 'user', content: 'hi', timestamp: 1 } as AgentMessage])).toBe(false)
+    const system = { role: 'system', content: [{ type: 'text', text: 'x'.repeat(480_000) }], timestamp: 0 } as AgentMessage
+    expect(shouldCompact([system, userMsg('hi', 1)])).toBe(false)
   })
 
-  it('returns true when estimated tokens cross the threshold', () => {
-    // Each char ≈ 0.25 tokens. We want tokens ≥ threshold: content length ≥ threshold * 4.
-    const contentLen = COMPACTION_TOKEN_THRESHOLD * 4
-    const msg = userMsg('x'.repeat(contentLen))
-    expect(shouldCompact([msg])).toBe(true)
+  it.each([[239_996, false], [240_000, true]] as const)('triggers at the independent %i-character token edge: %s', (characters, expected) => {
+    expect(shouldCompact([userMsg('x'.repeat(characters))])).toBe(expected)
   })
 
   it('returns false when under both caps', () => {
-    const messages = [userMsg('hello'), assistantTextMsg('hi')]
-    expect(shouldCompact(messages)).toBe(false)
-  })
-})
-
-describe('findSafeSplit', () => {
-  it('returns 0 when the transcript is too short to preserve a tail', () => {
-    const short: AgentMessage[] = Array.from(
-      { length: COMPACTION_PRESERVE_TAIL_MESSAGES },
-      (_, i) => (i === 0 ? userMsg('u') : assistantTextMsg('a')),
-    )
-    expect(findSafeSplit(short, 0)).toBe(0)
-  })
-
-  it('snaps forward to the next UserMessage boundary', () => {
-    const msgs: AgentMessage[] = [
-      userMsg('u1'),            // 0
-      assistantTextMsg('a1'),   // 1
-      userMsg('u2'),            // 2  ← expected split
-      assistantTextMsg('a2'),   // 3
-      userMsg('u3'),            // 4
-      assistantTextMsg('a3'),   // 5
-      userMsg('u4'),            // 6
-      assistantTextMsg('a4'),   // 7
-      userMsg('u5'),            // 8
-      assistantTextMsg('a5'),   // 9
-      userMsg('u6'),            // 10
-      assistantTextMsg('a6'),   // 11
-      userMsg('u7'),            // 12
-      assistantTextMsg('a7'),   // 13
-      userMsg('u8'),            // 14
-      assistantTextMsg('a8'),   // 15
-      userMsg('u9'),            // 16
-      assistantTextMsg('a9'),   // 17
-      userMsg('u10'),           // 18
-      assistantTextMsg('a10'),  // 19
-      userMsg('u11'),           // 20
-      assistantTextMsg('a11'),  // 21
-    ]
-    // target=1 → scan forward from 1, first user is idx 2
-    expect(findSafeSplit(msgs, 1)).toBe(2)
-  })
-
-  it('returns 0 when no user-message boundary exists before the tail cap', () => {
-    // Only the first message is a user; everything else is assistant.
-    const msgs: AgentMessage[] = [
-      userMsg('u1'),
-      ...Array.from({ length: 20 }, () => assistantTextMsg('a')),
-    ]
-    // maxSplit = 21 - 10 = 11. Scan from 5 (target) → no user found before idx 11.
-    expect(findSafeSplit(msgs, 5)).toBe(0)
+    expect(shouldCompact([userMsg('hello'), fauxAssistantMessage('hi')])).toBe(false)
   })
 })
 
@@ -149,157 +64,94 @@ describe('compactMessages', () => {
   let tmpDir: string
   let db: DatabaseClient
   let projectId: string
+  let faux: AeroFaux
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-compaction-'))
     db = createClient(path.join(tmpDir, 'test.db'))
     migrate(db)
-    projectId = insertProject(db, 'demo')
+    projectId = insertProject(db)
+    faux = registerAeroFaux({ api: 'faux-api', provider: 'faux', models: [{ id: 'faux-model' }] })
   })
 
   afterEach(() => {
+    faux.unregister()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('returns null when no safe split exists', async () => {
-    // All-assistant transcript with a single leading user → no user boundary
-    // within the splittable prefix, so compaction bails.
-    const messages: AgentMessage[] = [
-      userMsg('hi'),
-      ...Array.from({ length: 20 }, () => assistantTextMsg('a')),
-    ]
-    const result = await compactMessages({
-      db,
-      projectId,
-      sessionId: 'session-abc',
-      messages,
-      model: FAUX_MODEL,
-      summarize: async () => 'should not be called',
-    })
+  it.each([
+    ['nine-message transcript', [userMsg('u0'), ...Array.from({ length: 8 }, (_, i) => fauxAssistantMessage(`a${i + 1}`, { timestamp: i + 1 }))]],
+    ['ten-message minimum tail', [userMsg('u0'), userMsg('u1', 1), ...Array.from({ length: 8 }, (_, i) => fauxAssistantMessage(`a${i + 2}`, { timestamp: i + 2 }))]],
+    ['no later user boundary', [userMsg('u0'), ...Array.from({ length: 20 }, (_, i) => fauxAssistantMessage(`a${i + 1}`, { timestamp: i + 1 }))]],
+    ['user boundary inside the protected tail', [
+      userMsg('u0'),
+      ...Array.from({ length: 12 }, (_, i) => fauxAssistantMessage(`a${i + 1}`, { timestamp: i + 1 })),
+      userMsg('u13', 13),
+      ...Array.from({ length: 8 }, (_, i) => fauxAssistantMessage(`a${i + 14}`, { timestamp: i + 14 })),
+    ]],
+  ] satisfies Array<[string, AgentMessage[]]>)('skips %s without calling the provider or writing memory', async (_description, messages) => {
+    const original = structuredClone(messages)
+    faux.setResponses([fauxAssistantMessage('Unexpected summary')])
+
+    const result = await compactMessages({ db, projectId, sessionId: 'session-skip', messages, model: faux.getModel() })
+
+    expect(faux.state.callCount).toBe(0)
     expect(result).toBeNull()
+    expect(db.select().from(agentMemory).where(eq(agentMemory.projectId, projectId)).all()).toEqual([])
+    expect(messages).toEqual(original)
   })
 
-  it('summarizes the prefix, persists a compaction note, and returns the suffix', async () => {
-    const messages: AgentMessage[] = [
-      userMsg('u1'),          // 0
-      assistantTextMsg('a1'), // 1
-      userMsg('u2'),          // 2
-      assistantTextMsg('a2'), // 3
-      userMsg('u3'),          // 4
-      assistantTextMsg('a3'), // 5
-      userMsg('u4'),          // 6
-      assistantTextMsg('a4'), // 7
-      userMsg('u5'),          // 8
-      assistantTextMsg('a5'), // 9
-      userMsg('u6'),          // 10
-      assistantTextMsg('a6'), // 11
-      userMsg('u7'),          // 12
-      assistantTextMsg('a7'), // 13
-      userMsg('u8'),          // 14
-      assistantTextMsg('a8'), // 15
-      userMsg('u9'),          // 16
-      assistantTextMsg('a9'), // 17
-      userMsg('u10'),         // 18
-      assistantTextMsg('a10'),// 19
-      userMsg('u11'),         // 20
-      assistantTextMsg('a11'),// 21
-    ]
+  it.each([
+    ['plain user boundary', pairs(0, 6), pairs(12, 5), 12],
+    ['complete tool-call/result pair', [
+      ...pairs(0, 5),
+      userMsg('u10', 10),
+      fauxAssistantMessage([fauxToolCall('lookup', { query: 'older turn' }, { id: 'older-call' })], { stopReason: 'toolUse', timestamp: 11 }),
+      { role: 'toolResult', toolCallId: 'older-call', toolName: 'lookup', content: [{ type: 'text', text: 'Older lookup result' }], isError: false, timestamp: 12 },
+    ], [...pairs(13, 5), userMsg('u23', 23)], 13],
+  ] satisfies Array<[string, AgentMessage[], AgentMessage[], number]>)('summarizes the exact prefix and preserves the %s tail', async (_description, expectedPrefix, expectedTail, removedCount) => {
+    const messages = [installedSystem, ...expectedPrefix, ...expectedTail]
+    const original = structuredClone(messages)
+    const summary = '- User asked about status\n- Agent ran a sweep and produced insights.'
+    const summaryCalls: Message[][] = []
+    const respond: FauxResponseFactory = context => {
+      summaryCalls.push(context.messages)
+      return fauxAssistantMessage(summary)
+    }
+    faux.setResponses([respond])
 
-    const summarizeCalls: AgentMessage[][] = []
-    const result = await compactMessages({
-      db,
-      projectId,
-      sessionId: 'session-abc',
-      messages,
-      model: FAUX_MODEL,
-      summarize: async (args) => {
-        summarizeCalls.push(args.chunk.slice())
-        return '- User asked about status\n- Agent ran a sweep and produced insights.'
-      },
-    })
+    const result = await compactMessages({ db, projectId, sessionId: 'session-policy', messages, model: faux.getModel() })
 
-    expect(result).not.toBeNull()
-    expect(summarizeCalls).toHaveLength(1)
-    expect(result!.removedCount).toBeGreaterThan(0)
-    expect(result!.messages.length).toBeLessThan(messages.length)
-    expect(result!.messages.length).toBeGreaterThanOrEqual(COMPACTION_PRESERVE_TAIL_MESSAGES)
-    // The suffix begins on a user-message boundary — compaction must not
-    // orphan an assistant turn from its matching user message.
-    expect(result!.messages[0].role).toBe('user')
-
-    // Persisted a compaction:-prefixed memory row for this session.
-    const rows = db
-      .select()
-      .from(agentMemory)
-      .where(and(
-        eq(agentMemory.projectId, projectId),
-        like(agentMemory.key, `${COMPACTION_KEY_PREFIX}session-abc:%`),
-      ))
-      .all()
+    expect(faux.state.callCount).toBe(1)
+    expect(summaryCalls).toHaveLength(1)
+    expect(summaryCalls[0].filter(message => message.role === 'system')).toHaveLength(1)
+    expect(summaryCalls[0].filter(message => message.role !== 'system')).toEqual(expectedPrefix)
+    expect(result).toEqual({ messages: expectedTail, removedCount, summary })
+    const rows = db.select().from(agentMemory).where(eq(agentMemory.projectId, projectId)).all()
     expect(rows).toHaveLength(1)
-    expect(rows[0].source).toBe(MemorySources.compaction)
-    expect(rows[0].value).toContain('User asked about status')
+    expect(rows[0]).toMatchObject({ projectId, source: MemorySources.compaction, value: summary })
+    expect(rows[0].key.startsWith('compaction:session-policy:')).toBe(true)
+    expect(messages).toEqual(original)
   })
 
-  it('truncates an oversize summary to fit the 2 KB memory cap', async () => {
-    const messages: AgentMessage[] = [
-      userMsg('u1'),
-      ...Array.from({ length: 20 }, (_, i) => (i % 2 === 0 ? userMsg(`u${i + 2}`) : assistantTextMsg(`a${i + 1}`))),
-    ]
+  it.each(['provider failure', 'empty response'] as const)('rejects %s without persisting a note or changing the input transcript', async (failure) => {
+    const messages = [...pairs(0, 11)]
+    const original = structuredClone(messages)
+    const summaryCalls: Message[][] = []
+    const respond: FauxResponseFactory = context => {
+      summaryCalls.push(context.messages)
+      if (failure === 'provider failure') throw new Error('provider rate limited')
+      return fauxAssistantMessage('')
+    }
+    faux.setResponses([respond])
 
-    const oversize = 'x'.repeat(5000)
-    const result = await compactMessages({
-      db,
-      projectId,
-      sessionId: 'session-big',
-      messages,
-      model: FAUX_MODEL,
-      summarize: async () => oversize,
-    })
+    await expect(compactMessages({ db, projectId, sessionId: 'session-fail', messages, model: faux.getModel() }))
+      .rejects.toThrow('summary LLM returned no text content')
 
-    expect(result).not.toBeNull()
-    const rows = db
-      .select()
-      .from(agentMemory)
-      .where(and(
-        eq(agentMemory.projectId, projectId),
-        like(agentMemory.key, `${COMPACTION_KEY_PREFIX}session-big:%`),
-      ))
-      .all()
-    expect(rows).toHaveLength(1)
-    // Must fit under the 2 KB cap and end with the truncation marker.
-    expect(Buffer.byteLength(rows[0].value, 'utf8')).toBeLessThanOrEqual(2048)
-    expect(rows[0].value.endsWith('…[truncated]')).toBe(true)
-  })
-
-  it('propagates summarizer errors so callers can log and skip compaction', async () => {
-    const messages: AgentMessage[] = [
-      userMsg('u1'),
-      ...Array.from({ length: 20 }, (_, i) => (i % 2 === 0 ? userMsg(`u${i + 2}`) : assistantTextMsg(`a${i + 1}`))),
-    ]
-
-    await expect(
-      compactMessages({
-        db,
-        projectId,
-        sessionId: 'session-fail',
-        messages,
-        model: FAUX_MODEL,
-        summarize: async () => {
-          throw new Error('provider rate limited')
-        },
-      }),
-    ).rejects.toThrow(/provider rate limited/)
-
-    // No compaction note should have been written.
-    const rows = db
-      .select()
-      .from(agentMemory)
-      .where(and(
-        eq(agentMemory.projectId, projectId),
-        like(agentMemory.key, `${COMPACTION_KEY_PREFIX}session-fail:%`),
-      ))
-      .all()
-    expect(rows).toHaveLength(0)
+    expect(faux.state.callCount).toBe(1)
+    expect(summaryCalls).toHaveLength(1)
+    expect(summaryCalls[0].filter(message => message.role !== 'system')).toEqual(pairs(0, 6))
+    expect(db.select().from(agentMemory).where(eq(agentMemory.projectId, projectId)).all()).toEqual([])
+    expect(messages).toEqual(original)
   })
 })

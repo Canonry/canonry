@@ -42,7 +42,7 @@ function printJson(value: unknown): void {
   console.log(JSON.stringify(value, null, 2))
 }
 
-export function formatInstallStatus(status: BacklinksInstallStatusDto): string {
+function formatInstallStatus(status: BacklinksInstallStatusDto): string {
   const lines: string[] = []
   lines.push(status.duckdbInstalled ? 'DuckDB: installed' : 'DuckDB: not installed')
   if (status.duckdbVersion) lines.push(`Version: ${status.duckdbVersion}`)
@@ -55,7 +55,7 @@ export function formatInstallStatus(status: BacklinksInstallStatusDto): string {
   return lines.join('\n')
 }
 
-export function formatSync(sync: CcReleaseSyncDto): string {
+function formatSync(sync: CcReleaseSyncDto): string {
   const lines: string[] = []
   lines.push(`Release: ${sync.release}`)
   lines.push(`Status:  ${sync.status}`)
@@ -66,7 +66,7 @@ export function formatSync(sync: CcReleaseSyncDto): string {
   return lines.join('\n')
 }
 
-export function formatSummaryAndDomains(
+function formatSummaryAndDomains(
   project: string,
   response: BacklinkListResponse,
 ): string {
@@ -100,7 +100,7 @@ export function formatSummaryAndDomains(
   return lines.join('\n')
 }
 
-export function formatCachedReleases(rows: CcCachedRelease[]): string {
+function formatCachedReleases(rows: CcCachedRelease[]): string {
   if (rows.length === 0) return 'No cached releases.'
   const lines: string[] = []
   lines.push('Release                        Status       Bytes        Last used')
@@ -260,7 +260,7 @@ export async function backlinksList(opts: FormatOptions & {
   console.log(formatSummaryAndDomains(opts.project, response))
 }
 
-export function formatSourceAvailability(res: BacklinkSourcesResponseDto): string {
+function formatSourceAvailability(res: BacklinkSourcesResponseDto): string {
   const lines: string[] = []
   lines.push(`Project: ${res.projectId}   Target: ${res.targetDomain}`)
   lines.push('')

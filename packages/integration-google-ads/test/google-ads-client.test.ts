@@ -5,7 +5,6 @@ import {
   GOOGLE_ADS_API_VERSION,
   GoogleAdsApiError,
   GoogleAdsClient,
-  buildDailyCampaignMetricsQuery,
   buildDailyConversionMetricsQuery,
 } from '../src/index.js'
 import type { GoogleAdsFetch } from '../src/index.js'

@@ -57,14 +57,33 @@ describe('telemetry.disabled', () => {
 
   it('sends one last event from `canonry telemetry disable`, delivered before the command settles', async () => {
     const { telemetryCommand } = await import('../src/commands/telemetry.js')
+    let release!: (response: Response) => void
+    const response = new Promise<Response>(resolve => { release = resolve })
+    globalThis.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.body) payloads.push(JSON.parse(String(init.body)))
+      return response
+    }
+    const logs: string[] = []
+    console.log = (message: string) => { logs.push(message) }
+    let settled = false
+    const command = Promise.resolve(telemetryCommand('disable', 'json', 'local'))
+      .then(() => { settled = true })
 
-    // No extra wait after the await: the command itself must hold until delivery,
-    // or process exit could drop the only event an opt-out ever sends.
-    await telemetryCommand('disable', 'json', 'local')
+    try {
+      await Promise.resolve()
+      expect(settled, 'the command must wait for the collector response').toBe(false)
+      expect(await configuredTelemetry()).toBe(false)
+      expect(logs).toHaveLength(1)
+      expect(JSON.parse(logs[0]!)).toMatchObject({ target: 'local', enabled: false, configuredEnabled: false })
+      expect(payloads).toHaveLength(1)
+      expect(payloads[0]).toMatchObject({ event: 'telemetry.disabled', anonymousId, properties: { method: 'cli' } })
+      expect(Object.keys(payloads[0]!.properties as object)).toEqual(['method'])
+    } finally {
+      release(new Response(JSON.stringify({ ok: true })))
+      await command
+    }
 
-    expect(payloads).toHaveLength(1)
-    expect(payloads[0]).toMatchObject({ event: 'telemetry.disabled', anonymousId, properties: { method: 'cli' } })
-    expect(Object.keys(payloads[0]!.properties as object)).toEqual(['method'])
+    expect(settled).toBe(true)
     expect(await configuredTelemetry()).toBe(false)
   })
 

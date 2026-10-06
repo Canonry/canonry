@@ -9,13 +9,6 @@ describe('shareOfVoiceLabel', () => {
     expect(shareOfVoiceLabel(57.5, { basis: 'tracked', availability: 'measured' })).toBe('57.5% · tracked competitors')
   })
 
-  test('only an exact 0 or 100 drops the decimal, and the edges never round onto them', () => {
-    expect(shareOfVoiceLabel(0)).toBe('0%')
-    expect(shareOfVoiceLabel(100)).toBe('100%')
-    expect(shareOfVoiceLabel(0.04)).toBe('<0.1%')
-    expect(shareOfVoiceLabel(99.96)).toBe('>99.9%')
-  })
-
   test('an unmeasured or unavailable share never reads as a number', () => {
     expect(shareOfVoiceLabel(null)).toBe('Not measured')
     expect(shareOfVoiceLabel(40, { availability: 'not-measured' })).toBe('Not measured')

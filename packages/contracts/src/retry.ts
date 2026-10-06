@@ -216,9 +216,7 @@ export function isRateLimitError(err: unknown): boolean {
  *   - Don't retry: other 4xx — bad auth, scope, validation, or not-found
  *     don't get better with a retry.
  *
- * The network-error detection looks at lowercased message text for the
- * standard Node failure tokens (`fetch failed`, `econnreset`, `etimedout`,
- * `enotfound`, `econnrefused`, `network error`).
+ * Errors without a numeric HTTP status are treated as network-level failures.
  */
 export function isRetryableHttpError(err: unknown): boolean {
   // Checked before the status code, because a throttle can arrive wearing a
@@ -229,19 +227,6 @@ export function isRetryableHttpError(err: unknown): boolean {
     const status = (err as { status: unknown }).status
     if (typeof status === 'number') {
       return status >= 500 || status === 429
-    }
-  }
-  if (err instanceof Error) {
-    const msg = err.message.toLowerCase()
-    if (
-      msg.includes('fetch failed') ||
-      msg.includes('econnreset') ||
-      msg.includes('etimedout') ||
-      msg.includes('enotfound') ||
-      msg.includes('econnrefused') ||
-      msg.includes('network error')
-    ) {
-      return true
     }
   }
   // No (numeric) status field → likely a network/connection error.

@@ -15,19 +15,13 @@ import { describeError, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonr
 import { operatorHttpUrl } from '../operator-url.js'
 import { resolveServePort } from '../serve-endpoint.js'
 
-/**
- * Precedence: `CANONRY_PORT` env var (also set by `--port`) > config.yaml `port:` > 4100.
- * Re-exported here to preserve the command's public test seam.
- */
-export { resolveServePort } from '../serve-endpoint.js'
-
 /** First-run password setup is loopback-only for every non-loopback bind. */
-export function shouldWarnAboutRemoteSetup(host: string | undefined): boolean {
+function shouldWarnAboutRemoteSetup(host: string | undefined): boolean {
   return !isLoopbackBindHost(host)
 }
 
-/** Exported for the banner's tests; `serveCommand` is the only caller. */
-export function readServeOpenState(db: ReturnType<typeof createClient>): {
+/** Read persisted scan state for the startup guidance. */
+function readServeOpenState(db: ReturnType<typeof createClient>): {
   projectCount: number
   firstProjectName?: string
   hasSiteAudit: boolean
@@ -77,7 +71,7 @@ export function readServeOpenState(db: ReturnType<typeof createClient>): {
 }
 
 /** First-run banner: empty installs and unscanned projects still point at Page Health. */
-export function buildServeOpenLine(input: {
+function buildServeOpenLine(input: {
   url: string
   projectCount: number
   firstProjectName?: string

@@ -48,13 +48,6 @@ export function toneFromCitationState(state: CitationInsightVm['citationState'])
   }
 }
 
-export function competitorTone(label: string): MetricTone {
-  if (label === 'High') return 'negative'
-  if (label === 'Moderate') return 'caution'
-  if (label === 'Low') return 'neutral'
-  return 'neutral'
-}
-
 /** Maps a metric tone to its Tailwind text-color utility. */
 export const METRIC_TONE_TEXT_CLASS: Record<MetricTone, string> = {
   positive: 'text-positive-400',

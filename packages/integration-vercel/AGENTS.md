@@ -68,8 +68,8 @@ with **no in-app instrumentation** required on the user's Vercel project.
   safe and `lastSyncedAt` keeps moving); the **replace-mode backfill** instead
   fails loud on truncation so it never overwrites a full window with a partial
   sample.
-- **Wall-clock deadline (optional).** `deadlineMs` (with an injectable `now`,
-  defaulting to `Date.now`) bounds a single drain's wall-clock cost: the loop
+- **Wall-clock deadline (optional).** `deadlineMs`, checked against `Date.now`,
+  bounds a single drain's wall-clock cost: the loop
   stops before starting a sub-window once the clock passes it, returning
   `deadlineReached: true` and `drainedThroughMs` at the last fully-drained
   boundary. An additive incremental caller commits `[startDate, drainedThroughMs]`
@@ -148,6 +148,19 @@ with **no in-app instrumentation** required on the user's Vercel project.
 - **Treating `request-logs` as a stable contract.** It is undocumented —
   validate the response shape and fail loudly on drift rather than silently
   emitting empty rollups.
+
+## Testing
+
+- Drain tests own interval completeness, deduplication, truncation and resume
+  boundaries. Seed independent events and compare the cursor with completed
+  provider intervals. An event count or a positive cursor alone cannot prove
+  that no interval was skipped.
+- Deadline tests advance `Date.now` when the provider pull completes. Do not add
+  a production clock option solely for tests. Keep the pull collaborator: the
+  sync and backfill routes use it in production.
+- The client tests own status precedence, HTTP error bodies and retry behavior.
+  Use conflicting top-level and timeline statuses. Retention errors must retain
+  their body because the drain classifies them by that body.
 
 ## See Also
 

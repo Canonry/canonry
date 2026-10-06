@@ -6,12 +6,17 @@ describe('getProviderLocationHandling', () => {
   it('reports prompt-injection providers (Gemini, Local)', () => {
     expect(getProviderLocationHandling('gemini').treatment).toBe('prompt')
     expect(getProviderLocationHandling('local').treatment).toBe('prompt')
+    expect(getProviderLocationHandling('gemini').supportsLocationContext).toBe(true)
+    expect(getProviderLocationHandling('local').supportsLocationContext).toBe(true)
   })
 
   it('reports request-param providers (OpenAI, Claude, Perplexity, Muse)', () => {
     expect(getProviderLocationHandling('openai').treatment).toBe('request-param')
     expect(getProviderLocationHandling('claude').treatment).toBe('request-param')
     expect(getProviderLocationHandling('perplexity').treatment).toBe('request-param')
+    for (const provider of ['openai', 'claude', 'perplexity']) {
+      expect(getProviderLocationHandling(provider).supportsLocationContext).toBe(true)
+    }
     expect(getProviderLocationHandling('muse')).toEqual({
       treatment: 'request-param',
       supportsLocationContext: true,
@@ -21,11 +26,13 @@ describe('getProviderLocationHandling', () => {
 
   it('reports CDP browser as browser-geo (configured location does not reach the model)', () => {
     expect(getProviderLocationHandling('cdp:chatgpt').treatment).toBe('browser-geo')
+    expect(getProviderLocationHandling('cdp:chatgpt').supportsLocationContext).toBe(false)
   })
 
   it('falls back to ignored for unknown providers so the report does not over-promise', () => {
     const handling = getProviderLocationHandling('not-a-real-provider')
     expect(handling.treatment).toBe('ignored')
+    expect(handling.supportsLocationContext).toBe(false)
     expect(handling.description.length).toBeGreaterThan(0)
   })
 

@@ -5,7 +5,7 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { RunKinds, RunStatuses, RunTriggers, type VisibilityReportResponse } from '@ainyc/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers, type ContentTargetsResponseDto, type VisibilityReportResponse } from '@ainyc/canonry-contracts'
 import {
   createClient,
   migrate,
@@ -321,15 +321,29 @@ describe('probe runs are excluded from dashboard / analytics aggregates', () => 
   })
 
   it('content/targets pulls recent answer-visibility runs without the probe', async () => {
-    // Probes must not poison the orchestrator input that drives the
-    // content-engine recommendations.
-    const res = await ctx.app.inject({ method: 'GET', url: `/api/v1/projects/probe-excl/content/targets` })
-    expect(res.statusCode).toBe(200)
-    // No specific assertion on shape — the test exists to catch regression where
-    // the probe snapshot poisons the orchestrator input and crashes the route
-    // (or shifts recommendations). If it returns 200, the filter held.
-    const body = res.json() as { targets?: unknown[] }
-    expect(body.targets === undefined || Array.isArray(body.targets)).toBe(true)
+    const poisonQuery = 'best probe-only AEO platforms'
+    const poisonQueryId = crypto.randomUUID()
+    const createdAt = ctx.db.select().from(runs).where(eq(runs.id, ctx.probeRunId)).get()!.createdAt
+    ctx.db.insert(queriesTable).values({
+      id: poisonQueryId, projectId: ctx.projectId, query: poisonQuery, createdAt,
+    }).run()
+    // Only the probe supplies demand for this tracked query; it must never
+    // create a content recommendation or become the response's current run.
+    ctx.db.insert(querySnapshots).values({
+      id: crypto.randomUUID(), runId: ctx.probeRunId, queryId: poisonQueryId,
+      provider: 'openai', citationState: 'not-cited', answerMentioned: false,
+      citedDomains: ['competitor.example.com'], competitorOverlap: ['competitor.example.com'],
+      recommendedCompetitors: [],
+      rawResponse: JSON.stringify({
+        groundingSources: [{ uri: 'https://competitor.example.com/probe-only', title: 'Probe-only competitor' }],
+      }),
+      createdAt,
+    }).run()
+
+    const { status, body } = await get<ContentTargetsResponseDto>('/api/v1/projects/probe-excl/content/targets')
+    expect(status).toBe(200)
+    expect(body.contextMetrics.latestRunId).toBe(ctx.realRunId)
+    expect(body.targets.map(target => target.query)).not.toContain(poisonQuery)
   })
 })
 

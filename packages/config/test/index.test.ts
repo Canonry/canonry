@@ -40,6 +40,8 @@ test('getPlatformEnv configures Gemini provider from env vars', () => {
 
   expect(env.databaseUrl).toBe('postgresql://custom')
   expect(env.apiPort).toBe(4100)
+  expect(env.workerPort).toBe(4101)
+  expect(env.webPort).toBe(4200)
   expect(env.bootstrapSecret).toBe('secret')
   expect(env.providers.gemini).toBeTruthy()
   expect(env.providers.gemini!.apiKey).toBe('gemini-key')

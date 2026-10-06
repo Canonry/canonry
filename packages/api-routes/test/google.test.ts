@@ -7,15 +7,9 @@ import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { createClient, migrate, projects, runs, auditLog, gscCoverageSnapshots, gscUrlInspections, gscSearchData, gscDailyTotals, gscDataWatermarks } from '@ainyc/canonry-db'
 import { AppError, formatPercent, gscCoverageSummaryDtoSchema, RatioUnits, type GscCoverageSummaryDto, type GscPerformanceDailyDto } from '@ainyc/canonry-contracts'
-import { googleOAuthSuccessHtml, googleRoutes } from '../src/google.js'
+import { googleOAuthSuccessHtml, googleRoutes, type GoogleConnectionRecord } from '../src/google.js'
 
-// Reproduce state signing functions from google.ts to verify behavior.
-// Kept in sync with `OAUTH_STATE_MAX_AGE_MS` / `buildSignedState` /
-// `verifySignedState` there — `buildSignedState` stamps `issuedAt` by
-// default (matching production), and tests that need to emulate a
-// pre-TTL "legacy" state or an expired one pass `issuedAt` explicitly.
-const OAUTH_STATE_MAX_AGE_MS = 15 * 60 * 1000
-
+// Independently sign callback fixtures to exercise the production OAuth verifier.
 function signState(payload: string, secret: string): string {
   return crypto.createHmac('sha256', secret).update(payload).digest('hex')
 }
@@ -26,43 +20,12 @@ function buildSignedState(data: Record<string, unknown>, secret: string): string
   return Buffer.from(JSON.stringify({ payload, sig })).toString('base64url')
 }
 
-/** Build a state payload with no `issuedAt` at all — emulates a state minted before the TTL field existed. */
-function buildSignedStateWithoutIssuedAt(data: Record<string, unknown>, secret: string): string {
-  const payload = JSON.stringify(data)
-  const sig = signState(payload, secret)
-  return Buffer.from(JSON.stringify({ payload, sig })).toString('base64url')
-}
-
-function verifySignedState(encoded: string, secret: string): Record<string, unknown> | null {
-  try {
-    const { payload, sig } = JSON.parse(Buffer.from(encoded, 'base64url').toString()) as { payload: string; sig: string }
-    const expected = signState(payload, secret)
-    if (!crypto.timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expected, 'hex'))) return null
-    const parsed = JSON.parse(payload) as Record<string, unknown>
-    const issuedAt = typeof parsed.issuedAt === 'number' ? parsed.issuedAt : null
-    if (issuedAt === null || Date.now() - issuedAt > OAUTH_STATE_MAX_AGE_MS) return null
-    return parsed
-  } catch {
-    return null
-  }
-}
-
 function buildApp(opts: { googleClientId?: string; googleClientSecret?: string; googleStateSecret?: string } = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'google-routes-test-'))
   const dbPath = path.join(tmpDir, 'test.db')
   const db = createClient(dbPath)
   migrate(db)
-  const connections: Array<{
-    domain: string
-    connectionType: 'gsc' | 'ga4'
-    propertyId?: string | null
-    accessToken?: string
-    refreshToken?: string | null
-    tokenExpiresAt?: string | null
-    scopes?: string[]
-    createdAt: string
-    updatedAt: string
-  }> = []
+  const connections: GoogleConnectionRecord[] = []
 
   const app = Fastify()
   app.decorate('db', db)
@@ -115,67 +78,6 @@ function buildApp(opts: { googleClientId?: string; googleClientSecret?: string; 
 
   return { app, db, tmpDir }
 }
-
-describe('state signing', () => {
-  it('roundtrips signed state correctly', () => {
-    const secret = 'my-test-secret'
-    const data = { domain: 'example.com', type: 'gsc', redirectUri: 'http://localhost/callback' }
-    const encoded = buildSignedState(data, secret)
-    const decoded = verifySignedState(encoded, secret)
-    expect(decoded).not.toBeNull()
-    expect((decoded as { domain: string }).domain).toBe('example.com')
-    expect((decoded as { type: string }).type).toBe('gsc')
-  })
-
-  it('rejects tampered payload', () => {
-    const secret = 'my-test-secret'
-    const data = { domain: 'example.com', type: 'gsc' }
-    const encoded = buildSignedState(data, secret)
-
-    // Decode, tamper, re-encode without updating sig
-    const inner = JSON.parse(Buffer.from(encoded, 'base64url').toString()) as { payload: string; sig: string }
-    const tamperedPayload = JSON.stringify({ domain: 'attacker.com', type: 'gsc' })
-    const tampered = Buffer.from(JSON.stringify({ payload: tamperedPayload, sig: inner.sig })).toString('base64url')
-
-    const result = verifySignedState(tampered, secret)
-    expect(result).toBeNull()
-  })
-
-  it('rejects state signed with different secret', () => {
-    const data = { domain: 'example.com', type: 'gsc' }
-    const encoded = buildSignedState(data, 'original-secret')
-    const result = verifySignedState(encoded, 'different-secret')
-    expect(result).toBeNull()
-  })
-
-  it('rejects garbage input', () => {
-    const result = verifySignedState('not-valid-base64url!!!', 'secret')
-    expect(result).toBeNull()
-  })
-
-  it('rejects a state older than the TTL — closes the indefinite-replay window', () => {
-    const secret = 'my-test-secret'
-    const staleIssuedAt = Date.now() - OAUTH_STATE_MAX_AGE_MS - 1000
-    const encoded = buildSignedState({ domain: 'example.com', type: 'gsc', issuedAt: staleIssuedAt }, secret)
-    const result = verifySignedState(encoded, secret)
-    expect(result).toBeNull()
-  })
-
-  it('accepts a state right at the edge of the TTL window', () => {
-    const secret = 'my-test-secret'
-    const freshIssuedAt = Date.now() - OAUTH_STATE_MAX_AGE_MS + 5000
-    const encoded = buildSignedState({ domain: 'example.com', type: 'gsc', issuedAt: freshIssuedAt }, secret)
-    const result = verifySignedState(encoded, secret)
-    expect(result).not.toBeNull()
-  })
-
-  it('rejects a correctly-signed state with no issuedAt at all (pre-TTL-migration state)', () => {
-    const secret = 'my-test-secret'
-    const encoded = buildSignedStateWithoutIssuedAt({ domain: 'example.com', type: 'gsc' }, secret)
-    const result = verifySignedState(encoded, secret)
-    expect(result).toBeNull()
-  })
-})
 
 describe('Google OAuth success page', () => {
   it('notifies and closes an OAuth popup without exposing token data', () => {
@@ -741,108 +643,6 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage/history', () => 
   })
 })
 
-describe('googleRoutes: coverage snapshot deduplication', () => {
-  let app: ReturnType<typeof Fastify>
-  let tmpDir: string
-  let db: ReturnType<typeof createClient>
-
-  beforeAll(async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'google-coverage-dedup-'))
-    const dbPath = path.join(tmpDir, 'test.db')
-    db = createClient(dbPath)
-    migrate(db)
-
-    const now = new Date().toISOString()
-    db.insert(projects).values({
-      id: 'p1',
-      name: 'dedupproj',
-      displayName: 'Dedup Project',
-      canonicalDomain: 'dedup.com',
-      country: 'US',
-      language: 'en',
-      createdAt: now,
-      updatedAt: now,
-    }).run()
-
-    db.insert(runs).values({
-      id: 'r1',
-      projectId: 'p1',
-      kind: 'gsc-inspect-sitemap',
-      status: 'completed',
-      createdAt: now,
-    }).run()
-
-    // Simulate two runs on same day by inserting duplicate then replacing it
-    db.insert(gscCoverageSnapshots).values({
-      id: 's1',
-      projectId: 'p1',
-      syncRunId: 'r1',
-      date: '2025-03-01',
-      indexed: 50,
-      notIndexed: 50,
-      reasonBreakdown: {},
-      createdAt: now,
-    }).run()
-
-    const fastify = Fastify()
-    fastify.setErrorHandler((error, _request, reply) => {
-      if (error instanceof AppError) {
-        return reply.status(error.statusCode).send(error.toJSON())
-      }
-      throw error
-    })
-    fastify.decorate('db', db)
-    fastify.register(googleRoutes, {
-      getGoogleAuthConfig: () => ({ clientId: undefined, clientSecret: undefined }),
-      googleConnectionStore: {
-        listConnections: () => [],
-        getConnection: () => undefined,
-        upsertConnection: (c) => c,
-        updateConnection: () => undefined,
-        deleteConnection: () => false,
-      },
-      googleStateSecret: 'test-secret-32-bytes-long-enough!',
-    })
-
-    app = fastify
-    await app.ready()
-  })
-
-  afterAll(async () => {
-    await app.close()
-    fs.rmSync(tmpDir, { recursive: true, force: true })
-  })
-
-  it('only one snapshot per (project, date) after delete+insert', async () => {
-    const { eq, and } = await import('drizzle-orm')
-
-    // Delete-before-insert pattern (same as gsc-sync/inspect-sitemap)
-    db.delete(gscCoverageSnapshots)
-      .where(and(eq(gscCoverageSnapshots.projectId, 'p1'), eq(gscCoverageSnapshots.date, '2025-03-01')))
-      .run()
-    db.insert(gscCoverageSnapshots).values({
-      id: 's2',
-      projectId: 'p1',
-      syncRunId: 'r1',
-      date: '2025-03-01',
-      indexed: 90,
-      notIndexed: 10,
-      reasonBreakdown: {},
-      createdAt: new Date().toISOString(),
-    }).run()
-
-    const res = await app.inject({
-      method: 'GET',
-      url: '/projects/dedupproj/google/gsc/coverage/history',
-    })
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as Array<{ date: string; indexed: number }>
-    // Should be exactly one row for 2025-03-01 with updated values
-    expect(body).toHaveLength(1)
-    expect(body[0]!.indexed).toBe(90)
-  })
-})
-
 describe('googleRoutes: GET /projects/:name/google/gsc/coverage', () => {
   let app: ReturnType<typeof Fastify>
   let tmpDir: string
@@ -933,9 +733,9 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage', () => {
       robotsTxtState: 'ALLOWED',
       crawlTime: inspectionTime,
       lastCrawlResult: null,
-      isMobileFriendly: 1,
-      richResults: '[]',
-      referringUrls: '[]',
+      isMobileFriendly: true,
+      richResults: [],
+      referringUrls: [],
       inspectedAt: inspectionTime,
       createdAt: inspectionTime,
     }).run()
@@ -997,35 +797,52 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage', () => {
   })
 
   it('sends the indexed percentage at wire precision, not a tenth', async () => {
-    // page-1 (seeded above) is indexed; two more pages are not: 1 of 3 is 33.333333%.
-    for (const [id, url] of [['i2', 'https://coverage.com/page-2'], ['i3', 'https://coverage.com/page-3']] as const) {
-      db.insert(gscUrlInspections).values({
-        id,
-        projectId: 'p1',
-        syncRunId: 'r1',
-        url,
-        indexingState: 'BLOCKED_BY_META_TAG',
-        verdict: 'NEUTRAL',
-        coverageState: 'Excluded by noindex tag',
-        pageFetchState: 'SUCCESSFUL',
-        robotsTxtState: 'ALLOWED',
-        crawlTime: '2026-05-01T08:00:00.000Z',
-        lastCrawlResult: null,
-        isMobileFriendly: 1,
-        richResults: '[]',
-        referringUrls: '[]',
-        inspectedAt: '2026-05-01T08:00:00.000Z',
-        createdAt: '2026-05-01T08:00:00.000Z',
+    const isolated = buildApp()
+    const inspectedAt = '2026-05-01T08:00:00.000Z'
+    try {
+      await isolated.app.ready()
+      isolated.db.insert(projects).values({
+        id: 'precision-project',
+        name: 'precision',
+        displayName: 'Precision',
+        canonicalDomain: 'coverage.com',
+        country: 'US',
+        language: 'en',
+        createdAt: inspectedAt,
+        updatedAt: inspectedAt,
       }).run()
-    }
+      isolated.db.insert(gscUrlInspections).values([
+        {
+          id: 'precision-indexed', projectId: 'precision-project',
+          url: 'https://coverage.com/indexed', indexingState: 'INDEXING_ALLOWED',
+          inspectedAt, createdAt: inspectedAt,
+        },
+        {
+          id: 'precision-blocked-a', projectId: 'precision-project',
+          url: 'https://coverage.com/blocked-a', indexingState: 'BLOCKED_BY_META_TAG',
+          inspectedAt, createdAt: inspectedAt,
+        },
+        {
+          id: 'precision-blocked-b', projectId: 'precision-project',
+          url: 'https://coverage.com/blocked-b', indexingState: 'BLOCKED_BY_META_TAG',
+          inspectedAt, createdAt: inspectedAt,
+        },
+      ]).run()
 
-    const res = await app.inject({
-      method: 'GET',
-      url: '/projects/covproj/google/gsc/coverage',
-    })
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as { summary: { total: number; indexed: number; notIndexed: number; percentage: number } }
-    expect(body.summary).toMatchObject({ total: 3, indexed: 1, notIndexed: 2, percentage: 33.333333 })
+      const res = await isolated.app.inject({
+        method: 'GET',
+        url: '/projects/precision/google/gsc/coverage',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as GscCoverageSummaryDto
+      expect(body.summary).toEqual({
+        total: 3, indexed: 1, notIndexed: 2, deindexed: 0,
+        percentage: 33.333333, indexedShare: 1 / 3, notIndexedShare: 2 / 3,
+      })
+    } finally {
+      await isolated.app.close()
+      fs.rmSync(isolated.tmpDir, { recursive: true, force: true })
+    }
   })
 })
 
@@ -1203,9 +1020,9 @@ describe('googleRoutes: POST /projects/:name/google/indexing/request', () => {
       robotsTxtState: 'ALLOWED',
       crawlTime: now,
       lastCrawlResult: null,
-      isMobileFriendly: 1,
-      richResults: '[]',
-      referringUrls: '[]',
+      isMobileFriendly: true,
+      richResults: [],
+      referringUrls: [],
       inspectedAt: now,
       createdAt: now,
     }).run()
@@ -1222,9 +1039,9 @@ describe('googleRoutes: POST /projects/:name/google/indexing/request', () => {
       robotsTxtState: 'ALLOWED',
       crawlTime: now,
       lastCrawlResult: null,
-      isMobileFriendly: 1,
-      richResults: '[]',
-      referringUrls: '[]',
+      isMobileFriendly: true,
+      richResults: [],
+      referringUrls: [],
       inspectedAt: now,
       createdAt: now,
     }).run()
@@ -1242,8 +1059,8 @@ describe('googleRoutes: POST /projects/:name/google/indexing/request', () => {
       crawlTime: null,
       lastCrawlResult: null,
       isMobileFriendly: null,
-      richResults: '[]',
-      referringUrls: '[]',
+      richResults: [],
+      referringUrls: [],
       inspectedAt: now,
       createdAt: now,
     }).run()
@@ -1275,7 +1092,7 @@ describe('googleRoutes: POST /projects/:name/google/indexing/request', () => {
           createdAt: now,
           updatedAt: now,
         }],
-        getConnection: (domain: string, connectionType: 'gsc' | 'ga4') => {
+        getConnection: (domain: string, connectionType: GoogleConnectionRecord['connectionType']) => {
           if (domain === 'example.com' && connectionType === 'gsc') {
             return {
               domain: 'example.com',
@@ -1762,29 +1579,6 @@ describe('googleRoutes: GET /projects/:name/google/gsc/performance/daily', () =>
     fs.rmSync(context.tmpDir, { recursive: true, force: true })
   })
 
-  it('sums clicks + impressions per date and computes CTR from the sums (not an average of row CTRs)', async () => {
-    const res = await context.app.inject({
-      method: 'GET',
-      url: '/projects/perf/google/gsc/performance/daily',
-    })
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as { totals: { clicks: number; impressions: number; ctr: number; days: number }; daily: Array<{ date: string; clicks: number; impressions: number; ctr: number }> }
-
-    // Daily rows ordered by date asc
-    expect(body.daily.map(d => d.date)).toEqual(['2026-01-05', '2026-01-06'])
-
-    // 2026-01-05: 2+3+5=10 clicks, 100+200+50=350 impressions, CTR = 10/350
-    expect(body.daily[0]).toEqual({ date: '2026-01-05', clicks: 10, impressions: 350, ctr: 10 / 350, position: null })
-    // 2026-01-06: 4+1+5=10 clicks, 200+100+700=1000 impressions, CTR = 10/1000 = 0.01
-    expect(body.daily[1]).toEqual({ date: '2026-01-06', clicks: 10, impressions: 1000, ctr: 0.01, position: null })
-
-    // Window totals: aggregate of all rows, NOT averaged from per-day CTRs
-    // Total clicks 20, total impressions 1350, ctr = 20/1350 (not (10/350 + 10/1000) / 2)
-    expect(body.totals).toEqual({ clicks: 20, impressions: 1350, ctr: 20 / 1350, position: null, positionDays: 0, days: 2 })
-    // Sanity: averaged per-day CTR would be ~0.019, the bug we're protecting against
-    expect(body.totals.ctr).not.toBeCloseTo((10 / 350 + 10 / 1000) / 2, 5)
-  })
-
   it('filters by the window param using windowCutoff', async () => {
     // Add a stale row from before the 7d cutoff
     const oldDate = new Date()
@@ -1907,10 +1701,10 @@ describe('googleRoutes: GET /projects/:name/google/gsc/performance/daily', () =>
     expect(res.statusCode).toBe(200)
     const body = res.json() as GscPerformanceDailyDto
 
-    expect(body.window.latestDataDate).toBe(dayIso(LAG))
-    expect(body.window.daysSinceLatestData).toBe(LAG)
-    expect(body.window.endDate).toBe(dayIso(LAG))
-    expect(body.window.startDate).toBe(dayIso(LAG + 29))
+    expect(body.window?.latestDataDate).toBe(dayIso(LAG))
+    expect(body.window?.daysSinceLatestData).toBe(LAG)
+    expect(body.window?.endDate).toBe(dayIso(LAG))
+    expect(body.window?.startDate).toBe(dayIso(LAG + 29))
 
     // The label is honoured exactly: 30 days, not 27.
     expect(body.daily).toHaveLength(30)
@@ -1975,43 +1769,46 @@ describe('googleRoutes: GET /projects/:name/google/gsc/performance/daily', () =>
   })
 
   it('carries a period comparison, and never leaks the internal source tag onto the wire', async () => {
-    // Four property-daily dates so the window splits into two 2-day periods.
     const now = '2026-01-01T00:00:00.000Z'
     context.db.insert(gscDailyTotals).values([
-      { id: crypto.randomUUID(), projectId, date: '2026-01-05', clicks: 5, impressions: 100, position: '10', createdAt: now },
-      { id: crypto.randomUUID(), projectId, date: '2026-01-06', clicks: 5, impressions: 100, position: '10', createdAt: now },
-      { id: crypto.randomUUID(), projectId, date: '2026-01-07', clicks: 20, impressions: 200, position: '8', createdAt: now },
-      { id: crypto.randomUUID(), projectId, date: '2026-01-08', clicks: 20, impressions: 200, position: '8', createdAt: now },
+      { id: 'comparison-jan5', projectId, date: '2026-01-05', clicks: 5, impressions: 100, position: '10', createdAt: now },
+      { id: 'comparison-jan6', projectId, date: '2026-01-06', clicks: 5, impressions: 100, position: '10', createdAt: now },
+      { id: 'comparison-jan7', projectId, date: '2026-01-07', clicks: 20, impressions: 200, position: '8', createdAt: now },
+      { id: 'comparison-jan8', projectId, date: '2026-01-08', clicks: 20, impressions: 200, position: '8', createdAt: now },
     ]).run()
 
-    const res = await context.app.inject({
-      method: 'GET',
-      url: '/projects/perf/google/gsc/performance/daily',
-    })
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as {
-      daily: Array<Record<string, unknown>>
-      periodComparison: {
-        days: number
-        comparable: boolean
-        prior: { clicks: number; source: string }
-        trailing: { clicks: number; source: string }
-        change: { clicks: number | null }
-      }
-    }
-
-    expect(body.periodComparison.days).toBe(2)
-    expect(body.periodComparison.comparable).toBe(true)
-    expect(body.periodComparison.prior.clicks).toBe(10)
-    expect(body.periodComparison.trailing.clicks).toBe(40)
-    expect(body.periodComparison.change.clicks).toBe(3)
-    expect(body.periodComparison.prior.source).toBe('property-daily')
-
-    // `fromPropertyTotals` is the comparison module's INPUT, tagged at the call
-    // site. It must never appear on a daily row: the row shape is the DTO's
-    // contract, and an undeclared field would ship to every SDK consumer.
-    for (const row of body.daily) {
-      expect(Object.keys(row).sort()).toEqual(['clicks', 'ctr', 'date', 'impressions', 'position'])
+    for (const query of ['', '?window=all']) {
+      const label = query || 'omitted window'
+      const res = await context.app.inject({
+        method: 'GET',
+        url: `/projects/perf/google/gsc/performance/daily${query}`,
+      })
+      expect(res.statusCode, label).toBe(200)
+      const body = res.json() as GscPerformanceDailyDto
+      expect(body.daily, label).toEqual([
+        { date: '2026-01-05', clicks: 5, impressions: 100, ctr: 0.05, position: 10 },
+        { date: '2026-01-06', clicks: 5, impressions: 100, ctr: 0.05, position: 10 },
+        { date: '2026-01-07', clicks: 20, impressions: 200, ctr: 0.1, position: 8 },
+        { date: '2026-01-08', clicks: 20, impressions: 200, ctr: 0.1, position: 8 },
+      ])
+      expect(body.totals, label).toEqual({
+        clicks: 50, impressions: 600, ctr: 50 / 600,
+        position: 26 / 3, positionDays: 4, days: 4,
+      })
+      expect(body.periodComparison, label).toEqual({
+        basis: 'split-window', days: 2, comparable: true,
+        prior: {
+          startDate: '2026-01-05', endDate: '2026-01-06',
+          clicks: 10, impressions: 200, ctr: 0.05, position: 10,
+          source: 'property-daily',
+        },
+        trailing: {
+          startDate: '2026-01-07', endDate: '2026-01-08',
+          clicks: 40, impressions: 400, ctr: 0.1, position: 8,
+          source: 'property-daily',
+        },
+        change: { clicks: 3, impressions: 1, ctr: 1, position: -0.2 },
+      })
     }
   })
 
@@ -2299,29 +2096,6 @@ describe('googleRoutes: GET /projects/:name/google/gsc/performance/daily', () =>
     expect(body.daily.map(row => row.date)).toEqual(['2026-03-05', '2026-03-06', '2026-03-07', '2026-03-08'])
   })
 
-  /**
-   * `window=all` has no lower bound, so there is no period before it to fetch.
-   * The split is not a fallback there, it is the only thing that exists.
-   */
-  it('splits an unbounded window, which has nothing before it to compare with', async () => {
-    const now = '2026-01-01T00:00:00.000Z'
-    context.db.insert(gscDailyTotals).values([
-      { id: crypto.randomUUID(), projectId, date: '2026-01-05', clicks: 5, impressions: 100, position: '10', createdAt: now },
-      { id: crypto.randomUUID(), projectId, date: '2026-01-06', clicks: 5, impressions: 100, position: '10', createdAt: now },
-      { id: crypto.randomUUID(), projectId, date: '2026-01-07', clicks: 20, impressions: 200, position: '8', createdAt: now },
-      { id: crypto.randomUUID(), projectId, date: '2026-01-08', clicks: 20, impressions: 200, position: '8', createdAt: now },
-    ]).run()
-
-    const res = await context.app.inject({
-      method: 'GET',
-      url: '/projects/perf/google/gsc/performance/daily?window=all',
-    })
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as GscPerformanceDailyDto
-    expect(body.periodComparison?.basis).toBe('split-window')
-    expect(body.periodComparison?.days).toBe(2)
-  })
-
   it('returns no comparison for an explicitly empty requested window', async () => {
     const res = await context.app.inject({
       method: 'GET',
@@ -2365,30 +2139,65 @@ describe('googleRoutes: GET /projects/:name/google/gsc/performance/daily', () =>
 
   it('uses daily totals per date without dropping dimensioned fallback dates from the same window', async () => {
     const now = '2026-01-01T00:00:00.000Z'
-    context.db.insert(gscDailyTotals).values({
-      id: crypto.randomUUID(),
-      projectId,
-      date: '2026-01-06',
-      clicks: 31,
-      impressions: 900,
-      position: '6',
-      createdAt: now,
-    }).run()
+    const syncRunId = context.db.select({ id: runs.id }).from(runs)
+      .where(eq(runs.projectId, projectId)).get()!.id
+    const cases = [
+      {
+        label: 'one property position day among two returned days',
+        query: '',
+        dimensioned: undefined,
+        property: [{ date: '2026-01-06', clicks: 31, impressions: 900, position: '6' }],
+        daily: [
+          { date: '2026-01-05', clicks: 10, impressions: 350, ctr: 10 / 350, position: null },
+          { date: '2026-01-06', clicks: 31, impressions: 900, ctr: 31 / 900, position: 6 },
+        ],
+        totals: { clicks: 41, impressions: 1250, ctr: 41 / 1250, position: 6, positionDays: 1, days: 2 },
+      },
+      {
+        label: 'two property position days among four returned days',
+        query: '?startDate=2026-01-05&endDate=2026-01-08',
+        dimensioned: [
+          { date: '2026-01-05', query: 'fallback-a', page: '/fallback-a', clicks: 3, impressions: 50, ctr: '0.06' },
+          { date: '2026-01-06', query: 'overridden-a', page: '/overridden-a', clicks: 70, impressions: 1000, ctr: '0.07' },
+          { date: '2026-01-07', query: 'fallback-b', page: '/fallback-b', clicks: 9, impressions: 150, ctr: '0.06' },
+          { date: '2026-01-08', query: 'overridden-b', page: '/overridden-b', clicks: 110, impressions: 3000, ctr: '0.03666666666666667' },
+        ],
+        property: [
+          { date: '2026-01-06', clicks: 7, impressions: 100, position: '4' },
+          { date: '2026-01-08', clicks: 11, impressions: 300, position: '8' },
+        ],
+        daily: [
+          { date: '2026-01-05', clicks: 3, impressions: 50, ctr: 0.06, position: null },
+          { date: '2026-01-06', clicks: 7, impressions: 100, ctr: 0.07, position: 4 },
+          { date: '2026-01-07', clicks: 9, impressions: 150, ctr: 0.06, position: null },
+          { date: '2026-01-08', clicks: 11, impressions: 300, ctr: 11 / 300, position: 8 },
+        ],
+        totals: { clicks: 30, impressions: 600, ctr: 0.05, position: 7, positionDays: 2, days: 4 },
+      },
+    ]
 
-    const res = await context.app.inject({
-      method: 'GET',
-      url: '/projects/perf/google/gsc/performance/daily',
-    })
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as { totals: { clicks: number; impressions: number; ctr: number; days: number }; daily: Array<{ date: string; clicks: number; impressions: number; ctr: number }> }
+    for (const [caseIndex, fixture] of cases.entries()) {
+      if (fixture.dimensioned !== undefined) {
+        context.db.delete(gscSearchData).where(eq(gscSearchData.projectId, projectId)).run()
+        context.db.insert(gscSearchData).values(fixture.dimensioned.map((row, rowIndex) => ({
+          ...row, id: `mixed-dimensioned-${caseIndex}-${rowIndex}`, projectId, syncRunId,
+          country: 'usa', device: 'DESKTOP', position: '5', createdAt: now,
+        }))).run()
+      }
+      context.db.delete(gscDailyTotals).where(eq(gscDailyTotals.projectId, projectId)).run()
+      context.db.insert(gscDailyTotals).values(fixture.property.map((row, rowIndex) => ({
+        ...row, id: `mixed-property-${caseIndex}-${rowIndex}`, projectId, createdAt: now,
+      }))).run()
 
-    // Only 2026-01-06 came from the property table, so only it carries a
-    // position — and it alone weights the window mean.
-    expect(body.daily).toEqual([
-      { date: '2026-01-05', clicks: 10, impressions: 350, ctr: 10 / 350, position: null },
-      { date: '2026-01-06', clicks: 31, impressions: 900, ctr: 31 / 900, position: 6 },
-    ])
-    expect(body.totals).toEqual({ clicks: 41, impressions: 1250, ctr: 41 / 1250, position: 6, positionDays: 1, days: 2 })
+      const res = await context.app.inject({
+        method: 'GET',
+        url: `/projects/perf/google/gsc/performance/daily${fixture.query}`,
+      })
+      expect(res.statusCode, fixture.label).toBe(200)
+      const body = res.json() as GscPerformanceDailyDto
+      expect(body.daily, fixture.label).toEqual(fixture.daily)
+      expect(body.totals, fixture.label).toEqual(fixture.totals)
+    }
   })
 
   it('fits over the CALENDAR, so a quiet gap does not overstate the slope', async () => {
@@ -2419,28 +2228,6 @@ describe('googleRoutes: GET /projects/:name/google/gsc/performance/daily', () =>
     expect(body.trends!.impressions!.slope).not.toBe(-10)
     expect(body.trends!.impressions!.startIndex).toBe(0)
     expect(body.trends!.impressions!.endIndex).toBe(9)
-  })
-
-  it('reports how much of the window the position figure covers', async () => {
-    // A position averaged over 2 of 4 days is not the window's average, and the
-    // response has to say which it is.
-    const now = '2026-01-01T00:00:00.000Z'
-    for (const [date, position] of [
-      ['2026-05-01', '4'], ['2026-05-02', '6'],
-    ] as const) {
-      context.db.insert(gscDailyTotals).values({
-        id: crypto.randomUUID(), projectId, date, clicks: 1, impressions: 10,
-        position, createdAt: now,
-      }).run()
-    }
-    const res = await context.app.inject({
-      method: 'GET',
-      url: '/projects/perf/google/gsc/performance/daily?startDate=2026-05-01&endDate=2026-05-02',
-    })
-    const body = res.json() as GscPerformanceDailyDto
-    expect(body.totals.days).toBe(2)
-    expect(body.totals.positionDays).toBe(2)
-    expect(body.totals.position).toBe(5)
   })
 
   it('fits a least-squares trend per metric over the window', async () => {

@@ -53,7 +53,7 @@ export const OPENAI_RETRIEVAL_CONTRACT: RetrievalContract = RetrievalContracts['
  * proxy in front of the API) into the SDK's `baseURL`. When unset, the SDK
  * falls back to its default endpoint.
  */
-export function createClient(config: OpenAIConfig): OpenAI {
+function createClient(config: OpenAIConfig): OpenAI {
   return new OpenAI({
     apiKey: config.apiKey,
     ...(config.baseUrl ? { baseURL: config.baseUrl } : {}),
@@ -102,7 +102,7 @@ export async function healthcheck(config: OpenAIConfig): Promise<OpenAIHealthche
 }
 
 /** The Responses API path a tracked query is sent to, relative to the API host. */
-export const OPENAI_RESPONSES_ENDPOINT = '/v1/responses'
+const OPENAI_RESPONSES_ENDPOINT = '/v1/responses'
 
 /**
  * The first half of `executeTrackedQuery`: the exact Responses API request
@@ -126,7 +126,7 @@ export function buildTrackedQueryRequest(input: OpenAITrackedQueryInput): Tracke
     // search-required-v1: web_search is the only tool, so requiring a tool
     // call requires a search. See OPENAI_RETRIEVAL_CONTRACT.
     tool_choice: 'required',
-    input: buildPrompt(input.query),
+    input: input.query,
   } satisfies OpenAI.Responses.ResponseCreateParamsNonStreaming
 
   return { endpoint: OPENAI_RESPONSES_ENDPOINT, body }
@@ -160,7 +160,7 @@ export function parseTrackedQueryResponse(body: object, model: string): OpenAIRa
     provider: 'openai',
     rawResponse,
     model,
-    servedModel: extractServedModel(rawResponse),
+    servedModel: normalizeServedModel(rawResponse.model),
     groundingSources: parsed.groundingSources,
     searchQueries: parsed.searchQueries,
     retrievalStatus: parsed.retrievalStatus,
@@ -189,14 +189,6 @@ export function normalizeResult(raw: OpenAIRawResult): OpenAINormalizedResult {
 
 function hasParsedResponseContent(rawResponse: Record<string, unknown>): boolean {
   return Array.isArray(rawResponse.output) && rawResponse.output.length > 0
-}
-
-/**
- * Read the model OpenAI reported serving off a stored raw response. A response that
- * omits `model` yields undefined rather than the configured model.
- */
-export function extractServedModel(rawResponse: Record<string, unknown>): string | undefined {
-  return normalizeServedModel(rawResponse.model)
 }
 
 export function reparseStoredResult(rawResponse: Record<string, unknown>): OpenAINormalizedResult {
@@ -238,10 +230,6 @@ function extractRetrievalStatusFromRaw(rawResponse: Record<string, unknown>): Re
     return RetrievalStatuses.unknown
   }
   return RetrievalStatuses['not-used']
-}
-
-export function buildPrompt(query: string): string {
-  return query
 }
 
 function extractResponseText(response: OpenAI.Responses.Response): string {
