@@ -2680,7 +2680,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_apply_config',
     title: 'Apply project config',
-    description: 'Apply one Canonry config-as-code project document. Replaces the project to match the config; fields omitted from the spec are reset to defaults, with these exceptions: a spec with neither queries nor keywords leaves the tracked-query basket unchanged (to clear the basket, pass an explicit empty queries list); an omitted providerDispatchModes keeps the stored preference; an omitted qualifiedAliases keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it; and a competitor given as a plain domain keeps its stored curated aliases, while `{ domain, aliases }` sets them exactly (`[]` clears). A spec identity that claims a competitor\'s alias drops that alias (audited); a new competitor whose name is another competitor\'s alias fails the apply. For multi-document YAML, call this tool once per project document.',
+    description: 'Apply one Canonry config-as-code project document. Replaces the project to match the config; fields omitted from the spec are reset to defaults, with these exceptions: a spec with neither queries nor keywords leaves the tracked-query basket unchanged (to clear the basket, pass an explicit empty queries list); an omitted providerDispatchModes keeps the stored preference; an omitted qualifiedAliases keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it; and a competitor given as a plain domain keeps its stored curated aliases, while `{ domain, aliases }` sets them exactly (`[]` clears). A spec identity that claims a competitor\'s alias drops that alias (audited); a new competitor whose name overlaps another competitor\'s alias as complete words fails the apply. For multi-document YAML, call this tool once per project document.',
     access: 'write',
     tier: 'core',
     inputSchema: applyConfigInputSchema,
@@ -3188,7 +3188,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_competitors_add',
     title: 'Add competitors',
-    description: 'Add tracked competitor domains to a Canonry project. Each entry is a domain, or `{ domain, aliases }` to also add curated answer-text names to that competitor (tracked already or not; existing aliases are kept, the same rules as canonry_competitors_aliases_set apply). A new domain whose name is another competitor\'s curated alias is rejected until that alias is removed. Already tracked domains are skipped.',
+    description: 'Add tracked competitor domains to a Canonry project. Each entry is a domain, or `{ domain, aliases }` to also add curated answer-text names to that competitor (tracked already or not; existing aliases are kept, the same rules as canonry_competitors_aliases_set apply). A new domain whose name overlaps another competitor\'s curated alias as complete words is rejected until that alias is removed. Already tracked domains (any spelling) are skipped.',
     access: 'write',
     tier: 'setup',
     inputSchema: competitorsAddInputSchema,
@@ -3201,7 +3201,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_competitors_aliases_set',
     title: 'Set competitor aliases',
-    description: 'Set one tracked competitor\'s operator-curated aliases exactly (`[]` clears): the brand names it goes by in answer text when they differ from its domain, e.g. "TuneSpoke" for spoketuneworks.example or a 3-letter brand the domain label floor drops. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) uses them on stored answers at read time. Rejected: aliases under 3 letters or digits, over 80 characters, more than 10, found as whole words in one of the project\'s own names or hosts (or a host on the project\'s site), or a name another tracked competitor answers to. Idempotent; returns the competitor.',
+    description: 'Set one tracked competitor\'s operator-curated aliases exactly (`[]` clears): the brand names it goes by in answer text when they differ from its domain, e.g. "TuneSpoke" for spoketuneworks.example or a 3-letter brand the domain label floor drops. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) uses them on stored answers at read time. Rejected: aliases under 3 letters or digits, over 80 characters, more than 10, overlapping as complete words, in either direction, one of the project\'s own names or hosts (or a host on the project\'s site) or a name another tracked competitor answers to (its aliases, domain label or written host), so "Tune" and "Tune Spoke" cannot belong to different competitors. Idempotent; returns the competitor.',
     access: 'write',
     tier: 'setup',
     inputSchema: competitorAliasesInputSchema,

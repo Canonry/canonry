@@ -27,7 +27,9 @@ export async function addCompetitors(project: string, domains: string[], format?
   const currentDomains = current.map(c => c.domain)
   const addedDomains = currentDomains.filter(domain => requested.has(domain) && !existingSet.has(domain))
   const aliasTarget = aliases.length > 0 ? normalizeCompetitorDomain(domains[0]!.trim()) : null
-  const aliasRow = aliasTarget ? current.find(c => c.domain === aliasTarget) : undefined
+  // Compared in stored form: a row an older build stored as a subdomain is
+  // the competitor the aliases were added to.
+  const aliasRow = aliasTarget ? current.find(c => normalizeCompetitorDomain(c.domain) === aliasTarget) : undefined
 
   if (isMachineFormat(format)) {
     console.log(JSON.stringify({
@@ -85,7 +87,19 @@ export async function competitorAliases(project: string, domain: string, options
     result = await client.setCompetitorAliases(project, domain, options.clear ? [] : options.set ?? [])
   } else {
     const target = normalizeCompetitorDomain(domain.trim())
-    const current = (await client.listCompetitors(project)).find(c => c.domain === target)
+    // Any spelling finds the stored row, including one an older build stored
+    // as a subdomain; several rows for one competitor are refused, as the API
+    // refuses them, rather than editing one at random.
+    const matches = (await client.listCompetitors(project)).filter(c => normalizeCompetitorDomain(c.domain) === target)
+    if (matches.length > 1) {
+      throw new CliError({
+        code: 'VALIDATION_ERROR',
+        message: `Competitor ${target} matches ${matches.length} stored rows (${matches.map(c => c.domain).join(', ')}); remove the competitor and add it again`,
+        displayMessage: `Error: competitor ${target} is stored as ${matches.length} rows (${matches.map(c => c.domain).join(', ')}). Remove it with: canonry competitor remove ${project} ${target}, then add it again`,
+        details: { project, domain: target, matches: matches.map(c => ({ id: c.id, domain: c.domain })) },
+      })
+    }
+    const current = matches.at(0)
     if (!current) {
       throw new CliError({
         code: 'NOT_FOUND',
@@ -121,10 +135,12 @@ export async function removeCompetitors(project: string, domains: string[], form
   const client = getClient()
   const existing = await client.listCompetitors(project)
   const existingDomains = existing.map(c => c.domain)
-  const requested = new Set(uniqueStrings(domains))
+  // The server removes every stored row that is a requested competitor in any
+  // spelling (`www.`, a subdomain, or a row stored as a subdomain).
+  const requested = new Set(uniqueStrings(domains).map(domain => normalizeCompetitorDomain(domain.trim())))
   const current = await client.deleteCompetitors(project, domains)
   const currentSet = new Set(current.map(c => c.domain))
-  const removedDomains = existingDomains.filter(domain => requested.has(domain) && !currentSet.has(domain))
+  const removedDomains = existingDomains.filter(domain => requested.has(normalizeCompetitorDomain(domain)) && !currentSet.has(domain))
 
   if (isMachineFormat(format)) {
     console.log(JSON.stringify({

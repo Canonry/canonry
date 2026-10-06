@@ -48,10 +48,8 @@ import {
   type StoredMeasurementPlan,
   hostOf,
   normalizeCompetitorAliases,
-  normalizeCompetitorDomain,
 } from '@ainyc/canonry-contracts'
 import {
-  competitors as trackedCompetitors,
   measurementPlanDrafts,
   measurementPlans,
   measurementPlanVersions,
@@ -65,6 +63,7 @@ import {
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import { requireScope } from './auth.js'
+import { findStoredCompetitor, readStoredCompetitors } from './competitor-writes.js'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
 import { MEASUREMENT_PLAN_WRITE_SCOPE } from './measurement-plan.js'
 import {
@@ -360,21 +359,20 @@ function assertPinLocationsPreserved(project: ProjectRow, plan: MeasurementPlanV
 /**
  * The curated aliases of the project's tracked competitor for `domain`, so an
  * Advanced pin by domain alone carries the same answer-text names a Simple run
- * freezes. Empty when the domain is not tracked.
+ * freezes. Empty when the domain is not tracked. Any spelling finds the stored
+ * row (`findStoredCompetitor`), which fails rather than pick one of several
+ * rows for the same competitor.
  */
 function trackedCompetitorAliases(db: Pick<DatabaseClient, 'select'>, projectId: string, domain: string): string[] {
   const host = hostOf(domain)
   if (!host) return []
-  const row = db.select({ aliases: trackedCompetitors.aliases }).from(trackedCompetitors)
-    .where(and(eq(trackedCompetitors.projectId, projectId), eq(trackedCompetitors.domain, normalizeCompetitorDomain(host))))
-    .get()
-  return normalizeCompetitorAliases(row?.aliases)
+  return normalizeCompetitorAliases(findStoredCompetitor(readStoredCompetitors(db, projectId), host)?.aliases)
 }
 
 function pinCompetitorInAuthoring(
   authoring: MeasurementDraftAuthoring,
   input: MeasurementDraftPinCompetitorRequest,
-  trackedAliases: readonly string[] = [],
+  trackedAliases: () => readonly string[] = () => [],
 ): { authoring: MeasurementDraftAuthoring; competitor: MeasurementV2Competitor } {
   const domain = hostOf(input.domain)
   if (!domain) throw validationError('A competitor domain must be a valid hostname.')
@@ -394,7 +392,7 @@ function pinCompetitorInAuthoring(
   // names (plus an explicit label), matching what a Simple run freezes.
   const aliases = input.aliases ?? existing?.aliases ?? normalizeCompetitorAliases([
     ...(input.label ? [input.label] : []),
-    ...trackedAliases,
+    ...trackedAliases(),
   ])
   const stableKey = existing?.stableKey ?? nextCompetitorStableKey(sourceGroup, domain)
   const competitor: MeasurementV2Competitor = measurementDraftCompetitorSchema.parse({ stableKey, label, domain, aliases })
@@ -771,7 +769,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
       const before = row
         ? parseStoredAuthoring(row.authoringJson)
         : seedAuthoring(gate.project, activePlan, actionContextFor(app.db, gate.project), opts)
-      const result = pinCompetitorInAuthoring(before, input, trackedCompetitorAliases(tx, gate.project.id, input.domain))
+      const result = pinCompetitorInAuthoring(before, input, () => trackedCompetitorAliases(tx, gate.project.id, input.domain))
       assertMeasurementDraftAuthoringLimits(before, result.authoring)
       const changed = authoringIdentity(result.authoring) !== authoringIdentity(before)
       const etagVersion = row ? (changed ? row.etagVersion + 1 : row.etagVersion) : 1

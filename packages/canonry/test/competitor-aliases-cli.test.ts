@@ -3,7 +3,8 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { apiKeys, createClient, migrate } from '@ainyc/canonry-db'
+import { eq } from 'drizzle-orm'
+import { apiKeys, competitors, createClient, migrate, projects, type DatabaseClient } from '@ainyc/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 import { invokeCli } from './cli-test-utils.js'
@@ -16,6 +17,7 @@ describe('competitor alias CLI', () => {
   let origConfigDir: string | undefined
   let origTelemetryDisabled: string | undefined
   let client: ApiClient
+  let db: DatabaseClient
   let close: () => Promise<void>
 
   beforeEach(async () => {
@@ -28,7 +30,7 @@ describe('competitor alias CLI', () => {
 
     const dbPath = path.join(tmpDir, 'data.db')
     const configPath = path.join(tmpDir, 'config.yaml')
-    const db = createClient(dbPath)
+    db = createClient(dbPath)
     migrate(db)
     const apiKeyPlain = `cnry_${crypto.randomBytes(16).toString('hex')}`
     db.insert(apiKeys).values({
@@ -130,6 +132,28 @@ describe('competitor alias CLI', () => {
     const error = JSON.parse(result.stderr).error as { code: string; message: string }
     expect(error.code).toBe('VALIDATION_ERROR')
     expect(error.message).toContain('"Rotorwise" is one of the project\'s own brand names')
+  })
+
+  it('finds a competitor stored as a subdomain by its registrable domain, and reports its removal', async () => {
+    // A row an older build's discovery promote stored without normalizing.
+    const project = db.select().from(projects).where(eq(projects.name, 'rotorwise')).get()!
+    db.insert(competitors).values({
+      id: crypto.randomUUID(),
+      projectId: project.id,
+      domain: 'offers.spoketuneworks.example',
+      provenance: 'discovery:legacy',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const added = await invokeCli(['competitor', 'aliases', 'rotorwise', 'spoketuneworks.example', '--add', 'TuneSpoke', '--format', 'json'])
+    expect(added.exitCode, added.stderr).toBeUndefined()
+    expect(JSON.parse(added.stdout)).toMatchObject({ domain: 'offers.spoketuneworks.example', aliases: ['TuneSpoke'] })
+    expect((await invokeCli(['competitor', 'aliases', 'rotorwise', 'spoketuneworks.example'])).stdout)
+      .toBe('Aliases for offers.spoketuneworks.example: TuneSpoke')
+
+    const removed = await invokeCli(['competitor', 'remove', 'rotorwise', 'spoketuneworks.example', '--format', 'json'])
+    expect(removed.exitCode, removed.stderr).toBeUndefined()
+    expect(JSON.parse(removed.stdout)).toEqual({ project: 'rotorwise', domains: [], removedDomains: ['offers.spoketuneworks.example'], removedCount: 1 })
   })
 
   it('reports an untracked competitor and conflicting flags as user errors', async () => {

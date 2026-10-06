@@ -118,6 +118,8 @@ describe('planCompetitorAliases', () => {
     ], PROJECT_BRAND)
     expect(plan.rejected).toEqual([
       { domain: 'ravenwoodbikeinc.example', alias: 'Ravenwood', reason: 'other-competitor', conflictsWith: 'ravenwood.example' },
+      // `ravenwood`, the other domain's label, is a complete word of it.
+      { domain: 'ravenwoodbikeinc.example', alias: 'Ravenwood Cycling', reason: 'other-competitor', conflictsWith: 'ravenwood.example', conflictingName: 'ravenwood' },
       { domain: 'qvx.example', alias: 'Tune Spoke', reason: 'other-competitor', conflictsWith: 'spoketuneworks.example' },
     ])
     // The carried-over list is never stripped by the new write.
@@ -155,7 +157,7 @@ describe('planCompetitorAliases', () => {
     const plan = planCompetitorAliases([
       {
         domain: 'rival.example',
-        aliases: ['Acme', 'Cycles', 'acmecycles.example', 'www.acmecycles.example', 'shop.acme-service.example', 'acme-service.example', 'Acme Cycles', 'Acme Cycle Works', 'Acmecycles Outlet'],
+        aliases: ['Acme', 'Cycles', 'acmecycles.example', 'www.acmecycles.example', 'shop.acme-service.example', 'acme-service.example', 'Acme Cycles', 'Acme Cycle Works', 'Acmecycles Outlet', 'Acme Cyclesworks'],
         explicit: true,
       },
     ], project)
@@ -167,12 +169,26 @@ describe('planCompetitorAliases', () => {
       { domain: 'rival.example', alias: 'shop.acme-service.example', reason: 'project-brand' },
       { domain: 'rival.example', alias: 'acme-service.example', reason: 'project-brand' },
       { domain: 'rival.example', alias: 'Acme Cycles', reason: 'project-brand' },
+      // The reverse containment: "Acme Cycles" (key `acmecycles`) is a complete
+      // word of this alias, so an answer naming it also counts the project.
+      { domain: 'rival.example', alias: 'Acmecycles Outlet', reason: 'project-brand', conflictingName: 'Acme Cycles' },
     ])
     // A different word sequence is a different name: "Acme Cycle Works" and
-    // "Acmecycles Outlet" are never found inside the project's names.
+    // "Acme Cyclesworks" neither are found inside the project's names nor
+    // contain one.
     expect(plan.competitors).toEqual([
-      { domain: 'rival.example', aliases: ['Acme Cycle Works', 'Acmecycles Outlet'] },
+      { domain: 'rival.example', aliases: ['Acme Cycle Works', 'Acme Cyclesworks'] },
     ])
+  })
+
+  it('rejects an alias that contains one of the project\'s own names as complete words', () => {
+    const plan = planCompetitorAliases([
+      { domain: 'qvx.example', aliases: ['Rotorwise Rivals', 'Rotorwiser'], explicit: true },
+    ], PROJECT_BRAND)
+    expect(plan.rejected).toEqual([
+      { domain: 'qvx.example', alias: 'Rotorwise Rivals', reason: 'project-brand', conflictingName: 'Rotorwise' },
+    ])
+    expect(plan.competitors).toEqual([{ domain: 'qvx.example', aliases: ['Rotorwiser'] }])
   })
 
   it('drops a carried-over alias the project identity now contains', () => {
@@ -208,6 +224,111 @@ describe('planCompetitorAliases', () => {
       { domain: 'spoketuneworks.example', aliases: ['Spoke Tune Pros'] },
       { domain: 'tunespoke.example', aliases: [] },
     ])
+  })
+
+  // The readers count a competitor when any of its identity tokens (curated
+  // aliases, gated domain label, written host) appears in the answer as
+  // complete adjacent words. Two competitors whose tokens overlap that way
+  // both count for one answer, so the write rule uses the same matcher.
+  it('rejects an explicit alias found inside another competitor\'s alias, or containing it', () => {
+    const answer = 'For wheel truing, Tune Spoke is the shop most riders pick.'
+    expect(textContainsAnyBrandAlias(answer, competitorBrandAliases({ domain: 'qvx.example', aliases: ['Tune'] }))).toBe(true)
+    expect(textContainsAnyBrandAlias(answer, competitorBrandAliases({ domain: 'spoketuneworks.example', aliases: ['Tune Spoke'] }))).toBe(true)
+
+    const inside = planCompetitorAliases([
+      { domain: 'spoketuneworks.example', aliases: ['Tune Spoke'], explicit: false },
+      { domain: 'qvx.example', aliases: ['Tune'], explicit: true },
+    ], PROJECT_BRAND)
+    expect(inside.rejected).toEqual([
+      { domain: 'qvx.example', alias: 'Tune', reason: 'other-competitor', conflictsWith: 'spoketuneworks.example', conflictingName: 'Tune Spoke' },
+    ])
+
+    const contains = planCompetitorAliases([
+      { domain: 'qvx.example', aliases: ['Tune'], explicit: false },
+      { domain: 'spoketuneworks.example', aliases: ['Tune Spoke', 'TuneSpoke Crew'], explicit: true },
+    ], PROJECT_BRAND)
+    expect(contains.rejected).toEqual([
+      { domain: 'spoketuneworks.example', alias: 'Tune Spoke', reason: 'other-competitor', conflictsWith: 'qvx.example', conflictingName: 'Tune' },
+    ])
+    // The stored list the write collides with is never stripped.
+    expect(contains.competitors).toEqual([
+      { domain: 'qvx.example', aliases: ['Tune'] },
+      { domain: 'spoketuneworks.example', aliases: ['TuneSpoke Crew'] },
+    ])
+    expect(contains.dropped).toEqual([])
+  })
+
+  it('checks another competitor\'s domain label and written host with the same matcher', () => {
+    const plan = planCompetitorAliases([
+      { domain: 'spoketuneworks.example', aliases: [], explicit: false },
+      { domain: 'qvx.example', aliases: ['Spoke Tune Works Outlet', 'Example', 'Spoketuneworker', 'Tuner'], explicit: true },
+    ], NO_PROJECT)
+    expect(plan.rejected).toEqual([
+      // Contains the label `spoketuneworks` as complete words.
+      { domain: 'qvx.example', alias: 'Spoke Tune Works Outlet', reason: 'other-competitor', conflictsWith: 'spoketuneworks.example', conflictingName: 'spoketuneworks' },
+      // A complete word of the written host `spoketuneworks.example`.
+      { domain: 'qvx.example', alias: 'Example', reason: 'other-competitor', conflictsWith: 'spoketuneworks.example', conflictingName: 'spoketuneworks.example' },
+    ])
+    // Whole words only: `Spoketuneworker` and `Tuner` share letters, not words.
+    expect(plan.competitors[1]).toEqual({ domain: 'qvx.example', aliases: ['Spoketuneworker', 'Tuner'] })
+  })
+
+  it('blocks a new competitor whose domain name is found inside another competitor\'s stored alias', () => {
+    const plan = planCompetitorAliases([
+      { domain: 'spoketuneworks.example', aliases: ['Tune Spoke'], explicit: false },
+      { domain: 'tune.example', aliases: [], explicit: false, added: true },
+    ], PROJECT_BRAND)
+    expect(plan.rejected).toEqual([
+      { domain: 'tune.example', alias: 'Tune Spoke', reason: 'claimed-by-alias', conflictsWith: 'spoketuneworks.example', conflictingName: 'tune' },
+    ])
+    expect(plan.dropped).toEqual([])
+    expect(plan.competitors[0]).toEqual({ domain: 'spoketuneworks.example', aliases: ['Tune Spoke'] })
+  })
+
+  it('drops both carried-over aliases when stored lists already overlap', () => {
+    const plan = planCompetitorAliases([
+      { domain: 'qvx.example', aliases: ['Tune', 'QVX'], explicit: false },
+      { domain: 'spoketuneworks.example', aliases: ['Tune Spoke'], explicit: false },
+    ], PROJECT_BRAND)
+    expect(plan.rejected).toEqual([])
+    expect(plan.dropped).toEqual([
+      { domain: 'qvx.example', alias: 'Tune', reason: 'other-competitor', conflictsWith: 'spoketuneworks.example', conflictingName: 'Tune Spoke' },
+      { domain: 'spoketuneworks.example', alias: 'Tune Spoke', reason: 'other-competitor', conflictsWith: 'qvx.example', conflictingName: 'Tune' },
+    ])
+    expect(plan.competitors).toEqual([
+      { domain: 'qvx.example', aliases: ['QVX'] },
+      { domain: 'spoketuneworks.example', aliases: [] },
+    ])
+  })
+
+  it('treats two spellings of one stored competitor as the same competitor', () => {
+    // A legacy row stored as a subdomain and its registrable form share the
+    // label `spoketuneworks`; that is one competitor, not a collision.
+    const plan = planCompetitorAliases([
+      { domain: 'spoketuneworks.example', aliases: ['Spoke Tune Works'], explicit: false },
+      { domain: 'offers.spoketuneworks.example', aliases: [], explicit: false },
+    ], NO_PROJECT)
+    expect(plan.dropped).toEqual([])
+    expect(plan.competitors[0]).toEqual({ domain: 'spoketuneworks.example', aliases: ['Spoke Tune Works'] })
+  })
+
+  it('leaves no accepted alias that would credit one answer to two competitors', () => {
+    const plan = planCompetitorAliases([
+      { domain: 'spoketuneworks.example', aliases: ['Tune Spoke', 'TuneSpoke Crew', 'Spoke Tune Pros'], explicit: true },
+      { domain: 'qvx.example', aliases: ['QVX', 'Tune', 'QVX Linen'], explicit: true },
+      { domain: 'ravenwoodbikeinc.example', aliases: ['Ravenwood Cycling', 'Raven Wheels', 'Tuner'], explicit: true },
+    ], PROJECT_BRAND)
+    expect(plan.rejected.map(rejection => rejection.alias).sort()).toEqual(['Spoke Tune Pros', 'Tune', 'Tune Spoke'])
+    for (const owner of plan.competitors) {
+      for (const other of plan.competitors) {
+        if (other.domain === owner.domain) continue
+        // Each token the readers match for `owner`, written as an answer, must
+        // not mark `other` mentioned.
+        for (const token of competitorBrandAliases(owner)) {
+          expect(textContainsAnyBrandAlias(token, competitorBrandAliases(other)), `${token} (${owner.domain}) names ${other.domain}`).toBe(false)
+        }
+      }
+    }
   })
 
   it('allows an alias equal to the competitor\'s own domain label', () => {
@@ -246,6 +367,32 @@ describe('requireCompetitorAliasPlan', () => {
       { domain: 'tunespoke.example', aliases: [], explicit: false, added: true },
     ], PROJECT_BRAND)).toThrow(
       'Invalid competitor aliases: tunespoke.example: cannot be added while "TuneSpoke" is a curated alias of spoketuneworks.example; remove or restate that alias first',
+    )
+  })
+
+  it('names the alias, the overlapping name and the other competitor', () => {
+    expect(() => requireCompetitorAliasPlan([
+      { domain: 'qvx.example', aliases: ['Tune'], explicit: false },
+      { domain: 'spoketuneworks.example', aliases: ['Tune Spoke'], explicit: true },
+    ], PROJECT_BRAND)).toThrow(
+      'Invalid competitor aliases: spoketuneworks.example: "Tune Spoke" contains "Tune", a name of qvx.example, so one answer would count both competitors',
+    )
+    expect(() => requireCompetitorAliasPlan([
+      { domain: 'spoketuneworks.example', aliases: ['Tune Spoke'], explicit: false },
+      { domain: 'qvx.example', aliases: ['Tune'], explicit: true },
+    ], PROJECT_BRAND)).toThrow(
+      'Invalid competitor aliases: qvx.example: "Tune" is found inside "Tune Spoke", a name of spoketuneworks.example, so one answer would count both competitors',
+    )
+    expect(() => requireCompetitorAliasPlan([
+      { domain: 'spoketuneworks.example', aliases: ['Tune Spoke'], explicit: false },
+      { domain: 'tune.example', aliases: [], explicit: false, added: true },
+    ], PROJECT_BRAND)).toThrow(
+      'Invalid competitor aliases: tune.example: cannot be added while "Tune Spoke" is a curated alias of spoketuneworks.example (it contains "tune", a name of tune.example, so one answer would count both competitors); remove or restate that alias first',
+    )
+    expect(() => requireCompetitorAliasPlan([
+      { domain: 'qvx.example', aliases: ['Rotorwise Rivals'], explicit: true },
+    ], PROJECT_BRAND)).toThrow(
+      'Invalid competitor aliases: qvx.example: "Rotorwise Rivals" contains "Rotorwise", one of the project\'s own names, so an answer naming it would also count the project',
     )
   })
 

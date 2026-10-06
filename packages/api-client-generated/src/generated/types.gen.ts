@@ -18952,7 +18952,7 @@ export type PutApiV1ProjectsByNameCompetitorsByDomainAliasesData = {
          */
         name: string;
         /**
-         * Tracked competitor domain (any spelling of it; it is reduced to the stored registrable domain).
+         * Tracked competitor domain (any spelling of it; it is reduced to the stored registrable domain, and a row stored as a subdomain is found too). A competitor stored as two rows is refused (400) rather than one picked.
          */
         domain: string;
     };

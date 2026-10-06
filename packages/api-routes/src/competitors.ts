@@ -13,9 +13,13 @@ import {
 } from '@ainyc/canonry-contracts'
 import type { ZodType } from 'zod'
 import {
+  applyCompetitorSetPlan,
   competitorAliasAuditFields,
   competitorWritesFromEntries,
+  findStoredCompetitor,
   normalizeCompetitorList,
+  planCompetitorSet,
+  readStoredCompetitors,
   syncCompetitorSet,
 } from './competitor-writes.js'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
@@ -127,7 +131,8 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
 
   // PUT /projects/:name/competitors/:domain/aliases: set one competitor's
   // curated aliases exactly (`[]` clears). Idempotent: an unchanged list
-  // writes nothing and records no audit row.
+  // writes nothing and records no audit row. Any spelling of the domain finds
+  // the stored row, including one an older build stored unnormalized.
   app.put<{
     Params: { name: string; domain: string }
     Body: { aliases: string[] }
@@ -138,21 +143,21 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
 
     const now = new Date().toISOString()
 
-    const aliasesChanged = app.db.transaction((tx) => {
-      const current = tx.select({ id: competitors.id }).from(competitors)
-        .where(and(eq(competitors.projectId, project.id), eq(competitors.domain, domain))).get()
+    const { id, aliasesChanged } = app.db.transaction((tx) => {
+      const stored = readStoredCompetitors(tx, project.id)
+      const current = findStoredCompetitor(stored, domain)
       if (!current) throw notFound('Competitor', domain)
 
-      const plan = syncCompetitorSet(tx, project.id, [{ domain, aliases: body.aliases, aliasMode: 'set' }], {
+      const plan = planCompetitorSet(stored, [{ domain, aliases: body.aliases, aliasMode: 'set' }], {
         replace: false,
         project: competitorAliasProjectIdentity(project),
-        now,
       })
+      applyCompetitorSetPlan(tx, project.id, stored, plan, now)
       // Any alias change is audited and backfilled, including another
       // competitor's stored alias dropped because stored lists disagreed.
-      if (plan.aliasChanges.length === 0) return false
-      const change = plan.aliasChanges.find(item => item.domain === domain)
-      const before = change?.before ?? plan.final.find(item => item.domain === domain)?.aliases ?? []
+      if (plan.aliasChanges.length === 0) return { id: current.id, aliasesChanged: false }
+      const change = plan.aliasChanges.find(item => item.domain === current.domain)
+      const before = change?.before ?? current.aliases
       const droppedQualifiedAliases = pruneQualifiedAliasesForCompetitors(tx, project.id, now)
 
       writeAuditLog(tx, auditFromRequest(request, {
@@ -162,22 +167,22 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
         entityType: 'competitor',
         entityId: current.id,
         diff: {
-          domain,
+          domain: current.domain,
           before,
           after: change?.after ?? before,
           ...competitorAliasAuditFields({
-            aliasChanges: plan.aliasChanges.filter(item => item.domain !== domain),
+            aliasChanges: plan.aliasChanges.filter(item => item.domain !== current.domain),
             droppedAliases: plan.droppedAliases,
           }),
           ...(droppedQualifiedAliases.length ? { droppedQualifiedAliases } : {}),
         },
       }))
-      return true
+      return { id: current.id, aliasesChanged: true }
     })
 
     if (aliasesChanged) opts.onCompetitorAliasesChanged?.(project.id, project.name)
     const row = app.db.select().from(competitors)
-      .where(and(eq(competitors.projectId, project.id), eq(competitors.domain, domain))).get()
+      .where(and(eq(competitors.projectId, project.id), eq(competitors.id, id))).get()
     if (!row) throw notFound('Competitor', domain)
     return reply.send(serializeCompetitor(row))
   })
@@ -192,7 +197,9 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
 
     // Normalize delete targets so callers can pass either the original or the
     // subdomain form (e.g. `offers.quotebird.test`) and still hit the stored
-    // registrable form (`quotebird.test`).
+    // registrable form (`quotebird.test`). Stored rows compare in that form
+    // too, so a row an older build stored as a subdomain is removed as well,
+    // and every row that is the named competitor goes, duplicates included.
     const requested = new Set(normalizeCompetitorList(body.competitors))
 
     app.db.transaction((tx) => {
@@ -201,7 +208,7 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
         .from(competitors)
         .where(eq(competitors.projectId, project.id))
         .all()
-      const rowsToDelete = existing.filter(c => requested.has(c.domain))
+      const rowsToDelete = existing.filter(c => requested.has(normalizeCompetitorDomain(c.domain)))
 
       if (rowsToDelete.length === 0) return
 

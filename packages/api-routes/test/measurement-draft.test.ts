@@ -1108,6 +1108,20 @@ describe('measurement draft publish', () => {
     expect(pinned.statusCode, pinned.body).toBe(200)
     expect(pinned.json().competitor).toMatchObject({ domain: 'rival.example', label: 'rival', aliases: ['RVL Widgets', 'Rivalo'] })
 
+    // A tracked row an older build stored as a subdomain is found by its
+    // registrable domain too.
+    db.insert(competitors).values({
+      id: crypto.randomUUID(),
+      projectId: 'prj_northwind',
+      domain: 'offers.vexlo.example',
+      aliases: ['Vexlo Widgets'],
+      provenance: 'discovery:legacy',
+      createdAt: NOW,
+    }).run()
+    const legacy = await action('pin-competitor', { payload: { expectedActiveRevision: 1, groupKey: 'catalog', domain: 'vexlo.example' } })
+    expect(legacy.statusCode, legacy.body).toBe(200)
+    expect(legacy.json().competitor).toMatchObject({ domain: 'vexlo.example', aliases: ['Vexlo Widgets'] })
+
     // An explicit list still wins over the tracked one.
     const explicit = await action('pin-competitor', { payload: { expectedActiveRevision: 1, groupKey: 'catalog', domain: 'other-rival.example', aliases: ['Other Rival'] } })
     expect(explicit.statusCode, explicit.body).toBe(200)
@@ -1121,6 +1135,7 @@ describe('measurement draft publish', () => {
     expect(frozen.groups[0]!.competitors.map(competitor => [competitor.domain, competitor.aliases])).toEqual([
       ['other-rival.example', ['Other Rival']],
       ['rival.example', ['RVL Widgets', 'Rivalo']],
+      ['vexlo.example', ['Vexlo Widgets']],
     ])
   })
 

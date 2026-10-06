@@ -7,6 +7,8 @@ import {
   normalizeCompetitorAliases,
   normalizeCompetitorDomain,
   requireCompetitorAliasPlan,
+  validationError,
+  type AppError,
   type CompetitorAliasPlanEntry,
   type CompetitorAliasProjectIdentity,
   type CompetitorAliasRejection,
@@ -21,6 +23,13 @@ import {
  * last, and a domain-only write never wipes stored aliases. The two DELETE
  * routes remove rows directly (removing a competitor cannot break another
  * competitor's alias) and audit the aliases they discard.
+ *
+ * Every write stores the registrable form (`normalizeCompetitorDomain`), and
+ * every lookup by domain compares stored rows in that form too, so a row an
+ * older build stored unnormalized (a promoted subdomain) is still found by any
+ * spelling. Two stored rows that normalize to one domain are duplicates of one
+ * competitor: a write that must change one of them fails
+ * (`duplicateCompetitorRowsError`) instead of picking one.
  */
 
 /** Normalize and dedupe a list of competitor domains, keeping first-seen order. */
@@ -47,6 +56,29 @@ export interface CompetitorWrite {
 }
 
 /**
+ * Normalize writes to registrable domains, first-seen order, duplicates merged
+ * (their stated aliases concatenated, the first write's `aliasMode` kept).
+ */
+function mergeCompetitorWrites(writes: readonly CompetitorWrite[]): CompetitorWrite[] {
+  const byDomain = new Map<string, CompetitorWrite>()
+  for (const write of writes) {
+    const trimmed = write.domain.trim()
+    if (!trimmed) continue
+    const domain = normalizeCompetitorDomain(trimmed)
+    if (!domain) continue
+    const existing = byDomain.get(domain)
+    if (!existing) {
+      byDomain.set(domain, { ...write, domain, ...(write.aliases !== undefined ? { aliases: [...write.aliases] } : {}) })
+      continue
+    }
+    if (write.aliases !== undefined) {
+      existing.aliases = [...(existing.aliases ?? []), ...write.aliases]
+    }
+  }
+  return [...byDomain.values()]
+}
+
+/**
  * Normalize request or config entries into writes: registrable domains,
  * first-seen order, duplicates merged (their stated aliases concatenated).
  */
@@ -54,23 +86,10 @@ export function competitorWritesFromEntries(
   entries: readonly CompetitorEntry[],
   aliasMode: 'set' | 'add' = 'set',
 ): CompetitorWrite[] {
-  const byDomain = new Map<string, CompetitorWrite>()
-  for (const entry of entries) {
+  return mergeCompetitorWrites(entries.map((entry) => {
     const parts = competitorEntryParts(entry)
-    const trimmed = parts.domain.trim()
-    if (!trimmed) continue
-    const domain = normalizeCompetitorDomain(trimmed)
-    if (!domain) continue
-    const existing = byDomain.get(domain)
-    if (!existing) {
-      byDomain.set(domain, { domain, aliasMode, ...(parts.aliases !== undefined ? { aliases: [...parts.aliases] } : {}) })
-      continue
-    }
-    if (parts.aliases !== undefined) {
-      existing.aliases = [...(existing.aliases ?? []), ...parts.aliases]
-    }
-  }
-  return [...byDomain.values()]
+    return { domain: parts.domain, aliasMode, ...(parts.aliases !== undefined ? { aliases: parts.aliases } : {}) }
+  }))
 }
 
 export interface StoredCompetitor {
@@ -104,6 +123,38 @@ export function readStoredCompetitors(db: Pick<DatabaseClient, 'select'>, projec
     .all()
 }
 
+/** Every stored row that is the competitor `domain` names, in any spelling. */
+export function storedCompetitorMatches<T extends { domain: string }>(rows: readonly T[], domain: string): T[] {
+  const key = normalizeCompetitorDomain(domain.trim())
+  return rows.filter(row => normalizeCompetitorDomain(row.domain) === key)
+}
+
+/**
+ * Two or more stored rows are one competitor (a subdomain an older build
+ * stored next to its registrable form). Names every row so the operator can
+ * remove the extra one by id, or remove the competitor and add it again.
+ */
+export function duplicateCompetitorRowsError(domain: string, rows: readonly { id: string; domain: string }[]): AppError {
+  const key = normalizeCompetitorDomain(domain.trim())
+  const matches = [...rows].sort((a, b) => a.domain.localeCompare(b.domain)).map(row => ({ id: row.id, domain: row.domain }))
+  return validationError(
+    `Competitor ${key} matches ${matches.length} stored rows (${matches.map(row => row.domain).join(', ')}); `
+    + 'remove the extra row by id (DELETE /projects/{name}/competitors/{id}), or remove the competitor and add it again',
+    { domain: key, matches },
+  )
+}
+
+/**
+ * The one stored row for the competitor `domain` names, in any spelling, or
+ * null when it is not tracked. Throws `duplicateCompetitorRowsError` rather
+ * than pick one of several.
+ */
+export function findStoredCompetitor<T extends { id: string; domain: string }>(rows: readonly T[], domain: string): T | null {
+  const matches = storedCompetitorMatches(rows, domain)
+  if (matches.length > 1) throw duplicateCompetitorRowsError(domain, matches)
+  return matches[0] ?? null
+}
+
 function sameAliases(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((alias, i) => alias === b[i])
 }
@@ -118,32 +169,41 @@ export interface CompetitorSetPlanOptions {
 /**
  * Plan a write against the stored competitors. `replace` makes `writes` the
  * whole domain set (rows not named are removed); otherwise writes merge into
- * the stored set. Retained rows keep their id, provenance and aliases unless a
- * write states aliases. Throws a validation error when a stated alias fails the
- * shared rules (`requireCompetitorAliasPlan`) or when a new domain identifies
- * another competitor's stored alias; a stored alias the project's identity now
- * claims is dropped and reported instead.
+ * the stored set. Writes are normalized to registrable domains and match
+ * stored rows in that form, so a row stored unnormalized is retained, not
+ * duplicated. Retained rows keep their id, domain, provenance and aliases
+ * unless a write states aliases. Throws a validation error when a stated alias
+ * fails the shared rules (`requireCompetitorAliasPlan`), when a new domain
+ * identifies another competitor's stored alias, or when a write states
+ * aliases for a competitor stored as several rows; a stored alias the
+ * project's identity now claims is dropped and reported instead.
  */
 export function planCompetitorSet(
   stored: readonly StoredCompetitor[],
   writes: readonly CompetitorWrite[],
   opts: CompetitorSetPlanOptions,
 ): CompetitorSetPlan {
-  const writeByDomain = new Map(writes.map(write => [write.domain, write]))
+  const writeByDomain = new Map(mergeCompetitorWrites(writes).map(write => [write.domain, write]))
   const storedByDomain = new Map(stored.map(row => [row.domain, row]))
-  const removed = opts.replace ? stored.filter(row => !writeByDomain.has(row.domain)) : []
-  const retained = stored.filter(row => !opts.replace || writeByDomain.has(row.domain))
-  const added = writes.filter(write => !storedByDomain.has(write.domain)).map(write => write.domain)
+  const storedKeys = new Set(stored.map(row => normalizeCompetitorDomain(row.domain)))
+  for (const write of writeByDomain.values()) {
+    if (write.aliases === undefined) continue
+    const matches = storedCompetitorMatches(stored, write.domain)
+    if (matches.length > 1) throw duplicateCompetitorRowsError(write.domain, matches)
+  }
+  const writeFor = (row: StoredCompetitor) => writeByDomain.get(normalizeCompetitorDomain(row.domain))
+  const removed = opts.replace ? stored.filter(row => !writeFor(row)) : []
+  const retained = stored.filter(row => !opts.replace || writeFor(row))
+  const added = [...writeByDomain.keys()].filter(domain => !storedKeys.has(domain))
 
-  const entryFor = (domain: string, storedAliases: readonly string[], isNew: boolean): CompetitorAliasPlanEntry => {
-    const write = writeByDomain.get(domain)
+  const entryFor = (domain: string, write: CompetitorWrite | undefined, storedAliases: readonly string[], isNew: boolean): CompetitorAliasPlanEntry => {
     if (!write || write.aliases === undefined) return { domain, aliases: storedAliases, explicit: false, added: isNew }
     const aliases = write.aliasMode === 'add' ? [...storedAliases, ...write.aliases] : write.aliases
     return { domain, aliases, explicit: true, added: isNew }
   }
   const entries = [
-    ...retained.map(row => entryFor(row.domain, row.aliases, false)),
-    ...added.map(domain => entryFor(domain, [], true)),
+    ...retained.map(row => entryFor(row.domain, writeFor(row), row.aliases, false)),
+    ...added.map(domain => entryFor(domain, writeByDomain.get(domain), [], true)),
   ]
   const plan = requireCompetitorAliasPlan(entries, opts.project)
 

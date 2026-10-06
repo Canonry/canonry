@@ -147,7 +147,7 @@ describe('PUT /projects/:name/competitors/:domain/aliases', () => {
       { domain: 'ravenwoodbikeinc.example', alias: 'Ravenwood', reason: 'other-competitor', conflictsWith: 'ravenwood.example' },
     ])
 
-    const tooMany = await setAliases('ravenwoodbikeinc.example', Array.from({ length: 11 }, (_, i) => `Ravenwood Crew ${String.fromCharCode(65 + i)}`))
+    const tooMany = await setAliases('ravenwoodbikeinc.example', Array.from({ length: 11 }, (_, i) => `Bike Inc Crew ${String.fromCharCode(65 + i)}`))
     expect(tooMany.statusCode).toBe(400)
     expect(tooMany.json().error.details.overLimit).toEqual([{ domain: 'ravenwoodbikeinc.example', count: 11 }])
 
@@ -253,6 +253,124 @@ describe('a new domain never takes over a stored alias', () => {
     const restated = await apply([{ domain: 'spoketuneworks.example', aliases: ['Spoke Tune Pros'] }, 'tunespoke.example'])
     expect(restated.statusCode, restated.body).toBe(200)
     expect(storedAliases(project.id)).toEqual({ 'spoketuneworks.example': ['Spoke Tune Pros'], 'tunespoke.example': [] })
+  })
+})
+
+describe('an alias never overlaps another competitor\'s name', () => {
+  // The readers match complete adjacent words, so "Tune" on one competitor
+  // and "Tune Spoke" on another would both count an answer naming only
+  // "Tune Spoke". Whichever is written second fails.
+  it('rejects either order through the alias route, and a domain found inside a stored alias, writing nothing', async () => {
+    const project = await createProject()
+    await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: [{ domain: 'qvx.example', aliases: ['Tune'] }, 'spoketuneworks.example'] } })
+    competitorAliasHooks.length = 0
+
+    const longer = await setAliases('spoketuneworks.example', ['Tune Spoke'])
+    expect(longer.statusCode).toBe(400)
+    expect(longer.json().error.code).toBe('VALIDATION_ERROR')
+    expect(longer.json().error.message).toBe(
+      'Invalid competitor aliases: spoketuneworks.example: "Tune Spoke" contains "Tune", a name of qvx.example, so one answer would count both competitors',
+    )
+    expect(longer.json().error.details.rejectedAliases).toEqual([
+      { domain: 'spoketuneworks.example', alias: 'Tune Spoke', reason: 'other-competitor', conflictsWith: 'qvx.example', conflictingName: 'Tune' },
+    ])
+
+    // The other order: "Tune Spoke" stored first, then "Tune".
+    expect((await setAliases('qvx.example', [])).statusCode).toBe(200)
+    expect((await setAliases('spoketuneworks.example', ['Tune Spoke'])).statusCode).toBe(200)
+    const shorter = await setAliases('qvx.example', ['Tune'])
+    expect(shorter.statusCode).toBe(400)
+    expect(shorter.json().error.message).toBe(
+      'Invalid competitor aliases: qvx.example: "Tune" is found inside "Tune Spoke", a name of spoketuneworks.example, so one answer would count both competitors',
+    )
+
+    // A new domain whose label `tune` is a word of the stored alias.
+    const added = await app.inject({ method: 'PUT', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['qvx.example', 'spoketuneworks.example', 'tune.example'] } })
+    expect(added.statusCode).toBe(400)
+    expect(added.json().error.details.rejectedAliases).toEqual([
+      { domain: 'tune.example', alias: 'Tune Spoke', reason: 'claimed-by-alias', conflictsWith: 'spoketuneworks.example', conflictingName: 'tune' },
+    ])
+
+    expect(storedAliases(project.id)).toEqual({ 'qvx.example': [], 'spoketuneworks.example': ['Tune Spoke'] })
+    expect(audits(project.id, 'competitors.aliases-updated')).toHaveLength(2)
+    expect(audits(project.id, 'competitors.replaced')).toHaveLength(0)
+  })
+})
+
+describe('competitor rows stored unnormalized by an older build', () => {
+  function insertCompetitor(projectId: string, domain: string, aliases: string[] = []) {
+    const id = crypto.randomUUID()
+    db.insert(competitors).values({ id, projectId, domain, aliases, provenance: 'discovery:legacy', createdAt: '2026-10-01T00:00:00.000Z' }).run()
+    return id
+  }
+
+  it('resolves a subdomain row by any spelling for alias writes, adds, replace and delete', async () => {
+    const project = await createProject()
+    const legacyId = insertCompetitor(project.id, 'offers.spoketuneworks.example')
+
+    const byRegistrable = await setAliases('spoketuneworks.example', ['TuneSpoke'])
+    expect(byRegistrable.statusCode, byRegistrable.body).toBe(200)
+    expect(byRegistrable.json()).toMatchObject({ id: legacyId, domain: 'offers.spoketuneworks.example', aliases: ['TuneSpoke'] })
+    const byHost = await setAliases('offers.spoketuneworks.example', ['TuneSpoke', 'Spoke Tune Pros'])
+    expect(byHost.statusCode, byHost.body).toBe(200)
+
+    // An add of the registrable form appends to the legacy row instead of
+    // inserting a second row for the same competitor.
+    const appended = await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: [{ domain: 'spoketuneworks.example', aliases: ['Tune Spoke Crew'] }] } })
+    expect(appended.statusCode, appended.body).toBe(200)
+    expect(storedAliases(project.id)).toEqual({ 'offers.spoketuneworks.example': ['TuneSpoke', 'Spoke Tune Pros', 'Tune Spoke Crew'] })
+
+    // A replace that names it keeps the row, its id and its aliases.
+    const replaced = await app.inject({ method: 'PUT', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['spoketuneworks.example', 'qvx.example'] } })
+    expect(replaced.statusCode, replaced.body).toBe(200)
+    expect(db.select().from(competitors).where(eq(competitors.id, legacyId)).get()!.aliases).toEqual(['TuneSpoke', 'Spoke Tune Pros', 'Tune Spoke Crew'])
+    expect(storedAliases(project.id)).toEqual({ 'offers.spoketuneworks.example': ['TuneSpoke', 'Spoke Tune Pros', 'Tune Spoke Crew'], 'qvx.example': [] })
+
+    const deleted = await app.inject({ method: 'DELETE', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['spoketuneworks.example'] } })
+    expect(deleted.statusCode).toBe(200)
+    expect(storedAliases(project.id)).toEqual({ 'qvx.example': [] })
+    expect(JSON.parse(audits(project.id, 'competitors.deleted')[0]!.diff!)).toEqual({
+      deleted: ['offers.spoketuneworks.example'],
+      deletedAliases: { 'offers.spoketuneworks.example': ['TuneSpoke', 'Spoke Tune Pros', 'Tune Spoke Crew'] },
+    })
+  })
+
+  it('refuses an alias write to a competitor stored as two rows, and removes both on delete', async () => {
+    const project = await createProject()
+    insertCompetitor(project.id, 'spoketuneworks.example', ['TuneSpoke'])
+    const legacyId = insertCompetitor(project.id, 'offers.spoketuneworks.example')
+    const ambiguous = 'Competitor spoketuneworks.example matches 2 stored rows (offers.spoketuneworks.example, spoketuneworks.example); '
+      + 'remove the extra row by id (DELETE /projects/{name}/competitors/{id}), or remove the competitor and add it again'
+
+    const alias = await setAliases('spoketuneworks.example', ['Tune Spoke'])
+    expect(alias.statusCode).toBe(400)
+    expect(alias.json().error.code).toBe('VALIDATION_ERROR')
+    expect(alias.json().error.message).toBe(ambiguous)
+    expect(alias.json().error.details).toEqual({
+      domain: 'spoketuneworks.example',
+      matches: [
+        { id: legacyId, domain: 'offers.spoketuneworks.example' },
+        { id: expect.any(String), domain: 'spoketuneworks.example' },
+      ],
+    })
+    const appended = await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: [{ domain: 'offers.spoketuneworks.example', aliases: ['Tune Spoke'] }] } })
+    expect(appended.statusCode).toBe(400)
+    expect(appended.json().error.message).toBe(ambiguous)
+    expect(storedAliases(project.id)).toEqual({ 'spoketuneworks.example': ['TuneSpoke'], 'offers.spoketuneworks.example': [] })
+
+    // Writes that change neither row still work: an unrelated add, and a
+    // domain-only add of the duplicated competitor (nothing to choose).
+    const unrelated = await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['qvx.example', 'spoketuneworks.example'] } })
+    expect(unrelated.statusCode, unrelated.body).toBe(200)
+    expect(storedAliases(project.id)).toEqual({ 'spoketuneworks.example': ['TuneSpoke'], 'offers.spoketuneworks.example': [], 'qvx.example': [] })
+
+    // Removing the competitor removes every row that is it.
+    const deleted = await app.inject({ method: 'DELETE', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['spoketuneworks.example'] } })
+    expect(deleted.statusCode).toBe(200)
+    expect(storedAliases(project.id)).toEqual({ 'qvx.example': [] })
+    const diff = JSON.parse(audits(project.id, 'competitors.deleted')[0]!.diff!) as { deleted: string[]; deletedAliases: unknown }
+    expect([...diff.deleted].sort()).toEqual(['offers.spoketuneworks.example', 'spoketuneworks.example'])
+    expect(diff.deletedAliases).toEqual({ 'spoketuneworks.example': ['TuneSpoke'] })
   })
 })
 

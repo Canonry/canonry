@@ -2329,6 +2329,8 @@ export const postApiV1ProjectsByNameKeywordsGenerateMutation = (options?: Partia
 
 /**
  * Delete specific competitors
+ *
+ * Removes every stored row that is one of the listed competitors in any spelling (`www.`, a subdomain, or a row stored as a subdomain), and records their curated aliases on the audit row.
  */
 export const deleteApiV1ProjectsByNameCompetitorsMutation = (options?: Partial<Options<DeleteApiV1ProjectsByNameCompetitorsData>>): UseMutationOptions<DeleteApiV1ProjectsByNameCompetitorsResponse, DeleteApiV1ProjectsByNameCompetitorsError, Options<DeleteApiV1ProjectsByNameCompetitorsData>> => {
     const mutationOptions: UseMutationOptions<DeleteApiV1ProjectsByNameCompetitorsResponse, DeleteApiV1ProjectsByNameCompetitorsError, Options<DeleteApiV1ProjectsByNameCompetitorsData>> = {
@@ -2367,7 +2369,7 @@ export const getApiV1ProjectsByNameCompetitorsOptions = (options: Options<GetApi
 /**
  * Append competitors
  *
- * Adds competitors not already tracked. Each entry is a domain or `{ domain, aliases }`; stated aliases are added to that competitor's curated alias list (also for an already-tracked domain) and must pass the alias rules (at most 10 per competitor, 80 characters each, at least 3 letters or digits, not found inside one of the project's own names or hosts, not another competitor's name). A bare domain leaves stored aliases unchanged. A new domain whose name is another competitor's curated alias is rejected (400, reason `claimed-by-alias`) until that alias is removed.
+ * Adds competitors not already tracked. Each entry is a domain or `{ domain, aliases }`; stated aliases are added to that competitor's curated alias list (also for an already-tracked domain) and must pass the alias rules (at most 10 per competitor, 80 characters each, at least 3 letters or digits, no overlap as complete words, in either direction, with one of the project's own names or hosts or with another competitor's name, so "Tune" and "Tune Spoke" cannot belong to different competitors). A bare domain leaves stored aliases unchanged. A new domain whose name overlaps another competitor's curated alias as complete words is rejected (400, reason `claimed-by-alias`) until that alias is removed.
  */
 export const postApiV1ProjectsByNameCompetitorsMutation = (options?: Partial<Options<PostApiV1ProjectsByNameCompetitorsData>>): UseMutationOptions<PostApiV1ProjectsByNameCompetitorsResponse, PostApiV1ProjectsByNameCompetitorsError, Options<PostApiV1ProjectsByNameCompetitorsData>> => {
     const mutationOptions: UseMutationOptions<PostApiV1ProjectsByNameCompetitorsResponse, PostApiV1ProjectsByNameCompetitorsError, Options<PostApiV1ProjectsByNameCompetitorsData>> = {
@@ -2386,7 +2388,7 @@ export const postApiV1ProjectsByNameCompetitorsMutation = (options?: Partial<Opt
 /**
  * Replace competitors
  *
- * Replaces the tracked competitor domain set. A domain that stays keeps its row and its curated aliases; use PUT /projects/{name}/competitors/{domain}/aliases to change aliases. A new domain whose name is another competitor's curated alias is rejected (400, reason `claimed-by-alias`) until that alias is removed.
+ * Replaces the tracked competitor domain set. A domain that stays keeps its row and its curated aliases; use PUT /projects/{name}/competitors/{domain}/aliases to change aliases. A new domain whose name overlaps another competitor's curated alias as complete words is rejected (400, reason `claimed-by-alias`) until that alias is removed.
  */
 export const putApiV1ProjectsByNameCompetitorsMutation = (options?: Partial<Options<PutApiV1ProjectsByNameCompetitorsData>>): UseMutationOptions<PutApiV1ProjectsByNameCompetitorsResponse, DefaultError, Options<PutApiV1ProjectsByNameCompetitorsData>> => {
     const mutationOptions: UseMutationOptions<PutApiV1ProjectsByNameCompetitorsResponse, DefaultError, Options<PutApiV1ProjectsByNameCompetitorsData>> = {
@@ -2405,7 +2407,7 @@ export const putApiV1ProjectsByNameCompetitorsMutation = (options?: Partial<Opti
 /**
  * Set competitor aliases
  *
- * Sets one tracked competitor's operator-curated aliases exactly (`[]` clears): the names it goes by in answer text when they differ from its domain. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) layers them onto the domain label at read time; stored per-snapshot competitor columns are recomputed in the background, and frozen Simple run definitions and Advanced plan revisions keep the identity they were measured with. Aliases are trimmed and deduplicated case-insensitively; at most 10, each 80 characters or fewer with at least 3 letters or digits, never found as whole words in one of the project's own names or hosts (nor a host on the project's site), and never a name another tracked competitor answers to. Idempotent: an unchanged list writes nothing.
+ * Sets one tracked competitor's operator-curated aliases exactly (`[]` clears): the names it goes by in answer text when they differ from its domain. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) layers them onto the domain label at read time; stored per-snapshot competitor columns are recomputed in the background, and frozen Simple run definitions and Advanced plan revisions keep the identity they were measured with. Aliases are trimmed and deduplicated case-insensitively; at most 10, each 80 characters or fewer with at least 3 letters or digits, never overlapping as complete words, in either direction, one of the project's own names or hosts (nor a host on the project's site) or a name another tracked competitor answers to (its aliases, domain label or written host), so "Tune" and "Tune Spoke" cannot belong to different competitors. Idempotent: an unchanged list writes nothing.
  */
 export const putApiV1ProjectsByNameCompetitorsByDomainAliasesMutation = (options?: Partial<Options<PutApiV1ProjectsByNameCompetitorsByDomainAliasesData>>): UseMutationOptions<PutApiV1ProjectsByNameCompetitorsByDomainAliasesResponse, PutApiV1ProjectsByNameCompetitorsByDomainAliasesError, Options<PutApiV1ProjectsByNameCompetitorsByDomainAliasesData>> => {
     const mutationOptions: UseMutationOptions<PutApiV1ProjectsByNameCompetitorsByDomainAliasesResponse, PutApiV1ProjectsByNameCompetitorsByDomainAliasesError, Options<PutApiV1ProjectsByNameCompetitorsByDomainAliasesData>> = {

@@ -1950,6 +1950,63 @@ describe('POST /discover/sessions/:id/promote', () => {
     expect(db.select().from(competitors).all().find(c => c.domain === 'halopanel.test')!.provenance).toBe(`discovery:${sessionId}`)
   })
 
+  it('stores a promoted subdomain as its registrable domain, so its aliases can be set', async () => {
+    const { app, db, tmpDir } = buildAppWithRoutes()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db) // tracks amberfield-solar.test, emberflow.test
+    const sessionId = seedSession(db, projectId, {
+      competitorMap: [
+        { domain: 'offers.halopanel.test', hits: 3 },
+        { domain: 'shop.emberflow.test', hits: 2 }, // a tracked competitor's subdomain
+      ],
+    })
+
+    const preview = await app.inject({ method: 'GET', url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote` })
+    expect(preview.json().suggestedCompetitors.map((entry: { domain: string }) => entry.domain)).toEqual(['halopanel.test'])
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
+      payload: {},
+    })
+    expect(response.statusCode, response.body).toBe(200)
+    const body = response.json() as DiscoveryPromoteResult
+    expect(body.promoted.competitors).toEqual(['halopanel.test'])
+    expect(body.skipped.competitors).toEqual(['emberflow.test'])
+    expect(db.select({ domain: competitors.domain }).from(competitors).all().map(row => row.domain).sort())
+      .toEqual(['amberfield-solar.test', 'emberflow.test', 'halopanel.test'])
+
+    for (const spelling of ['offers.halopanel.test', 'halopanel.test']) {
+      const aliases = await app.inject({
+        method: 'PUT',
+        url: `/api/v1/projects/harbor-iq/competitors/${spelling}/aliases`,
+        payload: { aliases: ['Halo Panel'] },
+      })
+      expect(aliases.statusCode, aliases.body).toBe(200)
+      expect(aliases.json()).toMatchObject({ domain: 'halopanel.test', aliases: ['Halo Panel'] })
+    }
+  })
+
+  it('refuses to promote a domain whose name is found inside another competitor\'s curated alias', async () => {
+    const { app, db, tmpDir } = buildAppWithRoutes()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db)
+    db.update(competitors).set({ aliases: ['Halopanel Pros'] })
+      .where(eq(competitors.domain, 'amberfield-solar.test')).run()
+    const sessionId = seedSession(db, projectId, { competitorMap: [{ domain: 'halopanel.test', hits: 2 }] })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
+      payload: {},
+    })
+    expect(response.statusCode).toBe(400)
+    expect(response.json().error.details.rejectedAliases).toEqual([
+      { domain: 'halopanel.test', alias: 'Halopanel Pros', reason: 'claimed-by-alias', conflictsWith: 'amberfield-solar.test', conflictingName: 'halopanel' },
+    ])
+    expect(db.select().from(competitors).all().map(row => row.domain).sort()).toEqual(['amberfield-solar.test', 'emberflow.test'])
+  })
+
   it('promotes only the requested buckets, including wasted-surface when explicit, and skips competitors when includeCompetitors is false', async () => {
     const { app, db, tmpDir } = buildAppWithRoutes()
     cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))

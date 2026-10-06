@@ -1,8 +1,15 @@
 import { z } from 'zod'
 import { MIN_BRAND_ALIAS_KEY_LENGTH, MIN_DOMAIN_BRAND_KEY_LENGTH, usableBrandAliases } from './answer-visibility.js'
-import { brandKeyFromText, compileBrandAliases, matcherMatchesText, prepareBrandMatchText } from './brand-matching.js'
+import {
+  brandKeyFromText,
+  compileBrandAliases,
+  matcherMatchesText,
+  prepareBrandMatchText,
+  type BrandAliasMatcher,
+  type PreparedBrandMatchText,
+} from './brand-matching.js'
 import { validationError } from './errors.js'
-import { brandLabelFromDomain, hostMatchesDomain, hostOf } from './url-normalize.js'
+import { brandLabelFromDomain, hostMatchesDomain, hostOf, normalizeCompetitorDomain } from './url-normalize.js'
 
 /**
  * OPERATOR-CURATED COMPETITOR ALIASES.
@@ -80,17 +87,39 @@ export function competitorBrandAliases(competitor: CompetitorIdentityInput): str
   ])
 }
 
-/** Brand keys a competitor's domain alone contributes (gated label, written host). */
-function domainIdentityKeys(domain: string): string[] {
-  const keys: string[] = []
-  const labelKey = brandKeyFromText(brandLabelFromDomain(domain))
-  if (labelKey.length >= MIN_DOMAIN_BRAND_KEY_LENGTH) keys.push(labelKey)
-  const host = hostOf(domain)
-  if (host?.includes('.')) {
-    const hostKey = brandKeyFromText(host)
-    if (hostKey) keys.push(hostKey)
-  }
-  return keys
+/**
+ * One identity name prepared for the overlap checks: its key, the name read as
+ * answer text, and a matcher for the name alone.
+ */
+interface IdentityName {
+  name: string
+  key: string
+  text: PreparedBrandMatchText | null
+  matcher: BrandAliasMatcher
+}
+
+function identityName(name: string): IdentityName {
+  return { name, key: brandKeyFromText(name), text: prepareBrandMatchText(name), matcher: compileBrandAliases([name]) }
+}
+
+/** `inner` is found in `outer` as complete adjacent words (equal keys included). */
+function foundIn(inner: IdentityName, outer: IdentityName): boolean {
+  return matcherMatchesText(inner.matcher, outer.text)
+}
+
+/**
+ * Two names overlap when either is found inside the other as complete adjacent
+ * words, which is exactly when the readers' matcher counts an answer naming
+ * the longer one for both owners: "Tune" and "Tune Spoke" overlap, "Tune" and
+ * "TuneSpoke" (one word) or "Tuner" do not.
+ */
+function namesOverlap(a: IdentityName, b: IdentityName): boolean {
+  return foundIn(a, b) || foundIn(b, a)
+}
+
+/** How an alias overlaps a different name, for a rejection message. */
+function overlapRelation(alias: string, name: string): string {
+  return foundIn(identityName(alias), identityName(name)) ? `is found inside "${name}"` : `contains "${name}"`
 }
 
 export type CompetitorAliasRejectionReason =
@@ -114,6 +143,14 @@ export interface CompetitorAliasRejection {
    * domain would take over ('claimed-by-alias').
    */
   conflictsWith?: string
+  /**
+   * The other identity's name the alias overlaps, when it is a different name
+   * that one of the two is found inside as complete words ("Tune" and
+   * "Tune Spoke"): another competitor's alias, domain label or written host,
+   * the new competitor's domain name ('claimed-by-alias'), or a project name
+   * the alias contains ('project-brand'). Absent when the names are the same.
+   */
+  conflictingName?: string
 }
 
 export interface CompetitorAliasPlanEntry {
@@ -158,9 +195,16 @@ export interface CompetitorAliasPlan {
 
 interface AliasConflict {
   domain: string
+  /** The other competitor's name the alias overlaps. */
+  name: IdentityName
   /** The name is the other competitor's domain identity, not one of its aliases. */
   viaDomain: boolean
   added: boolean
+}
+
+/** The overlapping name, recorded only when it is not the alias itself. */
+function conflictingNameField(alias: IdentityName, other: IdentityName): { conflictingName?: string } {
+  return other.key === alias.key ? {} : { conflictingName: other.name }
 }
 
 /**
@@ -169,23 +213,34 @@ interface AliasConflict {
  * would count the project as its own competitor, and a name another tracked
  * competitor already answers to would credit one answer to both.
  *
+ * Every overlap check uses the readers' matcher (`compileBrandAliases` over
+ * `prepareBrandMatchText`): two names overlap when either is found inside the
+ * other as complete adjacent words, because an answer naming the longer one
+ * then counts both owners ("Tune" and "Tune Spoke"). Equal names are the
+ * simplest overlap. Different words never overlap ("Tune", "Tuner",
+ * "TuneSpoke").
+ *
  * Rules per alias (after `normalizeCompetitorAliases`): at most
  * `COMPETITOR_ALIAS_MAX_LENGTH` characters; a brand key of at least
- * `MIN_BRAND_ALIAS_KEY_LENGTH` letters or digits; not found as complete words
- * in any project brand name or project host, and not a host on the project's
- * own site (so neither `Acme`, `acmecycles.example` nor
- * `shop.acmecycles.example` can be a competitor alias of the project "Acme
- * Cycles" at `acmecycles.example`, since the matcher would count mentions of
- * the project); not a brand key another competitor's domain or aliases
- * contribute.
+ * `MIN_BRAND_ALIAS_KEY_LENGTH` letters or digits; no overlap with any project
+ * brand name or project host, and not a host on the project's own site (so
+ * neither `Acme`, `acmecycles.example`, `shop.acmecycles.example` nor
+ * `Acme Cycles Outlet` can be a competitor alias of the project "Acme Cycles"
+ * at `acmecycles.example`, since the matcher would count mentions of the
+ * project); no overlap with any identity name of another competitor: its
+ * curated aliases, its domain label when that passes the domain floor, and its
+ * written host (`competitorBrandAliases`). Rows that normalize to the same
+ * registrable domain are one competitor. Two competitors' domains are not
+ * compared with each other: that overlap predates aliases and is not a
+ * curated-alias problem.
  *
  * Outcomes: an explicit list is checked against every other competitor, and a
- * failing alias rejects the write. A new competitor whose domain identifies a
- * carried-over alias of another competitor rejects the write too
+ * failing alias rejects the write. A new competitor whose domain name overlaps
+ * a carried-over alias of another competitor rejects the write too
  * ('claimed-by-alias'), so neither kind of write ever silently strips another
  * competitor's alias. A carried-over alias is dropped and reported only when
  * nothing in the write states it: the project's identity now claims the name,
- * or stored lists already disagree with each other.
+ * or stored lists already overlap each other.
  */
 export function planCompetitorAliases(
   entries: readonly CompetitorAliasPlanEntry[],
@@ -194,35 +249,45 @@ export function planCompetitorAliases(
   const projectNames = [
     ...project.brandNames,
     ...project.domains.map(domain => hostOf(domain) ?? domain.trim().toLowerCase()),
-  ].flatMap(name => prepareBrandMatchText(name) ?? [])
-  const claimsProjectName = (alias: string): boolean => {
+  ].map(identityName).filter(name => name.key)
+  /**
+   * The project name an alias overlaps: `undefined` when none, `null` when the
+   * alias is found inside a project name (or is a host on the project's site),
+   * and the name itself when the alias contains a project name.
+   */
+  const projectClaim = (alias: IdentityName): IdentityName | null | undefined => {
     // A host-shaped alias on the project's own site (`www.` or any subdomain)
     // names the project however it is spelled.
-    if (alias.includes('.') && !/\s/.test(alias) && project.domains.some(domain => hostMatchesDomain(alias, domain))) return true
-    const matcher = compileBrandAliases([alias])
-    return projectNames.some(name => matcherMatchesText(matcher, name))
+    if (alias.name.includes('.') && !/\s/.test(alias.name) && project.domains.some(domain => hostMatchesDomain(alias.name, domain))) return null
+    if (projectNames.some(name => foundIn(alias, name))) return null
+    return projectNames.find(name => foundIn(name, alias))
   }
-  const normalized = entries.map(entry => ({
-    domain: entry.domain,
-    explicit: entry.explicit,
-    added: entry.added === true,
-    aliases: normalizeCompetitorAliases(entry.aliases),
-    domainKeys: domainIdentityKeys(entry.domain),
-  }))
+  const normalized = entries.map((entry) => {
+    const aliases = normalizeCompetitorAliases(entry.aliases)
+    return {
+      domain: entry.domain,
+      competitorKey: normalizeCompetitorDomain(entry.domain),
+      explicit: entry.explicit,
+      added: entry.added === true,
+      aliases,
+      aliasNames: usableBrandAliases(aliases).map(identityName),
+      domainNames: competitorBrandAliases({ domain: entry.domain }).map(identityName),
+    }
+  })
   const rejected: CompetitorAliasRejection[] = []
   const dropped: CompetitorAliasRejection[] = []
   const overLimit: { domain: string; count: number }[] = []
 
-  const conflictFor = (index: number, key: string, explicit: boolean): AliasConflict | null => {
+  const conflictFor = (index: number, alias: IdentityName, explicit: boolean): AliasConflict | null => {
     for (let other = 0; other < normalized.length; other++) {
       if (other === index) continue
       const entry = normalized[other]!
-      if (entry.domain === normalized[index]!.domain) continue
-      if (entry.domainKeys.includes(key)) return { domain: entry.domain, viaDomain: true, added: entry.added }
+      if (entry.competitorKey === normalized[index]!.competitorKey) continue
+      const domainName = entry.domainNames.find(name => namesOverlap(alias, name))
+      if (domainName) return { domain: entry.domain, name: domainName, viaDomain: true, added: entry.added }
       if (!explicit && entry.explicit) continue
-      if (entry.aliases.some(alias => brandKeyFromText(alias) === key)) {
-        return { domain: entry.domain, viaDomain: false, added: entry.added }
-      }
+      const aliasName = entry.aliasNames.find(name => namesOverlap(alias, name))
+      if (aliasName) return { domain: entry.domain, name: aliasName, viaDomain: false, added: entry.added }
     }
     return null
   }
@@ -230,23 +295,40 @@ export function planCompetitorAliases(
   const competitors = normalized.map((entry, index) => {
     const kept: string[] = []
     for (const alias of entry.aliases) {
-      const key = brandKeyFromText(alias)
+      const name = identityName(alias)
       let rejection: CompetitorAliasRejection | null = null
       if (alias.length > COMPETITOR_ALIAS_MAX_LENGTH) {
         rejection = { domain: entry.domain, alias, reason: 'too-long' }
-      } else if (key.length < MIN_BRAND_ALIAS_KEY_LENGTH) {
+      } else if (name.key.length < MIN_BRAND_ALIAS_KEY_LENGTH) {
         rejection = { domain: entry.domain, alias, reason: 'too-short' }
-      } else if (claimsProjectName(alias)) {
-        rejection = { domain: entry.domain, alias, reason: 'project-brand' }
       } else {
-        const conflict = conflictFor(index, key, entry.explicit)
-        if (conflict && !entry.explicit && conflict.viaDomain && conflict.added) {
-          // The new competitor is blocked; the stored alias stays as it was.
-          rejected.push({ domain: conflict.domain, alias, reason: 'claimed-by-alias', conflictsWith: entry.domain })
-          kept.push(alias)
-          continue
+        const claim = projectClaim(name)
+        if (claim !== undefined) {
+          rejection = { domain: entry.domain, alias, reason: 'project-brand', ...(claim ? conflictingNameField(name, claim) : {}) }
+        } else {
+          const conflict = conflictFor(index, name, entry.explicit)
+          if (conflict && !entry.explicit && conflict.viaDomain && conflict.added) {
+            // The new competitor is blocked; the stored alias stays as it was.
+            rejected.push({
+              domain: conflict.domain,
+              alias,
+              reason: 'claimed-by-alias',
+              conflictsWith: entry.domain,
+              ...conflictingNameField(name, conflict.name),
+            })
+            kept.push(alias)
+            continue
+          }
+          if (conflict) {
+            rejection = {
+              domain: entry.domain,
+              alias,
+              reason: 'other-competitor',
+              conflictsWith: conflict.domain,
+              ...conflictingNameField(name, conflict.name),
+            }
+          }
         }
-        if (conflict) rejection = { domain: entry.domain, alias, reason: 'other-competitor', conflictsWith: conflict.domain }
       }
       if (rejection) (entry.explicit ? rejected : dropped).push(rejection)
       else kept.push(alias)
@@ -268,11 +350,22 @@ function describeRejection(rejection: CompetitorAliasRejection): string {
     case 'too-short':
       return `"${rejection.alias}" is too short: an alias needs at least ${MIN_BRAND_ALIAS_KEY_LENGTH} letters or digits`
     case 'project-brand':
-      return `"${rejection.alias}" is one of the project's own brand names, so it would count the project as a competitor`
-    case 'other-competitor':
-      return `"${rejection.alias}" already identifies ${rejection.conflictsWith ?? 'another tracked competitor'}`
-    case 'claimed-by-alias':
-      return `cannot be added while "${rejection.alias}" is a curated alias of ${rejection.conflictsWith ?? 'another tracked competitor'}; remove or restate that alias first`
+      return rejection.conflictingName
+        ? `"${rejection.alias}" contains "${rejection.conflictingName}", one of the project's own names, so an answer naming it would also count the project`
+        : `"${rejection.alias}" is one of the project's own brand names, so it would count the project as a competitor`
+    case 'other-competitor': {
+      const other = rejection.conflictsWith ?? 'another tracked competitor'
+      return rejection.conflictingName
+        ? `"${rejection.alias}" ${overlapRelation(rejection.alias, rejection.conflictingName)}, a name of ${other}, so one answer would count both competitors`
+        : `"${rejection.alias}" already identifies ${other}`
+    }
+    case 'claimed-by-alias': {
+      const owner = rejection.conflictsWith ?? 'another tracked competitor'
+      const overlap = rejection.conflictingName
+        ? ` (it ${overlapRelation(rejection.alias, rejection.conflictingName)}, a name of ${rejection.domain}, so one answer would count both competitors)`
+        : ''
+      return `cannot be added while "${rejection.alias}" is a curated alias of ${owner}${overlap}; remove or restate that alias first`
+    }
   }
 }
 

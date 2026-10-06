@@ -29,6 +29,7 @@ import {
   discoveryRunRequestSchema,
   effectiveDomains,
   gateHarvestedSearchQueries,
+  normalizeCompetitorDomain,
   notFound,
   orderLocationsDefaultFirst,
   resolveLocations,
@@ -502,14 +503,13 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
         .from(discoveryProbes)
         .where(eq(discoveryProbes.sessionId, session.id))
         .all()
-      const existingCompetitors = app.db
+      const trackedCompetitors = app.db
         .select({ domain: competitors.domain })
         .from(competitors)
         .where(eq(competitors.projectId, project.id))
         .all()
-        .map(r => r.domain.toLowerCase())
+        .map(r => r.domain)
 
-      const seenCompetitors = new Set(existingCompetitors)
       const cited = new Set<string>()
       const aspirational = new Set<string>()
       const wasted = new Set<string>()
@@ -526,8 +526,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
       // promote adopts by default (direct-competitor) vs. what needs an
       // explicit `--competitor-types` override.
       const competitorMap = parseCompetitorMap(session.competitorMap)
-      const newCompetitors = selectEligibleCompetitors(competitorMap)
-        .filter(entry => !seenCompetitors.has(entry.domain.toLowerCase()))
+      const newCompetitors = planCompetitorPromotion(competitorMap, trackedCompetitors).promote
 
       return reply.send({
         sessionId: session.id,
@@ -629,27 +628,19 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
     const promotedCompetitors: string[] = []
     const skippedCompetitors: string[] = []
     if (includeCompetitors) {
-      const existingCompetitors = new Set(
-        app.db
-          .select({ domain: competitors.domain })
-          .from(competitors)
-          .where(eq(competitors.projectId, project.id))
-          .all()
-          .map(r => r.domain.toLowerCase()),
-      )
+      const trackedCompetitors = app.db
+        .select({ domain: competitors.domain })
+        .from(competitors)
+        .where(eq(competitors.projectId, project.id))
+        .all()
+        .map(r => r.domain)
       // Mirror the GET preview's recurrence + cap policy, narrowed to the
       // requested competitor types; existing domains are returned as skipped
       // for idempotency instead of being inserted again.
       const competitorMap = parseCompetitorMap(session.competitorMap)
-      for (const entry of selectEligibleCompetitors(competitorMap, competitorTypes)) {
-        const key = entry.domain.toLowerCase()
-        if (existingCompetitors.has(key)) {
-          skippedCompetitors.push(entry.domain)
-        } else {
-          promotedCompetitors.push(entry.domain)
-          existingCompetitors.add(key)
-        }
-      }
+      const promotion = planCompetitorPromotion(competitorMap, trackedCompetitors, competitorTypes)
+      promotedCompetitors.push(...promotion.promote.map(entry => entry.domain))
+      skippedCompetitors.push(...promotion.skipped)
     }
 
     const provenance = `discovery:${session.id}`
@@ -777,6 +768,33 @@ function parseCompetitorMap(
     hits: entry.hits,
     competitorType: entry.competitorType ?? DiscoveryCompetitorTypes.unknown,
   }))
+}
+
+/**
+ * The recurring competitors a promote adds, in the registrable form every
+ * competitor write stores (`normalizeCompetitorDomain`), so a cited subdomain
+ * (`offers.rival.example`) is promoted as `rival.example` and later reachable
+ * by every by-domain route. Stored rows compare in the same form, so a
+ * competitor already tracked under any spelling is skipped, and two map
+ * entries for one competitor promote once (the higher-hit entry wins).
+ */
+function planCompetitorPromotion(
+  competitorMap: readonly DiscoveryCompetitorMapEntry[],
+  trackedDomains: readonly string[],
+  competitorTypes?: readonly DiscoveryCompetitorType[],
+): { promote: DiscoveryCompetitorMapEntry[]; skipped: string[] } {
+  const tracked = new Set(trackedDomains.map(normalizeCompetitorDomain))
+  const seen = new Set<string>()
+  const promote: DiscoveryCompetitorMapEntry[] = []
+  const skipped: string[] = []
+  for (const entry of selectEligibleCompetitors(competitorMap, competitorTypes)) {
+    const domain = normalizeCompetitorDomain(entry.domain.trim())
+    if (!domain || seen.has(domain)) continue
+    seen.add(domain)
+    if (tracked.has(domain)) skipped.push(domain)
+    else promote.push({ ...entry, domain })
+  }
+  return { promote, skipped }
 }
 
 /**
