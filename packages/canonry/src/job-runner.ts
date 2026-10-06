@@ -23,6 +23,7 @@ import {
   extractRecommendedCompetitors,
 } from './citation-utils.js'
 import { captureCitedUrls, type CitedUrlCapture } from './cited-url-capture.js'
+import { backfillProjectAnswerMentions } from './commands/backfill.js'
 
 const log = createLogger('JobRunner')
 
@@ -87,6 +88,8 @@ interface RunRecordingContext {
    */
   competitorsFor: (executionId: string | null) => RunCompetitors
   allBrandNames: string[]
+  /** The project competitors this context read, as `competitorIdentityKey` spells them. */
+  competitorIdentity: string
 }
 
 /** What `recordSlot` needs: the run's identity and where a recorded answer is reported. */
@@ -318,6 +321,16 @@ function runOutcome(inserted: number, providerErrors: ReadonlyMap<ProviderName, 
 }
 
 /**
+ * The project competitors and their curated aliases as one comparable value,
+ * so a writer can tell whether the names it scored with are still current.
+ */
+function competitorIdentityKey(rows: readonly CompetitorIdentityInput[]): string {
+  return JSON.stringify(rows
+    .map(row => ({ domain: row.domain, aliases: normalizeCompetitorAliases(row.aliases) }))
+    .sort((left, right) => left.domain.localeCompare(right.domain)))
+}
+
+/**
  * Build the identity one run's answers are scored against from rows already
  * read. The sweep calls it with its own reads; a path that joins the run later
  * goes through `JobRunner.buildRunRecordingContext`, which reads them the same
@@ -339,6 +352,7 @@ function runRecordingContext(
     allDomains: effectiveDomains({ canonicalDomain: input.project.canonicalDomain, ownedDomains: input.project.ownedDomains }),
     competitorsFor: executionId => resolveCompetitors(input.measurementPlanVersionId, executionId),
     allBrandNames: effectiveBrandNames({ displayName: input.project.displayName, aliases: input.project.aliases }),
+    competitorIdentity: competitorIdentityKey(input.competitors),
   }
 }
 
@@ -711,6 +725,8 @@ export class JobRunner {
     let planExecution: PlanExecution | null = null
     let runTrigger: string | undefined
     let canonicalDomain: string | undefined
+    // Set once the sweep has read the identity it scores answers with.
+    let recording: RunRecordingContext | undefined
     const providerDispatchCounts = new Map<ProviderName, number>()
     const providerReservations = new Map<ProviderName, { scope: string; period: string; reserved: number }>()
     // The provider batches this sweep writes, so a failure or a cancellation
@@ -850,7 +866,7 @@ export class JobRunner {
       // on the groups that use its question, so a project whose competitor
       // list was never filled in still measures them, market by market. The
       // planless path below keeps using exactly the project list.
-      const recording = runRecordingContext(this.db, {
+      recording = runRecordingContext(this.db, {
         runId,
         measurementPlanVersionId: existingRun.measurementPlanVersionId,
         project,
@@ -1213,6 +1229,9 @@ export class JobRunner {
         }
       }
       providerCallEnd = Date.now()
+      // Every sync answer is stored. Before the run is finalized or handed to
+      // the batch poller, bring its competitor columns to the names saved last.
+      this.reconcileRunCompetitorFields(recording, projectId)
 
       this.throwIfRunCancelled(runId)
 
@@ -1266,6 +1285,8 @@ export class JobRunner {
       // cancellation it is.
       if (!finalized && this.isRunCancelled(runId)) throw new RunCancelledError(runId)
     } catch (err: unknown) {
+      // A cancelled or failed sweep keeps the answers it stored.
+      if (recording) this.reconcileRunCompetitorFields(recording, projectId)
       const executionContext: RunExecutionContext = {
         providerCount: activeProviders.length,
         providers: activeProviders.map(provider => provider.adapter.name),
@@ -2094,6 +2115,9 @@ export class JobRunner {
       if (!(failure instanceof RunCancelledError)) throw failure
       this.markBatchesCancelled([batch.id], 'Cancelled because its run is no longer running.')
       return { kind: 'cancelled' }
+    } finally {
+      // After the last chunk this ingest commits, and before it can finalize the run.
+      this.reconcileRunCompetitorFields(ctx, batch.projectId)
     }
     return this.completeBatchIngest(batch)
   }
@@ -2310,6 +2334,8 @@ export class JobRunner {
     let filled = 0
     let fatal: string | null = null
     let superseded = false
+    // Hoisted so a cancelled or failed fill still reconciles what it wrote.
+    let recording: RunRecordingContext | undefined
 
     try {
       const run = this.getRunState(runId)
@@ -2317,7 +2343,7 @@ export class JobRunner {
       if (run.status !== 'partial') throw new Error(`Run ${runId} is ${run.status}; only a partial run can be filled`)
       const runCreatedAt = this.db.select({ createdAt: runs.createdAt }).from(runs).where(eq(runs.id, runId)).get()!.createdAt
       // The same identity the sweep matched against, read the same way.
-      const recording = this.buildRunRecordingContext(runId, projectId)
+      recording = this.buildRunRecordingContext(runId, projectId)
       const projectQueries = this.db.select().from(queries).where(eq(queries.projectId, projectId)).all()
       const plan = resolvePlanExecution(run, projectQueries)
       if (!plan) throw new Error(`Run ${runId} did not measure a published plan`)
@@ -2449,6 +2475,9 @@ export class JobRunner {
       fatal = describeError(err)
       log.error('fill.failed', { fillId, runId, error: fatal })
     } finally {
+      // After the last write, success, cancel or failure alike: answers stored
+      // after a mid-fill alias edit are rescored against the current names.
+      if (recording) this.reconcileRunCompetitorFields(recording, projectId)
       this.flushProviderUsage(providerDispatchCounts, providerReservations)
     }
 
@@ -2794,6 +2823,33 @@ export class JobRunner {
       project,
       competitors: projectCompetitors,
     })
+  }
+
+  /**
+   * Rescore a run's stored competitor columns when the project's competitors
+   * changed after `recording` read them.
+   *
+   * Saving a competitor alias rescores the stored answers once
+   * (`onCompetitorAliasesChanged`). A writer that read the names before the
+   * edit keeps scoring with them, so an answer it stores afterwards would
+   * disagree with an identical one the edit rescored. Each writer calls this
+   * after its last write: when its names are no longer current, the whole run
+   * gets the same competitor-only pass the edit ran. A failure is logged and
+   * never fails the writer.
+   */
+  private reconcileRunCompetitorFields(recording: RunRecordingContext, projectId: string): void {
+    try {
+      const current = this.db
+        .select({ domain: competitors.domain, aliases: competitors.aliases })
+        .from(competitors)
+        .where(eq(competitors.projectId, projectId))
+        .all()
+      if (competitorIdentityKey(current) === recording.competitorIdentity) return
+      const result = backfillProjectAnswerMentions(this.db, projectId, { competitorFieldsOnly: true, runId: recording.runId })
+      log.info('run.competitor-fields-rescored', { runId: recording.runId, projectId, ...result })
+    } catch (err: unknown) {
+      log.error('run.competitor-fields-rescore-failed', { runId: recording.runId, projectId, error: describeError(err) })
+    }
   }
 
   private incrementUsage(scope: string, metric: string, count: number): void {

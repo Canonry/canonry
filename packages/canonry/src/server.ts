@@ -3324,6 +3324,8 @@ export async function createServer(opts: {
       // this refreshes the stored per-snapshot columns (`competitor_overlap`,
       // `recommended_competitors`) only. A competitor's names say nothing
       // about the project's own `answer_mentioned`, so that column is left alone.
+      // A sweep, fill or batch ingest still recording with the old names
+      // rescores its own run when it finishes (`reconcileRunCompetitorFields`).
       setImmediate(() => {
         try {
           const result = backfillProjectAnswerMentions(opts.db, projectId, { competitorFieldsOnly: true });

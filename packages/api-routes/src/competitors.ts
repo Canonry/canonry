@@ -23,6 +23,7 @@ import {
   syncCompetitorSet,
 } from './competitor-writes.js'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
+import { readMarketCompetitorPins } from './plan-competitors.js'
 import { pruneQualifiedAliasesForCompetitors } from './projects.js'
 
 export interface CompetitorRoutesOptions {
@@ -151,6 +152,7 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
       const plan = planCompetitorSet(stored, [{ domain, aliases: body.aliases, aliasMode: 'set' }], {
         replace: false,
         project: competitorAliasProjectIdentity(project),
+        marketPins: readMarketCompetitorPins(tx, project.id),
       })
       applyCompetitorSetPlan(tx, project.id, stored, plan, now)
       // Any alias change is audited and backfilled, including another

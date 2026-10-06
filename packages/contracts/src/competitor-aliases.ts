@@ -141,6 +141,7 @@ export type CompetitorAliasRejectionReason =
   | 'too-short'
   | 'project-brand'
   | 'other-competitor'
+  | 'market-competitor'
   | 'claimed-by-alias'
 
 export interface CompetitorAliasRejection {
@@ -153,8 +154,9 @@ export interface CompetitorAliasRejection {
   reason: CompetitorAliasRejectionReason
   /**
    * The other competitor involved: the one that already answers to this name
-   * ('other-competitor'), or the one whose stored alias the new competitor's
-   * domain would take over ('claimed-by-alias').
+   * ('other-competitor', or 'market-competitor' for a competitor an Advanced
+   * market pins), or the one whose stored alias the new competitor's domain
+   * would take over ('claimed-by-alias').
    */
   conflictsWith?: string
   /**
@@ -165,6 +167,8 @@ export interface CompetitorAliasRejection {
    * project name or host ('project-brand'). Absent when the keys are equal.
    */
   conflictingName?: string
+  /** 'market-competitor': the Advanced markets (group keys) that pin `conflictsWith`. */
+  markets?: string[]
 }
 
 export interface CompetitorAliasPlanEntry {
@@ -197,6 +201,20 @@ export interface CompetitorAliasProjectIdentity {
   domains: readonly string[]
 }
 
+/**
+ * A competitor an Advanced market pins, as the alias rules see it. An Advanced
+ * read counts the project's tracked competitors and the market's pins
+ * together, so a curated alias must stay clear of every pin's names as it
+ * does of every other tracked competitor's.
+ */
+export interface CompetitorAliasMarketPin {
+  domain: string
+  /** The pin's label and curated aliases. */
+  names: readonly string[]
+  /** The markets (group keys) that pin it. */
+  markets: readonly string[]
+}
+
 export interface CompetitorAliasPlan {
   competitors: { domain: string; aliases: string[] }[]
   /** Aliases rejected from explicit lists, and blocked adds. Non-empty means the write must fail. */
@@ -214,6 +232,16 @@ interface AliasConflict {
   /** The name is the other competitor's domain identity, not one of its aliases. */
   viaDomain: boolean
   added: boolean
+  /** Set when the other competitor is an Advanced market pin: the markets that pin it. */
+  markets?: readonly string[]
+}
+
+/**
+ * What an Advanced read matches a market pin by: its label and curated
+ * aliases, its domain label and its written host.
+ */
+function marketPinNames(pin: CompetitorAliasMarketPin): IdentityName[] {
+  return usableBrandAliases([...pin.names, ...competitorBrandAliases({ domain: pin.domain })]).map(identityName)
 }
 
 /** The overlapping name, recorded only when it is not the alias itself. */
@@ -243,10 +271,13 @@ function conflictingNameField(alias: IdentityName, other: IdentityName): { confl
  * nor `Acme Cycles Outlet` can be a competitor alias of the project
  * "AcmeCycles" at `acmecycles.example`; no overlap with any identity name of
  * another competitor: its curated aliases, its domain label when that passes
- * the domain floor, and its written host (`competitorBrandAliases`). Rows that
- * normalize to the same registrable domain are one competitor. Two
- * competitors' domains are not compared with each other: that overlap
- * predates aliases and is not a curated-alias problem.
+ * the domain floor, and its written host (`competitorBrandAliases`); no
+ * overlap with any name of a competitor an Advanced market pins (`marketPins`:
+ * its label, curated aliases, domain label and host), because an Advanced read
+ * counts tracked competitors and market pins together ('market-competitor').
+ * Rows and pins that normalize to the same registrable domain are one
+ * competitor. Two competitors' domains are not compared with each other: that
+ * overlap predates aliases and is not a curated-alias problem.
  *
  * What containment does not see: two names that only share a part ("Tune
  * Spoke" and "Spoke Works" are both found in the phrase "Tune Spoke Works"),
@@ -261,11 +292,12 @@ function conflictingNameField(alias: IdentityName, other: IdentityName): { confl
  * order the entries come, so neither kind of write ever silently strips
  * another competitor's alias. A carried-over alias is dropped and reported
  * only when nothing in the write states it: the project's identity now claims
- * the name, or stored lists already overlap each other.
+ * the name, or stored lists (market pins included) already overlap each other.
  */
 export function planCompetitorAliases(
   entries: readonly CompetitorAliasPlanEntry[],
   project: CompetitorAliasProjectIdentity,
+  marketPins: readonly CompetitorAliasMarketPin[] = [],
 ): CompetitorAliasPlan {
   const projectNames = [
     ...project.brandNames,
@@ -287,14 +319,21 @@ export function planCompetitorAliases(
       domainNames: competitorBrandAliases({ domain: entry.domain }).map(identityName),
     }
   })
+  const pins = marketPins.map(pin => ({
+    domain: pin.domain,
+    competitorKey: normalizeCompetitorDomain(pin.domain),
+    markets: [...new Set(pin.markets)].sort(),
+    names: marketPinNames(pin),
+  }))
   const rejected: CompetitorAliasRejection[] = []
   const dropped: CompetitorAliasRejection[] = []
   const overLimit: { domain: string; count: number }[] = []
 
   /**
    * Every other competitor the alias overlaps (at most one conflict each,
-   * its domain names before its aliases). A carried-over alias skips the
-   * aliases of an explicit list: that list is checked from its own side.
+   * its domain names before its aliases), then every market pin of another
+   * domain it overlaps. A carried-over alias skips the aliases of an explicit
+   * list: that list is checked from its own side.
    */
   const conflictsFor = (index: number, alias: IdentityName, explicit: boolean): AliasConflict[] => {
     const conflicts: AliasConflict[] = []
@@ -310,6 +349,11 @@ export function planCompetitorAliases(
       if (!explicit && entry.explicit) continue
       const aliasName = overlappingName(alias, entry.aliasNames)
       if (aliasName) conflicts.push({ domain: entry.domain, name: aliasName, viaDomain: false, added: entry.added })
+    }
+    for (const pin of pins) {
+      if (pin.competitorKey === normalized[index]!.competitorKey) continue
+      const pinName = overlappingName(alias, pin.names)
+      if (pinName) conflicts.push({ domain: pin.domain, name: pinName, viaDomain: false, added: false, markets: pin.markets })
     }
     return conflicts
   }
@@ -352,9 +396,10 @@ export function planCompetitorAliases(
             rejection = {
               domain: entry.domain,
               alias,
-              reason: 'other-competitor',
+              reason: conflict.markets ? 'market-competitor' : 'other-competitor',
               conflictsWith: conflict.domain,
               ...conflictingNameField(name, conflict.name),
+              ...(conflict.markets ? { markets: [...conflict.markets] } : {}),
             }
           }
         }
@@ -370,6 +415,42 @@ export function planCompetitorAliases(
   })
 
   return { competitors, rejected, overLimit, dropped }
+}
+
+/**
+ * The rule from the pin's side: every curated alias of a tracked competitor
+ * that one of `pins` would also answer to (one brand key containing the
+ * other, as `planCompetitorAliases` compares). Such a pin credits one answer
+ * to both, so the pin write fails ('claimed-by-alias', `domain` the pin,
+ * `conflictsWith` the alias owner) until the operator removes or restates
+ * that alias, as a Simple add does. A pin of the tracked competitor's own
+ * registrable domain is the same competitor and is not checked.
+ */
+export function marketPinAliasClaims(
+  pins: readonly CompetitorAliasMarketPin[],
+  tracked: readonly CompetitorIdentityInput[],
+): CompetitorAliasRejection[] {
+  const claims: CompetitorAliasRejection[] = []
+  for (const pin of pins) {
+    const pinKey = normalizeCompetitorDomain(pin.domain)
+    const pinNames = marketPinNames(pin)
+    for (const competitor of tracked) {
+      if (normalizeCompetitorDomain(competitor.domain) === pinKey) continue
+      for (const alias of usableBrandAliases(normalizeCompetitorAliases(competitor.aliases))) {
+        const name = identityName(alias)
+        const overlap = overlappingName(name, pinNames)
+        if (!overlap) continue
+        claims.push({
+          domain: pin.domain,
+          alias,
+          reason: 'claimed-by-alias',
+          conflictsWith: competitor.domain,
+          ...conflictingNameField(name, overlap),
+        })
+      }
+    }
+  }
+  return claims
 }
 
 /**
@@ -400,6 +481,16 @@ export function describeCompetitorAliasRejection(rejection: CompetitorAliasRejec
         ? `"${rejection.alias}" ${overlapRelation(rejection.alias, rejection.conflictingName)}, a name of ${other}, so one answer would count both competitors`
         : `"${rejection.alias}" already identifies ${other}`
     }
+    case 'market-competitor': {
+      const markets = rejection.markets ?? []
+      const pinnedBy = markets.length === 0
+        ? 'an Advanced market pins'
+        : `Advanced market${markets.length > 1 ? 's' : ''} ${markets.map(market => `"${market}"`).join(', ')} ${markets.length > 1 ? 'pin' : 'pins'}`
+      const pinned = `${rejection.conflictsWith ?? 'a competitor'}, which ${pinnedBy}`
+      return rejection.conflictingName
+        ? `"${rejection.alias}" ${overlapRelation(rejection.alias, rejection.conflictingName)}, a name of ${pinned}, so one answer would count both competitors`
+        : `"${rejection.alias}" already identifies ${pinned}, so one answer would count both competitors`
+    }
     case 'claimed-by-alias': {
       const owner = rejection.conflictsWith ?? 'another tracked competitor'
       const overlap = rejection.conflictingName
@@ -418,8 +509,9 @@ export function describeCompetitorAliasRejection(rejection: CompetitorAliasRejec
 export function requireCompetitorAliasPlan(
   entries: readonly CompetitorAliasPlanEntry[],
   project: CompetitorAliasProjectIdentity,
+  marketPins: readonly CompetitorAliasMarketPin[] = [],
 ): CompetitorAliasPlan {
-  const plan = planCompetitorAliases(entries, project)
+  const plan = planCompetitorAliases(entries, project, marketPins)
   if (plan.rejected.length === 0 && plan.overLimit.length === 0) return plan
   const problems = [
     ...plan.overLimit.map(item => `${item.domain} has ${item.count} aliases (at most ${COMPETITOR_ALIAS_LIMIT})`),

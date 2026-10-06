@@ -504,13 +504,15 @@ export interface ProjectAnswerMentionsBackfillResult {
  * recomputing from an empty text would discard the overlap and named
  * competitors captured at run time.
  *
+ * `runId` limits the pass to that one run's snapshots.
+ *
  * Does not touch `citationState`, `citedDomains`, or `rawResponse` — those are
  * computed by domain-to-domain matching which aliases do not affect.
  */
 export function backfillProjectAnswerMentions(
   db: DatabaseClient,
   projectId: string,
-  opts?: { dryRun?: boolean; competitorFieldsOnly?: boolean },
+  opts?: { dryRun?: boolean; competitorFieldsOnly?: boolean; runId?: string },
 ): ProjectAnswerMentionsBackfillResult {
   const isDryRun = opts?.dryRun === true
   const competitorFieldsOnly = opts?.competitorFieldsOnly === true
@@ -526,7 +528,11 @@ export function backfillProjectAnswerMentions(
   const runRows = db
     .select({ id: runs.id, planVersionId: runs.measurementPlanVersionId })
     .from(runs)
-    .where(and(eq(runs.kind, RunKinds['answer-visibility']), eq(runs.projectId, projectId)))
+    .where(and(
+      eq(runs.kind, RunKinds['answer-visibility']),
+      eq(runs.projectId, projectId),
+      opts?.runId === undefined ? undefined : eq(runs.id, opts.runId),
+    ))
     .all()
   const runIds = runRows.map(r => r.id)
   const planVersionByRun = new Map(runRows.map(run => [run.id, run.planVersionId]))

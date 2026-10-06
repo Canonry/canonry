@@ -5,17 +5,21 @@ import {
   competitorDomainProjectClaim,
   competitorEntryParts,
   competitorLabelFromDomain,
+  describeCompetitorAliasRejection,
+  marketPinAliasClaims,
   normalizeCompetitorAliases,
   normalizeCompetitorDomain,
   planCompetitorAliases,
   requireCompetitorAliasPlan,
   validationError,
   type AppError,
+  type CompetitorAliasMarketPin,
   type CompetitorAliasPlanEntry,
   type CompetitorAliasProjectIdentity,
   type CompetitorAliasRejection,
   type CompetitorEntry,
 } from '@ainyc/canonry-contracts'
+import { changedMarketPins, readMarketCompetitorPins, type MarketPinGroup } from './plan-competitors.js'
 
 /**
  * The one write path that adds competitors or changes their curated aliases.
@@ -33,6 +37,10 @@ import {
  * competitor: a write that must change one of them fails
  * (`duplicateCompetitorRowsError`) instead of picking one. No write starts
  * tracking the project's own site (`competitorDomainProjectClaim`).
+ *
+ * An Advanced read counts the tracked competitors and the competitors the
+ * project's markets pin together, so a curated alias stays clear of every
+ * pin's names too (`readMarketCompetitorPins`, 'market-competitor').
  */
 
 /** Normalize and dedupe a list of competitor domains, keeping first-seen order. */
@@ -189,6 +197,12 @@ export interface CompetitorSetPlanOptions {
   replace: boolean
   /** `competitorAliasProjectIdentity(project)` for the identity being written. */
   project: CompetitorAliasProjectIdentity
+  /**
+   * The competitors the project's Advanced markets pin
+   * (`readMarketCompetitorPins`). No curated alias may overlap their names.
+   * `syncCompetitorSet` reads them itself when omitted.
+   */
+  marketPins?: readonly CompetitorAliasMarketPin[]
 }
 
 /**
@@ -202,7 +216,8 @@ export interface CompetitorSetPlanOptions {
  * name overlaps another competitor's stored alias, when a new domain is the
  * project's own site (`competitorDomainProjectClaim`), or when a write states
  * aliases for a competitor stored as several rows; a stored alias the
- * project's identity now claims is dropped and reported instead.
+ * project's identity or a market pin (`marketPins`) now claims is dropped and
+ * reported instead.
  */
 export function planCompetitorSet(
   stored: readonly StoredCompetitor[],
@@ -236,7 +251,7 @@ export function planCompetitorSet(
     ...retained.map(row => entryFor(row.domain, writeFor(row), row.aliases, false)),
     ...added.map(domain => entryFor(domain, writeByDomain.get(domain), [], true)),
   ]
-  const plan = requireCompetitorAliasPlan(entries, opts.project)
+  const plan = requireCompetitorAliasPlan(entries, opts.project, opts.marketPins)
 
   const aliasChanges: CompetitorAliasChange[] = []
   for (const competitor of plan.competitors) {
@@ -314,6 +329,31 @@ export function claimedCompetitorAdds(
   return claimed
 }
 
+/**
+ * Fails a market pin write (an Advanced pin, a draft competitor or group
+ * upsert, a plan revision) when a pin it adds or renames, from `before` to
+ * `after`, answers to a curated alias of a different tracked competitor
+ * (`marketPinAliasClaims`, 'claimed-by-alias'): the pin side of the rule an
+ * alias write enforces against pins ('market-competitor'). Pins the write
+ * leaves unchanged are not checked, so an overlap stored before the rule
+ * never blocks an unrelated edit.
+ */
+export function requireMarketPinsClearOfCompetitorAliases(
+  db: Pick<DatabaseClient, 'select'>,
+  projectId: string,
+  before: readonly MarketPinGroup[],
+  after: readonly MarketPinGroup[],
+): void {
+  const pins = changedMarketPins(before, after)
+  if (pins.length === 0) return
+  const claims = marketPinAliasClaims(pins, readStoredCompetitors(db, projectId))
+  if (claims.length === 0) return
+  throw validationError(
+    `Invalid market competitor pins: ${claims.map(claim => `${claim.domain} ${describeCompetitorAliasRejection(claim)}`).join('; ')}`,
+    { rejectedAliases: claims },
+  )
+}
+
 /** Read, plan and write in one call, inside the caller's transaction. */
 export function syncCompetitorSet(
   tx: Pick<DatabaseClient, 'select' | 'insert' | 'update' | 'delete'>,
@@ -322,7 +362,7 @@ export function syncCompetitorSet(
   opts: CompetitorSetPlanOptions & { now: string; provenance?: string },
 ): CompetitorSetPlan {
   const stored = readStoredCompetitors(tx, projectId)
-  const plan = planCompetitorSet(stored, writes, opts)
+  const plan = planCompetitorSet(stored, writes, { ...opts, marketPins: opts.marketPins ?? readMarketCompetitorPins(tx, projectId) })
   applyCompetitorSetPlan(tx, projectId, stored, plan, opts.now, opts.provenance)
   return plan
 }

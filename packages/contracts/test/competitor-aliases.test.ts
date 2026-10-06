@@ -9,6 +9,7 @@ import {
   competitorEntrySchema,
   competitorAliasProjectIdentity,
   competitorNameAliases,
+  marketPinAliasClaims,
   MIN_BRAND_ALIAS_KEY_LENGTH,
   normalizeCompetitorAliases,
   planCompetitorAliases,
@@ -16,6 +17,7 @@ import {
   requireCompetitorAliasPlan,
   textContainsAnyBrandAlias,
   usableBrandAliases,
+  type CompetitorAliasMarketPin,
   type CompetitorAliasPlanEntry,
   type CompetitorAliasProjectIdentity,
 } from '../src/index.js'
@@ -560,6 +562,85 @@ describe('requireCompetitorAliasPlan', () => {
   it('returns the plan when every explicit alias passes', () => {
     expect(requireCompetitorAliasPlan([{ domain: 'qvx.example', aliases: ['QVX'], explicit: true }], PROJECT_BRAND).competitors)
       .toEqual([{ domain: 'qvx.example', aliases: ['QVX'] }])
+  })
+})
+
+describe('aliases and Advanced market pins', () => {
+  // An Advanced read counts tracked competitors and market pins together.
+  const BOLTLINE: CompetitorAliasMarketPin = { domain: 'boltline.example', names: ['Bolt Line Rotors', 'Boltline'], markets: ['west', 'east', 'west'] }
+
+  it('rejects an explicit alias that overlaps a pin\'s label, alias, domain label or host', () => {
+    const plan = planCompetitorAliases([
+      { domain: 'alpha.example', aliases: ['Boltline', 'Bolt Line', 'BoltLine Outlet', 'boltline.example', 'Alpha Rotors'], explicit: true },
+    ], PROJECT_BRAND, [BOLTLINE])
+    const pinned = { reason: 'market-competitor', conflictsWith: 'boltline.example', markets: ['east', 'west'] }
+    expect(plan.rejected).toEqual([
+      { domain: 'alpha.example', alias: 'Boltline', ...pinned },
+      { domain: 'alpha.example', alias: 'Bolt Line', ...pinned },
+      { domain: 'alpha.example', alias: 'BoltLine Outlet', ...pinned, conflictingName: 'Boltline' },
+      { domain: 'alpha.example', alias: 'boltline.example', ...pinned },
+    ])
+    expect(plan.competitors).toEqual([{ domain: 'alpha.example', aliases: ['Alpha Rotors'] }])
+    expect(doubleCounted(plan.competitors[0]!.aliases, [...BOLTLINE.names, 'boltline', 'boltline.example'])).toEqual([])
+  })
+
+  it('drops a carried-over alias a pin already answers to, and names the markets', () => {
+    const plan = planCompetitorAliases([
+      { domain: 'alpha.example', aliases: ['Boltline', 'Alpha Rotors'], explicit: false },
+    ], PROJECT_BRAND, [BOLTLINE])
+    expect(plan.rejected).toEqual([])
+    expect(plan.dropped).toEqual([
+      { domain: 'alpha.example', alias: 'Boltline', reason: 'market-competitor', conflictsWith: 'boltline.example', markets: ['east', 'west'] },
+    ])
+    expect(plan.competitors).toEqual([{ domain: 'alpha.example', aliases: ['Alpha Rotors'] }])
+  })
+
+  it('treats a pin of the same registrable domain as the same competitor', () => {
+    const plan = planCompetitorAliases([
+      { domain: 'boltline.example', aliases: ['Boltline', 'Bolt Line Rotors'], explicit: true },
+    ], PROJECT_BRAND, [{ ...BOLTLINE, domain: 'offers.boltline.example' }])
+    expect(plan.rejected).toEqual([])
+    expect(plan.competitors).toEqual([{ domain: 'boltline.example', aliases: ['Boltline', 'Bolt Line Rotors'] }])
+  })
+
+  it('reports a tracked competitor\'s claim before a pin\'s, one rejection per alias', () => {
+    const plan = planCompetitorAliases([
+      { domain: 'boltline.example', aliases: [], explicit: false },
+      { domain: 'alpha.example', aliases: ['Boltline'], explicit: true },
+    ], PROJECT_BRAND, [BOLTLINE, { domain: 'boltworks.example', names: ['Boltline'], markets: ['east'] }])
+    expect(plan.rejected).toEqual([
+      { domain: 'alpha.example', alias: 'Boltline', reason: 'other-competitor', conflictsWith: 'boltline.example' },
+    ])
+  })
+
+  it('names the pinning markets in the rejection message', () => {
+    expect(() => requireCompetitorAliasPlan([{ domain: 'alpha.example', aliases: ['Boltline'], explicit: true }], PROJECT_BRAND, [BOLTLINE])).toThrow(
+      'Invalid competitor aliases: alpha.example: "Boltline" already identifies boltline.example, which Advanced markets "east", "west" pin, so one answer would count both competitors',
+    )
+    expect(() => requireCompetitorAliasPlan([{ domain: 'alpha.example', aliases: ['Bolt Line Rotors Co'], explicit: true }], PROJECT_BRAND, [{ ...BOLTLINE, markets: ['east'] }])).toThrow(
+      'Invalid competitor aliases: alpha.example: "Bolt Line Rotors Co" contains "Bolt Line Rotors", a name of boltline.example, which Advanced market "east" pins, so one answer would count both competitors',
+    )
+  })
+
+  it('marketPinAliasClaims: a pin whose names overlap a tracked competitor\'s curated alias claims it', () => {
+    const tracked = [
+      { domain: 'alpha.example', aliases: ['Boltline', 'Alpha Rotors', 'QV'] },
+      { domain: 'gamma.example', aliases: ['Bolt Line Rotors Co'] },
+      { domain: 'boltline.example', aliases: ['Boltline'] },
+      { domain: 'delta.example', aliases: null },
+    ]
+    expect(marketPinAliasClaims([BOLTLINE], tracked)).toEqual([
+      { domain: 'boltline.example', alias: 'Boltline', reason: 'claimed-by-alias', conflictsWith: 'alpha.example' },
+      { domain: 'boltline.example', alias: 'Bolt Line Rotors Co', reason: 'claimed-by-alias', conflictsWith: 'gamma.example', conflictingName: 'Bolt Line Rotors' },
+    ])
+    // A domain-only pin (a v1 plan, or a pin with its generated label) still
+    // answers to its domain label.
+    expect(marketPinAliasClaims([{ domain: 'www.boltline.example', names: [], markets: ['east'] }], tracked)).toEqual([
+      { domain: 'www.boltline.example', alias: 'Boltline', reason: 'claimed-by-alias', conflictsWith: 'alpha.example' },
+      { domain: 'www.boltline.example', alias: 'Bolt Line Rotors Co', reason: 'claimed-by-alias', conflictsWith: 'gamma.example', conflictingName: 'boltline' },
+    ])
+    expect(marketPinAliasClaims([{ domain: 'zephyr.example', names: ['Zephyr Blade'], markets: ['east'] }], tracked)).toEqual([])
+    expect(marketPinAliasClaims([], tracked)).toEqual([])
   })
 })
 

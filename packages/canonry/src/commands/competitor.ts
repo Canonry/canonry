@@ -48,7 +48,15 @@ export async function addCompetitors(project: string, domains: string[], format?
   } else {
     console.log(`Added ${addedDomains.length} competitor(s) to "${project}".`)
   }
-  if (aliasRow) console.log(`Aliases for ${aliasRow.domain}: ${formatAliases(aliasRow.aliases)}`)
+  if (aliasRow) console.log(`Aliases for ${aliasRow.domain}: ${formatAliases(storedAliases(aliasRow))}`)
+}
+
+/**
+ * A newer CLI can be pointed at an older server that predates the field; its
+ * competitors have no aliases. JSON output stays the server's response.
+ */
+function storedAliases(competitor: CompetitorDto): string[] {
+  return (competitor as { aliases?: string[] }).aliases ?? []
 }
 
 function formatAliases(aliases: readonly string[]): string {
@@ -95,7 +103,7 @@ export async function competitorAliases(project: string, domain: string, options
       // The removal discards the rows' curated aliases, so the hint restates
       // them on the add that follows.
       const rows = [...matches].sort((a, b) => a.domain.localeCompare(b.domain))
-      const aliases = normalizeCompetitorAliases(rows.flatMap(c => c.aliases))
+      const aliases = normalizeCompetitorAliases(rows.flatMap(storedAliases))
       const addAgain = `canonry competitor add ${project} ${target}${aliases.map(alias => ` --alias ${JSON.stringify(alias)}`).join('')}`
       const stored = `${matches.length} rows (${rows.map(c => c.domain).join(', ')})`
       throw new CliError({
@@ -123,7 +131,7 @@ export async function competitorAliases(project: string, domain: string, options
       result = listed.find(c => c.domain === current.domain) ?? current
     } else {
       const next = [
-        ...current.aliases.filter(alias => !removed.some(name => sameAliasName(name, alias))),
+        ...storedAliases(current).filter(alias => !removed.some(name => sameAliasName(name, alias))),
         ...added,
       ]
       result = await client.setCompetitorAliases(project, current.domain, next)
@@ -134,7 +142,7 @@ export async function competitorAliases(project: string, domain: string, options
     console.log(JSON.stringify(result, null, 2))
     return
   }
-  console.log(`Aliases for ${result.domain}: ${formatAliases(result.aliases)}`)
+  console.log(`Aliases for ${result.domain}: ${formatAliases(storedAliases(result))}`)
 }
 
 export async function removeCompetitors(project: string, domains: string[], format?: string): Promise<void> {
@@ -194,7 +202,8 @@ export async function listCompetitors(project: string, format?: string): Promise
 
   console.log(`Competitors for "${project}" (${comps.length}):\n`)
   for (const c of comps) {
-    console.log(c.aliases.length > 0 ? `  ${c.domain}  (aliases: ${c.aliases.join(', ')})` : `  ${c.domain}`)
+    const aliases = storedAliases(c)
+    console.log(aliases.length > 0 ? `  ${c.domain}  (aliases: ${aliases.join(', ')})` : `  ${c.domain}`)
   }
 }
 
