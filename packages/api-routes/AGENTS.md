@@ -17,6 +17,7 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/db-derived-dtos.ts` | `drizzle-zod` row schemas for the migrated tables (see "Derived row schemas") |
 | `src/projects.ts` / `src/runs.ts` | Project CRUD routes (largest route file); run trigger, status, and list routes |
 | `src/query-replace.ts` | `replaceProjectQueries`, the declarative tracked-query replace (see "Declarative query replacement") |
+| `src/competitor-writes.ts` | The one writer of the competitor domain set and curated aliases: `planCompetitorSet` / `syncCompetitorSet` (see "Competitor aliases") |
 | `src/results-export.ts` | `GET /projects/:name/results/export` bulk observation export (JSON or CSV) |
 | `src/analytics.ts` | Analytics and visibility score endpoints |
 | `src/visibility-stats.ts` / `src/visibility-compare.ts` | `GET /visibility-stats` and `GET /visibility-compare`; pure `computeVisibilityCompare` |
@@ -195,6 +196,12 @@ Routes fire lifecycle hooks via `opts` callbacks — `onRunCreated`, `onProvider
 - `src/runtime-logger.ts` is the shared application logger and Fastify-compatible adapter. The contracts redactor runs before console output and capture. It is exported through the `./runtime-logger` package subpath so both execution hosts use it without importing provider SDKs.
 - The log reader, `src/operational-logs.ts`, is covered under "Internal observability authority" below.
 
+### Competitor aliases
+
+`src/competitor-writes.ts` is the only writer of the `competitors` domain set and its curated `aliases` (`PUT`/`POST /competitors`, `PUT /competitors/{domain}/aliases`, apply, and a project PUT whose identity now claims a competitor alias). It plans through `planCompetitorAliases` (contracts): stated aliases that fail (too short, too long, more than 10, a project brand name, another competitor's name) are a 400; carried-over aliases that stop qualifying are dropped and audited. A domain-only replace keeps rows for retained domains. Alias changes audit as `competitors.aliases-updated` (alias route) or as `aliasChanges` / `droppedCompetitorAliases` on the existing competitor and project audit rows, and fire `onCompetitorAliasesChanged` after commit (the local server reruns the stored mention-field backfill). Competitor aliases are competitor names for the qualified-alias collision check (`liveCompetitorNames`, `competitorNames`).
+
+Every read-time competitor mention matcher builds identity from `competitorBrandAliases` / `competitorNameAliases` (contracts) over stored `{ domain, aliases }` rows: mention share inputs, competitive signals (run detail, history, overview gaps, content), analytics gaps, the landscape's project pins. Curated aliases take the alias floor (3); derived domain labels keep the domain floor (4). Frozen identities stay frozen: a Simple run freezes `[label, ...aliases]` at dispatch (unchanged bytes when a competitor has none), research runs freeze named competitors, and Advanced revisions keep their plan names.
+
 ### Historical competitor landscapes
 
 - Share of voice returns `basis`, `availability`, `reason`, and the uncapped
@@ -334,12 +341,16 @@ spec:
     - query one
   competitors:
     - competitor.com
+    - domain: sealfoamworks.example   # curated answer-text names
+      aliases: [FoamSeal]
   providers:
     - gemini
     - openai
 ```
 
 Locations are project-scoped via `spec.locations` and `spec.defaultLocation`. Runs choose the default location, an explicit location, all configured locations, or no location. Do not model locations as query-owned state.
+
+`spec.competitors` always replaces the competitor domain set, but rows for domains that stay are kept (id, provenance, aliases). An entry is a domain string or `{ domain, aliases }`: a string (or an object without `aliases`) keeps that competitor's stored aliases, an object with `aliases` sets them exactly (`[]` clears). Stated aliases that fail the shared rules fail the apply before any write; carried-over aliases that no longer qualify (the spec's project identity now claims the name) are dropped and audited as `droppedCompetitorAliases`. Export writes aliased competitors as objects so export then apply round-trips.
 
 `spec.queries` (and its legacy `keywords` alias) is declarative WHEN PRESENT: the tracked basket is replaced to match it, and an explicit empty list clears it. A spec that OMITS the field leaves the tracked basket untouched, so a config converge that only manages providers/locations/metadata cannot wipe live queries (that wipe hit a control plane's boot-time re-apply mid-sweep, 2026-08-29).
 

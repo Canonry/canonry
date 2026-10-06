@@ -53,11 +53,13 @@ Adding a Simple-project competitor changes the identity set used by the next rea
 
 This means a newly pinned brand can acquire historical mentions and citations when the old evidence contains a matching brand alias or domain. Evidence that was never captured cannot be reconstructed.
 
+Curated competitor aliases (`canonry competitor aliases`, `PUT /projects/{name}/competitors/{domain}/aliases`, or `{ domain, aliases }` in a config spec) work the same way: a Simple pin matches its domain label (4 or more letters or digits), its written host, and its curated aliases (3 or more letters or digits) against stored answer text at read time, so setting "FoamSeal" on `sealfoamworks.example` re-credits the selected history immediately. The generated domain label stays the display label; aliases are never generated from it.
+
 ## Simple and Advanced Measurement
 
 | Surface | Pin source | Historical scope | Write behavior |
 | --- | --- | --- | --- |
-| Simple | Project competitors | Project answer-visibility snapshots | `competitor add/remove` updates the project pin set. |
+| Simple | Project competitors (with curated aliases) | Project answer-visibility snapshots | `competitor add/remove` updates the project pin set; `competitor aliases` updates the names a pin matches. |
 | Advanced market | Project pins plus that market's frozen competitors | Usage edges and query classes frozen into each contributing run revision | A pin updates a draft. A published draft becomes active measurement configuration. |
 | Advanced all markets | Union of project pins and every market's identities | Raw in-scope evidence across all markets | Read-only because there is no single target market. Percentages are recomputed from raw evidence, never averaged from market percentages. |
 

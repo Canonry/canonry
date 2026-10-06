@@ -3440,9 +3440,27 @@ export type CitationVisibilityResponse = {
     reason?: 'no-runs-yet' | 'no-queries';
 };
 
+export type CompetitorAliasesRequest = {
+    /**
+     * Operator-curated names this competitor goes by in answer text (at most 10, each 80 characters or fewer, at least 3 letters or digits).
+     */
+    aliases: Array<string>;
+};
+
+export type CompetitorAppendRequest = {
+    competitors: Array<string | {
+        domain: string;
+        /**
+         * Operator-curated names this competitor goes by in answer text (at most 10, each 80 characters or fewer, at least 3 letters or digits).
+         */
+        aliases?: Array<string>;
+    }>;
+};
+
 export type CompetitorDto = {
     id: string;
     domain: string;
+    aliases: Array<string>;
     createdAt: string;
 };
 
@@ -10775,7 +10793,13 @@ export type ProjectConfig = {
         language: string;
         queries?: Array<string>;
         keywords?: Array<string>;
-        competitors: Array<string>;
+        competitors: Array<string | {
+            domain: string;
+            /**
+             * Operator-curated names this competitor goes by in answer text (at most 10, each 80 characters or fewer, at least 3 letters or digits).
+             */
+            aliases?: Array<string>;
+        }>;
         providers: Array<string>;
         providerModels: {
             [key: string]: string;
@@ -11436,6 +11460,7 @@ export type ProjectOverviewDto = {
     competitors: Array<{
         id: string;
         domain: string;
+        aliases?: Array<string>;
         citationCount: number;
         totalQueries: number;
         pressureLabel: 'None' | 'Low' | 'Moderate' | 'High';
@@ -18848,9 +18873,7 @@ export type GetApiV1ProjectsByNameCompetitorsResponses = {
 export type GetApiV1ProjectsByNameCompetitorsResponse = GetApiV1ProjectsByNameCompetitorsResponses[keyof GetApiV1ProjectsByNameCompetitorsResponses];
 
 export type PostApiV1ProjectsByNameCompetitorsData = {
-    body: {
-        competitors: Array<string>;
-    };
+    body: CompetitorAppendRequest;
     path: {
         /**
          * Project name.
@@ -18863,7 +18886,7 @@ export type PostApiV1ProjectsByNameCompetitorsData = {
 
 export type PostApiV1ProjectsByNameCompetitorsErrors = {
     /**
-     * Invalid competitor append request.
+     * Invalid competitor append request or competitor aliases.
      */
     400: ErrorEnvelope;
 };
@@ -18901,6 +18924,44 @@ export type PutApiV1ProjectsByNameCompetitorsResponses = {
 };
 
 export type PutApiV1ProjectsByNameCompetitorsResponse = PutApiV1ProjectsByNameCompetitorsResponses[keyof PutApiV1ProjectsByNameCompetitorsResponses];
+
+export type PutApiV1ProjectsByNameCompetitorsByDomainAliasesData = {
+    body: CompetitorAliasesRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Tracked competitor domain (any spelling of it; it is reduced to the stored registrable domain).
+         */
+        domain: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/competitors/{domain}/aliases';
+};
+
+export type PutApiV1ProjectsByNameCompetitorsByDomainAliasesErrors = {
+    /**
+     * Invalid competitor aliases.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or competitor not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PutApiV1ProjectsByNameCompetitorsByDomainAliasesError = PutApiV1ProjectsByNameCompetitorsByDomainAliasesErrors[keyof PutApiV1ProjectsByNameCompetitorsByDomainAliasesErrors];
+
+export type PutApiV1ProjectsByNameCompetitorsByDomainAliasesResponses = {
+    /**
+     * Competitor with its updated aliases returned.
+     */
+    200: CompetitorDto;
+};
+
+export type PutApiV1ProjectsByNameCompetitorsByDomainAliasesResponse = PutApiV1ProjectsByNameCompetitorsByDomainAliasesResponses[keyof PutApiV1ProjectsByNameCompetitorsByDomainAliasesResponses];
 
 export type DeleteApiV1ProjectsByNameCompetitorsByIdData = {
     body?: never;

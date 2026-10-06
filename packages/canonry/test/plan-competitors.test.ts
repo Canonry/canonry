@@ -141,6 +141,25 @@ describe('resolving a run\'s competitors', () => {
     expect(createRunCompetitorResolver(db, ['a.example'])(null, 'exec-1')).toEqual({ domains: ['a.example'], aliases: new Map() })
   })
 
+  it('carries the project list\'s curated aliases to planless and plan answers', () => {
+    const { db } = seed()
+    const versionId = db.select().from(measurementPlanVersions).get()!.id
+    const resolve = createRunCompetitorResolver(db, [
+      { domain: 'qvx.example', aliases: ['QVX'] },
+      { domain: 'www.rivalhomes.example', aliases: ['Rival Home Group', 'rival homes'] },
+      { domain: 'plain.example', aliases: [] },
+    ])
+    expect(resolve(null, null)).toEqual({
+      domains: ['qvx.example', 'www.rivalhomes.example', 'plain.example'],
+      aliases: new Map([['qvx.example', ['QVX']], ['www.rivalhomes.example', ['Rival Home Group', 'rival homes']]]),
+    })
+    // A plan pin naming the same host adds its names; the project spelling wins the key.
+    const planned = resolve(versionId, 'exec-1')
+    expect(planned.domains).toEqual(['qvx.example', 'www.rivalhomes.example', 'plain.example'])
+    expect(planned.aliases.get('www.rivalhomes.example')).toEqual(['Rival Home Group', 'rival homes'])
+    expect(planned.aliases.get('qvx.example')).toEqual(['QVX'])
+  })
+
   it('reads a v1 revision, whose groups name competitors as bare hosts', () => {
     const { db, projectId } = seed()
     const v1 = compileMeasurementPlan({

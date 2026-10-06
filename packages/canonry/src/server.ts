@@ -3311,6 +3311,25 @@ export async function createServer(opts: {
         }
       });
     },
+    onCompetitorAliasesChanged: (projectId: string, projectName: string) => {
+      // Read-time competitor matchers pick curated aliases up on their own;
+      // this refreshes the stored per-snapshot columns (`competitor_overlap`,
+      // `recommended_competitors`) with the same deferred backfill.
+      setImmediate(() => {
+        try {
+          const result = backfillProjectAnswerMentions(opts.db, projectId);
+          app.log.info(
+            { projectId, projectName, ...result },
+            "competitor aliases changed: recomputed competitor fields on historical snapshots",
+          );
+        } catch (err) {
+          app.log.error(
+            { err, projectId, projectName },
+            "competitor-alias-triggered backfill failed",
+          );
+        }
+      });
+    },
     operatorApiKeyIds,
     listOperationalLogs: (query) => operationalLogs.list(query),
     getTelemetryStatus,

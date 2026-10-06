@@ -1,6 +1,6 @@
-import { shareOfVoiceLabel, shareOfVoiceReason, type ShareOfVoiceContext } from '@ainyc/canonry-contracts'
+import { normalizeCompetitorDomain, shareOfVoiceLabel, shareOfVoiceReason, type CompetitorDto, type ShareOfVoiceContext } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
-import { isMachineFormat } from '../cli-error.js'
+import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 import type { CompetitorLandscapeQuery, CompetitorLandscapeResponse, ModelEvidenceState } from '@ainyc/canonry-contracts'
 
@@ -8,15 +8,26 @@ function getClient() {
   return createApiClient()
 }
 
-export async function addCompetitors(project: string, domains: string[], format?: string): Promise<void> {
+/**
+ * `canonry competitor add`. With `aliases` (one domain only), the names are
+ * added to that competitor's curated alias list, tracked already or not.
+ */
+export async function addCompetitors(project: string, domains: string[], format?: string, aliases: string[] = []): Promise<void> {
   const client = getClient()
   const existing = await client.listCompetitors(project)
   const existingDomains = existing.map(c => c.domain)
   const existingSet = new Set(existingDomains)
-  const requested = new Set(uniqueStrings(domains))
-  const current = await client.appendCompetitors(project, domains)
+  // Compare in the stored (registrable) form, so `www.rival.example` counts as
+  // the `rival.example` row it creates.
+  const requested = new Set(uniqueStrings(domains).map(domain => normalizeCompetitorDomain(domain.trim())))
+  const current = await client.appendCompetitors(
+    project,
+    aliases.length > 0 ? domains.map(domain => ({ domain, aliases })) : domains,
+  )
   const currentDomains = current.map(c => c.domain)
   const addedDomains = currentDomains.filter(domain => requested.has(domain) && !existingSet.has(domain))
+  const aliasTarget = aliases.length > 0 ? normalizeCompetitorDomain(domains[0]!.trim()) : null
+  const aliasRow = aliasTarget ? current.find(c => c.domain === aliasTarget) : undefined
 
   if (isMachineFormat(format)) {
     console.log(JSON.stringify({
@@ -24,6 +35,7 @@ export async function addCompetitors(project: string, domains: string[], format?
       domains: currentDomains,
       addedDomains,
       addedCount: addedDomains.length,
+      ...(aliasRow ? { aliases: { domain: aliasRow.domain, aliases: aliasRow.aliases } } : {}),
     }, null, 2))
     return
   }
@@ -33,6 +45,67 @@ export async function addCompetitors(project: string, domains: string[], format?
   } else {
     console.log(`Added ${addedDomains.length} competitor(s) to "${project}".`)
   }
+  if (aliasRow) console.log(`Aliases for ${aliasRow.domain}: ${formatAliases(aliasRow.aliases)}`)
+}
+
+function formatAliases(aliases: readonly string[]): string {
+  return aliases.length > 0 ? aliases.join(', ') : '(none)'
+}
+
+function sameAliasName(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase()
+}
+
+export interface CompetitorAliasesOptions {
+  /** Replace the list exactly. */
+  set?: string[]
+  /** Append names. */
+  add?: string[]
+  /** Remove names (case-insensitive). */
+  remove?: string[]
+  /** Remove every alias. */
+  clear?: boolean
+  format?: string
+}
+
+/**
+ * `canonry competitor aliases`. With no change flag it reads the competitor's
+ * aliases; otherwise it writes the resulting list through the exact-set route,
+ * which is idempotent (an unchanged list writes nothing server-side).
+ */
+export async function competitorAliases(project: string, domain: string, options: CompetitorAliasesOptions): Promise<void> {
+  const client = getClient()
+  let result: CompetitorDto
+  if (options.set !== undefined || options.clear === true) {
+    result = await client.setCompetitorAliases(project, domain, options.clear ? [] : options.set ?? [])
+  } else {
+    const target = normalizeCompetitorDomain(domain.trim())
+    const current = (await client.listCompetitors(project)).find(c => c.domain === target)
+    if (!current) {
+      throw new CliError({
+        code: 'NOT_FOUND',
+        message: `Competitor "${target}" is not tracked by project "${project}"`,
+        displayMessage: `Error: competitor "${target}" is not tracked by "${project}". Add it with: canonry competitor add ${project} ${target}`,
+        details: { project, domain: target },
+      })
+    }
+    const removed = options.remove ?? []
+    if ((options.add?.length ?? 0) === 0 && removed.length === 0) {
+      result = current
+    } else {
+      const next = [
+        ...current.aliases.filter(alias => !removed.some(name => sameAliasName(name, alias))),
+        ...(options.add ?? []),
+      ]
+      result = await client.setCompetitorAliases(project, current.domain, next)
+    }
+  }
+
+  if (isMachineFormat(options.format)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  console.log(`Aliases for ${result.domain}: ${formatAliases(result.aliases)}`)
 }
 
 export async function removeCompetitors(project: string, domains: string[], format?: string): Promise<void> {
@@ -90,7 +163,7 @@ export async function listCompetitors(project: string, format?: string): Promise
 
   console.log(`Competitors for "${project}" (${comps.length}):\n`)
   for (const c of comps) {
-    console.log(`  ${c.domain}`)
+    console.log(c.aliases.length > 0 ? `  ${c.domain}  (aliases: ${c.aliases.join(', ')})` : `  ${c.domain}`)
   }
 }
 

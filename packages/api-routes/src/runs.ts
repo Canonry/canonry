@@ -886,13 +886,11 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
     .from(projects)
     .where(eq(projects.id, run.projectId))
     .get()
-  const competitorDomains = app.db
-    .select({ domain: competitors.domain })
+  const competitiveSignalResolver = compileCompetitiveSignalResolver(app.db
+    .select({ domain: competitors.domain, aliases: competitors.aliases })
     .from(competitors)
     .where(eq(competitors.projectId, run.projectId))
-    .all()
-    .map(row => row.domain)
-  const competitiveSignalResolver = compileCompetitiveSignalResolver(competitorDomains)
+    .all())
 
   const snapshots = app.db
     .select({

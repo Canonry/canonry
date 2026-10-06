@@ -64,7 +64,7 @@ cnry status <project>                          # mention + citation summary + do
 
 `spec.aliases: string[]` on the project (set via `cnry apply`, `cnry project update <name> --add-alias <name>`, or the dashboard) widens the mention detector. Use it when the answer text says "Meta" but the canonical brand is "Facebook", or for a product or former name ("AcmeCloud Pro"). Matching ignores case, spacing and punctuation, so "AcmeCloud" already matches "Acme Cloud"; it is the same answer-text scan that powers `answerMentioned`.
 
-`spec.qualifiedAliases: string[]` (experimental sentiment only; `--add-qualified-alias` / `--remove-qualified-alias` on update, `--qualified-alias` on create) marks aliases the sentiment evaluator is told are the brand's own names, with their exact spelling, for example a former name or a spaced spelling of one. Each must already be an alias, must not be a spelling of the display name, needs a brand key of at least four characters, and must not be a competitor's name; a rejected entry is a 400 naming the reason. It changes neither `answerMentioned` nor query classes. An omitted field keeps the stored list (minus names that no longer qualify: a removed alias, a spelling of the display name, or a competitor's name) and `[]` clears it. Adding a competitor drops a qualified alias it shares a brand key with. It applies to runs dispatched afterward only; recorded answers are not rescored.
+`spec.qualifiedAliases: string[]` (experimental sentiment only; `--add-qualified-alias` / `--remove-qualified-alias` on update, `--qualified-alias` on create) marks aliases the sentiment evaluator is told are the brand's own names, with their exact spelling, for example a former name or a spaced spelling of one. Each must already be an alias, must not be a spelling of the display name, needs a brand key of at least four characters, and must not be a competitor's name (its domain label or a curated competitor alias); a rejected entry is a 400 naming the reason. It changes neither `answerMentioned` nor query classes. An omitted field keeps the stored list (minus names that no longer qualify: a removed alias, a spelling of the display name, or a competitor's name) and `[]` clears it. Adding a competitor drops a qualified alias it shares a brand key with. It applies to runs dispatched afterward only; recorded answers are not rescored.
 
 ## Surgical Reads — `cnry get`
 
@@ -398,8 +398,31 @@ cnry query import <project> queries.txt
 cnry query generate <project> --provider gemini --count 10 --save
 
 cnry competitor add <project> competitor1.com competitor2.com
-cnry competitor list <project>
+cnry competitor add <project> sealfoamworks.example --alias FoamSeal   # one domain; repeat --alias for more names
+cnry competitor list <project>                       # text shows each competitor's aliases; JSON rows carry `aliases`
+cnry competitor aliases <project> qvx.example                      # read one competitor's aliases
+cnry competitor aliases <project> qvx.example --set QVX            # exact list (repeat --set); --clear empties it
+cnry competitor aliases <project> qvx.example --add "QVX Stores" --remove qvx   # edit the stored list
 cnry competitor landscape <project> --query-class non-brand --window 30d --format json
+```
+
+### Competitor aliases
+
+A competitor is stored as its registrable domain, and every competitor mention matcher derives a name from the domain label (only when that label has 4 or more letters or digits). A competitor whose answers name it differently ("FoamSeal" for `sealfoamworks.example`, "Ridgecrest Roofing" for `ridgecrestbuildinc.example`) or whose brand is 3 letters (`QVX` for `qvx.example`) is never counted until you give it curated aliases. Without them, mention share overstates the project.
+
+- Rules: trimmed, deduplicated case-insensitively (first spelling kept), at most 10 per competitor, 80 characters each, at least 3 letters or digits. Rejected with a 400 naming each alias: one of the project's own brand names (display name, aliases, domain labels), or a name another tracked competitor answers to (its aliases or domain label).
+- Matching is exact brand identity over answer prose (complete words, case and punctuation variants), never fuzzy. Aliases add to mention matching only; citations stay domain-based.
+- Read time: mention share (overview card, trend buckets, `visibility-stats --share-of-voice`, `visibility-compare`), the competitor landscape, mention gaps, and run/history competitor signals reinterpret stored answers as soon as aliases change. The stored `competitorOverlap` / `recommendedCompetitors` columns are recomputed in the background.
+- Frozen: a Simple run freezes the competitor identity it dispatched with (domain label plus aliases), so the AI Visibility report keeps each run's own identity; only runs dispatched after the edit use new aliases, and the next run reads as a changed definition. Advanced plan revisions keep their own frozen competitor names (`measurement-plan advanced ... draft-action` with `upsert-competitor`).
+- REST: `PUT /api/v1/projects/{name}/competitors/{domain}/aliases` with `{ "aliases": [...] }` (exact set, idempotent, audited as `competitors.aliases-updated`); `POST /competitors` accepts `{ domain, aliases }` entries (aliases are added). `PUT /competitors` (domain replace) keeps the aliases of domains that stay. MCP: `canonry_competitors_aliases_set` (setup toolkit).
+- Config-as-code: a `spec.competitors` entry is a domain string or `{ domain, aliases }`. A string keeps that competitor's stored aliases (no opinion); an object sets them exactly, and `aliases: []` clears them. `cnry export` writes aliased competitors as objects, so export then apply round-trips.
+
+```yaml
+spec:
+  competitors:
+    - ridgecrest.example
+    - domain: sealfoamworks.example
+      aliases: [FoamSeal]
 ```
 
 Historical competitor landscapes require explicit `--query-class non-brand`

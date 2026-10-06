@@ -2,7 +2,9 @@ import { eq } from 'drizzle-orm'
 import {
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
   hostOf,
+  normalizeCompetitorAliases,
   parseStoredMeasurementPlanAnyVersion,
+  type CompetitorIdentityInput,
 } from '@ainyc/canonry-contracts'
 import { measurementPlanVersions, type DatabaseClient } from '@ainyc/canonry-db'
 
@@ -121,10 +123,30 @@ export function measurementPlanCompetitorDomains(db: DatabaseClient, versionId: 
  * pins stay inside their own markets. A planless run, or an answer with no
  * execution id, gets exactly the project list. The revision is read once per
  * resolver, since a backfill scores many answers of the same few revisions.
+ *
+ * Project competitors carry their operator-curated aliases (`{ domain,
+ * aliases }`; a bare string is a domain with none), so planless answers and
+ * plan answers alike are scored against the curated names. When a plan pin
+ * names the same host, its names are added to the project's.
  */
-export function createRunCompetitorResolver(db: DatabaseClient, projectCompetitorDomains: readonly string[]) {
+export function createRunCompetitorResolver(
+  db: DatabaseClient,
+  projectCompetitors: readonly (string | CompetitorIdentityInput)[],
+) {
   const scopes = new Map<string, PlanCompetitorScope | null>()
-  const listOnly = (): RunCompetitors => ({ domains: [...new Set(projectCompetitorDomains)], aliases: new Map() })
+  const project = projectCompetitors.map(entry => typeof entry === 'string'
+    ? { domain: entry, aliases: [] as string[] }
+    : { domain: entry.domain, aliases: normalizeCompetitorAliases(entry.aliases) })
+  const projectDomains = [...new Set(project.map(entry => entry.domain))]
+  const projectAliases = (): Map<string, string[]> => {
+    const aliases = new Map<string, string[]>()
+    for (const entry of project) {
+      if (entry.aliases.length === 0) continue
+      aliases.set(entry.domain, normalizeCompetitorAliases([...(aliases.get(entry.domain) ?? []), ...entry.aliases]))
+    }
+    return aliases
+  }
+  const listOnly = (): RunCompetitors => ({ domains: [...projectDomains], aliases: projectAliases() })
   return (versionId: string | null | undefined, executionId: string | null | undefined): RunCompetitors => {
     if (!versionId || !executionId) return listOnly()
     if (!scopes.has(versionId)) scopes.set(versionId, readScope(db, versionId))
@@ -132,13 +154,15 @@ export function createRunCompetitorResolver(db: DatabaseClient, projectCompetito
     if (pinned.length === 0) return listOnly()
     // The project's own spelling wins when both name the same host.
     const byKey = new Map<string, string>()
-    for (const domain of projectCompetitorDomains) if (!byKey.has(competitorKey(domain))) byKey.set(competitorKey(domain), domain)
-    const aliases = new Map<string, string[]>()
+    for (const domain of projectDomains) if (!byKey.has(competitorKey(domain))) byKey.set(competitorKey(domain), domain)
+    const aliases = projectAliases()
     for (const competitor of pinned) {
       const domain = byKey.get(competitor.domain) ?? competitor.domain
       byKey.set(competitor.domain, domain)
-      if (competitor.aliases.length) aliases.set(domain, competitor.aliases)
+      if (competitor.aliases.length) {
+        aliases.set(domain, normalizeCompetitorAliases([...(aliases.get(domain) ?? []), ...competitor.aliases]))
+      }
     }
-    return { domains: [...new Set([...projectCompetitorDomains, ...byKey.values()])], aliases }
+    return { domains: [...new Set([...projectDomains, ...byKey.values()])], aliases }
   }
 }

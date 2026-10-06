@@ -65,6 +65,29 @@ describe('compileCompetitiveSignalResolver', () => {
       .toEqual([])
   })
 
+  it('marks a competitor mentioned by a curated alias its domain never contains', () => {
+    const curated = compileCompetitiveSignalResolver([
+      { domain: 'sealfoamworks.example', aliases: ['FoamSeal'] },
+      { domain: 'qvx.example', aliases: ['QVX'] },
+      'ridgecrestbuildinc.example',
+    ])
+
+    expect(curated.resolve({ answerText: 'FoamSeal and QVX both quoted fast.' }).mentionedCompetitorDomains)
+      .toEqual(['sealfoamworks.example', 'qvx.example'])
+    // Mention never implies citation.
+    expect(curated.resolve({ answerText: 'FoamSeal quoted fast.' }).citedCompetitorDomains).toEqual([])
+    // Without the curated alias the 3-letter label stays below the domain floor.
+    expect(compileCompetitiveSignalResolver(['qvx.example']).resolve({ answerText: 'QVX quoted fast.' }).mentionedCompetitorDomains)
+      .toEqual([])
+    // Exact brand identity: no substring hits.
+    expect(curated.resolve({ answerText: 'Great qvxshop deals here.' }).mentionedCompetitorDomains).toEqual([])
+  })
+
+  it('ignores a stored alias below the alias floor', () => {
+    const short = compileCompetitiveSignalResolver([{ domain: 'qvx.example', aliases: ['QV'] }])
+    expect(short.resolve({ answerText: 'QV is short.' }).mentionedCompetitorDomains).toEqual([])
+  })
+
   it('normalizes and deduplicates configured competitor domains', () => {
     const duplicate = compileCompetitiveSignalResolver([
       'https://www.Rival.com/path',

@@ -72,13 +72,13 @@ export async function backfillAnswerVisibilityCommand(opts?: {
     }
 
     for (const project of scopedProjects) {
-      const competitorDomains = db
-        .select({ domain: competitors.domain })
+      // Curated competitor aliases score the recomputed overlap and named
+      // competitors the same way a new sweep does.
+      const competitorsForRun = createRunCompetitorResolver(db, db
+        .select({ domain: competitors.domain, aliases: competitors.aliases })
         .from(competitors)
         .where(eq(competitors.projectId, project.id))
-        .all()
-        .map(row => row.domain)
-      const competitorsForRun = createRunCompetitorResolver(db, competitorDomains)
+        .all())
       const runIds = runIdsByProject.get(project.id) ?? []
       if (runIds.length === 0) continue
 
@@ -506,12 +506,11 @@ export function backfillProjectAnswerMentions(
   const project = db.select().from(projects).where(eq(projects.id, projectId)).get()
   if (!project) return { examined: 0, updated: 0, mentioned: 0 }
 
-  const competitorDomains = db
-    .select({ domain: competitors.domain })
+  const projectCompetitors = db
+    .select({ domain: competitors.domain, aliases: competitors.aliases })
     .from(competitors)
     .where(eq(competitors.projectId, projectId))
     .all()
-    .map(row => row.domain)
 
   const runRows = db
     .select({ id: runs.id, planVersionId: runs.measurementPlanVersionId })
@@ -520,7 +519,7 @@ export function backfillProjectAnswerMentions(
     .all()
   const runIds = runRows.map(r => r.id)
   const planVersionByRun = new Map(runRows.map(run => [run.id, run.planVersionId]))
-  const competitorsForRun = createRunCompetitorResolver(db, competitorDomains)
+  const competitorsForRun = createRunCompetitorResolver(db, projectCompetitors)
 
   let examined = 0
   let updated = 0

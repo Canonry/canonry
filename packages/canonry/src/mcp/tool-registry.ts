@@ -25,6 +25,7 @@ import {
   adsOperationReconcileRequestSchema,
   adsPauseRequestSchema,
   adsUnresolvedOperationListQuerySchema,
+  competitorAliasesRequestSchema,
   competitorBatchRequestSchema,
   competitorLandscapeQuerySchema,
   contentTargetDismissRequestSchema,
@@ -834,6 +835,10 @@ const keywordGenerateInputSchema = z.object({
 const competitorsInputSchema = z.object({
   project: projectNameSchema,
   request: competitorBatchRequestSchema,
+})
+const competitorAliasesInputSchema = competitorAliasesRequestSchema.safeExtend({
+  project: projectNameSchema,
+  domain: z.string().trim().min(1).describe('Tracked competitor domain (any spelling; it resolves to the stored registrable domain).'),
 })
 const latestSweepRunIdDescription = 'A run id, or latest for the latest sweep (the run the measurement reads display). With queryClass branded or non-brand and neither runId nor window, this tool reads latest; pass window to pool every sweep in it.'
 const competitorLandscapeInputSchema = competitorLandscapeQuerySchema.safeExtend({
@@ -1920,7 +1925,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_competitors_list',
     title: 'List competitors',
-    description: 'List tracked competitors for a Canonry project.',
+    description: 'List tracked competitors for a Canonry project, each with its operator-curated `aliases` (the names it goes by in answer text; `[]` means the domain label alone identifies it).',
     access: 'read',
     tier: 'setup',
     inputSchema: projectInputSchema,
@@ -3187,6 +3192,17 @@ export const canonryMcpTools = [
     handler: async (client, input) => {
       await client.appendCompetitors(input.project, uniqueStrings(input.request.competitors))
     },
+  }),
+  defineTool({
+    name: 'canonry_competitors_aliases_set',
+    title: 'Set competitor aliases',
+    description: 'Set one tracked competitor\'s operator-curated aliases exactly (`[]` clears): the brand names it goes by in answer text when they differ from its domain, e.g. "FoamSeal" for sealfoamworks.example or a 3-letter brand the domain label floor drops. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) uses them on stored answers at read time. Rejected: aliases under 3 letters or digits, over 80 characters, more than 10, one of the project\'s own brand names, or a name another tracked competitor answers to. Idempotent; returns the competitor.',
+    access: 'write',
+    tier: 'setup',
+    inputSchema: competitorAliasesInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['PUT /api/v1/projects/{name}/competitors/{domain}/aliases'],
+    handler: (client, input) => client.setCompetitorAliases(input.project, input.domain, input.aliases),
   }),
   defineTool({
     name: 'canonry_competitors_remove',

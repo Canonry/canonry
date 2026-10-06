@@ -8,7 +8,7 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 import { recordSentimentCompletion, parseJsonColumn, providerBatches, providerBatchRequests, runFills, runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
 import type { PricingTier, ProviderBatchRequestOutcome, ProviderBatchResultLine, ProviderBatchStatus, ProviderBatchSubmitResult, ProviderDispatchMode, ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RawQueryResult, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto, RunStatus, TrackedQueryRequest } from '@ainyc/canonry-contracts'
 import { PricingTiers, ProviderBatchRequestOutcomes, ProviderBatchStatuses, ProviderBatchSubmitError, ProviderDispatchModes, RUN_FILL_PROVIDER_BREAKER, buildSnapshotUsage, formatRunErrorOneLine, parseRunError, resolveProviderModel } from '@ainyc/canonry-contracts'
-import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, competitorLabelFromDomain, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isSearchLocationIgnored, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
+import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, competitorLabelFromDomain, normalizeCompetitorAliases, type CompetitorIdentityInput, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isSearchLocationIgnored, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
 import { captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep, type RunCompetitors } from '@ainyc/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
@@ -85,7 +85,7 @@ interface RunRecordingContext {
    * The competitors one answer is scored against: the project list plus the
    * plan pins of the groups whose properties use that question.
    */
-  competitorsFor: (executionId: string) => RunCompetitors
+  competitorsFor: (executionId: string | null) => RunCompetitors
   allBrandNames: string[]
 }
 
@@ -329,10 +329,11 @@ function runRecordingContext(
     runId: string
     measurementPlanVersionId: string | null
     project: Pick<typeof projects.$inferSelect, 'canonicalDomain' | 'ownedDomains' | 'displayName' | 'aliases'>
-    competitorDomains: readonly string[]
+    /** Stored project competitors with their curated aliases. */
+    competitors: readonly CompetitorIdentityInput[]
   },
 ): RunRecordingContext {
-  const resolveCompetitors = createRunCompetitorResolver(db, input.competitorDomains)
+  const resolveCompetitors = createRunCompetitorResolver(db, input.competitors)
   return {
     runId: input.runId,
     allDomains: effectiveDomains({ canonicalDomain: input.project.canonicalDomain, ownedDomains: input.project.ownedDomains }),
@@ -853,9 +854,11 @@ export class JobRunner {
         runId,
         measurementPlanVersionId: existingRun.measurementPlanVersionId,
         project,
-        competitorDomains,
+        competitors: projectCompetitors,
       })
       const { allDomains, allBrandNames } = recording
+      // The project list's curated names, for the planless path below.
+      const { aliases: competitorAliases } = recording.competitorsFor(null)
       const executionContext: RunExecutionContext = {
         providerCount: activeProviders.length,
         providers: activeProviders.map(provider => provider.adapter.name),
@@ -972,13 +975,14 @@ export class JobRunner {
               allBrandNames,
               allDomains,
             )
-            const overlap = computeCompetitorOverlap(normalized, competitorDomains)
+            const overlap = computeCompetitorOverlap(normalized, competitorDomains, competitorAliases)
             const extractedCompetitors = extractRecommendedCompetitors(
               normalized.answerText,
               allDomains,
               normalized.citedDomains,
               competitorDomains,
               allBrandNames,
+              competitorAliases,
             )
 
             const answerLocation = runLocation && isSearchLocationIgnored(providerName, normalized.retrievalStatus)
@@ -1123,12 +1127,16 @@ export class JobRunner {
             provider: adapter.name,
             requestedModel: config.model ?? null,
           })),
-          // The legacy competitors table has domains only. Freeze the exact
-          // identity we actually dispatched with so later reporting never
-          // borrows renamed or newly added competitors from live project state.
+          // Freeze the exact identity we actually dispatched with (domain label
+          // plus curated aliases) so later reporting never borrows renamed or
+          // newly added competitors, or later alias edits, from live project
+          // state. A competitor with no curated alias freezes exactly as it did
+          // before aliases existed, so its definition checksum is unchanged.
           competitors: projectCompetitors.map(competitor => {
             const label = competitorLabelFromDomain(competitor.domain)
-            return { domain: competitor.domain, label, aliases: [label] }
+            const curated = normalizeCompetitorAliases(competitor.aliases)
+              .filter(alias => alias.toLowerCase() !== label.toLowerCase())
+            return { domain: competitor.domain, label, aliases: [label, ...curated] }
           }),
           queries: projectQueries.map(query => ({
             queryId: query.id,
@@ -2784,7 +2792,7 @@ export class JobRunner {
       runId,
       measurementPlanVersionId: run.measurementPlanVersionId,
       project,
-      competitorDomains: projectCompetitors.map(c => c.domain),
+      competitors: projectCompetitors,
     })
   }
 

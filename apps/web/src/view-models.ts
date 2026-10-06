@@ -192,6 +192,8 @@ export interface ProjectInsightVm {
 export interface CompetitorVm {
   id: string
   domain: string
+  /** Operator-curated names this competitor goes by in answer text. */
+  aliases?: string[]
   citationCount: number
   totalQueries: number
   pressureLabel: string

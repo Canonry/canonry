@@ -20,6 +20,8 @@ export interface CompetitorPressureSnapshot {
 export interface CompetitorRow {
   id?: string
   domain: string
+  /** Operator-curated answer-text names, echoed for display. Citation pressure never reads them. */
+  aliases?: readonly string[]
 }
 
 export type CompetitorPressureLabel = 'None' | 'Low' | 'Moderate' | 'High'
@@ -127,6 +129,7 @@ export function buildOverviewCompetitors(
     return {
       id: competitor.id || `comp_${index}`,
       domain: competitor.domain,
+      ...(competitor.aliases ? { aliases: [...competitor.aliases] } : {}),
       citationCount: citedQuerySet.size,
       totalQueries: uniqueQueries.size,
       pressureLabel,

@@ -1,49 +1,51 @@
-import crypto from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { competitors } from '@ainyc/canonry-db'
-import { competitorBatchRequestSchema, normalizeProjectDomain, notFound, registrableDomain, validationError } from '@ainyc/canonry-contracts'
+import {
+  competitorAliasesRequestSchema,
+  competitorAppendRequestSchema,
+  competitorBatchRequestSchema,
+  effectiveBrandNames,
+  normalizeCompetitorDomain,
+  notFound,
+  validationError,
+  type CompetitorDto,
+} from '@ainyc/canonry-contracts'
+import type { ZodType } from 'zod'
+import {
+  competitorAliasAuditFields,
+  competitorWritesFromEntries,
+  normalizeCompetitorList,
+  syncCompetitorSet,
+} from './competitor-writes.js'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
 import { pruneQualifiedAliasesForCompetitors } from './projects.js'
 
-// Reduce a competitor domain to its registrable form (eTLD+1) so that
-// arbitrary subdomain labels like `offers` in `offers.quotebird.test` cannot
-// leak into brand-token matching against answer text. Falls back to the
-// normalized hostname when the input has no recognizable TLD (e.g. invalid
-// domains or single-label hostnames) — let downstream matching handle those.
-function normalizeCompetitor(domain: string): string {
-  const reg = registrableDomain(domain)
-  if (reg) return reg
-  return normalizeProjectDomain(domain)
+export interface CompetitorRoutesOptions {
+  /**
+   * Post-commit hook when a competitor's curated aliases change. The local
+   * server re-derives the stored per-snapshot competitor columns
+   * (`competitor_overlap`, `recommended_competitors`) from stored answers.
+   */
+  onCompetitorAliasesChanged?: (projectId: string, projectName: string) => void
 }
 
-function normalizeCompetitorList(domains: readonly string[]): string[] {
-  const seen = new Set<string>()
-  const result: string[] = []
-  for (const raw of domains) {
-    const trimmed = raw?.trim()
-    if (!trimmed) continue
-    const normalized = normalizeCompetitor(trimmed)
-    if (!normalized || seen.has(normalized)) continue
-    seen.add(normalized)
-    result.push(normalized)
-  }
-  return result
+function serializeCompetitor(row: typeof competitors.$inferSelect): CompetitorDto {
+  return { id: row.id, domain: row.domain, aliases: row.aliases, createdAt: row.createdAt }
 }
 
-function serializeCompetitor(row: typeof competitors.$inferSelect) {
-  return { id: row.id, domain: row.domain, createdAt: row.createdAt }
-}
+export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRoutesOptions = {}) {
+  const listCompetitors = (projectId: string) =>
+    app.db.select().from(competitors).where(eq(competitors.projectId, projectId)).all().map(serializeCompetitor)
 
-export async function competitorRoutes(app: FastifyInstance) {
   // GET /projects/:name/competitors
   app.get<{ Params: { name: string } }>('/projects/:name/competitors', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
-    const rows = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
-    return reply.send(rows.map(serializeCompetitor))
+    return reply.send(listCompetitors(project.id))
   })
 
-  // PUT /projects/:name/competitors — replace all
+  // PUT /projects/:name/competitors: replace the domain set. Domains that stay
+  // keep their row, so their curated aliases survive a domain-only replace.
   app.put<{
     Params: { name: string }
     Body: { competitors: string[] }
@@ -58,19 +60,12 @@ export async function competitorRoutes(app: FastifyInstance) {
     const now = new Date().toISOString()
     const normalizedCompetitors = normalizeCompetitorList(body.competitors)
 
-    // Atomic replace: delete + insert in a single transaction
-    app.db.transaction((tx) => {
-      tx.delete(competitors).where(eq(competitors.projectId, project.id)).run()
-
-      for (const domain of normalizedCompetitors) {
-        tx.insert(competitors).values({
-          id: crypto.randomUUID(),
-          projectId: project.id,
-          domain,
-          provenance: 'cli',
-          createdAt: now,
-        }).run()
-      }
+    const aliasesChanged = app.db.transaction((tx) => {
+      const plan = syncCompetitorSet(tx, project.id, normalizedCompetitors.map(domain => ({ domain })), {
+        replace: true,
+        projectBrandNames: effectiveBrandNames(project),
+        now,
+      })
       const droppedQualifiedAliases = pruneQualifiedAliasesForCompetitors(tx, project.id, now)
 
       writeAuditLog(tx, {
@@ -80,48 +75,36 @@ export async function competitorRoutes(app: FastifyInstance) {
         entityType: 'competitor',
         diff: {
           competitors: normalizedCompetitors,
+          ...competitorAliasAuditFields(plan),
           ...(droppedQualifiedAliases.length ? { droppedQualifiedAliases } : {}),
         },
       })
+      return plan.aliasChanges.length > 0
     })
 
-    const rows = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
-    return reply.send(rows.map(serializeCompetitor))
+    if (aliasesChanged) opts.onCompetitorAliasesChanged?.(project.id, project.name)
+    return reply.send(listCompetitors(project.id))
   })
 
-  // POST /projects/:name/competitors — append (skip duplicates)
+  // POST /projects/:name/competitors: append (skip duplicates). An entry may
+  // be `{ domain, aliases }`; its aliases are added to that competitor's list.
   app.post<{
     Params: { name: string }
-    Body: { competitors: string[] }
+    Body: { competitors: unknown[] }
   }>('/projects/:name/competitors', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
-    const body = parseCompetitorBatch(request.body)
+    const body = parseBody(competitorAppendRequestSchema, request.body, 'Invalid competitor batch request')
 
     const now = new Date().toISOString()
-    const requested = normalizeCompetitorList(body.competitors)
+    const writes = competitorWritesFromEntries(body.competitors, 'add')
 
-    app.db.transaction((tx) => {
-      const existing = tx
-        .select()
-        .from(competitors)
-        .where(eq(competitors.projectId, project.id))
-        .all()
-      const existingSet = new Set(existing.map(c => c.domain))
-      const added = requested.filter(domain => !existingSet.has(domain))
-
-      if (added.length === 0) return
-
-      for (const domain of added) {
-        tx.insert(competitors).values({
-          id: crypto.randomUUID(),
-          projectId: project.id,
-          domain,
-          provenance: 'cli',
-          createdAt: now,
-        }).onConflictDoNothing({
-          target: [competitors.projectId, competitors.domain],
-        }).run()
-      }
+    const aliasesChanged = app.db.transaction((tx) => {
+      const plan = syncCompetitorSet(tx, project.id, writes, {
+        replace: false,
+        projectBrandNames: effectiveBrandNames(project),
+        now,
+      })
+      if (plan.added.length === 0 && plan.aliasChanges.length === 0) return false
       const droppedQualifiedAliases = pruneQualifiedAliasesForCompetitors(tx, project.id, now)
 
       writeAuditLog(tx, {
@@ -129,12 +112,67 @@ export async function competitorRoutes(app: FastifyInstance) {
         actor: 'api',
         action: 'competitors.appended',
         entityType: 'competitor',
-        diff: { added, ...(droppedQualifiedAliases.length ? { droppedQualifiedAliases } : {}) },
+        diff: {
+          added: plan.added,
+          ...competitorAliasAuditFields(plan),
+          ...(droppedQualifiedAliases.length ? { droppedQualifiedAliases } : {}),
+        },
       })
+      return plan.aliasChanges.length > 0
     })
 
-    const rows = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
-    return reply.send(rows.map(serializeCompetitor))
+    if (aliasesChanged) opts.onCompetitorAliasesChanged?.(project.id, project.name)
+    return reply.send(listCompetitors(project.id))
+  })
+
+  // PUT /projects/:name/competitors/:domain/aliases: set one competitor's
+  // curated aliases exactly (`[]` clears). Idempotent: an unchanged list
+  // writes nothing and records no audit row.
+  app.put<{
+    Params: { name: string; domain: string }
+    Body: { aliases: string[] }
+  }>('/projects/:name/competitors/:domain/aliases', async (request, reply) => {
+    const project = resolveProject(app.db, request.params.name)
+    const body = parseBody(competitorAliasesRequestSchema, request.body, 'Invalid competitor aliases request')
+    const domain = normalizeCompetitorDomain(request.params.domain.trim())
+
+    const now = new Date().toISOString()
+
+    const aliasesChanged = app.db.transaction((tx) => {
+      const current = tx.select({ id: competitors.id }).from(competitors)
+        .where(and(eq(competitors.projectId, project.id), eq(competitors.domain, domain))).get()
+      if (!current) throw notFound('Competitor', domain)
+
+      const plan = syncCompetitorSet(tx, project.id, [{ domain, aliases: body.aliases, aliasMode: 'set' }], {
+        replace: false,
+        projectBrandNames: effectiveBrandNames(project),
+        now,
+      })
+      const change = plan.aliasChanges.find(item => item.domain === domain)
+      if (!change) return false
+      const droppedQualifiedAliases = pruneQualifiedAliasesForCompetitors(tx, project.id, now)
+
+      writeAuditLog(tx, auditFromRequest(request, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'competitors.aliases-updated',
+        entityType: 'competitor',
+        entityId: current.id,
+        diff: {
+          domain,
+          before: change.before,
+          after: change.after,
+          ...(droppedQualifiedAliases.length ? { droppedQualifiedAliases } : {}),
+        },
+      }))
+      return true
+    })
+
+    if (aliasesChanged) opts.onCompetitorAliasesChanged?.(project.id, project.name)
+    const row = app.db.select().from(competitors)
+      .where(and(eq(competitors.projectId, project.id), eq(competitors.domain, domain))).get()
+    if (!row) throw notFound('Competitor', domain)
+    return reply.send(serializeCompetitor(row))
   })
 
   // DELETE /projects/:name/competitors — remove specific competitors
@@ -143,7 +181,7 @@ export async function competitorRoutes(app: FastifyInstance) {
     Body: { competitors: string[] }
   }>('/projects/:name/competitors', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
-    const body = parseCompetitorBatch(request.body)
+    const body = parseBody(competitorBatchRequestSchema, request.body, 'Invalid competitor batch request')
 
     // Normalize delete targets so callers can pass either the original or the
     // subdomain form (e.g. `offers.quotebird.test`) and still hit the stored
@@ -173,8 +211,7 @@ export async function competitorRoutes(app: FastifyInstance) {
       })
     })
 
-    const rows = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
-    return reply.send(rows.map(serializeCompetitor))
+    return reply.send(listCompetitors(project.id))
   })
 
   // DELETE /projects/:name/competitors/:id — remove one competitor by row id.
@@ -210,10 +247,10 @@ export async function competitorRoutes(app: FastifyInstance) {
   })
 }
 
-function parseCompetitorBatch(value: unknown) {
-  const result = competitorBatchRequestSchema.safeParse(value)
+function parseBody<T>(schema: ZodType<T>, value: unknown, message: string): T {
+  const result = schema.safeParse(value)
   if (result.success) return result.data
-  throw validationError('Invalid competitor batch request', {
+  throw validationError(message, {
     issues: result.error.issues.map(issue => ({
       path: issue.path.join('.'),
       message: issue.message,

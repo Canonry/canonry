@@ -3,10 +3,11 @@ import { validationError } from './errors.js'
 import { locationContextSchema, providerModelsSchema, providerNameSchema, type LocationContext } from './provider.js'
 import { measurementConfigSchema, defaultMeasurementConfig } from './measurement.js'
 import { providerDispatchModesSchema } from './provider-batch.js'
-import { brandLabelFromDomain, hostOf } from './url-normalize.js'
+import { brandLabelFromDomain, hostOf, registrableDomain } from './url-normalize.js'
 import { brandKeyFromText } from './brand-matching.js'
 import { gbpNegativeReviewMaxStarsSchema } from './gbp.js'
 import { MIN_DOMAIN_BRAND_KEY_LENGTH } from './answer-visibility.js'
+import { competitorEntrySchema } from './competitor-aliases.js'
 
 export const configSourceSchema = z.enum(['cli', 'api', 'config-file'])
 export type ConfigSource = z.infer<typeof configSourceSchema>
@@ -248,6 +249,12 @@ export type KeywordGenerateRequest = QueryGenerateRequest
 export const competitorDtoSchema = z.object({
   id: z.string(),
   domain: z.string(),
+  /**
+   * Operator-curated names this competitor goes by in answer text, layered onto
+   * the domain label by every competitor mention matcher. Always present;
+   * `[]` means the domain label alone identifies it.
+   */
+  aliases: z.array(z.string()),
   createdAt: z.string(),
 })
 
@@ -259,9 +266,30 @@ export const competitorBatchRequestSchema = z.object({
 
 export type CompetitorBatchRequest = z.infer<typeof competitorBatchRequestSchema>
 
+/**
+ * `POST /projects/{name}/competitors`: each entry is a bare domain or
+ * `{ domain, aliases }`. Aliases on an already-tracked domain are added to its
+ * stored list; a bare domain leaves stored aliases alone.
+ */
+export const competitorAppendRequestSchema = z.object({
+  competitors: z.array(competitorEntrySchema).min(1),
+})
+
+export type CompetitorAppendRequest = z.infer<typeof competitorAppendRequestSchema>
+
 /** Normalize a user-supplied project domain for matching and deduplication. */
 export function normalizeProjectDomain(input: string): string {
   return hostOf(input) ?? input.trim().toLowerCase().replace(/^www\./, '')
+}
+
+/**
+ * The stored form of a competitor domain: its registrable domain (eTLD+1), so
+ * a subdomain label like `offers` in `offers.quotebird.test` never leaks into
+ * brand-token matching, or the normalized host when there is no recognizable
+ * suffix. Every competitor write and lookup (REST, apply, CLI) uses this.
+ */
+export function normalizeCompetitorDomain(input: string): string {
+  return registrableDomain(input) || normalizeProjectDomain(input)
 }
 
 /** Returns deduplicated list of all domains owned by the project. */

@@ -1704,6 +1704,10 @@ function ProjectPageContent({
   const embedProjectTabs = useMemo(() => effectiveEmbedProjectTabs(getEmbedConfig()), [])
   const tab = resolveEmbedProjectTab(requestedTab, embedProjectTabs)
   const competitorDomains = useMemo(() => model.competitors.map(c => c.domain), [model.competitors])
+  const competitorAliases = useMemo<Record<string, readonly string[]>>(
+    () => Object.fromEntries(model.competitors.map(c => [c.domain, c.aliases ?? []])),
+    [model.competitors],
+  )
   // "Local Presence" is always shown — GbpSection renders a setup guide when no
   // Google Business Profile is connected, so the tab is the entry point to
   // connecting one rather than being hidden until after connection.
@@ -2022,7 +2026,7 @@ function ProjectPageContent({
   })
   useCompetitorLandscapeRefresh(projectName, JSON.stringify([
     competitorHistoryRevision,
-    model.competitors.map(competitor => competitor.domain).sort(),
+    model.competitors.map(competitor => `${competitor.domain}=${(competitor.aliases ?? []).join('|')}`).sort(),
     model.project.canonicalDomain, model.project.ownedDomains, model.project.aliases, model.project.displayName,
     activeMeasurementRevision,
     measurementSetupQuery.data?.draft?.etag ?? null,
@@ -2679,6 +2683,7 @@ function ProjectPageContent({
       window={competitorLandscapeWindow}
       landscape={competitorLandscapeQuery.data}
       pinnedFallback={competitorLandscapePinnedFallback}
+      competitorAliases={competitorAliases}
       canWrite={canWrite}
       isEmbed={isEmbed()}
       onWindowChange={setCompetitorLandscapeWindow}
@@ -2917,6 +2922,7 @@ function ProjectPageContent({
             <VisibilityTrendSection
               projectName={model.project.name}
               competitorDomains={competitorDomains}
+              competitorAliases={competitorAliases}
               analyticsRevision={latestVisibilityRevision}
               queryTexts={trackedQueryTexts}
               classifyQuery={classifyQuery}

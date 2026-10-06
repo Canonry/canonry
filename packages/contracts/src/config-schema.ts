@@ -11,6 +11,7 @@ import {
 import { measurementConfigSchema, defaultMeasurementConfig } from './measurement.js'
 import { providerDispatchModesSchema } from './provider-batch.js'
 import { gbpNegativeReviewMaxStarsSchema } from './gbp.js'
+import { competitorEntrySchema } from './competitor-aliases.js'
 
 export const configMetadataSchema = z.object({
   name: z.string().min(1).max(63).regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, {
@@ -70,7 +71,11 @@ export const configSpecSchema = z.object({
   language: z.string().min(2),
   queries: configQueryListSchema.optional(),
   keywords: configQueryListSchema.optional(),
-  competitors: z.array(z.string().min(1)).optional().default([]),
+  // Each entry is a bare domain or `{ domain, aliases }`. A bare domain (or an
+  // object without `aliases`) keeps that competitor's stored aliases on apply;
+  // `aliases` sets them exactly (`[]` clears). The domain set itself is still
+  // replaced by this list.
+  competitors: z.array(competitorEntrySchema).optional().default([]),
   providers: z.array(providerNameSchema).optional().default([]),
   providerModels: providerModelsSchema.optional().default({}),
   // No default on purpose: an apply that omits it leaves the project's stored

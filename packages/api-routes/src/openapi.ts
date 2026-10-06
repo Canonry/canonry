@@ -225,6 +225,14 @@ const competitorIdParameter: OpenApiParameter = {
   schema: stringSchema,
 }
 
+const competitorDomainParameter: OpenApiParameter = {
+  name: 'domain',
+  in: 'path',
+  required: true,
+  description: 'Tracked competitor domain (any spelling of it; it is reduced to the stored registrable domain).',
+  schema: stringSchema,
+}
+
 const notificationIdParameter: OpenApiParameter = {
   name: 'id',
   in: 'path',
@@ -2152,6 +2160,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'put',
     path: '/api/v1/projects/{name}/competitors',
     summary: 'Replace competitors',
+    description: 'Replaces the tracked competitor domain set. A domain that stays keeps its row and its curated aliases; use PUT /projects/{name}/competitors/{domain}/aliases to change aliases.',
     tags: ['competitors'],
     parameters: [nameParameter],
     requestBody: {
@@ -2176,25 +2185,41 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'post',
     path: '/api/v1/projects/{name}/competitors',
     summary: 'Append competitors',
+    description: 'Adds competitors not already tracked. Each entry is a domain or `{ domain, aliases }`; stated aliases are added to that competitor\'s curated alias list (also for an already-tracked domain) and must pass the alias rules (at most 10 per competitor, 80 characters each, at least 3 letters or digits, not one of the project\'s own brand names or another competitor\'s name). A bare domain leaves stored aliases unchanged.',
     tags: ['competitors'],
     parameters: [nameParameter],
     requestBody: {
       required: true,
       content: {
         'application/json': {
-          schema: {
-            type: 'object',
-            required: ['competitors'],
-            properties: {
-              competitors: stringArraySchema,
-            },
-          },
+          schema: { $ref: '#/components/schemas/CompetitorAppendRequest' },
         },
       },
     },
     responses: {
       200: jsonArrayResponse('Competitors appended.', 'CompetitorDto'),
-      400: errorResponse('Invalid competitor append request.'),
+      400: errorResponse('Invalid competitor append request or competitor aliases.'),
+    },
+  },
+  {
+    method: 'put',
+    path: '/api/v1/projects/{name}/competitors/{domain}/aliases',
+    summary: 'Set competitor aliases',
+    description: 'Sets one tracked competitor\'s operator-curated aliases exactly (`[]` clears): the names it goes by in answer text when they differ from its domain. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) layers them onto the domain label at read time; stored per-snapshot competitor columns are recomputed in the background, and frozen Simple run definitions and Advanced plan revisions keep the identity they were measured with. Aliases are trimmed and deduplicated case-insensitively; at most 10, each 80 characters or fewer with at least 3 letters or digits, never one of the project\'s own brand names or a name another tracked competitor answers to. Idempotent: an unchanged list writes nothing.',
+    tags: ['competitors'],
+    parameters: [nameParameter, competitorDomainParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/CompetitorAliasesRequest' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Competitor with its updated aliases returned.', 'CompetitorDto'),
+      400: errorResponse('Invalid competitor aliases.'),
+      404: errorResponse('Project or competitor not found.'),
     },
   },
   {

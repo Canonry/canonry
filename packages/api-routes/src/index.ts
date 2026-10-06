@@ -18,7 +18,7 @@ import { projectRoutes } from './projects.js'
 import type { ProjectRoutesOptions } from './projects.js'
 import { queryRoutes } from './queries.js'
 import type { QueryRoutesOptions } from './queries.js'
-import { competitorRoutes } from './competitors.js'
+import { competitorRoutes, type CompetitorRoutesOptions } from './competitors.js'
 import { competitorLandscapeRoutes } from './competitor-landscape.js'
 import { runRoutes } from './runs.js'
 import type { RunRoutesOptions } from './runs.js'
@@ -229,6 +229,13 @@ export interface ApiRoutesOptions {
    * reflect the new aliases. Skipped when only other fields change.
    */
   onAliasesChanged?: (projectId: string, projectName: string) => void
+  /**
+   * Callback when a competitor's curated aliases change (alias route, add with
+   * aliases, apply, or a project identity change that drops one). Wire it to
+   * the same mention-fields backfill so the stored per-snapshot competitor
+   * columns follow the new names.
+   */
+  onCompetitorAliasesChanged?: (projectId: string, projectName: string) => void
   /** Callback to generate a one-shot AI perception snapshot */
   onSnapshotRequested?: SnapshotRoutesOptions['onSnapshotRequested']
   /** Callback to generate query suggestions using an LLM provider */
@@ -556,13 +563,16 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onProjectUpserted: opts.onProjectUpserted,
       onProjectCreated: opts.onProjectCreated,
       onAliasesChanged: opts.onAliasesChanged,
+      onCompetitorAliasesChanged: opts.onCompetitorAliasesChanged,
       providerAdapters: opts.providerAdapters,
     } satisfies ProjectRoutesOptions)
     await api.register(queryRoutes, {
       onGenerateQueries: opts.onGenerateQueries,
       validProviderNames: opts.providerAdapters?.filter(a => a.mode === 'api').map(a => a.name),
     } satisfies QueryRoutesOptions)
-    await api.register(competitorRoutes)
+    await api.register(competitorRoutes, {
+      onCompetitorAliasesChanged: opts.onCompetitorAliasesChanged,
+    } satisfies CompetitorRoutesOptions)
     await api.register(competitorLandscapeRoutes)
     await api.register(runRoutes, {
       onRunCreated: opts.onRunCreated,
@@ -600,6 +610,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onProjectUpserted: opts.onProjectUpserted,
       onProjectCreated: opts.onProjectCreated,
       onAliasesChanged: opts.onAliasesChanged,
+      onCompetitorAliasesChanged: opts.onCompetitorAliasesChanged,
       providerAdapters: opts.providerAdapters,
       allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
       onGoogleConnectionPropertyUpdated: (domain, connectionType, propertyId) => {
