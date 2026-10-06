@@ -48,7 +48,7 @@ export function computeCompetitorOverlap(
       if (brandKeyFromText(brand).length >= 4 && textContainsBrandAlias(normalized.answerText, brand)) {
         overlapSet.add(cd)
       }
-      // A competitor's own names ("MAA" for maac.com) are operator-approved, so
+      // A competitor's own names ("QRA" for qravelhomes.example) are operator-approved, so
       // they match even when the domain's label would not.
       const named = competitorAliases.get(cd)
       if (named?.length && textContainsAnyBrandAlias(normalized.answerText, named)) {

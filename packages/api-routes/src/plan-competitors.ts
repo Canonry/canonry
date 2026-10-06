@@ -1,7 +1,8 @@
-import { and, desc, eq, inArray, isNotNull, ne } from 'drizzle-orm'
+import { and, desc, eq, exists, inArray, isNotNull, ne, or } from 'drizzle-orm'
 import {
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
   RunKinds,
+  RunStatuses,
   brandKeyFromText,
   hostMatchesDomain,
   hostOf,
@@ -11,7 +12,7 @@ import {
   type CompetitorAliasMarketPin,
   type CompetitorIdentityInput,
 } from '@ainyc/canonry-contracts'
-import { measurementPlanVersions, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { measurementPlanVersions, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
 import { activePlanVersionRow, draftRow, parseStoredAuthoring } from './measurement-draft-repo.js'
 
 /** One competitor a plan revision names: its host and the names it goes by. */
@@ -139,7 +140,13 @@ export function measurementPlanCompetitorDomains(db: DatabaseClient, versionId: 
  * one answer never counts for both. Every citation of the pin's host still
  * counts, since it falls under the project competitor's host. A pin on a
  * parent or sibling host stays apart: a citation of `rival.example` is not one
- * of `offers.rival.example`.
+ * of `offers.rival.example`. Only a project competitor stored as a subdomain
+ * meets that case, and only an older discovery promote stored one (every write
+ * now stores the registrable domain): such a row and the pin share a domain
+ * label, so an answer naming it credits both in the stored overlap, while the
+ * landscape, which merges by registrable domain, counts one row. Removing and
+ * re-adding the competitor (restating its aliases) stores the registrable
+ * domain and ends the split.
  */
 export function createRunCompetitorResolver(
   db: DatabaseClient,
@@ -256,8 +263,8 @@ export function storedPlanPinGroups(canonicalJson: string): MarketPinGroup[] {
  * Every competitor the project's Advanced markets pin: the active revision's
  * groups (v2 with their names, v1 as bare hosts) and the pending draft's
  * groups, which an Advanced read already counts, then the pins of every
- * superseded revision an answer-visibility run of the project was measured
- * under (`supersededRevisionPins`). A curated alias of a tracked competitor
+ * superseded revision whose answers are scored with them
+ * (`supersededRevisionPins`). A curated alias of a tracked competitor
  * must stay clear of all of them. An unreadable revision or draft pins nothing
  * here rather than failing a competitor write.
  */
@@ -285,12 +292,15 @@ export function readMarketCompetitorPins(db: Parameters<typeof draftRow>[0], pro
 }
 
 /**
- * The pins of every superseded revision an answer-visibility run of the
- * project was measured under, newest revision first, each marked with its
- * `supersededRevision`. The landscape and the stored competitor columns score
- * each run against its own frozen revision (`createRunCompetitorResolver`), so
- * those runs still count those pins after a later revision drops or renames
- * them. A revision no run was measured under scores nothing and is not read.
+ * The pins of every superseded revision that scores answers, newest revision
+ * first, each marked with its `supersededRevision`. The landscape and the
+ * stored competitor columns score each run against its own frozen revision
+ * (`createRunCompetitorResolver`), so those runs still count those pins after
+ * a later revision drops or renames them. A revision scores answers when an
+ * answer-visibility run measured under it stored at least one, or is still
+ * queued or running (its answers will be scored with it). A revision no run
+ * used, or whose runs all failed or were cancelled before storing an answer,
+ * scores nothing and is not read, so it never blocks a write for good.
  */
 function supersededRevisionPins(
   db: Parameters<typeof draftRow>[0],
@@ -303,6 +313,10 @@ function supersededRevisionPins(
       eq(runs.projectId, projectId),
       eq(runs.kind, RunKinds['answer-visibility']),
       isNotNull(runs.measurementPlanVersionId),
+      or(
+        inArray(runs.status, [RunStatuses.queued, RunStatuses.running]),
+        exists(db.select({ id: querySnapshots.id }).from(querySnapshots).where(eq(querySnapshots.runId, runs.id))),
+      ),
     ))
   const versions = db.select({ revision: measurementPlanVersions.revision, canonicalJson: measurementPlanVersions.canonicalJson })
     .from(measurementPlanVersions)

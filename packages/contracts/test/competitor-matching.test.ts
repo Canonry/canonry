@@ -133,10 +133,10 @@ test('extractRecommendedCompetitors keeps a cited OTA as a rival: only listing m
 })
 
 test('a competitor\'s operator-approved name counts in overlap and recommendations without a citation', () => {
-  const aliases = new Map([['maac.com', ['MAA', 'Mid-America Apartment Communities']]])
-  const answer = 'Consider these operators:\n\n1. **MAA** - large portfolio in the metro\n2. **Other Option** - smaller'
-  expect(computeCompetitorOverlap(buildResult(answer), ['maac.com'], aliases)).toEqual(['maac.com'])
-  expect(extractRecommendedCompetitors(answer, ['brand.example'], [], ['maac.com'], ['Brand'], aliases)).toEqual(['MAA'])
-  // Without the plan's names, the domain label "maac" never matches "MAA".
-  expect(computeCompetitorOverlap(buildResult(answer), ['maac.com'])).toEqual([])
+  const aliases = new Map([['qravelhomes.example', ['QRA', 'Qravel Residential Associates']]])
+  const answer = 'Consider these operators:\n\n1. **QRA** - large portfolio in the metro\n2. **Other Option** - smaller'
+  expect(computeCompetitorOverlap(buildResult(answer), ['qravelhomes.example'], aliases)).toEqual(['qravelhomes.example'])
+  expect(extractRecommendedCompetitors(answer, ['brand.example'], [], ['qravelhomes.example'], ['Brand'], aliases)).toEqual(['QRA'])
+  // Without the plan's names, the domain label "qravelhomes" never matches "QRA".
+  expect(computeCompetitorOverlap(buildResult(answer), ['qravelhomes.example'])).toEqual([])
 })

@@ -779,6 +779,41 @@ describe('a superseded revision keeps scoring the runs measured under it', () =>
     expect(storedAliases()).toEqual({ 'alpha.example': ['Gearloft'] })
   })
 
+  function measureRevision2(id: string, status: 'failed' | 'cancelled' | 'running' | 'queued') {
+    db.insert(runs).values({
+      id, projectId, kind: 'answer-visibility', status, trigger: 'manual', measurementPlanVersionId: 'plan_v2', createdAt: NOW,
+    }).run()
+  }
+
+  it('ignores a superseded revision whose runs ended without storing an answer', async () => {
+    // Nothing was scored with revision 2's pin, so nothing can count twice.
+    measureRevision2('failed_run', 'failed')
+    measureRevision2('cancelled_run', 'cancelled')
+    expect(readMarketCompetitorPins(db, projectId).map(pin => [pin.domain, pin.supersededRevision])).toEqual([
+      ['spoketuneworks.example', 1],
+    ])
+
+    const res = await setAliases('alpha.example', ['Gearloft'])
+    expect(res.statusCode, res.body).toBe(200)
+    expect(storedAliases()).toEqual({ 'alpha.example': ['Gearloft'] })
+  })
+
+  it('still counts a superseded revision whose run has not finished, since its answers will score with it', async () => {
+    measureRevision2('running_run', 'running')
+
+    const res = await setAliases('alpha.example', ['Gearloft'])
+    expect(res.statusCode, res.body).toBe(400)
+    expect(res.json().error.details.rejectedAliases).toEqual([{
+      domain: 'alpha.example',
+      alias: 'Gearloft',
+      reason: 'market-competitor',
+      conflictsWith: 'gearloft.example',
+      markets: ['regional'],
+      supersededRevision: 2,
+    }])
+    expect(storedAliases()).toEqual({ 'alpha.example': [] })
+  })
+
   it('refuses a new domain the old pin\'s name claims, and says the old runs are why', async () => {
     const added = await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['tunespoke.example'] } })
     expect(added.statusCode, added.body).toBe(400)
