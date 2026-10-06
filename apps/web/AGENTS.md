@@ -132,8 +132,11 @@ an embed has neither. The Advanced report's block always passes `manage`, and
 view does not render. The query editor opens directly under the bars
 (`actionPanel`). Branded query rows keep their score beside its rating count.
 Non-brand query rows (`SentimentQueryScore`) show only their unfavorable and
-mixed counts, which open that query's evidence filtered to them, or a muted em
-dash with sr-only "No unfavorable or mixed answers"; never a favorable share.
+mixed counts, which open that query's evidence filtered to them (marked
+Provisional while unfinished), or a muted em dash with sr-only "No unfavorable
+or mixed answers"; never a favorable share. Only a final read (`complete`, not
+provisional, nothing unadmitted) earns that dash or the block's "none": an
+unrated, pending, failed, canceled or partial row says its own state.
 Evidence verdict badges are toned by outcome (favorable positive, mixed
 caution, unfavorable negative, anything else neutral). `VisibilityOverview`
 resolves sentiment to the report's sweep with no revision

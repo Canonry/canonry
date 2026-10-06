@@ -512,6 +512,47 @@ describe('shared production visibility view', () => {
     } finally { cleanup(); client.clear(); restore() }
   })
 
+  it('keeps unfinished non-brand rows in their own state rather than announcing no criticism', async () => {
+    const report = reportFixture()
+    const first = report.populations[0]!.queries.items[0]!
+    report.populations[0]!.queries.items = [
+      { ...first, queryKey: 'harbor-query', provider: 'openai', location: 'Harbor', sourceSnapshotIds: ['harbor-answer'] },
+      { ...first, queryKey: 'marina-query', provider: 'gemini', location: 'Marina', sourceSnapshotIds: ['marina-answer'] },
+    ]
+    // Harbor's one assessment is still pending; Marina's was never admitted (eligible, not stored).
+    // Neither has an unfavorable or mixed answer, and neither establishes that it has none.
+    const pending = aggregateSentiment([{ assessmentId: 'harbor', sourceSnapshotId: 'harbor-answer', outcome: 'pending' }])
+    const unadmitted = aggregateSentiment([], { eligibleAssessments: 1, eligibleAnswers: 1 })
+    expect([pending.state, unadmitted.state, unadmitted.coverage.unadmittedAssessments]).toEqual(['processing', 'not-measured', 1])
+    const dto: SentimentSummary = {
+      ...pending, reason: null, configured: true, evaluationDefinition: createSentimentEvaluationDefinition(), breakdowns: [],
+      selection: { mode: 'advanced', scope: 'project', queryClass: 'non-brand', runId: 'run-2', revision: 2, evaluationDefinitionId: 'definition' },
+      queries: [{ ...pending, state: 'partial', provisional: true, reason: null, queryId: first.queryId!, queryText: first.query, queryClass: 'non-brand', sourceSnapshotIds: ['harbor-answer', 'marina-answer'], assessments: [], locations: [
+        { ...pending, reason: null, location: 'Harbor', sourceSnapshotIds: ['harbor-answer'] },
+        { ...unadmitted, reason: null, location: 'Marina', sourceSnapshotIds: ['marina-answer'] },
+      ] }],
+    }
+    const restore = mockFetch(url => {
+      const request = new URL(url)
+      if (request.pathname.endsWith('/settings')) return jsonResponse({ installEnabled: true, enabled: true, ready: true, readinessReasons: [], model: 'jev-1.13.0', enablementEpoch: 1, completionBoundary: 1, evaluationDefinitionId: 'definition', actions: { configure: false, backfill: false }, experimental: true, disclosure: 'Experimental sentiment' })
+      return jsonResponse({ ...dto, selection: { ...dto.selection, queryClass: request.searchParams.get('queryClass') } })
+    })
+    const client = createQueryClient()
+    try {
+      render(<QueryClientProvider client={client}><SentimentScopeProvider projectName="project" selection={{ mode: 'advanced', scope: 'project', queryClass: 'non-brand', runId: 'run-2', revision: 2 }}><VisibilityReportView report={report} onSelectionChange={vi.fn()} /></SentimentScopeProvider></QueryClientProvider>)
+      fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
+      const table = screen.getByRole('table', { name: 'Non-brand queries engine results' })
+      const harbor = table.querySelector<HTMLElement>('[data-query-key="harbor-query"]')!
+      const marina = table.querySelector<HTMLElement>('[data-query-key="marina-query"]')!
+      await waitFor(() => expect(harbor.textContent).toContain(SENTIMENT_COPY.states.processing))
+      expect(marina.textContent).toContain(SENTIMENT_COPY.states['not-measured'])
+      for (const group of [harbor, marina]) {
+        expect(group.textContent).not.toContain(SENTIMENT_COPY.nonBrand.rowNone)
+        expect(within(group).queryByRole('button', { name: /View unfavorable and mixed answers/ })).toBeNull()
+      }
+    } finally { cleanup(); client.clear(); restore() }
+  })
+
   describe('Advanced overview sentiment', () => {
     const sentimentSettings = { installEnabled: true, enabled: true, ready: true, readinessReasons: [], model: 'jev-1.13.0', enablementEpoch: 1, completionBoundary: 1, evaluationDefinitionId: 'definition', actions: { configure: true, backfill: true }, experimental: true, disclosure: 'Experimental sentiment' }
     function sentimentDto(queryClass: string | null): SentimentSummary {

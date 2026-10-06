@@ -98,6 +98,14 @@ function sentimentIntervalText(score: Pick<SentimentHeadline['score'], 'interval
 const OUTCOME_FILL: Record<typeof RATED_OUTCOMES[number], string> = { favorable: 'progress-fill-info', mixed: 'progress-fill-caution', unfavorable: 'progress-fill-negative' }
 function ratingCount(judged: number) { return `${judged} ${judged === 1 ? 'rating' : 'ratings'}` }
 function hasRatings(value: Pick<SentimentHeadline, 'score' | 'coverage'>) { return value.score.favorableRate !== null && value.coverage.judged > 0 }
+/**
+ * Whether a read is final: complete, not provisional, nothing left unadmitted. Only a final
+ * read with no unfavorable or mixed answers establishes that there were none; an unrated,
+ * pending, failed, canceled or partial read says its own state instead.
+ */
+function isFinal(value: Pick<SentimentHeadline, 'state' | 'provisional' | 'coverage'>) { return value.state === 'complete' && !value.provisional && value.coverage.unadmittedAssessments === 0 }
+/** A read's state in words; a non-final complete read (which the server does not send) reads as partial. */
+function stateText(value: Pick<SentimentHeadline, 'state'>) { return value.state === 'complete' ? SENTIMENT_COPY.partial : SENTIMENT_COPY.states[value.state] }
 /** A bar splits into outcome segments only where the favorable share shows too. */
 function drawsSegments(value: Pick<SentimentHeadline, 'score' | 'coverage'> | undefined) { return value ? hasRatings(value) && showsFavorableShare(value.coverage.judged) : false }
 
@@ -424,15 +432,18 @@ function NonBrandCriticism({ queryClass }: { queryClass: QueryClassView }) {
   const counts = summary.coverage.counts
   if (counts.unfavorable === 0 && counts.mixed === 0) {
     if (!nonBrandView) return null
-    // No ratings and not complete: say the class's own state (a terminal partial is "Partial results.", never "Analyzing"), never "none".
-    if (!hasRatings(summary) && summary.state !== 'complete') return <p className="sentiment-nonbrand-note">{summary.state === 'not-measured' ? SENTIMENT_COPY.nonBrand.notRated : `${SENTIMENT_COPY.nonBrand.label}: ${SENTIMENT_COPY.states[summary.state]}`}</p>
-    return <p className="sentiment-nonbrand-note">{summary.provisional ? SENTIMENT_COPY.nonBrand.noneSoFar : SENTIMENT_COPY.nonBrand.none}</p>
+    // "None" only from a final read. Ratings so far are "none so far"; with none, the class's own state
+    // (a terminal partial is "Partial results.", never "Analyzing").
+    if (isFinal(summary)) return <p className="sentiment-nonbrand-note">{SENTIMENT_COPY.nonBrand.none}</p>
+    if (hasRatings(summary)) return <p className="sentiment-nonbrand-note">{SENTIMENT_COPY.nonBrand.noneSoFar}</p>
+    return <p className="sentiment-nonbrand-note">{summary.state === 'not-measured' ? SENTIMENT_COPY.nonBrand.notRated : `${SENTIMENT_COPY.nonBrand.label}: ${stateText(summary)}`}</p>
   }
   return <div className="sentiment-nonbrand" role="group" aria-label={SENTIMENT_COPY.nonBrand.label}>
     <div className="sentiment-nonbrand-line">
       <span className="sentiment-nonbrand-label">{SENTIMENT_COPY.nonBrand.label}<InfoTooltip text={SENTIMENT_COPY.nonBrand.help} /></span>
       <span className="sentiment-nonbrand-counts">
         {CRITICISM_OUTCOMES.slice().reverse().filter(outcome => counts[outcome] > 0).map(outcome => <span key={outcome}><span aria-hidden="true" className={`sentiment-legend-swatch ${OUTCOME_FILL[outcome as typeof RATED_OUTCOMES[number]]}`} />{counts[outcome]} {outcome}</span>)}
+        {!isFinal(summary) && <span className="text-caution">{SENTIMENT_COPY.partial}</span>}
       </span>
       <Button type="button" variant="outline" size="sm" onClick={event => scope.openEvidence({ ...requestSelection(scope, summary), queryClass: 'non-brand', outcome: CRITICISM_OUTCOMES }, SENTIMENT_COPY.nonBrand.evidence, event.currentTarget)}>{SENTIMENT_COPY.nonBrand.view}</Button>
     </div>
@@ -501,9 +512,14 @@ export function SentimentQueryScore({ queryId, sourceSnapshotIds = [], queryClas
   if (row.queryClass === 'non-brand') {
     if (value.state === 'unsupported') return <span className="text-sm text-secondary">Unavailable</span>
     const { unfavorable, mixed } = value.coverage.counts
-    if (unfavorable === 0 && mixed === 0) return <span className="text-sm text-muted">{showLabel && <span className="block text-sm font-normal text-secondary">{SENTIMENT_COPY.nonBrand.rowLabel}</span>}<span aria-hidden="true" title={SENTIMENT_COPY.nonBrand.rowNone}>{EM_DASH}</span><span className="sr-only">{SENTIMENT_COPY.nonBrand.rowNone}</span></span>
+    if (unfavorable === 0 && mixed === 0) {
+      const label = showLabel && <span className="block text-sm font-normal text-secondary">{SENTIMENT_COPY.nonBrand.rowLabel}</span>
+      // Only a final read establishes "none"; an unrated, pending, failed, canceled or partial row says its state.
+      if (!isFinal(value)) return <span className="text-sm text-secondary">{label}<span>{stateText(value)}</span></span>
+      return <span className="text-sm text-muted">{label}<span aria-hidden="true" title={SENTIMENT_COPY.nonBrand.rowNone}>{EM_DASH}</span><span className="sr-only">{SENTIMENT_COPY.nonBrand.rowNone}</span></span>
+    }
     return <Button type="button" variant="ghost" className="h-auto min-h-11 flex-col items-start gap-0 px-1" aria-label={`View unfavorable and mixed answers for ${row.queryText}`} onKeyDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); scope.openEvidence({ ...selection, outcome: CRITICISM_OUTCOMES }, `${row.queryText}, unfavorable and mixed`, event.currentTarget) }}>
-      {showLabel && <span className="text-sm font-normal text-secondary">{SENTIMENT_COPY.nonBrand.rowLabel}</span>}{unfavorable > 0 && <span className="text-sm text-negative">{unfavorable} unfavorable</span>}{mixed > 0 && <span className="text-sm text-caution">{mixed} mixed</span>}
+      {showLabel && <span className="text-sm font-normal text-secondary">{SENTIMENT_COPY.nonBrand.rowLabel}</span>}{unfavorable > 0 && <span className="text-sm text-negative">{unfavorable} unfavorable</span>}{mixed > 0 && <span className="text-sm text-caution">{mixed} mixed</span>}{value.provisional && <span className="text-xs font-normal text-caution">Provisional</span>}
     </Button>
   }
   return <Button type="button" variant="ghost" className="h-auto min-h-11 flex-col items-start gap-0 px-1" aria-label={`View ${CLASS_LABEL[row.queryClass]} sentiment evidence for ${row.queryText}`} onKeyDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); scope.openEvidence(selection, row.queryText, event.currentTarget) }}>

@@ -4,7 +4,7 @@ import { useState, type ComponentProps, type ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { aggregateSentiment, createSentimentEvaluationDefinition, emptySentimentCounts } from '@ainyc/canonry-contracts'
-import type { SentimentEvidenceItem, SentimentSettings, SentimentSummary, SentimentAssessmentSummary } from '@ainyc/canonry-contracts'
+import type { SentimentEvidenceItem, SentimentOutcome, SentimentSettings, SentimentSummary, SentimentAssessmentSummary } from '@ainyc/canonry-contracts'
 import { SentimentScopeProvider, SentimentControls, SentimentHeadlines, SentimentQueryScore, SentimentAnswerOutcome, SentimentOverviewMetric, SentimentEvidenceDrawer, useSentimentResolvedSource, SENTIMENT_COPY, SENTIMENT_MIN_RATED, sentimentRatedShare, showsFavorableShare, showsSentimentOverview } from '../src/components/project/SentimentSection.js'
 import { sentimentSelectionFromVisibility, sentimentSelectionForSimpleEvidence, sentimentQueryKey, sentimentSummaryRefetchInterval } from '../src/queries/sentiment.js'
 import { EvidenceTable, QueryEvidenceSummary } from '../src/components/project/EvidenceTable.js'
@@ -1300,6 +1300,25 @@ describe('non-brand unfavorable and mixed answers', () => {
     } finally { page.close() }
   })
 
+  it('says "none so far", never "none", while assessments are still unadmitted', async () => {
+    const base = nonBrandWith({ favorable: 12, factual: 2 })
+    const gap = { ...base, coverage: { ...base.coverage, unadmittedAssessments: 3, eligibleAssessments: base.coverage.eligibleAssessments + 3 } }
+    expect([gap.state, gap.provisional]).toEqual(['complete', false])
+    const page = renderScope(<SentimentHeadlines queryClass="non-brand" />, { nonBrand: gap })
+    try {
+      await waitFor(() => expect(note()?.textContent).toBe(SENTIMENT_COPY.nonBrand.noneSoFar))
+      expect(document.body.textContent).not.toContain(SENTIMENT_COPY.nonBrand.none)
+    } finally { page.close() }
+  })
+
+  it('marks unfavorable and mixed counts from an unfinished read as partial', async () => {
+    const page = renderScope(<SentimentHeadlines queryClass="all" />, { nonBrand: nonBrandWith({ favorable: 8, unfavorable: 1 }, { state: 'partial', provisional: true }) })
+    try {
+      const group = await screen.findByRole('group', { name: SENTIMENT_COPY.nonBrand.label })
+      expect([...group.querySelectorAll('.sentiment-nonbrand-counts > span')].map(count => count.textContent)).toEqual(['1 unfavorable', SENTIMENT_COPY.partial])
+    } finally { page.close() }
+  })
+
   it.each([
     ['none', 'complete', false, SENTIMENT_COPY.nonBrand.none],
     ['none so far while provisional', 'partial', true, SENTIMENT_COPY.nonBrand.noneSoFar],
@@ -1446,6 +1465,45 @@ describe('non-brand query rows', () => {
       expect(visibleText(cell)).toBe(EMPTY_VALUE)
       expect(cell.textContent).not.toContain('%')
       expect(screen.queryByRole('button')).toBeNull()
+    } finally { page.close() }
+  })
+
+  // Only a final read (complete, not provisional, nothing unadmitted) establishes "no unfavorable or mixed answers".
+  function unfinishedRow(outcomes: SentimentOutcome[], gap = 0, serviceState?: Pick<SentimentSummary, 'state' | 'provisional'>): SentimentSummary {
+    const row = aggregateSentiment(outcomes.map((outcome, index) => ({ assessmentId: `${outcome}-${index}`, sourceSnapshotId: `snapshot-${index}`, outcome })), { eligibleAssessments: outcomes.length + gap })
+    const dto = { ...summary(), selection: { ...summary().selection, queryClass: 'non-brand' as const } }
+    dto.queries = [{ ...row, ...serviceState, reason: null, queryId: 'q', queryText: 'apartments near transit', queryClass: 'non-brand', sourceSnapshotIds: outcomes.map((_, index) => `snapshot-${index}`), assessments: [], locations: [] }]
+    return dto
+  }
+  it.each([
+    ['unadmitted (eligible, never stored)', [] as SentimentOutcome[], 2, undefined, SENTIMENT_COPY.states['not-measured']],
+    ['pending', ['pending', 'running'] as SentimentOutcome[], 0, undefined, SENTIMENT_COPY.states.processing],
+    ['waiting to retry', ['waiting-to-retry'] as SentimentOutcome[], 0, undefined, SENTIMENT_COPY.states.processing],
+    ['failed', ['failed'] as SentimentOutcome[], 0, undefined, SENTIMENT_COPY.states.failed],
+    ['canceled', ['canceled'] as SentimentOutcome[], 0, undefined, SENTIMENT_COPY.states.canceled],
+    ['partial (one rating, one failed)', ['favorable', 'failed'] as SentimentOutcome[], 0, undefined, SENTIMENT_COPY.states.partial],
+    // The service marks a coverage gap partial and provisional even when every stored assessment finished.
+    ['partial (coverage gap)', ['favorable'] as SentimentOutcome[], 2, { state: 'partial' as const, provisional: true }, SENTIMENT_COPY.states.partial],
+  ])('keeps a %s non-brand row in its own state, never "no unfavorable or mixed answers"', async (_label, outcomes, gap, serviceState, copy) => {
+    const nonBrand = unfinishedRow(outcomes, gap, serviceState)
+    const row = nonBrand.queries[0]!
+    expect(row.coverage.counts.unfavorable + row.coverage.counts.mixed).toBe(0)
+    const page = renderScope(<SentimentQueryScore queryId="q" queryClass="non-brand" showLabel />, { nonBrand })
+    try {
+      const cell = (await screen.findByText(copy)).parentElement!
+      expect([...cell.children].map(child => child.textContent)).toEqual([SENTIMENT_COPY.nonBrand.rowLabel, copy])
+      expect(cell.className).toContain('text-secondary')
+      expect(cell.textContent).not.toContain(SENTIMENT_COPY.nonBrand.rowNone)
+      expect(cell.textContent).not.toContain(EMPTY_VALUE)
+      expect(screen.queryByRole('button')).toBeNull()
+    } finally { page.close() }
+  })
+
+  it('marks counts from an unfinished non-brand row as partial', async () => {
+    const page = renderScope(<SentimentQueryScore queryId="q" queryClass="non-brand" />, { nonBrand: unfinishedRow(['unfavorable', 'pending']) })
+    try {
+      const button = await screen.findByRole('button', { name: 'View unfavorable and mixed answers for apartments near transit' })
+      expect([...button.children].map(child => [child.textContent, child.className.split(' ').at(-1)])).toEqual([['1 unfavorable', 'text-negative'], ['Provisional', 'text-caution']])
     } finally { page.close() }
   })
 
