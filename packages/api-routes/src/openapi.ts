@@ -2160,7 +2160,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'put',
     path: '/api/v1/projects/{name}/competitors',
     summary: 'Replace competitors',
-    description: 'Replaces the tracked competitor domain set. A domain that stays keeps its row and its curated aliases; use PUT /projects/{name}/competitors/{domain}/aliases to change aliases. A new domain whose name overlaps another competitor\'s curated alias as complete words is rejected (400, reason `claimed-by-alias`) until that alias is removed.',
+    description: 'Replaces the tracked competitor domain set. A domain that stays keeps its row and its curated aliases; use PUT /projects/{name}/competitors/{domain}/aliases to change aliases. A new domain whose name overlaps another competitor\'s curated alias (one brand key contains the other, so the alias "Tune" claims `tunespoke.example`) is rejected (400, reason `claimed-by-alias`) until that alias is removed, and a new domain that is the project\'s own site, a subdomain of it or a parent of an owned domain is rejected (400).',
     tags: ['competitors'],
     parameters: [nameParameter],
     requestBody: {
@@ -2185,7 +2185,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'post',
     path: '/api/v1/projects/{name}/competitors',
     summary: 'Append competitors',
-    description: 'Adds competitors not already tracked. Each entry is a domain or `{ domain, aliases }`; stated aliases are added to that competitor\'s curated alias list (also for an already-tracked domain) and must pass the alias rules (at most 10 per competitor, 80 characters each, at least 3 letters or digits, no overlap as complete words, in either direction, with one of the project\'s own names or hosts or with another competitor\'s name, so "Tune" and "Tune Spoke" cannot belong to different competitors). A bare domain leaves stored aliases unchanged. A new domain whose name overlaps another competitor\'s curated alias as complete words is rejected (400, reason `claimed-by-alias`) until that alias is removed.',
+    description: 'Adds competitors not already tracked. Each entry is a domain or `{ domain, aliases }`; stated aliases are added to that competitor\'s curated alias list (also for an already-tracked domain) and must pass the alias rules (at most 10 per competitor, 80 characters each, at least 3 letters or digits, and no brand key that contains, or sits inside, one of the project\'s own names or hosts or another competitor\'s name, because answers may split or join the words: "Tune" cannot belong to one competitor while another answers to "Tune Spoke", "TuneSpoke" or `tunespoke.example`). A bare domain leaves stored aliases unchanged. A new domain whose name overlaps another competitor\'s curated alias that way is rejected (400, reason `claimed-by-alias`) until that alias is removed, and a new domain that is the project\'s own site, a subdomain of it or a parent of an owned domain is rejected (400).',
     tags: ['competitors'],
     parameters: [nameParameter],
     requestBody: {
@@ -2205,7 +2205,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'put',
     path: '/api/v1/projects/{name}/competitors/{domain}/aliases',
     summary: 'Set competitor aliases',
-    description: 'Sets one tracked competitor\'s operator-curated aliases exactly (`[]` clears): the names it goes by in answer text when they differ from its domain. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) layers them onto the domain label at read time; stored per-snapshot competitor columns are recomputed in the background, and frozen Simple run definitions and Advanced plan revisions keep the identity they were measured with. Aliases are trimmed and deduplicated case-insensitively; at most 10, each 80 characters or fewer with at least 3 letters or digits, never overlapping as complete words, in either direction, one of the project\'s own names or hosts (nor a host on the project\'s site) or a name another tracked competitor answers to (its aliases, domain label or written host), so "Tune" and "Tune Spoke" cannot belong to different competitors. Idempotent: an unchanged list writes nothing.',
+    description: 'Sets one tracked competitor\'s operator-curated aliases exactly (`[]` clears): the names it goes by in answer text when they differ from its domain. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) layers them onto the domain label at read time; stored per-snapshot competitor columns are recomputed in the background, and frozen Simple run definitions and Advanced plan revisions keep the identity they were measured with. Aliases are trimmed and deduplicated case-insensitively; at most 10, each 80 characters or fewer with at least 3 letters or digits, and no brand key (letters and digits, case and punctuation folded) that contains, or sits inside, one of the project\'s own names or hosts or a name another tracked competitor answers to (its aliases, domain label or written host), because answers may split or join the words: "Tune" cannot belong to one competitor while another answers to "Tune Spoke", "TuneSpoke" or `tunespoke.example`, and joined-word lookalikes ("Tune" and "Tuner") are refused too. Idempotent: an unchanged list writes nothing.',
     tags: ['competitors'],
     parameters: [nameParameter, competitorDomainParameter],
     requestBody: {
@@ -7057,7 +7057,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/discover/sessions/{id}/promote',
     summary: 'Preview a discovery promotion plan (read-only)',
-    description: 'Returns available promotion candidates: queries grouped by bucket, plus recurring suggested competitor domains not already tracked. Read-only — use the POST to actually adopt the default subset or an explicit bucket subset.',
+    description: 'Returns available promotion candidates: queries grouped by bucket; the recurring competitors of every classified type a promote could add (`suggestedCompetitors`, each stored as its registrable domain, with the cited hosts merged into it as `sources`); and the eligible competitors a promote leaves out (`skippedCompetitors`: already tracked, the project\'s own site, cited as two or more different subdomains of one possibly shared host, or claimed by another competitor\'s curated alias), each with a reason and a message. Read-only; use the POST to adopt the default subset or an explicit bucket subset.',
     tags: ['discovery'],
     parameters: [
       nameParameter,
@@ -7073,7 +7073,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/discover/sessions/{id}/promote',
     summary: 'Promote a discovery session into the tracked basket',
     description:
-      "Adopts a completed session's bucketed queries into the project's tracked basket, tagged with `provenance=\"discovery:<sessionId>\"`. By default, only `cited` and `aspirational` queries are promoted; include `wasted-surface` explicitly when off-ICP competitor gaps should also be tracked. Recurring discovered competitor domains classified as `direct-competitor` are also merged by default — pass `competitorTypes` to adopt other classified types or to recover legacy `unknown` entries. Add-only and idempotent: queries/domains already tracked are returned under `skipped` rather than inserted twice. Only sessions with `status: \"completed\"` can be promoted.",
+      "Adopts a completed session's bucketed queries into the project's tracked basket, tagged with `provenance=\"discovery:<sessionId>\"`. By default, only `cited` and `aspirational` queries are promoted; include `wasted-surface` explicitly when off-ICP competitor gaps should also be tracked. Recurring discovered competitors with a host classified as `direct-competitor` are also merged by default; pass `competitorTypes` to adopt other classified types or to recover legacy `unknown` entries. Cited hosts are grouped into the registrable domain every competitor write stores (`offers.rival.example` promotes as `rival.example`) before the hit floor and the cap apply, counting each probe once. Eligible competitors that are already tracked, the project's own site, cited as two or more different subdomains of one possibly shared host, or claimed by another competitor's curated alias are left out and listed under `skipped.competitors`, with the reason and the merged hosts in `competitorDetails`; the rest of the promote proceeds. Add-only and idempotent: queries/domains already tracked are returned under `skipped` rather than inserted twice. Only sessions with `status: \"completed\"` can be promoted.",
     tags: ['discovery'],
     parameters: [
       nameParameter,

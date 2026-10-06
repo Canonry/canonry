@@ -12,6 +12,7 @@ import {
   DiscoveryCompetitorTypes,
   effectiveBrandNames,
   effectiveDomains,
+  hostMatchesAnyDomain,
   normalizeProjectDomain,
   isRetryableHttpError,
   RunStatuses,
@@ -336,8 +337,9 @@ function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
         cfg,
       )
       const normalized = adapter.normalizeResult(raw)
-      const canonical = new Set(input.project.canonicalDomains.map(d => d.toLowerCase()))
-      const isCited = normalized.citedDomains.some(d => canonical.has(d.toLowerCase()))
+      // A subdomain of a project domain is the project, as the bucket
+      // classifier (`classifyProbeBucket`) reads it.
+      const isCited = normalized.citedDomains.some(d => hostMatchesAnyDomain(d, input.project.canonicalDomains))
       // Mention is the answer-TEXT signal, independent of the citation/source
       // signal above. Same deterministic helper the answer-visibility snapshot
       // writer uses, so discovery and sweeps agree on what "mentioned" means.

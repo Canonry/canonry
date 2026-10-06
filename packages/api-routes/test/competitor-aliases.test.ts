@@ -257,43 +257,141 @@ describe('a new domain never takes over a stored alias', () => {
 })
 
 describe('an alias never overlaps another competitor\'s name', () => {
-  // The readers match complete adjacent words, so "Tune" on one competitor
-  // and "Tune Spoke" on another would both count an answer naming only
-  // "Tune Spoke". Whichever is written second fails.
+  // The readers match a brand key as complete adjacent words under any word
+  // split of the answer, so "Tune" on one competitor and "Tune Spoke" (or
+  // "TuneSpoke", or a domain label `tunespoke`) on another would both count
+  // an answer naming only "Tune Spoke". Whichever is written second fails.
   it('rejects either order through the alias route, and a domain found inside a stored alias, writing nothing', async () => {
     const project = await createProject()
-    await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: [{ domain: 'qvx.example', aliases: ['Tune'] }, 'spoketuneworks.example'] } })
+    await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: [{ domain: 'qvx.example', aliases: ['Tune'] }, 'wheelwright.example'] } })
     competitorAliasHooks.length = 0
 
-    const longer = await setAliases('spoketuneworks.example', ['Tune Spoke'])
+    const longer = await setAliases('wheelwright.example', ['Tune Spoke'])
     expect(longer.statusCode).toBe(400)
     expect(longer.json().error.code).toBe('VALIDATION_ERROR')
     expect(longer.json().error.message).toBe(
-      'Invalid competitor aliases: spoketuneworks.example: "Tune Spoke" contains "Tune", a name of qvx.example, so one answer would count both competitors',
+      'Invalid competitor aliases: wheelwright.example: "Tune Spoke" contains "Tune", a name of qvx.example, so one answer would count both competitors',
     )
     expect(longer.json().error.details.rejectedAliases).toEqual([
-      { domain: 'spoketuneworks.example', alias: 'Tune Spoke', reason: 'other-competitor', conflictsWith: 'qvx.example', conflictingName: 'Tune' },
+      { domain: 'wheelwright.example', alias: 'Tune Spoke', reason: 'other-competitor', conflictsWith: 'qvx.example', conflictingName: 'Tune' },
     ])
 
     // The other order: "Tune Spoke" stored first, then "Tune".
     expect((await setAliases('qvx.example', [])).statusCode).toBe(200)
-    expect((await setAliases('spoketuneworks.example', ['Tune Spoke'])).statusCode).toBe(200)
+    expect((await setAliases('wheelwright.example', ['Tune Spoke'])).statusCode).toBe(200)
     const shorter = await setAliases('qvx.example', ['Tune'])
     expect(shorter.statusCode).toBe(400)
     expect(shorter.json().error.message).toBe(
-      'Invalid competitor aliases: qvx.example: "Tune" is found inside "Tune Spoke", a name of spoketuneworks.example, so one answer would count both competitors',
+      'Invalid competitor aliases: qvx.example: "Tune" is found inside "Tune Spoke", a name of wheelwright.example, so one answer would count both competitors',
     )
 
     // A new domain whose label `tune` is a word of the stored alias.
-    const added = await app.inject({ method: 'PUT', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['qvx.example', 'spoketuneworks.example', 'tune.example'] } })
+    const added = await app.inject({ method: 'PUT', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['qvx.example', 'wheelwright.example', 'tune.example'] } })
     expect(added.statusCode).toBe(400)
     expect(added.json().error.details.rejectedAliases).toEqual([
-      { domain: 'tune.example', alias: 'Tune Spoke', reason: 'claimed-by-alias', conflictsWith: 'spoketuneworks.example', conflictingName: 'tune' },
+      { domain: 'tune.example', alias: 'Tune Spoke', reason: 'claimed-by-alias', conflictsWith: 'wheelwright.example', conflictingName: 'tune' },
     ])
 
-    expect(storedAliases(project.id)).toEqual({ 'qvx.example': [], 'spoketuneworks.example': ['Tune Spoke'] })
+    expect(storedAliases(project.id)).toEqual({ 'qvx.example': [], 'wheelwright.example': ['Tune Spoke'] })
     expect(audits(project.id, 'competitors.aliases-updated')).toHaveLength(2)
     expect(audits(project.id, 'competitors.replaced')).toHaveLength(0)
+  })
+
+  // Reported: alias "TuneSpoke" on one competitor and "Tune" on another were
+  // both accepted (200), and "Tune Spoke is the shop..." then counted both.
+  it('rejects "Tune" next to the one-word alias "TuneSpoke", in either order', async () => {
+    const project = await createProject()
+    await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['wheelwright.example', 'qvx.example'] } })
+
+    expect((await setAliases('wheelwright.example', ['TuneSpoke'])).statusCode).toBe(200)
+    const shorter = await setAliases('qvx.example', ['Tune'])
+    expect(shorter.statusCode).toBe(400)
+    expect(shorter.json().error.details.rejectedAliases).toEqual([
+      { domain: 'qvx.example', alias: 'Tune', reason: 'other-competitor', conflictsWith: 'wheelwright.example', conflictingName: 'TuneSpoke' },
+    ])
+
+    expect((await setAliases('wheelwright.example', [])).statusCode).toBe(200)
+    expect((await setAliases('qvx.example', ['Tune'])).statusCode).toBe(200)
+    const longer = await setAliases('wheelwright.example', ['TuneSpoke'])
+    expect(longer.statusCode).toBe(400)
+    expect(longer.json().error.message).toBe(
+      'Invalid competitor aliases: wheelwright.example: "TuneSpoke" contains "Tune", a name of qvx.example, so one answer would count both competitors',
+    )
+    expect(storedAliases(project.id)).toEqual({ 'wheelwright.example': [], 'qvx.example': ['Tune'] })
+  })
+
+  // Reported: with tunespoke.example tracked, alias "Tune" was accepted, and
+  // "Tune Spoke" counted both.
+  it('rejects "Tune" next to a domain whose label contains it, and that domain next to "Tune"', async () => {
+    const project = await createProject()
+    await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['tunespoke.example', 'qvx.example'] } })
+
+    const alias = await setAliases('qvx.example', ['Tune'])
+    expect(alias.statusCode).toBe(400)
+    expect(alias.json().error.details.rejectedAliases).toEqual([
+      { domain: 'qvx.example', alias: 'Tune', reason: 'other-competitor', conflictsWith: 'tunespoke.example', conflictingName: 'tunespoke' },
+    ])
+
+    // The add path: with "Tune" stored, neither label containing it can be added.
+    const removed = await app.inject({ method: 'DELETE', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['tunespoke.example'] } })
+    expect(removed.statusCode).toBe(200)
+    expect((await setAliases('qvx.example', ['Tune'])).statusCode).toBe(200)
+    for (const [domain, label] of [['tunespoke.example', 'tunespoke'], ['spoketuneworks.example', 'spoketuneworks']] as const) {
+      const add = await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: [domain] } })
+      expect(add.statusCode).toBe(400)
+      expect(add.json().error.details.rejectedAliases).toEqual([
+        { domain, alias: 'Tune', reason: 'claimed-by-alias', conflictsWith: 'qvx.example', conflictingName: label },
+      ])
+    }
+    expect(storedAliases(project.id)).toEqual({ 'qvx.example': ['Tune'] })
+  })
+
+  it('blocks an add that overlaps aliases an older build stored overlapping, without stripping them', async () => {
+    const project = await createProject()
+    // Stored lists that already overlap each other (written before this rule).
+    for (const [domain, aliases] of [['wheelwright.example', ['Tune Spoke']], ['qvx.example', ['Tune']]] as const) {
+      db.insert(competitors).values({ id: crypto.randomUUID(), projectId: project.id, domain, aliases: [...aliases], provenance: 'cli', createdAt: '2026-10-01T00:00:00.000Z' }).run()
+    }
+    const add = await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['tune.example'] } })
+    expect(add.statusCode).toBe(400)
+    expect(add.json().error.details.rejectedAliases).toEqual([
+      { domain: 'tune.example', alias: 'Tune', reason: 'claimed-by-alias', conflictsWith: 'qvx.example' },
+      { domain: 'tune.example', alias: 'Tune Spoke', reason: 'claimed-by-alias', conflictsWith: 'wheelwright.example', conflictingName: 'tune' },
+    ])
+    expect(storedAliases(project.id)).toEqual({ 'wheelwright.example': ['Tune Spoke'], 'qvx.example': ['Tune'] })
+  })
+})
+
+describe('the project\'s own site is never a competitor', () => {
+  it('refuses to add the project\'s domain, a subdomain of it, or a parent of an owned domain, on every writer', async () => {
+    const project = await createProject()
+    expect((await app.inject({ method: 'PUT', url: '/api/v1/projects/rotorwise', payload: { ...PROJECT, ownedDomains: ['rotorwise.pagehost.example'] } })).statusCode).toBe(200)
+
+    for (const domain of ['rotorwise.example', 'shop.rotorwise.example', 'pagehost.example']) {
+      const add = await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['qvx.example', domain] } })
+      expect(add.statusCode, domain).toBe(400)
+      expect(add.json().error.code).toBe('VALIDATION_ERROR')
+    }
+    const replace = await app.inject({ method: 'PUT', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['blog.rotorwise.example'] } })
+    expect(replace.statusCode).toBe(400)
+    expect(replace.json().error.message).toBe(
+      'Cannot track the project\'s own site as a competitor: rotorwise.example overlaps the project domain rotorwise.example, so every citation of the project would count for it',
+    )
+    expect(replace.json().error.details).toEqual({ ownSiteCompetitors: [{ domain: 'rotorwise.example', projectDomain: 'rotorwise.example' }] })
+
+    const apply = await app.inject({
+      method: 'POST',
+      url: '/api/v1/apply',
+      payload: {
+        apiVersion: 'canonry/v1',
+        kind: 'Project',
+        metadata: { name: 'rotorwise' },
+        spec: { ...PROJECT, ownedDomains: ['rotorwise.pagehost.example'], competitors: ['pagehost.example'] },
+      },
+    })
+    expect(apply.statusCode).toBe(400)
+    expect(apply.json().error.details).toEqual({ ownSiteCompetitors: [{ domain: 'pagehost.example', projectDomain: 'rotorwise.pagehost.example' }] })
+    expect(storedAliases(project.id)).toEqual({})
   })
 })
 
@@ -339,8 +437,9 @@ describe('competitor rows stored unnormalized by an older build', () => {
     const project = await createProject()
     insertCompetitor(project.id, 'spoketuneworks.example', ['TuneSpoke'])
     const legacyId = insertCompetitor(project.id, 'offers.spoketuneworks.example')
-    const ambiguous = 'Competitor spoketuneworks.example matches 2 stored rows (offers.spoketuneworks.example, spoketuneworks.example); '
-      + 'remove the extra row by id (DELETE /projects/{name}/competitors/{id}), or remove the competitor and add it again'
+    const ambiguous = 'Competitor spoketuneworks.example is stored as 2 rows (offers.spoketuneworks.example, spoketuneworks.example), so this write cannot pick one. '
+      + 'Remove the competitor, which removes every row (canonry competitor remove <project> spoketuneworks.example), '
+      + 'then add it again with its curated aliases (canonry competitor add <project> spoketuneworks.example --alias "TuneSpoke")'
 
     const alias = await setAliases('spoketuneworks.example', ['Tune Spoke'])
     expect(alias.statusCode).toBe(400)
@@ -352,6 +451,7 @@ describe('competitor rows stored unnormalized by an older build', () => {
         { id: legacyId, domain: 'offers.spoketuneworks.example' },
         { id: expect.any(String), domain: 'spoketuneworks.example' },
       ],
+      aliases: ['TuneSpoke'],
     })
     const appended = await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: [{ domain: 'offers.spoketuneworks.example', aliases: ['Tune Spoke'] }] } })
     expect(appended.statusCode).toBe(400)
@@ -406,9 +506,9 @@ describe('alias route audits every alias change it makes', () => {
     const res = await setAliases('qvx.example', ['Pros', 'rotorwise.example', 'www.rotorwise.example', 'QVX'])
     expect(res.statusCode).toBe(400)
     expect(res.json().error.details.rejectedAliases).toEqual([
-      { domain: 'qvx.example', alias: 'Pros', reason: 'project-brand' },
+      { domain: 'qvx.example', alias: 'Pros', reason: 'project-brand', conflictingName: 'Rotorwise Pros' },
       { domain: 'qvx.example', alias: 'rotorwise.example', reason: 'project-brand' },
-      { domain: 'qvx.example', alias: 'www.rotorwise.example', reason: 'project-brand' },
+      { domain: 'qvx.example', alias: 'www.rotorwise.example', reason: 'project-brand', conflictingName: 'Rotorwise' },
     ])
   })
 })

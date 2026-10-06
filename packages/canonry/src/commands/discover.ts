@@ -1,9 +1,10 @@
 import { createApiClient } from '../client.js'
 import type { ApiClient, DiscoveryRunStartResponse } from '../client.js'
-import { CitationStates, describeError } from '@ainyc/canonry-contracts'
+import { CitationStates, describeError, DiscoveryPromoteCompetitorSkipReasons } from '@ainyc/canonry-contracts'
 import type {
   DiscoveryBucket,
   DiscoveryCompetitorType,
+  DiscoveryPromoteCompetitor,
   DiscoveryPromotePreview,
   DiscoveryPromoteRequest,
   DiscoverySessionDetailDto,
@@ -353,9 +354,14 @@ export async function discoverPromotePreview(project: string, sessionId: string,
   if (preview.suggestedCompetitors.length > 0) {
     console.log(`  Suggested new competitors:`)
     for (const c of preview.suggestedCompetitors) {
-      console.log(`    - ${c.domain} (${c.hits} hits, ${c.competitorType})`)
+      console.log(`    - ${c.domain} (${c.hits} hits, ${c.competitorType})${mergedHostsNote(c)}`)
     }
     console.log('    Only direct-competitor is promoted by default — pass --competitor-types to include other types.')
+  }
+  const held = preview.skippedCompetitors.filter(c => c.reason !== DiscoveryPromoteCompetitorSkipReasons['already-tracked'])
+  if (held.length > 0) {
+    console.log(`  Competitors a promote leaves out:`)
+    for (const c of held) console.log(`    ! ${c.domain} (${c.reason}): ${c.message}`)
   }
   console.log(`\n  Run \`canonry discover promote ${project} ${sessionId}\` to merge cited + aspirational queries.`)
   console.log('  Add `--bucket wasted-surface` only when off-ICP competitor gaps should be tracked.')
@@ -385,15 +391,23 @@ export async function discoverPromote(
     return
   }
 
-  const { promoted, skipped } = result
+  const { promoted, skipped, competitorDetails } = result
+  const held = competitorDetails.skipped.filter(c => c.reason !== DiscoveryPromoteCompetitorSkipReasons['already-tracked'])
   console.log(`Promoted discovery session ${sessionId} into "${project}":`)
   console.log(`  Queries:     ${promoted.queries.length} added, ${skipped.queries.length} already tracked`)
   for (const q of promoted.queries) console.log(`    + ${q}`)
-  console.log(`  Competitors: ${promoted.competitors.length} added, ${skipped.competitors.length} already tracked`)
-  for (const c of promoted.competitors) console.log(`    + ${c}`)
+  console.log(`  Competitors: ${promoted.competitors.length} added, ${skipped.competitors.length - held.length} already tracked, ${held.length} left out`)
+  for (const c of competitorDetails.promoted) console.log(`    + ${c.domain}${mergedHostsNote(c)}`)
+  for (const c of held) console.log(`    ! ${c.domain} (${c.reason}): ${c.message}`)
   if (promoted.queries.length === 0 && promoted.competitors.length === 0) {
     console.log(`  Nothing new — the project's basket already covers this session.`)
   }
+}
+
+/** ` (from offers.rival.example)` when the cited hosts differ from the stored domain, else ''. */
+function mergedHostsNote(competitor: DiscoveryPromoteCompetitor): string {
+  const hosts = competitor.sources.map(source => source.domain).filter(host => host !== competitor.domain)
+  return hosts.length > 0 ? ` (from ${competitor.sources.map(source => source.domain).join(', ')})` : ''
 }
 
 function printSessionDetail(session: DiscoverySessionDetailDto): void {

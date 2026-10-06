@@ -1,4 +1,4 @@
-import { normalizeCompetitorDomain, shareOfVoiceLabel, shareOfVoiceReason, type CompetitorDto, type ShareOfVoiceContext } from '@ainyc/canonry-contracts'
+import { normalizeCompetitorAliases, normalizeCompetitorDomain, shareOfVoiceLabel, shareOfVoiceReason, type CompetitorDto, type ShareOfVoiceContext } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -92,11 +92,17 @@ export async function competitorAliases(project: string, domain: string, options
     // refuses them, rather than editing one at random.
     const matches = (await client.listCompetitors(project)).filter(c => normalizeCompetitorDomain(c.domain) === target)
     if (matches.length > 1) {
+      // The removal discards the rows' curated aliases, so the hint restates
+      // them on the add that follows.
+      const rows = [...matches].sort((a, b) => a.domain.localeCompare(b.domain))
+      const aliases = normalizeCompetitorAliases(rows.flatMap(c => c.aliases))
+      const addAgain = `canonry competitor add ${project} ${target}${aliases.map(alias => ` --alias ${JSON.stringify(alias)}`).join('')}`
+      const stored = `${matches.length} rows (${rows.map(c => c.domain).join(', ')})`
       throw new CliError({
         code: 'VALIDATION_ERROR',
-        message: `Competitor ${target} matches ${matches.length} stored rows (${matches.map(c => c.domain).join(', ')}); remove the competitor and add it again`,
-        displayMessage: `Error: competitor ${target} is stored as ${matches.length} rows (${matches.map(c => c.domain).join(', ')}). Remove it with: canonry competitor remove ${project} ${target}, then add it again`,
-        details: { project, domain: target, matches: matches.map(c => ({ id: c.id, domain: c.domain })) },
+        message: `Competitor ${target} is stored as ${stored}; remove the competitor (every row goes) and add it again: ${addAgain}`,
+        displayMessage: `Error: competitor ${target} is stored as ${stored}. Remove it with: canonry competitor remove ${project} ${target}, then add it again with: ${addAgain}`,
+        details: { project, domain: target, matches: rows.map(c => ({ id: c.id, domain: c.domain })), aliases },
       })
     }
     const current = matches.at(0)

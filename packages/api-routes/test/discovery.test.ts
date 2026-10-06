@@ -31,6 +31,7 @@ import {
 import type {
   DiscoveryCompetitorType,
   DiscoveryHarvestDto,
+  DiscoveryPromotePreview,
   DiscoveryPromoteResult,
   DiscoverySessionDetailDto,
   DiscoverySessionDto,
@@ -143,6 +144,17 @@ describe('classifyProbeBucket', () => {
       project,
     })).toBe('cited')
   })
+
+  // A competitor row stores the registrable domain (a promoted
+  // offers.amberfield-solar.test is stored as amberfield-solar.test), so a
+  // later session must still see a citation of that subdomain as the
+  // competitor, and a project subdomain as the project.
+  it('counts a subdomain of a project or competitor domain as that domain', () => {
+    expect(classifyProbeBucket({ citationState: 'not-cited', citedDomains: ['offers.amberfield-solar.test'], project })).toBe('wasted-surface')
+    expect(classifyProbeBucket({ citationState: 'cited', citedDomains: ['blog.harbor-iq.test', 'amberfield-solar.test'], project })).toBe('cited')
+    // A different registrable domain that only ends in the same letters is not it.
+    expect(classifyProbeBucket({ citationState: 'not-cited', citedDomains: ['notamberfield-solar.test'], project })).toBe('aspirational')
+  })
 })
 
 describe('buildCompetitorMap', () => {
@@ -185,6 +197,13 @@ describe('buildCompetitorMap', () => {
   it('returns an empty array when no probes have citations', () => {
     expect(buildCompetitorMap([], project)).toEqual([])
     expect(buildCompetitorMap([{ citedDomains: [] }, { citedDomains: [] }], project)).toEqual([])
+  })
+
+  it('excludes subdomains of the project\'s domains, so the project\'s own blog never becomes a candidate', () => {
+    const probes = [{ citedDomains: ['blog.harbor-iq.test', 'www.harbor-iq.test', 'offers.emberflow.test'] }]
+    expect(buildCompetitorMap(probes, project)).toEqual([
+      { domain: 'offers.emberflow.test', hits: 1, competitorType: 'unknown' },
+    ])
   })
 
   it('canonical match is case-insensitive', () => {
@@ -1722,7 +1741,7 @@ describe('discovery routes', () => {
         query: 'q1',
         bucket: 'cited',
         citationState: 'cited',
-        citedDomains: '[]',
+        citedDomains: [],
         createdAt: new Date().toISOString(),
       },
       {
@@ -1732,7 +1751,7 @@ describe('discovery routes', () => {
         query: 'q2',
         bucket: 'aspirational',
         citationState: 'not-cited',
-        citedDomains: '[]',
+        citedDomains: [],
         createdAt: new Date().toISOString(),
       },
       {
@@ -1742,7 +1761,7 @@ describe('discovery routes', () => {
         query: 'q3',
         bucket: 'wasted-surface',
         citationState: 'not-cited',
-        citedDomains: '[]',
+        citedDomains: [],
         createdAt: new Date().toISOString(),
       },
     ]).run()
@@ -1752,19 +1771,20 @@ describe('discovery routes', () => {
       url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
     })
     expect(response.statusCode).toBe(200)
-    const body = response.json() as {
-      queriesByBucket: { cited: string[]; aspirational: string[]; 'wasted-surface': string[] }
-      suggestedCompetitors: Array<{ domain: string; hits: number; competitorType: string }>
-    }
+    const body = response.json() as DiscoveryPromotePreview
     expect(body.queriesByBucket.cited).toEqual(['q1'])
     expect(body.queriesByBucket.aspirational).toEqual(['q2'])
     expect(body.queriesByBucket['wasted-surface']).toEqual(['q3'])
     // Recurring new domains of EVERY type are surfaced (sorted by hits desc) so
-    // the operator can see what --competitor-types would unlock — tracked and
-    // one-off domains are still skipped.
+    // the operator can see what --competitor-types would unlock — tracked
+    // domains are listed as skipped, one-off domains not at all.
     expect(body.suggestedCompetitors).toEqual([
-      { domain: 'expedia.com', hits: 3, competitorType: 'ota-aggregator' },
-      { domain: 'halopanel.test', hits: 2, competitorType: 'direct-competitor' },
+      { domain: 'expedia.com', hits: 3, competitorType: 'ota-aggregator', sources: [{ domain: 'expedia.com', hits: 3, competitorType: 'ota-aggregator' }] },
+      { domain: 'halopanel.test', hits: 2, competitorType: 'direct-competitor', sources: [{ domain: 'halopanel.test', hits: 2, competitorType: 'direct-competitor' }] },
+    ])
+    expect(body.skippedCompetitors.map(entry => [entry.domain, entry.reason])).toEqual([
+      ['amberfield-solar.test', 'already-tracked'],
+      ['emberflow.test', 'already-tracked'],
     ])
   })
 })
@@ -1804,7 +1824,7 @@ describe('POST /discover/sessions/:id/promote', () => {
     projectId: string,
     opts: {
       status?: string
-      probes?: Array<{ query: string; bucket: string }>
+      probes?: Array<{ query: string; bucket: string; citedDomains?: string[] }>
       competitorMap?: Array<{ domain: string; hits: number; competitorType?: DiscoveryCompetitorType }>
     } = {},
   ): string {
@@ -1834,11 +1854,19 @@ describe('POST /discover/sessions/:id/promote', () => {
         query: p.query,
         bucket: p.bucket,
         citationState: p.bucket === 'cited' ? 'cited' : 'not-cited',
-        citedDomains: [],
+        citedDomains: p.citedDomains ?? [],
         createdAt: now,
       }).run()
     }
     return sessionId
+  }
+
+  function promote(app: ReturnType<typeof buildApp>['app'], sessionId: string, payload: Record<string, unknown> = {}) {
+    return app.inject({ method: 'POST', url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`, payload })
+  }
+
+  function preview(app: ReturnType<typeof buildApp>['app'], sessionId: string) {
+    return app.inject({ method: 'GET', url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote` })
   }
 
   it('promotes cited + aspirational by default, tags discovery provenance, and writes one audit log row', async () => {
@@ -1911,7 +1939,7 @@ describe('POST /discover/sessions/:id/promote', () => {
     expect(JSON.parse(audit.diff!)).toMatchObject({ droppedQualifiedAliases: ['Halo Panel'] })
   })
 
-  it('refuses to promote a domain that identifies another competitor\'s curated alias, writing nothing', async () => {
+  it('leaves out a domain that identifies another competitor\'s curated alias and promotes the rest', async () => {
     const { app, db, tmpDir } = buildAppWithRoutes()
     cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
     const { projectId } = seedProject(db) // tracks amberfield-solar.test, emberflow.test
@@ -1919,34 +1947,38 @@ describe('POST /discover/sessions/:id/promote', () => {
       .where(eq(competitors.domain, 'amberfield-solar.test')).run()
     const sessionId = seedSession(db, projectId, {
       probes: [{ query: 'best solar quoting tool', bucket: 'cited' }],
-      competitorMap: [{ domain: 'halopanel.test', hits: 2 }],
+      competitorMap: [{ domain: 'halopanel.test', hits: 2 }, { domain: 'solarplot.test', hits: 2 }],
     })
+    const message = 'halopanel.test cannot be added while "Halo Panel" is a curated alias of amberfield-solar.test; remove or restate that alias first'
 
-    const response = await app.inject({
-      method: 'POST',
-      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
-      payload: {},
-    })
-    // The same rule as a REST add: one answer must never credit both.
-    expect(response.statusCode).toBe(400)
-    expect(response.json().error.message).toBe(
-      'Invalid competitor aliases: halopanel.test: cannot be added while "Halo Panel" is a curated alias of amberfield-solar.test; remove or restate that alias first',
-    )
-    expect(db.select().from(queries).all()).toEqual([])
+    // The preview says what the promote will do.
+    const planned = (await preview(app, sessionId)).json() as DiscoveryPromotePreview
+    expect(planned.suggestedCompetitors.map(entry => entry.domain)).toEqual(['solarplot.test'])
+    expect(planned.skippedCompetitors.filter(entry => entry.reason === 'claimed-by-alias')).toEqual([
+      { domain: 'halopanel.test', hits: 2, competitorType: 'direct-competitor', sources: [{ domain: 'halopanel.test', hits: 2, competitorType: 'direct-competitor' }], reason: 'claimed-by-alias', message },
+    ])
+
+    // One answer must never credit both, so halopanel.test stays out; the
+    // queries and the other competitor still land.
+    const response = await promote(app, sessionId)
+    expect(response.statusCode, response.body).toBe(200)
+    const body = response.json() as DiscoveryPromoteResult
+    expect(body.promoted).toEqual({ queries: ['best solar quoting tool'], competitors: ['solarplot.test'] })
+    expect(body.skipped.competitors).toEqual(['halopanel.test'])
+    expect(body.competitorDetails.skipped.map(entry => [entry.domain, entry.reason, entry.message])).toEqual([['halopanel.test', 'claimed-by-alias', message]])
     expect(db.select({ domain: competitors.domain, aliases: competitors.aliases }).from(competitors).all()).toEqual([
       { domain: 'amberfield-solar.test', aliases: ['Halo Panel'] },
       { domain: 'emberflow.test', aliases: [] },
+      { domain: 'solarplot.test', aliases: [] },
     ])
-    expect(db.select().from(auditLog).all().filter(a => a.action === 'discovery.promoted')).toEqual([])
+    const audit = db.select().from(auditLog).all().find(a => a.action === 'discovery.promoted')!
+    expect(JSON.parse(audit.diff!)).toMatchObject({ skippedCompetitors: [{ domain: 'halopanel.test', reason: 'claimed-by-alias' }] })
 
-    // With the alias removed the same promote succeeds and keeps discovery provenance.
+    // With the alias removed the same promote adds it and keeps discovery provenance.
     db.update(competitors).set({ aliases: [] }).where(eq(competitors.domain, 'amberfield-solar.test')).run()
-    const retried = await app.inject({
-      method: 'POST',
-      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
-      payload: {},
-    })
+    const retried = await promote(app, sessionId)
     expect(retried.statusCode, retried.body).toBe(200)
+    expect((retried.json() as DiscoveryPromoteResult).promoted.competitors).toEqual(['halopanel.test'])
     expect(db.select().from(competitors).all().find(c => c.domain === 'halopanel.test')!.provenance).toBe(`discovery:${sessionId}`)
   })
 
@@ -1961,8 +1993,10 @@ describe('POST /discover/sessions/:id/promote', () => {
       ],
     })
 
-    const preview = await app.inject({ method: 'GET', url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote` })
-    expect(preview.json().suggestedCompetitors.map((entry: { domain: string }) => entry.domain)).toEqual(['halopanel.test'])
+    const planned = (await preview(app, sessionId)).json() as DiscoveryPromotePreview
+    expect(planned.suggestedCompetitors).toEqual([
+      { domain: 'halopanel.test', hits: 3, competitorType: 'direct-competitor', sources: [{ domain: 'offers.halopanel.test', hits: 3, competitorType: 'direct-competitor' }] },
+    ])
 
     const response = await app.inject({
       method: 'POST',
@@ -1973,6 +2007,10 @@ describe('POST /discover/sessions/:id/promote', () => {
     const body = response.json() as DiscoveryPromoteResult
     expect(body.promoted.competitors).toEqual(['halopanel.test'])
     expect(body.skipped.competitors).toEqual(['emberflow.test'])
+    // The result names the cited host each stored domain came from.
+    expect(body.competitorDetails.promoted.map(entry => [entry.domain, entry.sources.map(source => source.domain)])).toEqual([
+      ['halopanel.test', ['offers.halopanel.test']],
+    ])
     expect(db.select({ domain: competitors.domain }).from(competitors).all().map(row => row.domain).sort())
       .toEqual(['amberfield-solar.test', 'emberflow.test', 'halopanel.test'])
 
@@ -1987,7 +2025,7 @@ describe('POST /discover/sessions/:id/promote', () => {
     }
   })
 
-  it('refuses to promote a domain whose name is found inside another competitor\'s curated alias', async () => {
+  it('leaves out a domain whose name is found inside another competitor\'s curated alias', async () => {
     const { app, db, tmpDir } = buildAppWithRoutes()
     cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
     const { projectId } = seedProject(db)
@@ -1995,16 +2033,153 @@ describe('POST /discover/sessions/:id/promote', () => {
       .where(eq(competitors.domain, 'amberfield-solar.test')).run()
     const sessionId = seedSession(db, projectId, { competitorMap: [{ domain: 'halopanel.test', hits: 2 }] })
 
-    const response = await app.inject({
-      method: 'POST',
-      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
-      payload: {},
-    })
-    expect(response.statusCode).toBe(400)
-    expect(response.json().error.details.rejectedAliases).toEqual([
-      { domain: 'halopanel.test', alias: 'Halopanel Pros', reason: 'claimed-by-alias', conflictsWith: 'amberfield-solar.test', conflictingName: 'halopanel' },
-    ])
+    const response = await promote(app, sessionId)
+    expect(response.statusCode).toBe(200)
+    const body = response.json() as DiscoveryPromoteResult
+    expect(body.promoted.competitors).toEqual([])
+    expect(body.competitorDetails.skipped.map(entry => [entry.domain, entry.reason, entry.message])).toEqual([[
+      'halopanel.test',
+      'claimed-by-alias',
+      'halopanel.test cannot be added while "Halopanel Pros" is a curated alias of amberfield-solar.test (it contains "halopanel", a name of halopanel.test, so one answer would count both competitors); remove or restate that alias first',
+    ]])
     expect(db.select().from(competitors).all().map(row => row.domain).sort()).toEqual(['amberfield-solar.test', 'emberflow.test'])
+    // Nothing was written, so no audit row.
+    expect(db.select().from(auditLog).all().filter(a => a.action === 'discovery.promoted')).toEqual([])
+  })
+
+  // Reported: a promoted subdomain was stored as its registrable domain, so
+  // different sites on one shared host merged silently into the host itself.
+  it('never merges different subdomains of one host silently, and shows the host each stored domain came from', async () => {
+    const { app, db, tmpDir } = buildAppWithRoutes()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db)
+    const sessionId = seedSession(db, projectId, {
+      competitorMap: [
+        { domain: 'rivalbikes.pagehost.example', hits: 4 },
+        { domain: 'otherbikes.pagehost.example', hits: 3 },
+        { domain: 'tunepros.sitebuilder.example', hits: 2 },
+        { domain: 'www.yarrow.example', hits: 2 },
+      ],
+    })
+    const sharedHost = 'pagehost.example was cited as 2 different subdomains (rivalbikes.pagehost.example, otherbikes.pagehost.example), '
+      + 'which may be different sites on one shared host, so it is not merged into one competitor; if they are one competitor, add it with canonry competitor add <project> pagehost.example'
+
+    const planned = (await preview(app, sessionId)).json() as DiscoveryPromotePreview
+    expect(planned.suggestedCompetitors.map(entry => [entry.domain, entry.sources.map(source => source.domain)])).toEqual([
+      ['sitebuilder.example', ['tunepros.sitebuilder.example']],
+      ['yarrow.example', ['www.yarrow.example']],
+    ])
+    expect(planned.skippedCompetitors.map(entry => [entry.domain, entry.reason, entry.message])).toEqual([['pagehost.example', 'shared-host', sharedHost]])
+
+    const response = await promote(app, sessionId)
+    expect(response.statusCode, response.body).toBe(200)
+    const body = response.json() as DiscoveryPromoteResult
+    expect(body.promoted.competitors).toEqual(['sitebuilder.example', 'yarrow.example'])
+    expect(body.skipped.competitors).toEqual(['pagehost.example'])
+    expect(body.competitorDetails.promoted.map(entry => [entry.domain, entry.sources.map(source => source.domain)])).toEqual([
+      ['sitebuilder.example', ['tunepros.sitebuilder.example']],
+      ['yarrow.example', ['www.yarrow.example']],
+    ])
+    expect(body.competitorDetails.skipped).toEqual([{
+      domain: 'pagehost.example',
+      hits: 4,
+      competitorType: 'direct-competitor',
+      sources: [
+        { domain: 'rivalbikes.pagehost.example', hits: 4, competitorType: 'direct-competitor' },
+        { domain: 'otherbikes.pagehost.example', hits: 3, competitorType: 'direct-competitor' },
+      ],
+      reason: 'shared-host',
+      message: sharedHost,
+    }])
+    expect(db.select().from(competitors).all().map(row => row.domain).sort())
+      .toEqual(['amberfield-solar.test', 'emberflow.test', 'sitebuilder.example', 'yarrow.example'])
+  })
+
+  // Reported: a cited subdomain of the project itself was promoted as the
+  // project's own canonical domain.
+  it('never promotes the project\'s own site, a subdomain of it, or a parent of an owned domain', async () => {
+    const { app, db, tmpDir } = buildAppWithRoutes()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db, { ownedDomains: ['harbor-iq.pagehost.example'] })
+    const sessionId = seedSession(db, projectId, {
+      competitorMap: [
+        { domain: 'blog.harbor-iq.test', hits: 4, competitorType: 'unknown' },
+        { domain: 'pagehost.example', hits: 3, competitorType: 'unknown' },
+        { domain: 'halopanel.test', hits: 2, competitorType: 'unknown' },
+      ],
+    })
+
+    const response = await promote(app, sessionId, { competitorTypes: ['unknown'] })
+    expect(response.statusCode, response.body).toBe(200)
+    const body = response.json() as DiscoveryPromoteResult
+    expect(body.promoted.competitors).toEqual(['halopanel.test'])
+    expect(body.competitorDetails.skipped.map(entry => [entry.domain, entry.reason, entry.message])).toEqual([
+      ['harbor-iq.test', 'project-domain', 'harbor-iq.test overlaps the project domain harbor-iq.test, so every citation of the project would count for it'],
+      ['pagehost.example', 'project-domain', 'pagehost.example overlaps the project domain harbor-iq.pagehost.example, so every citation of the project would count for it'],
+    ])
+    expect(db.select().from(competitors).all().map(row => row.domain).sort()).toEqual(['amberfield-solar.test', 'emberflow.test', 'halopanel.test'])
+  })
+
+  // Reported: the preview showed the busiest spelling's type while the
+  // default promote filtered spellings by type first.
+  it('previews the type the default promote matches when one competitor\'s hosts are typed differently', async () => {
+    const { app, db, tmpDir } = buildAppWithRoutes()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db)
+    const sessionId = seedSession(db, projectId, {
+      competitorMap: [
+        { domain: 'blog.xenta.example', hits: 5, competitorType: 'editorial-media' },
+        { domain: 'xenta.example', hits: 3, competitorType: 'direct-competitor' },
+        { domain: 'blog.yarrow.example', hits: 4, competitorType: 'editorial-media' },
+      ],
+    })
+
+    const planned = (await preview(app, sessionId)).json() as DiscoveryPromotePreview
+    expect(planned.suggestedCompetitors.map(entry => [entry.domain, entry.hits, entry.competitorType])).toEqual([
+      ['xenta.example', 5, 'direct-competitor'],
+      ['yarrow.example', 4, 'editorial-media'],
+    ])
+    expect(planned.suggestedCompetitors[0]!.sources).toEqual([
+      { domain: 'blog.xenta.example', hits: 5, competitorType: 'editorial-media' },
+      { domain: 'xenta.example', hits: 3, competitorType: 'direct-competitor' },
+    ])
+    // The default promote adopts exactly the competitors previewed as direct-competitor.
+    expect((await promote(app, sessionId)).json().promoted.competitors).toEqual(['xenta.example'])
+  })
+
+  // Reported: the cap and the hit floor applied per cited host, before
+  // spellings merged.
+  it('applies the hit floor and the cap to competitors, counting each probe once', async () => {
+    const { app, db, tmpDir } = buildAppWithRoutes()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db)
+    const sessionId = seedSession(db, projectId, {
+      probes: [
+        // xenta.example: cited once on each of two hosts, in different probes.
+        { query: 'q1', bucket: 'aspirational', citedDomains: ['xenta.example'] },
+        { query: 'q2', bucket: 'aspirational', citedDomains: ['offers.xenta.example'] },
+        // yarrow.example: both hosts in ONE probe, so one hit, not two.
+        { query: 'q3', bucket: 'aspirational', citedDomains: ['yarrow.example', 'shop.yarrow.example'] },
+      ],
+      competitorMap: [
+        { domain: 'offers.xenta.example', hits: 1 },
+        { domain: 'xenta.example', hits: 1 },
+        { domain: 'shop.yarrow.example', hits: 1 },
+        { domain: 'yarrow.example', hits: 1 },
+        // Twenty more competitors fill the cap; xenta.example still counts as one.
+        ...Array.from({ length: 19 }, (_, i) => ({ domain: `comp-${String(i).padStart(2, '0')}.example`, hits: 3 })),
+      ],
+    })
+
+    const planned = (await preview(app, sessionId)).json() as DiscoveryPromotePreview
+    const xenta = planned.suggestedCompetitors.find(entry => entry.domain === 'xenta.example')
+    expect(xenta?.hits).toBe(2)
+    expect(planned.suggestedCompetitors.some(entry => entry.domain === 'yarrow.example')).toBe(false)
+
+    const body = (await promote(app, sessionId, { buckets: ['cited'] })).json() as DiscoveryPromoteResult
+    expect(body.promoted.competitors).toHaveLength(20)
+    expect(body.promoted.competitors).toContain('xenta.example')
+    expect(body.promoted.competitors).not.toContain('yarrow.example')
   })
 
   it('promotes only the requested buckets, including wasted-surface when explicit, and skips competitors when includeCompetitors is false', async () => {
@@ -2119,13 +2294,11 @@ describe('POST /discover/sessions/:id/promote', () => {
       url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
     })
     expect(preview.statusCode).toBe(200)
-    expect(
-      (preview.json() as { suggestedCompetitors: Array<{ domain: string; hits: number; competitorType: string }> })
-        .suggestedCompetitors[0],
-    ).toEqual({
+    expect((preview.json() as DiscoveryPromotePreview).suggestedCompetitors[0]).toEqual({
       domain: 'comp-24.com',
       hits: 26,
       competitorType: 'direct-competitor',
+      sources: [{ domain: 'comp-24.com', hits: 26, competitorType: 'direct-competitor' }],
     })
 
     const response = await app.inject({

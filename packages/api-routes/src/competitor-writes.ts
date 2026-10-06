@@ -2,10 +2,12 @@ import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { competitors, type DatabaseClient } from '@ainyc/canonry-db'
 import {
+  competitorDomainProjectClaim,
   competitorEntryParts,
   competitorLabelFromDomain,
   normalizeCompetitorAliases,
   normalizeCompetitorDomain,
+  planCompetitorAliases,
   requireCompetitorAliasPlan,
   validationError,
   type AppError,
@@ -29,7 +31,8 @@ import {
  * older build stored unnormalized (a promoted subdomain) is still found by any
  * spelling. Two stored rows that normalize to one domain are duplicates of one
  * competitor: a write that must change one of them fails
- * (`duplicateCompetitorRowsError`) instead of picking one.
+ * (`duplicateCompetitorRowsError`) instead of picking one. No write starts
+ * tracking the project's own site (`competitorDomainProjectClaim`).
  */
 
 /** Normalize and dedupe a list of competitor domains, keeping first-seen order. */
@@ -131,16 +134,38 @@ export function storedCompetitorMatches<T extends { domain: string }>(rows: read
 
 /**
  * Two or more stored rows are one competitor (a subdomain an older build
- * stored next to its registrable form). Names every row so the operator can
- * remove the extra one by id, or remove the competitor and add it again.
+ * stored next to its registrable form). A write cannot pick one, so the error
+ * names every row and the way out every surface has: remove the competitor
+ * (every row goes) and add it again, restating the curated aliases the rows
+ * carry (`aliases`), which the removal discards.
  */
-export function duplicateCompetitorRowsError(domain: string, rows: readonly { id: string; domain: string }[]): AppError {
+export function duplicateCompetitorRowsError(
+  domain: string,
+  rows: readonly { id: string; domain: string; aliases?: readonly string[] | null }[],
+): AppError {
   const key = normalizeCompetitorDomain(domain.trim())
-  const matches = [...rows].sort((a, b) => a.domain.localeCompare(b.domain)).map(row => ({ id: row.id, domain: row.domain }))
+  const sorted = [...rows].sort((a, b) => a.domain.localeCompare(b.domain))
+  const matches = sorted.map(row => ({ id: row.id, domain: row.domain }))
+  const aliases = normalizeCompetitorAliases(sorted.flatMap(row => row.aliases ?? []))
+  const addAgain = aliases.length > 0
+    ? `then add it again with its curated aliases (canonry competitor add <project> ${key} ${aliases.map(alias => `--alias ${JSON.stringify(alias)}`).join(' ')})`
+    : `then add it again (canonry competitor add <project> ${key})`
   return validationError(
-    `Competitor ${key} matches ${matches.length} stored rows (${matches.map(row => row.domain).join(', ')}); `
-    + 'remove the extra row by id (DELETE /projects/{name}/competitors/{id}), or remove the competitor and add it again',
-    { domain: key, matches },
+    `Competitor ${key} is stored as ${matches.length} rows (${matches.map(row => row.domain).join(', ')}), so this write cannot pick one. `
+    + `Remove the competitor, which removes every row (canonry competitor remove <project> ${key}), ${addAgain}`,
+    { domain: key, matches, aliases },
+  )
+}
+
+/**
+ * New competitor domains that are the project's own site, a subdomain of it,
+ * or a parent of an owned domain. Every citation of the project would count
+ * for such a competitor, so no write starts tracking one.
+ */
+function ownSiteCompetitorError(claims: readonly { domain: string; projectDomain: string }[]): AppError {
+  return validationError(
+    `Cannot track the project's own site as a competitor: ${claims.map(claim => `${claim.domain} overlaps the project domain ${claim.projectDomain}`).join('; ')}, so every citation of the project would count for it`,
+    { ownSiteCompetitors: claims },
   )
 }
 
@@ -173,8 +198,9 @@ export interface CompetitorSetPlanOptions {
  * stored rows in that form, so a row stored unnormalized is retained, not
  * duplicated. Retained rows keep their id, domain, provenance and aliases
  * unless a write states aliases. Throws a validation error when a stated alias
- * fails the shared rules (`requireCompetitorAliasPlan`), when a new domain
- * identifies another competitor's stored alias, or when a write states
+ * fails the shared rules (`requireCompetitorAliasPlan`), when a new domain's
+ * name overlaps another competitor's stored alias, when a new domain is the
+ * project's own site (`competitorDomainProjectClaim`), or when a write states
  * aliases for a competitor stored as several rows; a stored alias the
  * project's identity now claims is dropped and reported instead.
  */
@@ -195,6 +221,11 @@ export function planCompetitorSet(
   const removed = opts.replace ? stored.filter(row => !writeFor(row)) : []
   const retained = stored.filter(row => !opts.replace || writeFor(row))
   const added = [...writeByDomain.keys()].filter(domain => !storedKeys.has(domain))
+  const ownSite = added.flatMap((domain) => {
+    const projectDomain = competitorDomainProjectClaim(domain, opts.project.domains)
+    return projectDomain ? [{ domain, projectDomain }] : []
+  })
+  if (ownSite.length > 0) throw ownSiteCompetitorError(ownSite)
 
   const entryFor = (domain: string, write: CompetitorWrite | undefined, storedAliases: readonly string[], isNew: boolean): CompetitorAliasPlanEntry => {
     if (!write || write.aliases === undefined) return { domain, aliases: storedAliases, explicit: false, added: isNew }
@@ -257,6 +288,30 @@ export function applyCompetitorSetPlan(
       target: [competitors.projectId, competitors.domain],
     }).run()
   }
+}
+
+/**
+ * The new domains a domain-only add of `domains` would be refused for, each
+ * with its rejections: a domain whose name overlaps another competitor's
+ * stored alias ('claimed-by-alias'). Discovery promote leaves those out and
+ * reports them instead of failing every other promoted row.
+ */
+export function claimedCompetitorAdds(
+  stored: readonly StoredCompetitor[],
+  domains: readonly string[],
+  project: CompetitorAliasProjectIdentity,
+): Map<string, CompetitorAliasRejection[]> {
+  const storedKeys = new Set(stored.map(row => normalizeCompetitorDomain(row.domain)))
+  const added = normalizeCompetitorList(domains).filter(domain => !storedKeys.has(domain))
+  const plan = planCompetitorAliases([
+    ...stored.map(row => ({ domain: row.domain, aliases: row.aliases, explicit: false })),
+    ...added.map(domain => ({ domain, aliases: [], explicit: false, added: true })),
+  ], project)
+  const claimed = new Map<string, CompetitorAliasRejection[]>()
+  for (const rejection of plan.rejected) {
+    claimed.set(rejection.domain, [...(claimed.get(rejection.domain) ?? []), rejection])
+  }
+  return claimed
 }
 
 /** Read, plan and write in one call, inside the caller's transaction. */

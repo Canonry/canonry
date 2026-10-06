@@ -3985,6 +3985,23 @@ export type DiscoveryPromotePreview = {
         domain: string;
         hits: number;
         competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        sources: Array<{
+            domain: string;
+            hits: number;
+            competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        }>;
+    }>;
+    skippedCompetitors: Array<{
+        domain: string;
+        hits: number;
+        competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        sources: Array<{
+            domain: string;
+            hits: number;
+            competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        }>;
+        reason: 'already-tracked' | 'project-domain' | 'shared-host' | 'claimed-by-alias';
+        message: string;
     }>;
 };
 
@@ -3998,6 +4015,30 @@ export type DiscoveryPromoteResult = {
     skipped: {
         queries: Array<string>;
         competitors: Array<string>;
+    };
+    competitorDetails: {
+        promoted: Array<{
+            domain: string;
+            hits: number;
+            competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+            sources: Array<{
+                domain: string;
+                hits: number;
+                competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+            }>;
+        }>;
+        skipped: Array<{
+            domain: string;
+            hits: number;
+            competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+            sources: Array<{
+                domain: string;
+                hits: number;
+                competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+            }>;
+            reason: 'already-tracked' | 'project-domain' | 'shared-host' | 'claimed-by-alias';
+            message: string;
+        }>;
     };
 };
 

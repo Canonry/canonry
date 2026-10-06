@@ -2,7 +2,6 @@ import crypto from 'node:crypto'
 import { and, desc, eq, gte, inArray, isNull, or } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
-  competitors,
   discoveryProbes,
   discoverySessions,
   queries,
@@ -15,6 +14,7 @@ import {
   DISCOVERY_PROMOTE_COMPETITOR_MIN_HITS,
   DiscoveryBuckets,
   DiscoveryCompetitorTypes,
+  DiscoveryPromoteCompetitorSkipReasons,
   DiscoverySessionStatuses,
   RunKinds,
   RunStatuses,
@@ -24,11 +24,14 @@ import {
   buildHarvestAnchorTerms,
   citationStateSchema,
   competitorAliasProjectIdentity,
+  competitorDomainProjectClaim,
+  describeCompetitorAliasRejection,
   discoveryBucketSchema,
   discoveryPromoteRequestSchema,
   discoveryRunRequestSchema,
   effectiveDomains,
   gateHarvestedSearchQueries,
+  hostOf,
   normalizeCompetitorDomain,
   notFound,
   orderLocationsDefaultFirst,
@@ -36,10 +39,14 @@ import {
   validationError,
   type DiscoveryBucket,
   type DiscoveryCompetitorMapEntry,
+  type CompetitorAliasProjectIdentity,
   type DiscoveryCompetitorType,
   type DiscoveryHarvestDto,
   type DiscoveryProbeDto,
+  type DiscoveryPromoteCompetitor,
+  type DiscoveryPromotePreview,
   type DiscoveryPromoteResult,
+  type DiscoveryPromoteSkippedCompetitor,
   type DiscoverySessionDetailDto,
   type DiscoverySessionDto,
   type DiscoverySessionStatus,
@@ -47,7 +54,13 @@ import {
 } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from '../helpers.js'
 import { pruneQualifiedAliasesForCompetitors } from '../projects.js'
-import { competitorAliasAuditFields, syncCompetitorSet } from '../competitor-writes.js'
+import {
+  claimedCompetitorAdds,
+  competitorAliasAuditFields,
+  readStoredCompetitors,
+  syncCompetitorSet,
+  type StoredCompetitor,
+} from '../competitor-writes.js'
 
 /**
  * Fired after a `discovery_sessions` row + matching `runs` row are inserted
@@ -503,13 +516,6 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
         .from(discoveryProbes)
         .where(eq(discoveryProbes.sessionId, session.id))
         .all()
-      const trackedCompetitors = app.db
-        .select({ domain: competitors.domain })
-        .from(competitors)
-        .where(eq(competitors.projectId, project.id))
-        .all()
-        .map(r => r.domain)
-
       const cited = new Set<string>()
       const aspirational = new Set<string>()
       const wasted = new Set<string>()
@@ -521,14 +527,20 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
         else if (bucket === DiscoveryBuckets['wasted-surface']) wasted.add(probe.query)
       }
 
-      // Preview surfaces every recurring candidate regardless of type — each
-      // entry carries its `competitorType` so the operator can see what
-      // promote adopts by default (direct-competitor) vs. what needs an
-      // explicit `--competitor-types` override.
-      const competitorMap = parseCompetitorMap(session.competitorMap)
-      const newCompetitors = planCompetitorPromotion(competitorMap, trackedCompetitors).promote
+      // Preview surfaces every recurring candidate regardless of type: each
+      // entry carries its `competitorType` (a default-promoted type wins when
+      // any of its hosts has one) so the operator can see what promote adopts
+      // by default (direct-competitor) vs. what needs an explicit
+      // `--competitor-types` override. The same plan as the POST, so the
+      // skipped entries and their reasons match what a promote leaves out.
+      const promotion = planCompetitorPromotion({
+        competitorMap: parseCompetitorMap(session.competitorMap),
+        probes: probeRows,
+        tracked: readStoredCompetitors(app.db, project.id),
+        project: competitorAliasProjectIdentity(project),
+      })
 
-      return reply.send({
+      const preview: DiscoveryPromotePreview = {
         sessionId: session.id,
         projectId: project.id,
         queriesByBucket: {
@@ -536,9 +548,11 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
           aspirational: Array.from(aspirational).sort(),
           'wasted-surface': Array.from(wasted).sort(),
         },
-        suggestedCompetitors: newCompetitors,
-        status: session.status,
-      })
+        suggestedCompetitors: promotion.promote,
+        skippedCompetitors: promotion.skipped,
+        status: session.status as DiscoverySessionStatus,
+      }
+      return reply.send(preview)
     },
   )
 
@@ -625,23 +639,24 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
       }
     }
 
-    const promotedCompetitors: string[] = []
-    const skippedCompetitors: string[] = []
-    if (includeCompetitors) {
-      const trackedCompetitors = app.db
-        .select({ domain: competitors.domain })
-        .from(competitors)
-        .where(eq(competitors.projectId, project.id))
-        .all()
-        .map(r => r.domain)
-      // Mirror the GET preview's recurrence + cap policy, narrowed to the
-      // requested competitor types; existing domains are returned as skipped
-      // for idempotency instead of being inserted again.
-      const competitorMap = parseCompetitorMap(session.competitorMap)
-      const promotion = planCompetitorPromotion(competitorMap, trackedCompetitors, competitorTypes)
-      promotedCompetitors.push(...promotion.promote.map(entry => entry.domain))
-      skippedCompetitors.push(...promotion.skipped)
-    }
+    // Mirror the GET preview's recurrence + cap policy, narrowed to the
+    // requested competitor types; already-tracked domains, the project's own
+    // site, ambiguous shared hosts and domains another competitor's alias
+    // claims are returned as skipped with a reason instead of being inserted.
+    const competitorPromotion: CompetitorPromotion = includeCompetitors
+      ? planCompetitorPromotion({
+          competitorMap: parseCompetitorMap(session.competitorMap),
+          probes: probeRows,
+          tracked: readStoredCompetitors(app.db, project.id),
+          project: competitorAliasProjectIdentity(project),
+          competitorTypes,
+        })
+      : { promote: [], skipped: [] }
+    const promotedCompetitors = competitorPromotion.promote.map(entry => entry.domain)
+    const skippedCompetitors = competitorPromotion.skipped.map(entry => entry.domain)
+    const heldCompetitors = competitorPromotion.skipped
+      .filter(entry => entry.reason !== DiscoveryPromoteCompetitorSkipReasons['already-tracked'])
+      .map(entry => ({ domain: entry.domain, reason: entry.reason }))
 
     const provenance = `discovery:${session.id}`
     const now = new Date().toISOString()
@@ -658,9 +673,9 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
             createdAt: now,
           }).run()
         }
-        // The shared competitor writer, so a promoted domain that identifies
-        // another competitor's curated alias fails the promote the same way a
-        // REST add does, instead of crediting one answer to both.
+        // The shared competitor writer, under the same rules as a REST add.
+        // Domains another competitor's alias claims were left out above, so
+        // this write only fails if the stored competitors changed meanwhile.
         const competitorPlan = promotedCompetitors.length
           ? syncCompetitorSet(tx, project.id, promotedCompetitors.map(domain => ({ domain })), {
               replace: false,
@@ -681,6 +696,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
           diff: {
             queries: promotedQueries,
             competitors: promotedCompetitors,
+            ...(heldCompetitors.length ? { skippedCompetitors: heldCompetitors } : {}),
             ...(competitorPlan ? competitorAliasAuditFields(competitorPlan) : {}),
             ...(droppedQualifiedAliases.length ? { droppedQualifiedAliases } : {}),
           },
@@ -695,6 +711,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
       projectId: project.id,
       promoted: { queries: promotedQueries, competitors: promotedCompetitors },
       skipped: { queries: skippedQueries, competitors: skippedCompetitors },
+      competitorDetails: { promoted: competitorPromotion.promote, skipped: competitorPromotion.skipped },
     }
     return reply.send(result)
   })
@@ -770,49 +787,129 @@ function parseCompetitorMap(
   }))
 }
 
-/**
- * The recurring competitors a promote adds, in the registrable form every
- * competitor write stores (`normalizeCompetitorDomain`), so a cited subdomain
- * (`offers.rival.example`) is promoted as `rival.example` and later reachable
- * by every by-domain route. Stored rows compare in the same form, so a
- * competitor already tracked under any spelling is skipped, and two map
- * entries for one competitor promote once (the higher-hit entry wins).
- */
-function planCompetitorPromotion(
-  competitorMap: readonly DiscoveryCompetitorMapEntry[],
-  trackedDomains: readonly string[],
-  competitorTypes?: readonly DiscoveryCompetitorType[],
-): { promote: DiscoveryCompetitorMapEntry[]; skipped: string[] } {
-  const tracked = new Set(trackedDomains.map(normalizeCompetitorDomain))
-  const seen = new Set<string>()
-  const promote: DiscoveryCompetitorMapEntry[] = []
-  const skipped: string[] = []
-  for (const entry of selectEligibleCompetitors(competitorMap, competitorTypes)) {
-    const domain = normalizeCompetitorDomain(entry.domain.trim())
-    if (!domain || seen.has(domain)) continue
-    seen.add(domain)
-    if (tracked.has(domain)) skipped.push(domain)
-    else promote.push({ ...entry, domain })
-  }
-  return { promote, skipped }
+interface CompetitorPromotion {
+  promote: DiscoveryPromoteCompetitor[]
+  skipped: DiscoveryPromoteSkippedCompetitor[]
 }
 
 /**
- * Recurring competitor domains eligible for promotion: at least
- * `DISCOVERY_PROMOTE_COMPETITOR_MIN_HITS` probe hits, optionally narrowed to a
- * set of classified `competitorType`s, sorted by hits desc, capped. Omitting
- * `competitorTypes` applies no type filter — the GET preview uses that to
- * surface every recurring candidate with its classification so the operator
- * can decide what to pass to `--competitor-types`.
+ * The session's cited hosts grouped into competitors: one group per
+ * registrable domain (`normalizeCompetitorDomain`, the form every competitor
+ * write stores). A group's `hits` counts each probe citing any of its hosts
+ * once; a session whose probe rows do not list them (a hand-built fixture)
+ * falls back to the busiest host's count, which never counts a probe twice.
+ * Its `competitorType` is its lead host's: a host whose type is in `preferred`
+ * first, then the most hits, so the preview names the type the default
+ * promote matches.
  */
-function selectEligibleCompetitors(
+function groupCompetitorMap(
   competitorMap: readonly DiscoveryCompetitorMapEntry[],
-  competitorTypes?: readonly DiscoveryCompetitorType[],
-): DiscoveryCompetitorMapEntry[] {
-  const typeFilter = competitorTypes ? new Set(competitorTypes) : null
-  return competitorMap
-    .filter(entry => entry.hits >= DISCOVERY_PROMOTE_COMPETITOR_MIN_HITS)
-    .filter(entry => !typeFilter || typeFilter.has(entry.competitorType))
+  probes: readonly { citedDomains: readonly string[] }[],
+  preferred: ReadonlySet<DiscoveryCompetitorType>,
+): DiscoveryPromoteCompetitor[] {
+  const sourcesByDomain = new Map<string, DiscoveryCompetitorMapEntry[]>()
+  const domainByHost = new Map<string, string>()
+  for (const entry of competitorMap) {
+    const domain = normalizeCompetitorDomain(entry.domain.trim())
+    if (!domain) continue
+    sourcesByDomain.set(domain, [...(sourcesByDomain.get(domain) ?? []), entry])
+    domainByHost.set(entry.domain.toLowerCase(), domain)
+  }
+  const probeHits = new Map<string, number>()
+  for (const probe of probes) {
+    const domains = new Set(probe.citedDomains.flatMap((host) => {
+      const domain = domainByHost.get(host.toLowerCase())
+      return domain ? [domain] : []
+    }))
+    for (const domain of domains) probeHits.set(domain, (probeHits.get(domain) ?? 0) + 1)
+  }
+  return [...sourcesByDomain.entries()].map(([domain, entries]) => {
+    const sources = [...entries].sort((a, b) => b.hits - a.hits || a.domain.localeCompare(b.domain))
+    const lead = sources.find(source => preferred.has(source.competitorType)) ?? sources[0]!
+    const busiest = sources[0]!.hits
+    return {
+      domain,
+      hits: sources.length === 1 ? busiest : Math.max(busiest, probeHits.get(domain) ?? 0),
+      competitorType: lead.competitorType,
+      sources,
+    }
+  })
+}
+
+/**
+ * The competitors a promote adds and the eligible ones it leaves out, with
+ * the reason. Eligible means recurring (`DISCOVERY_PROMOTE_COMPETITOR_MIN_HITS`
+ * probes cite it) and, when `competitorTypes` is given, any of its hosts
+ * classified as one of them. Cited hosts are grouped into the registrable
+ * domain every competitor write stores before the threshold and the cap
+ * apply, so `offers.rival.example` promotes as `rival.example` and later
+ * reaches every by-domain route. An eligible competitor is skipped when:
+ *
+ * - it is already tracked under any spelling (`already-tracked`);
+ * - it is the project's own site, a subdomain of it or a parent of an owned
+ *   domain (`project-domain`), since it would count every project citation;
+ * - it was cited as two or more different subdomains (`shared-host`), which
+ *   may be different sites on one blog or site-builder host, so they are
+ *   never merged silently;
+ * - its domain name overlaps another competitor's curated alias
+ *   (`claimed-by-alias`), the rule a REST add enforces with a 400.
+ *
+ * The cap (`DISCOVERY_PROMOTE_COMPETITOR_CAP`) counts promoted competitors
+ * only, highest hits first.
+ */
+function planCompetitorPromotion(input: {
+  competitorMap: readonly DiscoveryCompetitorMapEntry[]
+  probes: readonly { citedDomains: readonly string[] }[]
+  tracked: readonly StoredCompetitor[]
+  project: CompetitorAliasProjectIdentity
+  competitorTypes?: readonly DiscoveryCompetitorType[]
+}): CompetitorPromotion {
+  const typeFilter = input.competitorTypes ? new Set(input.competitorTypes) : null
+  const preferred = new Set<DiscoveryCompetitorType>(input.competitorTypes ?? DEFAULT_DISCOVERY_PROMOTE_COMPETITOR_TYPES)
+  const eligible = groupCompetitorMap(input.competitorMap, input.probes, preferred)
+    .filter(group => group.hits >= DISCOVERY_PROMOTE_COMPETITOR_MIN_HITS)
+    .filter(group => !typeFilter || group.sources.some(source => typeFilter.has(source.competitorType)))
     .sort((a, b) => b.hits - a.hits || a.domain.localeCompare(b.domain))
-    .slice(0, DISCOVERY_PROMOTE_COMPETITOR_CAP)
+
+  const tracked = new Set(input.tracked.map(row => normalizeCompetitorDomain(row.domain)))
+  const skipped: DiscoveryPromoteSkippedCompetitor[] = []
+  const candidates: DiscoveryPromoteCompetitor[] = []
+  for (const group of eligible) {
+    const projectDomain = competitorDomainProjectClaim(group.domain, input.project.domains)
+    const subdomains = [...new Set(group.sources.map(source => hostOf(source.domain) ?? source.domain))]
+      .filter(host => host !== group.domain)
+    if (projectDomain) {
+      skipped.push({
+        ...group,
+        reason: DiscoveryPromoteCompetitorSkipReasons['project-domain'],
+        message: `${group.domain} overlaps the project domain ${projectDomain}, so every citation of the project would count for it`,
+      })
+    } else if (tracked.has(group.domain)) {
+      skipped.push({ ...group, reason: DiscoveryPromoteCompetitorSkipReasons['already-tracked'], message: `${group.domain} is already tracked` })
+    } else if (subdomains.length > 1) {
+      skipped.push({
+        ...group,
+        reason: DiscoveryPromoteCompetitorSkipReasons['shared-host'],
+        message: `${group.domain} was cited as ${subdomains.length} different subdomains (${subdomains.join(', ')}), which may be different sites on one shared host, so it is not merged into one competitor; if they are one competitor, add it with canonry competitor add <project> ${group.domain}`,
+      })
+    } else {
+      candidates.push(group)
+    }
+  }
+
+  const claimed = claimedCompetitorAdds(input.tracked, candidates.map(group => group.domain), input.project)
+  const promote: DiscoveryPromoteCompetitor[] = []
+  for (const group of candidates) {
+    const rejections = claimed.get(group.domain)
+    if (rejections) {
+      skipped.push({
+        ...group,
+        reason: DiscoveryPromoteCompetitorSkipReasons['claimed-by-alias'],
+        message: rejections.map(rejection => `${group.domain} ${describeCompetitorAliasRejection(rejection)}`).join('; '),
+      })
+    } else if (promote.length < DISCOVERY_PROMOTE_COMPETITOR_CAP) {
+      promote.push(group)
+    }
+  }
+  return { promote, skipped }
 }

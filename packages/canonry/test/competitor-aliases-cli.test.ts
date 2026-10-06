@@ -156,6 +156,27 @@ describe('competitor alias CLI', () => {
     expect(JSON.parse(removed.stdout)).toEqual({ project: 'rotorwise', domains: [], removedDomains: ['offers.spoketuneworks.example'], removedCount: 1 })
   })
 
+  it('refuses a competitor stored as two rows with a remove-then-add hint that restates its aliases', async () => {
+    const project = db.select().from(projects).where(eq(projects.name, 'rotorwise')).get()!
+    for (const [domain, aliases] of [['spoketuneworks.example', ['TuneSpoke']], ['offers.spoketuneworks.example', ['Spoke Tune Pros']]] as const) {
+      db.insert(competitors).values({ id: crypto.randomUUID(), projectId: project.id, domain, aliases: [...aliases], provenance: 'discovery:legacy', createdAt: new Date().toISOString() }).run()
+    }
+    const addAgain = 'canonry competitor add rotorwise spoketuneworks.example --alias "Spoke Tune Pros" --alias "TuneSpoke"'
+
+    // A local edit (--add) refuses before writing, naming the aliases to restate.
+    const local = await invokeCli(['competitor', 'aliases', 'rotorwise', 'spoketuneworks.example', '--add', 'Tune Spoke Crew', '--format', 'json'])
+    expect(local.exitCode).toBe(1)
+    const localError = JSON.parse(local.stderr).error as { code: string; message: string; details: { aliases: string[] } }
+    expect(localError.code).toBe('VALIDATION_ERROR')
+    expect(localError.message).toBe(`Competitor spoketuneworks.example is stored as 2 rows (offers.spoketuneworks.example, spoketuneworks.example); remove the competitor (every row goes) and add it again: ${addAgain}`)
+    expect(localError.details.aliases).toEqual(['Spoke Tune Pros', 'TuneSpoke'])
+
+    // A server-side write (--set) gets the API's refusal, which names the same way out.
+    const server = await invokeCli(['competitor', 'aliases', 'rotorwise', 'spoketuneworks.example', '--set', 'Tune Spoke Crew', '--format', 'json'])
+    expect(server.exitCode).toBe(1)
+    expect(JSON.parse(server.stderr).error.message).toContain('Remove the competitor, which removes every row (canonry competitor remove <project> spoketuneworks.example)')
+  })
+
   it('reports an untracked competitor and conflicting flags as user errors', async () => {
     const missing = await invokeCli(['competitor', 'aliases', 'rotorwise', 'nobody.example', '--add', 'Nobody', '--format', 'json'])
     expect(missing.exitCode).toBe(1)
