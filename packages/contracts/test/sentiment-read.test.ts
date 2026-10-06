@@ -1,9 +1,9 @@
 import { z } from 'zod'
 import { describe, expect, it } from 'vitest'
 import { sentimentFixtureSummary } from './fixtures/sentiment.js'
-import { emptySentimentCounts, sentimentCountsSchema, sentimentCoverageSchema, sentimentJobSchema, sentimentSummarySchema, type SentimentJob } from '../src/sentiment.js'
+import { emptySentimentCounts, sentimentCountsSchema, sentimentCoverageSchema, sentimentEvidencePageSchema, sentimentJobSchema, sentimentSummarySchema, type SentimentJob } from '../src/sentiment.js'
 import { tolerantReadSchema } from '../src/tolerant-read.js'
-import { sentimentJobReadSchema, sentimentJobsReadSchema, sentimentSummaryReadSchema } from '../src/sentiment-read.js'
+import { sentimentEvidencePageReadSchema, sentimentJobReadSchema, sentimentJobsReadSchema, sentimentSummaryReadSchema } from '../src/sentiment-read.js'
 
 const assessment = { assessmentId: 'assessment', sourceSnapshotId: 'snapshot', runId: 'run', subjectId: 'subject', subjectLabel: 'Subject', executionNodeKey: null, provider: 'openai', requestedModel: 'requested', servedModel: 'served', location: null, evaluationDefinitionId: 'definition', state: 'complete', outcome: 'favorable', reason: null }
 const { state, reason, provisional, coverage, score } = sentimentFixtureSummary
@@ -51,6 +51,21 @@ describe('sentiment client readers', () => {
     expect(olderReader.parse(current).coverage).toEqual(withoutAnswers(current.coverage))
     // This reader keeps them, with their unit.
     expect(sentimentSummaryReadSchema.parse(current).coverage).toMatchObject({ eligibleAnswers: 10, ratedAnswers: 5, ratedAnswerRate: 0.5 })
+  })
+
+  it('read the most criticized Properties and the evidence outcome filter across versions', () => {
+    const criticizedProperties = { total: 6, keys: ['p1', 'p2', 'p3', 'p4', 'p5'] }
+    const ranked = sentimentSummarySchema.parse({ ...current, criticizedProperties })
+    expect(sentimentSummaryReadSchema.parse(ranked).criticizedProperties).toEqual(criticizedProperties)
+    // A reader that predates the field drops it and keeps everything else.
+    const olderReader = tolerantReadSchema(sentimentSummarySchema.omit({ criticizedProperties: true }).strict(), { openKeys: [[sentimentCountsSchema, z.number().int().nonnegative()]] })
+    expect(olderReader.parse(ranked)).toEqual(current)
+    // This reader, an older server that never sends it.
+    expect(sentimentSummaryReadSchema.parse(current)).not.toHaveProperty('criticizedProperties')
+    const page = sentimentEvidencePageSchema.parse({ state: 'complete', selection: { ...current.selection, outcome: ['mixed', 'unfavorable'] }, items: [], nextCursor: null })
+    expect(sentimentEvidencePageReadSchema.parse(page).selection.outcome).toEqual(['mixed', 'unfavorable'])
+    // An outcome a newer server adds to the echo is read as a plain string.
+    expect(sentimentEvidencePageReadSchema.parse({ ...page, selection: { ...page.selection, outcome: ['mixed', 'subject-renamed'] } }).selection.outcome).toEqual(['mixed', 'subject-renamed'])
   })
 
   it('return a current response unchanged', () => {

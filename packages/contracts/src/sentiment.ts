@@ -137,7 +137,11 @@ export const sentimentSummaryRequestSchema = sentimentSelectionBaseSchema.extend
   queryCursor: z.string().min(1).max(16384).optional(),
 }).superRefine(exclusiveSentimentRuns)
 /** Evidence `outcome` narrows the page to assessments with these outcomes (comma-separated on the wire); it never changes how they were scored. */
-export const sentimentEvidenceOutcomeFilterSchema = z.preprocess(value => typeof value === 'string' ? value.split(',').map(item => item.trim()).filter(Boolean) : value, z.array(sentimentOutcomeSchema).min(1).max(sentimentOutcomeSchema.options.length))
+export const sentimentEvidenceOutcomeFilterSchema = z.preprocess(value => {
+  // Repeated params arrive as an array, and any item may itself be comma-separated: normalize both forms the same way.
+  const items = typeof value === 'string' ? [value] : Array.isArray(value) ? value : null
+  return items ? [...new Set(items.flatMap(item => typeof item === 'string' ? item.split(',').map(part => part.trim()).filter(Boolean) : [item]))] : value
+}, z.array(sentimentOutcomeSchema).min(1).max(sentimentOutcomeSchema.options.length))
 export const sentimentEvidenceRequestSchema = sentimentSelectionBaseSchema.extend({ assessmentId: id.optional(), outcome: sentimentEvidenceOutcomeFilterSchema.optional(), cursor: z.string().min(1).max(16384).optional(), limit: z.coerce.number().int().min(1).max(100).default(50) }).superRefine(exclusiveSentimentRuns)
 export const sentimentCompareRequestSchema = sentimentSelectionBaseSchema.extend({ fromRunId: id, toRunId: id }).superRefine((value, ctx) => { exclusiveSentimentRuns(value, ctx); if (value.runIds) ctx.addIssue({ code: 'custom', path: ['runIds'], message: 'Comparison requires one explicit run per period.' }) })
 export const sentimentResolvedSelectionSchema = sentimentSelectionBaseSchema.extend({ runId: id.nullable(), revision: z.number().int().nullable(), evaluationDefinitionId: id.nullable(), mode: z.enum(['simple', 'advanced']) })
@@ -183,10 +187,10 @@ export const sentimentSummarySchema = z.object({
   evaluationDefinition: sentimentEvaluationDefinitionSchema.nullable(),
   breakdowns: z.array(sentimentBreakdownSchema), queries: z.array(sentimentQuerySummarySchema),
   /**
-   * Branded views spanning more than one Property: the Properties with a mixed or unfavorable
-   * rating, most criticized first ({@link rankCriticizedProperties}). `keys` are the first
-   * {@link SENTIMENT_CRITICIZED_PROPERTY_LIMIT} property breakdown keys; `total` counts them all.
-   * Absent from older servers and from non-brand, disabled or unavailable reads.
+   * Branded reads: the Properties with a mixed or unfavorable rating, most criticized first
+   * ({@link rankCriticizedProperties}). `keys` are the first {@link SENTIMENT_CRITICIZED_PROPERTY_LIMIT}
+   * property breakdown keys; `total` counts them all; `{ total: 0, keys: [] }` with fewer than two
+   * Properties in view. Absent from older servers, comparison periods, and non-brand, disabled or unavailable reads.
    */
   criticizedProperties: z.object({ total: count, keys: z.array(z.string()) }).strict().optional(),
   /** Present on the paged summary read; follow `nextCursor` as `queryCursor` for the next query rows. */

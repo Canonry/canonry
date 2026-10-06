@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { sentimentSummarySchema } from '@ainyc/canonry-contracts'
+import { aggregateSentiment, sentimentEvidencePageSchema, sentimentSummarySchema, type SentimentOutcome } from '@ainyc/canonry-contracts'
 import { sentimentFixtureSummary } from '../../contracts/test/fixtures/sentiment.js'
 import { SENTIMENT_CLI_COMMANDS } from '../src/cli-commands/sentiment.js'
+import { CRITICIZED_PROPERTIES_TITLE } from '../src/commands/sentiment.js'
 import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
 import { CliError, printCliError } from '../src/cli-error.js'
 
@@ -18,6 +19,12 @@ async function invoke(argv: string[], data: unknown, method: keyof typeof client
   log.mockClear()
   await dispatchRegisteredCommand(['sentiment', ...argv], format, SENTIMENT_CLI_COMMANDS)
   return log.mock.calls.map(call => call.join(' ')).join('\n')
+}
+
+/** A branded property breakdown row aggregated from exact outcomes, as the server builds it. */
+function propertyRow(key: string, label: string, outcomes: SentimentOutcome[]) {
+  const items = outcomes.map((outcome, i) => ({ assessmentId: `${key}-assessment-${i}`, sourceSnapshotId: `${key}-snapshot-${i}`, outcome }))
+  return { ...aggregateSentiment(items), reason: null, dimension: 'property' as const, key, label, queryClass: 'branded' as const }
 }
 
 describe('sentiment CLI transport contract', () => {
@@ -44,6 +51,57 @@ describe('sentiment CLI transport contract', () => {
     const page = { state: fixture.state, selection: fixture.selection, items: [], nextCursor: 'next' }
     expect(JSON.parse(await invoke(['evidence', ...flags, '--evaluation-definition-id', 'frozen-definition', '--cursor', 'cursor', '--limit', '7'], page, 'getSentimentEvidence'))).toEqual(page)
     expect(client.getSentimentEvidence).toHaveBeenLastCalledWith('demo', { mode: 'auto', scope: 'project', queryClass: 'non-brand', runIds, evaluationDefinitionId: 'frozen-definition', cursor: 'cursor', limit: 7 })
+  })
+  it.each([
+    ['comma-separated', ['--outcome', 'mixed,unfavorable']],
+    ['repeated', ['--outcome', 'mixed', '--outcome', 'unfavorable']],
+    ['spaced', ['--outcome', 'mixed, unfavorable']],
+  ])('passes a %s --outcome filter to evidence as the contracts outcome array', async (_shape, flags) => {
+    await invoke(['evidence', 'demo', '--query-class', 'branded', '--scope', 'property', '--scope-key', 'property-a', ...flags], { items: [], nextCursor: null }, 'getSentimentEvidence')
+    expect(client.getSentimentEvidence).toHaveBeenLastCalledWith('demo', { mode: 'auto', queryClass: 'branded', scope: 'property', scopeKey: 'property-a', outcome: ['mixed', 'unfavorable'], limit: 50 })
+  })
+  it('sends no outcome filter when --outcome is omitted', async () => {
+    await invoke(['evidence', 'demo', '--query-class', 'non-brand'], { items: [], nextCursor: null }, 'getSentimentEvidence')
+    expect(client.getSentimentEvidence).toHaveBeenLastCalledWith('demo', { mode: 'auto', queryClass: 'non-brand', scope: 'project', limit: 50 })
+    expect(client.getSentimentEvidence.mock.lastCall?.[1].outcome).toBeUndefined()
+  })
+  it('names the server-applied outcome filter on the evidence page and keeps it in JSON', async () => {
+    const page = sentimentEvidencePageSchema.parse({ state: 'complete', selection: { ...sentimentFixtureSummary.selection, outcome: ['mixed', 'unfavorable'] }, items: [], nextCursor: null })
+    const flags = ['evidence', 'demo', '--outcome', 'unfavorable,mixed']
+    const text = (await invoke(flags, page, 'getSentimentEvidence', 'text')).split('\n')
+    expect(text).toEqual(['branded sentiment evidence: complete · definition definition-fixture · outcomes mixed, unfavorable'])
+    expect(JSON.parse(await invoke(flags, page, 'getSentimentEvidence'))).toEqual(page)
+    // An unfiltered page prints no outcome clause.
+    const unfiltered = { ...page, selection: sentimentFixtureSummary.selection }
+    expect((await invoke(['evidence', 'demo'], unfiltered, 'getSentimentEvidence', 'text')).split('\n')).toEqual(['branded sentiment evidence: complete · definition definition-fixture'])
+  })
+  it('prints the server-ranked most criticized properties in its order with exact counts', async () => {
+    const propertyA = propertyRow('property-a', 'Property A', ['mixed', 'unfavorable', 'unfavorable', 'unfavorable'])
+    const propertyB = propertyRow('property-b', 'Property B', ['favorable', 'mixed', 'mixed'])
+    const propertyC = propertyRow('property-c', 'Property C', ['favorable', 'favorable'])
+    // Deliberately not the order the counts would give: the CLI prints the server's ranking and
+    // never re-ranks; a key with no breakdown row is skipped, so 2 of the server's 7 are listed.
+    const fixture = sentimentSummarySchema.parse({ ...sentimentFixtureSummary, breakdowns: [propertyA, propertyB, propertyC], criticizedProperties: { total: 7, keys: ['property-b', 'property-a', 'property-gone'] } })
+    const lines = (await invoke(['demo'], fixture, 'getSentiment', 'text')).split('\n')
+    const title = lines.indexOf(`${CRITICIZED_PROPERTIES_TITLE}: 2 of 7`)
+    expect(title).toBeGreaterThan(lines.indexOf('property Property C · branded: 100% favorable · 2 of 2 judged'))
+    expect(lines.slice(title, title + 3)).toEqual([
+      'Most criticized properties: 2 of 7',
+      '  Property B (property-b): 1 favorable · 2 mixed · 0 unfavorable · 3 judged',
+      '  Property A (property-a): 0 favorable · 1 mixed · 3 unfavorable · 4 judged',
+    ])
+    expect(lines.join('\n')).not.toContain('property-gone')
+    expect(lines.join('\n')).not.toContain('Property C (property-c)')
+    // JSON is the API response, ranking included.
+    expect(JSON.parse(await invoke(['demo'], fixture, 'getSentiment'))).toEqual(fixture)
+  })
+  it.each([
+    ['absent (older server or non-brand read)', undefined],
+    ['empty (one Property or none criticized)', { total: 0, keys: [] }],
+    ['unmatched keys', { total: 1, keys: ['property-gone'] }],
+  ])('prints no most criticized properties section when the ranking is %s', async (_case, criticizedProperties) => {
+    const fixture = sentimentSummarySchema.parse({ ...sentimentFixtureSummary, breakdowns: [propertyRow('property-a', 'Property A', ['unfavorable'])], ...(criticizedProperties ? { criticizedProperties } : {}) })
+    expect(await invoke(['demo'], fixture, 'getSentiment', 'text')).not.toContain(CRITICIZED_PROPERTIES_TITLE)
   })
   it('passes summary paging, detail and node flags, and prints the next query and attempt cursors', async () => {
     const row = { queryId: 'frozen-query', executionNodeKey: 'node-a', queryText: 'Which apartments are good?', queryClass: 'branded', sourceSnapshotIds: ['frozen-snapshot'], locations: [], assessments: [], state: 'complete', reason: null, provisional: false, coverage: sentimentFixtureSummary.coverage, score: sentimentFixtureSummary.score }
@@ -79,6 +137,8 @@ describe('sentiment CLI transport contract', () => {
     ['backfill', 'demo', '--preview', '--query-class', 'all', '--run-id', 'run'],
     ['backfill', 'demo', '--preview-token', 'token', '--idempotency-key', 'key', '--run-id', 'run'],
     ['compare', 'demo', '--from-run-id', 'r1'], ['evidence', 'demo', '--limit', '1oops'],
+    ['evidence', 'demo', '--outcome', 'positive'], ['evidence', 'demo', '--outcome', 'mixed,positive'], ['evidence', 'demo', '--outcome', ''], ['evidence', 'demo', '--outcome', ','],
+    ['demo', '--outcome', 'mixed'], ['compare', 'demo', '--from-run-id', 'a', '--to-run-id', 'b', '--outcome', 'mixed'],
   ])('rejects invalid explicit arguments: %j', async (...argv) => {
     await expect(dispatchRegisteredCommand(['sentiment', ...argv], 'json', SENTIMENT_CLI_COMMANDS)).rejects.toBeInstanceOf(CliError)
   })

@@ -424,7 +424,8 @@ function NonBrandCriticism({ queryClass }: { queryClass: QueryClassView }) {
   const counts = summary.coverage.counts
   if (counts.unfavorable === 0 && counts.mixed === 0) {
     if (!nonBrandView) return null
-    if (!hasRatings(summary) && summary.state !== 'complete') return <p className="sentiment-nonbrand-note">{summary.state === 'processing' || summary.state === 'partial' ? SENTIMENT_COPY.states.processing : SENTIMENT_COPY.nonBrand.notRated}</p>
+    // No ratings and not complete: say the class's own state (a terminal partial is "Partial results.", never "Analyzing"), never "none".
+    if (!hasRatings(summary) && summary.state !== 'complete') return <p className="sentiment-nonbrand-note">{summary.state === 'not-measured' ? SENTIMENT_COPY.nonBrand.notRated : `${SENTIMENT_COPY.nonBrand.label}: ${SENTIMENT_COPY.states[summary.state]}`}</p>
     return <p className="sentiment-nonbrand-note">{summary.provisional ? SENTIMENT_COPY.nonBrand.noneSoFar : SENTIMENT_COPY.nonBrand.none}</p>
   }
   return <div className="sentiment-nonbrand" role="group" aria-label={SENTIMENT_COPY.nonBrand.label}>
@@ -439,20 +440,19 @@ function NonBrandCriticism({ queryClass }: { queryClass: QueryClassView }) {
 }
 
 /**
- * One line per query class across the full width, under a small header that
- * names the figure columns: the class label and ⓘ, a stacked bar of the rated
- * outcomes that takes all the remaining space, then Favorable (the share),
- * Rated (the share of answers rated) and the class's Details chevron, each in
- * a fixed column. Every line uses the same columns, so the bars start and end level
- * and each figure sits under its header. A note under the bar carries a state
- * or partial results when there is one. Branded and non-brand keep their own
- * bars and denominators. The legend follows the last bar unless the caller
- * places it (`legend={false}` with its own {@link SentimentLegend}).
+ * The Sentiment block: a title row (with Manage sentiment when `manage`), the
+ * legend under it (unless `legend={false}`), a small header naming the figure
+ * columns, then the Branded line in every class view: the label and ⓘ, a
+ * stacked bar of the rated outcomes that takes all the remaining space, then
+ * Favorable (the share), With opinion (the share of answers rated) and the
+ * Details chevron, each in a fixed column. A note under the bar carries a state
+ * or partial results. All-queries and non-brand views add the non-brand line
+ * ({@link NonBrandCriticism}): its unfavorable and mixed answers, never a share.
  */
 export function SentimentHeadlines({ queryClass = 'all', legend = true, manage = false }: { queryClass?: QueryClassView; legend?: boolean; manage?: boolean }) {
   const scope = useContext(SentimentContext)
   const classes = headlineClasses(scope, queryClass)
-  // One Details panel open at a time.
+  // Whether the Branded line's Details panel is open.
   const [openClass, setOpenClass] = useState<QueryClass | null>(null)
   if (!scope) return null
   // No line to show (sentiment off, its source not resolved yet, or an unclassified view): an
@@ -499,6 +499,7 @@ export function SentimentQueryScore({ queryId, sourceSnapshotIds = [], queryClas
   const selection: SentimentSelection = { ...scope.selection, ...summary!.selection, runId: summary!.selection.runId ?? undefined, runIds: summary!.selection.runId ? undefined : summary!.selection.runIds, revision: summary!.selection.revision ?? undefined, evaluationDefinitionId: summary!.selection.evaluationDefinitionId ?? undefined, queryClass: row.queryClass, queryId: row.queryId, executionNodeKey: row.executionNodeKey ?? undefined, ...(location === undefined ? {} : { location: location ?? 'none' }) }
   // A non-brand row shows only its unfavorable and mixed answers, as the Sentiment block does: its favorable share runs near 100%.
   if (row.queryClass === 'non-brand') {
+    if (value.state === 'unsupported') return <span className="text-sm text-secondary">Unavailable</span>
     const { unfavorable, mixed } = value.coverage.counts
     if (unfavorable === 0 && mixed === 0) return <span className="text-sm text-muted">{showLabel && <span className="block text-sm font-normal text-secondary">{SENTIMENT_COPY.nonBrand.rowLabel}</span>}<span aria-hidden="true" title={SENTIMENT_COPY.nonBrand.rowNone}>{EM_DASH}</span><span className="sr-only">{SENTIMENT_COPY.nonBrand.rowNone}</span></span>
     return <Button type="button" variant="ghost" className="h-auto min-h-11 flex-col items-start gap-0 px-1" aria-label={`View unfavorable and mixed answers for ${row.queryText}`} onKeyDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); scope.openEvidence({ ...selection, outcome: CRITICISM_OUTCOMES }, `${row.queryText}, unfavorable and mixed`, event.currentTarget) }}>

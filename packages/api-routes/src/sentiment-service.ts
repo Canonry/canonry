@@ -432,8 +432,9 @@ export class SentimentService {
     const common = new Set([...fromUnits.byUnit.keys()].filter(key => toUnits.byUnit.has(key)))
     const settings = this.settings(projectId)
     // Scores use the matched units; each period's Rated share still counts every answer in that period.
-    const fromSummary = withoutNodeKeys(this.aggregate(from.selection, fromItems.filter(item => common.has(fromUnits.byItem.get(item)!)), from.source, settings, COMPACT_ROWS, fromItems))
-    const toSummary = withoutNodeKeys(this.aggregate(to.selection, toItems.filter(item => common.has(toUnits.byItem.get(item)!)), to.source, settings, COMPACT_ROWS, toItems))
+    // A period scores only its matched units, so a criticized-Property ranking over them would differ from the run's own summary: periods omit it.
+    const fromSummary = withoutCriticizedProperties(withoutNodeKeys(this.aggregate(from.selection, fromItems.filter(item => common.has(fromUnits.byItem.get(item)!)), from.source, settings, COMPACT_ROWS, fromItems)))
+    const toSummary = withoutCriticizedProperties(withoutNodeKeys(this.aggregate(to.selection, toItems.filter(item => common.has(toUnits.byItem.get(item)!)), to.source, settings, COMPACT_ROWS, toItems)))
     const refusalReasons: string[] = []
     const expectedFrom = from.source.assessments.length, expectedTo = to.source.assessments.length
     if (fromItems.length < expectedFrom || toItems.length < expectedTo) refusalReasons.push('classification-coverage-gap')
@@ -507,6 +508,10 @@ function queryRowKey(edge: Pick<SentimentSourceEdge, 'executionNodeKey'> & ({ qu
   return `${'queryKey' in edge ? edge.queryKey : edge.queryId}\0${edge.executionNodeKey ?? ''}`
 }
 /** The stored DTO has no row-level node key; Advanced rows stay distinct by their exact sourceSnapshotIds. */
+function withoutCriticizedProperties(summary: SentimentSummary): SentimentSummary {
+  const { criticizedProperties: _criticized, ...rest } = summary
+  return rest
+}
 function withoutNodeKeys({ summary, queries }: Aggregate): SentimentSummary {
   return { ...summary, queries: queries.map(({ executionNodeKey: _node, ...row }) => row) }
 }

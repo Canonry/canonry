@@ -39,6 +39,26 @@ function ratedAnswersLine({ ratedAnswers, eligibleAnswers, ratedAnswerRate }: Se
   return `Rated: ${formatPercent(ratedAnswerRate, RatioUnits.fraction)} · ${ratedAnswers} of ${eligibleAnswers} ${eligibleAnswers === 1 ? 'answer' : 'answers'} rated`
 }
 
+export const CRITICIZED_PROPERTIES_TITLE = 'Most criticized properties'
+
+/**
+ * The dashboard's branded Details list: the server ranks and cuts `criticizedProperties`
+ * (`keys` in its order, `total` counting all), so this only looks up each key's
+ * property breakdown row and prints its counts. A key with no row is skipped, as on the dashboard.
+ */
+function printCriticizedProperties(value: SentimentSummaryRead): void {
+  const ranked = value.criticizedProperties
+  if (!ranked?.keys.length) return
+  const rows = new Map(value.breakdowns.filter(row => row.dimension === 'property').map(row => [row.key, row]))
+  const listed = ranked.keys.flatMap(key => rows.get(key) ?? [])
+  if (listed.length === 0) return
+  console.log(`${CRITICIZED_PROPERTIES_TITLE}: ${listed.length} of ${ranked.total}`)
+  for (const row of listed) {
+    const { favorable, mixed, unfavorable } = row.coverage.counts
+    console.log(`  ${row.label} (${row.key}): ${favorable} favorable · ${mixed} mixed · ${unfavorable} unfavorable · ${row.coverage.judged} judged`)
+  }
+}
+
 function printSummary(value: SentimentSummaryRead): void {
   const label = value.selection.queryClass === 'branded' ? 'Branded' : 'Non-brand'
   console.log(`${label} sentiment: ${value.state}${value.provisional ? ' · provisional' : ''}`)
@@ -65,6 +85,7 @@ function printSummary(value: SentimentSummaryRead): void {
     }
   }
   for (const row of value.breakdowns) if (row.dimension !== 'query') console.log(`${row.dimension} ${row.label} · ${row.queryClass}: ${row.score.favorableDisplay} favorable · ${row.coverage.judged} of ${row.coverage.selected} judged`)
+  printCriticizedProperties(value)
   if (value.queryPage) console.log(`Query rows: ${value.queries.length} of ${value.queryPage.total}`)
   if (value.queryPage?.nextCursor) console.log(`Next query cursor: ${value.queryPage.nextCursor}`)
 }
@@ -83,7 +104,9 @@ export async function showSentimentEvidence(project: string, query: z.infer<type
   const value = await createApiClient().getSentimentEvidence(project, query)
   // A page is one document: state, resolved selection and nextCursor must survive an empty page too.
   if (machine(value, format)) return
-  console.log(`${value.selection.queryClass} sentiment evidence: ${value.state} · definition ${value.selection.evaluationDefinitionId ?? 'not measured'}`)
+  // The server echoes the outcome filter it applied; a page narrowed to some outcomes says so.
+  const outcomes = value.selection.outcome?.length ? ` · outcomes ${value.selection.outcome.join(', ')}` : ''
+  console.log(`${value.selection.queryClass} sentiment evidence: ${value.state} · definition ${value.selection.evaluationDefinitionId ?? 'not measured'}${outcomes}`)
   for (const item of value.items) {
     console.log(`\n${item.subject.displayName} · ${item.outcome} · ${item.context.provider} · run ${item.runId}`)
     if (item.reason) console.log(item.reason)

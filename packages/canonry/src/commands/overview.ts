@@ -140,10 +140,12 @@ export function renderHuman(overview: ProjectOverviewDto): void {
   printScore('Competitor press.', scores.competitorPressure)
   printScore('Run status       ', scores.runStatus)
 
-  const overallSentiment = overview.sentiment?.overall
-  if (overview.sentiment?.configured && overallSentiment && overallSentiment.coverage.judged > 0 && overallSentiment.score.favorableRate !== null) {
-    console.log(`\n  Overall sentiment: ${overallSentiment.score.favorableDisplay} favorable · all query classes`)
-    console.log(`    ${overallSentiment.coverage.counts.favorable} favorable / ${overallSentiment.coverage.judged} judged${overallSentiment.provisional ? ' · provisional' : ''}`)
+  // Sentiment is a branded figure, as on the dashboard: non-brand answers name the
+  // brand almost only to recommend it. JSON keeps branded, nonBrand and overall.
+  const brandedSentiment = overview.sentiment?.branded
+  if (overview.sentiment?.configured && brandedSentiment && brandedSentiment.coverage.judged > 0 && brandedSentiment.score.favorableRate !== null) {
+    console.log(`\n  Sentiment: ${brandedSentiment.score.favorableDisplay} favorable · branded queries`)
+    console.log(`    ${brandedSentiment.coverage.counts.favorable} favorable / ${brandedSentiment.coverage.judged} judged${brandedSentiment.provisional ? ' · provisional' : ''}`)
   }
 
   console.log(`\n  Queries cited:     ${queryCounts.citedQueries}/${queryCounts.totalQueries} (${formatPercent(queryCounts.citedRate)})`)

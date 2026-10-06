@@ -132,31 +132,50 @@ describe('canonry overview — human output', () => {
     vi.unstubAllGlobals()
   })
 
-  it('prints the server overall score with its combined class scope and judged denominator', () => {
+  it('prints the server branded score with its class and judged denominator, never the overall or non-brand value', () => {
     const sentiment = makeSentiment()
-    sentiment.overall.score = { ...sentiment.overall.score, favorableDisplay: '61.0%' }
-    output = captureOutput(() => renderHuman(makeOverview({ sentiment })))
-    expect(output).toContain('Overall sentiment: 61.0% favorable · all query classes')
-    expect(output).toContain('3 favorable / 5 judged · provisional')
-    expect(output).not.toContain('Overall sentiment: 60.0%')
+    sentiment.branded.score = { ...sentiment.branded.score, favorableDisplay: '61.0%' }
+    sentiment.nonBrand.score = { ...sentiment.nonBrand.score, favorableDisplay: '98.0%' }
+    sentiment.overall.score = { ...sentiment.overall.score, favorableDisplay: '72.0%' }
+    const lines = captureOutput(() => renderHuman(makeOverview({ sentiment }))).split('\n')
+    // 3 favorable of 5 judged (favorable + mixed + unfavorable); the fixture is partial, so provisional.
+    const at = lines.indexOf('  Sentiment: 61.0% favorable · branded queries')
+    expect(at).toBeGreaterThan(-1)
+    expect(lines[at + 1]).toBe('    3 favorable / 5 judged · provisional')
+    output = lines.join('\n')
+    expect(output).not.toContain('98.0%')
+    expect(output).not.toContain('72.0%')
+    expect(output).not.toContain('Overall sentiment')
+    expect(output).not.toContain('all query classes')
   })
 
-  it('shows a measured zero overall favorable score', () => {
+  it('shows a measured zero branded favorable score and drops the provisional tag when complete', () => {
     const sentiment = makeSentiment()
-    sentiment.overall.score = { ...sentiment.overall.score, favorableRate: 0, favorableDisplay: '0.0%' }
-    sentiment.overall.coverage = { ...sentiment.overall.coverage, counts: { ...sentiment.overall.coverage.counts, favorable: 0, unfavorable: 4 } }
-    output = captureOutput(() => renderHuman(makeOverview({ sentiment })))
-    expect(output).toContain('Overall sentiment: 0.0% favorable · all query classes')
+    sentiment.branded.score = { ...sentiment.branded.score, favorableRate: 0, favorableDisplay: '0%' }
+    sentiment.branded.coverage = { ...sentiment.branded.coverage, judged: 5, counts: { ...sentiment.branded.coverage.counts, favorable: 0, mixed: 1, unfavorable: 4 } }
+    sentiment.branded.provisional = false
+    const lines = captureOutput(() => renderHuman(makeOverview({ sentiment }))).split('\n')
+    const at = lines.indexOf('  Sentiment: 0% favorable · branded queries')
+    expect(at).toBeGreaterThan(-1)
+    expect(lines[at + 1]).toBe('    0 favorable / 5 judged')
   })
 
-  it.each(['disabled', 'missing', 'unjudged', 'unavailable'] as const)('omits a %s overall score without combining class values locally', condition => {
+  it('prints the branded line from a server that predates the overall headline', () => {
+    const { overall: _overall, ...olderSentiment } = makeSentiment()
+    const lines = captureOutput(() => renderHuman(makeOverview({ sentiment: olderSentiment }))).split('\n')
+    expect(lines).toContain(`  Sentiment: ${sentimentFixtureSummary.score.favorableDisplay} favorable · branded queries`)
+    expect(lines).toContain('    3 favorable / 5 judged · provisional')
+  })
+
+  it.each(['disabled', 'missing', 'unjudged', 'unavailable'] as const)('omits a %s branded score without falling back to the overall or non-brand value', condition => {
     const sentiment = makeSentiment()
-    const { overall: _overall, ...olderSentiment } = sentiment
     if (condition === 'disabled') sentiment.configured = false
-    if (condition === 'unjudged') sentiment.overall.coverage = { ...sentiment.overall.coverage, judged: 0 }
-    if (condition === 'unavailable') sentiment.overall.score = { ...sentiment.overall.score, favorableRate: null }
-    output = captureOutput(() => renderHuman(makeOverview({ sentiment: condition === 'missing' ? olderSentiment : sentiment })))
-    expect(output).not.toContain('Overall sentiment:')
+    // Non-brand and overall stay measured in every case: the line must not borrow either.
+    if (condition === 'unjudged') sentiment.branded.coverage = { ...sentiment.branded.coverage, judged: 0 }
+    if (condition === 'unavailable') sentiment.branded.score = { ...sentiment.branded.score, favorableRate: null }
+    output = captureOutput(() => renderHuman(makeOverview(condition === 'missing' ? {} : { sentiment })))
+    expect(output).not.toContain('Sentiment:')
+    expect(output).not.toContain('favorable / ')
   })
 
   it.each(['simple', 'advanced'] as const)('preserves %s overall and class headlines through generated HTTP, CLI JSON and MCP transport', async mode => {

@@ -212,9 +212,11 @@ Expected — each provider has independent knowledge. Focus on the ones that mat
 
 ## Experimental sentiment
 
-Use `canonry sentiment <project> --query-class non-brand --format json` and a separate
-`--query-class branded` read. Favorable is favorable / (favorable + mixed +
-unfavorable); never pool the classes. Missing mentions, factual statements, and
+Sentiment is a branded figure: read `canonry sentiment <project> --query-class branded
+--format json` for the favorable share. Non-brand answers name the brand almost only to
+recommend it, so read them as exceptions with `canonry sentiment evidence <project>
+--query-class non-brand --outcome mixed,unfavorable`. Favorable is favorable /
+(favorable + mixed + unfavorable); never pool the classes. Missing mentions, factual statements, and
 unknown judgments stay outside this denominator, so sentiment cannot replace
 mention coverage. Zero judged answers are unavailable. Inspect the returned
 coverage, frozen scope, and per-query source evidence before interpreting a score.

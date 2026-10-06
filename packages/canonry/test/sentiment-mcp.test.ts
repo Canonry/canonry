@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { sentimentSummarySchema } from '@ainyc/canonry-contracts'
+import { sentimentOutcomeSchema, sentimentSummarySchema } from '@ainyc/canonry-contracts'
 import { sentimentFixtureSummary } from '../../contracts/test/fixtures/sentiment.js'
 import type { ApiClient } from '../src/client.js'
 import { CliError } from '../src/cli-error.js'
@@ -20,6 +20,7 @@ const cases = [
   { name: 'canonry_sentiment', method: 'getSentiment', input: { project: 'demo' }, args: ['demo', { mode: 'auto', queryClass: 'branded', scope: 'project' }] },
   { name: 'canonry_sentiment', method: 'getSentiment', input: { project: 'demo', queryId: 'q', executionNodeKey: 'node', include: ['assessments'], queryLimit: 10, queryCursor: 'next' }, args: ['demo', { mode: 'auto', queryClass: 'branded', scope: 'project', queryId: 'q', executionNodeKey: 'node', include: ['assessments'], queryLimit: 10, queryCursor: 'next' }] },
   { name: 'canonry_sentiment_evidence', method: 'getSentimentEvidence', input: { project: 'demo', scope: 'property', scopeKey: 'property', marketKey: 'market', assessmentId: 'assessment', evaluationDefinitionId: 'def', cursor: 'cursor' }, args: ['demo', { mode: 'auto', queryClass: 'branded', scope: 'property', scopeKey: 'property', marketKey: 'market', assessmentId: 'assessment', evaluationDefinitionId: 'def', cursor: 'cursor', limit: 50 }] },
+  { name: 'canonry_sentiment_evidence', method: 'getSentimentEvidence', input: { project: 'demo', scope: 'property', scopeKey: 'property-a', outcome: ['mixed', 'unfavorable'] }, args: ['demo', { mode: 'auto', queryClass: 'branded', scope: 'property', scopeKey: 'property-a', outcome: ['mixed', 'unfavorable'], limit: 50 }] },
   { name: 'canonry_sentiment_compare', method: 'compareSentiment', input: { project: 'demo', fromRunId: 'before', toRunId: 'after' }, args: ['demo', { mode: 'auto', queryClass: 'branded', scope: 'project', fromRunId: 'before', toRunId: 'after' }] },
   { name: 'canonry_sentiment_backfill_preview', method: 'previewSentimentBackfill', input: { project: 'demo', runIds: ['run'], queryClass: 'non-brand' }, args: ['demo', { mode: 'auto', queryClass: 'non-brand', scope: 'project', runIds: ['run'] }] },
   { name: 'canonry_sentiment_backfill', method: 'submitSentimentBackfill', input: { project: 'demo', previewToken: 'token', idempotencyKey: 'key' }, args: ['demo', { previewToken: 'token', idempotencyKey: 'key' }] },
@@ -80,6 +81,26 @@ describe('sentiment MCP parity', () => {
     expect(result.structuredContent).toEqual(response)
     expect(spec.inputSchema.safeParse({ ...input, assessmentId: '' }).success).toBe(false)
     expect(tool('canonry_sentiment').inputSchema.safeParse(input).success).toBe(false)
+  })
+  it('advertises the evidence outcome filter as an array of the contracts outcome enum and validates it', () => {
+    const spec = tool('canonry_sentiment_evidence')
+    const outcome = (spec.inputJsonSchema as { properties: Record<string, { type?: string; items?: { enum?: string[] }; minItems?: number; description?: string }> }).properties.outcome!
+    expect(outcome.type).toBe('array')
+    expect(outcome.items?.enum).toEqual([...sentimentOutcomeSchema.options])
+    expect(outcome.minItems).toBe(1)
+    expect(outcome.description).toContain('["mixed","unfavorable"]')
+    expect(outcome.description).toContain('never changes how answers were scored')
+    expect((spec.inputJsonSchema as { required?: string[] }).required ?? []).not.toContain('outcome')
+    expect(spec.description).toContain('Optional outcome keeps only the listed outcomes')
+    expect((spec.inputSchema.parse({ project: 'demo', outcome: ['unfavorable'] }) as { outcome?: string[] }).outcome).toEqual(['unfavorable'])
+    for (const outcome of [[], ['positive'], ['mixed', 'positive']]) expect(spec.inputSchema.safeParse({ project: 'demo', outcome }).success).toBe(false)
+    // The filter is evidence-only: the summary and comparison reads reject it.
+    expect(tool('canonry_sentiment').inputSchema.safeParse({ project: 'demo', outcome: ['mixed'] }).success).toBe(false)
+    expect(tool('canonry_sentiment_compare').inputSchema.safeParse({ project: 'demo', fromRunId: 'a', toRunId: 'b', outcome: ['mixed'] }).success).toBe(false)
+  })
+  it('documents the server criticizedProperties ranking on the summary read', () => {
+    expect(tool('canonry_sentiment').description).toContain('criticizedProperties')
+    expect(tool('canonry_sentiment').description).toContain('outcome ["mixed","unfavorable"]')
   })
   it('rejects retired theme configuration and pooled sentiment selections', () => {
     const configure = tool('canonry_sentiment_configure')
