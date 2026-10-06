@@ -9,6 +9,8 @@ import {
   competitorEntrySchema,
   competitorAliasProjectIdentity,
   competitorNameAliases,
+  describeCompetitorAliasRejection,
+  describeMarketPinAliasClaim,
   marketPinAliasClaims,
   MIN_BRAND_ALIAS_KEY_LENGTH,
   normalizeCompetitorAliases,
@@ -641,6 +643,75 @@ describe('aliases and Advanced market pins', () => {
     ])
     expect(marketPinAliasClaims([{ domain: 'zephyr.example', names: ['Zephyr Blade'], markets: ['east'] }], tracked)).toEqual([])
     expect(marketPinAliasClaims([], tracked)).toEqual([])
+  })
+
+  it('blocks a new domain a pin\'s curated name claims, once per name, but not one only its domain overlaps', () => {
+    // "spoketuneworks" is the pin's own domain label (the label a pin by domain
+    // alone generates), and two domains are never compared.
+    const TUNESPOKE: CompetitorAliasMarketPin = { domain: 'spoketuneworks.example', names: ['TuneSpoke', 'Tune Spoke Works', 'spoketuneworks'], markets: ['east'] }
+    const plan = planCompetitorAliases([
+      { domain: 'alpha.example', aliases: ['Alpha Rotors'], explicit: false },
+      { domain: 'tunespoke.example', aliases: [], explicit: false, added: true },
+      { domain: 'spoketuneworksgroup.example', aliases: [], explicit: false, added: true },
+    ], PROJECT_BRAND, [TUNESPOKE, { ...TUNESPOKE, supersededRevision: 2 }])
+    const pinned = { reason: 'claimed-by-alias', conflictsWith: 'spoketuneworks.example', markets: ['east'] }
+    expect(plan.rejected).toEqual([
+      { domain: 'tunespoke.example', alias: 'TuneSpoke', ...pinned },
+      { domain: 'tunespoke.example', alias: 'Tune Spoke Works', ...pinned, conflictingName: 'tunespoke' },
+    ])
+    expect(plan.dropped).toEqual([])
+    expect(doubleCounted(['spoketuneworksgroup'], ['TuneSpoke', 'Tune Spoke Works'])).toEqual([])
+    expect(() => requireCompetitorAliasPlan([{ domain: 'tunespoke.example', aliases: [], explicit: false, added: true }], PROJECT_BRAND, [TUNESPOKE])).toThrow(
+      'Invalid competitor aliases: tunespoke.example: cannot be added while "TuneSpoke" is a name of spoketuneworks.example, which Advanced market "east" pins, so one answer would count both competitors; remove that name from the market pin first; '
+      + 'tunespoke.example: cannot be added while "Tune Spoke Works" is a name of spoketuneworks.example, which Advanced market "east" pins (it contains "tunespoke", a name of tunespoke.example), so one answer would count both competitors; remove that name from the market pin first',
+    )
+  })
+
+  it('checks a pin read from a superseded revision too, and names that revision', () => {
+    const OLD_BOLTLINE: CompetitorAliasMarketPin = { ...BOLTLINE, markets: ['east'], supersededRevision: 1 }
+    const rejected = [
+      ...planCompetitorAliases([{ domain: 'alpha.example', aliases: ['Boltline'], explicit: true }], PROJECT_BRAND, [OLD_BOLTLINE]).rejected,
+      ...planCompetitorAliases([{ domain: 'boltlinerotors.example', aliases: [], explicit: false, added: true }], PROJECT_BRAND, [OLD_BOLTLINE]).rejected,
+    ]
+    const pinned = { conflictsWith: 'boltline.example', markets: ['east'], supersededRevision: 1 }
+    expect(rejected).toEqual([
+      { domain: 'alpha.example', alias: 'Boltline', reason: 'market-competitor', ...pinned },
+      { domain: 'boltlinerotors.example', alias: 'Bolt Line Rotors', reason: 'claimed-by-alias', ...pinned },
+    ])
+    // A published revision cannot change, so the add names no way out.
+    expect(rejected.map(describeCompetitorAliasRejection)).toEqual([
+      '"Boltline" already identifies boltline.example, which Advanced market "east" pinned in revision 1, whose runs still score with it, so one answer would count both competitors',
+      'cannot be added while "Bolt Line Rotors" is a name of boltline.example, which Advanced market "east" pinned in revision 1, whose runs still score with it, so one answer would count both competitors',
+    ])
+  })
+
+  it('marketPinAliasClaims: a pin whose label or alias overlaps a tracked competitor\'s domain name claims it', () => {
+    const tracked = [
+      { domain: 'alpha.example', aliases: ['Gearloft'] },
+      { domain: 'wheelhaus.example', aliases: [] },
+      { domain: 'qvx.example', aliases: null },
+      { domain: 'cogworks.example', aliases: ['Cogworks'] },
+    ]
+    expect(marketPinAliasClaims([
+      { domain: 'northpeak.example', names: ['Northpeak', 'Gearloft Bikes', 'Wheelhaus', 'qvx.example', 'Cogworks'], markets: ['east'] },
+    ], tracked)).toEqual([
+      { domain: 'northpeak.example', alias: 'Gearloft', reason: 'claimed-by-alias', conflictsWith: 'alpha.example', conflictingName: 'Gearloft Bikes' },
+      { domain: 'northpeak.example', alias: 'Wheelhaus', reason: 'other-competitor', conflictsWith: 'wheelhaus.example' },
+      { domain: 'northpeak.example', alias: 'qvx.example', reason: 'other-competitor', conflictsWith: 'qvx.example' },
+      // Its domain label is that alias too: the name is reported once.
+      { domain: 'northpeak.example', alias: 'Cogworks', reason: 'claimed-by-alias', conflictsWith: 'cogworks.example' },
+    ])
+    // The pin's own domain name is never compared with another domain, and a
+    // pin of a tracked competitor's own domain is that competitor.
+    expect(marketPinAliasClaims([
+      { domain: 'wheelhausgroup.example', names: ['wheelhausgroup'], markets: ['east'] },
+      { domain: 'shop.wheelhaus.example', names: ['Wheelhaus Bikes'], markets: ['east'] },
+    ], tracked)).toEqual([])
+    const [renamed] = marketPinAliasClaims([{ domain: 'zephyr.example', names: ['Wheelhaus Bikes'], markets: ['east'], renamed: true }], tracked)
+    expect(renamed).toEqual({ domain: 'zephyr.example', alias: 'Wheelhaus Bikes', reason: 'other-competitor', conflictsWith: 'wheelhaus.example', conflictingName: 'wheelhaus' })
+    expect(describeMarketPinAliasClaim(renamed!, true)).toBe(
+      'cannot be pinned by that name: "Wheelhaus Bikes" contains "wheelhaus", a name of the tracked competitor wheelhaus.example, so one answer would count both competitors; pin it by another name',
+    )
   })
 
   it('marketPinAliasClaims: a pin the write only renames is checked by its new names alone', () => {

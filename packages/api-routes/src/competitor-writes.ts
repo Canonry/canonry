@@ -40,7 +40,8 @@ import { changedMarketPins, readMarketCompetitorPins, type MarketPinGroup } from
  *
  * An Advanced read counts the tracked competitors and the competitors the
  * project's markets pin together, so a curated alias stays clear of every
- * pin's names too (`readMarketCompetitorPins`, 'market-competitor').
+ * pin's names too (`readMarketCompetitorPins`, 'market-competitor'), and a new
+ * domain stays clear of a pin's label and curated aliases ('claimed-by-alias').
  */
 
 /** Normalize and dedupe a list of competitor domains, keeping first-seen order. */
@@ -213,11 +214,11 @@ export interface CompetitorSetPlanOptions {
  * duplicated. Retained rows keep their id, domain, provenance and aliases
  * unless a write states aliases. Throws a validation error when a stated alias
  * fails the shared rules (`requireCompetitorAliasPlan`), when a new domain's
- * name overlaps another competitor's stored alias, when a new domain is the
- * project's own site (`competitorDomainProjectClaim`), or when a write states
- * aliases for a competitor stored as several rows; a stored alias the
- * project's identity or a market pin (`marketPins`) now claims is dropped and
- * reported instead.
+ * name overlaps another competitor's stored alias or a market pin's label or
+ * curated alias, when a new domain is the project's own site
+ * (`competitorDomainProjectClaim`), or when a write states aliases for a
+ * competitor stored as several rows; a stored alias the project's identity or
+ * a market pin (`marketPins`) now claims is dropped and reported instead.
  */
 export function planCompetitorSet(
   stored: readonly StoredCompetitor[],
@@ -308,20 +309,22 @@ export function applyCompetitorSetPlan(
 /**
  * The new domains a domain-only add of `domains` would be refused for, each
  * with its rejections: a domain whose name overlaps another competitor's
- * stored alias ('claimed-by-alias'). Discovery promote leaves those out and
- * reports them instead of failing every other promoted row.
+ * stored alias, or a market pin's label or curated alias (`marketPins`,
+ * `readMarketCompetitorPins`), as 'claimed-by-alias'. Discovery promote leaves
+ * those out and reports them instead of failing every other promoted row.
  */
 export function claimedCompetitorAdds(
   stored: readonly StoredCompetitor[],
   domains: readonly string[],
   project: CompetitorAliasProjectIdentity,
+  marketPins: readonly CompetitorAliasMarketPin[] = [],
 ): Map<string, CompetitorAliasRejection[]> {
   const storedKeys = new Set(stored.map(row => normalizeCompetitorDomain(row.domain)))
   const added = normalizeCompetitorList(domains).filter(domain => !storedKeys.has(domain))
   const plan = planCompetitorAliases([
     ...stored.map(row => ({ domain: row.domain, aliases: row.aliases, explicit: false })),
     ...added.map(domain => ({ domain, aliases: [], explicit: false, added: true })),
-  ], project)
+  ], project, marketPins)
   const claimed = new Map<string, CompetitorAliasRejection[]>()
   for (const rejection of plan.rejected) {
     claimed.set(rejection.domain, [...(claimed.get(rejection.domain) ?? []), rejection])
@@ -330,13 +333,15 @@ export function claimedCompetitorAdds(
 }
 
 /**
- * Fails a market pin write (the Advanced pin route, a draft action, a v1 plan
- * publish) when a pin it adds, from `before` to `after`, or a name it gives an
- * existing pin answers to a curated alias of a different tracked competitor
- * (`marketPinAliasClaims`, 'claimed-by-alias'): the pin side of the rule an
- * alias write enforces against pins ('market-competitor'). Pins and names the
- * write leaves unchanged are not checked (`changedMarketPins`), so an overlap
- * stored before the rule never blocks an unrelated edit.
+ * Fails a market pin write (the Advanced pin route, a draft action, a draft
+ * publish, a v1 plan publish) when a pin it adds, from `before` to `after`, or
+ * a name it gives an existing pin answers to a curated alias of a different
+ * tracked competitor (`marketPinAliasClaims`, 'claimed-by-alias'), or when the
+ * pin's label or alias overlaps such a competitor's own domain name
+ * ('other-competitor'): the pin side of the rules an alias write and an add
+ * enforce against pins. Pins and names the write leaves unchanged are not
+ * checked (`changedMarketPins`), so an overlap stored before the rule never
+ * blocks an unrelated edit.
  */
 export function requireMarketPinsClearOfCompetitorAliases(
   db: Pick<DatabaseClient, 'select'>,

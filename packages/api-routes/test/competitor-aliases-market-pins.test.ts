@@ -8,6 +8,7 @@ import {
   auditLog,
   competitors,
   createClient,
+  discoverySessions,
   measurementPlanDrafts,
   measurementPlans,
   measurementPlanVersions,
@@ -567,5 +568,230 @@ describe('apply and project PUT plan with the market pins before their transacti
     })
     expect(competitorAliasHooks).toEqual(['rotorwise'])
     expect((await marketLandscape()).project).toMatchObject({ mentionCount: 1, shareOfVoice: 50 })
+  })
+})
+
+const TUNESPOKE_PIN = { domain: 'spoketuneworks.example', label: 'TuneSpoke', aliases: ['TuneSpoke'] }
+
+describe('a new competitor never answers to a name a market pin goes by', () => {
+  const TUNESPOKE_CLAIM = {
+    domain: 'tunespoke.example',
+    alias: 'TuneSpoke',
+    reason: 'claimed-by-alias',
+    conflictsWith: 'spoketuneworks.example',
+    markets: ['regional'],
+  }
+
+  it('refuses the domain on add, replace and apply, so the market keeps one credit per rival', async () => {
+    seedMarket(marketPlan([TUNESPOKE_PIN]), 'Rotorwise and TuneSpoke both repair rotors.')
+    const before = await marketLandscape()
+    expect(before.project).toMatchObject({ mentionCount: 1, shareOfVoice: 50 })
+    expect(before.evidence.mentionCredits).toBe(2)
+
+    const added = await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['tunespoke.example'] } })
+    expect(added.statusCode, added.body).toBe(400)
+    expect(added.json().error.details.rejectedAliases).toEqual([TUNESPOKE_CLAIM])
+    expect(added.json().error.message).toBe(
+      'Invalid competitor aliases: tunespoke.example: cannot be added while "TuneSpoke" is a name of spoketuneworks.example, which Advanced market "regional" pins, so one answer would count both competitors; remove that name from the market pin first',
+    )
+    const replaced = await app.inject({ method: 'PUT', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['alpha.example', 'tunespoke.example'] } })
+    expect(replaced.statusCode, replaced.body).toBe(400)
+    expect(replaced.json().error.details.rejectedAliases).toEqual([TUNESPOKE_CLAIM])
+    const applied = await app.inject({
+      method: 'POST',
+      url: '/api/v1/apply',
+      payload: {
+        apiVersion: 'canonry/v1',
+        kind: 'Project',
+        metadata: { name: 'rotorwise' },
+        spec: { ...PROJECT, competitors: ['alpha.example', 'tunespoke.example'] },
+      },
+    })
+    expect(applied.statusCode, applied.body).toBe(400)
+    expect(applied.json().error.details.rejectedAliases).toEqual([TUNESPOKE_CLAIM])
+
+    expect(storedAliases()).toEqual({ 'alpha.example': [] })
+    const after = await marketLandscape()
+    expect(after.project).toMatchObject({ mentionCount: 1, shareOfVoice: 50 })
+    expect(after.evidence.mentionCredits).toBe(2)
+  })
+
+  it('leaves the domain out of a discovery promote and its preview, and promotes the rest', async () => {
+    seedMarket(marketPlan([TUNESPOKE_PIN]), 'Rotorwise.')
+    db.insert(discoverySessions).values({
+      id: 'session_pins',
+      projectId,
+      status: 'completed',
+      competitorMap: [
+        { domain: 'tunespoke.example', hits: 2, competitorType: 'direct-competitor' },
+        { domain: 'gearbarn.example', hits: 2, competitorType: 'direct-competitor' },
+      ],
+      createdAt: NOW,
+    }).run()
+    const skipped = [['tunespoke.example', 'claimed-by-alias']]
+
+    const preview = await app.inject({ method: 'GET', url: '/api/v1/projects/rotorwise/discover/sessions/session_pins/promote' })
+    expect(preview.statusCode, preview.body).toBe(200)
+    expect(preview.json().suggestedCompetitors.map((entry: { domain: string }) => entry.domain)).toEqual(['gearbarn.example'])
+    expect(preview.json().skippedCompetitors.map((entry: { domain: string; reason: string }) => [entry.domain, entry.reason])).toEqual(skipped)
+
+    const promoted = await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/discover/sessions/session_pins/promote', payload: {} })
+    expect(promoted.statusCode, promoted.body).toBe(200)
+    expect(promoted.json().promoted.competitors).toEqual(['gearbarn.example'])
+    expect(promoted.json().competitorDetails.skipped.map((entry: { domain: string; reason: string }) => [entry.domain, entry.reason])).toEqual(skipped)
+    expect(storedAliases()).toEqual({ 'alpha.example': [], 'gearbarn.example': [] })
+  })
+
+  it('compares only the pin\'s curated names with a new domain, never its own domain name', async () => {
+    // The pin's generated label is its domain label, and two domains are never compared.
+    seedMarket(marketPlan([{ domain: 'tunespokeworks.example', label: 'tunespokeworks', aliases: [] }]), 'Rotorwise.')
+    const added = await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['tunespoke.example'] } })
+    expect(added.statusCode, added.body).toBe(200)
+    expect(storedAliases()).toEqual({ 'alpha.example': [], 'tunespoke.example': [] })
+  })
+})
+
+describe('a market pin is never named after a tracked competitor', () => {
+  const ALPHA_NAME = { domain: 'zephyr.example', alias: 'Alpha', reason: 'other-competitor', conflictsWith: 'alpha.example' }
+
+  it('refuses a pin whose label is a tracked competitor\'s domain label, so the market keeps one credit per rival', async () => {
+    seedMarket(marketPlan([]), 'Rotorwise and Alpha both repair rotors.')
+    const before = await marketLandscape()
+    expect(before.project).toMatchObject({ mentionCount: 1, shareOfVoice: 50 })
+
+    const pin = await draftAction('pin-competitor', { expectedActiveRevision: 1, groupKey: 'regional', domain: 'zephyr.example', label: 'Alpha' })
+    expect(pin.statusCode, pin.body).toBe(400)
+    expect(pin.json().error.details).toEqual({ rejectedAliases: [ALPHA_NAME] })
+    expect(pin.json().error.message).toBe(
+      'Invalid market competitor pins: zephyr.example cannot be added: "Alpha" already identifies the tracked competitor alpha.example, so one answer would count both competitors; pin it by another name',
+    )
+    expect(storedDraft()).toBeNull()
+
+    const zephyr = await draftAction('pin-competitor', { expectedActiveRevision: 1, groupKey: 'regional', domain: 'zephyr.example', label: 'Zephyr' })
+    expect(zephyr.statusCode, zephyr.body).toBe(200)
+    const draft = storedDraft()
+    const renamed = await draftAction('upsert-competitor', {
+      groupKey: 'regional',
+      competitor: { ...zephyr.json().competitor, aliases: ['Alpha Rotor Works'] },
+    }, zephyr.json().etag)
+    expect(renamed.statusCode, renamed.body).toBe(400)
+    expect(renamed.json().error.message).toBe(
+      'Invalid market competitor pins: zephyr.example cannot be pinned by that name: "Alpha Rotor Works" contains "alpha", a name of the tracked competitor alpha.example, so one answer would count both competitors; pin it by another name',
+    )
+    expect(storedDraft()).toEqual(draft)
+    const after = await marketLandscape()
+    expect(after.project).toMatchObject({ mentionCount: 1, shareOfVoice: 50 })
+  })
+})
+
+describe('a draft publish checks the pins it adds or renames', () => {
+  async function publishDraft(etag: string) {
+    const preview = await draftAction('compile-preview', {})
+    expect(preview.json().ok, preview.body).toBe(true)
+    return draftAction('publish', { expectedActiveRevision: 1, expectedCompiledChecksum: preview.json().compiledChecksum }, etag)
+  }
+
+  function activeVersionId(): string {
+    return db.select().from(measurementPlans).where(eq(measurementPlans.projectId, projectId)).get()!.activeVersionId
+  }
+
+  it('refuses a draft pin that a tracked alias stored by an older build overlaps', async () => {
+    seedMarket(marketPlan([]), 'Rotorwise.')
+    const pinned = await draftAction('pin-competitor', { expectedActiveRevision: 1, groupKey: 'regional', domain: 'zephyr.example', label: 'Zephyr Blade' })
+    expect(pinned.statusCode, pinned.body).toBe(200)
+    // Written before the rule existed.
+    db.update(competitors).set({ aliases: ['Zephyr Blade'] }).where(eq(competitors.domain, 'alpha.example')).run()
+
+    const published = await publishDraft(pinned.json().etag)
+    expect(published.statusCode, published.body).toBe(400)
+    expect(published.json().error.details).toEqual({
+      rejectedAliases: [{ domain: 'zephyr.example', alias: 'Zephyr Blade', reason: 'claimed-by-alias', conflictsWith: 'alpha.example' }],
+    })
+    expect(activeVersionId()).toBe('plan_v1')
+    expect(storedDraft()).not.toBeNull()
+  })
+
+  it('publishes an unrelated pin while a published pin already overlaps a tracked competitor', async () => {
+    seedMarket(marketPlan([TUNESPOKE_PIN]), 'Rotorwise.')
+    // Tracked before the rule existed, next to the published pin "TuneSpoke".
+    db.insert(competitors).values({ id: 'tracked_tunespoke', projectId, domain: 'tunespoke.example', provenance: 'cli', createdAt: NOW }).run()
+    const pinned = await draftAction('pin-competitor', { expectedActiveRevision: 1, groupKey: 'regional', domain: 'gearbarn.example', label: 'Gearbarn' })
+    expect(pinned.statusCode, pinned.body).toBe(200)
+
+    const published = await publishDraft(pinned.json().etag)
+    expect(published.statusCode, published.body).toBe(200)
+    expect(published.json().active.revision).toBe(2)
+    expect(activeVersionId()).not.toBe('plan_v1')
+  })
+})
+
+describe('a superseded revision keeps scoring the runs measured under it', () => {
+  // Revision 1 (with the run) pins "TuneSpoke". Revision 2 pins "Gearloft"
+  // and measured nothing. Revision 3, now active, pins nobody.
+  function publishRevision(id: string, revision: number, plan: ReturnType<typeof marketPlan>) {
+    db.insert(measurementPlanVersions).values({
+      id,
+      projectId,
+      revision,
+      canonicalJson: canonicalMeasurementPlanV2Json(plan),
+      checksum: String(revision).repeat(64),
+      schemaVersion: 2,
+      compiledChecksum: plan.compiledChecksum,
+      createdAt: NOW,
+    }).run()
+    db.update(measurementPlans).set({ activeVersionId: id }).where(eq(measurementPlans.projectId, projectId)).run()
+  }
+
+  beforeEach(() => {
+    seedMarket(marketPlan([TUNESPOKE_PIN]), 'Rotorwise and TuneSpoke both repair rotors.')
+    publishRevision('plan_v2', 2, marketPlan([{ domain: 'gearloft.example', label: 'Gearloft', aliases: [] }]))
+    publishRevision('plan_v3', 3, marketPlan([]))
+  })
+
+  it('refuses an alias its old answers would credit twice, so the share stays put, and allows one no run used', async () => {
+    // Revision 3 no longer pins spoketuneworks.example, so the old answer
+    // credits the project alone.
+    const before = await marketLandscape()
+    expect(before.project).toMatchObject({ mentionCount: 1, shareOfVoice: 100 })
+    expect(before.pinned.map(row => [row.domain, row.mentionCount])).toEqual([['alpha.example', 0]])
+
+    const res = await setAliases('alpha.example', ['TuneSpoke'])
+    expect(res.statusCode, res.body).toBe(400)
+    expect(res.json().error.details.rejectedAliases).toEqual([{
+      domain: 'alpha.example',
+      alias: 'TuneSpoke',
+      reason: 'market-competitor',
+      conflictsWith: 'spoketuneworks.example',
+      markets: ['regional'],
+      supersededRevision: 1,
+    }])
+    expect(res.json().error.message).toBe(
+      'Invalid competitor aliases: alpha.example: "TuneSpoke" already identifies spoketuneworks.example, which Advanced market "regional" pinned in revision 1, whose runs still score with it, so one answer would count both competitors',
+    )
+    expect(storedAliases()).toEqual({ 'alpha.example': [] })
+    const after = await marketLandscape()
+    expect(after.project).toMatchObject({ mentionCount: 1, shareOfVoice: 100 })
+    expect(after.pinned.map(row => [row.domain, row.mentionCount])).toEqual([['alpha.example', 0]])
+
+    // Revision 2 measured nothing, so nothing is scored with its pin.
+    const unscored = await setAliases('alpha.example', ['Gearloft'])
+    expect(unscored.statusCode, unscored.body).toBe(200)
+    expect(storedAliases()).toEqual({ 'alpha.example': ['Gearloft'] })
+  })
+
+  it('refuses a new domain the old pin\'s name claims, and says the old runs are why', async () => {
+    const added = await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['tunespoke.example'] } })
+    expect(added.statusCode, added.body).toBe(400)
+    expect(added.json().error.details.rejectedAliases).toEqual([{
+      domain: 'tunespoke.example',
+      alias: 'TuneSpoke',
+      reason: 'claimed-by-alias',
+      conflictsWith: 'spoketuneworks.example',
+      markets: ['regional'],
+      supersededRevision: 1,
+    }])
+    expect(added.json().error.message).toBe(
+      'Invalid competitor aliases: tunespoke.example: cannot be added while "TuneSpoke" is a name of spoketuneworks.example, which Advanced market "regional" pinned in revision 1, whose runs still score with it, so one answer would count both competitors',
+    )
   })
 })

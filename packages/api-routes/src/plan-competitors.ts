@@ -1,7 +1,9 @@
-import { eq } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, ne } from 'drizzle-orm'
 import {
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
+  RunKinds,
   brandKeyFromText,
+  hostMatchesDomain,
   hostOf,
   normalizeCompetitorAliases,
   normalizeCompetitorDomain,
@@ -9,7 +11,7 @@ import {
   type CompetitorAliasMarketPin,
   type CompetitorIdentityInput,
 } from '@ainyc/canonry-contracts'
-import { measurementPlanVersions, type DatabaseClient } from '@ainyc/canonry-db'
+import { measurementPlanVersions, runs, type DatabaseClient } from '@ainyc/canonry-db'
 import { activePlanVersionRow, draftRow, parseStoredAuthoring } from './measurement-draft-repo.js'
 
 /** One competitor a plan revision names: its host and the names it goes by. */
@@ -130,8 +132,14 @@ export function measurementPlanCompetitorDomains(db: DatabaseClient, versionId: 
  *
  * Project competitors carry their operator-curated aliases (`{ domain,
  * aliases }`; a bare string is a domain with none), so planless answers and
- * plan answers alike are scored against the curated names. When a plan pin
- * names the same host, its names are added to the project's.
+ * plan answers alike are scored against the curated names. A plan pin on a
+ * project competitor's host, or under it (`shop.rival.example` for
+ * `rival.example`), is that competitor, as the landscape merges them: its
+ * names are added to the project competitor's and it is not listed apart, so
+ * one answer never counts for both. Every citation of the pin's host still
+ * counts, since it falls under the project competitor's host. A pin on a
+ * parent or sibling host stays apart: a citation of `rival.example` is not one
+ * of `offers.rival.example`.
  */
 export function createRunCompetitorResolver(
   db: DatabaseClient,
@@ -151,6 +159,10 @@ export function createRunCompetitorResolver(
     return aliases
   }
   const listOnly = (): RunCompetitors => ({ domains: [...projectDomains], aliases: projectAliases() })
+  // The most specific project competitor whose host the pin's host is, or is under.
+  const coveringProjectDomain = (pinHost: string): string | undefined => projectDomains
+    .filter(domain => hostMatchesDomain(pinHost, domain))
+    .sort((left, right) => competitorKey(right).length - competitorKey(left).length)[0]
   return (versionId: string | null | undefined, executionId: string | null | undefined): RunCompetitors => {
     if (!versionId || !executionId) return listOnly()
     if (!scopes.has(versionId)) scopes.set(versionId, readScope(db, versionId))
@@ -161,7 +173,7 @@ export function createRunCompetitorResolver(
     for (const domain of projectDomains) if (!byKey.has(competitorKey(domain))) byKey.set(competitorKey(domain), domain)
     const aliases = projectAliases()
     for (const competitor of pinned) {
-      const domain = byKey.get(competitor.domain) ?? competitor.domain
+      const domain = byKey.get(competitor.domain) ?? coveringProjectDomain(competitor.domain) ?? competitor.domain
       byKey.set(competitor.domain, domain)
       if (competitor.aliases.length) {
         aliases.set(domain, normalizeCompetitorAliases([...(aliases.get(domain) ?? []), ...competitor.aliases]))
@@ -241,18 +253,23 @@ export function storedPlanPinGroups(canonicalJson: string): MarketPinGroup[] {
 }
 
 /**
- * Every competitor the project's Advanced markets pin right now: the active
- * revision's groups (v2 with their names, v1 as bare hosts) and the pending
- * draft's groups, which an Advanced read already counts. A curated alias of a
- * tracked competitor must stay clear of all of them. Superseded revisions are
- * not read. An unreadable revision or draft pins nothing here rather than
- * failing a competitor write.
+ * Every competitor the project's Advanced markets pin: the active revision's
+ * groups (v2 with their names, v1 as bare hosts) and the pending draft's
+ * groups, which an Advanced read already counts, then the pins of every
+ * superseded revision an answer-visibility run of the project was measured
+ * under (`supersededRevisionPins`). A curated alias of a tracked competitor
+ * must stay clear of all of them. An unreadable revision or draft pins nothing
+ * here rather than failing a competitor write.
  */
 export function readMarketCompetitorPins(db: Parameters<typeof draftRow>[0], projectId: string): CompetitorAliasMarketPin[] {
   const groups: MarketPinGroup[] = []
+  let activeVersionId: string | null = null
   try {
     const active = activePlanVersionRow(db, projectId)
-    if (active) groups.push(...storedPlanPinGroups(active.canonicalJson))
+    if (active) {
+      activeVersionId = active.id
+      groups.push(...storedPlanPinGroups(active.canonicalJson))
+    }
   } catch {
     // A pointer to a missing revision: no pins to check against.
   }
@@ -264,5 +281,38 @@ export function readMarketCompetitorPins(db: Parameters<typeof draftRow>[0], pro
       // Unreadable draft: no pins to check against.
     }
   }
-  return marketPinsFromGroups(groups)
+  return [...marketPinsFromGroups(groups), ...supersededRevisionPins(db, projectId, activeVersionId)]
+}
+
+/**
+ * The pins of every superseded revision an answer-visibility run of the
+ * project was measured under, newest revision first, each marked with its
+ * `supersededRevision`. The landscape and the stored competitor columns score
+ * each run against its own frozen revision (`createRunCompetitorResolver`), so
+ * those runs still count those pins after a later revision drops or renames
+ * them. A revision no run was measured under scores nothing and is not read.
+ */
+function supersededRevisionPins(
+  db: Parameters<typeof draftRow>[0],
+  projectId: string,
+  activeVersionId: string | null,
+): CompetitorAliasMarketPin[] {
+  const measured = db.select({ id: runs.measurementPlanVersionId })
+    .from(runs)
+    .where(and(
+      eq(runs.projectId, projectId),
+      eq(runs.kind, RunKinds['answer-visibility']),
+      isNotNull(runs.measurementPlanVersionId),
+    ))
+  const versions = db.select({ revision: measurementPlanVersions.revision, canonicalJson: measurementPlanVersions.canonicalJson })
+    .from(measurementPlanVersions)
+    .where(and(
+      eq(measurementPlanVersions.projectId, projectId),
+      inArray(measurementPlanVersions.id, measured),
+      ...(activeVersionId ? [ne(measurementPlanVersions.id, activeVersionId)] : []),
+    ))
+    .orderBy(desc(measurementPlanVersions.revision))
+    .all()
+  return versions.flatMap(version => marketPinsFromGroups(storedPlanPinGroups(version.canonicalJson))
+    .map(pin => ({ ...pin, supersededRevision: version.revision })))
 }

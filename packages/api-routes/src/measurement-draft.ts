@@ -66,6 +66,7 @@ import { requireScope } from './auth.js'
 import { findStoredCompetitor, readStoredCompetitors, requireMarketPinsClearOfCompetitorAliases } from './competitor-writes.js'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
 import { MEASUREMENT_PLAN_WRITE_SCOPE } from './measurement-plan.js'
+import { storedPlanPinGroups } from './plan-competitors.js'
 import {
   applyDraftAction,
   applyAssignmentsToAuthoring,
@@ -1145,6 +1146,16 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
       if (compiled.plan.compiledChecksum !== parsed.data.expectedCompiledChecksum) {
         throw measurementCompiledChecksumConflict(parsed.data.expectedCompiledChecksum, compiled.plan.compiledChecksum)
       }
+      // The pins this publish adds or renames go live here, including a draft
+      // pin held from before the pin checks or next to a tracked alias an
+      // older build stored. A pin the active revision already has is not
+      // checked again.
+      requireMarketPinsClearOfCompetitorAliases(
+        tx,
+        gate.project.id,
+        active ? storedPlanPinGroups(active.canonicalJson) : [],
+        compiled.plan.groups,
+      )
 
       const clearDraft = () => {
         tx.delete(measurementPlanDrafts).where(eq(measurementPlanDrafts.id, row.id)).run()

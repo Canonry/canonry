@@ -266,6 +266,17 @@ describe('second review: scope and normalization', () => {
     expect(computeCompetitorOverlap(citing, resolved.domains, resolved.aliases)).toEqual(['rivala.example'])
   })
 
+  it('folds a pin on a tracked competitor\'s subdomain into that competitor, as the landscape does', () => {
+    const { db, projectId } = seed()
+    const versionId = publishTwoMarkets(db, projectId, 'shop.qvx.example')
+    const resolved = createRunCompetitorResolver(db, [{ domain: 'qvx.example', aliases: ['QVX Cycles'] }])(versionId, 'exec-b')
+    expect(resolved.domains).toEqual(['qvx.example'])
+    expect(resolved.aliases.get('qvx.example')).toEqual(['QVX Cycles', 'Rival B'])
+    // Named by both identities and cited on the shop host: one competitor, once.
+    const answer = { provider: 'openai', answerText: 'QVX Cycles, also sold as Rival B, is quick.', citedDomains: ['shop.qvx.example'], groundingSources: [], searchQueries: [], retrievalStatus: 'used' as const }
+    expect(computeCompetitorOverlap(answer, resolved.domains, resolved.aliases)).toEqual(['qvx.example'])
+  })
+
   it('keeps single-label hosts instead of dropping or collapsing them', () => {
     const { db, projectId } = seed()
     const versionId = publishTwoMarkets(db, projectId, 'rivalb')

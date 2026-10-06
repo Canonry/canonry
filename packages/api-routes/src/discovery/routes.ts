@@ -39,6 +39,7 @@ import {
   validationError,
   type DiscoveryBucket,
   type DiscoveryCompetitorMapEntry,
+  type CompetitorAliasMarketPin,
   type CompetitorAliasProjectIdentity,
   type DiscoveryCompetitorType,
   type DiscoveryHarvestDto,
@@ -61,6 +62,7 @@ import {
   syncCompetitorSet,
   type StoredCompetitor,
 } from '../competitor-writes.js'
+import { readMarketCompetitorPins } from '../plan-competitors.js'
 
 /**
  * Fired after a `discovery_sessions` row + matching `runs` row are inserted
@@ -538,6 +540,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
         probes: probeRows,
         tracked: readStoredCompetitors(app.db, project.id),
         project: competitorAliasProjectIdentity(project),
+        marketPins: readMarketCompetitorPins(app.db, project.id),
       })
 
       const preview: DiscoveryPromotePreview = {
@@ -649,6 +652,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
           probes: probeRows,
           tracked: readStoredCompetitors(app.db, project.id),
           project: competitorAliasProjectIdentity(project),
+          marketPins: readMarketCompetitorPins(app.db, project.id),
           competitorTypes,
         })
       : { promote: [], skipped: [] }
@@ -851,7 +855,8 @@ function groupCompetitorMap(
  * - it was cited as two or more different subdomains (`shared-host`), which
  *   may be different sites on one blog or site-builder host, so they are
  *   never merged silently;
- * - its domain name overlaps another competitor's curated alias
+ * - its domain name overlaps another competitor's curated alias, or the
+ *   label or a curated alias of a competitor an Advanced market pins
  *   (`claimed-by-alias`), the rule a REST add enforces with a 400.
  *
  * The cap (`DISCOVERY_PROMOTE_COMPETITOR_CAP`) counts promoted competitors
@@ -862,6 +867,8 @@ function planCompetitorPromotion(input: {
   probes: readonly { citedDomains: readonly string[] }[]
   tracked: readonly StoredCompetitor[]
   project: CompetitorAliasProjectIdentity
+  /** `readMarketCompetitorPins` for the project. */
+  marketPins: readonly CompetitorAliasMarketPin[]
   competitorTypes?: readonly DiscoveryCompetitorType[]
 }): CompetitorPromotion {
   const typeFilter = input.competitorTypes ? new Set(input.competitorTypes) : null
@@ -897,7 +904,7 @@ function planCompetitorPromotion(input: {
     }
   }
 
-  const claimed = claimedCompetitorAdds(input.tracked, candidates.map(group => group.domain), input.project)
+  const claimed = claimedCompetitorAdds(input.tracked, candidates.map(group => group.domain), input.project, input.marketPins)
   const promote: DiscoveryPromoteCompetitor[] = []
   for (const group of candidates) {
     const rejections = claimed.get(group.domain)
