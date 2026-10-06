@@ -1,5 +1,5 @@
 import { eq, desc, and, inArray, or } from 'drizzle-orm'
-import { deliverWebhook, measurementRunCompleteness, redactNotificationUrl, resolveDestination, resolveWebhookTarget, toAlertView } from '@ainyc/canonry-api-routes'
+import { deliverWebhook, measurementRunCompleteness, notProbeRun, redactNotificationUrl, resolveDestination, resolveWebhookTarget, toAlertView } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { auditLog, doctorHealthState, siteLivenessState, gbpLocations, gbpReviewRatings, gbpReviews, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, readNegativeReviewMaxStars, runs } from '@ainyc/canonry-db'
 import type { GbpReviewAlertState, NotificationEvent, WebhookPayload, InsightWebhookPayload, HealthWebhookPayload, RatingWebhookPayload, ReviewAlertLocation, ReviewWebhookPayload } from '@ainyc/canonry-contracts'
@@ -532,11 +532,9 @@ export class Notifier {
           })),
           dashboardUrl: `${this.serverUrl}/projects/${project.name}`,
         }
-        await this.sendWebhook(config.url, payload, notif.id, projectId, notif.webhookSecret ?? null)
-        // Recorded only after a send, for the reason the health path already
-        // documents: marking "decided to notify" reads as delivered even when
-        // nothing actually went out.
-        for (const insight of relevantInsights) this.rememberInsightNotified(projectId, insight)
+        if (await this.sendWebhook(config.url, payload, notif.id, projectId, notif.webhookSecret ?? null)) {
+          for (const insight of relevantInsights) this.rememberInsightNotified(projectId, insight)
+        }
       }
     }
   }
@@ -780,6 +778,7 @@ export class Notifier {
         eq(runs.projectId, projectId),
         eq(runs.kind, thisRun.kind),
         eq(runs.createdAt, thisRun.createdAt),
+        notProbeRun(),
       ))
       .all()
 
@@ -827,6 +826,7 @@ export class Notifier {
           eq(runs.projectId, projectId),
           eq(runs.kind, thisRun.kind),
           or(eq(runs.status, 'completed'), eq(runs.status, 'partial')),
+          notProbeRun(),
         ),
       )
       .orderBy(desc(runs.createdAt), desc(runs.id))

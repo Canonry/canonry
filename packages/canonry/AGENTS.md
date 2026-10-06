@@ -161,6 +161,10 @@ The event catalog and envelope are under "Telemetry events" below.
 - `src/run-telemetry.ts` — `classifyRunError`, `buildRunCompletedProps`: keeps the `run.completed` payload composition in one spot
 - `src/setup-state.ts` — `buildSetupState`: `{ provider_count, has_keywords, project_count, is_first_run }` snapshot ridden on every `cli.command`
 
+Telemetry tests exercise the collector through a mocked upstream `fetch`, and CLI guards through `runCli`.
+Keep status resolution internal and use the shared ghost-event and masking helpers directly.
+Hold the collector response when checking opt-out delivery; an immediate response cannot prove the command waits.
+
 ### Logging and runtime diagnostics
 
 - `src/logger.ts` — compatibility exports of the shared runtime logger in api-routes. Application and Fastify logging use the same pure redaction policy before stdout/stderr and durable capture. Do not add a second sanitizer or raw request logger.
@@ -197,6 +201,10 @@ Flag-driven, no prompts; delegates to `ApiClient.listApiKeys` / `createApiKey` /
 Different run kinds may overlap on one project. Preserve shared provider gates
 and same-kind admission guards. Project-only cancellation requires exactly one
 active run; otherwise the CLI lists the candidates and requires a run ID.
+Fill admission tests use distinct eligible runs and another project to isolate
+the project lock. Failed-fill budget tests observe actual peer dispatch before
+the minute window ends and native usage counts; private gate-call counts alone
+are not the resource contract.
 Boot recovery fails every queued/running run and its active crawl attempts;
 it does not resume interrupted work. The one exception is a running sweep that
 wrote provider batches (see "Finalizing a sweep" below).
@@ -210,6 +218,15 @@ This capture does not reconstruct historical definitions.
 Simple and Advanced snapshots use `isSearchLocationIgnored` to clear a search-tool location when retrieval is `not-used`. Preserve the requested location in `requestedContext` and record `supportedContext.status: 'ignored'` for these answers.
 
 When a sweep finishes, the flow is: `JobRunner` → `RunCoordinator.onRunCompleted()` → `IntelligenceService.analyzeAndPersist()` then `Notifier.onRunCompleted()`. The coordinator runs intelligence first (synchronous) so insights are persisted before webhooks fire. Each subscriber is wrapped in an independent try/catch — one failing must not block the others.
+
+Notifier sibling and citation-history reads exclude probes with `notProbeRun()`
+before limiting history. The coordinator's probe callback guard cannot protect a
+later ordinary run from stored probe rows. Keep the public delivery and SQLite
+receipt cases in `test/notifier-fanout.test.ts` for Simple and Advanced runs.
+Fanout winner, pending-sibling, location and stored-fill notification contracts
+also live there through public `onRunCompleted`, actual subscriptions and delivery
+receipts. `test/run-fill.test.ts` owns actual JobRunner fill execution; stored rows
+in a notifier fixture prove admission and delivery only.
 
 `IntelligenceService` reads query snapshots from the DB, calls the pure analysis functions in `packages/intelligence/`, and persists insights + health snapshots. It also provides `backfill()` for reprocessing historical runs chronologically.
 
@@ -545,11 +562,11 @@ Registered via `src/cli-commands/measurement-plan.ts`.
 `src/discovery-run.ts`:
 
 - `executeDiscoveryRun` — fires `executeDiscovery` (api-routes orchestrator) with Gemini-backed seed/embed/probe/classifyDomains deps, writes the `discovery.basket-divergence` insight, and hands off to `RunCoordinator.onRunCompleted` so Aero wakes up with a bucket-count payload. Forwards the run's resolved `locations` into `executeDiscovery` → `deps.seed`.
-- `classifyDomains` is one plain-text `generateText` call per session; `buildClassificationPrompt` / `parseClassificationResponse` are exported pure helpers that build the `domain => category` prompt and forgivingly parse the model's reply into a `DiscoveryDomainClassification`.
-- `buildSeedPrompt` / `buildLocationConstraint` are exported pure helpers that build the Gemini seed prompt — when locations are present they geo-constrain the prompt and (for 2+ locations) add a per-area seed quota of `floor(DEFAULT_SEED_COUNT / locationCount)`.
+- `classifyDomains` is one plain-text `generateText` call per session; `buildClassificationPrompt` / `parseClassificationResponse` are private helpers that build the `domain => category` prompt and forgivingly parse the model's reply into a `DiscoveryDomainClassification`.
+- `buildSeedPrompt` / `buildLocationConstraint` are private helpers that build the Gemini seed prompt — when locations are present they geo-constrain the prompt and (for 2+ locations) add a per-area seed quota of `floor(DEFAULT_SEED_COUNT / locationCount)`.
 - The probe dep computes BOTH signals from the normalized result: `citationState` from cited domains AND `answerMentioned` from the answer text via the shared `determineAnswerMentioned` (brand names from `effectiveBrandNames`, domains from `canonicalDomains`) — same helper the answer-visibility writer uses, so discovery and sweeps agree on "mentioned".
-- The embed dep wraps `embedQueries` in `embedWithRetry` (exported, testable) — shared `withRetry` + `isRetryableHttpError` with a per-attempt wall-clock timeout, so a transient blip between the two paid grounded phases no longer fails the session while a permanent 4xx still does.
-- `buildDefaultDeps` is exported for unit-testing `probe()` offline.
+- The embed dep wraps `embedQueries` in private `embedWithRetry` — shared `withRetry` + `isRetryableHttpError` with a per-attempt wall-clock timeout, so a transient blip between the two paid grounded phases no longer fails the session while a permanent 4xx still does.
+- `buildDefaultDeps` is internal. Exercise Discovery through `executeDiscoveryRun`, migrated SQLite, registered public SPI adapters, and the installed embedding SDK at the fetch boundary; keep literal model-request and persisted-result oracles.
 
 `src/commands/discover.ts` — discovery commands:
 
@@ -693,6 +710,9 @@ attribution and no provider calls or sync.
 
 - Cloudflare direct bearer/HMAC and Queue API tokens stay only in local config; generated source/TOML, stdout, API descriptions, and transcripts must never contain them.
 - Entries are keyed by source ID so a paused staged mode can coexist with the active source.
+- Credential selection tests use multiple valid projects with distinct secrets and
+  a populated unknown lookup. Initial upserts assert the complete stored record;
+  keep legacy-mode, Queue validation, staged-source, and deletion contracts here.
 
 ### Backlinks
 

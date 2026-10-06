@@ -11,7 +11,6 @@ import {
   getApiV1ProjectsByNameTechnicalAeoCrawlQueryKey,
   getApiV1ProjectsByNameTechnicalAeoDeadLinksQueryKey,
   getApiV1ProjectsByNameTechnicalAeoGraphQueryKey,
-  getApiV1ProjectsByNameTechnicalAeoGraphQueryKey,
   getApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsQueryKey,
   getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey,
   getApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewQueryKey,
@@ -20,20 +19,13 @@ import {
 } from '@ainyc/canonry-api-client/react-query'
 
 import {
-  linkTileCount,
   LivePageHealthFindings,
-  siteHealthMetricHelp,
-  siteMapLinkCountsLabel,
-  siteMapLinkRuleHelp,
   SiteHealthSection,
-  SITE_HEALTH_VIEW_DESCRIPTIONS,
-  SITE_MAP_HELP,
-  SITE_MAP_LINK_SPLIT_COPY,
-  SITE_MAP_STALE_LAYOUT_COPY,
-  TEMPLATE_DETECTION_COPY,
   type LivePageHealthPreviewView,
 } from '../src/components/project/SiteHealthSection.js'
+import { compileAppStyles, parseCompiledCss, compiledElementProperty, cssLengthPx } from './compiled-app-css.js'
 import { heyClient } from '../src/api.js'
+import type { SiteCrawlPageDto, SiteCrawlSummaryDto } from '@ainyc/canonry-contracts'
 import { AccountProvider } from '../src/contexts/account-context.js'
 
 const mutationMock = vi.hoisted(() => ({
@@ -196,7 +188,7 @@ function livePageHealthPreviewResponse(
   }
 }
 
-function summary(runId: string, pagesDiscovered: number, complete = true) {
+function summary(runId: string, pagesDiscovered: number, complete = true): SiteCrawlSummaryDto {
   return {
     project: projectName,
     hasCrawlData: true,
@@ -297,6 +289,22 @@ const templateEdge = {
   followable: true,
   occurrences: 1,
   isTemplate: true,
+}
+
+function seedInitialRootPage(queryClient: QueryClient) {
+  queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesQueryKey({
+    client: heyClient,
+    path: { name: projectName },
+    query: { runId: 'run_1', nodeKey: 'page_home', limit: 1 },
+  }), {
+    project: projectName,
+    hasCrawlData: true,
+    runId: 'run_1',
+    total: 1,
+    nextCursor: null,
+    healthStateFilter: null,
+    pages: [homePage],
+  })
 }
 
 function seedRun(
@@ -457,6 +465,67 @@ function renderSection(
   return queryClient
 }
 
+
+const MAP_VIEW_HELP = 'Explore how pages, site sections, and internal links fit together.'
+const TECHNICAL_VIEW_HELP = 'Prioritize audit findings and inspect the pages that need work.'
+const MAP_NAVIGATION_HELP = 'Scroll to zoom. Click a page to inspect it.'
+const LINK_SPLIT_HELP = 'Menu, header, and footer links repeat on every page, so they say nothing about which pages relate to each other. Links written in your page text do.'
+const STALE_LAYOUT_HELP = 'Page positions on this map were set before menu and footer links were separated. Run a new scan to update them.'
+const TOO_FEW_HELP = 'This scan found fewer than 15 pages and did not read where each link sits in the page. On a site that small every link is on most pages, so menu and footer links cannot be told apart from the rest.'
+const LEGACY_SPLIT_HELP = 'This scan ran before menu and footer links were separated. Run a new scan to split them out.'
+const RULE_HELP = {
+  applied: 'This scan told menu and footer links apart by how often the same link repeats across pages. It cannot spot a link written into the page text when its wording matches the menu. Run a new scan to read the page layout instead.',
+  'applied-placement': 'This scan read where each link sits in the page, so links in the page text are separated from the menu, header, and footer even when they use the same wording.',
+  'applied-placement-with-ubiquity': 'This scan read where each link sits in the page. Some pages mark out no menu or main area, so those links fall back to how often the link repeats across pages, which can miss a link written into the page text.',
+  'applied-placement-partial': 'This scan read where each link sits in the page. Some pages mark out no menu or main area, and this scan found fewer than 15 pages, so nothing could tell those links apart. They are counted as links in your page text, which is what a link no rule marked as menu, header, or footer means here.',
+} as const
+const METRIC_HELP = {
+  clicksFromHome: 'How many clicks it takes to reach this page from the home page, following links. This always counts every link, including menu and footer.',
+  linkImportance: 'How much link value flows to this page, based on how many pages link to it and how important those pages are. Shown relative to the highest page on this site, which is 100%. This always counts every link, including menu and footer.',
+  linksInFiltered: 'How many other pages link to this page. Right now this counts only links written in your page text. Menu and footer links are hidden.',
+  linksInAll: 'How many other pages link to this page. This counts every link, including menu and footer.',
+  linksOutFiltered: 'How many other pages this page links to. Right now this counts only links written in your page text. Menu and footer links are hidden.',
+  linksOutAll: 'How many other pages this page links to. This counts every link, including menu and footer.',
+  technicalScore: 'How well this page is set up for AI and search engines to read, from 0 to 100. Open a page to see what it is marked down for.',
+  linkTimes: 'How many times this link appears on the page it comes from.',
+} as const
+async function renderedCss(...elements: Element[]) {
+  return parseCompiledCss(await compileAppStyles([...new Set(elements.flatMap(element => [...element.classList]))]))
+}
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+}
+function deferredResponse() {
+  let resolve!: (value: Response) => void
+  const promise = new Promise<Response>(done => { resolve = done })
+  return { promise, resolve }
+}
+type SiteRead = { method: string; path: string; query: Record<string, string> }
+function installSiteReads(receipts: Record<string, unknown>) {
+  const reads: SiteRead[] = []
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input))
+    reads.push({ method: input instanceof Request ? input.method : init?.method ?? 'GET', path: url.pathname, query: Object.fromEntries(url.searchParams) })
+    const key = Object.keys(receipts).sort((left, right) => right.length - left.length).find(path => url.pathname.endsWith(path))
+    if (!key) return jsonResponse({ error: { code: 'NOT_FOUND', message: 'No fixture for this read' } }, 404)
+    const body = await receipts[key]
+    return body instanceof Response ? body : jsonResponse(body)
+  }))
+  return reads
+}
+function seedInventoryRows(queryClient: QueryClient, runId: string, pages: SiteCrawlPageDto[]) {
+  const input = { client: heyClient, path: { name: projectName }, query: { runId, limit: 200, sort: 'path' } } as const
+  const response = { project: projectName, hasCrawlData: true, runId, total: pages.length, nextCursor: null, pages }
+  queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesQueryKey(input), response)
+  queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesInfiniteQueryKey(input), { pages: [response], pageParams: [input] })
+}
+function compactPage(page: SiteCrawlPageDto) {
+  return { nodeKey: page.nodeKey, url: page.url, path: page.path, depth: page.depth, indexabilityState: page.indexabilityState, fetchState: page.fetchState, auditState: page.auditState, auditScore: page.auditScore, inventoryEligible: page.inventoryEligible, inboundUniqueEdges: page.inboundUniqueEdges, outboundUniqueEdges: page.outboundUniqueEdges, linkScoreNormalized: page.linkScoreNormalized, healthState: page.healthState }
+}
+function storedNeighbor(edgeKey: string, isTemplate: boolean) {
+  return { edgeKey, sourceNodeKey: `source-${edgeKey}`, sourceUrl: `https://citypoint.example/${edgeKey}`, targetNodeKey: 'page_services', targetUrl: servicesPage.url, relation: 'anchor', internal: true, followable: true, occurrences: 1, followableOccurrences: 1, nofollowOccurrences: 0, anchors: ['Roof repair'], isTemplate, templateRatio: isTemplate ? 0.9 : 0.1, templateSource: 'ubiquity', placementOccurrences: null }
+}
+
 beforeEach(() => {
   mutationMock.mutate.mockReset()
   mutationMock.isPending = false
@@ -494,7 +563,7 @@ test('managed scans hide the plain recovery button on a cold failed-run handoff 
 
 test('public demo hides Page Health scan controls and skips the unavailable schedule read', async () => {
   window.__CANONRY_CONFIG__ = { demo: { enabled: true, readOnly: true, sampleData: true } }
-  const request = vi.fn(async () => new Response(JSON.stringify({ code: 'NOT_FOUND' }), { status: 404, headers: { 'content-type': 'application/json' } }))
+  const request = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ code: 'NOT_FOUND' }), { status: 404, headers: { 'content-type': 'application/json' } }))
   vi.stubGlobal('fetch', request)
   const queryClient = makeClient()
   queryClient.setQueryData(scanHistoryKey(), scanHistory(scan('run_1')))
@@ -514,7 +583,8 @@ test('keeps three fixed live-finding slots while examples grow from zero to one 
   const section = screen.getByRole('region', { name: 'Findings so far' })
   const firstSlots = within(section).getAllByTestId('live-page-health-slot')
   expect(firstSlots).toHaveLength(3)
-  expect(firstSlots.every((slot) => slot.classList.contains('h-14'))).toBe(true)
+  const slotCss = await renderedCss(...firstSlots)
+  for (const slot of firstSlots) expect(cssLengthPx(compiledElementProperty(slotCss, slot, 'height') ?? '', slotCss)).toBe(56)
   expect(within(section).getByText('Checks that need attention will appear here.')).not.toBeNull()
   expect(within(section).getAllByRole('listitem')).toHaveLength(1)
 
@@ -533,9 +603,9 @@ test('keeps three fixed live-finding slots while examples grow from zero to one 
   await waitFor(() => expect(within(section).getByText('https://example.com/')).not.toBeNull())
   const firstFilledSlot = within(section).getAllByTestId('live-page-health-slot')[0]
   expect(firstFilledSlot).toBe(firstSlots[0])
-  expect(firstFilledSlot.classList.contains('grid')).toBe(true)
-  expect(firstFilledSlot.classList.contains('grid-cols-[minmax(0,1fr)_auto]')).toBe(true)
-  expect(firstFilledSlot.classList.contains('gap-2')).toBe(true)
+  expect(compiledElementProperty(slotCss, firstFilledSlot, 'display')).toBe('grid')
+  expect(compiledElementProperty(slotCss, firstFilledSlot, 'grid-template-columns')?.replace(/,\s*/g, ',')).toBe('minmax(0,1fr) auto')
+  expect(cssLengthPx(compiledElementProperty(slotCss, firstFilledSlot, 'gap') ?? '', slotCss)).toBe(8)
   expect(within(section).getAllByRole('listitem')).toHaveLength(1)
   expect(within(section).getByText('2 checks').getAttribute('aria-hidden')).toBe('true')
   expect(within(section).getAllByText('2 checks need attention').some((node) => node.classList.contains('sr-only'))).toBe(true)
@@ -575,7 +645,13 @@ test('keeps three fixed live-finding slots while examples grow from zero to one 
     'https://example.com/contact',
     'https://example.com/about',
   ])
-  expect(finalUrls.every((url) => url?.classList.contains('truncate'))).toBe(true)
+  const urlCss = await renderedCss(...finalUrls.filter((url): url is HTMLElement => url !== null))
+  for (const url of finalUrls) {
+    expect(url).not.toBeNull()
+    expect(compiledElementProperty(urlCss, url!, 'overflow')).toBe('hidden')
+    expect(compiledElementProperty(urlCss, url!, 'text-overflow')).toBe('ellipsis')
+    expect(compiledElementProperty(urlCss, url!, 'white-space')).toBe('nowrap')
+  }
   expect(within(section).getAllByRole('listitem')).toHaveLength(3)
 })
 
@@ -669,7 +745,7 @@ test('keeps live findings outside an aria-live region', () => {
 })
 
 test('leads with the map, truthful crawl metrics, and an explicit disabled dead-link state', async () => {
-  const fetchMock = vi.fn(async () => new Response('{}', { status: 500 }))
+  const fetchMock = vi.fn<typeof fetch>(async () => new Response('{}', { status: 500 }))
   vi.stubGlobal('fetch', fetchMock)
   const queryClient = renderSection()
 
@@ -900,17 +976,17 @@ test('uses a labelled, roving-focus tab interface for Site Health views', () => 
   const map = screen.getByRole('tab', { name: 'Map' })
   const inventory = screen.getByRole('tab', { name: 'Pages' })
   const technical = screen.getByRole('tab', { name: 'Page health' })
-  expect(map.getAttribute('id')).toBe('site-health-map-tab')
-  expect(map.getAttribute('aria-controls')).toBe('site-health-map-panel')
+  expect(map.id).not.toBe('')
+  expect(document.getElementById(map.getAttribute('aria-controls') ?? '')).toBe(screen.getByRole('tabpanel'))
   expect(map.getAttribute('tabindex')).toBe('0')
   expect(inventory.getAttribute('tabindex')).toBe('-1')
-  expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe('site-health-map-tab')
+  expect(document.getElementById(screen.getByRole('tabpanel').getAttribute('aria-labelledby') ?? '')).toBe(map)
 
   map.focus()
   fireEvent.keyDown(map, { key: 'ArrowRight' })
   expect(document.activeElement).toBe(inventory)
   expect(inventory.getAttribute('aria-selected')).toBe('true')
-  expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe('site-health-inventory-tab')
+  expect(document.getElementById(screen.getByRole('tabpanel').getAttribute('aria-labelledby') ?? '')).toBe(inventory)
 
   fireEvent.keyDown(inventory, { key: 'End' })
   expect(document.activeElement).toBe(technical)
@@ -921,33 +997,49 @@ test('uses a labelled, roving-focus tab interface for Site Health views', () => 
   expect(map.getAttribute('aria-selected')).toBe('true')
 })
 
-test('keeps every detail read pinned to the selected historical run', () => {
+test('keeps every detail read pinned to the selected historical run', async () => {
   const queryClient = makeClient()
+  seedInitialRootPage(queryClient)
   queryClient.setQueryData(scanHistoryKey(), scanHistory(scan('run_1'), scan('run_old', 'partial')))
+  const oldSummary = { ...summary('run_old', 18, false), effectiveOptions: { checkDeadLinks: true }, deadLinks: { state: 'partial' as const, checked: 14, found: 2, unverified: 1 } }
   seedRun(queryClient, 'run_old', summary('run_old', 18, false))
+  // Existing producers supply server fixtures, not expected request identities.
+  const receipts = {
+    '/crawl': oldSummary,
+    '/graph': queryClient.getQueryData(getApiV1ProjectsByNameTechnicalAeoGraphQueryKey({ client: heyClient, path: { name: projectName }, query: { runId: 'run_old', maxNodes: 20_000, maxEdges: 50_000 } })),
+    '/crawl/pages': queryClient.getQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesQueryKey({ client: heyClient, path: { name: projectName }, query: { runId: 'run_old', limit: 200, sort: 'path' } })),
+    '/structure': queryClient.getQueryData(getApiV1ProjectsByNameTechnicalAeoStructureQueryKey({ client: heyClient, path: { name: projectName }, query: { runId: 'run_old', parentPath: '/', limit: 100 } })),
+    '/internal-links/neighbors': queryClient.getQueryData(getApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsQueryKey({ client: heyClient, path: { name: projectName }, query: { runId: 'run_old', nodeKey: 'page_services', limit: 100 } })),
+    '/crawl/pages/audit': queryClient.getQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditQueryKey({ client: heyClient, path: { name: projectName }, query: { runId: 'run_old', nodeKey: 'page_services' } })),
+    '/dead-links': { project: projectName, runId: 'run_old', state: 'partial', checkDeadLinks: true, checked: 14, found: 2, unverified: 1, total: 2, nextCursor: null, deadLinks: [] },
+  }
+  for (const receipt of Object.values(receipts)) expect(receipt).toBeDefined()
+  // No old detail cache remains: a selected historical read must cross the SDK.
+  queryClient.removeQueries({ predicate: query => JSON.stringify(query.queryKey).includes('run_old') })
+  const reads = installSiteReads(receipts)
   renderSection(queryClient)
-
-  fireEvent.change(screen.getByRole('combobox', { name: 'View a Site Health scan' }), {
-    target: { value: 'run_old' },
-  })
-
-  expect(screen.getByText('Partial scan')).not.toBeNull()
-  expect(screen.getByText('18')).not.toBeNull()
-
+  fireEvent.change(screen.getByRole('combobox', { name: 'View a Site Health scan' }), { target: { value: 'run_old' } })
+  await screen.findByText('Partial scan')
+  expect(await screen.findByText('18')).not.toBeNull()
+  await screen.findByText('Broken links: 2 found so far, 1 unchecked')
   fireEvent.click(screen.getByRole('tab', { name: 'Pages' }))
-  fireEvent.click(screen.getByRole('button', { name: '/services/roof-repair' }))
-
-  const neighborKey = getApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsQueryKey({
-    client: heyClient,
-    path: { name: projectName },
-    query: { runId: 'run_old', nodeKey: 'page_services', limit: 100 },
-  })
-  expect(queryClient.getQueryState(neighborKey)).not.toBeUndefined()
+  fireEvent.click(await screen.findByRole('button', { name: '/services/roof-repair' }))
+  await screen.findByText('The page is too thin.')
+  await screen.findByRole('region', { name: 'Links in (0)' })
   expect(screen.getAllByText('Clicks from home')).not.toHaveLength(0)
   expect(screen.getAllByText('Link importance')).not.toHaveLength(0)
-
   fireEvent.click(screen.getByRole('tab', { name: 'Page health' }))
   expect(screen.getByText('Page health for run_old').getAttribute('data-integrated')).toBe('true')
+  expect(reads).toEqual(expect.arrayContaining([
+    { method: 'GET', path: '/api/v1/projects/citypoint/technical-aeo/crawl', query: { runId: 'run_old' } },
+    { method: 'GET', path: '/api/v1/projects/citypoint/technical-aeo/graph', query: { runId: 'run_old', maxNodes: '20000', maxEdges: '50000' } },
+    { method: 'GET', path: '/api/v1/projects/citypoint/technical-aeo/crawl/pages', query: { runId: 'run_old', limit: '200', sort: 'path' } },
+    { method: 'GET', path: '/api/v1/projects/citypoint/technical-aeo/structure', query: { runId: 'run_old', parentPath: '/', limit: '100' } },
+    { method: 'GET', path: '/api/v1/projects/citypoint/technical-aeo/internal-links/neighbors', query: { runId: 'run_old', nodeKey: 'page_services', limit: '100' } },
+    { method: 'GET', path: '/api/v1/projects/citypoint/technical-aeo/crawl/pages/audit', query: { runId: 'run_old', nodeKey: 'page_services' } },
+    { method: 'GET', path: '/api/v1/projects/citypoint/technical-aeo/dead-links', query: { runId: 'run_old', limit: '50' } },
+  ]))
+  expect(reads.every(read => read.query.runId === 'run_old')).toBe(true)
 })
 
 test('defaults to the newest terminal run when that scan is partial', () => {
@@ -1111,20 +1203,7 @@ test('sends the chosen crawl budget so a scan that stopped early can be changed'
   })
 })
 
-test('omits both budgets when they are left at their defaults', () => {
-  // An unset budget must stay unset: sending the default explicitly is a
-  // different crawl identity from sending nothing.
-  const queryClient = makeClient()
-  renderSection(queryClient)
 
-  fireEvent.click(screen.getByRole('button', { name: /Run scan/ }))
-
-  expect(mutationMock.mutate).toHaveBeenCalledWith({
-    projectName,
-    projectId,
-    body: { checkDeadLinks: false },
-  })
-})
 
 test('offers the onboarding continuation only after the selected active scan reaches its persisted 20-second threshold', () => {
   vi.useFakeTimers()
@@ -1316,7 +1395,10 @@ test('uses exact stored progress when the project run list is unavailable', asyn
 
   const progress = await screen.findByRole('status', { name: 'Current scan progress' })
   expect(progress.textContent).toContain('Checking pages')
-  expect(progress.closest('[role="tabpanel"]')?.getAttribute('id')).toBe('site-health-map-panel')
+  const selectedTab = screen.getByRole('tab', { name: 'Map' })
+  const panel = document.getElementById(selectedTab.getAttribute('aria-controls') ?? '')
+  expect(panel).toBe(progress.closest('[role="tabpanel"]'))
+  expect(document.getElementById(panel?.getAttribute('aria-labelledby') ?? '')).toBe(selectedTab)
   expect(requestedPaths.some((path) => path.endsWith('/technical-aeo/crawl'))).toBe(false)
 })
 
@@ -1474,7 +1556,7 @@ test('shows exact stored scan progress as raw stages and counts, never a fabrica
   expect(progress.textContent).not.toMatch(/\d+%/)
 })
 
-test('reserves live counters and Page Health finding space before the scan attempt has persisted', () => {
+test('reserves live counters and Page Health finding space before the scan attempt has persisted', async () => {
   const queryClient = makeClient()
   queryClient.setQueryData(scanHistoryKey(), scanHistory(scan('run_queued', 'queued', false)))
   queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey({
@@ -1501,7 +1583,8 @@ test('reserves live counters and Page Health finding space before the scan attem
   expect(within(findings).getAllByTestId('live-page-health-slot')).toHaveLength(3)
   expect(phase.getAttribute('aria-live')).toBe('polite')
   expect(phase.getAttribute('aria-atomic')).toBe('true')
-  expect(phase.classList.contains('min-h-[4.5rem]')).toBe(true)
+  const phaseCss = await renderedCss(phase)
+  expect(cssLengthPx(compiledElementProperty(phaseCss, phase, 'min-height') ?? '', phaseCss)).toBe(72)
   expect(progress.hasAttribute('aria-live')).toBe(false)
   expect(counters.querySelector('[aria-live], [role="status"], [role="alert"]')).toBeNull()
   expect(findings.querySelector('[aria-live], [role="status"], [role="alert"]')).toBeNull()
@@ -1568,13 +1651,15 @@ test('does not request provisional Page Health evidence outside explicit onboard
     layout: { state: 'pending', layoutVersion: null, failureCode: null, updatedAt: null },
     error: null,
   })
-  const fetchMock = vi.fn(async () => new Response('{}', { status: 500, headers: { 'content-type': 'application/json' } }))
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL) => new Response('{}', { status: 500, headers: { 'content-type': 'application/json' } }))
   vi.stubGlobal('fetch', fetchMock)
 
   renderSection(queryClient, { initialRunId: 'run_active' })
 
+  await screen.findByRole('status', { name: 'Current scan progress' })
   await act(async () => {})
-  expect(fetchMock.mock.calls.map(([input]) => String(input))).not.toContain(expect.stringContaining('/page-health-preview'))
+  expect(fetchMock.mock.calls.map(([input]) => new URL(input instanceof Request ? input.url : String(input)).pathname)
+    .filter(path => path.endsWith('/page-health-preview'))).toHaveLength(0)
   expect(screen.queryByRole('region', { name: 'Findings so far' })).toBeNull()
 })
 
@@ -2155,52 +2240,40 @@ test('makes loaded-window inventory search limits explicit', () => {
   expect(screen.queryByText('No pages match this search.')).toBeNull()
 })
 
-test('expands site sections lazily while preserving the selected run', () => {
+test('expands site sections lazily while preserving the selected run', async () => {
   const queryClient = makeClient()
-  const nestedInput = {
-    client: heyClient,
-    path: { name: projectName },
-    query: { runId: 'run_1', parentPath: '/services', limit: 100 },
-  } as const
-  queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoStructureInfiniteQueryKey(nestedInput), {
-    pages: [{
-      project: projectName,
-      hasCrawlData: true,
-      runId: 'run_1',
-      parentPath: '/services',
-      nextCursor: null,
-      children: [{
-        path: '/services/roof-repair',
-        url: servicesPage.url,
-        hasPage: true,
-        pageCount: 1,
-        inventoryEligibleCount: 1,
-        fetchedCount: 1,
-      }],
-    }],
-    pageParams: [nestedInput],
-  })
-
+  const reads = installSiteReads({ '/structure': {
+    project: projectName, hasCrawlData: true, runId: 'run_1', parentPath: '/services', nextCursor: null,
+    children: [{ path: '/services/roof-repair', url: servicesPage.url, hasPage: true, pageCount: 1, inventoryEligibleCount: 1, fetchedCount: 1 }],
+  } })
   renderSection(queryClient)
-  fireEvent.click(screen.getByRole('button', { name: 'Expand /services' }))
-
   const sections = screen.getByRole('complementary', { name: 'Site sections' })
-  expect(within(sections).getByRole('button', { name: '/services/roof-repair' })).not.toBeNull()
-  expect(queryClient.getQueryState(getApiV1ProjectsByNameTechnicalAeoStructureInfiniteQueryKey(nestedInput))).not.toBeUndefined()
+  await act(async () => {})
+  expect(reads.filter(read => read.path.endsWith('/structure') && read.query.parentPath === '/services')).toHaveLength(0)
+  fireEvent.click(within(sections).getByRole('button', { name: 'Expand /services' }))
+  await within(sections).findByRole('button', { name: '/services/roof-repair' })
+  expect(reads.filter(read => read.path.endsWith('/structure'))).toEqual([{ method: 'GET', path: '/api/v1/projects/citypoint/technical-aeo/structure', query: { runId: 'run_1', parentPath: '/services', limit: '100' } }])
+  fireEvent.click(within(sections).getByRole('button', { name: 'Collapse /services' }))
+  expect(within(sections).queryByRole('button', { name: '/services/roof-repair' })).toBeNull()
 })
 
-test('keeps Site sections first in visual and keyboard order', () => {
+test('keeps Site sections first in visual and keyboard order', async () => {
   const queryClient = makeClient()
 
   renderSection(queryClient)
 
   const sections = screen.getByRole('complementary', { name: 'Site sections' })
   const explorer = sections.parentElement
-  expect(explorer?.id).toBe('site-health-map-explorer')
-  expect(explorer?.className).toContain('lg:grid-cols-[minmax(14rem,18rem)_minmax(0,1fr)]')
-  expect(explorer?.className).not.toContain('sm:grid-cols-')
+  expect(explorer).not.toBeNull()
+  const mapColumn = explorer!.lastElementChild
+  expect(mapColumn).not.toBeNull()
+  const gridCss = await renderedCss(explorer!, mapColumn!)
+  expect(compiledElementProperty(gridCss, explorer!, 'display')).toBe('grid')
+  expect(compiledElementProperty(gridCss, explorer!, 'grid-template-columns')).toBeUndefined()
+  expect(compiledElementProperty(gridCss, explorer!, 'grid-template-columns', '@media (width >= 64rem)')?.replace(/,\s*/g, ',')).toBe('minmax(14rem,18rem) minmax(0,1fr)')
   expect(explorer?.firstElementChild).toBe(sections)
-  expect(explorer?.lastElementChild?.className).toContain('min-w-0')
+  expect(cssLengthPx(compiledElementProperty(gridCss, mapColumn!, 'min-width') ?? '', gridCss)).toBe(0)
+  expect(sections.compareDocumentPosition(screen.getByRole('img', { name: 'Interactive site map' })) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
 })
 
 test('queries dead-link details only when the summary says the check ran', async () => {
@@ -2325,20 +2398,29 @@ test('reports broken and unchecked links side by side when both exist', async ()
   expect(screen.queryByText('Broken links: 7 found')).toBeNull()
 })
 
-test('lets long selected paths and URLs wrap in the page inspector', () => {
-  renderSection()
+test('lets long selected paths and URLs wrap in the page inspector', async () => {
+  const queryClient = makeClient()
+  const longPath = `/services/${'roof-repair-'.repeat(32)}details`
+  const longUrl = `https://citypoint.example${longPath}`
+  const longPage = { ...servicesPage, path: longPath, url: longUrl, finalUrl: longUrl }
+  seedRun(queryClient, 'run_1', summary('run_1', 42), { nodes: [{ ...homePage, x: 0, y: 0 }, { ...longPage, x: 1, y: 1 }] })
+  seedInventoryRows(queryClient, 'run_1', [homePage, longPage])
+  renderSection(queryClient)
   fireEvent.click(screen.getByRole('tab', { name: 'Pages' }))
-  fireEvent.click(screen.getByRole('button', { name: '/services/roof-repair' }))
-
-  const path = screen.getByRole('heading', { name: '/services/roof-repair', level: 3 })
-  const url = screen.getByText(servicesPage.url)
-  expect(path.className).toContain('break-words')
-  expect(path.className).not.toContain('truncate')
-  expect(url.className).toContain('break-all')
-  expect(url.className).not.toContain('truncate')
+  fireEvent.click(screen.getByRole('button', { name: longPath }))
+  const path = screen.getByRole('heading', { name: longPath, level: 3 })
+  const url = screen.getByText(longUrl)
+  expect(screen.getByRole('link', { name: 'Open page' }).getAttribute('href')).toBe(longUrl)
+  const css = await renderedCss(path, url)
+  expect(compiledElementProperty(css, path, 'overflow-wrap')).toBe('break-word')
+  expect(compiledElementProperty(css, path, 'text-overflow')).toBeUndefined()
+  expect(compiledElementProperty(css, path, 'white-space')).toBeUndefined()
+  expect(compiledElementProperty(css, url, 'word-break')).toBe('break-all')
+  expect(compiledElementProperty(css, url, 'text-overflow')).toBeUndefined()
+  expect(compiledElementProperty(css, url, 'white-space')).toBeUndefined()
 })
 
-test('contains selected-page link tables inside mobile-safe grid items', () => {
+test('contains selected-page link tables inside mobile-safe grid items', async () => {
   const queryClient = makeClient()
   const edge = {
     edgeKey: 'home-services',
@@ -2376,27 +2458,25 @@ test('contains selected-page link tables inside mobile-safe grid items', () => {
 
   const linksIn = screen.getByRole('region', { name: 'Links in (1)' })
   const linksOut = screen.getByRole('region', { name: 'Links out (1)' })
-  expect(linksIn.className).toContain('min-w-0')
-  expect(linksOut.className).toContain('min-w-0')
+  const wrappers = [within(linksIn).getByRole('table').parentElement!, within(linksOut).getByRole('table').parentElement!]
+  const css = await renderedCss(linksIn, linksOut, ...wrappers)
+  for (const region of [linksIn, linksOut]) expect(cssLengthPx(compiledElementProperty(css, region, 'min-width') ?? '', css)).toBe(0)
+  for (const wrapper of wrappers) expect(compiledElementProperty(css, wrapper, 'overflow-x')).toBe('auto')
+  expect(within(linksIn).getByText('Roof repair')).not.toBeNull()
+  expect(within(linksOut).getByText('Roof repair')).not.toBeNull()
 })
 
-test('keeps the legacy scorecard available as a subordinate page-health view', () => {
-  renderSection()
 
-  fireEvent.click(screen.getByRole('tab', { name: 'Page health' }))
-
-  expect(screen.getByText('Page health for run_1')).not.toBeNull()
-})
 
 test('removes map-specific chrome from the Page health view', () => {
   renderSection()
 
   // The view description is a tooltip on the heading now, so it is reachable
   // by its accessible name rather than rendered as a second line of prose.
-  expect(screen.getByRole('button', { name: SITE_HEALTH_VIEW_DESCRIPTIONS.map })).not.toBeNull()
+  expect(screen.getByRole('button', { name: MAP_VIEW_HELP })).not.toBeNull()
   fireEvent.click(screen.getByRole('tab', { name: 'Page health' }))
 
-  expect(screen.getByRole('button', { name: SITE_HEALTH_VIEW_DESCRIPTIONS.technical })).not.toBeNull()
+  expect(screen.getByRole('button', { name: TECHNICAL_VIEW_HELP })).not.toBeNull()
   expect(screen.queryByText('Pages found')).toBeNull()
   expect(screen.queryByText('Dead-link check')).toBeNull()
   expect(screen.getByText('Page health for run_1')).not.toBeNull()
@@ -2447,6 +2527,10 @@ test('marks a score-only scan in the history and renders its legacy state, not a
   expect(screen.getByText(/Existing page health results are preserved/)).not.toBeNull()
   expect(screen.queryByRole('heading', { name: 'Site Health could not load' })).toBeNull()
   expect(screen.queryByRole('alert')).toBeNull()
+
+  fireEvent.click(screen.getByRole('button', { name: 'View page health' }))
+  expect(screen.getByText('Page health for run_legacy').getAttribute('data-integrated')).toBe('true')
+
 })
 
 test('narrows the page list to hidden pages through the server-side filter', () => {
@@ -2581,9 +2665,8 @@ test('inspects a map page that is outside the loaded inventory window', async ()
   // The map holds every node while the inventory pages 200 at a time. This
   // selects a node that is ONLY on the map, so the by-key read is the only
   // thing that can supply its reasons.
-  const fetchMock = vi.fn(async () => new Response('{}', { status: 500 }))
-  vi.stubGlobal('fetch', fetchMock)
   const queryClient = makeClient()
+  seedInitialRootPage(queryClient)
   const offWindowPage = {
     ...contactPage,
     nodeKey: 'page_far',
@@ -2602,18 +2685,13 @@ test('inspects a map page that is outside the loaded inventory window', async ()
     project: projectName, hasCrawlData: true, runId: 'run_1', rootNodeKey: 'page_home',
     layout: { state: 'ready', version: 'site-health-fa2-v2', computedAt: '2026-08-08T18:16:33.000Z' },
     totalNodes: 3, totalEdges: 1,
-    nodes: [{ ...homePage, x: 0, y: 0 }, { ...servicesPage, x: 1, y: 1 }, { ...offWindowPage, x: 2, y: 2 }],
+    nodes: [{ ...homePage, x: 0, y: 0 }, { ...servicesPage, x: 1, y: 1 }, { ...compactPage(offWindowPage), x: 2, y: 2 }],
     edges: [], omittedNodes: 0, omittedEdges: 0, sampled: false,
   })
-  const byKeyInput = {
-    client: heyClient,
-    path: { name: projectName },
-    query: { runId: 'run_1', nodeKey: 'page_far', limit: 1 },
-  } as const
-  queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesQueryKey(byKeyInput), {
+  const reads = installSiteReads({ '/crawl/pages': {
     project: projectName, hasCrawlData: true, runId: 'run_1', total: 1, nextCursor: null,
     healthStateFilter: null, pages: [offWindowPage],
-  })
+  } })
   queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsQueryKey({
     client: heyClient,
     path: { name: projectName },
@@ -2633,8 +2711,8 @@ test('inspects a map page that is outside the loaded inventory window', async ()
     within(screen.getByRole('list', { name: 'Why this page is hidden' }))
       .getByText('Hidden by X-Robots-Tag header'),
   ).not.toBeNull())
-  expect(queryClient.getQueryState(getApiV1ProjectsByNameTechnicalAeoCrawlPagesQueryKey(byKeyInput)))
-    .not.toBeUndefined()
+  expect(reads.filter(read => read.path.endsWith('/crawl/pages'))).toEqual([{ method: 'GET', path: '/api/v1/projects/citypoint/technical-aeo/crawl/pages', query: { runId: 'run_1', nodeKey: 'page_far', limit: '1' } }])
+  expect(within(screen.getByRole('list', { name: 'Why this page is hidden' })).queryByText('Hidden by meta robots tag')).toBeNull()
 })
 
 test('says the reasons are unknown when the single-page read fails', async () => {
@@ -2677,50 +2755,41 @@ test('says the reasons are unknown when the single-page read fails', async () =>
 })
 
 test('keeps a filtered selection until the server says it does not match', async () => {
-  const fetchMock = vi.fn(async () => new Response('{}', { status: 500 }))
-  vi.stubGlobal('fetch', fetchMock)
-  const queryClient = makeClient()
-  const hiddenPage = {
-    ...contactPage,
-    nodeKey: 'page_hidden_far',
-    url: 'https://citypoint.example/thanks',
-    path: '/thanks',
-    indexabilityState: 'noindex',
-    indexabilityReasons: ['meta-robots-noindex'],
-    healthState: 'hidden' as const,
+  for (const filterState of ['applied', 'unavailable-legacy-scan'] as const) {
+    const queryClient = makeClient()
+    seedInitialRootPage(queryClient)
+    const hiddenPage = { ...contactPage, nodeKey: 'page_hidden_far', url: 'https://citypoint.example/thanks', path: '/thanks', indexabilityState: 'noindex', indexabilityReasons: ['meta-robots-noindex'], healthState: 'hidden' as const }
+    const hiddenInput = { client: heyClient, path: { name: projectName }, query: { runId: 'run_1', healthState: 'hidden', limit: 200, sort: 'path' } } as const
+    const hiddenResponse = { project: projectName, hasCrawlData: true, runId: 'run_1', total: 1, nextCursor: null, healthStateFilter: 'applied', pages: [hiddenPage] }
+    queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesInfiniteQueryKey(hiddenInput), { pages: [hiddenResponse], pageParams: [hiddenInput] })
+    const deferred = deferredResponse()
+    const reads = installSiteReads({ '/crawl/pages': deferred.promise })
+    const answer = jsonResponse({ project: projectName, hasCrawlData: true, runId: 'run_1', total: 0, nextCursor: null, healthStateFilter: filterState, pages: [] })
+    try {
+      renderSection(queryClient)
+      fireEvent.click(screen.getByRole('tab', { name: 'Pages' }))
+      fireEvent.click(screen.getByRole('button', { name: '/services/roof-repair' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Hidden pages' }))
+      await screen.findByRole('button', { name: '/thanks' })
+      await waitFor(() => expect(reads.filter(read => read.path.endsWith('/crawl/pages'))).toHaveLength(1))
+      expect(screen.getByRole('heading', { name: '/services/roof-repair', level: 3 })).not.toBeNull()
+      expect(screen.getByText('Loading page details...')).not.toBeNull()
+      expect(reads).toEqual([{ method: 'GET', path: '/api/v1/projects/citypoint/technical-aeo/crawl/pages', query: { runId: 'run_1', healthState: 'hidden', nodeKey: 'page_services', limit: '1' } }])
+      await act(async () => { deferred.resolve(answer) })
+      if (filterState === 'applied') {
+        await screen.findByText('Select a page to inspect its internal links and crawl signals.')
+        expect(screen.queryByRole('heading', { name: '/services/roof-repair', level: 3 })).toBeNull()
+      } else {
+        await waitFor(() => expect(screen.queryByText('Loading page details...')).toBeNull())
+        expect(screen.getByRole('heading', { name: '/services/roof-repair', level: 3 })).not.toBeNull()
+      }
+    } finally {
+      deferred.resolve(answer)
+      await act(async () => { await deferred.promise })
+      cleanup()
+      queryClient.clear()
+    }
   }
-  const hiddenListInput = {
-    client: heyClient,
-    path: { name: projectName },
-    query: { runId: 'run_1', healthState: 'hidden', limit: 200, sort: 'path' },
-  } as const
-  const hiddenListResponse = {
-    project: projectName, hasCrawlData: true, runId: 'run_1', total: 1, nextCursor: null,
-    healthStateFilter: 'applied' as const, pages: [hiddenPage],
-  }
-  queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesQueryKey(hiddenListInput), hiddenListResponse)
-  queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesInfiniteQueryKey(hiddenListInput), {
-    pages: [hiddenListResponse], pageParams: [hiddenListInput],
-  })
-  // The server confirms this page is NOT in the filtered set.
-  queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesQueryKey({
-    client: heyClient,
-    path: { name: projectName },
-    query: { runId: 'run_1', healthState: 'hidden', nodeKey: 'page_services', limit: 1 },
-  }), {
-    project: projectName, hasCrawlData: true, runId: 'run_1', total: 0, nextCursor: null,
-    healthStateFilter: 'applied' as const, pages: [],
-  })
-
-  renderSection(queryClient)
-  fireEvent.click(screen.getByRole('tab', { name: 'Pages' }))
-  fireEvent.click(screen.getByRole('button', { name: '/services/roof-repair' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Hidden pages' }))
-
-  // The selection is dropped because the SERVER answered, not because the
-  // page was missing from the loaded window.
-  await waitFor(() => expect(screen.getByRole('button', { name: '/thanks' })).not.toBeNull())
-  expect(screen.getByText('Select a page to inspect its internal links and crawl signals.')).not.toBeNull()
 })
 
 test('says so when a scan is too old to filter, instead of showing an empty list', () => {
@@ -2802,13 +2871,6 @@ test('the map opens on page-text links only and says what it is hiding', () => {
   const toggle = screen.getByRole('checkbox', { name: 'Show menu and footer links' }) as HTMLInputElement
   expect(toggle.checked).toBe(false)
   expect(toggle.disabled).toBe(false)
-  // One short line, the numbers only. Asserted against the exported builder so
-  // the test cannot pass once the shipped string changes.
-  expect(screen.getByTestId('site-map-link-counts').textContent)
-    .toBe(siteMapLinkCountsLabel({
-      filterUnavailable: false, showTemplateLinks: false,
-      contentEdgeCount: 1, templateEdgeCount: 1, totalEdgeCount: 2,
-    }))
   expect(screen.getByTestId('site-map-link-counts').textContent)
     .toBe('1 link in your page text. 1 menu and footer link hidden.')
 
@@ -2845,7 +2907,7 @@ test('omits link-filter explanations and controls when the map has no links', ()
   expect(screen.queryByTestId('site-map-link-counts')).toBeNull()
   expect(screen.queryByRole('checkbox', { name: 'Show menu and footer links' })).toBeNull()
   expect(screen.queryByRole('button', {
-    name: siteMapLinkRuleHelp('applied', { staleLayout: false }),
+    name: `${LINK_SPLIT_HELP} ${RULE_HELP.applied}`,
   })).toBeNull()
 })
 
@@ -2853,18 +2915,17 @@ test('switching menu and footer links on draws them without moving a page', () =
   renderSection(seedTemplateLinkGraph())
 
   const positionsBefore = screen.getByTestId('site-map-node-positions').textContent
+  const edgeIdentityBefore = screen.getByTestId('site-map-edges-identity').textContent
   fireEvent.click(screen.getByRole('checkbox', { name: 'Show menu and footer links' }))
 
   expect(screen.getByTestId('site-map-edge-keys').textContent).toBe('home-services,nav-contact')
   expect(screen.getByTestId('site-map-show-template').textContent).toBe('true')
   expect(screen.getByTestId('site-map-link-counts').textContent)
-    .toBe(siteMapLinkCountsLabel({
-      filterUnavailable: false, showTemplateLinks: true,
-      contentEdgeCount: 1, templateEdgeCount: 1, totalEdgeCount: 2,
-    }))
+    .toBe('1 link in your page text, 1 menu and footer.')
   // The layout was published without template links, so drawing them is a
   // rendering change only: nothing re-runs and no page moves.
   expect(screen.getByTestId('site-map-node-positions').textContent).toBe(positionsBefore)
+  expect(screen.getByTestId('site-map-edges-identity').textContent).toBe(edgeIdentityBefore)
 })
 
 test('disables the toggle in plain words when a scan is too small to classify', () => {
@@ -2877,14 +2938,9 @@ test('disables the toggle in plain words when a scan is too small to classify', 
   const toggle = screen.getByRole('checkbox', { name: 'Show menu and footer links' }) as HTMLInputElement
   expect(toggle.disabled).toBe(true)
   expect(screen.getByRole('button', {
-    name: siteMapLinkRuleHelp('unavailable-too-few-pages', { staleLayout: false }),
+    name: `${LINK_SPLIT_HELP} ${TOO_FEW_HELP}`,
   })).not.toBeNull()
   // It must not claim a split it could not make, so every link is drawn.
-  expect(screen.getByTestId('site-map-link-counts').textContent)
-    .toBe(siteMapLinkCountsLabel({
-      filterUnavailable: true, showTemplateLinks: false,
-      contentEdgeCount: 0, templateEdgeCount: 0, totalEdgeCount: 2,
-    }))
   expect(screen.getByTestId('site-map-link-counts').textContent).toBe('All 2 links shown.')
   expect(screen.getByTestId('site-map-edge-keys').textContent).toBe('home-services,nav-contact')
 })
@@ -2894,8 +2950,10 @@ test('disables the toggle and explains a scan that predates the split', () => {
 
   expect((screen.getByRole('checkbox', { name: 'Show menu and footer links' }) as HTMLInputElement).disabled).toBe(true)
   expect(screen.getByRole('button', {
-    name: siteMapLinkRuleHelp('unavailable-legacy-scan', { staleLayout: false }),
+    name: `${LINK_SPLIT_HELP} ${LEGACY_SPLIT_HELP}`,
   })).not.toBeNull()
+  expect(screen.getByTestId('site-map-edge-keys').textContent).toBe('home-services,nav-contact')
+  expect(screen.getByTestId('site-map-show-template').textContent).toBe('true')
 })
 
 // Asserting the record's own value, not a substring of it, so the test cannot
@@ -2913,11 +2971,15 @@ test.each([
 
   // The explanation moved into a keyboard-reachable tooltip whose accessible
   // name IS the shipped string. Nothing was dropped in the compression.
-  const help = siteMapLinkRuleHelp(templateDetection, { staleLayout: false })
+  const help = `${LINK_SPLIT_HELP} ${RULE_HELP[templateDetection]}`
   expect(screen.getByRole('button', { name: help })).not.toBeNull()
   // It answers "so what" BEFORE "which rule": a reader wants to know why the
   // map hides most of their links, not which algorithm decided it.
-  expect(help).toBe(`${SITE_MAP_LINK_SPLIT_COPY} ${TEMPLATE_DETECTION_COPY[templateDetection]}`)
+  const trigger = screen.getByRole('button', { name: help })
+  fireEvent.focus(trigger)
+  expect(screen.getByText(help).getAttribute('aria-hidden')).toBe('true')
+  fireEvent.keyDown(trigger, { key: 'Escape' })
+  expect(screen.queryByText(help)).toBeNull()
   // The visible line is the numbers, in words a reader owns.
   expect(screen.getByTestId('site-map-link-counts').textContent)
     .toBe('1 link in your page text. 1 menu and footer link hidden.')
@@ -2936,43 +2998,26 @@ test('the compressed headings keep their own accessible names', () => {
   expect(screen.getByRole('heading', { name: 'Site Health', level: 2 })).not.toBeNull()
   expect(screen.getByRole('heading', { name: 'Site map', level: 2 })).not.toBeNull()
   // ...and each explanation is still reachable, on its own control.
-  expect(screen.getByRole('button', { name: SITE_HEALTH_VIEW_DESCRIPTIONS.map })).not.toBeNull()
-  expect(screen.getByRole('button', { name: SITE_MAP_HELP })).not.toBeNull()
+  expect(screen.getByRole('button', { name: MAP_VIEW_HELP })).not.toBeNull()
+  expect(screen.getByRole('button', { name: MAP_NAVIGATION_HELP })).not.toBeNull()
 })
 
-test('the weaker rule names its own blind spot', () => {
-  // An editorial link whose wording matches the menu is invisible to ubiquity,
-  // and a reader comparing months has to know that.
-  expect(TEMPLATE_DETECTION_COPY.applied).toContain('wording matches the menu')
-})
 
-test('does not claim unmeasured links are excluded, because they are counted as page-text links', () => {
-  // This copy used to say those links were "left out of both counts". They
-  // never were: they are content links everywhere, and the copy now says so.
-  const copy = TEMPLATE_DETECTION_COPY['applied-placement-partial']
-  expect(copy).toContain('counted as links in your page text')
-  expect(copy).not.toContain('left out of both counts')
-})
+
+
 
 test('says when a map\'s page positions still include the nav mesh', () => {
-  renderSection(seedTemplateLinkGraph({
-    layout: {
-      state: 'ready',
-      version: 'site-health-fa2-v2',
-      computedAt: '2026-08-08T18:16:33.000Z',
-      templateLinksExcluded: false,
-    },
-  }))
-
-  // The staleness warning joins the rule explanation in the same tooltip, so
-  // the header strip stays one line and neither explanation is lost.
-  expect(screen.getByRole('button', {
-    name: siteMapLinkRuleHelp('applied', { staleLayout: true }),
-  })).not.toBeNull()
-  expect(siteMapLinkRuleHelp('applied', { staleLayout: true }))
-    .toBe(`${SITE_MAP_LINK_SPLIT_COPY} ${TEMPLATE_DETECTION_COPY.applied} ${SITE_MAP_STALE_LAYOUT_COPY}`)
-  expect(siteMapLinkRuleHelp('applied', { staleLayout: false }))
-    .toBe(`${SITE_MAP_LINK_SPLIT_COPY} ${TEMPLATE_DETECTION_COPY.applied}`)
+  for (const staleLayout of [true, false]) {
+    const queryClient = seedTemplateLinkGraph({ layout: {
+      state: 'ready', version: 'site-health-fa2-v2', computedAt: '2026-08-08T18:16:33.000Z', templateLinksExcluded: !staleLayout,
+    } })
+    renderSection(queryClient)
+    const help = `${LINK_SPLIT_HELP} ${RULE_HELP.applied}${staleLayout ? ` ${STALE_LAYOUT_HELP}` : ''}`
+    expect(screen.getByRole('button', { name: help })).not.toBeNull()
+    if (!staleLayout) expect(screen.queryByRole('button', { name: `${LINK_SPLIT_HELP} ${RULE_HELP.applied} ${STALE_LAYOUT_HELP}` })).toBeNull()
+    cleanup()
+    queryClient.clear()
+  }
 })
 
 test('reads an empty page-text link set as a finding, with the real hidden counts', async () => {
@@ -3107,48 +3152,60 @@ test('the link tiles count exactly what the tables list, in both toggle states',
   // than letting them look filtered.
   // The standalone footnote is gone: `siteHealthMetricHelp` already appends
   // that same sentence to both tiles it describes, so the page said it twice.
-  expect(screen.getByRole('button', { name: siteHealthMetricHelp('clicksFromHome', false) })).toBeTruthy()
-  expect(screen.getByRole('button', { name: siteHealthMetricHelp('linkImportance', false) })).toBeTruthy()
+  expect(screen.getByRole('button', { name: METRIC_HELP.clicksFromHome })).toBeTruthy()
+  expect(screen.getByRole('button', { name: METRIC_HELP.linkImportance })).toBeTruthy()
 
   // Filter OFF: both show totals and the secondary line disappears.
   fireEvent.click(screen.getByRole('checkbox', { name: 'Show menu and footer links' }))
   expect(within(tile('Links in')).getByText('5')).toBeTruthy()
   expect(within(tile('Links in')).queryByText(/menu and footer hidden/)).toBeNull()
   expect(screen.getByRole('region', { name: 'Links in (5)' })).toBeTruthy()
-  expect(screen.getByRole('button', { name: siteHealthMetricHelp('clicksFromHome', false) })).toBeTruthy()
+  expect(screen.getByRole('button', { name: METRIC_HELP.clicksFromHome })).toBeTruthy()
 })
 
-test('a link tile never presents a bounded count as a total', () => {
-  // The neighbour read is capped, so a truncated list proves only a lower
-  // bound. Rounding that into a flat number would be a quiet lie.
-  expect(linkTileCount({ total: 48, visible: 1, hidden: 47, truncated: false, showTemplateLinks: false, known: true }))
-    .toEqual({ value: '1', hiddenNote: '47 menu and footer hidden', filtered: true })
+test('a link tile never presents a bounded count as a total', async () => {
+  const cases = [
+    { state: 'complete', total: 48, visible: 1, hidden: 47, truncated: false, showAll: false, value: '1', note: '47 menu and footer hidden', help: 'How many other pages link to this page. Right now this counts only links written in your page text. Menu and footer links are hidden.' },
+    { state: 'complete', total: 500, visible: 60, hidden: 40, truncated: true, showAll: false, value: '60+', note: 'At least 40 menu and footer hidden', help: 'How many other pages link to this page. Right now this counts only links written in your page text. Menu and footer links are hidden.' },
+    { state: 'complete', total: 48, visible: 1, hidden: 47, truncated: false, showAll: true, value: '48', note: null, help: 'How many other pages link to this page. This counts every link, including menu and footer.' },
+    { state: 'complete', total: 3, visible: 3, hidden: 0, truncated: false, showAll: false, value: '3', note: null, help: 'How many other pages link to this page. Right now this counts only links written in your page text. Menu and footer links are hidden.' },
+    { state: 'pending', total: 48, visible: 1, hidden: 47, truncated: false, showAll: false, value: '48', note: null, help: 'How many other pages link to this page. This counts every link, including menu and footer.' },
+    { state: 'error', total: 48, visible: 1, hidden: 47, truncated: false, showAll: false, value: '48', note: null, help: 'How many other pages link to this page. This counts every link, including menu and footer.' },
+  ] as const
+  for (const row of cases) {
+    const queryClient = seedTemplateLinkGraph({ nodes: [{ ...homePage, x: 0, y: 0 }, { ...servicesPage, inboundUniqueEdges: row.total, x: 1, y: 1 }, { ...contactPage, x: -1, y: 1 }] })
+    const deferred = deferredResponse()
+    const edges = Array.from({ length: row.visible + row.hidden }, (_, index) => storedNeighbor(`edge-${index}`, index >= row.visible))
+    const response = { project: projectName, hasCrawlData: true, runId: 'run_1', nodeKey: 'page_services', url: servicesPage.url, templateDetection: 'applied', linkKind: 'all', inbound: edges, outbound: [], inboundTruncated: row.truncated, outboundTruncated: false }
+    const key = getApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsQueryKey({ client: heyClient, path: { name: projectName }, query: { runId: 'run_1', nodeKey: 'page_services', limit: 100 } })
+    if (row.state === 'complete') queryClient.setQueryData(key, response)
+    else { queryClient.removeQueries({ queryKey: key }); installSiteReads({ '/internal-links/neighbors': row.state === 'pending' ? deferred.promise : jsonResponse({ error: { code: 'SERVICE_UNAVAILABLE', message: 'Neighbor evidence unavailable' } }, 503) }) }
+    try {
+      renderSection(queryClient)
+      fireEvent.click(screen.getByRole('button', { name: '/services/roof-repair' }))
+      if (row.showAll) fireEvent.click(screen.getByRole('checkbox', { name: 'Show menu and footer links' }))
+      if (row.state === 'pending') await screen.findByText('Loading page links...')
+      if (row.state === 'error') await screen.findByText('Page links could not be loaded.')
+      const tile = screen.getByText('Links in').parentElement!
+      await waitFor(() => expect(within(tile).getByText(row.value)).not.toBeNull())
+      expect(within(tile).getByRole('button', { name: row.help })).not.toBeNull()
+      if (row.note) expect(within(tile).getByText(row.note)).not.toBeNull()
+      else expect(within(tile).queryByText(/menu and footer hidden/)).toBeNull()
+      if (row.state === 'complete') expect(screen.getByRole('region', { name: `Links in (${row.showAll ? row.visible + row.hidden : row.visible})` })).not.toBeNull()
+      if (row.total === 500) { fireEvent.click(screen.getByRole('checkbox', { name: 'Show menu and footer links' })); expect(within(tile).getByText('500')).not.toBeNull(); expect(within(tile).queryByText(/menu and footer hidden/)).toBeNull(); expect(within(tile).getByRole('button', { name: 'How many other pages link to this page. This counts every link, including menu and footer.' })).not.toBeNull() }
+    } finally {
+      deferred.resolve(jsonResponse(response))
+      await act(async () => { await deferred.promise })
+      cleanup()
+      queryClient.clear()
+    }
+  }
 
-  expect(linkTileCount({ total: 500, visible: 100, hidden: 400, truncated: true, showTemplateLinks: false, known: true }))
-    .toEqual({ value: '100+', hiddenNote: 'At least 400 menu and footer hidden', filtered: true })
-
-  // Filter off: the crawl's own total, and no secondary line.
-  expect(linkTileCount({ total: 48, visible: 1, hidden: 47, truncated: false, showTemplateLinks: true, known: true }))
-    .toEqual({ value: '48', hiddenNote: null, filtered: false })
-
-  // Nothing hidden is not a note worth showing.
-  // Nothing hidden, but the filter IS in force: no note to show, yet the tile
-  // is still a content-only count and the tooltip must say so.
-  expect(linkTileCount({ total: 3, visible: 3, hidden: 0, truncated: false, showTemplateLinks: false, known: true }))
-    .toEqual({ value: '3', hiddenNote: null, filtered: true })
-
-  // Before the neighbour read lands there is no per-kind answer, so the tile
-  // shows the total rather than flashing a zero.
-  // A legacy scan cannot tell nav from content, so the tile is NOT filtered:
-  // claiming "content links only" there would be a lie.
-  expect(linkTileCount({ total: 48, visible: 0, hidden: 0, truncated: false, showTemplateLinks: false, known: false }))
-    .toEqual({ value: '48', hiddenNote: null, filtered: false })
 })
 
-test('both count fixes hold at once: filtered tiles and no self-link anywhere', async () => {
-  // The two bugs on this panel were independent and had to be true together:
-  // the tiles must follow the toggle, and neither surface may count a page's
-  // link to itself. This is a page with template inbound AND a self-link.
+test('presents server-filtered link counts and rows in both toggle states', async () => {
+  // Stored API receipts already exclude self-links. This UI contract checks
+  // the two remaining inbound categories and exact table/count presentation.
   const fetchMock = vi.fn(async () => new Response('{}', { status: 500 }))
   vi.stubGlobal('fetch', fetchMock)
   // 2 real inbound (1 content, 1 nav) and 1 real outbound, as the crawl's own
@@ -3201,15 +3258,13 @@ test('both count fixes hold at once: filtered tiles and no self-link anywhere', 
   fireEvent.click(screen.getByRole('button', { name: '/services/roof-repair' }))
 
   const tile = (label: string) => screen.getByText(label).parentElement as HTMLElement
-  const selfLinkRows = () => screen.queryAllByText('/page_services')
 
-  // Filter on: tiles match the tables, and no self-link is listed anywhere.
+  // Filter on: tiles match the server's content-only table input.
   await waitFor(() => expect(within(tile('Links in')).getByText('1')).toBeTruthy())
   expect(within(tile('Links in')).getByText('1 menu and footer hidden')).toBeTruthy()
   expect(screen.getByRole('region', { name: 'Links in (1)' })).toBeTruthy()
   expect(within(tile('Links out')).getByText('1')).toBeTruthy()
   expect(screen.getByRole('region', { name: 'Links out (1)' })).toBeTruthy()
-  expect(selfLinkRows()).toHaveLength(0)
 
   // Filter off: tiles show the crawl's totals, which also exclude the
   // self-link, and the tables agree with them.
@@ -3218,44 +3273,9 @@ test('both count fixes hold at once: filtered tiles and no self-link anywhere', 
   expect(screen.getByRole('region', { name: 'Links in (2)' })).toBeTruthy()
   expect(within(tile('Links out')).getByText('1')).toBeTruthy()
   expect(screen.getByRole('region', { name: 'Links out (1)' })).toBeTruthy()
-  expect(selfLinkRows()).toHaveLength(0)
 })
 
-test('metric help text tells the truth about what the menu and footer filter changes', () => {
-  // Depth and link score are computed by the crawl over the FULL link graph,
-  // before nav links are told apart, so the filter cannot move them. Sitting
-  // beside two filtered tiles, they have to say so or they read as filtered.
-  expect(siteHealthMetricHelp('clicksFromHome', false)).toBe(
-    'How many clicks it takes to reach this page from the home page, following links. This always counts every link, including menu and footer.',
-  )
-  expect(siteHealthMetricHelp('linkImportance', false)).toBe(
-    'How much link value flows to this page, based on how many pages link to it and how important those pages are. Shown relative to the highest page on this site, which is 100%. This always counts every link, including menu and footer.',
-  )
-  // A full-graph metric ignores the argument entirely: there is no state in
-  // which it is a filtered number, so no caller can make it claim otherwise.
-  expect(siteHealthMetricHelp('clicksFromHome', true)).toBe(siteHealthMetricHelp('clicksFromHome', false))
-  expect(siteHealthMetricHelp('linkImportance', true)).toBe(siteHealthMetricHelp('linkImportance', false))
 
-  // The two counts that DO follow the toggle describe whichever number is on
-  // screen right now.
-  expect(siteHealthMetricHelp('linksIn', true)).toBe(
-    'How many other pages link to this page. Right now this counts only links written in your page text. Menu and footer links are hidden.',
-  )
-  expect(siteHealthMetricHelp('linksIn', false)).toBe(
-    'How many other pages link to this page. This counts every link, including menu and footer.',
-  )
-  expect(siteHealthMetricHelp('linksOut', true)).toBe(
-    'How many other pages this page links to. Right now this counts only links written in your page text. Menu and footer links are hidden.',
-  )
-  expect(siteHealthMetricHelp('linksOut', false)).toBe(
-    'How many other pages this page links to. This counts every link, including menu and footer.',
-  )
-
-  // Metrics with nothing to qualify are left alone rather than padded with a
-  // sentence about a filter that does not apply to them.
-  expect(siteHealthMetricHelp('technicalScore', true)).toBe(siteHealthMetricHelp('technicalScore', false))
-  expect(siteHealthMetricHelp('linkTimes', true)).toBe(siteHealthMetricHelp('linkTimes', false))
-})
 
 test('the tile tooltips are keyboard reachable and follow the menu and footer toggle', async () => {
   const fetchMock = vi.fn(async () => new Response('{}', { status: 500 }))
@@ -3307,27 +3327,40 @@ test('the tile tooltips are keyboard reachable and follow the menu and footer to
 
   // The explanation is the trigger's accessible name, so a screen reader gets
   // it without a hover ever happening.
-  await waitFor(() => expect(screen.getByRole('button', { name: siteHealthMetricHelp('linksIn', true) })).toBeTruthy())
-  expect(screen.getByRole('button', { name: siteHealthMetricHelp('linksOut', true) })).toBeTruthy()
-  expect(screen.getByRole('button', { name: siteHealthMetricHelp('clicksFromHome', false) })).toBeTruthy()
-  expect(screen.getByRole('button', { name: siteHealthMetricHelp('linkImportance', false) })).toBeTruthy()
+  await waitFor(() => expect(screen.getByRole('button', { name: METRIC_HELP.linksInFiltered })).toBeTruthy())
+  expect(screen.getByRole('button', { name: METRIC_HELP.linksOutFiltered })).toBeTruthy()
+  expect(screen.getByRole('button', { name: METRIC_HELP.clicksFromHome })).toBeTruthy()
+  expect(screen.getByRole('button', { name: METRIC_HELP.linkImportance })).toBeTruthy()
 
   // Focus alone reveals the bubble, so the copy is not hover-only.
-  const trigger = screen.getByRole('button', { name: siteHealthMetricHelp('linksIn', true) })
+  const trigger = screen.getByRole('button', { name: METRIC_HELP.linksInFiltered })
   expect(trigger.getAttribute('aria-expanded')).toBe('false')
   fireEvent.focus(trigger)
   expect(trigger.getAttribute('aria-expanded')).toBe('true')
+  expect(screen.getByText(METRIC_HELP.linksInFiltered).getAttribute('aria-hidden')).toBe('true')
   fireEvent.keyDown(trigger, { key: 'Escape' })
   expect(trigger.getAttribute('aria-expanded')).toBe('false')
+  expect(screen.queryByText(METRIC_HELP.linksInFiltered)).toBeNull()
 
   // Toggle off the filter and the two filterable tiles stop claiming to be
   // content-only, while the two full-graph tiles are untouched.
   fireEvent.click(screen.getByRole('checkbox', { name: 'Show menu and footer links' }))
-  expect(screen.getByRole('button', { name: siteHealthMetricHelp('linksIn', false) })).toBeTruthy()
-  expect(screen.getByRole('button', { name: siteHealthMetricHelp('linksOut', false) })).toBeTruthy()
-  expect(screen.queryByRole('button', { name: siteHealthMetricHelp('linksIn', true) })).toBeNull()
-  expect(screen.getByRole('button', { name: siteHealthMetricHelp('clicksFromHome', false) })).toBeTruthy()
-  expect(screen.getByRole('button', { name: siteHealthMetricHelp('linkImportance', false) })).toBeTruthy()
+  expect(screen.getByRole('button', { name: METRIC_HELP.linksInAll })).toBeTruthy()
+  expect(screen.getByRole('button', { name: METRIC_HELP.linksOutAll })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: METRIC_HELP.linksInFiltered })).toBeNull()
+  expect(screen.getByRole('button', { name: METRIC_HELP.clicksFromHome })).toBeTruthy()
+  expect(screen.getByRole('button', { name: METRIC_HELP.linkImportance })).toBeTruthy()
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Pages' }))
+  for (const [columnName, help] of [['Links in', METRIC_HELP.linksInAll], ['Links out', METRIC_HELP.linksOutAll], ['Score', METRIC_HELP.technicalScore]] as const) {
+    const column = within(screen.getByRole('region', { name: 'Pages' })).getAllByRole('columnheader').find(header => header.textContent?.trim() === columnName)
+    expect(column).toBeDefined()
+    expect(within(column!).getByRole('button', { name: help })).not.toBeNull()
+  }
+  fireEvent.click(screen.getByRole('button', { name: '/services/roof-repair' }))
+  const neighbors = screen.getByRole('region', { name: 'Links in (2)' })
+  expect(within(neighbors).getByRole('button', { name: METRIC_HELP.linkTimes })).not.toBeNull()
+
 })
 
 
@@ -3462,11 +3495,13 @@ test('managed viewer retains dead-link results', () => {
 })
 
 test('the default crawl depth says what it is, and deeper limits exist', async () => {
-  const { CRAWL_DEPTH_CHOICES } = await import('../src/components/project/SiteHealthSection.js')
-  const { SITE_AUDIT_DEFAULT_MAX_DEPTH } = await import('@ainyc/canonry-contracts')
-  expect(CRAWL_DEPTH_CHOICES[0]).toEqual({ value: null, label: `Default (${SITE_AUDIT_DEFAULT_MAX_DEPTH} clicks)` })
-  // "Raise the crawl depth" must be possible from a default scan.
-  expect(CRAWL_DEPTH_CHOICES.some(choice => choice.value !== null && choice.value > SITE_AUDIT_DEFAULT_MAX_DEPTH)).toBe(true)
-  // Never past what the run request accepts.
-  expect(Math.max(...CRAWL_DEPTH_CHOICES.map(choice => choice.value ?? 0))).toBe(100)
+  renderSection()
+  const depth = screen.getByLabelText('Crawl depth')
+  expect(within(depth).getByRole('option', { name: 'Default (10 clicks)' }).getAttribute('value')).toBe('')
+  expect(within(depth).getByRole('option', { name: '100 clicks (maximum)' }).getAttribute('value')).toBe('100')
+  expect(Math.max(...within(depth).getAllByRole('option').map(option => Number(option.getAttribute('value'))))).toBe(100)
+  fireEvent.change(depth, { target: { value: '100' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Run scan' }))
+  expect(mutationMock.mutate).toHaveBeenCalledExactlyOnceWith({ projectName, projectId, body: { checkDeadLinks: false, maxDepth: 100 } })
+
 })

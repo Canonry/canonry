@@ -65,13 +65,16 @@ function provider(citationRate: number, mentionRate: number) {
   return { citationRate, cited: 1, total: 4, mentionRate, mentionedCount: 2 }
 }
 
-function bucket(over: Record<string, unknown>) {
+type FixtureBucket = Parameters<typeof formatBucketDateLabel>[0]
+
+function bucket(over: Partial<FixtureBucket>): FixtureBucket {
   return {
     startDate: '2026-05-15T00:00:00.000Z',
     endDate: '2026-05-29T00:00:00.000Z',
     dataStartDate: '2026-05-15T19:38:00.000Z',
     dataEndDate: '2026-05-15T19:38:00.000Z',
     sweepCount: 1,
+    basketRevision: null,
     citationRate: 0.25, cited: 1, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
     mentionShare: { scope: 'non-brand', rate: 0.25, projectMentionSnapshots: 1, competitorMentionSnapshots: 3 },
     byProvider: { gemini: provider(0.25, 0.5) },

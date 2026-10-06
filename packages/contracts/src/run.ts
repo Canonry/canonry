@@ -462,8 +462,18 @@ export const snapshotDiffResponseSchema = z.object({
 
 export type SnapshotDiffResponse = z.infer<typeof snapshotDiffResponseSchema>
 
+/** Distinct observed query IDs, with independent ANY-answer citation and mention signals. */
+export const observedQueryCountsSchema = z.object({
+  totalQueries: z.number().int().nonnegative(),
+  citedQueries: z.number().int().nonnegative(),
+  mentionedQueries: z.number().int().nonnegative(),
+})
+export type ObservedQueryCounts = z.infer<typeof observedQueryCountsSchema>
+
 export const runDetailDtoSchema = runDtoSchema.extend({
   snapshots: z.array(querySnapshotDtoSchema).optional(),
+  /** Observed queries in this exact run. Null when a snapshot lacks query identity; omitted by older servers. */
+  queryCounts: observedQueryCountsSchema.nullable().optional(),
   /** The run's provider batches, oldest first. Empty when nothing was batched. */
   providerBatches: z.array(providerBatchSummaryDtoSchema).optional(),
   /** Usage and estimated cost per provider and price tier. Empty when no answer carries usage. */

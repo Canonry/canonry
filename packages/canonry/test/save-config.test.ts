@@ -216,22 +216,22 @@ test('loadConfigRaw returns null when no config file exists', () => {
 })
 
 test('loadConfig defaults legacy Cloudflare credentials to direct-push', () => {
-  const initial = baseConfig() as CanonryConfig & {
-    cloudflareTraffic: { connections: Array<Record<string, unknown>> }
-  }
-  initial.cloudflareTraffic = {
-    connections: [{
-      projectName: 'demo',
-      sourceId: 'src_legacy',
-      bearerToken: 'bearer',
-      hmacSecret: 'hmac',
-      workerVersion: '1.0.0',
-      expectedBotListVersion: '2026-05-27',
-      zoneId: null,
-      accountId: null,
-      createdAt: '2026-05-27T00:00:00Z',
-      updatedAt: '2026-05-27T00:00:00Z',
-    }],
+  const initial = {
+    ...baseConfig(),
+    cloudflareTraffic: {
+      connections: [{
+        projectName: 'demo',
+        sourceId: 'src_legacy',
+        bearerToken: 'bearer',
+        hmacSecret: 'hmac',
+        workerVersion: '1.0.0',
+        expectedBotListVersion: '2026-05-27',
+        zoneId: null,
+        accountId: null,
+        createdAt: '2026-05-27T00:00:00Z',
+        updatedAt: '2026-05-27T00:00:00Z',
+      }],
+    },
   }
   fs.writeFileSync(getConfigPath(), stringify(initial), 'utf-8')
 

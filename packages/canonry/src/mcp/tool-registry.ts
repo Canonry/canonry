@@ -4266,9 +4266,6 @@ export const canonryMcpTools = [
   }),
 ] as const
 
-export const CANONRY_MCP_TOOL_COUNT = canonryMcpTools.length
-export const CANONRY_MCP_READ_TOOL_COUNT = canonryMcpTools.filter(tool => tool.access === 'read').length
-export const CANONRY_MCP_CORE_TOOL_COUNT = canonryMcpTools.filter(tool => tool.tier === 'core').length
 export type CanonryMcpRegistryTool = typeof canonryMcpTools[number]
 export type CanonryMcpToolName = CanonryMcpRegistryTool['name']
 export const CanonryMcpToolNames = Object.freeze(

@@ -38,16 +38,15 @@ describe('classifySkillFile', () => {
 
   it('exposes the reserved manifest filename as a dotfile', () => {
     expect(SKILL_MANIFEST_FILENAME).toBe('.canonry-skill-manifest.json')
-    expect(SKILL_MANIFEST_FILENAME.startsWith('.')).toBe(true)
   })
 })
 
 describe('coerceSkillManifest', () => {
-  it('returns a well-formed manifest unchanged (same reference)', () => {
+  it('preserves a well-formed manifest and accepts an empty file map', () => {
     const manifest = { skill: 'aero', version: '1.2.3', files: { 'SKILL.md': 'abc' } }
-    expect(coerceSkillManifest(manifest)).toBe(manifest)
+    expect(coerceSkillManifest(manifest)).toEqual({ skill: 'aero', version: '1.2.3', files: { 'SKILL.md': 'abc' } })
     // An empty files map is still a valid manifest.
-    expect(coerceSkillManifest({ skill: 'aero', version: '1', files: {} })).not.toBeNull()
+    expect(coerceSkillManifest({ skill: 'aero', version: '1', files: {} })).toEqual({ skill: 'aero', version: '1', files: {} })
   })
 
   it('returns null for anything without a files object', () => {

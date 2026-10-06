@@ -2208,6 +2208,8 @@ export const postApiV1Runs = <ThrowOnError extends boolean = false>(options?: Op
 
 /**
  * Get a run and its snapshots
+ *
+ * Includes independent citation and mention counts over distinct observed query IDs in this exact run. queryCounts is null when any snapshot lacks query identity; these counts are not planned-slot completeness.
  */
 export const getApiV1RunsById = <ThrowOnError extends boolean = false>(options: Options<GetApiV1RunsByIdData, ThrowOnError>) => {
     return (options.client ?? client).get<GetApiV1RunsByIdResponses, GetApiV1RunsByIdErrors, ThrowOnError>({

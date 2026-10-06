@@ -14,7 +14,6 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/keys.ts` | API key management routes: `/keys` list, self, mint, revoke |
 | `src/request-context.ts` / `src/runtime-logger.ts` / `src/operational-logs.ts` | Request-local actor context; shared redacting logger; `GET /operations/logs` reader |
 | `src/openapi.ts` | OpenAPI spec generation, the source of the generated SDK (see "Typed responses") |
-| `src/db-derived-dtos.ts` | `drizzle-zod` row schemas for the migrated tables (see "Derived row schemas") |
 | `src/projects.ts` / `src/runs.ts` | Project CRUD routes (largest route file); run trigger, status, and list routes |
 | `src/query-replace.ts` | `replaceProjectQueries`, the declarative tracked-query replace (see "Declarative query replacement") |
 | `src/competitor-writes.ts` | The one path that adds competitors or changes their curated aliases: `planCompetitorSet` / `syncCompetitorSet` (see "Competitor aliases") |
@@ -50,6 +49,11 @@ and the all-locations transaction. Unrelated run kinds may overlap. A location
 fan-out remains one atomic admission; a second visibility sweep is refused until
 all its active siblings finish. `RUN_IN_PROGRESS` includes the kind and blocking
 run ID. Keep existing per-kind deduplication and shared provider limits.
+
+Fill expiry belongs to native HTTP completeness/admission tests for both
+portfolio kinds. Control the real Date clock, including the exact 24-hour edge,
+batch finish-time anchor and fallback; do not add a test-only now parameter.
+Queue timestamps and real batch-gap fills must use that same clock.
 
 ### Batch dispatch (queue time)
 
@@ -240,28 +244,6 @@ Every read-time competitor mention matcher builds identity from `competitorBrand
   them into explicit aliases. Preserve curated names and existing identities.
 
 - Pooled share of voice (`visibility-stats --share-of-voice`) is project brand mentions / (project + tracked-competitor mentions), non-brand by default (root `AGENTS.md` → "Branded vs non-brand").
-
-### Derived row schemas (drizzle-zod)
-
-`src/db-derived-dtos.ts` exports `*RowSchema` Zod validators generated from the Drizzle table definitions via `drizzle-zod`'s `createSelectSchema()`. Per-column refinements narrow:
-- JSON columns whose `$type<>` is a TypeScript-only hint (drizzle-zod can't introspect those — it produces a loose `ZodUnion` fallback; the refinement supplies the actual schema)
-- text columns whose values are an enum at the API layer (`configSource`, `runKind`, `runStatus`, etc.)
-
-Use them when you want runtime validation of a row at the DB → DTO seam:
-
-```typescript
-import { projectRowSchema } from './db-derived-dtos.js'
-
-// .parse(row) verifies the row matches the schema. Throws if the column
-// types drifted (e.g. configSource got a value not in the enum).
-const validated = projectRowSchema.parse(row)
-```
-
-Constraints:
-- The hand-rolled DTO schemas in `@ainyc/canonry-contracts` remain the OpenAPI / SDK source. Derived schemas are an internal validator, not a public type — they live in `api-routes` because `contracts` can't import from `db` (db already imports types from contracts for `$type<>`, so the reverse would cycle).
-- `db-derived-dtos.test.ts` asserts each derived schema's field set equals the table's column set, plus round-trip parse tests on representative rows. Adding a new column to a covered table fails the field-set test until the refinements + DTO are updated.
-- Only the migrated tables have derived schemas today (projects, runs, schedules, notifications). Add more by importing the table, listing refinements for any column whose Zod type the SQL type alone can't express, and extending the test's `ENTRIES` table.
-- `src/db-derived-dtos.ts` exports `projectRowSchema`, `runRowSchema`, `scheduleRowSchema`, and `notificationRowSchema` for the migrated tables. Per-column refinements narrow JSON columns and enum text columns to the typed Zod shapes the DB writes. Use them for runtime validation of rows read from these tables; the hand-rolled DTOs in `@ainyc/canonry-contracts` remain the SDK source.
 
 ### Deployment posture and key authority (Critical)
 

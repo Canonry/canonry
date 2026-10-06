@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, onTestFinished } from 'vitest'
+import { eq } from 'drizzle-orm'
 import { createClient, migrate, projects, runs, queries, competitors, querySnapshots, insights, healthSnapshots } from '@ainyc/canonry-db'
 import { IntelligenceService } from '../src/intelligence-service.js'
 
@@ -25,7 +26,7 @@ function seedProject(db: ReturnType<typeof createClient>) {
     canonicalDomain: 'example.com',
     country: 'US',
     language: 'en',
-    providers: '["gemini"]',
+    providers: ['gemini'],
     createdAt: now,
     updatedAt: now,
   }).run()
@@ -92,68 +93,47 @@ function seedSnapshot(
 
 describe('IntelligenceService', () => {
   describe('analyzeAndPersist', () => {
-    it('persists insights and health snapshot for a completed run', () => {
-      const { db } = createTempDb('intel-test-')
-      const projectId = seedProject(db)
-      const queryId = seedQuery(db, projectId, 'roof repair')
-      const runId = seedRun(db, projectId, 'completed')
-      seedSnapshot(db, runId, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
-
-      const service = new IntelligenceService(db)
-      const result = service.analyzeAndPersist(runId, projectId)
-
-      expect(result).not.toBeNull()
-      expect(result!.health.totalPairs).toBe(1)
-      expect(result!.health.citedPairs).toBe(1)
-
-      // Verify DB persistence
-      const savedInsights = db.select().from(insights).all()
-      const savedHealth = db.select().from(healthSnapshots).all()
-      expect(savedHealth).toHaveLength(1)
-      expect(savedHealth[0]!.runId).toBe(runId)
-      expect(savedHealth[0]!.totalPairs).toBe(1)
-      // Insights may or may not be generated depending on analysis (first run = opportunities)
-      for (const insight of savedInsights) {
-        expect(insight.runId).toBe(runId)
-        expect(insight.projectId).toBe(projectId)
-      }
-    })
-
     it('threads answerMentioned from query_snapshots → computeHealth → persisted mention columns', () => {
       const { db } = createTempDb('intel-mention-')
       const projectId = seedProject(db)
       const q1 = seedQuery(db, projectId, 'roof repair')
       const q2 = seedQuery(db, projectId, 'metal roofing')
       const q3 = seedQuery(db, projectId, 'roof coating')
+      const q4 = seedQuery(db, projectId, 'flat roofing')
       const runId = seedRun(db, projectId, 'completed')
-      // 3 pairs. Mentioned set is DIFFERENT from cited set, proving the two
-      // signals are independent end-to-end:
-      //   cited   : q1, q2           → 2/3
-      //   mention : q1, q3           → 2/3 (but different queries)
-      seedSnapshot(db, runId, q1, 'gemini', 'cited',     { citedDomains: ['example.com'], answerMentioned: true })
-      seedSnapshot(db, runId, q2, 'gemini', 'cited',     { citedDomains: ['example.com'], answerMentioned: false })
+      // Gemini: cited 3/4, mentioned 2/4. OpenAI: cited 0/2, mentioned 2/2.
+      // The unequal numerators make borrowing either signal observable.
+      seedSnapshot(db, runId, q1, 'gemini', 'cited', { citedDomains: ['example.com'], answerMentioned: true })
+      seedSnapshot(db, runId, q2, 'gemini', 'cited', { citedDomains: ['example.com'], answerMentioned: false })
       seedSnapshot(db, runId, q3, 'gemini', 'not-cited', { answerMentioned: true })
+      seedSnapshot(db, runId, q4, 'gemini', 'cited', { citedDomains: ['example.com'], answerMentioned: false })
+      seedSnapshot(db, runId, q1, 'openai', 'not-cited', { answerMentioned: true })
+      seedSnapshot(db, runId, q2, 'openai', 'not-cited', { answerMentioned: true })
 
-      const service = new IntelligenceService(db)
-      const result = service.analyzeAndPersist(runId, projectId)
-
+      const result = new IntelligenceService(db).analyzeAndPersist(runId, projectId)
       expect(result).not.toBeNull()
-      // In-memory health carries the mention math.
-      expect(result!.health.totalPairs).toBe(3)
-      expect(result!.health.citedPairs).toBe(2)
-      expect(result!.health.mentionedPairs).toBe(2)
-      expect(result!.health.overallMentionRate).toBeCloseTo(2 / 3, 5)
-      expect(result!.health.providerBreakdown.gemini.mentioned).toBe(2)
-      expect(result!.health.providerBreakdown.gemini.mentionRate).toBeCloseTo(2 / 3, 5)
-
-      // Round-trip: the persisted health_snapshots row carries the new columns.
-      const saved = db.select().from(healthSnapshots).all()
-      expect(saved).toHaveLength(1)
-      expect(saved[0]!.mentionedPairs).toBe(2)
-      expect(Number(saved[0]!.overallMentionRate)).toBeCloseTo(2 / 3, 5)
-      const providerBreakdown = saved[0]!.providerBreakdown as Record<string, { mentionRate: number; mentioned: number; total: number }>
-      expect(providerBreakdown.gemini.mentioned).toBe(2)
-      expect(providerBreakdown.gemini.total).toBe(3)
+      expect(result!.health).toEqual({
+        overallCitedRate: 0.5, overallMentionRate: 2 / 3,
+        totalPairs: 6, citedPairs: 3, mentionedPairs: 4,
+        providerBreakdown: {
+          gemini: { citedRate: 0.75, mentionRate: 0.5, cited: 3, mentioned: 2, total: 4 },
+          openai: { citedRate: 0, mentionRate: 1, cited: 0, mentioned: 2, total: 2 },
+        },
+      })
+      expect(db.select({
+        projectId: healthSnapshots.projectId, runId: healthSnapshots.runId,
+        totalPairs: healthSnapshots.totalPairs, citedPairs: healthSnapshots.citedPairs,
+        mentionedPairs: healthSnapshots.mentionedPairs,
+        citedRate: healthSnapshots.overallCitedRate, mentionRate: healthSnapshots.overallMentionRate,
+        providerBreakdown: healthSnapshots.providerBreakdown,
+      }).from(healthSnapshots).all()).toEqual([{
+        projectId, runId, totalPairs: 6, citedPairs: 3, mentionedPairs: 4,
+        citedRate: '0.5', mentionRate: '0.6666666666666666',
+        providerBreakdown: {
+          gemini: { citedRate: 0.75, mentionRate: 0.5, cited: 3, mentioned: 2, total: 4 },
+          openai: { citedRate: 0, mentionRate: 1, cited: 0, mentioned: 2, total: 2 },
+        },
+      }])
     })
 
     it('never counts a null answerMentioned (legacy snapshot) as mentioned', () => {
@@ -231,33 +211,43 @@ describe('IntelligenceService', () => {
       expect(service.analyzeAndPersist(eligible, projectId)).not.toBeNull()
     })
 
-    it('is idempotent — reprocessing preserves dismissed state', async () => {
+    it('is idempotent — reprocessing preserves dismissed and active states', () => {
       const { db } = createTempDb('intel-idempotent-')
       const projectId = seedProject(db)
       const queryId = seedQuery(db, projectId, 'best roofing')
+      const activeQueryId = seedQuery(db, projectId, 'roof repair')
       const run1 = seedRun(db, projectId, 'completed', '2024-01-01T00:00:00Z')
       seedSnapshot(db, run1, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+      seedSnapshot(db, run1, activeQueryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
       const run2 = seedRun(db, projectId, 'completed', '2024-02-01T00:00:00Z')
       seedSnapshot(db, run2, queryId, 'gemini', 'not-cited')
+      seedSnapshot(db, run2, activeQueryId, 'gemini', 'not-cited')
 
       const service = new IntelligenceService(db)
       service.analyzeAndPersist(run2, projectId)
 
-      // Dismiss an insight
-      const insightRows = db.select().from(insights).all()
-      if (insightRows.length > 0) {
-        const { eq } = await import('drizzle-orm')
-        db.update(insights).set({ dismissed: true }).where(eq(insights.id, insightRows[0]!.id)).run()
+      const readStates = () => db.select({
+        projectId: insights.projectId,
+        runId: insights.runId,
+        query: insights.query,
+        provider: insights.provider,
+        type: insights.type,
+        dismissed: insights.dismissed,
+      }).from(insights).orderBy(insights.query).all()
+      const regression = { projectId, runId: run2, provider: 'gemini', type: 'regression' }
+      expect(readStates()).toEqual([
+        { ...regression, query: 'best roofing', dismissed: false },
+        { ...regression, query: 'roof repair', dismissed: false },
+      ])
 
-        // Reprocess — dismissed state should be preserved
-        service.analyzeAndPersist(run2, projectId)
+      db.update(insights).set({ dismissed: true }).where(eq(insights.query, 'best roofing')).run()
+      service.analyzeAndPersist(run2, projectId)
 
-        const afterReprocess = db.select().from(insights).all()
-        const matchingInsight = afterReprocess.find(
-          i => i.query === insightRows[0]!.query && i.provider === insightRows[0]!.provider && i.type === insightRows[0]!.type,
-        )
-        expect(matchingInsight?.dismissed).toBe(true)
-      }
+      expect(readStates()).toEqual([
+        { ...regression, query: 'best roofing', dismissed: true },
+        { ...regression, query: 'roof repair', dismissed: false },
+      ])
+      expect(db.select().from(healthSnapshots).all()).toHaveLength(1)
     })
 
     it('does not produce false gain insights on first run', () => {
@@ -274,32 +264,18 @@ describe('IntelligenceService', () => {
       // Health snapshot should be persisted
       const savedHealth = db.select().from(healthSnapshots).all()
       expect(savedHealth).toHaveLength(1)
-      expect(savedHealth[0]!.totalPairs).toBe(1)
-      expect(savedHealth[0]!.citedPairs).toBe(1)
+      expect(result!.health).toEqual({
+        overallCitedRate: 1, overallMentionRate: 0, totalPairs: 1, citedPairs: 1, mentionedPairs: 0,
+        providerBreakdown: { gemini: { citedRate: 1, mentionRate: 0, cited: 1, mentioned: 0, total: 1 } },
+      })
+      expect(savedHealth[0]).toMatchObject({
+        projectId, runId, totalPairs: 1, citedPairs: 1, mentionedPairs: 0,
+        overallCitedRate: '1', overallMentionRate: '0',
+        providerBreakdown: { gemini: { citedRate: 1, mentionRate: 0, cited: 1, mentioned: 0, total: 1 } },
+      })
       // No transition insights on first run — there is no baseline to compare against
       const savedInsights = db.select().from(insights).all()
       expect(savedInsights).toHaveLength(0)
-    })
-
-    it('detects regressions between two runs', () => {
-      const { db } = createTempDb('intel-regression-')
-      const projectId = seedProject(db)
-      const queryId = seedQuery(db, projectId, 'roof repair phoenix')
-
-      // Run 1: cited
-      const run1 = seedRun(db, projectId, 'completed', '2024-01-01T00:00:00Z')
-      seedSnapshot(db, run1, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
-
-      // Run 2: not cited
-      const run2 = seedRun(db, projectId, 'completed', '2024-02-01T00:00:00Z')
-      seedSnapshot(db, run2, queryId, 'gemini', 'not-cited')
-
-      const service = new IntelligenceService(db)
-      const result = service.analyzeAndPersist(run2, projectId)
-
-      expect(result).not.toBeNull()
-      expect(result!.regressions.length).toBeGreaterThan(0)
-      expect(result!.regressions[0]!.query).toBe('roof repair phoenix')
     })
 
     it('labels a regression with the project domain, not a co-cited competitor', () => {
@@ -322,7 +298,10 @@ describe('IntelligenceService', () => {
       const service = new IntelligenceService(db)
       const result = service.analyzeAndPersist(run2, projectId)
 
-      expect(result!.regressions).toHaveLength(1)
+      expect(result!.regressions).toEqual([{
+        query: 'roof repair phoenix', provider: 'gemini', currentRunId: run2, previousRunId: run1,
+        previousCitationUrl: 'example.com', previousPosition: undefined,
+      }])
       // The regression is real (project lost its own citation), and its target
       // must be the project's page — never the co-cited competitor.
       expect(result!.regressions[0]!.previousCitationUrl).toBe('example.com')
@@ -330,6 +309,9 @@ describe('IntelligenceService', () => {
       const regressionInsight = db.select().from(insights).all()
         .find(i => i.type === 'regression')
       expect(regressionInsight?.recommendation?.target).toBe('example.com')
+      expect(regressionInsight).toMatchObject({
+        projectId, runId: run2, query: 'roof repair phoenix', provider: 'gemini', type: 'regression',
+      })
     })
 
     it('labels a gain with the project domain, not a co-cited competitor', () => {
@@ -433,19 +415,46 @@ describe('IntelligenceService', () => {
       const result = service.analyzeAndPersist(run3, projectId)
 
       expect(result).not.toBeNull()
-      expect(result!.firstCitations.map(f => f.query)).toContain('k1')
-      expect(result!.providerPickups.map(p => `${p.query}:${p.provider}`)).toContain('k2:openai')
-      expect(result!.persistentGaps.map(g => g.query)).toContain('k3')
-      expect(result!.competitorGains.map(c => `${c.query}:${c.competitorDomain}`)).toContain('k4:rival.com')
-      expect(result!.competitorLosses.map(c => `${c.query}:${c.competitorDomain}`)).toContain('k5:rival.com')
+      expect(result!.regressions).toEqual([])
+      expect(result!.gains.map(({ query, provider, runId, citationUrl }) => ({ query, provider, runId, citationUrl })).sort((left, right) => left.query.localeCompare(right.query) || left.provider.localeCompare(right.provider))).toEqual([
+        { query: 'k1', provider: 'gemini', runId: run3, citationUrl: 'example.com' },
+        { query: 'k2', provider: 'openai', runId: run3, citationUrl: 'example.com' },
+      ])
+      expect(result!.firstCitations.map(({ query, provider, runId, citationUrl }) => ({ query, provider, runId, citationUrl }))).toEqual([
+        { query: 'k1', provider: 'gemini', runId: run3, citationUrl: 'example.com' },
+      ])
+      expect(result!.providerPickups.map(({ query, provider, runId, citationUrl }) => ({ query, provider, runId, citationUrl }))).toEqual([
+        { query: 'k2', provider: 'openai', runId: run3, citationUrl: 'example.com' },
+      ])
+      expect([...result!.persistentGaps].sort((left, right) => left.query.localeCompare(right.query))).toEqual([
+        { query: 'k3', streak: 3, threshold: 3 },
+        { query: 'k4', streak: 3, threshold: 3 },
+        { query: 'k5', streak: 3, threshold: 3 },
+      ])
+      expect(result!.competitorGains).toEqual([{ query: 'k4', competitorDomain: 'rival.com' }])
+      expect(result!.competitorLosses).toEqual([{ query: 'k5', competitorDomain: 'rival.com' }])
 
-      // All signals should land in the DB
-      const savedTypes = new Set(db.select({ type: insights.type }).from(insights).all().map(r => r.type))
-      expect(savedTypes.has('first-citation')).toBe(true)
-      expect(savedTypes.has('provider-pickup')).toBe(true)
-      expect(savedTypes.has('persistent-gap')).toBe(true)
-      expect(savedTypes.has('competitor-gained')).toBe(true)
-      expect(savedTypes.has('competitor-lost')).toBe(true)
+      expect(db.select({
+        projectId: insights.projectId, runId: insights.runId,
+        type: insights.type, query: insights.query, provider: insights.provider,
+        severity: insights.severity, cause: insights.cause,
+      }).from(insights).orderBy(insights.type, insights.query, insights.provider).all().map(row => ({
+        ...row, cause: row.cause ? { cause: row.cause.cause, competitorDomain: row.cause.competitorDomain } : null,
+      }))).toEqual([
+        { projectId, runId: run3, type: 'competitor-gained', query: 'k4', provider: 'all', severity: 'medium', cause: {
+          cause: 'competitor_gain', competitorDomain: 'rival.com',
+        } },
+        { projectId, runId: run3, type: 'competitor-lost', query: 'k5', provider: 'all', severity: 'low', cause: {
+          cause: 'competitor_loss', competitorDomain: 'rival.com',
+        } },
+        { projectId, runId: run3, type: 'first-citation', query: 'k1', provider: 'gemini', severity: 'medium', cause: null },
+        { projectId, runId: run3, type: 'gain', query: 'k1', provider: 'gemini', severity: 'low', cause: null },
+        { projectId, runId: run3, type: 'gain', query: 'k2', provider: 'openai', severity: 'low', cause: null },
+        { projectId, runId: run3, type: 'persistent-gap', query: 'k3', provider: 'all', severity: 'medium', cause: null },
+        { projectId, runId: run3, type: 'persistent-gap', query: 'k4', provider: 'all', severity: 'medium', cause: null },
+        { projectId, runId: run3, type: 'persistent-gap', query: 'k5', provider: 'all', severity: 'medium', cause: null },
+        { projectId, runId: run3, type: 'provider-pickup', query: 'k2', provider: 'openai', severity: 'low', cause: null },
+      ])
     })
 
     it('does not turn a competitor mention in legacy overlap into a citation cause or alert', () => {
@@ -536,64 +545,42 @@ describe('IntelligenceService', () => {
     })
 
     it('--dry-run does not write insights or health snapshots, returns delta', () => {
-      // First we let a real backfill establish baseline insight rows. Then a
-      // dry-run pass with mutated data should: (a) leave the DB untouched,
-      // (b) return a delta describing what *would* change.
       const { db } = createTempDb('intel-backfill-dryrun-')
       const projectId = seedProject(db)
       const queryId = seedQuery(db, projectId, 'test query')
-
       const run1 = seedRun(db, projectId, 'completed', '2024-01-01T00:00:00Z')
       seedSnapshot(db, run1, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
       const run2 = seedRun(db, projectId, 'completed', '2024-02-01T00:00:00Z')
       seedSnapshot(db, run2, queryId, 'gemini', 'not-cited')
-
       const service = new IntelligenceService(db)
-      // Real backfill — populates insights + health.
-      service.backfill('test-project')
-
+      expect(service.backfill('test-project')).toEqual({ processed: 2, skipped: 0, totalInsights: 1 })
+      expect(db.select({
+        projectId: insights.projectId, runId: insights.runId, query: insights.query,
+        provider: insights.provider, type: insights.type,
+      }).from(insights).all()).toEqual([
+        { projectId, runId: run2, query: 'test query', provider: 'gemini', type: 'regression' },
+      ])
+      db.update(insights).set({ dismissed: true }).where(eq(insights.runId, run2)).run()
       const insightsBefore = db.select().from(insights).all()
-      const healthBefore = db.select().from(healthSnapshots).all()
-      expect(insightsBefore.length).toBeGreaterThan(0)
-      expect(healthBefore.length).toBeGreaterThan(0)
+      const healthBefore = db.select().from(healthSnapshots).orderBy(healthSnapshots.runId).all()
+      expect(healthBefore).toHaveLength(2)
 
-      // Dry-run pass — must not touch the DB.
-      const result = service.backfill('test-project', { dryRun: true })
-
-      const insightsAfter = db.select().from(insights).all()
-      const healthAfter = db.select().from(healthSnapshots).all()
-      expect(insightsAfter.map(i => i.id).sort()).toEqual(insightsBefore.map(i => i.id).sort())
-      expect(healthAfter.map(h => h.id).sort()).toEqual(healthBefore.map(h => h.id).sort())
-
-      // Result reports the would-be deltas so an operator can preview impact.
-      expect(result.dryRun).toBe(true)
-      expect(result.delta).toBeDefined()
-      expect(result.delta!.wouldDelete).toBe(insightsBefore.length)
-      expect(result.delta!.wouldCreate).toBe(result.totalInsights)
-      expect(result.delta!.netChange).toBe(result.totalInsights - insightsBefore.length)
-    })
-
-    it('--dry-run report includes per-run delta entries an agent can scan', () => {
-      const { db } = createTempDb('intel-backfill-dryrun-perrun-')
-      const projectId = seedProject(db)
-      const queryId = seedQuery(db, projectId, 'test query')
-
-      const run1 = seedRun(db, projectId, 'completed', '2024-01-01T00:00:00Z')
-      seedSnapshot(db, run1, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
-      const run2 = seedRun(db, projectId, 'completed', '2024-02-01T00:00:00Z')
-      seedSnapshot(db, run2, queryId, 'gemini', 'not-cited')
-
-      const service = new IntelligenceService(db)
-      service.backfill('test-project') // populate baseline
-
-      const result = service.backfill('test-project', { dryRun: true })
-      expect(result.delta!.perRun).toBeDefined()
-      expect(result.delta!.perRun!.length).toBeGreaterThan(0)
-      for (const entry of result.delta!.perRun!) {
-        expect(entry).toHaveProperty('runId')
-        expect(entry).toHaveProperty('existingInsights')
-        expect(entry).toHaveProperty('newInsights')
-      }
+      // The current answer now retains its citation: the old loss must disappear
+      // from the preview, while its persisted dismissed receipt stays untouched.
+      db.update(querySnapshots).set({ citationState: 'cited', citedDomains: ['example.com'] })
+        .where(eq(querySnapshots.runId, run2)).run()
+      expect(service.backfill('test-project', { dryRun: true })).toEqual({
+        processed: 2, skipped: 0, totalInsights: 0, dryRun: true,
+        delta: {
+          wouldDelete: 1, wouldCreate: 0, netChange: -1,
+          perRun: [
+            { runId: run1, existingInsights: 0, newInsights: 0 },
+            { runId: run2, existingInsights: 1, newInsights: 0 },
+          ],
+        },
+      })
+      expect(db.select().from(insights).all()).toEqual(insightsBefore)
+      expect(db.select().from(healthSnapshots).orderBy(healthSnapshots.runId).all()).toEqual(healthBefore)
     })
 
     it('non-dry-run result omits the dryRun + delta fields (backwards compat)', () => {
@@ -671,18 +658,24 @@ describe('IntelligenceService', () => {
       const { db } = createTempDb('intel-backfill-since-date-')
       const projectId = seedProject(db)
       const queryId = seedQuery(db, projectId, 'test query')
+      const before = seedRun(db, projectId, 'completed', '2024-01-31T23:59:59.999Z')
+      seedSnapshot(db, before, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+      const at = seedRun(db, projectId, 'completed', '2024-02-01T00:00:00.000Z')
+      seedSnapshot(db, at, queryId, 'gemini', 'not-cited')
+      const after = seedRun(db, projectId, 'completed', '2024-02-01T00:00:00.001Z')
+      seedSnapshot(db, after, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
 
-      const run1 = seedRun(db, projectId, 'completed', '2024-01-15T00:00:00Z')
-      seedSnapshot(db, run1, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
-
-      const run2 = seedRun(db, projectId, 'completed', '2024-02-15T00:00:00Z')
-      seedSnapshot(db, run2, queryId, 'gemini', 'not-cited')
-
-      const service = new IntelligenceService(db)
-      const result = service.backfill('test-project', { since: '2024-02-01' })
-
-      // run1 (Jan 15) is before; run2 (Feb 15) is after the Feb 1 cutoff.
-      expect(result.processed).toBe(1)
+      const result = new IntelligenceService(db).backfill('test-project', { since: '2024-02-01' })
+      expect(result).toEqual({ processed: 2, skipped: 0, totalInsights: 3 })
+      expect(db.select({ runId: healthSnapshots.runId }).from(healthSnapshots).orderBy(healthSnapshots.createdAt, healthSnapshots.runId).all()
+        .map(row => row.runId).sort()).toEqual([at, after].sort())
+      expect(db.select({
+        runId: insights.runId, query: insights.query, provider: insights.provider, type: insights.type,
+      }).from(insights).orderBy(insights.type).all()).toEqual([
+        { runId: after, query: 'test query', provider: 'gemini', type: 'first-citation' },
+        { runId: after, query: 'test query', provider: 'gemini', type: 'gain' },
+        { runId: at, query: 'test query', provider: 'gemini', type: 'regression' },
+      ])
     })
 
     it('throws a clear error when --since is not parseable as a date', () => {
@@ -780,13 +773,13 @@ describe('IntelligenceService', () => {
       seedSnapshot(db, sweepA, q1, 'gemini', 'cited', { citedDomains: ['example.com'] })
       seedSnapshot(db, sweepA, q2, 'gemini', 'cited', { citedDomains: ['example.com'] })
 
-      // Four days of syncs land between the two sweeps. Each is a completed,
-      // non-probe run with zero snapshots, and together they fill the entire
-      // 5-run history window.
-      insertRun(db, projectId, 'ga-sync', '2026-01-02T00:00:00Z')
-      insertRun(db, projectId, 'traffic-sync', '2026-01-03T00:00:00Z')
-      insertRun(db, projectId, 'gsc-sync', '2026-01-04T00:00:00Z')
-      insertRun(db, projectId, 'site-audit', '2026-01-05T00:00:00Z')
+      // Defensive historical rows satisfy every other eligibility and
+      // measurement guard. Only their kind excludes these false baselines.
+      for (const [kind, day] of [['ga-sync', '02'], ['traffic-sync', '03'], ['gsc-sync', '04'], ['site-audit', '05']]) {
+        const poison = insertRun(db, projectId, kind, `2026-01-${day}T00:00:00Z`)
+        seedSnapshot(db, poison, q1, 'gemini', 'not-cited')
+        seedSnapshot(db, poison, q2, 'gemini', 'not-cited')
+      }
 
       const sweepB = insertRun(db, projectId, 'answer-visibility', '2026-01-06T00:00:00Z')
       seedSnapshot(db, sweepB, q1, 'gemini', 'cited', { citedDomains: ['example.com'] })
@@ -797,7 +790,7 @@ describe('IntelligenceService', () => {
 
       expect(result).not.toBeNull()
       // Both queries were already cited in the real previous sweep. Pre-fix
-      // the baseline was the site-audit run, whose empty snapshot set made
+      // the baseline was the site-audit run, whose uncited snapshot set would make
       // both look brand new: 2 first-citations + 2 gains, all false.
       expect(result!.firstCitations).toHaveLength(0)
       expect(result!.gains).toHaveLength(0)
@@ -822,8 +815,10 @@ describe('IntelligenceService', () => {
       const sweepA = insertRun(db, projectId, 'answer-visibility', '2026-01-01T00:00:00Z')
       seedSnapshot(db, sweepA, q1, 'gemini', 'cited', { citedDomains: ['example.com'] })
 
-      insertRun(db, projectId, 'ga-sync', '2026-01-02T00:00:00Z')
-      insertRun(db, projectId, 'traffic-sync', '2026-01-03T00:00:00Z')
+      for (const [kind, day] of [['ga-sync', '02'], ['traffic-sync', '03']]) {
+        const poison = insertRun(db, projectId, kind, `2026-01-${day}T00:00:00Z`)
+        seedSnapshot(db, poison, q1, 'gemini', 'not-cited')
+      }
 
       const sweepB = insertRun(db, projectId, 'answer-visibility', '2026-01-04T00:00:00Z')
       seedSnapshot(db, sweepB, q1, 'gemini', 'not-cited')
@@ -835,6 +830,11 @@ describe('IntelligenceService', () => {
       expect(result!.regressions[0]!.query).toBe('roof repair')
       expect(result!.regressions[0]!.provider).toBe('gemini')
       expect(result!.regressions[0]!.previousRunId).toBe(sweepA)
+      expect(result!.regressions[0]!.currentRunId).toBe(sweepB)
+      expect(db.select({ runId: insights.runId, query: insights.query, provider: insights.provider, type: insights.type })
+        .from(insights).all()).toEqual([
+        { runId: sweepB, query: 'roof repair', provider: 'gemini', type: 'regression' },
+      ])
     })
 
     it('does not let a snapshotless answer-visibility run anchor the comparison', () => {
@@ -913,7 +913,10 @@ describe('IntelligenceService', () => {
         seedSnapshot(db, sweep, q1, 'gemini', 'not-cited')
         sweeps.push(sweep)
         // A sync the day after each sweep except the last.
-        if (i < 2) insertRun(db, projectId, 'ga-sync', `2026-01-0${Number(day) + 1}T00:00:00Z`)
+        if (i < 2) {
+          const poison = insertRun(db, projectId, 'ga-sync', `2026-01-0${Number(day) + 1}T00:00:00Z`)
+          seedSnapshot(db, poison, q1, 'gemini', 'cited', { citedDomains: ['example.com'] })
+        }
       }
 
       const service = new IntelligenceService(db)
@@ -922,6 +925,11 @@ describe('IntelligenceService', () => {
       expect(result!.persistentGaps).toHaveLength(1)
       expect(result!.persistentGaps[0]!.query).toBe('roof repair')
       expect(result!.persistentGaps[0]!.streak).toBe(3)
+      expect(result!.persistentGaps[0]!.threshold).toBe(3)
+      expect(db.select({ runId: insights.runId, query: insights.query, provider: insights.provider, type: insights.type })
+        .from(insights).all()).toEqual([
+        { runId: sweeps[2], query: 'roof repair', provider: 'all', type: 'persistent-gap' },
+      ])
     })
 
     it('backfill draws baselines from sweeps only, so a reanalyze clears the false rows', () => {
@@ -987,10 +995,8 @@ describe('IntelligenceService', () => {
         canonicalDomain: 'example.com',
         country: 'US',
         language: 'en',
-        providers: '["gemini"]',
-        locations: JSON.stringify(
-          Array.from({ length: locationCount }, (_, i) => ({ label: `loc${i}`, country: 'US' })),
-        ),
+        providers: ['gemini'],
+        locations: Array.from({ length: locationCount }, (_, i) => ({ label: `loc${i}`, city: 'Orlando', region: 'Florida', country: 'US' })),
         createdAt: now,
         updatedAt: now,
       }).run()
@@ -1082,8 +1088,10 @@ describe('IntelligenceService', () => {
       const { db } = createTempDb('intel-fanout-sibling-')
       const { projectId, queryId } = seedFanOutProject(db, 3)
 
-      seedSweep(db, projectId, queryId, 3, 1, 'cited')
-      // Second sweep: loc0 stays cited, others drop. Only loc1/loc2 regressed.
+      const before = seedSweep(db, projectId, queryId, 3, 1, 'cited')
+      db.update(querySnapshots).set({ citationState: 'not-cited', citedDomains: [] })
+        .where(eq(querySnapshots.runId, before[2]!)).run()
+      // Second sweep: loc0 stays cited, loc2 stays uncited, and only loc1 loses.
       const day2: string[] = []
       for (let l = 0; l < 3; l++) {
         const runId = crypto.randomUUID()
@@ -1106,7 +1114,19 @@ describe('IntelligenceService', () => {
       expect(loc0!.firstCitations).toHaveLength(0)
       // loc1 lost it — a real regression against loc1's own predecessor.
       const loc1 = service.analyzeAndPersist(day2[1]!, projectId)
-      expect(loc1!.regressions).toHaveLength(1)
+      expect(loc1!.regressions).toEqual([{
+        query: 'roof repair', provider: 'gemini', currentRunId: day2[1], previousRunId: before[1],
+        previousCitationUrl: 'example.com', previousPosition: undefined,
+      }])
+      const loc2 = service.analyzeAndPersist(day2[2]!, projectId)
+      expect(loc2!.regressions).toEqual([])
+      expect(loc2!.gains).toEqual([])
+      expect(db.select({
+        projectId: insights.projectId, runId: insights.runId,
+        query: insights.query, provider: insights.provider, type: insights.type,
+      }).from(insights).all()).toEqual([
+        { projectId, runId: day2[1], query: 'roof repair', provider: 'gemini', type: 'regression' },
+      ])
     })
 
     it('compares a re-analyzed historical run against its own predecessor, not a later sweep', () => {
@@ -1218,215 +1238,6 @@ describe('IntelligenceService', () => {
       expect(result!.firstCitations).toHaveLength(2)
       // openai's three citations are all unmeasured-before: no claim either way.
       expect(result!.providerPickups).toHaveLength(0)
-    })
-  })
-
-  // Regression suite for #480: the recurrence lookback used to count rows
-  // instead of time-points, so a multi-location project's effective look-back
-  // window was halved (or worse for 3+ locations). The fix walks fan-out
-  // groups; this test pins that behavior down.
-  describe('recurrence lookback under multi-location fan-out (#480)', () => {
-    it('does not raise an analyze error on a multi-location latest fan-out group', () => {
-      // Smoke test: the recurrence-lookback SQL fetch is now sized by
-      // configured location count. A 2-location project with multiple prior
-      // fan-out groups must analyze without surprise errors. Severity
-      // classification semantics are intentionally not asserted here — those
-      // are covered by intelligence-service-severity.test.ts; this test pins
-      // down the cross-cutting "lookback walks groups" code path only.
-      const { db } = createTempDb('intel-fanout-lookback-')
-      const now = new Date().toISOString()
-      const projectId = crypto.randomUUID()
-      db.insert(projects).values({
-        id: projectId,
-        name: 'multi-loc-recurrence',
-        displayName: 'Multi-Location Recurrence',
-        canonicalDomain: 'harborline-coatings.example',
-        country: 'US',
-        language: 'en',
-        providers: '["gemini"]',
-        locations: JSON.stringify([
-          { label: 'florida',  city: 'Orlando', region: 'Florida',  country: 'US' },
-          { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' },
-        ]),
-        createdAt: now,
-        updatedAt: now,
-      }).run()
-      const queryId = seedQuery(db, projectId, 'polyurea roof coating')
-
-      // Three fan-out groups: oldest, middle, latest. Each group has two
-      // runs (florida + michigan). Six runs total — pre-fix, the look-back
-      // would have spent 6 of its budget on these (covering ~3 groups
-      // assuming RECURRENCE_LOOKBACK_RUNS=5 + headroom=4 → 24 row budget,
-      // fine). For a hypothetical 5-location project the budget would
-      // need to scale — the fix scales by `max(2, locationCount)`.
-      function insertFanOutGroup(createdAt: string): { florida: string; michigan: string } {
-        const florida = crypto.randomUUID()
-        const michigan = crypto.randomUUID()
-        db.insert(runs).values([
-          { id: florida,  projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: 'florida',  createdAt, finishedAt: createdAt },
-          { id: michigan, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: 'michigan', createdAt, finishedAt: createdAt },
-        ]).run()
-        return { florida, michigan }
-      }
-      const oldGroup = insertFanOutGroup('2026-05-10T17:23:20.060Z')
-      const midGroup = insertFanOutGroup('2026-05-11T17:23:20.060Z')
-      const latestGroup = insertFanOutGroup('2026-05-13T17:23:20.060Z')
-
-      // Snapshots: q cited in florida, not cited in michigan, across all 3
-      // groups. The "regression" is consistent at michigan; florida is steady.
-      for (const group of [oldGroup, midGroup, latestGroup]) {
-        seedSnapshot(db, group.florida,  queryId, 'gemini', 'cited',     { citedDomains: ['harborline-coatings.example'] })
-        seedSnapshot(db, group.michigan, queryId, 'gemini', 'not-cited')
-      }
-
-      const service = new IntelligenceService(db)
-      // Analyze the michigan-arm of the latest group. The lookback should
-      // walk groups (not rows), so the fetch limit of
-      // (RECURRENCE_LOOKBACK_RUNS + 1) * max(2, locationCount) easily covers
-      // all 3 groups. Pre-fix with the hard `* 4` headroom multiplier on
-      // RECURRENCE_LOOKBACK_RUNS = 5 would have been
-      // (5+1)*4 = 24 rows budget — same outcome on this tiny fixture but
-      // the multiplier is now project-aware.
-      const result = service.analyzeAndPersist(latestGroup.michigan, projectId)
-
-      // The point of this regression is that the call succeeds and produces
-      // a valid AnalysisResult without index-out-of-bounds or short-circuit
-      // errors. Whether the resulting insights include specific items is
-      // out of scope for this test — the existing severity test file covers
-      // the per-insight tier rules.
-      expect(result).not.toBeNull()
-      expect(typeof result!.health.overallCitedRate).toBe('number')
-    })
-  })
-
-  // Regression suite for the multi-location grouping bug: `analyzeAndPersist`
-  // used to pick the immediately-prior run by finishedAt regardless of
-  // location, so two siblings of the same fan-out (Florida cited / Michigan
-  // not-cited) were compared as if they were sequential runs at one location
-  // — flagging false regressions and false gains on every multi-location
-  // sweep. The fix matches previous run by location.
-  describe('multi-location previous-run selection', () => {
-    function seedTwoLocationProject(db: ReturnType<typeof createClient>): { projectId: string; queryId: string } {
-      const now = new Date().toISOString()
-      const projectId = crypto.randomUUID()
-      db.insert(projects).values({
-        id: projectId,
-        name: 'multi-loc',
-        displayName: 'Multi-Location',
-        canonicalDomain: 'example.com',
-        country: 'US',
-        language: 'en',
-        providers: '["gemini"]',
-        locations: JSON.stringify([
-          { label: 'florida',  city: 'Orlando', region: 'Florida',  country: 'US' },
-          { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' },
-        ]),
-        createdAt: now,
-        updatedAt: now,
-      }).run()
-      const queryId = seedQuery(db, projectId, 'polyurea roof coating')
-      return { projectId, queryId }
-    }
-
-    function insertFanOutRun(
-      db: ReturnType<typeof createClient>,
-      projectId: string,
-      location: string,
-      finishedAt: string,
-    ): string {
-      const runId = crypto.randomUUID()
-      db.insert(runs).values({
-        id: runId,
-        projectId,
-        kind: 'answer-visibility',
-        status: 'completed',
-        trigger: 'manual',
-        location,
-        createdAt: finishedAt,
-        finishedAt,
-      }).run()
-      return runId
-    }
-
-    it('does not flag a regression when the immediately-prior run is a different location', () => {
-      // Pre-fix: Michigan-latest (not cited) would be compared to Florida-mid
-      // (cited) — flagging "regression". Post-fix: compared to Michigan-mid
-      // (also not cited) → no regression.
-      const { db } = createTempDb('intel-multi-loc-regression-')
-      const { projectId, queryId } = seedTwoLocationProject(db)
-
-      const flMid       = insertFanOutRun(db, projectId, 'florida',  '2026-05-11T00:00:00Z')
-      const miMid       = insertFanOutRun(db, projectId, 'michigan', '2026-05-11T00:00:00Z')
-      const flLatest    = insertFanOutRun(db, projectId, 'florida',  '2026-05-13T00:00:00Z')
-      const miLatest    = insertFanOutRun(db, projectId, 'michigan', '2026-05-13T00:00:00Z')
-
-      seedSnapshot(db, flMid,       queryId, 'gemini', 'cited',     { citedDomains: ['example.com'] })
-      seedSnapshot(db, miMid,       queryId, 'gemini', 'not-cited')
-      seedSnapshot(db, flLatest,    queryId, 'gemini', 'cited',     { citedDomains: ['example.com'] })
-      seedSnapshot(db, miLatest,    queryId, 'gemini', 'not-cited')
-
-      const service = new IntelligenceService(db)
-      const result = service.analyzeAndPersist(miLatest, projectId)
-
-      expect(result).not.toBeNull()
-      // No transitions — Michigan was not cited last time either.
-      expect(result!.regressions).toEqual([])
-      expect(result!.gains).toEqual([])
-
-      // And no regression insight persisted to the DB.
-      const persistedRegressions = db.select().from(insights)
-        .all()
-        .filter(i => i.runId === miLatest && i.type === 'regression')
-      expect(persistedRegressions).toHaveLength(0)
-    })
-
-    it('does not flag a phantom gain on the opposite case (Michigan→Florida)', () => {
-      // Symmetric coverage. Florida-latest cited compared against Michigan-mid
-      // not-cited would have looked like a "gain" pre-fix.
-      const { db } = createTempDb('intel-multi-loc-gain-')
-      const { projectId, queryId } = seedTwoLocationProject(db)
-
-      const flMid    = insertFanOutRun(db, projectId, 'florida',  '2026-05-11T00:00:00Z')
-      const miMid    = insertFanOutRun(db, projectId, 'michigan', '2026-05-11T00:00:00Z')
-      const flLatest = insertFanOutRun(db, projectId, 'florida',  '2026-05-13T00:00:00Z')
-      const miLatest = insertFanOutRun(db, projectId, 'michigan', '2026-05-13T00:00:00Z')
-
-      seedSnapshot(db, flMid,    queryId, 'gemini', 'cited',     { citedDomains: ['example.com'] })
-      seedSnapshot(db, miMid,    queryId, 'gemini', 'not-cited')
-      seedSnapshot(db, flLatest, queryId, 'gemini', 'cited',     { citedDomains: ['example.com'] })
-      seedSnapshot(db, miLatest, queryId, 'gemini', 'not-cited')
-
-      const service = new IntelligenceService(db)
-      const result = service.analyzeAndPersist(flLatest, projectId)
-
-      expect(result).not.toBeNull()
-      // Florida was always cited — no gain.
-      expect(result!.gains).toEqual([])
-      expect(result!.regressions).toEqual([])
-    })
-
-    it('detects a real regression when the previous SAME-location run was cited', () => {
-      // Genuine signal we must preserve: Florida cited at mid, not cited at
-      // latest, and Michigan steady in between. The Michigan run between
-      // them must not mask the Florida regression.
-      const { db } = createTempDb('intel-multi-loc-real-regression-')
-      const { projectId, queryId } = seedTwoLocationProject(db)
-
-      const flMid    = insertFanOutRun(db, projectId, 'florida',  '2026-05-11T00:00:00Z')
-      const miMid    = insertFanOutRun(db, projectId, 'michigan', '2026-05-11T00:00:00Z')
-      const flLatest = insertFanOutRun(db, projectId, 'florida',  '2026-05-13T00:00:00Z')
-
-      seedSnapshot(db, flMid,    queryId, 'gemini', 'cited',     { citedDomains: ['example.com'] })
-      seedSnapshot(db, miMid,    queryId, 'gemini', 'not-cited')
-      seedSnapshot(db, flLatest, queryId, 'gemini', 'not-cited')
-
-      const service = new IntelligenceService(db)
-      const result = service.analyzeAndPersist(flLatest, projectId)
-
-      expect(result).not.toBeNull()
-      expect(result!.regressions).toHaveLength(1)
-      expect(result!.regressions[0]!.query).toBe('polyurea roof coating')
-      expect(result!.regressions[0]!.previousRunId).toBe(flMid)
     })
   })
 

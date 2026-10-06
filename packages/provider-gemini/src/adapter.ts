@@ -19,7 +19,7 @@ import {
 } from './normalize.js'
 import type { GeminiConfig, GeminiRawResult, GeminiTrackedQueryInput } from './types.js'
 
-export function toGeminiConfig(config: ProviderConfig): GeminiConfig {
+function toGeminiConfig(config: ProviderConfig): GeminiConfig {
   return {
     apiKey: config.apiKey ?? '',
     model: config.model,

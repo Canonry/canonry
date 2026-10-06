@@ -3,7 +3,7 @@ import { and, eq, asc, desc, inArray, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { runs, querySnapshots, queries, projects, competitors, parseJsonColumn } from '@ainyc/canonry-db'
 import { compileCompetitiveSignalResolver } from '@ainyc/canonry-intelligence'
-import type { LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, ProviderDispatchMode, RunDispatchModes, RunListFilterQuery } from '@ainyc/canonry-contracts'
+import type { CitationState, LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, ProviderDispatchMode, RunDispatchModes, RunListFilterQuery } from '@ainyc/canonry-contracts'
 import {
   AppError as AppErrorClass,
   type AppError,
@@ -12,6 +12,7 @@ import {
   providerDispatchModeSchema,
   resolveRunDispatchModes,
   summarizeRunUsage,
+  summarizeObservedQueryCounts,
   measurementRunScopeIsEmpty,
   RunKinds,
   RunTriggers,
@@ -930,69 +931,78 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
     .where(eq(querySnapshots.runId, run.id))
     .all()
 
+  const mappedSnapshots = snapshots.map(s => {
+    const rawParsed = parseSnapshotRawResponse(s.rawResponse)
+    const signalGroundingSources = rawParsed.groundingSources.filter(
+      (source): source is { uri: string } =>
+        typeof source === 'object'
+        && source !== null
+        && typeof (source as { uri?: unknown }).uri === 'string',
+    )
+    const competitiveSignals = competitiveSignalResolver.resolve({
+      citedDomains: s.citedDomains,
+      groundingSources: signalGroundingSources,
+      answerText: s.answerText,
+    })
+    const answerMentioned = project
+      ? resolveSnapshotAnswerMentioned(s, project)
+      : (s.answerMentioned ?? false)
+    return {
+      id: s.id,
+      runId: s.runId,
+      queryId: s.queryId,
+      query: s.query,
+      provider: s.provider,
+      citationState: s.citationState,
+      answerMentioned,
+      // Legacy alias of `mentionState`, retained for backwards compatibility.
+      visibilityState: project
+        ? resolveSnapshotVisibilityState(s, project)
+        : (answerMentioned ? 'visible' : 'not-visible'),
+      // Canonical vocabulary for answer-text presence; new consumers prefer this.
+      mentionState: project
+        ? resolveSnapshotMentionState(s, project)
+        : (answerMentioned ? 'mentioned' : 'not-mentioned'),
+      answerText: s.answerText,
+      citedDomains: s.citedDomains,
+      citedUrls: s.citedUrls,
+      captureStatus: s.captureStatus,
+      sourceCount: s.sourceCount,
+      resolvedCount: s.resolvedCount,
+      captureVersion: s.captureVersion,
+      ...competitiveSignals,
+      // Legacy mixed signal retained for backwards compatibility.
+      competitorOverlap: s.competitorOverlap,
+      recommendedCompetitors: s.recommendedCompetitors,
+      matchedTerms: project ? resolveSnapshotMatchedTerms(s, project) : [],
+      model: s.model ?? rawParsed.model,
+      // Column only. `model` may fall back to the stored envelope because both
+      // record the same requested value; a served id has no such equivalent —
+      // an unrecoverable one stays null rather than echoing configuration.
+      servedModel: s.servedModel,
+      location: s.location,
+      requestedContext: s.requestedContext,
+      supportedContext: s.supportedContext,
+      dispatchMode: s.dispatchMode,
+      stopReason: s.stopReason,
+      usage: s.usage,
+      groundingSources: rawParsed.groundingSources,
+      searchQueries: rawParsed.searchQueries,
+      createdAt: s.createdAt,
+    }
+  })
+  const identifiedSignals = mappedSnapshots.flatMap(snapshot =>
+    typeof snapshot.queryId === 'string' && snapshot.queryId.length > 0
+      ? [{ queryId: snapshot.queryId, citationState: snapshot.citationState as CitationState, answerMentioned: snapshot.answerMentioned }]
+      : [],
+  )
   return {
     ...formatRun(run),
     providerBatches: readRunProviderBatches(app.db, run.id),
     usage: summarizeRunUsage(snapshots),
-    snapshots: snapshots.map(s => {
-      const rawParsed = parseSnapshotRawResponse(s.rawResponse)
-      const signalGroundingSources = rawParsed.groundingSources.filter(
-        (source): source is { uri: string } =>
-          typeof source === 'object'
-          && source !== null
-          && typeof (source as { uri?: unknown }).uri === 'string',
-      )
-      const competitiveSignals = competitiveSignalResolver.resolve({
-        citedDomains: s.citedDomains,
-        groundingSources: signalGroundingSources,
-        answerText: s.answerText,
-      })
-      const answerMentioned = project
-        ? resolveSnapshotAnswerMentioned(s, project)
-        : (s.answerMentioned ?? false)
-      return {
-        id: s.id,
-        runId: s.runId,
-        queryId: s.queryId,
-        query: s.query,
-        provider: s.provider,
-        citationState: s.citationState,
-        answerMentioned,
-        // Legacy alias of `mentionState`, retained for backwards compatibility.
-        visibilityState: project
-          ? resolveSnapshotVisibilityState(s, project)
-          : (answerMentioned ? 'visible' : 'not-visible'),
-        // Canonical vocabulary for answer-text presence; new consumers prefer this.
-        mentionState: project
-          ? resolveSnapshotMentionState(s, project)
-          : (answerMentioned ? 'mentioned' : 'not-mentioned'),
-        answerText: s.answerText,
-        citedDomains: s.citedDomains,
-        citedUrls: s.citedUrls,
-        captureStatus: s.captureStatus,
-        sourceCount: s.sourceCount,
-        resolvedCount: s.resolvedCount,
-        captureVersion: s.captureVersion,
-        ...competitiveSignals,
-        // Legacy mixed signal retained for backwards compatibility.
-        competitorOverlap: s.competitorOverlap,
-        recommendedCompetitors: s.recommendedCompetitors,
-        matchedTerms: project ? resolveSnapshotMatchedTerms(s, project) : [],
-        model: s.model ?? rawParsed.model,
-        // Column only. `model` may fall back to the stored envelope because both
-        // record the same requested value; a served id has no such equivalent —
-        // an unrecoverable one stays null rather than echoing configuration.
-        servedModel: s.servedModel,
-        location: s.location,
-        requestedContext: s.requestedContext,
-        supportedContext: s.supportedContext,
-        dispatchMode: s.dispatchMode,
-        stopReason: s.stopReason,
-        usage: s.usage,
-        groundingSources: rawParsed.groundingSources,
-        searchQueries: rawParsed.searchQueries,
-        createdAt: s.createdAt,
-      }
-    }),
+    snapshots: mappedSnapshots,
+    queryCounts: identifiedSignals.length === mappedSnapshots.length
+      ? summarizeObservedQueryCounts(identifiedSignals)
+      : null,
   }
 }

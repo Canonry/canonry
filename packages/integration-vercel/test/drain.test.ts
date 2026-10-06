@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import type { NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
 
@@ -55,6 +55,8 @@ const baseOptions = {
   maxSubWindows: 1_000,
 }
 
+afterEach(() => vi.restoreAllMocks())
+
 describe('drainVercelTrafficEvents', () => {
   test('returns nothing for an empty window without pulling', async () => {
     const pull = vi.fn(async () => page([], false))
@@ -84,16 +86,28 @@ describe('drainVercelTrafficEvents', () => {
     expect(result.events).toEqual(events)
     expect(result.drainedThroughMs).toBe(4 * HOUR)
     expect(result.subWindowCount).toBeGreaterThan(0)
+    expect(result.deadlineReached).toBe(false)
+    expect(result.deadlineSkippedSliceCount).toBe(0)
+    expect(result.truncatedSliceCount).toBe(0)
   })
 
   test('sub-divides when a span overflows the page budget and still fully drains', async () => {
-    // Any slice longer than one hour overflows; shorter slices drain one event
-    // keyed to their start. Start-small opens at 5 min and grows, so subdivision
-    // kicks in once the growing span overshoots an hour; the whole window drains.
+    const sourceEvents = [
+      { at: 0, event: makeEvent('first') },
+      { at: HOUR / 2, event: makeEvent('half-hour') },
+      { at: HOUR, event: makeEvent('hour') },
+      { at: 2 * HOUR, event: makeEvent('two-hours') },
+      { at: 4 * HOUR - 1, event: makeEvent('last') },
+    ]
+    const completed: Array<[number, number]> = []
     const pull = vi.fn(async (o: ListVercelTrafficEventsOptions) => {
-      const span = Number(o.endDate) - Number(o.startDate)
-      if (span > HOUR) return page([], true)
-      return page([makeEvent(`ev-${Number(o.startDate)}`)], false)
+      const start = Number(o.startDate), end = Number(o.endDate)
+      if (end - start > HOUR) return page([makeEvent('overflow-only')], true)
+      completed.push([start, end])
+      return page([
+        ...sourceEvents.filter(({ at }) => at >= start && at < end).map(({ event }) => event),
+        makeEvent('shared-boundary'),
+      ], false)
     })
     const result = await drainVercelTrafficEvents({
       ...baseOptions,
@@ -101,27 +115,18 @@ describe('drainVercelTrafficEvents', () => {
       startDate: 0,
       endDate: 4 * HOUR,
     })
-    expect(result.subWindowCount).toBeGreaterThan(4)
     expect(result.drainedThroughMs).toBe(4 * HOUR)
-    expect(result.events.length).toBeGreaterThan(1)
-    expect(result.events.map((e) => e.eventId)).toContain('ev-0')
-  })
-
-  test('deduplicates events shared across adjacent sub-windows', async () => {
-    // Every drained slice re-emits the same boundary event.
-    const pull = vi.fn(async (o: ListVercelTrafficEventsOptions) => {
-      const span = Number(o.endDate) - Number(o.startDate)
-      if (span > HOUR) return page([], true)
-      return page([makeEvent('shared-boundary')], false)
-    })
-    const result = await drainVercelTrafficEvents({
-      ...baseOptions,
-      pull,
-      startDate: 0,
-      endDate: 4 * HOUR,
-    })
-    expect(result.events).toHaveLength(1)
-    expect(result.events[0].eventId).toBe('shared-boundary')
+    expect(result.events.map((e) => e.eventId).sort()).toEqual([
+      'first', 'half-hour', 'hour', 'last', 'shared-boundary', 'two-hours',
+    ])
+    expect(completed[0][0]).toBe(0)
+    for (let index = 1; index < completed.length; index += 1) {
+      expect(completed[index][0]).toBe(completed[index - 1][1])
+    }
+    expect(completed.at(-1)?.[1]).toBe(4 * HOUR)
+    expect(pull.mock.calls.some(([o]) => Number(o.endDate) - Number(o.startDate) > HOUR)).toBe(true)
+    expect(result.deadlineSkippedSliceCount).toBe(0)
+    expect(result.truncatedSliceCount).toBe(0)
   })
 
   test('drains a dense one-second slice with the large floor page budget', async () => {
@@ -130,7 +135,7 @@ describe('drainVercelTrafficEvents', () => {
     // There it re-pulls with the larger floor budget, which drains the slice
     // cleanly.
     const pull = vi.fn(async (o: ListVercelTrafficEventsOptions) => {
-      if ((o.maxPages ?? 0) > baseOptions.pagesPerSubWindow) {
+      if (o.maxPages === 1_000) {
         return page([makeEvent(`floor-${Number(o.startDate)}`)], false)
       }
       return page([], true)
@@ -144,6 +149,8 @@ describe('drainVercelTrafficEvents', () => {
     expect(result.events.map((e) => e.eventId).sort()).toEqual(
       [`floor-0`, `floor-${SECOND}`, `floor-${2 * SECOND}`].sort(),
     )
+    expect(result.drainedThroughMs).toBe(3 * SECOND)
+    expect(result.truncatedSliceCount).toBe(0)
   })
 
   test('samples and advances when a one-second slice overflows even the floor budget', async () => {
@@ -153,7 +160,7 @@ describe('drainVercelTrafficEvents', () => {
     // the drain ingests the sample it pulled, records the truncation, and
     // advances past the slice.
     const pull = vi.fn(async (o: ListVercelTrafficEventsOptions) =>
-      page([makeEvent(`trunc-${Number(o.startDate)}`)], true),
+      page([makeEvent(`trunc-${Number(o.startDate)}-${o.maxPages}`)], true),
     )
     const result = await drainVercelTrafficEvents({
       ...baseOptions,
@@ -164,7 +171,9 @@ describe('drainVercelTrafficEvents', () => {
     // Three one-second floor slices, each truncated + sampled + advanced past.
     expect(result.truncatedSliceCount).toBe(3)
     expect(result.truncatedSliceStartsMs).toEqual([0, SECOND, 2 * SECOND])
-    expect(result.events).toHaveLength(3)
+    expect(result.events.map((e) => e.eventId)).toEqual(['trunc-0-1000', 'trunc-1000-1000', 'trunc-2000-1000'])
+    expect(result.drainedThroughMs).toBe(3 * SECOND)
+    expect(result.deadlineSkippedSliceCount).toBe(0)
   })
 
   test('throws on the first irreducible floor slice when abortOnTruncation is set', async () => {
@@ -183,6 +192,8 @@ describe('drainVercelTrafficEvents', () => {
         abortOnTruncation: true,
       }),
     ).rejects.toThrow(/1-second slice starting .* holds more than 1000 pages/)
+    expect(pull.mock.calls.at(-1)?.[0]).toMatchObject({ startDate: 0, endDate: SECOND, maxPages: 1_000 })
+    expect(pull.mock.calls.every(([o]) => Number(o.startDate) === 0)).toBe(true)
   })
 
   test('drains a dense minute via one-second slicing without hitting the floor budget', async () => {
@@ -207,7 +218,9 @@ describe('drainVercelTrafficEvents', () => {
       endDate: MINUTE,
     })
     // 60 one-second sub-windows drain, one event each.
-    expect(result.events).toHaveLength(60)
+    expect(result.events.map((e) => e.eventId)).toEqual(Array.from({ length: 60 }, (_, index) => `ev-${index * SECOND}`))
+    expect(result.drainedThroughMs).toBe(MINUTE)
+    expect(result.truncatedSliceCount).toBe(0)
   })
 
   test('keeps congested one-second slicing under the sub-window cap', async () => {
@@ -344,21 +357,12 @@ describe('drainVercelTrafficEvents', () => {
     expect(result.effectiveStartMs).toBe(100 * HOUR)
     expect(result.events).toEqual([])
     expect(result.subWindowCount).toBe(0)
-  })
-
-  test('reports a full drain through endDate with no deadline set', async () => {
-    const pull = vi.fn(async () => page([makeEvent('a')], false))
-    const result = await drainVercelTrafficEvents({
-      ...baseOptions,
-      pull,
-      startDate: 0,
-      endDate: 4 * HOUR,
-    })
+    expect(result.drainedThroughMs).toBe(100 * HOUR)
     expect(result.deadlineReached).toBe(false)
-    expect(result.drainedThroughMs).toBe(4 * HOUR)
   })
 
   test('stops before the first pull and makes no progress when the deadline has already passed', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_000)
     const pull = vi.fn(async () => page([makeEvent('x')], false))
     const result = await drainVercelTrafficEvents({
       ...baseOptions,
@@ -366,7 +370,6 @@ describe('drainVercelTrafficEvents', () => {
       startDate: 0,
       endDate: 4 * HOUR,
       deadlineMs: 100,
-      now: () => 1_000, // already past the deadline
     })
     expect(result.deadlineReached).toBe(true)
     expect(result.drainedThroughMs).toBe(0) // == startDate: nothing drained
@@ -375,28 +378,37 @@ describe('drainVercelTrafficEvents', () => {
   })
 
   test('stops at the deadline after partial progress and reports the boundary it reached', async () => {
-    // Slices wider than an hour overflow and get subdivided; one-hour-or-less
-    // slices drain cleanly. The injected clock advances one tick per sub-window
-    // check, so the deadline trips after several hours have drained but well
-    // before the full 100-hour window is done.
+    let clock = 0
+    vi.spyOn(Date, 'now').mockImplementation(() => clock)
+    const sourceEvents = [0, MINUTE, 6 * MINUTE, 14 * MINUTE, 30 * MINUTE, HOUR]
+      .map((at) => ({ at, event: makeEvent(`stored-${at}`) }))
+    const completed: Array<[number, number]> = []
     const pull = vi.fn(async (o: ListVercelTrafficEventsOptions) => {
-      const span = Number(o.endDate) - Number(o.startDate)
-      if (span > HOUR) return page([], true)
-      return page([makeEvent(`ev-${Number(o.startDate)}`)], false)
+      clock += 10
+      const start = Number(o.startDate), end = Number(o.endDate)
+      if (end - start > HOUR) return page([], true)
+      completed.push([start, end])
+      return page(sourceEvents.filter(({ at }) => at >= start && at < end).map(({ event }) => event), false)
     })
-    let tick = 0
     const result = await drainVercelTrafficEvents({
       ...baseOptions,
       pull,
       startDate: 0,
       endDate: 100 * HOUR,
-      deadlineMs: 25,
-      now: () => (tick += 1),
+      deadlineMs: 20,
     })
     expect(result.deadlineReached).toBe(true)
-    expect(result.drainedThroughMs).toBeGreaterThan(0) // made progress
-    expect(result.drainedThroughMs).toBeLessThan(100 * HOUR) // but did not finish
-    expect(result.events.length).toBeGreaterThan(0)
+    const completedThrough = completed.at(-1)![1]
+    expect(completed[0][0]).toBe(0)
+    expect(completed).toHaveLength(2)
+    expect(completed[1][0]).toBe(completed[0][1])
+    expect(result.drainedThroughMs).toBe(completedThrough)
+    expect(completedThrough).toBeGreaterThan(0)
+    expect(completedThrough).toBeLessThan(100 * HOUR)
+    expect(result.events).toEqual(sourceEvents.filter(({ at }) => at < completedThrough).map(({ event }) => event))
+    expect(result.deadlineSkippedSliceCount).toBe(0)
+    expect(result.truncatedSliceCount).toBe(0)
+    expect(pull).toHaveBeenCalledTimes(2)
   })
 
   test('start-small makes forward progress on a dense backlog instead of wedging', async () => {
@@ -405,27 +417,39 @@ describe('drainVercelTrafficEvents', () => {
     // whole deadline halving a 24h span without ever completing a sub-window (zero
     // progress, permanent wedge). Starting at the 5-min initial span, the drain
     // reaches a drainable slice within a few pulls and the cursor advances.
+    let clock = 0
+    vi.spyOn(Date, 'now').mockImplementation(() => clock)
+    const sourceEvents = Array.from({ length: 30 }, (_, index) => ({ at: index * 10_000, event: makeEvent(`stored-${index}`) }))
+    const completed: Array<[number, number]> = []
     const pull = vi.fn(async (o: ListVercelTrafficEventsOptions) => {
-      const span = Number(o.endDate) - Number(o.startDate)
-      if (span > MINUTE) return page([], true)
-      return page([makeEvent(`ev-${Number(o.startDate)}`)], false)
+      clock += 1
+      const start = Number(o.startDate), end = Number(o.endDate)
+      if (end - start > MINUTE) return page([], true)
+      completed.push([start, end])
+      return page(sourceEvents.filter(({ at }) => at >= start && at < end).map(({ event }) => event), false)
     })
-    let tick = 0
     const result = await drainVercelTrafficEvents({
       ...baseOptions,
       pull,
       startDate: 0,
       endDate: 24 * HOUR,
-      deadlineMs: 8, // trips after a handful of loop checks
-      now: () => (tick += 1),
+      deadlineMs: 8,
     })
     expect(result.deadlineReached).toBe(true)
     // The first pull span is the 5-min initial cap, not the full 24h window.
     const firstSpan = Number(pull.mock.calls[0][0].endDate) - Number(pull.mock.calls[0][0].startDate)
     expect(firstSpan).toBeLessThanOrEqual(5 * MINUTE)
-    // Progress was made before the deadline (the old full-window start would be 0).
-    expect(result.drainedThroughMs).toBeGreaterThan(0)
-    expect(result.events.length).toBeGreaterThan(0)
+    expect(completed.length).toBeGreaterThan(0)
+    const completedThrough = completed.at(-1)![1]
+    expect(completed[0][0]).toBe(0)
+    for (let index = 1; index < completed.length; index += 1) {
+      expect(completed[index][0]).toBe(completed[index - 1][1])
+    }
+    expect(result.drainedThroughMs).toBe(completedThrough)
+    expect(result.events).toEqual(sourceEvents.filter(({ at }) => at < completedThrough).map(({ event }) => event))
+    expect(result.deadlineSkippedSliceCount).toBe(0)
+    expect(result.truncatedSliceCount).toBe(0)
+    expect(pull).toHaveBeenCalledTimes(8)
   })
 
   test('skips past an un-narrowable head slice when the deadline trips mid-narrowing, instead of wedging', async () => {
@@ -436,15 +460,18 @@ describe('drainVercelTrafficEvents', () => {
     // Returning zero progress (drainedThroughMs == startDate) makes the caller
     // fail and re-pull the identical head forever: a permanent wedge. Instead the
     // drain skips past the head so the cursor always advances.
-    const pull = vi.fn(async () => page([], true)) // every span overflows, always
-    let tick = 0
+    let clock = 0
+    vi.spyOn(Date, 'now').mockImplementation(() => clock)
+    const pull = vi.fn(async () => {
+      clock += 1
+      return page([], true)
+    })
     const result = await drainVercelTrafficEvents({
       ...baseOptions,
       pull,
       startDate: 0,
       endDate: 24 * HOUR,
-      deadlineMs: 3, // trips after a couple of halvings, well before the 1s floor
-      now: () => (tick += 1),
+      deadlineMs: 3,
     })
     expect(result.deadlineReached).toBe(true)
     // Forward progress is guaranteed: the cursor advanced past the head by the

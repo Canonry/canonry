@@ -48,12 +48,6 @@ function normalizeCloudflareTrafficConnection(
   throw unsupportedDeliveryMode(deliveryMode)
 }
 
-export function listCloudflareTrafficConnections(
-  config: CanonryConfig,
-): CloudflareTrafficConnectionConfigEntry[] {
-  return (config.cloudflareTraffic?.connections ?? []).map(normalizeCloudflareTrafficConnection)
-}
-
 export function getCloudflareTrafficConnection(
   config: CanonryConfig,
   projectName: string,

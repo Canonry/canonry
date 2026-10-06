@@ -14,15 +14,10 @@ describe('reverseDomain', () => {
 })
 
 describe('forwardDomain', () => {
-  test('is the inverse of reverseDomain', () => {
-    const inputs = ['roots.io', 'www.example.com', 'a.b.c.d', 'localhost']
-    for (const input of inputs) {
-      expect(forwardDomain(reverseDomain(input))).toBe(input)
-    }
-  })
-
   test('converts rev-form to forward-form', () => {
     expect(forwardDomain('io.roots')).toBe('roots.io')
     expect(forwardDomain('com.example.www')).toBe('www.example.com')
+    expect(forwardDomain('d.c.b.a')).toBe('a.b.c.d')
+    expect(forwardDomain('localhost')).toBe('localhost')
   })
 })

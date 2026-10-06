@@ -18,7 +18,7 @@ const NORTHBRIDGE = { label: 'northbridge', city: 'Northbridge', region: 'NB', c
 const CHECKSUM = 'a'.repeat(64)
 
 function planV2(): MeasurementPlanV2 {
-  return measurementPlanV2Schema.parse({
+  return {
     schemaVersion: 2,
     identities: {
       projectBrand: {
@@ -94,7 +94,7 @@ function planV2(): MeasurementPlanV2 {
       { executionNodeKey: 'exec-northstar', targetKey: 'harbor-point', queryId: 'q-northstar' },
     ],
     compiledChecksum: CHECKSUM,
-  })
+  }
 }
 
 describe('published measurement plan v2', () => {
@@ -145,21 +145,30 @@ describe('published measurement plan v2', () => {
   it('round-trips an explicit market-to-group association and rejects a missing or outside group', () => {
     const plan = planV2()
     const edge = { executionNodeKey: 'exec-best', targetKey: 'harbor-point', queryId: 'q-best' }
-    const scoped = measurementPlanV2Schema.parse({
+    const scoped: MeasurementPlanV2 = {
       ...plan,
       reportingScopes: [{ stableKey: 'harbor-market', label: 'Harbor market', kind: 'market', groupKey: 'northbridge-portfolio', usageEdges: [edge] }],
-    })
+    }
+    expect(measurementPlanV2Schema.parse(scoped)).toEqual(scoped)
     expect(measurementPlanV2Schema.parse(JSON.parse(canonicalMeasurementPlanV2Json(scoped))).reportingScopes)
-      .toEqual(scoped.reportingScopes)
+      .toEqual([{ stableKey: 'harbor-market', label: 'Harbor market', kind: 'market', groupKey: 'northbridge-portfolio', usageEdges: [{ executionNodeKey: 'exec-best', targetKey: 'harbor-point', queryId: 'q-best' }] }])
 
-    expect(measurementPlanV2Schema.safeParse({
+    const withOutsideGroup = {
       ...scoped,
-      reportingScopes: [{ ...scoped.reportingScopes![0]!, groupKey: 'missing-group' }],
-    }).success).toBe(false)
-    expect(measurementPlanV2Schema.safeParse({
-      ...scoped,
-      reportingScopes: [{ ...scoped.reportingScopes![0]!, groupKey: 'northbridge-harbor' }],
-    }).success).toBe(false)
+      groups: [...scoped.groups, {
+        stableKey: 'northbridge-harbor', label: 'Northbridge Harbor', targetKeys: ['sail-loft'], competitors: [],
+      }],
+    }
+    for (const groupKey of ['missing-group', 'northbridge-harbor']) {
+      const result = measurementPlanV2Schema.safeParse({
+        ...withOutsideGroup,
+        reportingScopes: [{ ...withOutsideGroup.reportingScopes![0]!, groupKey }],
+      })
+      expect(result.error?.issues, groupKey).toEqual([expect.objectContaining({
+        code: 'custom', path: ['reportingScopes', 0, 'groupKey'],
+        message: 'A market must link to an existing group containing all its assigned properties.',
+      })])
+    }
   })
 
   it('keeps a new assignment classification basis frozen without breaking historic rows', () => {
@@ -172,40 +181,72 @@ describe('published measurement plan v2', () => {
     expect(classified.assignments[0]?.classificationSource).toBe('server')
   })
 
-  it('rejects duplicate scope keys and repeated frozen edge membership', () => {
+  it.each(['scope key', 'edge membership'] as const)('rejects duplicate %s independently', duplicate => {
     const edge = { executionNodeKey: 'exec-best', targetKey: 'harbor-point', queryId: 'q-best' }
-    expect(measurementPlanV2Schema.safeParse({
+    const scoped = measurementPlanV2Schema.parse({
       ...planV2(),
       reportingScopes: [
-        { stableKey: 'alpha', label: 'Alpha', kind: 'market', usageEdges: [edge, edge] },
-        { stableKey: 'alpha', label: 'Alpha again', kind: 'market', usageEdges: [edge] },
+        { stableKey: 'alpha', label: 'Alpha', kind: 'market', usageEdges: [edge] },
+        { stableKey: 'beta', label: 'Beta', kind: 'market', usageEdges: [edge] },
       ],
-    }).success).toBe(false)
+    })
+    if (duplicate === 'scope key') scoped.reportingScopes![1]!.stableKey = 'alpha'
+    else scoped.reportingScopes![0]!.usageEdges.push(edge)
+
+    const result = measurementPlanV2Schema.safeParse(scoped)
+    expect(result.error?.issues).toEqual([expect.objectContaining(duplicate === 'scope key' ? {
+      code: 'custom', path: ['reportingScopes', 1, 'stableKey'], message: 'Duplicate reporting scope key "alpha"',
+    } : {
+      code: 'custom', path: ['reportingScopes', 0, 'usageEdges', 1], message: 'Reporting scope "alpha" repeats a usage edge.',
+    })])
   })
 
   it('accepts the v2 stable key vocabulary exactly where v1 does', () => {
-    const cases = ['harbor-point', 'Harbor.Point~1', 'a', '9lives', '-leading-dash', '', 'has space', 'x'.repeat(129)]
-    for (const value of cases) {
-      expect(
-        measurementV2StableKeySchema.safeParse(value).success,
-        `v2 stable key disagrees with v1 on ${JSON.stringify(value)}`,
-      ).toBe(measurementStableKeySchema.safeParse(value).success)
+    const cases = [
+      ['harbor-point', true], ['Harbor.Point~1', true], ['a', true], ['9lives', true],
+      ['-leading-dash', false], ['', false], ['has space', false], ['x'.repeat(129), false],
+      ['x'.repeat(128), true],
+    ] as const
+    for (const [value, admitted] of cases) {
+      expect(measurementV2StableKeySchema.safeParse(value).success, value).toBe(admitted)
+      expect(measurementStableKeySchema.safeParse(value).success, value).toBe(admitted)
     }
   })
 })
 
   it('validates explicit group hierarchy without inferring it from target overlap', () => {
     const plan = planV2()
+    const parent = { ...plan.groups[0]!, targetKeys: ['harbor-point'] }
     const child = { stableKey: 'northbridge-harbor', label: 'Northbridge Harbor', parentGroupKey: 'northbridge-portfolio', targetKeys: ['harbor-point'], competitors: [] }
-    expect(measurementPlanV2Schema.safeParse({ ...plan, groups: [...plan.groups, child] }).success).toBe(true)
-    expect(measurementPlanV2Schema.safeParse({ ...plan, groups: [{ ...plan.groups[0], parentGroupKey: 'missing' }] }).success).toBe(false)
-    expect(measurementPlanV2Schema.safeParse({ ...plan, groups: [{ ...plan.groups[0], parentGroupKey: 'northbridge-portfolio' }] }).success).toBe(false)
-    expect(measurementPlanV2Schema.safeParse({ ...plan, groups: [{ ...plan.groups[0], parentGroupKey: 'northbridge-harbor' }, { ...child, parentGroupKey: 'northbridge-portfolio' }] }).success).toBe(false)
-    expect(measurementPlanV2Schema.safeParse({ ...plan, groups: [...plan.groups, { ...child, targetKeys: ['not-a-parent-member'] }] }).success).toBe(false)
+    const parsed = measurementPlanV2Schema.parse({ ...plan, groups: [parent, child] })
+    expect(parsed.groups[0]!.parentGroupKey).toBeUndefined()
+    expect(parsed.groups[1]!.parentGroupKey).toBe(parent.stableKey)
+    for (const [parentGroupKey, message] of [
+      ['missing', 'Group parent does not exist: missing'],
+      [child.stableKey, 'A group cannot be its own parent.'],
+    ]) {
+      const result = measurementPlanV2Schema.safeParse({ ...parsed, groups: [parent, { ...child, parentGroupKey }] })
+      expect(result.error?.issues).toEqual([expect.objectContaining({
+        code: 'custom', path: ['groups', 1, 'parentGroupKey'], message,
+      })])
+    }
+    const cyclic = measurementPlanV2Schema.safeParse({
+      ...parsed, groups: [{ ...parent, parentGroupKey: child.stableKey }, child],
+    })
+    expect(cyclic.error?.issues).toEqual([0, 1].map(index => expect.objectContaining({
+      code: 'custom', path: ['groups', index, 'parentGroupKey'], message: 'Group parent relationships cannot contain a cycle.',
+    })))
+    const outsideParent = measurementPlanV2Schema.safeParse({
+      ...parsed, groups: [parent, { ...child, targetKeys: ['sail-loft'] }],
+    })
+    expect(outsideParent.error?.issues).toEqual([expect.objectContaining({
+      code: 'custom', path: ['groups', 1, 'targetKeys', 0], message: 'Group target membership must be a subset of its parent.',
+    })])
   })
 
 describe('measurement plan v2 canonical ordering', () => {
   it('orders provider configuration too, not only the assignment list', () => {
+
     const plan = planV2()
     const shuffled: MeasurementPlanV2 = {
       ...plan,
@@ -227,23 +268,51 @@ describe('measurement plan v2 canonical ordering', () => {
       })),
     }
 
-    expect(canonicalMeasurementPlanV2Json(shuffled)).toBe(canonicalMeasurementPlanV2Json(plan))
+    expect(canonicalMeasurementPlanV2Json(shuffled)).toBe("{\"assignments\":[{\"executionNodeKey\":\"exec-best\",\"queryClass\":\"non-brand\",\"queryId\":\"q-best\",\"targetKey\":\"harbor-point\"},{\"executionNodeKey\":\"exec-northstar\",\"queryClass\":\"branded\",\"queryId\":\"q-northstar\",\"targetKey\":\"harbor-point\"},{\"executionNodeKey\":\"exec-best\",\"queryClass\":\"non-brand\",\"queryId\":\"q-best\",\"targetKey\":\"sail-loft\"}],\"compiledChecksum\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"executionNodes\":[{\"context\":{\"location\":{\"city\":\"Northbridge\",\"country\":\"US\",\"label\":\"northbridge\",\"region\":\"NB\"},\"models\":{\"gemini\":\"gemini-3-pro\",\"openai\":\"gpt-5.4\"},\"providers\":[\"gemini\",\"openai\"]},\"expectedSnapshots\":2,\"queryId\":\"q-best\",\"queryText\":\"best apartments in northbridge\",\"stableKey\":\"exec-best\"},{\"context\":{\"location\":null,\"models\":{\"gemini\":\"gemini-3-pro\",\"openai\":\"gpt-5.4\"},\"providers\":[\"gemini\",\"openai\"]},\"expectedSnapshots\":2,\"queryId\":\"q-northstar\",\"queryText\":\"northstar apartments\",\"stableKey\":\"exec-northstar\"}],\"groups\":[{\"competitors\":[{\"aliases\":[\"Harborview\"],\"domain\":\"harborview.example\",\"label\":\"Harborview\",\"stableKey\":\"harborview\"}],\"label\":\"Northbridge portfolio\",\"stableKey\":\"northbridge-portfolio\",\"targetKeys\":[\"harbor-point\",\"sail-loft\"]}],\"identities\":{\"projectBrand\":{\"canonicalHost\":\"northstar.example\",\"names\":[\"Northstar Living\"],\"ownedHosts\":[\"northstar.example\",\"residences.northstar.example\"]}},\"querySnapshots\":[{\"provenance\":{\"capturedAt\":\"2026-08-01T00:00:00.000Z\",\"source\":\"manual\",\"sourceId\":null},\"queryId\":\"q-best\",\"queryText\":\"best apartments in northbridge\"},{\"provenance\":{\"capturedAt\":\"2026-08-01T00:00:00.000Z\",\"source\":\"template\",\"sourceId\":\"tpl-brand\"},\"queryId\":\"q-northstar\",\"queryText\":\"northstar apartments\"}],\"schemaVersion\":2,\"targets\":[{\"aliases\":[\"Harbor Point\"],\"discoveryIdentity\":\"northstar.example/apartments/{slug}#harbor-point\",\"label\":\"Harbor Point\",\"mentionNotApplicable\":false,\"stableKey\":\"harbor-point\",\"urlMatchers\":[{\"host\":\"northstar.example\",\"kind\":\"prefix\",\"pathCase\":\"insensitive\",\"pathPrefix\":\"/apartments/harbor-point\"}]},{\"aliases\":[],\"discoveryIdentity\":null,\"label\":\"Sail Loft\",\"mentionNotApplicable\":true,\"stableKey\":\"sail-loft\",\"urlMatchers\":[{\"host\":\"residences.northstar.example\",\"kind\":\"host\"}]}],\"usageEdges\":[{\"executionNodeKey\":\"exec-best\",\"queryId\":\"q-best\",\"targetKey\":\"harbor-point\"},{\"executionNodeKey\":\"exec-best\",\"queryId\":\"q-best\",\"targetKey\":\"sail-loft\"},{\"executionNodeKey\":\"exec-northstar\",\"queryId\":\"q-northstar\",\"targetKey\":\"harbor-point\"}]}")
+    expect(canonicalMeasurementPlanV2Json(plan)).toBe("{\"assignments\":[{\"executionNodeKey\":\"exec-best\",\"queryClass\":\"non-brand\",\"queryId\":\"q-best\",\"targetKey\":\"harbor-point\"},{\"executionNodeKey\":\"exec-northstar\",\"queryClass\":\"branded\",\"queryId\":\"q-northstar\",\"targetKey\":\"harbor-point\"},{\"executionNodeKey\":\"exec-best\",\"queryClass\":\"non-brand\",\"queryId\":\"q-best\",\"targetKey\":\"sail-loft\"}],\"compiledChecksum\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"executionNodes\":[{\"context\":{\"location\":{\"city\":\"Northbridge\",\"country\":\"US\",\"label\":\"northbridge\",\"region\":\"NB\"},\"models\":{\"gemini\":\"gemini-3-pro\",\"openai\":\"gpt-5.4\"},\"providers\":[\"gemini\",\"openai\"]},\"expectedSnapshots\":2,\"queryId\":\"q-best\",\"queryText\":\"best apartments in northbridge\",\"stableKey\":\"exec-best\"},{\"context\":{\"location\":null,\"models\":{\"gemini\":\"gemini-3-pro\",\"openai\":\"gpt-5.4\"},\"providers\":[\"gemini\",\"openai\"]},\"expectedSnapshots\":2,\"queryId\":\"q-northstar\",\"queryText\":\"northstar apartments\",\"stableKey\":\"exec-northstar\"}],\"groups\":[{\"competitors\":[{\"aliases\":[\"Harborview\"],\"domain\":\"harborview.example\",\"label\":\"Harborview\",\"stableKey\":\"harborview\"}],\"label\":\"Northbridge portfolio\",\"stableKey\":\"northbridge-portfolio\",\"targetKeys\":[\"harbor-point\",\"sail-loft\"]}],\"identities\":{\"projectBrand\":{\"canonicalHost\":\"northstar.example\",\"names\":[\"Northstar Living\"],\"ownedHosts\":[\"northstar.example\",\"residences.northstar.example\"]}},\"querySnapshots\":[{\"provenance\":{\"capturedAt\":\"2026-08-01T00:00:00.000Z\",\"source\":\"manual\",\"sourceId\":null},\"queryId\":\"q-best\",\"queryText\":\"best apartments in northbridge\"},{\"provenance\":{\"capturedAt\":\"2026-08-01T00:00:00.000Z\",\"source\":\"template\",\"sourceId\":\"tpl-brand\"},\"queryId\":\"q-northstar\",\"queryText\":\"northstar apartments\"}],\"schemaVersion\":2,\"targets\":[{\"aliases\":[\"Harbor Point\"],\"discoveryIdentity\":\"northstar.example/apartments/{slug}#harbor-point\",\"label\":\"Harbor Point\",\"mentionNotApplicable\":false,\"stableKey\":\"harbor-point\",\"urlMatchers\":[{\"host\":\"northstar.example\",\"kind\":\"prefix\",\"pathCase\":\"insensitive\",\"pathPrefix\":\"/apartments/harbor-point\"}]},{\"aliases\":[],\"discoveryIdentity\":null,\"label\":\"Sail Loft\",\"mentionNotApplicable\":true,\"stableKey\":\"sail-loft\",\"urlMatchers\":[{\"host\":\"residences.northstar.example\",\"kind\":\"host\"}]}],\"usageEdges\":[{\"executionNodeKey\":\"exec-best\",\"queryId\":\"q-best\",\"targetKey\":\"harbor-point\"},{\"executionNodeKey\":\"exec-best\",\"queryId\":\"q-best\",\"targetKey\":\"sail-loft\"},{\"executionNodeKey\":\"exec-northstar\",\"queryId\":\"q-northstar\",\"targetKey\":\"harbor-point\"}]}")
+
   })
 
   it('orders reporting scopes and their exact edge tuples canonically', () => {
-    const plan = planV2()
-    const first = { executionNodeKey: 'exec-best', targetKey: 'harbor-point', queryId: 'q-best' }
-    const second = { executionNodeKey: 'exec-best', targetKey: 'sail-loft', queryId: 'q-best' }
-    const ordered = measurementPlanV2Schema.parse({
-      ...plan,
-      reportingScopes: [{ stableKey: 'alpha', label: 'Alpha', kind: 'market', usageEdges: [first, second] }],
-    })
-    const shuffled = measurementPlanV2Schema.parse({
-      ...plan,
-      reportingScopes: [{ stableKey: 'alpha', label: 'Alpha', kind: 'market', usageEdges: [second, first] }],
-    })
-    expect(canonicalMeasurementPlanV2Json(shuffled)).toBe(canonicalMeasurementPlanV2Json(ordered))
-    expect(measurementPlanV2ChecksumJson(shuffled)).toBe(measurementPlanV2ChecksumJson(ordered))
+    const ordered: MeasurementPlanV2 = { ...planV2(), reportingScopes: [
+  {
+    "stableKey": "alpha",
+    "label": "Alpha",
+    "kind": "market",
+    "usageEdges": [
+      {
+        "executionNodeKey": "exec-best",
+        "targetKey": "harbor-point",
+        "queryId": "q-best"
+      },
+      {
+        "executionNodeKey": "exec-best",
+        "targetKey": "sail-loft",
+        "queryId": "q-best"
+      }
+    ]
+  },
+  {
+    "stableKey": "beta",
+    "label": "Beta",
+    "kind": "market",
+    "usageEdges": [
+      {
+        "executionNodeKey": "exec-best",
+        "targetKey": "harbor-point",
+        "queryId": "q-best"
+      },
+      {
+        "executionNodeKey": "exec-northstar",
+        "targetKey": "harbor-point",
+        "queryId": "q-northstar"
+      }
+    ]
+  }
+] }
+    const shuffled: MeasurementPlanV2 = { ...ordered, reportingScopes: ordered.reportingScopes!.slice().reverse().map(scope => ({ ...scope, usageEdges: scope.usageEdges.slice().reverse() })) }
+    expect(canonicalMeasurementPlanV2Json(shuffled)).toBe("{\"assignments\":[{\"executionNodeKey\":\"exec-best\",\"queryClass\":\"non-brand\",\"queryId\":\"q-best\",\"targetKey\":\"harbor-point\"},{\"executionNodeKey\":\"exec-northstar\",\"queryClass\":\"branded\",\"queryId\":\"q-northstar\",\"targetKey\":\"harbor-point\"},{\"executionNodeKey\":\"exec-best\",\"queryClass\":\"non-brand\",\"queryId\":\"q-best\",\"targetKey\":\"sail-loft\"}],\"compiledChecksum\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"executionNodes\":[{\"context\":{\"location\":{\"city\":\"Northbridge\",\"country\":\"US\",\"label\":\"northbridge\",\"region\":\"NB\"},\"models\":{\"gemini\":\"gemini-3-pro\",\"openai\":\"gpt-5.4\"},\"providers\":[\"gemini\",\"openai\"]},\"expectedSnapshots\":2,\"queryId\":\"q-best\",\"queryText\":\"best apartments in northbridge\",\"stableKey\":\"exec-best\"},{\"context\":{\"location\":null,\"models\":{\"gemini\":\"gemini-3-pro\",\"openai\":\"gpt-5.4\"},\"providers\":[\"gemini\",\"openai\"]},\"expectedSnapshots\":2,\"queryId\":\"q-northstar\",\"queryText\":\"northstar apartments\",\"stableKey\":\"exec-northstar\"}],\"groups\":[{\"competitors\":[{\"aliases\":[\"Harborview\"],\"domain\":\"harborview.example\",\"label\":\"Harborview\",\"stableKey\":\"harborview\"}],\"label\":\"Northbridge portfolio\",\"stableKey\":\"northbridge-portfolio\",\"targetKeys\":[\"harbor-point\",\"sail-loft\"]}],\"identities\":{\"projectBrand\":{\"canonicalHost\":\"northstar.example\",\"names\":[\"Northstar Living\"],\"ownedHosts\":[\"northstar.example\",\"residences.northstar.example\"]}},\"querySnapshots\":[{\"provenance\":{\"capturedAt\":\"2026-08-01T00:00:00.000Z\",\"source\":\"manual\",\"sourceId\":null},\"queryId\":\"q-best\",\"queryText\":\"best apartments in northbridge\"},{\"provenance\":{\"capturedAt\":\"2026-08-01T00:00:00.000Z\",\"source\":\"template\",\"sourceId\":\"tpl-brand\"},\"queryId\":\"q-northstar\",\"queryText\":\"northstar apartments\"}],\"reportingScopes\":[{\"kind\":\"market\",\"label\":\"Alpha\",\"stableKey\":\"alpha\",\"usageEdges\":[{\"executionNodeKey\":\"exec-best\",\"queryId\":\"q-best\",\"targetKey\":\"harbor-point\"},{\"executionNodeKey\":\"exec-best\",\"queryId\":\"q-best\",\"targetKey\":\"sail-loft\"}]},{\"kind\":\"market\",\"label\":\"Beta\",\"stableKey\":\"beta\",\"usageEdges\":[{\"executionNodeKey\":\"exec-best\",\"queryId\":\"q-best\",\"targetKey\":\"harbor-point\"},{\"executionNodeKey\":\"exec-northstar\",\"queryId\":\"q-northstar\",\"targetKey\":\"harbor-point\"}]}],\"schemaVersion\":2,\"targets\":[{\"aliases\":[\"Harbor Point\"],\"discoveryIdentity\":\"northstar.example/apartments/{slug}#harbor-point\",\"label\":\"Harbor Point\",\"mentionNotApplicable\":false,\"stableKey\":\"harbor-point\",\"urlMatchers\":[{\"host\":\"northstar.example\",\"kind\":\"prefix\",\"pathCase\":\"insensitive\",\"pathPrefix\":\"/apartments/harbor-point\"}]},{\"aliases\":[],\"discoveryIdentity\":null,\"label\":\"Sail Loft\",\"mentionNotApplicable\":true,\"stableKey\":\"sail-loft\",\"urlMatchers\":[{\"host\":\"residences.northstar.example\",\"kind\":\"host\"}]}],\"usageEdges\":[{\"executionNodeKey\":\"exec-best\",\"queryId\":\"q-best\",\"targetKey\":\"harbor-point\"},{\"executionNodeKey\":\"exec-best\",\"queryId\":\"q-best\",\"targetKey\":\"sail-loft\"},{\"executionNodeKey\":\"exec-northstar\",\"queryId\":\"q-northstar\",\"targetKey\":\"harbor-point\"}]}")
+    expect(measurementPlanV2ChecksumJson(shuffled)).toBe("{\"assignments\":[{\"executionNodeKey\":\"exec-best\",\"queryClass\":\"non-brand\",\"queryId\":\"q-best\",\"targetKey\":\"harbor-point\"},{\"executionNodeKey\":\"exec-northstar\",\"queryClass\":\"branded\",\"queryId\":\"q-northstar\",\"targetKey\":\"harbor-point\"},{\"executionNodeKey\":\"exec-best\",\"queryClass\":\"non-brand\",\"queryId\":\"q-best\",\"targetKey\":\"sail-loft\"}],\"executionNodes\":[{\"context\":{\"location\":{\"city\":\"Northbridge\",\"country\":\"US\",\"label\":\"northbridge\",\"region\":\"NB\"},\"models\":{\"gemini\":\"gemini-3-pro\",\"openai\":\"gpt-5.4\"},\"providers\":[\"gemini\",\"openai\"]},\"expectedSnapshots\":2,\"queryId\":\"q-best\",\"queryText\":\"best apartments in northbridge\",\"stableKey\":\"exec-best\"},{\"context\":{\"location\":null,\"models\":{\"gemini\":\"gemini-3-pro\",\"openai\":\"gpt-5.4\"},\"providers\":[\"gemini\",\"openai\"]},\"expectedSnapshots\":2,\"queryId\":\"q-northstar\",\"queryText\":\"northstar apartments\",\"stableKey\":\"exec-northstar\"}],\"groups\":[{\"competitors\":[{\"aliases\":[\"Harborview\"],\"domain\":\"harborview.example\",\"label\":\"Harborview\",\"stableKey\":\"harborview\"}],\"label\":\"Northbridge portfolio\",\"stableKey\":\"northbridge-portfolio\",\"targetKeys\":[\"harbor-point\",\"sail-loft\"]}],\"identities\":{\"projectBrand\":{\"canonicalHost\":\"northstar.example\",\"names\":[\"Northstar Living\"],\"ownedHosts\":[\"northstar.example\",\"residences.northstar.example\"]}},\"querySnapshots\":[{\"provenance\":{\"capturedAt\":\"2026-08-01T00:00:00.000Z\",\"source\":\"manual\",\"sourceId\":null},\"queryId\":\"q-best\",\"queryText\":\"best apartments in northbridge\"},{\"provenance\":{\"capturedAt\":\"2026-08-01T00:00:00.000Z\",\"source\":\"template\",\"sourceId\":\"tpl-brand\"},\"queryId\":\"q-northstar\",\"queryText\":\"northstar apartments\"}],\"reportingScopes\":[{\"kind\":\"market\",\"label\":\"Alpha\",\"stableKey\":\"alpha\",\"usageEdges\":[{\"executionNodeKey\":\"exec-best\",\"queryId\":\"q-best\",\"targetKey\":\"harbor-point\"},{\"executionNodeKey\":\"exec-best\",\"queryId\":\"q-best\",\"targetKey\":\"sail-loft\"}]},{\"kind\":\"market\",\"label\":\"Beta\",\"stableKey\":\"beta\",\"usageEdges\":[{\"executionNodeKey\":\"exec-best\",\"queryId\":\"q-best\",\"targetKey\":\"harbor-point\"},{\"executionNodeKey\":\"exec-northstar\",\"queryId\":\"q-northstar\",\"targetKey\":\"harbor-point\"}]}],\"schemaVersion\":2,\"targets\":[{\"aliases\":[\"Harbor Point\"],\"discoveryIdentity\":\"northstar.example/apartments/{slug}#harbor-point\",\"label\":\"Harbor Point\",\"mentionNotApplicable\":false,\"stableKey\":\"harbor-point\",\"urlMatchers\":[{\"host\":\"northstar.example\",\"kind\":\"prefix\",\"pathCase\":\"insensitive\",\"pathPrefix\":\"/apartments/harbor-point\"}]},{\"aliases\":[],\"discoveryIdentity\":null,\"label\":\"Sail Loft\",\"mentionNotApplicable\":true,\"stableKey\":\"sail-loft\",\"urlMatchers\":[{\"host\":\"residences.northstar.example\",\"kind\":\"host\"}]}],\"usageEdges\":[{\"executionNodeKey\":\"exec-best\",\"queryId\":\"q-best\",\"targetKey\":\"harbor-point\"},{\"executionNodeKey\":\"exec-best\",\"queryId\":\"q-best\",\"targetKey\":\"sail-loft\"},{\"executionNodeKey\":\"exec-northstar\",\"queryId\":\"q-northstar\",\"targetKey\":\"harbor-point\"}]}")
   })
 
   it('excludes the checksum field from the bytes the checksum is taken over', () => {
@@ -392,9 +461,7 @@ describe('v2 referential integrity', () => {
     expect(measurementPlanV2Schema.safeParse(group).success).toBe(false)
   })
 
-  it('still accepts a plan whose edges all resolve', () => {
-    expect(measurementPlanV2Schema.safeParse(planV2()).success).toBe(true)
-  })
+
 
   it('reads the evidence shape as an opt-in, defaulting by absence to the published per-URL rows', () => {
     const omitted = measurementPropertyEvidenceQuerySchema.parse({ targetKey: 'harbor' })

@@ -217,6 +217,10 @@ Available factories: `validationError()`, `notFound()`, `alreadyExists()`, `auth
 
 ## Common Mistakes
 
+- **Testing an error writer through its reader** — durable JSON read and write contracts need independent literal inputs and expected envelopes.
+- **Asserting only schema success** — check that location, flags and provenance survive parsing, including nullable and omitted inputs.
+- **Keeping unused classifier wrappers for tests** — URI normalization belongs to `categorizeSource`; supplied categories and normalized cited-domain maps belong to their production classifiers. Use contradictory ownership/category fixtures and literal label expectations.
+
 - **Hand-constructing error JSON** — always use factory functions from `errors.ts`.
 - **Defining shared types in consuming packages** — types used across packages belong here.
 - **Defining generic helpers (formatters, parsers, normalizers) inline in consumer files** — they belong in this package. See "Shared Utilities" in the root `AGENTS.md`.

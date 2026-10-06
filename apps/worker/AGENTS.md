@@ -10,7 +10,7 @@ Cloud background worker. Processes jobs from a queue (pg-boss) — visibility sw
 |------|------|
 | `src/index.ts` | Entry point — connects to job queue and starts processing |
 | `src/health-server.ts` | HTTP health check endpoint for container orchestration |
-| `src/audit-client.ts` | Audit log client for cloud worker context |
+| `src/audit-client.ts` | Describes the pinned audit package in the worker startup log; no worker audit execution path |
 | `src/jobs/` | Job handler implementations |
 
 ## Patterns

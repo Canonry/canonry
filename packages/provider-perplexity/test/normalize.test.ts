@@ -1,111 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { extractCitations, extractCitedDomains, validateConfig, normalizeResult, reparseStoredResult, extractServedModel } from '../src/normalize.js'
-import type { PerplexityRawResult, GroundingSource } from '../src/types.js'
-
-describe('extractCitations', () => {
-  it('extracts string citations from response', () => {
-    const raw = {
-      citations: [
-        'https://example.com/page1',
-        'https://foo.bar.com/article',
-        'https://www.test.org',
-      ],
-    }
-    expect(extractCitations(raw)).toEqual([
-      'https://example.com/page1',
-      'https://foo.bar.com/article',
-      'https://www.test.org',
-    ])
-  })
-
-  it('returns empty array when no citations', () => {
-    expect(extractCitations({})).toEqual([])
-    expect(extractCitations({ citations: null })).toEqual([])
-  })
-
-  it('filters out non-string values', () => {
-    const raw = {
-      citations: ['https://example.com', 123, null, 'https://other.com'],
-    }
-    expect(extractCitations(raw)).toEqual(['https://example.com', 'https://other.com'])
-  })
-
-  it('extracts citations from stored DB format (nested under apiResponse)', () => {
-    // job-runner stores raw_response as { model, groundingSources, searchQueries, apiResponse }
-    // where apiResponse is the actual Perplexity API response containing citations
-    const dbStoredFormat = {
-      model: 'sonar',
-      groundingSources: [{ uri: 'https://example.com', title: '' }],
-      searchQueries: ['AEO agency NYC'],
-      apiResponse: {
-        id: 'abc123',
-        model: 'sonar',
-        choices: [{ message: { content: 'answer text' } }],
-        citations: [
-          'https://example.com/page1',
-          'https://ainyc.ai/services',
-        ],
-      },
-    }
-    expect(extractCitations(dbStoredFormat)).toEqual([
-      'https://example.com/page1',
-      'https://ainyc.ai/services',
-    ])
-  })
-
-  it('prefers top-level citations over nested apiResponse citations', () => {
-    // If both exist, direct API response format takes precedence
-    const raw = {
-      citations: ['https://direct.com'],
-      apiResponse: {
-        citations: ['https://nested.com'],
-      },
-    }
-    expect(extractCitations(raw)).toEqual(['https://direct.com'])
-  })
-
-  it('returns empty array when apiResponse has no citations', () => {
-    const raw = {
-      model: 'sonar',
-      groundingSources: [],
-      apiResponse: { id: 'abc', choices: [] },
-    }
-    expect(extractCitations(raw)).toEqual([])
-  })
-})
-
-describe('extractCitedDomains', () => {
-  it('extracts unique domains from grounding sources', () => {
-    const sources: GroundingSource[] = [
-      { uri: 'https://example.com/page1', title: '' },
-      { uri: 'https://www.example.com/page2', title: '' },
-      { uri: 'https://other.com/path', title: '' },
-    ]
-    const domains = extractCitedDomains(sources)
-    expect(domains).toContain('example.com')
-    expect(domains).toContain('other.com')
-    expect(domains).toHaveLength(2) // deduped
-  })
-
-  it('strips www prefix', () => {
-    const sources: GroundingSource[] = [
-      { uri: 'https://www.mysite.com', title: '' },
-    ]
-    expect(extractCitedDomains(sources)).toEqual(['mysite.com'])
-  })
-
-  it('handles invalid URIs gracefully', () => {
-    const sources: GroundingSource[] = [
-      { uri: 'not-a-url', title: '' },
-      { uri: 'https://valid.com', title: '' },
-    ]
-    expect(extractCitedDomains(sources)).toEqual(['valid.com'])
-  })
-
-  it('returns empty array for empty sources', () => {
-    expect(extractCitedDomains([])).toEqual([])
-  })
-})
+import { validateConfig, normalizeResult, reparseStoredResult } from '../src/normalize.js'
+import type { PerplexityRawResult } from '../src/types.js'
 
 describe('validateConfig', () => {
   it('returns ok for valid config', () => {
@@ -156,7 +51,7 @@ describe('validateConfig', () => {
 })
 
 describe('normalizeResult (Sonar history)', () => {
-  it('extracts answer text and cited domains from raw result', () => {
+  it("extracts answer text and cited domains from raw result", () => {
     const raw: PerplexityRawResult = {
       provider: 'perplexity',
       rawResponse: {
@@ -176,12 +71,23 @@ describe('normalizeResult (Sonar history)', () => {
       searchQueries: ['what is perplexity'],
     }
 
-    const result = normalizeResult(raw)
-    expect(result.provider).toBe('perplexity')
-    expect(result.answerText).toBe('Perplexity is an AI search engine.')
-    expect(result.citedDomains).toContain('perplexity.ai')
-    expect(result.citedDomains).toContain('example.com')
-    expect(result.searchQueries).toEqual([])
+    const empty = { provider: 'perplexity', answerText: '', citedDomains: [], groundingSources: [], searchQueries: [], retrievalStatus: 'unknown' } satisfies import('../src/types.js').PerplexityNormalizedResult
+    const base: PerplexityRawResult = { provider: 'perplexity', model: 'sonar', rawResponse: {}, groundingSources: [], searchQueries: [] }
+    const rows: Array<{ name: string; raw: PerplexityRawResult; expected: import('../src/types.js').PerplexityNormalizedResult }> = [
+      { name: 'original complete Sonar normalization', raw, expected: { provider: 'perplexity', answerText: 'Perplexity is an AI search engine.', citedDomains: ['perplexity.ai', 'example.com'], groundingSources: [{ uri: 'https://perplexity.ai', title: '' }, { uri: 'https://www.example.com/article', title: '' }], searchQueries: [], retrievalStatus: 'unknown' } },
+      { name: 'original direct string citations', raw: { ...base, rawResponse: { citations: ['https://example.com/page1', 'https://foo.bar.com/article', 'https://www.test.org'] } }, expected: { ...empty, groundingSources: [{ uri: 'https://example.com/page1', title: '' }, { uri: 'https://foo.bar.com/article', title: '' }, { uri: 'https://www.test.org', title: '' }], citedDomains: ['example.com', 'foo.bar.com', 'test.org'] } },
+      { name: 'original absent citations', raw: base, expected: empty },
+      { name: 'original null citations', raw: { ...base, rawResponse: { citations: null } }, expected: empty },
+      { name: 'original mixed non-string citations', raw: { ...base, rawResponse: { citations: ['https://example.com', 123, null, 'https://other.com'] } }, expected: { ...empty, groundingSources: [{ uri: 'https://example.com', title: '' }, { uri: 'https://other.com', title: '' }], citedDomains: ['example.com', 'other.com'] } },
+      { name: 'original nested stored Sonar citations', raw: { ...base, rawResponse: { model: 'sonar', groundingSources: [{ uri: 'https://example.com', title: '' }], searchQueries: ['AEO agency NYC'], apiResponse: { id: 'abc123', model: 'sonar', choices: [{ message: { content: 'answer text' } }], citations: ['https://example.com/page1', 'https://ainyc.ai/services'] } } }, expected: { ...empty, answerText: 'answer text', groundingSources: [{ uri: 'https://example.com/page1', title: '' }, { uri: 'https://ainyc.ai/services', title: '' }], citedDomains: ['example.com', 'ainyc.ai'] } },
+      { name: 'original direct citations take precedence', raw: { ...base, rawResponse: { citations: ['https://direct.com'], apiResponse: { citations: ['https://nested.com'] } } }, expected: { ...empty, groundingSources: [{ uri: 'https://direct.com', title: '' }], citedDomains: ['direct.com'] } },
+      { name: 'original nested response without citations', raw: { ...base, rawResponse: { model: 'sonar', groundingSources: [], apiResponse: { id: 'abc', choices: [] } } }, expected: empty },
+      { name: 'original fallback duplicate source hosts', raw: { ...base, groundingSources: [{ uri: 'https://example.com/page1', title: '' }, { uri: 'https://www.example.com/page2', title: '' }, { uri: 'https://other.com/path', title: '' }] }, expected: { ...empty, groundingSources: [{ uri: 'https://example.com/page1', title: '' }, { uri: 'https://www.example.com/page2', title: '' }, { uri: 'https://other.com/path', title: '' }], citedDomains: ['example.com', 'other.com'] } },
+      { name: 'original fallback www host', raw: { ...base, groundingSources: [{ uri: 'https://www.mysite.com', title: '' }] }, expected: { ...empty, groundingSources: [{ uri: 'https://www.mysite.com', title: '' }], citedDomains: ['mysite.com'] } },
+      { name: 'original fallback invalid URI', raw: { ...base, groundingSources: [{ uri: 'not-a-url', title: '' }, { uri: 'https://valid.com', title: '' }] }, expected: { ...empty, groundingSources: [{ uri: 'not-a-url', title: '' }, { uri: 'https://valid.com', title: '' }], citedDomains: ['valid.com'] } },
+      { name: 'original empty sources', raw: { ...base, groundingSources: [] }, expected: empty },
+    ]
+    for (const row of rows) expect(normalizeResult(row.raw), row.name).toEqual(row.expected)
   })
 
   it('handles empty response', () => {
@@ -280,38 +186,5 @@ describe('reparseStoredResult (Sonar history)', () => {
     expect(result.groundingSources).toEqual([
       { uri: 'https://docs.perplexity.ai/guides', title: 'Perplexity Guides' },
     ])
-  })
-})
-
-describe('extractServedModel', () => {
-  // Perplexity returns an OpenAI-shaped ChatCompletion; `model` is the served identity.
-  // Constructed, not captured — no live Perplexity call was made for this change, so
-  // these cases pin extraction behaviour, not an observed divergence.
-  const sonarResponse: Record<string, unknown> = {
-    id: 'chatcmpl-perplexity-1',
-    object: 'chat.completion',
-    model: 'sonar-pro',
-    choices: [
-      { index: 0, finish_reason: 'stop', message: { role: 'assistant', content: 'Answer.' } },
-    ],
-  }
-
-  it('captures the model Perplexity reported serving, not the configured alias', () => {
-    const configuredModel = 'sonar'
-    const servedModel = extractServedModel(sonarResponse)
-    expect(servedModel).toBe('sonar-pro')
-    expect(servedModel).not.toBe(configuredModel)
-  })
-
-  it('returns undefined when the response carries no model field', () => {
-    const { model: _model, ...withoutModel } = sonarResponse
-    const servedModel = extractServedModel(withoutModel)
-    expect(servedModel).toBeUndefined()
-    expect(servedModel).not.toBe('')
-    expect(servedModel).not.toBe('sonar')
-  })
-
-  it('returns undefined for a whitespace-only model field', () => {
-    expect(extractServedModel({ ...sonarResponse, model: ' \t ' })).toBeUndefined()
   })
 })

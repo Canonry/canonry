@@ -7,8 +7,9 @@ import {
   parseStoredMeasurementPlan,
   parseStoredMeasurementPlanAnyVersion,
   type MeasurementPlanInput,
+  type MeasurementPlan,
 } from '../src/measurement-plan.js'
-import { canonicalMeasurementPlanV2Json, measurementPlanV2Schema } from '../src/measurement-plan-v2.js'
+import { canonicalMeasurementPlanV2Json, type MeasurementPlanV2 } from '../src/measurement-plan-v2.js'
 
 const NORTHBRIDGE = { label: 'northbridge', city: 'Northbridge', region: 'NB', country: 'US' }
 
@@ -33,7 +34,7 @@ const V1_INPUT: MeasurementPlanInput = {
   targetQuerySelections: [{ targetKey: 'harbor-point', queryIds: ['q-best'] }],
 }
 
-const V2_PLAN = measurementPlanV2Schema.parse({
+const V2_PLAN: MeasurementPlanV2 = {
   schemaVersion: 2,
   identities: {
     projectBrand: {
@@ -66,24 +67,101 @@ const V2_PLAN = measurementPlanV2Schema.parse({
   }],
   usageEdges: [{ executionNodeKey: 'exec-best', targetKey: 'harbor-point', queryId: 'q-best' }],
   compiledChecksum: 'c'.repeat(64),
-})
+}
 
 describe('stored measurement plan version dispatch', () => {
   it('decodes a stored v1 revision byte-identically through the v1 path', () => {
-    const compiled = compileMeasurementPlan(V1_INPUT, CONTEXT)
-    const stored = canonicalMeasurementPlanJson(compiled)
-
-    expect(parseStoredMeasurementPlan(stored)).toEqual(compiled)
+    const expected: MeasurementPlan = {
+  "schemaVersion": 1,
+  "defaultContext": {
+    "label": "northbridge",
+    "city": "Northbridge",
+    "region": "NB",
+    "country": "US"
+  },
+  "effectiveOwnedHosts": [
+    "northstar.example",
+    "residences.northstar.example"
+  ],
+  "projectCanonicalHost": "northstar.example",
+  "projectBrandNames": [
+    "Northstar Living",
+    "northstar"
+  ],
+  "targets": [
+    {
+      "stableKey": "harbor-point",
+      "label": "Harbor Point",
+      "urls": [
+        {
+          "kind": "prefix",
+          "host": "northstar.example",
+          "pathPrefix": "/apartments/harbor-point",
+          "pathCase": "insensitive"
+        }
+      ],
+      "aliases": [
+        "Harbor Point"
+      ],
+      "mentionNotApplicable": false
+    }
+  ],
+  "groups": [],
+  "targetQuerySelections": [
+    {
+      "targetKey": "harbor-point",
+      "queryIds": [
+        "q-best"
+      ]
+    }
+  ],
+  "querySnapshots": [
+    {
+      "queryId": "q-best",
+      "queryText": "best apartments in northbridge"
+    }
+  ],
+  "executionNodes": [
+    {
+      "stableKey": "execution-YmVzdCBhcGFydG1lbnRzIGluIG5vcnRoYnJpZGdlAHsiY2l0eSI6Ik5vcnRoYnJpZGdlIiwiY291bnRyeSI6IlVTIiwibGFiZWwiOiJub3J0aGJyaWRnZSIsInJlZ2lvbiI6Ik5CIn0",
+      "queryText": "best apartments in northbridge",
+      "context": {
+        "label": "northbridge",
+        "city": "Northbridge",
+        "region": "NB",
+        "country": "US"
+      },
+      "expectedSnapshots": 2
+    }
+  ],
+  "usageEdges": [
+    {
+      "kind": "baseline",
+      "executionNodeKey": "execution-YmVzdCBhcGFydG1lbnRzIGluIG5vcnRoYnJpZGdlAHsiY2l0eSI6Ik5vcnRoYnJpZGdlIiwiY291bnRyeSI6IlVTIiwibGFiZWwiOiJub3J0aGJyaWRnZSIsInJlZ2lvbiI6Ik5CIn0",
+      "queryId": "q-best"
+    },
+    {
+      "kind": "target",
+      "executionNodeKey": "execution-YmVzdCBhcGFydG1lbnRzIGluIG5vcnRoYnJpZGdlAHsiY2l0eSI6Ik5vcnRoYnJpZGdlIiwiY291bnRyeSI6IlVTIiwibGFiZWwiOiJub3J0aGJyaWRnZSIsInJlZ2lvbiI6Ik5CIn0",
+      "queryId": "q-best",
+      "targetKey": "harbor-point"
+    }
+  ],
+  "warnings": []
+}
+    const stored = "{\"defaultContext\":{\"city\":\"Northbridge\",\"country\":\"US\",\"label\":\"northbridge\",\"region\":\"NB\"},\"effectiveOwnedHosts\":[\"northstar.example\",\"residences.northstar.example\"],\"executionNodes\":[{\"context\":{\"city\":\"Northbridge\",\"country\":\"US\",\"label\":\"northbridge\",\"region\":\"NB\"},\"expectedSnapshots\":2,\"queryText\":\"best apartments in northbridge\",\"stableKey\":\"execution-YmVzdCBhcGFydG1lbnRzIGluIG5vcnRoYnJpZGdlAHsiY2l0eSI6Ik5vcnRoYnJpZGdlIiwiY291bnRyeSI6IlVTIiwibGFiZWwiOiJub3J0aGJyaWRnZSIsInJlZ2lvbiI6Ik5CIn0\"}],\"groups\":[],\"projectBrandNames\":[\"Northstar Living\",\"northstar\"],\"projectCanonicalHost\":\"northstar.example\",\"querySnapshots\":[{\"queryId\":\"q-best\",\"queryText\":\"best apartments in northbridge\"}],\"schemaVersion\":1,\"targetQuerySelections\":[{\"queryIds\":[\"q-best\"],\"targetKey\":\"harbor-point\"}],\"targets\":[{\"aliases\":[\"Harbor Point\"],\"label\":\"Harbor Point\",\"mentionNotApplicable\":false,\"stableKey\":\"harbor-point\",\"urls\":[{\"host\":\"northstar.example\",\"kind\":\"prefix\",\"pathCase\":\"insensitive\",\"pathPrefix\":\"/apartments/harbor-point\"}]}],\"usageEdges\":[{\"executionNodeKey\":\"execution-YmVzdCBhcGFydG1lbnRzIGluIG5vcnRoYnJpZGdlAHsiY2l0eSI6Ik5vcnRoYnJpZGdlIiwiY291bnRyeSI6IlVTIiwibGFiZWwiOiJub3J0aGJyaWRnZSIsInJlZ2lvbiI6Ik5CIn0\",\"kind\":\"baseline\",\"queryId\":\"q-best\"},{\"executionNodeKey\":\"execution-YmVzdCBhcGFydG1lbnRzIGluIG5vcnRoYnJpZGdlAHsiY2l0eSI6Ik5vcnRoYnJpZGdlIiwiY291bnRyeSI6IlVTIiwibGFiZWwiOiJub3J0aGJyaWRnZSIsInJlZ2lvbiI6Ik5CIn0\",\"kind\":\"target\",\"queryId\":\"q-best\",\"targetKey\":\"harbor-point\"}],\"warnings\":[]}"
+    expect(compileMeasurementPlan(V1_INPUT, CONTEXT)).toEqual(expected)
+    expect(parseStoredMeasurementPlan(stored)).toEqual(expected)
+    expect(parseStoredMeasurementPlanAnyVersion(stored)).toEqual(expected)
     expect(canonicalMeasurementPlanJson(parseStoredMeasurementPlan(stored))).toBe(stored)
-    expect(parseStoredMeasurementPlanAnyVersion(stored)).toEqual(compiled)
-    expect(canonicalMeasurementPlanJson(parseStoredMeasurementPlanAnyVersion(stored) as typeof compiled)).toBe(stored)
+    expect(canonicalMeasurementPlanJson(parseStoredMeasurementPlanAnyVersion(stored) as typeof expected)).toBe(stored)
   })
 
   it('decodes a stored v2 revision through the new v2 case', () => {
-    const stored = canonicalMeasurementPlanV2Json(V2_PLAN)
-
+    const stored = "{\"assignments\":[{\"executionNodeKey\":\"exec-best\",\"queryClass\":\"non-brand\",\"queryId\":\"q-best\",\"targetKey\":\"harbor-point\"}],\"compiledChecksum\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"executionNodes\":[{\"context\":{\"location\":{\"city\":\"Northbridge\",\"country\":\"US\",\"label\":\"northbridge\",\"region\":\"NB\"},\"models\":{\"gemini\":\"gemini-3-pro\"},\"providers\":[\"gemini\"]},\"expectedSnapshots\":1,\"queryId\":\"q-best\",\"queryText\":\"best apartments in northbridge\",\"stableKey\":\"exec-best\"}],\"groups\":[],\"identities\":{\"projectBrand\":{\"canonicalHost\":\"northstar.example\",\"names\":[\"Northstar Living\"],\"ownedHosts\":[\"northstar.example\"]}},\"querySnapshots\":[{\"provenance\":{\"capturedAt\":\"2026-08-01T00:00:00.000Z\",\"source\":\"manual\",\"sourceId\":null},\"queryId\":\"q-best\",\"queryText\":\"best apartments in northbridge\"}],\"schemaVersion\":2,\"targets\":[{\"aliases\":[\"Harbor Point\"],\"discoveryIdentity\":null,\"label\":\"Harbor Point\",\"mentionNotApplicable\":false,\"stableKey\":\"harbor-point\",\"urlMatchers\":[{\"host\":\"northstar.example\",\"kind\":\"prefix\",\"pathCase\":\"insensitive\",\"pathPrefix\":\"/apartments/harbor-point\"}]}],\"usageEdges\":[{\"executionNodeKey\":\"exec-best\",\"queryId\":\"q-best\",\"targetKey\":\"harbor-point\"}]}"
     expect(parseStoredMeasurementPlanAnyVersion(V2_PLAN)).toEqual(V2_PLAN)
     expect(parseStoredMeasurementPlanAnyVersion(stored)).toEqual(V2_PLAN)
+    expect(canonicalMeasurementPlanV2Json(parseStoredMeasurementPlanAnyVersion(stored) as MeasurementPlanV2)).toBe(stored)
   })
 
   it('types v2 plans on both active and revision-detail read responses', () => {

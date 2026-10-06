@@ -263,6 +263,8 @@ Canonry can run behind a reverse proxy sub-path (e.g. `/canonry/`); code that ig
 
 ## Testing
 
+**Use the repository [test-audit skill](.agents/skills/test-audit/SKILL.md) whenever writing, changing, reviewing, running, or auditing tests.** Read it before selecting or editing tests. Apply its authoring gate to new or changed tests; for routine runs, check the affected tests' observable contract and credible failure mode without starting a full-suite audit. Follow its evidence and retention bars before removing coverage. Canonry validation commands and workflow details live in [docs/testing.md](docs/testing.md).
+
 **Every non-trivial change ships with tests** — features, bug fixes, and refactors. Typo, comment, and config-only changes are exempt. Vitest runs the workspace projects in `vitest.config.ts`; tests live in each package's `test/` directory.
 
 - Test the public API of each module, not internals. Cover the happy path plus meaningful edge cases (invalid input, env var overrides, error handling).

@@ -331,49 +331,6 @@ export interface GoogleAdsConversionGoalCampaignConfigRow {
   campaign: GoogleAdsCampaign
 }
 
-export type GoogleAdsCategoryGoalSource = 'CUSTOMER' | 'CAMPAIGN' | 'UNKNOWN'
-
-export interface GoogleAdsEffectiveCategoryOriginGoal {
-  resourceName: string
-  source: Exclude<GoogleAdsCategoryGoalSource, 'UNKNOWN'>
-  category: string
-  origin: string
-  biddable: boolean
-}
-
-export type GoogleAdsGoalInclusion =
-  | {
-      source: 'CUSTOMER_GOAL' | 'CAMPAIGN_GOAL'
-      goalResourceName: string
-      category: string
-      origin: string
-    }
-  | {
-      source: 'CUSTOM_GOAL'
-      goalResourceName: string
-    }
-
-export interface GoogleAdsEffectiveConversionActionInput {
-  conversionAction: GoogleAdsConversionAction
-  includedBy: GoogleAdsGoalInclusion[]
-}
-
-/**
- * The exact provider inputs needed to explain what a campaign can optimize
- * toward. This is deliberately not named "effective conversions": action
- * status, policy eligibility, and later reporting still need interpretation.
- */
-export interface GoogleAdsEffectiveCampaignGoalInputs {
-  campaign: GoogleAdsCampaign
-  config: GoogleAdsConversionGoalCampaignConfig
-  categoryGoalSource: GoogleAdsCategoryGoalSource
-  categoryOriginGoals: GoogleAdsEffectiveCategoryOriginGoal[]
-  customGoal: GoogleAdsCustomConversionGoal | null
-  conversionActions: GoogleAdsEffectiveConversionActionInput[]
-  missingCustomGoalResourceName?: string
-  missingConversionActionResourceNames: string[]
-}
-
 export interface GoogleAdsConversionGoalData {
   conversionActions: GoogleAdsConversionActionRow[]
   customerGoals: GoogleAdsCustomerConversionGoalRow[]
@@ -382,7 +339,6 @@ export interface GoogleAdsConversionGoalData {
   campaignGoalsComplete: boolean
   customGoals: GoogleAdsCustomConversionGoalRow[]
   campaignConfigs: GoogleAdsConversionGoalCampaignConfigRow[]
-  effectiveCampaignGoalInputs: GoogleAdsEffectiveCampaignGoalInputs[]
 }
 
 export interface GoogleAdsSegments {

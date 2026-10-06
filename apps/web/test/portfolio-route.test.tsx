@@ -1,9 +1,10 @@
-import { afterEach, beforeAll, expect, onTestFinished, test } from 'vitest'
+import { afterEach, beforeAll, expect, onTestFinished, test, vi } from 'vitest'
+import { compileAppStyles, compiledElementProperty, cssLengthPx, parseCompiledCss } from './compiled-app-css.js'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
-import type { VisibilityReportResponse } from '@ainyc/canonry-contracts'
+import type { CompetitorLandscapeResponse, EmbedClientConfig, MeasurementPlanResponse, MeasurementPlanV2, VisibilityReportResponse } from '@ainyc/canonry-contracts'
 import { aggregateSentiment, emptyCitationVisibility, queryTrackingWorkspaceResponseSchema, sentimentSettingsSchema, sentimentSummarySchema, visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
 
 import { createDashboardFixture } from '../src/mock-data.js'
@@ -36,7 +37,7 @@ import {
   getApiV1ProjectsByNameVisibilityReportQueryKey,
 } from '@ainyc/canonry-api-client/react-query'
 
-type EmbedBlock = { enabled: boolean; views?: string[]; projectTabs?: string[] }
+type EmbedBlock = Pick<EmbedClientConfig, 'enabled' | 'views' | 'projectTabs'>
 
 /** The Simple overview opens on the trend chart: no Visibility card or table above it. */
 function expectTrendChartFirst(html: string) {
@@ -60,14 +61,14 @@ async function renderAt(
   pathname: string,
   embed?: EmbedBlock,
   measurement?: {
-    plan: ReturnType<typeof measurementPlanResponse> | ReturnType<typeof measurementPlanV2Response>
+    plan: MeasurementPlanResponse
     setup?: ReturnType<typeof measurementSetupResponse>
       | ReturnType<typeof simpleMeasurementSetupResponse>
       | ReturnType<typeof activeMeasurementSetupResponse>
     report?: ReturnType<typeof measurementReportResponse>
     overview?: ReturnType<typeof measurementOverviewResponse>
     overviewKey?: { scope?: 'all' | 'group'; groupKey?: string; queryClass?: 'all' | 'non-brand' | 'branded' }
-    competitorLandscape?: ReturnType<typeof competitorLandscapeResponse>
+    competitorLandscape?: ReturnType<typeof competitorLandscapeResponse> | CompetitorLandscapeResponse
     competitorLandscapeKey?: {
       window?: '7d' | '30d' | '90d' | 'all'
       queryClass?: 'all' | 'non-brand' | 'branded'
@@ -509,7 +510,9 @@ function measurementPlanResponse(revision: number, populated = false) {
   }
 }
 
-function measurementPlanV2Response(revision: number) {
+function measurementPlanV2Response(revision: number): {
+  active: Omit<NonNullable<MeasurementPlanResponse['active']>, 'plan'> & { plan: MeasurementPlanV2 }
+} {
   return {
     active: {
       revision,
@@ -1058,7 +1061,7 @@ test('the unified visibility report owns scope, class, paging, search, and answe
 
   const scopePicker = page.getByText('Whole site', { selector: 'summary, summary > span' }).closest('details')!
   fireEvent.click(page.getByText('Whole site', { selector: 'summary, summary > span' }))
-  fireEvent.click(within(scopePicker).getByRole('button', { name: 'Select North', exact: true }))
+  fireEvent.click(within(scopePicker).getByRole('button', { name: 'Select North' }))
   expect(await page.findByText('North Property')).toBeTruthy()
   expect(observed.some(path => path.includes('scope=group') && path.includes('scopeKey=north'))).toBe(true)
 
@@ -1615,6 +1618,8 @@ function forceNoisyFreshVisibility(dashboard: ReturnType<typeof createDashboardF
   const emptyMentionBreakdown = {
     projectMentionSnapshots: 0,
     competitorMentionSnapshots: 0,
+    combinedMentionSnapshots: 0,
+    ranking: [],
     perCompetitor: [],
     snapshotsWithAnswerText: 0,
     snapshotsTotal: 0,
@@ -1642,7 +1647,7 @@ function forceNoisyFreshVisibility(dashboard: ReturnType<typeof createDashboardF
 test('the header states when the next AI sweep fires', async () => {
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, { schedule: schedule() })
 
-  expect(html).toContain('Next AI sweep')
+  expect(within(renderedPage(html)).getByText('Next AI sweep Aug 7')).toBeTruthy()
   // The fixture has a sweep in flight, so the button sits in its busy state.
   // The point is the vocabulary: every state of this control names the sweep.
   expect(html).toContain('AI sweep running')
@@ -1775,7 +1780,10 @@ test('a first sweep in flight replaces empty-state instructions with one live st
 
   expectTrendChartFirst(html)
   // Past sweeps says the queued sweep is waiting to start.
-  expect(html).toContain('<td class="text-[13px] text-secondary">Waiting</td>')
+  const pastSweepsPage = renderedPage(html)
+  document.body.append(pastSweepsPage)
+  onTestFinished(() => { pastSweepsPage.remove() })
+  expect(within(within(pastSweepsPage).getByRole('table', { name: 'Past sweeps' })).getByRole('cell', { name: 'queued' })).toBeTruthy()
   expect(html.match(/Competitive mention and citation gaps appear after the first AI Visibility sweep\./g)).toHaveLength(1)
   expect(html.match(/No data/g) ?? []).toHaveLength(0)
   expect(html.match(/Run a sweep first/g) ?? []).toHaveLength(0)
@@ -1816,6 +1824,10 @@ test.each([false, true])('ainyc\'s Simple overview opens on the trend chart, wit
 })
 
 test('What changed names ainyc\'s added queries as written and dates the sweep before the change', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
+  vi.stubEnv('TZ', 'UTC')
+  onTestFinished(() => { vi.useRealTimers(); vi.unstubAllEnvs() })
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
     configureFixture: withAinycSweeps,
     analyticsMetrics: ainycMetrics('all'),
@@ -1823,17 +1835,17 @@ test('What changed names ainyc\'s added queries as written and dates the sweep b
   const doc = new DOMParser().parseFromString(html, 'text/html')
   const changes = doc.querySelector('details.av-wc')!
 
-  expect(changes.querySelector('.av-wc-summary')?.textContent).toMatch(/^Sep 29(, 2026)? · 3 queries added · 4 new models$/)
+  expect(changes.querySelector('.av-wc-summary')?.textContent).toBe('Sep 29 · 3 queries added · 4 new models')
   // Stored basket keys are lowercase; the page hands the section the tracked and added query text.
   expect([...changes.querySelectorAll('.av-details-list li')].map(item => item.textContent)).toEqual([
-    expect.stringMatching(/^Added Sep 29(, 2026)?: Canonry, Canonry AEO agency, Canonry reviews$/),
-    expect.stringMatching(/^Claude last answered with claude-sonnet-5 on Sep 29(, 2026)?$/),
-    expect.stringMatching(/^Gemini last answered with gemini-3.5-flash on Sep 29(, 2026)?$/),
-    expect.stringMatching(/^OpenAI last answered with chat-latest on Sep 29(, 2026)?$/),
-    expect.stringMatching(/^Perplexity last answered with openai\/gpt-6-luna on Sep 29(, 2026)?$/),
+    'Added Sep 29: Canonry, Canonry AEO agency, Canonry reviews',
+    'Claude last answered with claude-sonnet-5 on Sep 29',
+    'Gemini last answered with gemini-3.5-flash on Sep 29',
+    'OpenAI last answered with chat-latest on Sep 29',
+    'Perplexity last answered with openai/gpt-6-luna on Sep 29',
   ])
   expect([...changes.querySelectorAll('button[aria-label]')].map(button => button.getAttribute('aria-label')))
-    .toContainEqual(expect.stringMatching(/ Sweep before: Jul 14(, 2026)?\.$/))
+    .toContainEqual(expect.stringMatching(/ Sweep before: Jul 14\.$/))
   expect(html).not.toContain('Query set changed')
 })
 
@@ -2079,7 +2091,9 @@ test('fresh project settings use the empty collection instead of a noisy schedul
 })
 
 test('a query-ready project with a configured provider can run an AI sweep', async () => {
+  for (const providerMode of ['api', 'registered-cdp'] as const) {
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    cdpStatus: providerMode === 'registered-cdp' ? { connected: false, endpoint: 'ws://127.0.0.1:9222', browserVersion: 'Chrome not reachable at ws://127.0.0.1:9222', targets: [] } : undefined,
     configureFixture(dashboard) {
       const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
       const pendingEvidence = {
@@ -2102,6 +2116,7 @@ test('a query-ready project with a configured provider can run an AI sweep', asy
         summary: 'This query has not been measured yet.',
         runHistory: [],
       }
+      if (providerMode === 'registered-cdp') { project.project.providers = ['cdp:chatgpt']; dashboard.settings.providerStatuses = []; project.recentRuns = []; dashboard.runs = [] }
       forceNoisyFreshVisibility(dashboard)
       project.visibilityEvidence = [pendingEvidence]
     },
@@ -2118,6 +2133,7 @@ test('a query-ready project with a configured provider can run an AI sweep', asy
   expectTrendChartFirst(html)
   expect(html).not.toContain('Set up AI Visibility to capture a baseline')
   expect(html).not.toContain('Checking AI readiness')
+  }
 })
 
 test('a project-scoped writer reads sweep readiness without instance settings access', async () => {
@@ -2149,14 +2165,20 @@ test('a project-scoped writer reads sweep readiness without instance settings ac
 })
 
 test('a project-scoped writer can retry when the project readiness read fails', async () => {
+  let setupReads = 0
+  const requests: string[] = []
   const realFetch = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const raw = input instanceof Request ? input.url : String(input)
     const url = new URL(raw, window.location.origin)
     const path = `${decodeURIComponent(url.pathname)}${url.search}`
 
+    requests.push(path)
     if (path.endsWith('/measurement-setup')) {
-      return jsonResponse({ code: 'INTERNAL_ERROR', message: 'temporary failure' }, 500)
+      setupReads++
+      return setupReads === 1
+        ? jsonResponse({ code: 'INTERNAL_ERROR', message: 'temporary failure' }, 500)
+        : jsonResponse({ state: 'simple', nextAction: 'start_setup', mode: 'simple', answerVisibilityProviderReady: true, activeRevision: null, activeSchemaVersion: null, draft: null })
     }
     if (path.endsWith('/measurement-plan')) return jsonResponse({ active: null })
     if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
@@ -2190,9 +2212,16 @@ test('a project-scoped writer can retry when the project readiness read fails', 
     </AccountProvider>,
   )
 
-  expect(await page.findByRole('button', { name: 'Retry AI readiness' })).toBeTruthy()
+  const retry = await page.findByRole('button', { name: 'Retry AI readiness' })
+  expect(retry.hasAttribute('disabled')).toBe(false)
   expect(page.queryByRole('button', { name: 'Set up AI Visibility' })).toBeNull()
   expect(page.queryByRole('button', { name: 'Run AI sweep' })).toBeNull()
+  fireEvent.click(retry)
+  const launch = await page.findByRole('button', { name: 'Run AI sweep' })
+  expect(launch.hasAttribute('disabled')).toBe(false)
+  expect(page.queryByRole('button', { name: 'Retry AI readiness' })).toBeNull()
+  expect(setupReads).toBe(2)
+  expect(requests.filter(path => path.startsWith('/api/v1/settings'))).toEqual([])
 })
 
 test('saving the project provider allowlist refreshes server-owned sweep readiness', async () => {
@@ -2374,10 +2403,13 @@ test('a sweep confirmation cannot use cached readiness after its refresh fails',
 })
 
 test('AI Visibility honors the project provider allowlist instead of any configured provider', async () => {
+  for (const providerMode of ['excluded-api', 'unregistered-cdp'] as const) {
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
+    cdpStatus: { connected: false, endpoint: '', targets: [] },
     configureFixture(dashboard) {
       const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
-      project.project.providers = ['claude']
+      project.project.providers = providerMode === 'excluded-api' ? ['claude'] : ['cdp:chatgpt']
+      if (providerMode === 'unregistered-cdp') dashboard.settings.providerStatuses = []
       project.recentRuns = []
       dashboard.runs = []
     },
@@ -2387,6 +2419,7 @@ test('AI Visibility honors the project provider allowlist instead of any configu
 
   expect(html).toContain('Set up AI Visibility')
   expect(html).not.toContain('Run AI sweep')
+  }
 })
 
 test('an active measurement plan supplies runnable queries when the live basket is empty', async () => {
@@ -2408,46 +2441,7 @@ test('an active measurement plan supplies runnable queries when the live basket 
   expect(html).not.toContain('Set up AI Visibility to capture a baseline')
 })
 
-test('a configured CDP provider is runnable even when no API provider is configured or connected', async () => {
-  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
-    cdpStatus: {
-      connected: false,
-      endpoint: 'ws://127.0.0.1:9222',
-      browserVersion: 'Chrome not reachable at ws://127.0.0.1:9222',
-      targets: [],
-    },
-    configureFixture(dashboard) {
-      const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
-      project.project.providers = ['cdp:chatgpt']
-      project.recentRuns = []
-      dashboard.runs = []
-      dashboard.settings.providerStatuses = []
-    },
-    settleReadiness: true,
-    readiness: true,
-  })
 
-  expect(html).toContain('Run AI sweep')
-  expect(html).not.toContain('Set up AI Visibility to capture a baseline')
-})
-
-test('an unregistered CDP status does not make the project runnable', async () => {
-  const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
-    cdpStatus: { connected: false, endpoint: '', targets: [] },
-    configureFixture(dashboard) {
-      const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
-      project.project.providers = ['cdp:chatgpt']
-      project.recentRuns = []
-      dashboard.runs = []
-      dashboard.settings.providerStatuses = []
-    },
-    settleReadiness: true,
-    readiness: false,
-  })
-
-  expect(html).toContain('Set up AI Visibility')
-  expect(html).not.toContain('Run AI sweep')
-})
 
 test('an established schedule stays visible when run prerequisites need repair', async () => {
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, {
@@ -2872,7 +2866,11 @@ test('AI Visibility v2 renders one scope trigger, in the project context row, wi
   expect(trigger.textContent).toBe('Whole site')
   const label = doc.getElementById(trigger.getAttribute('aria-labelledby')!.split(' ')[0]!)!
   expect(label.textContent).toBe('Measurement scope')
-  expect(label.className).toBe('sr-only')
+  const rules = parseCompiledCss(await compileAppStyles([...label.classList]))
+  expect(compiledElementProperty(rules, label, 'position')).toBe('absolute')
+  expect(cssLengthPx(compiledElementProperty(rules, label, 'width')!, rules)).toBe(1)
+  expect(cssLengthPx(compiledElementProperty(rules, label, 'height')!, rules)).toBe(1)
+  expect(compiledElementProperty(rules, label, 'overflow')).toBe('hidden')
 
   // v1 and Simple overviews offer no scope options, so the row has no slot.
   for (const html of [
@@ -2890,7 +2888,8 @@ test('the row holds a 44px placeholder only while the AI Visibility report loads
   const slot = contextRow(loading).querySelector('.project-context-scope')!
   const placeholder = slot.querySelector('[role="status"]')!
   expect(placeholder.getAttribute('aria-label')).toBe('Loading measurement scope')
-  expect(placeholder.className.split(' ')).toEqual(['skeleton-text', 'h-11', 'w-56'])
+  const rules = parseCompiledCss(await compileAppStyles([...placeholder.classList]))
+  expect(cssLengthPx(compiledElementProperty(rules, placeholder, 'height')!, rules)).toBe(44)
   expect(slot.querySelector('.visibility-scope-trigger')).toBeNull()
 
   // Before either plan read lands, the overview's mode is unknown and the row reserves nothing.
@@ -2909,23 +2908,26 @@ test('a long Group label wraps in the row trigger instead of being clipped', asy
   ), 'text/html')
   const trigger = contextRow(doc).querySelector('.visibility-scope-trigger')!
   expect(trigger.textContent).toBe(`${longLabel} · 1 property`)
-  const classes = trigger.className.split(/\s+/)
-  for (const clipping of ['truncate', 'whitespace-nowrap', 'overflow-hidden', 'text-ellipsis']) expect(classes).not.toContain(clipping)
-  expect(trigger.closest('.project-context-scope')!.className).toBe('project-context-scope')
+  const slot = trigger.closest('.project-context-scope')!
+  const rules = parseCompiledCss(await compileAppStyles([...trigger.classList, ...slot.classList]))
+  expect(compiledElementProperty(rules, trigger, 'white-space') ?? 'normal').toBe('normal')
+  expect(compiledElementProperty(rules, trigger, 'overflow') ?? 'visible').toBe('visible')
+  expect(compiledElementProperty(rules, trigger, 'text-overflow') ?? 'clip').toBe('clip')
+  expect(cssLengthPx(compiledElementProperty(rules, slot, 'min-width')!, rules)).toBe(0)
 })
 
 test('a scoped Advanced Site Health tab says Project-wide, while unscoped and Simple tabs say nothing', async () => {
   const parse = (html: string) => new DOMParser().parseFromString(html, 'text/html')
   const scoped = parse(await renderAt('/projects/project_citypoint/technical-aeo?measurementScope=group&measurementScopeKey=north', undefined, { plan: measurementPlanV2Response(4) }))
   const slot = contextRow(scoped).querySelector('.project-context-scope')!
-  expect(slot.textContent).toBe(PROJECT_SCOPE_COPY.projectWide)
-  expect([...slot.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual([PROJECT_SCOPE_COPY.projectWideHelp])
+  expect(slot.textContent).toBe('Project-wide')
+  expect([...slot.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(['This tab covers the whole project. Your measurement scope stays selected for AI Visibility and Queries.'])
 
   const unscoped = parse(await renderAt('/projects/project_citypoint/technical-aeo', undefined, { plan: measurementPlanV2Response(4) }))
   const simple = parse(await renderAt('/projects/project_citypoint/technical-aeo?measurementScope=group&measurementScopeKey=north'))
   for (const doc of [unscoped, simple]) {
     expect(contextRow(doc).querySelector('.project-context-scope')).toBeNull()
-    expect(doc.body.textContent).not.toContain(PROJECT_SCOPE_COPY.projectWide)
+    expect(doc.body.textContent).not.toContain('Project-wide')
   }
   for (const doc of [scoped, unscoped, simple]) expect(doc.querySelector('.visibility-scope-trigger')).toBeNull()
 })
@@ -3024,11 +3026,17 @@ test('the tracked Queries row picker floats over the table, closes on Escape or 
   expect(await page.findByText('Citypoint dentist')).toBeTruthy()
   const trigger = await rowTrigger(page.container)
   const details = trigger.closest('details')!
-  expect(details.classList.contains('relative')).toBe(true)
   fireEvent.click(trigger)
   expect(details.open).toBe(true)
   const search = within(details).getByRole('searchbox', { name: 'Search scopes' })
-  expect(search.closest('.visibility-scope-menu')?.parentElement).toBe(details)
+  const menu = search.closest('.visibility-scope-menu')!
+  expect(details.contains(menu)).toBe(true)
+  const rules = parseCompiledCss(await compileAppStyles([...details.classList, ...menu.classList]))
+  expect(compiledElementProperty(rules, details, 'position')).toBe('relative')
+  expect(compiledElementProperty(rules, menu, 'position')).toBe('absolute')
+  expect(compiledElementProperty(rules, menu, 'top')).toBe('100%')
+  expect(cssLengthPx(compiledElementProperty(rules, menu, 'left')!, rules)).toBe(0)
+  expect(compiledElementProperty(rules, menu, 'z-index')).toBe('30')
 
   search.focus()
   fireEvent.keyDown(search, { key: 'Escape' })
@@ -3122,7 +3130,7 @@ test('AI Visibility makes one first-page request, normalizes without a history e
   expect(firstPages.map(url => url.searchParams.get('queryClass'))).toEqual(['all'])
 
   fireEvent.click(trigger)
-  fireEvent.click(within(trigger.closest('details')!).getByRole('button', { name: 'Select North', exact: true }))
+  fireEvent.click(within(trigger.closest('details')!).getByRole('button', { name: 'Select North' }))
   await waitFor(() => expect(router.state.location.search).toMatchObject({ measurementScope: 'group', measurementScopeKey: 'north', queryClass: 'non-brand' }))
   // The URL owns the trigger, so it does not snap back while the report loads.
   await waitFor(() => expect(trigger.textContent).toBe('North · 1 property'))
@@ -3289,7 +3297,7 @@ test('the AI Visibility row picker writes a single-market Group\'s market for a 
 
   fireEvent.click(trigger)
   fireEvent.click(within(details).getByRole('button', { name: 'Back to all groups' }))
-  fireEvent.click(within(details).getByRole('button', { name: MARKET_SCOPE_COPY.select('North'), exact: true }))
+  fireEvent.click(within(details).getByRole('button', { name: MARKET_SCOPE_COPY.select('North') }))
   await waitFor(() => expect(router.state.location.search).toMatchObject({ measurementScope: 'group', measurementScopeKey: 'north', queryClass: 'non-brand' }))
   expect(router.state.location.search.measurementMarketKey).toBeUndefined()
   await waitFor(() => expect(trigger.textContent).toBe('North · 1 property'))
@@ -3404,7 +3412,7 @@ function renderedPage(html: string) {
 }
 
 function projectActions(html: string) {
-  return renderedPage(html).querySelector('[data-project-actions]')!
+  return renderedPage(html).querySelector<HTMLElement>('[data-project-actions]')!
 }
 
 test('managed sweeps unset preserves the operator sweep control and identical opt-out markup', async () => {
@@ -3415,9 +3423,11 @@ test('managed sweeps unset preserves the operator sweep control and identical op
   }
   const original = await renderAt('/projects/project_citypoint', undefined, undefined, options)
   const disabled = await renderAt('/projects/project_citypoint', undefined, undefined, { ...options, managedSweeps: false })
-  expect(projectActions(original).outerHTML).toBe(projectActions(disabled).outerHTML)
-  expect(projectActions(original).textContent).toContain('Run AI sweep')
-  expect(original).not.toContain(MANAGED_SWEEPS_COPY)
+  for (const html of [original, disabled]) {
+    const launch = within(projectActions(html)).getByRole('button', { name: 'Run AI sweep' })
+    expect(launch.hasAttribute('disabled')).toBe(false)
+    expect(html).not.toContain('Sweeps are run by your Canonry team')
+  }
 })
 
 test.each(['simple', 'advanced'] as const)('managed sweeps replaces the %s header control for admins and viewers', async mode => {
@@ -3531,7 +3541,6 @@ test('managed sweeps replaces the global batch sweep control', async () => {
   expect(managed).toContain(MANAGED_SWEEPS_COPY)
 })
 
-
 // Reverses #1108's deliberate Site Health exclusion when site-audit is opted in.
 // The legacy boolean alone remains answer-visibility-only (asserted above).
 test.each(['simple', 'advanced'] as const)('managed run kinds remove %s Site Health viewer launches and show the actual schedule', async mode => {
@@ -3575,6 +3584,17 @@ test.each(['', '/technical-aeo', '/settings', '/history'])('unset managed run ki
     const measurement = mode === 'advanced' ? { plan: measurementPlanV2Response(2), overview: measurementOverviewResponse() } : undefined
     const original = await renderAt(`/projects/project_citypoint${suffix}`, undefined, measurement, { accountRole: 'viewer' })
     const empty = await renderAt(`/projects/project_citypoint${suffix}`, undefined, measurement, { accountRole: 'viewer', managedRunKinds: [] })
-    expect(empty).toBe(original)
+    for (const html of [original, empty]) {
+      const doc = renderedPage(html)
+      expect(within(doc).getByRole('heading', { level: 1, name: 'Citypoint Dental NYC' })).toBeTruthy()
+      expect(html).not.toContain('Scans are run by your Canonry team')
+      expect(html).not.toContain('Sweeps are run by your Canonry team')
+      expect(within(projectActions(html)).getByRole('button', { name: /AI sweep running|Checking AI readiness|Set up AI Visibility|Run AI sweep/ }).hasAttribute('disabled')).toBe(true)
+      if (suffix === '/technical-aeo') expect(within(doc).getByRole('heading', { name: 'Site Health' })).toBeTruthy()
+      if (suffix === '/settings') expect(within(doc).getByRole('heading', { name: 'Project settings' })).toBeTruthy()
+      if (suffix === '/history') expect(within(within(doc).getByRole('tablist', { name: 'Project history views' })).getByRole('tab', { name: 'Changes' }).getAttribute('aria-selected')).toBe('true')
+      if (suffix === '' && mode === 'simple') expectTrendChartFirst(html)
+      if (suffix === '' && mode === 'advanced') expect(doc.querySelector('.visibility-scope-trigger')?.textContent).toBe('Whole site')
+    }
   }
 })

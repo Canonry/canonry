@@ -17,7 +17,6 @@ import {
   GOOGLE_ADS_RETRY_BASE_DELAY_MS,
   GOOGLE_ADS_RETRY_MAX_DELAY_MS,
 } from './constants.js'
-import { resolveEffectiveCampaignGoalInputs } from './goal-semantics.js'
 import {
   buildCampaignConversionGoalsQuery,
   buildCampaignSpendRankingQuery,
@@ -407,7 +406,6 @@ export class GoogleAdsClient {
         // A result exactly at the cap may have more rows upstream. Treat it
         // as incomplete rather than silently deriving absent campaign goals.
         campaignGoalsComplete: campaignGoals.data.length < GOOGLE_ADS_MAX_RESULT_ROWS,
-        effectiveCampaignGoalInputs: resolveEffectiveCampaignGoalInputs(raw),
       },
       metadata: {
         apiVersion: GOOGLE_ADS_API_VERSION,

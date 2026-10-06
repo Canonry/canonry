@@ -39,7 +39,7 @@ const BASE_URL = 'https://api.perplexity.ai/v1'
 const AGENT_PATH = '/agent'
 
 /** The path a tracked query is posted to, relative to the API host (`BASE_URL` + `AGENT_PATH`). */
-export const PERPLEXITY_AGENT_ENDPOINT = '/v1/agent'
+const PERPLEXITY_AGENT_ENDPOINT = '/v1/agent'
 
 /**
  * The measurement contract this provider executes. `search-required-v1`: the
@@ -65,7 +65,7 @@ const RETRIEVAL_OUTPUT_TYPES: ReadonlySet<string> = new Set(['search_results', '
  * resolves through the shared alias table (`sonar` → `fast`, …), so this is
  * also the value recorded as the requested model.
  */
-export function resolveModel(model: string | undefined): string {
+function resolveModel(model: string | undefined): string {
   const trimmed = model?.trim()
   return resolveProviderModel('perplexity', trimmed ? trimmed : DEFAULT_MODEL)
 }
@@ -77,14 +77,14 @@ export function resolveModel(model: string | undefined): string {
  * reasoning before any answer appears.
  * Docs: https://docs.perplexity.ai/api-reference/agent-post
  */
-export const ANTHROPIC_MAX_OUTPUT_TOKENS = 4096
+const ANTHROPIC_MAX_OUTPUT_TOKENS = 4096
 
 /**
  * A `vendor/model` slug names one model; anything else is a preset. Every
  * request path (sweep, key check, text generation) builds on this, so a
  * model's required fields travel with it.
  */
-export function agentSelection(model: string): PerplexityAgentSelection {
+function agentSelection(model: string): PerplexityAgentSelection {
   if (!model.includes('/')) return { preset: model }
   return model.startsWith('anthropic/') ? { model, max_output_tokens: ANTHROPIC_MAX_OUTPUT_TOKENS } : { model }
 }
@@ -96,7 +96,7 @@ export function agentSelection(model: string): PerplexityAgentSelection {
  * one) keeps the request shape identical with and without a location, and it
  * is required for `tool_choice` on a model slug.
  */
-export function buildAgentRequest(
+function buildAgentRequest(
   query: string,
   model: string,
   location?: PerplexityTrackedQueryInput['location'],
@@ -199,7 +199,7 @@ export function parseTrackedQueryResponse(body: Record<string, unknown>, model: 
     provider: 'perplexity',
     rawResponse: body,
     model: resolveModel(model),
-    servedModel: extractServedModel(body),
+    servedModel: normalizeServedModel(body.model),
     groundingSources: parsed.groundingSources,
     searchQueries: parsed.searchQueries,
     retrievalStatus: parsed.retrievalStatus,
@@ -238,16 +238,6 @@ function hasParsedResponseContent(rawResponse: Record<string, unknown>): boolean
     || (Array.isArray(nestedResponse.search_results) && nestedResponse.search_results.length > 0)
     || (Array.isArray(nestedResponse.citations) && nestedResponse.citations.length > 0)
   )
-}
-
-/**
- * Read the model Perplexity reported serving off a stored raw response. Both
- * Sonar and Agent API responses carry it as top-level `model`; for a preset it
- * is the model the preset resolved to. A response that omits `model` yields
- * undefined rather than the configured preset.
- */
-export function extractServedModel(rawResponse: Record<string, unknown>): string | undefined {
-  return normalizeServedModel(rawResponse.model)
 }
 
 /**
@@ -450,7 +440,7 @@ function parseSonarResponse(rawResponse: Record<string, unknown>): PerplexityNor
  * the `search_results` output item instead.
  * Docs: https://docs.perplexity.ai/docs/sonar/openai-compatibility
  */
-export function extractCitations(rawResponse: Record<string, unknown>): string[] {
+function extractCitations(rawResponse: Record<string, unknown>): string[] {
   // Shape 1: direct API response (used at execution time)
   if (Array.isArray(rawResponse.citations)) {
     return rawResponse.citations.filter((c): c is string => typeof c === 'string')
@@ -547,7 +537,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-export function extractCitedDomains(groundingSources: GroundingSource[]): string[] {
+function extractCitedDomains(groundingSources: GroundingSource[]): string[] {
   const domains = new Set<string>()
   for (const source of groundingSources) {
     const domain = extractDomainFromUri(source.uri)

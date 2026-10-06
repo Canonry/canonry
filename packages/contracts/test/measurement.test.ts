@@ -58,13 +58,16 @@ describe('measurementConfigSchema', () => {
   })
 
   it('rejects path-like hosts and invalid GA4 event names', () => {
-    expect(measurementConfigSchema).toBeDefined()
-    expect(() => measurementConfigSchema.parse({
-      marketingHosts: ['example.com/pricing'],
-    })).toThrow()
-    expect(() => measurementConfigSchema.parse({
-      leadEventNames: ['generate-lead'],
-    })).toThrow()
+    const input = { marketingHosts: ['example.com'], brandTerms: ['Example'], leadEventNames: ['generate_lead'] }
+    expect(measurementConfigSchema.parse(input)).toEqual(input)
+    for (const [invalid, expectedPath] of [
+      [{ ...input, marketingHosts: ['example.com/pricing'] }, ['marketingHosts', 0]],
+      [{ ...input, leadEventNames: ['generate-lead'] }, ['leadEventNames', 0]],
+    ] as const) {
+      const result = measurementConfigSchema.safeParse(invalid)
+      expect(result.success).toBe(false)
+      expect(result.error?.issues.map(issue => issue.path)).toEqual([expectedPath])
+    }
   })
 })
 

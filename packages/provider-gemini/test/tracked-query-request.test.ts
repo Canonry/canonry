@@ -1,7 +1,7 @@
 import { test, expect, vi, afterEach } from 'vitest'
 
+import type { RawQueryResult } from '@ainyc/canonry-contracts'
 import { geminiAdapter } from '../src/adapter.js'
-import { createClient } from '../src/normalize.js'
 
 // Pins the build/parse split of the sync path. The SDK does not send what it is
 // given: it wraps a `contents` string into a user turn and moves `config.tools`
@@ -41,6 +41,46 @@ const RESPONSE = {
   responseId: 'mH7TaK2fOoyz1dkP',
 }
 
+const EXPECTED_STORED_RESPONSE = {
+  candidates: [{
+    content: { parts: [{ text: 'Example CRM is popular with agencies.' }], role: 'model' }, finishReason: 'STOP',
+    groundingMetadata: {
+      webSearchQueries: ['best crm for agencies 2026', 'agency crm comparison'],
+      groundingChunks: [
+        { web: { uri: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbC123', title: 'example.com' } },
+        { web: { uri: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/XyZ789', title: 'other.example' } },
+      ],
+      groundingSupports: [{ segment: { startIndex: 0, endIndex: 11, text: 'Example CRM' }, groundingChunkIndices: [0], confidenceScores: [0.92] }],
+    },
+  }],
+  usageMetadata: { promptTokenCount: 812, cachedContentTokenCount: 256, candidatesTokenCount: 402, thoughtsTokenCount: 128, toolUsePromptTokenCount: 95, totalTokenCount: 1437 },
+  modelVersion: 'gemini-2.5-flash-preview-09-2025', responseId: 'mH7TaK2fOoyz1dkP',
+}
+const EXPECTED_TRACKED_RESULT = {
+  provider: 'gemini', rawResponse: EXPECTED_STORED_RESPONSE, model: 'gemini-2.5-flash', servedModel: 'gemini-2.5-flash-preview-09-2025',
+  groundingSources: [{ uri: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbC123', title: 'example.com' }],
+  searchQueries: ['best crm for agencies 2026', 'agency crm comparison'], retrievalStatus: 'unknown', retrievalContract: 'native-auto-v1',
+  usage: { inputTokens: 556, cachedInputTokens: 256, cacheWriteTokens: 0, outputTokens: 530, searchCount: 2 }, stopReason: 'STOP',
+} satisfies RawQueryResult
+
+// Captured 2026-07-20: only modelVersion/responseId. All answer, grounding and
+// usage fields below are constructed; they are not evidence of a live answer.
+const CAPTURED_ID_RESPONSE = {
+  candidates: [{ content: { role: 'model', parts: [{ text: 'Harborline Hotel is a harbor-side boutique inn.' }] }, finishReason: 'STOP',
+    groundingMetadata: { webSearchQueries: ['"Harborline Hotel" harbor-side'], groundingChunks: [{ web: { uri: 'https://harborline.example.com/', title: 'harborline.example.com' } }],
+      groundingSupports: [{ segment: { startIndex: 0, endIndex: 46 }, groundingChunkIndices: [0] }] } }],
+  usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 34, totalTokenCount: 46 }, modelVersion: 'gemini-3.5-flash', responseId: 'hY1dasuhNuSf-8YP0Jfm8QM',
+}
+const EXPECTED_CAPTURED_ID_RESULT = {
+  provider: 'gemini', model: 'gemini-3.5-flash', servedModel: 'gemini-3.5-flash',
+  rawResponse: { candidates: [{ content: { role: 'model', parts: [{ text: 'Harborline Hotel is a harbor-side boutique inn.' }] }, finishReason: 'STOP',
+    groundingMetadata: { webSearchQueries: ['"Harborline Hotel" harbor-side'], groundingChunks: [{ web: { uri: 'https://harborline.example.com/', title: 'harborline.example.com' } }],
+      groundingSupports: [{ segment: { startIndex: 0, endIndex: 46 }, groundingChunkIndices: [0] }] } }],
+    usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 34, totalTokenCount: 46 }, modelVersion: 'gemini-3.5-flash', responseId: 'hY1dasuhNuSf-8YP0Jfm8QM' },
+  groundingSources: [{ uri: 'https://harborline.example.com/', title: 'harborline.example.com' }], searchQueries: ['"Harborline Hotel" harbor-side'],
+  retrievalStatus: 'unknown', retrievalContract: 'native-auto-v1', usage: { inputTokens: 12, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 34, searchCount: 1 }, stopReason: 'STOP',
+} satisfies RawQueryResult
+
 interface CapturedRequest {
   url: string
   body: Record<string, unknown>
@@ -48,6 +88,8 @@ interface CapturedRequest {
 
 function stubGenerateContent(response: Record<string, unknown>): CapturedRequest[] {
   const sent: CapturedRequest[] = []
+  vi.stubEnv('GOOGLE_GENAI_USE_VERTEXAI', 'false')
+  vi.stubEnv('GOOGLE_GEMINI_BASE_URL', '')
   vi.stubGlobal('fetch', async (url: unknown, init?: { body?: string }) => {
     sent.push({ url: String(url), body: JSON.parse(init?.body ?? '{}') as Record<string, unknown> })
     return new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } })
@@ -57,6 +99,7 @@ function stubGenerateContent(response: Record<string, unknown>): CapturedRequest
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
 })
 
 test('buildTrackedQueryRequest returns the exact body the sync path sends', async () => {
@@ -77,18 +120,6 @@ test('buildTrackedQueryRequest returns the exact body the sync path sends', asyn
   })
 })
 
-test('the built body is what the pre-split call (a `contents` string) put on the wire', async () => {
-  const sent = stubGenerateContent(RESPONSE)
-  const input = { ...QUERY, location: LOCATION }
-  await createClient({ apiKey: 'k', quotaPolicy }).models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: 'best crm for agencies (searching from San Francisco, CA, US)',
-    config: { tools: [{ googleSearch: {} }] },
-  })
-
-  expect(sent[0]!.body).toEqual(geminiAdapter.buildTrackedQueryRequest!(input, CONFIG).body)
-})
-
 test('a location reaches the wire through the built body', async () => {
   const sent = stubGenerateContent(RESPONSE)
   const input = { ...QUERY, location: LOCATION }
@@ -99,6 +130,17 @@ test('a location reaches the wire through the built body', async () => {
   expect(built.body.contents).toEqual([
     { parts: [{ text: 'best crm for agencies (searching from San Francisco, CA, US)' }], role: 'user' },
   ])
+
+  // The tracked path now supplies Content[], but real general-purpose callers
+  // still send a string. Carry that separate SDK serialization contract here.
+  const textSent = stubGenerateContent({
+    candidates: [{ content: { role: 'model', parts: [{ text: 'General ' }, { text: 'text reply.' }] }, finishReason: 'STOP' }],
+  })
+  expect(await geminiAdapter.generateText('best crm for agencies (searching from San Francisco, CA, US)', CONFIG)).toBe('General text reply.')
+  expect(textSent).toEqual([{
+    url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+    body: { contents: [{ role: 'user', parts: [{ text: 'best crm for agencies (searching from San Francisco, CA, US)' }] }] },
+  }])
 })
 
 test('the endpoint names the Vertex AI resource path for a Vertex config', () => {
@@ -109,22 +151,44 @@ test('the endpoint names the Vertex AI resource path for a Vertex config', () =>
 })
 
 test('the sync result is exactly parseTrackedQueryResponse of the response received', async () => {
-  stubGenerateContent(RESPONSE)
-  const viaSync = await geminiAdapter.executeTrackedQuery(QUERY, CONFIG)
-  const viaParse = geminiAdapter.parseTrackedQueryResponse!(structuredClone(RESPONSE), 'gemini-2.5-flash')
-
-  expect(viaSync).toEqual(viaParse)
-  expect(viaParse.servedModel).toBe('gemini-2.5-flash-preview-09-2025')
-  expect(viaParse.searchQueries).toEqual(['best crm for agencies 2026', 'agency crm comparison'])
-  expect(viaParse.retrievalStatus).toBe('unknown')
-  expect(viaParse.retrievalContract).toBe('native-auto-v1')
+  for (const row of [
+    { label: 'grounded divergent served identity', response: RESPONSE, model: 'gemini-2.5-flash', expected: EXPECTED_TRACKED_RESULT },
+    { label: 'captured identities with constructed answer', response: CAPTURED_ID_RESPONSE, model: 'gemini-3.5-flash', expected: EXPECTED_CAPTURED_ID_RESULT },
+  ]) {
+    const sent = stubGenerateContent(row.response)
+    expect(await geminiAdapter.executeTrackedQuery(QUERY, { ...CONFIG, model: row.model }), row.label).toEqual(row.expected)
+    expect(geminiAdapter.parseTrackedQueryResponse!(structuredClone(row.response), row.model), row.label).toEqual(row.expected)
+    expect(geminiAdapter.normalizeResult(row.expected), row.label).toEqual(row.model === 'gemini-3.5-flash'
+      ? { provider: 'gemini', answerText: 'Harborline Hotel is a harbor-side boutique inn.', citedDomains: ['harborline.example.com'], groundingSources: [{ uri: 'https://harborline.example.com/', title: 'harborline.example.com' }], searchQueries: ['"Harborline Hotel" harbor-side'], retrievalStatus: 'unknown' }
+      : { provider: 'gemini', answerText: 'Example CRM is popular with agencies.', citedDomains: ['example.com'], groundingSources: [{ uri: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbC123', title: 'example.com' }], searchQueries: ['best crm for agencies 2026', 'agency crm comparison'], retrievalStatus: 'unknown' })
+    expect(sent, row.label).toHaveLength(1)
+  }
+  // These identities are constructed, not captured. Missing, blank and null
+  // disclosure must stay absent even though a requested model exists.
+  const plain = { candidates: [{ content: { role: 'model', parts: [{ text: 'stub answer' }] }, finishReason: 'STOP' }],
+    usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 }, responseId: 'resp_stub' }
+  for (const row of [
+    { label: 'synthetic divergent identity', response: { ...plain, modelVersion: 'gemini-2.5-flash-preview-05-20' }, stored: 'gemini-2.5-flash-preview-05-20', served: 'gemini-2.5-flash-preview-05-20' },
+    { label: 'missing disclosure', response: plain, stored: null, served: undefined },
+    { label: 'blank disclosure', response: { ...plain, modelVersion: '   ' }, stored: '   ', served: undefined },
+    { label: 'null disclosure', response: { ...plain, modelVersion: null }, stored: null, served: undefined },
+  ]) {
+    const sent = stubGenerateContent(row.response)
+    const expected = { provider: 'gemini', model: 'gemini-2.5-flash', servedModel: row.served,
+      rawResponse: { candidates: [{ content: { role: 'model', parts: [{ text: 'stub answer' }] }, finishReason: 'STOP', groundingMetadata: undefined }],
+        usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 }, responseId: 'resp_stub', modelVersion: row.stored },
+      groundingSources: [], searchQueries: [], retrievalStatus: 'unknown', retrievalContract: 'native-auto-v1',
+      usage: { inputTokens: 1, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 1, searchCount: 0 }, stopReason: 'STOP' }
+    expect(await geminiAdapter.executeTrackedQuery(QUERY, CONFIG), row.label).toEqual(expected)
+    expect(geminiAdapter.parseTrackedQueryResponse!(structuredClone(row.response), 'gemini-2.5-flash'), row.label).toEqual(expected)
+    expect(sent, row.label).toHaveLength(1)
+  }
 })
 
 test('parse stores the same trimmed record the sync path stores', () => {
   const stored = geminiAdapter.parseTrackedQueryResponse!(structuredClone(RESPONSE), 'gemini-2.5-flash').rawResponse
-  // Re-reading a stored record yields it unchanged.
-  expect(geminiAdapter.parseTrackedQueryResponse!(structuredClone(stored), 'gemini-2.5-flash').rawResponse).toEqual(stored)
-  expect(stored).not.toHaveProperty('candidates.0.groundingMetadata.searchEntryPoint')
+  expect(stored).toEqual(EXPECTED_STORED_RESPONSE)
+  expect(geminiAdapter.parseTrackedQueryResponse!(structuredClone(stored), 'gemini-2.5-flash').rawResponse).toEqual(EXPECTED_STORED_RESPONSE)
 })
 
 test('parse extracts usage and stop reason exactly', () => {

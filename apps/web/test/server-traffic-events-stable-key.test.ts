@@ -1,92 +1,101 @@
-import { describe, expect, test } from 'vitest'
-import { renderHook } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, onTestFinished, test, vi } from 'vitest'
+import { cleanup, renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createElement, type ReactNode } from 'react'
-import { getApiV1ProjectsByNameTrafficEventsQueryKey } from '@ainyc/canonry-api-client/react-query'
-import { useServerTrafficEvents } from '../src/queries/server-traffic.js'
-import { heyClient } from '../src/api.js'
+import type { TrafficEventsResponse } from '@ainyc/canonry-api-client'
+import { useServerTrafficEvents, type ServerTrafficEventsFilters } from '../src/queries/server-traffic.js'
+import { jsonResponse, mockFetch } from './mock-fetch.js'
 
-/**
- * Regression test for the infinite-refetch bug fixed in PR #594.
- *
- * Before the fix, `useServerTrafficEvents` called `paramsForFilters(filters)`
- * inline inside `useQuery({...})` on every render. `paramsForFilters`
- * computes `since = new Date(Date.now() - sinceMinutes * 60_000).toISOString()`,
- * which produced a fresh ISO string on every call. React-query treats a
- * different `query` object as a new query and refetches — and the new data
- * triggered another render, another fresh `since`, another refetch, etc.
- * Browser memory grew monotonically because the 5-minute cacheTime kept
- * every superseded query response alive in the cache.
- *
- * The fix wraps `paramsForFilters` in `useMemo` keyed on the actual filter
- * fields (kind / sourceId / sinceMinutes / limit / granularity), so `since` only changes
- * when the user picks a different window — not on every render frame.
- *
- * This test asserts the query key stays referentially stable across
- * re-renders that DON'T change any filter field, and that it DOES change
- * when the user picks a new window.
- */
-
-function Wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  })
-  return createElement(QueryClientProvider, { client }, children)
+const initialNow = Date.parse('2026-09-01T00:00:00.000Z')
+const filters: ServerTrafficEventsFilters = {
+  kind: 'all', sourceId: 'abc', sinceMinutes: 10080, limit: 1000, granularity: 'day',
+}
+const response: TrafficEventsResponse = {
+  windowStart: '2026-08-25T00:00:00.000Z',
+  windowEnd: '2026-09-01T00:00:00.000Z',
+  series: {
+    granularity: 'day', points: [], coverageStart: null,
+    trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+  },
+  totals: {
+    crawlerHits: 0, crawlerContentHits: 0, crawlerInfraHits: 0,
+    crawlerSegments: { content: 0, sitemap: 0, robots: 0, asset: 0, other: 0 },
+    aiUserFetchHits: 0, aiReferralHits: 0, aiReferralLandedHits: 0,
+    aiReferralRedirectedHits: 0, aiReferralPaidHits: 0, aiReferralOrganicHits: 0, aiReferralUnknownHits: 0,
+  },
+  eventRows: { total: 0, returned: 0, truncated: false },
+  events: [],
 }
 
-describe('useServerTrafficEvents — query key stability', () => {
-  test('re-rendering with the same filters does not change the query key', () => {
-    const filters = {
-      kind: 'all' as const,
-      sourceId: 'abc',
-      sinceMinutes: 10080,
-      limit: 1000,
-      granularity: 'day' as const,
-    }
+let queryClient: QueryClient
+let requests: URL[]
+let now: number
+
+function Wrapper({ children }: { children: ReactNode }) {
+  return createElement(QueryClientProvider, { client: queryClient }, children)
+}
+
+beforeEach(() => {
+  now = initialNow
+  vi.spyOn(Date, 'now').mockImplementation(() => now)
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  requests = []
+  onTestFinished(mockFetch(url => {
+    requests.push(new URL(url))
+    return jsonResponse(response)
+  }))
+})
+
+afterEach(() => {
+  cleanup()
+  queryClient.clear()
+  vi.restoreAllMocks()
+})
+
+describe('useServerTrafficEvents', () => {
+  // PR #594: a moving since timestamp used to allocate and fetch a new query
+  // on every render, including the render caused by a successful response.
+  test('keeps one settled request and cache entry across same-value rerenders', async () => {
     const { result, rerender } = renderHook(
-      ({ project, filters }) => useServerTrafficEvents(project, filters),
-      {
-        wrapper: Wrapper,
-        initialProps: { project: 'demo', filters },
-      },
+      ({ filters }) => useServerTrafficEvents('demo', filters),
+      { wrapper: Wrapper, initialProps: { filters } },
     )
-
-    // Capture the initial cache key (react-query's queryKey is derived from
-    // the generated `getApiV1...QueryKey` helper).
-    const firstKey = JSON.stringify(result.current.dataUpdatedAt) // proxy: a stable read
-
-    // Re-render with the EXACT SAME filter object reference — should not
-    // even trigger a new query at all.
-    rerender({ project: 'demo', filters })
-    const secondKey = JSON.stringify(result.current.dataUpdatedAt)
-
-    // Pre-fix: every render produced a new query key → new query → new
-    // `dataUpdatedAt` once data arrived → cycle. Post-fix: stable.
-    expect(secondKey).toBe(firstKey)
-
-    // Re-render with a fresh filter object but identical values — the
-    // common case in a parent component that builds the object inline.
-    rerender({
-      project: 'demo',
-      filters: { kind: 'all', sourceId: 'abc', sinceMinutes: 10080, limit: 1000, granularity: 'day' },
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.data).toEqual(response)
+    expect(requests).toHaveLength(1)
+    expect(requests[0]!.pathname).toBe('/api/v1/projects/demo/traffic/events')
+    expect(Object.fromEntries(requests[0]!.searchParams)).toEqual({
+      sourceId: 'abc', since: '2026-08-25T00:00:00.000Z', limit: '1000', granularity: 'day',
     })
-    const thirdKey = JSON.stringify(result.current.dataUpdatedAt)
-    expect(thirdKey).toBe(firstKey)
+    const firstHash = queryClient.getQueryCache().getAll()[0]!.queryHash
+
+    now += 1000
+    rerender({ filters })
+    now += 1000
+    rerender({ filters: { ...filters } })
+
+    expect(result.current.isSuccess).toBe(true)
+    expect(result.current.isFetching).toBe(false)
+    expect(queryClient.getQueryCache().getAll().map(query => query.queryHash)).toEqual([firstHash])
+    expect(requests).toHaveLength(1)
   })
 
-  test('changing sinceMinutes produces a different query key', () => {
-    // Sanity check the OTHER direction — when the user picks a new window,
-    // the key MUST change so react-query refetches.
-    const baseKey = getApiV1ProjectsByNameTrafficEventsQueryKey({
-      client: heyClient,
-      path: { name: 'demo' },
-      query: { sourceId: 'abc', since: 'A', limit: '1000' },
-    })
-    const widerKey = getApiV1ProjectsByNameTrafficEventsQueryKey({
-      client: heyClient,
-      path: { name: 'demo' },
-      query: { sourceId: 'abc', since: 'B', limit: '1000' },
-    })
-    expect(JSON.stringify(baseKey)).not.toBe(JSON.stringify(widerKey))
+  test('fetches and caches a new window when sinceMinutes changes', async () => {
+    const { result, rerender } = renderHook(
+      ({ filters }) => useServerTrafficEvents('demo', filters),
+      { wrapper: Wrapper, initialProps: { filters } },
+    )
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(requests).toHaveLength(1)
+
+    now += 1000
+    rerender({ filters: { ...filters, sinceMinutes: 1440 } })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(result.current.data).toEqual(response)
+    expect(requests.map(request => request.searchParams.get('since'))).toEqual([
+      '2026-08-25T00:00:00.000Z', '2026-08-31T00:00:01.000Z',
+    ])
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(2)
   })
 })

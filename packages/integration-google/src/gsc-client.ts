@@ -276,19 +276,6 @@ export async function publishUrlNotification(
   )
 }
 
-export async function getUrlNotificationStatus(
-  accessToken: string,
-  url: string,
-): Promise<IndexingApiResponse> {
-  validateAccessToken(accessToken)
-  validateUrl(url)
-  const encodedUrl = encodeURIComponent(url)
-  return gscFetchJson<IndexingApiResponse>(
-    accessToken,
-    `${INDEXING_API_BASE}/urlNotifications/metadata?url=${encodedUrl}`,
-  )
-}
-
 export async function inspectUrl(
   accessToken: string,
   inspectionUrl: string,

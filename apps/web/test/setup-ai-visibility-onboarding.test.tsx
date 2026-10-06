@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { getApiV1ProjectsByNameQueriesQueryKey } from '@ainyc/canonry-api-client/react-query'
 import type { ReactNode } from 'react'
+import { querySnapshotDtoSchema, runDetailDtoSchema, type RunDetailDto } from '@ainyc/canonry-contracts'
 
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { AccountProvider, type ApiKeyAccess } from '../src/contexts/account-context.js'
@@ -245,11 +246,7 @@ test('keeps provider-switch keyboard focus while resetting credentials and advan
   expect(requests.filter(request => request.method === 'PUT')).toEqual([])
 })
 
-function renderColdScopedSetup(readinessResponse: () => Response | Promise<Response>, existingRun?: {
-  status: 'queued' | 'running' | 'failed' | 'completed'
-  error?: { message: string }
-  snapshots?: Array<{ query: string; citationState: string; answerMentioned: boolean }>
-}) {
+function renderColdScopedSetup(readinessResponse: () => Response | Promise<Response>, existingRun?: Partial<RunDetailDto> & Pick<RunDetailDto, 'status'>) {
   const project = { ...createDashboardFixture().dashboard.projects[0]!.project, name: 'scoped-project', providers: ['gemini'] }
   const requests: string[] = []
   const telemetryEvents: Array<{ event: string }> = []
@@ -690,13 +687,14 @@ test.each(['queued', 'running', 'failed', 'completed'] as const)('managed setup 
   const { requests } = renderColdScopedSetup(() => jsonResponse({ answerVisibilityProviderReady: true }), {
     status,
     ...(status === 'failed' ? { error: { message: 'Provider quota exceeded' } } : {}),
-    snapshots: status === 'completed' ? [{ query: 'best local dentist', citationState: 'cited', answerMentioned: true }] : [],
+    snapshots: status === 'completed' ? [querySnapshotDtoSchema.parse({ id: 'snapshot_completed', runId: 'scoped-run', queryId: 'saved-query', query: 'best local dentist', provider: 'gemini', citationState: 'cited', answerMentioned: true, createdAt: '2026-09-05T12:01:00Z' })] : [],
   })
   fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
   if (status === 'completed') {
     expect(await screen.findByText('Mentioned')).toBeTruthy()
     expect(screen.getByText('Cited')).toBeTruthy()
     expect(screen.getByText('Results')).toBeTruthy()
+    expect(screen.getAllByText('Unavailable')).toHaveLength(2)
   } else if (status === 'failed') {
     expect(await screen.findByText('Provider quota exceeded')).toBeTruthy()
   } else {
@@ -705,6 +703,102 @@ test.each(['queued', 'running', 'failed', 'completed'] as const)('managed setup 
     expect(screen.queryByRole('heading', { name: 'Setup complete' })).toBeNull()
   }
   expect(screen.queryByRole('button', { name: /Launch visibility sweep|Retry visibility sweep/ })).toBeNull()
+  expect(requests).not.toContain('/api/v1/projects/scoped-project/runs')
+})
+
+function setupResultSnapshot(overrides: Record<string, unknown>) {
+  return querySnapshotDtoSchema.parse({
+    id: 'snapshot_one',
+    runId: 'scoped-run',
+    queryId: 'query_one',
+    query: 'best local dentist',
+    provider: 'gemini',
+    citationState: 'cited',
+    answerMentioned: true,
+    createdAt: '2026-09-05T12:01:00Z',
+    ...overrides,
+  })
+}
+
+test.each([
+  {
+    scenario: 'one query across two positive providers',
+    status: 'completed',
+    snapshots: [setupResultSnapshot({}), setupResultSnapshot({ id: 'snapshot_two', provider: 'openai' })],
+    queryCounts: { totalQueries: 1, citedQueries: 1, mentionedQueries: 1 },
+    mentioned: '1 / 1', cited: '1 / 1', checks: '2',
+  },
+  {
+    scenario: 'distinct query IDs with identical display text',
+    status: 'completed',
+    snapshots: [setupResultSnapshot({}), setupResultSnapshot({ id: 'snapshot_two', queryId: 'query_two' })],
+    queryCounts: { totalQueries: 2, citedQueries: 2, mentionedQueries: 2 },
+    mentioned: '2 / 2', cited: '2 / 2', checks: '2',
+  },
+  {
+    scenario: 'an identified query without optional display text',
+    status: 'completed',
+    snapshots: [setupResultSnapshot({ query: undefined })],
+    queryCounts: { totalQueries: 1, citedQueries: 1, mentionedQueries: 1 },
+    mentioned: '1 / 1', cited: '1 / 1', checks: '1',
+  },
+  {
+    scenario: 'independent citation and mention signals',
+    status: 'completed',
+    snapshots: [
+      setupResultSnapshot({ answerMentioned: false }),
+      setupResultSnapshot({ id: 'snapshot_two', provider: 'openai', citationState: 'not-cited' }),
+      setupResultSnapshot({ id: 'snapshot_three', queryId: 'query_two', query: 'another query', citationState: 'not-cited', answerMentioned: false }),
+    ],
+    queryCounts: { totalQueries: 2, citedQueries: 1, mentionedQueries: 1 },
+    mentioned: '1 / 2', cited: '1 / 2', checks: '3',
+  },
+  {
+    scenario: 'server summary values independent from snapshot positives',
+    status: 'completed',
+    snapshots: [setupResultSnapshot({})],
+    queryCounts: { totalQueries: 7, citedQueries: 2, mentionedQueries: 3 },
+    mentioned: '3 / 7', cited: '2 / 7', checks: '1',
+  },
+  {
+    scenario: 'a successful partial run presents the server summary',
+    status: 'partial',
+    snapshots: [setupResultSnapshot({})],
+    queryCounts: { totalQueries: 4, citedQueries: 1, mentionedQueries: 0 },
+    mentioned: '0 / 4', cited: '1 / 4', checks: '1',
+  },
+  {
+    scenario: 'an unavailable API summary keeps query metrics unavailable',
+    status: 'completed',
+    snapshots: [setupResultSnapshot({})],
+    queryCounts: null,
+    mentioned: 'Unavailable', cited: 'Unavailable', checks: '1',
+  },
+])('setup results render the per-run API summary: $scenario', async ({ status, snapshots, queryCounts, mentioned, cited, checks }) => {
+  const run = runDetailDtoSchema.parse({
+    id: 'scoped-run', projectId: 'project_citypoint', kind: 'answer-visibility', status,
+    createdAt: '2026-09-05T12:00:00Z', snapshots, queryCounts,
+  })
+  const { requests } = renderColdScopedSetup(() => jsonResponse({ answerVisibilityProviderReady: true }), run)
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+  await screen.findByText('Results')
+
+  for (const [caption, expected] of [
+    ['queries naming your brand', mentioned],
+    ['queries citing your site', cited],
+    ['completed engine checks', checks],
+  ] as const) {
+    const tile = screen.getByText(caption).parentElement!
+    expect(within(tile).getByText((_, element) => element?.tagName === 'P'
+      && element.textContent?.replace(/\s+/g, ' ').trim() === expected)).toBeTruthy()
+  }
+  const resultHeading = screen.getByRole('heading', { name: 'Launch first run', level: 2 })
+  const resultLabel = screen.getByText('Results')
+  let resultCard = resultHeading.parentElement!
+  while (!resultCard.contains(resultLabel)) resultCard = resultCard.parentElement!
+  expect(within(resultCard).getByText('Complete')).toBeTruthy()
+  expect(screen.queryByText('Sweep running. This usually takes 30 to 60 seconds.')).toBeNull()
+  expect(requests).toContain('/api/v1/runs/scoped-run')
   expect(requests).not.toContain('/api/v1/projects/scoped-project/runs')
 })
 

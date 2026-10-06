@@ -1,5 +1,4 @@
 export { GoogleAdsClient } from './google-ads-client.js'
-export { resolveEffectiveCampaignGoalInputs } from './goal-semantics.js'
 export {
   buildCampaignConversionGoalsQuery,
   buildCampaignSpendRankingQuery,
@@ -49,7 +48,6 @@ export type {
   GoogleAdsCampaignConversionGoalRow,
   GoogleAdsCampaignMetrics,
   GoogleAdsCampaignRow,
-  GoogleAdsCategoryGoalSource,
   GoogleAdsClientOptions,
   GoogleAdsCompositeMetadata,
   GoogleAdsCompositeResult,
@@ -75,12 +73,8 @@ export type {
   GoogleAdsDailyCampaignMetricsRow,
   GoogleAdsDailyConversionMetricsRow,
   GoogleAdsDailyMetricsOptions,
-  GoogleAdsEffectiveCampaignGoalInputs,
-  GoogleAdsEffectiveCategoryOriginGoal,
-  GoogleAdsEffectiveConversionActionInput,
   GoogleAdsFetch,
   GoogleAdsGoalConfigLevel,
-  GoogleAdsGoalInclusion,
   GoogleAdsListOptions,
   GoogleAdsMaximizeConversions,
   GoogleAdsMaximizeConversionValue,
