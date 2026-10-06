@@ -20,7 +20,11 @@ function generationFailure(err: unknown, fallbackMessage: string): AppError {
   if (err instanceof AppError) return err
   const message = err instanceof Error ? describeError(err) : fallbackMessage
   switch (classifyProviderErrorMessage(message)) {
+    // Billing has no error code of its own on the wire. It is an account
+    // problem the operator fixes in the provider's console, as with a bad key,
+    // and not a limit to wait out; the message names which one it is.
     case 'PROVIDER_AUTH':
+    case 'PROVIDER_BILLING':
       return providerAuthError(message)
     case 'RATE_LIMITED':
       return quotaExceeded('provider requests', { message })

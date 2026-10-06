@@ -1687,6 +1687,30 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
     }
   })
 
+  it.each([
+    { failure: 'a rejected token', error: () => new VercelLogsApiError('Vercel request-logs endpoint returned HTTP 403', 403), errorCode: 'PROVIDER_AUTH' },
+    { failure: 'any other pull error', error: () => new Error('request-logs 500: gateway'), errorCode: 'PROVIDER_PULL' },
+  ])('reports $failure on a Vercel sync as errorCode=$errorCode', async ({ error, errorCode }) => {
+    const h = await buildHarness([], { vercelPullPages: ({ maxPages }) => {
+      if (maxPages === 1) return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: false, endpoint: '' }
+      throw error()
+    } })
+    try {
+      const sourceId = await connectVercel(h)
+      backdateLastSyncedAt(h.db, sourceId, 60 * 60_000)
+
+      const syncRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      expect(syncRes.statusCode).toBe(502)
+      expect(h.getTrafficSyncedEvents()).toMatchObject([{ status: 'failed', sourceType: 'vercel', errorCode }])
+    } finally {
+      await h.close()
+    }
+  })
+
   it('fails without advancing lastSyncedAt when Vercel retention cannot cover the requested sync window', async () => {
     let enforceRetention = false
     const retentionBoundaryMs = Date.now() - 10 * 60_000

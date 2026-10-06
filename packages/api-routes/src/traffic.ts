@@ -3431,7 +3431,11 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         allEvents = drained.events
       } catch (e) {
         const msg = describeError(e)
-        markFailed(msg, 'PROVIDER_PULL')
+        // A rejected token fails every sync until it is replaced, like a Cloud
+        // Run credential that will not resolve, so it is labeled as auth rather
+        // than counted as a broken pull.
+        const rejectedToken = e instanceof VercelLogsApiError && (e.status === 401 || e.status === 403)
+        markFailed(msg, rejectedToken ? 'PROVIDER_AUTH' : 'PROVIDER_PULL')
         throw providerError(`Vercel pull failed: ${msg}`)
       }
     }
