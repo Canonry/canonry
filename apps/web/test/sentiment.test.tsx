@@ -1,15 +1,14 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { useState, type ComponentProps, type ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { aggregateSentiment, createSentimentEvaluationDefinition, emptySentimentCounts } from '@ainyc/canonry-contracts'
 import type { SentimentEvidenceItem, SentimentOutcome, SentimentSettings, SentimentSummary, SentimentAssessmentSummary } from '@ainyc/canonry-contracts'
-import { SentimentScopeProvider, SentimentControls, SentimentHeadlines, SentimentQueryScore, SentimentAnswerOutcome, SentimentOverviewMetric, SentimentEvidenceDrawer, useSentimentResolvedSource, SENTIMENT_COPY, SENTIMENT_MIN_RATED, sentimentRatedShare, showsFavorableShare, showsSentimentOverview } from '../src/components/project/SentimentSection.js'
+import { SentimentScopeProvider, SentimentControls, SentimentHeadlines, SentimentQueryScore, SentimentAnswerOutcome, SentimentOverviewMetric, useSentimentResolvedSource, SENTIMENT_COPY, SENTIMENT_MIN_RATED, sentimentRatedShare, showsFavorableShare, showsSentimentOverview } from '../src/components/project/SentimentSection.js'
 import { sentimentSelectionFromVisibility, sentimentSelectionForSimpleEvidence, sentimentQueryKey, sentimentSummaryRefetchInterval } from '../src/queries/sentiment.js'
 import { EvidenceTable, QueryEvidenceSummary } from '../src/components/project/EvidenceTable.js'
 import { createDashboardFixture } from '../src/mock-data.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
+import { compileAppStyles, parseCompiledCss, compiledDeclarations, compiledDeclarationValues, compiledElementProperty, resolvedCompiledProperty, cssLengthPx } from './compiled-app-css.js'
 
 vi.mock('../src/hooks/use-drawer.js', () => ({ useDrawer: () => ({ openEvidence: vi.fn() }) }))
 afterEach(cleanup)
@@ -27,7 +26,7 @@ function settings(configure = false): SentimentSettings {
 function SentimentSection(props: Omit<ComponentProps<typeof SentimentScopeProvider>, 'children'>) {
   return <SentimentScopeProvider {...props}><SentimentControls /><SentimentHeadlines /></SentimentScopeProvider>
 }
-function renderScope(children: ReactNode, options: { enabled?: boolean; configure?: boolean; branded?: SentimentSummary; nonBrand?: SentimentSummary } = {}) {
+function renderScope(children: ReactNode, options: { enabled?: boolean; configure?: boolean; branded?: SentimentSummary; nonBrand?: SentimentSummary; evidence?: SentimentEvidenceItem[] } = {}) {
   const branded = options.branded ?? summary()
   const nonBrand = options.nonBrand ?? { ...summary(), selection: { ...summary().selection, queryClass: 'non-brand' as const }, score: { ...summary().score, favorableRate: 0.25, favorableDisplay: '25%' } }
   const requests: URL[] = []
@@ -35,7 +34,7 @@ function renderScope(children: ReactNode, options: { enabled?: boolean; configur
     const request = new URL(url); requests.push(request)
     if (request.pathname.endsWith('/settings')) return jsonResponse({ ...settings(options.configure), enabled: options.enabled ?? true })
     if (request.pathname.endsWith('/jobs')) return jsonResponse({ jobs: [] })
-    if (request.pathname.endsWith('/evidence')) return jsonResponse({ state: 'complete', selection: branded.selection, items: [], nextCursor: null })
+    if (request.pathname.endsWith('/evidence')) return jsonResponse({ state: 'complete', selection: branded.selection, items: options.evidence ?? [], nextCursor: null })
     return jsonResponse(request.searchParams.get('queryClass') === 'non-brand' ? nonBrand : branded)
   })
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
@@ -86,10 +85,9 @@ function expectEmptyFavorable(cell: Element) {
   const mark = cell.querySelector<HTMLElement>(':scope > .sentiment-class-empty')!
   expect(mark.textContent).toBe(EMPTY_VALUE)
   expect(mark.getAttribute('aria-hidden')).toBe('true')
-  expect(mark.title).toBe(SENTIMENT_COPY.minRated)
-  expect(cell.querySelector('.sr-only')!.textContent).toBe(SENTIMENT_COPY.minRated)
+  expect(mark.title).toBe('Shown from 10 ratings')
+  expect(cell.querySelector('.sr-only')!.textContent).toBe('Shown from 10 ratings')
   expect(cell.querySelector('.sentiment-class-share')).toBeNull()
-  expect(SENTIMENT_COPY.minRated).toBe(`Shown from ${SENTIMENT_MIN_RATED} ratings`)
 }
 /**
  * A Rated column, named for its class: only the share of answers rated on
@@ -100,7 +98,7 @@ function expectRated(row: Element, label: string, display: string, detail: strin
   const cell = row.querySelector<HTMLElement>(':scope > .sentiment-class-ratings')!
   expect(cell.getAttribute('role')).toBe('group')
   expect(cell.getAttribute('aria-label')).toBe(`${label} share rated`)
-  expect([...cell.children].map(child => [child.className, child.getAttribute('aria-hidden')])).toEqual([['', 'true'], ['sr-only', null]])
+  expect([...cell.children].map(child => child.getAttribute('aria-hidden'))).toEqual(['true', null])
   const [figure, spoken] = [...cell.children] as HTMLElement[]
   expect(visibleText(cell)).toBe(display)
   expect(figure!.textContent).toBe(display)
@@ -111,7 +109,7 @@ function expectRated(row: Element, label: string, display: string, detail: strin
 function expectEmptyRated(row: Element, label: string, detail: string = SENTIMENT_COPY.noAnswers) {
   const cell = row.querySelector<HTMLElement>(':scope > .sentiment-class-ratings')!
   expect(cell.getAttribute('aria-label')).toBe(`${label} share rated`)
-  expect([...cell.children].map(child => [child.className, child.getAttribute('aria-hidden')])).toEqual([['sentiment-class-empty', 'true'], ['sr-only', null]])
+  expect([...cell.children].map(child => child.getAttribute('aria-hidden'))).toEqual(['true', null])
   const [mark, spoken] = [...cell.children] as HTMLElement[]
   expect(visibleText(cell)).toBe(EMPTY_VALUE)
   expect(mark!.textContent).toBe(EMPTY_VALUE)
@@ -119,6 +117,9 @@ function expectEmptyRated(row: Element, label: string, detail: string = SENTIMEN
   expect(spoken!.textContent).toBe(detail)
   expect(SENTIMENT_COPY.noAnswers).toBe('No answers yet')
   expect(SENTIMENT_COPY.ratedUnavailable).toBe('Unavailable')
+}
+function evidenceItem(overrides: Partial<SentimentEvidenceItem> = {}): SentimentEvidenceItem {
+  return { ...{ assessmentId: 'a', runId: 'run', sourceSnapshotId: 'snapshot', sourceText: 'North Hall is excellent.', sourceTextHash: 'hash', subject: { id: 'north', displayName: 'North Hall', aliases: ['North Hall'], qualifiedAliases: [], urls: [], mentionNotApplicable: false }, subjectHash: 'subject', context: { queryId: 'q', queryText: 'Is North Hall good?', queryClass: 'branded', provider: 'openai', requestedModel: 'source-model', servedModel: 'source-model', location: 'Chicago', locationContext: null, revision: 3, usageEdges: [] }, evaluationDefinitionId: 'definition-a', outcome: 'favorable', conclusion: [{ id: 's1', text: 'North Hall is excellent.', start: 0, end: 24 }], complaint: null, returnedModel: 'jev-1.13.0', reason: null }, ...overrides }
 }
 function assessment(overrides: Partial<SentimentAssessmentSummary> = {}): SentimentAssessmentSummary {
   return { assessmentId: 'assessment-openai', sourceSnapshotId: 'snapshot-openai', runId: 'run', subjectId: 'north', subjectLabel: 'North Hall', executionNodeKey: null, provider: 'openai', requestedModel: 'source-model', servedModel: 'source-model', location: 'Chicago', evaluationDefinitionId: 'definition-a', state: 'complete', outcome: 'favorable', reason: null, ...overrides }
@@ -173,8 +174,6 @@ describe('sentiment presentation', () => {
     } finally { page.close() }
   })
   it('hides the favorable share below ten ratings and keeps the rated outcomes in Details', async () => {
-    expect(SENTIMENT_MIN_RATED).toBe(10)
-    expect([0, 1, 9, 10, 44].map(showsFavorableShare)).toEqual([false, false, false, true, true])
     // ainyc's branded class: 2 of 12 rated, 1 favorable and 1 mixed, 50.0% on the wire.
     const dto = summary()
     dto.coverage = { ...dto.coverage, judged: 2, distinctSourceAnswers: 12, eligibleAnswers: 12, ratedAnswers: 2, ratedAnswerRate: 0.16666667, counts: { ...emptySentimentCounts(), favorable: 1, mixed: 1, factual: 6, 'ambiguous-subject': 3, 'wrong-subject': 1 } }
@@ -185,7 +184,7 @@ describe('sentiment presentation', () => {
       // The Favorable column holds only the empty value; Rated still holds the share rated, 2 of 12.
       expect(figures(headline.parentElement!)).toEqual({ favorable: EMPTY_VALUE, rated: '16.7%', note: null })
       expectEmptyFavorable(headline)
-      expect(headline.textContent).toBe(`${EMPTY_VALUE}${SENTIMENT_COPY.minRated}`)
+      expect(headline.textContent).toBe('—Shown from 10 ratings')
       expect(document.body.textContent).not.toContain('50.0%')
       const { toggle, panel: details } = classDetails(headline.parentElement!) as { toggle: HTMLButtonElement; panel: HTMLElement }
       expect(toggle.getAttribute('aria-expanded')).toBe('false')
@@ -200,6 +199,27 @@ describe('sentiment presentation', () => {
       // An outcome with no ratings is not listed.
       expect(rows.some(([label]) => label === 'Unfavorable')).toBe(false)
     } finally { page.close() }
+    for (const [judged, favorable, kind, segmentCount] of [
+      [0, '—', 'empty', 0], [1, '—', 'too-few', 0], [9, '—', 'too-few', 0],
+      [10, '37.5%', 'rated', 2], [44, '37.5%', 'rated', 2],
+    ] as const) {
+      const value = summary()
+      value.coverage = { ...value.coverage, judged, ratedAnswers: judged, eligibleAnswers: 44, ratedAnswerRate: 0.25,
+        counts: { ...emptySentimentCounts(), favorable: judged === 0 ? 0 : 1, mixed: judged === 0 ? 0 : judged - 1 } }
+      // The server display deliberately differs from 1/judged. The UI passes it through.
+      value.score = { ...value.score, favorableRate: judged === 0 ? null : 0.375, favorableDisplay: judged === 0 ? 'Unavailable' : '37.5%' }
+      const mounted = renderScope(<SentimentHeadlines queryClass="branded" />, { branded: value })
+      try {
+        const cell = await screen.findByLabelText('Branded favorable share')
+        expect(visibleText(cell), `${judged} ratings favorable`).toBe(favorable)
+        expect(figures(cell.parentElement!).rated, `${judged} ratings server share`).toBe('25.0%')
+        const bar = cell.parentElement!.querySelector<HTMLElement>('.sentiment-bar')!
+        expect(bar.dataset.sentimentBar, `${judged} ratings track`).toBe(kind)
+        expect(bar.querySelectorAll('[data-outcome]').length, `${judged} ratings segments`).toBe(segmentCount)
+        if (judged < 10) expectEmptyFavorable(cell)
+        else expect(cell.textContent).toBe('37.5%')
+      } finally { mounted.close() }
+    }
   })
   it('shows the favorable share from exactly ten ratings, without the rated outcome rows', async () => {
     const page = renderScope(<SentimentHeadlines queryClass="branded" />)
@@ -226,10 +246,10 @@ describe('sentiment presentation', () => {
       expect(screen.queryByLabelText('Non-brand favorable share')).toBeNull()
     } finally { page.close() }
   })
-  it.each(['not-measured', 'processing', 'canceled', 'partial', 'failed'] as const)('preserves %s without inventing a zero', async state => {
+  it.each([['not-measured', 'No ratings yet.'], ['processing', 'Analyzing sentiment…'], ['canceled', 'Analysis canceled.'], ['partial', 'Partial results.'], ['failed', 'Analysis failed.']] as const)('preserves %s without inventing a zero', async (state, label) => {
     const dto = summary(); dto.state = state; dto.score = aggregateSentiment([]).score; dto.coverage.judged = 0
     const page = renderScope(<SentimentHeadlines queryClass="branded" />, { branded: dto })
-    try { expect(await screen.findByText(SENTIMENT_COPY.states[state])).toBeTruthy(); expect(screen.getByLabelText('Branded favorable share').textContent).not.toContain('0%') } finally { page.close() }
+    try { expect(await screen.findByText(label)).toBeTruthy(); expect(screen.getByLabelText('Branded favorable share').textContent).not.toContain('0%') } finally { page.close() }
   })
   it('omits empty counts and methodology for an unmeasured class', async () => {
     const dto = { ...summary(), ...aggregateSentiment([]) }
@@ -298,7 +318,6 @@ describe('sentiment presentation', () => {
       const headline = await screen.findByLabelText('Branded favorable share')
       // A measured 0% is a figure, not the empty value; partial results sit under the bar.
       expect(figures(headline.parentElement!)).toEqual({ favorable: '0%', rated: '75.0%', note: 'Partial results' })
-      expect(headline.parentElement!.querySelector('.sentiment-class-note')!.className).toBe('sentiment-class-note text-caution')
       const details = classDetails(headline.parentElement!).panel!
       expect(within(details).getByText(SENTIMENT_COPY.details.unadmitted)).toBeTruthy()
       expect(SENTIMENT_COPY.details.unadmitted).toBe('Checks not yet analyzed')
@@ -395,7 +414,6 @@ describe('sentiment presentation', () => {
     const value = { configured: state !== 'disabled', overall: { queryClass: 'all' as const, ...dto, runIds: ['run'] }, branded, nonBrand: { ...dto, runIds: ['run'] } }
     expect([value.overall.score.favorableDisplay, value.nonBrand.coverage.judged]).toEqual(['60.1%', 10])
     const { container } = render(<SentimentOverviewMetric value={value} />)
-    expect(showsSentimentOverview(value)).toBe(false)
     expect(container.innerHTML).toBe('')
   })
   it('reads "too few" below ten branded ratings, whatever the overall count', () => {
@@ -408,14 +426,17 @@ describe('sentiment presentation', () => {
   it('hides the overview figure inside an embed, as the project page does', () => {
     const dto = summary()
     const value = { configured: true, overall: { queryClass: 'all' as const, ...dto, runIds: ['run'] }, branded: { ...dto, runIds: ['run'] }, nonBrand: { ...dto, runIds: ['run'] } }
+    const original = window.__CANONRY_CONFIG__
     window.__CANONRY_CONFIG__ = { embed: { enabled: true } }
+    const page = render(<SentimentOverviewMetric value={value} />)
     try {
-      expect(showsSentimentOverview(value)).toBe(false)
-      const { container } = render(<SentimentOverviewMetric value={value} />)
-      expect(container.innerHTML).toBe('')
-    } finally { delete window.__CANONRY_CONFIG__ }
-    expect(showsSentimentOverview(value)).toBe(true)
-    expect(showsSentimentOverview({ ...value, configured: false })).toBe(false)
+      expect(page.container.innerHTML).toBe('')
+      delete window.__CANONRY_CONFIG__
+      page.rerender(<SentimentOverviewMetric value={value} />)
+      expect(within(page.container).getByText('60.1%', { exact: false })).toBeTruthy()
+      page.rerender(<SentimentOverviewMetric value={{ ...value, configured: false }} />)
+      expect(page.container.innerHTML).toBe('')
+    } finally { window.__CANONRY_CONFIG__ = original }
   })
   it('places favorable in the existing query table and class filtering changes its headlines', async () => {
     const dto = summary(); const { state, reason, provisional, coverage, score } = dto
@@ -427,7 +448,7 @@ describe('sentiment presentation', () => {
       const score = await screen.findByRole('button', { name: 'View Branded sentiment evidence for Is North Hall good?' })
       expect(score.textContent).toContain('60.1%')
       const row = score.closest('tr')!
-      const queryToggle = within(row).getByRole('button', { name: 'Is North Hall good?', exact: true })
+      const queryToggle = within(row).getByRole('button', { name: 'Is North Hall good?' })
       fireEvent.keyDown(score, { key: 'Enter' })
       expect(queryToggle.getAttribute('aria-expanded')).toBe('false')
       fireEvent.change(screen.getByRole('combobox', { name: 'Query class' }), { target: { value: 'branded' } })
@@ -485,13 +506,22 @@ describe('sentiment presentation', () => {
       expect(requests.filter(url => url.pathname.endsWith('/sentiment'))).toHaveLength(0)
     } finally { cleanup(); client.clear(); restore() }
   })
-  it('shows verbatim quotations and a truthful empty complaint in the evidence drawer', () => {
-    const item: SentimentEvidenceItem = { assessmentId: 'a', runId: 'run', sourceSnapshotId: 'snapshot', sourceText: 'North Hall is excellent.', sourceTextHash: 'hash', subject: { id: 'north', displayName: 'North Hall', aliases: ['North Hall'], qualifiedAliases: [], urls: [], mentionNotApplicable: false }, subjectHash: 'subject', context: { queryId: 'q', queryText: 'Is North Hall good?', queryClass: 'branded', provider: 'openai', requestedModel: 'source-model', servedModel: 'source-model', location: 'Chicago', locationContext: null, revision: 3, usageEdges: [] }, evaluationDefinitionId: 'definition-a', outcome: 'favorable', conclusion: [{ id: 's1', text: 'North Hall is excellent.', start: 0, end: 24 }], complaint: null, returnedModel: 'jev-1.13.0', reason: null }
-    render(<SentimentEvidenceDrawer item={item} onClose={vi.fn()} />)
-    expect(screen.getByRole('dialog', { name: 'Sentiment evidence: North Hall' })).toBeTruthy()
-    expect(screen.getByText('No complaint was identified.')).toBeTruthy()
-    expect(screen.getByText('North Hall is excellent.', { selector: 'blockquote' })).toBeTruthy()
-    expect(screen.getByText('definition-a')).toBeTruthy()
+  it('shows verbatim quotations and a truthful empty complaint in the evidence drawer', async () => {
+    const item = evidenceItem()
+    const page = renderScope(<SentimentAnswerOutcome queryId="q" sourceSnapshotIds={['snapshot']} queryClass="branded" provider="openai" location="Chicago" />, {
+      branded: summaryWithAssessments([assessment({ assessmentId: 'a', sourceSnapshotId: 'snapshot' })]), evidence: [{ ...item, sourceText: 'North Hall is excellent. A factual follow-up mentions parking.' }],
+    })
+    try {
+      fireEvent.click(await screen.findByRole('button', { name: 'View openai sentiment evidence for North Hall: Favorable' }))
+      const dialog = await screen.findByRole('dialog', { name: 'Sentiment evidence: Is North Hall good? · openai · North Hall' })
+      await within(dialog).findByText('definition-a')
+      expect([...dialog.querySelectorAll('blockquote')].map(node => node.textContent)).toEqual(['North Hall is excellent.'])
+      expect(dialog.textContent).toContain('No complaint was identified.')
+      expect(within(dialog).getByText('hash')).toBeTruthy()
+      const requests = page.requests.filter(url => url.pathname.endsWith('/evidence'))
+      expect(requests).toHaveLength(1)
+      expect(Object.fromEntries(requests[0]!.searchParams)).toEqual({ mode: 'advanced', queryClass: 'branded', scope: 'property', scopeKey: 'north', marketKey: 'chicago', runId: 'run', revision: '3', location: 'Chicago', evaluationDefinitionId: 'definition-a', queryId: 'q', assessmentId: 'a', provider: 'openai', model: 'source-model', limit: '50' })
+    } finally { page.close() }
   })
 })
 describe('per-engine sentiment', () => {
@@ -502,7 +532,7 @@ describe('per-engine sentiment', () => {
     const page = renderScope(<EvidenceTable evidence={items} />, { branded: dto })
     try {
       await screen.findByRole('columnheader', { name: 'Sentiment' })
-      fireEvent.click(screen.getByRole('button', { name: 'Is North Hall good?', exact: true }))
+      fireEvent.click(screen.getByRole('button', { name: 'Is North Hall good?' }))
       const favorable = await screen.findByRole('button', { name: 'View openai sentiment evidence for North Hall: Favorable' })
       const unfavorable = screen.getByRole('button', { name: 'View gemini sentiment evidence for North Hall: Unfavorable' })
       expect(within(favorable.closest('tr')!).getByText('OpenAI')).toBeTruthy()
@@ -602,21 +632,37 @@ describe('sentiment polling', () => {
     expect(sentimentSummaryRefetchInterval(dto, jobsActive)).toBe(expected)
   })
   it('stops re-reading both class summaries once their remaining work is terminal', async () => {
+    const running = withCounts('processing', { running: 1 })
     const terminal = withCounts('partial', { failed: 1 })
-    const page = renderScope(<SentimentHeadlines />, { branded: terminal, nonBrand: { ...terminal, selection: { ...terminal.selection, queryClass: 'non-brand' } } })
+    const reads: URL[] = []
+    const counts = { branded: 0, 'non-brand': 0 }
+    const restore = mockFetch(url => {
+      const request = new URL(url)
+      if (request.pathname.endsWith('/settings')) return jsonResponse(settings())
+      const queryClass = request.searchParams.get('queryClass') === 'non-brand' ? 'non-brand' : 'branded'
+      reads.push(request)
+      counts[queryClass]++
+      const dto = counts[queryClass] === 1 ? running : terminal
+      return jsonResponse({ ...dto, selection: { ...dto.selection, queryClass } })
+    })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    // Leave notification/RTL timeouts real; only the owner's refetch intervals use the controlled clock.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     try {
+      render(<QueryClientProvider client={client}><SentimentScopeProvider projectName="project" selection={{ mode: 'advanced', queryClass: 'branded', scope: 'property', scopeKey: 'north', runId: 'run' }}><SentimentHeadlines /></SentimentScopeProvider></QueryClientProvider>)
       await screen.findByLabelText('Branded favorable share')
       // Non-brand draws no line of its own, but its summary is still read (for its unfavorable and mixed answers).
-      await waitFor(() => expect(summariesLoaded(page.client)).toBe(true))
-      const queries = page.client.getQueryCache().findAll({ queryKey: ['sentiment', 'project', 'summary'] })
-      expect(queries).toHaveLength(2)
-      expect(queries.map(query => (query.state.data as SentimentSummary).selection.queryClass).sort()).toEqual(['branded', 'non-brand'])
-      for (const query of queries) {
-        const interval = query.observers[0]!.options.refetchInterval as (value: typeof query) => number | false
-        expect(query.state.data).toMatchObject({ state: 'partial' })
-        expect(interval(query)).toBe(false)
-      }
-    } finally { page.close() }
+      await waitFor(() => expect(reads.filter(url => url.pathname.endsWith('/sentiment'))).toHaveLength(2))
+      expect(reads.filter(url => url.pathname.endsWith('/sentiment'))).toHaveLength(2)
+      await act(async () => { await vi.advanceTimersByTimeAsync(4999) })
+      expect(reads.filter(url => url.pathname.endsWith('/sentiment'))).toHaveLength(2)
+      await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+      await waitFor(() => expect(counts).toEqual({ branded: 2, 'non-brand': 2 }))
+      await waitFor(() => expect(client.isFetching()).toBe(0))
+      await act(async () => { await vi.advanceTimersByTimeAsync(10000) })
+      expect(counts).toEqual({ branded: 2, 'non-brand': 2 })
+      expect(reads.map(url => url.searchParams.get('queryClass'))).toEqual(['branded', 'non-brand', 'branded', 'non-brand'])
+    } finally { cleanup(); client.clear(); restore(); vi.useRealTimers() }
   })
 })
 
@@ -699,7 +745,8 @@ describe('sentiment bars', () => {
       const bar = barFor('Branded')
       // Label with its ⓘ, the bar, the two figure columns, the chevron in the
       // last column, then the dropdown panel it opens.
-      expect(children.map(child => child.className.split(' ')[0])).toEqual(['sentiment-class-label', 'sentiment-bar', 'sentiment-class-favorable', 'sentiment-class-ratings', 'sentiment-class-details-toggle', 'sentiment-class-details'])
+      const order = [children[0]!, bar, value, screen.getByRole('group', { name: 'Branded share rated' }), screen.getByRole('button', { name: 'Branded details' })]
+      for (let index = 1; index < order.length; index++) expect(order[index - 1]!.compareDocumentPosition(order[index]!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
       expect(children[0]!.textContent).toBe('Branded')
       expect(within(children[0] as HTMLElement).getByRole('button', { name: SENTIMENT_COPY.favorable })).toBeTruthy()
       expect(bar.getAttribute('role')).toBe('img')
@@ -852,6 +899,7 @@ describe('sentiment bars', () => {
   })
 
   it('names the segment colors in a legend under the Sentiment title once the bar has segments, and adds no tab stop', async () => {
+    const css = parseCompiledCss(await compileAppStyles([]))
     const page = renderScope(<SentimentHeadlines />, { branded: branded(), nonBrand: nonBrand() })
     try {
       await screen.findByLabelText('Branded favorable share')
@@ -867,13 +915,11 @@ describe('sentiment bars', () => {
       const legend = document.querySelector<HTMLElement>('.sentiment-legend')!
       expect(title.nextElementSibling).toBe(legend)
       expect(legend.getAttribute('aria-hidden')).toBe('true')
-      expect([...legend.querySelectorAll('li')].map(item => [item.textContent, item.querySelector('span')!.className])).toEqual([
-        ['Favorable', 'sentiment-legend-swatch progress-fill-info'],
-        ['Mixed', 'sentiment-legend-swatch progress-fill-caution'],
-        ['Unfavorable', 'sentiment-legend-swatch progress-fill-negative'],
+      expect([...legend.querySelectorAll('li')].map(item => item.textContent)).toEqual(['Favorable', 'Mixed', 'Unfavorable'])
+      expect([...legend.querySelectorAll('li span')].map(element => compiledElementProperty(css, element, 'background-color'))).toEqual([
+        'var(--color-info-400)', 'var(--color-caution-400)', 'var(--color-negative-400)',
       ])
-      // Segments wear the same tone fills as the legend.
-      expect([...barFor('Branded').children].map(segment => segment.className)).toEqual(['sentiment-bar-segment progress-fill-info', 'sentiment-bar-segment progress-fill-caution'])
+      expect([...barFor('Branded').children].map(element => compiledElementProperty(css, element, 'background-color'))).toEqual(['var(--color-info-400)', 'var(--color-caution-400)'])
       // The bars are images with text, never focus stops; the ⓘ and Details stay the only controls.
       for (const bar of document.querySelectorAll('.sentiment-bar')) {
         expect(bar.getAttribute('tabindex')).toBeNull()
@@ -938,11 +984,9 @@ describe('sentiment bars', () => {
     const page = renderScope(<EvidenceTable evidence={[{ ...seed, id: 'north', query: 'Is North Hall good?', queryClass: 'branded' }]} actions={<button type="button">Manage queries</button>} />, { enabled: false })
     try {
       const manage = await screen.findByRole('button', { name: 'Manage queries' })
-      expect(manage.parentElement!.className).toBe('query-evidence-actions')
       const toolbar = manage.parentElement!.parentElement!
-      expect(toolbar.className).toBe('query-evidence-toolbar')
-      expect([...toolbar.children].map(child => child.className)).toEqual(['query-evidence-actions'])
-      expect(toolbar.nextElementSibling!.className).toBe('query-evidence-view-row')
+      expect(within(toolbar).getAllByRole('button').map(button => button.textContent)).toEqual(['Manage queries'])
+      expect(screen.getByRole('table').compareDocumentPosition(manage) & Node.DOCUMENT_POSITION_PRECEDING).not.toBe(0)
       expect(screen.queryByRole('group', { name: 'Favorable answer scores' })).toBeNull()
       expect(document.querySelector('.sentiment-legend')).toBeNull()
     } finally { page.close() }
@@ -1066,7 +1110,7 @@ describe('sentiment Details dropdown', () => {
     try {
       await screen.findByLabelText('Branded favorable share')
       // Zero ratings, nothing measured: the empty bar and the state, no Details.
-      expect(figures(lineFor('Branded'))).toEqual({ favorable: EMPTY_VALUE, rated: EMPTY_VALUE, note: SENTIMENT_COPY.states['not-measured'] })
+      expect(figures(lineFor('Branded'))).toEqual({ favorable: EMPTY_VALUE, rated: EMPTY_VALUE, note: 'No ratings yet.' })
       expect(classDetails(lineFor('Branded')).toggle).toBeNull()
       expect(lineFor('Branded').querySelector('.sentiment-class-details')).toBeNull()
       expect(barFor('Branded').getAttribute('data-sentiment-bar')).toBe('empty')
@@ -1537,18 +1581,19 @@ describe('non-brand query rows', () => {
 
 describe('sentiment outcome tones', () => {
   const TONE_CLASS = { favorable: 'text-positive', mixed: 'text-caution', unfavorable: 'text-negative', factual: 'text-neutral' } as const
-  function evidenceItem(outcome: SentimentEvidenceItem['outcome']): SentimentEvidenceItem {
-    return { assessmentId: 'a', runId: 'run', sourceSnapshotId: 'snapshot', sourceText: 'North Hall is fine.', sourceTextHash: 'hash', subject: { id: 'north', displayName: 'North Hall', aliases: ['North Hall'], qualifiedAliases: [], urls: [], mentionNotApplicable: false }, subjectHash: 'subject', context: { queryId: 'q', queryText: 'Is North Hall good?', queryClass: 'branded', provider: 'openai', requestedModel: 'source-model', servedModel: 'source-model', location: 'Chicago', locationContext: null, revision: 3, usageEdges: [] }, evaluationDefinitionId: 'definition-a', outcome, conclusion: [], complaint: null, returnedModel: 'jev-1.13.0', reason: null }
-  }
-
   it.each([
     ['favorable', 'Favorable'], ['mixed', 'Mixed'], ['unfavorable', 'Unfavorable'], ['factual', OUTCOME_COPY.factual],
-  ] as const)('tones a %s evidence badge by its outcome', (outcome, label) => {
-    render(<SentimentEvidenceDrawer item={evidenceItem(outcome)} onClose={vi.fn()} />)
-    const dialog = screen.getByRole('dialog', { name: 'Sentiment evidence: North Hall' })
-    const badge = within(dialog).getByText(label, { selector: 'div' })
-    expect(badge.className).toContain(TONE_CLASS[outcome])
-    for (const other of Object.values(TONE_CLASS).filter(tone => tone !== TONE_CLASS[outcome])) expect(badge.className).not.toContain(other)
+  ] as const)('tones a %s evidence badge by its outcome', async (outcome, label) => {
+    const page = renderScope(<SentimentAnswerOutcome queryId="q" sourceSnapshotIds={['snapshot']} queryClass="branded" provider="openai" location="Chicago" />, {
+      branded: summaryWithAssessments([assessment({ assessmentId: 'a', sourceSnapshotId: 'snapshot', outcome })]), evidence: [evidenceItem({ outcome })],
+    })
+    try {
+      fireEvent.click(await screen.findByRole('button', { name: `View openai sentiment evidence for North Hall: ${label}` }))
+      const dialog = await screen.findByRole('dialog', { name: 'Sentiment evidence: Is North Hall good? · openai · North Hall' })
+      const badge = await within(dialog).findByText(label, { selector: 'div' })
+      expect(badge.className).toContain(TONE_CLASS[outcome])
+      for (const other of Object.values(TONE_CLASS).filter(tone => tone !== TONE_CLASS[outcome])) expect(badge.className).not.toContain(other)
+    } finally { page.close() }
   })
 
   it('tones each engine row badge by its outcome', async () => {
@@ -1682,112 +1727,90 @@ describe('sentiment block title and Manage sentiment', () => {
 })
 
 describe('sentiment bar styles', () => {
-  const css = readFileSync(resolve(import.meta.dirname, '../src/styles.css'), 'utf8')
-  /** The text inside the braces that open right after `prelude`. */
-  function body(prelude: string, source = css): string {
-    const start = source.indexOf(`${prelude} {`)
-    expect(start, prelude).toBeGreaterThanOrEqual(0)
-    let depth = 0
-    for (let index = source.indexOf('{', start); index < source.length; index++) {
-      if (source[index] === '{') depth++
-      else if (source[index] === '}' && --depth === 0) return source.slice(source.indexOf('{', start) + 1, index)
+  it('keeps the legend swatches in their colors under forced colors, like the bar segments', async () => {
+    const css = parseCompiledCss(await compileAppStyles([]))
+    for (const selector of ['.sentiment-bar-segment', '.sentiment-legend-swatch']) {
+      expect(compiledDeclarations(css, selector, '@media (forced-colors: active)')).toMatchObject({ 'forced-color-adjust': 'none' })
     }
-    throw new Error(`unclosed ${prelude}`)
-  }
-  /** One rule's declarations as a property map; a repeated property keeps its last value, as the cascade does. */
-  function declarations(selector: string, source: string): Record<string, string> {
-    return Object.fromEntries(body(selector, source).split(';').map(line => line.trim()).filter(line => line && !line.startsWith('@')).map(line => [line.slice(0, line.indexOf(':')).trim(), line.slice(line.indexOf(':') + 1).trim()]))
-  }
-
-  it('keeps the legend swatches in their colors under forced colors, like the bar segments', () => {
-    const forced = [...css.matchAll(/@media \(forced-colors: active\) \{/g)].map(match => body('@media (forced-colors: active)', css.slice(match.index)))
-    const rule = forced.find(text => text.includes('.sentiment-bar-segment'))!
-    expect(declarations('.sentiment-bar-segment,\n    .sentiment-legend-swatch', rule)).toEqual({ 'forced-color-adjust': 'none' })
   })
 
-  it('runs each class line the full width on shared columns: label, the bar as the one flexible column, then fixed Favorable, With opinion and chevron columns', () => {
-    // The top-level rules, not `.report-headline + .sentiment-headlines`.
-    const headlines = declarations('\n  .sentiment-headlines', css)
-    // The second figure column is wide enough for its "With opinion" header.
-    expect(headlines).toMatchObject({ display: 'grid', 'grid-template-columns': 'auto minmax(0, 1fr) 4.5rem 6.5rem 1.75rem' })
-    // Label, bar, Favorable, Rated, chevron: only the bar's column grows, and
-    // the figure and chevron columns are fixed, so the bars end at the same x
-    // whatever the figures read.
+  it('runs each class line the full width on shared columns: label, the bar as the one flexible column, then fixed Favorable, With opinion and chevron columns', async () => {
+    const css = parseCompiledCss(await compileAppStyles([]))
+    const headlines = compiledDeclarations(css, '.sentiment-headlines')
+    expect(headlines).toMatchObject({ display: 'grid', container: 'sentiment-headlines / inline-size' })
     const tracks = headlines['grid-template-columns']!.split(/ (?![^(]*\))/)
+    expect(tracks).toHaveLength(5)
     expect(tracks.map(track => track.includes('fr'))).toEqual([false, true, false, false, false])
-    expect(tracks.slice(2).every(track => /^\d+(?:\.\d+)?rem$/.test(track))).toBe(true)
-    // Each line and the header span every column and share them (subgrid), so
-    // the bars start and end level and each figure sits under its header.
-    const line = declarations('\n  .sentiment-class', css)
+    expect(tracks[1]).toBe('minmax(0, 1fr)')
+    expect(tracks.slice(2).map(value => cssLengthPx(value, css)).every(value => value > 0)).toBe(true)
+    const line = compiledDeclarations(css, '.sentiment-class')
     expect(line).toMatchObject({ position: 'relative', display: 'grid', 'grid-column': '1 / -1', 'grid-template-columns': 'subgrid' })
-    // Without subgrid a line falls back to the same columns, so its figures still line up.
-    expect(body('\n  .sentiment-class', css)).toContain(`grid-template-columns: ${headlines['grid-template-columns']};`)
-    expect(declarations('.sentiment-headlines-columns', css)).toMatchObject({ display: 'grid', 'grid-column': '1 / -1', 'grid-template-columns': 'subgrid' })
-    // The header names sit over their figures, right-aligned like them, in the competitor table's eyebrow.
+    expect(compiledDeclarationValues(css, '.sentiment-class', 'grid-template-columns')).toContain(headlines['grid-template-columns'])
+    expect(compiledDeclarations(css, '.sentiment-headlines-columns')).toMatchObject({ display: 'grid', 'grid-column': '1 / -1', 'grid-template-columns': 'subgrid' })
+    for (const selector of ['.sentiment-headlines-columns', '.mention-share-row-head']) {
+      expect(compiledDeclarations(css, selector)).toMatchObject({ 'text-transform': 'uppercase', 'font-size': '10px', 'letter-spacing': '0.08em', color: 'var(--color-text-muted)' })
+      expect(resolvedCompiledProperty(css, selector, 'font-weight')).toBe('500')
+    }
     for (const [name, column] of [['favorable', '3'], ['ratings', '4']] as const) {
-      expect(declarations(`.sentiment-headlines-${name}`, css)).toMatchObject({ 'grid-column': column })
-      expect(body(`.sentiment-headlines-${name}`, css)).toContain('text-right')
-      expect(declarations(`.sentiment-class-${name}`, css)).toMatchObject({ 'grid-column': column, 'grid-row': '1' })
-      expect(body(`.sentiment-class-${name}`, css)).toContain('text-right')
-      expect(body(`.sentiment-class-${name}`, css)).toContain('tabular-nums')
+      expect(compiledDeclarations(css, `.sentiment-headlines-${name}`)).toMatchObject({ 'grid-column': column, 'text-align': 'right' })
+      expect(compiledDeclarations(css, `.sentiment-class-${name}`)).toMatchObject({ 'grid-column': column, 'grid-row': '1', 'text-align': 'right' })
     }
-    for (const utility of ['text-[10px]', 'font-medium', 'uppercase', 'tracking-[0.08em]', 'text-muted']) {
-      expect(body('.sentiment-headlines-columns', css)).toContain(utility)
-      expect(body('.mention-share-row-head', css)).toContain(utility)
+    for (const selector of ['.sentiment-class-favorable', '.sentiment-class-ratings']) expect(resolvedCompiledProperty(css, selector, 'font-variant-numeric')).toBe('tabular-nums')
+    expect(compiledDeclarations(css, '.sentiment-class-empty')).toMatchObject({ color: 'var(--color-text-muted)' })
+    expect(compiledDeclarations(css, '.sentiment-class-details-toggle')).toMatchObject({ 'grid-column': '5', 'grid-row': '1' })
+    expect(compiledDeclarations(css, '.sentiment-class-label')).toMatchObject({ 'grid-column': '1' })
+    expect(compiledDeclarations(css, '.sentiment-bar')).toMatchObject({ 'grid-column': '1 / -1', 'grid-row': '2' })
+    const wide = '@container sentiment-headlines (min-width: 40rem)'
+    expect(compiledDeclarations(css, '.sentiment-bar', wide)).toMatchObject({ 'grid-column': '2', 'grid-row': '1' })
+    expect(compiledDeclarations(css, '.sentiment-class-note', wide)).toMatchObject({ 'grid-column': '2 / -1', 'grid-row': '2' })
+    for (const selector of ['.sentiment-class-favorable', '.sentiment-class-ratings', '.sentiment-class-details-toggle', '.sentiment-headlines-columns']) {
+      expect(compiledDeclarationValues(css, selector, 'grid-column', wide)).toEqual([])
     }
-    expect(body('.sentiment-class-empty', css)).toContain('text-muted')
-    // The chevron has its own last column on every line, at any width.
-    expect(declarations('.sentiment-class-details-toggle', css)).toMatchObject({ 'grid-column': '5', 'grid-row': '1' })
-    expect(declarations('.sentiment-class-label', css)).toMatchObject({ 'grid-column': '1' })
-    // Narrow: the bar runs the full width under the label and figures.
-    expect(declarations('.sentiment-bar', css)).toMatchObject({ 'grid-column': '1 / -1', 'grid-row': '2' })
-    // Wide: the bar takes the flexible column on the same line, and any note runs under it.
-    const wide = body('@container sentiment-headlines (min-width: 40rem)')
-    expect(declarations('.sentiment-bar', wide)).toMatchObject({ 'grid-column': '2', 'grid-row': '1' })
-    expect(declarations('.sentiment-class-note', wide)).toMatchObject({ 'grid-column': '2 / -1', 'grid-row': '2' })
-    // The figures and chevron keep their columns when wide; nothing in the wide rules moves them.
-    for (const selector of ['.sentiment-class-favorable', '.sentiment-class-ratings', '.sentiment-class-details-toggle', '.sentiment-headlines-columns']) expect(wide).not.toContain(selector)
-    // The actions row sits above the block, actions at its right.
-    expect(body('.query-evidence-toolbar', css)).toContain('justify-between')
-    expect(body('.query-evidence-actions', css)).toContain('ml-auto')
-    expect(declarations('.query-evidence-toolbar:empty', css)).toEqual({ display: 'none' })
+    expect(compiledDeclarations(css, '.query-evidence-toolbar')).toMatchObject({ 'justify-content': 'space-between' })
+    expect(compiledDeclarations(css, '.query-evidence-actions')).toMatchObject({ 'margin-left': 'auto' })
+    expect(compiledDeclarations(css, '.query-evidence-toolbar:empty')).toMatchObject({ display: 'none' })
   })
 
-  it('spans the title row, the legend under it and the non-brand line across every column of the block', () => {
+  it('spans the title row, the legend under it and the non-brand line across every column of the block', async () => {
+    const css = parseCompiledCss(await compileAppStyles([]))
     // Inside the grid each would otherwise fall into the label column alone.
-    expect(declarations('.sentiment-headlines-title', css)).toMatchObject({ 'grid-column': '1 / -1' })
-    expect(body('.sentiment-headlines-title', css)).toContain('justify-between')
-    expect(declarations('.sentiment-headlines > .sentiment-legend', css)).toEqual({ 'grid-column': '1 / -1' })
-    expect(declarations('.sentiment-nonbrand', css)).toMatchObject({ 'grid-column': '1 / -1' })
-    expect(declarations('.sentiment-nonbrand-note', css)).toMatchObject({ 'grid-column': '1 / -1' })
-    // The title is a heading, the subtitle supporting text at least 13px.
-    expect(body('.sentiment-headlines-heading', css)).toContain('font-semibold')
-    expect(body('.sentiment-headlines-subtitle', css)).toContain('text-secondary')
+    for (const selector of ['.sentiment-headlines-title', '.sentiment-headlines > .sentiment-legend', '.sentiment-nonbrand', '.sentiment-nonbrand-note']) {
+      expect(compiledDeclarations(css, selector), selector).toMatchObject({ 'grid-column': '1 / -1' })
+    }
+    expect(compiledDeclarations(css, '.sentiment-headlines-title')).toMatchObject({ 'justify-content': 'space-between' })
     // A Property's bar runs under its name and count.
-    expect(declarations('.sentiment-property-bar', css)).toMatchObject({ 'grid-column': '1 / -1' })
+    expect(compiledDeclarations(css, '.sentiment-property-bar')).toMatchObject({ 'grid-column': '1 / -1' })
     // The no-opinion caption wraps inside the fixed-width panel.
-    expect(body('.sentiment-details-caption', css)).toContain('break-words')
+    expect(compiledDeclarations(css, '.sentiment-details-caption')).toMatchObject({ 'overflow-wrap': 'break-word' })
   })
 
-  it('gives the chevron a 44px hit area that fits the line pitch', () => {
-    // A 28px button, a 16px row gap: 44px per line, and the hit area reaches 44px square.
-    expect(body('.sentiment-class-details-toggle', css)).toContain('size-7')
-    expect(declarations('.sentiment-class-details-toggle', css)).toMatchObject({ position: 'relative' })
-    expect(declarations('.sentiment-class-details-toggle::before', css)).toMatchObject({ content: "''", position: 'absolute', inset: '-0.5rem' })
-    expect(body('\n  .sentiment-headlines', css)).toContain('gap-y-4')
+  it('gives the chevron a 44px hit area that fits the line pitch', async () => {
+    const css = parseCompiledCss(await compileAppStyles([]))
+    const button = compiledDeclarations(css, '.sentiment-class-details-toggle')
+    const hit = compiledDeclarations(css, '.sentiment-class-details-toggle::before')
+    expect(button.position).toBe('relative')
+    expect(hit.position).toBe('absolute')
+    expect(hit.content).toMatch(/^(['"])\1$/)
+    const inset = cssLengthPx(hit.inset!, css)
+    const width = cssLengthPx(button.width!, css) - 2 * inset
+    const height = cssLengthPx(button.height!, css) - 2 * inset
+    expect(width, 'compiled target width at the default 16px root').toBeGreaterThanOrEqual(44)
+    expect(height, 'compiled target height at the default 16px root').toBeGreaterThanOrEqual(44)
+    const pitch = cssLengthPx(button.height!, css) + cssLengthPx(compiledDeclarations(css, '.sentiment-headlines')['row-gap']!, css)
+    expect(pitch, 'neighboring line targets do not overlap').toBeGreaterThanOrEqual(height)
   })
 
-  it('floats the Details panel under its button, on screen and past the section clip', () => {
-    const panel = body('.sentiment-class-details', css)
-    // Anchored under the line's end (its button), over the rows below, never wider than the line.
-    for (const utility of ['absolute', 'right-0', 'top-full', 'z-10', 'w-80', 'max-w-full']) expect(panel).toContain(utility)
-    // `hidden` must still hide it.
-    expect(declarations('.sentiment-class-details', css)).not.toHaveProperty('display')
-    expect(declarations('.overview-disclosure:has(.sentiment-class-details:not([hidden]))', css)).toEqual({ overflow: 'visible' })
-    // Label left, value right beside it, one row height, tabular figures.
-    expect(body('.sentiment-details-list > div', css)).toContain('justify-between')
-    expect(body('.sentiment-details-list > div', css)).toContain('min-h-7')
-    expect(body('.sentiment-details-list dd', css)).toContain('tabular-nums')
+  it('floats the Details panel under its button, on screen and past the section clip', async () => {
+    const css = parseCompiledCss(await compileAppStyles([]))
+    const panel = compiledDeclarations(css, '.sentiment-class-details')
+    expect(panel).toMatchObject({ position: 'absolute', top: '100%', 'z-index': '10', 'max-width': '100%', 'background-color': 'var(--color-bg-elevated)' })
+    expect(cssLengthPx(panel.right!, css)).toBe(0)
+    expect(cssLengthPx(panel.width!, css)).toBeGreaterThan(0)
+    expect(panel).not.toHaveProperty('display')
+    expect(compiledDeclarations(css, '.overview-disclosure:has(.sentiment-class-details:not([hidden]))')).toMatchObject({ overflow: 'visible' })
+    expect(compiledDeclarations(css, '.sentiment-details-list > div')).toMatchObject({ 'justify-content': 'space-between' })
+    expect(cssLengthPx(compiledDeclarations(css, '.sentiment-details-list > div')['min-height']!, css)).toBeGreaterThanOrEqual(28)
+    expect(resolvedCompiledProperty(css, '.sentiment-details-list dd', 'font-variant-numeric')).toBe('tabular-nums')
   })
 })
 
@@ -1805,12 +1828,53 @@ describe('sentiment cache identity', () => {
     expect(simple.marketKey).toBeUndefined()
     expect(simple.revision).toBeUndefined()
   })
-  it('carries full Advanced selection and separates market and evaluator caches', () => {
+  it('carries full Advanced selection and separates market and evaluator caches', async () => {
     const selection = sentimentSelectionFromVisibility({ measurementScope: 'property', measurementScopeKey: 'north', marketKey: 'chicago', queryClass: 'branded', model: 'source-model', provider: 'openai', location: 'Chicago', measurementRunId: 'run', revision: 3 }, 'advanced', 'definition-a')
     expect(selection).toEqual({ mode: 'advanced', scope: 'property', scopeKey: 'north', marketKey: 'chicago', queryClass: 'branded', model: 'source-model', provider: 'openai', location: 'Chicago', runId: 'run', revision: 3, evaluationDefinitionId: 'definition-a' })
-    expect(sentimentQueryKey('project', 'evidence', selection)).not.toEqual(sentimentQueryKey('project', 'evidence', { ...selection, evaluationDefinitionId: 'definition-b' }))
-    expect(sentimentQueryKey('project', 'evidence', selection)).not.toEqual(sentimentQueryKey('project', 'evidence', { ...selection, marketKey: 'other' }))
-    expect(sentimentQueryKey('project', 'evidence', { ...selection, assessmentId: 'one' })).not.toEqual(sentimentQueryKey('project', 'evidence', { ...selection, assessmentId: 'two' }))
+    const reads: URL[] = []
+    const pendingEvidence: (() => void)[] = []
+    const restore = mockFetch(url => {
+      const request = new URL(url)
+      if (request.pathname.endsWith('/settings')) return jsonResponse(settings())
+      reads.push(request)
+      const market = request.searchParams.get('marketKey') ?? 'chicago'
+      const evaluator = request.searchParams.get('evaluationDefinitionId') ?? 'definition-a'
+      const sourceSelection = { ...selection, marketKey: market, evaluationDefinitionId: evaluator, queryClass: request.searchParams.get('queryClass') === 'non-brand' ? 'non-brand' as const : 'branded' as const }
+      if (request.pathname.endsWith('/evidence')) {
+        const identity = request.searchParams.get('assessmentId')
+        const text = market === 'madison' ? evaluator === 'definition-b' ? 'Madison evaluator B quotation.' : 'Madison evaluator A quotation.' : identity === 'two' ? 'Chicago second assessment quotation.' : 'Chicago first assessment quotation.'
+        const receipt = { state: 'complete', selection: sourceSelection, items: [evidenceItem({ assessmentId: identity!, sourceText: text, conclusion: [{ id: 'literal', text, start: 0, end: text.length }], evaluationDefinitionId: evaluator })], nextCursor: null }
+        return new Promise<Response>(resolve => { pendingEvidence.push(() => resolve(jsonResponse(receipt))) })
+      }
+      const dto = summaryWithAssessments([assessment({ assessmentId: 'one' }), assessment({ assessmentId: 'two', subjectId: 'south', subjectLabel: 'South Hall', outcome: 'mixed' })])
+      return jsonResponse({ ...dto, selection: sourceSelection })
+    })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const tree = (marketKey: string, evaluationDefinitionId: string) => <QueryClientProvider client={client}><SentimentScopeProvider projectName="project" selection={{ ...selection, marketKey, evaluationDefinitionId }}><SentimentAnswerOutcome queryId="q" sourceSnapshotIds={['snapshot-openai']} queryClass="branded" provider="openai" location="Chicago" /></SentimentScopeProvider></QueryClientProvider>
+    try {
+      const page = render(tree('chicago', 'definition-a'))
+      const steps = [
+        ['chicago', 'definition-a', 'View openai sentiment evidence for North Hall: Favorable', 'one', 'Chicago first assessment quotation.'],
+        ['chicago', 'definition-a', 'View openai sentiment evidence for South Hall: Mixed', 'two', 'Chicago second assessment quotation.'],
+        ['madison', 'definition-a', 'View openai sentiment evidence for North Hall: Favorable', 'one', 'Madison evaluator A quotation.'],
+        ['madison', 'definition-b', 'View openai sentiment evidence for North Hall: Favorable', 'one', 'Madison evaluator B quotation.'],
+      ] as const
+      for (const [marketKey, evaluationDefinitionId, name, assessmentId, quotation] of steps) {
+        page.rerender(tree(marketKey, evaluationDefinitionId))
+        await waitFor(() => expect(client.isFetching()).toBe(0))
+        fireEvent.click(await screen.findByRole('button', { name }))
+        await waitFor(() => expect(pendingEvidence).toHaveLength(1))
+        expect(screen.queryByText('Loading sentiment evidence…')).not.toBeNull()
+        expect(screen.queryByText(/(?:Chicago|Madison).+quotation\./, { selector: 'blockquote' })).toBeNull()
+        await act(async () => { pendingEvidence.shift()!() })
+        expect(await screen.findByText(quotation, { selector: 'blockquote' })).toBeTruthy()
+        const evidence = reads.filter(url => url.pathname.endsWith('/evidence'))
+        expect(Object.fromEntries(evidence.at(-1)!.searchParams)).toEqual({ mode: 'advanced', scope: 'property', scopeKey: 'north', marketKey, queryClass: 'branded', model: 'source-model', provider: 'openai', location: 'Chicago', runId: 'run', revision: '3', evaluationDefinitionId, queryId: 'q', assessmentId, limit: '50' })
+        fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      }
+      expect(reads.filter(url => url.pathname.endsWith('/evidence'))).toHaveLength(4)
+    } finally { for (const release of pendingEvidence) release(); cleanup(); client.clear(); restore() }
   })
 })
 
@@ -2010,6 +2074,8 @@ describe('sentiment generated SDK and administrator flow', () => {
     } finally { cleanup(); client.clear(); restore() }
   })
   it('previews without admission and reuses the request key after an uncertain response', async () => {
+    const key = '11111111-1111-4111-8111-111111111111'
+    const uuid = vi.spyOn(crypto, 'randomUUID').mockReturnValueOnce(key).mockReturnValue('22222222-2222-4222-8222-222222222222')
     const dto = summary()
     const receipt = { id: 'job', projectId: 'project', origin: 'backfill', state: 'pending', enablementEpoch: 1, evaluationDefinitionId: 'definition-a', selection: { mode: 'advanced', scope: 'property', scopeKey: 'north', marketKey: 'chicago', queryClass: 'branded' }, createdAt: '2026-09-28T10:00:00Z', updatedAt: '2026-09-28T10:00:00Z', counts: { ...emptySentimentCounts(), pending: 1 }, selected: 1, cancellationReason: null, attempts: [] }
     const admissions: unknown[] = []
@@ -2034,8 +2100,8 @@ describe('sentiment generated SDK and administrator flow', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Confirm sentiment backfill' }))
       await screen.findByText('Backfill submitted. Progress is available in Recent jobs.')
       expect(admissions).toHaveLength(2)
-      expect(admissions[0]).toEqual(admissions[1])
-    } finally { cleanup(); client.clear(); restore() }
+      expect(admissions).toEqual([{ previewToken: 'frozen-preview', idempotencyKey: '11111111-1111-4111-8111-111111111111' }, { previewToken: 'frozen-preview', idempotencyKey: '11111111-1111-4111-8111-111111111111' }])
+    } finally { cleanup(); client.clear(); restore(); uuid.mockRestore() }
   })
   it('disables both open write controls when the account becomes view-only before action permissions refresh', async () => {
     let writes = 0

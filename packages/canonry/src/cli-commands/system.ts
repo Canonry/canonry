@@ -8,7 +8,7 @@ import { showOperationalLogs } from '../commands/logs.js'
 import type { CliCommandSpec, CliValues } from '../cli-dispatch.js'
 import { getBoolean, getString, getStringArray, multiStringOption, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 
-export function applyServerEnv(values: CliValues): void {
+function applyServerEnv(values: CliValues): void {
   const port = typeof values.port === 'string' ? values.port : undefined
   const host = typeof values.host === 'string' ? values.host : undefined
   const basePath = typeof values['base-path'] === 'string' ? values['base-path'] : undefined

@@ -3,7 +3,7 @@
 For MCP clients such as Claude Desktop, Codex, or custom agent shells that
 prefer a typed tool catalog over shell or HTTP, the package ships a separate
 `canonry-mcp` bin. It is a thin stdio adapter over `createApiClient()` — not
-a parallel surface. v1 exposes a curated API tool catalog (`tool-registry.ts` holds the list and counts) — including
+a parallel surface. v1 exposes a curated API tool catalog (`tool-registry.ts` holds the list and tool metadata) — including
 the `canonry_project_overview` and `canonry_search` core composites; the
 catalog is split across a small **core tier** (always loaded) and the
 **toolkits** listed in `CANONRY_MCP_TIERS` (`toolkits.ts`; `ads` is OpenAI / ChatGPT Ads, `google-ads` is separate) that the client

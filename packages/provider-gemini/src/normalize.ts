@@ -189,7 +189,7 @@ export function parseTrackedQueryResponse(body: object, model: string): GeminiRa
     provider: 'gemini',
     rawResponse,
     model,
-    servedModel: extractServedModel(rawResponse),
+    servedModel: normalizeServedModel(rawResponse.modelVersion),
     groundingSources: parsed.groundingSources,
     searchQueries: parsed.searchQueries,
     usage: extractUsageFromRaw(rawResponse),
@@ -215,15 +215,6 @@ export function normalizeResult(raw: GeminiRawResult): GeminiNormalizedResult {
 
 function hasParsedResponseContent(rawResponse: Record<string, unknown>): boolean {
   return Array.isArray(rawResponse.candidates) && rawResponse.candidates.length > 0
-}
-
-/**
- * Read the model Gemini reported serving off a stored raw response. Gemini carries it
- * as `modelVersion`; a response that omits it yields undefined rather than the
- * configured model.
- */
-export function extractServedModel(rawResponse: Record<string, unknown>): string | undefined {
-  return normalizeServedModel(rawResponse.modelVersion)
 }
 
 export function reparseStoredResult(rawResponse: Record<string, unknown>): GeminiNormalizedResult {
@@ -265,7 +256,7 @@ function extractAnswerText(rawResponse: Record<string, unknown>): string {
   }
 }
 
-export function extractGroundingMetadataFromRaw(rawResponse: Record<string, unknown>): GroundingSource[] {
+function extractGroundingMetadataFromRaw(rawResponse: Record<string, unknown>): GroundingSource[] {
   try {
     // Google documents `groundingChunks` as the pool of retrieved sources and
     // `groundingSupports` as the mapping from answer segments to
@@ -449,7 +440,7 @@ export async function generateText(prompt: string, config: GeminiConfig): Promis
   return result.text ?? ''
 }
 
-export function responseToRecord(body: object): Record<string, unknown> {
+function responseToRecord(body: object): Record<string, unknown> {
   // The SDK's response object, the raw JSON, and a record stored by this
   // function all carry these fields under the same names.
   const response = body as Partial<GenerateContentResponse>

@@ -1,7 +1,7 @@
 import os from 'node:os'
 import path from 'node:path'
 
-export const CC_BASE_URL = 'https://data.commoncrawl.org/projects/hyperlinkgraph'
+const CC_BASE_URL = 'https://data.commoncrawl.org/projects/hyperlinkgraph'
 
 export const PLUGIN_DIR = path.join(os.homedir(), '.canonry', 'plugins')
 export const PLUGIN_PKG_JSON = path.join(PLUGIN_DIR, 'package.json')

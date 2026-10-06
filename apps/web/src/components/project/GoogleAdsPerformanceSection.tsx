@@ -34,21 +34,21 @@ const GOOGLE_ADS_WINDOWS: GoogleAdsMetricsWindow[] = ['7d', '14d', '30d']
  * `null` for exactly that case, so every rate cell renders this word instead of
  * a number a reader would otherwise average, sort, or quote.
  */
-export const GOOGLE_ADS_NOT_AVAILABLE = 'not available'
+const GOOGLE_ADS_NOT_AVAILABLE = 'not available'
 
-export const GOOGLE_ADS_PERFORMANCE_HELP = 'Figures come from the stored Google Ads snapshot; this view never calls Google. The window ends on the newest CLOSED day, because the capture day is only partly recorded and would read as a drop. A calendar day the provider returned no row for is zero delivery, so it is charted as zero. Rates with a zero denominator read "not available", never 0%.'
+const GOOGLE_ADS_PERFORMANCE_HELP = 'Figures come from the stored Google Ads snapshot; this view never calls Google. The window ends on the newest CLOSED day, because the capture day is only partly recorded and would read as a drop. A calendar day the provider returned no row for is zero delivery, so it is charted as zero. Rates with a zero denominator read "not available", never 0%.'
 
-export const GOOGLE_ADS_PERFORMANCE_EMPTY_TITLE = 'No Google Ads snapshot stored yet'
+const GOOGLE_ADS_PERFORMANCE_EMPTY_TITLE = 'No Google Ads snapshot stored yet'
 
-export const GOOGLE_ADS_PERFORMANCE_EMPTY_BODY = 'Connect a Google Ads account in Conversion Integrity below, choose the customer, then run a Google Ads sync. Spend, clicks, impressions, and conversions appear here once the first snapshot is stored.'
+const GOOGLE_ADS_PERFORMANCE_EMPTY_BODY = 'Connect a Google Ads account in Conversion Integrity below, choose the customer, then run a Google Ads sync. Spend, clicks, impressions, and conversions appear here once the first snapshot is stored.'
 
-export const GOOGLE_ADS_PERFORMANCE_AWAITING_TITLE = 'No closed days yet'
+const GOOGLE_ADS_PERFORMANCE_AWAITING_TITLE = 'No closed days yet'
 /**
  * Deliberately does NOT say "syncing". This state is reached when the stored
  * snapshot covers no closed day; nothing here knows whether a sync is running,
  * so claiming one would mask a stalled workflow as "wait".
  */
-export const GOOGLE_ADS_PERFORMANCE_AWAITING_BODY = 'The stored snapshot covers no completed day yet. Figures appear after a full day closes in the account time zone; the day a snapshot is captured is partial and is left out on purpose. If this persists, check the latest Google Ads sync in Activity.'
+const GOOGLE_ADS_PERFORMANCE_AWAITING_BODY = 'The stored snapshot covers no completed day yet. Figures appear after a full day closes in the account time zone; the day a snapshot is captured is partial and is left out on purpose. If this persists, check the latest Google Ads sync in Activity.'
 
 /**
  * Only 'insufficient-history' can reach the comparison line. The route emits
@@ -56,7 +56,7 @@ export const GOOGLE_ADS_PERFORMANCE_AWAITING_BODY = 'The stored snapshot covers 
  * 'no-snapshot' entry here would be dead copy that implies a state this branch
  * never renders.
  */
-export const GOOGLE_ADS_COMPARISON_UNAVAILABLE_COPY: Record<'insufficient-history', string> = {
+const GOOGLE_ADS_COMPARISON_UNAVAILABLE_COPY: Record<'insufficient-history', string> = {
   'insufficient-history': 'Period change is hidden: the stored snapshot does not cover a prior period of equal length yet.',
 }
 
@@ -73,7 +73,7 @@ const AMOUNT_FORMAT = new Intl.NumberFormat(undefined, { minimumFractionDigits: 
  * formatMicros is not null-tolerant, so calling it directly would print a real
  * figure for a period that had no clicks or no conversions.
  */
-export function formatGoogleAdsMicros(micros: number | null, currency: string | null): string {
+function formatGoogleAdsMicros(micros: number | null, currency: string | null): string {
   if (micros === null || !Number.isFinite(micros)) return GOOGLE_ADS_NOT_AVAILABLE
   // No resolved account currency: show the magnitude without asserting a unit.
   // Printing "$" on a EUR account is a wrong number, not a missing one.
@@ -85,7 +85,7 @@ export function formatGoogleAdsMicros(micros: number | null, currency: string | 
  * A raw ratio (0.0731) as a display percentage. Never rounded before this point.
  * An undefined ratio keeps this surface's own word rather than the shared dash.
  */
-export function formatGoogleAdsRatio(ratio: number | null): string {
+function formatGoogleAdsRatio(ratio: number | null): string {
   if (ratio === null || !Number.isFinite(ratio)) return GOOGLE_ADS_NOT_AVAILABLE
   return formatPercent(ratio)
 }
@@ -97,7 +97,7 @@ export function formatGoogleAdsRatio(ratio: number | null): string {
  * at all: printing "0%" for a period that was never measured invents a flat
  * reading out of absent data.
  */
-export function formatGoogleAdsChange(ratio: number | null, days: number): string {
+function formatGoogleAdsChange(ratio: number | null, days: number): string {
   if (ratio === null || !Number.isFinite(ratio)) return `${GOOGLE_ADS_NOT_AVAILABLE} vs prior ${days}d`
   if (ratio === 0) return `no change vs prior ${days}d`
   return `${ratio > 0 ? '↑' : '↓'} ${formatPercent(Math.abs(ratio))} vs prior ${days}d`

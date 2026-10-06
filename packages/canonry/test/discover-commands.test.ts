@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach, expect } from 'vitest'
+import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest'
 import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -13,12 +13,12 @@ import {
   projects,
   queries,
 } from '@ainyc/canonry-db'
-import type { DiscoveryCompetitorType, DiscoveryHarvestDto, DiscoveryPromoteResult } from '@ainyc/canonry-contracts'
+import type { DiscoveryCompetitorType, DiscoveryHarvestDto, DiscoveryPromoteResult, DiscoverySessionDetailDto } from '@ainyc/canonry-contracts'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 import type { DiscoveryRunStartResponse } from '../src/client.js'
-import { resolveIcpAngles, summarizeAngles } from '../src/commands/discover.js'
 import { invokeCli, parseJsonOutput } from './cli-test-utils.js'
+import { prepareCliReadFixture } from './cli-read-fixture.js'
 
 describe('discover CLI commands', () => {
   let tmpDir: string
@@ -125,6 +125,35 @@ describe('discover CLI commands', () => {
       }).run()
     }
     return sessionId
+  }
+
+  function assertOnlyUnconfiguredHostDiagnostics(stderr: string, sessions: Array<{ id: string; runId: string | null }>): void {
+    // The in-process Host has no provider: these background callbacks are separate from CLI admission.
+    const allowedDiagnostics = [
+      {
+        level: 'error', module: 'DiscoveryRun', action: 'discovery.failed',
+        msg: 'Gemini provider is not configured. Add a Gemini API key (or Vertex project) before running discovery.',
+        error: 'Gemini provider is not configured. Add a Gemini API key (or Vertex project) before running discovery.',
+      },
+      {
+        level: 'error', module: 'RunCoordinator', action: 'aero.failed',
+        msg: 'No agent LLM provider configured. Add an API key for one of: claude, openai, gemini, zai in ~/.canonry/config.yaml, or export ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY / ZAI_API_KEY.',
+        error: 'No agent LLM provider configured. Add an API key for one of: claude, openai, gemini, zai in ~/.canonry/config.yaml, or export ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY / ZAI_API_KEY.',
+      },
+    ]
+    for (const line of stderr.split('\n').filter(Boolean)) {
+      const diagnostic = JSON.parse(line)
+      expect(allowedDiagnostics).toContainEqual({
+        level: diagnostic.level, module: diagnostic.module, action: diagnostic.action,
+        msg: diagnostic.msg, error: diagnostic.error,
+      })
+      expect(sessions.map(session => session.runId)).toContain(diagnostic.runId)
+      if (diagnostic.module === 'DiscoveryRun') {
+        expect(sessions.map(session => ({ runId: session.runId, sessionId: session.id }))).toContainEqual({
+          runId: diagnostic.runId, sessionId: diagnostic.sessionId,
+        })
+      }
+    }
   }
 
   it('discover show renders both signals as a [citation][mention] cell with a legend', async () => {
@@ -240,28 +269,30 @@ describe('discover CLI commands', () => {
         { query: 'wasted q', bucket: 'wasted-surface' },
       ],
     })
-
     const result = await invokeCli([
       'discover', 'promote', 'acme-iq', sessionId,
-      '--bucket', 'cited,aspirational', '--no-competitors',
+      '--bucket', 'cited,wasted-surface', '--no-competitors',
     ])
     expect(result.exitCode).toBeUndefined()
-    expect(db.select().from(queries).all().map(r => r.query).sort()).toEqual([
-      'aspirational q',
-      'cited q',
-    ])
+    expect(result.stderr).toBe('')
+    expect(result.stdout).toMatch(/Queries:\s+2 added, 0 already tracked/)
+    expect(db.select().from(queries).all().map(r => r.query).sort()).toEqual(['cited q', 'wasted q'])
   })
 
   it('--no-competitors leaves competitor domains untracked', async () => {
     const sessionId = seedSession({
       probes: [{ query: 'q', bucket: 'cited' }],
-      competitorMap: [{ domain: 'raydesign.test', hits: 1 }],
+      competitorMap: [{ domain: 'raydesign.test', hits: 3 }],
     })
-
     const result = await invokeCli(['discover', 'promote', 'acme-iq', sessionId, '--no-competitors'])
     expect(result.exitCode).toBeUndefined()
+    expect(result.stderr).toBe('')
     expect(db.select().from(competitors).all()).toHaveLength(0)
-    expect(db.select().from(queries).all()).toHaveLength(1)
+    expect(db.select().from(queries).all().map(r => r.query)).toEqual(['q'])
+    const allowed = await invokeCli(['discover', 'promote', 'acme-iq', sessionId])
+    expect(allowed.exitCode).toBeUndefined()
+    expect(db.select().from(competitors).all().map(r => r.domain)).toEqual(['raydesign.test'])
+    expect(db.select().from(queries).all().map(r => r.query)).toEqual(['q'])
   })
 
   it('promotes only direct-competitor domains by default, skipping other classified types', async () => {
@@ -357,54 +388,50 @@ describe('discover CLI commands', () => {
 
   it('discover run --icp-angle starts one session per angle and emits a JSON array', async () => {
     const result = await invokeCli([
-      'discover', 'run', 'acme-iq',
-      '--icp-angle', 'angle one',
-      '--icp-angle', 'angle two',
-      '--format', 'json',
+      'discover', 'run', 'acme-iq', '--icp-angle', 'angle one', '--icp-angle', 'angle two', '--format', 'json',
     ])
     expect(result.exitCode).toBeUndefined()
-
-    const json = parseJsonOutput(result.stdout) as DiscoveryRunStartResponse[]
-    expect(Array.isArray(json)).toBe(true)
-    expect(json).toHaveLength(2)
-    expect(new Set(json.map(r => r.sessionId)).size).toBe(2)
-
-    // Each angle is threaded into its own session body, not collapsed to one ICP.
     const sessions = db.select().from(discoverySessions).all()
+    assertOnlyUnconfiguredHostDiagnostics(result.stderr, sessions)
     expect(sessions).toHaveLength(2)
     expect(sessions.map(s => s.icpDescription).sort()).toEqual(['angle one', 'angle two'])
+    const one = sessions.find(s => s.icpDescription === 'angle one')!
+    const two = sessions.find(s => s.icpDescription === 'angle two')!
+    expect(JSON.parse(result.stdout)).toEqual([
+      { sessionId: one.id, runId: one.runId, status: 'running', consolidated: false },
+      { sessionId: two.id, runId: two.runId, status: 'running', consolidated: false },
+    ])
   })
 
   it('discover run with a single --icp emits a bare object (legacy shape preserved)', async () => {
     const result = await invokeCli([
-      'discover', 'run', 'acme-iq',
-      '--icp', 'just one icp',
-      '--format', 'json',
+      'discover', 'run', 'acme-iq', '--icp', 'just one icp', '--format', 'json',
     ])
     expect(result.exitCode).toBeUndefined()
-
-    const json = parseJsonOutput(result.stdout) as DiscoveryRunStartResponse
-    expect(Array.isArray(json)).toBe(false)
-    expect(typeof json.sessionId).toBe('string')
-
     const sessions = db.select().from(discoverySessions).all()
+    assertOnlyUnconfiguredHostDiagnostics(result.stderr, sessions)
     expect(sessions).toHaveLength(1)
     expect(sessions[0]!.icpDescription).toBe('just one icp')
+    expect(JSON.parse(result.stdout)).toEqual({
+      sessionId: sessions[0]!.id, runId: sessions[0]!.runId, status: 'running', consolidated: false,
+    })
   })
 
   it('discover run accepts a comma-separated --locations override matching project locations', async () => {
     const result = await invokeCli([
-      'discover', 'run', 'acme-iq',
-      '--icp', 'spray foam installers',
-      '--locations', 'michigan,florida',
-      '--format', 'json',
+      'discover', 'run', 'acme-iq', '--icp', 'spray foam installers',
+      '--locations', ' florida , ', '--format', 'json',
     ])
-    // The flag is wired CLI → client → API → resolveLocations; valid labels
-    // resolve cleanly and the session is created.
     expect(result.exitCode).toBeUndefined()
-    const json = parseJsonOutput(result.stdout) as DiscoveryRunStartResponse
-    expect(typeof json.sessionId).toBe('string')
-    expect(db.select().from(discoverySessions).all()).toHaveLength(1)
+    const sessions = db.select().from(discoverySessions).all()
+    assertOnlyUnconfiguredHostDiagnostics(result.stderr, sessions)
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0]!.locations).toEqual([
+      { label: 'florida', city: 'Miami', region: 'Florida', country: 'US' },
+    ])
+    expect(JSON.parse(result.stdout)).toEqual({
+      sessionId: sessions[0]!.id, runId: sessions[0]!.runId, status: 'running', consolidated: false,
+    })
   })
 
   it('discover run exits non-zero when --locations names a label not configured on the project', async () => {
@@ -455,133 +482,161 @@ describe('discover CLI commands', () => {
     // No new session row was created — the bug the issue calls out is the
     // explosion of micro-sessions, so the contract here is "exactly one row".
     expect(db.select().from(discoverySessions).all()).toHaveLength(1)
+    const human = await invokeCli(['discover', 'run', 'acme-iq', '--icp', 'in-flight icp'])
+    expect(human.exitCode).toBeUndefined()
+    expect(human.stderr).toBe('')
+    expect(human.stdout.split('\n')).toEqual([
+      '[in-flight icp]',
+      `Reusing in-flight discovery session: ${existingSessionId}`,
+      `  Run:     ${existingRunId}`,
+      '  Status:  running',
+      `  Tail:    canonry discover show acme-iq ${existingSessionId}`,
+    ])
+    expect(db.select().from(discoverySessions).all()).toHaveLength(1)
   })
 
-  it('discover run prints a "Reusing in-flight session" line when the response is consolidated', async () => {
-    const existingSessionId = crypto.randomUUID()
-    const existingRunId = crypto.randomUUID()
-    db.insert(discoverySessions).values({
-      id: existingSessionId,
-      projectId,
-      runId: existingRunId,
-      status: 'probing',
-      icpDescription: 'in-flight icp',
-      // Mirrors what the route writes since migration 91: resolved locations
-      // are persisted and part of the consolidation identity.
-      locations: [
-        { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' },
-        { label: 'florida', city: 'Miami', region: 'Florida', country: 'US' },
-      ],
-      competitorMap: [],
-      createdAt: new Date().toISOString(),
-    }).run()
 
-    const result = await invokeCli([
-      'discover', 'run', 'acme-iq',
-      '--icp', 'in-flight icp',
-    ])
+})
+
+type NativeDiscoveryRequest = {
+  method: string
+  pathname: string
+  query: Record<string, string>
+  authorization: string | null
+  body: unknown
+}
+
+function supplyDiscoveryHttp(sessions: readonly DiscoverySessionDetailDto[] = []) {
+  const requests: NativeDiscoveryRequest[] = []
+  let starts = 0
+  vi.stubGlobal('fetch', vi.fn<typeof fetch>(async (input, init) => {
+    const request = input instanceof Request ? input : new Request(input, init)
+    const url = new URL(request.url)
+    expect(url.origin).toBe('https://canonry.test')
+    requests.push({
+      method: request.method, pathname: url.pathname, query: Object.fromEntries(url.searchParams),
+      authorization: request.headers.get('authorization'),
+      body: request.method === 'POST' ? await request.clone().json() : null,
+    })
+    if (request.method === 'POST' && url.pathname === '/prefix/api/v1/projects/acme-iq/discover/run') {
+      starts += 1
+      return Response.json({ sessionId: 'session-' + starts, runId: 'run-' + starts, status: 'running', consolidated: false }, { status: 201 })
+    }
+    const session = sessions.find(s => url.pathname === '/prefix/api/v1/projects/acme-iq/discover/sessions/' + s.id)
+    if (request.method === 'GET' && session) return Response.json(session)
+    throw new Error('Unexpected discovery request: ' + request.method + ' ' + url.pathname)
+  }))
+  return requests
+}
+
+function expectedDiscoveryPosts(bodies: readonly object[]) {
+  return bodies.map(body => ({
+    method: 'POST', pathname: '/prefix/api/v1/projects/acme-iq/discover/run', query: {},
+    authorization: 'Bearer cnry_native-read', body,
+  }))
+}
+
+describe('registered discovery argv and waited output', () => {
+  let cleanup: () => void
+  beforeEach(() => { cleanup = prepareCliReadFixture() })
+  afterEach(() => { vi.useRealTimers(); cleanup() })
+
+  it.each([
+    { name: 'stored default', args: [], bodies: [{}], array: false },
+    { name: 'bare ICP', args: ['--icp', 'single ICP'], bodies: [{ icpDescription: 'single ICP' }], array: false },
+    { name: 'trimmed ICP', args: ['--icp', '  spaced ICP  '], bodies: [{ icpDescription: 'spaced ICP' }], array: false },
+    { name: 'blank ICP', args: ['--icp', '   '], bodies: [{}], array: false },
+    { name: 'angle precedence', args: ['--icp', 'ignored', '--icp-angle', 'angle a', '--icp-angle', 'angle b'], bodies: [{ icpDescription: 'angle a' }, { icpDescription: 'angle b' }], array: true },
+    { name: 'one repeated angle', args: ['--icp-angle', 'solo'], bodies: [{ icpDescription: 'solo' }], array: true },
+    { name: 'trimmed nonblank angles', args: ['--icp-angle', '  kept  ', '--icp-angle', '', '--icp-angle', '   ', '--icp-angle', 'also kept'], bodies: [{ icpDescription: 'kept' }, { icpDescription: 'also kept' }], array: true },
+    { name: 'blank angles with ICP fallback', args: ['--icp', 'fallback', '--icp-angle', '', '--icp-angle', '  '], bodies: [{ icpDescription: 'fallback' }], array: false },
+    { name: 'blank angles with stored fallback', args: ['--icp-angle', '', '--icp-angle', '   '], bodies: [{}], array: false },
+  ])('registered discover argv preserves $name bodies and JSON envelope', async (row) => {
+    const requests = supplyDiscoveryHttp()
+    const result = await invokeCli(['discover', 'run', 'acme-iq', ...row.args, '--format', 'json'])
     expect(result.exitCode).toBeUndefined()
-    // The operator sees clearly that no fresh sweep started — "Discovery run
-    // started" would mislead them into thinking they paid for another seed.
-    expect(result.stdout).toContain('Reusing in-flight discovery session')
-    expect(result.stdout).toContain(existingSessionId)
-    expect(result.stdout).not.toContain('Discovery run started')
-  })
-})
-
-describe('resolveIcpAngles', () => {
-  it('falls back to [undefined] when neither icp nor icpAngles are set', () => {
-    expect(resolveIcpAngles({})).toEqual({ angles: [undefined], multiAngle: false })
+    expect(result.stderr).toBe('')
+    expect(requests).toEqual(expectedDiscoveryPosts(row.bodies))
+    const starts = row.bodies.map((_, i) => ({ sessionId: 'session-' + (i + 1), runId: 'run-' + (i + 1), status: 'running', consolidated: false }))
+    expect(JSON.parse(result.stdout)).toEqual(row.array ? starts : starts[0])
   })
 
-  it('returns the bare icp as a single non-multi angle', () => {
-    expect(resolveIcpAngles({ icp: 'single ICP' })).toEqual({ angles: ['single ICP'], multiAngle: false })
-  })
-
-  it('trims a bare icp and treats a whitespace-only icp as absent', () => {
-    expect(resolveIcpAngles({ icp: '  spaced ICP  ' })).toEqual({ angles: ['spaced ICP'], multiAngle: false })
-    expect(resolveIcpAngles({ icp: '   ' })).toEqual({ angles: [undefined], multiAngle: false })
-  })
-
-  it('uses icpAngles over icp and flags multiAngle', () => {
-    expect(resolveIcpAngles({ icp: 'ignored', icpAngles: ['angle a', 'angle b'] })).toEqual({
-      angles: ['angle a', 'angle b'],
-      multiAngle: true,
-    })
-  })
-
-  it('keeps multiAngle true even for a single icp-angle', () => {
-    expect(resolveIcpAngles({ icpAngles: ['solo'] })).toEqual({ angles: ['solo'], multiAngle: true })
-  })
-
-  it('trims and drops empty / whitespace-only angles', () => {
-    expect(resolveIcpAngles({ icpAngles: ['  kept  ', '', '   ', 'also kept'] })).toEqual({
-      angles: ['kept', 'also kept'],
-      multiAngle: true,
-    })
-  })
-
-  it('falls back to icp when every icp-angle is blank', () => {
-    expect(resolveIcpAngles({ icp: 'fallback', icpAngles: ['', '  '] })).toEqual({
-      angles: ['fallback'],
-      multiAngle: false,
-    })
-  })
-
-  it('falls back to [undefined] when icp-angles are all blank and no icp is given', () => {
-    expect(resolveIcpAngles({ icpAngles: ['', '   '] })).toEqual({ angles: [undefined], multiAngle: false })
-  })
-})
-
-describe('summarizeAngles', () => {
-  it('sums each bucket across sessions and counts angles', () => {
-    const summary = summarizeAngles([
-      { probeCount: 40, citedCount: 3, wastedCount: 5, aspirationalCount: 8 },
-      { probeCount: 38, citedCount: 1, wastedCount: 9, aspirationalCount: 4 },
-      { probeCount: 40, citedCount: 2, wastedCount: 0, aspirationalCount: 11 },
+  it.each([
+    {
+      name: 'three completed angles', angles: ['angle a', 'angle b', 'angle c'],
+      counts: [
+        { probeCount: 40, citedCount: 3, wastedCount: 5, aspirationalCount: 8 },
+        { probeCount: 38, citedCount: 1, wastedCount: 9, aspirationalCount: 4 },
+        { probeCount: 40, citedCount: 2, wastedCount: 0, aspirationalCount: 11 },
+      ],
+      summary: '  Probes: 118  Cited: 6  Wasted: 14  Aspirational: 23',
+      detailCounts: [
+        ['  Probes:        40', '  Buckets:       cited=3  wasted-surface=5  aspirational=8'],
+        ['  Probes:        38', '  Buckets:       cited=1  wasted-surface=9  aspirational=4'],
+        ['  Probes:        40', '  Buckets:       cited=2  wasted-surface=0  aspirational=11'],
+      ],
+    },
+    {
+      name: 'nullable and absent counts', angles: ['angle a', 'angle b'],
+      counts: [
+        { probeCount: 10, citedCount: null, wastedCount: 1, aspirationalCount: 2 },
+        { citedCount: 4, wastedCount: null, aspirationalCount: null },
+      ],
+      summary: '  Probes: 10  Cited: 4  Wasted: 1  Aspirational: 2',
+      detailCounts: [
+        ['  Probes:        10', '  Buckets:       cited=0  wasted-surface=1  aspirational=2'],
+        ['  Buckets:       cited=4  wasted-surface=0  aspirational=0'],
+      ],
+    },
+  ])('registered discover wait preserves $name summary, identities and machine output', async (row) => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+    const sessions: DiscoverySessionDetailDto[] = row.counts.map((counts, i) => ({
+      id: 'session-' + (i + 1), projectId: 'p-native', status: 'completed',
+      createdAt: '2026-10-05T12:00:00.000Z', competitorMap: [], probes: [], ...counts,
+    }))
+    const args = row.angles.flatMap(angle => ['--icp-angle', angle])
+    const bodies = row.angles.map(icpDescription => ({ icpDescription }))
+    async function waited(format: string | undefined) {
+      const requests = supplyDiscoveryHttp(sessions)
+      const pending = invokeCli(['discover', 'run', 'acme-iq', ...args, '--wait', ...(format ? ['--format', format] : [])])
+      try {
+        await vi.waitFor(() => expect(requests.filter(r => r.method === 'POST')).toHaveLength(row.angles.length))
+        await vi.advanceTimersByTimeAsync(3500)
+        const result = await pending
+        expect(result.exitCode).toBeUndefined()
+        expect(requests).toEqual([
+          ...expectedDiscoveryPosts(bodies),
+          ...sessions.map(session => ({
+            method: 'GET', pathname: '/prefix/api/v1/projects/acme-iq/discover/sessions/' + session.id,
+            query: {}, authorization: 'Bearer cnry_native-read', body: null,
+          })),
+        ])
+        expect(result.stderr).toBe('Waiting for ' + row.angles.length + ' discovery sessions...\n')
+        return result
+      } finally {
+        await vi.runAllTimersAsync()
+        await pending
+      }
+    }
+    const human = await waited(undefined)
+    const lines = human.stdout.split('\n')
+    expect(lines).toEqual([
+      ...row.angles.flatMap((angle, i) => [
+        '## ICP angle: ' + angle, '', 'Discovery session: ' + sessions[i]!.id,
+        '  Status:        completed', ...row.detailCounts[i]!,
+        '  Created:       2026-10-05T12:00:00.000Z', '',
+      ]),
+      '── Summary across ' + row.angles.length + ' angle(s) ──', row.summary,
+      '', '  Promote each session:',
+      ...sessions.map(session => '    canonry discover promote acme-iq ' + session.id),
     ])
-    expect(summary).toEqual({
-      angleCount: 3,
-      totalProbes: 118,
-      totalCited: 6,
-      totalWasted: 14,
-      totalAspirational: 23,
-    })
-  })
-
-  it('treats null / missing counts as zero', () => {
-    const summary = summarizeAngles([
-      { probeCount: 10, citedCount: null, wastedCount: 1, aspirationalCount: 2 },
-      { citedCount: 4, wastedCount: null, aspirationalCount: null },
-    ])
-    expect(summary).toEqual({
-      angleCount: 2,
-      totalProbes: 10,
-      totalCited: 4,
-      totalWasted: 1,
-      totalAspirational: 2,
-    })
-  })
-
-  it('returns all-zero totals for an empty session list', () => {
-    expect(summarizeAngles([])).toEqual({
-      angleCount: 0,
-      totalProbes: 0,
-      totalCited: 0,
-      totalWasted: 0,
-      totalAspirational: 0,
-    })
-  })
-
-  it('passes a single session through unchanged', () => {
-    expect(
-      summarizeAngles([{ probeCount: 40, citedCount: 7, wastedCount: 3, aspirationalCount: 12 }]),
-    ).toEqual({
-      angleCount: 1,
-      totalProbes: 40,
-      totalCited: 7,
-      totalWasted: 3,
-      totalAspirational: 12,
-    })
+    const machine = await waited('json')
+    expect(JSON.parse(machine.stdout)).toEqual(sessions)
+    const requests = supplyDiscoveryHttp()
+    const started = await invokeCli(['discover', 'run', 'acme-iq', ...args, '--format', 'json'])
+    expect(started.exitCode).toBeUndefined()
+    expect(started.stderr).toBe('')
+    expect(requests).toEqual(expectedDiscoveryPosts(bodies))
+    expect(JSON.parse(started.stdout)).toEqual(sessions.map((session, i) => ({ sessionId: session.id, runId: 'run-' + (i + 1), status: 'running', consolidated: false })))
   })
 })

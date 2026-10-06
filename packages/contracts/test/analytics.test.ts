@@ -17,7 +17,6 @@ import {
   competitorLandscapeQuerySchema,
   competitorLandscapeResponseSchema,
   competitorLandscapeModelComparisonSchema,
-  COMPETITOR_LANDSCAPE_MODEL_GROUP_LIMIT,
   parseWindow,
   resolveDateRange,
 } from '../src/analytics.js'
@@ -55,7 +54,7 @@ const bucket = {
 
 describe('providerMetricSchema', () => {
   it('round-trips a metric', () => {
-    expect(() => providerMetricSchema.parse(providerMetric)).not.toThrow()
+  expect(providerMetricSchema.parse(providerMetric)).toEqual(providerMetric)
   })
 
   it('rejects a missing field', () => {
@@ -126,25 +125,15 @@ describe('model attribution schemas', () => {
   })
 
   it('carries the anchor flag and the pre-truncation event total', () => {
-    const parsed = modelAttributionSchema.parse({
+    const input = {
       perplexity: {
-        latestObservation: {
-          observedAt: '2026-07-15T12:00:00.000Z',
-          state: { status: 'known', model: 'sonar-pro' },
-        },
-        events: [{
-          observedAt: '2026-07-15T12:00:00.000Z',
-          bucketStartDate: '2026-07-15T00:00:00.000Z',
-          from: { status: 'known', model: 'sonar' },
-          to: { status: 'known', model: 'sonar-pro' },
-          fromPreWindowAnchor: true,
-        }],
+        latestObservation: { observedAt: '2026-07-15T12:00:00.000Z', state: { status: 'known', model: 'sonar-pro' } },
+        events: [{ observedAt: '2026-07-15T12:00:00.000Z', bucketStartDate: '2026-07-15T00:00:00.000Z', from: { status: 'known', model: 'sonar' }, to: { status: 'known', model: 'sonar-pro' }, fromPreWindowAnchor: true }],
         eventTotal: 84,
       },
-    })
-    expect(parsed.perplexity!.events[0]!.fromPreWindowAnchor).toBe(true)
-    // The total outruns the returned list, so a consumer can report the gap.
-    expect(parsed.perplexity!.eventTotal).toBe(84)
+    }
+    expect(modelAttributionSchema.parse(input)).toEqual(input)
+    // Retain the existing weak producer-limit guard until its native owner repair lands.
     expect(MODEL_ATTRIBUTION_EVENT_LIMIT).toBeGreaterThan(0)
   })
 
@@ -205,26 +194,18 @@ describe('model attribution schemas', () => {
 
 describe('mentionShareBucketMetricSchema', () => {
   it('round-trips a bucket-level mention share metric', () => {
-    expect(() => mentionShareBucketMetricSchema.parse(bucket.mentionShare)).not.toThrow()
+    expect(mentionShareBucketMetricSchema.parse(bucket.mentionShare)).toEqual(bucket.mentionShare)
   })
 
   it('allows null rate when no competitive brand mentions exist', () => {
-    const parsed = mentionShareBucketMetricSchema.parse({
-      scope: 'pooled',
-      rate: null,
-      projectMentionSnapshots: 0,
-      competitorMentionSnapshots: 0,
-    })
-    expect(parsed.rate).toBeNull()
-    expect(parsed.scope).toBe('pooled')
+    const input = { scope: 'pooled', rate: null, projectMentionSnapshots: 0, competitorMentionSnapshots: 0 }
+    expect(mentionShareBucketMetricSchema.parse(input)).toEqual(input)
   })
 })
 
 describe('timeBucketSchema', () => {
   it('round-trips a bucket carrying per-provider metrics', () => {
-    const parsed = timeBucketSchema.parse(bucket)
-    expect(Object.keys(parsed.byProvider).sort()).toEqual(['gemini', 'openai'])
-    expect(parsed.byProvider.gemini.cited).toBe(1)
+    expect(timeBucketSchema.parse(bucket)).toEqual({ ...bucket, modelEvidenceByProvider: {}, basketRevision: null })
   })
 
   it('requires byProvider (per-provider breakdown is not optional)', () => {
@@ -236,18 +217,15 @@ describe('timeBucketSchema', () => {
 describe('brandMetricsDtoSchema', () => {
   it('round-trips a full payload with per-bucket byProvider', () => {
     const dto = {
-      window: 'all' as const,
-      mentionShareScope: 'non-brand' as const,
-      buckets: [bucket],
-      overall: providerMetric,
-      byProvider: { gemini: providerMetric },
-      trend: 'improving' as const,
-      mentionTrend: 'stable' as const,
+      window: 'all' as const, mentionShareScope: 'non-brand' as const, buckets: [bucket], overall: providerMetric,
+      byProvider: { gemini: providerMetric }, trend: 'improving' as const, mentionTrend: 'stable' as const,
       queryChanges: [{ date: '2026-04-03', delta: 2, label: '+2 queries' }],
     }
-    const parsed = brandMetricsDtoSchema.parse(dto)
-    expect(parsed.buckets[0]!.byProvider.gemini.citationRate).toBe(0.5)
-    expect(parsed.trend).toBe('improving')
+    expect(brandMetricsDtoSchema.parse(dto)).toEqual({
+      ...dto, buckets: [{ ...bucket, modelEvidenceByProvider: {}, basketRevision: null }],
+      windowChange: { citationRate: null, mentionRate: null, mentionShare: null }, basketChanges: [], executionIdentityChanges: [],
+      referenceBasketRevision: null, modelAttribution: {}, servedModelAttribution: {}, modelServiceMismatch: {}, modelPointerChanges: {},
+    })
   })
 
   it('rejects an unknown window', () => {
@@ -266,17 +244,17 @@ describe('brandMetricsDtoSchema', () => {
   })
 
   it('rejects an unknown trend direction', () => {
-    expect(() =>
-      brandMetricsDtoSchema.parse({
-        window: 'all',
-        buckets: [],
-        overall: providerMetric,
-        byProvider: {},
-        trend: 'up',
-        mentionTrend: 'stable',
-        queryChanges: [],
-      }),
-    ).toThrow()
+    const valid = {
+      window: 'all', mentionShareScope: 'non-brand', buckets: [], overall: providerMetric,
+      byProvider: {}, trend: 'stable', mentionTrend: 'stable', queryChanges: [],
+    }
+    expect(brandMetricsDtoSchema.parse(valid)).toEqual({
+      ...valid, windowChange: { citationRate: null, mentionRate: null, mentionShare: null }, basketChanges: [], executionIdentityChanges: [],
+      referenceBasketRevision: null, modelAttribution: {}, servedModelAttribution: {}, modelServiceMismatch: {}, modelPointerChanges: {},
+    })
+    const invalid = brandMetricsDtoSchema.safeParse({ ...valid, trend: 'up' })
+    expect(invalid.success).toBe(false)
+    if (!invalid.success) expect(invalid.error.issues.map(issue => issue.path)).toEqual([['trend']])
   })
 })
 
@@ -316,13 +294,11 @@ const rankedList = {
 
 describe('sources DTO schemas', () => {
   it('round-trips a category count', () => {
-    expect(() => sourceCategoryCountSchema.parse(categoryCount)).not.toThrow()
+    expect(sourceCategoryCountSchema.parse(categoryCount)).toEqual(categoryCount)
   })
 
   it('round-trips a ranked entry carrying its surface class', () => {
-    const parsed = sourceRankEntrySchema.parse(rankEntry)
-    expect(parsed.surfaceClass).toBe('ota-aggregator')
-    expect(parsed.category).toBe('directory')
+    expect(sourceRankEntrySchema.parse(rankEntry)).toEqual(rankEntry)
   })
 
   it('rejects a ranked entry with an unknown surface class', () => {
@@ -330,29 +306,25 @@ describe('sources DTO schemas', () => {
   })
 
   it('round-trips a surface-class roll-up', () => {
-    expect(() => surfaceClassCountSchema.parse(surfaceClassCount)).not.toThrow()
+    expect(surfaceClassCountSchema.parse(surfaceClassCount)).toEqual(surfaceClassCount)
   })
 
   it('round-trips a ranked source list with long-tail rollup fields', () => {
-    const parsed = rankedSourceListSchema.parse(rankedList)
-    expect(parsed.entries).toHaveLength(1)
-    expect(parsed.truncatedCitedSlots).toBe(6)
-    expect(parsed.bySurfaceClass[0]!.surfaceClass).toBe('ota-aggregator')
+    expect(rankedSourceListSchema.parse(rankedList)).toEqual(rankedList)
   })
 
   it('round-trips a full SourceBreakdownDto with ranked + byProvider + limit', () => {
-    const parsed = sourceBreakdownDtoSchema.parse({
-      overall: [categoryCount],
-      byQuery: { 'best crm': [categoryCount] },
-      ranked: rankedList,
-      byProvider: { gemini: rankedList, openai: rankedList },
-      runId: 'run_1',
-      window: 'all',
-      limit: 5,
-    })
-    expect(Object.keys(parsed.byProvider).sort()).toEqual(['gemini', 'openai'])
-    expect(parsed.limit).toBe(5)
-    expect(parsed.ranked.entries[0]!.domain).toBe('yelp.com')
+    const openai = {
+      totalCitedSlots: 3, domainTotal: 1,
+      entries: [{ domain: 'marketplace.example', count: 3, percentage: 1, category: 'directory', label: 'Marketplace', surfaceClass: 'ota-aggregator' }],
+      truncatedDomainCount: 0, truncatedCitedSlots: 0,
+      bySurfaceClass: [{ surfaceClass: 'ota-aggregator', label: 'Aggregators & marketplaces', count: 3, percentage: 1, domainCount: 1 }],
+    }
+    const input = {
+      overall: [categoryCount], byQuery: { 'best crm': [categoryCount] }, ranked: rankedList,
+      byProvider: { gemini: rankedList, openai }, runId: 'run_1', window: 'all', limit: 5,
+    }
+    expect(sourceBreakdownDtoSchema.parse(input)).toEqual(input)
   })
 
   it('accepts a null limit (full ranked list)', () => {
@@ -521,28 +493,16 @@ describe('competitor landscape DTO schemas', () => {
   }
 
   it('round-trips a stored-evidence landscape with an explicit percentage denominator', () => {
-    const parsed = competitorLandscapeResponseSchema.parse({
-      window: '30d',
-      scope: { kind: 'project' },
-      project: { ...row, domain: 'acme.example', label: 'Acme', surfaceClass: 'own', pinned: false },
-      pinned: [{ ...row, pinned: true }],
-      observed: [row],
-      otherSources: [{ ...row, domain: 'news.example', surfaceClass: 'editorial-media', mentionCount: 0, shareOfVoice: null }],
-      evidence: {
-        answeredResults: 8,
-        sourceResults: 9,
-        missingAnswerTextResults: 1,
-        mentionCredits: 8,
-        incompleteSourceResults: 2,
-        excludedProbeResults: 0,
-        excludedNonCompletedResults: 0,
-      },
-      marketState: null,
-      filters: { scope: 'project', groupKey: null, provider: null, queryClass: 'all', location: null, runId: null },
-      truncated: false,
-    })
-    expect(parsed.observed[0]!.shareOfVoice).toBe(37.5)
-    expect(parsed.evidence.mentionCredits).toBe(8)
+    const input = {
+      window: '30d', scope: { kind: 'project' },
+      project: { ...row, domain: 'acme.example', label: 'Acme', surfaceClass: 'own', pinned: false, mentionCount: 5, shareOfVoice: 62.5 },
+      pinned: [{ ...row, domain: 'pinned.example', pinned: true, mentionCount: 0, citationCount: 0, shareOfVoice: 0, firstSeenAt: null, lastSeenAt: null, sampleUrls: [] }],
+      observed: [row], otherSources: [{ ...row, domain: 'news.example', surfaceClass: 'editorial-media', mentionCount: 0, shareOfVoice: null }],
+      evidence: { answeredResults: 8, sourceResults: 9, missingAnswerTextResults: 1, mentionCredits: 8, incompleteSourceResults: 2, excludedProbeResults: 0, excludedNonCompletedResults: 0 },
+      marketState: null, filters: { scope: 'project', groupKey: null, provider: null, queryClass: 'non-brand', location: null, runId: null }, truncated: false,
+    }
+    expect(competitorLandscapeResponseSchema.parse(input)).toEqual(input)
+    const parsed = competitorLandscapeResponseSchema.parse(input)
     expect(parsed).not.toHaveProperty('modelComparison')
     expect(parsed.filters).not.toHaveProperty('groupBy')
     expect(parsed.filters).not.toHaveProperty('model')
@@ -587,24 +547,22 @@ describe('competitor landscape DTO schemas', () => {
       truncated: false,
     }
     const comparison = { basis: 'requested-model', groups: [group], totalGroups: 1, truncated: false }
-    const parsed = competitorLandscapeModelComparisonSchema.parse(comparison)
-    expect(parsed.groups[0]!.model).toBeNull()
-    expect(parsed.groups[0]!.servedModels).toEqual(group.servedModels)
-    expect(competitorLandscapeModelComparisonSchema.safeParse({
-      ...comparison, groups: [{ ...group, model: 'gpt-test', servedModels: { status: 'unknown' } }],
-    }).success).toBe(true)
-    expect(competitorLandscapeModelComparisonSchema.safeParse({
-      ...comparison, groups: [{ ...group, snapshotCount: 0 }],
-    }).success).toBe(false)
-    expect(competitorLandscapeModelComparisonSchema.safeParse({
-      ...comparison, basis: 'served-model',
-    }).success).toBe(false)
-    expect(competitorLandscapeModelComparisonSchema.safeParse({
-      ...comparison, groups: Array.from({ length: COMPETITOR_LANDSCAPE_MODEL_GROUP_LIMIT + 1 }, () => group),
-    }).success).toBe(false)
-    expect(competitorLandscapeModelComparisonSchema.parse({
-      basis: 'requested-model', groups: [], totalGroups: 0, truncated: false,
-    }).groups).toEqual([])
+    expect(competitorLandscapeModelComparisonSchema.parse(comparison)).toEqual(comparison)
+    const known = { ...comparison, groups: [{ ...group, model: 'gpt-test', servedModels: { status: 'unknown' } }] }
+    expect(competitorLandscapeModelComparisonSchema.parse(known)).toEqual(known)
+    for (const [input, path] of [
+      [{ ...comparison, groups: [{ ...group, snapshotCount: 0 }] }, ['groups', 0, 'snapshotCount']],
+      [{ ...comparison, basis: 'served-model' }, ['basis']],
+      [{ ...comparison, groups: Array.from({ length: 51 }, () => group), totalGroups: 51 }, ['groups']],
+    ] as const) {
+      const invalid = competitorLandscapeModelComparisonSchema.safeParse(input)
+      expect(invalid.success).toBe(false)
+      if (!invalid.success) expect(invalid.error.issues.map(issue => issue.path)).toEqual([path])
+    }
+    const atLimit = { ...comparison, groups: Array.from({ length: 50 }, () => group), totalGroups: 50 }
+    expect(competitorLandscapeModelComparisonSchema.parse(atLimit)).toEqual(atLimit)
+    const empty = { basis: 'requested-model', groups: [], totalGroups: 0, truncated: false }
+    expect(competitorLandscapeModelComparisonSchema.parse(empty)).toEqual(empty)
   })
 
   it('accepts a market/group filter and rejects an ambiguous share scale', () => {

@@ -122,8 +122,12 @@ const ACTIVATION_STEP_BASE = {
 
 describe('adsCtr', () => {
   test('computes clicks over impressions', () => {
-    // 23 clicks / 1736 impressions — real captured day
-    expect(adsCtr(23, 1736)).toBeCloseTo(0.013249, 5)
+    for (const [clicks, impressions, expected] of [
+      [23, 1736, 0.013248847926267281],
+      [1, 3, 0.3333333333333333],
+      [0, 1736, 0],
+      [1736, 1736, 1],
+    ] as const) expect(adsCtr(clicks, impressions)).toBe(expected)
   })
 
   test('returns null when impressions is zero (no divide-by-zero)', () => {
@@ -134,8 +138,13 @@ describe('adsCtr', () => {
 
 describe('adsCpcMicros', () => {
   test('computes integer micros per click', () => {
-    // $39.28 spend / 23 clicks = $1.7078… → 1_707_826 micros
-    expect(adsCpcMicros(39_280_000, 23)).toBe(1_707_826)
+    for (const [spendMicros, clicks, expected] of [
+      [39_280_000, 23, 1_707_826],
+      [49, 100, 0],
+      [50, 100, 1],
+      [51, 100, 1],
+      [0, 23, 0],
+    ] as const) expect(adsCpcMicros(spendMicros, clicks)).toBe(expected)
   })
 
   test('returns null when clicks is zero', () => {
@@ -146,7 +155,7 @@ describe('adsCpcMicros', () => {
 
 describe('DTO schemas', () => {
   test('normalizes account review and integrity state without exposing provider nesting', () => {
-    const parsed = adsAccountDtoSchema.parse({
+    const raw = {
       id: 'adacct_1',
       name: 'Canonry',
       status: 'active',
@@ -156,9 +165,10 @@ describe('DTO schemas', () => {
       reviewStatus: 'in_review',
       integrityReviewStatus: 'approved',
       integrityDecision: 'allowed',
-    })
-    expect(parsed.reviewStatus).toBe('in_review')
-    expect(parsed.integrityDecision).toBe('allowed')
+    }
+    const parsed = adsAccountDtoSchema.parse(raw)
+    expect(parsed).toEqual(raw)
+    expect(adsAccountDtoSchema.parse({ ...raw, review: { status: 'in_review' }, integrity: { decision: 'allowed' } })).toEqual(raw)
   })
 
   test('validates normalized geo search inputs and output', () => {
@@ -169,7 +179,7 @@ describe('DTO schemas', () => {
     expect(adsGeoSearchQuerySchema.safeParse({ q: '', limit: 20 }).success).toBe(false)
     expect(adsGeoSearchQuerySchema.safeParse({ q: 'US', limit: 101 }).success).toBe(false)
 
-    const parsed = adsGeoSearchResponseSchema.parse({
+    const raw = {
       count: 1,
       query: 'San Francisco',
       results: [{
@@ -180,17 +190,19 @@ describe('DTO schemas', () => {
         name: 'San Francisco - Oakland - San Jose',
         regionCode: '807',
       }],
-    })
-    expect(parsed.results[0]?.id).toBe('3000194')
+    }
+    const parsed = adsGeoSearchResponseSchema.parse(raw)
+    expect(parsed).toEqual(raw)
+    expect(adsGeoSearchResponseSchema.parse({ ...raw, results: [{ ...raw.results[0]!, regionCode: null }] })).toEqual({ ...raw, results: [{ ...raw.results[0]!, regionCode: null }] })
   })
 
   test('validates normalized pixel and conversion event setting lists', () => {
-    const pixels = adsConversionPixelListResponseSchema.parse({
+    const rawPixels = {
       pixels: [{ id: 'clidsrc_123', clientType: 'web', name: 'Canonry website', pixelId: '134534' }],
-    })
-    expect(pixels.pixels[0]?.pixelId).toBe('134534')
+    }
+    const pixels = adsConversionPixelListResponseSchema.parse(rawPixels)
 
-    const settings = adsConversionEventSettingListResponseSchema.parse({
+    const rawSettings = {
       eventSettings: [{
         id: 'ces_123',
         name: 'Audit leads',
@@ -203,8 +215,10 @@ describe('DTO schemas', () => {
         archived: false,
         version: 1,
       }],
-    })
-    expect(settings.eventSettings[0]?.sourceIds).toEqual(['clidsrc_123'])
+    }
+    const settings = adsConversionEventSettingListResponseSchema.parse(rawSettings)
+    expect(pixels).toEqual(rawPixels)
+    expect(settings).toEqual(rawSettings)
   })
 
   test('keeps unconfirmed conversion-list metadata optional', () => {
@@ -218,13 +232,13 @@ describe('DTO schemas', () => {
   })
 
   test('insight row accepts derived nulls for zero denominators', () => {
-    const parsed = adsInsightRowDtoSchema.parse({
+    const raw = {
       level: 'campaign', entityId: 'cmpn_x', date: '2026-06-10',
       impressions: 0, clicks: 0, spendMicros: 0, conversions: 0, ctr: null, cpcMicros: null,
       inProgress: false,
-    })
-    expect(parsed.ctr).toBeNull()
-    expect(parsed.conversions).toBe(0)
+    }
+    const parsed = adsInsightRowDtoSchema.parse(raw)
+    expect(parsed).toEqual(raw)
   })
 
   test('insight row must state whether the day it covers is still filling', () => {
@@ -287,13 +301,12 @@ describe('DTO schemas', () => {
   })
 
   test('summary requires window and totals incl. conversions', () => {
-    const ok = adsSummaryDtoSchema.safeParse({
+    const raw = {
       connected: true, campaignCount: 2, adGroupCount: 16, adCount: 20,
       window: { from: '2026-06-07', to: '2026-06-10', inProgressDate: '2026-06-10' },
       totals: { impressions: 18047, clicks: 235, spendMicros: 498_470_000, conversions: 9, ctr: 0.013, cpcMicros: 2_121_148 },
-    })
-    expect(ok.success).toBe(true)
-    expect(ok.success && ok.data.totals.conversions).toBe(9)
+    }
+    expect(adsSummaryDtoSchema.parse(raw)).toEqual(raw)
     // totals without conversions is now invalid (the field is required).
     expect(adsSummaryDtoSchema.safeParse({
       connected: true, campaignCount: 0, adGroupCount: 0, adCount: 0,
@@ -301,6 +314,10 @@ describe('DTO schemas', () => {
       totals: { impressions: 0, clicks: 0, spendMicros: 0, ctr: null, cpcMicros: null },
     }).success).toBe(false)
     expect(adsSummaryDtoSchema.safeParse({ connected: false }).success).toBe(false)
+    const { window: _window, ...withoutWindow } = raw
+    const missingWindow = adsSummaryDtoSchema.safeParse(withoutWindow)
+    expect(missingWindow.success).toBe(false)
+    expect(missingWindow.error?.issues.map(issue => issue.path)).toContainEqual(['window'])
   })
 
   test('a rollup window must say which of its dates is still filling', () => {
@@ -337,7 +354,7 @@ describe('DTO schemas', () => {
   })
 
   test('delivery diagnostics keep stored preflight facts separate from historical activity', () => {
-    const parsed = adsDeliveryDiagnosticsDtoSchema.parse({
+    const raw = {
       snapshot: {
         status: 'complete',
         issue: null,
@@ -373,18 +390,16 @@ describe('DTO schemas', () => {
         }],
       },
       assessment: { state: 'observed_activity' },
-    })
+    }
+    const parsed = adsDeliveryDiagnosticsDtoSchema.parse(raw)
 
-    expect(parsed.assessment.state).toBe('observed_activity')
     expect(adsDeliveryDiagnosticsDtoSchema.safeParse({
-      ...parsed,
-      snapshot: { ...parsed.snapshot, status: 'partial', issue: 'connection_not_synced', sourceSync: null },
-      assessment: { state: 'partial_snapshot' },
-    }).success).toBe(true)
-    expect(adsDeliveryDiagnosticsDtoSchema.safeParse({
-      ...parsed,
+      ...raw,
       assessment: { state: 'serving' },
     }).success).toBe(false)
+    expect(parsed).toEqual(raw)
+    const partial = { ...raw, snapshot: { ...raw.snapshot, status: 'partial', issue: 'connection_not_synced', sourceSync: null }, assessment: { state: 'partial_snapshot' } }
+    expect(adsDeliveryDiagnosticsDtoSchema.parse(partial)).toEqual(partial)
   })
 })
 
@@ -400,14 +415,21 @@ describe('ads lifecycle contracts', () => {
       status: 'active',
     }
     const parsed = adsCampaignCreateRequestSchema.parse(input)
-    expect(parsed.locationIds).toEqual(['1000232'])
-    expect('status' in parsed).toBe(false)
     expect(adsCampaignCreateRequestSchema.safeParse({
       operationKey: 'weekend:campaign:2',
       name: 'AEO Audit Leads',
       lifetimeSpendLimitMicros: 999_999,
       locationIds: [],
     }).success).toBe(false)
+    const { status: _status, ...expected } = input
+    expect(parsed).toEqual(expected)
+    expect(adsCampaignCreateRequestSchema.parse({ ...expected, lifetimeSpendLimitMicros: 1_000_000 })).toEqual({ ...expected, lifetimeSpendLimitMicros: 1_000_000 })
+    const lowBudget = adsCampaignCreateRequestSchema.safeParse({ ...expected, lifetimeSpendLimitMicros: 999_999 })
+    expect(lowBudget.success).toBe(false)
+    expect(lowBudget.error?.issues.map(issue => issue.path)).toContainEqual(['lifetimeSpendLimitMicros'])
+    const noLocations = adsCampaignCreateRequestSchema.safeParse({ ...expected, locationIds: [] })
+    expect(noLocations.success).toBe(false)
+    expect(noLocations.error?.issues.map(issue => issue.path)).toContainEqual(['locationIds'])
   })
 
   test('campaign creation preserves legacy omissions and supports both bidding modes', () => {
@@ -418,21 +440,13 @@ describe('ads lifecycle contracts', () => {
       locationIds: ['1000232'],
     }
 
-    expect(adsCampaignCreateRequestSchema.parse(base)).not.toHaveProperty('biddingType')
-    expect(adsCampaignCreateRequestSchema.safeParse({
-      ...base,
-      biddingType: AdsCampaignBiddingTypes.impressions,
-    }).success).toBe(true)
-    expect(adsCampaignCreateRequestSchema.safeParse({
-      ...base,
-      biddingType: AdsCampaignBiddingTypes.clicks,
-      conversionEventSettingIds: ['ces_lead'],
-    }).success).toBe(true)
     expect(adsCampaignCreateRequestSchema.safeParse({
       ...base,
       biddingType: 'conversions',
       conversionEventSettingIds: ['ces_lead'],
     }).success).toBe(false)
+    expect(adsCampaignCreateRequestSchema.parse(base)).toEqual(base)
+    for (const configured of [{ ...base, biddingType: 'impressions' }, { ...base, biddingType: 'clicks', conversionEventSettingIds: ['ces_lead'] }]) expect(adsCampaignCreateRequestSchema.parse(configured)).toEqual(configured)
   })
 
   test('click bidding is independent of conversion event settings', () => {
@@ -480,32 +494,37 @@ describe('ads lifecycle contracts', () => {
       maxBidMicros: 2_000_000,
     }
 
-    expect(adsAdGroupCreateRequestSchema.parse(base)).not.toHaveProperty('billingEventType')
-    for (const billingEventType of Object.values(AdsAdGroupBillingEventTypes)) {
-      expect(adsAdGroupCreateRequestSchema.safeParse({ ...base, billingEventType }).success).toBe(true)
-    }
     expect(adsAdGroupCreateRequestSchema.safeParse({
       ...base,
       billingEventType: 'conversion',
     }).success).toBe(false)
+    expect(adsAdGroupCreateRequestSchema.parse(base)).toEqual(base)
+    for (const billingEventType of ['impression', 'click']) {
+      const configured = { ...base, billingEventType }
+      expect(adsAdGroupCreateRequestSchema.parse(configured)).toEqual(configured)
+    }
   })
 
   test('campaign update requires an optimistic timestamp, a real mutation, and non-empty geo targeting', () => {
     expect(adsCampaignUpdateRequestSchema.safeParse({
       operationKey: 'weekend:update:1', expectedUpdatedAt: 123,
     }).success).toBe(false)
-    expect(adsCampaignUpdateRequestSchema.safeParse({
-      operationKey: 'weekend:update:1', expectedUpdatedAt: 123, lifetimeSpendLimitMicros: 30_000_000,
-    }).success).toBe(true)
+
     expect(adsCampaignUpdateRequestSchema.safeParse({
       operationKey: 'weekend:update:geo:null', expectedUpdatedAt: 123, locationIds: null,
     }).success).toBe(false)
     expect(adsCampaignUpdateRequestSchema.safeParse({
       operationKey: 'weekend:update:geo:empty', expectedUpdatedAt: 123, locationIds: [],
     }).success).toBe(false)
-    expect(adsCampaignUpdateRequestSchema.safeParse({
-      operationKey: 'weekend:update:geo:valid', expectedUpdatedAt: 123, locationIds: ['3000001'],
-    }).success).toBe(true)
+
+    const budget = { operationKey: 'weekend:update:1', expectedUpdatedAt: 123, lifetimeSpendLimitMicros: 30_000_000 }
+    const geo = { operationKey: 'weekend:update:geo:valid', expectedUpdatedAt: 123, locationIds: ['3000001'] }
+    expect(adsCampaignUpdateRequestSchema.parse(budget)).toEqual(budget)
+    expect(adsCampaignUpdateRequestSchema.parse(geo)).toEqual(geo)
+    const { expectedUpdatedAt: _reviewedAt, ...withoutReviewedAt } = budget
+    const missingRevision = adsCampaignUpdateRequestSchema.safeParse(withoutReviewedAt)
+    expect(missingRevision.success).toBe(false)
+    expect(missingRevision.error?.issues.map(issue => issue.path)).toContainEqual(['expectedUpdatedAt'])
   })
 
   test('chat-card creation enforces HTTPS and the upstream copy limits', () => {
@@ -518,13 +537,18 @@ describe('ads lifecycle contracts', () => {
         fileId: 'file_1',
       },
     }
-    expect(adsAdCreateRequestSchema.safeParse(base).success).toBe(true)
+
     expect(adsAdCreateRequestSchema.safeParse({
       ...base, creative: { ...base.creative, targetUrl: 'http://canonry.ai/audit' },
     }).success).toBe(false)
     expect(adsAdCreateRequestSchema.safeParse({
       ...base, creative: { ...base.creative, body: 'x'.repeat(101) },
     }).success).toBe(false)
+    expect(adsAdCreateRequestSchema.parse(base)).toEqual(base)
+    for (const creative of [{ ...base.creative, title: 'x'.repeat(50) }, { ...base.creative, body: 'x'.repeat(100) }]) expect(adsAdCreateRequestSchema.parse({ ...base, creative })).toEqual({ ...base, creative })
+    const longTitle = adsAdCreateRequestSchema.safeParse({ ...base, creative: { ...base.creative, title: 'x'.repeat(51) } })
+    expect(longTitle.success).toBe(false)
+    expect(longTitle.error?.issues.map(issue => issue.path)).toContainEqual(['creative', 'title'])
   })
 
   test('operation receipts reject unknown states and kinds', () => {
@@ -536,14 +560,12 @@ describe('ads lifecycle contracts', () => {
       reconcileFingerprint: 'a'.repeat(64), reconcileFields: { name: 'AEO Audit Leads', status: 'paused' },
       reconcileAttempts: 0, lastReconciledAt: null,
     }
-    expect(adsOperationDtoSchema.safeParse(base).success).toBe(true)
-    expect(adsOperationDtoSchema.safeParse({ ...base, state: AdsOperationStates.reconciling }).success).toBe(true)
+
     expect(adsOperationDtoSchema.safeParse({ ...base, state: 'maybe' }).success).toBe(false)
     // Archive is a supported kind now; a made-up lifecycle kind still is not.
-    expect(adsOperationDtoSchema.safeParse({ ...base, kind: 'campaign_archive' }).success).toBe(true)
-    expect(adsOperationDtoSchema.safeParse({ ...base, kind: 'ad_group_archive' }).success).toBe(true)
-    expect(adsOperationDtoSchema.safeParse({ ...base, kind: 'ad_archive' }).success).toBe(true)
+
     expect(adsOperationDtoSchema.safeParse({ ...base, kind: 'campaign_delete' }).success).toBe(false)
+    for (const receipt of [base, { ...base, state: 'reconciling' }, ...['campaign_archive', 'ad_group_archive', 'ad_archive'].map(kind => ({ ...base, kind }))]) expect(adsOperationDtoSchema.parse(receipt)).toEqual(receipt)
   })
 
   test('archive pins the reviewed revision; pause does not', () => {
@@ -565,14 +587,7 @@ describe('ads lifecycle contracts', () => {
       'create_fingerprint',
       'manual_only',
     ])
-    expect(adsReconcileFieldsSchema.safeParse({
-      name: 'AEO Audit Leads',
-      status: 'paused',
-      lifetimeSpendLimitMicros: 25_000_000,
-      locationIds: ['1000232'],
-      biddingType: AdsCampaignBiddingTypes.clicks,
-      conversionEventSettingIds: ['ces_lead'],
-    }).success).toBe(true)
+
     expect(adsReconcileFieldsSchema.safeParse({
       name: 'AEO Audit Leads',
       apiKey: 'sdk-secret',
@@ -581,6 +596,8 @@ describe('ads lifecycle contracts', () => {
       name: 'Audit card',
       targetUrl: 'https://canonry.ai/audit',
     }).success).toBe(false)
+    const fields = { name: 'AEO Audit Leads', status: 'paused', lifetimeSpendLimitMicros: 25_000_000, locationIds: ['1000232'], biddingType: 'clicks', conversionEventSettingIds: ['ces_lead'] }
+    expect(adsReconcileFieldsSchema.parse(fields)).toEqual(fields)
   })
 
   test('unresolved operation queries parse comma-separated closed states and bounded limits', () => {
@@ -603,18 +620,18 @@ describe('ads lifecycle contracts', () => {
     expect(adsOperationReconcileRequestSchema.safeParse({ candidateEntityId: 'cmpn_1' }).success).toBe(false)
     expect(adsOperationReconcileRequestSchema.safeParse({ retryMutation: true }).success).toBe(false)
 
-    const operation = adsOperationDtoSchema.parse({
+    const operation = {
       id: 'op_1', adAccountId: null, operationKey: 'weekend:campaign:1', kind: 'campaign_create',
       state: 'succeeded', entityType: 'campaign', entityId: 'cmpn_1', upstreamUpdatedAt: 123,
       errorCode: null, errorMessage: null, reconcileStrategy: 'create_fingerprint',
       reconcileParentId: null, reconcileFingerprint: 'a'.repeat(64),
       reconcileFields: { name: 'AEO Audit Leads', status: 'paused' },
       reconcileAttempts: 1, lastReconciledAt: NOW, createdAt: NOW, updatedAt: NOW,
-    })
-    expect(adsOperationReconcileResponseSchema.parse({ operation, resolved: true }).resolved).toBe(true)
-    expect(adsUnresolvedOperationListResponseSchema.parse({
-      operations: [operation], count: 1, nextCursor: 'next-page',
-    }).nextCursor).toBe('next-page')
+    }
+
+    expect(adsOperationDtoSchema.parse(operation)).toEqual(operation)
+    expect(adsOperationReconcileResponseSchema.parse({ operation, resolved: true })).toEqual({ operation, resolved: true })
+    expect(adsUnresolvedOperationListResponseSchema.parse({ operations: [operation], count: 1, nextCursor: 'next-page' })).toEqual({ operations: [operation], count: 1, nextCursor: 'next-page' })
   })
 })
 
@@ -667,18 +684,20 @@ describe('approval-bound campaign-tree activation contracts', () => {
     expect(adsActivationManifestSchema.safeParse({
       campaign: {
         ...ACTIVATION_MANIFEST.campaign,
-        adGroups: [{ ...firstGroup, ads: [firstGroup.ads[0]!, firstGroup.ads[0]!] }],
-      },
-    }).success).toBe(false)
-    expect(adsActivationManifestSchema.safeParse({
-      campaign: {
-        ...ACTIVATION_MANIFEST.campaign,
         adGroups: [
           firstGroup,
           { ...secondGroup, ads: [firstGroup.ads[0]!, ...secondGroup.ads] },
         ],
       },
     }).success).toBe(false)
+    const duplicateGroupOnly = { campaign: { ...ACTIVATION_MANIFEST.campaign, adGroups: [firstGroup, { ...secondGroup, id: firstGroup.id }] } }
+    const groupIssue = adsActivationManifestSchema.safeParse(duplicateGroupOnly)
+    expect(groupIssue.success).toBe(false)
+    expect(groupIssue.error?.issues.map(issue => issue.path)).toContainEqual(['campaign', 'adGroups'])
+    const withinGroup = adsActivationManifestSchema.safeParse({ campaign: { ...ACTIVATION_MANIFEST.campaign, adGroups: [{ ...firstGroup, ads: [firstGroup.ads[0]!, firstGroup.ads[0]!] }] } })
+    expect(withinGroup.success).toBe(false)
+    expect(withinGroup.error?.issues.map(issue => issue.path)).toContainEqual(['campaign', 'adGroups', 0, 'ads'])
+    expect(withinGroup.error?.issues.map(issue => issue.path)).toContainEqual(['campaign', 'adGroups', 0, 'ads', 1, 'id'])
   })
 
   test('bounds one activation manifest to the absolute structural ceiling', () => {
@@ -785,7 +804,7 @@ describe('approval-bound campaign-tree activation contracts', () => {
     ]
 
     for (const grant of variants) {
-      expect(adsActivationGrantDtoSchema.safeParse(grant).success, grant.state).toBe(true)
+      expect(adsActivationGrantDtoSchema.parse(grant), grant.state).toEqual(grant)
     }
 
     expect(adsActivationGrantDtoSchema.safeParse({
@@ -914,7 +933,7 @@ describe('approval-bound campaign-tree activation contracts', () => {
     ]
 
     for (const step of variants) {
-      expect(adsOperationStepDtoSchema.safeParse(step).success, step.state).toBe(true)
+      expect(adsOperationStepDtoSchema.parse(step), step.state).toEqual(step)
     }
 
     expect(adsOperationStepDtoSchema.safeParse({
@@ -954,17 +973,6 @@ describe('approval-bound campaign-tree activation contracts', () => {
   test('binds approval and activation requests to exact strict payloads', () => {
     expect(AdsOperationKinds.campaign_tree_activate).toBe('campaign_tree_activate')
 
-    expect(adsActivationGrantCreateRequestSchema.parse({
-      manifest: ACTIVATION_MANIFEST,
-      executorApiKeyId: 'key_executor',
-      expiresAt: '2026-07-18T00:00:00.000Z',
-    })).toMatchObject({ executorApiKeyId: 'key_executor', versionPolicy: 'exact' })
-    expect(adsActivationGrantCreateRequestSchema.parse({
-      manifest: ACTIVATION_MANIFEST,
-      executorApiKeyId: 'key_executor',
-      expiresAt: '2026-07-18T00:00:00.000Z',
-      versionPolicy: 'refresh_semantically_unchanged',
-    }).versionPolicy).toBe('refresh_semantically_unchanged')
     expect(adsActivationGrantCreateRequestSchema.safeParse({
       manifest: ACTIVATION_MANIFEST,
       executorApiKeyId: 'key_executor',
@@ -989,10 +997,14 @@ describe('approval-bound campaign-tree activation contracts', () => {
       grantId: 'grant_1',
       manifestHash: 'not-a-sha256',
     }).success).toBe(false)
+    const grant = { manifest: ACTIVATION_MANIFEST, executorApiKeyId: 'key_executor', expiresAt: '2026-07-18T00:00:00.000Z' }
+    expect(adsActivationGrantCreateRequestSchema.parse(grant)).toEqual({ ...grant, versionPolicy: 'exact' })
+    expect(adsActivationGrantCreateRequestSchema.parse({ ...grant, versionPolicy: 'refresh_semantically_unchanged' })).toEqual({ ...grant, versionPolicy: 'refresh_semantically_unchanged' })
+    expect(adsActivateTreeRequestSchema.safeParse({ operationKey: 'weekend:activate:1', grantId: 'grant_1', manifestHash: 'a'.repeat(64), liveSpend: true }).success).toBe(false)
   })
 
   test('returns the durable grant, operation receipt, and ordered step ledger', () => {
-    const consumedGrant = adsActivationGrantDtoSchema.parse({
+    const consumedGrant = {
       ...ACTIVATION_GRANT_BASE,
       state: 'consumed',
       operationId: 'op_activate_1',
@@ -1000,10 +1012,10 @@ describe('approval-bound campaign-tree activation contracts', () => {
       consumedAt: NOW,
       revokedAt: null,
       expiredAt: null,
-    })
+    }
     const { adAccountId: _adAccountId, ...unboundGrant } = consumedGrant
     expect(adsActivationGrantDtoSchema.safeParse(unboundGrant).success).toBe(false)
-    const activeStep = adsOperationStepDtoSchema.parse({
+    const activeStep = {
       ...ACTIVATION_STEP_BASE,
       state: 'active',
       providerUpdatedAt: 102,
@@ -1012,19 +1024,20 @@ describe('approval-bound campaign-tree activation contracts', () => {
       remediation: null,
       startedAt: NOW,
       finishedAt: NOW,
-    })
+    }
 
-    expect(adsActivationGrantResponseSchema.parse({ grant: consumedGrant }).grant).toMatchObject({
-      state: 'consumed',
-      adAccountId: 'adacct_1',
-    })
     const response = adsActivateTreeResponseSchema.parse({
       grant: consumedGrant,
       operation: ACTIVATION_OPERATION,
       steps: [activeStep],
     })
-    expect(response.operation.kind).toBe(AdsOperationKinds.campaign_tree_activate)
-    expect(response.steps.map((step) => step.state)).toEqual(['active'])
+    expect(adsActivationGrantDtoSchema.parse(consumedGrant)).toEqual(consumedGrant)
+    expect(adsOperationStepDtoSchema.parse(activeStep)).toEqual(activeStep)
+    expect(adsActivationGrantResponseSchema.parse({ grant: consumedGrant })).toEqual({ grant: consumedGrant })
+    expect(response).toEqual({ grant: consumedGrant, operation: ACTIVATION_OPERATION, steps: [activeStep] })
+    const secondStep = { ...activeStep, id: 'step_2', ordinal: 1, entityType: 'ad_group', entityId: 'adgrp_1', expectedUpdatedAt: 201, providerUpdatedAt: 202 }
+    const receivedOrder = { grant: consumedGrant, operation: ACTIVATION_OPERATION, steps: [secondStep, activeStep] }
+    expect(adsActivateTreeResponseSchema.parse(receivedOrder)).toEqual(receivedOrder)
   })
 })
 
@@ -1101,10 +1114,7 @@ describe('ads live delivery contract', () => {
 
   test('keeps live metrics nullable and unaggregated, and pins the live basis', () => {
     const parsed = adsLiveDeliveryDtoSchema.parse(RESPONSE)
-    expect(parsed.basis).toBe('live-provider-read')
     // Provider units survive: spend is NOT normalized on the live side.
-    expect(parsed.entities[0]!.liveMetrics![0]!.spend).toBe(1.5)
-    expect(parsed.entities[0]!.metricDeltas![0]!.live!.spendMicros).toBe(1_500_000)
 
     // An entity the provider has no metrics surface for carries no delta.
     const adOnly = adsLiveDeliveryDtoSchema.parse({
@@ -1118,9 +1128,14 @@ describe('ads live delivery contract', () => {
         metricDeltas: null,
       }],
     })
-    expect(adOnly.entities[0]!.metricDeltas).toBeNull()
 
     expect(adsLiveDeliveryDtoSchema.safeParse({ ...RESPONSE, basis: 'stored-snapshot' }).success).toBe(false)
+    expect(parsed).toEqual(RESPONSE)
+    // Preserve the original bounded read payload; this parser does not compute cost.
+    const currentBound = { ...RESPONSE, bounds: { ...RESPONSE.bounds, maxUpstreamHttpRequests: 4_040 } }
+    expect(adsLiveDeliveryDtoSchema.parse(currentBound)).toEqual(currentBound)
+    const rawAdOnly = { ...RESPONSE, entities: [{ ...ENTITY, entityType: 'ad', id: 'ad_1', parentId: 'adgrp_1', liveMetrics: null, metricDeltas: null }] }
+    expect(adOnly).toEqual(rawAdOnly)
   })
 
   test('a read failure carries a status only, never provider text', () => {
@@ -1161,6 +1176,12 @@ describe('ad URL tracking template', () => {
     ]) {
       expect(adsQueryStringTemplateSchema.safeParse(value).success).toBe(false)
     }
+    const atLimit = `k=${'x'.repeat(998)}`
+    expect(atLimit).toHaveLength(1000)
+    expect(adsQueryStringTemplateSchema.parse(atLimit)).toBe(atLimit)
+    const overLimit = `k=${'x'.repeat(999)}`
+    expect(overLimit).toHaveLength(1001)
+    expect(adsQueryStringTemplateSchema.safeParse(overLimit).success).toBe(false)
   })
 
   test('rejects an unsupported macro rather than passing it upstream', () => {
@@ -1169,24 +1190,15 @@ describe('ad URL tracking template', () => {
   })
 
   test('campaign create takes a template and update can clear it with null', () => {
-    expect(adsCampaignCreateRequestSchema.safeParse({
-      operationKey: 'launch:campaign:1',
-      name: 'Spring launch',
-      lifetimeSpendLimitMicros: 5_000_000,
-      locationIds: ['1000232'],
-      landingPageQueryStringTemplate: 'utm_source=chatgpt&utm_medium=cpc',
-    }).success).toBe(true)
-
-    expect(adsCampaignUpdateRequestSchema.safeParse({
-      operationKey: 'launch:campaign:2',
-      expectedUpdatedAt: 123,
-      landingPageQueryStringTemplate: null,
-    }).success).toBe(true)
 
     expect(adsCampaignUpdateRequestSchema.safeParse({
       operationKey: 'launch:campaign:3',
       expectedUpdatedAt: 123,
       landingPageQueryStringTemplate: '?utm_source=chatgpt',
     }).success).toBe(false)
+    const create = { operationKey: 'launch:campaign:1', name: 'Spring launch', lifetimeSpendLimitMicros: 5_000_000, locationIds: ['1000232'], landingPageQueryStringTemplate: 'utm_source=chatgpt&utm_medium=cpc' }
+    const clear = { operationKey: 'launch:campaign:2', expectedUpdatedAt: 123, landingPageQueryStringTemplate: null }
+    expect(adsCampaignCreateRequestSchema.parse(create)).toEqual(create)
+    expect(adsCampaignUpdateRequestSchema.parse(clear)).toEqual(clear)
   })
 })

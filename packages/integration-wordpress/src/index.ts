@@ -12,7 +12,6 @@ export {
   generateSchema,
   isSupportedSchemaType,
   parseSchemaPageEntry,
-  supportedSchemaTypes,
 } from './schema-templates.js'
 export {
   buildManualLlmsTxtUpdate,

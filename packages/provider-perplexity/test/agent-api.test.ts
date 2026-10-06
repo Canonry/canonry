@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fixture, stubAgentHttp as stubAgent } from './support/agent-api.js'
 import { PROVIDER_MODEL_ALIASES } from '@ainyc/canonry-contracts'
 
 import { perplexityAdapter } from '../src/adapter.js'
@@ -13,78 +13,19 @@ import {
 
 // Fixtures follow the Agent API schema in Perplexity's official SDK; they are
 // not live captures. Provenance and how to replace them: test/fixtures/README.md.
-function fixture(name: string): Record<string, unknown> {
-  return JSON.parse(readFileSync(new URL(`./fixtures/${name}.json`, import.meta.url), 'utf8')) as Record<string, unknown>
-}
 
 const quotaPolicy = { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 }
-const LOCATION = { label: 'NYC', city: 'New York', region: 'New York', country: 'US', timezone: 'America/New_York' }
 
-interface CapturedRequest {
-  url: string
-  method: string
-  authorization: string | null
-  body: Record<string, unknown>
-}
-
-function stubAgent(status: number, body: Record<string, unknown>): CapturedRequest[] {
-  const calls: CapturedRequest[] = []
-  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
-    const headers = new Headers(init?.headers)
-    calls.push({
-      url: String(input),
-      method: init?.method ?? 'GET',
-      authorization: headers.get('authorization'),
-      body: JSON.parse(String(init?.body)) as Record<string, unknown>,
-    })
-    return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
-  })
-  return calls
-}
+beforeEach(() => {
+  vi.stubEnv('OPENAI_BASE_URL', 'https://wrong.example/v1')
+})
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
 })
 
 describe('Agent API request', () => {
-  it('posts the unmodified query to /v1/agent with the fast preset and forced web search', async () => {
-    const calls = stubAgent(200, fixture('agent-fast-cited'))
-    const result = await executeTrackedQuery({
-      query: 'best crm for startups',
-      canonicalDomains: ['hubspot.com'],
-      competitorDomains: [],
-      config: { apiKey: 'pplx-test', quotaPolicy },
-    })
-
-    expect(calls).toHaveLength(1)
-    expect(calls[0]!.url).toBe('https://api.perplexity.ai/v1/agent')
-    expect(calls[0]!.method).toBe('POST')
-    expect(calls[0]!.authorization).toBe('Bearer pplx-test')
-    expect(calls[0]!.body).toEqual({
-      preset: 'fast',
-      input: 'best crm for startups',
-      tools: [{ type: 'web_search' }],
-      tool_choice: { type: 'web_search' },
-    })
-    expect(result.model).toBe('fast')
-  })
-
-  it('sends the location as user_location on the search tool, never in the query text', async () => {
-    const calls = stubAgent(200, fixture('agent-fast-cited'))
-    await executeTrackedQuery({
-      query: 'best crm for startups',
-      canonicalDomains: [],
-      competitorDomains: [],
-      config: { apiKey: 'pplx-test', quotaPolicy },
-      location: LOCATION,
-    })
-
-    // Strict mode rejects unknown fields, so no `type` or `timezone` like OpenAI's.
-    expect(calls[0]!.body.tools).toEqual([
-      { type: 'web_search', user_location: { city: 'New York', region: 'New York', country: 'US' } },
-    ])
-    expect(calls[0]!.body.input).toBe('best crm for startups')
-  })
 
   it.each([
     ['sonar', 'fast'],
@@ -126,22 +67,6 @@ describe('Agent API request', () => {
     ])
   })
 
-  it('sends a provider/model slug as model, not preset', async () => {
-    const calls = stubAgent(200, fixture('agent-fast-cited'))
-    const result = await executeTrackedQuery({
-      query: 'q',
-      canonicalDomains: [],
-      competitorDomains: [],
-      config: { apiKey: 'k', quotaPolicy, model: 'perplexity/sonar' },
-    })
-    expect(calls[0]!.body).toEqual({
-      model: 'perplexity/sonar',
-      input: 'q',
-      tools: [{ type: 'web_search' }],
-      tool_choice: { type: 'web_search' },
-    })
-    expect(result.model).toBe('perplexity/sonar')
-  })
 })
 
 describe('Agent API response parsing', () => {
@@ -229,7 +154,7 @@ describe('Agent API response parsing', () => {
     expect(parsed.retrievalStatus).toBe('used')
   })
 
-  it('reparses a stored envelope the same as the direct response', () => {
+  it("reparses a stored envelope the same as the direct response", () => {
     const response = fixture('agent-fast-cited')
     const stored = {
       model: 'fast',
@@ -237,7 +162,19 @@ describe('Agent API response parsing', () => {
       searchQueries: ['stale'],
       apiResponse: response,
     }
-    expect(reparseStoredResult(stored)).toEqual(reparseStoredResult(response))
+    const expected = {
+      provider: 'perplexity',
+      answerText: "HubSpot's free tier is the usual starting point for startups [1][2]. Pipedrive suits pipeline-heavy sales teams [4].",
+      citedDomains: ['hubspot.com', 'blog.example.com', 'pipedrive.com'],
+      groundingSources: [
+        { uri: 'https://www.hubspot.com/products/crm/startups', title: 'HubSpot for Startups' },
+        { uri: 'https://blog.example.com/startup-crm-guide', title: 'The startup CRM guide' },
+        { uri: 'https://pipedrive.com/en/blog/crm-for-startups', title: 'CRM for startups' },
+      ],
+      searchQueries: ['best crm for startups', 'startup crm comparison 2026'], retrievalStatus: 'used',
+    }
+    expect(reparseStoredResult(stored), 'stored Agent envelope').toEqual(expected)
+    expect(reparseStoredResult(response), 'direct Agent body').toEqual(expected)
   })
 
   it('prefers the reparsed response over stale extracted fields, and falls back to them when it is empty', () => {

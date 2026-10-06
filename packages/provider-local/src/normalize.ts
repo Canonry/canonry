@@ -112,7 +112,7 @@ export function parseTrackedQueryResponse(body: object, model: string): LocalRaw
     provider: 'local',
     rawResponse,
     model,
-    servedModel: extractServedModel(rawResponse),
+    servedModel: normalizeServedModel(rawResponse.model),
     groundingSources: [],
     searchQueries: [],
     usage: extractUsageFromRaw(rawResponse),
@@ -170,15 +170,6 @@ export async function generateText(prompt: string, config: LocalConfig): Promise
     }),
   )
   return response.choices[0]?.message?.content ?? ''
-}
-
-/**
- * Read the model the local server reported serving off a stored raw response. A
- * response that omits `model` yields undefined rather than the configured model —
- * local servers routinely echo back a different tag than the one requested.
- */
-export function extractServedModel(rawResponse: Record<string, unknown>): string | undefined {
-  return normalizeServedModel(rawResponse.model)
 }
 
 /**

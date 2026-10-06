@@ -104,16 +104,11 @@ import {
  *      → fails the per-table column check.
  *
  * What other tests cover:
- *   - `db-derived-dtos.test.ts` — the drizzle-zod derived schemas' field
- *     sets must equal the table's columns (catches the same drift but
- *     only for the migrated tables that have a derived schema).
  *   - TypeScript itself — formatX functions returning a DTO must list
  *     every field; an extra field not on the DTO is a type error.
  *
- * The three layers compose: TypeScript catches the formatX-vs-DTO drift,
- * `db-derived-dtos.test.ts` catches the schema-vs-derived drift for
- * migrated tables, this test catches the schema-vs-DTO drift for ALL
- * tables AND ensures every table is consciously classified.
+ * TypeScript checks formatter-vs-DTO types. This test checks schema-vs-DTO
+ * drift for all tables and ensures every table is consciously classified.
  */
 
 type CoverageEntry =

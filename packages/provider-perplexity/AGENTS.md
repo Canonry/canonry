@@ -42,3 +42,12 @@ All provider packages follow the same 4-file structure and implement the same `P
 
 - `docs/providers/README.md` — provider system overview
 - `packages/contracts/src/provider.ts` — `ProviderAdapter` interface definition
+
+## Test ownership
+
+`tracked-query-request.test.ts` owns native SDK request delivery, complete public
+sync/batch result projections, and served identity. `agent-api.test.ts` owns
+Agent output parsing, retrieval, run-status errors, health and text generation.
+`normalize.test.ts` owns historical Sonar and stored-envelope compatibility.
+HTTP support only records SDK requests and serves independent literal bodies;
+fixtures remain schema-derived examples, not live provider captures.

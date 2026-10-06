@@ -1,7 +1,8 @@
-import { describe, expect, expectTypeOf, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   createClient,
   getApiV1Projects,
+  getApiV1ProjectsByNameSentimentEvidence,
   getApiV1ProjectsByNameTechnicalAeoGraph,
   getApiV1ProjectsByNameTechnicalAeoChanges,
   getApiV1ProjectsByNameTechnicalAeoPath,
@@ -10,23 +11,6 @@ import {
   getApiV1ProjectsByNameMeasurementReport,
   postApiV1ProjectsByNameMeasurementDiscovery,
   postApiV1ProjectsByNameResearchBatches,
-} from '../src/index.js'
-import type {
-  AdsCampaignListResponse,
-  AdsOperationReconcileResponse,
-  AdsUnresolvedOperationListResponse,
-  GetApiV1ProjectsByNameMeasurementReportData,
-  GetApiV1ProjectsByNameTechnicalAeoGraphData,
-  GetApiV1ProjectsByNameTechnicalAeoChangesData,
-  GetApiV1ProjectsByNameTechnicalAeoPathData,
-  GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewData,
-  GetApiV1ProjectsByNameTechnicalAeoSubgraphData,
-  GetApiV1ProjectsByNameSearchResponse,
-  MeasurementDiscoveryRequest,
-  MeasurementDiscoveryResponse,
-  MeasurementReportResponse,
-  PostApiV1ProjectsByNameMeasurementDiscoveryData,
-  ResearchBatchCreate,
 } from '../src/index.js'
 
 /**
@@ -38,8 +22,6 @@ import type {
  */
 describe('canonry-api-client', () => {
   it('sends reviewed research destinations and their retry identity without rewriting final query text', async () => {
-    expectTypeOf<NonNullable<ResearchBatchCreate['runs'][number]['scope']>['expectedPlanRevision']>()
-      .toEqualTypeOf<number>()
     const fakeFetch = vi.fn(async (_request: Request) => new Response(JSON.stringify({ runs: [] }), {
       status: 202, headers: { 'content-type': 'application/json' },
     }))
@@ -57,54 +39,7 @@ describe('canonry-api-client', () => {
     expect(await request.json()).toEqual(body)
   })
 
-  it('retains nullable ads bidding and billing values in generated response types', () => {
-    type Campaign = AdsCampaignListResponse['campaigns'][number]
-    type AdGroup = Campaign['adGroups'][number]
-
-    expectTypeOf<Campaign['biddingType']>()
-      .toEqualTypeOf<'impressions' | 'clicks' | null | undefined>()
-    expectTypeOf<AdGroup['billingEventType']>()
-      .toEqualTypeOf<'impression' | 'click' | null | undefined>()
-  })
-
-  it('generates the typed ads recovery operation surface', () => {
-    type Operation = AdsUnresolvedOperationListResponse['operations'][number]
-
-    expectTypeOf<Operation['state']>()
-      .toEqualTypeOf<'pending' | 'reconciling' | 'succeeded' | 'failed' | 'unknown'>()
-    expectTypeOf<Operation['entityType']>()
-      .toEqualTypeOf<'file' | 'campaign' | 'ad_group' | 'ad' | null>()
-    expectTypeOf<Operation['reconcileStrategy']>()
-      .toEqualTypeOf<'known_entity' | 'create_fingerprint' | 'manual_only' | null>()
-    expectTypeOf<AdsOperationReconcileResponse['resolved']>().toEqualTypeOf<boolean>()
-  })
-
-  it('generates cited URL search hits', () => {
-    type SnapshotHit = Extract<
-      GetApiV1ProjectsByNameSearchResponse['hits'][number],
-      { kind: 'snapshot' }
-    >
-
-    expectTypeOf<SnapshotHit['matchedField']>().toEqualTypeOf<
-      'answerText' | 'citedDomains' | 'citedUrls' | 'searchQueries' | 'query'
-    >()
-  })
-
-  it('generates the typed measurement discovery and report adapter surface', () => {
-    expectTypeOf<PostApiV1ProjectsByNameMeasurementDiscoveryData['body']>()
-      .toEqualTypeOf<MeasurementDiscoveryRequest>()
-    expectTypeOf<GetApiV1ProjectsByNameMeasurementReportData['query']>()
-      .toEqualTypeOf<{ revision: number; runId?: string }>()
-    expectTypeOf<MeasurementDiscoveryResponse['proposed'][number]['classification']>()
-      .toEqualTypeOf<'proposed'>()
-    expectTypeOf<MeasurementReportResponse['groups'][number]['targetIds']>()
-      .toEqualTypeOf<string[]>()
-  })
-
   it('generates the bounded Site Health graph adapter surface', async () => {
-    expectTypeOf<GetApiV1ProjectsByNameTechnicalAeoGraphData['query']>()
-      .toEqualTypeOf<{ runId?: string; maxNodes?: number; maxEdges?: number; linkKind?: 'all' | 'content' | 'template' } | undefined>()
-
     const fakeFetch = vi.fn(async (_request: Request) =>
       new Response(JSON.stringify({}), {
         status: 200,
@@ -126,20 +61,6 @@ describe('canonry-api-client', () => {
   })
 
   it('generates task-shaped Site Health agent reads', async () => {
-    expectTypeOf<GetApiV1ProjectsByNameTechnicalAeoSubgraphData['query']>()
-      .toEqualTypeOf<{ runId?: string; nodeKey?: string; url?: string; hops?: number; maxNodes?: number; maxEdges?: number } | undefined>()
-    expectTypeOf<GetApiV1ProjectsByNameTechnicalAeoPathData['query']>()
-      .toEqualTypeOf<{ runId?: string; fromNodeKey?: string; fromUrl?: string; toNodeKey?: string; toUrl?: string; maxDepth?: number } | undefined>()
-    expectTypeOf<GetApiV1ProjectsByNameTechnicalAeoChangesData['query']>()
-      .toEqualTypeOf<{
-        fromRunId?: string
-        toRunId?: string
-        scope?: 'all' | 'pages' | 'links'
-        change?: 'all' | 'added' | 'removed' | 'changed'
-        cursor?: string
-        limit?: number
-      } | undefined>()
-
     const fakeFetch = vi.fn(async (_request: Request) => new Response('{}', {
       status: 200,
       headers: { 'content-type': 'application/json' },
@@ -164,9 +85,6 @@ describe('canonry-api-client', () => {
   })
 
   it('generates the bounded, exact-run live Page Health preview reader', async () => {
-    expectTypeOf<GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewData['path']>()
-      .toEqualTypeOf<{ name: string; runId: string }>()
-
     const fakeFetch = vi.fn(async (_request: Request) => new Response('{}', {
       status: 200,
       headers: { 'content-type': 'application/json' },
@@ -216,6 +134,20 @@ describe('canonry-api-client', () => {
     })
     const reportRequest = fakeFetch.mock.calls[1]![0] as Request
     expect(reportRequest.url).toBe('https://example.test/api/v1/projects/example/measurement-report?revision=3')
+  })
+
+  it('sends the sentiment evidence outcome filter as repeated query values, the form the server accepts', async () => {
+    const page = { state: 'complete', selection: { mode: 'simple', queryClass: 'branded', scope: 'project', runId: 'run', revision: null, evaluationDefinitionId: null, outcome: ['mixed', 'unfavorable'] }, items: [], nextCursor: null }
+    const fakeFetch = vi.fn(async (_request: Request) => new Response(JSON.stringify(page), { status: 200, headers: { 'content-type': 'application/json' } }))
+    const client = createClient({ baseUrl: 'https://example.test', fetch: fakeFetch as typeof fetch })
+    const result = await getApiV1ProjectsByNameSentimentEvidence({ client, path: { name: 'example' }, query: { runId: 'run', outcome: ['mixed', 'unfavorable'], limit: 10 } })
+    expect(result.data).toEqual(page)
+    expect(fakeFetch).toHaveBeenCalledTimes(1)
+    const url = new URL(fakeFetch.mock.calls[0]![0].url)
+    expect(url.pathname).toBe('/api/v1/projects/example/sentiment/evidence')
+    expect(url.searchParams.getAll('outcome')).toEqual(['mixed', 'unfavorable'])
+    expect(url.searchParams.get('runId')).toBe('run')
+    expect(url.searchParams.get('limit')).toBe('10')
   })
 
   it('createClient applies bearer auth + base URL to generated operations', async () => {

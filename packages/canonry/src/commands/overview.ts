@@ -90,10 +90,7 @@ function cell(value: string, width: number): string {
   return value.padEnd(width)
 }
 
-/** Exported so unit tests can capture stdout shape without spinning up the
- *  real client. Format change is contract-y enough that agents parsing it
- *  via grep need protection. */
-export function renderHuman(overview: ProjectOverviewDto): void {
+function renderHuman(overview: ProjectOverviewDto): void {
   const {
     project: meta,
     latestRun,

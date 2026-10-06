@@ -9,6 +9,7 @@ Cloud Run / Cloud Logging integration — pulls request logs for `cloud_run_revi
 | File | Role |
 |------|------|
 | `src/client.ts` | `listCloudRunTrafficEvents` — paginated `entries.list` pull, page-token cursoring, `CloudRunLoggingApiError` |
+| `src/auth.ts` | `getCloudLoggingAccessToken` — service-account JWT exchange used by the API's credential resolver |
 | `src/filter.ts` | `buildCloudRunLogFilter` — composes the Cloud Logging query string from service/location/timestamp/url/UA narrowing options |
 | `src/normalize.ts` | `normalizeCloudRunLogEntry` — converts a Cloud Logging `LogEntry.httpRequest` into a `NormalizedTrafficRequest` |
 | `src/types.ts` | Adapter option/response shapes (`ListCloudRunTrafficEventsOptions`, `CloudRunTrafficEventsPage`, raw `LogEntry` types) |
@@ -20,6 +21,12 @@ Cloud Run / Cloud Logging integration — pulls request logs for `cloud_run_revi
 - **Pull-only, cursor-paginated.** `listCloudRunTrafficEvents` accepts `pageToken` / `pageSize` / `maxPages` so callers can do incremental syncs. No push, no SaaS relay.
 - **Provider-neutral output.** Every adapter in the traffic stack normalizes to the same `NormalizedTrafficRequest` shape from `@ainyc/canonry-contracts`. Do not leak Cloud Logging types past the package boundary.
 - **Narrow filters when possible.** `buildCloudRunLogFilter` composes filters incrementally (service, location, time window, request URL substring, user-agent substrings). Narrower filters lower Cloud Logging cost; the `--narrow-bots` mode in the probe script intentionally trades human-AI-referral coverage for crawler-only coverage.
+
+## Test Ownership
+
+- `cloud-run-client.test.ts` owns filter operators, normalized evidence and native HTTP pagination. Assert the whole literal filter; clause presence cannot distinguish an intersection from an OR.
+- Assert independent provider-origin fields and exact normalized values. Malformed-row cases must otherwise contain valid request evidence so unrelated guards cannot mask them.
+- Keep service-account exchange in `auth.ts`; OAuth refresh has no runtime caller or supported sync path. Do not restore an unused prototype to support a test.
 
 ## Common Mistakes
 

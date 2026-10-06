@@ -2,13 +2,10 @@ import { describe, it, expect } from 'vitest'
 import { calendarRecurrenceSchema, nextScheduleUpdatedAt, schedulableRunKindSchema, scheduleUpsertRequestSchema, SchedulableRunKinds } from '../src/schedule.js'
 
 describe('schedulableRunKindSchema', () => {
-  it('accepts answer-visibility, traffic-sync, gbp-sync, data-refresh, backlinks-sync, and ads-sync', () => {
-    expect(schedulableRunKindSchema.safeParse('answer-visibility').success).toBe(true)
-    expect(schedulableRunKindSchema.safeParse('traffic-sync').success).toBe(true)
-    expect(schedulableRunKindSchema.safeParse('gbp-sync').success).toBe(true)
-    expect(schedulableRunKindSchema.safeParse('data-refresh').success).toBe(true)
-    expect(schedulableRunKindSchema.safeParse('backlinks-sync').success).toBe(true)
-    expect(schedulableRunKindSchema.safeParse('ads-sync').success).toBe(true)
+  it('accepts all eight public schedulable run kinds', () => {
+    const kinds = ['answer-visibility', 'traffic-sync', 'gbp-sync', 'data-refresh', 'backlinks-sync', 'site-audit', 'ads-sync', 'doctor']
+    expect(schedulableRunKindSchema.options).toEqual(kinds)
+    for (const kind of kinds) expect(schedulableRunKindSchema.safeParse(kind).success).toBe(true)
   })
 
   it('rejects non-schedulable run kinds', () => {

@@ -8,16 +8,18 @@ import {
   migrate,
   projects,
   agentSessions,
+  agentMemory,
   agentToolEvents,
   llmUsageEvents,
   parseJsonColumn,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
-import { Type, fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai'
+import { Type, fauxAssistantMessage, fauxToolCall, type Message, type FauxResponseFactory } from '@earendil-works/pi-ai'
 import { eq } from 'drizzle-orm'
 import type { AgentMessage, AgentTool } from '@earendil-works/pi-agent-core'
 import { MemorySources } from '@ainyc/canonry-contracts'
 import { SessionRegistry } from '../src/agent/session-registry.js'
+import { upsertMemoryEntry } from '../src/agent/memory-store.js'
 import { loadAeroSystemPrompt } from '../src/agent/session.js'
 import { CanonryMcpToolNames, canonryMcpTools } from '../src/mcp/tool-registry.js'
 import { AERO_EXCLUDED_MCP_TOOLS, AERO_MANAGED_SWEEP_MCP_TOOLS } from '../src/agent/mcp-to-agent-tool.js'
@@ -87,6 +89,15 @@ function insertProject(db: DatabaseClient, name: string): string {
     updatedAt: now,
   }).run()
   return id
+}
+
+function numberedTranscript(start: number, count: number): AgentMessage[] {
+  return Array.from({ length: count }, (_, offset) => {
+    const i = start + offset
+    return i % 2 === 0
+      ? { role: 'user', content: `u${i}`, timestamp: i }
+      : fauxAssistantMessage(`a${i}`, { timestamp: i })
+  })
 }
 
 describe('SessionRegistry', () => {
@@ -671,57 +682,86 @@ describe('SessionRegistry', () => {
     expect(agent.state.tools.length).toBe(AERO_READ_TURN_TOOL_COUNT)
   })
 
-  it('acquireForTurn compacts the transcript when it crosses the threshold, rehydrates the system prompt, and persists a compaction note', async () => {
+  it.each([
+    ['short Unicode', 'é€😀', 'é€😀', 9],
+    ['exact Unicode cap', 'é'.repeat(1024), 'é'.repeat(1024), 2048],
+    ['ASCII cap', 'x'.repeat(5000), 'x'.repeat(2034) + '…[truncated]', 2048],
+    ['complete two-byte boundary', 'é'.repeat(1100), 'é'.repeat(1017) + '…[truncated]', 2048],
+    ['partial three-byte boundary', 'x'.repeat(2032) + '€'.repeat(100), 'x'.repeat(2032) + '…[truncated]', 2046],
+    ['partial four-byte boundary', 'x'.repeat(2033) + '😀'.repeat(100), 'x'.repeat(2033) + '…[truncated]', 2047],
+  ] as const)('acquireForTurn persists %s summary, retains the exact tail and rehydrates memory', async (_description, summary, expectedSummary, expectedBytes) => {
+    const projectId = insertProject(db, 'demo')
+    const otherProjectId = insertProject(db, 'other')
+    upsertMemoryEntry(db, {
+      projectId: otherProjectId, key: 'private-note', value: 'Neighbor project note', source: MemorySources.user,
+    })
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+    const agent = registry.getOrCreate('demo')
+    agent.state.model = faux.getModel()
+    const leadingSystem = agent.state.messages.filter(message => message.role === 'system')
+    agent.state.messages = [...leadingSystem, ...numberedTranscript(0, 420)]
+    registry.save('demo')
+    const sessionId = db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId)).get()!.id
+
+    const summaryCalls: Message[][] = []
+    const respond: FauxResponseFactory = context => {
+      summaryCalls.push(context.messages)
+      return fauxAssistantMessage(summary)
+    }
+    faux.setResponses([respond])
+
+    const acquired = await registry.acquireForTurn('demo')
+
+    expect(acquired).toBe(agent)
+    expect(faux.state.callCount).toBe(1)
+    expect(summaryCalls).toHaveLength(1)
+    expect(summaryCalls[0].filter(message => message.role === 'system')).toHaveLength(1)
+    expect(summaryCalls[0].filter(message => message.role !== 'system')).toEqual(numberedTranscript(0, 210))
+
+    const notes = db.select().from(agentMemory).where(eq(agentMemory.projectId, projectId)).all()
+    expect(notes).toHaveLength(1)
+    expect(notes[0]).toMatchObject({ projectId, source: MemorySources.compaction, value: expectedSummary })
+    expect(notes[0].key.startsWith(`compaction:${sessionId}:`)).toBe(true)
+    expect(Buffer.byteLength(notes[0].value, 'utf8')).toBe(expectedBytes)
+
+    expect(agent.state.messages).toHaveLength(211)
+    expect(agent.state.messages.filter(message => message.role === 'system')).toHaveLength(1)
+    expect(agent.state.messages.filter(message => message.role !== 'system')).toEqual(numberedTranscript(210, 210))
+    expect(agent.state.systemPrompt).toContain('<memory>')
+    expect(agent.state.systemPrompt).toContain(`- [compaction] ${notes[0].key}: ${expectedSummary}`)
+    expect(agent.state.systemPrompt).not.toContain('Neighbor project note')
+    const row = db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId)).get()!
+    expect(parseJsonColumn<AgentMessage[]>(row.messages, [])).toEqual(numberedTranscript(210, 210))
+
+    registry.evict('demo')
+    const rehydrated = registry.getOrCreate('demo')
+    expect(rehydrated.state.systemPrompt).toContain(`- [compaction] ${notes[0].key}: ${expectedSummary}`)
+    expect(rehydrated.state.messages.filter(message => message.role !== 'system')).toEqual(numberedTranscript(210, 210))
+    const neighbors = db.select().from(agentMemory).where(eq(agentMemory.projectId, otherProjectId)).all()
+    expect(neighbors).toHaveLength(1)
+    expect(neighbors[0]).toMatchObject({ key: 'private-note', value: 'Neighbor project note', source: MemorySources.user })
+  })
+
+  it('acquireForTurn keeps the full live and durable transcript when the summary provider fails', async () => {
     const projectId = insertProject(db, 'demo')
     const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
     const agent = registry.getOrCreate('demo')
     agent.state.model = faux.getModel()
-
-    // Build a transcript long enough that shouldCompact() fires via message-count cap.
-    // COMPACTION_MAX_MESSAGES (400) messages, alternating user/assistant so findSafeSplit
-    // can land on a user boundary.
-    const bulk: AgentMessage[] = []
-    for (let i = 0; i < 420; i++) {
-      bulk.push(
-        i % 2 === 0
-          ? ({ role: 'user', content: `u${i}`, timestamp: 0 } as AgentMessage)
-          : ({
-              role: 'assistant',
-              content: [{ type: 'text', text: `a${i}` }],
-              api: 'faux-api',
-              provider: 'faux',
-              model: 'faux-model',
-              usage: {
-                input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
-                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-              },
-              stopReason: 'stop',
-              timestamp: 0,
-            } as AgentMessage),
-      )
+    agent.state.messages = [...agent.state.messages.filter(message => message.role === 'system'), ...numberedTranscript(0, 420)]
+    registry.save('demo')
+    const fail: FauxResponseFactory = () => {
+      throw new Error('summary provider unavailable')
     }
-    agent.state.messages = bulk
+    faux.setResponses([fail])
 
-    // Faux response feeds the summarizer's `complete()` call.
-    faux.setResponses([
-      fauxAssistantMessage('- Compacted older turns: user asked about status; agent ran sweeps.'),
-    ])
+    expect(await registry.acquireForTurn('demo')).toBe(agent)
 
-    const basePrompt = agent.state.systemPrompt
-
-    await registry.acquireForTurn('demo')
-
-    // Transcript shrank — the prefix was rolled into a memory note.
-    expect(agent.state.messages.length).toBeLessThan(bulk.length)
-    // System prompt now carries the hydrated `<memory>` block with the new compaction note.
-    expect(agent.state.systemPrompt).not.toBe(basePrompt)
-    expect(agent.state.systemPrompt).toContain('<memory>')
-    expect(agent.state.systemPrompt).toContain('[compaction]')
-
-    // Persisted compaction row in agent_memory.
-    const { agentMemory } = await import('@ainyc/canonry-db')
-    const rows = db.select().from(agentMemory).where(eq(agentMemory.projectId, projectId)).all()
-    expect(rows.some((r) => r.source === MemorySources.compaction)).toBe(true)
+    expect(faux.state.callCount).toBe(1)
+    expect(agent.state.messages.filter(message => message.role !== 'system')).toEqual(numberedTranscript(0, 420))
+    const row = db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId)).get()!
+    expect(parseJsonColumn<AgentMessage[]>(row.messages, [])).toEqual(numberedTranscript(0, 420))
+    expect(db.select().from(agentMemory).where(eq(agentMemory.projectId, projectId)).all()).toEqual([])
+    expect(agent.state.systemPrompt).not.toContain('[compaction]')
   })
 
   it('rehydrateLiveMemory rebuilds the live agent system prompt with the latest notes', async () => {

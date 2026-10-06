@@ -71,6 +71,7 @@ async function captureHeaders(model: Model<Api>): Promise<http.IncomingHttpHeade
 function hostDetailHeaders(headers: http.IncomingHttpHeaders): string[] {
   const details = [os.platform(), os.release(), os.arch(), process.version].map(detail => detail.toLowerCase())
   return Object.entries(headers)
+    // Host is the transport destination; its loopback address can overlap a kernel version.
     .filter(([name]) => name !== 'host')
     .map(([name, value]) => [name, [value ?? ''].flat().join(', ')] as const)
     .filter(([, value]) => details.some(detail => value.toLowerCase().includes(detail)))
@@ -90,6 +91,7 @@ describe('Aero request headers', () => {
 
   it.each(catalogModels.map(model => [model.api, model] as const))('%s requests do not name the host OS, architecture or Node version', async (_api, model) => {
     for (const headers of await captureHeaders(local(model))) {
+      expect(headers.host).toBe(new URL(origin).host)
       expect(headers['user-agent']).toBe('canonry')
       expect(headers).not.toHaveProperty('x-stainless-os')
       expect(headers).not.toHaveProperty('x-stainless-arch')

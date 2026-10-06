@@ -3,9 +3,10 @@ import type { ProjectOverviewDto } from '@ainyc/canonry-contracts'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { sentimentFixtureSummary } from '../../contracts/test/fixtures/sentiment.js'
-import { renderHuman, showOverview } from '../src/commands/overview.js'
+import { showOverview } from '../src/commands/overview.js'
 import * as clientModule from '../src/client.js'
 import { createCanonryMcpServerWithCatalog } from '../src/mcp/server.js'
+import { invokeCliRead, prepareCliReadFixture } from './cli-read-fixture.js'
 
 function makeSentiment() {
   const { state, reason, provisional, coverage, score, selection } = sentimentFixtureSummary
@@ -27,6 +28,11 @@ function makeOverview(overrides: Partial<ProjectOverviewDto> = {}): ProjectOverv
       canonicalDomain: 'demo.example.com',
       ownedDomains: [],
       aliases: [],
+      qualifiedAliases: [],
+      providers: [],
+      providerModels: {},
+      providerDispatchModes: {},
+      measurement: { marketingHosts: [], brandTerms: [], leadEventNames: ['generate_lead'] },
       country: 'US',
       language: 'en',
       tags: [],
@@ -34,8 +40,8 @@ function makeOverview(overrides: Partial<ProjectOverviewDto> = {}): ProjectOverv
       locations: [],
       defaultLocation: null,
       autoExtractBacklinks: false,
-      configSource: 'manual',
-      configRevision: null,
+      configSource: 'cli',
+      configRevision: 1,
       createdAt: '2026-05-01T00:00:00.000Z',
       updatedAt: '2026-05-01T00:00:00.000Z',
     },
@@ -57,6 +63,8 @@ function makeOverview(overrides: Partial<ProjectOverviewDto> = {}): ProjectOverv
         description: '',
         trend: [],
         progress: 60,
+        scope: 'non-brand',
+        branded: { projectMentionSnapshots: 1, competitorMentionSnapshots: 1, combinedMentionSnapshots: 2, perCompetitor: [], ranking: [], snapshotsWithAnswerText: 2, snapshotsTotal: 2, score: 50 },
         breakdown: {
           projectMentionSnapshots: 6,
           competitorMentionSnapshots: 4,
@@ -72,6 +80,7 @@ function makeOverview(overrides: Partial<ProjectOverviewDto> = {}): ProjectOverv
           ],
           snapshotsWithAnswerText: 8,
           snapshotsTotal: 10,
+          score: 60,
         },
       },
       gapQueries: { label: 'Citation Gaps', value: '2', delta: '2 of 8 queries', tone: 'caution', description: '', trend: [] },
@@ -107,73 +116,72 @@ function makeOverview(overrides: Partial<ProjectOverviewDto> = {}): ProjectOverv
   }
 }
 
-function captureOutput(fn: () => void): string {
-  const lines: string[] = []
-  const spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
-    lines.push(args.map(String).join(' '))
+async function captureOutput(overview: ProjectOverviewDto): Promise<string> {
+  const result = await invokeCliRead(['overview', 'demo', '--location', 'Harbor', '--since', '2026-09-01T00:00:00Z'], overview, {
+    pathname: '/prefix/api/v1/projects/demo/overview',
+    query: { location: 'Harbor', since: '2026-09-01T00:00:00Z' },
   })
-  try {
-    fn()
-  } finally {
-    spy.mockRestore()
-  }
-  return lines.join('\n')
+  expect(result.exitCode).toBeUndefined()
+  expect(result.stderr).toBe('')
+  return result.stdout
 }
 
 describe('canonry overview — human output', () => {
   let output = ''
+  let cleanup = () => {}
 
   beforeEach(() => {
     output = ''
+    cleanup = prepareCliReadFixture()
   })
 
   afterEach(() => {
     vi.restoreAllMocks()
-    vi.unstubAllGlobals()
+    cleanup()
   })
 
-  it('prints the server branded score with its class and judged denominator, never the overall or non-brand value', () => {
+  it('prints the server branded score with its class and judged denominator, never the overall or non-brand value', async () => {
     const sentiment = makeSentiment()
     sentiment.branded.score = { ...sentiment.branded.score, favorableDisplay: '61.0%' }
     sentiment.nonBrand.score = { ...sentiment.nonBrand.score, favorableDisplay: '98.0%' }
     sentiment.overall.score = { ...sentiment.overall.score, favorableDisplay: '72.0%' }
-    const lines = captureOutput(() => renderHuman(makeOverview({ sentiment }))).split('\n')
+    output = await captureOutput(makeOverview({ sentiment }))
+    const lines = output.split('\n')
     // 3 favorable of 5 judged (favorable + mixed + unfavorable); the fixture is partial, so provisional.
     const at = lines.indexOf('  Sentiment: 61.0% favorable · branded queries')
     expect(at).toBeGreaterThan(-1)
     expect(lines[at + 1]).toBe('    3 favorable / 5 judged · provisional')
-    output = lines.join('\n')
     expect(output).not.toContain('98.0%')
     expect(output).not.toContain('72.0%')
     expect(output).not.toContain('Overall sentiment')
     expect(output).not.toContain('all query classes')
   })
 
-  it('shows a measured zero branded favorable score and drops the provisional tag when complete', () => {
+  it('shows a measured zero branded favorable score and drops the provisional tag when complete', async () => {
     const sentiment = makeSentiment()
     sentiment.branded.score = { ...sentiment.branded.score, favorableRate: 0, favorableDisplay: '0%' }
     sentiment.branded.coverage = { ...sentiment.branded.coverage, judged: 5, counts: { ...sentiment.branded.coverage.counts, favorable: 0, mixed: 1, unfavorable: 4 } }
     sentiment.branded.provisional = false
-    const lines = captureOutput(() => renderHuman(makeOverview({ sentiment }))).split('\n')
+    const lines = (await captureOutput(makeOverview({ sentiment }))).split('\n')
     const at = lines.indexOf('  Sentiment: 0% favorable · branded queries')
     expect(at).toBeGreaterThan(-1)
     expect(lines[at + 1]).toBe('    0 favorable / 5 judged')
   })
 
-  it('prints the branded line from a server that predates the overall headline', () => {
+  it('prints the branded line from a server that predates the overall headline', async () => {
     const { overall: _overall, ...olderSentiment } = makeSentiment()
-    const lines = captureOutput(() => renderHuman(makeOverview({ sentiment: olderSentiment }))).split('\n')
+    const lines = (await captureOutput(makeOverview({ sentiment: olderSentiment }))).split('\n')
     expect(lines).toContain(`  Sentiment: ${sentimentFixtureSummary.score.favorableDisplay} favorable · branded queries`)
     expect(lines).toContain('    3 favorable / 5 judged · provisional')
   })
 
-  it.each(['disabled', 'missing', 'unjudged', 'unavailable'] as const)('omits a %s branded score without falling back to the overall or non-brand value', condition => {
+  it.each(['disabled', 'missing', 'unjudged', 'unavailable'] as const)('omits a %s branded score without falling back to the overall or non-brand value', async condition => {
     const sentiment = makeSentiment()
     if (condition === 'disabled') sentiment.configured = false
     // Non-brand and overall stay measured in every case: the line must not borrow either.
     if (condition === 'unjudged') sentiment.branded.coverage = { ...sentiment.branded.coverage, judged: 0 }
     if (condition === 'unavailable') sentiment.branded.score = { ...sentiment.branded.score, favorableRate: null }
-    output = captureOutput(() => renderHuman(makeOverview(condition === 'missing' ? {} : { sentiment })))
+    output = await captureOutput(makeOverview(condition === 'missing' ? {} : { sentiment }))
     expect(output).not.toContain('Sentiment:')
     expect(output).not.toContain('favorable / ')
   })
@@ -218,8 +226,8 @@ describe('canonry overview — human output', () => {
     }
   })
 
-  it('renders Mention, Citation, and Mention Share scores in the hero order', () => {
-    output = captureOutput(() => renderHuman(makeOverview()))
+  it('renders Mention, Citation, and Mention Share scores in the hero order', async () => {
+    output = await captureOutput(makeOverview())
     // The dashboard hero shows Mention → Cited → Mention share. CLI must match.
     const mentionIdx = output.indexOf('Mention   ')
     const visibilityIdx = output.indexOf('Visibility ')
@@ -231,8 +239,8 @@ describe('canonry overview — human output', () => {
     expect(output).toContain('6 of 10 brand mentions')
   })
 
-  it('breakdown shows project and competitor mention counts with combined-total %', () => {
-    output = captureOutput(() => renderHuman(makeOverview()))
+  it('breakdown shows project and competitor mention counts with combined-total %', async () => {
+    output = await captureOutput(makeOverview())
     // Project: 6 of 10 combined = 60.0% (matches headline value 60)
     expect(output).toMatch(/you[^\n]*6 mentions \(60\.0% of combined\)/)
     // Top competitor: rival-a 3 of 10 = 30.0%
@@ -241,7 +249,7 @@ describe('canonry overview — human output', () => {
     expect(output).toMatch(/rival-b\.com[^\n]*1 mentions \(10\.0% of combined\)/)
   })
 
-  it('prints each share exactly as the server ranked it, never re-derived from the counts', () => {
+  it('prints each share exactly as the server ranked it, never re-derived from the counts', async () => {
     const overview = makeOverview()
     // Deliberately not mentions / combined: the CLI must print the server's own
     // fraction through formatPercent, so a sliver keeps its <0.1% edge.
@@ -250,32 +258,32 @@ describe('canonry overview — human output', () => {
       { kind: 'project', domain: null, mentionSnapshots: 6, share: 0.0004 },
       { kind: 'competitor', domain: 'rival-b.com', mentionSnapshots: 1, share: 0 },
     ]
-    output = captureOutput(() => renderHuman(overview))
+    output = await captureOutput(overview)
     expect(output).toMatch(/you[^\n]*6 mentions \(<0\.1% of combined\)/)
     expect(output).toMatch(/rival-a\.com[^\n]*3 mentions \(>99\.9% of combined\)/)
     expect(output).toMatch(/rival-b\.com[^\n]*1 mentions \(0% of combined\)/)
   })
 
-  it('lists a tracked competitor nobody named at 0%, as the dashboard table does', () => {
+  it('lists a tracked competitor nobody named at 0%, as the dashboard table does', async () => {
     const overview = makeOverview()
     overview.scores.mentionShare.breakdown.ranking = [
       { kind: 'project', domain: null, mentionSnapshots: 6, share: 1 },
       { kind: 'competitor', domain: 'quiet.example', mentionSnapshots: 0, share: 0 },
     ]
-    output = captureOutput(() => renderHuman(overview))
+    output = await captureOutput(overview)
     expect(output).toMatch(/you[^\n]*6 mentions \(100% of combined\)/)
     expect(output).toMatch(/quiet\.example[^\n]*0 mentions \(0% of combined\)/)
   })
 
-  it('prints no breakdown for a server that predates the ranking', () => {
+  it('prints no breakdown for a server that predates the ranking', async () => {
     const overview = makeOverview()
     delete (overview.scores.mentionShare.breakdown as { ranking?: unknown }).ranking
-    output = captureOutput(() => renderHuman(overview))
+    output = await captureOutput(overview)
     expect(output).toContain('Mention share')
     expect(output).not.toContain('of combined')
   })
 
-  it('omits Mention Share breakdown when the server ranked no head-to-head', () => {
+  it('omits Mention Share breakdown when the server ranked no head-to-head', async () => {
     const overview = makeOverview()
     overview.scores.mentionShare = {
       ...overview.scores.mentionShare,
@@ -289,15 +297,16 @@ describe('canonry overview — human output', () => {
         ranking: [],
         snapshotsWithAnswerText: 0,
         snapshotsTotal: 0,
+        score: null,
       },
     }
-    output = captureOutput(() => renderHuman(overview))
+    output = await captureOutput(overview)
     expect(output).toContain('Mention share')
     expect(output).toContain('Add competitors')
     expect(output).not.toContain('mentions (')
   })
 
-  it('caps Mention Share breakdown at top-3 competitors with a "+N more" line', () => {
+  it('caps Mention Share breakdown at top-3 competitors with a "+N more" line', async () => {
     const overview = makeOverview()
     overview.scores.mentionShare.breakdown.ranking = [
       { kind: 'competitor', domain: 'a.com', mentionSnapshots: 10, share: 10 / 36 },
@@ -309,7 +318,7 @@ describe('canonry overview — human output', () => {
     overview.scores.mentionShare.breakdown.combinedMentionSnapshots = 36
     overview.scores.mentionShare.breakdown.competitorMentionSnapshots = 30
     overview.scores.mentionShare.breakdown.projectMentionSnapshots = 6
-    output = captureOutput(() => renderHuman(overview))
+    output = await captureOutput(overview)
     // The project's row always prints, whatever its rank.
     expect(output).toMatch(/you[^\n]*6 mentions \(16\.7% of combined\)/)
     expect(output).toMatch(/a\.com[^\n]*10 mentions \(27\.8% of combined\)/)
@@ -320,7 +329,7 @@ describe('canonry overview — human output', () => {
     expect(output).toContain('+ 1 more competitor')
   })
 
-  it('renders the suggested-queries panel when GSC suggestions are available', () => {
+  it('renders the suggested-queries panel when GSC suggestions are available', async () => {
     const overview = makeOverview({
       suggestedQueries: {
         rows: [
@@ -331,7 +340,7 @@ describe('canonry overview — human output', () => {
         skippedAlreadyTracked: 8,
       },
     })
-    output = captureOutput(() => renderHuman(overview))
+    output = await captureOutput(overview)
     expect(output).toContain('Suggested queries to track')
     expect(output).toContain('showing 2 of 5')
     expect(output).toContain('+ best aeo tool')
@@ -339,16 +348,16 @@ describe('canonry overview — human output', () => {
     expect(output).toContain('canonry query add demo')
   })
 
-  it('omits suggested-queries panel when no GSC suggestions exist', () => {
-    output = captureOutput(() => renderHuman(makeOverview()))
+  it('omits suggested-queries panel when no GSC suggestions exist', async () => {
+    output = await captureOutput(makeOverview())
     expect(output).not.toContain('Suggested queries')
   })
 
-  it('prints each gauge value as the API sent it, with no sign of its own', () => {
+  it('prints each gauge value as the API sent it, with no sign of its own', async () => {
     const overview = makeOverview()
     // 2 of 3 is 66.666667% on the wire and "66.7%" in the gauge's value.
     overview.scores.mention = { ...overview.scores.mention, value: '66.7%', delta: '2 of 3 queries mentioned', progress: 66.666667 }
-    const lines = captureOutput(() => renderHuman(overview)).split('\n')
+    const lines = (await captureOutput(overview)).split('\n')
     const scoreLine = (prefix: string, tone: string, value: string, delta: string) =>
       `  ${prefix} ${`[${tone}]`.padEnd(11)} ${value.padEnd(8)} ${delta}`
     expect(lines).toContain(scoreLine('Mention          ', 'positive', '66.7%', '2 of 3 queries mentioned'))
@@ -359,8 +368,8 @@ describe('canonry overview — human output', () => {
     expect(lines.join('\n')).not.toContain('%%')
   })
 
-  it('shows all 8 scores (no SoV — that field is gone)', () => {
-    output = captureOutput(() => renderHuman(makeOverview()))
+  it('shows all 8 scores (no SoV — that field is gone)', async () => {
+    output = await captureOutput(makeOverview())
     expect(output).toContain('Mention   ')
     expect(output).toContain('Visibility')
     expect(output).toContain('Mention share')
@@ -372,21 +381,36 @@ describe('canonry overview — human output', () => {
     expect(output).not.toMatch(/Share of [Vv]oice/)
   })
 
-  it('renders cited and mentioned query-count lines from their own fields', () => {
+  it('renders cited and mentioned query-count lines from their own fields', async () => {
     const overview = makeOverview({
       queryCounts: { totalQueries: 8, citedQueries: 4, notCitedQueries: 4, citedRate: 0.5, mentionedQueries: 6, notMentionedQueries: 2, mentionRate: 0.75 },
     })
-    output = captureOutput(() => renderHuman(overview))
+    output = await captureOutput(overview)
     // Two independent lines — the mentioned line (6/8) must not borrow the cited count (4/8).
     expect(output).toMatch(/Queries cited:\s+4\/8 \(50\.0%\)/)
     expect(output).toMatch(/Queries mentioned:\s+6\/8 \(75\.0%\)/)
+    for (const mode of ['simple', 'advanced'] as const) {
+      const sentiment = makeSentiment()
+      sentiment.branded.selection = { ...sentiment.branded.selection, mode, revision: mode === 'advanced' ? 4 : null }
+      sentiment.nonBrand.selection = { ...sentiment.nonBrand.selection, mode, revision: mode === 'advanced' ? 4 : null }
+      const wireOverview = { ...overview, sentiment }
+      for (const format of ['json', 'jsonl']) {
+        const json = await invokeCliRead(['overview', 'demo', '--location', 'Harbor', '--since', '2026-09-01T00:00:00Z', '--format', format], wireOverview, {
+          pathname: '/prefix/api/v1/projects/demo/overview', query: { location: 'Harbor', since: '2026-09-01T00:00:00Z' },
+        })
+        expect(json.exitCode).toBeUndefined()
+        expect(json.stderr).toBe('')
+        expect(JSON.parse(json.stdout)).toEqual(wireOverview)
+        expect(JSON.parse(json.stdout).queryCounts).toEqual({ totalQueries: 8, citedQueries: 4, notCitedQueries: 4, citedRate: 0.5, mentionedQueries: 6, notMentionedQueries: 2, mentionRate: 0.75 })
+      }
+    }
   })
 
   /**
    * The overview mixes units: provider and health rates are 0..1 fractions,
    * while a model score and a run-history rate arrive as 0..100 percents.
    */
-  it('prints each rate through formatPercent in the unit its field carries', () => {
+  it('prints each rate through formatPercent in the unit its field carries', async () => {
     const overview = makeOverview({
       providers: [{ provider: 'gemini', citedRate: 0.0004, cited: 1, total: 2500 }],
       providerScores: [{ provider: 'openai', model: 'gpt-5', score: 75, cited: 3, total: 4 }],
@@ -400,7 +424,7 @@ describe('canonry overview — human output', () => {
         { runId: 'r-2', createdAt: '2026-05-02T00:00:00.000Z', citedCount: 2, totalCount: 2, citationRate: 100, mentionedCount: 2, mentionRate: 100, status: 'completed' },
       ],
     })
-    const lines = captureOutput(() => renderHuman(overview)).split('\n')
+    const lines = (await captureOutput(overview)).split('\n')
     expect(lines).toContain('    gemini       1/2500 (<0.1%)')
     expect(lines).toContain(`    ${'openai/gpt-5'.padEnd(28)} 3/4 (75.0%)`)
     expect(lines).toContain('  Health: 100% cited (12/12 pairs)')
@@ -408,7 +432,7 @@ describe('canonry overview — human output', () => {
     expect(lines).toContain(`    2026-05-02   100% ${'█'.repeat(10)}`)
   })
 
-  it('renders citation and mention movement separately with query-basket comparability', () => {
+  it('renders citation and mention movement separately with query-basket comparability', async () => {
     const overview = makeOverview({
       citationMovement: { gained: 1, lost: 0, tone: 'positive', hasPreviousRun: true },
       mentionMovement: { gained: 0, lost: 2, tone: 'negative', hasPreviousRun: true },
@@ -426,13 +450,13 @@ describe('canonry overview — human output', () => {
         removedQueries: [],
       },
     })
-    output = captureOutput(() => renderHuman(overview))
+    output = await captureOutput(overview)
     expect(output).toContain('Query basket:       changed (+1 added, -0 removed); movement compares 8 shared')
     expect(output).toContain('Citation movement: +1 gained, -0 lost (positive)')
     expect(output).toContain('Mention movement:  +0 gained, -2 lost (negative)')
   })
 
-  it('renders the unchanged-basket branch when the query set held steady', () => {
+  it('renders the unchanged-basket branch when the query set held steady', async () => {
     const overview = makeOverview({
       citationMovement: { gained: 0, lost: 1, tone: 'negative', hasPreviousRun: true },
       mentionMovement: { gained: 2, lost: 0, tone: 'positive', hasPreviousRun: true },
@@ -450,15 +474,15 @@ describe('canonry overview — human output', () => {
         removedQueries: [],
       },
     })
-    output = captureOutput(() => renderHuman(overview))
+    output = await captureOutput(overview)
     expect(output).toContain('Query basket:       unchanged; 8 comparable')
     expect(output).toContain('Citation movement: +0 gained, -1 lost (negative)')
     expect(output).toContain('Mention movement:  +2 gained, -0 lost (positive)')
   })
 
-  it('renders the first-sweep hint when there is no previous run', () => {
+  it('renders the first-sweep hint when there is no previous run', async () => {
     // The default makeOverview() has movementComparison.hasPreviousRun=false.
-    output = captureOutput(() => renderHuman(makeOverview()))
+    output = await captureOutput(makeOverview())
     expect(output).toContain('Movement: first sweep; no comparison yet')
     expect(output).not.toContain('Query basket:')
   })

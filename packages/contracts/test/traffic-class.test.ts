@@ -84,25 +84,25 @@ describe('aiReferralClassCounts', () => {
 
 describe('formatAiReferralClassSummary', () => {
   it('renders every non-zero class, in paid → organic → unclassified order', () => {
-    expect(formatAiReferralClassSummary(aiReferralClassCounts(10, 6, 1)))
+    expect(formatAiReferralClassSummary({ total: 10, paid: 6, organic: 1, unknown: 3 }))
       .toBe('Paid 6 · Organic 1 · Unclassified 3')
   })
 
   it('omits zero classes', () => {
-    expect(formatAiReferralClassSummary(aiReferralClassCounts(10, 7, 3))).toBe('Paid 7 · Organic 3')
-    expect(formatAiReferralClassSummary(aiReferralClassCounts(4, 0, 4))).toBe('Organic 4')
+    expect(formatAiReferralClassSummary({ total: 10, paid: 7, organic: 3, unknown: 0 })).toBe('Paid 7 · Organic 3')
+    expect(formatAiReferralClassSummary({ total: 4, paid: 0, organic: 4, unknown: 0 })).toBe('Organic 4')
   })
 
   it('names a fully unclassified window rather than leaving it blank', () => {
-    expect(formatAiReferralClassSummary(aiReferralClassCounts(37, 0, 0))).toBe('Unclassified 37')
+    expect(formatAiReferralClassSummary({ total: 37, paid: 0, organic: 0, unknown: 37 })).toBe('Unclassified 37')
   })
 
   it('abbreviates large counts the way the rest of the report does', () => {
-    expect(formatAiReferralClassSummary(aiReferralClassCounts(1500, 1200, 300)))
+    expect(formatAiReferralClassSummary({ total: 1500, paid: 1200, organic: 300, unknown: 0 }))
       .toBe('Paid 1.2K · Organic 300')
   })
 
   it('renders an empty string for an empty window so the tile shows no stray separator', () => {
-    expect(formatAiReferralClassSummary(aiReferralClassCounts(0, 0, 0))).toBe('')
+    expect(formatAiReferralClassSummary({ total: 0, paid: 0, organic: 0, unknown: 0 })).toBe('')
   })
 })

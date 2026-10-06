@@ -66,7 +66,6 @@ export type GscTotalsSource = 'property-daily' | 'dimensioned' | 'mixed' | 'empt
 export type GscComparisonBasis = 'prior-window' | 'split-window'
 
 const DAY_MS = 86_400_000
-const GSC_CALENDAR_RANGE_CAP = 800
 
 /** UTC midnight for one canonical `YYYY-MM-DD`, or null for an impossible date. */
 function calendarDateMs(value: string): number | null {
@@ -164,26 +163,6 @@ function relativeChange(trailing: number | null, prior: number | null): number |
   if (!Number.isFinite(trailing) || !Number.isFinite(prior)) return null
   if (prior <= 0) return null
   return (trailing - prior) / prior
-}
-
-/**
- * Every calendar date from `start` to `end` inclusive, as `YYYY-MM-DD`.
- *
- * Stepped in UTC so a DST transition in the host's zone cannot drop or repeat a
- * date. These are calendar labels, not instants. The bounded result is for
- * fixtures and display-sized series; the comparator itself computes boundaries
- * arithmetically and never allocates one entry per requested day.
- */
-export function gscCalendarDates(
-  start: string,
-  end: string,
-  cap = GSC_CALENDAR_RANGE_CAP,
-): string[] {
-  const first = calendarDateMs(start)
-  const last = calendarDateMs(end)
-  if (first === null || last === null || first > last || !Number.isFinite(cap) || cap < 1) return []
-  const length = Math.min(Math.floor((last - first) / DAY_MS) + 1, Math.floor(cap))
-  return Array.from({ length }, (_, index) => calendarDateAt(first + index * DAY_MS))
 }
 
 function aggregate(

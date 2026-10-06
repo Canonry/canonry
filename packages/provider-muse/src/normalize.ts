@@ -27,7 +27,7 @@ const MUSE_SELF_DOMAINS: readonly string[] = [AI_ENGINE_DOMAINS.metaAi]
 const MAX_RETRY_AFTER_MS = 60_000
 const RETRYABLE_RESPONSE_ERROR_CODES = new Set(['rate_limit_exceeded', 'server_error'])
 
-export function createClient(config: MuseConfig): OpenAI {
+function createClient(config: MuseConfig): OpenAI {
   return new OpenAI({
     apiKey: config.apiKey,
     baseURL: config.baseUrl || MUSE_BASE_URL,
@@ -143,7 +143,7 @@ export async function executeTrackedQuery(input: MuseTrackedQueryInput): Promise
       provider: 'muse',
       rawResponse,
       model,
-      servedModel: extractServedModel(rawResponse),
+      servedModel: normalizeServedModel(rawResponse.model),
       groundingSources: parsed.groundingSources,
       searchQueries: parsed.searchQueries,
       retrievalStatus: parsed.retrievalStatus,
@@ -153,10 +153,6 @@ export async function executeTrackedQuery(input: MuseTrackedQueryInput): Promise
   } catch (err: unknown) {
     throw new Error(`[provider-muse] ${describeError(err)}`)
   }
-}
-
-export function extractServedModel(rawResponse: Record<string, unknown>): string | undefined {
-  return normalizeServedModel(rawResponse.model)
 }
 
 /**

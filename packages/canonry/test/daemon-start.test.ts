@@ -39,7 +39,7 @@ describe('startDaemon', () => {
     fs.rmSync(mocks.configDir, { recursive: true, force: true })
   })
 
-  it('forwards the resolved config endpoint and terminates a child that never becomes ready', async () => {
+  it('launches an existing script with the resolved endpoint and terminates an unready child', async () => {
     const { startDaemon } = await import('../src/commands/daemon.js')
 
     const started = startDaemon({ format: 'json' })
@@ -52,6 +52,13 @@ describe('startDaemon', () => {
     await rejected
 
     const args = mocks.spawn.mock.calls[0]?.[1] as string[]
+    expect(mocks.spawn).toHaveBeenCalledOnce()
+    expect(mocks.spawn.mock.calls[0]?.[0]).toBe(process.execPath)
+    expect(args).toContain('serve')
+    const script = args[args.indexOf('serve') - 1]!
+    expect(path.isAbsolute(script)).toBe(true)
+    expect(fs.existsSync(script), `spawned script should exist: ${script}`).toBe(true)
+    expect(fs.statSync(script).isFile()).toBe(true)
     expect(args.slice(-4)).toEqual(['--port', '4750', '--host', '127.0.0.1'])
     expect(mocks.kill).toHaveBeenCalledWith('SIGTERM')
     expect(fs.existsSync(path.join(mocks.configDir, 'canonry.pid'))).toBe(false)

@@ -42,7 +42,6 @@ export interface RunFillInput {
   runnableProviders?: readonly string[] | null
   /** Provider → requests allowed per UTC day. Omitted skips the quota check. */
   dailyLimits?: Readonly<Record<string, number>> | null
-  now?: Date
 }
 
 export type RunFillEvaluation =
@@ -144,7 +143,7 @@ export function evaluateRunFill(db: DatabaseClient, run: RunRow, input: RunFillI
       'The measurement plan was republished since this run, so answers added now would mix two revisions in one run.')
   }
 
-  const now = (input.now ?? new Date()).getTime()
+  const now = Date.now()
   // A run that dispatched a provider batch counts from when it finalized: its
   // batch may take most of the window to end, and the run is fillable only then.
   const age = runFillAgeAnchor(run, { hadProviderBatch: runHadProviderBatch(db, run.id) })
@@ -299,7 +298,7 @@ export function queueRunFill(db: DatabaseClient, runId: string, input: RunFillIn
     const activeSweep = activeSweepFor(txDb, run.projectId)
     if (activeSweep) return { kind: 'run-in-progress', activeRunId: activeSweep.id } as const
 
-    const now = (input.now ?? new Date()).toISOString()
+    const now = new Date().toISOString()
     const id = crypto.randomUUID()
     txDb.insert(runFills).values({
       id,

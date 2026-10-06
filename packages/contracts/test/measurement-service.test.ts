@@ -41,18 +41,18 @@ const ANSWER_EVIDENCE = {
 
 describe('measurement service contracts', () => {
   it('accepts the deterministic sitemap discovery request vocabulary', () => {
-    expect(measurementDiscoveryRequestSchema.parse({
+    const input = {
       sitemapUrl: 'https://northstar.example/sitemap.xml',
       rule: {
         primary: { host: 'northstar.example', pathTemplate: '/locations/{slug}' },
         aliases: [{ host: 'homes.northstar.example', pathTemplate: '/{slug}' }],
         excludedSlugSuffixes: ['-regional'],
       },
-    })).toEqual(expect.objectContaining({ sitemapUrl: 'https://northstar.example/sitemap.xml' }))
-    expect(measurementDiscoveryRequestSchema.safeParse({
-      sitemapUrl: 'ftp://northstar.example/sitemap.xml',
-      rule: { primary: { host: 'northstar.example', pathTemplate: '/locations/{slug}' } },
-    }).success).toBe(false)
+    }
+    expect(measurementDiscoveryRequestSchema.parse(input)).toEqual(input)
+    const invalid = measurementDiscoveryRequestSchema.safeParse({ ...input, sitemapUrl: 'ftp://northstar.example/sitemap.xml' })
+    expect(invalid.success).toBe(false)
+    expect(invalid.error?.issues.map(issue => issue.path)).toEqual([['sitemapUrl']])
   })
 
   it('builds a canonical per-run expected-slot manifest', () => {
@@ -105,7 +105,7 @@ describe('measurement service contracts', () => {
   })
 
   it('parses a complete synthetic report response', () => {
-    const response = measurementReportResponseSchema.parse({
+    const input = {
       revision: 3,
       run: { id: 'run-3', status: 'partial', createdAt: '2026-08-01T00:00:00.000Z', startedAt: null, finishedAt: null },
       groups: [{
@@ -140,20 +140,20 @@ describe('measurement service contracts', () => {
         bridgedObservationIds: [], historicalObservationIds: [], evidenceIncompleteObservationIds: [],
         ambiguousObservationIds: [], unmatchedObservationIds: [],
       },
-    })
+    }
 
-    expect(response.groups[0]?.targetIds).toEqual(['harbor'])
-    expect(response.evidence[0]?.classification).toBe('assigned')
+    expect(measurementReportResponseSchema.parse(input)).toEqual(input)
   })
 })
 
 describe('answer-level measurement evidence', () => {
   it('carries both signals on one row with its sources nested', () => {
-    const row = measurementAnswerEvidenceSchema.parse(ANSWER_EVIDENCE)
-
-    expect(row.mentioned).toBe(true)
-    expect(row.cited).toBe(true)
-    expect(row.sources).toEqual([expect.objectContaining({ classification: 'assigned' })])
+    const rows = [
+      ANSWER_EVIDENCE,
+      { ...ANSWER_EVIDENCE, mentioned: true, cited: false, sources: [], sourceCount: 0 },
+      { ...ANSWER_EVIDENCE, mentioned: false, cited: true },
+    ]
+    for (const input of rows) expect(measurementAnswerEvidenceSchema.parse(input)).toEqual(input)
   })
 
   it('represents an answer that cited nobody', () => {

@@ -12,7 +12,6 @@ import {
 	  discoveryCompetitorTypeSchema,
   DiscoverySessionStatuses,
   discoverySessionStatusSchema,
-  DISCOVERY_MAX_PROBES_CAP,
   DISCOVERY_PROBE_CONCURRENCY_CAP,
   DISCOVERY_DEFAULT_PROBE_CONCURRENCY,
   DISCOVERY_DEFAULT_DEDUP_THRESHOLD,
@@ -90,19 +89,11 @@ test('discoverySessionStatusSchema enumerates the lifecycle states', () => {
 })
 
 test('discoveryProbeDtoSchema parses a cited probe with cited domains', () => {
-  const probe = discoveryProbeDtoSchema.parse({
-    id: 'probe_1',
-    sessionId: 'sess_1',
-    projectId: 'proj_1',
-    query: 'best boutique hotel williamsburg',
-    citationState: 'cited',
-    citedDomains: ['vantrellhotel.example.com', 'harborinn.example.com'],
-    bucket: 'cited',
-    createdAt: '2026-05-11T12:00:00.000Z',
-  })
-  expect(probe.citationState).toBe('cited')
-  expect(probe.citedDomains).toEqual(['vantrellhotel.example.com', 'harborinn.example.com'])
-  expect(probe.bucket).toBe('cited')
+  const input = {
+    id: 'probe_1', sessionId: 'sess_1', projectId: 'proj_1', query: 'best boutique hotel williamsburg',
+    citationState: 'cited', citedDomains: ['vantrellhotel.example.com', 'harborinn.example.com'], bucket: 'cited', createdAt: '2026-05-11T12:00:00.000Z',
+  }
+  expect(discoveryProbeDtoSchema.parse(input)).toEqual({ ...input, answerMentioned: null })
 })
 
 test('discoveryProbeDtoSchema parses the answer-text mention signal (true and false)', () => {
@@ -149,49 +140,23 @@ test('discoveryProbeDtoSchema allows null bucket (not yet classified)', () => {
 })
 
 test('discoverySessionDtoSchema parses an in-flight session with pre/post dedup counts', () => {
-  const session = discoverySessionDtoSchema.parse({
-    id: 'sess_1',
-    projectId: 'proj_1',
-    status: 'probing',
-    icpDescription: 'Boutique destination hotel in Williamsburg',
-    seedProvider: 'gemini',
-    seedCountRaw: 142,
-    seedCount: 48,
-    dedupThreshold: 0.85,
-    probeCount: 12,
-    competitorMap: [{ domain: 'harborinn.example.com', hits: 4, competitorType: 'direct-competitor' }],
-    createdAt: '2026-05-11T12:00:00.000Z',
-  })
-  expect(session.status).toBe('probing')
-  expect(session.seedCountRaw).toBe(142)
-  expect(session.seedCount).toBe(48)
-  expect(session.dedupThreshold).toBeCloseTo(0.85)
-  expect(session.competitorMap).toEqual([
-    { domain: 'harborinn.example.com', hits: 4, competitorType: 'direct-competitor' },
-  ])
+  const input = {
+    id: 'sess_1', projectId: 'proj_1', status: 'probing', icpDescription: 'Boutique destination hotel in Williamsburg', seedProvider: 'gemini',
+    seedCountRaw: 142, seedCount: 48, dedupThreshold: 0.85, probeCount: 12,
+    competitorMap: [{ domain: 'harborinn.example.com', hits: 4, competitorType: 'direct-competitor' }], createdAt: '2026-05-11T12:00:00.000Z',
+  }
+  expect(discoverySessionDtoSchema.parse(input)).toEqual({ ...input, citedCount: null, aspirationalCount: null, wastedCount: null })
 })
 
 test('discoverySessionDtoSchema carries the seed-source diagnostic split (nullable, optional)', () => {
-  const withSplit = discoverySessionDtoSchema.parse({
-    id: 'sess_1',
-    projectId: 'proj_1',
-    status: 'completed',
-    seedFromAnswerCount: 28,
-    seedFromGroundingCount: 9,
-    createdAt: '2026-05-11T12:00:00.000Z',
-  })
-  expect(withSplit.seedFromAnswerCount).toBe(28)
-  expect(withSplit.seedFromGroundingCount).toBe(9)
-
-  // Legacy session — the split is simply absent, never coerced to 0.
-  const legacy = discoverySessionDtoSchema.parse({
-    id: 'sess_2',
-    projectId: 'proj_1',
-    status: 'completed',
-    createdAt: '2026-05-11T12:00:00.000Z',
-  })
-  expect(legacy.seedFromAnswerCount).toBeUndefined()
-  expect(legacy.seedFromGroundingCount).toBeUndefined()
+  const base = { id: 'sess_1', projectId: 'proj_1', status: 'completed', createdAt: '2026-05-11T12:00:00.000Z' }
+  for (const split of [{ seedFromAnswerCount: 28, seedFromGroundingCount: 9 }, { seedFromAnswerCount: null, seedFromGroundingCount: null }, {}]) {
+    const input = { ...base, ...split }
+    expect(discoverySessionDtoSchema.parse(input)).toEqual({ ...input, competitorMap: [], citedCount: null, aspirationalCount: null, wastedCount: null })
+  }
+  const legacy = discoverySessionDtoSchema.parse({ ...base, id: 'sess_2' })
+  expect(legacy).not.toHaveProperty('seedFromAnswerCount')
+  expect(legacy).not.toHaveProperty('seedFromGroundingCount')
 })
 
 test('discoveryRunRequestSchema bounds probeConcurrency to 1..DISCOVERY_PROBE_CONCURRENCY_CAP', () => {
@@ -224,26 +189,14 @@ test('discoverySessionDtoSchema defaults bucket counts to null when unset', () =
 })
 
 test('discoverySessionDetailDtoSchema embeds probes array', () => {
-  const detail = discoverySessionDetailDtoSchema.parse({
-    id: 'sess_1',
-    projectId: 'proj_1',
-    status: 'completed',
-    competitorMap: [],
-    createdAt: '2026-05-11T12:00:00.000Z',
-    probes: [
-      {
-        id: 'probe_1',
-        sessionId: 'sess_1',
-        projectId: 'proj_1',
-        query: 'q1',
-        citationState: 'cited',
-        bucket: 'cited',
-        createdAt: '2026-05-11T12:00:01.000Z',
-      },
-    ],
+  const input = {
+    id: 'sess_1', projectId: 'proj_1', status: 'completed', competitorMap: [], createdAt: '2026-05-11T12:00:00.000Z',
+    probes: [{ id: 'probe_1', sessionId: 'sess_1', projectId: 'proj_1', query: 'q1', citationState: 'cited', bucket: 'cited', createdAt: '2026-05-11T12:00:01.000Z' }],
+  }
+  expect(discoverySessionDetailDtoSchema.parse(input)).toEqual({
+    ...input, citedCount: null, aspirationalCount: null, wastedCount: null,
+    probes: [{ ...input.probes[0], answerMentioned: null, citedDomains: [] }],
   })
-  expect(detail.probes).toHaveLength(1)
-  expect(detail.probes[0].query).toBe('q1')
 })
 
 test('discoveryCompetitorMapEntrySchema requires positive hit count', () => {
@@ -275,14 +228,8 @@ test('discoveryCompetitorMapEntrySchema defaults competitorType to unknown and a
 })
 
 test('discoveryRunRequestSchema accepts ICP override + dedupThreshold + maxProbes', () => {
-  const req = discoveryRunRequestSchema.parse({
-    icpDescription: 'Boutique destination hotel in Williamsburg',
-    dedupThreshold: 0.8,
-    maxProbes: 60,
-  })
-  expect(req.icpDescription).toBe('Boutique destination hotel in Williamsburg')
-  expect(req.dedupThreshold).toBeCloseTo(0.8)
-  expect(req.maxProbes).toBe(60)
+  const input = { icpDescription: 'Boutique destination hotel in Williamsburg', dedupThreshold: 0.8, maxProbes: 60 }
+  expect(discoveryRunRequestSchema.parse(input)).toEqual(input)
 })
 
 test('discoveryRunRequestSchema accepts empty object (use project defaults)', () => {
@@ -309,13 +256,12 @@ test('discoveryRunRequestSchema rejects out-of-range dedupThreshold', () => {
 })
 
 test('discoveryRunRequestSchema caps maxProbes at DISCOVERY_MAX_PROBES_CAP', () => {
-  expect(discoveryRunRequestSchema.parse({ maxProbes: DISCOVERY_MAX_PROBES_CAP }).maxProbes).toBe(
-    DISCOVERY_MAX_PROBES_CAP,
-  )
-  expect(() =>
-    discoveryRunRequestSchema.parse({ maxProbes: DISCOVERY_MAX_PROBES_CAP + 1 }),
-  ).toThrow()
-  expect(() => discoveryRunRequestSchema.parse({ maxProbes: 10_000 })).toThrow()
+  expect(discoveryRunRequestSchema.parse({ maxProbes: 500 })).toEqual({ maxProbes: 500 })
+  for (const maxProbes of [501, 10_000]) {
+    const invalid = discoveryRunRequestSchema.safeParse({ maxProbes })
+    expect(invalid.success).toBe(false)
+    if (!invalid.success) expect(invalid.error.issues.map(issue => issue.path)).toEqual([['maxProbes']])
+  }
 })
 
 test('queryProvenanceSchema accepts "cli" and "discovery:<sessionId>" shapes', () => {
@@ -358,14 +304,21 @@ test('discoveryPromoteRequestSchema rejects empty / unknown buckets and competit
 })
 
 test('discoveryPromoteResultSchema requires promoted + skipped query/competitor lists', () => {
-  const result = discoveryPromoteResultSchema.parse({
-    sessionId: 'sess-1',
-    projectId: 'proj-1',
-    promoted: { queries: ['q1', 'q2'], competitors: ['a.com'] },
-    skipped: { queries: ['q3'], competitors: [] },
-  })
-  expect(result.promoted.queries).toEqual(['q1', 'q2'])
-  expect(result.skipped.competitors).toEqual([])
+  const input = { sessionId: 'sess-1', projectId: 'proj-1', promoted: { queries: ['q1', 'q2'], competitors: ['a.com'] }, skipped: { queries: ['q3'], competitors: [] } }
+  expect(discoveryPromoteResultSchema.parse(input)).toEqual(input)
+  const missing = [
+    [{ sessionId: 'sess-1', projectId: 'proj-1', skipped: input.skipped }, ['promoted']],
+    [{ sessionId: 'sess-1', projectId: 'proj-1', promoted: input.promoted }, ['skipped']],
+    [{ ...input, promoted: { competitors: ['a.com'] } }, ['promoted', 'queries']],
+    [{ ...input, promoted: { queries: ['q1', 'q2'] } }, ['promoted', 'competitors']],
+    [{ ...input, skipped: { competitors: [] } }, ['skipped', 'queries']],
+    [{ ...input, skipped: { queries: ['q3'] } }, ['skipped', 'competitors']],
+  ] as const
+  for (const [value, path] of missing) {
+    const invalid = discoveryPromoteResultSchema.safeParse(value)
+    expect(invalid.success).toBe(false)
+    if (!invalid.success) expect(invalid.error.issues.map(issue => issue.path)).toEqual([path])
+  }
   expect(() => discoveryPromoteResultSchema.parse({ sessionId: 'x', projectId: 'y' })).toThrow()
 })
 
@@ -429,7 +382,7 @@ test('discoverySessionDtoSchema carries the optional warning field', () => {
     warning: 'Seed dedup collapsed 30 raw candidates into 1 canonical query at threshold 0.85.',
     createdAt: '2026-06-11T12:00:00.000Z',
   })
-  expect(session.warning).toContain('Seed dedup collapsed')
+  expect(session.warning).toBe('Seed dedup collapsed 30 raw candidates into 1 canonical query at threshold 0.85.')
   // Legacy rows without the column still parse.
   const legacy = discoverySessionDtoSchema.parse({
     id: 'sess_legacy',
@@ -703,7 +656,7 @@ test('gateHarvestedSearchQueries honors the recurrence floor (minProbeHits)', ()
 })
 
 test('discoveryHarvestDtoSchema round-trips a harvest payload', () => {
-  const dto = discoveryHarvestDtoSchema.parse({
+  const input = {
     sessionId: 'sess_1',
     projectId: 'proj_1',
     provider: 'gemini',
@@ -717,11 +670,8 @@ test('discoveryHarvestDtoSchema round-trips a harvest payload', () => {
       admitted: 1,
       rejected: { belowFloor: 0, length: 1, navigational: 1, duplicate: 0, offAnchor: 0, semanticDuplicate: 1 },
     },
-  })
-  expect(dto.candidates[0].probeHits).toBe(2)
-  expect(dto.provider).toBe('gemini')
-  expect(dto.semanticNoveltyApplied).toBe(true)
-  expect(dto.stats.rejected.semanticDuplicate).toBe(1)
+  }
+  expect(discoveryHarvestDtoSchema.parse(input)).toEqual(input)
 })
 
 test('isNavigationalHarvestQuery flags phone/address lookups but not local buyer intent', () => {

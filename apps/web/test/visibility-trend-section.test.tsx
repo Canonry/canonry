@@ -872,10 +872,12 @@ test('prints the change when a query was removed and added back before the lates
 })
 
 test('says what a pooled point\'s two sweeps differ by, not every query a change between them touched', async () => {
+  vi.stubEnv('TZ', 'UTC')
+  onTestFinished(() => { vi.unstubAllEnvs() })
   renderMetrics(cancelledSweepBetweenMetrics())
   await waitFor(() => expect(document.querySelector('.visibility-trend-current-value')).not.toBeNull())
 
-  expect(trendDetails()).toContainEqual(expect.stringMatching(/^Jul 5(, 2026)? point mixes the \S+ AM sweep and the \S+ AM sweep, with 1 query added between them$/))
+  expect(trendDetails().map(detail => detail.replace(/\u202f/g, ' '))).toContainEqual(expect.stringMatching(/^Jul 5(, 2026)? point mixes the 8:00 AM sweep and the 10:00 AM sweep, with 1 query added between them$/))
   expect(trendDetails().join('\n')).not.toMatch(/2 queries/)
 })
 

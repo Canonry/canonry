@@ -80,22 +80,6 @@ export async function probeLatestRelease(opts: ProbeOptions = {}): Promise<Probe
   return null
 }
 
-export async function probeRecentReleases(opts: ProbeOptions & { limit?: number } = {}): Promise<ProbedRelease[]> {
-  const now = opts.now ?? new Date()
-  const maxBack = opts.maxMonthsBack ?? 14
-  const fetchImpl = opts.fetchImpl ?? fetch
-  const limit = opts.limit ?? 8
-  const candidates = probeCandidates(now, maxBack)
-  const out: ProbedRelease[] = []
-  for (const { year, window } of candidates) {
-    if (out.length >= limit) break
-    const release = formatReleaseId(year, window)
-    const result = await probeRelease(release, fetchImpl)
-    if (result) out.push(result)
-  }
-  return out
-}
-
 function parseContentLength(value: string | null): number | null {
   if (!value) return null
   const n = Number.parseInt(value, 10)

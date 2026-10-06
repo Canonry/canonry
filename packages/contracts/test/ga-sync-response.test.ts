@@ -28,13 +28,16 @@ describe('ga4SyncResponseDtoSchema', () => {
     }
 
     expect(ga4SyncResponseDtoSchema.parse(response)).toEqual(response)
-    expect(() => ga4SyncResponseDtoSchema.parse({
-      ...response,
-      measurement: {
-        acquisition: { status: 'ready', rowCount: 42 },
-        leads: { status: 'ready', rowCount: 3 },
-      },
-    })).toThrow()
+    for (const component of ['acquisition', 'leads'] as const) {
+      const { days: _days, ...withoutDays } = response.measurement[component]
+      const parsed = ga4SyncResponseDtoSchema.safeParse({
+        ...response,
+        measurement: { ...response.measurement, [component]: withoutDays },
+      })
+      expect(parsed.success).toBe(false)
+      expect(parsed.success ? [] : parsed.error.issues.map(issue => issue.path))
+        .toEqual([['measurement', component, 'days']])
+    }
   })
 
   it('carries the effective window, the request, and the clamp flag', () => {
