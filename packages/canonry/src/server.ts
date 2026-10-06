@@ -222,7 +222,7 @@ import { executeReleaseSync } from "./commoncrawl-sync.js";
 import { executeBacklinkExtract } from "./backlink-extract.js";
 import { executeDiscoveryRun } from "./discovery-run.js";
 import { executeSiteAudit } from "./execute-site-audit.js";
-import { backfillProjectAnswerMentions } from "./commands/backfill.js";
+import { backfillProjectAnswerMentions } from "@ainyc/canonry-api-routes";
 import { getBundledSkillSnapshots } from "./commands/skills.js";
 import {
   DUCKDB_SPEC,

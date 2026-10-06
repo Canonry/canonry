@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   canonicalMeasurementPlanV2Json,
   measurementPlanV2ChecksumJson,
@@ -21,6 +21,7 @@ import {
   providerBatches,
   queries,
   querySnapshots,
+  runFills,
   runs,
   simpleMeasurementDefinitions,
   type DatabaseClient,
@@ -59,6 +60,8 @@ const ANSWER = [
 /** One answer's stored competitor columns once "TuneSpoke" names the rival. */
 const CURRENT = { competitorOverlap: [RIVAL], recommendedCompetitors: ['TuneSpoke'] }
 const STALE = { competitorOverlap: [], recommendedCompetitors: [] }
+const TWO_QUESTIONS = ['best bike repair shop', 'bike repair near me']
+const THREE_QUESTIONS = [...TWO_QUESTIONS, 'bike tune up cost']
 
 beforeEach(() => {
   resetSharedProviderExecutionGates()
@@ -78,6 +81,10 @@ function competitorColumns(db: DatabaseClient, runId: string) {
 }
 
 const runStatus = (db: DatabaseClient, runId: string) => db.select({ status: runs.status }).from(runs).where(eq(runs.id, runId)).get()!.status
+
+const fillOutcome = (db: DatabaseClient, fillId: string) => db
+  .select({ status: runFills.status, filled: runFills.filled, error: runFills.error })
+  .from(runFills).where(eq(runFills.id, fillId)).get()
 
 /** Answers ANSWER, running `before[n]` just ahead of its nth call. */
 function editingAdapter(name: string, before: Record<number, () => void>): ProviderAdapter {
@@ -124,7 +131,7 @@ function seedProject(db: DatabaseClient, providers: string[]): string {
   return projectId
 }
 
-function seedSimpleProject(db: DatabaseClient, queryTexts = ['best bike repair shop', 'bike repair near me']): string {
+function seedSimpleProject(db: DatabaseClient, queryTexts = TWO_QUESTIONS): string {
   const projectId = seedProject(db, ['openai'])
   for (const query of queryTexts) {
     db.insert(queries).values({ id: crypto.randomUUID(), projectId, query, createdAt: NOW }).run()
@@ -132,10 +139,10 @@ function seedSimpleProject(db: DatabaseClient, queryTexts = ['best bike repair s
   return projectId
 }
 
-/** An Advanced portfolio: one Property, two questions, each answered by every provider. */
-function seedAdvancedProject(db: DatabaseClient, providers: string[]): string {
+/** An Advanced portfolio: one Property whose questions are each answered by every provider. */
+function seedAdvancedProject(db: DatabaseClient, providers: string[], questionTexts = TWO_QUESTIONS): string {
   const projectId = seedProject(db, [])
-  const questions = [{ id: 'q-1', text: 'best bike repair shop' }, { id: 'q-2', text: 'bike repair near me' }]
+  const questions = questionTexts.map((text, index) => ({ id: `q-${index + 1}`, text }))
   const models = Object.fromEntries(providers.map(provider => [provider, `${provider}-planned`]))
   const draft: MeasurementPlanV2 = {
     schemaVersion: 2,
@@ -178,6 +185,26 @@ function queue(db: DatabaseClient, projectId: string): string {
   const queued = queueRunIfProjectIdle(db, { projectId })
   if (queued.conflict) throw new Error('unexpected conflict')
   return queued.runId
+}
+
+const gemini = () => fakeAdapter({ name: 'gemini', calls: [], answerText: ANSWER })
+
+/**
+ * An Advanced sweep in which every openai call failed and gemini answered
+ * every question before any alias was saved, plus the fill admitted for the
+ * openai answers it is missing.
+ */
+async function partialRunWithQueuedFill(db: DatabaseClient, questionTexts: string[]) {
+  const projectId = seedAdvancedProject(db, ['openai', 'gemini'], questionTexts)
+  const runId = queue(db, projectId)
+  const failing = fakeAdapter({ name: 'openai', calls: [], answerText: ANSWER, failFromCall: 1 })
+  await new JobRunner(db, serialRegistry(failing, gemini())).executeRun(runId, projectId)
+  expect(runStatus(db, runId)).toBe(RunStatuses.partial)
+  expect(competitorColumns(db, runId)).toEqual(questionTexts.map(() => STALE))
+
+  const admitted = queueRunFill(db, runId)
+  if (admitted.kind !== 'queued') throw new Error(`expected a queued fill, got ${admitted.kind}`)
+  return { projectId, runId, fillId: admitted.fill.id }
 }
 
 describe('a competitor alias saved while answers are being recorded', () => {
@@ -223,20 +250,64 @@ describe('a competitor alias saved while answers are being recorded', () => {
 
   it('a fill ends with the answers it adds scored like the ones the sweep stored', async () => {
     const db = tempDb('canonry-alias-edit-')
-    const projectId = seedAdvancedProject(db, ['openai', 'gemini'])
-    const runId = queue(db, projectId)
-    const failing = fakeAdapter({ name: 'openai', calls: [], answerText: ANSWER, failFromCall: 1 })
-    const gemini = fakeAdapter({ name: 'gemini', calls: [], answerText: ANSWER })
-    await new JobRunner(db, serialRegistry(failing, gemini)).executeRun(runId, projectId)
-    expect(runStatus(db, runId)).toBe(RunStatuses.partial)
-    expect(competitorColumns(db, runId)).toEqual([STALE, STALE])
+    const { projectId, runId, fillId } = await partialRunWithQueuedFill(db, TWO_QUESTIONS)
 
-    const admitted = queueRunFill(db, runId)
-    if (admitted.kind !== 'queued') throw new Error(`expected a queued fill, got ${admitted.kind}`)
-    await new JobRunner(db, serialRegistry(editingAdapter('openai', { 2: () => saveAlias(db, projectId) }), gemini)).executeRunFill(admitted.fill.id)
+    await new JobRunner(db, serialRegistry(editingAdapter('openai', { 2: () => saveAlias(db, projectId) }), gemini())).executeRunFill(fillId)
 
     expect(runStatus(db, runId)).toBe(RunStatuses.completed)
     expect(competitorColumns(db, runId)).toEqual([CURRENT, CURRENT, CURRENT, CURRENT])
+  })
+
+  it('a fill stopped by a newer sweep after the edit ends with every stored answer scored against it', async () => {
+    const db = tempDb('canonry-alias-edit-')
+    const { projectId, runId, fillId } = await partialRunWithQueuedFill(db, THREE_QUESTIONS)
+    // A partial run cannot be cancelled; a sweep queued meanwhile is what stops
+    // its fill. The second filled answer is recorded after the edit, and the
+    // sweep queued with it stops the fill before the third call.
+    const editThenQueueSweep = () => {
+      saveAlias(db, projectId)
+      queue(db, projectId)
+    }
+
+    await new JobRunner(db, serialRegistry(editingAdapter('openai', { 2: editThenQueueSweep }), gemini())).executeRunFill(fillId)
+
+    expect(fillOutcome(db, fillId)).toEqual({
+      status: 'partial',
+      filled: 2,
+      error: 'Stopped because a newer sweep started; no answers were added behind it.',
+    })
+    expect(runStatus(db, runId)).toBe(RunStatuses.partial)
+    // Three sweep answers, then the two the fill recorded.
+    expect(competitorColumns(db, runId)).toEqual([CURRENT, CURRENT, CURRENT, CURRENT, CURRENT])
+  })
+
+  it('a fill that fails fatally after the edit ends with every stored answer scored against it', async () => {
+    const db = tempDb('canonry-alias-edit-')
+    const { projectId, runId, fillId } = await partialRunWithQueuedFill(db, THREE_QUESTIONS)
+    // The database fails the fill's attempt check before its third call. No
+    // per-answer handler catches that, so the fill fails with two answers
+    // recorded, the second after the edit.
+    const prepare = db.$client.prepare.bind(db.$client)
+    let failNextAttemptRead = false
+    vi.spyOn(db.$client, 'prepare').mockImplementation(((source: string) => {
+      if (failNextAttemptRead && source.includes('from "run_fills"')) {
+        failNextAttemptRead = false
+        throw new Error('disk I/O error')
+      }
+      return prepare(source)
+    }) as typeof db.$client.prepare)
+    const editThenFailDatabase = () => {
+      saveAlias(db, projectId)
+      failNextAttemptRead = true
+    }
+
+    await new JobRunner(db, serialRegistry(editingAdapter('openai', { 2: editThenFailDatabase }), gemini())).executeRunFill(fillId)
+
+    expect(failNextAttemptRead).toBe(false)
+    expect(fillOutcome(db, fillId)).toEqual({ status: 'partial', filled: 2, error: 'disk I/O error' })
+    expect(runStatus(db, runId)).toBe(RunStatuses.partial)
+    // Three sweep answers, then the two the fill recorded.
+    expect(competitorColumns(db, runId)).toEqual([CURRENT, CURRENT, CURRENT, CURRENT, CURRENT])
   })
 
   it('a batch ingest ends with every answer scored against it', async () => {

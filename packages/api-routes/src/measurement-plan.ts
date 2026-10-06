@@ -27,7 +27,9 @@ import {
   queries,
 } from '@ainyc/canonry-db'
 import { requireScope } from './auth.js'
+import { requireMarketPinsClearOfCompetitorAliases } from './competitor-writes.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import { storedPlanPinGroups } from './plan-competitors.js'
 
 export const MEASUREMENT_PLAN_WRITE_SCOPE = 'measurement-plan.write'
 
@@ -397,6 +399,12 @@ export async function measurementPlanRoutes(app: FastifyInstance, opts: Measurem
       if (actualActiveRevision !== expectedActiveRevision) {
         throw measurementPlanRevisionConflict(expectedActiveRevision, actualActiveRevision)
       }
+      requireMarketPinsClearOfCompetitorAliases(
+        tx,
+        project.id,
+        activeVersion ? storedPlanPinGroups(activeVersion.canonicalJson) : [],
+        compiled.groups,
+      )
 
       const revision = (activeVersion?.revision ?? 0) + 1
       const versionId = crypto.randomUUID()

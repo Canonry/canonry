@@ -217,6 +217,13 @@ This capture does not reconstruct historical definitions.
 
 Simple and Advanced snapshots use `isSearchLocationIgnored` to clear a search-tool location when retrieval is `not-used`. Preserve the requested location in `requestedContext` and record `supportedContext.status: 'ignored'` for these answers.
 
+A curated competitor alias saved while a sweep, fill or batch ingest is
+recording is applied once by `onCompetitorAliasesChanged`; each writer then
+calls `reconcileRunCompetitorFields` after its last write (success, cancel or
+failure) and rescores its own run against the current competitor names when
+they changed after it read them. `test/job-runner-competitor-alias-edits.test.ts`
+covers each writer, including a fill a newer sweep stops and one that fails.
+
 When a sweep finishes, the flow is: `JobRunner` → `RunCoordinator.onRunCompleted()` → `IntelligenceService.analyzeAndPersist()` then `Notifier.onRunCompleted()`. The coordinator runs intelligence first (synchronous) so insights are persisted before webhooks fire. Each subscriber is wrapped in an independent try/catch — one failing must not block the others.
 
 Notifier sibling and citation-history reads exclude probes with `notProbeRun()`
@@ -442,6 +449,8 @@ pages, which keeps the one-time pass close to single-transaction cost.
 It writes retrieval fields in exactly one case: OpenAI rows labelled `native-auto-v1` (written by 4.139.0 through 5.19.0, which all sent a forced-search request) become `search-required-v1`, with `retrievalStatus` re-derived from the stored `apiResponse` (`correctStoredOpenAIRetrieval`, counted as `retrievalRelabeled`). NULL contracts predate the field and stay NULL; no other provider's retrieval fields are touched. Never widen this into "set every row to the adapter's current contract": a future contract change would then relabel history.
 
 The command lives in `src/commands/backfill.ts` (historical recomputation for answer visibility fields and insights).
+
+The snapshot rescore behind `canonry backfill answer-mentions`, the alias hooks and `reconcileRunCompetitorFields`, `backfillProjectAnswerMentions`, lives in `@ainyc/canonry-api-routes` (`src/snapshot-competitor-refresh.ts`) so Cloud can run it too; `src/commands/backfill.ts` re-exports it. `src/citation-utils.ts` keeps only the citation helpers; the competitor matchers `computeCompetitorOverlap` and `extractRecommendedCompetitors` are in contracts (`competitor-matching.ts`).
 
 ### Server and SPA serving
 

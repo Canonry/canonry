@@ -334,12 +334,23 @@ describe('readMarketCompetitorPins', () => {
       { domain: 'alpha.example', names: ['Alpha'], markets: ['regional'] },
       { domain: 'zephyrblade.example', names: ['Zephyr Blade'], markets: ['regional'] },
     ])
-    // An unreadable draft pins nothing rather than failing competitor writes.
-    db.update(measurementPlanDrafts).set({ authoringJson: '{not json' }).where(eq(measurementPlanDrafts.projectId, projectId)).run()
+    // An unreadable draft or revision pins nothing rather than failing competitor writes.
+    const draftJson = db.select().from(measurementPlanDrafts).where(eq(measurementPlanDrafts.projectId, projectId)).get()!.authoringJson
+    const setDraftJson = (authoringJson: string) => db.update(measurementPlanDrafts).set({ authoringJson }).where(eq(measurementPlanDrafts.projectId, projectId)).run()
+    setDraftJson('{not json')
     expect(readMarketCompetitorPins(db, projectId)).toEqual([
       { domain: 'boltline.example', names: ['Boltline'], markets: ['regional'] },
       { domain: 'alpha.example', names: ['Alpha'], markets: ['regional'] },
     ])
+    setDraftJson(draftJson)
+    db.update(measurementPlanVersions).set({ canonicalJson: '{not json' }).where(eq(measurementPlanVersions.id, 'plan_v1')).run()
+    expect(readMarketCompetitorPins(db, projectId)).toEqual([
+      { domain: 'boltline.example', names: ['Boltline'], markets: ['regional'] },
+      { domain: 'alpha.example', names: ['Alpha'], markets: ['regional'] },
+      { domain: 'zephyrblade.example', names: ['Zephyr Blade'], markets: ['regional'] },
+    ])
+    setDraftJson('{not json')
+    expect(readMarketCompetitorPins(db, projectId)).toEqual([])
   })
 })
 
@@ -379,10 +390,12 @@ describe('a market pin never answers to a tracked competitor\'s curated alias', 
     const zephyr = (aliases: string[]): MarketPinGroup[] => [{ stableKey: 'regional', competitors: [{ domain: 'zephyr.example', label: 'Zephyr', aliases }] }]
     expect(pinError(zephyr([]), zephyr([]))).toBeNull()
     expect(pinError(zephyr([]), zephyr(['Boltline Rotors']))?.message).toBe(
-      'Invalid market competitor pins: zephyr.example cannot be added while "Boltline" is a curated alias of alpha.example (it is found inside "Boltline Rotors", a name of zephyr.example, so one answer would count both competitors); remove or restate that alias first',
+      'Invalid market competitor pins: zephyr.example cannot be pinned by that name while "Boltline" is a curated alias of alpha.example (it is found inside "Boltline Rotors", a name of zephyr.example, so one answer would count both competitors); remove or restate that alias first',
     )
-    // An overlap stored before the rule never blocks a write that leaves the pin alone...
+    // An overlap stored before the rule never blocks a write that leaves the pin alone,
+    // or one that only gives it a name no alias overlaps...
     expect(pinError(BOLTLINE_PINNED, BOLTLINE_PINNED)).toBeNull()
+    expect(pinError(BOLTLINE_PINNED, [{ stableKey: 'regional', competitors: [{ domain: 'boltline.example', label: 'boltline', aliases: ['Bolt Works'] }] }])).toBeNull()
     // ...but pinning it in a market that did not have it is a new pin there.
     expect(pinError(BOLTLINE_PINNED, [...BOLTLINE_PINNED, { stableKey: 'east', competitors: BOLTLINE_PINNED[0]!.competitors }])?.details).toEqual({
       rejectedAliases: [{ domain: 'boltline.example', alias: 'Boltline', reason: 'claimed-by-alias', conflictsWith: 'alpha.example' }],
@@ -393,5 +406,166 @@ describe('a market pin never answers to a tracked competitor\'s curated alias', 
     expect((await setAliases('alpha.example', ['Alpha Rotors'])).statusCode).toBe(200)
     expect(pinError(NONE, [{ stableKey: 'regional', competitors: [{ domain: 'offers.alpha.example', label: 'Alpha Rotors', aliases: ['Alpha Rotors'] }] }])).toBeNull()
     expect(pinError(NONE, BOLTLINE_PINNED)).toBeNull()
+  })
+})
+
+let idempotencyCounter = 0
+
+function draftAction(action: string, payload: unknown, ifMatch?: string) {
+  return app.inject({
+    method: 'POST',
+    url: `/api/v1/projects/rotorwise/measurement-plan/draft/actions/${action}`,
+    headers: { 'idempotency-key': `${action}-${++idempotencyCounter}`, ...(ifMatch ? { 'if-match': ifMatch } : {}) },
+    payload,
+  })
+}
+
+function storedDraft() {
+  return db.select({ authoringJson: measurementPlanDrafts.authoringJson, etagVersion: measurementPlanDrafts.etagVersion })
+    .from(measurementPlanDrafts).where(eq(measurementPlanDrafts.projectId, projectId)).get() ?? null
+}
+
+/** A legacy v1 plan whose one market (`regional`) pins `hosts`. */
+function v1Plan(hosts: string[]) {
+  return {
+    schemaVersion: 1,
+    targets: [{
+      stableKey: 'market-target',
+      label: 'Market Target',
+      urls: [{ kind: 'prefix', host: 'rotorwise.example', pathPrefix: '/', pathCase: 'insensitive' }],
+      aliases: [],
+    }],
+    groups: [{ stableKey: 'regional', label: 'Regional', targetKeys: ['market-target'], competitors: hosts }],
+    targetQuerySelections: [{ targetKey: 'market-target', queryIds: ['market-query'] }],
+  }
+}
+
+describe('every market pin writer refuses a pin that answers to a curated alias', () => {
+  const BOLTLINE_CLAIM = { domain: 'boltline.example', alias: 'Boltline', reason: 'claimed-by-alias', conflictsWith: 'alpha.example' }
+
+  it('refuses the Advanced pin after the alias, so the market keeps one credit per rival', async () => {
+    seedMarket(marketPlan([]), 'Rotorwise and Boltline both repair rotors.')
+    expect((await setAliases('alpha.example', ['Boltline'])).statusCode).toBe(200)
+    const before = await marketLandscape()
+    expect(before.project).toMatchObject({ mentionCount: 1, shareOfVoice: 50 })
+    expect(before.evidence.mentionCredits).toBe(2)
+
+    const pin = await draftAction('pin-competitor', { expectedActiveRevision: 1, groupKey: 'regional', domain: 'boltline.example', label: 'Boltline' })
+    expect(pin.statusCode, pin.body).toBe(400)
+    expect(pin.json().error.code).toBe('VALIDATION_ERROR')
+    expect(pin.json().error.details).toEqual({ rejectedAliases: [BOLTLINE_CLAIM] })
+    expect(pin.json().error.message).toBe(
+      'Invalid market competitor pins: boltline.example cannot be added while "Boltline" is a curated alias of alpha.example; remove or restate that alias first',
+    )
+    expect(storedDraft()).toBeNull()
+    expect(audits('measurement-draft.pin-competitor')).toHaveLength(0)
+    const after = await marketLandscape()
+    expect(after.project).toMatchObject({ mentionCount: 1, shareOfVoice: 50 })
+    expect(after.evidence.mentionCredits).toBe(2)
+  })
+
+  it('refuses a new pin and a new pin name on an existing draft, leaving the draft as it was', async () => {
+    seedMarket(marketPlan([]), 'Rotorwise.')
+    expect((await setAliases('alpha.example', ['Boltline'])).statusCode).toBe(200)
+    const zephyr = await draftAction('pin-competitor', { expectedActiveRevision: 1, groupKey: 'regional', domain: 'zephyr.example', label: 'Zephyr' })
+    expect(zephyr.statusCode, zephyr.body).toBe(200)
+    const draft = storedDraft()
+
+    const added = await draftAction('pin-competitor', { expectedActiveRevision: 1, groupKey: 'regional', domain: 'boltline.example', label: 'Boltline' })
+    expect(added.statusCode, added.body).toBe(400)
+    expect(added.json().error.details).toEqual({ rejectedAliases: [BOLTLINE_CLAIM] })
+    const renamed = await draftAction('pin-competitor', { expectedActiveRevision: 1, groupKey: 'regional', domain: 'zephyr.example', label: 'Boltline Rotors' })
+    expect(renamed.statusCode, renamed.body).toBe(400)
+    expect(renamed.json().error.details).toEqual({
+      rejectedAliases: [{ domain: 'zephyr.example', alias: 'Boltline', reason: 'claimed-by-alias', conflictsWith: 'alpha.example', conflictingName: 'Boltline Rotors' }],
+    })
+    expect(renamed.json().error.message).toBe(
+      'Invalid market competitor pins: zephyr.example cannot be pinned by that name while "Boltline" is a curated alias of alpha.example (it is found inside "Boltline Rotors", a name of zephyr.example, so one answer would count both competitors); remove or restate that alias first',
+    )
+    expect(storedDraft()).toEqual(draft)
+  })
+
+  it('refuses a draft competitor or group upsert that adds such a pin, and passes an edit that keeps the pins', async () => {
+    seedMarket(marketPlan([BOLTLINE_PIN]), 'Rotorwise.')
+    // Written before the rule existed.
+    db.update(competitors).set({ aliases: ['Boltline'] }).where(eq(competitors.domain, 'alpha.example')).run()
+    const created = await draftAction('create', { expectedActiveRevision: 1 })
+    expect(created.statusCode, created.body).toBe(200)
+    // The old overlap never blocks an edit that leaves the pin alone.
+    const relabelled = await draftAction('upsert-group', { group: { stableKey: 'regional', label: 'Regional West', targetKeys: ['market-target'] } }, created.json().etag)
+    expect(relabelled.statusCode, relabelled.body).toBe(200)
+    const etag = relabelled.json().etag
+    const draft = storedDraft()
+
+    const competitor = await draftAction('upsert-competitor', {
+      groupKey: 'regional',
+      competitor: { stableKey: 'competitor-quill', label: 'Boltline Quill', domain: 'quill.example', aliases: [] },
+    }, etag)
+    expect(competitor.statusCode, competitor.body).toBe(400)
+    expect(competitor.json().error.details).toEqual({
+      rejectedAliases: [{ domain: 'quill.example', alias: 'Boltline', reason: 'claimed-by-alias', conflictsWith: 'alpha.example', conflictingName: 'Boltline Quill' }],
+    })
+    const group = await draftAction('upsert-group', {
+      group: { stableKey: 'east', label: 'East', targetKeys: ['market-target'], competitors: [{ stableKey: 'competitor-boltline', ...BOLTLINE_PIN }] },
+    }, etag)
+    expect(group.statusCode, group.body).toBe(400)
+    expect(group.json().error.details).toEqual({ rejectedAliases: [BOLTLINE_CLAIM] })
+    expect(storedDraft()).toEqual(draft)
+  })
+
+  it('refuses a legacy v1 publish that pins such a competitor by host', async () => {
+    expect((await setAliases('alpha.example', ['Boltline'])).statusCode).toBe(200)
+    const publish = (hosts: string[]) => app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/rotorwise/measurement-plan',
+      payload: { expectedActiveRevision: null, plan: v1Plan(hosts) },
+    })
+    const refused = await publish(['https://www.boltline.example/'])
+    expect(refused.statusCode, refused.body).toBe(400)
+    expect(refused.json().error.details).toEqual({ rejectedAliases: [BOLTLINE_CLAIM] })
+    expect(db.select().from(measurementPlanVersions).all()).toEqual([])
+    expect((await publish(['zephyr.example'])).statusCode).toBe(201)
+  })
+})
+
+describe('apply and project PUT plan with the market pins before their transaction', () => {
+  it('apply reports a stated alias that names a pin ahead of its other validation', async () => {
+    seedMarket(marketPlan([BOLTLINE_PIN]), 'Rotorwise.')
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/apply',
+      payload: {
+        apiVersion: 'canonry/v1',
+        kind: 'Project',
+        metadata: { name: 'rotorwise' },
+        spec: { ...PROJECT, qualifiedAliases: ['Rotorwise Repair'], competitors: [{ domain: 'alpha.example', aliases: ['Boltline'] }] },
+      },
+    })
+    expect(res.statusCode, res.body).toBe(400)
+    expect(res.json().error.message).toBe(
+      'Invalid competitor aliases: alpha.example: "Boltline" already identifies boltline.example, which Advanced market "regional" pins, so one answer would count both competitors',
+    )
+    expect(res.json().error.details.rejectedAliases).toEqual([{
+      domain: 'alpha.example', alias: 'Boltline', reason: 'market-competitor', conflictsWith: 'boltline.example', markets: ['regional'],
+    }])
+    expect(storedAliases()).toEqual({ 'alpha.example': [] })
+  })
+
+  it('a project PUT that changes only unrelated identity drops a stored alias a pin names, audited, as its transaction does', async () => {
+    seedMarket(marketPlan([BOLTLINE_PIN]), 'Rotorwise and Boltline both repair rotors.')
+    // Written before the rule existed.
+    db.update(competitors).set({ aliases: ['Boltline', 'Alpha Rotors'] }).where(eq(competitors.domain, 'alpha.example')).run()
+    expect((await marketLandscape()).project).toMatchObject({ mentionCount: 1, shareOfVoice: 33.333333 })
+
+    const res = await app.inject({ method: 'PUT', url: '/api/v1/projects/rotorwise', payload: { ...PROJECT, ownedDomains: ['rotorwise-repair.example'] } })
+    expect(res.statusCode, res.body).toBe(200)
+    expect(storedAliases()).toEqual({ 'alpha.example': ['Alpha Rotors'] })
+    expect(JSON.parse(audits('project.updated').at(-1)!.diff!)).toEqual({
+      droppedCompetitorAliases: [{
+        domain: 'alpha.example', alias: 'Boltline', reason: 'market-competitor', conflictsWith: 'boltline.example', markets: ['regional'],
+      }],
+    })
+    expect(competitorAliasHooks).toEqual(['rotorwise'])
+    expect((await marketLandscape()).project).toMatchObject({ mentionCount: 1, shareOfVoice: 50 })
   })
 })

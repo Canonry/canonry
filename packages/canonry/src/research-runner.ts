@@ -4,13 +4,14 @@ import {
   determineAnswerMentioned,
   effectiveBrandNames,
   effectiveDomains,
+  extractRecommendedCompetitors,
   isBrowserProvider,
   mapWithConcurrency,
   ResearchQueryStatuses,
   ResearchRunStatuses,
   describeError,
 } from '@ainyc/canonry-contracts'
-import { computeCitedCompetitorDomains, determineCitationState, extractRecommendedCompetitors } from './citation-utils.js'
+import { computeCitedCompetitorDomains, determineCitationState } from './citation-utils.js'
 import type { ProviderRegistry } from './provider-registry.js'
 import { getSharedProviderExecutionGate } from './provider-execution-gate.js'
 import { getCurrentUsageDay, releaseDailyQueryQuota, reserveDailyQueryQuota } from './usage-quota.js'

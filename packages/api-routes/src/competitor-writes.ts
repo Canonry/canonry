@@ -5,7 +5,7 @@ import {
   competitorDomainProjectClaim,
   competitorEntryParts,
   competitorLabelFromDomain,
-  describeCompetitorAliasRejection,
+  describeMarketPinAliasClaim,
   marketPinAliasClaims,
   normalizeCompetitorAliases,
   normalizeCompetitorDomain,
@@ -330,13 +330,13 @@ export function claimedCompetitorAdds(
 }
 
 /**
- * Fails a market pin write (an Advanced pin, a draft competitor or group
- * upsert, a plan revision) when a pin it adds or renames, from `before` to
- * `after`, answers to a curated alias of a different tracked competitor
+ * Fails a market pin write (the Advanced pin route, a draft action, a v1 plan
+ * publish) when a pin it adds, from `before` to `after`, or a name it gives an
+ * existing pin answers to a curated alias of a different tracked competitor
  * (`marketPinAliasClaims`, 'claimed-by-alias'): the pin side of the rule an
- * alias write enforces against pins ('market-competitor'). Pins the write
- * leaves unchanged are not checked, so an overlap stored before the rule
- * never blocks an unrelated edit.
+ * alias write enforces against pins ('market-competitor'). Pins and names the
+ * write leaves unchanged are not checked (`changedMarketPins`), so an overlap
+ * stored before the rule never blocks an unrelated edit.
  */
 export function requireMarketPinsClearOfCompetitorAliases(
   db: Pick<DatabaseClient, 'select'>,
@@ -348,8 +348,9 @@ export function requireMarketPinsClearOfCompetitorAliases(
   if (pins.length === 0) return
   const claims = marketPinAliasClaims(pins, readStoredCompetitors(db, projectId))
   if (claims.length === 0) return
+  const renamed = new Set(pins.filter(pin => pin.renamed).map(pin => pin.domain))
   throw validationError(
-    `Invalid market competitor pins: ${claims.map(claim => `${claim.domain} ${describeCompetitorAliasRejection(claim)}`).join('; ')}`,
+    `Invalid market competitor pins: ${claims.map(claim => `${claim.domain} ${describeMarketPinAliasClaim(claim, renamed.has(claim.domain))}`).join('; ')}`,
     { rejectedAliases: claims },
   )
 }

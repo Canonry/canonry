@@ -63,7 +63,7 @@ import {
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import { requireScope } from './auth.js'
-import { findStoredCompetitor, readStoredCompetitors } from './competitor-writes.js'
+import { findStoredCompetitor, readStoredCompetitors, requireMarketPinsClearOfCompetitorAliases } from './competitor-writes.js'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
 import { MEASUREMENT_PLAN_WRITE_SCOPE } from './measurement-plan.js'
 import {
@@ -771,6 +771,9 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
         : seedAuthoring(gate.project, activePlan, actionContextFor(app.db, gate.project), opts)
       const result = pinCompetitorInAuthoring(before, input, () => trackedCompetitorAliases(tx, gate.project.id, input.domain))
       assertMeasurementDraftAuthoringLimits(before, result.authoring)
+      // A pin that answers to another tracked competitor's curated alias
+      // would credit one answer to both.
+      requireMarketPinsClearOfCompetitorAliases(tx, gate.project.id, before.groups, result.authoring.groups)
       const changed = authoringIdentity(result.authoring) !== authoringIdentity(before)
       const etagVersion = row ? (changed ? row.etagVersion + 1 : row.etagVersion) : 1
       const response: MeasurementDraftPinCompetitorResponse = measurementDraftPinCompetitorResponseSchema.parse({
@@ -866,6 +869,9 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
           throw measurementDraftEtagStale(ifMatch, measurementDraftEtag(current.etagVersion))
         }
         if (!changed) return
+        // Competitor and group upserts may pin a competitor, or give a pin a
+        // name, that another tracked competitor's curated alias answers to.
+        requireMarketPinsClearOfCompetitorAliases(tx, gate.project.id, before.groups, result.authoring.groups)
         const updated = tx.update(measurementPlanDrafts).set({
           authoringJson: JSON.stringify(result.authoring),
           etagVersion,

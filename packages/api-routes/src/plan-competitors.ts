@@ -1,15 +1,16 @@
-import { and, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import {
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
+  brandKeyFromText,
   hostOf,
-  measurementDraftAuthoringSchema,
   normalizeCompetitorAliases,
   normalizeCompetitorDomain,
   parseStoredMeasurementPlanAnyVersion,
   type CompetitorAliasMarketPin,
   type CompetitorIdentityInput,
 } from '@ainyc/canonry-contracts'
-import { measurementPlanDrafts, measurementPlans, measurementPlanVersions, type DatabaseClient } from '@ainyc/canonry-db'
+import { measurementPlanVersions, type DatabaseClient } from '@ainyc/canonry-db'
+import { activePlanVersionRow, draftRow, parseStoredAuthoring } from './measurement-draft-repo.js'
 
 /** One competitor a plan revision names: its host and the names it goes by. */
 export interface PlanCompetitor {
@@ -198,64 +199,69 @@ export function marketPinsFromGroups(groups: readonly MarketPinGroup[]): Competi
 }
 
 /**
- * The pins `after` adds to a market, or gives a name that market did not
- * already pin it by, relative to `before` (one per domain, as
- * `marketPinsFromGroups` merges them). An unchanged pin is left out, so a
- * check over the result never blocks a write for a pin it did not touch.
+ * The pins `after` touches relative to `before`, one per domain: a pin new to
+ * a market carries every name it has (`marketPinsFromGroups`); a pin a market
+ * already had and now pins by a name it did not (same brand key) carries just
+ * those names and `renamed: true`, unless another market adds it. An unchanged
+ * pin is left out, so a check over the result never blocks a write for a pin
+ * or a name it did not touch.
  */
 export function changedMarketPins(before: readonly MarketPinGroup[], after: readonly MarketPinGroup[]): CompetitorAliasMarketPin[] {
   const previous = new Map<string, Map<string, Set<string>>>()
   for (const group of before) {
     const byDomain = previous.get(group.stableKey) ?? new Map<string, Set<string>>()
     for (const pin of marketPinsFromGroups([group])) {
-      byDomain.set(pin.domain, new Set([...(byDomain.get(pin.domain) ?? []), ...pin.names.map(name => name.toLowerCase())]))
+      byDomain.set(pin.domain, new Set([...(byDomain.get(pin.domain) ?? []), ...pin.names.map(brandKeyFromText)]))
     }
     previous.set(group.stableKey, byDomain)
   }
-  const changed = after.map(group => ({
-    stableKey: group.stableKey,
-    competitors: (group.competitors ?? []).filter((competitor) => {
-      const pin = marketPinsFromGroups([{ stableKey: group.stableKey, competitors: [competitor] }]).at(0)
-      if (!pin) return false
+  const changed = new Map<string, { domain: string; names: string[]; markets: string[]; added: boolean }>()
+  for (const group of after) {
+    for (const pin of marketPinsFromGroups([group])) {
       const known = previous.get(group.stableKey)?.get(pin.domain)
-      return !known || pin.names.some(name => !known.has(name.toLowerCase()))
-    }),
-  }))
-  return marketPinsFromGroups(changed)
+      const names = known ? pin.names.filter(name => !known.has(brandKeyFromText(name))) : pin.names
+      if (known && names.length === 0) continue
+      const merged = changed.get(pin.domain) ?? { domain: pin.domain, names: [], markets: [], added: false }
+      merged.names = normalizeCompetitorAliases([...merged.names, ...names])
+      if (!merged.markets.includes(group.stableKey)) merged.markets.push(group.stableKey)
+      merged.added ||= !known
+      changed.set(pin.domain, merged)
+    }
+  }
+  return [...changed.values()].map(({ added, ...pin }) => (added ? pin : { ...pin, renamed: true }))
+}
+
+/** The markets a stored revision of any schema version pins, or none when it is unreadable. */
+export function storedPlanPinGroups(canonicalJson: string): MarketPinGroup[] {
+  try {
+    return parseStoredMeasurementPlanAnyVersion(canonicalJson).groups
+  } catch {
+    return []
+  }
 }
 
 /**
  * Every competitor the project's Advanced markets pin right now: the active
  * revision's groups (v2 with their names, v1 as bare hosts) and the pending
  * draft's groups, which an Advanced read already counts. A curated alias of a
- * tracked competitor must stay clear of all of them. An unreadable revision
- * or draft pins nothing here rather than failing a competitor write.
+ * tracked competitor must stay clear of all of them. Superseded revisions are
+ * not read. An unreadable revision or draft pins nothing here rather than
+ * failing a competitor write.
  */
-export function readMarketCompetitorPins(db: Pick<DatabaseClient, 'select'>, projectId: string): CompetitorAliasMarketPin[] {
+export function readMarketCompetitorPins(db: Parameters<typeof draftRow>[0], projectId: string): CompetitorAliasMarketPin[] {
   const groups: MarketPinGroup[] = []
-  const pointer = db.select({ activeVersionId: measurementPlans.activeVersionId })
-    .from(measurementPlans).where(eq(measurementPlans.projectId, projectId)).get()
-  const active = pointer
-    ? db.select({ canonicalJson: measurementPlanVersions.canonicalJson }).from(measurementPlanVersions).where(and(
-      eq(measurementPlanVersions.projectId, projectId),
-      eq(measurementPlanVersions.id, pointer.activeVersionId),
-    )).get()
-    : undefined
-  if (active) {
-    try {
-      groups.push(...parseStoredMeasurementPlanAnyVersion(active.canonicalJson).groups)
-    } catch {
-      // Unreadable revision: no pins to check against.
-    }
+  try {
+    const active = activePlanVersionRow(db, projectId)
+    if (active) groups.push(...storedPlanPinGroups(active.canonicalJson))
+  } catch {
+    // A pointer to a missing revision: no pins to check against.
   }
-  const draft = db.select({ authoringJson: measurementPlanDrafts.authoringJson })
-    .from(measurementPlanDrafts).where(eq(measurementPlanDrafts.projectId, projectId)).get()
+  const draft = draftRow(db, projectId)
   if (draft) {
     try {
-      const parsed = measurementDraftAuthoringSchema.safeParse(JSON.parse(draft.authoringJson))
-      if (parsed.success) groups.push(...parsed.data.groups)
+      groups.push(...parseStoredAuthoring(draft.authoringJson).groups)
     } catch {
-      // Unreadable draft JSON: no pins to check against.
+      // Unreadable draft: no pins to check against.
     }
   }
   return marketPinsFromGroups(groups)

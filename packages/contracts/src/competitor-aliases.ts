@@ -213,6 +213,12 @@ export interface CompetitorAliasMarketPin {
   names: readonly string[]
   /** The markets (group keys) that pin it. */
   markets: readonly string[]
+  /**
+   * Pin side only (`marketPinAliasClaims`): the write gives a pin its markets
+   * already had only new names. `names` then holds just those names, and the
+   * pin's domain label and host, already pinned, are not checked again.
+   */
+  renamed?: boolean
 }
 
 export interface CompetitorAliasPlan {
@@ -424,7 +430,8 @@ export function planCompetitorAliases(
  * to both, so the pin write fails ('claimed-by-alias', `domain` the pin,
  * `conflictsWith` the alias owner) until the operator removes or restates
  * that alias, as a Simple add does. A pin of the tracked competitor's own
- * registrable domain is the same competitor and is not checked.
+ * registrable domain is the same competitor and is not checked. A `renamed`
+ * pin is checked by its new names alone.
  */
 export function marketPinAliasClaims(
   pins: readonly CompetitorAliasMarketPin[],
@@ -433,7 +440,7 @@ export function marketPinAliasClaims(
   const claims: CompetitorAliasRejection[] = []
   for (const pin of pins) {
     const pinKey = normalizeCompetitorDomain(pin.domain)
-    const pinNames = marketPinNames(pin)
+    const pinNames = pin.renamed ? usableBrandAliases(pin.names).map(identityName) : marketPinNames(pin)
     for (const competitor of tracked) {
       if (normalizeCompetitorDomain(competitor.domain) === pinKey) continue
       for (const alias of usableBrandAliases(normalizeCompetitorAliases(competitor.aliases))) {
@@ -491,14 +498,27 @@ export function describeCompetitorAliasRejection(rejection: CompetitorAliasRejec
         ? `"${rejection.alias}" ${overlapRelation(rejection.alias, rejection.conflictingName)}, a name of ${pinned}, so one answer would count both competitors`
         : `"${rejection.alias}" already identifies ${pinned}, so one answer would count both competitors`
     }
-    case 'claimed-by-alias': {
-      const owner = rejection.conflictsWith ?? 'another tracked competitor'
-      const overlap = rejection.conflictingName
-        ? ` (it ${overlapRelation(rejection.alias, rejection.conflictingName)}, a name of ${rejection.domain}, so one answer would count both competitors)`
-        : ''
-      return `cannot be added while "${rejection.alias}" is a curated alias of ${owner}${overlap}; remove or restate that alias first`
-    }
+    case 'claimed-by-alias':
+      return claimedByAliasText(rejection, 'cannot be added')
   }
+}
+
+/** A 'claimed-by-alias' rejection in words: `blocked` while the alias stands. */
+function claimedByAliasText(rejection: CompetitorAliasRejection, blocked: string): string {
+  const owner = rejection.conflictsWith ?? 'another tracked competitor'
+  const overlap = rejection.conflictingName
+    ? ` (it ${overlapRelation(rejection.alias, rejection.conflictingName)}, a name of ${rejection.domain}, so one answer would count both competitors)`
+    : ''
+  return `${blocked} while "${rejection.alias}" is a curated alias of ${owner}${overlap}; remove or restate that alias first`
+}
+
+/**
+ * One `marketPinAliasClaims` claim in words. A pin new to a market "cannot be
+ * added"; a pin the write only gives a new name (`renamed`) "cannot be pinned
+ * by that name".
+ */
+export function describeMarketPinAliasClaim(claim: CompetitorAliasRejection, renamed: boolean): string {
+  return renamed ? claimedByAliasText(claim, 'cannot be pinned by that name') : describeCompetitorAliasRejection(claim)
 }
 
 /**

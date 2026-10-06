@@ -8,8 +8,8 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 import { recordSentimentCompletion, parseJsonColumn, providerBatches, providerBatchRequests, runFills, runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
 import type { PricingTier, ProviderBatchRequestOutcome, ProviderBatchResultLine, ProviderBatchStatus, ProviderBatchSubmitResult, ProviderDispatchMode, ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RawQueryResult, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto, RunStatus, TrackedQueryRequest } from '@ainyc/canonry-contracts'
 import { PricingTiers, ProviderBatchRequestOutcomes, ProviderBatchStatuses, ProviderBatchSubmitError, ProviderDispatchModes, RUN_FILL_PROVIDER_BREAKER, buildSnapshotUsage, formatRunErrorOneLine, parseRunError, resolveProviderModel } from '@ainyc/canonry-contracts'
-import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, competitorLabelFromDomain, normalizeCompetitorAliases, type CompetitorIdentityInput, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isSearchLocationIgnored, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
-import { captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep, type RunCompetitors } from '@ainyc/canonry-api-routes'
+import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, competitorLabelFromDomain, computeCompetitorOverlap, extractRecommendedCompetitors, normalizeCompetitorAliases, type CompetitorIdentityInput, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isSearchLocationIgnored, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
+import { backfillProjectAnswerMentions, captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep, type RunCompetitors } from '@ainyc/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
 import { buildProviderOutcomeProps, buildRunCompletedProps, buildSiteAuditCompletedProps, describeRunFailure, failureStreakSampling, hashDomain, runFailureSite, type RunPhaseTimings } from './run-telemetry.js'
@@ -17,13 +17,8 @@ import { createLogger } from './logger.js'
 import { ProviderExecutionGate, getSharedProviderExecutionGate } from './provider-execution-gate.js'
 import { getCurrentUsageDay, releaseDailyQueryQuota, reserveDailyQueryQuota } from './usage-quota.js'
 import { adapterSupportsBatch } from './provider-batch-config.js'
-import {
-  computeCompetitorOverlap,
-  determineCitationState,
-  extractRecommendedCompetitors,
-} from './citation-utils.js'
+import { determineCitationState } from './citation-utils.js'
 import { captureCitedUrls, type CitedUrlCapture } from './cited-url-capture.js'
-import { backfillProjectAnswerMentions } from './commands/backfill.js'
 
 const log = createLogger('JobRunner')
 

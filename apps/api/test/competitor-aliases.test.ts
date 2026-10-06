@@ -4,8 +4,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+import { addLogListener, type LogEntry } from '@ainyc/canonry-api-routes/runtime-logger'
 import { getPlatformEnv } from '@ainyc/canonry-config'
-import { apiKeys, createClient, migrate, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
+import { apiKeys, competitors, createClient, migrate, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
 
 import { buildApp } from '../src/app.js'
 
@@ -26,7 +27,15 @@ afterEach(() => {
   else process.env.CANONRY_TRUST_PROXY = ORIGINAL_CANONRY_TRUST_PROXY
 })
 
-test('a competitor alias write refreshes stored competitor fields in run details and exports', async () => {
+const SNAPSHOT_ID = 'cloud-hook-snapshot'
+const ALIAS_URL = '/api/v1/projects/rotorwise/competitors/spoketuneworks.example/aliases'
+
+/**
+ * A Cloud app over a fresh SQLite file with one project, one tracked
+ * competitor (`spoketuneworks.example`, no aliases yet) and one stored answer
+ * that names that competitor only by its brand, "TuneSpoke".
+ */
+async function seedCloud() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'api-competitor-aliases-'))
   const dbPath = path.join(tmpDir, 'test.db')
   const db = createClient(dbPath)
@@ -72,7 +81,7 @@ test('a competitor alias write refreshes stored competitor fields in run details
   db.insert(queries).values({ id: queryId, projectId, query: 'best bike repair shop', createdAt: at }).run()
   db.insert(runs).values({ id: runId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt: at, finishedAt: at }).run()
   db.insert(querySnapshots).values({
-    id: 'cloud-hook-snapshot',
+    id: SNAPSHOT_ID,
     runId,
     queryId,
     provider: 'openai',
@@ -87,29 +96,42 @@ test('a competitor alias write refreshes stored competitor fields in run details
     createdAt: at,
   }).run()
 
-  const readStored = () => db.select().from(querySnapshots).all().find(row => row.id === 'cloud-hook-snapshot')!
+  return { app, db, auth, runId }
+}
+
+test('a competitor alias write refreshes stored competitor fields in run details and exports', async () => {
+  const { app, db, auth, runId } = await seedCloud()
+
+  const readStored = () => {
+    const row = db.select().from(querySnapshots).all().find(snapshot => snapshot.id === SNAPSHOT_ID)!
+    return {
+      competitorOverlap: row.competitorOverlap,
+      recommendedCompetitors: row.recommendedCompetitors,
+      answerMentioned: row.answerMentioned,
+    }
+  }
   const readSurfaces = async () => {
     const detail = await app.inject({ method: 'GET', url: `/api/v1/runs/${runId}`, headers: auth })
     expect(detail.statusCode, detail.body).toBe(200)
     const exported = await app.inject({ method: 'GET', url: '/api/v1/projects/rotorwise/results/export?format=json', headers: auth })
     expect(exported.statusCode, exported.body).toBe(200)
     const snapshot = (detail.json() as { snapshots: Array<{ id: string; competitorOverlap: string[]; recommendedCompetitors: string[] }> })
-      .snapshots.find(row => row.id === 'cloud-hook-snapshot')!
+      .snapshots.find(row => row.id === SNAPSHOT_ID)!
     const record = (exported.json() as { records: Array<{ snapshotId: string; competitorOverlap: string[]; recommendedCompetitors: string[] }> })
-      .records.find(row => row.snapshotId === 'cloud-hook-snapshot')!
+      .records.find(row => row.snapshotId === SNAPSHOT_ID)!
     return {
       detail: { competitorOverlap: snapshot.competitorOverlap, recommendedCompetitors: snapshot.recommendedCompetitors },
       exported: { competitorOverlap: record.competitorOverlap, recommendedCompetitors: record.recommendedCompetitors },
     }
   }
 
-  const named = await app.inject({
-    method: 'PUT', url: '/api/v1/projects/rotorwise/competitors/spoketuneworks.example/aliases', headers: auth,
-    payload: { aliases: ['TuneSpoke'] },
-  })
+  // Before any alias, the domain label "spoketuneworks" never matches "TuneSpoke".
+  expect(readStored()).toEqual({ competitorOverlap: [], recommendedCompetitors: [], answerMentioned: true })
+
+  const named = await app.inject({ method: 'PUT', url: ALIAS_URL, headers: auth, payload: { aliases: ['TuneSpoke'] } })
   expect(named.statusCode, named.body).toBe(200)
   // No polling: the refresh is part of the request on Cloud.
-  expect(readStored()).toMatchObject({
+  expect(readStored()).toEqual({
     competitorOverlap: ['spoketuneworks.example'],
     recommendedCompetitors: ['TuneSpoke'],
     answerMentioned: true,
@@ -120,14 +142,68 @@ test('a competitor alias write refreshes stored competitor fields in run details
   })
 
   // Clearing the alias takes the credit away again.
-  const cleared = await app.inject({
-    method: 'PUT', url: '/api/v1/projects/rotorwise/competitors/spoketuneworks.example/aliases', headers: auth,
-    payload: { aliases: [] },
-  })
+  const cleared = await app.inject({ method: 'PUT', url: ALIAS_URL, headers: auth, payload: { aliases: [] } })
   expect(cleared.statusCode, cleared.body).toBe(200)
-  expect(readStored()).toMatchObject({ competitorOverlap: [], recommendedCompetitors: [], answerMentioned: true })
+  expect(readStored()).toEqual({ competitorOverlap: [], recommendedCompetitors: [], answerMentioned: true })
   expect(await readSurfaces()).toEqual({
     detail: { competitorOverlap: [], recommendedCompetitors: [] },
     exported: { competitorOverlap: [], recommendedCompetitors: [] },
   })
+})
+
+test('a failed refresh is logged and never fails the committed alias write', async () => {
+  const { app, db, auth } = await seedCloud()
+  const errors: LogEntry[] = []
+  const stopListening = addLogListener(entry => {
+    if (entry.level === 'error') errors.push(entry)
+  })
+  onTestFinished(() => { stopListening() })
+
+  // The alias write itself never reads snapshots; only the refresh does.
+  db.$client.exec('ALTER TABLE query_snapshots RENAME TO query_snapshots_parked')
+
+  const named = await app.inject({ method: 'PUT', url: ALIAS_URL, headers: auth, payload: { aliases: ['TuneSpoke'] } })
+  expect(named.statusCode, named.body).toBe(200)
+  expect((named.json() as { aliases: string[] }).aliases).toEqual(['TuneSpoke'])
+  expect(db.select({ domain: competitors.domain, aliases: competitors.aliases }).from(competitors).all())
+    .toEqual([{ domain: 'spoketuneworks.example', aliases: ['TuneSpoke'] }])
+
+  expect(errors.map(entry => ({ msg: entry.msg, projectName: entry.projectName }))).toEqual([
+    { msg: 'competitor-alias-triggered backfill failed: no such table: query_snapshots', projectName: 'rotorwise' },
+  ])
+})
+
+// A project's own alias change fires onAliasesChanged, not
+// onCompetitorAliasesChanged, even when it also drops a competitor alias the
+// new project alias now claims. Cloud wires that hook too, so the stored
+// competitor columns (and answer_mentioned) follow in the same request.
+test.each([
+  { writer: 'project PUT', write: (app: Awaited<ReturnType<typeof seedCloud>>['app'], auth: Record<string, string>) => app.inject({
+    method: 'PUT', url: '/api/v1/projects/rotorwise', headers: auth,
+    payload: { displayName: 'Rotorwise', canonicalDomain: 'rotorwise.example', country: 'US', language: 'en', aliases: ['TuneSpoke'] },
+  }) },
+  { writer: 'apply', write: (app: Awaited<ReturnType<typeof seedCloud>>['app'], auth: Record<string, string>) => app.inject({
+    method: 'POST', url: '/api/v1/apply', headers: auth,
+    payload: {
+      apiVersion: 'canonry/v1', kind: 'Project', metadata: { name: 'rotorwise' },
+      spec: { displayName: 'Rotorwise', canonicalDomain: 'rotorwise.example', country: 'US', language: 'en', aliases: ['TuneSpoke'], competitors: ['spoketuneworks.example'] },
+    },
+  }) },
+])('a $writer that gives the project a competitor\'s alias refreshes the stored competitor fields', async ({ write }) => {
+  const { app, db, auth } = await seedCloud()
+  const readStored = () => {
+    const row = db.select().from(querySnapshots).all().find(snapshot => snapshot.id === SNAPSHOT_ID)!
+    return { competitorOverlap: row.competitorOverlap, recommendedCompetitors: row.recommendedCompetitors, answerMentioned: row.answerMentioned }
+  }
+  const named = await app.inject({ method: 'PUT', url: ALIAS_URL, headers: auth, payload: { aliases: ['TuneSpoke'] } })
+  expect(named.statusCode, named.body).toBe(200)
+  expect(readStored()).toEqual({ competitorOverlap: ['spoketuneworks.example'], recommendedCompetitors: ['TuneSpoke'], answerMentioned: true })
+
+  const response = await write(app, auth)
+  expect(response.statusCode, response.body).toBeLessThan(300)
+  // The project now owns "TuneSpoke": the competitor loses the alias, and the
+  // stored answer stops crediting the competitor in the same request.
+  expect(db.select({ domain: competitors.domain, aliases: competitors.aliases }).from(competitors).all())
+    .toEqual([{ domain: 'spoketuneworks.example', aliases: [] }])
+  expect(readStored()).toEqual({ competitorOverlap: [], recommendedCompetitors: [], answerMentioned: true })
 })

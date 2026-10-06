@@ -7,6 +7,7 @@ import { competitorAliasAuditFields, competitorNames, competitorWritesFromEntrie
 import type { ProviderAdapterInfo } from './settings.js'
 import { pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
 import { writeAuditLog } from './helpers.js'
+import { readMarketCompetitorPins } from './plan-competitors.js'
 import { assertProviderModelScope, requireQualifiedAliases } from './projects.js'
 import { assertQueryReplacementAllowed, replaceProjectQueries } from './query-replace.js'
 import { activeRevisionProviders } from './run-queue.js'
@@ -161,11 +162,13 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     assertProviderModelScope(request, target?.providerModels ?? {}, providerModels, specProviders)
 
     // Planned only after the project-scope check, so a rejection naming another
-    // competitor can never describe a project this key may not read.
+    // competitor can never describe a project this key may not read. Planned
+    // against the market pins too, so the preview's names match the
+    // transaction's (`syncCompetitorSet` reads them there).
     const competitorPreview = planCompetitorSet(
       target ? readStoredCompetitors(app.db, target.id) : [],
       competitorWrites,
-      { replace: true, project: specAliasIdentity },
+      { replace: true, project: specAliasIdentity, marketPins: target ? readMarketCompetitorPins(app.db, target.id) : [] },
     )
     // Present = the exact list, validated against the spec's own competitors
     // (domain labels plus curated aliases) because apply replaces that set.

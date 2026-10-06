@@ -642,6 +642,15 @@ describe('aliases and Advanced market pins', () => {
     expect(marketPinAliasClaims([{ domain: 'zephyr.example', names: ['Zephyr Blade'], markets: ['east'] }], tracked)).toEqual([])
     expect(marketPinAliasClaims([], tracked)).toEqual([])
   })
+
+  it('marketPinAliasClaims: a pin the write only renames is checked by its new names alone', () => {
+    const tracked = [{ domain: 'alpha.example', aliases: ['Boltline'] }]
+    // Its domain label already answered to the alias before this write.
+    expect(marketPinAliasClaims([{ domain: 'boltline.example', names: ['Bolt Works'], markets: ['east'], renamed: true }], tracked)).toEqual([])
+    expect(marketPinAliasClaims([{ domain: 'zephyr.example', names: ['Boltline Rotors'], markets: ['east'], renamed: true }], tracked)).toEqual([
+      { domain: 'zephyr.example', alias: 'Boltline', reason: 'claimed-by-alias', conflictsWith: 'alpha.example', conflictingName: 'Boltline Rotors' },
+    ])
+  })
 })
 
 describe('competitorDomainProjectClaim', () => {

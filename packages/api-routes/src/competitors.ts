@@ -28,9 +28,11 @@ import { pruneQualifiedAliasesForCompetitors } from './projects.js'
 
 export interface CompetitorRoutesOptions {
   /**
-   * Post-commit hook when a competitor's curated aliases change. The local
-   * server re-derives the stored per-snapshot competitor columns
-   * (`competitor_overlap`, `recommended_competitors`) from stored answers.
+   * Post-commit hook when a competitor's curated aliases change. Both hosts
+   * (local serve after the response, Cloud inside the request) re-derive the
+   * stored per-snapshot competitor columns (`competitor_overlap`,
+   * `recommended_competitors`) from stored answers with
+   * `backfillProjectAnswerMentions` (`src/snapshot-competitor-refresh.ts`).
    */
   onCompetitorAliasesChanged?: (projectId: string, projectName: string) => void
 }

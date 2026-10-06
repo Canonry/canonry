@@ -27,6 +27,7 @@ import type { CompetitorAliasRejection, LocationContext, MeasurementConfig, Proj
 import { requireAdminSession, requireScope } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { competitorNames, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
+import { readMarketCompetitorPins } from './plan-competitors.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
 import type { ProviderAdapterInfo } from './settings.js'
 import { pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
@@ -315,8 +316,14 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       canonicalDomain: body.canonicalDomain,
       ownedDomains: body.ownedDomains ?? [],
     })
+    // Planned against the market pins too, so the names checked here are the
+    // ones the transaction's `syncCompetitorSet` keeps.
     const competitorAliasPrune = existing
-      ? planCompetitorSet(readStoredCompetitors(app.db, existing.id), [], { replace: false, project: nextAliasIdentity })
+      ? planCompetitorSet(readStoredCompetitors(app.db, existing.id), [], {
+          replace: false,
+          project: nextAliasIdentity,
+          marketPins: readMarketCompetitorPins(app.db, existing.id),
+        })
       : null
     const liveCompetitors = competitorAliasPrune ? competitorNames(competitorAliasPrune.final) : []
     const nextQualifiedAliases = body.qualifiedAliases !== undefined

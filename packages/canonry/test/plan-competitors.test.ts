@@ -8,6 +8,7 @@ import {
   canonicalMeasurementPlanJson,
   canonicalMeasurementPlanV2Json,
   compileMeasurementPlan,
+  computeCompetitorOverlap,
   measurementPlanV2ChecksumJson,
   type MeasurementPlanV2,
   type NormalizedQueryResult,
@@ -16,7 +17,6 @@ import {
 } from '@ainyc/canonry-contracts'
 import { createRunCompetitorResolver, measurementPlanCompetitorDomains, measurementPlanCompetitors, queueRunIfProjectIdle } from '@ainyc/canonry-api-routes'
 import { createClient, measurementPlans, measurementPlanVersions, migrate, projects, queries, querySnapshots, type DatabaseClient } from '@ainyc/canonry-db'
-import { computeCompetitorOverlap } from '../src/citation-utils.js'
 import { backfillProjectAnswerMentions } from '../src/commands/backfill.js'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
