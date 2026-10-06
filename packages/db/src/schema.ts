@@ -16,6 +16,8 @@ export const projects = sqliteTable('projects', {
    * sidecar at dispatch; never read by mention detection or query classes.
    */
   qualifiedAliases: text('qualified_aliases', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  /** Site Health page budget for scans that set none; null means the full site (up to 50,000 pages). */
+  siteAuditMaxPages: integer('site_audit_max_pages'),
   country: text('country').notNull(),
   language: text('language').notNull(),
   tags: text('tags', { mode: 'json' }).$type<string[]>().notNull().default([]),

@@ -1041,6 +1041,7 @@ function formatProject(row: typeof projects.$inferSelect, negativeReviewMaxStars
     defaultLocation: row.defaultLocation,
     autoExtractBacklinks: row.autoExtractBacklinks,
     negativeReviewMaxStars,
+    siteAuditMaxPages: row.siteAuditMaxPages ?? null,
     configSource: row.configSource as ProjectDto['configSource'],
     configRevision: row.configRevision,
     createdAt: row.createdAt,

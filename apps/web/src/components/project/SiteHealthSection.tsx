@@ -345,7 +345,7 @@ const TERMINATION_LABELS = new Map<string, string>(Object.entries(TERMINATION_CO
  * different request identity from sending the default explicitly.
  */
 const PAGE_BUDGET_CHOICES: readonly { value: number | null; label: string }[] = [
-  { value: null, label: `Default (${SITE_AUDIT_DEFAULT_PAGE_LIMIT.toLocaleString()} pages)` },
+  { value: null, label: `Full site (up to ${SITE_AUDIT_DEFAULT_PAGE_LIMIT.toLocaleString()} pages)` },
   { value: SITE_AUDIT_ONBOARDING_PAGE_LIMIT, label: '100 pages (quick look)' },
   { value: 500, label: '500 pages' },
   { value: 2_500, label: '2,500 pages' },

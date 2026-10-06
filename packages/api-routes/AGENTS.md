@@ -595,7 +595,7 @@ WordPress backfill is forbidden while either continuation field is set.
 
 ### Technical AEO crawl (Site Health)
 
-- Powered by the `site-audit` run kind and `@canonry/aeo-audit`'s `runSiteCrawl`. A run crawls the sitemap plus internal-link discoveries. Defaults: 1,000 pages; edges derived by the engine from the page count (pages × 50, floor 100,000) unless `--max-edges` is set. Hard limits: 50,000 pages / 1,000,000 edges. Dead-link analysis is off unless requested.
+- Powered by the `site-audit` run kind and `@canonry/aeo-audit`'s `runSiteCrawl`. A run crawls the sitemap plus internal-link discoveries. Defaults: the full site (up to the 50,000-page hard limit, as scheduled audits); edges derived by the engine from the page count (pages × 50, floor 100,000) unless `--max-edges` is set. Hard limits: 50,000 pages / 1,000,000 edges. Dead-link analysis is off unless requested.
 - Progress reports the exact durable phase and raw pages found / checked / failed counters — never a synthesized percentage.
 - Dead-link reports are disabled unless the run used `--check-dead-links`. A listed dead link ALWAYS has a real 4xx/5xx status: an internal target the crawler could not fetch at all (timeout, reset connection, throttling under crawl concurrency) is counted separately as `unverified` and is never listed, because a failed fetch is a fact about the crawl and not about the link. `found` and `checked` both exclude unverified targets, so "0 found, 6 unverified" reads as "nothing broken, six we could not check" rather than as a clean bill of health.
 

@@ -13,7 +13,6 @@ import {
   RunStatuses,
   RunTriggers,
   normalizeSiteAuditRunRequest,
-  SITE_AUDIT_MAX_PAGE_LIMIT,
   nextScheduleUpdatedAt,
   siteAuditRequestIdentity,
   describeError,
@@ -127,7 +126,7 @@ export interface SchedulerCallbacks {
    * owns run-row creation (like gbp-sync) so it can hand the host a runId; the
    * host runs the same worker the manual POST /technical-aeo/runs route uses,
    * with `opts.maxPages` as its page budget: a scheduled audit covers the full
-   * site, up to the hard page limit, where a manual run defaults to 1,000.
+   * site, up to the hard page limit, the same budget a manual run defaults to.
    * A site-audit needs no `sourceId` / providers. Skipped (without orphaning a
    * run row) when a site-audit run is already in flight for the project, since
    * a full-site crawl can run for minutes. Fire-and-forget.
@@ -654,9 +653,9 @@ export class Scheduler {
           return
         }
         const runId = crypto.randomUUID()
-        // Nobody is waiting on a scheduled crawl, so it covers the full site;
-        // the crawl still ends when it runs out of pages to fetch.
-        const effectiveRequest = normalizeSiteAuditRunRequest({ maxPages: SITE_AUDIT_MAX_PAGE_LIMIT })
+        // The project's saved budget, else the full site; the crawl still ends
+        // when it runs out of pages to fetch.
+        const effectiveRequest = normalizeSiteAuditRunRequest({}, project.siteAuditMaxPages)
         this.db.transaction((tx) => {
           tx.insert(runs).values({
             id: runId,

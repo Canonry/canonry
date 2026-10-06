@@ -25,7 +25,8 @@ import { ratioUnitOf } from '../src/ratio-unit.js'
 
 describe('Technical AEO crawl contracts', () => {
   it('defaults the page budget but leaves the edge budget unset for the engine to derive', () => {
-    expect(SITE_AUDIT_DEFAULT_PAGE_LIMIT).toBe(1_000)
+    // A scan with no page budget covers the full site, the same budget scheduled audits pass.
+    expect(SITE_AUDIT_DEFAULT_PAGE_LIMIT).toBe(SITE_AUDIT_MAX_PAGE_LIMIT)
     expect(SITE_AUDIT_MAX_PAGE_LIMIT).toBe(50_000)
     expect(SITE_AUDIT_MAX_EDGE_LIMIT).toBe(1_000_000)
     // A flat edge default here caps BELOW the engine's own derivation

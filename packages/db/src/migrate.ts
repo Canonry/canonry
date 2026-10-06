@@ -4492,6 +4492,16 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       )`,
     ],
   },
+  {
+    // Saved Site Health page budget for scans that set none. Nullable with no
+    // default: every existing project reads as full site, and an older writer
+    // that never sets it leaves it null.
+    version: 168,
+    name: 'projects-site-audit-max-pages',
+    statements: [
+      `ALTER TABLE projects ADD COLUMN site_audit_max_pages INTEGER`,
+    ],
+  },
 ]
 
 /**

@@ -178,6 +178,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         locations: nextLocations,
         defaultLocation: nextDefaultLocation,
         autoExtractBacklinks: body.autoExtractBacklinks ?? false,
+        siteAuditMaxPages: body.siteAuditMaxPages ?? null,
         configSource: body.configSource ?? 'api',
         configRevision: 1,
         createdAt: now,
@@ -221,6 +222,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       defaultLocation?: string | null
       autoExtractBacklinks?: boolean
       negativeReviewMaxStars?: number | null
+      siteAuditMaxPages?: number | null
       configSource?: string
       providerModels?: Record<string, string>
       providerDispatchModes?: ProviderDispatchModesMap
@@ -290,6 +292,9 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       ? body.autoExtractBacklinks
       : existing?.autoExtractBacklinks ?? false
     // Omitted keeps the stored threshold; an explicit null resets it to the default.
+    // Omitted keeps the stored budget: the dashboard and CLI resend the whole
+    // project without fields they do not edit. Null means the full site.
+    const nextSiteAuditMaxPages = body.siteAuditMaxPages !== undefined ? body.siteAuditMaxPages : existing?.siteAuditMaxPages ?? null
     const nextNegativeReviewMaxStars = body.negativeReviewMaxStars !== undefined
       ? body.negativeReviewMaxStars
       : existing ? readNegativeReviewMaxStars(app.db, existing.id) : null
@@ -330,6 +335,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           locations: nextLocations,
           defaultLocation: nextDefaultLocation,
           autoExtractBacklinks: nextAutoExtractBacklinks,
+          siteAuditMaxPages: nextSiteAuditMaxPages,
           configSource: body.configSource ?? 'api',
           configRevision: existing.configRevision + 1,
           updatedAt: now,
@@ -373,6 +379,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         locations: nextLocations,
         defaultLocation: nextDefaultLocation,
         autoExtractBacklinks: nextAutoExtractBacklinks,
+        siteAuditMaxPages: nextSiteAuditMaxPages,
         configSource: body.configSource ?? 'api',
         configRevision: 1,
         createdAt: now,
@@ -674,6 +681,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         ...(project.defaultLocation ? { defaultLocation: project.defaultLocation } : {}),
         ...(project.autoExtractBacklinks ? { autoExtractBacklinks: true } : {}),
         ...(negativeReviewMaxStars !== null ? { negativeReviewMaxStars } : {}),
+        ...(project.siteAuditMaxPages !== null ? { siteAuditMaxPages: project.siteAuditMaxPages } : {}),
         notifications: notificationRows.map((row) => {
           const cfg = row.config
           return {
@@ -824,6 +832,7 @@ export function formatProject(row: InferSelectModel<typeof projects>, negativeRe
     defaultLocation: row.defaultLocation,
     autoExtractBacklinks: row.autoExtractBacklinks,
     negativeReviewMaxStars,
+    siteAuditMaxPages: row.siteAuditMaxPages ?? null,
     configSource: row.configSource,
     configRevision: row.configRevision,
     createdAt: row.createdAt,

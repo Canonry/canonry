@@ -10691,6 +10691,7 @@ export type ProjectCreateRequest = {
     autoExtractBacklinks?: boolean;
     qualifiedAliases?: Array<string>;
     negativeReviewMaxStars?: number | null;
+    siteAuditMaxPages?: number | null;
     configSource?: 'cli' | 'api' | 'config-file';
     name: string;
 };
@@ -10731,6 +10732,7 @@ export type ProjectDto = {
     };
     autoExtractBacklinks: boolean;
     negativeReviewMaxStars?: number | null;
+    siteAuditMaxPages?: number | null;
     configSource: 'cli' | 'api' | 'config-file';
     configRevision: number;
     createdAt?: string;
@@ -10771,6 +10773,7 @@ export type ProjectUpsertRequest = {
     autoExtractBacklinks?: boolean;
     qualifiedAliases?: Array<string>;
     negativeReviewMaxStars?: number | null;
+    siteAuditMaxPages?: number | null;
     configSource?: 'cli' | 'api' | 'config-file';
 };
 
@@ -10842,6 +10845,7 @@ export type ProjectConfig = {
         };
         autoExtractBacklinks: boolean;
         negativeReviewMaxStars?: number;
+        siteAuditMaxPages?: number | null;
     };
 };
 
@@ -11074,6 +11078,7 @@ export type ProjectOverviewDto = {
         };
         autoExtractBacklinks: boolean;
         negativeReviewMaxStars?: number | null;
+        siteAuditMaxPages?: number | null;
         configSource: 'cli' | 'api' | 'config-file';
         configRevision: number;
         createdAt?: string;
@@ -29751,7 +29756,7 @@ export type PostApiV1ProjectsByNameTechnicalAeoRunsData = {
          */
         limit?: number;
         /**
-         * Crawl page budget. Defaults to 1000; max 50000.
+         * Crawl page budget. When omitted, the project's saved budget (siteAuditMaxPages) applies, else the full site; max 50000.
          */
         maxPages?: number;
         /**
