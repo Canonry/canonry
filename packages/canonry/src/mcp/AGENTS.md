@@ -107,6 +107,8 @@ selection when following evidence cursors. Summary query rows are compact and pa
 `include` or a named `queryId`, so an ordinary project's summary fits the MCP output
 limit. The jobs tool lists summaries with `attemptCount`, and the job tool pages
 attempts. Evidence-only `assessmentId` narrows the stored verdict without
-widening project, class, source or subject scope. Configure accepts only enabled
+widening project, class, source or subject scope; evidence-only `outcome` (an array of
+outcome codes) narrows the page to those outcomes, is echoed as `selection.outcome` and
+is bound into the cursor. Branded summaries carry the server's `criticizedProperties`. Configure accepts only enabled
 state, and no active tool accepts theme settings. Credentials are never accepted. Native Aero defers all nine tools until its
 separate sentiment evaluation and release gate.

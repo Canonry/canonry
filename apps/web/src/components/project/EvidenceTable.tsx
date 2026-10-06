@@ -12,7 +12,7 @@ import {
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { SourceLink } from '../shared/SourceLink.js'
 import { AnswerMarkdown } from '../shared/AnswerMarkdown.js'
-import { SentimentHeadlines, SentimentLegend, SentimentQueryScore, SentimentAnswerOutcome, useSentimentConfigured } from './SentimentSection.js'
+import { SentimentControls, SentimentHeadlines, SentimentQueryScore, SentimentAnswerOutcome, useSentimentConfigured } from './SentimentSection.js'
 import { CitationTimeline, mergeProviderHistories } from './CitationTimeline.js'
 import { useDrawer } from '../../hooks/use-drawer.js'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
@@ -189,20 +189,18 @@ function SignalStrip({ items }: { items: CitationInsightVm[] }) {
 }
 
 /**
- * The top of Query evidence: one compact row with the bar legend on the left
- * and the section's actions on the right, then the sentiment bars under it at
- * the section's full width. In an embed (no actions) the row is the legend
- * alone, and with neither it takes no space. Without a query class it is the
- * actions alone, for while the evidence loads or after it fails.
+ * The top of Query evidence: the section's actions on the right, then the
+ * Sentiment block at the section's full width, its legend under its title and
+ * Manage sentiment in its title row when the section has actions. An embed has
+ * no actions row. Without a query class it is the actions alone, for while the
+ * evidence loads or after it fails.
  */
 export function QueryEvidenceSummary({ queryClass, actions }: { queryClass?: QueryClassSelection; actions?: ReactNode }) {
   return (
     <>
-      <div className="query-evidence-toolbar">
-        {queryClass ? <SentimentLegend queryClass={queryClass} /> : null}
-        {actions ? <div className="query-evidence-actions">{actions}</div> : null}
-      </div>
-      {queryClass ? <SentimentHeadlines queryClass={queryClass} legend={false} /> : null}
+      {/* Without a query class (evidence loading or failed) there is no Sentiment block, so Manage sentiment joins the actions. */}
+      {actions ? <div className="query-evidence-toolbar"><div className="query-evidence-actions">{!queryClass && <SentimentControls />}{actions}</div></div> : null}
+      {queryClass ? <SentimentHeadlines queryClass={queryClass} manage={Boolean(actions)} /> : null}
     </>
   )
 }
@@ -392,7 +390,7 @@ export function EvidenceTable({
               <tr>
                 <th scope="col">Query</th>
                 <th scope="col">Status</th>
-                {sentimentConfigured && <th scope="col" aria-label="Favorable"><span className="inline-flex items-center">Favorable<InfoTooltip text="Query rows show the favorable share of judged answers. Expanded engine rows show each stored answer’s sentiment; factual and unmentioned answers are not judgments." /></span></th>}
+                {sentimentConfigured && <th scope="col" aria-label="Sentiment"><span className="inline-flex items-center">Sentiment<InfoTooltip text="Branded query rows show the favorable share of judged answers. Non-brand rows show only their unfavorable and mixed answers. Expanded engine rows show each stored answer’s sentiment; factual and unmentioned answers are not judgments." /></span></th>}
                 <th scope="col">{historyHeader}</th>
                 <th scope="col">Latest run</th>
                 <th><span className="sr-only">Answer</span></th>

@@ -61,11 +61,12 @@ export const SENTIMENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
-    path: ['sentiment', 'evidence'], usage: 'canonry sentiment evidence <project> [selection options] [--assessment-id <id>] [--cursor <cursor>] [--limit 1..100] [--format json]',
-    help: `${readSelectionHelp} Use --assessment-id from a query assessment to read that exact stored verdict; existing scope filters still apply. Keep all selection fields, including assessmentId and the returned evaluationDefinitionId, when following a cursor. JSONL preserves the entire page envelope, including empty state and next cursor.`,
-    options: { ...readSelectionOptions, 'assessment-id': stringOption(), cursor: stringOption(), limit: stringOption() },
+    path: ['sentiment', 'evidence'], usage: 'canonry sentiment evidence <project> [selection options] [--assessment-id <id>] [--outcome mixed,unfavorable] [--cursor <cursor>] [--limit 1..100] [--format json]',
+    help: `${readSelectionHelp} Use --assessment-id from a query assessment to read that exact stored verdict; existing scope filters still apply. --outcome keeps only assessments with those outcomes (comma-separated or repeated, for example --outcome mixed,unfavorable for the criticism behind a branded score or the non-brand exceptions); it never changes how they were scored. Keep all selection fields, including assessmentId, outcome and the returned evaluationDefinitionId, when following a cursor. JSONL preserves the entire page envelope, including empty state and next cursor.`,
+    options: { ...readSelectionOptions, 'assessment-id': stringOption(), outcome: multiStringOption(), cursor: stringOption(), limit: stringOption() },
     run: input => showSentimentEvidence(project(input, 'evidence'), parse(sentimentEvidenceRequestSchema, {
-      ...readSelection(input), assessmentId: getString(input.values, 'assessment-id'), cursor: getString(input.values, 'cursor'), limit: getString(input.values, 'limit'),
+      ...readSelection(input), assessmentId: getString(input.values, 'assessment-id'), outcome: getStringArray(input.values, 'outcome')?.join(','),
+      cursor: getString(input.values, 'cursor'), limit: getString(input.values, 'limit'),
     }), input.format),
   },
   {

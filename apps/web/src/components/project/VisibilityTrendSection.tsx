@@ -719,7 +719,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
         <ReportHeadlineCell label={aggregateScope ? 'Answers citing a property' : 'Cited answers'} help={selection.mode === 'advanced' ? REPORT_HEADLINE_HELP.advancedCitation : REPORT_HEADLINE_HELP.simpleCitation} value={population.summary.citationCoverage} unit="answers" classNoun={classNoun} change={reportChangeLine(population.comparison, 'citationCoverage')} />
         {aggregateScope ? <ReportHeadlineCell label="Properties mentioned" help={REPORT_HEADLINE_HELP.propertyReach} value={population.summary.propertyReach} unit="properties" classNoun={classNoun} change={reportChangeLine(population.comparison, 'propertyReach')} /> : null}
       </dl>
-      <SentimentHeadlines queryClass={selection.queryClass} />
+      <SentimentHeadlines queryClass={selection.queryClass} manage />
       <ReportTrend population={population} />
       {aggregateScope && (population.breakdown.groups.length > 0 || population.breakdown.properties.length > 0) ? <ReportScopeBreakdown key={`${selection.scope.kind}:${selection.scope.id}`} population={population} scope={selection.scope} scopeOptions={report.scopeOptions} marketKey={selection.market?.id} onSelectionChange={onSelectionChange} /> : null}
       {selection.mode === 'advanced' ? <details className="visibility-disclosure" aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} property outcomes`}><summary className="visibility-disclosure-summary"><span className="visibility-disclosure-label">Property outcomes</span><span className="visibility-disclosure-meta">{population.summary.outcomes.total} {population.summary.outcomes.total === 1 ? 'property' : 'properties'}</span></summary><div className="visibility-disclosure-panel flex flex-wrap items-start justify-between gap-3">
@@ -939,12 +939,16 @@ export function VisibilityOverview({ projectName, selection, onSelectionChange, 
   // recovery), and wherever the page's fallback replaces the report.
   const report = firstPage.error ? undefined : firstPage.data
   const sentimentRun = !firstPage.isPlaceholderData && report?.selection.availability.state === 'available' ? report.selection.run.id : null
-  useSentimentResolvedSource(sentimentRun, report?.selection.revision)
+  // The run carries its own revision: the report restates an older sweep onto the current plan, but its
+  // sentiment stays frozen to the revision it ran under, so the report's revision would match no assessment.
+  useSentimentResolvedSource(sentimentRun, null)
+  const showsReport = Boolean(report && report.selection.availability.state === 'available' && !usesUnmeasuredFallback(report, showUnmeasuredFallback))
   return <>
-    <div className="mb-3 flex justify-end"><SentimentControls /></div>
-    {report && report.selection.availability.state === 'available' && !usesUnmeasuredFallback(report, showUnmeasuredFallback)
-      ? <VisibilityResultsToolbar report={report} selection={selection} onSelectionChange={onSelectionChange} onManageQueries={onManageQueries} renderPropertyLink={renderPropertyLink} />
+    {showsReport
+      ? <VisibilityResultsToolbar report={report!} selection={selection} onSelectionChange={onSelectionChange} onManageQueries={onManageQueries} renderPropertyLink={renderPropertyLink} />
       : null}
+    {/* The report's Sentiment block carries Manage sentiment; without a report view it lives here. */}
+    {!showsReport && (report || firstPage.error) ? <div className="mb-3 flex justify-end"><SentimentControls /></div> : null}
     <VisibilityWorkspace
       key={`${projectName}:${JSON.stringify({ ...selection, queryKey: undefined, answer: undefined })}`}
       projectName={projectName}

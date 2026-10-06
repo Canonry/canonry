@@ -1,10 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { emptySentimentCounts, type SentimentBackfillPreview, type SentimentEvidencePage, type SentimentJob } from '@ainyc/canonry-contracts'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { emptySentimentCounts, sentimentOutcomeSchema, type SentimentBackfillPreview, type SentimentEvidencePage, type SentimentJob } from '@ainyc/canonry-contracts'
 import { sentimentFixtureSummary } from '../../contracts/test/fixtures/sentiment.js'
+import * as clientModule from '../src/client.js'
 import { ApiClient } from '../src/client.js'
+import { SENTIMENT_CLI_COMMANDS } from '../src/cli-commands/sentiment.js'
+import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
 import { CliError } from '../src/cli-error.js'
+import { createCanonryMcpServerWithCatalog } from '../src/mcp/server.js'
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
 
 // Whole response bodies as the server sends them: the client reads each one
 // with its tolerant reader, which still requires every field it knows.
@@ -46,6 +55,61 @@ describe('sentiment generated SDK client', () => {
     expect(url.searchParams.get('queryId')).toBe('frozen-query')
     expect(url.searchParams.get('evaluationDefinitionId')).toBe('frozen-definition')
     if (operation === 'evidence') { expect(url.searchParams.get('cursor')).toBe('cursor'); expect(url.searchParams.get('assessmentId')).toBe('exact-assessment') }
+  })
+  it('sends an evidence outcome filter as repeated HTTP query parameters and reads its echo, through the client, CLI and MCP', async () => {
+    // The server's page for a branded Property narrowed to its criticism, with the filter echoed sorted.
+    const page: SentimentEvidencePage = { state: 'complete', selection: { ...sentimentFixtureSummary.selection, scope: 'property', scopeKey: 'property-a', outcome: ['mixed', 'unfavorable'] }, items: [], nextCursor: null }
+    const requests: Request[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      requests.push(input instanceof Request ? input : new Request(input, init))
+      return Response.json(page)
+    }))
+    const api = new ApiClient('https://canonry.test/prefix', 'cnry_test', { skipProbe: true })
+    const outcome = ['mixed', 'unfavorable'] as const
+    expect(await api.getSentimentEvidence('demo', { queryClass: 'branded', scope: 'property', scopeKey: 'property-a', outcome: [...outcome] })).toEqual(page)
+
+    vi.spyOn(clientModule, 'createApiClient').mockReturnValue(api)
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    await dispatchRegisteredCommand(['sentiment', 'evidence', 'demo', '--query-class', 'branded', '--scope', 'property', '--scope-key', 'property-a', '--outcome', 'mixed,unfavorable'], 'json', SENTIMENT_CLI_COMMANDS)
+    expect(JSON.parse(String(log.mock.calls[0]![0]))).toEqual(page)
+
+    const { server } = createCanonryMcpServerWithCatalog({ clientFactory: () => api, scope: 'read-only', eager: true })
+    const mcp = new Client({ name: 'sentiment-outcome-test', version: '1' }, { capabilities: {} })
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+    try {
+      await server.connect(serverTransport)
+      await mcp.connect(clientTransport)
+      const listed = (await mcp.listTools()).tools.find(entry => entry.name === 'canonry_sentiment_evidence')
+      expect((listed?.inputSchema.properties as Record<string, { items?: { enum?: string[] } }>).outcome?.items?.enum).toEqual([...sentimentOutcomeSchema.options])
+      const response = await mcp.callTool({ name: 'canonry_sentiment_evidence', arguments: { project: 'demo', queryClass: 'branded', scope: 'property', scopeKey: 'property-a', outcome: [...outcome] } })
+      expect(response.isError, JSON.stringify(response.content)).not.toBe(true)
+      expect(response.structuredContent).toEqual(page)
+    } finally {
+      await mcp.close()
+      await server.close()
+    }
+
+    // Client, CLI and MCP each sent one identical read.
+    expect(requests).toHaveLength(3)
+    for (const request of requests) {
+      const url = new URL(request.url)
+      expect(url.pathname).toBe('/prefix/api/v1/projects/demo/sentiment/evidence')
+      expect(url.searchParams.getAll('outcome')).toEqual([...outcome])
+      expect(url.searchParams.get('scope')).toBe('property')
+      expect(url.searchParams.get('scopeKey')).toBe('property-a')
+      expect(url.searchParams.get('queryClass')).toBe('branded')
+    }
+  })
+  it('sends no outcome parameter when the evidence read has no filter', async () => {
+    let received: Request | undefined
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      received = input instanceof Request ? input : new Request(input, init)
+      return Response.json(evidencePage)
+    }))
+    vi.spyOn(clientModule, 'createApiClient').mockReturnValue(new ApiClient('https://canonry.test/prefix', 'cnry_test', { skipProbe: true }))
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    await dispatchRegisteredCommand(['sentiment', 'evidence', 'demo', '--query-class', 'non-brand'], 'json', SENTIMENT_CLI_COMMANDS)
+    expect(new URL(received!.url).searchParams.has('outcome')).toBe(false)
   })
   it('preserves frozen backfill token/key bytes across retries', async () => {
     const requests: Request[] = []

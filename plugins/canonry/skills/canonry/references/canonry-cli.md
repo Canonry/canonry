@@ -1512,6 +1512,8 @@ canonry sentiment <project> --run-id <run> --query-class non-brand --format json
 canonry sentiment <project> --run-id <run> --query-class non-brand --include assessments,locations --query-limit 50 --format json
 canonry sentiment evidence <project> --run-id <run> --query-class non-brand --query-id <query> --evaluation-definition-id <definition> --format json
 canonry sentiment evidence <project> --run-id <run> --query-class non-brand --assessment-id <assessment> --provider <engine> --model <served-model> --format json
+canonry sentiment evidence <project> --query-class non-brand --outcome mixed,unfavorable --format json
+canonry sentiment evidence <project> --query-class branded --scope property --scope-key <property> --outcome mixed,unfavorable --format json
 canonry sentiment compare <project> --from-run-id <before> --to-run-id <after> --format json
 canonry sentiment backfill <project> --preview --query-class non-brand --run-id <run> --format json
 canonry sentiment backfill <project> --preview --query-class branded --from <ISO-date-time> --to <ISO-date-time> --format json
@@ -1542,7 +1544,9 @@ models, source IDs, subject, location, state and exclusions; a named `--query-id
 includes both by default. Unclassified sources have no verdict; absent subjects are
 not unfavorable. Evidence-only `--assessment-id` selects one returned assessment
 within the other filters; retain it with the evaluator and scope when following
-a cursor. `--model` matches the served source model. For a grouped read, summary and
+a cursor. Evidence-only `--outcome` (comma-separated or repeated) keeps only those
+outcomes and is echoed as `selection.outcome`; it never changes scoring. Keep it
+when following a cursor. `--model` matches the served source model. For a grouped read, summary and
 evidence accept `--run-ids <first> --run-ids <second>` instead of `--run-id`.
 Backfill retains repeated `--run-id` for its historical selection. JSON equals the HTTP DTO;
 evidence JSONL is one complete page document so empty state and cursor survive.
@@ -1554,3 +1558,14 @@ aliases); earlier runs keep their list (empty before opting in) and are not resc
 Every change to the list (first set, edit, or clear) starts a new subject boundary at
 the first run captured afterward: a pooled read or comparison across it is refused, so
 read from the most recent change onward.
+
+Sentiment is a branded figure: non-brand answers name the brand almost only to
+recommend it, so read non-brand as exceptions with `--outcome mixed,unfavorable`.
+`canonry overview` text prints the branded headline (`Sentiment: <x> favorable ·
+branded queries` plus favorable / judged); JSON keeps `sentiment.branded`,
+`nonBrand` and `overall` unchanged. A branded summary spanning more than one
+Property carries `criticizedProperties` (`total`, and `keys`: the first 5 property
+breakdown keys, most mixed plus unfavorable first). Text output lists them under
+`Most criticized properties: N of total` with favorable, mixed and unfavorable
+counts; read one with `--scope property --scope-key <key> --outcome mixed,unfavorable`
+(in a market view, pass that market as `--market-key`).

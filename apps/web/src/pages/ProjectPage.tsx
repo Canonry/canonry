@@ -33,7 +33,7 @@ import {
 } from '../components/project/CompetitorLandscape.js'
 import { ProviderBadge } from '../components/shared/ProviderBadge.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
-import { SentimentScopeProvider, SentimentControls } from '../components/project/SentimentSection.js'
+import { SentimentScopeProvider } from '../components/project/SentimentSection.js'
 import { sentimentSelectionFromVisibility, sentimentSelectionForSimpleEvidence } from '../queries/sentiment.js'
 import { EvidenceTable, QueryEvidenceSummary } from '../components/project/EvidenceTable.js'
 import { BingSummaryMetric } from '../components/project/BingSummaryMetric.js'
@@ -2712,12 +2712,11 @@ function ProjectPageContent({
     />
   ) : null
 
-  // Query evidence's actions sit at the right of the legend row above the
-  // sentiment bars, and the query editor they open sits directly under the
-  // bars. Embeds are read-only.
+  // Query evidence's actions sit in a row above the Sentiment block (Manage
+  // sentiment lives in that block's title row), and the query editor they open
+  // sits directly under the block. Embeds are read-only.
   const evidenceActions = isEmbed() ? null : (
     <>
-      <SentimentControls />
       <WriteButton type="button" variant="outline" size="sm" onClick={() => setManagingQueries(!managingQueries)}>
         {managingQueries ? 'Done' : 'Manage queries'}
       </WriteButton>

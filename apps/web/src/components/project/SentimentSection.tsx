@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
 import { ChevronDown } from 'lucide-react'
-import type { SentimentEvidenceItem, SentimentJobSummary, SentimentSettings, SentimentSummary, SentimentSelection, SentimentBackfillPreview, SentimentBackfillSelection, SentimentOverview, SentimentOverallHeadline, SentimentHeadline, SentimentAssessmentSummary, SentimentEvidenceSelection } from '@ainyc/canonry-contracts'
+import type { SentimentEvidenceItem, SentimentJobSummary, SentimentOutcome, SentimentSettings, SentimentSummary, SentimentSelection, SentimentBackfillPreview, SentimentBackfillSelection, SentimentOverview, SentimentHeadline, SentimentAssessmentSummary, SentimentEvidenceSelection } from '@ainyc/canonry-contracts'
 import { describeError, formatPercent, RatioUnits } from '@ainyc/canonry-contracts'
 import { Button } from '../ui/button.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet.js'
@@ -32,25 +32,64 @@ export const SENTIMENT_COPY = {
   /** Why a Favorable column is empty: its tooltip, its screen-reader text and the Details row. */
   minRated: `Shown from ${SENTIMENT_MIN_RATED} ratings`,
   partial: 'Partial results',
-  columns: { favorable: 'Favorable', rated: 'Rated' },
+  columns: { favorable: 'Favorable', rated: 'With opinion' },
+  /** The section's visible title and the line under it. */
+  title: 'Sentiment',
+  subtitle: 'How AI answers describe you in queries that name you',
   /** The Rated column header's tooltip. */
-  rated: 'Share of answers rated favorable, mixed or unfavorable',
+  rated: 'Share of answers that give an opinion (favorable, mixed or unfavorable) about who they name',
   /** Why a Rated column is empty: no eligible answers. Its tooltip and its screen-reader text. */
   noAnswers: 'No answers yet',
   /** Why a Rated column is empty when the server sends no answer counts (one older than the Rated fields): no claim about answers. */
   ratedUnavailable: 'Unavailable',
   /** Details row labels: Rated counts answers; the unadmitted count is of assessments (one per answer and subject). */
-  details: { ratedAnswers: 'Rated answers', unadmitted: 'Assessments not yet analyzed' },
-  overall: 'Overall sentiment is the share of favorable judgments across branded and non-brand queries. Each saved answer-subject assessment counts once. Factual, unmentioned, unsupported, and unclassified answers are excluded.',
-  favorable: 'The favorable share of favorable, mixed and unfavorable ratings. Each rating evaluates one subject in an answer. Branded and non-brand queries are measured separately.',
+  details: {
+    ratedAnswers: 'Answers with an opinion',
+    unadmitted: 'Checks not yet analyzed',
+    checksCaption: 'Not counted in the favorable share:',
+    interval: 'Likely range (95%)',
+  },
+  nonBrand: {
+    label: 'Non-brand queries',
+    none: 'No unfavorable or mixed answers in non-brand queries.',
+    noneSoFar: 'No unfavorable or mixed answers in non-brand queries so far.',
+    notRated: 'Non-brand answers are not rated yet.',
+    view: 'View answers',
+    evidence: 'Non-brand queries, unfavorable and mixed',
+    rowNone: 'No unfavorable or mixed answers',
+    rowLabel: 'Unfavorable or mixed',
+    help: 'A non-brand answer almost always names you to recommend you, so its favorable share is near 100% and says little. Sentiment is measured on branded queries; unfavorable or mixed answers to non-brand queries are listed here when they happen.',
+  },
+  /** Branded Details: the server's most criticized Properties in this view. */
+  properties: { title: 'Most criticized properties', evidence: 'unfavorable and mixed', viewAll: 'View all unfavorable and mixed answers', allEvidence: 'Branded queries, unfavorable and mixed' },
+  overall: 'Favorable share of ratings in answers to branded queries. Each saved answer-subject assessment counts once. Answers with no opinion, or where it is unclear who they name, are left out.',
+  favorable: 'The favorable share of favorable, mixed and unfavorable ratings in answers to branded queries. Each rating covers one subject named in an answer; answers with no opinion are left out.',
 } as const
 /** The app's empty value for a metric with no figure, as the Property and query-group tables write it. */
 const EM_DASH = '\u2014'
-function outcomeLabel(value: string) { return value.replaceAll('-', ' ').replace(/^./, character => character.toUpperCase()) }
+/** Plain names for the outcomes a reader meets in Details and evidence; anything else falls back to its code. */
+const OUTCOME_LABEL: Record<string, string> = {
+  factual: 'Named, no opinion',
+  'subject-not-mentioned': 'Not named in the answer',
+  'wrong-subject': 'Named someone else',
+  'ambiguous-subject': 'Unclear which one was meant',
+  'ambiguous-judgment': 'Opinion unclear',
+  'subject-not-applicable': 'Not applicable',
+  'unsupported-language': 'Not in English',
+  'missing-source-text': 'No answer text',
+  'input-too-large': 'Answer too long to rate',
+  'invalid-conclusion-evidence': 'Rating set aside',
+  pending: 'Waiting to be rated',
+  running: 'Being rated',
+  'waiting-to-retry': 'Retrying',
+}
+function outcomeLabel(value: string) { return OUTCOME_LABEL[value] ?? value.replaceAll('-', ' ').replace(/^./, character => character.toUpperCase()) }
 const RATED_OUTCOMES = ['favorable', 'mixed', 'unfavorable'] as const
+/** An outcome's badge tone: favorable positive, mixed caution, unfavorable negative, anything else neutral. */
+function outcomeTone(outcome: string | null | undefined) { return outcome === 'favorable' ? 'positive' : outcome === 'unfavorable' ? 'negative' : outcome === 'mixed' ? 'caution' : 'neutral' }
 
-/** Branded is the headline sentiment figure; non-brand follows it as its own population. */
-const CLASS_ORDER: readonly QueryClass[] = ['branded', 'non-brand']
+/** Branded is the only sentiment figure; non-brand shows only its unfavorable and mixed answers. */
+const CRITICISM_OUTCOMES: SentimentOutcome[] = ['mixed', 'unfavorable']
 /** The Wilson interval in the shared percent format, or null when nothing was judged. */
 function sentimentIntervalText(score: Pick<SentimentHeadline['score'], 'interval'>): string | null {
   return score.interval ? `${formatPercent(score.interval.low, RatioUnits.fraction)} to ${formatPercent(score.interval.high, RatioUnits.fraction)}` : null
@@ -59,6 +98,14 @@ function sentimentIntervalText(score: Pick<SentimentHeadline['score'], 'interval
 const OUTCOME_FILL: Record<typeof RATED_OUTCOMES[number], string> = { favorable: 'progress-fill-info', mixed: 'progress-fill-caution', unfavorable: 'progress-fill-negative' }
 function ratingCount(judged: number) { return `${judged} ${judged === 1 ? 'rating' : 'ratings'}` }
 function hasRatings(value: Pick<SentimentHeadline, 'score' | 'coverage'>) { return value.score.favorableRate !== null && value.coverage.judged > 0 }
+/**
+ * Whether a read is final: complete, not provisional, nothing left unadmitted. Only a final
+ * read with no unfavorable or mixed answers establishes that there were none; an unrated,
+ * pending, failed, canceled or partial read says its own state instead.
+ */
+function isFinal(value: Pick<SentimentHeadline, 'state' | 'provisional' | 'coverage'>) { return value.state === 'complete' && !value.provisional && value.coverage.unadmittedAssessments === 0 }
+/** A read's state in words; a non-final complete read (which the server does not send) reads as partial. */
+function stateText(value: Pick<SentimentHeadline, 'state'>) { return value.state === 'complete' ? SENTIMENT_COPY.partial : SENTIMENT_COPY.states[value.state] }
 /** A bar splits into outcome segments only where the favorable share shows too. */
 function drawsSegments(value: Pick<SentimentHeadline, 'score' | 'coverage'> | undefined) { return value ? hasRatings(value) && showsFavorableShare(value.coverage.judged) : false }
 
@@ -78,6 +125,24 @@ function SentimentBar({ value, label }: { value: Pick<SentimentHeadline, 'score'
   return <div role="img" aria-label={`${label}: ${outcomes}, ${value.score.favorableDisplay} favorable of ${ratingCount(judged)}`} className="sentiment-bar" data-sentiment-bar="rated">
     {RATED_OUTCOMES.filter(outcome => counts[outcome] > 0).map(outcome => <span key={outcome} data-outcome={outcome} className={`sentiment-bar-segment ${OUTCOME_FILL[outcome]}`} style={{ flexGrow: counts[outcome] }} title={`${outcomeLabel(outcome)}: ${counts[outcome]} of ${ratingCount(judged)}`} />)}
   </div>
+}
+
+/** A Property's rated outcomes as a thin stacked bar, its counts in its label; drawn at any count, since it shows counts, not a share. */
+function PropertyOutcomeBar({ value, label }: { value: Pick<SentimentHeadline, 'coverage'>; label: string }) {
+  const { counts, judged } = value.coverage
+  return <div role="img" aria-label={`${label}: ${RATED_OUTCOMES.map(outcome => `${counts[outcome]} ${outcome}`).join(', ')}, ${ratingCount(judged)}`} className="sentiment-property-bar">
+    {RATED_OUTCOMES.filter(outcome => counts[outcome] > 0).map(outcome => <span key={outcome} data-outcome={outcome} className={`sentiment-bar-segment ${OUTCOME_FILL[outcome]}`} style={{ flexGrow: counts[outcome] }} />)}
+  </div>
+}
+
+/**
+ * The server's most criticized Properties (`criticizedProperties`, ranked by
+ * counts in the API), as their breakdown rows, in the server's order. Nothing
+ * is ranked or cut here.
+ */
+export function mostCriticizedProperties(summary: Pick<SentimentSummary, 'breakdowns' | 'criticizedProperties'>): SentimentSummary['breakdowns'] {
+  const rows = new Map(summary.breakdowns.filter(row => row.dimension === 'property').map(row => [row.key, row]))
+  return (summary.criticizedProperties?.keys ?? []).flatMap(key => rows.get(key) ?? [])
 }
 
 /**
@@ -133,7 +198,9 @@ function RatedCell({ coverage, label }: { coverage: RatedCoverage; label: string
  * has no ratings ("No ratings yet."), or "Partial results" beside rated ones.
  */
 function SentimentClassNote({ value }: { value: Pick<SentimentHeadline, 'score' | 'coverage' | 'provisional' | 'state'> }) {
-  if (hasRatings(value)) return value.provisional ? <p className="sentiment-class-note text-caution">{SENTIMENT_COPY.partial}</p> : null
+  if (hasRatings(value)) {
+    return value.provisional ? <p className="sentiment-class-note text-caution">{SENTIMENT_COPY.partial}</p> : null
+  }
   return <p className="sentiment-class-note">{value.state === 'complete' ? SENTIMENT_COPY.noJudgments : SENTIMENT_COPY.states[value.state]}</p>
 }
 
@@ -151,8 +218,10 @@ function hasHeadlineDetails(value: SentimentSummary) { return Boolean(value.cove
  * panel open at a time.
  */
 function SentimentHeadlineDetails({ value, queryClass, open, setOpenClass }: { value: SentimentSummary; queryClass: QueryClass; open: boolean; setOpenClass: Dispatch<SetStateAction<QueryClass | null>> }) {
+  const scope = useContext(SentimentContext)
   const panelId = useId()
   const titleId = useId()
+  const propertiesId = useId()
   const triggerRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const close = useCallback(() => setOpenClass(current => current === queryClass ? null : current), [setOpenClass, queryClass])
@@ -179,6 +248,7 @@ function SentimentHeadlineDetails({ value, queryClass, open, setOpenClass }: { v
   const interval = sentimentIntervalText(score)
   // With the share hidden, the rated outcomes are the only view of the ratings.
   const tooFew = coverage.judged > 0 && !showsFavorableShare(coverage.judged)
+  const criticized = queryClass === 'branded' ? mostCriticizedProperties(value) : []
   if (!hasHeadlineDetails(value)) return null
   return <>
     <button ref={triggerRef} type="button" className="sentiment-class-details-toggle" aria-label={`${CLASS_LABEL[queryClass]} details`} aria-expanded={open} aria-controls={panelId} onClick={() => setOpenClass(current => current === queryClass ? null : queryClass)}><ChevronDown className="sentiment-class-details-chevron" aria-hidden="true" /></button>
@@ -188,18 +258,35 @@ function SentimentHeadlineDetails({ value, queryClass, open, setOpenClass }: { v
         {(coverage.eligibleAnswers ?? 0) > 0 && <div><dt>{SENTIMENT_COPY.details.ratedAnswers}</dt><dd>{coverage.ratedAnswers ?? 0} of {coverage.eligibleAnswers}</dd></div>}
         {tooFew && RATED_OUTCOMES.filter(outcome => coverage.counts[outcome] > 0).map(outcome => <div key={outcome}><dt>{outcomeLabel(outcome)}</dt><dd>{coverage.counts[outcome]}</dd></div>)}
         {tooFew && <div><dt>Favorable share</dt><dd>{SENTIMENT_COPY.minRated}</dd></div>}
+        {interval && <div><dt>{SENTIMENT_COPY.details.interval} <InfoTooltip text={score.limitation} placement="bottom" /></dt><dd>{interval}</dd></div>}
+      </dl>
+      {scope && criticized.length > 0 && <div className="sentiment-details-properties" role="group" aria-labelledby={propertiesId}>
+        <p id={propertiesId} className="sentiment-details-subtitle">{SENTIMENT_COPY.properties.title}{value.criticizedProperties && value.criticizedProperties.total > criticized.length ? <span className="sentiment-details-subtitle-count"> · {criticized.length} of {value.criticizedProperties.total}</span> : null}</p>
+        <ul>{criticized.map(row => <li key={row.key} className="sentiment-property">
+          <button type="button" className="sentiment-property-name" aria-label={`View ${SENTIMENT_COPY.properties.evidence} answers for ${row.label}`} onClick={() => {
+            if (!triggerRef.current) return
+            // A market view holds its market in scope/scopeKey; narrowing to the Property keeps it as marketKey, or the sheet would read every market.
+            const source = requestSelection(scope, value)
+            scope.openEvidence({ ...source, queryClass, scope: 'property', scopeKey: row.key, marketKey: source.scope === 'market' ? source.scopeKey : source.marketKey, outcome: CRITICISM_OUTCOMES }, `${row.label}, ${SENTIMENT_COPY.properties.evidence}`, triggerRef.current)
+          }}>{row.label}</button>
+          <span className="sentiment-property-count">{row.coverage.counts.favorable} of {row.coverage.judged} favorable</span>
+          <PropertyOutcomeBar value={row} label={row.label} />
+        </li>)}</ul>
+        <button type="button" className="sentiment-property-name sentiment-details-view-all" onClick={() => { if (triggerRef.current) scope.openEvidence({ ...requestSelection(scope, value), queryClass, outcome: CRITICISM_OUTCOMES }, SENTIMENT_COPY.properties.allEvidence, triggerRef.current) }}>{SENTIMENT_COPY.properties.viewAll}</button>
+      </div>}
+      {(coverage.unadmittedAssessments > 0 || Object.entries(coverage.counts).some(([outcome, count]) => count > 0 && !RATED_OUTCOMES.includes(outcome as typeof RATED_OUTCOMES[number]))) && <p className="sentiment-details-caption">{SENTIMENT_COPY.details.checksCaption}</p>}
+      <dl className="sentiment-details-list">
         {coverage.unadmittedAssessments > 0 && <div><dt>{SENTIMENT_COPY.details.unadmitted}</dt><dd>{coverage.unadmittedAssessments}</dd></div>}
         {Object.entries(coverage.counts).filter(([outcome, count]) => count > 0 && !['favorable', 'mixed', 'unfavorable'].includes(outcome)).map(([outcome, count]) => <div key={outcome}><dt>{outcomeLabel(outcome)}</dt><dd>{count}</dd></div>)}
-        {interval && <div><dt>95% confidence range <InfoTooltip text={score.limitation} placement="bottom" /></dt><dd>{interval}</dd></div>}
       </dl>
       {value.reason && <p className="sentiment-class-details-reason">{value.reason}</p>}
     </div>
   </>
 }
 
-/** An overview shows one measured overall score, or no sentiment metric. */
-export function showsSentimentOverview(value?: SentimentOverview): value is SentimentOverview & { overall: SentimentOverallHeadline } {
-  return Boolean(value?.configured && value.overall && value.overall.coverage.judged > 0 && value.overall.score.favorableRate !== null) && !isEmbed()
+/** An overview shows the measured branded score, or no sentiment metric: non-brand answers name you only to recommend you. */
+export function showsSentimentOverview(value?: SentimentOverview): value is SentimentOverview {
+  return Boolean(value?.configured && value.branded.coverage.judged > 0 && value.branded.score.favorableRate !== null) && !isEmbed()
 }
 
 /**
@@ -209,7 +296,7 @@ export function showsSentimentOverview(value?: SentimentOverview): value is Sent
  */
 export function SentimentOverviewMetric({ value }: { value?: SentimentOverview }) {
   if (!showsSentimentOverview(value)) return null
-  const headline = value.overall
+  const headline = value.branded
   const judged = headline.coverage.judged
   const interval = sentimentIntervalText(headline.score)
   const detail = `${SENTIMENT_COPY.overall} ${judged} of ${headline.coverage.selected} judged${interval ? `, 95% interval ${interval}` : ''}. ${headline.provisional ? 'Provisional. ' : ''}${SENTIMENT_COPY.states[headline.state]}${headline.reason ? ` ${headline.reason}` : ''}`
@@ -217,8 +304,8 @@ export function SentimentOverviewMetric({ value }: { value?: SentimentOverview }
     <div className="metric-inline-block">
       <div className="flex items-center gap-1"><p className="metric-inline-label">Sentiment</p><span className="relative z-10"><InfoTooltip text={detail} placement="bottom" /></span></div>
       {showsFavorableShare(judged)
-        ? <p className="metric-inline-value">{headline.score.favorableDisplay}<span className="sr-only"> favorable judgments, all query classes</span></p>
-        : <p className="metric-inline-value text-secondary">{SENTIMENT_COPY.tooFew}<span className="sr-only"> ratings for a favorable share, {judged} of {SENTIMENT_MIN_RATED} needed, all query classes</span></p>}
+        ? <p className="metric-inline-value">{headline.score.favorableDisplay}<span className="sr-only"> favorable judgments, branded queries</span></p>
+        : <p className="metric-inline-value text-secondary">{SENTIMENT_COPY.tooFew}<span className="sr-only"> ratings for a favorable share, {judged} of {SENTIMENT_MIN_RATED} needed, branded queries</span></p>}
       <p className="metric-inline-caption" aria-hidden="true"></p>
     </div>
   </div>
@@ -236,6 +323,11 @@ interface ScopeValue {
   openEvidence: (selection: SentimentEvidenceSelection, label: string, opener: HTMLButtonElement) => void
 }
 const SentimentContext = createContext<ScopeValue | null>(null)
+/** A summary's resolved selection as a request, as the query rows build theirs: one run or a run set, never both. */
+function requestSelection(scope: ScopeValue, summary: Pick<SentimentSummary, 'selection'>): SentimentSelection {
+  const { selection } = summary
+  return { ...scope.selection, ...selection, runId: selection.runId ?? undefined, runIds: selection.runId ? undefined : selection.runIds, revision: selection.revision ?? undefined, evaluationDefinitionId: selection.evaluationDefinitionId ?? undefined }
+}
 export function useSentimentConfigured() { return useContext(SentimentContext)?.configured ?? false }
 
 export function SentimentScopeProvider({ projectName, selection, runOptions = [], waitForResolvedRun = false, evidenceReady = true, hasSourceEvidence = true, children }: {
@@ -295,10 +387,14 @@ export function SentimentControls() {
   return <WriteButton type="button" variant="outline" size="sm" onClick={event => scope.openManage(event.currentTarget)}>{scope.settings.data.enabled ? 'Manage sentiment' : 'Enable sentiment'}</WriteButton>
 }
 
-/** The query classes a headline view shows, or null when it shows none. */
+/**
+ * The query classes a headline view shows a line for, or null when the block is
+ * absent. Sentiment is a branded figure, so every class view shows the branded
+ * line; a non-brand or all-queries view adds non-brand's unfavorable and mixed answers under it.
+ */
 function headlineClasses(scope: ScopeValue | null, queryClass: QueryClassView): readonly QueryClass[] | null {
   if (!scope?.configured || queryClass === 'unknown' || queryClass === 'unclassified') return null
-  return queryClass === 'all' ? CLASS_ORDER : [queryClass]
+  return ['branded']
 }
 
 /**
@@ -315,25 +411,73 @@ export function SentimentLegend({ queryClass = 'all' }: { queryClass?: QueryClas
 }
 
 /**
- * One line per query class across the full width, under a small header that
- * names the figure columns: the class label and ⓘ, a stacked bar of the rated
- * outcomes that takes all the remaining space, then Favorable (the share),
- * Rated (the share of answers rated) and the class's Details chevron, each in
- * a fixed column. Every line uses the same columns, so the bars start and end level
- * and each figure sits under its header. A note under the bar carries a state
- * or partial results when there is one. Branded and non-brand keep their own
- * bars and denominators. The legend follows the last bar unless the caller
- * places it (`legend={false}` with its own {@link SentimentLegend}).
+ * Non-brand sentiment as exceptions only. A general answer names you only to
+ * recommend you, so its favorable share says nothing; the server's unfavorable
+ * and mixed counts do. The line appears when either is above zero and opens
+ * those answers. A non-brand view also says when none were, once non-brand is rated.
  */
-export function SentimentHeadlines({ queryClass = 'all', legend = true }: { queryClass?: QueryClassView; legend?: boolean }) {
+function NonBrandCriticism({ queryClass }: { queryClass: QueryClassView }) {
+  const scope = useContext(SentimentContext)
+  if (!scope?.hasSourceEvidence) return null
+  const query = scope.summaries['non-brand']
+  const summary = query.data
+  const nonBrandView = queryClass === 'non-brand'
+  // The all-queries view lists exceptions only; the non-brand view also says how its answers stand.
+  if (!summary) {
+    if (!nonBrandView) return null
+    return query.isError
+      ? <p role="alert" className="sentiment-nonbrand-note">Couldn’t load non-brand sentiment. <Button variant="ghost" onClick={() => { void query.refetch() }}>Retry</Button></p>
+      : <p role="status" className="sentiment-nonbrand-note">Loading non-brand sentiment…</p>
+  }
+  const counts = summary.coverage.counts
+  if (counts.unfavorable === 0 && counts.mixed === 0) {
+    if (!nonBrandView) return null
+    // "None" only from a final read. Ratings so far are "none so far"; with none, the class's own state
+    // (a terminal partial is "Partial results.", never "Analyzing").
+    if (isFinal(summary)) return <p className="sentiment-nonbrand-note">{SENTIMENT_COPY.nonBrand.none}</p>
+    if (hasRatings(summary)) return <p className="sentiment-nonbrand-note">{SENTIMENT_COPY.nonBrand.noneSoFar}</p>
+    return <p className="sentiment-nonbrand-note">{summary.state === 'not-measured' ? SENTIMENT_COPY.nonBrand.notRated : `${SENTIMENT_COPY.nonBrand.label}: ${stateText(summary)}`}</p>
+  }
+  return <div className="sentiment-nonbrand" role="group" aria-label={SENTIMENT_COPY.nonBrand.label}>
+    <div className="sentiment-nonbrand-line">
+      <span className="sentiment-nonbrand-label">{SENTIMENT_COPY.nonBrand.label}<InfoTooltip text={SENTIMENT_COPY.nonBrand.help} /></span>
+      <span className="sentiment-nonbrand-counts">
+        {CRITICISM_OUTCOMES.slice().reverse().filter(outcome => counts[outcome] > 0).map(outcome => <span key={outcome}><span aria-hidden="true" className={`sentiment-legend-swatch ${OUTCOME_FILL[outcome as typeof RATED_OUTCOMES[number]]}`} />{counts[outcome]} {outcome}</span>)}
+        {!isFinal(summary) && <span className="text-caution">{SENTIMENT_COPY.partial}</span>}
+      </span>
+      <Button type="button" variant="outline" size="sm" onClick={event => scope.openEvidence({ ...requestSelection(scope, summary), queryClass: 'non-brand', outcome: CRITICISM_OUTCOMES }, SENTIMENT_COPY.nonBrand.evidence, event.currentTarget)}>{SENTIMENT_COPY.nonBrand.view}</Button>
+    </div>
+  </div>
+}
+
+/**
+ * The Sentiment block: a title row (with Manage sentiment when `manage`), the
+ * legend under it (unless `legend={false}`), a small header naming the figure
+ * columns, then the Branded line in every class view: the label and ⓘ, a
+ * stacked bar of the rated outcomes that takes all the remaining space, then
+ * Favorable (the share), With opinion (the share of answers rated) and the
+ * Details chevron, each in a fixed column. A note under the bar carries a state
+ * or partial results. All-queries and non-brand views add the non-brand line
+ * ({@link NonBrandCriticism}): its unfavorable and mixed answers, never a share.
+ */
+export function SentimentHeadlines({ queryClass = 'all', legend = true, manage = false }: { queryClass?: QueryClassView; legend?: boolean; manage?: boolean }) {
   const scope = useContext(SentimentContext)
   const classes = headlineClasses(scope, queryClass)
-  // One Details panel open at a time.
+  // Whether the Branded line's Details panel is open.
   const [openClass, setOpenClass] = useState<QueryClass | null>(null)
-  if (!scope || !classes) return null
+  if (!scope) return null
+  // No line to show (sentiment off, its source not resolved yet, or an unclassified view): an
+  // administrator still gets the switch under the section's title, and "off" only when the settings say so.
+  if (!classes) {
+    const settings = scope.settings.data
+    if (!manage || !settings?.actions.configure) return null
+    return <div className="sentiment-headlines-title"><div><h3 className="sentiment-headlines-heading">{SENTIMENT_COPY.title}</h3>{!(settings.enabled && settings.installEnabled) && <p className="sentiment-headlines-subtitle">{SENTIMENT_COPY.states.disabled}</p>}</div><SentimentControls /></div>
+  }
   // The header names columns only a loaded class fills. Each figure also names itself to a screen reader.
   const columns = scope.hasSourceEvidence && classes.some(value => scope.summaries[value].data)
   return <div className="sentiment-headlines" role="group" aria-label="Favorable answer scores">
+    <div className="sentiment-headlines-title"><div><h3 className="sentiment-headlines-heading">{SENTIMENT_COPY.title}</h3><p className="sentiment-headlines-subtitle">{SENTIMENT_COPY.subtitle}</p></div>{manage && <SentimentControls />}</div>
+    {legend && <SentimentLegend queryClass={queryClass} />}
     {columns && <div className="sentiment-headlines-columns" aria-hidden="true"><span className="sentiment-headlines-favorable">{SENTIMENT_COPY.columns.favorable}</span><span className="sentiment-headlines-ratings" title={SENTIMENT_COPY.rated}>{SENTIMENT_COPY.columns.rated}</span></div>}
     {classes.map(value => {
       const query = scope.summaries[value]
@@ -348,7 +492,7 @@ export function SentimentHeadlines({ queryClass = 'all', legend = true }: { quer
         </> : query.isError ? <p role="alert" className="sentiment-class-status">Couldn’t load sentiment. <Button variant="ghost" onClick={() => { void query.refetch() }}>Retry</Button></p> : <p role="status" className="sentiment-class-status">Loading sentiment…</p>}
       </div>
     })}
-    {legend && <SentimentLegend queryClass={queryClass} />}
+    {queryClass !== 'branded' && <NonBrandCriticism queryClass={queryClass} />}
   </div>
 }
 
@@ -364,6 +508,20 @@ export function SentimentQueryScore({ queryId, sourceSnapshotIds = [], queryClas
   // With no source evidence the class summaries are never requested, so a pending query here would never settle.
   if (!row || !value) return <span className="text-sm text-secondary">{scope.hasSourceEvidence && parent?.isPending && (queryId || sourceSnapshotIds.length) ? 'Loading…' : 'Unavailable'}</span>
   const selection: SentimentSelection = { ...scope.selection, ...summary!.selection, runId: summary!.selection.runId ?? undefined, runIds: summary!.selection.runId ? undefined : summary!.selection.runIds, revision: summary!.selection.revision ?? undefined, evaluationDefinitionId: summary!.selection.evaluationDefinitionId ?? undefined, queryClass: row.queryClass, queryId: row.queryId, executionNodeKey: row.executionNodeKey ?? undefined, ...(location === undefined ? {} : { location: location ?? 'none' }) }
+  // A non-brand row shows only its unfavorable and mixed answers, as the Sentiment block does: its favorable share runs near 100%.
+  if (row.queryClass === 'non-brand') {
+    if (value.state === 'unsupported') return <span className="text-sm text-secondary">Unavailable</span>
+    const { unfavorable, mixed } = value.coverage.counts
+    if (unfavorable === 0 && mixed === 0) {
+      const label = showLabel && <span className="block text-sm font-normal text-secondary">{SENTIMENT_COPY.nonBrand.rowLabel}</span>
+      // Only a final read establishes "none"; an unrated, pending, failed, canceled or partial row says its state.
+      if (!isFinal(value)) return <span className="text-sm text-secondary">{label}<span>{stateText(value)}</span></span>
+      return <span className="text-sm text-muted">{label}<span aria-hidden="true" title={SENTIMENT_COPY.nonBrand.rowNone}>{EM_DASH}</span><span className="sr-only">{SENTIMENT_COPY.nonBrand.rowNone}</span></span>
+    }
+    return <Button type="button" variant="ghost" className="h-auto min-h-11 flex-col items-start gap-0 px-1" aria-label={`View unfavorable and mixed answers for ${row.queryText}`} onKeyDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); scope.openEvidence({ ...selection, outcome: CRITICISM_OUTCOMES }, `${row.queryText}, unfavorable and mixed`, event.currentTarget) }}>
+      {showLabel && <span className="text-sm font-normal text-secondary">{SENTIMENT_COPY.nonBrand.rowLabel}</span>}{unfavorable > 0 && <span className="text-sm text-negative">{unfavorable} unfavorable</span>}{mixed > 0 && <span className="text-sm text-caution">{mixed} mixed</span>}{value.provisional && <span className="text-xs font-normal text-caution">Provisional</span>}
+    </Button>
+  }
   return <Button type="button" variant="ghost" className="h-auto min-h-11 flex-col items-start gap-0 px-1" aria-label={`View ${CLASS_LABEL[row.queryClass]} sentiment evidence for ${row.queryText}`} onKeyDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); scope.openEvidence(selection, row.queryText, event.currentTarget) }}>
     {showLabel && <span className="text-sm font-normal text-secondary">Favorable</span>}<span className="font-mono text-primary">{value.score.favorableDisplay}</span><span className="text-sm font-normal text-secondary">{value.coverage.judged} judged</span>{value.provisional && <span className="text-xs font-normal text-caution">Provisional</span>}
   </Button>
@@ -399,7 +557,7 @@ export function SentimentAnswerOutcome({ queryId, sourceSnapshotIds, queryClass,
     {showLabel && <span className="block text-sm text-secondary">Sentiment</span>}
     {!assessments.length ? <span>{scope.hasSourceEvidence && query?.isPending && sourceSnapshotIds.length ? 'Loading…' : 'Unavailable'}</span> : assessments.map(item => {
       const label = assessmentLabel(item)
-      const tone = item.outcome === 'favorable' ? 'positive' : item.outcome === 'unfavorable' ? 'negative' : item.outcome === 'mixed' ? 'caution' : 'neutral'
+      const tone = outcomeTone(item.outcome)
       const content = <>{showSubjects && <span>{item.subjectLabel} · </span>}<ToneBadge tone={tone} className="max-w-full shrink-0 rounded-none border-0 bg-transparent p-0 text-sm font-normal tracking-normal [overflow-wrap:normal]">{label}</ToneBadge></>
       const selection: SentimentEvidenceSelection = { ...scope.selection, ...summary!.selection, runId: summary!.selection.runId ?? undefined, runIds: summary!.selection.runId ? undefined : summary!.selection.runIds, revision: summary!.selection.revision ?? undefined, evaluationDefinitionId: summary!.selection.evaluationDefinitionId ?? undefined, queryClass: row!.queryClass, queryId: row!.queryId, executionNodeKey: row!.executionNodeKey ?? undefined, assessmentId: item.assessmentId ?? undefined }
       return <div key={JSON.stringify([item.sourceSnapshotId, item.subjectId, item.assessmentId])} className="flex items-center gap-1">
@@ -412,7 +570,7 @@ export function SentimentAnswerOutcome({ queryId, sourceSnapshotIds, queryClass,
 
 function SentimentEvidenceContent({ item }: { item: SentimentEvidenceItem }) {
   return <article className="space-y-4 border-b border-default py-5 text-sm text-secondary">
-    <div className="flex flex-wrap items-center gap-2"><strong className="text-primary">{item.subject.displayName}</strong><ToneBadge tone="neutral">{outcomeLabel(item.outcome)}</ToneBadge><span>{CLASS_LABEL[item.context.queryClass]}</span><span>{item.context.provider}</span><span>{item.context.servedModel ?? 'Source model unavailable'}</span><span>{item.context.location ?? 'No location'}</span></div>
+    <div className="flex flex-wrap items-center gap-2"><strong className="text-primary">{item.subject.displayName}</strong><ToneBadge tone={outcomeTone(item.outcome)}>{outcomeLabel(item.outcome)}</ToneBadge><span>{CLASS_LABEL[item.context.queryClass]}</span><span>{item.context.provider}</span><span>{item.context.servedModel ?? 'Source model unavailable'}</span><span>{item.context.location ?? 'No location'}</span></div>
     {item.reason && <p>{item.reason}</p>}
     <section><h3 className="mb-2 text-heading">Conclusion evidence</h3>{item.conclusion.length ? item.conclusion.map(span => <blockquote className="mb-2 border-l border-strong pl-3 text-primary" key={`${span.id}:${span.start}`}>{span.text}</blockquote>) : <p>No valid conclusion evidence is available.</p>}</section>
     <section><h3 className="mb-2 text-heading">Complaint evidence</h3>{item.complaint?.length ? item.complaint.map(span => <blockquote className="mb-2 border-l border-strong pl-3 text-primary" key={`${span.id}:${span.start}`}>{span.text}</blockquote>) : <p>No complaint was identified.</p>}</section>

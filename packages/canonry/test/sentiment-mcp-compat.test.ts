@@ -1,7 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { emptySentimentCounts, sentimentJobSchema, sentimentSummarySchema, type SentimentJob } from '@ainyc/canonry-contracts'
+import { aggregateSentiment, emptySentimentCounts, rankCriticizedProperties, sentimentJobSchema, sentimentSummarySchema, type SentimentJob, type SentimentOutcome } from '@ainyc/canonry-contracts'
 import { sentimentFixtureSummary } from '../../contracts/test/fixtures/sentiment.js'
 import { ApiClient } from '../src/client.js'
 import { createCanonryMcpServer } from '../src/mcp/server.js'
@@ -87,6 +87,25 @@ describe('sentiment reads across adapter and server versions', () => {
     expect(result.structuredContent).toEqual(expected)
     const text = (result.content as Array<{ type: string; text?: string }>).find(item => item.type === 'text')!.text!
     expect(JSON.parse(text)).toEqual(expected)
+  })
+
+  it('returns a branded summary with its most criticized properties unchanged through the CLI client and MCP', async () => {
+    const row = (key: string, label: string, outcomes: SentimentOutcome[]) => ({
+      ...aggregateSentiment(outcomes.map((outcome, i) => ({ assessmentId: `${key}-${i}`, sourceSnapshotId: `${key}-snapshot-${i}`, outcome }))),
+      reason: null, dimension: 'property' as const, key, label, queryClass: 'branded' as const,
+    })
+    const breakdowns = [row('property-a', 'Property A', ['favorable', 'mixed']), row('property-b', 'Property B', ['unfavorable', 'unfavorable', 'mixed']), row('property-c', 'Property C', ['favorable'])]
+    const criticizedProperties = rankCriticizedProperties(breakdowns)
+    // B (3 criticized) before A (1); C has none, so 2 Properties are criticized.
+    expect(criticizedProperties).toEqual({ total: 2, keys: ['property-b', 'property-a'] })
+    const branded = sentimentSummarySchema.parse({ ...current, breakdowns, criticizedProperties })
+    serve({ '/api/v1/projects/demo/sentiment': branded })
+    const api = new ApiClient('https://sentiment-fixture.invalid', TOKEN, { skipProbe: true })
+    expect(await api.getSentiment('demo', { queryClass: 'branded' })).toEqual(branded)
+    const mcp = await connect(api)
+    const result = await mcp.callTool({ name: 'canonry_sentiment', arguments: { project: 'demo' } })
+    expect(result.isError, JSON.stringify(result.content)).not.toBe(true)
+    expect(result.structuredContent).toEqual(branded)
   })
 
   it('returns a current server response unchanged through MCP', async () => {
