@@ -159,8 +159,9 @@ test('a failed refresh is logged and never fails the committed alias write', asy
   })
   onTestFinished(() => { stopListening() })
 
-  // The alias write itself never reads snapshots; only the refresh does.
-  db.$client.exec('ALTER TABLE query_snapshots RENAME TO query_snapshots_parked')
+  // The alias write never reads a stored answer's competitor fields (it
+  // checks only whether a run stored an answer); the refresh rewrites them.
+  db.$client.exec('ALTER TABLE query_snapshots RENAME COLUMN recommended_competitors TO recommended_competitors_parked')
 
   const named = await app.inject({ method: 'PUT', url: ALIAS_URL, headers: auth, payload: { aliases: ['TuneSpoke'] } })
   expect(named.statusCode, named.body).toBe(200)
@@ -169,7 +170,7 @@ test('a failed refresh is logged and never fails the committed alias write', asy
     .toEqual([{ domain: 'spoketuneworks.example', aliases: ['TuneSpoke'] }])
 
   expect(errors.map(entry => ({ msg: entry.msg, projectName: entry.projectName }))).toEqual([
-    { msg: 'competitor-alias-triggered backfill failed: no such table: query_snapshots', projectName: 'rotorwise' },
+    { msg: expect.stringMatching(/^competitor-alias-triggered backfill failed: no such column: "?recommended_competitors/), projectName: 'rotorwise' },
   ])
 })
 
