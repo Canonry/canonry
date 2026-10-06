@@ -80,7 +80,7 @@ import type {
 } from "./config.js";
 import { resolveEmbedConfig, SERVER_ENFORCED_EMBED_PROJECT_TABS, unsupportedEmbedProjectTabs } from "./embed.js";
 import { resolveAgentAllowViewers, resolveAgentEnabled, resolveAgentProactiveEnabled } from "./agent-config.js";
-import { saveConfigPatch, getConfigPath } from "./config.js";
+import { saveConfig, saveConfigPatch, loadConfigRaw, getConfigPath } from "./config.js";
 import { getPlacesConfig } from "./places-config.js";
 import {
   getGoogleAuthConfig,
@@ -2454,7 +2454,8 @@ export async function createServer(opts: {
         password,
         opts.config.dashboardPasswordHash,
       );
-      if (!verification.ok) {
+      const onDisk = verification.ok && verification.needsRehash ? loadConfigRaw() : null;
+      if (!verification.ok || (onDisk && onDisk.dashboardPasswordHash !== opts.config.dashboardPasswordHash)) {
         return reply.status(401).send({
           error: { code: "AUTH_INVALID", message: "Incorrect password" },
         });
@@ -2463,8 +2464,15 @@ export async function createServer(opts: {
       // unsalted SHA-256 hash rewrites the config with a fresh scrypt hash
       // so the next login no longer needs the legacy fallback path.
       if (verification.needsRehash) {
-        opts.config.dashboardPasswordHash = hashDashboardPassword(password);
-        saveConfigPatch(opts.config);
+        if (fs.existsSync(getConfigPath()) && (
+          !onDisk || typeof onDisk !== "object" || Array.isArray(onDisk)
+          || !onDisk.apiUrl || !onDisk.database || !onDisk.apiKey
+        )) {
+          throw new Error("Cannot migrate dashboard password: config.yaml is unreadable or invalid");
+        }
+        const migratedHash = hashDashboardPassword(password);
+        saveConfig({ ...(onDisk ?? opts.config), dashboardPasswordHash: migratedHash });
+        opts.config.dashboardPasswordHash = migratedHash;
       }
       if (!createPasswordSession(reply)) {
         return reply.status(401).send({

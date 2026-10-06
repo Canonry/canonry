@@ -1,5 +1,33 @@
 # Testing Guide
 
+## Test Audit Skill
+
+Before writing, changing, reviewing, running, or auditing tests, read
+[the repository test-audit skill](../.agents/skills/test-audit/SKILL.md).
+It applies to every package and app through the root `AGENTS.md`.
+The development skill stays in `.agents/skills/`; it is separate from the
+operator skills bundled in the published Canonry plugin.
+
+For a routine run, identify the affected tests' observable contract, primary
+owner, and credible regression, then run the focused commands below. A routine
+run does not require a full audit. Before adding or changing a test, apply the
+skill's authoring gate: name the behavior and failure, explain the distinct risk
+not already covered, and avoid production hooks used only by tests.
+
+For audits, keep discovery read-only and record the skill's candidate evidence
+before editing. Keep independent API, security, migration, release, and other
+contract guards. A source grep or slow test is not automatically low value.
+Prove regression repairs fail before the fix and pass afterward; a green
+baseline alone does not prove a test catches the claimed regression. Verify
+type assertions run through a compiler gate that includes their test files.
+
+Never edit source or tests while Vitest is running in the checkout. After
+coverage cleanup, request an independent preservation review of the remaining
+owner-boundary tests. Report baseline results, fault probes, and CI separately.
+Read [the campaign guide](../.agents/skills/test-audit/CAMPAIGN.md) only for a
+whole-subsystem pruning campaign. Upstream attribution and local adaptations
+are recorded in [UPSTREAM.md](../.agents/skills/test-audit/UPSTREAM.md).
+
 ## Test Runner
 
 Canonry uses **Vitest**. `vitest.config.ts` defines the workspace projects. `vitest.package.config.ts` supports package tests.
@@ -47,9 +75,12 @@ pnpm --filter @ainyc/canonry-contracts typecheck
 Replace the project, test path, and package with the affected scope.
 After another edit or rebase, rerun only the affected checks.
 
-The generated SDK package's `typecheck` also compiles its tests through
-`packages/api-client-generated/tsconfig.test.json`. This checks `expectTypeOf`
-assertions that runtime Vitest execution does not verify.
+Generated SDK type contracts live in `packages/api-client-generated/test/*.test-d.ts`.
+Run `pnpm --filter @ainyc/canonry-api-client typecheck` to compile the SDK,
+its runtime test code, and these contracts through `tsconfig.test.json`.
+CI runs the same package script through the root typecheck.
+Vitest owns the SDK's runtime request-wiring tests; it does not execute the
+compiler-only contracts or validate their `expectTypeOf` assertions.
 
 ## Git Hooks
 
@@ -207,8 +238,8 @@ canonry serve
 ## Dependency Verification Checklist
 
 1. Run tests and typechecks for the affected packages.
-2. Confirm `apps/worker/src/audit-client.ts` still imports from `@ainyc/aeo-audit`.
-3. Confirm worker adapter tests still pass against the published package.
+2. Run `packages/canonry/test/aeo-audit-dependency-contract.test.ts` to verify the published audit-engine pins and integration boundaries.
+3. Confirm the worker's audit-package descriptor test passes; audit execution belongs to the production full-crawl engine, not an unused worker wrapper.
 4. Confirm `packages/api-routes/` has no direct dependency on `apps/*`.
 5. Confirm `packages/canonry/` bundles SPA assets correctly (`build-web.ts`).
 

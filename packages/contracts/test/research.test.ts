@@ -29,9 +29,19 @@ describe('research input helpers', () => {
     })
     expect(researchTemplateBindings(undefined, { label: 'New York' })).toEqual({ location: 'New York' })
     const run = { queries: ['one'], provider: 'openai', model: 'gpt-4.1', location: null }
-    expect(researchBatchCreateSchema.safeParse({ idempotencyKey: 'batch', runs: Array.from({ length: MAX_RESEARCH_BATCH_RUNS }, () => run) }).success).toBe(true)
-    expect(researchBatchCreateSchema.safeParse({ idempotencyKey: 'batch', runs: Array.from({ length: MAX_RESEARCH_BATCH_RUNS + 1 }, () => run) }).success).toBe(false)
-    expect(researchBatchCreateSchema.safeParse({ idempotencyKey: 'batch', runs: [{ ...run, queries: Array.from({ length: MAX_RESEARCH_BATCH_QUERIES + 1 }, () => 'one') }] }).success).toBe(false)
+    expect(MAX_RESEARCH_BATCH_RUNS).toBe(20)
+    expect(MAX_RESEARCH_BATCH_QUERIES).toBe(50)
+    expect(researchBatchCreateSchema.safeParse({ idempotencyKey: 'batch', runs: Array.from({ length: 20 }, () => run) }).success).toBe(true)
+    expect(researchBatchCreateSchema.safeParse({ idempotencyKey: 'batch', runs: Array.from({ length: 21 }, () => run) }).success).toBe(false)
+    const queries = (length: number) => Array.from({ length }, (_, index) => `query ${index}`)
+    expect(researchBatchCreateSchema.safeParse({ idempotencyKey: 'batch', runs: [{ ...run, queries: queries(50) }] }).success).toBe(true)
+    expect(researchBatchCreateSchema.safeParse({ idempotencyKey: 'batch', runs: [{ ...run, queries: queries(51) }] }).success).toBe(false)
+    expect(researchBatchCreateSchema.safeParse({ idempotencyKey: 'batch', runs: [{ ...run, queries: queries(25) }, { ...run, queries: queries(25) }] }).success).toBe(true)
+    const aggregate = researchBatchCreateSchema.safeParse({ idempotencyKey: 'batch', runs: [{ ...run, queries: queries(25) }, { ...run, queries: queries(26) }] })
+    expect(aggregate.success).toBe(false)
+    if (!aggregate.success) expect(aggregate.error.issues).toEqual([
+      expect.objectContaining({ path: ['runs'], code: 'custom' }),
+    ])
     expect(researchBatchCreateSchema.safeParse({ idempotencyKey: 'batch', runs: [{ ...run, scope: { kind: 'market', key: 'north' } }] }).success).toBe(false)
     expect(researchBatchCreateSchema.safeParse({ idempotencyKey: 'batch', runs: [{ ...run, idempotencyKey: 'child' }] }).success).toBe(false)
   })

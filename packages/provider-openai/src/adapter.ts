@@ -21,7 +21,7 @@ import {
 } from './normalize.js'
 import type { OpenAIConfig, OpenAIRawResult, OpenAITrackedQueryInput } from './types.js'
 
-export function toOpenAIConfig(config: ProviderConfig): OpenAIConfig {
+function toOpenAIConfig(config: ProviderConfig): OpenAIConfig {
   return {
     apiKey: config.apiKey ?? '',
     model: config.model,

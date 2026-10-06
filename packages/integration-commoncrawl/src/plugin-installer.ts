@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { DUCKDB_SPEC, PLUGIN_DIR, PLUGIN_PKG_JSON } from './constants.js'
+import { DUCKDB_SPEC, PLUGIN_DIR } from './constants.js'
 import { isDuckdbInstalled, readInstalledVersion } from './plugin-resolver.js'
 
 export interface InstallDuckdbOptions {
@@ -39,7 +39,7 @@ export async function installDuckdb(opts: InstallDuckdbOptions = {}): Promise<In
   return { alreadyPresent: false, version, path: pluginDir }
 }
 
-export async function ensurePluginDir(pluginDir: string = PLUGIN_DIR, pluginPkgJson: string = PLUGIN_PKG_JSON): Promise<void> {
+async function ensurePluginDir(pluginDir: string, pluginPkgJson: string): Promise<void> {
   await fs.mkdir(pluginDir, { recursive: true })
   try {
     await fs.access(pluginPkgJson)

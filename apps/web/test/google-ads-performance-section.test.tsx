@@ -10,8 +10,8 @@ vi.mock('recharts', () => {
   const passthrough = ({ children }: { children?: React.ReactNode }) => <div>{children}</div>
   return {
     ResponsiveContainer: passthrough,
-    ComposedChart: passthrough,
-    Line: () => null,
+    ComposedChart: ({ children, data }: { children?: React.ReactNode; data?: readonly unknown[] }) => <div data-testid="ads-native-chart" data-points={JSON.stringify(data)}>{children}</div>,
+    Line: ({ dataKey, yAxisId }: { dataKey?: string; yAxisId?: string | number }) => <span data-testid="ads-native-line" data-key={dataKey} data-axis={yAxisId} />,
     XAxis: () => null,
     YAxis: () => null,
     Tooltip: () => null,
@@ -20,15 +20,8 @@ vi.mock('recharts', () => {
   }
 })
 
-import {
-  GOOGLE_ADS_COMPARISON_UNAVAILABLE_COPY,
-  GOOGLE_ADS_NOT_AVAILABLE,
-  GOOGLE_ADS_PERFORMANCE_EMPTY_BODY,
-  GOOGLE_ADS_PERFORMANCE_EMPTY_TITLE,
-  GoogleAdsPerformanceSection,
-  formatGoogleAdsChange,
-  formatGoogleAdsRatio,
-} from '../src/components/project/GoogleAdsPerformanceSection.js'
+import { GoogleAdsPerformanceSection } from '../src/components/project/GoogleAdsPerformanceSection.js'
+import { compileAppStyles, compiledElementProperty, parseCompiledCss } from './compiled-app-css.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 
 afterEach(() => {
@@ -152,11 +145,11 @@ function performanceDto(overrides: Partial<GoogleAdsPerformanceDto> = {}): Googl
   }
 }
 
-function renderSection(dto: GoogleAdsPerformanceDto, requested: string[] = []) {
+function renderSection(dto: GoogleAdsPerformanceDto, requested: string[] = [], windows: Partial<Record<string, GoogleAdsPerformanceDto>> = {}) {
   const restore = mockFetch((url) => {
     const path = pathOf(url)
     requested.push(path)
-    if (path.startsWith('/api/v1/projects/example/google-ads/performance')) return jsonResponse(dto)
+    if (path.startsWith('/api/v1/projects/example/google-ads/performance')) return jsonResponse(windows[new URL(path, window.location.origin).searchParams.get('window') ?? ''] ?? dto)
     return jsonResponse({ error: { message: `Unexpected request: ${path}` } }, 500)
   })
   onTestFinished(restore)
@@ -167,11 +160,26 @@ function renderSection(dto: GoogleAdsPerformanceDto, requested: string[] = []) {
       <GoogleAdsPerformanceSection projectName="example" />
     </QueryClientProvider>,
   )
-  return { requested }
+  return { requested, dispose() { cleanup(); restore(); queryClient.clear() } }
 }
 
 function campaignRow(name: string) {
   return screen.getByText(name).closest('tr')!
+}
+
+function campaignCell(name: string, column: string) {
+  const table = screen.getByRole('table', { name: 'Google Ads campaign performance for the selected window' })
+  const index = within(table).getAllByRole('columnheader').findIndex(header => header.textContent === column)
+  expect(index).toBeGreaterThanOrEqual(0)
+  return within(campaignRow(name)).getAllByRole('cell')[index]!
+}
+function metricTile(label: string) {
+  const text = screen.getAllByText(label).find(element => element.tagName === 'SPAN' || element.tagName === 'DT')!
+  expect(text).toBeDefined()
+  return text.closest('button') ?? text.parentElement!
+}
+function plottedSeries() {
+  return screen.getAllByTestId('ads-native-line').map(element => [element.getAttribute('data-key'), element.getAttribute('data-axis')])
 }
 
 describe('GoogleAdsPerformanceSection', () => {
@@ -237,7 +245,8 @@ describe('GoogleAdsPerformanceSection', () => {
     const dormant = campaignRow('Retargeting (paused)')
     // CTR and Cost/conv are both unavailable for a campaign that served
     // nothing, so assert at least one rather than a unique match.
-    expect(within(dormant).getAllByText(GOOGLE_ADS_NOT_AVAILABLE).length).toBeGreaterThan(0)
+    expect(campaignCell('Retargeting (paused)', 'CTR').textContent).toBe('not available')
+    expect(campaignCell('Retargeting (paused)', 'Cost / conv.').textContent).toBe('not available')
     expect(within(dormant).queryByText('0.0%')).toBeNull()
     expect(within(dormant).queryByText('0%')).toBeNull()
 
@@ -247,7 +256,9 @@ describe('GoogleAdsPerformanceSection', () => {
     // count rather than a unique match.
     // Two, not three: cost/conv has no comparison field at all, so it renders
     // no delta line rather than an "unavailable" one.
-    expect(screen.getAllByText(`${GOOGLE_ADS_NOT_AVAILABLE} vs prior 14d`).length).toBe(2)
+    expect(within(metricTile('Conversions')).getByText('not available vs prior 14d')).toBeTruthy()
+    expect(within(metricTile('Conv. rate')).getByText('not available vs prior 14d')).toBeTruthy()
+    expect(within(metricTile('Cost / conv.')).queryByText(/vs prior/)).toBeNull()
     expect(screen.queryByText('no change vs prior 14d')).toBeNull()
   })
 
@@ -261,8 +272,8 @@ describe('GoogleAdsPerformanceSection', () => {
       source: null,
     }))
 
-    await waitFor(() => expect(screen.getByText(GOOGLE_ADS_PERFORMANCE_EMPTY_TITLE)).toBeTruthy())
-    expect(screen.getByText(GOOGLE_ADS_PERFORMANCE_EMPTY_BODY)).toBeTruthy()
+    await waitFor(() => expect(screen.getByText('No Google Ads snapshot stored yet')).toBeTruthy())
+    expect(screen.getByText('Connect a Google Ads account in Conversion Integrity below, choose the customer, then run a Google Ads sync. Spend, clicks, impressions, and conversions appear here once the first snapshot is stored.')).toBeTruthy()
 
     // No tiles, no chart, no table: an empty snapshot is not a measured zero.
     expect(screen.queryByRole('table')).toBeNull()
@@ -278,7 +289,7 @@ describe('GoogleAdsPerformanceSection', () => {
 
     await waitFor(() => expect(screen.getByText('$1,284.50')).toBeTruthy())
 
-    expect(screen.getByText(GOOGLE_ADS_COMPARISON_UNAVAILABLE_COPY['insufficient-history'])).toBeTruthy()
+    expect(screen.getByText('Period change is hidden: the stored snapshot does not cover a prior period of equal length yet.')).toBeTruthy()
     // Not a single delta is printed, and above all not a 0%.
     expect(screen.queryByText(/vs prior/)).toBeNull()
     expect(screen.queryByText(/no change/)).toBeNull()
@@ -329,39 +340,47 @@ describe('GoogleAdsPerformanceSection', () => {
     expect(screen.queryByText(/so they are a subset/)).toBeNull()
   })
 
-  test('paints a falling cost per conversion as an improvement, not a loss', async () => {
-    // The defect this guards: a two-state up-is-good rule painted every fall
-    // red. Cost per conversion and CPC improve as they FALL, so a CPA blowout
-    // would have rendered green once these gained deltas.
-    const { changeToneClass } = await import('../src/components/project/GoogleAdsPerformanceSection.js') as unknown as
-      { changeToneClass?: (r: number | null, d: 'up-good' | 'down-good' | 'none') => string }
-    if (!changeToneClass) return
-    expect(changeToneClass(-0.2, 'down-good')).toContain('positive')
-    expect(changeToneClass(0.2, 'down-good')).toContain('negative')
-    expect(changeToneClass(0.2, 'up-good')).toContain('positive')
-    expect(changeToneClass(0.4, 'none')).toContain('muted')
-  })
 
   test('distinguishes wasted spend from an undefined cost per conversion', async () => {
-    // Spend with zero conversions is INFINITE cost per conversion. Spend-free is
-    // UNDEFINED. Both arrive as null and must not read the same.
-    renderSection(performanceDto())
-
-    await waitFor(() => expect(screen.getByText('$1,284.50')).toBeTruthy())
-    const dormant = campaignRow('Retargeting (paused)')
-    expect(within(dormant).queryByText('no conversions')).toBeNull()
+    const dto = performanceDto()
+    renderSection({ ...dto, totals: { ...dto.totals, costMicros: 42_000_000, conversions: 0, costPerConversionMicros: null }, campaigns: [
+      { campaignId: 'waste', name: 'Spend without conversions', status: 'enabled', totals: { ...EMPTY_TOTALS, impressions: 100, clicks: 8, costMicros: 42_000_000 } },
+      { campaignId: 'idle', name: 'No spend or conversions', status: 'paused', totals: { ...EMPTY_TOTALS } },
+    ] })
+    await screen.findByText('$42.00', { selector: 'span' })
+    expect(within(metricTile('Cost / conv.')).getByText('no conversions')).toBeTruthy()
+    const waste = campaignCell('Spend without conversions', 'Cost / conv.')
+    const badge = within(waste).getByText('no conversions')
+    const rules = parseCompiledCss(await compileAppStyles([...badge.classList]))
+    expect(compiledElementProperty(rules, badge, 'color')).toBe('var(--color-caution-text)')
+    expect(campaignCell('No spend or conversions', 'Cost / conv.').textContent).toBe('not available')
+    expect(within(campaignRow('No spend or conversions')).queryByText('no conversions')).toBeNull()
   })
 
   test('efficiency figures reach the operator, not just the CLI', async () => {
-    renderSection(performanceDto())
-
-    await waitFor(() => expect(screen.getByText('$1,284.50')).toBeTruthy())
-    // The four fields the page previously carried on the wire and never showed.
-    // Appears twice on purpose: a KPI tile and a campaign-table column.
-    expect(screen.getAllByText('Cost / conv.').length).toBe(2)
-    expect(screen.getByText('Conv. rate')).toBeTruthy()
-    expect(screen.getAllByText('CTR').length).toBe(2)
-    expect(screen.getByText('CPC')).toBeTruthy()
+    const cases = [
+      { key: 'missing', ratio: null, expected: 'not available' },
+      { key: 'measured-zero', ratio: 0, expected: '0%' },
+      { key: 'tiny-positive', ratio: 0.0004, expected: '<0.1%' },
+      { key: 'ordinary-rate', ratio: 0.073, expected: '7.3%' },
+      { key: 'rounded-rate', ratio: 0.0875, expected: '8.8%' },
+      { key: 'short-of-one', ratio: 0.9996, expected: '>99.9%' },
+      { key: 'multiple-conversions-per-click', ratio: 1.25, expected: '125.0%' },
+    ]
+    for (const entry of cases) {
+      const dto = performanceDto()
+      // These API-derived rates and micros deliberately disagree with raw counts.
+      const mounted = renderSection({ ...dto, totals: { ...dto.totals, ctr: 0.0875, conversionRate: entry.ratio, cpcMicros: 9_876_543, costPerConversionMicros: 17_250_000 } })
+      try {
+        await screen.findByText('$1,284.50')
+        expect(within(metricTile('Cost / conv.')).getByText('$17.25'), entry.key).toBeTruthy()
+        expect(within(metricTile('Conv. rate')).getByText(entry.expected), entry.key).toBeTruthy()
+        expect(within(metricTile('CTR')).getByText('8.8%'), entry.key).toBeTruthy()
+        expect(within(metricTile('CPC')).getByText('$9.88'), entry.key).toBeTruthy()
+        expect(screen.getAllByText('Cost / conv.')).toHaveLength(2)
+        expect(screen.getAllByText('CTR')).toHaveLength(2)
+      } finally { mounted.dispose() }
+    }
   })
 
   test('does not invent a currency when the account currency is unresolved', async () => {
@@ -376,33 +395,38 @@ describe('GoogleAdsPerformanceSection', () => {
     expect(screen.getByText('1,284.50')).toBeTruthy()
   })
 
-  test('renders no delta line for a metric the DTO cannot compare', async () => {
-    // Cost/conv has no field on comparison.change at all. "not available vs
-    // prior" would read as missing data rather than nothing computed.
-    renderSection(performanceDto())
 
-    await waitFor(() => expect(screen.getAllByText('Cost / conv.').length).toBe(2))
-    expect(screen.getAllByText(`${GOOGLE_ADS_NOT_AVAILABLE} vs prior 14d`).length).toBe(2)
-  })
-
-  test('clicks and impressions can be plotted from the rate strip', async () => {
-    renderSection(performanceDto())
-
-    await waitFor(() => expect(screen.getAllByText('Spend').length).toBeGreaterThan(0))
-    const clicks = screen.getByRole('button', { name: /Clicks/ })
-    expect(clicks.getAttribute('aria-pressed')).toBe('false')
-  })
 
   test('screen-reader series follow the plotted selection', async () => {
-    // The defect this guards: the SR list hard-coded Spend and Conversions
-    // while the tiles changed what was actually plotted, so a non-sighted
-    // reader got a different chart from a sighted one.
-    renderSection(performanceDto())
-
-    await waitFor(() => expect(screen.getAllByText('Spend').length).toBeGreaterThan(0))
-    fireEvent.click(screen.getByRole('button', { name: /Clicks/ }))
-
-    expect(screen.getByText(/Aug 3, 2026:.*Clicks/)).toBeTruthy()
+    for (const entry of [
+      { label: 'Clicks', key: 'clicks', axis: 'clicks', first: '60', second: '80' },
+      { label: 'Impressions', key: 'impressions', axis: 'impressions', first: '900', second: '1,100' },
+    ]) {
+      const mounted = renderSection(performanceDto())
+      try {
+        await screen.findByText('$1,284.50')
+        const toggle = screen.getByRole('button', { name: new RegExp(`^${entry.label}`) })
+        expect(toggle.getAttribute('aria-pressed')).toBe('false')
+        expect(plottedSeries()).toEqual([['costMicros', 'spend'], ['conversions', 'conversions']])
+        fireEvent.click(toggle)
+        expect(toggle.getAttribute('aria-pressed')).toBe('true')
+        expect(plottedSeries()).toEqual([['costMicros', 'spend'], ['conversions', 'conversions'], [entry.key, entry.axis]])
+        expect(screen.getByText(`Aug 3, 2026: Spend $84.00, Conversions 2.5, ${entry.label} ${entry.first}`)).toBeTruthy()
+        expect(screen.getByText(`Aug 4, 2026: Spend $96.00, Conversions 3, ${entry.label} ${entry.second}`)).toBeTruthy()
+        expect(JSON.parse(screen.getByTestId('ads-native-chart').getAttribute('data-points')!)).toEqual([
+          { date: '2026-08-03', origin: 'provider', impressions: 900, clicks: 60, costMicros: 84_000_000, conversions: 2.5, ctr: 60 / 900 },
+          { date: '2026-08-04', origin: 'provider', impressions: 1_100, clicks: 80, costMicros: 96_000_000, conversions: 3, ctr: 80 / 1_100 },
+          { date: '2026-08-05', origin: 'filled', impressions: 0, clicks: 0, costMicros: 0, conversions: 0, ctr: null },
+        ])
+        fireEvent.click(screen.getByRole('button', { name: /^Spend/ }))
+        fireEvent.click(screen.getByRole('button', { name: /^Conversions/ }))
+        expect(plottedSeries()).toEqual([[entry.key, entry.axis]])
+        expect(toggle.hasAttribute('disabled')).toBe(true)
+        fireEvent.click(toggle)
+        expect(plottedSeries()).toEqual([[entry.key, entry.axis]])
+        expect(screen.getByText(`Aug 3, 2026: ${entry.label} ${entry.first}`)).toBeTruthy()
+      } finally { mounted.dispose() }
+    }
   })
 
   test('names the time zone that decides when a day closes', async () => {
@@ -419,15 +443,6 @@ describe('GoogleAdsPerformanceSection', () => {
     expect(screen.queryByText(/syncing/i)).toBeNull()
   })
 
-  test('a small but real rate is not rendered as zero', () => {
-    // 0.04% is a measured rate. One decimal turned it into "0%", which asserts
-    // no rate at all, the same null-vs-zero confusion this surface avoids
-    // everywhere else.
-    expect(formatGoogleAdsRatio(0.0004)).toBe('<0.1%')
-    expect(formatGoogleAdsRatio(0)).toBe('0%')
-    expect(formatGoogleAdsRatio(null)).toBe(GOOGLE_ADS_NOT_AVAILABLE)
-    expect(formatGoogleAdsRatio(0.073)).toBe('7.3%')
-  })
 
   test('shows a loading state before the stored snapshot arrives', () => {
     renderSection(performanceDto())
@@ -438,20 +453,32 @@ describe('GoogleAdsPerformanceSection', () => {
 })
 
 describe('google ads ratio formatting', () => {
-  test('a null ratio is unavailable and a real ratio keeps its measured value', () => {
-    expect(formatGoogleAdsRatio(null)).toBe(GOOGLE_ADS_NOT_AVAILABLE)
-    expect(formatGoogleAdsRatio(0)).toBe('0%')
-    expect(formatGoogleAdsRatio(0.0875)).toBe('8.8%')
-    // Short of 100% never prints as 100%, and conversions can outnumber clicks,
-    // so a conversion rate past 100% is shown as it is.
-    expect(formatGoogleAdsRatio(0.9996)).toBe('>99.9%')
-    expect(formatGoogleAdsRatio(1.25)).toBe('125.0%')
-  })
 
-  test('a change of exactly zero is a measured no-change, unlike an absent one', () => {
-    expect(formatGoogleAdsChange(0, 7)).toBe('no change vs prior 7d')
-    expect(formatGoogleAdsChange(null, 7)).toBe(`${GOOGLE_ADS_NOT_AVAILABLE} vs prior 7d`)
-    expect(formatGoogleAdsChange(0.0004, 7)).toBe('↑ <0.1% vs prior 7d')
-    expect(formatGoogleAdsChange(-0.25, 30)).toBe('↓ 25.0% vs prior 30d')
+  test('a change of exactly zero is a measured no-change, unlike an absent one', async () => {
+    const cases = [
+      { ratio: 0, days: 7, window: '7d' as const, start: '2026-08-08', priorStart: '2026-08-01', priorEnd: '2026-08-07', text: 'no change vs prior 7d', color: 'var(--color-text-muted)' },
+      { ratio: null, days: 7, window: '7d' as const, start: '2026-08-08', priorStart: '2026-08-01', priorEnd: '2026-08-07', text: 'not available vs prior 7d', color: 'var(--color-text-muted)' },
+      { ratio: 0.0004, days: 7, window: '7d' as const, start: '2026-08-08', priorStart: '2026-08-01', priorEnd: '2026-08-07', text: '↑ <0.1% vs prior 7d', color: 'var(--color-positive-text)' },
+      { ratio: -0.25, days: 30, window: '30d' as const, start: '2026-07-16', priorStart: '2026-06-16', priorEnd: '2026-07-15', text: '↓ 25.0% vs prior 30d', color: 'var(--color-negative-text)' },
+    ]
+    for (const entry of cases) {
+      const dto = performanceDto()
+      const selected: GoogleAdsPerformanceDto = { ...dto, window: entry.window, days: entry.days, startDate: entry.start,
+        comparison: { days: entry.days, prior: { startDate: entry.priorStart, endDate: entry.priorEnd, days: entry.days, totals: { ...EMPTY_TOTALS } }, change: { ...dto.comparison!.change, costMicros: entry.ratio, conversions: entry.ratio } } }
+      const requested: string[] = []
+      const mounted = renderSection(dto, requested, { [entry.window]: selected })
+      try {
+        await screen.findByText('$1,284.50')
+        fireEvent.click(within(screen.getByRole('group', { name: 'Google Ads time period' })).getByRole('button', { name: entry.window }))
+        await waitFor(() => expect(within(metricTile('Conversions')).getByText(entry.text)).toBeTruthy())
+        const change = within(metricTile('Conversions')).getByText(entry.text)
+        const spendChange = within(metricTile('Spend')).getByText(entry.text)
+        const rules = parseCompiledCss(await compileAppStyles([...change.classList, ...spendChange.classList]))
+        expect(compiledElementProperty(rules, change, 'color')).toBe(entry.color)
+        expect(compiledElementProperty(rules, spendChange, 'color')).toBe('var(--color-text-muted)')
+        expect(requested).toEqual(['/api/v1/projects/example/google-ads/performance?window=14d', `/api/v1/projects/example/google-ads/performance?window=${entry.window}`])
+        expect(within(metricTile('Cost / conv.')).queryByText(/vs prior/)).toBeNull()
+      } finally { mounted.dispose() }
+    }
   })
 })

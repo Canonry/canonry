@@ -84,7 +84,7 @@ export interface DrainVercelTrafficEventsOptions {
   maxSubWindows: number
   /**
    * Optional wall-clock deadline (epoch ms). Checked before each sub-window
-   * pull: once `now() >= deadlineMs` the drain stops and returns what it has
+   * pull: once `Date.now() >= deadlineMs` the drain stops and returns what it has
    * drained so far with `deadlineReached: true` and `drainedThroughMs` set to
    * the last fully-drained instant. An additive incremental-sync caller commits
    * that partial window and advances `lastSyncedAt` to `drainedThroughMs`, so a
@@ -94,8 +94,6 @@ export interface DrainVercelTrafficEventsOptions {
    * the original behaviour, which replace-mode backfill keeps.
    */
   deadlineMs?: number
-  /** Injectable clock for the deadline check; defaults to `Date.now`. Tests override it. */
-  now?: () => number
   /**
    * Fail immediately if a floor-width slice overflows even `FLOOR_SLICE_MAX_PAGES`
    * instead of sampling-and-advancing past it. Replace-mode callers (backfill)
@@ -279,7 +277,6 @@ export async function drainVercelTrafficEvents(
 ): Promise<DrainVercelTrafficEventsResult> {
   const startMs = toMs(options.startDate)
   const endMs = toMs(options.endDate)
-  const now = options.now ?? (() => Date.now())
 
   const events: NormalizedTrafficRequest[] = []
   const seenEventIds = new Set<string>()
@@ -307,7 +304,7 @@ export async function drainVercelTrafficEvents(
     // deadline passes. Normally `cursorMs` is the last fully-drained boundary,
     // so the caller commits `[startMs, cursorMs]` and resumes there next run
     // rather than letting one sync grind the whole window unbounded.
-    if (options.deadlineMs !== undefined && now() >= options.deadlineMs) {
+    if (options.deadlineMs !== undefined && Date.now() >= options.deadlineMs) {
       deadlineReached = true
       // Guarantee forward progress. If the run actually attempted pulls
       // (`subWindowCount > 0`) but burned its whole budget narrowing the head

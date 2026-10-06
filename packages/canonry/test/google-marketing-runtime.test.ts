@@ -26,7 +26,7 @@ function baseConfig(): CanonryConfig {
   }
 }
 
-function googleAdsConfig(expired = false): CanonryConfig {
+function googleAdsConfig(expired = false) {
   return {
     ...baseConfig(),
     googleAds: {
@@ -42,7 +42,7 @@ function googleAdsConfig(expired = false): CanonryConfig {
         updatedAt: '2026-08-01T00:00:00.000Z',
       }],
     },
-  }
+  } satisfies CanonryConfig
 }
 
 function gtmConfig(expired = false): CanonryConfig {
@@ -672,6 +672,7 @@ describe('Google Ads sync', () => {
               origin: 'WEBSITE',
               primaryForGoal: true,
               includeInConversionsMetric: true,
+              tagSnippets: [{ globalSiteTag: 'RAW-SECRET-PRIMARY-SNIPPET' }],
             },
           },
         ] }])
@@ -861,12 +862,13 @@ describe('Google Ads sync', () => {
     })
     expect(result.inventory.metadata.rawPayloadSha256).toBeNull()
     expect(result.inventory.metadata.rawPayloadBytes).toBeNull()
-    expect(result.inventory.metadata.redactedFieldCount).toBeGreaterThan(0)
+    expect(result.inventory.metadata.redactedFieldCount).toBe(2)
     const serialized = JSON.stringify(result)
     expect(serialized).not.toContain('old-ads-access-token')
     expect(serialized).not.toContain('ads-refresh-token')
     expect(serialized).not.toContain('env-developer-token')
     expect(serialized).not.toContain('RAW-SECRET-EVENT-SNIPPET')
+    expect(serialized).not.toContain('RAW-SECRET-PRIMARY-SNIPPET')
   })
 
   it('rejects metrics windows over 31 days before making a provider request', async () => {

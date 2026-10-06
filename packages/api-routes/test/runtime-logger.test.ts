@@ -77,13 +77,23 @@ describe('runtime logger', () => {
     const app = Fastify({ loggerInstance: createFastifyLogger({ enabled: false }) })
     app.get('/:id', async request => {
       request.log.info({ reqId: 'spoofed-req', requestId: 'spoofed', actor: 'spoofed', credentialId: 'spoofed', marker: request.params }, 'request')
-      return { ok: true }
+      return { id: (request.params as { id: string }).id, requestId: request.id }
     })
-    await Promise.all([app.inject('/one'), app.inject('/two')])
+    const responses = await Promise.all([app.inject('/one'), app.inject('/two')])
     await app.close()
     stop()
     const matching = entries.filter(entry => entry.msg === 'request')
     expect(matching).toHaveLength(2)
+    const identities = responses.map(response => {
+      expect(response.statusCode).toBe(200)
+      const identity = response.json<{ id: string; requestId: string }>()
+      expect(identity.requestId).toMatch(/\S/)
+      return identity
+    })
+    expect(new Set(identities.map(identity => identity.requestId)).size).toBe(2)
+    expect(matching.map(entry => ({
+      id: (entry.marker as { id: string }).id, requestId: entry.requestId,
+    })).sort((a, b) => a.id.localeCompare(b.id))).toEqual(identities.sort((a, b) => a.id.localeCompare(b.id)))
     expect(matching.map(entry => entry.requestId)).not.toContain('spoofed')
     expect(matching.map(entry => entry.requestId)).not.toContain('spoofed-req')
     expect(matching.map(entry => JSON.stringify(entry.marker)).sort()).toEqual(['{"id":"one"}', '{"id":"two"}'])
@@ -97,12 +107,20 @@ describe('runtime logger', () => {
     const circular: Record<string, unknown> = {}
     circular.self = circular
 
-    expect(() => createLogger('Worker').error('run.failed', { authorization: 'Bearer output-secret', circular, url: 'https://user:pass@example.test/?token=truncated' })).not.toThrow()
+    expect(() => createLogger('Worker').error('run.failed', {
+      authorization: 'Bearer output-secret', circular, url: 'https://user:pass@example.test/?token=truncated',
+      error: new Error('Failed fetching https://user:fake-password@example.invalid/path?api_key=fake-query-secret&safe=yes'),
+      responseBody: 'Authorization: Bearer fake-bearer-secret',
+    })).not.toThrow()
     stop()
+    expect(entries).toHaveLength(1)
+    expect(entries[0]?.action).toBe('run.failed')
     const captured = JSON.stringify(entries)
     const output = writes.join('')
-    expect(captured).not.toMatch(/output-secret|user:pass|truncated/)
-    expect(output).not.toMatch(/output-secret|user:pass|truncated/)
+    expect(captured).not.toMatch(/output-secret|user:pass|truncated|fake-password|fake-query-secret|fake-bearer-secret/)
+    expect(output).not.toMatch(/output-secret|user:pass|truncated|fake-password|fake-query-secret|fake-bearer-secret/)
+    expect(captured).toContain('example.invalid')
+    expect(output).toContain('example.invalid')
     expect(output).toContain('"action":"run.failed"')
   })
 })

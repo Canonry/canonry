@@ -241,7 +241,7 @@ function gtmSetupAction(
   }
 }
 
-export function conversionIntegrityPrimaryAction(
+function conversionIntegrityPrimaryAction(
   workspace: ConversionIntegrityWorkspaceVm,
 ): PrimaryActionPresentation {
   if (workspace.googleAds.state === 'not-connected') {
@@ -526,9 +526,9 @@ function providerRow({
  * two connections are independent, but a conversion names resources from each,
  * so it is the only genuinely dependent action here.
  */
-export const CONVERSION_TO_CHECK_HELP = 'A conversion names the website event, the Google Ads conversion action, and the Tag Manager tag that must agree. It needs both connections selected because it references resources from each.'
+const CONVERSION_TO_CHECK_HELP = 'A conversion names the website event, the Google Ads conversion action, and the Tag Manager tag that must agree. It needs both connections selected because it references resources from each.'
 
-export const CONVERSION_TO_CHECK_BLOCKED = 'Available once Google Ads and Tag Manager are connected.'
+const CONVERSION_TO_CHECK_BLOCKED = 'Available once Google Ads and Tag Manager are connected.'
 
 /**
  * Shown ONLY before anything is connected.
@@ -538,7 +538,7 @@ export const CONVERSION_TO_CHECK_BLOCKED = 'Available once Google Ads and Tag Ma
  * exception: there is no data to push down, and a reader who does not know what
  * the feature is cannot decide whether to connect two Google accounts to it.
  */
-export const CONVERSION_INTEGRITY_PURPOSE = 'Check that a conversion is wired the same way in Google Ads and Tag Manager, so the numbers you optimise against are the ones your site actually sends. Canonry only reads the configuration; it never changes or publishes it.'
+const CONVERSION_INTEGRITY_PURPOSE = 'Check that a conversion is wired the same way in Google Ads and Tag Manager, so the numbers you optimise against are the ones your site actually sends. Canonry only reads the configuration; it never changes or publishes it.'
 
 function ConversionIntegritySetup({
   workspace,

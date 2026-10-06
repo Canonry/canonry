@@ -14,11 +14,13 @@ describe('buildCloudRunLogFilter', () => {
       endTime: '2026-04-30T11:00:00.000Z',
     })
 
-    expect(filter).toContain('resource.type="cloud_run_revision"')
-    expect(filter).toContain('resource.labels.service_name="canonry-web"')
-    expect(filter).toContain('resource.labels.location="us-central1"')
-    expect(filter).toContain('timestamp >= "2026-04-30T10:00:00.000Z"')
-    expect(filter).toContain('timestamp < "2026-04-30T11:00:00.000Z"')
+    expect(filter).toBe(
+      'resource.type="cloud_run_revision"'
+      + ' AND resource.labels.service_name="canonry-web"'
+      + ' AND resource.labels.location="us-central1"'
+      + ' AND timestamp >= "2026-04-30T10:00:00.000Z"'
+      + ' AND timestamp < "2026-04-30T11:00:00.000Z"',
+    )
   })
 
   it('escapes filter values and can add user-agent narrowing clauses', () => {
@@ -63,7 +65,10 @@ describe('normalizeCloudRunLogEntry', () => {
       },
     })
 
-    expect(event).toMatchObject({
+    expect(event).toEqual({
+      sourceType: 'cloud-run',
+      evidenceKind: 'raw-request',
+      confidence: 'observed',
       eventId: 'cloud-run:2026-04-30T12:00:00.123Z:abc123',
       observedAt: '2026-04-30T12:00:00.123Z',
       method: 'GET',
@@ -92,12 +97,16 @@ describe('normalizeCloudRunLogEntry', () => {
     })
   })
 
-  it('drops non-request log entries that have no httpRequest/requestUrl evidence', () => {
+  it.each([
+    ['no httpRequest', { textPayload: 'application log' }],
+    ['missing requestUrl', { httpRequest: { requestMethod: 'GET' } }],
+    ['invalid requestUrl', { httpRequest: { requestUrl: 'not a URL' } }],
+  ])('drops request log entries with %s', (_description, entry) => {
     expect(normalizeCloudRunLogEntry({
       insertId: 'log-line',
       timestamp: '2026-04-30T12:00:00.123Z',
       resource: { type: 'cloud_run_revision', labels: {} },
-      textPayload: 'application log',
+      ...entry,
     })).toBeNull()
   })
 })

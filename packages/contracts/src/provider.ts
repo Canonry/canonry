@@ -54,16 +54,6 @@ export const CDP_TARGETS = ['cdp:chatgpt'] as const
 export type CdpTarget = (typeof CDP_TARGETS)[number]
 
 /**
- * Normalize a user-supplied string to a lowercased provider name.
- * Returns the trimmed, lowercased string, or undefined for empty input.
- * Callers should validate the result against the set of registered adapters.
- */
-export function parseProviderName(input: string): string | undefined {
-  const lower = input.trim().toLowerCase()
-  return lower || undefined
-}
-
-/**
  * Parse a provider input that may be 'cdp' (expands to all CDP targets)
  * or a single provider name. Returns an array of resolved provider names.
  */

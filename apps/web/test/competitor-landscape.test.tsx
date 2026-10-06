@@ -6,7 +6,6 @@ import {
   type CompetitorLandscapeData,
   type CompetitorLandscapeRow,
 } from '../src/components/project/CompetitorLandscape.js'
-import { METRIC_TONE_TEXT_CLASS } from '../src/lib/tone-helpers.js'
 import { ainycLandscape } from './ainyc-visibility-fixture.js'
 
 afterEach(cleanup)
@@ -110,10 +109,14 @@ describe('CompetitorLandscape', () => {
 
     const you = gridRow(YOU)
     expect(you.textContent).toBe('Canonry (you)Your brand31.7%13 of 8817 of 88')
+    const ownHeader = within(you).getByRole('rowheader', { name: 'Canonry (you)' })
+    expect(ownHeader.querySelector('.av-of')?.textContent).toBe('(you)')
+    expect(within(you).getAllByRole('cell')[0]!.textContent).toBe('Your brand')
     // 31.7% sits in the mention-share caution band, and the whole row reads in it.
     expect(you.querySelectorAll('.text-caution-400')).toHaveLength(3)
     const rival = gridRow('pbjmarketing.com')
     expect(rival.textContent).toBe('pbjmarketing.comCompetitor68.3%28 of 8828 of 88')
+    expect(within(rival).getAllByRole('cell')[0]!.textContent).toBe('Competitor')
     expect(rival.querySelector('.text-caution-400')).toBeNull()
     expect(within(grid()).getAllByRole('rowheader')).toHaveLength(2)
 
@@ -131,6 +134,12 @@ describe('CompetitorLandscape', () => {
       'Other sites cited: top 100',
     ])
     expect(container.textContent).not.toMatch(/not tracked|Share of voice/)
+    expect(bullets).not.toContain('Tracked competitors only')
+
+    cleanup()
+    // Retain the component's defensive blank-label fallback.
+    renderLandscape({ landscape: landscape({ project: row({ domain: 'canonry.example', label: ' ', surfaceClass: 'own', shareOfVoice: 50 }) }) })
+    expect(within(grid()).getAllByRole('rowheader')[0]!.textContent).toBe('You')
   })
 
   test('opens the names and other-site lists inside Details', () => {
@@ -181,14 +190,20 @@ describe('CompetitorLandscape', () => {
     expect(within(table).getAllByRole('cell').filter(cell => cell.textContent === 'Competitor')).toHaveLength(8)
   })
 
-  test('keeps pins and actions to operators, never viewers or embeds', () => {
+  test('keeps pins and actions to operators, never viewers or embeds', async () => {
     const onPin = vi.fn()
     const onUnpin = vi.fn()
     renderLandscape({ onPin, onUnpin })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Unpin pinned.example' }))
+    const unpinButton = screen.getByRole('button', { name: 'Unpin pinned.example' })
+    fireEvent.click(unpinButton)
+    await waitFor(() => expect(unpinButton).toHaveProperty('disabled', false))
+    expect(onUnpin).toHaveBeenCalledTimes(1)
     expect(onUnpin).toHaveBeenCalledWith('pinned.example')
-    fireEvent.click(screen.getByRole('button', { name: 'Pin observed.example' }))
+    const pinButton = screen.getByRole('button', { name: 'Pin observed.example' })
+    fireEvent.click(pinButton)
+    await waitFor(() => expect(pinButton).toHaveProperty('disabled', false))
+    expect(onPin).toHaveBeenCalledTimes(1)
     expect(onPin).toHaveBeenCalledWith('observed.example')
     cleanup()
 
@@ -358,18 +373,22 @@ describe('CompetitorLandscape', () => {
   })
 
   test('marks Advanced draft-only competitors as pending publication', () => {
-    renderLandscape({
-      landscape: landscape({
-        scope: { kind: 'group', groupKey: 'north' },
-        marketState: {
-          activeRevision: 7,
-          draft: { etag: '"mpd_7"', pendingCompetitorDomains: ['pending.example'] },
-        },
-      }),
-    })
-
-    // In view under the grid: it explains why a just-added competitor has no row yet.
-    expect([...document.querySelectorAll('.av-card-body p')].map(line => line.textContent)).toContain('Pending publication: 1 competitor')
+    const cases: { scope: CompetitorLandscapeData['scope']; domains: string[]; note: string }[] = [
+      { scope: { kind: 'group', groupKey: 'north' }, domains: ['pending.example'], note: 'Pending publication: 1 competitor' },
+      // Preserve the original restored-note input; this is defensive presentation, not server market-scope proof.
+      { scope: { kind: 'project' }, domains: ['pending.example', 'later.example'], note: 'Pending publication: 2 competitors' },
+    ]
+    for (const fixture of cases) {
+      const { container } = renderLandscape({
+        landscape: landscape({
+          scope: fixture.scope,
+          marketState: { activeRevision: 7, draft: { etag: '"mpd_7"', pendingCompetitorDomains: fixture.domains } },
+        }),
+      })
+      // In view under the grid, before opening Details.
+      expect([...container.querySelectorAll('.av-card-body p')].map(line => line.textContent)).toContain(fixture.note)
+      cleanup()
+    }
   })
 })
 
@@ -387,15 +406,21 @@ test('explains unmeasured share without hiding counts', () => {
 test('an observed basis puts the admitted competitors in the grid and says so', () => {
   const admitted = row({ domain: 'admitted.example', mentionCount: 6, shareOfVoice: 30 })
   const below = row({ domain: 'below.example', mentionCount: 2, shareOfVoice: null })
-  const { container } = renderLandscape({ landscape: landscape({ basis: 'observed', pinned: [], observed: [admitted, below] }) })
-
-  expect(within(grid()).getAllByRole('rowheader').map(cell => cell.textContent)).toEqual(['Canonry (you)', 'Rival admitted.example'])
-  expect(screen.getByRole('button', { name: 'Pin admitted.example' })).toBeTruthy()
-  expect(container.querySelector('.av-card-meta')?.textContent).toBe('Non-brand · last 30 days · observed competitors only')
-  expect(detailsList(container).bullets).toEqual(expect.arrayContaining([
-    'Mention share: you 4, admitted.example 6 of 11 brand mentions',
-    'Other competitors seen: 1',
-  ]))
+  for (const fixture of [
+    { observed: [admitted, below], otherNote: 'Other competitors seen: 1' },
+    { observed: [admitted], otherNote: 'Other competitors seen: none' },
+  ]) {
+    const { container } = renderLandscape({ landscape: landscape({ basis: 'observed', pinned: [], observed: fixture.observed }) })
+    expect(within(grid()).getAllByRole('rowheader').map(cell => cell.textContent)).toEqual(['Canonry (you)', 'Rival admitted.example'])
+    expect(screen.getByRole('button', { name: 'Pin admitted.example' })).toBeTruthy()
+    expect(container.querySelector('.av-card-meta')?.textContent).toBe('Non-brand · last 30 days · observed competitors only')
+    expect(detailsList(container).bullets).toEqual(expect.arrayContaining([
+      'Mention share: you 4, admitted.example 6 of 11 brand mentions',
+      fixture.otherNote,
+    ]))
+    expect(detailsList(container).bullets).not.toContain('Tracked competitors only')
+    cleanup()
+  }
 })
 
 test('explains why a class must be selected, and never tones a pooled share', () => {
@@ -418,40 +443,12 @@ describe('CompetitorLandscape restored figures (a cleanup never removes data)', 
     return [...container.querySelectorAll('.av-card-body p')].map(line => line.textContent ?? '')
   }
 
-  test('says in the meta line whether the rows are tracked or observed competitors', () => {
-    const { container } = renderLandscape({ landscape: ainycLandscape(), canWrite: false })
-    expect(container.querySelector('.av-card-meta')?.textContent).toBe('Non-brand · last 30 days · tracked competitors only')
-    expect(detailsList(container).bullets).not.toContain('Tracked competitors only')
-    cleanup()
-    const admitted = row({ domain: 'admitted.example', mentionCount: 6, shareOfVoice: 30 })
-    const observed = renderLandscape({ landscape: landscape({ basis: 'observed', pinned: [], observed: [admitted] }) })
-    expect(observed.container.querySelector('.av-card-meta')?.textContent).toBe('Non-brand · last 30 days · observed competitors only')
-  })
-
   test('says "No pinned competitors." when none are pinned', () => {
     const { container } = renderLandscape({ landscape: landscape({ basis: null, reason: 'no-competitors', pinned: [], observed: [] }) })
     expect(visibleNotes(container)).toContain('No pinned competitors.')
     cleanup()
     const pinned = renderLandscape()
     expect(visibleNotes(pinned.container)).not.toContain('No pinned competitors.')
-  })
-
-  test('names your row by the project\'s display name, as before the cleanup', () => {
-    renderLandscape({ landscape: ainycLandscape(), canWrite: false })
-    const you = within(grid()).getAllByRole('rowheader')[0]!
-    expect(you.textContent).toBe('Canonry (you)')
-    expect(you.querySelector('.av-of')?.textContent).toBe('(you)')
-    cleanup()
-    // A project with no name to show still reads as yours.
-    renderLandscape({ landscape: landscape({ project: row({ domain: 'canonry.example', label: ' ', surfaceClass: 'own', shareOfVoice: 50 }) }) })
-    expect(within(grid()).getAllByRole('rowheader')[0]!.textContent).toBe('You')
-  })
-
-  test('restores the Type column in the main grid', () => {
-    renderLandscape({ landscape: ainycLandscape(), canWrite: false })
-    expect(within(grid()).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Brand', 'Type', 'Mention share', 'Named', 'Cited'])
-    expect(gridRow(YOU).querySelectorAll('td')[0]!.textContent).toBe('Your brand')
-    expect(gridRow('pbjmarketing.com').querySelectorAll('td')[0]!.textContent).toBe('Competitor')
   })
 
   test('shows a display name beside its domain, and the domain alone when the name only repeats it', () => {
@@ -474,17 +471,6 @@ describe('CompetitorLandscape restored figures (a cleanup never removes data)', 
     expect(within(sites).getByText('Review site (review.example) · Editorial · 7 citations')).toBeTruthy()
   })
 
-  test('restores the source-link count and says when no other competitor was seen', () => {
-    const { container } = renderLandscape({ landscape: ainycLandscape() })
-    expect(detailsList(container).bullets).toEqual(expect.arrayContaining([
-      'Answers with source links: 86',
-      'Other competitors seen: none',
-    ]))
-    cleanup()
-    const withOthers = renderLandscape()
-    expect(detailsList(withOthers.container).bullets).not.toContain('Other competitors seen: none')
-  })
-
   test('says in the tooltip that company names are observations', () => {
     renderLandscape()
     const heading = screen.getByRole('heading', { name: 'Competitors over time' })
@@ -496,7 +482,7 @@ describe('CompetitorLandscape restored figures (a cleanup never removes data)', 
     const { container } = renderLandscape()
     const warning = [...container.querySelectorAll('.av-card-body p')].find(line => line.textContent === 'Answer data incomplete · Citation data incomplete')!
     expect(warning).toBeTruthy()
-    expect(warning.className).toContain(METRIC_TONE_TEXT_CLASS.caution)
+    expect(warning.classList.contains('text-caution-400')).toBe(true)
     cleanup()
     const complete = renderLandscape({ landscape: ainycLandscape() })
     // ainyc has two incomplete source lists and every answer's text.
@@ -509,19 +495,17 @@ describe('CompetitorLandscape restored figures (a cleanup never removes data)', 
     expect(detailsList(container).bullets).not.toContain('Mention share: no competitors configured')
   })
 
-  test('shows competitors pending publication without opening Details', () => {
-    const { container } = renderLandscape({
-      landscape: landscape({ marketState: { activeRevision: 7, draft: { etag: '"mpd_7"', pendingCompetitorDomains: ['pending.example', 'later.example'] } } }),
-    })
-    expect(visibleNotes(container)).toContain('Pending publication: 2 competitors')
-  })
-
   test('counts the other competitors seen in the card body, with the table left in Details', () => {
-    const { container } = renderLandscape({ landscape: landscape({ observed: observedRows(8) }) })
-    expect(visibleNotes(container)).toContain('8 other competitors seen')
-    expect(screen.getByText(/Other competitors seen/).closest('details')?.classList.contains('av-subdetails')).toBe(true)
-    cleanup()
-    const truncated = renderLandscape({ landscape: landscape({ observed: observedRows(100), truncated: true }) })
-    expect(visibleNotes(truncated.container)).toContain('100 or more other competitors seen')
+    for (const fixture of [
+      { data: landscape(), note: '1 other competitor seen' },
+      { data: landscape({ observed: observedRows(8) }), note: '8 other competitors seen' },
+      { data: landscape({ observed: observedRows(100), truncated: true }), note: '100 or more other competitors seen' },
+    ]) {
+      const { container } = renderLandscape({ landscape: fixture.data })
+      expect(visibleNotes(container)).toContain(fixture.note)
+      expect(detailsList(container).bullets).not.toContain('Other competitors seen: none')
+      expect(screen.getByText(/Other competitors seen/).closest('details')?.classList.contains('av-subdetails')).toBe(true)
+      cleanup()
+    }
   })
 })

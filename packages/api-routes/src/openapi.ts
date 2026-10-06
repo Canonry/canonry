@@ -2372,6 +2372,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/runs/{id}',
     summary: 'Get a run and its snapshots',
+    description: 'Includes independent citation and mention counts over distinct observed query IDs in this exact run. queryCounts is null when any snapshot lacks query identity; these counts are not planned-slot completeness.',
     tags: ['runs'],
     parameters: [runIdParameter],
     responses: {

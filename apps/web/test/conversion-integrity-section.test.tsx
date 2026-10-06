@@ -3,11 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ConversionTrackingContract } from '@ainyc/canonry-contracts'
 
 import {
-  CONVERSION_INTEGRITY_PURPOSE,
-  CONVERSION_TO_CHECK_BLOCKED,
-  CONVERSION_TO_CHECK_HELP,
   ConversionIntegritySection,
-  conversionIntegrityPrimaryAction,
   type ConversionIntegrityWorkspaceVm,
 } from '../src/components/project/ConversionIntegritySection.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
@@ -235,17 +231,22 @@ describe('ConversionIntegritySection', () => {
         lastSnapshotAt: null,
       },
     })
-    render(<ConversionIntegritySection workspace={unconnected} onPrimaryAction={action} />)
+    const page = render(<ConversionIntegritySection workspace={unconnected} onPrimaryAction={action} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Connect Google Ads' }))
-    expect(action).toHaveBeenCalledWith('connect-google-ads')
+    expect(action).toHaveBeenCalledExactlyOnceWith('connect-google-ads')
 
     // Setup prose is gone from the page and lives on the heading's tooltip, so
     // nothing is lost for assistive tech or for a reader who wants the detail.
     expect(screen.queryByText(/Connect your existing Google accounts/)).toBeNull()
     expect(screen.queryByText(/It does not change or publish it/)).toBeNull()
     expect(screen.getByRole('button', { name: /never changes or publishes it/ })).toBeTruthy()
-    expect(conversionIntegrityPrimaryAction(unconnected)).toMatchObject({ id: 'connect-google-ads' })
+
+    // A retained contract uses the main primary action, rather than the separate setup-step action.
+    action.mockClear()
+    page.rerender(<ConversionIntegritySection workspace={{ ...unconnected, contract }} onPrimaryAction={action} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Connect Google Ads' }))
+    expect(action).toHaveBeenCalledExactlyOnceWith('connect-google-ads')
   })
 
   test('replaces the no-contract workspace with one focused setup path', () => {
@@ -298,9 +299,9 @@ describe('ConversionIntegritySection', () => {
     // The gate that IS real survives: both ready, so the action is offered.
     expect(screen.getAllByText('Ready')).toHaveLength(2)
     expect(screen.getByRole('button', { name: 'Declare conversion' })).toBeTruthy()
-    expect(screen.queryByText(CONVERSION_TO_CHECK_BLOCKED)).toBeNull()
+    expect(screen.queryByText('Available once Google Ads and Tag Manager are connected.')).toBeNull()
     // The explanation lives on the tooltip, not in the layout.
-    expect(screen.getByRole('button', { name: CONVERSION_TO_CHECK_HELP })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'A conversion names the website event, the Google Ads conversion action, and the Tag Manager tag that must agree. It needs both connections selected because it references resources from each.' })).toBeTruthy()
   })
 
   test('keeps both Change affordances reachable from the compact status line', () => {
@@ -331,7 +332,7 @@ describe('ConversionIntegritySection', () => {
     expect(changeGoogleAdsSelection).toHaveBeenCalledTimes(1)
     // Half-connected: the conversion action stays gated and says so once.
     expect(screen.queryByRole('button', { name: 'Declare conversion' })).toBeNull()
-    expect(screen.getByText(CONVERSION_TO_CHECK_BLOCKED)).toBeTruthy()
+    expect(screen.getByText('Available once Google Ads and Tag Manager are connected.')).toBeTruthy()
 
     rerender(
       <ConversionIntegritySection
@@ -471,15 +472,19 @@ describe('ConversionIntegritySection', () => {
 
 
   test('explains what the feature is before anything is connected', () => {
-    // Onboarding is the one state where instruction IS the content: a reader who
-    // does not know what this does cannot decide whether to connect two Google
-    // accounts to it. Every other state keeps prose in a tooltip.
-    render(<ConversionIntegritySection onPrimaryAction={() => {}} />)
-    expect(screen.getByText(CONVERSION_INTEGRITY_PURPOSE)).toBeTruthy()
+    const { rerender } = render(<ConversionIntegritySection onPrimaryAction={() => {}} />)
+    expect(screen.getByText('Check that a conversion is wired the same way in Google Ads and Tag Manager, so the numbers you optimise against are the ones your site actually sends. Canonry only reads the configuration; it never changes or publishes it.')).toBeTruthy()
+    const notConnected = { state: 'not-connected' as const, selection: null, snapshotCount: 0, evidence: 'No stored evidence yet.', lastSnapshotAt: null }
+    for (const settled of [
+      workspace(),
+      workspace({ contract: null, assessment: null }),
+      workspace({ contract: null, assessment: null, gtm: notConnected }),
+      workspace({ contract: null, assessment: null, googleAds: notConnected }),
+    ]) {
+      rerender(<ConversionIntegritySection workspace={settled} />)
+      expect(screen.queryByText('Check that a conversion is wired the same way in Google Ads and Tag Manager, so the numbers you optimise against are the ones your site actually sends. Canonry only reads the configuration; it never changes or publishes it.')).toBeNull()
+    }
   })
 
-  test('drops the purpose copy once a connection settles', () => {
-    render(<ConversionIntegritySection workspace={workspace()} />)
-    expect(screen.queryByText(CONVERSION_INTEGRITY_PURPOSE)).toBeNull()
-  })
+
 })

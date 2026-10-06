@@ -806,9 +806,14 @@ describe('filling a batch run', () => {
     const startedAt = new Date(finishedAt - 30 * HOUR).toISOString()
     db.update(runs).set({ createdAt: startedAt, startedAt }).where(eq(runs.id, runId)).run()
 
-    expect(queueRunFill(db, runId, { now: new Date(finishedAt + 25 * HOUR) })).toMatchObject({ kind: 'refused', code: 'too_old' })
-    const admitted = queueRunFill(db, runId, { now: new Date(finishedAt + 23 * HOUR) })
+    vi.useFakeTimers({ toFake: ['Date'] })
+    onTestFinished(() => vi.useRealTimers())
+    vi.setSystemTime(finishedAt + 25 * HOUR)
+    expect(queueRunFill(db, runId)).toMatchObject({ kind: 'refused', code: 'too_old' })
+    vi.setSystemTime(finishedAt + 23 * HOUR)
+    const admitted = queueRunFill(db, runId)
     if (admitted.kind !== 'queued') throw new Error(`fill not admitted: ${admitted.kind}`)
+    expect(admitted.fill.createdAt).toBe(new Date(finishedAt + 23 * HOUR).toISOString())
     await runner.executeRunFill(admitted.fill.id)
 
     expect(db.select().from(runFills).where(eq(runFills.id, admitted.fill.id)).get()).toMatchObject({ status: 'completed', filled: 1 })

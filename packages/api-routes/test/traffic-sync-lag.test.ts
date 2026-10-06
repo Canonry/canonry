@@ -9,7 +9,6 @@ import {
   resolveVercelSyncDeadlineMs,
   DEFAULT_VERCEL_SYNC_DEADLINE_MS,
   VERCEL_MAX_SYNC_WINDOW_MS,
-  TRAFFIC_SOURCE_MAX_CATCHUP_MS,
 } from '../src/traffic-limits.js'
 import type { DoctorContext } from '../src/doctor/types.js'
 
@@ -105,14 +104,19 @@ describe('traffic sync lag', () => {
     } finally { cleanup() }
   })
 
-  it('does not claim a cursor-resumable adapter is discarding, however far behind it is', async () => {
-    // cloud-run resumes from its cursor, so lag is staleness, never data loss.
-    const { ctx, cleanup } = seed({ lagMs: VERCEL_MAX_SYNC_WINDOW_MS * 3, sourceType: 'cloud-run' })
+  it('reports Cloud Run lag without inventing a time-based catch-up cliff', async () => {
+    const { ctx, cleanup } = seed({ lagMs: 72 * 3_600_000, sourceType: 'cloud-run' })
     try {
       const out = await syncLagCheck.run(ctx)
       expect(out.status).toBe('warn')
       expect(out.code).toBe('traffic.sync-lag.behind')
-      expect(TRAFFIC_SOURCE_MAX_CATCHUP_MS['cloud-run' as never]).toBeUndefined()
+      expect((out.details as { sources: unknown[] }).sources).toEqual([
+        expect.objectContaining({
+          sourceType: 'cloud-run',
+          maxCatchUpMs: null,
+          discardingOlderTraffic: false,
+        }),
+      ])
     } finally { cleanup() }
   })
 

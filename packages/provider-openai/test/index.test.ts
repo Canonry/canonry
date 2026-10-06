@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest'
 
-import { validateConfig, normalizeResult, buildPrompt, reparseStoredResult, extractServedModel, OPENAI_RETRIEVAL_CONTRACT } from '../src/index.js'
+import { validateConfig, normalizeResult, reparseStoredResult, OPENAI_RETRIEVAL_CONTRACT } from '../src/index.js'
 import type { OpenAIRawResult } from '../src/index.js'
 
 /** What executeTrackedQuery recorded live; normalizeResult re-derives the status from output. */
@@ -34,7 +34,7 @@ test('validateConfig uses custom model when specified', () => {
   expect(result.model).toBe('gpt-4o-mini')
 })
 
-test('normalizeResult extracts answer text from output', () => {
+test("normalizeResult extracts answer text from output", () => {
   const raw: OpenAIRawResult = {
     provider: 'openai',
     ...RECORDED_RETRIEVAL,
@@ -91,45 +91,13 @@ test('normalizeResult extracts answer text from output', () => {
     'Answer engine optimization is the practice of optimizing for AI answers.',
   )
   expect(result.citedDomains).toEqual(['example.com', 'blog.ainyc.ai'])
-  expect(result.groundingSources.length).toBe(2)
+  expect(result.groundingSources).toEqual([
+    { uri: 'https://www.example.com/page', title: 'Example Page' },
+    { uri: 'https://blog.ainyc.ai/aeo-guide', title: 'AEO Guide' },
+  ])
   expect(result.searchQueries).toEqual(['answer engine optimization'])
   // Re-derived from the web_search_call item, not copied from the recorded value.
   expect(result.retrievalStatus).toBe('used')
-})
-
-test('normalizeResult strips www. from domains', () => {
-  const raw: OpenAIRawResult = {
-    provider: 'openai',
-    ...RECORDED_RETRIEVAL,
-    model: 'gpt-4o',
-    rawResponse: {
-      output: [
-        {
-          type: 'message',
-          content: [
-            {
-              type: 'output_text',
-              text: 'Example',
-              annotations: [
-                {
-                  type: 'url_citation',
-                  url: 'https://www.example.com/page',
-                  title: 'Example',
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    },
-    groundingSources: [
-      { uri: 'https://www.example.com/page', title: 'Example' },
-    ],
-    searchQueries: [],
-  }
-
-  const result = normalizeResult(raw)
-  expect(result.citedDomains).toEqual(['example.com'])
 })
 
 test('normalizeResult deduplicates domains', () => {
@@ -238,11 +206,6 @@ test('normalizeResult handles invalid grounding URIs', () => {
   expect(result.citedDomains).toEqual(['valid.com'])
 })
 
-test('buildPrompt returns the query verbatim', () => {
-  expect(buildPrompt('best crm software')).toBe('best crm software')
-  expect(buildPrompt('')).toBe('')
-})
-
 test('reparseStoredResult extracts search queries from web_search_call actions', () => {
   const result = reparseStoredResult({
     output: [
@@ -337,71 +300,4 @@ test('normalizeResult prefers reparsed citations over stale extracted fields whe
   ])
   expect(result.citedDomains).toEqual(['canonry.ai'])
   expect(result.searchQueries).toEqual([])
-})
-
-// --- servedModel capture ---
-//
-// Fixtures below are trimmed from real OpenAI Responses API captures taken 2026-07-20
-// (scratchpad probe-gpt-5.6-*.json / probe-chat-latest-*.json).
-
-// Configured model was `gpt-5.6`; OpenAI served the `gpt-5.6-sol` tier.
-const gpt56SolResponse: Record<string, unknown> = {
-  id: 'resp_0e7d62cd783fd44a006a5d830171d48193b9d91617de68aa7a',
-  object: 'response',
-  status: 'completed',
-  model: 'gpt-5.6-sol',
-  output: [
-    {
-      id: 'ws_0e7d62cd783fd44a006a5d830677c881938d213e19bc529d27',
-      type: 'web_search_call',
-      status: 'completed',
-      action: {
-        type: 'search',
-        query: 'best boutique hotels Example City 2026',
-      },
-    },
-  ],
-}
-
-// Configured model was `chat-latest`; OpenAI echoed the same alias back, disclosing
-// nothing more specific about the snapshot it actually ran.
-const chatLatestResponse: Record<string, unknown> = {
-  id: 'resp_04a2bee500c8f641006a5d835517cc81909d09da16d7bd3133',
-  object: 'response',
-  status: 'completed',
-  model: 'chat-latest',
-  output: [
-    {
-      id: 'ws_04a2bee500c8f641006a5d835661c48190b981dfb3452a9b02',
-      type: 'web_search_call',
-      status: 'completed',
-      action: {
-        type: 'search',
-        query: 'best boutique hotels Example City recommendations',
-      },
-    },
-  ],
-}
-
-test('extractServedModel captures the tier OpenAI actually served, not the configured alias', () => {
-  const configuredModel = 'gpt-5.6'
-  expect(extractServedModel(gpt56SolResponse)).toBe('gpt-5.6-sol')
-  expect(extractServedModel(gpt56SolResponse)).not.toBe(configuredModel)
-})
-
-test('extractServedModel returns the alias unchanged when OpenAI disclosed nothing more specific', () => {
-  const configuredModel = 'chat-latest'
-  expect(extractServedModel(chatLatestResponse)).toBe(configuredModel)
-})
-
-test('extractServedModel returns undefined when the response carries no model field', () => {
-  const { model: _model, ...withoutModel } = gpt56SolResponse
-  const servedModel = extractServedModel(withoutModel)
-  expect(servedModel).toBeUndefined()
-  expect(servedModel).not.toBe('')
-  expect(servedModel).not.toBe('gpt-5.6')
-})
-
-test('extractServedModel returns undefined for a whitespace-only model field', () => {
-  expect(extractServedModel({ ...gpt56SolResponse, model: '   ' })).toBeUndefined()
 })

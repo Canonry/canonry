@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { createClient, migrate, gscSearchData, gscUrlInspections, gscCoverageSnapshots, projects, runs, siteAuditPages, siteAuditSnapshots, siteCrawlAttempts, siteCrawlPages, siteCrawlSnapshots } from '@ainyc/canonry-db'
-import { eq } from 'drizzle-orm'
+import { and, asc, eq, inArray } from 'drizzle-orm'
+import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import { writeCoverageSnapshot } from '../src/gsc-coverage-snapshot.js'
 
 /**
@@ -46,7 +47,7 @@ describe('coverage snapshot has a single writer', () => {
     const seedPage = (page: string, impressions: number) => {
       db.insert(gscSearchData).values({
         id: crypto.randomUUID(), projectId, date: today, query: 'q', page,
-        clicks: 0, impressions, position: '5', syncedAt: now, createdAt: now, syncRunId: 'seed-run',
+        clicks: 0, impressions, position: '5', createdAt: now, syncRunId: 'seed-run',
       }).run()
     }
     // Two pages Google actually served, one that appeared with no impressions.
@@ -110,12 +111,80 @@ describe('coverage snapshot has a single writer', () => {
     expect(row.derivedFromImpressions).toBe(2)
   })
 
-  it('replaces rather than accumulates rows for the same day', () => {
-    writeCoverageSnapshot(db, projectId, 'run-1')
-    writeCoverageSnapshot(db, projectId, 'run-2')
-    writeCoverageSnapshot(db, projectId, 'run-3')
+  it('replaces only today\'s project row with the latest facts and provenance', () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-05-04T10:00:00.000Z'))
+    try {
+      db.delete(gscSearchData).where(eq(gscSearchData.projectId, projectId)).run()
+      db.insert(gscSearchData).values([
+        { id: 'writer-page-a', projectId, syncRunId: 'seed-run', date: '2026-05-04', query: 'q', page: 'https://example.com/a', clicks: 0, impressions: 90, position: '5', createdAt: '2026-05-04T10:00:00.000Z' },
+        { id: 'writer-page-b', projectId, syncRunId: 'seed-run', date: '2026-05-04', query: 'q', page: 'https://example.com/b', clicks: 0, impressions: 3, position: '5', createdAt: '2026-05-04T10:00:00.000Z' },
+        { id: 'writer-page-quiet', projectId, syncRunId: 'seed-run', date: '2026-05-04', query: 'q', page: 'https://example.com/quiet', clicks: 0, impressions: 0, position: '5', createdAt: '2026-05-04T10:00:00.000Z' },
+      ]).run()
+      db.insert(projects).values({
+        id: 'proj-other', name: 'other-coverage', displayName: 'Other coverage', canonicalDomain: 'other.example',
+        country: 'US', language: 'en', createdAt: '2026-05-04T09:00:00.000Z', updatedAt: '2026-05-04T09:00:00.000Z',
+      }).run()
+      db.insert(runs).values({
+        id: 'other-run', projectId: 'proj-other', kind: RunKinds['gsc-sync'], status: RunStatuses.completed,
+        trigger: RunTriggers.manual, createdAt: '2026-05-04T09:00:00.000Z',
+      }).run()
+      const preservedRows: (typeof gscCoverageSnapshots.$inferInsert)[] = [
+        { id: 'snapshot-foreign', projectId: 'proj-other', syncRunId: 'other-run', date: '2026-05-04', indexed: 9, notIndexed: 3, unknownPages: 4, verifiedByInspection: 6, derivedFromImpressions: 5, reasonBreakdown: { 'Foreign reason': 3 }, createdAt: '2026-05-04T09:00:00.000Z' },
+        { id: 'snapshot-prior', projectId, syncRunId: 'seed-run', date: '2026-05-03', indexed: 7, notIndexed: 2, unknownPages: 1, verifiedByInspection: 4, derivedFromImpressions: 3, reasonBreakdown: { 'Prior reason': 2 }, createdAt: '2026-05-03T08:00:00.000Z' },
+      ]
+      db.insert(gscCoverageSnapshots).values(preservedRows).run()
 
-    expect(snapshot()).toHaveLength(1)
+      const assertStored = (expected: Omit<typeof gscCoverageSnapshots.$inferSelect, 'id'>) => {
+        const targetRows = db.select().from(gscCoverageSnapshots)
+          .where(and(eq(gscCoverageSnapshots.projectId, projectId), eq(gscCoverageSnapshots.date, '2026-05-04')))
+          .all()
+        expect(targetRows.map(({ id: _id, ...row }) => row)).toEqual([expected])
+        const controls = db.select().from(gscCoverageSnapshots)
+          .where(inArray(gscCoverageSnapshots.id, ['snapshot-foreign', 'snapshot-prior']))
+          .orderBy(asc(gscCoverageSnapshots.id)).all()
+        expect(controls).toEqual(preservedRows)
+      }
+
+      expect(writeCoverageSnapshot(db, projectId, 'run-1')).toEqual({
+        indexed: 2, notIndexed: 0, unknown: 1, verifiedByInspection: 0, derivedFromImpressions: 2,
+      })
+      assertStored({
+        projectId, syncRunId: 'run-1', date: '2026-05-04', indexed: 2, notIndexed: 0, unknownPages: 1,
+        verifiedByInspection: 0, derivedFromImpressions: 2, reasonBreakdown: {}, createdAt: '2026-05-04T10:00:00.000Z',
+      })
+
+      vi.setSystemTime(new Date('2026-05-04T10:30:00.000Z'))
+      db.insert(gscUrlInspections).values({
+        id: 'writer-quiet-inspection', projectId, syncRunId: 'run-2', url: 'https://example.com/quiet',
+        indexingState: 'BLOCKED_BY_ROBOTS_TXT', coverageState: 'Blocked by robots.txt',
+        inspectedAt: '2026-05-04T10:30:00.000Z', createdAt: '2026-05-04T10:30:00.000Z',
+      }).run()
+      expect(writeCoverageSnapshot(db, projectId, 'run-2')).toEqual({
+        indexed: 2, notIndexed: 1, unknown: 0, verifiedByInspection: 1, derivedFromImpressions: 2,
+      })
+      assertStored({
+        projectId, syncRunId: 'run-2', date: '2026-05-04', indexed: 2, notIndexed: 1, unknownPages: 0,
+        verifiedByInspection: 1, derivedFromImpressions: 2, reasonBreakdown: { 'Blocked by robots.txt': 1 }, createdAt: '2026-05-04T10:30:00.000Z',
+      })
+
+      vi.setSystemTime(new Date('2026-05-04T11:00:00.000Z'))
+      db.update(gscSearchData).set({ impressions: 0 }).where(eq(gscSearchData.id, 'writer-page-a')).run()
+      db.insert(gscUrlInspections).values({
+        id: 'writer-a-inspection', projectId, syncRunId: 'run-3', url: 'https://example.com/a',
+        indexingState: 'INDEXING_ALLOWED', coverageState: 'Submitted and indexed',
+        inspectedAt: '2026-05-04T11:00:00.000Z', createdAt: '2026-05-04T11:00:00.000Z',
+      }).run()
+      expect(writeCoverageSnapshot(db, projectId, 'run-3')).toEqual({
+        indexed: 2, notIndexed: 1, unknown: 0, verifiedByInspection: 2, derivedFromImpressions: 1,
+      })
+      assertStored({
+        projectId, syncRunId: 'run-3', date: '2026-05-04', indexed: 2, notIndexed: 1, unknownPages: 0,
+        verifiedByInspection: 2, derivedFromImpressions: 1, reasonBreakdown: { 'Blocked by robots.txt': 1 }, createdAt: '2026-05-04T11:00:00.000Z',
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   /**

@@ -83,9 +83,24 @@ test('persists entries, cursor namespace, and eviction state across a SQLite res
   const reopened = createClient(dbPath)
   migrate(reopened)
   const second = new OperationalLogStore(reopened, { maxEntries: 2 })
-  expect(second.list({ limit: 10 })).toMatchObject({ retention: 'durable', dropped: 1 })
+  const surviving = second.list({ limit: 10 })
+  expect(surviving).toMatchObject({ retention: 'durable', dropped: 1, truncated: 0, nextCursor: null, captureErrors: 0 })
+  expect(surviving.entries.map(({ cursor: _cursor, ...entry }) => entry)).toEqual([2, 3].map(n => ({
+    ts: '2026-09-11T00:00:00.000Z', level: 'info', module: 'Runner', action: `run.${n}`,
+    projectId: 'project_1', runId: 'run_1',
+    context: { projectId: 'project_1', runId: 'run_1', requestId: `request_${n}`, actor: 'scheduler' },
+  })))
   expect(() => second.list({ limit: 1, cursor: page.nextCursor! })).toThrow(/stale/)
   reopened.$client.close()
+})
+
+test('treats equivalent ISO time representations as the same inclusive filter boundary', () => {
+  const { db } = fixture()
+  const store = new OperationalLogStore(db, { now: () => new Date('2026-09-11T00:00:01.000Z'), retention: 'process' })
+  store.append({ ts: '2026-09-11T00:00:00.000Z', level: 'info', module: 'TimeFixture', action: 'event' })
+  expect(store.list({ limit: 10, since: '2026-09-11T00:00:00Z', until: '2026-09-11T00:00:00Z' }).entries).toHaveLength(1)
+  store.append({ ts: '2026-09-11T00:00:00Z', level: 'info', module: 'TimeFixture', action: 'event' })
+  expect(store.list({ limit: 10, since: '2026-09-11T00:00:00.000Z', until: '2026-09-11T00:00:00.000Z' }).entries).toHaveLength(2)
 })
 
 test('migration 155 upgrades an already-migrated database and fresh databases carry audit identities', () => {

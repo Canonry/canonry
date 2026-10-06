@@ -29,3 +29,8 @@ Google Search Console (GSC) integration — OAuth 2.0 flow for Google credential
 
 - `docs/google-search-console-setup.md` — user-facing setup guide
 - `packages/api-routes/src/google.ts` — API routes that use this client
+
+## Test ownership
+
+- `test/gsc-client.test.ts` owns native HTTP URLs, authentication, methods, complete request/response payloads, and ordered pagination. API route tests own project admission and persistence.
+- Capture the real client's requests. Keep protocol expectations independent from production endpoint constants; do not expose unused client methods for tests.

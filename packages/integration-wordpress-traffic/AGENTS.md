@@ -60,6 +60,12 @@ site and shares only the Application-Password auth pattern.
   `/wp-json/canonry/v1/events` — `resolveEndpoint` does this. Hand-rolled URL
   composition will drop trailing slashes or double up paths.
 
+## Test Ownership
+
+- `wordpress-traffic-client.test.ts` owns normalization and native HTTP protocol behavior. Invalid-row fixtures need valid sibling fields so each rejection reaches its named guard.
+- Check the returned continuation flag as well as the cursor. Cache freshness needs distinct URLs and no-cache headers on every page across multiple syncs.
+- Error-body truncation needs a response longer than the limit and an independent exact expected prefix and suffix.
+
 ## See Also
 
 - `packages/contracts/src/traffic.ts` — `NormalizedTrafficRequest`,

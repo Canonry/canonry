@@ -26,18 +26,28 @@ describe('runDtoSchema.queries', () => {
     expect(result.queries).toBeNull()
   })
 
-  it('keeps future target-run provenance structural and nullable', () => {
+  it.each([
+    ['populated', { measurementPlanVersionId: 'plan_version_1', measurementManifest: { schemaVersion: 1, executionIds: ['slot_1'] } }],
+    ['null', { measurementPlanVersionId: null, measurementManifest: null }],
+    ['omitted', {}],
+  ])('keeps target-run provenance %s', (_description, provenance) => {
     const result = runDtoSchema.parse({
       id: 'run_1',
       projectId: 'proj_1',
       kind: 'answer-visibility',
       status: 'queued',
-      measurementPlanVersionId: 'plan_version_1',
-      measurementManifest: { schemaVersion: 1, executionIds: ['slot_1'] },
+      ...provenance,
       createdAt: '2026-05-13T00:00:00.000Z',
     })
-    expect(result.measurementPlanVersionId).toBe('plan_version_1')
-    expect(result.measurementManifest).toEqual({ schemaVersion: 1, executionIds: ['slot_1'] })
+    expect(result).toEqual({
+      id: 'run_1',
+      projectId: 'proj_1',
+      kind: 'answer-visibility',
+      status: 'queued',
+      trigger: 'manual',
+      ...provenance,
+      createdAt: '2026-05-13T00:00:00.000Z',
+    })
   })
 
   it('rejects the removed cohort-only run kind', () => {
@@ -78,19 +88,19 @@ describe('runTriggerRequestSchema.queries', () => {
   })
 
   it('allows queries to combine with location', () => {
-    const result = runTriggerRequestSchema.safeParse({
+    const result = runTriggerRequestSchema.parse({
       queries: ['alpha'],
       location: 'michigan',
     })
-    expect(result.success).toBe(true)
+    expect(result).toEqual({ queries: ['alpha'], location: 'michigan' })
   })
 
   it('allows queries to combine with allLocations', () => {
-    const result = runTriggerRequestSchema.safeParse({
+    const result = runTriggerRequestSchema.parse({
       queries: ['alpha'],
       allLocations: true,
     })
-    expect(result.success).toBe(true)
+    expect(result).toEqual({ queries: ['alpha'], allLocations: true })
   })
 })
 
@@ -131,8 +141,8 @@ describe("runTriggerSchema: 'probe' as a first-class trigger", () => {
     expect(result.success).toBe(true)
   })
 
-  it('runTriggerRequestSchema rejects unknown trigger values', () => {
-    const result = runTriggerRequestSchema.safeParse({ trigger: 'scheduled' })
+  it.each(['scheduled', 'config-apply', 'backfill', 'unknown'])('runTriggerRequestSchema rejects caller trigger %s', (trigger) => {
+    const result = runTriggerRequestSchema.safeParse({ trigger })
     // Only manual/probe are operator-supplied; 'scheduled'/'config-apply'/'backfill' are server-set
     expect(result.success).toBe(false)
   })

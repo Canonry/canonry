@@ -2,7 +2,6 @@ import { test, expect, vi } from 'vitest'
 
 import { openaiAdapter } from '../src/adapter.js'
 import {
-  OPENAI_RETRIEVAL_CONTRACT,
   executeTrackedQuery,
   normalizeResult,
   reparseStoredResult,
@@ -29,17 +28,12 @@ const CONFIG = { provider: 'openai' as const, apiKey: 'k', model: 'gpt-5.4', quo
 const QUERY = { query: 'commercial roof restoration', canonicalDomains: ['example.com'], competitorDomains: [] }
 const OPENAI_INPUT = { ...QUERY, config: { apiKey: 'k', model: 'gpt-5.4', quotaPolicy } }
 
-/** Stub the Responses API and capture the request body the SDK sent. */
-function captureRequest(body: Record<string, unknown>): () => Record<string, unknown> {
-  let sent: Record<string, unknown> = {}
-  vi.stubGlobal('fetch', async (_url: unknown, init?: { body?: string }) => {
-    sent = JSON.parse(init?.body ?? '{}') as Record<string, unknown>
-    return new Response(JSON.stringify(body), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    })
-  })
-  return () => sent
+/** Return remote Responses JSON without implementing extraction or classification. */
+function captureRequest(body: Record<string, unknown>): void {
+  vi.stubGlobal('fetch', async () => new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  }))
 }
 
 /** A Responses API payload whose output items are supplied by the caller. */
@@ -115,46 +109,6 @@ const SEARCHED_AND_UNCITED = [reasoning, searchCall, message([])]
 /** Never searched. Under search-required-v1 this means the contract did not hold. */
 const UNSEARCHED = [reasoning, message([])]
 
-test('the openai contract is search-required-v1, the policy the request actually enforces', () => {
-  expect(OPENAI_RETRIEVAL_CONTRACT).toBe('search-required-v1')
-})
-
-test('retrieval is required by tool_choice with web_search as the only tool, not coaxed by instructions', async () => {
-  const sent = captureRequest(response(SEARCHED_AND_CITED))
-  try {
-    await openaiAdapter.executeTrackedQuery(QUERY, CONFIG)
-
-    expect(sent().tool_choice).toBe('required')
-    // `required` forces a call to SOME tool; it forces a search only because
-    // web_search is the sole tool offered.
-    expect(sent().tools).toEqual([{ type: 'web_search' }])
-
-    // No system prompt. `instructions` would steer persona, tone, and source
-    // policy as well as retrieval, contaminating the answer being measured.
-    expect(sent().instructions).toBeUndefined()
-
-    // The query reaches OpenAI verbatim.
-    expect(sent().input).toBe('commercial roof restoration')
-  } finally {
-    vi.unstubAllGlobals()
-  }
-})
-
-test('a web_search_call output item records retrieval under the recorded contract', async () => {
-  captureRequest(response(SEARCHED_AND_CITED))
-  try {
-    const raw = await executeTrackedQuery(OPENAI_INPUT)
-    expect(raw.retrievalStatus).toBe('used')
-    expect(raw.retrievalContract).toBe('search-required-v1')
-
-    const normalized = normalizeResult(raw)
-    expect(normalized.retrievalStatus).toBe('used')
-    expect(normalized.citedDomains).toEqual(['roofingcontractor.example'])
-  } finally {
-    vi.unstubAllGlobals()
-  }
-})
-
 test('searched-but-uncited stays distinct from unsearched though both cite nothing', async () => {
   captureRequest(response(SEARCHED_AND_UNCITED))
   let searchedUncited
@@ -179,20 +133,6 @@ test('searched-but-uncited stays distinct from unsearched though both cite nothi
 
   expect(searchedUncited.retrievalStatus).toBe('used')
   expect(unsearched.retrievalStatus).toBe('not-used')
-})
-
-test('an unsearched completed response is marked not-used so the contract breach is visible', async () => {
-  captureRequest(response(UNSEARCHED))
-  try {
-    const raw = await executeTrackedQuery(OPENAI_INPUT)
-    // search-required-v1 promises retrieval. When an intact response carries
-    // no search call the promise did not hold, and the row must say so rather
-    // than pool with retrieved answers.
-    expect(raw.retrievalStatus).toBe('not-used')
-    expect(raw.retrievalContract).toBe('search-required-v1')
-  } finally {
-    vi.unstubAllGlobals()
-  }
 })
 
 test('an empty output array is unknown, never not-used', async () => {
@@ -279,16 +219,30 @@ test('retrieval survives the adapter boundary so the snapshot can record it', as
   }
 })
 
-test('a stored apiResponse reparses to the same retrieval status the live call recorded', async () => {
-  // The job runner stores the raw response as `apiResponse`. The backfill path
-  // re-derives retrieval from that payload, so the reparse must agree with
-  // what executeTrackedQuery observed live.
-  for (const output of [SEARCHED_AND_CITED, SEARCHED_AND_UNCITED, UNSEARCHED, []]) {
-    captureRequest(response(output))
+test("a stored apiResponse reparses to the same retrieval status the live call recorded", async () => {
+  const rows = [
+    { name: 'searched and cited', output: SEARCHED_AND_CITED,
+      expected: { provider: 'openai', answerText: 'Restoration coats an existing roof.', citedDomains: ['roofingcontractor.example'],
+        groundingSources: [{ uri: 'https://roofingcontractor.example/guide?utm_source=openai', title: 'Guide' }],
+        searchQueries: ['commercial roof restoration'], retrievalStatus: 'used' } },
+    { name: 'searched without citations', output: SEARCHED_AND_UNCITED,
+      expected: { provider: 'openai', answerText: 'Restoration coats an existing roof.', citedDomains: [], groundingSources: [],
+        searchQueries: ['commercial roof restoration'], retrievalStatus: 'used' } },
+    { name: 'completed without retrieval', output: UNSEARCHED,
+      expected: { provider: 'openai', answerText: 'Restoration coats an existing roof.', citedDomains: [], groundingSources: [],
+        searchQueries: [], retrievalStatus: 'not-used' } },
+    { name: 'empty output is unobserved', output: [],
+      expected: { provider: 'openai', answerText: '', citedDomains: [], groundingSources: [], searchQueries: [], retrievalStatus: 'unknown' } },
+  ]
+  for (const row of rows) {
+    captureRequest(response(row.output))
     try {
-      const raw = await executeTrackedQuery(OPENAI_INPUT)
-      const stored = JSON.parse(JSON.stringify(raw.rawResponse)) as Record<string, unknown>
-      expect(reparseStoredResult(stored).retrievalStatus).toBe(raw.retrievalStatus)
+      const raw = await openaiAdapter.executeTrackedQuery(QUERY, CONFIG)
+      const stored: Record<string, unknown> = JSON.parse(JSON.stringify(raw.rawResponse))
+      expect(raw.retrievalStatus, row.name).toBe(row.expected.retrievalStatus)
+      expect(raw.retrievalContract, row.name).toBe('search-required-v1')
+      expect(openaiAdapter.normalizeResult(raw), row.name).toEqual(row.expected)
+      expect(reparseStoredResult(stored), row.name).toEqual(row.expected)
     } finally {
       vi.unstubAllGlobals()
     }

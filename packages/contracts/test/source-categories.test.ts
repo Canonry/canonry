@@ -38,9 +38,8 @@ describe('categorizeSource', () => {
     expect(result.label).toBe('Medium')
   })
 
-  it('categorizes Forbes as news', () => {
-    const result = categorizeSource('https://www.forbes.com/article')
-    expect(result.category).toBe('news')
+  it.each(['https://www.forbes.com/article', 'forbes.com'])('categorizes Forbes as news from %s', (uri) => {
+    expect(categorizeSource(uri)).toEqual({ category: 'news', label: 'Forbes', domain: 'forbes.com' })
   })
 
   it('categorizes Amazon as ecommerce', () => {

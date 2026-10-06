@@ -6779,6 +6779,11 @@ export type LatestProjectRunDto = {
             } | null;
             createdAt: string;
         }>;
+        queryCounts?: {
+            totalQueries: number;
+            citedQueries: number;
+            mentionedQueries: number;
+        } | null;
         providerBatches?: Array<{
             id: string;
             provider: string;
@@ -11170,6 +11175,11 @@ export type ProjectOverviewDto = {
                 } | null;
                 createdAt: string;
             }>;
+            queryCounts?: {
+                totalQueries: number;
+                citedQueries: number;
+                mentionedQueries: number;
+            } | null;
             providerBatches?: Array<{
                 id: string;
                 provider: string;
@@ -11899,6 +11909,11 @@ export type RunDetailDto = {
         } | null;
         createdAt: string;
     }>;
+    queryCounts?: {
+        totalQueries: number;
+        citedQueries: number;
+        mentionedQueries: number;
+    } | null;
     providerBatches?: Array<{
         id: string;
         provider: string;

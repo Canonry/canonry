@@ -55,6 +55,7 @@ import {
   escapeLikePattern,
   extractDomainsFromText,
   normalizeQueryText,
+  summarizeObservedQueryCounts,
   validationError,
 } from '@ainyc/canonry-contracts'
 import {
@@ -513,7 +514,7 @@ interface OverviewSnapshot {
   archived: boolean
   provider: string
   model: string | null
-  citationState: string
+  citationState: CitationState
   answerMentioned: boolean | null
   /** Raw LLM answer text — needed by Mention Share to scan for competitor
    *  brand mentions. Variable size; ~3-5KB per snapshot for an 80-snapshot
@@ -581,7 +582,7 @@ function loadSnapshotsByRunIds(
       archived,
       provider: row.provider,
       model: row.model,
-      citationState: row.citationState,
+      citationState: row.citationState as CitationState,
       answerMentioned: row.answerMentioned,
       answerText: row.answerText,
       groundingSources: parseOverviewGroundingSources(row.rawResponse),
@@ -621,39 +622,19 @@ function summarizeFromSnapshots(
   }
   if (snapshots.length === 0) return empty
 
-  // Cited and mentioned are tracked per query as independent "any snapshot"
-  // rolls-ups — a query is cited if ANY snapshot is cited, mentioned if ANY
-  // snapshot has answerMentioned===true. Never derive one from the other.
-  const perQuery = new Map<string, boolean>()
-  const perQueryMentioned = new Map<string, boolean>()
+  const { totalQueries, citedQueries, mentionedQueries } = summarizeObservedQueryCounts(snapshots)
   const perProvider = new Map<string, { cited: number; total: number }>()
   for (const snap of snapshots) {
     const cited = snap.citationState === CitationStates.cited
-    if (!perQuery.has(snap.queryId) || cited) {
-      perQuery.set(snap.queryId, cited)
-    }
-    const mentioned = snap.answerMentioned === true
-    if (!perQueryMentioned.has(snap.queryId) || mentioned) {
-      perQueryMentioned.set(snap.queryId, mentioned)
-    }
     const bucket = perProvider.get(snap.provider) ?? { cited: 0, total: 0 }
     bucket.total += 1
     if (cited) bucket.cited += 1
     perProvider.set(snap.provider, bucket)
   }
 
-  const totalQueries = perQuery.size
-  let citedQueries = 0
-  for (const wasCited of perQuery.values()) {
-    if (wasCited) citedQueries += 1
-  }
   const notCitedQueries = totalQueries - citedQueries
   const citedRate = totalQueries === 0 ? 0 : Number((citedQueries / totalQueries).toFixed(4))
 
-  let mentionedQueries = 0
-  for (const wasMentioned of perQueryMentioned.values()) {
-    if (wasMentioned) mentionedQueries += 1
-  }
   const notMentionedQueries = totalQueries - mentionedQueries
   const mentionRate = totalQueries === 0 ? 0 : Number((mentionedQueries / totalQueries).toFixed(4))
 

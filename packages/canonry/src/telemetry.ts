@@ -102,13 +102,6 @@ export interface CliCommandFinishedInput {
   errorCode?: string
 }
 
-export function shouldDropTelemetryEvent(
-  event: string,
-  properties?: TelemetryProperties,
-): boolean {
-  return isGhostTelemetryEvent(event, properties)
-}
-
 /**
  * Low-cardinality command duration. Buckets preserve enough resolution to
  * distinguish fast reads, setup friction, and long-running jobs without
@@ -186,7 +179,7 @@ export function setTelemetrySource(source: TelemetrySource): void {
  * Check whether telemetry is enabled.
  * Priority: env vars > config file. Disabled in CI by default.
  */
-export interface TelemetryStatusResolutionInput {
+interface TelemetryStatusResolutionInput {
   canonryTelemetryDisabled?: string
   doNotTrack?: string
   ci?: string
@@ -200,10 +193,10 @@ export interface TelemetryStatusResolutionInput {
  * Environment opt-outs deliberately win in the same order used by event
  * emission, so status and collection cannot disagree.
  */
-export function resolveTelemetryStatus(input: TelemetryStatusResolutionInput): TelemetryStatusDto {
+function resolveTelemetryStatus(input: TelemetryStatusResolutionInput): TelemetryStatusDto {
   const base = {
     configuredEnabled: input.configuredEnabled,
-    ...(input.anonymousId ? { anonymousId: maskAnonymousId(input.anonymousId) } : {}),
+    ...(input.anonymousId ? { anonymousId: maskTelemetryAnonymousId(input.anonymousId) } : {}),
     target: 'local' as const,
   }
   if (input.canonryTelemetryDisabled === '1') {
@@ -217,11 +210,6 @@ export function resolveTelemetryStatus(input: TelemetryStatusResolutionInput): T
   if (input.configState === 'absent') return { ...base, enabled: true, reason: 'NO_CONFIG' }
   if (input.configState === 'unavailable') return { ...base, enabled: true, reason: 'CONFIG_UNAVAILABLE' }
   return { ...base, enabled: true, reason: 'enabled' }
-}
-
-/** Mask an install identifier before it can reach a status response or CLI. */
-export function maskAnonymousId(value: string | undefined): string | undefined {
-  return maskTelemetryAnonymousId(value)
 }
 
 /**
@@ -496,7 +484,7 @@ function deliverEvent(
   // `preferenceChecked`: the caller already confirmed telemetry was on before
   // it wrote the opt-out that would otherwise suppress this final event.
   if (!delivery.preferenceChecked && !isTelemetryEnabled()) return Promise.resolve()
-  if (shouldDropTelemetryEvent(event, properties)) return Promise.resolve()
+  if (isGhostTelemetryEvent(event, properties)) return Promise.resolve()
 
   const anonymousId = getOrCreateAnonymousId()
   if (!anonymousId) return Promise.resolve()

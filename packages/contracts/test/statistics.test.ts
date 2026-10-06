@@ -58,12 +58,6 @@ describe('linearTrend', () => {
     expect(trend).toEqual({ slope: -3, intercept: 20, r2: 1, start: 20, end: 11, n: 4, startIndex: 0, endIndex: 3 })
   })
 
-  it('reports slope per STEP, so the window change is slope * (n - 1)', () => {
-    const trend = linearTrend([1, 3, 5, 7, 9])!
-    expect(trend.slope).toBe(2)
-    expect(trend.end - trend.start).toBeCloseTo(trend.slope * 4, 10)
-  })
-
   it('calls a constant series a perfect flat fit rather than dividing by zero', () => {
     // ssTot is 0 here; r2 must be 1, not NaN.
     expect(linearTrend([5, 5, 5])).toEqual({ slope: 0, intercept: 5, r2: 1, start: 5, end: 5, n: 3, startIndex: 0, endIndex: 2 })
@@ -111,7 +105,10 @@ describe('linearTrend', () => {
   it('still trends up when an alternating series ends higher than it started', () => {
     // Guards the tempting-but-wrong reading that "zig-zag" means "flat":
     // this one runs 0 -> 10, and the fit says so.
-    expect(linearTrend([0, 10, 0, 10, 0, 10])!.slope).toBeGreaterThan(0)
+    expect(linearTrend([0, 10, 0, 10, 0, 10])).toEqual({
+      slope: 0.857143, intercept: 2.85714, r2: 0.0857, start: 2.85714, end: 7.14286,
+      n: 6, startIndex: 0, endIndex: 5,
+    })
   })
 })
 
@@ -135,34 +132,28 @@ describe('linearTrend precision and extent', () => {
     expect(trend.n).toBe(3)
   })
 
-  it('does not compress a calendar gap into a single step', () => {
-    // The route feeds one entry per DATE PRESENT, and GSC omits zero-data days.
-    // Same observations, real spacing: the slope must not be overstated.
-    const compressed = linearTrend([100, 90, 80, 70])!
-    const dense = linearTrend([100, 90, 80, null, null, null, null, null, null, 70])!
-    expect(compressed.slope).toBe(-10)
-    expect(dense.slope).toBeCloseTo(-2.8, 6)
-  })
 })
 
 describe('calendar index space', () => {
-  it('is derived from ONE function, so a fit and a plot cannot disagree', async () => {
+  it('fits sparse observations in their calendar positions without compressing missing days', async () => {
     const { calendarDateRange } = await import('../src/formatting.js')
     // 4 dates carry data across a 10-day span.
     const measured = ['2026-04-01', '2026-04-02', '2026-04-03', '2026-04-10']
     const dense = calendarDateRange(measured[0]!, measured[measured.length - 1]!)
-    expect(dense).toHaveLength(10)
+    expect(dense).toEqual([
+      '2026-04-01', '2026-04-02', '2026-04-03', '2026-04-04', '2026-04-05',
+      '2026-04-06', '2026-04-07', '2026-04-08', '2026-04-09', '2026-04-10',
+    ])
 
     // The fit runs over the dense series...
     const byDate = new Map([['2026-04-01', 100], ['2026-04-02', 90], ['2026-04-03', 80], ['2026-04-10', 70]])
     const trend = linearTrend(dense.map((d) => byDate.get(d) ?? null))!
-    expect(trend.endIndex).toBe(9)
-
-    // ...and the plot must use the SAME length, or the drawn line stops short.
-    // Against the 4 measured rows it ended at 90 instead of 70.
-    const drawn = dense.map((_, i) =>
-      trend.start + ((trend.end - trend.start) * (i - trend.startIndex)) / (trend.endIndex - trend.startIndex))
-    expect(drawn.at(-1)).toBeCloseTo(trend.end, 6)
+    // Independent OLS values for observations at indices 0, 1, 2 and 9.
+    expect(trend).toEqual({
+      slope: -2.8, intercept: 93.4, r2: 0.784, start: 93.4, end: 68.2,
+      n: 4, startIndex: 0, endIndex: 9,
+    })
+    expect(linearTrend([100, 90, 80, 70])!.slope).toBe(-10)
   })
 
   it('returns nothing for a reversed range', async () => {

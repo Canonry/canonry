@@ -37,3 +37,7 @@ The adapter object in `adapter.ts` wires these functions together with metadata 
 - `docs/providers/gemini.md` — Gemini-specific API quirks and grounding source behavior
 - `docs/providers/README.md` — provider system overview
 - `packages/contracts/src/provider.ts` — `ProviderAdapter` interface definition
+
+## Test ownership
+
+Native adapter/SDK wire, credential-file OAuth, endpoint routing, stored-response projection and served identity are owned by `test/base-url.test.ts` and `test/tracked-query-request.test.ts`. `test/embeddings.test.ts` exercises the real SDK with independent HTTP payloads and literal defaults/errors/order. Keep public batch build/parse and historical reparse contracts; constructor internals and injected embedding clients are not production interfaces.

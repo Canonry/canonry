@@ -5,15 +5,7 @@ import Fastify from 'fastify'
 import { expect, it } from 'vitest'
 import { apiRoutes, hashApiKey } from '@ainyc/canonry-api-routes'
 import { apiKeys, createClient, migrate, OperationalLogStore } from '@ainyc/canonry-db'
-import { redactLogString, redactLogValue } from '@ainyc/canonry-contracts'
 import { addLogListener, createFastifyLogger, createLogger } from '../src/logger.js'
-
-it('preserves boolean/null diagnostics and removes credentials even when a URL crosses the string bound', () => {
-  expect(redactLogValue({ success: false, cancelled: true, missing: null })).toEqual({ success: false, cancelled: true, missing: null })
-  const oversized = `https://name:${'privatevalue'.repeat(800)}@example.invalid/`
-  expect(redactLogString(oversized)).not.toContain('privatevalue')
-  expect(redactLogString(oversized).length).toBeLessThanOrEqual(4096)
-})
 
 it('keeps authenticated identity, error detail, and typed diagnostics through log capture and REST', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runtime-observability-'))
@@ -50,19 +42,5 @@ it('keeps authenticated identity, error detail, and typed diagnostics through lo
     await app.close()
     db.$client.close()
     fs.rmSync(directory, { recursive: true, force: true })
-  }
-})
-
-it('treats equivalent ISO time representations as the same inclusive filter boundary', () => {
-  const db = createClient(':memory:')
-  migrate(db)
-  try {
-    const store = new OperationalLogStore(db, { now: () => new Date('2026-09-11T00:00:01.000Z'), retention: 'process' })
-    store.append({ ts: '2026-09-11T00:00:00.000Z', level: 'info', module: 'TimeFixture', action: 'event' })
-    expect(store.list({ limit: 10, since: '2026-09-11T00:00:00Z', until: '2026-09-11T00:00:00Z' }).entries).toHaveLength(1)
-    store.append({ ts: '2026-09-11T00:00:00Z', level: 'info', module: 'TimeFixture', action: 'event' })
-    expect(store.list({ limit: 10, since: '2026-09-11T00:00:00.000Z', until: '2026-09-11T00:00:00.000Z' }).entries).toHaveLength(2)
-  } finally {
-    db.$client.close()
   }
 })

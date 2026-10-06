@@ -55,6 +55,14 @@ consume Canonry through the external-agent webhook.
   its `<memory>` block. Splits are snapped to user-message boundaries to
   avoid orphaning tool calls from their results. Concurrent compaction
   runs for the same project dedupe via an in-flight promise map.
+  Summary trimming preserves complete UTF-8 characters within the 2 KB storage
+  cap. Test compaction through a registered provider and the real session/SQLite
+  flow, with exact prefix, tail and summary expectations, complete and partial
+  multi-byte boundaries, and a provider-failure control that retains the transcript.
+  Pin trigger edges independently at 399/400 non-system messages and
+  59,999/60,000 estimated tokens. Test safe splits and provider errors through
+  `compactMessages` with a registered provider; keep splitting and summarization
+  helpers private.
 
 ## Current view and bounded execution
 
@@ -349,7 +357,7 @@ Aero's rules live in `src/agent/AGENTS.md` (see "Agent layer (Aero)" below). The
 - `src/agent-config.ts` — `resolveAgentEnabled(env, config)`, the Aero kill-switch, plus `resolveAgentProactiveEnabled(env, config)`, the prompt-only switch (`agent.mode: 'prompt-only'` / `CANONRY_AGENT_PROMPT_ONLY`) which keeps every interactive surface and removes only the self-wake. Resolves whether the built-in agent runs from `CANONRY_AGENT_DISABLED` env layered over `agent.mode: 'disabled'` in `config.yaml` (env over config; `=1`/`true` off, `=0`/`false` force on). `server.ts` reads it once at boot and guards the three Aero wiring points: the `SessionRegistry`, the proactive run-completion wake, and the interactive agent routes. Does not touch data syncs / intelligence / notifications.
 - `src/agent/session-registry.ts` — hybrid session registry — in-memory `Map<project, Agent>` + durable `agent_sessions` row per project. Handles hydration, persistence, follow-up queueing, post-`agent_end` auto-drain, and the `<memory>` hydrate block appended to every new session's system prompt. `acquireForTurn` is async and awaits transcript compaction before returning.
 - `src/agent/memory-store.ts` — CRUD helpers for `agent_memory`: `listMemoryEntries`, `upsertMemoryEntry`, `deleteMemoryEntry`, `loadRecentForHydrate`, `writeCompactionNote`. Enforces the 2 KB value cap and the `compaction:` reserved-prefix rule.
-- `src/agent/compaction.ts` — transcript compaction — `shouldCompact`, `findSafeSplit` (snaps to user-message boundaries), `runSummaryLlm` (one-shot pi-ai `complete()` call), and `compactMessages` which persists the summary as a `compaction:` memory row and returns the kept suffix. `src/agent/compaction-config.ts` holds the tuning constants for compaction — token threshold, target ratio, preserved-tail size, max-messages hard cap.
+- `src/agent/compaction.ts` — transcript compaction — `shouldCompact` and `compactMessages`, which persists the summary as a `compaction:` memory row and returns the kept suffix. Private helpers snap to user-message boundaries and summarize through pi-ai. `src/agent/compaction-config.ts` holds the tuning constants for compaction — token threshold, target ratio, preserved-tail size, max-messages hard cap.
 - `src/agent/token-counter.ts` — `estimateMessageTokens` / `estimateTranscriptTokens`: chars/4 heuristic handling user/assistant/toolResult content shapes. Used only to decide when to compact, not to enforce provider limits.
 - `src/agent/tools.ts` — thin wrapper around `mcp-to-agent-tool.ts`: `buildReadTools(ctx)` and `buildAllTools(ctx)` delegate to `buildMcpAgentTools(canonryMcpTools, ctx)`. Adding a new tool to `mcp/tool-registry.ts` automatically exposes it to Aero — no separate registration in this file.
 - `src/agent/mcp-to-agent-tool.ts` — adapter that converts every `CanonryMcpTool` into a pi-agent-core `AgentTool`. Strips `project` from the LLM-visible schema and injects `ctx.projectName` at call time. `AERO_EXCLUDED_MCP_TOOLS` lists tools that ride the registry but should not reach Aero (e.g. `canonry_agent_clear` — Aero must not erase the operator's transcript). `AERO_MANAGED_SWEEP_MCP_TOOLS` is withheld as well when `managedSweeps` is set, and on those installs `canonry_run_cancel` looks the run up and refuses answer-visibility sweeps.

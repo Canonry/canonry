@@ -835,6 +835,7 @@ export type {
   OnDiscoveryRunRequested,
 } from './discovery/index.js'
 export { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
+export { notProbeRun } from './helpers.js'
 // Shared public-egress preflight: validates every resolved address class and
 // returns the exact address callers must dial to prevent DNS rebinding.
 export { resolveMeasurementSitemapTarget as resolvePublicHttpTarget } from './measurement-sitemap-fetch.js'

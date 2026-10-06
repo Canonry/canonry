@@ -3,7 +3,6 @@ import { describe, test, it, expect } from 'vitest'
 import {
   resolveProviderInput,
   isBrowserProvider,
-  parseProviderName,
 } from '../src/provider.js'
 
 import {
@@ -68,8 +67,36 @@ test('results export records preserve cited URL capture and legacy nulls', () =>
     answerText: null, groundingSources: [], searchQueries: [],
     citedUrls: null, captureStatus: null, sourceCount: null, resolvedCount: null, captureVersion: null,
   })
-  expect(record).toMatchObject({
+  expect(record).toEqual({
+    runId: 'run_1', runKind: 'answer-visibility', runStatus: 'completed', runTrigger: 'manual',
+    runCreatedAt: '2026-07-01T00:00:00.000Z', runStartedAt: null, runFinishedAt: null,
+    snapshotId: 'snapshot_1', snapshotCreatedAt: '2026-07-01T00:00:00.000Z', queryId: 'query_1', query: 'query',
+    provider: 'gemini', model: null, location: null, citationState: 'not-cited', cited: false,
+    answerMentioned: null, mentionState: null, citedDomains: [], competitorOverlap: [], recommendedCompetitors: [],
+    answerText: null, groundingSources: [], searchQueries: [],
     citedUrls: null, captureStatus: null, sourceCount: null, resolvedCount: null, captureVersion: null,
+  })
+  const captured = resultsExportRecordSchema.parse({
+    runId: 'run_captured', runKind: 'answer-visibility', runStatus: 'completed', runTrigger: 'probe',
+    runCreatedAt: '2026-07-02T10:00:00.000Z', runStartedAt: '2026-07-02T10:00:01.000Z', runFinishedAt: '2026-07-02T10:00:05.000Z',
+    snapshotId: 'snapshot_captured', snapshotCreatedAt: '2026-07-02T10:00:04.000Z', queryId: null, query: 'removed query',
+    provider: 'perplexity', model: 'sonar', location: 'nyc', citationState: 'cited', cited: true,
+    answerMentioned: false, mentionState: 'not-mentioned', citedDomains: ['example.com'],
+    competitorOverlap: ['competitor.test'], recommendedCompetitors: ['recommended.test'],
+    answerText: 'A source supports this answer.', groundingSources: [{ uri: 'https://example.com/source', title: 'Source' }],
+    searchQueries: ['source evidence'], citedUrls: ['https://example.com/source'],
+    captureStatus: 'partial', sourceCount: 2, resolvedCount: 1, captureVersion: 1,
+  })
+  expect(captured).toEqual({
+    runId: 'run_captured', runKind: 'answer-visibility', runStatus: 'completed', runTrigger: 'probe',
+    runCreatedAt: '2026-07-02T10:00:00.000Z', runStartedAt: '2026-07-02T10:00:01.000Z', runFinishedAt: '2026-07-02T10:00:05.000Z',
+    snapshotId: 'snapshot_captured', snapshotCreatedAt: '2026-07-02T10:00:04.000Z', queryId: null, query: 'removed query',
+    provider: 'perplexity', model: 'sonar', location: 'nyc', citationState: 'cited', cited: true,
+    answerMentioned: false, mentionState: 'not-mentioned', citedDomains: ['example.com'],
+    competitorOverlap: ['competitor.test'], recommendedCompetitors: ['recommended.test'],
+    answerText: 'A source supports this answer.', groundingSources: [{ uri: 'https://example.com/source', title: 'Source' }],
+    searchQueries: ['source evidence'], citedUrls: ['https://example.com/source'],
+    captureStatus: 'partial', sourceCount: 2, resolvedCount: 1, captureVersion: 1,
   })
 })
 
@@ -246,22 +273,20 @@ test('run schemas accept expected values and reject invalid statuses', () => {
 })
 
 test('providerQuotaPolicySchema enforces positive integer limits', () => {
-  const quota = providerQuotaPolicySchema.parse({
-    maxConcurrency: 2,
-    maxRequestsPerMinute: 10,
-    maxRequestsPerDay: 1000,
+  const valid = { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 }
+  expect(providerQuotaPolicySchema.parse(valid)).toEqual({
+    maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000,
   })
-
-  expect(quota).toEqual({
-    maxConcurrency: 2,
-    maxRequestsPerMinute: 10,
-    maxRequestsPerDay: 1000,
-  })
-  expect(() => providerQuotaPolicySchema.parse({
-    maxConcurrency: 0,
-    maxRequestsPerMinute: 10,
-    maxRequestsPerDay: 1000,
-  })).toThrow()
+  for (const field of ['maxConcurrency', 'maxRequestsPerMinute', 'maxRequestsPerDay'] as const) {
+    for (const value of [0, 0.5]) {
+      const result = providerQuotaPolicySchema.safeParse({ ...valid, [field]: value })
+      expect(result.success, `${field} rejects ${value}`).toBe(false)
+      expect(result.error?.issues.map(issue => issue.path), `${field} issue path for ${value}`).toEqual([[field]])
+    }
+    const result = providerQuotaPolicySchema.safeParse({ ...valid, [field]: 1 })
+    expect(result.success, `${field} accepts 1`).toBe(true)
+    expect(result.data?.[field], `${field} preserves 1`).toBe(1)
+  }
 })
 
 test('projectConfigSchema validates canonry.yaml structure', () => {
@@ -270,18 +295,23 @@ test('projectConfigSchema validates canonry.yaml structure', () => {
     kind: 'Project',
     metadata: { name: 'my-project' },
     spec: {
-      displayName: 'My Project',
-      canonicalDomain: 'example.com',
-      country: 'US',
-      language: 'en',
+      displayName: 'My Project', canonicalDomain: 'example.com', country: 'US', language: 'en',
     },
   })
-
-  expect(config.metadata.name).toBe('my-project')
-  expect(config.metadata.labels).toEqual({})
+  expect(config).toEqual({
+    apiVersion: 'canonry/v1',
+    kind: 'Project',
+    metadata: { name: 'my-project', labels: {} },
+    spec: {
+      displayName: 'My Project', canonicalDomain: 'example.com', country: 'US', language: 'en',
+      ownedDomains: [], aliases: [], competitors: [], providers: [], providerModels: {}, locations: [],
+      measurement: { marketingHosts: [], brandTerms: [], leadEventNames: ['generate_lead'] },
+      notifications: [], autoExtractBacklinks: false,
+    },
+  })
+  expect(Object.hasOwn(config.spec, 'queries')).toBe(false)
+  expect(Object.hasOwn(config.spec, 'keywords')).toBe(false)
   expect(resolveConfigSpecQueries(config.spec)).toEqual([])
-  expect(config.spec.competitors).toEqual([])
-  expect(config.spec.providerModels).toEqual({})
 })
 
 test('project config trims provider model overrides and rejects blank model IDs', () => {
@@ -469,49 +499,41 @@ test('mentionStateFromAnswerMentioned mirrors the legacy visibility helper with 
 })
 
 test('querySnapshotDtoSchema accepts all provider names', () => {
-  for (const provider of ['gemini', 'openai', 'claude']) {
-    const snapshot = querySnapshotDtoSchema.parse({
-      id: 'snap_1',
-      runId: 'run_1',
-      queryId: 'q_1',
-      provider,
-      citationState: 'cited',
-      createdAt: '2026-03-09T00:00:00.000Z',
+  for (const provider of ['gemini', 'openai', 'claude', 'perplexity', 'cdp:chatgpt', 'lab:engine']) {
+    const result = querySnapshotDtoSchema.safeParse({
+      id: 'snap_1', runId: 'run_1', queryId: 'q_1', provider,
+      citationState: 'cited', createdAt: '2026-03-09T00:00:00.000Z',
     })
-    expect(snapshot.provider).toBe(provider)
+    expect(result.success, `snapshot accepts ${provider}`).toBe(true)
+    expect(result.data?.provider, `snapshot preserves ${provider}`).toBe(provider)
   }
 })
 
 test('auditLogEntrySchema validates log entries', () => {
   const entry = auditLogEntrySchema.parse({
-    id: 'log_1',
-    actor: 'cli',
-    action: 'project.created',
-    entityType: 'project',
-    entityId: 'project_1',
-    createdAt: '2026-03-09T00:00:00.000Z',
+    id: 'log_1', actor: 'cli', action: 'project.created', entityType: 'project',
+    entityId: 'project_1', createdAt: '2026-03-09T00:00:00.000Z',
   })
-
-  expect(entry.action).toBe('project.created')
-  expect(entry.projectId).toBeUndefined()
+  expect(entry).toEqual({
+    id: 'log_1', actor: 'cli', action: 'project.created', entityType: 'project',
+    entityId: 'project_1', createdAt: '2026-03-09T00:00:00.000Z',
+  })
+  expect(Object.hasOwn(entry, 'projectId')).toBe(false)
 })
 
 test('notificationDtoSchema accepts redacted runtime notification payloads', () => {
   const notification = notificationDtoSchema.parse({
-    id: 'notif_1',
-    projectId: 'project_1',
-    channel: 'webhook',
-    url: 'https://hooks.example.com/redacted',
-    urlDisplay: 'hooks.example.com/redacted',
-    urlHost: 'hooks.example.com',
-    events: ['run.completed'],
-    enabled: true,
-    createdAt: '2026-03-09T00:00:00.000Z',
-    updatedAt: '2026-03-09T00:00:00.000Z',
+    id: 'notif_1', projectId: 'project_1', channel: 'webhook',
+    url: 'https://hooks.example.com/redacted', urlDisplay: 'hooks.example.com/redacted', urlHost: 'hooks.example.com',
+    events: ['run.completed'], enabled: true,
+    createdAt: '2026-03-09T00:00:00.000Z', updatedAt: '2026-03-09T00:00:00.000Z',
   })
-
-  expect(notification.urlHost).toBe('hooks.example.com')
-  expect(notification.urlDisplay).toBe('hooks.example.com/redacted')
+  expect(notification).toEqual({
+    id: 'notif_1', projectId: 'project_1', channel: 'webhook',
+    url: 'https://hooks.example.com/redacted', urlDisplay: 'hooks.example.com/redacted', urlHost: 'hooks.example.com',
+    events: ['run.completed'], enabled: true,
+    createdAt: '2026-03-09T00:00:00.000Z', updatedAt: '2026-03-09T00:00:00.000Z',
+  })
 })
 
 test('AppError serializes to JSON with code and message', () => {
@@ -568,8 +590,10 @@ test('projectConfigSchema accepts config with schedule preset', () => {
     },
   })
 
-  expect(config.spec.schedule).toBeTruthy()
-  expect(config.spec.notifications).toHaveLength(1)
+  expect(config.spec.schedule).toEqual({ preset: 'daily', timezone: 'America/New_York', providers: [] })
+  expect(config.spec.notifications).toEqual([{
+    channel: 'webhook', url: 'https://hooks.example.com/test', events: ['citation.lost'],
+  }])
 })
 
 test('projectConfigSchema rejects schedule with both preset and cron', () => {
@@ -681,9 +705,10 @@ test('projectDtoSchema accepts locations array and defaultLocation', () => {
     ],
     defaultLocation: 'nyc',
   })
-  expect(project.locations).toHaveLength(2)
-  expect(project.locations[0].label).toBe('nyc')
-  expect(project.locations[1].timezone).toBe('Europe/London')
+  expect(project.locations).toEqual([
+    { label: 'nyc', city: 'New York', region: 'New York', country: 'US' },
+    { label: 'london', city: 'London', region: 'England', country: 'GB', timezone: 'Europe/London' },
+  ])
   expect(project.defaultLocation).toBe('nyc')
 })
 
@@ -796,14 +821,11 @@ test('querySnapshotDtoSchema accepts null location', () => {
 
 describe('resolveProviderInput', () => {
   it('expands "cdp" shorthand to all CDP targets', () => {
-    const result = resolveProviderInput('cdp')
-    expect(result).toContain('cdp:chatgpt')
-    expect(result.length).toBeGreaterThan(0)
+    expect(resolveProviderInput('cdp')).toEqual(['cdp:chatgpt'])
   })
 
   it('expands "CDP" (case-insensitive) to all CDP targets', () => {
-    const result = resolveProviderInput('CDP')
-    expect(result).toContain('cdp:chatgpt')
+    expect(resolveProviderInput('CDP')).toEqual(['cdp:chatgpt'])
   })
 
   it('returns a single-element array for a known provider name', () => {
@@ -878,8 +900,7 @@ describe('extractAnswerMentions', () => {
       ['Example Inc'],
       ['example.com'],
     )
-    expect(result.mentioned).toBe(true)
-    expect(result.matchedTerms).toContain('example.com')
+    expect(result).toEqual({ mentioned: true, matchedTerms: ['example.com'] })
   })
 
   it('returns matched display name', () => {
@@ -888,8 +909,7 @@ describe('extractAnswerMentions', () => {
       ['Example Health'],
       ['examplehealth.com'],
     )
-    expect(result.mentioned).toBe(true)
-    expect(result.matchedTerms).toContain('Example Health')
+    expect(result).toEqual({ mentioned: true, matchedTerms: ['Example Health', 'examplehealth'] })
   })
 
   it('returns empty matchedTerms when nothing matches', () => {
@@ -908,9 +928,7 @@ describe('extractAnswerMentions', () => {
       ['Example Inc'],
       ['example.com'],
     )
-    expect(result.mentioned).toBe(true)
-    expect(result.matchedTerms).toContain('example.com')
-    expect(result.matchedTerms).toContain('Example Inc')
+    expect(result).toEqual({ mentioned: true, matchedTerms: ['example.com', 'Example Inc'] })
   })
 
   it('deduplicates matched terms', () => {
@@ -919,9 +937,7 @@ describe('extractAnswerMentions', () => {
       ['AI NYC'],
       ['ainyc.ai'],
     )
-    expect(result.mentioned).toBe(true)
-    const domainCount = result.matchedTerms.filter(t => t === 'ainyc.ai').length
-    expect(domainCount).toBe(1)
+    expect(result).toEqual({ mentioned: true, matchedTerms: ['ainyc.ai'] })
   })
 
   it('handles null answer text', () => {
@@ -939,8 +955,7 @@ describe('extractAnswerMentions', () => {
       ['zyloqcoatings'],
       ['zyloqcoatingsllc.test'],
     )
-    expect(result.mentioned).toBe(true)
-    expect(result.matchedTerms).toContain('zyloqcoatings')
+    expect(result).toEqual({ mentioned: true, matchedTerms: ['zyloqcoatings'] })
   })
 
   it('matches when display name has spaces but the answer concatenates it', () => {
@@ -949,8 +964,7 @@ describe('extractAnswerMentions', () => {
       ['Zyloq Coatings'],
       ['zyloqcoatingsllc.test'],
     )
-    expect(result.mentioned).toBe(true)
-    expect(result.matchedTerms).toContain('Zyloq Coatings')
+    expect(result).toEqual({ mentioned: true, matchedTerms: ['Zyloq Coatings'] })
   })
 
   it('does not concatenate across unrelated words to manufacture a match', () => {
@@ -1042,12 +1056,17 @@ describe('extractAnswerMentions', () => {
   })
 
   it('still matches the registrable brand of a subdomained own domain', () => {
-    const result = extractAnswerMentions(
-      'Brokers turn to Roofquill when they need quick install quotes.',
-      ['Roofquill'],
-      ['offers.roofquill.test'],
-    )
-    expect(result.mentioned).toBe(true)
+    for (const { brandNames, matchedTerms } of [
+      { brandNames: ['Roofquill'], matchedTerms: ['Roofquill'] },
+      { brandNames: [], matchedTerms: ['roofquill'] },
+    ]) {
+      const result = extractAnswerMentions(
+        'Brokers turn to Roofquill when they need quick install quotes.',
+        brandNames,
+        ['offers.roofquill.test'],
+      )
+      expect(result, `registrable identity with names ${brandNames.join(',')}`).toEqual({ mentioned: true, matchedTerms })
+    }
   })
 
   it('matches a short classifier-only display name only when it appears as a whole word', () => {
@@ -1156,13 +1175,13 @@ describe('extractAnswerMentions', () => {
     // it appears many times. Standalone descriptor words like "Roofing",
     // "Plumbing", "Construction" are too common in industry prose to be a
     // reliable signal of brand presence on their own.
-    const result = extractAnswerMentions(
+    for (const answer of [
       'Roofing repair work requires permits and trained inspectors. Most homeowners pay $300 for a basic roofing inspection.',
-      ['Quillmere Roofing'],
-      ['quillmereroofing.test'],
-    )
-    expect(result.mentioned).toBe(false)
-    expect(result.matchedTerms).toEqual([])
+      'Most homeowners pay $300 for a basic roofing inspection.',
+    ]) {
+      const result = extractAnswerMentions(answer, ['Quillmere Roofing'], ['quillmereroofing.test'])
+      expect(result, answer).toEqual({ mentioned: false, matchedTerms: [] })
+    }
   })
 
   it('does not surface trailing descriptor words as matched terms when the full phrase is present', () => {
@@ -1198,27 +1217,18 @@ describe('extractAnswerMentions', () => {
     expect(result.matchedTerms).toContain('LlamaParse')
   })
 
-  it('multi-word names do not match on a trailing descriptor alone', () => {
-    // The exact approved identity "Quillmere Roofing" is not present when only
-    // the generic descriptor "roofing" appears.
-    const result = extractAnswerMentions(
-      'Most homeowners pay $300 for a basic roofing inspection.',
-      ['Quillmere Roofing'],
-      ['quillmereroofing.test'],
-    )
-    expect(result.mentioned).toBe(false)
-  })
-
   it("explicit alias fires even when displayName tokens don't match", () => {
-    // The LlamaIndex / LlamaParse case. With aliases declared, each alias
-    // is matched independently, so a standalone "LlamaParse" mention fires.
-    const result = extractAnswerMentions(
-      'LlamaParse is a great tool for parsing.',
-      ['LlamaIndex', 'LlamaParse'],
+    for (const domains of [
       ['llamaindex.ai', 'llamaparse.com'],
-    )
-    expect(result.mentioned).toBe(true)
-    expect(result.matchedTerms).toContain('LlamaParse')
+      ['llamaindex.ai', 'document-tools.test'],
+    ]) {
+      const result = extractAnswerMentions(
+        'LlamaParse is a great tool for parsing.',
+        ['LlamaIndex', 'LlamaParse'],
+        domains,
+      )
+      expect(result, `approved alias with domains ${domains.join(',')}`).toEqual({ mentioned: true, matchedTerms: ['LlamaParse'] })
+    }
   })
 
   it('empty brandNames array still allows domain-only matching', () => {
@@ -1249,26 +1259,5 @@ describe('extractAnswerMentions', () => {
     )
     expect(result.mentioned).toBe(true)
     expect(result.matchedTerms).toContain('Example Health')
-  })
-})
-
-describe('parseProviderName', () => {
-  it('normalizes and returns provider name strings', () => {
-    expect(parseProviderName('gemini')).toBe('gemini')
-    expect(parseProviderName('cdp:chatgpt')).toBe('cdp:chatgpt')
-    expect(parseProviderName('perplexity')).toBe('perplexity')
-  })
-
-  it('normalizes casing', () => {
-    expect(parseProviderName('GEMINI')).toBe('gemini')
-    expect(parseProviderName('OpenAI')).toBe('openai')
-  })
-
-  it('accepts any non-empty string (providers are validated at runtime)', () => {
-    expect(parseProviderName('unknown')).toBe('unknown')
-  })
-
-  it('returns undefined for empty input', () => {
-    expect(parseProviderName('')).toBeUndefined()
   })
 })

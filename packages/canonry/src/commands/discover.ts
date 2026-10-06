@@ -57,7 +57,7 @@ export interface ResolvedIcpAngles {
   multiAngle: boolean
 }
 
-export function resolveIcpAngles(opts: DiscoverRunOptions): ResolvedIcpAngles {
+function resolveIcpAngles(opts: DiscoverRunOptions): ResolvedIcpAngles {
   const angles = (opts.icpAngles ?? []).map(a => a.trim()).filter(a => a.length > 0)
   if (angles.length > 0) return { angles, multiAngle: true }
   const icp = opts.icp?.trim()
@@ -78,7 +78,7 @@ type DiscoverySessionCounts = Pick<
   'probeCount' | 'citedCount' | 'wastedCount' | 'aspirationalCount'
 >
 
-export function summarizeAngles(sessions: readonly DiscoverySessionCounts[]): AngleSummary {
+function summarizeAngles(sessions: readonly DiscoverySessionCounts[]): AngleSummary {
   return {
     angleCount: sessions.length,
     totalProbes: sessions.reduce((sum, s) => sum + (s.probeCount ?? 0), 0),

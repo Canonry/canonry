@@ -77,13 +77,14 @@ describe('simple measurement definition', () => {
   })
 
   it('retains distinct selected query ids even when their normalized text overlaps', () => {
-    const value = input()
-    value.queries = [
+    const definition = buildSimpleMeasurementDefinition({ ...input(), queries: [
       { queryId: 'q-one', queryText: 'Best apartments', provenance: null },
       { queryId: 'q-two', queryText: '  best apartments  ', provenance: null },
-    ]
-
-    expect(buildSimpleMeasurementDefinition(value).queries).toHaveLength(2)
+    ] })
+    expect(definition.queries).toEqual([
+      { queryId: 'q-one', queryText: 'Best apartments', provenance: null, queryClass: 'non-brand' },
+      { queryId: 'q-two', queryText: '  best apartments  ', provenance: null, queryClass: 'non-brand' },
+    ])
   })
 
   it('preserves an existing empty query text instead of tightening dispatch validation', () => {
@@ -130,7 +131,7 @@ describe('simple measurement definition', () => {
     }])
     expect(canonicalSimpleMeasurementDefinitionJson(frozen)).toContain('challenger.example')
 
-    const { competitors: _competitors, ...legacyInput } = input()
+    const { competitors: _competitors, ...legacyInput } = input() as ReturnType<typeof input> & { competitors?: undefined }
     const legacy = buildSimpleMeasurementDefinition(legacyInput)
     expect(legacy).not.toHaveProperty('competitors')
     expect(canonicalSimpleMeasurementDefinitionJson(legacy)).not.toContain('competitors')
@@ -160,25 +161,15 @@ describe('simple measurement definition', () => {
   })
 
   it('serializes equivalent set order deterministically without changing exact query text', () => {
-    const first = buildSimpleMeasurementDefinition(input())
     const reordered = input()
-    reordered.identity.aliases = [...reordered.identity.aliases, 'Northstar Living']
+    reordered.identity.aliases = ['Northstar Living', 'Northstar']
     reordered.identity.ownedDomains = ['residences.northstar.example', 'northstar.example']
     reordered.engines.reverse()
     reordered.queries.reverse()
-    const second = buildSimpleMeasurementDefinition(reordered)
-
-    const firstWithSameSets = buildSimpleMeasurementDefinition({
-      ...input(),
-      identity: {
-        ...input().identity,
-        aliases: ['Northstar Living', 'Northstar'],
-        ownedDomains: ['northstar.example', 'residences.northstar.example'],
-      },
-    })
-
-    expect(canonicalSimpleMeasurementDefinitionJson(second)).toBe(canonicalSimpleMeasurementDefinitionJson(firstWithSameSets))
-    expect(canonicalSimpleMeasurementDefinitionJson(first)).toContain('Northstar Living reviews')
+    expect(canonicalSimpleMeasurementDefinitionJson(buildSimpleMeasurementDefinition(reordered)))
+      .toBe("{\"schemaVersion\":1,\"capturedAt\":\"2026-09-04T12:00:00.000Z\",\"identity\":{\"displayName\":\"Northstar Living\",\"aliases\":[\"Northstar\",\"Northstar Living\"],\"canonicalDomain\":\"northstar.example\",\"ownedDomains\":[\"northstar.example\",\"residences.northstar.example\"]},\"country\":\"US\",\"language\":\"en\",\"location\":{\"label\":\"northbridge\",\"city\":\"Northbridge\",\"region\":\"NB\",\"country\":\"US\",\"timezone\":\"America/New_York\"},\"engines\":[{\"provider\":\"gemini\",\"requestedModel\":null},{\"provider\":\"openai\",\"requestedModel\":\"gpt-5.4\"}],\"queries\":[{\"queryId\":\"q-brand\",\"queryText\":\"Northstar Living reviews\",\"provenance\":\"manual\",\"queryClass\":\"branded\"},{\"queryId\":\"q-category\",\"queryText\":\"best apartments in Northbridge\",\"provenance\":null,\"queryClass\":\"non-brand\"}]}")
+    expect(canonicalSimpleMeasurementDefinitionJson(buildSimpleMeasurementDefinition(input())))
+      .toBe(GOLDEN_CANONICAL_JSON)
   })
 })
 
@@ -291,6 +282,6 @@ describe('simple measurement definition qualified aliases', () => {
     expect(simpleMeasurementCompetitorNames([
       { domain: 'rivalhomes.example', label: 'rivalhomes', aliases: ['Rival Homes', 'RH Living'] },
       { domain: 'other.example', label: 'other', aliases: [] },
-    ])).toEqual(['rivalhomes', 'Rival Homes', 'RH Living', 'other'])
+    ] as { domain: string; label: string; aliases: string[] }[])).toEqual(['rivalhomes', 'Rival Homes', 'RH Living', 'other'])
   })
 })

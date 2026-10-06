@@ -1,8 +1,11 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import crypto from 'node:crypto'
-import { describe, it, expect, afterEach } from 'vitest'
+import { it, expect, afterEach, beforeEach, vi } from 'vitest'
+import { eq } from 'drizzle-orm'
+import { deliverWebhook, measurementRunCompleteness } from '@ainyc/canonry-api-routes'
+import { CitationStates, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
+import type { CitationState, LocationContext, RunStatus, RunTrigger, WebhookPayload } from '@ainyc/canonry-contracts'
 import {
   createClient,
   migrate,
@@ -10,8 +13,25 @@ import {
   queries,
   querySnapshots,
   runs,
+  notifications,
+  auditLog,
 } from '@ainyc/canonry-db'
 import { Notifier } from '../src/notifier.js'
+
+vi.mock('@ainyc/canonry-api-routes', async importOriginal => {
+  const actual = await importOriginal<typeof import('@ainyc/canonry-api-routes')>()
+  return {
+    ...actual,
+    resolveWebhookTarget: vi.fn(async (url: string) => ({
+      ok: true, target: { url: new URL(url), address: '203.0.113.1', family: 4 },
+    })),
+    deliverWebhook: vi.fn(),
+  }
+})
+
+beforeEach(() => {
+  vi.mocked(deliverWebhook).mockReset().mockResolvedValue({ status: 204, error: null })
+})
 
 // Regression suite for #480 fan-out behavior in the citation-change notifier.
 // The pre-#480 logic compared `runs[0]` vs `runs[1]` for the run-completed
@@ -33,306 +53,220 @@ function buildDb() {
   return db
 }
 
-interface RunSpec {
-  id: string
-  location: string | null
-  createdAt: string
-  status: 'completed' | 'partial' | 'queued' | 'running' | 'failed' | 'cancelled'
-}
+const PREVIOUS_AT = '2026-10-01T00:00:00.000Z'
+const CURRENT_AT = '2026-10-03T00:00:00.000Z'
+const CURRENT_FINISHED_AT = '2026-10-03T00:00:02.000Z'
+const LOCATION = { label: 'florida', city: 'Orlando', region: 'Florida', country: 'US' }
+const MICHIGAN: LocationContext = { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' }
+const MODES = ['Simple', 'Advanced'] as const
 
-interface SnapSpec {
-  runId: string
-  queryId: string
-  provider: string
-  location: string | null
-  citationState: 'cited' | 'not-cited'
-}
-
-function seedFanOutScenario(opts: { currentSiblingStatus?: RunSpec['status'] } = {}) {
+function notificationHarness(
+  planned: boolean, locations: LocationContext[] = [LOCATION],
+  events: WebhookPayload['event'][] = ['citation.gained', 'citation.lost'],
+) {
   const db = buildDb()
-  const projectId = crypto.randomUUID()
-  const queryId = crypto.randomUUID()
-  const prevCreatedAt = '2026-05-12T17:23:20.060Z'
-  const latestCreatedAt = '2026-05-13T17:23:20.060Z'
-
-  // IDs chosen so michigan's id is greater than florida's — the pre-fix code
-  // would have picked michigan as the "representative." Under the corrected
-  // last-to-finish gate, the choice depends purely on completion order.
-  const prevFlId = '00000000-0000-0000-0000-000000000001'
-  const prevMiId = 'ffffffff-ffff-ffff-ffff-fffffffffff1'
-  const latestFlId = '00000000-0000-0000-0000-000000000002'
-  const latestMiId = 'ffffffff-ffff-ffff-ffff-fffffffffff2'
-
+  cleanups.unshift(() => db.$client.close())
+  const projectId = 'probe-notifications'
   db.insert(projects).values({
-    id: projectId,
-    name: 'harborline-coatings',
-    displayName: 'Harborline Coatings',
-    canonicalDomain: 'harborline-coatings.example',
-    country: 'US',
-    language: 'en',
-    ownedDomains: '[]',
-    tags: '[]',
-    providers: '[]',
-    locations: JSON.stringify([
-      { label: 'florida',  city: 'Orlando', region: 'Florida',  country: 'US' },
-      { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' },
-    ]),
-    createdAt: '2026-05-10T00:00:00.000Z',
-    updatedAt: latestCreatedAt,
+    id: projectId, name: 'probe-notifications', displayName: 'Probe Notifications',
+    canonicalDomain: 'coatings.example', country: 'US', language: 'en',
+    locations, createdAt: PREVIOUS_AT, updatedAt: CURRENT_AT,
   }).run()
   db.insert(queries).values({
-    id: queryId,
-    projectId,
-    query: 'polyurea roof coating',
-    createdAt: '2026-05-10T00:00:00.000Z',
+    id: 'roof-query', projectId, query: 'roof coating', createdAt: PREVIOUS_AT,
+  }).run()
+  db.insert(notifications).values({
+    id: 'citation-hook', projectId, channel: 'webhook', enabled: true,
+    config: { url: 'https://hooks.example/citations', events },
+    createdAt: PREVIOUS_AT, updatedAt: PREVIOUS_AT,
   }).run()
 
-  const runSpecs: RunSpec[] = [
-    { id: prevFlId,   location: 'florida',  createdAt: prevCreatedAt,   status: 'completed' },
-    { id: prevMiId,   location: 'michigan', createdAt: prevCreatedAt,   status: 'completed' },
-    { id: latestFlId, location: 'florida',  createdAt: latestCreatedAt, status: 'completed' },
-    { id: latestMiId, location: 'michigan', createdAt: latestCreatedAt, status: opts.currentSiblingStatus ?? 'completed' },
-  ]
-  db.insert(runs).values(runSpecs.map(r => ({
-    id: r.id,
-    projectId,
-    kind: 'answer-visibility' as const,
-    status: r.status,
-    trigger: 'manual',
-    location: r.location,
-    createdAt: r.createdAt,
-    finishedAt: r.status === 'completed' || r.status === 'partial' ? r.createdAt : null,
-  }))).run()
-
-  // Previous group: cited at florida, cited at michigan.
-  // Latest group: cited at florida (no change), NOT cited at michigan (regression).
-  const snaps: SnapSpec[] = [
-    { runId: prevFlId,   queryId, provider: 'gemini', location: 'florida',  citationState: 'cited' },
-    { runId: prevMiId,   queryId, provider: 'gemini', location: 'michigan', citationState: 'cited' },
-    { runId: latestFlId, queryId, provider: 'gemini', location: 'florida',  citationState: 'cited' },
-    { runId: latestMiId, queryId, provider: 'gemini', location: 'michigan', citationState: 'not-cited' },
-  ]
-  db.insert(querySnapshots).values(snaps.map(s => ({
-    id: crypto.randomUUID(),
-    runId: s.runId,
-    queryId: s.queryId,
-    provider: s.provider,
-    citationState: s.citationState,
-    answerMentioned: s.citationState === 'cited',
-    location: s.location,
-    citedDomains: s.citationState === 'cited' ? ['harborline-coatings.example'] : [],
-    competitorOverlap: [],
-    recommendedCompetitors: [],
-    rawResponse: '{}',
-    createdAt: s.runId.includes('latest') ? '2026-05-13T17:23:21.000Z' : '2026-05-12T17:23:21.000Z',
-  }))).run()
-
-  return { db, projectId, prevFlId, prevMiId, latestFlId, latestMiId }
-}
-
-// computeTransitions is a private method; tests reach it via cast.
-function callCompute(notifier: Notifier, runId: string, projectId: string) {
-  return (notifier as unknown as {
-    computeTransitions: (runId: string, projectId: string) => Array<{
-      query: string; from: string; to: string; provider: string; location: string | null
-    }>
-  }).computeTransitions(runId, projectId)
-}
-
-describe('Notifier multi-location fan-out (#480)', () => {
-  it('returns no transitions while a sibling run is still pending', () => {
-    // michigan still running when florida fires its onRunCompleted →
-    // wait, don't fire. Pre-fix code would have produced a cross-location
-    // diff (comparing florida-current to michigan-current at the prior
-    // group, which is exactly the bug).
-    const { db, projectId, latestFlId } = seedFanOutScenario({ currentSiblingStatus: 'running' })
-    const notifier = new Notifier(db, 'http://localhost:4100')
-    const transitions = callCompute(notifier, latestFlId, projectId)
-    expect(transitions).toEqual([])
-  })
-
-  it('fires once with combined-group transitions after the last sibling finishes', () => {
-    // Both florida and michigan are now completed. The last completion
-    // (whichever happens to be processed) sees no siblings still pending,
-    // looks up the previous distinct-createdAt group, and computes the
-    // (query, provider, location) diff. Florida is unchanged (cited→cited)
-    // and is correctly suppressed; michigan regressed (cited→not-cited) and
-    // is reported as a transition.
-    const { db, projectId, latestMiId } = seedFanOutScenario()
-    const notifier = new Notifier(db, 'http://localhost:4100')
-    const transitions = callCompute(notifier, latestMiId, projectId)
-
-    // Exactly one transition — michigan's regression — not two.
-    expect(transitions).toHaveLength(1)
-    expect(transitions[0]).toEqual({
-      query: 'polyurea roof coating',
-      from: 'cited',
-      to: 'not-cited',
-      provider: 'gemini',
-      location: 'michigan',
-    })
-  })
-
-  it('compares against the previous fan-out group, never against the sibling location of the same group', () => {
-    // Critical pre-fix bug: with limit(2) and identical timestamps in the
-    // current group, recentRuns was [florida-latest, michigan-latest] and
-    // the code treated michigan-latest as "previous" — producing spurious
-    // florida↔michigan diffs as if they were time-series transitions.
-    const { db, projectId, latestMiId } = seedFanOutScenario()
-    const notifier = new Notifier(db, 'http://localhost:4100')
-    const transitions = callCompute(notifier, latestMiId, projectId)
-
-    // florida didn't change between the previous group and the latest
-    // group, so it must not appear in transitions. If the fix regressed
-    // and started comparing against the sibling-location run, we'd see
-    // florida↔michigan flips here.
-    expect(transitions.some(t => t.location === 'florida')).toBe(false)
-  })
-
-  it('only the winner (max finishedAt, tiebreak max id) fires; loser returns [] even when all siblings are done', () => {
-    // This is the core dedup gate that makes the notifier safe against
-    // async-dispatch races. Even when BOTH siblings have completed and a
-    // delayed notifier event for the loser sees "all siblings finished",
-    // the loser independently computes the winner and bails — guaranteeing
-    // exactly one webhook fires per group regardless of dispatch ordering.
-    const { db, projectId, latestFlId, latestMiId } = seedFanOutScenario()
-    const notifier = new Notifier(db, 'http://localhost:4100')
-
-    // florida has the lex-lesser id ('0000...0002'); michigan's id is
-    // 'ffff...0002'. Both share the same finishedAt, so the id tiebreak
-    // applies — michigan wins. Calling compute with florida (the loser)
-    // must return [].
-    const floridaTransitions = callCompute(notifier, latestFlId, projectId)
-    expect(floridaTransitions).toEqual([])
-
-    // michigan (the winner) computes the diff.
-    const michiganTransitions = callCompute(notifier, latestMiId, projectId)
-    expect(michiganTransitions.length).toBeGreaterThan(0)
-  })
-
-  it('does not block on a queued sibling of a different `kind`', () => {
-    // A queued traffic-sync sharing the answer-visibility group's createdAt
-    // millisecond must not block the answer-visibility webhook. The sibling
-    // query is filtered by `kind` so cross-kind interference is impossible.
-    const { db, projectId, latestMiId } = seedFanOutScenario()
-
-    // Add a same-createdAt traffic-sync row in 'queued' state. Without the
-    // kind filter, this would trigger the "still pending" early return and
-    // suppress the answer-visibility webhook.
-    db.insert(runs).values({
-      id: crypto.randomUUID(),
-      projectId,
-      kind: 'traffic-sync',
-      status: 'queued',
-      trigger: 'scheduled',
-      location: null,
-      createdAt: '2026-05-13T17:23:20.060Z',
-      finishedAt: null,
-    }).run()
-
-    const notifier = new Notifier(db, 'http://localhost:4100')
-    const transitions = callCompute(notifier, latestMiId, projectId)
-    expect(transitions.length).toBeGreaterThan(0)
-  })
-
-  it('returns no transitions when the previous fan-out group is missing entirely', () => {
-    // First-ever sweep of a multi-location project — only one fan-out
-    // group exists, no previous to compare against.
-    const db = buildDb()
-    const projectId = crypto.randomUUID()
-    const queryId = crypto.randomUUID()
-    const latestFlId = crypto.randomUUID()
-    const latestMiId = crypto.randomUUID()
-    const latestCreatedAt = '2026-05-13T17:23:20.060Z'
-
-    db.insert(projects).values({
-      id: projectId,
-      name: 'first-sweep',
-      displayName: 'First Sweep',
-      canonicalDomain: 'example.com',
-      country: 'US',
-      language: 'en',
-      ownedDomains: '[]',
-      tags: '[]',
-      providers: '[]',
-      locations: '[]',
-      createdAt: '2026-05-10T00:00:00.000Z',
-      updatedAt: latestCreatedAt,
-    }).run()
-    db.insert(queries).values({
-      id: queryId,
-      projectId,
-      query: 'q',
-      createdAt: '2026-05-10T00:00:00.000Z',
-    }).run()
-    db.insert(runs).values([
-      { id: latestFlId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: 'florida',  createdAt: latestCreatedAt, finishedAt: latestCreatedAt },
-      { id: latestMiId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: 'michigan', createdAt: latestCreatedAt, finishedAt: latestCreatedAt },
-    ]).run()
-    db.insert(querySnapshots).values([
-      { id: crypto.randomUUID(), runId: latestFlId, queryId, provider: 'gemini', citationState: 'cited', answerMentioned: true, location: 'florida',  citedDomains: ['example.com'], competitorOverlap: [], recommendedCompetitors: [], rawResponse: '{}', createdAt: latestCreatedAt },
-      { id: crypto.randomUUID(), runId: latestMiId, queryId, provider: 'gemini', citationState: 'cited', answerMentioned: true, location: 'michigan', citedDomains: ['example.com'], competitorOverlap: [], recommendedCompetitors: [], rawResponse: '{}', createdAt: latestCreatedAt },
-    ]).run()
-
-    const notifier = new Notifier(db, 'http://localhost:4100')
-    const transitions = callCompute(notifier, latestMiId, projectId)
-    expect(transitions).toEqual([])
-  })
-})
-
-describe('Notifier and incomplete plan runs', () => {
-  it('reports no citation transitions from a run that did not finish its manifest', () => {
-    const db = buildDb()
-    const projectId = crypto.randomUUID()
-    const queryId = crypto.randomUUID()
-    const now = '2026-08-02T00:00:00.000Z'
-    const earlier = '2026-08-01T00:00:00.000Z'
-
-    db.insert(projects).values({
-      id: projectId,
-      name: 'planned-notify',
-      displayName: 'Planned Notify',
-      canonicalDomain: 'example.com',
-      country: 'US',
-      language: 'en',
-      createdAt: earlier,
-      updatedAt: earlier,
-    }).run()
-    db.insert(queries).values({ id: queryId, projectId, query: 'widget pricing', createdAt: earlier }).run()
-
-    // A complete earlier run that saw a citation.
-    db.insert(runs).values({
-      id: 'previous', projectId, status: 'completed', createdAt: earlier, finishedAt: earlier,
-    }).run()
+  function snapshot(
+    runId: string, createdAt: string, citationState: CitationState,
+    context: LocationContext = LOCATION, provider = 'gemini',
+    executionId: string | null = planned ? 'roof-execution' : null,
+  ) {
     db.insert(querySnapshots).values({
-      id: crypto.randomUUID(), runId: 'previous', queryId, provider: 'openai',
-      citationState: 'cited', citedDomains: ['example.com'], competitorOverlap: [], createdAt: earlier,
+      id: `${runId}${provider === 'gemini' ? '' : `-${provider}`}-snapshot`,
+      runId, queryId: 'roof-query', queryText: 'roof coating', provider,
+      location: context.label, citationState, answerMentioned: false,
+      citedDomains: citationState === CitationStates.cited ? ['coatings.example'] : [],
+      measurementExecutionId: executionId, requestedContext: context, createdAt,
     }).run()
+  }
 
-    // A plan run that only managed one of its two promised slots, and the one
-    // it managed is not cited. Calling that a lost citation would be a
-    // conclusion drawn from a measurement that never happened.
+  function seed(
+    id: string, createdAt: string, citationState: CitationState,
+    trigger: RunTrigger = RunTriggers.manual, status: RunStatus = RunStatuses.completed,
+    finishedAt: string | null = createdAt,
+    slot: { context?: LocationContext; provider?: string } = {},
+  ) {
+    const context = slot.context ?? LOCATION
+    const provider = slot.provider ?? 'gemini'
     db.insert(runs).values({
-      id: 'incomplete',
-      projectId,
-      status: 'partial',
-      createdAt: now,
-      finishedAt: now,
-      measurementPlanVersionId: null,
-      measurementManifest: {
+      id, projectId, kind: RunKinds['answer-visibility'], trigger, status,
+      location: context.label, createdAt, finishedAt,
+      measurementManifest: planned ? {
         schemaVersion: 1,
-        expectedSlots: [
-          { executionId: 'e1', queryText: 'widget pricing', provider: 'openai', context: null },
-          { executionId: 'e2', queryText: 'widget pricing', provider: 'gemini', context: null },
-        ],
-      },
+        expectedSlots: [{ executionId: 'roof-execution', queryText: 'roof coating', provider, context }],
+      } : null,
     }).run()
-    db.insert(querySnapshots).values({
-      id: crypto.randomUUID(), runId: 'incomplete', queryId, provider: 'openai',
-      citationState: 'not-cited', citedDomains: [], competitorOverlap: [], createdAt: now,
-    }).run()
+    if (status === RunStatuses.completed) snapshot(id, createdAt, citationState, context, provider)
+  }
 
-    const notifier = new Notifier(db, 'http://localhost:4100')
-    expect(callCompute(notifier, 'incomplete', projectId)).toEqual([])
-  })
+  async function complete(runId = 'current', origin?: 'fill') {
+    await new Notifier(db, 'https://canonry.test').onRunCompleted(runId, projectId, origin ? { origin } : undefined)
+  }
+
+  function assertDelivered(expected: WebhookPayload[]) {
+    expect(vi.mocked(deliverWebhook).mock.calls.map(([, body]) => body)).toEqual(expected)
+    expect(db.select().from(auditLog).all().map(row => ({
+      projectId: row.projectId, actor: row.actor, action: row.action,
+      entityType: row.entityType, entityId: row.entityId, diff: JSON.parse(row.diff!),
+    }))).toEqual(expected.map(payload => ({
+      projectId, actor: 'scheduler', action: 'notification.sent',
+      entityType: 'notification', entityId: 'citation-hook', diff: { event: payload.event, error: null },
+    })))
+  }
+
+  async function dispatch(expectedEvent: 'citation.gained' | 'citation.lost' | null) {
+    await complete()
+    assertDelivered(expectedEvent === null ? [] : [expectedPayload(expectedEvent,
+      { id: 'current', status: 'completed', finishedAt: CURRENT_FINISHED_AT }, [{
+        query: 'roof coating', provider: 'gemini', location: 'florida',
+        from: expectedEvent === 'citation.gained' ? 'not-cited' : 'cited',
+        to: expectedEvent === 'citation.gained' ? 'cited' : 'not-cited',
+      }])])
+  }
+  return { db, projectId, seed, snapshot, complete, assertDelivered, dispatch }
+}
+
+function expectedPayload(
+  event: WebhookPayload['event'], run: WebhookPayload['run'], transitions: WebhookPayload['transitions'],
+): WebhookPayload {
+  return {
+    source: 'canonry', event,
+    project: { name: 'probe-notifications', canonicalDomain: 'coatings.example' },
+    run, transitions, dashboardUrl: 'https://canonry.test/projects/probe-notifications',
+  }
+}
+
+const WINNER_CASES = [
+  { policy: 'later finish beats larger ID', flFinish: '2026-10-03T00:00:03.000Z', miFinish: CURRENT_FINISHED_AT, winner: 'current-fl', loser: 'current-mi', winnerFinish: '2026-10-03T00:00:03.000Z' },
+  { policy: 'larger ID breaks equal finish', flFinish: CURRENT_FINISHED_AT, miFinish: CURRENT_FINISHED_AT, winner: 'current-mi', loser: 'current-fl', winnerFinish: CURRENT_FINISHED_AT },
+] as const
+it.each(MODES.flatMap(mode => WINNER_CASES.flatMap(row => ['winner first', 'loser first'].map(order => ({ mode, order, ...row }))))) (
+  '$mode delivers one combined fanout loss: $policy, $order', async ({ mode, order, flFinish, miFinish, winner, loser, winnerFinish }) => {
+    const { db, projectId, seed, complete, assertDelivered } = notificationHarness(mode === 'Advanced', [LOCATION, MICHIGAN])
+    seed('previous-fl', PREVIOUS_AT, CitationStates['not-cited'])
+    seed('previous-mi', PREVIOUS_AT, CitationStates.cited, RunTriggers.manual, RunStatuses.completed, PREVIOUS_AT, { context: MICHIGAN })
+    seed('current-fl', CURRENT_AT, CitationStates['not-cited'], RunTriggers.manual, RunStatuses.completed, flFinish)
+    seed('current-mi', CURRENT_AT, CitationStates['not-cited'], RunTriggers.manual, RunStatuses.completed, miFinish, { context: MICHIGAN })
+    db.insert(runs).values({
+      id: 'queued-traffic', projectId, kind: RunKinds['traffic-sync'], status: RunStatuses.queued,
+      trigger: RunTriggers.scheduled, createdAt: CURRENT_AT,
+    }).run()
+    const expected = expectedPayload('citation.lost', { id: winner, status: 'completed', finishedAt: winnerFinish }, [
+      { query: 'roof coating', provider: 'gemini', location: 'michigan', from: 'cited', to: 'not-cited' },
+    ])
+    await complete(order === 'winner first' ? winner : loser)
+    assertDelivered(order === 'winner first' ? [expected] : [])
+    await complete(order === 'winner first' ? loser : winner)
+    assertDelivered([expected])
+  },
+)
+
+it.each(MODES.flatMap(mode => [RunStatuses.queued, RunStatuses.running].map(status => ({ mode, status }))))(
+  '$mode waits for a $status fanout sibling before delivering its eligible loss', async ({ mode, status }) => {
+    const { db, seed, snapshot, complete, assertDelivered } = notificationHarness(mode === 'Advanced', [LOCATION, MICHIGAN])
+    seed('previous-fl', PREVIOUS_AT, CitationStates.cited)
+    seed('previous-mi', PREVIOUS_AT, CitationStates.cited, RunTriggers.manual, RunStatuses.completed, PREVIOUS_AT, { context: MICHIGAN })
+    seed('current-fl', CURRENT_AT, CitationStates['not-cited'], RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT)
+    seed('current-mi', CURRENT_AT, CitationStates.cited, RunTriggers.manual, status, null, { context: MICHIGAN })
+    await complete('current-fl')
+    assertDelivered([])
+    db.update(runs).set({ status: RunStatuses.completed, finishedAt: '2026-10-03T00:00:03.000Z' }).where(eq(runs.id, 'current-mi')).run()
+    snapshot('current-mi', CURRENT_AT, CitationStates.cited, MICHIGAN)
+    await complete('current-mi')
+    assertDelivered([expectedPayload('citation.lost', { id: 'current-mi', status: 'completed', finishedAt: '2026-10-03T00:00:03.000Z' }, [
+      { query: 'roof coating', provider: 'gemini', location: 'florida', from: 'cited', to: 'not-cited' },
+    ])])
+  },
+)
+
+it.each(MODES)('%s emits no citation event without a prior group, then uses the stored prior group', async mode => {
+  const { seed, complete, assertDelivered } = notificationHarness(mode === 'Advanced', [LOCATION, MICHIGAN])
+  seed('current-fl', CURRENT_AT, CitationStates.cited, RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT)
+  seed('current-mi', CURRENT_AT, CitationStates.cited, RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT, { context: MICHIGAN })
+  await complete('current-mi')
+  assertDelivered([])
+  seed('previous-fl', PREVIOUS_AT, CitationStates['not-cited'])
+  seed('previous-mi', PREVIOUS_AT, CitationStates['not-cited'], RunTriggers.manual, RunStatuses.completed, PREVIOUS_AT, { context: MICHIGAN })
+  await complete('current-mi')
+  assertDelivered([expectedPayload('citation.gained', { id: 'current-mi', status: 'completed', finishedAt: CURRENT_FINISHED_AT }, [
+    { query: 'roof coating', provider: 'gemini', location: 'florida', from: 'not-cited', to: 'cited' },
+    { query: 'roof coating', provider: 'gemini', location: 'michigan', from: 'not-cited', to: 'cited' },
+  ])])
 })
+
+it('holds a correctly bound missing-slot loss until stored fill, without sending run.completed twice', async () => {
+  const { db, seed, snapshot, complete, assertDelivered } = notificationHarness(true, [LOCATION], ['run.completed', 'citation.gained', 'citation.lost'])
+  seed('previous', PREVIOUS_AT, CitationStates.cited, RunTriggers.manual, RunStatuses.completed, PREVIOUS_AT, { provider: 'openai' })
+  seed('current', CURRENT_AT, CitationStates['not-cited'], RunTriggers.manual, RunStatuses.partial, CURRENT_FINISHED_AT, { provider: 'openai' })
+  db.update(runs).set({ measurementManifest: { schemaVersion: 1, expectedSlots: [
+    { executionId: 'e1', queryText: 'roof coating', provider: 'openai', context: LOCATION },
+    { executionId: 'e2', queryText: 'roof coating', provider: 'gemini', context: LOCATION },
+  ] } }).where(eq(runs.id, 'current')).run()
+  snapshot('current', CURRENT_AT, CitationStates['not-cited'], LOCATION, 'openai', 'e1')
+  expect(measurementRunCompleteness(db, 'current')).toEqual({ planned: true, executed: 1, expected: 2, complete: false })
+  await complete()
+  const partial = expectedPayload('run.completed', { id: 'current', status: 'partial', finishedAt: CURRENT_FINISHED_AT }, [])
+  assertDelivered([partial])
+  snapshot('current', CURRENT_AT, CitationStates['not-cited'], LOCATION, 'gemini', 'e2')
+  db.update(runs).set({ status: RunStatuses.completed, error: null }).where(eq(runs.id, 'current')).run()
+  expect(measurementRunCompleteness(db, 'current')).toEqual({ planned: true, executed: 2, expected: 2, complete: true })
+  await complete('current', 'fill')
+  assertDelivered([partial, expectedPayload('citation.lost', { id: 'current', status: 'completed', finishedAt: CURRENT_FINISHED_AT }, [
+    { query: 'roof coating', provider: 'openai', location: 'florida', from: 'cited', to: 'not-cited' },
+  ])])
+})
+
+const HISTORY_CASES = [
+  { name: 'false gain', previous: CitationStates.cited, probe: CitationStates['not-cited'], current: CitationStates.cited, event: null, probes: 1 },
+  { name: 'false loss', previous: CitationStates['not-cited'], probe: CitationStates.cited, current: CitationStates['not-cited'], event: null, probes: 1 },
+  { name: 'real gain', previous: CitationStates['not-cited'], probe: CitationStates.cited, current: CitationStates.cited, event: 'citation.gained', probes: 1 },
+  { name: 'real loss', previous: CitationStates.cited, probe: CitationStates['not-cited'], current: CitationStates['not-cited'], event: 'citation.lost', probes: 1 },
+  { name: 'history beyond the eight-row window', previous: CitationStates['not-cited'], probe: CitationStates.cited, current: CitationStates.cited, event: 'citation.gained', probes: 9 },
+  { name: 'ordinary gain', previous: CitationStates['not-cited'], probe: CitationStates.cited, current: CitationStates.cited, event: 'citation.gained', probes: 0 },
+  { name: 'ordinary loss', previous: CitationStates.cited, probe: CitationStates['not-cited'], current: CitationStates['not-cited'], event: 'citation.lost', probes: 0 },
+] as const
+
+it.each(MODES.flatMap(mode => HISTORY_CASES.map(row => ({ mode, ...row }))))(
+  '$mode ignores stored probes in citation history: $name', async ({ mode, previous, probe, current, event, probes }) => {
+    const { seed, dispatch } = notificationHarness(mode === 'Advanced')
+    seed('z-previous', PREVIOUS_AT, previous)
+    for (let index = 0; index < probes; index++) {
+      seed(`probe-${index}`, `2026-10-02T00:${String(index).padStart(2, '0')}:00.000Z`, probe, RunTriggers.probe)
+    }
+    seed('current', CURRENT_AT, current, RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT)
+    await dispatch(event)
+  },
+)
+
+const GROUP_CASES = ['pending sibling', 'completed winner', 'previous population', 'current population'] as const
+it.each(MODES.flatMap(mode => GROUP_CASES.map(poison => ({ mode, poison }))))(
+  '$mode ignores stored probes in citation groups: $poison', async ({ mode, poison }) => {
+    const { seed, dispatch } = notificationHarness(mode === 'Advanced')
+    seed('z-previous', PREVIOUS_AT, CitationStates.cited)
+    seed('current', CURRENT_AT, CitationStates['not-cited'], RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT)
+    seed(
+      'zz-probe', poison === 'previous population' ? PREVIOUS_AT : CURRENT_AT,
+      CitationStates['not-cited'], RunTriggers.probe,
+      poison === 'pending sibling' ? RunStatuses.running : RunStatuses.completed,
+      poison === 'pending sibling' ? null
+        : poison === 'completed winner' ? '2026-10-03T00:00:03.000Z'
+          : poison === 'previous population' ? '2026-10-01T00:00:01.000Z' : '2026-10-03T00:00:01.000Z',
+    )
+    await dispatch('citation.lost')
+  },
+)

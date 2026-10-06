@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { resolve } from 'node:path'
 
-import { compile } from 'tailwindcss'
+import { compileAppStyles } from './compiled-app-css.js'
 import { expect, test } from 'vitest'
 
 const stylesPath = resolve(import.meta.dirname, '../src/styles.css')
@@ -9,33 +9,7 @@ const mainPath = resolve(import.meta.dirname, '../src/main.tsx')
 const appPath = resolve(import.meta.dirname, '../src/App.tsx')
 const embedPath = resolve(import.meta.dirname, '../src/embed.ts')
 const viteConfigPath = resolve(import.meta.dirname, '../vite.config.ts')
-const tailwindRoot = resolve(import.meta.dirname, '../node_modules/tailwindcss')
 
-async function loadTailwindStylesheet(id: string) {
-  if (id !== 'tailwindcss' && !id.startsWith('tailwindcss/')) {
-    throw new Error(`Unexpected stylesheet import: ${id}`)
-  }
-
-  const filename = id === 'tailwindcss'
-    ? 'index.css'
-    : `${id.slice('tailwindcss/'.length)}.css`
-  const path = resolve(tailwindRoot, filename)
-  return {
-    path,
-    base: dirname(path),
-    content: await readFile(path, 'utf8'),
-  }
-}
-
-async function compileAppStyles(candidates: string[]) {
-  const compiler = await compile(await readFile(stylesPath, 'utf8'), {
-    from: stylesPath,
-    base: dirname(stylesPath),
-    loadStylesheet: loadTailwindStylesheet,
-  })
-
-  return compiler.build(candidates)
-}
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

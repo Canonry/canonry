@@ -88,18 +88,26 @@ const SUMMARY = {
 describe('advanced measurement demo reads', () => {
   it('parses a bounded portfolio summary and defaults its comparison basket to non-brand', () => {
     expect(measurementPortfolioSummaryQuerySchema.parse({})).toEqual({ queryClass: 'non-brand' })
-    expect(measurementPortfolioSummaryQuerySchema.safeParse({ limit: 51 }).success).toBe(false)
+    expect(measurementPortfolioSummaryQuerySchema.parse({ limit: 50 })).toEqual({ queryClass: 'non-brand', limit: 50 })
+    const oversized = measurementPortfolioSummaryQuerySchema.safeParse({ limit: 51 })
+    expect(oversized.success).toBe(false)
+    expect(oversized.error?.issues.map(issue => issue.path)).toEqual([['limit']])
     expect(measurementPortfolioSummaryQuerySchema.parse({ queryClass: 'all' })).toEqual({ queryClass: 'all' })
 
-    expect(measurementPortfolioSummaryResponseSchema.parse(SUMMARY)).toMatchObject({ measurement: { displayedRunId: 'run-cedar-01' } })
+    expect(measurementPortfolioSummaryResponseSchema.parse(SUMMARY)).toEqual(SUMMARY)
 
     expect(measurementPortfolioSummaryResponseSchema.safeParse({ ...SUMMARY, extra: true }).success).toBe(false)
   })
 
   it('accepts the nested-markets flag only as a boolean and leaves it unset by default', () => {
-    expect(measurementPortfolioSummaryQuerySchema.parse({ includeNestedMarkets: true })).toEqual({ queryClass: 'non-brand', includeNestedMarkets: true })
-    expect(measurementPortfolioSummaryQuerySchema.safeParse({ includeNestedMarkets: 'true' }).success).toBe(false)
-    expect(MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT).toBeLessThan(10)
+    expect(measurementPortfolioSummaryQuerySchema.parse({})).toEqual({ queryClass: 'non-brand' })
+    for (const includeNestedMarkets of [true, false]) {
+      expect(measurementPortfolioSummaryQuerySchema.parse({ includeNestedMarkets })).toEqual({ queryClass: 'non-brand', includeNestedMarkets })
+    }
+    const invalid = measurementPortfolioSummaryQuerySchema.safeParse({ includeNestedMarkets: 'true' })
+    expect(invalid.success).toBe(false)
+    expect(invalid.error?.issues.map(issue => issue.path)).toEqual([['includeNestedMarkets']])
+    expect(MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT).toBe(4)
   })
 
   it('names what an answer wrote instead without calling it a citation', () => {
@@ -179,7 +187,7 @@ describe('advanced measurement demo reads', () => {
       .toEqual({ targetKey: 'cedar-bay', limit: 100 })
     expect(measurementPropertyQuestionsQuerySchema.safeParse({ targetKey: 'cedar-bay', limit: 101 }).success).toBe(false)
 
-    const response = measurementPropertyQuestionsResponseSchema.parse({
+    const input = {
       property: PROPERTY,
       measurement: MEASUREMENT,
       queryClass: 'all',
@@ -199,12 +207,10 @@ describe('advanced measurement demo reads', () => {
       ],
       total: 2,
       truncated: false,
-    })
-    expect(response.questions[1]).toMatchObject({ status: 'missing', mentioned: null, cited: null })
-    expect(measurementPropertyQuestionsResponseSchema.safeParse({
-      ...response,
-      questions: [{ ...response.questions[0], cited: null }, response.questions[1]],
-    }).success).toBe(true)
+    }
+    expect(measurementPropertyQuestionsResponseSchema.parse(input)).toEqual(input)
+    const partialCapture = { ...input, questions: [{ ...input.questions[0], cited: null }, input.questions[1]] }
+    expect(measurementPropertyQuestionsResponseSchema.parse(partialCapture)).toEqual(partialCapture)
 
     expect(measurementPropertyQuestionsResponseSchema.safeParse({
       property: PROPERTY, measurement: MEASUREMENT, queryClass: 'all', total: 1, truncated: false,
@@ -221,7 +227,7 @@ describe('advanced measurement demo reads', () => {
     expect(measurementQuestionResultQuerySchema.parse({ targetKey: 'cedar-bay', resultId: 'result-cedar-01' }))
       .toEqual({ targetKey: 'cedar-bay', resultId: 'result-cedar-01' })
 
-    const response = measurementQuestionResultResponseSchema.parse({
+    const input = {
       property: PROPERTY,
       measurement: MEASUREMENT,
       question: {
@@ -240,11 +246,16 @@ describe('advanced measurement demo reads', () => {
       captureStatus: 'complete',
       retrievalStatus: 'used',
       retrievalContract: 'search-required-v1',
-    })
-    expect(response.sources[0]?.classification).toBe('external')
+    }
+    expect(measurementQuestionResultResponseSchema.parse(input)).toEqual(input)
+    const historical = { ...input, captureStatus: null, retrievalStatus: null, retrievalContract: null }
+    expect(measurementQuestionResultResponseSchema.parse(historical)).toEqual(historical)
+    const inconsistent = measurementQuestionResultResponseSchema.safeParse({ ...input, sources: [{ ...input.sources[0], assigned: true }] })
+    expect(inconsistent.success).toBe(false)
+    expect(inconsistent.error?.issues.map(issue => issue.path)).toEqual([['sources', 0, 'assigned']])
 
     expect(measurementQuestionResultResponseSchema.safeParse({
-      ...response, sources: [{ ...response.sources[0], classification: 'invented' }],
+      ...input, sources: [{ ...input.sources[0], classification: 'invented' }],
     }).success).toBe(false)
   })
 
@@ -253,7 +264,7 @@ describe('advanced measurement demo reads', () => {
       .toEqual({ targetKey: 'cedar-bay', limit: 50 })
     expect(measurementPropertyCompetitorsQuerySchema.safeParse({ targetKey: 'cedar-bay', limit: 51 }).success).toBe(false)
 
-    const response = measurementPropertyCompetitorsResponseSchema.parse({
+    const input = {
       property: PROPERTY,
       measurement: MEASUREMENT,
       queryClass: 'non-brand',
@@ -266,11 +277,11 @@ describe('advanced measurement demo reads', () => {
       }],
       total: 1,
       truncated: false,
-    })
-    expect(response.basis).toMatchObject({ state: 'available', targetMissResults: 3 })
+    }
+    expect(measurementPropertyCompetitorsResponseSchema.parse(input)).toEqual(input)
 
     expect(measurementPropertyCompetitorsResponseSchema.safeParse({
-      ...response,
+      ...input,
       basis: { state: 'unavailable', reason: 'no_completed_run', targetMissResults: 0 },
     }).success).toBe(false)
   })
@@ -279,7 +290,7 @@ describe('advanced measurement demo reads', () => {
     expect(measurementChangesQuerySchema.parse({})).toEqual({ scope: 'all', queryClass: 'all' })
     expect(measurementChangesQuerySchema.safeParse({ scope: 'group' }).success).toBe(false)
 
-    const response = measurementChangesResponseSchema.parse({
+    const input = {
       current: { ...MEASUREMENT, executionIdentity: 'identity-cedar-a', measurementScope: 'full' },
       comparison: {
         state: 'available',
@@ -302,14 +313,26 @@ describe('advanced measurement demo reads', () => {
         totalProperties: 1,
         truncated: false,
       },
+    }
+    expect(measurementChangesResponseSchema.parse(input)).toEqual(input)
+    const changedIdentity = measurementChangesResponseSchema.safeParse({
+      ...input, comparison: { ...input.comparison, previous: { ...input.comparison.previous, executionIdentity: 'identity-cedar-b' } },
     })
-    expect(response.comparison.state).toBe('available')
+    expect(changedIdentity.success).toBe(false)
+    expect(changedIdentity.error?.issues.map(issue => issue.path)).toEqual([['comparison', 'previous', 'executionIdentity']])
+    for (const current of [
+      { ...input.current, displayedRunId: null }, { ...input.current, executionIdentity: null },
+    ]) {
+      const unidentified = measurementChangesResponseSchema.safeParse({ ...input, current })
+      expect(unidentified.success).toBe(false)
+      expect(unidentified.error?.issues.map(issue => issue.path)).toEqual([['current']])
+    }
 
     expect(measurementChangesResponseSchema.safeParse({
-      ...response,
+      ...input,
       comparison: {
-        ...response.comparison,
-        previous: { ...response.comparison.previous, planRevision: 1 },
+        ...input.comparison,
+        previous: { ...input.comparison.previous, planRevision: 1 },
       },
     }).success).toBe(false)
     expect(measurementChangesResponseSchema.parse({
@@ -322,7 +345,7 @@ describe('advanced measurement demo reads', () => {
     expect(measurementDataQualityQuerySchema.parse({ runId: 'run-cedar-01' })).toEqual({ runId: 'run-cedar-01' })
     expect(measurementDataQualityQuerySchema.safeParse({ runId: '' }).success).toBe(false)
 
-    const response = measurementDataQualityResponseSchema.parse({
+    const input = {
       run: { ...MEASUREMENT, executionIdentity: 'identity-cedar-a', measurementScope: 'full' },
       // A persisted snapshot can lack answer text yet still carry capture/retrieval evidence.
       completeness: { state: 'available', expected: 8, executed: 8, answered: 7, missing: 0 },
@@ -330,11 +353,22 @@ describe('advanced measurement demo reads', () => {
       retrieval: { state: 'available', used: 5, notUsed: 1, unknown: 1, notApplicable: 0, notRecorded: 1 },
       population: { state: 'available', expectedQuestions: 4, answeredQuestions: 4, missingQuestions: 0 },
       comparison: { state: 'unavailable', reason: 'no_previous_run' },
-    })
-    expect(response.run.measurementScope).toBe('full')
+    }
+    expect(measurementDataQualityResponseSchema.parse(input)).toEqual(input)
+    for (const [invalid, expectedPath] of [
+      [{ ...input, capture: { ...input.capture, complete: 7 } }, ['capture']],
+      [{ ...input, retrieval: { ...input.retrieval, used: 6 } }, ['retrieval']],
+      [{ ...input, completeness: { ...input.completeness, missing: 1 } }, ['completeness']],
+      [{ ...input, completeness: { ...input.completeness, answered: 9 } }, ['completeness', 'answered']],
+      [{ ...input, population: { ...input.population, missingQuestions: 1 } }, ['population']],
+    ] as const) {
+      const result = measurementDataQualityResponseSchema.safeParse(invalid)
+      expect(result.success).toBe(false)
+      expect(result.error?.issues.map(issue => issue.path)).toEqual([expectedPath])
+    }
 
     expect(measurementDataQualityResponseSchema.safeParse({
-      ...response,
+      ...input,
       capture: { state: 'unavailable', reason: 'no_completed_run', complete: 0 },
     }).success).toBe(false)
   })
@@ -372,13 +406,14 @@ describe('advanced measurement demo reads', () => {
     expect(measurementPropertyCompetitorsResponseSchema.safeParse({ ...response, citedDomains: cited.citedDomains }).success).toBe(false)
   })
 
-  it('orders changes by magnitude unless asked for labels, and splits every Property into one move bucket', () => {
+  it('preserves change sort vocabulary, disjoint buckets and literal signal moves', () => {
     expect(MEASUREMENT_CHANGES_DEFAULT_SORT).toBe('magnitude')
     expect(MEASUREMENT_CHANGES_NOISE_ANSWERS).toBe(2)
     expect(measurementChangesQuerySchema.parse({ sort: 'label' })).toEqual({ scope: 'all', queryClass: 'all', sort: 'label' })
     expect(measurementChangesQuerySchema.safeParse({ sort: 'size' }).success).toBe(false)
 
     const delta = { state: 'available' as const, previous: METRIC, current: METRIC, delta: 0 }
+    const improvement = { state: 'available' as const, previous: { state: 'available' as const, value: 0.25, numerator: 1, denominator: 4 }, current: { state: 'available' as const, value: 1, numerator: 4, denominator: 4 }, delta: 0.75 }
     const countDelta = { state: 'available' as const, previous: COUNT_METRIC, current: COUNT_METRIC, delta: 0 }
     const metrics = { propertiesMentioned: countDelta, mentionCoverage: delta, citationCoverage: delta }
     const distribution = { improved: 1, declined: 0, mixed: 0, withinNoise: 1, unchanged: 3, notComparable: 0, total: 5, noiseAnswers: 2 }
@@ -397,14 +432,14 @@ describe('advanced measurement demo reads', () => {
         sort: 'magnitude' as const,
         distribution,
         changedProperties: [{
-          ...PROPERTY, mentionCoverage: delta, citationCoverage: delta, flags: 0,
+          ...PROPERTY, mentionCoverage: improvement, citationCoverage: delta, flags: 0,
           mentionAnswersDelta: 3, citationAnswersDelta: null, withinNoise: false,
         }],
         totalProperties: 2,
         truncated: true,
       },
     }
-    expect(measurementChangesResponseSchema.parse(response)).toMatchObject({ queryClass: 'all', comparison: { distribution } })
+    expect(measurementChangesResponseSchema.parse(response)).toEqual(response)
     const withDistribution = (changed: Partial<typeof distribution>) =>
       measurementChangesResponseSchema.safeParse({ ...response, comparison: { ...response.comparison, distribution: { ...distribution, ...changed } } }).success
     // The buckets must account for every Property, and the changed ones must match the rows' total.

@@ -4,11 +4,8 @@ import type { AddressInfo } from 'node:net'
 
 import { localAdapter } from '../src/adapter.js'
 
-// Pins the build/parse split of the sync path: the body `buildTrackedQueryRequest`
-// returns is the JSON the SDK puts on the wire, and the sync result is exactly
-// `parseTrackedQueryResponse` of the response it received. A real loopback
-// server stands in for the runtime: this package pins the openai SDK at v4,
-// which resolves `fetch` at import, so a `fetch` stub never sees the request.
+// The real OpenAI4 SDK sends to a loopback runtime. Wire requests and both
+// result paths must match independent expected values.
 
 const quotaPolicy = { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 }
 const QUERY = { query: 'best crm for agencies', canonicalDomains: ['example.com'], competitorDomains: [] }
@@ -88,28 +85,45 @@ test('a location reaches the wire through the built body', async () => {
   expect(JSON.stringify(built.body)).toContain('The user is searching from San Francisco, CA, US.')
 })
 
-test('the sync result is exactly parseTrackedQueryResponse of the response received', async () => {
+test('the SDK and public parser preserve independent result fields', async () => {
   const { baseUrl } = await startRuntime(COMPLETION)
   const viaSync = await localAdapter.executeTrackedQuery(QUERY, configFor(baseUrl))
   const viaParse = localAdapter.parseTrackedQueryResponse!(structuredClone(COMPLETION), 'llama3')
 
-  expect(viaSync).toEqual(viaParse)
-  expect(viaParse.rawResponse).toEqual(COMPLETION)
-  expect(viaParse.servedModel).toBe('llama3:8b-instruct-q4_0')
-  expect(viaParse.groundingSources).toEqual([])
-  expect(viaParse.retrievalStatus).toBe('not-applicable')
+  const expected = {
+    provider: 'local',
+    model: 'llama3',
+    servedModel: 'llama3:8b-instruct-q4_0',
+    rawResponse: COMPLETION,
+    groundingSources: [],
+    searchQueries: [],
+    retrievalStatus: 'not-applicable',
+    retrievalContract: 'native-auto-v1',
+    usage: {
+      inputTokens: 61,
+      cachedInputTokens: 0,
+      cacheWriteTokens: 0,
+      outputTokens: 212,
+      searchCount: 0,
+    },
+    stopReason: 'stop',
+  }
+  expect(viaSync).toStrictEqual(expected)
+  expect(viaParse).toStrictEqual(expected)
 })
 
-test('parse reads tokens from the usage object; a local model runs no searches', () => {
-  const raw = localAdapter.parseTrackedQueryResponse!(structuredClone(COMPLETION), 'llama3')
-  expect(raw.usage).toEqual({
-    inputTokens: 61,
-    cachedInputTokens: 0,
-    cacheWriteTokens: 0,
-    outputTokens: 212,
-    searchCount: 0,
-  })
-  expect(raw.stopReason).toBe('stop')
+test.each([
+  { label: 'missing', model: undefined },
+  { label: 'blank', model: '  ' },
+])('the SDK leaves a $label model disclosure undefined', async ({ model }) => {
+  const { model: _model, ...withoutModel } = COMPLETION
+  const response = model === undefined ? withoutModel : { ...withoutModel, model }
+  const { baseUrl } = await startRuntime(response)
+  const result = await localAdapter.executeTrackedQuery(QUERY, configFor(baseUrl))
+
+  expect(result.model).toBe('llama3')
+  expect(result.servedModel).toBeUndefined()
+  expect(result.rawResponse).toStrictEqual(response)
 })
 
 test('a runtime that reports no usage leaves usage undefined', () => {

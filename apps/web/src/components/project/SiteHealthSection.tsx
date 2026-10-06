@@ -89,7 +89,7 @@ const SITE_HEALTH_VIEWS = [
   { id: 'technical', label: 'Page health' },
 ] as const satisfies ReadonlyArray<{ id: SiteHealthView; label: string }>
 
-export const SITE_HEALTH_VIEW_DESCRIPTIONS: Record<SiteHealthView, string> = {
+const SITE_HEALTH_VIEW_DESCRIPTIONS: Record<SiteHealthView, string> = {
   map: 'Explore how pages, site sections, and internal links fit together.',
   inventory: 'Review discovered pages and the links that shape their visibility.',
   technical: 'Prioritize audit findings and inspect the pages that need work.',
@@ -261,7 +261,7 @@ const FULL_GRAPH_METRICS: ReadonlySet<SiteHealthMetric> = new Set([
  * Help text for one metric, told truthfully for the surface it sits on.
  * `filtered` means THIS surface is currently hiding nav and footer links.
  */
-export function siteHealthMetricHelp(metric: SiteHealthMetric, filtered: boolean): string {
+function siteHealthMetricHelp(metric: SiteHealthMetric, filtered: boolean): string {
   const base = SITE_HEALTH_METRIC_HELP[metric]
   if (FULL_GRAPH_METRICS.has(metric)) {
     return `${base} This always counts every link, including menu and footer.`
@@ -355,7 +355,7 @@ const PAGE_BUDGET_CHOICES: readonly { value: number | null; label: string }[] = 
 // "No limit set" is not unlimited: the crawler stops at its own default. Name
 // it, and offer deeper limits, or "Raise the crawl depth" has nowhere to go
 // from a default scan.
-export const CRAWL_DEPTH_CHOICES: readonly { value: number | null; label: string }[] = [
+const CRAWL_DEPTH_CHOICES: readonly { value: number | null; label: string }[] = [
   { value: null, label: `Default (${SITE_AUDIT_DEFAULT_MAX_DEPTH} clicks)` },
   { value: 1, label: '1 click from the home page' },
   { value: 2, label: '2 clicks' },
@@ -409,7 +409,7 @@ function terminationCopy(termination: string | null): string {
  * because the site changed or because the scan could finally see where each
  * link sits.
  */
-export const TEMPLATE_DETECTION_COPY: Record<SiteHealthTemplateDetection, string> = {
+const TEMPLATE_DETECTION_COPY: Record<SiteHealthTemplateDetection, string> = {
   'applied': 'This scan told menu and footer links apart by how often the same link repeats across pages. It cannot spot a link written into the page text when its wording matches the menu. Run a new scan to read the page layout instead.',
   'applied-placement': 'This scan read where each link sits in the page, so links in the page text are separated from the menu, header, and footer even when they use the same wording.',
   'applied-placement-with-ubiquity': 'This scan read where each link sits in the page. Some pages mark out no menu or main area, so those links fall back to how often the link repeats across pages, which can miss a link written into the page text.',
@@ -435,12 +435,12 @@ function templateDetectionCopy(detection: SiteHealthTemplateDetection | null): s
  * and third line of the header strip.
  */
 /** Heading help for the map. Was a subtitle line under the heading. */
-export const SITE_MAP_HELP = 'Scroll to zoom. Click a page to inspect it.'
+const SITE_MAP_HELP = 'Scroll to zoom. Click a page to inspect it.'
 
 /** Heading help for the page inspector's link section. Was a subtitle line. */
 export const PAGE_INTERNAL_LINKS_HELP = 'Observed links to and from this page in the selected scan.'
 
-export const SITE_MAP_STALE_LAYOUT_COPY =
+const SITE_MAP_STALE_LAYOUT_COPY =
   'Page positions on this map were set before menu and footer links were separated. Run a new scan to update them.'
 
 /**
@@ -455,7 +455,7 @@ export const SITE_MAP_STALE_LAYOUT_COPY =
  * furniture that repeats on every page. The copy says that; the wire format
  * (`linkKind=content|template|all`) is unchanged and stays our vocabulary.
  */
-export function siteMapLinkCountsLabel(counts: {
+function siteMapLinkCountsLabel(counts: {
   filterUnavailable: boolean
   showTemplateLinks: boolean
   contentEdgeCount: number
@@ -477,7 +477,7 @@ export function siteMapLinkCountsLabel(counts: {
  * why the map hides most of their links, so the tooltip answers that first and
  * only then explains the rule behind the numbers.
  */
-export const SITE_MAP_LINK_SPLIT_COPY =
+const SITE_MAP_LINK_SPLIT_COPY =
   'Menu, header, and footer links repeat on every page, so they say nothing about which pages relate to each other. Links written in your page text do.'
 
 /**
@@ -485,7 +485,7 @@ export const SITE_MAP_LINK_SPLIT_COPY =
  * which rule produced it, and whether the positions predate it. Nothing was
  * dropped in the compression, it moved into the tooltip.
  */
-export function siteMapLinkRuleHelp(
+function siteMapLinkRuleHelp(
   detection: SiteHealthTemplateDetection | null,
   options: { staleLayout: boolean },
 ): string {
@@ -528,7 +528,7 @@ function deadLinkLabel(state: string, found?: number, unverified?: number): { la
  * 48" directly above a table headed "Links in (1)". Both were right and the
  * pair was unreadable. The tile now counts exactly what the table lists.
  */
-export function linkTileCount(counts: {
+function linkTileCount(counts: {
   total: number
   visible: number
   hidden: number

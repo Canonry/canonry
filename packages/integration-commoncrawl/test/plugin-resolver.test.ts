@@ -19,13 +19,19 @@ afterEach(async () => {
 
 describe('loadDuckdb', () => {
   test('throws MISSING_DEPENDENCY when module is absent', () => {
-    expect(() => loadDuckdb({ pluginPkgJson })).toThrow(/not installed/)
+    let error: unknown
     try {
       loadDuckdb({ pluginPkgJson })
     } catch (err) {
-      expect((err as { code?: string }).code).toBe('MISSING_DEPENDENCY')
-      expect((err as { statusCode?: number }).statusCode).toBe(422)
+      error = err
     }
+    expect(error).toBeInstanceOf(Error)
+    expect(error).toMatchObject({
+      message: '@duckdb/node-api is not installed. Run `canonry backlinks install` to enable the backlinks feature.',
+      code: 'MISSING_DEPENDENCY',
+      statusCode: 422,
+      details: { pluginDir },
+    })
   })
 })
 

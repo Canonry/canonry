@@ -50,10 +50,9 @@ describe('ratio units', () => {
   test('the unit reaches JSON Schema as an OpenAPI vendor extension', () => {
     const schema = z.object({ share: fraction(), sharePct: percent().nullable(), count: z.number() })
     const json = z.toJSONSchema(schema, { target: 'draft-7' }) as { properties: Record<string, unknown> }
-    expect(json.properties.share).toMatchObject({ type: 'number', [RATIO_UNIT_META_KEY]: 'fraction' })
-    expect(JSON.stringify(json.properties.sharePct)).toContain(`"${RATIO_UNIT_META_KEY}":"percent"`)
-    expect(json.properties.count).not.toHaveProperty(RATIO_UNIT_META_KEY)
-    expect(RATIO_UNIT_META_KEY.startsWith('x-')).toBe(true)
+    expect(json.properties.share).toMatchObject({ type: 'number', 'x-unit': 'fraction' })
+    expect(JSON.stringify(json.properties.sharePct)).toContain('"x-unit":"percent"')
+    expect(json.properties.count).not.toHaveProperty('x-unit')
   })
 })
 

@@ -308,8 +308,6 @@ function resolveOurPage(
 }
 
 function slugMatchesQuery(url: string, query: string): boolean {
-  // Lightweight inline matcher — full page-matcher.ts is used elsewhere; here we
-  // just need a quick "is the query meaningfully present in the slug?" check.
   const slug = url.toLowerCase()
   const queryAsSlug = query.toLowerCase().trim().replace(/\s+/g, '-')
   if (slug.includes(queryAsSlug)) return true

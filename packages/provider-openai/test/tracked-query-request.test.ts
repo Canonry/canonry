@@ -1,10 +1,11 @@
-import { test, expect, vi, afterEach } from 'vitest'
+import { test, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import { openaiAdapter } from '../src/adapter.js'
+import type { ProviderConfig, RawQueryResult } from '@ainyc/canonry-contracts'
+import { stubResponsesApi } from './support/responses-api.js'
 
-// Pins the build/parse split of the sync path: the body `buildTrackedQueryRequest`
-// returns is the JSON the SDK puts on the wire, and the sync result is exactly
-// `parseTrackedQueryResponse` of the response it stored.
+// The sync SDK path and the batch builder/parser each meet independent literal
+// contracts. Expected result projections are not produced by either owner.
 
 const quotaPolicy = { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 }
 const CONFIG = { provider: 'openai', apiKey: 'k', model: 'gpt-5.4', quotaPolicy }
@@ -44,42 +45,36 @@ const RESPONSE = {
   },
 }
 
-interface CapturedRequest {
-  url: string
-  body: Record<string, unknown>
-}
-
-function stubResponsesApi(response: Record<string, unknown>): CapturedRequest[] {
-  const sent: CapturedRequest[] = []
-  // Stubbed before the client is constructed: the SDK captures fetch then.
-  vi.stubGlobal('fetch', async (url: unknown, init?: { body?: string }) => {
-    sent.push({ url: String(url), body: JSON.parse(init?.body ?? '{}') as Record<string, unknown> })
-    return new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } })
-  })
-  return sent
-}
+beforeEach(() => {
+  vi.stubEnv('OPENAI_BASE_URL', undefined)
+})
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
 })
 
-test('buildTrackedQueryRequest returns the exact body the sync path sends', async () => {
-  const sent = stubResponsesApi(RESPONSE)
-  await openaiAdapter.executeTrackedQuery(QUERY, CONFIG)
-
-  const built = openaiAdapter.buildTrackedQueryRequest!(QUERY, CONFIG)
-  expect(sent).toHaveLength(1)
-  expect(sent[0]!.body).toEqual(built.body)
-  expect(new URL(sent[0]!.url).pathname).toBe(built.endpoint)
-  expect(built).toEqual({
-    endpoint: '/v1/responses',
-    body: {
-      model: 'gpt-5.4',
-      tools: [{ type: 'web_search' }],
-      tool_choice: 'required',
-      input: 'best crm for agencies',
-    },
-  })
+test("buildTrackedQueryRequest returns the exact body the sync path sends", async () => {
+  const rows: Array<{ name: string; query: string; config: ProviderConfig; model: string }> = [
+    { name: 'original tracked query', query: 'best crm for agencies', config: CONFIG, model: 'gpt-5.4' },
+    { name: 'omitted default model', query: 'best crm for agencies', config: { provider: 'openai', apiKey: 'k', quotaPolicy }, model: 'gpt-5.4' },
+    { name: 'configured alias', query: 'best crm for agencies', config: { ...CONFIG, model: 'chat-latest' }, model: 'chat-latest' },
+    { name: 'verbatim query', query: 'best crm software', config: CONFIG, model: 'gpt-5.4' },
+    { name: 'empty query bytes', query: '', config: CONFIG, model: 'gpt-5.4' },
+    { name: 'forced-search policy fixture', query: 'commercial roof restoration', config: CONFIG, model: 'gpt-5.4' },
+  ]
+  for (const row of rows) {
+    const sent = stubResponsesApi(RESPONSE)
+    const input = { ...QUERY, query: row.query }
+    await openaiAdapter.executeTrackedQuery(input, row.config)
+    const expectedBody = { model: row.model, tools: [{ type: 'web_search' }], tool_choice: 'required', input: row.query }
+    expect(sent, row.name).toEqual([{
+      url: 'https://api.openai.com/v1/responses', method: 'POST', authorization: 'Bearer k', body: expectedBody,
+    }])
+    expect(openaiAdapter.buildTrackedQueryRequest!(input, row.config), row.name).toEqual({
+      endpoint: '/v1/responses', body: expectedBody,
+    })
+  }
 })
 
 test('a location reaches the wire through the built body', async () => {
@@ -95,26 +90,112 @@ test('a location reaches the wire through the built body', async () => {
   }])
 })
 
-test('the built body falls back to the default model', () => {
-  const { model: _model, ...noModel } = CONFIG
-  expect(openaiAdapter.buildTrackedQueryRequest!(QUERY, noModel).body.model).toBe('gpt-5.4')
-})
+// --- servedModel capture ---
+//
+// Fixtures below are trimmed from real OpenAI Responses API captures taken 2026-07-20
+// (scratchpad probe-gpt-5.6-*.json / probe-chat-latest-*.json).
 
-test('the sync result is exactly parseTrackedQueryResponse of the response it stored', async () => {
-  stubResponsesApi(RESPONSE)
-  const viaSync = await openaiAdapter.executeTrackedQuery(QUERY, CONFIG)
+// Configured model was `gpt-5.6`; OpenAI served the `gpt-5.6-sol` tier.
+const gpt56SolResponse: Record<string, unknown> = {
+  id: 'resp_0e7d62cd783fd44a006a5d830171d48193b9d91617de68aa7a',
+  object: 'response',
+  status: 'completed',
+  model: 'gpt-5.6-sol',
+  output: [
+    {
+      id: 'ws_0e7d62cd783fd44a006a5d830677c881938d213e19bc529d27',
+      type: 'web_search_call',
+      status: 'completed',
+      action: {
+        type: 'search',
+        query: 'best boutique hotels Example City 2026',
+      },
+    },
+  ],
+}
 
-  // The SDK adds its `output_text` convenience field to the response it returns.
-  expect(viaSync.rawResponse).toEqual({ ...RESPONSE, output_text: 'Example CRM is popular with agencies.' })
-  expect(viaSync).toEqual(openaiAdapter.parseTrackedQueryResponse!(viaSync.rawResponse, 'gpt-5.4'))
+// Configured model was `chat-latest`; OpenAI echoed the same alias back, disclosing
+// nothing more specific about the snapshot it actually ran.
+const chatLatestResponse: Record<string, unknown> = {
+  id: 'resp_04a2bee500c8f641006a5d835517cc81909d09da16d7bd3133',
+  object: 'response',
+  status: 'completed',
+  model: 'chat-latest',
+  output: [
+    {
+      id: 'ws_04a2bee500c8f641006a5d835661c48190b981dfb3452a9b02',
+      type: 'web_search_call',
+      status: 'completed',
+      action: {
+        type: 'search',
+        query: 'best boutique hotels Example City recommendations',
+      },
+    },
+  ],
+}
 
-  const viaParse = openaiAdapter.parseTrackedQueryResponse!(structuredClone(RESPONSE), 'gpt-5.4')
-  expect(viaParse).toEqual({ ...viaSync, rawResponse: RESPONSE })
-  expect(viaParse.servedModel).toBe('gpt-5.4-2026-03-05')
-  // search-required-v1 (#1206): retrieval is read from the response's
-  // web_search_call items, so both halves report the searches it made.
-  expect(viaParse.retrievalStatus).toBe('used')
-  expect(viaParse.retrievalContract).toBe('search-required-v1')
+test("the sync result is exactly parseTrackedQueryResponse of the response it stored", async () => {
+  const { model: _disclosedModel, ...withoutModel } = gpt56SolResponse
+  const rows: Array<{
+    name: string
+    response: Record<string, unknown>
+    model: string
+    outputText: string
+    projection: Pick<RawQueryResult, 'servedModel' | 'groundingSources' | 'searchQueries' | 'retrievalStatus' | 'usage' | 'stopReason'>
+  }> = [
+    {
+      name: 'grounded response and billable usage', response: RESPONSE, model: 'gpt-5.4', outputText: 'Example CRM is popular with agencies.',
+      projection: { servedModel: 'gpt-5.4-2026-03-05', groundingSources: [{ uri: 'https://example.com/crm', title: 'Example CRM' }],
+        searchQueries: ['best crm for agencies 2026', 'agency crm comparison'], retrievalStatus: 'used',
+        usage: { inputTokens: 4206, cachedInputTokens: 1024, cacheWriteTokens: 0, outputTokens: 734, searchCount: 2 }, stopReason: 'completed' },
+    },
+    {
+      name: 'captured tier disclosure', response: gpt56SolResponse, model: 'gpt-5.6', outputText: '',
+      projection: { servedModel: 'gpt-5.6-sol', groundingSources: [], searchQueries: ['best boutique hotels Example City 2026'],
+        retrievalStatus: 'used', usage: undefined, stopReason: 'completed' },
+    },
+    {
+      name: 'captured alias echo', response: chatLatestResponse, model: 'chat-latest', outputText: '',
+      projection: { servedModel: 'chat-latest', groundingSources: [], searchQueries: ['best boutique hotels Example City recommendations'],
+        retrievalStatus: 'used', usage: undefined, stopReason: 'completed' },
+    },
+    {
+      name: 'captured response without disclosure', response: withoutModel, model: 'gpt-5.6', outputText: '',
+      projection: { servedModel: undefined, groundingSources: [], searchQueries: ['best boutique hotels Example City 2026'],
+        retrievalStatus: 'used', usage: undefined, stopReason: 'completed' },
+    },
+    {
+      name: 'captured response blank disclosure', response: { ...gpt56SolResponse, model: '   ' }, model: 'gpt-5.6', outputText: '',
+      projection: { servedModel: undefined, groundingSources: [], searchQueries: ['best boutique hotels Example City 2026'],
+        retrievalStatus: 'used', usage: undefined, stopReason: 'completed' },
+    },
+    {
+      name: 'constructed dated disclosure', model: 'gpt-5.6', outputText: 'stub answer',
+      response: { id: 'resp_stub', object: 'response', status: 'completed', model: 'gpt-5.6-2026-03-05',
+        output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'stub answer', annotations: [] }] }] },
+      projection: { servedModel: 'gpt-5.6-2026-03-05', groundingSources: [], searchQueries: [],
+        retrievalStatus: 'not-used', usage: undefined, stopReason: 'completed' },
+    },
+    {
+      name: 'constructed empty output without disclosure', model: 'gpt-5.6', outputText: '',
+      response: { id: 'resp_stub', object: 'response', status: 'completed', output: [] },
+      projection: { servedModel: undefined, groundingSources: [], searchQueries: [],
+        retrievalStatus: 'unknown', usage: undefined, stopReason: 'completed' },
+    },
+  ]
+  for (const row of rows) {
+    stubResponsesApi(row.response)
+    const expected = {
+      provider: 'openai', model: row.model, rawResponse: { ...row.response, output_text: row.outputText },
+      retrievalContract: 'search-required-v1', ...row.projection,
+    } satisfies RawQueryResult
+    expect(await openaiAdapter.executeTrackedQuery(QUERY, { ...CONFIG, model: row.model }), row.name).toEqual(expected)
+    // Batch JSON lacks the SDK-only convenience field; every other expected
+    // field remains the independent literal projection above.
+    expect(openaiAdapter.parseTrackedQueryResponse!(structuredClone(row.response), row.model), row.name).toEqual({
+      ...expected, rawResponse: row.response,
+    })
+  }
 })
 
 test('parse extracts usage and stop reason exactly', () => {
