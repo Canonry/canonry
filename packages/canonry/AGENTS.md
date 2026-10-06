@@ -890,7 +890,9 @@ stored sentiment surface through typed ApiClient/SDK calls. `sentiment <project>
 reads one page of the summary (`--query-limit`, `--query-cursor`; per-engine and
 location detail with `--include assessments,locations`); subcommands are settings,
 configure, evidence, compare, backfill, jobs and job (`--attempt-limit`,
-`--attempt-cursor`). A backfill preview requires `--query-class`. JSON preserves the API DTO unchanged. Evidence JSONL preserves the
+`--attempt-cursor`). A backfill preview requires `--query-class`. `sentiment evidence --outcome mixed,unfavorable`
+narrows evidence to those outcomes; text summaries print the server's "Most criticized properties"
+for branded reads, and `overview` prints the branded sentiment headline. JSON preserves the API DTO unchanged. Evidence JSONL preserves the
 page envelope because empty state, resolved evaluator and cursor belong together;
 jobs JSONL streams project-stamped job summaries.
 

@@ -526,7 +526,14 @@ scores are opt-in with `include: ["assessments", "locations"]`, or come by defau
 when `queryId` names one query; Advanced rows are per `executionNodeKey`. The jobs
 tool returns job summaries with an `attemptCount`; `canonry_sentiment_job` pages
 attempt receipts (`attemptLimit`, `attemptCursor`). Summary/evidence can select an
-exact saved run group with a `runIds` array, mutually exclusive with `runId`. Preserve every selection field and the resolved
+exact saved run group with a `runIds` array, mutually exclusive with `runId`.
+Evidence takes an `outcome` array (for example `["mixed", "unfavorable"]`) that keeps
+only those stored outcomes without changing how answers were scored; the page echoes
+it as `selection.outcome`. Branded summaries carry `criticizedProperties` (empty with
+fewer than two Properties): `total`, and `keys`, the first five property breakdown
+keys, most criticized first, ranked on the server. Read one Property's criticism with
+`scope: "property"`, its key as `scopeKey`, and that `outcome`. Preserve every
+selection field, `outcome` included, and the resolved
 `evaluationDefinitionId` when following an evidence cursor. Output schemas are
 tolerant readers: a field a newer server adds is dropped, and a new state or outcome
 reads as a string, so an older adapter never rejects a newer server's response.

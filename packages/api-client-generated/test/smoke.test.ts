@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createClient,
   getApiV1Projects,
+  getApiV1ProjectsByNameSentimentEvidence,
   getApiV1ProjectsByNameTechnicalAeoGraph,
   getApiV1ProjectsByNameTechnicalAeoChanges,
   getApiV1ProjectsByNameTechnicalAeoPath,
@@ -133,6 +134,20 @@ describe('canonry-api-client', () => {
     })
     const reportRequest = fakeFetch.mock.calls[1]![0] as Request
     expect(reportRequest.url).toBe('https://example.test/api/v1/projects/example/measurement-report?revision=3')
+  })
+
+  it('sends the sentiment evidence outcome filter as repeated query values, the form the server accepts', async () => {
+    const page = { state: 'complete', selection: { mode: 'simple', queryClass: 'branded', scope: 'project', runId: 'run', revision: null, evaluationDefinitionId: null, outcome: ['mixed', 'unfavorable'] }, items: [], nextCursor: null }
+    const fakeFetch = vi.fn(async (_request: Request) => new Response(JSON.stringify(page), { status: 200, headers: { 'content-type': 'application/json' } }))
+    const client = createClient({ baseUrl: 'https://example.test', fetch: fakeFetch as typeof fetch })
+    const result = await getApiV1ProjectsByNameSentimentEvidence({ client, path: { name: 'example' }, query: { runId: 'run', outcome: ['mixed', 'unfavorable'], limit: 10 } })
+    expect(result.data).toEqual(page)
+    expect(fakeFetch).toHaveBeenCalledTimes(1)
+    const url = new URL(fakeFetch.mock.calls[0]![0].url)
+    expect(url.pathname).toBe('/api/v1/projects/example/sentiment/evidence')
+    expect(url.searchParams.getAll('outcome')).toEqual(['mixed', 'unfavorable'])
+    expect(url.searchParams.get('runId')).toBe('run')
+    expect(url.searchParams.get('limit')).toBe('10')
   })
 
   it('createClient applies bearer auth + base URL to generated operations', async () => {

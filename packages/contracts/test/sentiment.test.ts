@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { sentimentFixtureSummary, sentimentCompleteFixtureSummary } from './fixtures/sentiment.js'
-import { sentimentCoverageSchema, sentimentSummarySchema, sentimentOverviewSchema, sentimentOverallHeadlineSchema } from '../src/sentiment.js'
+import { sentimentCoverageSchema, sentimentSummarySchema, sentimentOverviewSchema, sentimentOverallHeadlineSchema, sentimentEvidencePageSchema, sentimentOutcomeSchema } from '../src/sentiment.js'
 import { RatioUnits, ratioUnitOf } from '../src/ratio-unit.js'
 import { aggregateSentiment, canonicalSentimentDefinitionJson, createSentimentEvaluationDefinition, hasCurrentSentimentTemplate, sentimentJobRequestSchema, sentimentJobsSchema, sentimentSummaryRequestSchema, sentimentClassifierOutputSchema, sentimentRateDisplay, sentimentSettingsUpdateSchema, sentimentSelectionSchema, sentimentCompareRequestSchema, sentimentAssessmentSummarySchema, sentimentEvidenceRequestSchema, storedSentimentEvaluationDefinitionSchema, storedSentimentClassifierOutputSchema, type SentimentAggregateItem, type SentimentOutcome } from '../src/sentiment.js'
 
@@ -32,6 +32,45 @@ describe('sentiment measurement invariants', () => {
     expect(sentimentAssessmentSummarySchema.safeParse({ ...row, sourceText: 'Do not embed answer bodies.' }).success).toBe(false)
     expect(sentimentEvidenceRequestSchema.parse({ assessmentId: 'assessment' }).assessmentId).toBe('assessment')
     expect(sentimentSelectionSchema.safeParse({ assessmentId: 'assessment' }).success).toBe(false)
+  })
+  it('parses the evidence outcome filter from a comma list or repeated values, and nowhere else', () => {
+    const outcome = (value: unknown) => sentimentEvidenceRequestSchema.safeParse({ runId: 'run', outcome: value })
+    // The schema keeps the caller's order; the service sorts the echo.
+    expect(sentimentEvidenceRequestSchema.parse({ outcome: 'mixed,unfavorable' }).outcome).toEqual(['mixed', 'unfavorable'])
+    expect(sentimentEvidenceRequestSchema.parse({ outcome: ['unfavorable', 'mixed'] }).outcome).toEqual(['unfavorable', 'mixed'])
+    expect(sentimentEvidenceRequestSchema.parse({ outcome: ' mixed , unfavorable ' }).outcome).toEqual(['mixed', 'unfavorable'])
+    expect(sentimentEvidenceRequestSchema.parse({ outcome: 'mixed,,unfavorable,' }).outcome).toEqual(['mixed', 'unfavorable'])
+    expect(sentimentEvidenceRequestSchema.parse({ outcome: 'favorable' }).outcome).toEqual(['favorable'])
+    expect(sentimentEvidenceRequestSchema.parse({ outcome: ['pending'] }).outcome).toEqual(['pending'])
+    // Fastify hands repeated params over as an array whose items may themselves be comma lists or padded: one normalization for both forms.
+    expect(sentimentEvidenceRequestSchema.parse({ outcome: ['mixed,unfavorable', 'favorable'] }).outcome).toEqual(['mixed', 'unfavorable', 'favorable'])
+    expect(sentimentEvidenceRequestSchema.parse({ outcome: [' mixed', 'unfavorable '] }).outcome).toEqual(['mixed', 'unfavorable'])
+    // Duplicates collapse to one, keeping first-seen order.
+    expect(sentimentEvidenceRequestSchema.parse({ outcome: ['unfavorable', 'mixed,unfavorable'] }).outcome).toEqual(['unfavorable', 'mixed'])
+    expect(sentimentEvidenceRequestSchema.parse({ outcome: [...sentimentOutcomeSchema.options, 'mixed'] }).outcome).toEqual([...sentimentOutcomeSchema.options])
+    // Every known outcome at once is the widest filter.
+    const every = sentimentEvidenceRequestSchema.parse({ outcome: [...sentimentOutcomeSchema.options] }).outcome
+    expect(every).toHaveLength(18)
+    expect(every).toEqual([...sentimentOutcomeSchema.options])
+    // Absent means no filter, never a default.
+    expect(sentimentEvidenceRequestSchema.parse({ runId: 'run' })).not.toHaveProperty('outcome')
+    expect(sentimentEvidenceRequestSchema.parse({ runId: 'run', assessmentId: 'assessment', outcome: 'mixed' })).toMatchObject({ assessmentId: 'assessment', outcome: ['mixed'], limit: 50 })
+    for (const invalid of ['positive', 'mixed,positive', ['mixed', 'positive'], ['mixed,positive'], 'Mixed', '', ',', ' , ', [], [''], [','], 7, [7]]) {
+      expect(outcome(invalid).success, JSON.stringify(invalid)).toBe(false)
+    }
+    // An outcome filter narrows evidence only; summaries and selections reject it.
+    expect(sentimentSummaryRequestSchema.safeParse({ runId: 'run', outcome: 'mixed' }).success).toBe(false)
+    expect(sentimentSelectionSchema.safeParse({ outcome: 'mixed' }).success).toBe(false)
+    expect(sentimentEvidenceRequestSchema.safeParse({ runId: 'run', runIds: ['run'], outcome: 'mixed' }).success).toBe(false)
+  })
+  it('echoes the evidence outcome filter on the page selection and rejects an unknown echoed outcome', () => {
+    const selection = { ...sentimentFixtureSummary.selection, outcome: ['mixed', 'unfavorable'] }
+    const page = { state: 'complete', selection, items: [], nextCursor: null }
+    expect(sentimentEvidencePageSchema.parse(page).selection.outcome).toEqual(['mixed', 'unfavorable'])
+    const { outcome: _outcome, ...unfiltered } = selection
+    expect(sentimentEvidencePageSchema.parse({ ...page, selection: unfiltered }).selection).not.toHaveProperty('outcome')
+    expect(sentimentEvidencePageSchema.safeParse({ ...page, selection: { ...selection, outcome: ['positive'] } }).success).toBe(false)
+    expect(sentimentEvidencePageSchema.safeParse({ ...page, selection: { ...selection, outcome: 'mixed' } }).success).toBe(false)
   })
   it('counts five judgments out of ten assessments with no mixed favorable credit', () => {
     const result = aggregateSentiment(canonical)

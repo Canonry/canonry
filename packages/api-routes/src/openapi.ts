@@ -8,6 +8,7 @@ import {
   providerDispatchModeSchema,
   runKindSchema,
   runStatusSchema,
+  sentimentOutcomeSchema,
 } from '@ainyc/canonry-contracts'
 import {
   buildComponentSchemas,
@@ -1317,7 +1318,7 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get', path: '/api/v1/projects/{name}/sentiment/evidence', summary: 'Read verbatim sentiment evidence', tags: ['sentiment'],
-    parameters: [nameParameter, ...sentimentSelectionParameters, { name: 'assessmentId', in: 'query', description: 'Exact stored assessment within the authorized source, subject, scope, and evaluator selection. Does not widen access.', schema: stringSchema }, { name: 'cursor', in: 'query', description: 'Opaque cursor bound to every selection field and resolved evaluator ID.', schema: stringSchema }, { name: 'limit', in: 'query', description: 'Page size only; does not change assessment identity.', schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } }],
+    parameters: [nameParameter, ...sentimentSelectionParameters, { name: 'assessmentId', in: 'query', description: 'Exact stored assessment within the authorized source, subject, scope, and evaluator selection. Does not widen access.', schema: stringSchema }, { name: 'outcome', in: 'query', description: 'Outcomes to keep, repeated or comma-separated (for example mixed,unfavorable). Narrows the page to assessments with these outcomes; never changes how they were scored.', style: 'form', explode: true, schema: { type: 'array', items: { type: 'string', enum: [...sentimentOutcomeSchema.options] }, minItems: 1 } }, { name: 'cursor', in: 'query', description: 'Opaque cursor bound to every selection field and resolved evaluator ID.', schema: stringSchema }, { name: 'limit', in: 'query', description: 'Page size only; does not change assessment identity.', schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } }],
     responses: { 200: jsonResponse('Stored answer-subject evidence page.', 'SentimentEvidencePage'), 400: errorResponse('Invalid cursor or selection.'), 404: errorResponse('Project or selected source not found.') },
   },
   {

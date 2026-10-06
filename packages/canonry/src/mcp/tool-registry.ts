@@ -4,7 +4,7 @@ import {
   sentimentSelectionSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentSettingsUpdateSchema,
   sentimentBackfillSelectionSchema, sentimentBackfillRequestSchema, sentimentSummaryReadSchema, sentimentSettingsReadSchema,
   sentimentEvidencePageReadSchema, sentimentComparisonReadSchema, sentimentBackfillPreviewReadSchema, sentimentJobsReadSchema,
-  sentimentJobReadSchema, sentimentSummaryIncludeSchema, queryClassSchema, SENTIMENT_ATTEMPT_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_MAX,
+  sentimentJobReadSchema, sentimentSummaryIncludeSchema, sentimentEvidenceOutcomeFilterSchema, queryClassSchema, SENTIMENT_ATTEMPT_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_MAX,
 } from '@ainyc/canonry-contracts'
 import { agentConversationCreateSchema } from '@ainyc/canonry-contracts'
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
@@ -1253,7 +1253,10 @@ const sentimentJobInputSchema = projectInputSchema.extend({
   attemptLimit: z.number().int().min(1).max(200).optional().describe(`Attempt receipts per page, newest first (default ${SENTIMENT_ATTEMPT_PAGE_DEFAULT}).`),
   attemptCursor: z.string().min(1).max(4096).optional().describe('nextAttemptCursor from the previous page of this job.'),
 })
-const sentimentEvidenceInputSchema = sentimentEvidenceRequestSchema.safeExtend({ project: projectNameSchema })
+const sentimentEvidenceInputSchema = sentimentEvidenceRequestSchema.safeExtend({
+  project: projectNameSchema,
+  outcome: sentimentEvidenceOutcomeFilterSchema.optional().describe('Keep only assessments with these outcomes, for example ["mixed","unfavorable"] for the criticism behind a branded score or the non-brand exceptions. Narrows the page; never changes how answers were scored. Keep it unchanged when following nextCursor.'),
+})
 const sentimentCompareInputSchema = sentimentCompareRequestSchema.safeExtend({ project: projectNameSchema })
 const sentimentConfigureInputSchema = sentimentSettingsUpdateSchema.extend({ project: projectNameSchema }).refine(
   input => input.enabled !== undefined,
@@ -1292,14 +1295,14 @@ export const canonryMcpTools = [
   }),
   defineTool({
     name: 'canonry_sentiment', title: 'Read sentiment and per-query scores',
-    description: 'Read stored model-classified language about frozen Simple identities or Advanced Properties. Returns headline and per-query favorable/mixed/unfavorable rates, judged and selected assessment counts, rated and eligible answers with their share (ratedAnswerRate: answers with a favorable, mixed or unfavorable rating over every eligible answer, admitted or not; each answer counts once), exclusions, intervals and method limitations. Favorable % is favorable / (favorable + mixed + unfavorable); factual and unjudged answers do not enter that denominator. Select branded or non-brand explicitly and keep their metrics separate; the default is branded. Optional queryId selects one frozen query. Query rows are compact and paged: queryLimit (default 25) rows per page, then pass queryPage.nextCursor as queryCursor. Per-engine assessment verdicts and per-location scores are opt-in with include=["assessments","locations"], or come by default when queryId names one query. Advanced rows are per executionNodeKey; pass it to narrow evidence to that node. Optional runIds selects the exact grouped location runs instead of runId. A known subject absent from a non-brand answer is not unfavorable. Partial values are provisional. Never starts a classifier. Preserve the resolved evaluationDefinitionId and complete selection for later evidence reads.',
+    description: 'Read stored model-classified language about frozen Simple identities or Advanced Properties. Returns headline and per-query favorable/mixed/unfavorable rates, judged and selected assessment counts, rated and eligible answers with their share (ratedAnswerRate: answers with a favorable, mixed or unfavorable rating over every eligible answer, admitted or not; each answer counts once), exclusions, intervals and method limitations. Favorable % is favorable / (favorable + mixed + unfavorable); factual and unjudged answers do not enter that denominator. Select branded or non-brand explicitly and keep their metrics separate; the default is branded. Optional queryId selects one frozen query. Query rows are compact and paged: queryLimit (default 25) rows per page, then pass queryPage.nextCursor as queryCursor. Per-engine assessment verdicts and per-location scores are opt-in with include=["assessments","locations"], or come by default when queryId names one query. Advanced rows are per executionNodeKey; pass it to narrow evidence to that node. Optional runIds selects the exact grouped location runs instead of runId. A known subject absent from a non-brand answer is not unfavorable. Branded reads carry criticizedProperties: total Properties with a mixed or unfavorable rating, and keys, the first five property breakdown keys, most criticized first ({total: 0, keys: []} with fewer than two Properties in view; absent for non-brand, disabled or unavailable reads); read their answers on canonry_sentiment_evidence with scope property, that scopeKey and outcome ["mixed","unfavorable"]. Partial values are provisional. Never starts a classifier. Preserve the resolved evaluationDefinitionId and complete selection for later evidence reads.',
     access: 'read', tier: 'monitoring', inputSchema: sentimentInputSchema, outputSchema: sentimentSummaryReadSchema, annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/sentiment'],
     handler: (client, input) => { const { project, ...query } = input; return client.getSentiment(project, query) },
   }),
   defineTool({
     name: 'canonry_sentiment_evidence', title: 'Read sentiment evidence',
-    description: 'Page stored answer-subject assessments and exact source quotations. Returns frozen identity/context, source hash, evaluator and engine provenance, exclusions, and optional complaint. Optional assessmentId selects the exact stored answer-subject verdict from query assessments without widening its scope. Keep assessmentId, queryClass, optional frozen queryId, exact runId or runIds, every other selection field and resolved evaluationDefinitionId unchanged when following nextCursor. Advanced market refinement uses exact frozen usage edges. No provider calls.',
+    description: 'Page stored answer-subject assessments and exact source quotations. Returns frozen identity/context, source hash, evaluator and engine provenance, exclusions, and optional complaint. Optional assessmentId selects the exact stored answer-subject verdict from query assessments without widening its scope. Optional outcome keeps only the listed outcomes; the page echoes it as selection.outcome. Keep assessmentId, outcome, queryClass, optional frozen queryId, exact runId or runIds, every other selection field and resolved evaluationDefinitionId unchanged when following nextCursor. Advanced market refinement uses exact frozen usage edges. No provider calls.',
     access: 'read', tier: 'monitoring', inputSchema: sentimentEvidenceInputSchema, outputSchema: sentimentEvidencePageReadSchema, annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/sentiment/evidence'],
     handler: (client, input) => { const { project, ...query } = input; return client.getSentimentEvidence(project, query) },

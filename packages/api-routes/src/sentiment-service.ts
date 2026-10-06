@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { and, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm'
-import {
+import { rankCriticizedProperties,
   aggregateSentiment, AppError, canonicalSentimentJson, createSentimentEvaluationDefinition, hasCurrentSentimentTemplate,
   emptySentimentCounts, notFound, SENTIMENT_ATTEMPT_PAGE_DEFAULT, SENTIMENT_INTERVAL_LIMITATION, SENTIMENT_MODEL, SENTIMENT_QUERY_PAGE_DEFAULT, SentimentOutcomes,
   sentimentBackfillSelectionSchema, storedSentimentClassifierInputSchema, storedSentimentClassifierOutputSchema,
@@ -337,7 +337,8 @@ export class SentimentService {
       return { ...scoreAssessments(group.measured, group.eligible, options), queryId: group.queryId, queryText: group.queryText, queryClass: selection.queryClass, sourceSnapshotIds: [...new Set(group.eligible.map(item => item.snapshotId))].sort(), assessments, locations, executionNodeKey: group.executionNodeKey }
     })
     const next = rows.limit !== null && from + rows.limit < ordered.length ? rowKey(page.at(-1)!) : null
-    return { summary: { ...base, breakdowns }, queries, total: ordered.length, next }
+    const criticizedProperties = selection.queryClass === 'branded' && !disabled ? rankCriticizedProperties(breakdowns) : undefined
+    return { summary: { ...base, breakdowns, ...(criticizedProperties ? { criticizedProperties } : {}) }, queries, total: ordered.length, next }
   }
   private readSelection(projectId: string, query: SentimentSelection): Read<StoredItem>
   private readSelection(projectId: string, query: SentimentSelection, withInput: true): Read<DetailedItem>
@@ -360,7 +361,7 @@ export class SentimentService {
     if (!read.reason) return result
     const unavailable = { state: 'unsupported' as const, reason: read.reason, provisional: true, score: aggregateSentiment([]).score }
     return {
-      ...result, summary: { ...result.summary, ...unavailable, breakdowns: result.summary.breakdowns.map(row => ({ ...row, ...unavailable })) },
+      ...result, summary: { ...result.summary, ...unavailable, breakdowns: result.summary.breakdowns.map(row => ({ ...row, ...unavailable })), criticizedProperties: undefined },
       queries: result.queries.map(row => ({ ...row, ...unavailable, assessments: row.assessments.map(assessment => ({ ...assessment, state: 'unsupported' as const, outcome: null, reason: read.reason })), locations: row.locations.map(location => ({ ...location, ...unavailable })) })),
     }
   }
@@ -402,12 +403,13 @@ export class SentimentService {
     return { configured, branded, nonBrand, overall: overallSentiment(reads, !configured) }
   }
   evidence(projectId: string, query: SentimentEvidenceSelection, limit: number, cursor?: string) {
-    const { assessmentId, ...sourceSelection } = query
+    const { assessmentId, outcome, ...sourceSelection } = query
+    const outcomes = outcome?.length ? new Set(outcome) : null
     const settings = this.settings(projectId)
     const disabled = !settings.enabled || !settings.installEnabled
     // Disabled reads withhold verdicts and quotations, so they never load frozen inputs.
     const read = disabled ? this.readSelection(projectId, sourceSelection) : this.readSelection(projectId, sourceSelection, true)
-    const selection = { ...read.selection, ...(assessmentId ? { assessmentId } : {}) }
+    const selection = { ...read.selection, ...(assessmentId ? { assessmentId } : {}), ...(outcomes ? { outcome: [...outcomes].sort() } : {}) }
     let after = ''
     if (cursor) {
       const token = this.verify<{ kind?: string; projectId: string; selection: SentimentResolvedSelection; fingerprint: string; after: string }>(cursor)
@@ -416,7 +418,7 @@ export class SentimentService {
     }
     const state = this.present(read, settings, null).summary.state
     if (disabled) return { state, selection, items: [], nextCursor: null }
-    const items = (read.items as DetailedItem[]).filter(item => !assessmentId || item.work.id === assessmentId).sort((a, b) => a.work.id.localeCompare(b.work.id)).filter(item => item.work.id > after)
+    const items = (read.items as DetailedItem[]).filter(item => (!assessmentId || item.work.id === assessmentId) && (!outcomes || outcomes.has(item.outcome))).sort((a, b) => a.work.id.localeCompare(b.work.id)).filter(item => item.work.id > after)
     const page = items.slice(0, limit)
     return { state, selection, items: page.map(item => item.evidence), nextCursor: items.length > limit ? this.sign({ projectId, selection, fingerprint: read.fingerprint, after: page.at(-1)!.work.id }) : null }
   }
@@ -430,8 +432,9 @@ export class SentimentService {
     const common = new Set([...fromUnits.byUnit.keys()].filter(key => toUnits.byUnit.has(key)))
     const settings = this.settings(projectId)
     // Scores use the matched units; each period's Rated share still counts every answer in that period.
-    const fromSummary = withoutNodeKeys(this.aggregate(from.selection, fromItems.filter(item => common.has(fromUnits.byItem.get(item)!)), from.source, settings, COMPACT_ROWS, fromItems))
-    const toSummary = withoutNodeKeys(this.aggregate(to.selection, toItems.filter(item => common.has(toUnits.byItem.get(item)!)), to.source, settings, COMPACT_ROWS, toItems))
+    // A period scores only its matched units, so a criticized-Property ranking over them would differ from the run's own summary: periods omit it.
+    const fromSummary = withoutCriticizedProperties(withoutNodeKeys(this.aggregate(from.selection, fromItems.filter(item => common.has(fromUnits.byItem.get(item)!)), from.source, settings, COMPACT_ROWS, fromItems)))
+    const toSummary = withoutCriticizedProperties(withoutNodeKeys(this.aggregate(to.selection, toItems.filter(item => common.has(toUnits.byItem.get(item)!)), to.source, settings, COMPACT_ROWS, toItems)))
     const refusalReasons: string[] = []
     const expectedFrom = from.source.assessments.length, expectedTo = to.source.assessments.length
     if (fromItems.length < expectedFrom || toItems.length < expectedTo) refusalReasons.push('classification-coverage-gap')
@@ -505,6 +508,10 @@ function queryRowKey(edge: Pick<SentimentSourceEdge, 'executionNodeKey'> & ({ qu
   return `${'queryKey' in edge ? edge.queryKey : edge.queryId}\0${edge.executionNodeKey ?? ''}`
 }
 /** The stored DTO has no row-level node key; Advanced rows stay distinct by their exact sourceSnapshotIds. */
+function withoutCriticizedProperties(summary: SentimentSummary): SentimentSummary {
+  const { criticizedProperties: _criticized, ...rest } = summary
+  return rest
+}
 function withoutNodeKeys({ summary, queries }: Aggregate): SentimentSummary {
   return { ...summary, queries: queries.map(({ executionNodeKey: _node, ...row }) => row) }
 }

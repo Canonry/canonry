@@ -58,7 +58,7 @@ const WARN = 'First-run dashboard password setup is unauthenticated only on loop
 const OFF = { enabled: false }
 const ON = { enabled: true, projectTabs: ['overview'] }
 const LIMITED = { enabled: true, views: ['overview', 'project'], projectTabs: ['overview'] }
-const TABBED = { enabled: true, views: ['overview', 'project'], projectTabs: ['overview', 'report'] }
+const TABBED = { enabled: true, views: ['overview', 'project'], projectTabs: ['overview', 'technical-aeo'] }
 
 interface SettingsRow {
   id: string
@@ -87,7 +87,7 @@ const SETTINGS: SettingsRow[] = [
   { id: 'flag-before-env-host-path', args: ['--host', '127.0.0.1', '--base-path', '/x'], env: { CANONRY_HOST: '0.0.0.0', CANONRY_BASE_PATH: '/canonry' }, config: { basePath: '/configured' }, port: 4100, prefix: '/x', expectedEnv: { CANONRY_HOST: '127.0.0.1', CANONRY_BASE_PATH: '/x' } },
   { id: 'embed-flag-no-origins', args: ['--embed'], config: { embed: OFF }, port: 4100, embed: ON, csp: "frame-ancestors 'none'", expectedEnv: { CANONRY_EMBED: '1' } },
   { id: 'inherited-embed', env: { CANONRY_EMBED: '1', CANONRY_EMBED_ORIGINS: 'https://a.com,https://b.com', CANONRY_EMBED_VIEWS: 'overview,project' }, config: { embed: OFF }, port: 4100, embed: LIMITED, csp: 'frame-ancestors https://a.com https://b.com', expectedEnv: { CANONRY_EMBED: '1', CANONRY_EMBED_ORIGINS: 'https://a.com,https://b.com', CANONRY_EMBED_VIEWS: 'overview,project' } },
-  { id: 'repeated-embed-flags', args: ['--embed', '--embed-allow-origin', 'https://a.com', '--embed-allow-origin', 'https://b.com', '--embed-view', 'overview', '--embed-view', 'project', '--embed-project-tab', 'overview', '--embed-project-tab', 'report'], env: { CANONRY_EMBED: '0', CANONRY_EMBED_ORIGINS: 'https://inherited.example', CANONRY_EMBED_VIEWS: 'settings', CANONRY_EMBED_PROJECT_TABS: 'technical-aeo' }, config: { embed: { enabled: false, allowOrigins: ['https://configured.example'], views: ['settings'], projectTabs: ['technical-aeo'] } }, port: 4100, embed: TABBED, csp: 'frame-ancestors https://a.com https://b.com', expectedEnv: { CANONRY_EMBED: '1', CANONRY_EMBED_ORIGINS: 'https://a.com,https://b.com', CANONRY_EMBED_VIEWS: 'overview,project', CANONRY_EMBED_PROJECT_TABS: 'overview,report' } },
+  { id: 'repeated-embed-flags', args: ['--embed', '--embed-allow-origin', 'https://a.com', '--embed-allow-origin', 'https://b.com', '--embed-view', 'overview', '--embed-view', 'project', '--embed-project-tab', 'overview', '--embed-project-tab', 'technical-aeo'], env: { CANONRY_EMBED: '0', CANONRY_EMBED_ORIGINS: 'https://inherited.example', CANONRY_EMBED_VIEWS: 'settings', CANONRY_EMBED_PROJECT_TABS: 'local' }, config: { embed: { enabled: false, allowOrigins: ['https://configured.example'], views: ['settings'], projectTabs: ['local'] } }, port: 4100, embed: TABBED, csp: 'frame-ancestors https://a.com https://b.com', expectedEnv: { CANONRY_EMBED: '1', CANONRY_EMBED_ORIGINS: 'https://a.com,https://b.com', CANONRY_EMBED_VIEWS: 'overview,project', CANONRY_EMBED_PROJECT_TABS: 'overview,technical-aeo' } },
   { id: 'absent-flags-preserve-config-embed', config: { embed: { enabled: true, allowOrigins: ['https://a.com', 'https://b.com'], views: ['overview', 'project'] } }, port: 4100, embed: LIMITED, csp: 'frame-ancestors https://a.com https://b.com' },
 ]
 

@@ -12,7 +12,7 @@ import { formatObservedInstantLabel, observedInstant } from '../src/components/s
 import { ANSWER_SOURCES_LABEL } from '../src/components/shared/AnswerMarkdown.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 import { createQueryClient } from '../src/queries/query-client.js'
-import { SentimentScopeProvider } from '../src/components/project/SentimentSection.js'
+import { SENTIMENT_COPY, SentimentScopeProvider } from '../src/components/project/SentimentSection.js'
 
 afterEach(cleanup)
 
@@ -459,21 +459,24 @@ describe('shared production visibility view', () => {
     expect(container.textContent).toContain('1 query · 2 engine results shown of 2 results')
   })
 
-  it('keeps same-query location scores and sentiment evidence scoped to each Advanced group', async () => {
+  it('keeps same-query location criticism and sentiment evidence scoped to each Advanced group', async () => {
     const report = reportFixture()
     const first = report.populations[0]!.queries.items[0]!
     report.populations[0]!.queries.items = [
       { ...first, queryKey: 'harbor-query', provider: 'openai', location: 'Harbor', sourceSnapshotIds: ['harbor-answer'] },
       { ...first, queryKey: 'marina-query', provider: 'gemini', location: 'Marina', sourceSnapshotIds: ['marina-answer'] },
     ]
-    const favorable = aggregateSentiment([{ assessmentId: 'harbor', sourceSnapshotId: 'harbor-answer', outcome: 'favorable' }])
+    // Non-brand rows show only their unfavorable and mixed answers: Harbor one
+    // mixed, Marina one unfavorable. The query's pooled row has both, so a row
+    // reading the pool instead of its own location would show both.
+    const mixed = aggregateSentiment([{ assessmentId: 'harbor', sourceSnapshotId: 'harbor-answer', outcome: 'mixed' }])
     const unfavorable = aggregateSentiment([{ assessmentId: 'marina', sourceSnapshotId: 'marina-answer', outcome: 'unfavorable' }])
-    const aggregate = aggregateSentiment([{ assessmentId: 'harbor', sourceSnapshotId: 'harbor-answer', outcome: 'favorable' }, { assessmentId: 'marina', sourceSnapshotId: 'marina-answer', outcome: 'unfavorable' }])
+    const aggregate = aggregateSentiment([{ assessmentId: 'harbor', sourceSnapshotId: 'harbor-answer', outcome: 'mixed' }, { assessmentId: 'marina', sourceSnapshotId: 'marina-answer', outcome: 'unfavorable' }])
     const dto: SentimentSummary = {
       ...aggregate, reason: null, configured: true, evaluationDefinition: createSentimentEvaluationDefinition(), breakdowns: [],
       selection: { mode: 'advanced', scope: 'project', queryClass: 'non-brand', runId: 'run-2', revision: 2, evaluationDefinitionId: 'definition' },
       queries: [{ ...aggregate, reason: null, queryId: first.queryId!, queryText: first.query, queryClass: 'non-brand', sourceSnapshotIds: ['harbor-answer', 'marina-answer'], assessments: [], locations: [
-        { ...favorable, reason: null, location: 'Harbor', sourceSnapshotIds: ['harbor-answer'] },
+        { ...mixed, reason: null, location: 'Harbor', sourceSnapshotIds: ['harbor-answer'] },
         { ...unfavorable, reason: null, location: 'Marina', sourceSnapshotIds: ['marina-answer'] },
       ] }],
     }
@@ -491,19 +494,122 @@ describe('shared production visibility view', () => {
       const table = screen.getByRole('table', { name: 'Non-brand queries engine results' })
       const harbor = table.querySelector('[data-query-key="harbor-query"]')! as HTMLElement
       const marina = table.querySelector('[data-query-key="marina-query"]')! as HTMLElement
-      const name = 'View Non-brand sentiment evidence for apartments near transit'
-      await waitFor(() => expect(within(harbor).getByRole('button', { name }).textContent).toContain('100%'))
-      expect(within(marina).getByRole('button', { name }).textContent).toContain('0%')
-      expect(within(harbor).getByRole('button', { name }).textContent).not.toContain('50%')
+      const name = 'View unfavorable and mixed answers for apartments near transit'
+      const counts = (group: HTMLElement) => [...within(group).getByRole('button', { name }).querySelectorAll('span')].map(count => count.textContent)
+      await waitFor(() => expect(counts(harbor)).toEqual([SENTIMENT_COPY.nonBrand.rowLabel, '1 mixed']))
+      expect(counts(marina)).toEqual([SENTIMENT_COPY.nonBrand.rowLabel, '1 unfavorable'])
+      // A non-brand row never shows a favorable share.
+      for (const group of [harbor, marina]) expect(within(group).getByRole('button', { name }).textContent).not.toContain('%')
       for (const [group, location] of [[harbor, 'Harbor'], [marina, 'Marina']] as const) {
         fireEvent.click(within(group).getByRole('button', { name }))
         await screen.findByText('No stored sentiment evidence for this query and scope.')
         expect(evidenceReads.at(-1)!.searchParams.get('location')).toBe(location)
         expect(evidenceReads.at(-1)!.searchParams.get('runId')).toBe('run-2')
         expect(evidenceReads.at(-1)!.searchParams.get('queryId')).toBe(first.queryId)
+        expect(evidenceReads.at(-1)!.searchParams.getAll('outcome')).toEqual(['mixed', 'unfavorable'])
         fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }))
       }
     } finally { cleanup(); client.clear(); restore() }
+  })
+
+  it('keeps unfinished non-brand rows in their own state rather than announcing no criticism', async () => {
+    const report = reportFixture()
+    const first = report.populations[0]!.queries.items[0]!
+    report.populations[0]!.queries.items = [
+      { ...first, queryKey: 'harbor-query', provider: 'openai', location: 'Harbor', sourceSnapshotIds: ['harbor-answer'] },
+      { ...first, queryKey: 'marina-query', provider: 'gemini', location: 'Marina', sourceSnapshotIds: ['marina-answer'] },
+    ]
+    // Harbor's one assessment is still pending; Marina's was never admitted (eligible, not stored).
+    // Neither has an unfavorable or mixed answer, and neither establishes that it has none.
+    const pending = aggregateSentiment([{ assessmentId: 'harbor', sourceSnapshotId: 'harbor-answer', outcome: 'pending' }])
+    const unadmitted = aggregateSentiment([], { eligibleAssessments: 1, eligibleAnswers: 1 })
+    expect([pending.state, unadmitted.state, unadmitted.coverage.unadmittedAssessments]).toEqual(['processing', 'not-measured', 1])
+    const dto: SentimentSummary = {
+      ...pending, reason: null, configured: true, evaluationDefinition: createSentimentEvaluationDefinition(), breakdowns: [],
+      selection: { mode: 'advanced', scope: 'project', queryClass: 'non-brand', runId: 'run-2', revision: 2, evaluationDefinitionId: 'definition' },
+      queries: [{ ...pending, state: 'partial', provisional: true, reason: null, queryId: first.queryId!, queryText: first.query, queryClass: 'non-brand', sourceSnapshotIds: ['harbor-answer', 'marina-answer'], assessments: [], locations: [
+        { ...pending, reason: null, location: 'Harbor', sourceSnapshotIds: ['harbor-answer'] },
+        { ...unadmitted, reason: null, location: 'Marina', sourceSnapshotIds: ['marina-answer'] },
+      ] }],
+    }
+    const restore = mockFetch(url => {
+      const request = new URL(url)
+      if (request.pathname.endsWith('/settings')) return jsonResponse({ installEnabled: true, enabled: true, ready: true, readinessReasons: [], model: 'jev-1.13.0', enablementEpoch: 1, completionBoundary: 1, evaluationDefinitionId: 'definition', actions: { configure: false, backfill: false }, experimental: true, disclosure: 'Experimental sentiment' })
+      return jsonResponse({ ...dto, selection: { ...dto.selection, queryClass: request.searchParams.get('queryClass') } })
+    })
+    const client = createQueryClient()
+    try {
+      render(<QueryClientProvider client={client}><SentimentScopeProvider projectName="project" selection={{ mode: 'advanced', scope: 'project', queryClass: 'non-brand', runId: 'run-2', revision: 2 }}><VisibilityReportView report={report} onSelectionChange={vi.fn()} /></SentimentScopeProvider></QueryClientProvider>)
+      fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
+      const table = screen.getByRole('table', { name: 'Non-brand queries engine results' })
+      const harbor = table.querySelector<HTMLElement>('[data-query-key="harbor-query"]')!
+      const marina = table.querySelector<HTMLElement>('[data-query-key="marina-query"]')!
+      await waitFor(() => expect(harbor.textContent).toContain(SENTIMENT_COPY.states.processing))
+      expect(marina.textContent).toContain(SENTIMENT_COPY.states['not-measured'])
+      for (const group of [harbor, marina]) {
+        expect(group.textContent).not.toContain(SENTIMENT_COPY.nonBrand.rowNone)
+        expect(within(group).queryByRole('button', { name: /View unfavorable and mixed answers/ })).toBeNull()
+      }
+    } finally { cleanup(); client.clear(); restore() }
+  })
+
+  describe('Advanced overview sentiment', () => {
+    const sentimentSettings = { installEnabled: true, enabled: true, ready: true, readinessReasons: [], model: 'jev-1.13.0', enablementEpoch: 1, completionBoundary: 1, evaluationDefinitionId: 'definition', actions: { configure: true, backfill: true }, experimental: true, disclosure: 'Experimental sentiment' }
+    function sentimentDto(queryClass: string | null): SentimentSummary {
+      const aggregate = aggregateSentiment(Array.from({ length: 10 }, (_, index) => ({ assessmentId: `a${index}`, sourceSnapshotId: `s${index}`, outcome: 'favorable' as const })))
+      return { ...aggregate, reason: null, configured: true, evaluationDefinition: createSentimentEvaluationDefinition(), breakdowns: [], queries: [], selection: { mode: 'advanced', scope: 'project', queryClass: queryClass === 'non-brand' ? 'non-brand' : 'branded', runId: 'run-older', revision: null, evaluationDefinitionId: 'definition' } }
+    }
+
+    it('reads the displayed sweep\'s sentiment at its own revision, never the report\'s restated one, and offers Manage sentiment once, in the Sentiment title row', async () => {
+      const sentimentReads: URL[] = []
+      onTestFinished(mockFetch(url => {
+        const request = new URL(url)
+        if (request.pathname.endsWith('/sentiment/settings')) return jsonResponse(sentimentSettings)
+        if (request.pathname.endsWith('/sentiment/jobs')) return jsonResponse({ jobs: [] })
+        if (request.pathname.endsWith('/sentiment')) { sentimentReads.push(request); return jsonResponse(sentimentDto(request.searchParams.get('queryClass'))) }
+        // An older sweep the report restates onto the current plan, revision 3.
+        const report = reportFixture()
+        report.selection.run = { id: 'run-older', explicit: true }
+        report.selection.revision = 3
+        return jsonResponse(report)
+      }))
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      onTestFinished(() => client.clear())
+      // The page's sentiment selection carries the URL's revision too; the resolved sweep replaces both.
+      render(<QueryClientProvider client={client}><SentimentScopeProvider waitForResolvedRun projectName="demo" selection={{ mode: 'advanced', scope: 'project', queryClass: 'non-brand', runId: 'run-older', revision: 3 }}>
+        <VisibilityOverview projectName="demo" selection={{ measurementScope: 'project', queryClass: 'non-brand', measurementRunId: 'run-older' }} onSelectionChange={() => {}} />
+      </SentimentScopeProvider></QueryClientProvider>)
+      await screen.findByLabelText('Branded favorable share')
+      await waitFor(() => expect(sentimentReads).toHaveLength(2))
+      // Both class reads name the sweep and no revision, so the server reads the revision that sweep ran under.
+      expect(sentimentReads.map(request => [request.searchParams.get('queryClass'), request.searchParams.get('runId'), request.searchParams.has('revision')]).sort()).toEqual([['branded', 'run-older', false], ['non-brand', 'run-older', false]])
+      // One Manage sentiment, in the report's Sentiment block title row; none above the workspace.
+      const manage = await screen.findAllByRole('button', { name: 'Manage sentiment' })
+      expect(manage).toHaveLength(1)
+      const title = manage[0]!.closest('.sentiment-headlines-title')!
+      expect(within(title as HTMLElement).getByRole('heading', { level: 3 }).textContent).toBe(SENTIMENT_COPY.title)
+      expect(screen.getByRole('region', { name: 'AI visibility results' }).contains(manage[0]!)).toBe(true)
+    })
+
+    it('keeps Manage sentiment reachable above the workspace when the report fails', async () => {
+      onTestFinished(mockFetch(url => {
+        const request = new URL(url)
+        if (request.pathname.endsWith('/sentiment/settings')) return jsonResponse(sentimentSettings)
+        if (request.pathname.endsWith('/sentiment/jobs')) return jsonResponse({ jobs: [] })
+        if (request.pathname.endsWith('/sentiment')) return jsonResponse(sentimentDto(request.searchParams.get('queryClass')))
+        return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'Report failed' } }, 500)
+      }))
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      onTestFinished(() => client.clear())
+      render(<QueryClientProvider client={client}><SentimentScopeProvider waitForResolvedRun projectName="demo" selection={{ mode: 'advanced', scope: 'project', queryClass: 'non-brand' }}>
+        <VisibilityOverview projectName="demo" selection={{ measurementScope: 'project', queryClass: 'non-brand' }} onSelectionChange={() => {}} />
+      </SentimentScopeProvider></QueryClientProvider>)
+      await screen.findByRole('heading', { name: 'AI visibility unavailable' })
+      const manage = await screen.findAllByRole('button', { name: 'Manage sentiment' })
+      expect(manage).toHaveLength(1)
+      expect(manage[0]!.closest('.sentiment-headlines-title')).toBeNull()
+      expect(screen.queryByRole('group', { name: 'Favorable answer scores' })).toBeNull()
+    })
   })
 
   it.each(['simple', 'advanced'] as const)('shares identical query context once and distinguishes a negative answer from missing evidence in %s reports', mode => {
