@@ -122,7 +122,7 @@ function exclusiveSentimentRuns(value: { runId?: string; runIds?: string[] }, ct
 }
 export const sentimentSelectionSchema = sentimentSelectionBaseSchema.superRefine(exclusiveSentimentRuns)
 export type SentimentSelection = z.infer<typeof sentimentSelectionSchema>
-export type SentimentEvidenceSelection = SentimentSelection & { assessmentId?: string }
+export type SentimentEvidenceSelection = SentimentSelection & { assessmentId?: string; outcome?: SentimentOutcome[] }
 export const sentimentSummaryIncludeSchema = z.enum(['assessments', 'locations'])
 export type SentimentSummaryInclude = z.infer<typeof sentimentSummaryIncludeSchema>
 export const SENTIMENT_QUERY_PAGE_DEFAULT = 25
@@ -136,7 +136,9 @@ export const sentimentSummaryRequestSchema = sentimentSelectionBaseSchema.extend
   queryLimit: z.coerce.number().int().min(1).max(SENTIMENT_QUERY_PAGE_MAX).default(SENTIMENT_QUERY_PAGE_DEFAULT),
   queryCursor: z.string().min(1).max(16384).optional(),
 }).superRefine(exclusiveSentimentRuns)
-export const sentimentEvidenceRequestSchema = sentimentSelectionBaseSchema.extend({ assessmentId: id.optional(), cursor: z.string().min(1).max(16384).optional(), limit: z.coerce.number().int().min(1).max(100).default(50) }).superRefine(exclusiveSentimentRuns)
+/** Evidence `outcome` narrows the page to assessments with these outcomes (comma-separated on the wire); it never changes how they were scored. */
+export const sentimentEvidenceOutcomeFilterSchema = z.preprocess(value => typeof value === 'string' ? value.split(',').map(item => item.trim()).filter(Boolean) : value, z.array(sentimentOutcomeSchema).min(1).max(sentimentOutcomeSchema.options.length))
+export const sentimentEvidenceRequestSchema = sentimentSelectionBaseSchema.extend({ assessmentId: id.optional(), outcome: sentimentEvidenceOutcomeFilterSchema.optional(), cursor: z.string().min(1).max(16384).optional(), limit: z.coerce.number().int().min(1).max(100).default(50) }).superRefine(exclusiveSentimentRuns)
 export const sentimentCompareRequestSchema = sentimentSelectionBaseSchema.extend({ fromRunId: id, toRunId: id }).superRefine((value, ctx) => { exclusiveSentimentRuns(value, ctx); if (value.runIds) ctx.addIssue({ code: 'custom', path: ['runIds'], message: 'Comparison requires one explicit run per period.' }) })
 export const sentimentResolvedSelectionSchema = sentimentSelectionBaseSchema.extend({ runId: id.nullable(), revision: z.number().int().nullable(), evaluationDefinitionId: id.nullable(), mode: z.enum(['simple', 'advanced']) })
 export type SentimentResolvedSelection = z.infer<typeof sentimentResolvedSelectionSchema>
@@ -180,10 +182,33 @@ export const sentimentSummarySchema = z.object({
   ...headlineFields, configured: z.boolean(), selection: sentimentResolvedSelectionSchema,
   evaluationDefinition: sentimentEvaluationDefinitionSchema.nullable(),
   breakdowns: z.array(sentimentBreakdownSchema), queries: z.array(sentimentQuerySummarySchema),
+  /**
+   * Branded views spanning more than one Property: the Properties with a mixed or unfavorable
+   * rating, most criticized first ({@link rankCriticizedProperties}). `keys` are the first
+   * {@link SENTIMENT_CRITICIZED_PROPERTY_LIMIT} property breakdown keys; `total` counts them all.
+   * Absent from older servers and from non-brand, disabled or unavailable reads.
+   */
+  criticizedProperties: z.object({ total: count, keys: z.array(z.string()) }).strict().optional(),
   /** Present on the paged summary read; follow `nextCursor` as `queryCursor` for the next query rows. */
   queryPage: z.object({ total: count, limit: count, nextCursor: z.string().nullable() }).strict().optional(),
 }).strict()
 export type SentimentSummary = z.infer<typeof sentimentSummarySchema>
+export type SentimentBreakdown = z.infer<typeof sentimentBreakdownSchema>
+export const SENTIMENT_CRITICIZED_PROPERTY_LIMIT = 5
+/**
+ * The Properties a branded view criticizes most, by counts, never shares: a Property has a
+ * handful of ratings, so a share would let one mixed answer outrank five. Keeps property rows
+ * with a mixed or unfavorable rating, ordered by mixed plus unfavorable count, then unfavorable
+ * count, then fewest favorable, then label. None unless the rows span more than one Property.
+ */
+export function rankCriticizedProperties(rows: readonly SentimentBreakdown[]): { total: number; keys: string[] } {
+  const properties = rows.filter(row => row.dimension === 'property')
+  if (properties.length < 2) return { total: 0, keys: [] }
+  const criticized = properties.filter(row => row.coverage.counts.mixed + row.coverage.counts.unfavorable > 0)
+  const criticism = (row: SentimentBreakdown) => row.coverage.counts.mixed + row.coverage.counts.unfavorable
+  criticized.sort((a, b) => criticism(b) - criticism(a) || b.coverage.counts.unfavorable - a.coverage.counts.unfavorable || a.coverage.counts.favorable - b.coverage.counts.favorable || a.label.localeCompare(b.label) || a.key.localeCompare(b.key))
+  return { total: criticized.length, keys: criticized.slice(0, SENTIMENT_CRITICIZED_PROPERTY_LIMIT).map(row => row.key) }
+}
 export const sentimentSettingsUpdateSchema = z.object({ enabled: z.boolean().optional() }).strict()
 export const sentimentSettingsSchema = z.object({
   installEnabled: z.boolean(), enabled: z.boolean(), ready: z.boolean(), readinessReasons: z.array(z.string()), model: z.string(),
@@ -228,7 +253,7 @@ export const sentimentEvidenceItemSchema = z.object({
   returnedModel: z.string().nullable(), reason: z.string().nullable(),
 }).strict()
 export type SentimentEvidenceItem = z.infer<typeof sentimentEvidenceItemSchema>
-export const sentimentEvidencePageSchema = z.object({ state: sentimentStateSchema, selection: sentimentResolvedSelectionSchema.extend({ assessmentId: id.optional() }), items: z.array(sentimentEvidenceItemSchema), nextCursor: z.string().nullable() }).strict()
+export const sentimentEvidencePageSchema = z.object({ state: sentimentStateSchema, selection: sentimentResolvedSelectionSchema.extend({ assessmentId: id.optional(), outcome: z.array(sentimentOutcomeSchema).optional() }), items: z.array(sentimentEvidenceItemSchema), nextCursor: z.string().nullable() }).strict()
 export type SentimentEvidencePage = z.infer<typeof sentimentEvidencePageSchema>
 export const sentimentComparisonSchema = z.object({
   from: sentimentSummarySchema, to: sentimentSummarySchema, verdict: z.enum(['improved', 'declined', 'no-clear-change']).nullable(),

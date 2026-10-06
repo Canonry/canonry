@@ -270,6 +270,10 @@ export type SentimentSummary = {
             sourceSnapshotIds: Array<string>;
         }>;
     }>;
+    criticizedProperties?: {
+        total: number;
+        keys: Array<string>;
+    };
     queryPage?: {
         total: number;
         limit: number;
@@ -316,6 +320,7 @@ export type SentimentEvidencePage = {
         evaluationDefinitionId: string | null;
         executionNodeKey?: string;
         assessmentId?: string;
+        outcome?: Array<'favorable' | 'mixed' | 'unfavorable' | 'factual' | 'subject-not-mentioned' | 'wrong-subject' | 'ambiguous-subject' | 'ambiguous-judgment' | 'subject-not-applicable' | 'unsupported-language' | 'missing-source-text' | 'input-too-large' | 'invalid-conclusion-evidence' | 'pending' | 'running' | 'waiting-to-retry' | 'failed' | 'canceled'>;
     };
     items: Array<{
         assessmentId: string;
@@ -647,6 +652,10 @@ export type SentimentComparison = {
                 sourceSnapshotIds: Array<string>;
             }>;
         }>;
+        criticizedProperties?: {
+            total: number;
+            keys: Array<string>;
+        };
         queryPage?: {
             total: number;
             limit: number;
@@ -919,6 +928,10 @@ export type SentimentComparison = {
                 sourceSnapshotIds: Array<string>;
             }>;
         }>;
+        criticizedProperties?: {
+            total: number;
+            keys: Array<string>;
+        };
         queryPage?: {
             total: number;
             limit: number;
@@ -16665,6 +16678,10 @@ export type GetApiV1ProjectsByNameSentimentEvidenceData = {
          * Exact stored assessment within the authorized source, subject, scope, and evaluator selection. Does not widen access.
          */
         assessmentId?: string;
+        /**
+         * Outcomes to keep, repeated or comma-separated (for example mixed,unfavorable). Narrows the page to assessments with these outcomes; never changes how they were scored.
+         */
+        outcome?: Array<'favorable' | 'mixed' | 'unfavorable' | 'factual' | 'subject-not-mentioned' | 'wrong-subject' | 'ambiguous-subject' | 'ambiguous-judgment' | 'subject-not-applicable' | 'unsupported-language' | 'missing-source-text' | 'input-too-large' | 'invalid-conclusion-evidence' | 'pending' | 'running' | 'waiting-to-retry' | 'failed' | 'canceled'>;
         /**
          * Opaque cursor bound to every selection field and resolved evaluator ID.
          */
