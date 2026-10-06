@@ -139,8 +139,8 @@ export const sentimentSummaryRequestSchema = sentimentSelectionBaseSchema.extend
 /** Evidence `outcome` narrows the page to assessments with these outcomes (comma-separated on the wire); it never changes how they were scored. */
 export const sentimentEvidenceOutcomeFilterSchema = z.preprocess(value => {
   // Repeated params arrive as an array, and any item may itself be comma-separated: normalize both forms the same way.
-  const items = typeof value === 'string' ? [value] : Array.isArray(value) ? value : null
-  return items ? [...new Set(items.flatMap(item => typeof item === 'string' ? item.split(',').map(part => part.trim()).filter(Boolean) : [item]))] : value
+  const items: readonly unknown[] | null = typeof value === 'string' ? [value] : Array.isArray(value) ? (value as unknown[]) : null
+  return items ? [...new Set(items.flatMap((item): unknown[] => typeof item === 'string' ? item.split(',').map(part => part.trim()).filter(Boolean) : [item]))] : value
 }, z.array(sentimentOutcomeSchema).min(1).max(sentimentOutcomeSchema.options.length))
 export const sentimentEvidenceRequestSchema = sentimentSelectionBaseSchema.extend({ assessmentId: id.optional(), outcome: sentimentEvidenceOutcomeFilterSchema.optional(), cursor: z.string().min(1).max(16384).optional(), limit: z.coerce.number().int().min(1).max(100).default(50) }).superRefine(exclusiveSentimentRuns)
 export const sentimentCompareRequestSchema = sentimentSelectionBaseSchema.extend({ fromRunId: id, toRunId: id }).superRefine((value, ctx) => { exclusiveSentimentRuns(value, ctx); if (value.runIds) ctx.addIssue({ code: 'custom', path: ['runIds'], message: 'Comparison requires one explicit run per period.' }) })
