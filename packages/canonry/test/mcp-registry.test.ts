@@ -1208,6 +1208,11 @@ describe('MCP tool registry', () => {
       project: 'acme',
       request: { competitors: ['rival.example.com'] },
     })
+    // The same body POST /competitors takes: a domain or { domain, aliases }.
+    expect(competitorsTool!.inputSchema.parse({ project: 'acme', request: { competitors: [{ domain: ' qvx.example ', aliases: ['QVX'] }, 'rival.example.com'] } })).toEqual({
+      project: 'acme',
+      request: { competitors: [{ domain: 'qvx.example', aliases: ['QVX'] }, 'rival.example.com'] },
+    })
   })
 
   it('creates one API client per MCP server instance', () => {
@@ -1852,6 +1857,7 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_queries_remove', input: { project: 'acme', request: { queries: ['alpha'] } }, methods: ['deleteQueries'] },
   { tool: 'canonry_keywords_remove', input: { project: 'acme', request: { keywords: ['alpha'] } }, methods: ['deleteKeywords'] },
   { tool: 'canonry_competitors_add', input: { project: 'acme', request: { competitors: ['other.example.com'] } }, methods: ['appendCompetitors'] },
+  { tool: 'canonry_competitors_add', input: { project: 'acme', request: { competitors: [{ domain: 'qvx.example', aliases: ['QVX'] }] } }, methods: ['appendCompetitors'], expectedArgs: [['acme', [{ domain: 'qvx.example', aliases: ['QVX'] }]]] },
   { tool: 'canonry_competitors_remove', input: { project: 'acme', request: { competitors: ['other.example.com'] } }, methods: ['deleteCompetitors'] },
   { tool: 'canonry_competitors_aliases_set', input: { project: 'acme', domain: 'qvx.example', aliases: ['QVX'] }, methods: ['setCompetitorAliases'], expectedArgs: [['acme', 'qvx.example', ['QVX']]] },
   { tool: 'canonry_schedule_set', input: { project: 'acme', schedule: { preset: 'daily', timezone: 'UTC' } }, methods: ['putSchedule'] },

@@ -67,11 +67,6 @@ export function mentionShareCompetitors(competitors: readonly MentionShareCompet
   }))
 }
 
-/** Domains with no curated alias. Prefer `mentionShareCompetitors` with stored rows. */
-export function mentionShareCompetitorsFromDomains(domains: readonly string[]): MentionShareCompetitor[] {
-  return mentionShareCompetitors(domains.map(domain => ({ domain })))
-}
-
 /** Reuse discovery's stored domain taxonomy; a read never starts classification. */
 export function readObservedCompetitorDomains(db: DatabaseClient, projectId: string): string[] {
   const rows = db.select({ domain: domainClassifications.domain, type: domainClassifications.competitorType })

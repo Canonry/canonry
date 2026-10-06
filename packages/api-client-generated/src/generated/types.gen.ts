@@ -6756,6 +6756,7 @@ export type LatestProjectRunDto = {
             competitorOverlap: Array<string>;
             citedCompetitorDomains: Array<string>;
             mentionedCompetitorDomains: Array<string>;
+            mentionedCompetitorTerms: Array<string>;
             recommendedCompetitors: Array<string>;
             matchedTerms: Array<string>;
             groundingSources: Array<{
@@ -11153,6 +11154,7 @@ export type ProjectOverviewDto = {
                 competitorOverlap: Array<string>;
                 citedCompetitorDomains: Array<string>;
                 mentionedCompetitorDomains: Array<string>;
+                mentionedCompetitorTerms: Array<string>;
                 recommendedCompetitors: Array<string>;
                 matchedTerms: Array<string>;
                 groundingSources: Array<{
@@ -11883,6 +11885,7 @@ export type RunDetailDto = {
         competitorOverlap: Array<string>;
         citedCompetitorDomains: Array<string>;
         mentionedCompetitorDomains: Array<string>;
+        mentionedCompetitorTerms: Array<string>;
         recommendedCompetitors: Array<string>;
         matchedTerms: Array<string>;
         groundingSources: Array<{
@@ -12941,6 +12944,7 @@ export type SnapshotListResponse = {
         competitorOverlap: Array<string>;
         citedCompetitorDomains: Array<string>;
         mentionedCompetitorDomains: Array<string>;
+        mentionedCompetitorTerms: Array<string>;
         recommendedCompetitors: Array<string>;
         matchedTerms: Array<string>;
         groundingSources: Array<{

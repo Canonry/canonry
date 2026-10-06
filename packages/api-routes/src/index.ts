@@ -231,9 +231,10 @@ export interface ApiRoutesOptions {
   onAliasesChanged?: (projectId: string, projectName: string) => void
   /**
    * Callback when a competitor's curated aliases change (alias route, add with
-   * aliases, apply, or a project identity change that drops one). Wire it to
-   * the same mention-fields backfill so the stored per-snapshot competitor
-   * columns follow the new names.
+   * aliases, apply, discovery promote, or a project identity change that drops
+   * one). Wire it to a competitor-fields-only backfill so the stored
+   * per-snapshot competitor columns follow the new names without touching the
+   * project's own `answer_mentioned`.
    */
   onCompetitorAliasesChanged?: (projectId: string, projectName: string) => void
   /** Callback to generate a one-shot AI perception snapshot */
@@ -768,6 +769,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onDiscoveryRunRequested: opts.onDiscoveryRunRequested,
       harvestSearchQueries: opts.harvestSearchQueries,
       embedQueries: opts.embedQueries,
+      onCompetitorAliasesChanged: opts.onCompetitorAliasesChanged,
     } satisfies DiscoveryRoutesOptions)
     await api.register(researchRoutes, {
       getCachedProviderModels: opts.getCachedProviderModels,

@@ -3314,10 +3314,11 @@ export async function createServer(opts: {
     onCompetitorAliasesChanged: (projectId: string, projectName: string) => {
       // Read-time competitor matchers pick curated aliases up on their own;
       // this refreshes the stored per-snapshot columns (`competitor_overlap`,
-      // `recommended_competitors`) with the same deferred backfill.
+      // `recommended_competitors`) only. A competitor's names say nothing
+      // about the project's own `answer_mentioned`, so that column is left alone.
       setImmediate(() => {
         try {
-          const result = backfillProjectAnswerMentions(opts.db, projectId);
+          const result = backfillProjectAnswerMentions(opts.db, projectId, { competitorFieldsOnly: true });
           app.log.info(
             { projectId, projectName, ...result },
             "competitor aliases changed: recomputed competitor fields on historical snapshots",

@@ -32,6 +32,12 @@ export interface CompetitiveSignalEvidence {
 export interface CompetitiveSignals {
   citedCompetitorDomains: string[]
   mentionedCompetitorDomains: string[]
+  /**
+   * The identities that made each mention: the competitor names (curated
+   * aliases, gated domain labels) and written hosts found in the prose, in
+   * competitor order. Readers highlight these instead of re-deriving names.
+   */
+  mentionedCompetitorTerms: string[]
 }
 
 export interface CompetitiveSignalResolver {
@@ -40,10 +46,11 @@ export interface CompetitiveSignalResolver {
 
 interface CompetitorIdentity {
   domain: string
-  /** The competitor's names: curated aliases plus the gated domain label. */
-  names: string[]
-  /** `brandKeyFromText` of each name, the keys the shared matcher reports. */
-  nameKeys: string[]
+  /**
+   * The competitor's names (curated aliases plus the gated domain label), each
+   * with its `brandKeyFromText` key, the key the shared matcher reports.
+   */
+  names: Array<{ name: string; key: string }>
 }
 
 /**
@@ -56,7 +63,7 @@ interface CompetitorIdentity {
  * from a domain uses the same specificity floor as project answer mentions,
  * so `ai.com` is recognized when written but the generic word "AI" is not.
  * Operator-curated aliases (`{ domain, aliases }` entries) are names too, at
- * the alias floor, so "FoamSeal" marks `sealfoamworks.example` mentioned.
+ * the alias floor, so "TuneSpoke" marks `spoketuneworks.example` mentioned.
  * A bare string entry is a domain with no curated alias.
  */
 export function compileCompetitiveSignalResolver(
@@ -71,11 +78,11 @@ export function compileCompetitiveSignalResolver(
     if (!domain || seen.has(domain)) continue
     seen.add(domain)
     const names = competitorNameAliases({ domain, aliases: input.aliases })
-    identities.push({ domain, names, nameKeys: [...new Set(names.map(brandKeyFromText))] })
+    identities.push({ domain, names: names.map(name => ({ name, key: brandKeyFromText(name) })) })
   }
 
   const nameMatcher = compileBrandAliases(
-    identities.flatMap(identity => identity.names),
+    identities.flatMap(identity => identity.names.map(entry => entry.name)),
   )
 
   return {
@@ -90,20 +97,21 @@ export function compileCompetitiveSignalResolver(
       const mentionedNameKeys = matchedAliasKeys(nameMatcher, prose)
       const citedCompetitorDomains: string[] = []
       const mentionedCompetitorDomains: string[] = []
+      const mentionedCompetitorTerms = new Set<string>()
 
       for (const identity of identities) {
         if (citationCandidates.some(candidate => hostMatchesDomain(candidate, identity.domain))) {
           citedCompetitorDomains.push(identity.domain)
         }
-        if (
-          answerDomains.some(candidate => hostMatchesDomain(candidate, identity.domain))
-          || identity.nameKeys.some(key => mentionedNameKeys.has(key))
-        ) {
+        const writtenHosts = answerDomains.filter(candidate => hostMatchesDomain(candidate, identity.domain))
+        const names = identity.names.filter(entry => mentionedNameKeys.has(entry.key)).map(entry => entry.name)
+        if (writtenHosts.length > 0 || names.length > 0) {
           mentionedCompetitorDomains.push(identity.domain)
+          for (const term of [...names, ...writtenHosts]) mentionedCompetitorTerms.add(term)
         }
       }
 
-      return { citedCompetitorDomains, mentionedCompetitorDomains }
+      return { citedCompetitorDomains, mentionedCompetitorDomains, mentionedCompetitorTerms: [...mentionedCompetitorTerms] }
     },
   }
 }

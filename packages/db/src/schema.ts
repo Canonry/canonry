@@ -62,7 +62,7 @@ export const competitors = sqliteTable('competitors', {
   provenance: text('provenance'),
   /**
    * Operator-curated names this competitor goes by in answer prose (a firm at
-   * `sealfoamworks.example` written as "FoamSeal"). Layered onto the
+   * `spoketuneworks.example` written as "TuneSpoke"). Layered onto the
    * domain-derived label by every competitor mention matcher. Normalized by
    * `normalizeCompetitorAliases`; never auto-populated from the domain label.
    */

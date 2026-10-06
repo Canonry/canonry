@@ -398,31 +398,33 @@ cnry query import <project> queries.txt
 cnry query generate <project> --provider gemini --count 10 --save
 
 cnry competitor add <project> competitor1.com competitor2.com
-cnry competitor add <project> sealfoamworks.example --alias FoamSeal   # one domain; repeat --alias for more names
+cnry competitor add <project> spoketuneworks.example --alias TuneSpoke   # one domain; repeat --alias for more names
 cnry competitor list <project>                       # text shows each competitor's aliases; JSON rows carry `aliases`
 cnry competitor aliases <project> qvx.example                      # read one competitor's aliases
 cnry competitor aliases <project> qvx.example --set QVX            # exact list (repeat --set); --clear empties it
-cnry competitor aliases <project> qvx.example --add "QVX Stores" --remove qvx   # edit the stored list
+cnry competitor aliases <project> qvx.example --add "QVX Stores"   # appends server-side in one call
+cnry competitor aliases <project> qvx.example --remove qvx         # read, edit, write back (a concurrent edit can be overwritten)
 cnry competitor landscape <project> --query-class non-brand --window 30d --format json
 ```
 
 ### Competitor aliases
 
-A competitor is stored as its registrable domain, and every competitor mention matcher derives a name from the domain label (only when that label has 4 or more letters or digits). A competitor whose answers name it differently ("FoamSeal" for `sealfoamworks.example`, "Ridgecrest Roofing" for `ridgecrestbuildinc.example`) or whose brand is 3 letters (`QVX` for `qvx.example`) is never counted until you give it curated aliases. Without them, mention share overstates the project.
+A competitor is stored as its registrable domain, and every competitor mention matcher derives a name from the domain label (only when that label has 4 or more letters or digits). A competitor whose answers name it differently ("TuneSpoke" for `spoketuneworks.example`, "Ravenwood Cycling" for `ravenwoodbikeinc.example`) or whose brand is 3 letters (`QVX` for `qvx.example`) is never counted until you give it curated aliases. Without them, mention share overstates the project.
 
-- Rules: trimmed, deduplicated case-insensitively (first spelling kept), at most 10 per competitor, 80 characters each, at least 3 letters or digits. Rejected with a 400 naming each alias: one of the project's own brand names (display name, aliases, domain labels), or a name another tracked competitor answers to (its aliases or domain label).
+- Rules: trimmed, deduplicated case-insensitively (first spelling kept), at most 10 per competitor, 80 characters each, at least 3 letters or digits. Rejected with a 400 naming each alias: found as whole words in one of the project's own names or written hosts ("Acme" or `acmecycles.example` for the project "Acme Cycles" at `acmecycles.example`), a host on the project's own site, or a name another tracked competitor answers to (its aliases or domain label).
+- A new competitor whose domain is another competitor's alias (adding `tunespoke.example` while `spoketuneworks.example` carries "TuneSpoke") is rejected on every surface (`competitor add`, apply, discovery promote) until you remove or restate that alias. A project identity change that claims a competitor alias drops it, audited as `droppedCompetitorAliases`.
 - Matching is exact brand identity over answer prose (complete words, case and punctuation variants), never fuzzy. Aliases add to mention matching only; citations stay domain-based.
-- Read time: mention share (overview card, trend buckets, `visibility-stats --share-of-voice`, `visibility-compare`), the competitor landscape, mention gaps, and run/history competitor signals reinterpret stored answers as soon as aliases change. The stored `competitorOverlap` / `recommendedCompetitors` columns are recomputed in the background.
-- Frozen: a Simple run freezes the competitor identity it dispatched with (domain label plus aliases), so the AI Visibility report keeps each run's own identity; only runs dispatched after the edit use new aliases, and the next run reads as a changed definition. Advanced plan revisions keep their own frozen competitor names (`measurement-plan advanced ... draft-action` with `upsert-competitor`).
-- REST: `PUT /api/v1/projects/{name}/competitors/{domain}/aliases` with `{ "aliases": [...] }` (exact set, idempotent, audited as `competitors.aliases-updated`); `POST /competitors` accepts `{ domain, aliases }` entries (aliases are added). `PUT /competitors` (domain replace) keeps the aliases of domains that stay. MCP: `canonry_competitors_aliases_set` (setup toolkit).
+- Read time: mention share (overview card, trend buckets, `visibility-stats --share-of-voice`, `visibility-compare`), the competitor landscape, mention gaps, and run/history competitor signals reinterpret stored answers as soon as aliases change. The stored `competitorOverlap` / `recommendedCompetitors` columns are recomputed in the background; the project's own `answerMentioned` is never touched by an alias edit.
+- Frozen: a Simple run freezes the competitor identity it dispatched with (domain label plus aliases), so the AI Visibility report keeps each run's own identity; only runs dispatched after the edit use new aliases, and the next run reads as a changed definition. Advanced plan revisions keep their own frozen competitor names (`measurement-plan advanced ... draft-action` with `upsert-competitor`); pinning a tracked competitor into a market by domain alone copies its curated aliases into the draft.
+- REST: `PUT /api/v1/projects/{name}/competitors/{domain}/aliases` with `{ "aliases": [...] }` (exact set, idempotent, audited as `competitors.aliases-updated`); `POST /competitors` accepts `{ domain, aliases }` entries (aliases are added). `PUT /competitors` (domain replace) keeps the aliases of domains that stay. Deletes record the discarded aliases on the audit row. MCP: `canonry_competitors_aliases_set` and `canonry_competitors_add` with `{ domain, aliases }` entries (setup toolkit).
 - Config-as-code: a `spec.competitors` entry is a domain string or `{ domain, aliases }`. A string keeps that competitor's stored aliases (no opinion); an object sets them exactly, and `aliases: []` clears them. `cnry export` writes aliased competitors as objects, so export then apply round-trips.
 
 ```yaml
 spec:
   competitors:
-    - ridgecrest.example
-    - domain: sealfoamworks.example
-      aliases: [FoamSeal]
+    - ravenwood.example
+    - domain: spoketuneworks.example
+      aliases: [TuneSpoke]
 ```
 
 Historical competitor landscapes require explicit `--query-class non-brand`

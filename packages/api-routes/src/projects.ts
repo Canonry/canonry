@@ -6,7 +6,7 @@ import type { InferSelectModel } from 'drizzle-orm'
 import {
   alreadyExists,
   describeError,
-  effectiveBrandNames,
+  competitorAliasProjectIdentity,
   forbidden,
   hostOf,
   notFound,
@@ -309,14 +309,14 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     // A competitor alias the project now claims as its own name would count
     // the project as its own competitor, so it is dropped (and audited).
     // Qualified aliases are checked against the competitor names that remain.
-    const nextBrandNames = effectiveBrandNames({
+    const nextAliasIdentity = competitorAliasProjectIdentity({
       displayName: body.displayName,
       aliases: nextAliases,
       canonicalDomain: body.canonicalDomain,
       ownedDomains: body.ownedDomains ?? [],
     })
     const competitorAliasPrune = existing
-      ? planCompetitorSet(readStoredCompetitors(app.db, existing.id), [], { replace: false, projectBrandNames: nextBrandNames })
+      ? planCompetitorSet(readStoredCompetitors(app.db, existing.id), [], { replace: false, project: nextAliasIdentity })
       : null
     const liveCompetitors = competitorAliasPrune ? competitorNames(competitorAliasPrune.final) : []
     const nextQualifiedAliases = body.qualifiedAliases !== undefined
@@ -354,7 +354,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         if (competitorAliasPrune?.aliasChanges.length) {
           droppedCompetitorAliases = syncCompetitorSet(tx, existing.id, [], {
             replace: false,
-            projectBrandNames: nextBrandNames,
+            project: nextAliasIdentity,
             now,
           }).droppedAliases
         }

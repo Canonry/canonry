@@ -143,7 +143,7 @@ test('the trend key rotates when a competitor\'s curated aliases change', async 
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const { rerender } = render(
     <QueryClientProvider client={queryClient}>
-      <VisibilityTrendSection projectName="test-project" competitorDomains={['sealfoamworks.example']} competitorAliases={{ 'sealfoamworks.example': [] }} />
+      <VisibilityTrendSection projectName="test-project" competitorDomains={['spoketuneworks.example']} competitorAliases={{ 'spoketuneworks.example': [] }} />
     </QueryClientProvider>,
   )
   await waitFor(() => expect(analyticsMetricsKeys(queryClient).length).toBe(1))
@@ -151,11 +151,11 @@ test('the trend key rotates when a competitor\'s curated aliases change', async 
 
   rerender(
     <QueryClientProvider client={queryClient}>
-      <VisibilityTrendSection projectName="test-project" competitorDomains={['sealfoamworks.example']} competitorAliases={{ 'sealfoamworks.example': ['FoamSeal'] }} />
+      <VisibilityTrendSection projectName="test-project" competitorDomains={['spoketuneworks.example']} competitorAliases={{ 'spoketuneworks.example': ['TuneSpoke'] }} />
     </QueryClientProvider>,
   )
   await waitFor(() => expect(analyticsMetricsKeys(queryClient).length).toBe(2))
   const after = analyticsMetricsKeys(queryClient).find(key => key !== before)!
-  expect(before[3]).toBe('sealfoamworks.example')
-  expect(after[3]).toBe('sealfoamworks.example=foamseal')
+  expect(before[3]).toBe('spoketuneworks.example')
+  expect(after[3]).toBe('spoketuneworks.example=tunespoke')
 })

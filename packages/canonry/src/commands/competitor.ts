@@ -35,7 +35,8 @@ export async function addCompetitors(project: string, domains: string[], format?
       domains: currentDomains,
       addedDomains,
       addedCount: addedDomains.length,
-      ...(aliasRow ? { aliases: { domain: aliasRow.domain, aliases: aliasRow.aliases } } : {}),
+      // The aliased competitor as the API returns it (`CompetitorDto`).
+      ...(aliasRow ? { competitor: aliasRow } : {}),
     }, null, 2))
     return
   }
@@ -70,8 +71,12 @@ export interface CompetitorAliasesOptions {
 
 /**
  * `canonry competitor aliases`. With no change flag it reads the competitor's
- * aliases; otherwise it writes the resulting list through the exact-set route,
- * which is idempotent (an unchanged list writes nothing server-side).
+ * aliases. `--set` / `--clear` write the exact list. `--add` alone appends
+ * server-side in one call (`POST /competitors` with `{ domain, aliases }`), so
+ * concurrent adds never overwrite each other. `--remove` reads the list, edits
+ * it and writes it back through the exact-set route, so an edit made by
+ * another client between that read and write is overwritten. Every write is
+ * idempotent (an unchanged list writes nothing server-side).
  */
 export async function competitorAliases(project: string, domain: string, options: CompetitorAliasesOptions): Promise<void> {
   const client = getClient()
@@ -90,12 +95,16 @@ export async function competitorAliases(project: string, domain: string, options
       })
     }
     const removed = options.remove ?? []
-    if ((options.add?.length ?? 0) === 0 && removed.length === 0) {
+    const added = options.add ?? []
+    if (added.length === 0 && removed.length === 0) {
       result = current
+    } else if (removed.length === 0) {
+      const listed = await client.appendCompetitors(project, [{ domain: current.domain, aliases: added }])
+      result = listed.find(c => c.domain === current.domain) ?? current
     } else {
       const next = [
         ...current.aliases.filter(alias => !removed.some(name => sameAliasName(name, alias))),
-        ...(options.add ?? []),
+        ...added,
       ]
       result = await client.setCompetitorAliases(project, current.domain, next)
     }

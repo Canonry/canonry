@@ -49,7 +49,7 @@ describe('competitor alias CLI', () => {
     fs.writeFileSync(configPath, JSON.stringify(config), 'utf-8')
     close = () => app.close()
     client = new ApiClient(config.apiUrl, apiKeyPlain)
-    await client.putProject('roofwise', { displayName: 'Roofwise', canonicalDomain: 'roofwise.example', country: 'US', language: 'en' })
+    await client.putProject('rotorwise', { displayName: 'Rotorwise', canonicalDomain: 'rotorwise.example', country: 'US', language: 'en' })
   })
 
   afterEach(async () => {
@@ -62,21 +62,24 @@ describe('competitor alias CLI', () => {
   })
 
   it('adds a competitor with --alias and reports its aliases in JSON', async () => {
-    const result = await invokeCli(['competitor', 'add', 'roofwise', 'www.sealfoamworks.example', '--alias', 'FoamSeal', '--alias', 'Foam Seal', '--format', 'json'])
+    const result = await invokeCli(['competitor', 'add', 'rotorwise', 'www.spoketuneworks.example', '--alias', 'TuneSpoke', '--alias', 'Tune Spoke', '--format', 'json'])
     expect(result.exitCode).toBeUndefined()
     expect(result.stderr).toBe('')
-    expect(JSON.parse(result.stdout)).toEqual({
-      project: 'roofwise',
-      domains: ['sealfoamworks.example'],
-      addedDomains: ['sealfoamworks.example'],
+    const body = JSON.parse(result.stdout) as Record<string, unknown> & { competitor: Record<string, unknown> }
+    expect(body).toMatchObject({
+      project: 'rotorwise',
+      domains: ['spoketuneworks.example'],
+      addedDomains: ['spoketuneworks.example'],
       addedCount: 1,
-      aliases: { domain: 'sealfoamworks.example', aliases: ['FoamSeal', 'Foam Seal'] },
+      competitor: { domain: 'spoketuneworks.example', aliases: ['TuneSpoke', 'Tune Spoke'] },
     })
-    expect((await client.listCompetitors('roofwise')).map(c => c.aliases)).toEqual([['FoamSeal', 'Foam Seal']])
+    // `competitor` is the API's CompetitorDto, the same shape `competitor list` returns.
+    expect(Object.keys(body.competitor).sort()).toEqual(['aliases', 'createdAt', 'domain', 'id'])
+    expect((await client.listCompetitors('rotorwise')).map(c => c.aliases)).toEqual([['TuneSpoke', 'Tune Spoke']])
   })
 
   it('refuses --alias with more than one domain', async () => {
-    const result = await invokeCli(['competitor', 'add', 'roofwise', 'a.example', 'b.example', '--alias', 'Alpha', '--format', 'json'])
+    const result = await invokeCli(['competitor', 'add', 'rotorwise', 'a.example', 'b.example', '--alias', 'Alpha', '--format', 'json'])
     expect(result.exitCode).toBe(1)
     expect(result.stdout).toBe('')
     expect(JSON.parse(result.stderr).error).toMatchObject({
@@ -86,51 +89,59 @@ describe('competitor alias CLI', () => {
   })
 
   it('reads, sets, adds, removes and clears aliases with the API response shape', async () => {
-    await client.appendCompetitors('roofwise', ['qvx.example'])
+    await client.appendCompetitors('rotorwise', ['qvx.example'])
 
-    const read = await invokeCli(['competitor', 'aliases', 'roofwise', 'qvx.example', '--format', 'json'])
+    const read = await invokeCli(['competitor', 'aliases', 'rotorwise', 'qvx.example', '--format', 'json'])
     expect(JSON.parse(read.stdout)).toMatchObject({ domain: 'qvx.example', aliases: [] })
 
-    const set = await invokeCli(['competitor', 'aliases', 'roofwise', 'qvx.example', '--set', 'QVX', '--set', 'QVX Stores', '--format', 'json'])
+    const set = await invokeCli(['competitor', 'aliases', 'rotorwise', 'qvx.example', '--set', 'QVX', '--set', 'QVX Stores', '--format', 'json'])
     expect(set.exitCode).toBeUndefined()
     const setBody = JSON.parse(set.stdout) as { id: string; domain: string; aliases: string[]; createdAt: string }
     expect(Object.keys(setBody).sort()).toEqual(['aliases', 'createdAt', 'domain', 'id'])
     expect(setBody.aliases).toEqual(['QVX', 'QVX Stores'])
 
-    const added = await invokeCli(['competitor', 'aliases', 'roofwise', 'shop.qvx.example', '--add', 'Quiet Vox Supply', '--remove', 'qvx stores', '--format', 'json'])
-    expect(JSON.parse(added.stdout).aliases).toEqual(['QVX', 'Quiet Vox Supply'])
+    const edited = await invokeCli(['competitor', 'aliases', 'rotorwise', 'shop.qvx.example', '--add', 'Quiet Vox Supply', '--remove', 'qvx stores', '--format', 'json'])
+    expect(JSON.parse(edited.stdout).aliases).toEqual(['QVX', 'Quiet Vox Supply'])
 
-    const text = await invokeCli(['competitor', 'aliases', 'roofwise', 'qvx.example'])
+    // --add alone appends server-side in one call (POST with { domain, aliases })
+    // instead of writing back a locally edited list.
+    await client.setCompetitorAliases('rotorwise', 'qvx.example', ['QVX', 'Quiet Vox Supply', 'QVX Depot'])
+    const appended = await invokeCli(['competitor', 'aliases', 'rotorwise', 'qvx.example', '--add', 'QVX Outlet', '--format', 'json'])
+    expect(appended.exitCode).toBeUndefined()
+    expect(JSON.parse(appended.stdout).aliases).toEqual(['QVX', 'Quiet Vox Supply', 'QVX Depot', 'QVX Outlet'])
+    await client.setCompetitorAliases('rotorwise', 'qvx.example', ['QVX', 'Quiet Vox Supply'])
+
+    const text = await invokeCli(['competitor', 'aliases', 'rotorwise', 'qvx.example'])
     expect(text.stdout).toBe('Aliases for qvx.example: QVX, Quiet Vox Supply')
 
-    const list = await invokeCli(['competitor', 'list', 'roofwise'])
+    const list = await invokeCli(['competitor', 'list', 'rotorwise'])
     expect(list.stdout).toContain('  qvx.example  (aliases: QVX, Quiet Vox Supply)')
 
-    const cleared = await invokeCli(['competitor', 'aliases', 'roofwise', 'qvx.example', '--clear', '--format', 'json'])
+    const cleared = await invokeCli(['competitor', 'aliases', 'rotorwise', 'qvx.example', '--clear', '--format', 'json'])
     expect(JSON.parse(cleared.stdout).aliases).toEqual([])
-    expect((await invokeCli(['competitor', 'aliases', 'roofwise', 'qvx.example'])).stdout).toBe('Aliases for qvx.example: (none)')
+    expect((await invokeCli(['competitor', 'aliases', 'rotorwise', 'qvx.example'])).stdout).toBe('Aliases for qvx.example: (none)')
   })
 
   it('surfaces the server validation error and exits 1', async () => {
-    await client.appendCompetitors('roofwise', ['qvx.example'])
-    const result = await invokeCli(['competitor', 'aliases', 'roofwise', 'qvx.example', '--set', 'Roofwise', '--format', 'json'])
+    await client.appendCompetitors('rotorwise', ['qvx.example'])
+    const result = await invokeCli(['competitor', 'aliases', 'rotorwise', 'qvx.example', '--set', 'Rotorwise', '--format', 'json'])
     expect(result.exitCode).toBe(1)
     expect(result.stdout).toBe('')
     const error = JSON.parse(result.stderr).error as { code: string; message: string }
     expect(error.code).toBe('VALIDATION_ERROR')
-    expect(error.message).toContain('"Roofwise" is one of the project\'s own brand names')
+    expect(error.message).toContain('"Rotorwise" is one of the project\'s own brand names')
   })
 
   it('reports an untracked competitor and conflicting flags as user errors', async () => {
-    const missing = await invokeCli(['competitor', 'aliases', 'roofwise', 'nobody.example', '--add', 'Nobody', '--format', 'json'])
+    const missing = await invokeCli(['competitor', 'aliases', 'rotorwise', 'nobody.example', '--add', 'Nobody', '--format', 'json'])
     expect(missing.exitCode).toBe(1)
-    expect(JSON.parse(missing.stderr).error).toMatchObject({ code: 'NOT_FOUND', details: { project: 'roofwise', domain: 'nobody.example' } })
+    expect(JSON.parse(missing.stderr).error).toMatchObject({ code: 'NOT_FOUND', details: { project: 'rotorwise', domain: 'nobody.example' } })
 
-    const conflict = await invokeCli(['competitor', 'aliases', 'roofwise', 'qvx.example', '--set', 'QVX', '--add', 'Other', '--format', 'json'])
+    const conflict = await invokeCli(['competitor', 'aliases', 'rotorwise', 'qvx.example', '--set', 'QVX', '--add', 'Other', '--format', 'json'])
     expect(conflict.exitCode).toBe(1)
     expect(JSON.parse(conflict.stderr).error.code).toBe('CLI_USAGE_ERROR')
 
-    const noDomain = await invokeCli(['competitor', 'aliases', 'roofwise', '--format', 'json'])
+    const noDomain = await invokeCli(['competitor', 'aliases', 'rotorwise', '--format', 'json'])
     expect(noDomain.exitCode).toBe(1)
     expect(JSON.parse(noDomain.stderr).error).toMatchObject({ code: 'CLI_USAGE_ERROR', message: 'competitor domain is required' })
   })

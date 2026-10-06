@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { formatPercent, percentOf } from '@ainyc/canonry-contracts'
 import { buildMentionShare } from '@ainyc/canonry-intelligence'
-import { buildMentionShareInputs, mentionShareCompetitors, mentionShareCompetitorsFromDomains } from '../src/mention-share-inputs.js'
+import { buildMentionShareInputs, mentionShareCompetitors } from '../src/mention-share-inputs.js'
 
 describe('mention-share input identity', () => {
   it('recomputes project mentions from answer text against the current identity', () => {
@@ -52,7 +52,7 @@ describe('mention-share input identity', () => {
   })
 
   it('counts an exact short competitor domain without counting its bare label', () => {
-    const competitors = mentionShareCompetitorsFromDomains(['https://www.ai.com/pricing'])
+    const competitors = mentionShareCompetitors([{ domain: 'https://www.ai.com/pricing' }])
     expect(competitors[0]!.brandTokens).toEqual(['ai.com'])
 
     const inputs = buildMentionShareInputs({
@@ -69,7 +69,7 @@ describe('mention-share input identity', () => {
   })
 
   it('does not promote a three-letter domain label into an implicit alias', () => {
-    const competitors = mentionShareCompetitorsFromDomains(['ibm.com'])
+    const competitors = mentionShareCompetitors([{ domain: 'ibm.com' }])
     expect(competitors[0]!.brandTokens).toEqual(['ibm.com'])
 
     const inputs = buildMentionShareInputs({
@@ -88,35 +88,35 @@ describe('mention-share input identity', () => {
   describe('curated competitor aliases', () => {
     // A stored-shape fixture: competitors are registrable domains whose labels
     // never appear in the answers, while the brands they go by do.
-    const project = { displayName: 'Roofwise', canonicalDomain: 'roofwise.example' }
+    const project = { displayName: 'Rotorwise', canonicalDomain: 'rotorwise.example' }
     const answers = [
-      ...Array.from({ length: 3 }, () => 'Roofwise is a solid pick for coatings.'),
-      ...Array.from({ length: 4 }, () => 'Get a quote at ridgecrestbuildinc.example today.'),
-      ...Array.from({ length: 4 }, () => 'FoamSeal is the usual recommendation.'),
-      ...Array.from({ length: 3 }, () => 'Ridgecrest Roofing handles commercial work.'),
-      ...Array.from({ length: 3 }, () => 'QVX does silicone coatings.'),
-      'Nobody in particular is named here.',
+      ...Array.from({ length: 4 }, () => 'Rotorwise is a solid pick for tune-ups.'),
+      ...Array.from({ length: 2 }, () => 'Book a fitting at ravenwoodbikeinc.example today.'),
+      ...Array.from({ length: 3 }, () => 'TuneSpoke is the usual recommendation.'),
+      ...Array.from({ length: 2 }, () => 'Ravenwood Cycling handles fleet bikes.'),
+      'QVX does wheel builds.',
+      ...Array.from({ length: 2 }, () => 'Nobody in particular is named here.'),
     ]
-    const snapshots = answers.map(answerText => ({ queryText: 'best roof coating contractor', answerMentioned: null, answerText }))
+    const snapshots = answers.map(answerText => ({ queryText: 'best bike repair shop', answerMentioned: null, answerText }))
     const domainsOnly = [
-      { domain: 'sealfoamworks.example' },
-      { domain: 'ridgecrestbuildinc.example' },
+      { domain: 'spoketuneworks.example' },
+      { domain: 'ravenwoodbikeinc.example' },
       { domain: 'qvx.example' },
     ]
     const curated = [
-      { domain: 'sealfoamworks.example', aliases: ['FoamSeal'] },
-      { domain: 'ridgecrestbuildinc.example', aliases: ['Ridgecrest Roofing'] },
+      { domain: 'spoketuneworks.example', aliases: ['TuneSpoke'] },
+      { domain: 'ravenwoodbikeinc.example', aliases: ['Ravenwood Cycling'] },
       { domain: 'qvx.example', aliases: ['QVX'] },
     ]
 
     it('builds brand tokens from the domain label, the written host and the curated aliases', () => {
       expect(mentionShareCompetitors(curated).map(c => c.brandTokens)).toEqual([
-        ['sealfoamworks', 'FoamSeal', 'sealfoamworks.example'],
-        ['ridgecrestbuildinc', 'Ridgecrest Roofing', 'ridgecrestbuildinc.example'],
+        ['spoketuneworks', 'TuneSpoke', 'spoketuneworks.example'],
+        ['ravenwoodbikeinc', 'Ravenwood Cycling', 'ravenwoodbikeinc.example'],
         ['QVX', 'qvx.example'],
       ])
-      // The domains-only wrapper is the same builder with no curated alias.
-      expect(mentionShareCompetitorsFromDomains(['qvx.example'])).toEqual(mentionShareCompetitors([{ domain: 'qvx.example' }]))
+      // No curated alias: the 3-letter label stays below the domain floor.
+      expect(mentionShareCompetitors([{ domain: 'qvx.example' }]).map(c => c.brandTokens)).toEqual([['qvx.example']])
     })
 
     it('counts competitors named only by their curated aliases', () => {
@@ -124,30 +124,30 @@ describe('mention-share input identity', () => {
       const withoutResult = buildMentionShare(without.snapshots, { competitors: without.competitors, classificationAvailable: without.classified })
       expect(withoutResult.scope).toBe('non-brand')
       expect(withoutResult.breakdown).toMatchObject({
-        projectMentionSnapshots: 3,
-        competitorMentionSnapshots: 4,
-        combinedMentionSnapshots: 7,
-        snapshotsWithAnswerText: 18,
+        projectMentionSnapshots: 4,
+        competitorMentionSnapshots: 2,
+        combinedMentionSnapshots: 6,
+        snapshotsWithAnswerText: 14,
       })
-      expect(withoutResult.breakdown.score).toBe(percentOf(3, 7))
-      expect(withoutResult.breakdown.score).toBe(42.857143)
-      expect(formatPercent(withoutResult.breakdown.score, 'percent')).toBe('42.9%')
+      expect(withoutResult.breakdown.score).toBe(percentOf(4, 6))
+      expect(withoutResult.breakdown.score).toBe(66.666667)
+      expect(formatPercent(withoutResult.breakdown.score, 'percent')).toBe('66.7%')
 
       const withAliases = buildMentionShareInputs({ project, competitors: curated, snapshots })
       const result = buildMentionShare(withAliases.snapshots, { competitors: withAliases.competitors, classificationAvailable: withAliases.classified })
       expect(result.breakdown).toMatchObject({
-        projectMentionSnapshots: 3,
-        competitorMentionSnapshots: 14,
-        combinedMentionSnapshots: 17,
-        snapshotsWithAnswerText: 18,
+        projectMentionSnapshots: 4,
+        competitorMentionSnapshots: 8,
+        combinedMentionSnapshots: 12,
+        snapshotsWithAnswerText: 14,
       })
-      expect(result.breakdown.score).toBe(percentOf(3, 17))
-      expect(result.breakdown.score).toBe(17.647059)
-      expect(formatPercent(result.breakdown.score, 'percent')).toBe('17.6%')
+      expect(result.breakdown.score).toBe(percentOf(4, 12))
+      expect(result.breakdown.score).toBe(33.333333)
+      expect(formatPercent(result.breakdown.score, 'percent')).toBe('33.3%')
       expect(result.breakdown.perCompetitor.map(row => [row.domain, row.mentionSnapshots])).toEqual([
-        ['ridgecrestbuildinc.example', 7],
-        ['sealfoamworks.example', 4],
-        ['qvx.example', 3],
+        ['ravenwoodbikeinc.example', 4],
+        ['spoketuneworks.example', 3],
+        ['qvx.example', 1],
       ])
     })
 
@@ -155,7 +155,7 @@ describe('mention-share input identity', () => {
       const inputs = buildMentionShareInputs({
         project,
         competitors: curated,
-        snapshots: [{ queryText: 'best roof coating contractor', answerMentioned: null, answerText: 'Ridgecrest Roofing (ridgecrestbuildinc.example) is fast.' }],
+        snapshots: [{ queryText: 'best bike repair shop', answerMentioned: null, answerText: 'Ravenwood Cycling (ravenwoodbikeinc.example) is fast.' }],
       })
       const result = buildMentionShare(inputs.snapshots, { competitors: inputs.competitors, classificationAvailable: inputs.classified })
       expect(result.breakdown.competitorMentionSnapshots).toBe(1)
@@ -165,7 +165,7 @@ describe('mention-share input identity', () => {
       const inputs = buildMentionShareInputs({
         project,
         competitors: [{ domain: 'qvx.example', aliases: ['QV'] }],
-        snapshots: [{ queryText: 'best roof coating contractor', answerMentioned: null, answerText: 'QV is where the crews are based.' }],
+        snapshots: [{ queryText: 'best bike repair shop', answerMentioned: null, answerText: 'QV is where the mechanics are based.' }],
       })
       expect(inputs.competitors[0]!.brandTokens).toEqual(['qvx.example'])
       const result = buildMentionShare(inputs.snapshots, { competitors: inputs.competitors, classificationAvailable: inputs.classified })

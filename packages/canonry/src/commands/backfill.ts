@@ -494,15 +494,26 @@ export interface ProjectAnswerMentionsBackfillResult {
  * stored `answerText` + `citedDomains` and the `groundingSources` already cached
  * in the `rawResponse` envelope. Synchronous — better-sqlite3 has no async I/O.
  *
+ * A snapshot with no stored answer text keeps its stored `answerMentioned`:
+ * there is no evidence to recompute it from, and readers fall back to that
+ * stored value.
+ *
+ * `competitorFieldsOnly` is the pass a competitor alias change runs: it leaves
+ * `answerMentioned` alone and skips snapshots with no stored answer text
+ * entirely, since curated names only change what the answer text matches and
+ * recomputing from an empty text would discard the overlap and named
+ * competitors captured at run time.
+ *
  * Does not touch `citationState`, `citedDomains`, or `rawResponse` — those are
  * computed by domain-to-domain matching which aliases do not affect.
  */
 export function backfillProjectAnswerMentions(
   db: DatabaseClient,
   projectId: string,
-  opts?: { dryRun?: boolean },
+  opts?: { dryRun?: boolean; competitorFieldsOnly?: boolean },
 ): ProjectAnswerMentionsBackfillResult {
   const isDryRun = opts?.dryRun === true
+  const competitorFieldsOnly = opts?.competitorFieldsOnly === true
   const project = db.select().from(projects).where(eq(projects.id, projectId)).get()
   if (!project) return { examined: 0, updated: 0, mentioned: 0 }
 
@@ -557,10 +568,14 @@ export function backfillProjectAnswerMentions(
     const pendingUpdates: Array<{ id: string; patch: Record<string, unknown> }> = []
 
     for (const snapshot of snapshotRows) {
+      if (competitorFieldsOnly && snapshot.answerText == null) continue
       examined++
 
       const answerText = snapshot.answerText ?? ''
-      const nextAnswerMentioned = determineAnswerMentioned(answerText, projectBrandNames, projectDomains)
+      // No stored text, or a competitor-only pass: the stored value stands.
+      const nextAnswerMentioned = competitorFieldsOnly || snapshot.answerText == null
+        ? snapshot.answerMentioned
+        : determineAnswerMentioned(answerText, projectBrandNames, projectDomains)
       if (nextAnswerMentioned) mentioned++
 
       const citedDomains = snapshot.citedDomains

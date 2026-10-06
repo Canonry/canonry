@@ -150,6 +150,8 @@ export interface CitationInsightVm {
   citedCompetitorDomains?: string[]
   /** Tracked competitors whose brand appears in the answer prose. Answer-side only. */
   mentionedCompetitorDomains?: string[]
+  /** The names and written hosts the server matched for `mentionedCompetitorDomains` (curated aliases included). */
+  mentionedCompetitorTerms?: string[]
   /** Neutral union for filtering/navigation only. Never label this as an answer mention or citation. */
   competitorDomains: string[]
   recommendedCompetitors?: string[]

@@ -17,7 +17,7 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/db-derived-dtos.ts` | `drizzle-zod` row schemas for the migrated tables (see "Derived row schemas") |
 | `src/projects.ts` / `src/runs.ts` | Project CRUD routes (largest route file); run trigger, status, and list routes |
 | `src/query-replace.ts` | `replaceProjectQueries`, the declarative tracked-query replace (see "Declarative query replacement") |
-| `src/competitor-writes.ts` | The one writer of the competitor domain set and curated aliases: `planCompetitorSet` / `syncCompetitorSet` (see "Competitor aliases") |
+| `src/competitor-writes.ts` | The one path that adds competitors or changes their curated aliases: `planCompetitorSet` / `syncCompetitorSet` (see "Competitor aliases") |
 | `src/results-export.ts` | `GET /projects/:name/results/export` bulk observation export (JSON or CSV) |
 | `src/analytics.ts` | Analytics and visibility score endpoints |
 | `src/visibility-stats.ts` / `src/visibility-compare.ts` | `GET /visibility-stats` and `GET /visibility-compare`; pure `computeVisibilityCompare` |
@@ -198,9 +198,9 @@ Routes fire lifecycle hooks via `opts` callbacks — `onRunCreated`, `onProvider
 
 ### Competitor aliases
 
-`src/competitor-writes.ts` is the only writer of the `competitors` domain set and its curated `aliases` (`PUT`/`POST /competitors`, `PUT /competitors/{domain}/aliases`, apply, and a project PUT whose identity now claims a competitor alias). It plans through `planCompetitorAliases` (contracts): stated aliases that fail (too short, too long, more than 10, a project brand name, another competitor's name) are a 400; carried-over aliases that stop qualifying are dropped and audited. A domain-only replace keeps rows for retained domains. Alias changes audit as `competitors.aliases-updated` (alias route) or as `aliasChanges` / `droppedCompetitorAliases` on the existing competitor and project audit rows, and fire `onCompetitorAliasesChanged` after commit (the local server reruns the stored mention-field backfill). Competitor aliases are competitor names for the qualified-alias collision check (`liveCompetitorNames`, `competitorNames`).
+`src/competitor-writes.ts` is the only path that inserts competitors or changes their curated `aliases`: `PUT`/`POST /competitors`, `PUT /competitors/{domain}/aliases`, apply, discovery promote (rows keep `provenance = discovery:<sessionId>`), and a project PUT whose identity now claims a competitor alias. The two `DELETE /competitors` routes remove rows directly (removing a competitor cannot break another's alias) and record the discarded aliases as `deletedAliases` on the audit row. Every write plans through `planCompetitorAliases` (contracts). A 400 rejects the write when a stated alias fails (too short, too long, more than 10, found as whole words in a project brand name or written project host or on the project's own site, another competitor's name) and when a newly added domain identifies another competitor's stored alias (`claimed-by-alias`: the operator removes or restates that alias first, so an add never silently strips curated work). A stored alias is dropped and audited only when nothing in the write states it: the project's identity now claims it, or stored lists already disagree. A domain-only replace keeps rows for retained domains. Alias changes audit as `competitors.aliases-updated` (alias route, including drops of other competitors' aliases) or as `aliasChanges` / `droppedCompetitorAliases` on the competitor, discovery and project audit rows, and fire `onCompetitorAliasesChanged` after commit. The local server answers it with the competitor-fields-only backfill (`competitor_overlap`, `recommended_competitors`; `answer_mentioned` and snapshots without stored answer text are left alone). Competitor aliases are competitor names for the qualified-alias collision check (`liveCompetitorNames`, `competitorNames`).
 
-Every read-time competitor mention matcher builds identity from `competitorBrandAliases` / `competitorNameAliases` (contracts) over stored `{ domain, aliases }` rows: mention share inputs, competitive signals (run detail, history, overview gaps, content), analytics gaps, the landscape's project pins. Curated aliases take the alias floor (3); derived domain labels keep the domain floor (4). Frozen identities stay frozen: a Simple run freezes `[label, ...aliases]` at dispatch (unchanged bytes when a competitor has none), research runs freeze named competitors, and Advanced revisions keep their plan names.
+Every read-time competitor mention matcher builds identity from `competitorBrandAliases` / `competitorNameAliases` (contracts) over stored `{ domain, aliases }` rows: mention share inputs, competitive signals (run detail, history, overview gaps, content), analytics gaps, the landscape's project pins. Curated aliases take the alias floor (3); derived domain labels keep the domain floor (4). Frozen identities stay frozen: a Simple run freezes `[label, ...aliases]` at dispatch (unchanged bytes when a competitor has none), research runs freeze named competitors, and Advanced revisions keep their plan names. An Advanced pin by domain alone (`pin-competitor` with no `aliases`) seeds a new draft competitor with the tracked competitor's curated aliases, so publishing freezes the same names a Simple run would.
 
 ### Historical competitor landscapes
 
@@ -341,8 +341,8 @@ spec:
     - query one
   competitors:
     - competitor.com
-    - domain: sealfoamworks.example   # curated answer-text names
-      aliases: [FoamSeal]
+    - domain: spoketuneworks.example   # curated answer-text names
+      aliases: [TuneSpoke]
   providers:
     - gemini
     - openai

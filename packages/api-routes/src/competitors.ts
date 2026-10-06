@@ -5,7 +5,7 @@ import {
   competitorAliasesRequestSchema,
   competitorAppendRequestSchema,
   competitorBatchRequestSchema,
-  effectiveBrandNames,
+  competitorAliasProjectIdentity,
   normalizeCompetitorDomain,
   notFound,
   validationError,
@@ -63,7 +63,7 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
     const aliasesChanged = app.db.transaction((tx) => {
       const plan = syncCompetitorSet(tx, project.id, normalizedCompetitors.map(domain => ({ domain })), {
         replace: true,
-        projectBrandNames: effectiveBrandNames(project),
+        project: competitorAliasProjectIdentity(project),
         now,
       })
       const droppedQualifiedAliases = pruneQualifiedAliasesForCompetitors(tx, project.id, now)
@@ -101,7 +101,7 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
     const aliasesChanged = app.db.transaction((tx) => {
       const plan = syncCompetitorSet(tx, project.id, writes, {
         replace: false,
-        projectBrandNames: effectiveBrandNames(project),
+        project: competitorAliasProjectIdentity(project),
         now,
       })
       if (plan.added.length === 0 && plan.aliasChanges.length === 0) return false
@@ -145,11 +145,14 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
 
       const plan = syncCompetitorSet(tx, project.id, [{ domain, aliases: body.aliases, aliasMode: 'set' }], {
         replace: false,
-        projectBrandNames: effectiveBrandNames(project),
+        project: competitorAliasProjectIdentity(project),
         now,
       })
+      // Any alias change is audited and backfilled, including another
+      // competitor's stored alias dropped because stored lists disagreed.
+      if (plan.aliasChanges.length === 0) return false
       const change = plan.aliasChanges.find(item => item.domain === domain)
-      if (!change) return false
+      const before = change?.before ?? plan.final.find(item => item.domain === domain)?.aliases ?? []
       const droppedQualifiedAliases = pruneQualifiedAliasesForCompetitors(tx, project.id, now)
 
       writeAuditLog(tx, auditFromRequest(request, {
@@ -160,8 +163,12 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
         entityId: current.id,
         diff: {
           domain,
-          before: change.before,
-          after: change.after,
+          before,
+          after: change?.after ?? before,
+          ...competitorAliasAuditFields({
+            aliasChanges: plan.aliasChanges.filter(item => item.domain !== domain),
+            droppedAliases: plan.droppedAliases,
+          }),
           ...(droppedQualifiedAliases.length ? { droppedQualifiedAliases } : {}),
         },
       }))
@@ -207,7 +214,10 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
         actor: 'api',
         action: 'competitors.deleted',
         entityType: 'competitor',
-        diff: { deleted: rowsToDelete.map(row => row.domain) },
+        diff: {
+          deleted: rowsToDelete.map(row => row.domain),
+          ...deletedAliasesDiff(rowsToDelete),
+        },
       })
     })
 
@@ -239,12 +249,20 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
         action: 'competitors.deleted',
         entityType: 'competitor',
         entityId: competitor.id,
-        diff: { deleted: [competitor.domain] },
+        diff: { deleted: [competitor.domain], ...deletedAliasesDiff([competitor]) },
       }))
     })
 
     return reply.status(204).send()
   })
+}
+
+/** Curated aliases a delete discards, kept in the audit row so they can be restored. */
+function deletedAliasesDiff(rows: readonly { domain: string; aliases: string[] }[]): Record<string, unknown> {
+  const withAliases = rows.filter(row => row.aliases.length > 0)
+  return withAliases.length
+    ? { deletedAliases: Object.fromEntries(withAliases.map(row => [row.domain, row.aliases])) }
+    : {}
 }
 
 function parseBody<T>(schema: ZodType<T>, value: unknown, message: string): T {

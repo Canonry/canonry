@@ -7,7 +7,7 @@ import { brandLabelFromDomain, hostOf, registrableDomain } from './url-normalize
 import { brandKeyFromText } from './brand-matching.js'
 import { gbpNegativeReviewMaxStarsSchema } from './gbp.js'
 import { MIN_DOMAIN_BRAND_KEY_LENGTH } from './answer-visibility.js'
-import { competitorEntrySchema } from './competitor-aliases.js'
+import { competitorEntrySchema, type CompetitorAliasProjectIdentity } from './competitor-aliases.js'
 
 export const configSourceSchema = z.enum(['cli', 'api', 'config-file'])
 export type ConfigSource = z.infer<typeof configSourceSchema>
@@ -428,4 +428,25 @@ export function effectiveBrandNames(project: {
     }
   }
   return names
+}
+
+/**
+ * The project identity a competitor alias must stay clear of: its brand names
+ * (`effectiveBrandNames`) and its own domains (canonical plus owned), which
+ * answer prose can write out as hosts. Every competitor alias write plans
+ * against this (`planCompetitorAliases`).
+ */
+export function competitorAliasProjectIdentity(project: {
+  displayName?: string | null
+  aliases?: string[] | null
+  canonicalDomain?: string | null
+  ownedDomains?: string[] | null
+}): CompetitorAliasProjectIdentity {
+  return {
+    brandNames: effectiveBrandNames(project),
+    domains: effectiveDomains({
+      canonicalDomain: project.canonicalDomain ?? '',
+      ownedDomains: project.ownedDomains ?? [],
+    }).map(normalizeProjectDomain),
+  }
 }

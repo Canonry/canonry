@@ -11,7 +11,7 @@ A "mentioned" query means the client's brand was NAMED in the AI provider's answ
 
 A "not-mentioned" query means the answer text never named the client. `answerMentioned = null` is distinct: the mention was not checked for that snapshot — treat it as missing, not negative.
 
-**Mention share** is the competitive read: of all brand names appearing across the answer set (the project plus tracked competitors), the fraction that were the project = AI share-of-voice. A competitor taking mention share on a query you used to own is the highest-signal regression. A competitor is named by its domain label (4+ letters or digits) plus its curated aliases; when answers call a competitor something its domain does not say ("FoamSeal" for `sealfoamworks.example`, a 3-letter brand), set `cnry competitor aliases <project> <domain> --set <name>` first, or the share overstates the project.
+**Mention share** is the competitive read: of all brand names appearing across the answer set (the project plus tracked competitors), the fraction that were the project = AI share-of-voice. A competitor taking mention share on a query you used to own is the highest-signal regression. A competitor is named by its domain label (4+ letters or digits) plus its curated aliases; when answers call a competitor something its domain does not say ("TuneSpoke" for `spoketuneworks.example`, a 3-letter brand), set `cnry competitor aliases <project> <domain> --set <name>` first, or the share overstates the project.
 
 ### First diagnostic read (mention-first)
 

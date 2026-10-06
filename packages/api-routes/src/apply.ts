@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { projects, schedules, notifications, readNegativeReviewMaxStars, writeNegativeReviewMaxStars } from '@ainyc/canonry-db'
-import { effectiveBrandNames, forbidden, nextScheduleUpdatedAt, normalizeProjectAliases, projectConfigSchema, resolveConfigSpecQueries, resolveProjectQualifiedAliases, SchedulableRunKinds, validationError, describeError } from '@ainyc/canonry-contracts'
+import { competitorAliasProjectIdentity, forbidden, nextScheduleUpdatedAt, normalizeProjectAliases, projectConfigSchema, resolveConfigSpecQueries, resolveProjectQualifiedAliases, SchedulableRunKinds, validationError, describeError } from '@ainyc/canonry-contracts'
 import { competitorAliasAuditFields, competitorNames, competitorWritesFromEntries, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
 import type { ProviderAdapterInfo } from './settings.js'
 import { pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
@@ -81,7 +81,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     // the stored rows after the scope check (a stated alias that breaks the
     // shared rules fails the apply before any write) and redone inside the
     // transaction. Aliases the spec's own identity claims cannot be competitors'.
-    const specBrandNames = effectiveBrandNames({
+    const specAliasIdentity = competitorAliasProjectIdentity({
       displayName: config.spec.displayName,
       aliases: normalizeProjectAliases(config.spec.displayName, config.spec.aliases),
       canonicalDomain: config.spec.canonicalDomain,
@@ -165,7 +165,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     const competitorPreview = planCompetitorSet(
       target ? readStoredCompetitors(app.db, target.id) : [],
       competitorWrites,
-      { replace: true, projectBrandNames: specBrandNames },
+      { replace: true, project: specAliasIdentity },
     )
     // Present = the exact list, validated against the spec's own competitors
     // (domain labels plus curated aliases) because apply replaces that set.
@@ -306,7 +306,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       // removed domains are deleted and new ones inserted.
       const competitorPlan = syncCompetitorSet(tx, projectId, competitorWrites, {
         replace: true,
-        projectBrandNames: specBrandNames,
+        project: specAliasIdentity,
         now,
       })
       lifecycle.competitorAliasesChanged = !lifecycle.projectCreated && competitorPlan.aliasChanges.length > 0

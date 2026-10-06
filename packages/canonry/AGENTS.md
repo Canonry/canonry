@@ -735,7 +735,7 @@ attribution and no provider calls or sync.
   safe provider catalog, and `access` metadata as REST; explicit read-only
   endpoints/flags never expose the research-start tool.
 
-- `competitor aliases <project> <domain>` reads or edits one competitor's curated answer-text names through the exact-set route (`--set`/`--clear` replace, `--add`/`--remove` edit the listed aliases client-side, then PUT); `competitor add --alias` (one domain only) adds names on create. JSON output is the API's `CompetitorDto`. MCP twin: `canonry_competitors_aliases_set`.
+- `competitor aliases <project> <domain>` reads or edits one competitor's curated answer-text names: `--set`/`--clear` write the exact list (`PUT .../aliases`); `--add` alone appends server-side in one call (`POST /competitors` with `{ domain, aliases }`), so concurrent adds never overwrite each other; `--remove` reads, edits and writes the list back, so an edit another client makes between that read and write is lost (documented in the CLI reference). `competitor add --alias` (one domain only) adds names on create; its JSON carries the aliased competitor as `competitor` (a `CompetitorDto`). `aliases` JSON output is the API's `CompetitorDto`. MCP twins: `canonry_competitors_aliases_set`, and `canonry_competitors_add` with `{ domain, aliases }` entries.
 - `competitor landscape --by-model` reads stored requested-model groups.
   Keep served identity separate. A model filter requires a provider.
   JSONL preserves the complete response as one compact document.

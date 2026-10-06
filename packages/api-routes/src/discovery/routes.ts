@@ -23,6 +23,7 @@ import {
   applyHarvestSemanticNovelty,
   buildHarvestAnchorTerms,
   citationStateSchema,
+  competitorAliasProjectIdentity,
   discoveryBucketSchema,
   discoveryPromoteRequestSchema,
   discoveryRunRequestSchema,
@@ -45,6 +46,7 @@ import {
 } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from '../helpers.js'
 import { pruneQualifiedAliasesForCompetitors } from '../projects.js'
+import { competitorAliasAuditFields, syncCompetitorSet } from '../competitor-writes.js'
 
 /**
  * Fired after a `discovery_sessions` row + matching `runs` row are inserted
@@ -111,6 +113,8 @@ export interface DiscoveryRoutesOptions {
   onDiscoveryRunRequested?: OnDiscoveryRunRequested
   harvestSearchQueries?: HarvestSearchQueries
   embedQueries?: EmbedQueries
+  /** See `CompetitorRoutesOptions.onCompetitorAliasesChanged`; fired when a promote changes stored aliases. */
+  onCompetitorAliasesChanged?: (projectId: string, projectName: string) => void
 }
 
 /**
@@ -651,8 +655,9 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
     const provenance = `discovery:${session.id}`
     const now = new Date().toISOString()
 
+    let competitorAliasesChanged = false
     if (promotedQueries.length > 0 || promotedCompetitors.length > 0) {
-      app.db.transaction((tx) => {
+      competitorAliasesChanged = app.db.transaction((tx) => {
         for (const query of promotedQueries) {
           tx.insert(queries).values({
             id: crypto.randomUUID(),
@@ -662,15 +667,17 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
             createdAt: now,
           }).run()
         }
-        for (const domain of promotedCompetitors) {
-          tx.insert(competitors).values({
-            id: crypto.randomUUID(),
-            projectId: project.id,
-            domain,
-            provenance,
-            createdAt: now,
-          }).run()
-        }
+        // The shared competitor writer, so a promoted domain that identifies
+        // another competitor's curated alias fails the promote the same way a
+        // REST add does, instead of crediting one answer to both.
+        const competitorPlan = promotedCompetitors.length
+          ? syncCompetitorSet(tx, project.id, promotedCompetitors.map(domain => ({ domain })), {
+              replace: false,
+              project: competitorAliasProjectIdentity(project),
+              now,
+              provenance,
+            })
+          : null
         const droppedQualifiedAliases = promotedCompetitors.length
           ? pruneQualifiedAliasesForCompetitors(tx, project.id, now)
           : []
@@ -683,11 +690,14 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
           diff: {
             queries: promotedQueries,
             competitors: promotedCompetitors,
+            ...(competitorPlan ? competitorAliasAuditFields(competitorPlan) : {}),
             ...(droppedQualifiedAliases.length ? { droppedQualifiedAliases } : {}),
           },
         })
+        return (competitorPlan?.aliasChanges.length ?? 0) > 0
       })
     }
+    if (competitorAliasesChanged) opts.onCompetitorAliasesChanged?.(project.id, project.name)
 
     const result: DiscoveryPromoteResult = {
       sessionId: session.id,

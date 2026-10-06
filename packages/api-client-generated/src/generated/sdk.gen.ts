@@ -2021,7 +2021,7 @@ export const getApiV1ProjectsByNameCompetitors = <ThrowOnError extends boolean =
 /**
  * Append competitors
  *
- * Adds competitors not already tracked. Each entry is a domain or `{ domain, aliases }`; stated aliases are added to that competitor's curated alias list (also for an already-tracked domain) and must pass the alias rules (at most 10 per competitor, 80 characters each, at least 3 letters or digits, not one of the project's own brand names or another competitor's name). A bare domain leaves stored aliases unchanged.
+ * Adds competitors not already tracked. Each entry is a domain or `{ domain, aliases }`; stated aliases are added to that competitor's curated alias list (also for an already-tracked domain) and must pass the alias rules (at most 10 per competitor, 80 characters each, at least 3 letters or digits, not found inside one of the project's own names or hosts, not another competitor's name). A bare domain leaves stored aliases unchanged. A new domain whose name is another competitor's curated alias is rejected (400, reason `claimed-by-alias`) until that alias is removed.
  */
 export const postApiV1ProjectsByNameCompetitors = <ThrowOnError extends boolean = false>(options: Options<PostApiV1ProjectsByNameCompetitorsData, ThrowOnError>) => {
     return (options.client ?? client).post<PostApiV1ProjectsByNameCompetitorsResponses, PostApiV1ProjectsByNameCompetitorsErrors, ThrowOnError>({
@@ -2043,7 +2043,7 @@ export const postApiV1ProjectsByNameCompetitors = <ThrowOnError extends boolean 
 /**
  * Replace competitors
  *
- * Replaces the tracked competitor domain set. A domain that stays keeps its row and its curated aliases; use PUT /projects/{name}/competitors/{domain}/aliases to change aliases.
+ * Replaces the tracked competitor domain set. A domain that stays keeps its row and its curated aliases; use PUT /projects/{name}/competitors/{domain}/aliases to change aliases. A new domain whose name is another competitor's curated alias is rejected (400, reason `claimed-by-alias`) until that alias is removed.
  */
 export const putApiV1ProjectsByNameCompetitors = <ThrowOnError extends boolean = false>(options: Options<PutApiV1ProjectsByNameCompetitorsData, ThrowOnError>) => {
     return (options.client ?? client).put<PutApiV1ProjectsByNameCompetitorsResponses, unknown, ThrowOnError>({
@@ -2065,7 +2065,7 @@ export const putApiV1ProjectsByNameCompetitors = <ThrowOnError extends boolean =
 /**
  * Set competitor aliases
  *
- * Sets one tracked competitor's operator-curated aliases exactly (`[]` clears): the names it goes by in answer text when they differ from its domain. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) layers them onto the domain label at read time; stored per-snapshot competitor columns are recomputed in the background, and frozen Simple run definitions and Advanced plan revisions keep the identity they were measured with. Aliases are trimmed and deduplicated case-insensitively; at most 10, each 80 characters or fewer with at least 3 letters or digits, never one of the project's own brand names or a name another tracked competitor answers to. Idempotent: an unchanged list writes nothing.
+ * Sets one tracked competitor's operator-curated aliases exactly (`[]` clears): the names it goes by in answer text when they differ from its domain. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) layers them onto the domain label at read time; stored per-snapshot competitor columns are recomputed in the background, and frozen Simple run definitions and Advanced plan revisions keep the identity they were measured with. Aliases are trimmed and deduplicated case-insensitively; at most 10, each 80 characters or fewer with at least 3 letters or digits, never found as whole words in one of the project's own names or hosts (nor a host on the project's site), and never a name another tracked competitor answers to. Idempotent: an unchanged list writes nothing.
  */
 export const putApiV1ProjectsByNameCompetitorsByDomainAliases = <ThrowOnError extends boolean = false>(options: Options<PutApiV1ProjectsByNameCompetitorsByDomainAliasesData, ThrowOnError>) => {
     return (options.client ?? client).put<PutApiV1ProjectsByNameCompetitorsByDomainAliasesResponses, PutApiV1ProjectsByNameCompetitorsByDomainAliasesErrors, ThrowOnError>({

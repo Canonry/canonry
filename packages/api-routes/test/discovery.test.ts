@@ -1911,6 +1911,45 @@ describe('POST /discover/sessions/:id/promote', () => {
     expect(JSON.parse(audit.diff!)).toMatchObject({ droppedQualifiedAliases: ['Halo Panel'] })
   })
 
+  it('refuses to promote a domain that identifies another competitor\'s curated alias, writing nothing', async () => {
+    const { app, db, tmpDir } = buildAppWithRoutes()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db) // tracks amberfield-solar.test, emberflow.test
+    db.update(competitors).set({ aliases: ['Halo Panel'] })
+      .where(eq(competitors.domain, 'amberfield-solar.test')).run()
+    const sessionId = seedSession(db, projectId, {
+      probes: [{ query: 'best solar quoting tool', bucket: 'cited' }],
+      competitorMap: [{ domain: 'halopanel.test', hits: 2 }],
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
+      payload: {},
+    })
+    // The same rule as a REST add: one answer must never credit both.
+    expect(response.statusCode).toBe(400)
+    expect(response.json().error.message).toBe(
+      'Invalid competitor aliases: halopanel.test: cannot be added while "Halo Panel" is a curated alias of amberfield-solar.test; remove or restate that alias first',
+    )
+    expect(db.select().from(queries).all()).toEqual([])
+    expect(db.select({ domain: competitors.domain, aliases: competitors.aliases }).from(competitors).all()).toEqual([
+      { domain: 'amberfield-solar.test', aliases: ['Halo Panel'] },
+      { domain: 'emberflow.test', aliases: [] },
+    ])
+    expect(db.select().from(auditLog).all().filter(a => a.action === 'discovery.promoted')).toEqual([])
+
+    // With the alias removed the same promote succeeds and keeps discovery provenance.
+    db.update(competitors).set({ aliases: [] }).where(eq(competitors.domain, 'amberfield-solar.test')).run()
+    const retried = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/harbor-iq/discover/sessions/${sessionId}/promote`,
+      payload: {},
+    })
+    expect(retried.statusCode, retried.body).toBe(200)
+    expect(db.select().from(competitors).all().find(c => c.domain === 'halopanel.test')!.provenance).toBe(`discovery:${sessionId}`)
+  })
+
   it('promotes only the requested buckets, including wasted-surface when explicit, and skips competitors when includeCompetitors is false', async () => {
     const { app, db, tmpDir } = buildAppWithRoutes()
     cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))

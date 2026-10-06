@@ -41,7 +41,7 @@ describe('competitors aliases (v168)', () => {
     insertLegacyRow(db, 'competitors', {
       id: 'legacy-competitor',
       project_id: 'legacy-project',
-      domain: 'sealfoamworks.example',
+      domain: 'spoketuneworks.example',
       provenance: 'cli',
       created_at: NOW,
     })
@@ -51,7 +51,7 @@ describe('competitors aliases (v168)', () => {
     expect(column(db)).toMatchObject({ notnull: 1, dflt_value: "'[]'" })
     expect(db.select({ domain: competitors.domain, aliases: competitors.aliases })
       .from(competitors).where(eq(competitors.id, 'legacy-competitor')).get())
-      .toEqual({ domain: 'sealfoamworks.example', aliases: [] })
+      .toEqual({ domain: 'spoketuneworks.example', aliases: [] })
   })
 
   it('lets an older writer that omits the column insert', () => {

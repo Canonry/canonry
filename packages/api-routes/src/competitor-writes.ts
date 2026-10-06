@@ -8,16 +8,19 @@ import {
   normalizeCompetitorDomain,
   requireCompetitorAliasPlan,
   type CompetitorAliasPlanEntry,
+  type CompetitorAliasProjectIdentity,
   type CompetitorAliasRejection,
   type CompetitorEntry,
 } from '@ainyc/canonry-contracts'
 
 /**
- * The one write path for the `competitors` table's domain set and curated
- * aliases. REST (`PUT`/`POST /competitors`, the alias route), config-as-code
- * apply, and a project identity change all plan through `planCompetitorSet`, so
- * the same alias rules hold whichever surface wrote last, and a domain-only
- * write never wipes stored aliases.
+ * The one write path that adds competitors or changes their curated aliases.
+ * REST (`PUT`/`POST /competitors`, the alias route), config-as-code apply,
+ * discovery promote, and a project identity change all plan through
+ * `planCompetitorSet`, so the same alias rules hold whichever surface wrote
+ * last, and a domain-only write never wipes stored aliases. The two DELETE
+ * routes remove rows directly (removing a competitor cannot break another
+ * competitor's alias) and audit the aliases they discard.
  */
 
 /** Normalize and dedupe a list of competitor domains, keeping first-seen order. */
@@ -105,18 +108,26 @@ function sameAliases(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((alias, i) => alias === b[i])
 }
 
+export interface CompetitorSetPlanOptions {
+  /** True makes `writes` the whole domain set; false merges them into it. */
+  replace: boolean
+  /** `competitorAliasProjectIdentity(project)` for the identity being written. */
+  project: CompetitorAliasProjectIdentity
+}
+
 /**
  * Plan a write against the stored competitors. `replace` makes `writes` the
  * whole domain set (rows not named are removed); otherwise writes merge into
  * the stored set. Retained rows keep their id, provenance and aliases unless a
  * write states aliases. Throws a validation error when a stated alias fails the
- * shared rules (`requireCompetitorAliasPlan`); an alias carried over unchanged
- * that no longer qualifies is dropped and reported instead.
+ * shared rules (`requireCompetitorAliasPlan`) or when a new domain identifies
+ * another competitor's stored alias; a stored alias the project's identity now
+ * claims is dropped and reported instead.
  */
 export function planCompetitorSet(
   stored: readonly StoredCompetitor[],
   writes: readonly CompetitorWrite[],
-  opts: { replace: boolean; projectBrandNames: readonly string[] },
+  opts: CompetitorSetPlanOptions,
 ): CompetitorSetPlan {
   const writeByDomain = new Map(writes.map(write => [write.domain, write]))
   const storedByDomain = new Map(stored.map(row => [row.domain, row]))
@@ -124,17 +135,17 @@ export function planCompetitorSet(
   const retained = stored.filter(row => !opts.replace || writeByDomain.has(row.domain))
   const added = writes.filter(write => !storedByDomain.has(write.domain)).map(write => write.domain)
 
-  const entryFor = (domain: string, storedAliases: readonly string[]): CompetitorAliasPlanEntry => {
+  const entryFor = (domain: string, storedAliases: readonly string[], isNew: boolean): CompetitorAliasPlanEntry => {
     const write = writeByDomain.get(domain)
-    if (!write || write.aliases === undefined) return { domain, aliases: storedAliases, explicit: false }
+    if (!write || write.aliases === undefined) return { domain, aliases: storedAliases, explicit: false, added: isNew }
     const aliases = write.aliasMode === 'add' ? [...storedAliases, ...write.aliases] : write.aliases
-    return { domain, aliases, explicit: true }
+    return { domain, aliases, explicit: true, added: isNew }
   }
   const entries = [
-    ...retained.map(row => entryFor(row.domain, row.aliases)),
-    ...added.map(domain => entryFor(domain, [])),
+    ...retained.map(row => entryFor(row.domain, row.aliases, false)),
+    ...added.map(domain => entryFor(domain, [], true)),
   ]
-  const plan = requireCompetitorAliasPlan(entries, opts.projectBrandNames)
+  const plan = requireCompetitorAliasPlan(entries, opts.project)
 
   const aliasChanges: CompetitorAliasChange[] = []
   for (const competitor of plan.competitors) {
@@ -152,13 +163,18 @@ export function planCompetitorSet(
   }
 }
 
-/** Write a plan made against `stored` (read in the same transaction). */
+/**
+ * Write a plan made against `stored` (read in the same transaction). New rows
+ * take `provenance` (default `cli`, the value every REST and apply write has
+ * always stored).
+ */
 export function applyCompetitorSetPlan(
   tx: Pick<DatabaseClient, 'insert' | 'update' | 'delete'>,
   projectId: string,
   stored: readonly StoredCompetitor[],
   plan: CompetitorSetPlan,
   now: string,
+  provenance = 'cli',
 ): void {
   for (const row of plan.removed) {
     tx.delete(competitors).where(eq(competitors.id, row.id)).run()
@@ -175,7 +191,7 @@ export function applyCompetitorSetPlan(
       projectId,
       domain,
       aliases: aliasesByDomain.get(domain) ?? [],
-      provenance: 'cli',
+      provenance,
       createdAt: now,
     }).onConflictDoNothing({
       target: [competitors.projectId, competitors.domain],
@@ -188,11 +204,11 @@ export function syncCompetitorSet(
   tx: Pick<DatabaseClient, 'select' | 'insert' | 'update' | 'delete'>,
   projectId: string,
   writes: readonly CompetitorWrite[],
-  opts: { replace: boolean; projectBrandNames: readonly string[]; now: string },
+  opts: CompetitorSetPlanOptions & { now: string; provenance?: string },
 ): CompetitorSetPlan {
   const stored = readStoredCompetitors(tx, projectId)
   const plan = planCompetitorSet(stored, writes, opts)
-  applyCompetitorSetPlan(tx, projectId, stored, plan, opts.now)
+  applyCompetitorSetPlan(tx, projectId, stored, plan, opts.now, opts.provenance)
   return plan
 }
 

@@ -41,20 +41,20 @@ afterEach(async () => {
 })
 
 const PROJECT = {
-  displayName: 'Roofwise',
-  canonicalDomain: 'roofwise.example',
-  aliases: ['Roofwise Pros'],
+  displayName: 'Rotorwise',
+  canonicalDomain: 'rotorwise.example',
+  aliases: ['Rotorwise Pros'],
   country: 'US',
   language: 'en',
 }
 
-async function createProject(name = 'roofwise') {
+async function createProject(name = 'rotorwise') {
   const res = await app.inject({ method: 'PUT', url: `/api/v1/projects/${name}`, payload: PROJECT })
   expect(res.statusCode).toBe(201)
   return db.select().from(projects).where(eq(projects.name, name)).get()!
 }
 
-function setAliases(domain: string, aliases: unknown, project = 'roofwise') {
+function setAliases(domain: string, aliases: unknown, project = 'rotorwise') {
   return app.inject({
     method: 'PUT',
     url: `/api/v1/projects/${project}/competitors/${encodeURIComponent(domain)}/aliases`,
@@ -75,28 +75,28 @@ function audits(projectId: string, action: string) {
 describe('PUT /projects/:name/competitors/:domain/aliases', () => {
   it('sets, normalizes, returns and lists aliases, and audits each change once', async () => {
     const project = await createProject()
-    await app.inject({ method: 'POST', url: '/api/v1/projects/roofwise/competitors', payload: { competitors: ['sealfoamworks.example', 'qvx.example'] } })
+    await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['spoketuneworks.example', 'qvx.example'] } })
 
-    const res = await setAliases('sealfoamworks.example', ['  FoamSeal ', 'foamseal', 'Foam Seal'])
+    const res = await setAliases('spoketuneworks.example', ['  TuneSpoke ', 'tunespoke', 'Tune Spoke'])
     expect(res.statusCode).toBe(200)
-    expect(res.json()).toMatchObject({ domain: 'sealfoamworks.example', aliases: ['FoamSeal', 'Foam Seal'] })
+    expect(res.json()).toMatchObject({ domain: 'spoketuneworks.example', aliases: ['TuneSpoke', 'Tune Spoke'] })
 
-    const listed = (await app.inject({ method: 'GET', url: '/api/v1/projects/roofwise/competitors' })).json()
+    const listed = (await app.inject({ method: 'GET', url: '/api/v1/projects/rotorwise/competitors' })).json()
     expect(Object.fromEntries(listed.map((c: { domain: string; aliases: string[] }) => [c.domain, c.aliases]))).toEqual({
-      'sealfoamworks.example': ['FoamSeal', 'Foam Seal'],
+      'spoketuneworks.example': ['TuneSpoke', 'Tune Spoke'],
       'qvx.example': [],
     })
 
     const rows = audits(project.id, 'competitors.aliases-updated')
     expect(rows).toHaveLength(1)
     expect(rows[0]!.entityType).toBe('competitor')
-    expect(JSON.parse(rows[0]!.diff!)).toEqual({ domain: 'sealfoamworks.example', before: [], after: ['FoamSeal', 'Foam Seal'] })
-    expect(competitorAliasHooks).toEqual(['roofwise'])
+    expect(JSON.parse(rows[0]!.diff!)).toEqual({ domain: 'spoketuneworks.example', before: [], after: ['TuneSpoke', 'Tune Spoke'] })
+    expect(competitorAliasHooks).toEqual(['rotorwise'])
   })
 
   it('is idempotent: re-sending the same list writes no audit row and fires no hook', async () => {
     const project = await createProject()
-    await app.inject({ method: 'POST', url: '/api/v1/projects/roofwise/competitors', payload: { competitors: ['qvx.example'] } })
+    await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['qvx.example'] } })
     expect((await setAliases('qvx.example', ['QVX'])).statusCode).toBe(200)
     const again = await setAliases('qvx.example', ['qvx'])
     expect(again.statusCode).toBe(200)
@@ -105,12 +105,12 @@ describe('PUT /projects/:name/competitors/:domain/aliases', () => {
     const third = await setAliases('qvx.example', ['qvx'])
     expect(third.json().aliases).toEqual(['qvx'])
     expect(audits(project.id, 'competitors.aliases-updated')).toHaveLength(2)
-    expect(competitorAliasHooks).toEqual(['roofwise', 'roofwise'])
+    expect(competitorAliasHooks).toEqual(['rotorwise', 'rotorwise'])
   })
 
   it('clears with an empty list and resolves any spelling of the domain', async () => {
     const project = await createProject()
-    await app.inject({ method: 'POST', url: '/api/v1/projects/roofwise/competitors', payload: { competitors: ['qvx.example'] } })
+    await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['qvx.example'] } })
     await setAliases('https://www.qvx.example/shop', ['QVX'])
     expect(storedAliases(project.id)).toEqual({ 'qvx.example': ['QVX'] })
     const cleared = await setAliases('shop.qvx.example', [])
@@ -123,7 +123,7 @@ describe('PUT /projects/:name/competitors/:domain/aliases', () => {
     const missing = await setAliases('nobody.example', ['Nobody'])
     expect(missing.statusCode).toBe(404)
     expect(missing.json().error.code).toBe('NOT_FOUND')
-    await app.inject({ method: 'POST', url: '/api/v1/projects/roofwise/competitors', payload: { competitors: ['qvx.example'] } })
+    await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['qvx.example'] } })
     const malformed = await setAliases('qvx.example', 'QVX')
     expect(malformed.statusCode).toBe(400)
     expect(malformed.json().error.code).toBe('VALIDATION_ERROR')
@@ -131,27 +131,27 @@ describe('PUT /projects/:name/competitors/:domain/aliases', () => {
 
   it('rejects a too-short alias, a project brand name and another competitor\'s name, writing nothing', async () => {
     const project = await createProject()
-    await app.inject({ method: 'POST', url: '/api/v1/projects/roofwise/competitors', payload: { competitors: ['ridgecrest.example', 'ridgecrestbuildinc.example'] } })
+    await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['ravenwood.example', 'ravenwoodbikeinc.example'] } })
 
-    const short = await setAliases('ridgecrestbuildinc.example', ['PB'])
+    const short = await setAliases('ravenwoodbikeinc.example', ['PB'])
     expect(short.statusCode).toBe(400)
-    expect(short.json().error.details.rejectedAliases).toEqual([{ domain: 'ridgecrestbuildinc.example', alias: 'PB', reason: 'too-short' }])
+    expect(short.json().error.details.rejectedAliases).toEqual([{ domain: 'ravenwoodbikeinc.example', alias: 'PB', reason: 'too-short' }])
 
-    const own = await setAliases('ridgecrestbuildinc.example', ['Roofwise Pros', 'Ridgecrest Roofing'])
+    const own = await setAliases('ravenwoodbikeinc.example', ['Rotorwise Pros', 'Ravenwood Cycling'])
     expect(own.statusCode).toBe(400)
-    expect(own.json().error.message).toContain('"Roofwise Pros" is one of the project\'s own brand names')
+    expect(own.json().error.message).toContain('"Rotorwise Pros" is one of the project\'s own brand names')
 
-    const other = await setAliases('ridgecrestbuildinc.example', ['Ridgecrest'])
+    const other = await setAliases('ravenwoodbikeinc.example', ['Ravenwood'])
     expect(other.statusCode).toBe(400)
     expect(other.json().error.details.rejectedAliases).toEqual([
-      { domain: 'ridgecrestbuildinc.example', alias: 'Ridgecrest', reason: 'other-competitor', conflictsWith: 'ridgecrest.example' },
+      { domain: 'ravenwoodbikeinc.example', alias: 'Ravenwood', reason: 'other-competitor', conflictsWith: 'ravenwood.example' },
     ])
 
-    const tooMany = await setAliases('ridgecrestbuildinc.example', Array.from({ length: 11 }, (_, i) => `Ridgecrest Crew ${String.fromCharCode(65 + i)}`))
+    const tooMany = await setAliases('ravenwoodbikeinc.example', Array.from({ length: 11 }, (_, i) => `Ravenwood Crew ${String.fromCharCode(65 + i)}`))
     expect(tooMany.statusCode).toBe(400)
-    expect(tooMany.json().error.details.overLimit).toEqual([{ domain: 'ridgecrestbuildinc.example', count: 11 }])
+    expect(tooMany.json().error.details.overLimit).toEqual([{ domain: 'ravenwoodbikeinc.example', count: 11 }])
 
-    expect(storedAliases(project.id)).toEqual({ 'ridgecrest.example': [], 'ridgecrestbuildinc.example': [] })
+    expect(storedAliases(project.id)).toEqual({ 'ravenwood.example': [], 'ravenwoodbikeinc.example': [] })
     expect(audits(project.id, 'competitors.aliases-updated')).toHaveLength(0)
     expect(competitorAliasHooks).toEqual([])
   })
@@ -162,47 +162,155 @@ describe('competitor add and replace keep aliases', () => {
     const project = await createProject()
     const added = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/roofwise/competitors',
-      payload: { competitors: [{ domain: 'www.sealfoamworks.example', aliases: ['FoamSeal'] }, 'qvx.example'] },
+      url: '/api/v1/projects/rotorwise/competitors',
+      payload: { competitors: [{ domain: 'www.spoketuneworks.example', aliases: ['TuneSpoke'] }, 'qvx.example'] },
     })
     expect(added.statusCode).toBe(200)
-    expect(storedAliases(project.id)).toEqual({ 'sealfoamworks.example': ['FoamSeal'], 'qvx.example': [] })
+    expect(storedAliases(project.id)).toEqual({ 'spoketuneworks.example': ['TuneSpoke'], 'qvx.example': [] })
     expect(JSON.parse(audits(project.id, 'competitors.appended')[0]!.diff!)).toEqual({
-      added: ['sealfoamworks.example', 'qvx.example'],
-      aliasChanges: [{ domain: 'sealfoamworks.example', before: [], after: ['FoamSeal'] }],
+      added: ['spoketuneworks.example', 'qvx.example'],
+      aliasChanges: [{ domain: 'spoketuneworks.example', before: [], after: ['TuneSpoke'] }],
     })
 
     // Already tracked: aliases are added; a bare domain changes nothing.
     await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/roofwise/competitors',
-      payload: { competitors: [{ domain: 'sealfoamworks.example', aliases: ['Foam Seal Crew'] }, 'qvx.example'] },
+      url: '/api/v1/projects/rotorwise/competitors',
+      payload: { competitors: [{ domain: 'spoketuneworks.example', aliases: ['Tune Spoke Crew'] }, 'qvx.example'] },
     })
-    expect(storedAliases(project.id)).toEqual({ 'sealfoamworks.example': ['FoamSeal', 'Foam Seal Crew'], 'qvx.example': [] })
+    expect(storedAliases(project.id)).toEqual({ 'spoketuneworks.example': ['TuneSpoke', 'Tune Spoke Crew'], 'qvx.example': [] })
 
     const rejected = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/roofwise/competitors',
-      payload: { competitors: [{ domain: 'ridgecrest.example', aliases: ['Roofwise'] }] },
+      url: '/api/v1/projects/rotorwise/competitors',
+      payload: { competitors: [{ domain: 'ravenwood.example', aliases: ['Rotorwise'] }] },
     })
     expect(rejected.statusCode).toBe(400)
-    expect(storedAliases(project.id)).toEqual({ 'sealfoamworks.example': ['FoamSeal', 'Foam Seal Crew'], 'qvx.example': [] })
+    expect(storedAliases(project.id)).toEqual({ 'spoketuneworks.example': ['TuneSpoke', 'Tune Spoke Crew'], 'qvx.example': [] })
   })
 
   it('PUT replace keeps the row and aliases of a domain that stays', async () => {
     const project = await createProject()
-    await app.inject({ method: 'POST', url: '/api/v1/projects/roofwise/competitors', payload: { competitors: [{ domain: 'qvx.example', aliases: ['QVX'] }, 'ridgecrest.example'] } })
+    await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: [{ domain: 'qvx.example', aliases: ['QVX'] }, 'ravenwood.example'] } })
     const before = db.select().from(competitors).where(eq(competitors.domain, 'qvx.example')).get()!
 
-    const replaced = await app.inject({ method: 'PUT', url: '/api/v1/projects/roofwise/competitors', payload: { competitors: ['qvx.example', 'sealfoamworks.example'] } })
+    const replaced = await app.inject({ method: 'PUT', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['qvx.example', 'spoketuneworks.example'] } })
     expect(replaced.statusCode).toBe(200)
     expect(Object.fromEntries(replaced.json().map((c: { domain: string; aliases: string[] }) => [c.domain, c.aliases]))).toEqual({
       'qvx.example': ['QVX'],
-      'sealfoamworks.example': [],
+      'spoketuneworks.example': [],
     })
     expect(db.select().from(competitors).where(eq(competitors.domain, 'qvx.example')).get()!.id).toBe(before.id)
-    expect(JSON.parse(audits(project.id, 'competitors.replaced')[0]!.diff!)).toEqual({ competitors: ['qvx.example', 'sealfoamworks.example'] })
-    expect(competitorAliasHooks).toEqual(['roofwise'])
+    expect(JSON.parse(audits(project.id, 'competitors.replaced')[0]!.diff!)).toEqual({ competitors: ['qvx.example', 'spoketuneworks.example'] })
+    expect(competitorAliasHooks).toEqual(['rotorwise'])
+  })
+})
+
+describe('a new domain never takes over a stored alias', () => {
+  const blockedMessage = 'Invalid competitor aliases: tunespoke.example: cannot be added while "TuneSpoke" is a curated alias of spoketuneworks.example; remove or restate that alias first'
+
+  it('rejects a domain-only POST and PUT replace, writing nothing', async () => {
+    const project = await createProject()
+    await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: [{ domain: 'spoketuneworks.example', aliases: ['TuneSpoke'] }] } })
+    competitorAliasHooks.length = 0
+
+    const posted = await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['tunespoke.example'] } })
+    expect(posted.statusCode).toBe(400)
+    expect(posted.json().error.message).toBe(blockedMessage)
+    expect(posted.json().error.details.rejectedAliases).toEqual([
+      { domain: 'tunespoke.example', alias: 'TuneSpoke', reason: 'claimed-by-alias', conflictsWith: 'spoketuneworks.example' },
+    ])
+
+    const replaced = await app.inject({ method: 'PUT', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['spoketuneworks.example', 'tunespoke.example'] } })
+    expect(replaced.statusCode).toBe(400)
+    expect(replaced.json().error.message).toBe(blockedMessage)
+
+    expect(storedAliases(project.id)).toEqual({ 'spoketuneworks.example': ['TuneSpoke'] })
+    expect(audits(project.id, 'competitors.appended')).toHaveLength(1)
+    expect(audits(project.id, 'competitors.replaced')).toHaveLength(0)
+    expect(competitorAliasHooks).toEqual([])
+
+    // Replacing the alias owner away frees the name.
+    const swapped = await app.inject({ method: 'PUT', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['tunespoke.example'] } })
+    expect(swapped.statusCode).toBe(200)
+    expect(storedAliases(project.id)).toEqual({ 'tunespoke.example': [] })
+  })
+
+  it('rejects a bare-domain apply, and accepts one that restates the owner\'s aliases', async () => {
+    const apply = (competitorsSpec: unknown[]) => app.inject({
+      method: 'POST',
+      url: '/api/v1/apply',
+      payload: { apiVersion: 'canonry/v1', kind: 'Project', metadata: { name: 'rotorwise' }, spec: { ...PROJECT, competitors: competitorsSpec } },
+    })
+    expect((await apply([{ domain: 'spoketuneworks.example', aliases: ['TuneSpoke', 'Spoke Tune Pros'] }])).statusCode).toBe(200)
+    const project = db.select().from(projects).where(eq(projects.name, 'rotorwise')).get()!
+
+    const blocked = await apply(['spoketuneworks.example', 'tunespoke.example'])
+    expect(blocked.statusCode).toBe(400)
+    expect(blocked.json().error.message).toBe(blockedMessage)
+    expect(storedAliases(project.id)).toEqual({ 'spoketuneworks.example': ['TuneSpoke', 'Spoke Tune Pros'] })
+
+    const restated = await apply([{ domain: 'spoketuneworks.example', aliases: ['Spoke Tune Pros'] }, 'tunespoke.example'])
+    expect(restated.statusCode, restated.body).toBe(200)
+    expect(storedAliases(project.id)).toEqual({ 'spoketuneworks.example': ['Spoke Tune Pros'], 'tunespoke.example': [] })
+  })
+})
+
+describe('alias route audits every alias change it makes', () => {
+  it('audits and backfills when stored lists disagreed and another competitor\'s alias is dropped', async () => {
+    const project = await createProject()
+    await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: [{ domain: 'spoketuneworks.example', aliases: ['TuneSpoke'] }] } })
+    // A row written outside the shared writer (an older build, a direct DB
+    // edit): its domain identifies the other competitor's alias.
+    db.insert(competitors).values({ id: crypto.randomUUID(), projectId: project.id, domain: 'tunespoke.example', provenance: 'cli', createdAt: '2026-10-01T00:00:00.000Z' }).run()
+    competitorAliasHooks.length = 0
+
+    // An idempotent write on tunespoke.example still repairs spoketuneworks.example.
+    const res = await setAliases('tunespoke.example', [])
+    expect(res.statusCode).toBe(200)
+    expect(storedAliases(project.id)).toEqual({ 'spoketuneworks.example': [], 'tunespoke.example': [] })
+    const rows = audits(project.id, 'competitors.aliases-updated')
+    expect(JSON.parse(rows.at(-1)!.diff!)).toEqual({
+      domain: 'tunespoke.example',
+      before: [],
+      after: [],
+      aliasChanges: [{ domain: 'spoketuneworks.example', before: ['TuneSpoke'], after: [] }],
+      droppedCompetitorAliases: [
+        { domain: 'spoketuneworks.example', alias: 'TuneSpoke', reason: 'other-competitor', conflictsWith: 'tunespoke.example' },
+      ],
+    })
+    expect(competitorAliasHooks).toEqual(['rotorwise'])
+  })
+
+  it('rejects an alias found inside the project\'s names or hosts', async () => {
+    await createProject()
+    await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['qvx.example'] } })
+    const res = await setAliases('qvx.example', ['Pros', 'rotorwise.example', 'www.rotorwise.example', 'QVX'])
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error.details.rejectedAliases).toEqual([
+      { domain: 'qvx.example', alias: 'Pros', reason: 'project-brand' },
+      { domain: 'qvx.example', alias: 'rotorwise.example', reason: 'project-brand' },
+      { domain: 'qvx.example', alias: 'www.rotorwise.example', reason: 'project-brand' },
+    ])
+  })
+})
+
+describe('competitor deletes', () => {
+  it('records the discarded curated aliases on the audit row', async () => {
+    const project = await createProject()
+    await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: [{ domain: 'spoketuneworks.example', aliases: ['TuneSpoke'] }, 'ravenwood.example', { domain: 'qvx.example', aliases: ['QVX'] }] } })
+
+    const batch = await app.inject({ method: 'DELETE', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['spoketuneworks.example', 'ravenwood.example'] } })
+    expect(batch.statusCode).toBe(200)
+    const qvx = db.select().from(competitors).where(eq(competitors.domain, 'qvx.example')).get()!
+    const byId = await app.inject({ method: 'DELETE', url: `/api/v1/projects/rotorwise/competitors/${qvx.id}` })
+    expect(byId.statusCode).toBe(204)
+
+    const diffs = audits(project.id, 'competitors.deleted').map(row => JSON.parse(row.diff!) as { deleted: string[] })
+    expect(diffs.map(diff => ({ ...diff, deleted: [...diff.deleted].sort() }))).toEqual([
+      { deleted: ['ravenwood.example', 'spoketuneworks.example'], deletedAliases: { 'spoketuneworks.example': ['TuneSpoke'] } },
+      { deleted: ['qvx.example'], deletedAliases: { 'qvx.example': ['QVX'] } },
+    ])
   })
 })
 
@@ -211,163 +319,165 @@ describe('config-as-code competitor aliases', () => {
     return {
       apiVersion: 'canonry/v1',
       kind: 'Project',
-      metadata: { name: 'roofwise' },
+      metadata: { name: 'rotorwise' },
       spec: { ...PROJECT, competitors: competitorsSpec, ...extra },
     }
   }
   const apply = (body: unknown) => app.inject({ method: 'POST', url: '/api/v1/apply', payload: body })
 
   it('sets aliases from object entries, preserves them for string entries, clears with []', async () => {
-    expect((await apply(spec([{ domain: 'qvx.example', aliases: ['QVX'] }, 'sealfoamworks.example']))).statusCode).toBe(200)
-    const project = db.select().from(projects).where(eq(projects.name, 'roofwise')).get()!
-    expect(storedAliases(project.id)).toEqual({ 'qvx.example': ['QVX'], 'sealfoamworks.example': [] })
+    expect((await apply(spec([{ domain: 'qvx.example', aliases: ['QVX'] }, 'spoketuneworks.example']))).statusCode).toBe(200)
+    const project = db.select().from(projects).where(eq(projects.name, 'rotorwise')).get()!
+    expect(storedAliases(project.id)).toEqual({ 'qvx.example': ['QVX'], 'spoketuneworks.example': [] })
     // New project: nothing historical to backfill.
     expect(competitorAliasHooks).toEqual([])
 
     // A REST alias write, then a domains-only apply: the string entry has no opinion.
-    await setAliases('sealfoamworks.example', ['FoamSeal'])
+    await setAliases('spoketuneworks.example', ['TuneSpoke'])
     competitorAliasHooks.length = 0
-    expect((await apply(spec(['qvx.example', 'sealfoamworks.example']))).statusCode).toBe(200)
-    expect(storedAliases(project.id)).toEqual({ 'qvx.example': ['QVX'], 'sealfoamworks.example': ['FoamSeal'] })
+    expect((await apply(spec(['qvx.example', 'spoketuneworks.example']))).statusCode).toBe(200)
+    expect(storedAliases(project.id)).toEqual({ 'qvx.example': ['QVX'], 'spoketuneworks.example': ['TuneSpoke'] })
     expect(competitorAliasHooks).toEqual([])
 
     // An object entry is exact; [] clears.
-    expect((await apply(spec([{ domain: 'qvx.example', aliases: [] }, { domain: 'sealfoamworks.example', aliases: ['Foam Seal'] }]))).statusCode).toBe(200)
-    expect(storedAliases(project.id)).toEqual({ 'qvx.example': [], 'sealfoamworks.example': ['Foam Seal'] })
-    expect(competitorAliasHooks).toEqual(['roofwise'])
+    expect((await apply(spec([{ domain: 'qvx.example', aliases: [] }, { domain: 'spoketuneworks.example', aliases: ['Tune Spoke'] }]))).statusCode).toBe(200)
+    expect(storedAliases(project.id)).toEqual({ 'qvx.example': [], 'spoketuneworks.example': ['Tune Spoke'] })
+    expect(competitorAliasHooks).toEqual(['rotorwise'])
     const replacedDiff = JSON.parse(audits(project.id, 'competitors.replaced').at(-1)!.diff!)
     expect(replacedDiff).toEqual({
-      competitors: ['qvx.example', 'sealfoamworks.example'],
+      competitors: ['qvx.example', 'spoketuneworks.example'],
       aliasChanges: [
         { domain: 'qvx.example', before: ['QVX'], after: [] },
-        { domain: 'sealfoamworks.example', before: ['FoamSeal'], after: ['Foam Seal'] },
+        { domain: 'spoketuneworks.example', before: ['TuneSpoke'], after: ['Tune Spoke'] },
       ],
     })
   })
 
   it('is idempotent and round-trips through export', async () => {
-    await apply(spec([{ domain: 'qvx.example', aliases: ['QVX'] }, 'ridgecrest.example']))
+    await apply(spec([{ domain: 'qvx.example', aliases: ['QVX'] }, 'ravenwood.example']))
     competitorAliasHooks.length = 0
-    const exported = (await app.inject({ method: 'GET', url: '/api/v1/projects/roofwise/export' })).json()
-    expect(exported.spec.competitors).toEqual([{ domain: 'qvx.example', aliases: ['QVX'] }, 'ridgecrest.example'])
+    const exported = (await app.inject({ method: 'GET', url: '/api/v1/projects/rotorwise/export' })).json()
+    expect(exported.spec.competitors).toEqual([{ domain: 'qvx.example', aliases: ['QVX'] }, 'ravenwood.example'])
 
-    const project = db.select().from(projects).where(eq(projects.name, 'roofwise')).get()!
+    const project = db.select().from(projects).where(eq(projects.name, 'rotorwise')).get()!
     const ids = db.select({ id: competitors.id }).from(competitors).where(eq(competitors.projectId, project.id)).all()
     expect((await apply(exported)).statusCode).toBe(200)
     expect((await apply(exported)).statusCode).toBe(200)
-    expect(storedAliases(project.id)).toEqual({ 'qvx.example': ['QVX'], 'ridgecrest.example': [] })
+    expect(storedAliases(project.id)).toEqual({ 'qvx.example': ['QVX'], 'ravenwood.example': [] })
     expect(db.select({ id: competitors.id }).from(competitors).where(eq(competitors.projectId, project.id)).all()).toEqual(ids)
     expect(competitorAliasHooks).toEqual([])
   })
 
   it('rejects an invalid stated alias before writing anything', async () => {
     await apply(spec(['qvx.example']))
-    const project = db.select().from(projects).where(eq(projects.name, 'roofwise')).get()!
-    const res = await apply(spec([{ domain: 'qvx.example', aliases: ['Roofwise'] }, 'ridgecrest.example']))
+    const project = db.select().from(projects).where(eq(projects.name, 'rotorwise')).get()!
+    const res = await apply(spec([{ domain: 'qvx.example', aliases: ['Rotorwise'] }, 'ravenwood.example']))
     expect(res.statusCode).toBe(400)
-    expect(res.json().error.details.rejectedAliases).toEqual([{ domain: 'qvx.example', alias: 'Roofwise', reason: 'project-brand' }])
+    expect(res.json().error.details.rejectedAliases).toEqual([{ domain: 'qvx.example', alias: 'Rotorwise', reason: 'project-brand' }])
     expect(storedAliases(project.id)).toEqual({ 'qvx.example': [] })
   })
 
   it('drops a preserved alias the spec\'s project identity now claims', async () => {
-    await apply(spec([{ domain: 'sealfoamworks.example', aliases: ['FoamSeal', 'Seal Foam Pros'] }]))
-    const project = db.select().from(projects).where(eq(projects.name, 'roofwise')).get()!
-    const res = await apply(spec(['sealfoamworks.example'], { aliases: ['Roofwise Pros', 'FoamSeal'] }))
+    await apply(spec([{ domain: 'spoketuneworks.example', aliases: ['TuneSpoke', 'Spoke Tune Pros'] }]))
+    const project = db.select().from(projects).where(eq(projects.name, 'rotorwise')).get()!
+    const res = await apply(spec(['spoketuneworks.example'], { aliases: ['Rotorwise Pros', 'TuneSpoke'] }))
     expect(res.statusCode).toBe(200)
-    expect(storedAliases(project.id)).toEqual({ 'sealfoamworks.example': ['Seal Foam Pros'] })
+    expect(storedAliases(project.id)).toEqual({ 'spoketuneworks.example': ['Spoke Tune Pros'] })
     const diff = JSON.parse(audits(project.id, 'competitors.replaced').at(-1)!.diff!)
-    expect(diff.droppedCompetitorAliases).toEqual([{ domain: 'sealfoamworks.example', alias: 'FoamSeal', reason: 'project-brand' }])
+    expect(diff.droppedCompetitorAliases).toEqual([{ domain: 'spoketuneworks.example', alias: 'TuneSpoke', reason: 'project-brand' }])
   })
 })
 
 describe('project identity changes', () => {
   it('drops a competitor alias the project now claims, so the qualified alias is accepted', async () => {
     const project = await createProject()
-    await app.inject({ method: 'POST', url: '/api/v1/projects/roofwise/competitors', payload: { competitors: [{ domain: 'sealfoamworks.example', aliases: ['FoamSeal', 'Seal Foam Pros'] }] } })
+    await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: [{ domain: 'spoketuneworks.example', aliases: ['TuneSpoke', 'Spoke Tune Pros'] }] } })
 
     const res = await app.inject({
       method: 'PUT',
-      url: '/api/v1/projects/roofwise',
-      payload: { ...PROJECT, aliases: ['Roofwise Pros', 'Foam Seal'], qualifiedAliases: ['Foam Seal'] },
+      url: '/api/v1/projects/rotorwise',
+      payload: { ...PROJECT, aliases: ['Rotorwise Pros', 'Tune Spoke'], qualifiedAliases: ['Tune Spoke'] },
     })
     expect(res.statusCode).toBe(200)
-    expect(res.json().qualifiedAliases).toEqual(['Foam Seal'])
-    expect(storedAliases(project.id)).toEqual({ 'sealfoamworks.example': ['Seal Foam Pros'] })
+    expect(res.json().qualifiedAliases).toEqual(['Tune Spoke'])
+    expect(storedAliases(project.id)).toEqual({ 'spoketuneworks.example': ['Spoke Tune Pros'] })
     const updated = audits(project.id, 'project.updated').at(-1)!
     expect(JSON.parse(updated.diff!)).toEqual({
-      droppedCompetitorAliases: [{ domain: 'sealfoamworks.example', alias: 'FoamSeal', reason: 'project-brand' }],
+      droppedCompetitorAliases: [{ domain: 'spoketuneworks.example', alias: 'TuneSpoke', reason: 'project-brand' }],
     })
-    expect(projectAliasHooks).toEqual(['roofwise'])
+    expect(projectAliasHooks).toEqual(['rotorwise'])
   })
 
   it('counts a competitor alias as a competitor name for qualified aliases', async () => {
     await createProject()
-    await app.inject({ method: 'POST', url: '/api/v1/projects/roofwise/competitors', payload: { competitors: [{ domain: 'sealfoamworks.example', aliases: ['Coastline Crew'] }] } })
+    await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: [{ domain: 'spoketuneworks.example', aliases: ['Coastline Crew'] }] } })
     // The competitor alias stays (the project does not claim it), and the
     // qualified-alias check treats it as a competitor name.
     const res = await app.inject({
       method: 'PUT',
-      url: '/api/v1/projects/roofwise',
-      payload: { ...PROJECT, aliases: ['Roofwise Pros'], qualifiedAliases: ['Roofwise Pros'] },
+      url: '/api/v1/projects/rotorwise',
+      payload: { ...PROJECT, aliases: ['Rotorwise Pros'], qualifiedAliases: ['Rotorwise Pros'] },
     })
     expect(res.statusCode).toBe(200)
   })
 })
 
 describe('read-time matchers use stored aliases', () => {
-  function seedSweep(projectId: string) {
-    const queryId = crypto.randomUUID()
+  function seedSweep(projectId: string, opts: { runAt?: string; idPrefix?: string; queryId?: string } = {}) {
+    const runAt = opts.runAt ?? '2026-10-01T01:00:00.000Z'
+    const queryId = opts.queryId ?? crypto.randomUUID()
     const runId = crypto.randomUUID()
-    db.insert(queries).values({ id: queryId, projectId, query: 'best roof coating contractor', createdAt: '2026-10-01T00:00:00.000Z' }).run()
-    db.insert(runs).values({ id: runId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt: '2026-10-01T01:00:00.000Z', finishedAt: '2026-10-01T01:05:00.000Z' }).run()
+    if (!opts.queryId) db.insert(queries).values({ id: queryId, projectId, query: 'best bike repair shop', createdAt: '2026-09-01T00:00:00.000Z' }).run()
+    db.insert(runs).values({ id: runId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt: runAt, finishedAt: runAt }).run()
     const answers = [
-      'Roofwise is a solid pick for coatings.',
-      'Roofwise and FoamSeal both quote quickly.',
-      'FoamSeal is the usual recommendation.',
-      'Ridgecrest Roofing handles commercial work.',
-      'QVX does silicone coatings.',
+      'Rotorwise is a solid pick for tune-ups.',
+      'Rotorwise and TuneSpoke both quote quickly.',
+      'TuneSpoke is the usual recommendation.',
+      'Ravenwood Cycling handles fleet bikes.',
+      'QVX does wheel builds.',
     ]
     const providers = ['openai', 'gemini', 'claude', 'perplexity', 'local']
     answers.forEach((answerText, i) => {
       db.insert(querySnapshots).values({
-        id: `snap-${i}`,
+        id: `${opts.idPrefix ?? 'snap'}-${i}`,
         runId,
         queryId,
+        queryText: 'best bike repair shop',
         provider: providers[i]!,
         citationState: 'not-cited',
-        answerMentioned: answerText.startsWith('Roofwise'),
+        answerMentioned: answerText.startsWith('Rotorwise'),
         answerText,
         citedDomains: [],
         competitorOverlap: [],
         recommendedCompetitors: [],
-        createdAt: '2026-10-01T01:01:00.000Z',
+        createdAt: runAt,
       }).run()
     })
-    return { runId }
+    return { runId, queryId }
   }
 
   it('reinterprets stored answers on every read surface once aliases are set', async () => {
     const project = await createProject()
-    await app.inject({ method: 'POST', url: '/api/v1/projects/roofwise/competitors', payload: { competitors: ['sealfoamworks.example', 'ridgecrestbuildinc.example', 'qvx.example'] } })
+    await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['spoketuneworks.example', 'ravenwoodbikeinc.example', 'qvx.example'] } })
     const { runId } = seedSweep(project.id)
 
     // Domains only: no answer names a domain label, so no competitor is mentioned.
-    const before = (await app.inject({ method: 'GET', url: '/api/v1/projects/roofwise/overview' })).json()
+    const before = (await app.inject({ method: 'GET', url: '/api/v1/projects/rotorwise/overview' })).json()
     expect(before.scores.mentionShare.breakdown).toMatchObject({ projectMentionSnapshots: 2, competitorMentionSnapshots: 0 })
     expect(before.scores.mentionShare.breakdown.score).toBe(100)
 
-    await setAliases('sealfoamworks.example', ['FoamSeal'])
-    await setAliases('ridgecrestbuildinc.example', ['Ridgecrest Roofing'])
+    await setAliases('spoketuneworks.example', ['TuneSpoke'])
+    await setAliases('ravenwoodbikeinc.example', ['Ravenwood Cycling'])
     await setAliases('qvx.example', ['QVX'])
 
-    const overview = (await app.inject({ method: 'GET', url: '/api/v1/projects/roofwise/overview' })).json()
+    const overview = (await app.inject({ method: 'GET', url: '/api/v1/projects/rotorwise/overview' })).json()
     const breakdown = overview.scores.mentionShare.breakdown
     expect(breakdown).toMatchObject({ projectMentionSnapshots: 2, competitorMentionSnapshots: 4, combinedMentionSnapshots: 6 })
     expect(breakdown.score).toBe(percentOf(2, 6))
     expect(formatPercent(breakdown.score, 'percent')).toBe('33.3%')
     expect(Object.fromEntries(overview.competitors.map((c: { domain: string; aliases?: string[] }) => [c.domain, c.aliases]))).toEqual({
-      'sealfoamworks.example': ['FoamSeal'],
-      'ridgecrestbuildinc.example': ['Ridgecrest Roofing'],
+      'spoketuneworks.example': ['TuneSpoke'],
+      'ravenwoodbikeinc.example': ['Ravenwood Cycling'],
       'qvx.example': ['QVX'],
     })
 
@@ -375,20 +485,145 @@ describe('read-time matchers use stored aliases', () => {
     const mentioned = Object.fromEntries(detail.snapshots.map((s: { id: string; mentionedCompetitorDomains: string[] }) => [s.id, s.mentionedCompetitorDomains]))
     expect(mentioned).toEqual({
       'snap-0': [],
-      'snap-1': ['sealfoamworks.example'],
-      'snap-2': ['sealfoamworks.example'],
-      'snap-3': ['ridgecrestbuildinc.example'],
+      'snap-1': ['spoketuneworks.example'],
+      'snap-2': ['spoketuneworks.example'],
+      'snap-3': ['ravenwoodbikeinc.example'],
       'snap-4': ['qvx.example'],
     })
+    // The names that matched, for highlighting without re-deriving identity.
+    expect(Object.fromEntries(detail.snapshots.map((s: { id: string; mentionedCompetitorTerms: string[] }) => [s.id, s.mentionedCompetitorTerms]))).toEqual({
+      'snap-0': [],
+      'snap-1': ['TuneSpoke'],
+      'snap-2': ['TuneSpoke'],
+      'snap-3': ['Ravenwood Cycling'],
+      'snap-4': ['QVX'],
+    })
 
-    const gaps = (await app.inject({ method: 'GET', url: '/api/v1/projects/roofwise/analytics/gaps' })).json()
+    const gaps = (await app.inject({ method: 'GET', url: '/api/v1/projects/rotorwise/analytics/gaps' })).json()
     const entry = [...gaps.mentionedQueries, ...gaps.mentionGap, ...gaps.notMentioned][0]
-    expect([...entry.competitorsMentioned].sort()).toEqual(['qvx.example', 'ridgecrestbuildinc.example', 'sealfoamworks.example'])
+    expect([...entry.competitorsMentioned].sort()).toEqual(['qvx.example', 'ravenwoodbikeinc.example', 'spoketuneworks.example'])
 
-    const landscape = (await app.inject({ method: 'GET', url: '/api/v1/projects/roofwise/analytics/competitors?queryClass=non-brand' })).json()
+    const landscape = (await app.inject({ method: 'GET', url: '/api/v1/projects/rotorwise/analytics/competitors?queryClass=non-brand' })).json()
     const mentionsByDomain = Object.fromEntries(landscape.pinned
       .map((row: { domain: string; mentionCount: number }) => [row.domain, row.mentionCount]))
-    expect(mentionsByDomain).toEqual({ 'sealfoamworks.example': 2, 'ridgecrestbuildinc.example': 1, 'qvx.example': 1 })
+    expect(mentionsByDomain).toEqual({ 'spoketuneworks.example': 2, 'ravenwoodbikeinc.example': 1, 'qvx.example': 1 })
+  })
+})
+
+describe('every mention-share reader counts curated aliases', () => {
+  // Two monthly sweeps of the same five answers. Non-brand basket, so every
+  // number below is the non-brand mention share: project answers (2 per sweep)
+  // over project plus competitor answers (2 + 4 per sweep with aliases set).
+  async function seedTwoMonths() {
+    const project = await createProject()
+    await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['spoketuneworks.example', 'ravenwoodbikeinc.example', 'qvx.example'] } })
+    const september = seedSweepTwoMonth(project.id, '2026-09-10T01:00:00.000Z', 'sep')
+    seedSweepTwoMonth(project.id, '2026-10-01T01:00:00.000Z', 'oct', september.queryId)
+    return project
+  }
+
+  function seedSweepTwoMonth(projectId: string, runAt: string, idPrefix: string, queryId?: string) {
+    const runId = crypto.randomUUID()
+    const id = queryId ?? crypto.randomUUID()
+    if (!queryId) db.insert(queries).values({ id, projectId, query: 'best bike repair shop', createdAt: '2026-09-01T00:00:00.000Z' }).run()
+    db.insert(runs).values({ id: runId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt: runAt, finishedAt: runAt }).run()
+    ;[
+      ['openai', 'Rotorwise is a solid pick for tune-ups.'],
+      ['gemini', 'Rotorwise and TuneSpoke both quote quickly.'],
+      ['claude', 'TuneSpoke is the usual recommendation.'],
+      ['perplexity', 'Ravenwood Cycling handles fleet bikes.'],
+      ['local', 'QVX does wheel builds.'],
+    ].forEach(([provider, answerText], i) => {
+      db.insert(querySnapshots).values({
+        id: `${idPrefix}-${i}`,
+        runId,
+        queryId: id,
+        queryText: 'best bike repair shop',
+        provider: provider!,
+        // A known, unchanged model per provider keeps both months comparable.
+        model: `${provider}-model`,
+        citationState: 'not-cited',
+        answerMentioned: answerText!.startsWith('Rotorwise'),
+        answerText: answerText!,
+        citedDomains: [],
+        competitorOverlap: [],
+        recommendedCompetitors: [],
+        createdAt: runAt,
+      }).run()
+    })
+    return { queryId: id }
+  }
+
+  async function setAll() {
+    expect((await setAliases('spoketuneworks.example', ['TuneSpoke'])).statusCode).toBe(200)
+    expect((await setAliases('ravenwoodbikeinc.example', ['Ravenwood Cycling'])).statusCode).toBe(200)
+    expect((await setAliases('qvx.example', ['QVX'])).statusCode).toBe(200)
+  }
+
+  it('analytics metrics: every trend bucket re-reads stored answers with the aliases', async () => {
+    await seedTwoMonths()
+    const before = (await app.inject({ method: 'GET', url: '/api/v1/projects/rotorwise/analytics/metrics?window=all' })).json()
+    expect(before.mentionShareScope).toBe('non-brand')
+    expect(before.buckets.map((b: { mentionShare: unknown }) => b.mentionShare)).toEqual([
+      { scope: 'non-brand', rate: 1, projectMentionSnapshots: 2, competitorMentionSnapshots: 0 },
+      { scope: 'non-brand', rate: 1, projectMentionSnapshots: 2, competitorMentionSnapshots: 0 },
+    ])
+
+    await setAll()
+    const after = (await app.inject({ method: 'GET', url: '/api/v1/projects/rotorwise/analytics/metrics?window=all' })).json()
+    // 2 / (2 + 4) per sweep.
+    expect(after.buckets.map((b: { mentionShare: unknown }) => b.mentionShare)).toEqual([
+      { scope: 'non-brand', rate: 0.33333333, projectMentionSnapshots: 2, competitorMentionSnapshots: 4 },
+      { scope: 'non-brand', rate: 0.33333333, projectMentionSnapshots: 2, competitorMentionSnapshots: 4 },
+    ])
+    expect(formatPercent(after.buckets[1].mentionShare.rate, 'fraction')).toBe('33.3%')
+  })
+
+  it('visibility-stats --share-of-voice pools both sweeps with the aliases', async () => {
+    await seedTwoMonths()
+    const before = (await app.inject({ method: 'GET', url: '/api/v1/projects/rotorwise/visibility-stats?shareOfVoice=1' })).json()
+    expect(before.shareOfVoice).toMatchObject({ queryClass: 'non-brand', projectMentions: 4, competitorMentions: 0, percent: 100 })
+
+    await setAll()
+    const after = (await app.inject({ method: 'GET', url: '/api/v1/projects/rotorwise/visibility-stats?shareOfVoice=1' })).json()
+    expect(after.shareOfVoice).toMatchObject({
+      basis: 'tracked',
+      availability: 'measured',
+      queryClass: 'non-brand',
+      projectMentions: 4,
+      competitorMentions: 8,
+      competitorCount: 3,
+      snapshotsWithAnswerText: 10,
+      percent: percentOf(4, 12),
+    })
+    expect(after.shareOfVoice.percent).toBe(33.333333)
+    expect(Object.fromEntries(after.shareOfVoice.perCompetitor.map((row: { domain: string; mentions: number }) => [row.domain, row.mentions]))).toEqual({
+      'spoketuneworks.example': 4,
+      'ravenwoodbikeinc.example': 2,
+      'qvx.example': 2,
+    })
+  })
+
+  it('visibility-compare reads the aliases in both months', async () => {
+    await seedTwoMonths()
+    const read = async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/v1/projects/rotorwise/visibility-compare?from=2026-09&to=2026-10' })
+      expect(res.statusCode, res.body).toBe(200)
+      return res.json().metrics.find((metric: { key: string }) => metric.key === 'mention-share-of-voice')
+    }
+    const before = await read()
+    expect(before).toMatchObject({ queryClass: 'non-brand', from: { numerator: 2, denominator: 2, point: 1 }, to: { numerator: 2, denominator: 2, point: 1 } })
+
+    await setAll()
+    const after = await read()
+    expect(after).toMatchObject({
+      queryClass: 'non-brand',
+      from: { availability: 'available', numerator: 2, denominator: 6 },
+      to: { availability: 'available', numerator: 2, denominator: 6 },
+    })
+    // The comparison's wire precision is four decimals.
+    expect(after.from.point).toBe(0.3333)
+    expect(after.to.point).toBe(0.3333)
   })
 })
 
