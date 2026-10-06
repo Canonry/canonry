@@ -1341,14 +1341,85 @@ describe('POST /technical-aeo/runs', () => {
     const runId = (first.json() as { runId: string }).runId
 
     expect((second.json() as { runId: string }).runId).toBe(runId)
+    // No saved budget and none requested: the full site.
     expect(ctx.db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, runId)).get()).toMatchObject({
-      effectiveOptions: { maxPages: 1_000, maxEdges: null },
+      effectiveOptions: { maxPages: 50_000, maxEdges: null },
     })
     // The executor must receive no edge budget at all, so the crawl engine
     // derives it from the page count instead of inheriting a flat ceiling.
     expect(ctx.siteAuditRequested).toHaveLength(1)
-    expect(ctx.siteAuditRequested[0]!.opts).toMatchObject({ maxPages: 1_000 })
+    expect(ctx.siteAuditRequested[0]!.opts).toMatchObject({ maxPages: 50_000 })
     expect(ctx.siteAuditRequested[0]!.opts!.maxEdges).toBeUndefined()
+  })
+
+  // The saved budget reaches the run through the project write the dashboard
+  // and CLI use, not a seeded column, so the whole default path is exercised.
+  async function saveBudget(siteAuditMaxPages: number | null): Promise<void> {
+    const saved = await ctx.app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/tech-aeo',
+      payload: { displayName: 'Tech AEO', canonicalDomain: 'example.com', country: 'US', language: 'en', siteAuditMaxPages },
+    })
+    expect(saved.statusCode).toBe(200)
+    expect(saved.json().siteAuditMaxPages).toBe(siteAuditMaxPages)
+  }
+
+  it('runs a scan that sets no budget with the project\'s saved budget and records it', async () => {
+    await saveBudget(2_500)
+
+    const res = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/tech-aeo/technical-aeo/runs', payload: {} })
+    expect(res.statusCode).toBe(200)
+    const runId = (res.json() as { runId: string }).runId
+    expect(ctx.db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, runId)).get()!.effectiveOptions).toEqual({
+      schemaVersion: 2,
+      sitemapUrl: null,
+      maxPages: 2_500,
+      maxEdges: null,
+      maxDepth: null,
+      checkDeadLinks: false,
+    })
+    expect(ctx.siteAuditRequested).toHaveLength(1)
+    expect(ctx.siteAuditRequested[0]).toMatchObject({ runId, projectId: ctx.projectId })
+    expect(ctx.siteAuditRequested[0]!.opts).toMatchObject({ maxPages: 2_500 })
+
+    // A second scan with no budget is the same request, so it consolidates.
+    const again = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/tech-aeo/technical-aeo/runs', payload: {} })
+    expect((again.json() as { runId: string }).runId).toBe(runId)
+    expect(ctx.siteAuditRequested).toHaveLength(1)
+  })
+
+  it('lets an explicit maxPages override the saved budget', async () => {
+    await saveBudget(2_500)
+
+    const res = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/tech-aeo/technical-aeo/runs', payload: { maxPages: 40 } })
+    expect(res.statusCode).toBe(200)
+    const runId = (res.json() as { runId: string }).runId
+    expect(ctx.db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, runId)).get()).toMatchObject({
+      effectiveOptions: { maxPages: 40 },
+    })
+    expect(ctx.siteAuditRequested[0]!.opts).toMatchObject({ maxPages: 40 })
+  })
+
+  it('refuses a scan with no budget once the saved budget changed under an active run', async () => {
+    // Full site first, then the budget is saved while that scan is still queued.
+    const first = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/tech-aeo/technical-aeo/runs', payload: {} })
+    const firstId = (first.json() as { runId: string }).runId
+    await saveBudget(2_500)
+
+    const second = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/tech-aeo/technical-aeo/runs', payload: {} })
+    expect(second.statusCode).toBe(409)
+    expect(second.json()).toMatchObject({
+      error: {
+        code: 'OPERATION_IN_PROGRESS',
+        details: {
+          activeRunId: firstId,
+          activeOptions: { maxPages: 50_000 },
+          requestedOptions: { maxPages: 2_500 },
+        },
+      },
+    })
+    expect(ctx.siteAuditRequested).toHaveLength(1)
+    expect(ctx.db.select().from(runs).where(eq(runs.projectId, ctx.projectId)).all().filter((run) => run.status === 'queued')).toHaveLength(1)
   })
 
   it('treats an explicit 100,000 as a different request from an omitted edge budget', async () => {

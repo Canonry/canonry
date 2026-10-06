@@ -22,7 +22,6 @@ import {
   formatPercent,
   RatioUnits,
   RunKinds,
-  SITE_AUDIT_DEFAULT_PAGE_LIMIT,
   SITE_AUDIT_DEFAULT_MAX_DEPTH,
   SITE_AUDIT_ONBOARDING_PAGE_LIMIT,
   SITE_CRAWL_GRAPH_MAX_EDGES,
@@ -44,6 +43,7 @@ import {
   type SiteHealthTemplateDetection,
 } from '@ainyc/canonry-contracts'
 import {
+  getApiV1ProjectsByNameOptions,
   getApiV1ProjectsByNameTechnicalAeoCrawlOptions,
   getApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditOptions,
   getApiV1ProjectsByNameTechnicalAeoCrawlPagesOptions,
@@ -61,7 +61,9 @@ import { heyClient, isDashboardManagedRunKind, isEmbed, isPublicDemo } from '../
 import { useAccount } from '../../contexts/account-context.js'
 import { ManagedSweepStatus, MANAGED_SCANS_COPY } from './ManagedSweepStatus.js'
 import { cn } from '../../lib/utils.js'
+import { PAGE_BUDGET_PRESETS, oneOffFullSiteChoice, projectDefaultPageBudgetLabel } from '../../lib/site-audit-page-budget.js'
 import { useTriggerSiteAudit } from '../../queries/mutations.js'
+import { STATIC_VISIBILITY_STALE_MS } from '../../queries/query-client.js'
 import type { MetricTone } from '../../view-models.js'
 import { SiteGraphSigma } from './SiteGraphSigma.js'
 import {
@@ -336,21 +338,18 @@ const TERMINATION_COPY: Record<SiteCrawlTermination, string> = {
 const TERMINATION_LABELS = new Map<string, string>(Object.entries(TERMINATION_COPY))
 
 /**
- * Crawl budgets the operator can actually set, as a short list rather than a
- * free number. A scan that stops early is the single most common complaint
- * about a first result, and until now the only way to change either budget was
- * the CLI, which the dashboard never mentions.
+ * Crawl budgets the operator can actually set for one scan, as a short list
+ * rather than a free number. A scan that stops early is the single most common
+ * complaint about a first result, and until now the only way to change either
+ * budget was the CLI, which the dashboard never mentions.
  *
- * `null` means "send nothing and let the server apply its default", which is a
- * different request identity from sending the default explicitly.
+ * The picker's first option, ahead of these, sends no budget: the server then
+ * applies the project's saved budget (Project Settings), else the full site.
+ * It resolves that before computing request identity, so sending nothing and
+ * sending the same number explicitly are the same request. The option's label
+ * reads the saved budget from the project; the dashboard never fills one in.
  */
-const PAGE_BUDGET_CHOICES: readonly { value: number | null; label: string }[] = [
-  { value: null, label: `Full site (up to ${SITE_AUDIT_DEFAULT_PAGE_LIMIT.toLocaleString()} pages)` },
-  { value: SITE_AUDIT_ONBOARDING_PAGE_LIMIT, label: '100 pages (quick look)' },
-  { value: 500, label: '500 pages' },
-  { value: 2_500, label: '2,500 pages' },
-  { value: 10_000, label: '10,000 pages' },
-]
+const PAGE_BUDGET_CHOICES = PAGE_BUDGET_PRESETS
 
 // "No limit set" is not unlimited: the crawler stops at its own default. Name
 // it, and offer deeper limits, or "Raise the crawl depth" has nowhere to go
@@ -1656,7 +1655,8 @@ export function SiteHealthSection({
   const previousInitialRunId = useRef(initialRunId)
   const [selectedNodeKey, setSelectedNodeKey] = useState<string | null>(null)
   const [checkDeadLinks, setCheckDeadLinks] = useState(false)
-  // `null` on both = send nothing and take the server's defaults.
+  // `null` on both = send nothing: the server applies the project's saved
+  // page budget (else the full site) and the crawler's default depth.
   const [pageBudget, setPageBudget] = useState<number | null>(null)
   const [crawlDepth, setCrawlDepth] = useState<number | null>(null)
   // True once this section dispatched an onboarding scan, so its budget is known.
@@ -1675,6 +1675,15 @@ export function SiteHealthSection({
   const managedScanForViewer = (publicDemo || isDashboardManagedRunKind(RunKinds['site-audit'])) && !isAdmin
   const explicitOnboarding = showOnboardingActions && !embedded
   const runMutation = useTriggerSiteAudit()
+  // Scan settings names the project's saved page budget. This is the project
+  // page's own cached project read (same key and freshness), so it adds no
+  // request there, and it stays off wherever Scan settings is not shown.
+  const scanSettingsShown = !explicitOnboarding && !embedded && !managedScanForViewer
+  const projectQuery = useQuery({
+    ...getApiV1ProjectsByNameOptions({ client: heyClient, path: { name: projectName } }),
+    enabled: scanSettingsShown,
+    staleTime: STATIC_VISIBILITY_STALE_MS,
+  })
 
   useEffect(() => {
     const previous = previousInitialRunId.current
@@ -2078,7 +2087,8 @@ export function SiteHealthSection({
         // Onboarding is a bounded first look, so it does not spend the full
         // crawl budget before the operator has seen any result. Everywhere
         // else the budget is whatever Scan settings says, and an unset budget
-        // is omitted so the server applies its own default.
+        // is omitted so the server applies the project's saved budget, else
+        // the full site.
         ...(explicitOnboarding
           ? { maxPages: SITE_AUDIT_ONBOARDING_PAGE_LIMIT }
           : pageBudget === null ? {} : { maxPages: pageBudget }),
@@ -2177,8 +2187,9 @@ export function SiteHealthSection({
                       onChange={(event) => setPageBudget(event.target.value === '' ? null : Number(event.target.value))}
                       className="mt-1 h-9 w-full rounded-md border border-base bg-bg px-2 text-sm text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-600"
                     >
-                      {PAGE_BUDGET_CHOICES.map((choice) => (
-                        <option key={String(choice.value)} value={choice.value === null ? '' : String(choice.value)}>{choice.label}</option>
+                      <option value="">{projectDefaultPageBudgetLabel(projectQuery.data)}</option>
+                      {[...(oneOffFullSiteChoice(projectQuery.data) ? [oneOffFullSiteChoice(projectQuery.data)!] : []), ...PAGE_BUDGET_CHOICES].map((choice) => (
+                        <option key={choice.value} value={String(choice.value)}>{choice.label}</option>
                       ))}
                     </select>
                   </div>

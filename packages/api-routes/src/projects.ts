@@ -291,10 +291,10 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     const nextAutoExtractBacklinks = body.autoExtractBacklinks !== undefined
       ? body.autoExtractBacklinks
       : existing?.autoExtractBacklinks ?? false
-    // Omitted keeps the stored threshold; an explicit null resets it to the default.
     // Omitted keeps the stored budget: the dashboard and CLI resend the whole
     // project without fields they do not edit. Null means the full site.
     const nextSiteAuditMaxPages = body.siteAuditMaxPages !== undefined ? body.siteAuditMaxPages : existing?.siteAuditMaxPages ?? null
+    // Omitted keeps the stored threshold; an explicit null resets it to the default.
     const nextNegativeReviewMaxStars = body.negativeReviewMaxStars !== undefined
       ? body.negativeReviewMaxStars
       : existing ? readNegativeReviewMaxStars(app.db, existing.id) : null

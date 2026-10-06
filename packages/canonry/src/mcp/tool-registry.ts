@@ -54,6 +54,7 @@ import {
   schedulableRunKindSchema,
   scheduleUpsertRequestSchema,
   scheduleDtoSchema,
+  siteAuditPageBudgetSchema,
   settingsDtoSchema,
   telemetryStatusDtoSchema,
   feedbackSubmissionSchema,
@@ -1228,7 +1229,7 @@ const technicalAeoRunInputSchema = z.object({
   project: projectNameSchema,
   sitemapUrl: z.string().url().optional().describe('Override the sitemap URL. Defaults to https://<canonicalDomain>/sitemap.xml.'),
   limit: z.number().int().positive().max(2000).optional().describe('Deprecated compatibility alias for maxPages.'),
-  maxPages: z.number().int().positive().max(50_000).optional().describe('Maximum pages crawled and audited. Defaults to the full site, up to the hard maximum of 50,000; pass a smaller number for a quick look.'),
+  maxPages: siteAuditPageBudgetSchema.optional().describe('Maximum pages crawled and audited (1 to 50,000). Omitted uses the project\'s saved budget (siteAuditMaxPages, set with canonry_project_upsert or canonry_apply_config), else the full site, up to 50,000; pass a smaller number for a quick look.'),
   maxEdges: z.number().int().positive().max(1_000_000).optional().describe('Maximum link observations retained for this crawl. When omitted the crawl engine derives the budget from the page count; hard maximum 1,000,000.'),
   maxDepth: z.number().int().min(0).max(100).optional().describe('Maximum internal-link depth from the root page.'),
   checkDeadLinks: z.boolean().optional().describe('Opt in to internal dead-link checks. Omitted and false both disable checks.'),
@@ -2662,7 +2663,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_project_upsert',
     title: 'Create or replace project',
-    description: 'Create or replace a Canonry project. PUT semantics: fields not in the request are reset to their defaults. Provide the full intended project shape. Exceptions: an omitted providerDispatchModes (provider → sync|batch for scheduled sweeps) keeps the stored preference; send {} to clear it. An omitted qualifiedAliases (the aliases Simple sentiment treats as this brand\'s own names) keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it.',
+    description: 'Create or replace a Canonry project. PUT semantics: fields not in the request are reset to their defaults. Provide the full intended project shape. Exceptions: an omitted providerDispatchModes (provider → sync|batch for scheduled sweeps) keeps the stored preference; send {} to clear it. An omitted qualifiedAliases (the aliases Simple sentiment treats as this brand\'s own names) keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it. An omitted siteAuditMaxPages (the Site Health page budget for scans that set none, 1 to 50,000) keeps the stored budget; send null for the full site.',
     access: 'write',
     tier: 'setup',
     inputSchema: projectUpsertInputSchema,
@@ -2673,7 +2674,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_apply_config',
     title: 'Apply project config',
-    description: 'Apply one Canonry config-as-code project document. Replaces the project to match the config; fields omitted from the spec are reset to defaults, with these exceptions: a spec with neither queries nor keywords leaves the tracked-query basket unchanged (to clear the basket, pass an explicit empty queries list); an omitted providerDispatchModes keeps the stored preference; and an omitted qualifiedAliases keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it. For multi-document YAML, call this tool once per project document.',
+    description: 'Apply one Canonry config-as-code project document. Replaces the project to match the config; fields omitted from the spec are reset to defaults, with these exceptions: a spec with neither queries nor keywords leaves the tracked-query basket unchanged (to clear the basket, pass an explicit empty queries list); an omitted providerDispatchModes keeps the stored preference; an omitted qualifiedAliases keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it; and an omitted siteAuditMaxPages keeps the stored Site Health page budget (null means the full site). For multi-document YAML, call this tool once per project document.',
     access: 'write',
     tier: 'core',
     inputSchema: applyConfigInputSchema,
@@ -3714,7 +3715,7 @@ export const canonryMcpTools = [
     name: 'canonry_technical_aeo_run',
     title: 'Run Technical AEO site audit',
     description:
-      'Start a site-audit run. The run discovers root, sitemap, and linked pages. It defaults to the full site (up to 50,000 pages), and the engine derives the link-observation budget from that page count with a 100,000 floor, so raising maxPages raises it too. An explicit maxEdges is a ceiling that replaces the derivation and can sit below it. It returns {runId, status} and continues in the background. If an active run has identical effective options, this tool returns it; different options are refused. Poll canonry_run_get, then read the crawl and score tools.',
+      'Start a site-audit run. The run discovers root, sitemap, and linked pages. Without maxPages it uses the project\'s saved page budget (siteAuditMaxPages), else the full site (up to 50,000 pages), and the engine derives the link-observation budget from that page count with a 100,000 floor, so raising maxPages raises it too. An explicit maxEdges is a ceiling that replaces the derivation and can sit below it. It returns {runId, status} and continues in the background. If an active run has identical effective options, this tool returns it; different options are refused. Poll canonry_run_get, then read the crawl and score tools.',
     access: 'write',
     tier: 'monitoring',
     inputSchema: technicalAeoRunInputSchema,

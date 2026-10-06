@@ -34,6 +34,7 @@ import {
   getApiV1ProjectsByNameCitationsVisibilityQueryKey,
   getApiV1ProjectsByNameSchedulesQueryKey,
   getApiV1ProjectsByNameScheduleQueryKey,
+  getApiV1ProjectsByNameQueryKey,
   getApiV1ProjectsByNameVisibilityReportQueryKey,
 } from '@ainyc/canonry-api-client/react-query'
 
@@ -3597,4 +3598,136 @@ test.each(['', '/technical-aeo', '/settings', '/history'])('unset managed run ki
       if (suffix === '' && mode === 'advanced') expect(doc.querySelector('.visibility-scope-trigger')?.textContent).toBe('Whole site')
     }
   }
+})
+
+// Project Settings' "Site Health scans" section: the saved page budget every
+// scan without its own budget uses. Simple and Advanced share the section.
+function siteHealthScansSection(html: string) {
+  return within(renderedPage(html)).getByRole('heading', { level: 2, name: 'Site Health scans' }).closest('section')!
+}
+
+function advancedSettings(mode: 'simple' | 'advanced') {
+  return mode === 'advanced' ? { plan: measurementPlanV2Response(2), overview: measurementOverviewResponse() } : undefined
+}
+
+test.each(['simple', 'advanced'] as const)('%s Settings shows the saved Site Health page budget in its editor', async mode => {
+  for (const { saved, choice, custom } of [
+    { saved: null, choice: 'full', custom: null },
+    { saved: 2_500, choice: '2500', custom: null },
+    { saved: 750, choice: 'custom', custom: '750' },
+  ]) {
+    const html = await renderAt('/projects/project_citypoint/settings', undefined, advancedSettings(mode), {
+      accountRole: 'admin',
+      configureFixture(dashboard) {
+        dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!.project.siteAuditMaxPages = saved
+      },
+    })
+    const section = siteHealthScansSection(html)
+    const select = within(section).getByRole('combobox', { name: 'Page budget' }) as HTMLSelectElement
+    expect(select.value, String(saved)).toBe(choice)
+    expect((within(section).queryByRole('spinbutton', { name: 'Custom page budget' }) as HTMLInputElement | null)?.value ?? null, String(saved)).toBe(custom)
+    expect(within(section).getByRole('button', { name: 'Save page budget' }).hasAttribute('disabled')).toBe(true)
+    // It sits right after the answer engine settings.
+    const engines = section.parentElement!.querySelector('.project-engine-settings')!
+    expect(engines).not.toBe(section)
+    expect(engines.nextElementSibling).toBe(section)
+  }
+})
+
+test.each(['simple', 'advanced'] as const)('%s Settings shows the saved page budget read-only to a viewer, a managed project writer and an embed', async mode => {
+  const projectWriter = { id: 'key-project-writer', scopes: ['*'], projectId: 'project_citypoint', readOnly: false }
+  const cases = [
+    { label: 'viewer', embed: undefined, options: { accountRole: 'viewer' as const } },
+    { label: 'managed project writer', embed: undefined, options: { apiKey: projectWriter, managedRunKinds: ['site-audit' as const] } },
+    { label: 'embed', embed: { enabled: true, projectTabs: ['settings'] }, options: {} },
+  ]
+  for (const { label, embed, options } of cases) {
+    const html = await renderAt('/projects/project_citypoint/settings', embed, advancedSettings(mode), {
+      ...options,
+      configureFixture(dashboard) {
+        dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!.project.siteAuditMaxPages = 2_500
+      },
+    })
+    const section = siteHealthScansSection(html)
+    expect(section.textContent, label).toBe('Site Health scansPage budget: 2,500 pages')
+    expect(within(section).queryByRole('combobox'), label).toBeNull()
+    expect(within(section).queryByRole('button', { name: /Save|Cancel/ }), label).toBeNull()
+  }
+})
+
+test.each(['simple', 'advanced'] as const)('%s Settings lets a project writer edit the page budget when Site Health scans are not managed', async mode => {
+  const html = await renderAt('/projects/project_citypoint/settings', undefined, advancedSettings(mode), {
+    apiKey: { id: 'key-project-writer', scopes: ['*'], projectId: 'project_citypoint', readOnly: false },
+    managedRunKinds: ['answer-visibility'],
+  })
+  const select = within(siteHealthScansSection(html)).getByRole('combobox', { name: 'Page budget' }) as HTMLSelectElement
+  expect(select.value).toBe('full')
+})
+
+test.each(['simple', 'advanced'] as const)('%s Settings saves the page budget through the project PUT without touching other fields', async mode => {
+  const fixture = createDashboardFixture({})
+  const project = fixture.dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+  project.project.siteAuditMaxPages = 2_500
+  project.recentRuns = []
+  fixture.dashboard.runs = []
+
+  const puts: Array<Record<string, unknown>> = []
+  let stored: Record<string, unknown> = { ...project.project, aliases: ['A1 Citypoint'] }
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const request = input instanceof Request ? input : new Request(String(input))
+    const url = new URL(request.url, window.location.origin)
+    const path = decodeURIComponent(url.pathname)
+    if (path.endsWith(`/projects/${project.project.name}`)) {
+      if (request.method === 'PUT') {
+        const body = await request.clone().json() as Record<string, unknown>
+        puts.push(body)
+        stored = { ...stored, ...body }
+      }
+      return jsonResponse(stored)
+    }
+    if (path.endsWith('/projects')) return jsonResponse([stored])
+    if (path.endsWith('/measurement-plan')) return jsonResponse(mode === 'advanced' ? measurementPlanV2Response(2) : { active: null })
+    if (path.endsWith('/measurement-setup')) return jsonResponse(mode === 'advanced' ? activeMeasurementSetupResponse(2) : simpleMeasurementSetupResponse())
+    if (path.endsWith('/schedules') || path.endsWith('/notifications') || path.endsWith('/runs')) return jsonResponse([])
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  if (mode === 'advanced') {
+    queryClient.setQueryData(getApiV1ProjectsByNameMeasurementPlanQueryKey({ client: heyClient, path: { name: project.project.name } }), measurementPlanV2Response(2))
+  }
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/settings'] })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  const section = await page.findByRole('region', { name: 'Site Health scans' })
+  const select = within(section).getByRole('combobox', { name: 'Page budget' }) as HTMLSelectElement
+  expect(select.value).toBe('2500')
+
+  fireEvent.change(select, { target: { value: '10000' } })
+  fireEvent.click(within(section).getByRole('button', { name: 'Save page budget' }))
+  expect(await within(section).findByText('Page budget saved.')).toBeTruthy()
+  expect(puts).toHaveLength(1)
+  expect(puts[0]!.siteAuditMaxPages).toBe(10_000)
+  // The rest of the project is the stored project, unchanged.
+  expect(puts[0]!.aliases).toEqual(['A1 Citypoint'])
+  expect(puts[0]!.displayName).toBe(project.project.displayName ?? project.project.name)
+  // The project page's cached project now carries the new budget, which Site Health's Scan settings reads.
+  const cached = queryClient.getQueryData(getApiV1ProjectsByNameQueryKey({ client: heyClient, path: { name: project.project.name } })) as { siteAuditMaxPages?: number | null } | undefined
+  expect(cached?.siteAuditMaxPages).toBe(10_000)
+
+  // Full site saves null, which the server stores as "no budget".
+  fireEvent.change(select, { target: { value: 'full' } })
+  fireEvent.click(within(section).getByRole('button', { name: 'Save page budget' }))
+  await waitFor(() => expect(puts).toHaveLength(2))
+  expect(puts[1]).toHaveProperty('siteAuditMaxPages', null)
+  await waitFor(() => expect(select.value).toBe('full'))
 })

@@ -112,7 +112,7 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
   {
     path: ['technical-aeo', 'run'],
     usage: 'canonry technical-aeo run <project> [--sitemap-url <url>] [--max-pages <n>] [--max-edges <n>] [--max-depth <n>] [--check-dead-links] [--wait] [--format json]',
-    help: 'Start a Site Health crawl. No answer-engine provider is required. --wait polls for up to 15 minutes. Dead-link checking is off unless --check-dead-links is set.',
+    help: 'Start a Site Health crawl. No answer-engine provider is required. Without --max-pages the scan uses the project\'s saved page budget (canonry project update <project> --site-audit-max-pages <n|full>), else the full site, up to 50,000 pages. --wait polls for up to 15 minutes, so a large full-site scan can outlast it; follow it with canonry technical-aeo progress <project> --run-id <id>. Dead-link checking is off unless --check-dead-links is set.',
     options: {
       'sitemap-url': stringOption(),
       limit: stringOption(),

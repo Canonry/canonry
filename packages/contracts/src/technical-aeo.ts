@@ -1612,6 +1612,14 @@ export const SITE_AUDIT_MAX_PAGE_LIMIT = 50_000
 export const SITE_AUDIT_DEFAULT_PAGE_LIMIT = SITE_AUDIT_MAX_PAGE_LIMIT
 /** A crawl page budget, requested for one scan or saved on a project: whole pages, 1 to the hard limit. */
 export const siteAuditPageBudgetSchema = z.number().int().min(1).max(SITE_AUDIT_MAX_PAGE_LIMIT)
+/** A page count in words: "1 page", "2,500 pages". */
+export function formatPageCount(pages: number): string {
+  return `${pages.toLocaleString('en-US')} ${pages === 1 ? 'page' : 'pages'}`
+}
+/** A saved Site Health page budget in words, lower case: "2,500 pages", or "full site (up to 50,000 pages)" for null. */
+export function formatSiteAuditPageBudget(maxPages: number | null): string {
+  return maxPages === null ? `full site (up to ${formatPageCount(SITE_AUDIT_MAX_PAGE_LIMIT)})` : formatPageCount(maxPages)
+}
 /**
  * The crawler's own depth limit when a request sets none
  * (`DEFAULT_SITE_CRAWL_LIMITS.maxDepth` in `@canonry/aeo-audit`, which a test
