@@ -21,6 +21,7 @@ vi.mock('../src/client.js', () => ({
 }))
 
 import { TECHNICAL_AEO_CLI_COMMANDS } from '../src/cli-commands/technical-aeo.js'
+import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
 import {
   technicalAeoChanges,
   technicalAeoCrawlPages,
@@ -69,7 +70,9 @@ async function captureConsole(fn: () => Promise<void>): Promise<string[]> {
 }
 
 describe('Technical AEO full-crawl CLI', () => {
-  it('leaves omitted budgets for the API to normalize into the shared default identity', async () => {
+  // The API resolves an omitted page budget (the project's saved one, else the
+  // full site), so the CLI must not fill one in.
+  it('leaves omitted budgets for the API to resolve', async () => {
     mocked.triggerSiteAudit.mockResolvedValue({ runId: 'run-defaults', status: 'queued' })
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     try {
@@ -89,6 +92,15 @@ describe('Technical AEO full-crawl CLI', () => {
       maxEdges: undefined,
       checkDeadLinks: false,
     }))
+  })
+
+  it('says in --help that an omitted --max-pages uses the saved budget, else the full site, and that --wait can stop first', async () => {
+    const help = (await captureConsole(async () => {
+      await dispatchRegisteredCommand(['technical-aeo', 'run', '--help'], 'text', TECHNICAL_AEO_CLI_COMMANDS)
+    })).join('\n')
+    expect(help).toContain('Usage:  canonry technical-aeo run <project> [--sitemap-url <url>] [--max-pages <n>]')
+    expect(help).toContain("Without --max-pages the scan uses the project's saved page budget (canonry project update <project> --site-audit-max-pages <n|full>), else the full site, up to 50,000 pages.")
+    expect(help).toContain('--wait polls for up to 15 minutes, so a large full-site scan can outlast it; follow it with canonry technical-aeo progress <project> --run-id <id>.')
   })
 
   it('keeps dead-link checks off unless --check-dead-links is explicitly supplied', async () => {

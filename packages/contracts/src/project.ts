@@ -6,6 +6,7 @@ import { providerDispatchModesSchema } from './provider-batch.js'
 import { brandLabelFromDomain, normalizeProjectDomain } from './url-normalize.js'
 import { brandKeyFromText } from './brand-matching.js'
 import { gbpNegativeReviewMaxStarsSchema } from './gbp.js'
+import { siteAuditPageBudgetSchema } from './technical-aeo.js'
 import { MIN_DOMAIN_BRAND_KEY_LENGTH } from './answer-visibility.js'
 import { competitorEntrySchema, type CompetitorAliasProjectIdentity } from './competitor-aliases.js'
 
@@ -127,6 +128,11 @@ export const projectUpsertRequestSchema = z.object({
    * null resets to the default of 3.
    */
   negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.nullable().optional(),
+  /**
+   * Site Health page budget for scans that set none, manual or scheduled (1 to
+   * 50,000). Omit to keep the stored value; null means the full site.
+   */
+  siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
   configSource: configSourceSchema.optional(),
 })
 
@@ -194,6 +200,8 @@ export const projectDtoSchema = z.object({
   autoExtractBacklinks: z.boolean().default(false),
   /** Negative Google review threshold in stars; null means the default of 3. */
   negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.nullable().optional(),
+  /** Site Health page budget for scans that set none; null means the full site (up to 50,000 pages). */
+  siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
   configSource: configSourceSchema.default('cli'),
   configRevision: z.number().int().positive().default(1),
   createdAt: z.string().optional(),

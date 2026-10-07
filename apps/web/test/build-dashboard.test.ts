@@ -1560,3 +1560,43 @@ test('buildProjectCommandCenter lists completed sweeps from the whole run list, 
   // Newest first, probes left out, as /overview picks its latest and previous sweeps.
   expect(cc.visibilitySweeps.map(item => [item.id, item.status])).toEqual([['run_latest', 'partial'], ['run_prev', 'completed']])
 })
+
+// toProjectDto copies fields one by one, so a field it forgets silently drops
+// out of every project view: Settings would then show a saved page budget as
+// the full site.
+test.each([
+  { stored: 2_500, expected: 2_500 },
+  { stored: 750, expected: 750 },
+  { stored: null, expected: null },
+  // The server formats an unset budget as null; a fixture without the field reads the same.
+  { stored: undefined, expected: null },
+])('project views carry the saved Site Health page budget ($stored)', ({ stored, expected }) => {
+  const data: ProjectData = {
+    project: {
+      id: 'proj_budget',
+      name: 'budget',
+      displayName: 'Budget',
+      canonicalDomain: 'budget.example',
+      ownedDomains: [],
+      country: 'US',
+      language: 'en',
+      tags: [],
+      labels: {},
+      providers: [],
+      ...(stored === undefined ? {} : { siteAuditMaxPages: stored }),
+      configSource: 'api',
+      configRevision: 1,
+      createdAt: '2026-03-10T00:00:00Z',
+      updatedAt: '2026-03-15T00:00:00Z',
+    },
+    runs: [],
+    queries: [],
+    competitors: [],
+    timeline: [],
+    latestRunDetails: [],
+    previousRunDetails: [],
+  }
+
+  expect(buildProjectCommandCenter(data).project.siteAuditMaxPages).toBe(expected)
+  expect(buildPortfolioProject(data).project.siteAuditMaxPages).toBe(expected)
+})

@@ -8,6 +8,7 @@ import {
   siteAuditRequestIdentity,
   siteAuditFactorSummarySchema,
   siteAuditLivePageHealthSchema,
+  siteAuditPageBudgetSchema,
   siteAuditPageFactorSchema,
   siteAuditRunRequestSchema,
   siteAuditRunProgressSchema,
@@ -20,12 +21,23 @@ import {
   siteHealthStateSchema,
   SITE_HEALTH_SCANS_DEFAULT_LIMIT,
   SITE_HEALTH_SCANS_MAX_LIMIT,
+  formatPageCount,
+  formatSiteAuditPageBudget,
 } from '../src/technical-aeo.js'
 import { ratioUnitOf } from '../src/ratio-unit.js'
 
+describe('Site Health page budget wording', () => {
+  it('names a page count and a saved budget the same way everywhere', () => {
+    expect([formatPageCount(1), formatPageCount(2), formatPageCount(2_500), formatPageCount(50_000)]).toEqual(['1 page', '2 pages', '2,500 pages', '50,000 pages'])
+    expect(formatSiteAuditPageBudget(null)).toBe('full site (up to 50,000 pages)')
+    expect([formatSiteAuditPageBudget(1), formatSiteAuditPageBudget(750)]).toEqual(['1 page', '750 pages'])
+  })
+})
+
 describe('Technical AEO crawl contracts', () => {
   it('defaults the page budget but leaves the edge budget unset for the engine to derive', () => {
-    expect(SITE_AUDIT_DEFAULT_PAGE_LIMIT).toBe(1_000)
+    // A scan with no page budget covers the full site, the same budget scheduled audits pass.
+    expect(SITE_AUDIT_DEFAULT_PAGE_LIMIT).toBe(SITE_AUDIT_MAX_PAGE_LIMIT)
     expect(SITE_AUDIT_MAX_PAGE_LIMIT).toBe(50_000)
     expect(SITE_AUDIT_MAX_EDGE_LIMIT).toBe(1_000_000)
     // A flat edge default here caps BELOW the engine's own derivation
@@ -34,7 +46,7 @@ describe('Technical AEO crawl contracts', () => {
     expect(normalizeSiteAuditRunRequest({})).toEqual({
       schemaVersion: 2,
       sitemapUrl: null,
-      maxPages: 1_000,
+      maxPages: 50_000,
       maxEdges: null,
       maxDepth: null,
       checkDeadLinks: false,
@@ -111,8 +123,10 @@ describe('Technical AEO crawl contracts', () => {
 
   it('dedups two unset edge budgets against each other but never against an explicit number', () => {
     const unset = siteAuditRequestIdentity(normalizeSiteAuditRunRequest(siteAuditRunRequestSchema.parse({})))
+    // An omitted page budget is the full site, so it is the same request as an
+    // explicit 50,000 with no edge budget either.
     const alsoUnset = siteAuditRequestIdentity(
-      normalizeSiteAuditRunRequest(siteAuditRunRequestSchema.parse({ maxPages: 1_000 })),
+      normalizeSiteAuditRunRequest(siteAuditRunRequestSchema.parse({ maxPages: 50_000 })),
     )
     // Unset is one stable request, so two unattended crawls still consolidate.
     expect(unset).toBe(alsoUnset)
@@ -132,6 +146,51 @@ describe('Technical AEO crawl contracts', () => {
     // a version-2 request, so a pre-upgrade in-flight run refuses instead of
     // silently absorbing a crawl with different budget semantics.
     expect(JSON.parse(unset)[0]).toBe(2)
+  })
+
+  it('accepts a page budget of whole pages from 1 to the 50,000 hard limit, and nothing else', () => {
+    for (const value of [1, 2_500, 50_000]) {
+      const parsed = siteAuditPageBudgetSchema.safeParse(value)
+      expect(parsed.success, String(value)).toBe(true)
+      expect(parsed.data, String(value)).toBe(value)
+    }
+    // The bare schema has no "full site" value: null is the project field's
+    // nullable wrapper, never a budget a scan can be given.
+    for (const value of [0, -1, 50_001, 1.5, null, '2500']) {
+      expect(siteAuditPageBudgetSchema.safeParse(value).success, JSON.stringify(value)).toBe(false)
+    }
+    // A request's maxPages is the same budget, so the two can never disagree.
+    for (const maxPages of [0, 1.5, null]) {
+      expect(siteAuditRunRequestSchema.safeParse({ maxPages }).success, JSON.stringify(maxPages)).toBe(false)
+    }
+  })
+
+  it('resolves the page budget from maxPages, then limit, then the saved budget, then the full site', () => {
+    const pagesFor = (request: Parameters<typeof normalizeSiteAuditRunRequest>[0], saved?: number | null) =>
+      normalizeSiteAuditRunRequest(request, saved).maxPages
+
+    expect(pagesFor({ maxPages: 40, limit: 30 }, 2_500)).toBe(40)
+    expect(pagesFor({ limit: 30 }, 2_500)).toBe(30)
+    expect(pagesFor({}, 2_500)).toBe(2_500)
+    // No saved budget, stored as null or never read, is the full site.
+    expect(pagesFor({}, null)).toBe(50_000)
+    expect(pagesFor({}, undefined)).toBe(50_000)
+    expect(pagesFor({ maxPages: 40 }, null)).toBe(40)
+
+    // The saved budget changes only the page budget...
+    expect(normalizeSiteAuditRunRequest({}, 2_500)).toEqual({
+      schemaVersion: 2,
+      sitemapUrl: null,
+      maxPages: 2_500,
+      maxEdges: null,
+      maxDepth: null,
+      checkDeadLinks: false,
+    })
+    // ...and is part of identity: it is the same request as asking for that
+    // budget explicitly, and a different one from the full site.
+    const saved = siteAuditRequestIdentity(normalizeSiteAuditRunRequest({}, 2_500))
+    expect(saved).toBe(siteAuditRequestIdentity(normalizeSiteAuditRunRequest({ maxPages: 2_500 })))
+    expect(saved).not.toBe(siteAuditRequestIdentity(normalizeSiteAuditRunRequest({})))
   })
 
   it('makes no crawl data distinct from a zero-count crawl and from disabled dead-link checks', () => {

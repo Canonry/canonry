@@ -506,12 +506,12 @@ Every field after `version` is optional and is omitted rather than nulled, so co
 
 ### Technical AEO / Site Health
 
-`src/scheduler.ts`: `onSiteAuditRequested` starts a Technical AEO full crawl unless one is active.
+`src/scheduler.ts`: a scheduled `site-audit` resolves its page budget with `normalizeSiteAuditRunRequest({}, project.siteAuditMaxPages)` (the project's saved budget, else the full site), records that identity on the run, then calls `onSiteAuditRequested`; it skips when a site-audit run is already queued or running.
 
 `src/execute-site-audit.ts` — `executeSiteAudit` runs `@canonry/aeo-audit`'s `runSiteCrawl`:
 
 - Events update an attempt graph with idempotent receipts. Terminal runs keep immutable complete or partial snapshots. Default reads select the newest one, complete or partial; only the `changes` diff is limited to complete snapshots.
-- The page budget defaults to 1,000; an unset edge budget is left unset so the engine derives it from the resolved page count (floored at 100,000), and an explicit one is a ceiling that replaces the derivation. Hard limits are 50,000 pages and 1,000,000 edges.
+- The page budget is the one the run creator resolved through `normalizeSiteAuditRunRequest`: the request's, else the project's saved `siteAuditMaxPages`, else the full site (`SITE_AUDIT_DEFAULT_PAGE_LIMIT` = the 50,000 hard limit), for manual and scheduled scans alike; onboarding sends its own 100. An unset edge budget is left unset so the engine derives it from the resolved page count (floored at 100,000), and an explicit one is a ceiling that replaces the derivation. Hard limits are 50,000 pages and 1,000,000 edges.
 - The engine (>= 7.1.0) derives `maxFetches`/`maxDurationMs`/`maxBytes`/`maxEdges` from the page budget natively and honours explicit values exactly, so this file passes ONLY `maxPages`/`maxEdges` (the operator-facing limits) and never a fetch-side budget — setting one would pin it and fight the derivation.
 - The engine also makes the dead-link split itself (6.0.0+): `deadLinks.findings` always carry a real 4xx/5xx status and `deadLinks.unverified` carries the targets the crawl could not check (timeout, reset socket, throttled 429), and ONLY findings are written to `site_crawl_findings` — every reader of that table renders a row as a broken link, and a crawl timeout is not evidence of one.
 - `deadLinkCheckedCount` excludes unfetchable targets for the same reason — a URL that never answered was attempted, not checked.

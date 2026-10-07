@@ -1,5 +1,5 @@
 import type { ProjectDto, ProviderDispatchModesMap } from '@ainyc/canonry-contracts'
-import { effectiveDomains, normalizeProjectAliases, resolveNegativeReviewMaxStars, resolveProjectQualifiedAliases } from '@ainyc/canonry-contracts'
+import { effectiveDomains, normalizeProjectAliases, resolveNegativeReviewMaxStars, formatSiteAuditPageBudget, resolveProjectQualifiedAliases } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -10,7 +10,7 @@ function getClient() {
 
 export async function createProject(
   name: string,
-  opts: { domain: string; ownedDomains?: string[]; aliases?: string[]; qualifiedAliases?: string[]; country: string; language: string; displayName: string; providers?: string[]; providerModels?: Record<string, string>; providerDispatchModes?: ProviderDispatchModesMap; format?: string },
+  opts: { domain: string; ownedDomains?: string[]; aliases?: string[]; qualifiedAliases?: string[]; country: string; language: string; displayName: string; providers?: string[]; providerModels?: Record<string, string>; providerDispatchModes?: ProviderDispatchModesMap; siteAuditMaxPages?: number | null; format?: string },
 ): Promise<void> {
   const client = getClient()
   const result: ProjectDto = await client.putProject(name, {
@@ -26,6 +26,9 @@ export async function createProject(
     ...(opts.providerDispatchModes && Object.keys(opts.providerDispatchModes).length > 0
       ? { providerDispatchModes: opts.providerDispatchModes }
       : {}),
+    // Sent only when given: this PUT also re-runs over an existing project,
+    // and an omitted budget keeps the stored one.
+    ...(opts.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: opts.siteAuditMaxPages } : {}),
   })
 
   warnDroppedDispatchModes(opts.providerDispatchModes ?? {}, result)
@@ -132,6 +135,10 @@ export async function showProject(name: string, format?: string): Promise<void> 
   const dispatchModes = Object.entries(project.providerDispatchModes ?? {}).sort(([left], [right]) => left.localeCompare(right))
   console.log(`  Dispatch modes:   ${dispatchModes.length > 0 ? `${dispatchModes.map(([provider, mode]) => `${provider}=${mode}`).join(', ')} (scheduled sweeps; others sync)` : '(none; every provider runs sync)'}`)
   console.log(`  Negative reviews: ${resolveNegativeReviewMaxStars(project.negativeReviewMaxStars)} stars or fewer${project.negativeReviewMaxStars == null ? ' (default)' : ''}`)
+  // Absent only from a server that predates the saved budget: say nothing rather than guess.
+  if (project.siteAuditMaxPages !== undefined) {
+    console.log(`  Site Health page budget: ${formatSiteAuditPageBudget(project.siteAuditMaxPages)}`)
+  }
   console.log(`  Tags:             ${project.tags.length > 0 ? project.tags.join(', ') : '(none)'}`)
   const labelEntries = Object.entries(project.labels)
   console.log(`  Labels:           ${labelEntries.length > 0 ? labelEntries.map(([k, v]) => `${k}=${v}`).join(', ') : '(none)'}`)
@@ -161,6 +168,8 @@ export async function updateProjectSettings(
     clearDispatchModes?: string[]
     /** 1-4 sets the negative-review threshold, null resets it to the default of 3, undefined leaves it. */
     negativeReviewMaxStars?: number | null
+    /** 1-50,000 sets the Site Health page budget, null means the full site, undefined leaves it. */
+    siteAuditMaxPages?: number | null
     format?: string
   },
 ): Promise<void> {
@@ -264,6 +273,9 @@ export async function updateProjectSettings(
     // Sent only when asked for: the server keeps the stored threshold when the
     // field is absent, so a stale read cannot overwrite a newer setting.
     ...(opts.negativeReviewMaxStars !== undefined ? { negativeReviewMaxStars: opts.negativeReviewMaxStars } : {}),
+    // Same for the page budget: never echoed from the read above, so an edit
+    // that does not touch it cannot overwrite a newer one or send a stray null.
+    ...(opts.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: opts.siteAuditMaxPages } : {}),
   })
 
   // What the server was left holding: the map sent, else the stored one.

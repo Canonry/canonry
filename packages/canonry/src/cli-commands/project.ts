@@ -21,12 +21,18 @@ import {
   unknownSubcommand,
 } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
-import { gbpNegativeReviewMaxStarsSchema, providerDispatchModeSchema, type ProviderDispatchModesMap } from '@ainyc/canonry-contracts'
+import {
+  gbpNegativeReviewMaxStarsSchema,
+  providerDispatchModeSchema,
+  SITE_AUDIT_MAX_PAGE_LIMIT,
+  siteAuditPageBudgetSchema,
+  type ProviderDispatchModesMap,
+} from '@ainyc/canonry-contracts'
 
 export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['project', 'create'],
-    usage: 'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--dispatch-mode provider=sync|batch...] [--format json]',
+    usage: 'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--dispatch-mode provider=sync|batch...] [--site-audit-max-pages <1-50000|full>] [--format json]',
     help: 'Create a project. Pass --domain for the public site to scan. Provider credentials are not required for Page Health.',
     options: {
       domain: { type: 'string', short: 'd' },
@@ -39,12 +45,13 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       provider: multiStringOption(),
       'provider-model': multiStringOption(),
       'dispatch-mode': multiStringOption(),
+      'site-audit-max-pages': stringOption(),
     },
     run: async (input) => {
       const name = requireProject(
         input,
         'project.create',
-        'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--dispatch-mode provider=sync|batch...] [--format json]',
+        'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--dispatch-mode provider=sync|batch...] [--site-audit-max-pages <1-50000|full>] [--format json]',
       )
       await createProject(name, {
         domain: getString(input.values, 'domain') ?? name,
@@ -57,13 +64,14 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         providers: getStringArray(input.values, 'provider') ?? [],
         providerModels: parseProviderModelAssignments(getStringArray(input.values, 'provider-model')),
         providerDispatchModes: parseDispatchModeAssignments(getStringArray(input.values, 'dispatch-mode')),
+        siteAuditMaxPages: parseSiteAuditMaxPages(getString(input.values, 'site-audit-max-pages'), 'project.create'),
         format: input.format,
       })
     },
   },
   {
     path: ['project', 'update'],
-    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--format json]',
+    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--site-audit-max-pages <1-50000|full>] [--format json]',
     options: {
       domain: { type: 'string', short: 'd' },
       'owned-domain': multiStringOption(),
@@ -84,12 +92,13 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'dispatch-mode': multiStringOption(),
       'clear-dispatch-mode': multiStringOption(),
       'negative-review-max-stars': stringOption(),
+      'site-audit-max-pages': stringOption(),
     },
     run: async (input) => {
       const name = requireProject(
         input,
         'project.update',
-        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--format json]',
+        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--site-audit-max-pages <1-50000|full>] [--format json]',
       )
       const providers = getStringArray(input.values, 'provider')
       const allProviders = getBoolean(input.values, 'all-providers')
@@ -123,6 +132,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         dispatchModes,
         clearDispatchModes,
         negativeReviewMaxStars: parseNegativeReviewMaxStars(getString(input.values, 'negative-review-max-stars')),
+        siteAuditMaxPages: parseSiteAuditMaxPages(getString(input.values, 'site-audit-max-pages'), 'project.update'),
         format: input.format,
       })
     },
@@ -280,6 +290,25 @@ function parseNegativeReviewMaxStars(raw: string | undefined): number | null | u
     throw usageError('Error: --negative-review-max-stars must be 1, 2, 3, 4, or "default" (3)', {
       message: '--negative-review-max-stars must be 1-4 or "default"',
       details: { command: 'project.update', value: raw },
+    })
+  }
+  return parsed.data
+}
+
+/**
+ * A whole number from 1 to the hard limit saves a Site Health page budget,
+ * `full` saves null (scans cover the full site), absent leaves the stored
+ * budget alone. Validated here so a typo never reaches the server.
+ */
+function parseSiteAuditMaxPages(raw: string | undefined, command: string): number | null | undefined {
+  if (raw === undefined) return undefined
+  const value = raw.trim()
+  if (value.toLowerCase() === 'full') return null
+  const parsed = /^\d+$/.test(value) ? siteAuditPageBudgetSchema.safeParse(Number(value)) : undefined
+  if (!parsed?.success) {
+    throw usageError(`Error: --site-audit-max-pages must be a whole number of pages from 1 to ${SITE_AUDIT_MAX_PAGE_LIMIT}, or "full" for the full site`, {
+      message: `--site-audit-max-pages must be 1-${SITE_AUDIT_MAX_PAGE_LIMIT} or "full"`,
+      details: { command, option: 'site-audit-max-pages', value: raw },
     })
   }
   return parsed.data

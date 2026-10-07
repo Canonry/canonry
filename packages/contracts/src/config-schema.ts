@@ -12,6 +12,7 @@ import { measurementConfigSchema, defaultMeasurementConfig } from './measurement
 import { providerDispatchModesSchema } from './provider-batch.js'
 import { gbpNegativeReviewMaxStarsSchema } from './gbp.js'
 import { competitorEntrySchema } from './competitor-aliases.js'
+import { siteAuditPageBudgetSchema } from './technical-aeo.js'
 
 export const configMetadataSchema = z.object({
   name: z.string().min(1).max(63).regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, {
@@ -90,6 +91,12 @@ export const configSpecSchema = z.object({
   autoExtractBacklinks: z.boolean().optional().default(false),
   /** Highest star rating that counts as a negative Google review (1-4). Omitted means the default of 3. */
   negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.optional(),
+  /**
+   * Site Health page budget for scans that set none (1-50,000); null means the
+   * full site. Absent leaves the stored value alone, so a re-apply that never
+   * mentions it cannot undo a budget set in the dashboard.
+   */
+  siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
 }).superRefine((spec, ctx) => {
   if (spec.queries !== undefined && spec.keywords !== undefined) {
     ctx.addIssue({

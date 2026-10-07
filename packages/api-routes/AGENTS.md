@@ -308,6 +308,8 @@ Any operation that can SKIP or REUSE work has an identity key: in-flight consoli
 
 The failure mode this prevents: a new semantics-bearing parameter is wired parse → forward → consumer while an existing reuse branch between parse and forward silently returns another request's result (a caller gets probes seeded for a different buyer, with `200 consolidated: true` and no error). When touching such a route, read the ENTIRE handler between request parse and operation kickoff — hunting for early-return, reuse, and cache branches — not just the lines the diff touches.
 
+A saved project setting that fills an omitted identity parameter joins identity as its RESOLVED value. Site Health: `POST /technical-aeo/runs` resolves an omitted `maxPages` to the project's `siteAuditMaxPages`, else the full site, in `normalizeSiteAuditRunRequest` BEFORE `siteAuditRequestIdentity`, and the scheduler resolves the same way, so a run records the budget it used. Changing the saved budget while a scan is active makes the next omitted-budget request a different identity: it gets `409 OPERATION_IN_PROGRESS`, not the running scan.
+
 ### Config-as-code apply
 
 Projects are managed via `canonry.yaml` files with Kubernetes-style structure:
@@ -338,6 +340,8 @@ Locations are project-scoped via `spec.locations` and `spec.defaultLocation`. Ru
 `spec.competitors` always replaces the competitor domain set, but rows for domains that stay are kept (id, provenance, aliases). An entry is a domain string or `{ domain, aliases }`: a string (or an object without `aliases`) keeps that competitor's stored aliases, an object with `aliases` sets them exactly (`[]` clears). Stated aliases that fail the shared rules fail the apply before any write; carried-over aliases that no longer qualify (the spec's project identity now claims the name) are dropped and audited as `droppedCompetitorAliases`. Export writes aliased competitors as objects so export then apply round-trips.
 
 `spec.queries` (and its legacy `keywords` alias) is declarative WHEN PRESENT: the tracked basket is replaced to match it, and an explicit empty list clears it. A spec that OMITS the field leaves the tracked basket untouched, so a config converge that only manages providers/locations/metadata cannot wipe live queries (that wipe hit a control plane's boot-time re-apply mid-sweep, 2026-08-29).
+
+`spec.siteAuditMaxPages` (the Site Health page budget for scans that set none, 1 to 50,000) follows the same rule: present sets it, `null` resets it to the full site, absent keeps the stored value. Project `PUT` keeps an omitted value too, because the dashboard and CLI resend the whole project. A new project (POST, PUT create, or apply) starts at the given value or `null`. Project reads and the apply response always carry it (`null` = full site); export emits it only when non-null.
 
 Multiple projects can be defined in one file using `---` document separators. Apply with `canonry apply <file...>` (accepts multiple files) or `POST /api/v1/apply`. Applied project YAML is declarative input; runtime project/run data lives in the DB, while local authentication credentials live in `~/.canonry/config.yaml`.
 
@@ -609,13 +613,13 @@ WordPress backfill is forbidden while either continuation field is set.
 
 ### Technical AEO crawl (Site Health)
 
-- Powered by the `site-audit` run kind and `@canonry/aeo-audit`'s `runSiteCrawl`. A run crawls the sitemap plus internal-link discoveries. Defaults: 1,000 pages; edges derived by the engine from the page count (pages × 50, floor 100,000) unless `--max-edges` is set. Hard limits: 50,000 pages / 1,000,000 edges. Dead-link analysis is off unless requested.
+- Powered by the `site-audit` run kind and `@canonry/aeo-audit`'s `runSiteCrawl`. A run crawls the sitemap plus internal-link discoveries. Page budget: the request's `maxPages`, else the project's saved `siteAuditMaxPages`, else the full site (the 50,000-page hard limit), for manual and scheduled scans alike; edges derived by the engine from the page count (pages × 50, floor 100,000) unless `--max-edges` is set. Hard limits: 50,000 pages / 1,000,000 edges. Dead-link analysis is off unless requested.
 - Progress reports the exact durable phase and raw pages found / checked / failed counters — never a synthesized percentage.
 - Dead-link reports are disabled unless the run used `--check-dead-links`. A listed dead link ALWAYS has a real 4xx/5xx status: an internal target the crawler could not fetch at all (timeout, reset connection, throttling under crawl concurrency) is counted separately as `unverified` and is never listed, because a failed fetch is a fact about the crawl and not about the link. `found` and `checked` both exclude unverified targets, so "0 found, 6 unverified" reads as "nothing broken, six we could not check" rather than as a clean bill of health.
 
 #### Routes (`src/technical-aeo.ts`)
 
-- `POST /technical-aeo/runs` persists normalized request identity before queueing: only identical effective options reuse an active run; a sitemap, budget, depth, or dead-link difference returns `409`.
+- `POST /technical-aeo/runs` persists normalized request identity, with the saved page budget already resolved, before queueing: only identical effective options reuse an active run; a sitemap, budget, depth, or dead-link difference returns `409`.
 - `GET /technical-aeo/runs` is the Site Health scan history: every non-probe site-audit run newest-first, each with `hasCrawlData`.
 - A `runId` naming a real surfaceable run that published no crawl (a legacy score-only scan) gets that route's own no-crawl shape, NOT a 404; only an unknown or foreign `runId` still 404s.
 - Crawl-scoped reads without a `runId` (`resolveCrawl`) select the newest non-probe crawl of a `completed` or `partial` run: a `partial` crawl stopped at an operator-chosen budget, and a site larger than the page budget never produces anything else. Every crawl read carries `complete` / `termination` (`completenessOf`; `false` / null with no crawl), so an absent page or link from a capped scan is never read as site-wide, and the CLI prints the caveat. A scan with no crawl (scorecard-only, failed, cancelled, running) is never the default. Only `changes` requires complete crawls; with only partial ones it answers `partial-not-comparable`.

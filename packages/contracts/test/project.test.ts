@@ -1,6 +1,7 @@
 import { test, expect } from 'vitest'
 import {
   normalizeCompetitorDomain,
+  configSpecSchema,
   normalizeProjectName,
   orderLocationsDefaultFirst,
   projectCreateRequestSchema,
@@ -40,6 +41,35 @@ test('project creation has a dedicated name field and a stable normalized route 
     country: 'US',
     language: 'en',
   }).name).toBe('Acme & Co.')
+})
+
+// ---------------------------------------------------------------------------
+// siteAuditMaxPages: the saved Site Health page budget. Absent must stay
+// absent (not defaulted) so PUT and apply can keep a stored value; null is the
+// explicit "full site" reset.
+// ---------------------------------------------------------------------------
+
+test('project upsert and config spec accept a saved page budget, null and absent, and reject out of range', () => {
+  const upsert = { displayName: 'Acme', canonicalDomain: 'acme.example', country: 'US', language: 'en' }
+  const spec = { displayName: 'Acme', canonicalDomain: 'acme.example', country: 'US', language: 'en' }
+
+  for (const [label, schema, base] of [
+    ['upsert', projectUpsertRequestSchema, upsert],
+    ['config spec', configSpecSchema, spec],
+  ] as const) {
+    for (const value of [1, 2_500, 50_000, null]) {
+      const parsed = schema.safeParse({ ...base, siteAuditMaxPages: value })
+      expect(parsed.success, `${label} ${value}`).toBe(true)
+      expect(parsed.data?.siteAuditMaxPages, `${label} ${value}`).toBe(value)
+    }
+    const absent = schema.safeParse(base)
+    expect(absent.success, label).toBe(true)
+    expect(Object.hasOwn(absent.data!, 'siteAuditMaxPages'), label).toBe(false)
+
+    for (const value of [0, 50_001, 1.5, '2500']) {
+      expect(schema.safeParse({ ...base, siteAuditMaxPages: value }).success, `${label} ${JSON.stringify(value)}`).toBe(false)
+    }
+  }
 })
 
 // ---------------------------------------------------------------------------
