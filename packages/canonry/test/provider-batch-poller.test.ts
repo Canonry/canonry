@@ -149,7 +149,7 @@ describe('deadlines', () => {
     const run = runRow(db, runId)
     expect(run.status).toBe('partial')
     expect(parseRunError(run.error)?.providers?.claude?.message)
-      .toBe('2 of 3 batch answer(s) were not recorded. First: [fake] canceled before processing')
+      .toBe('Batch answers not recorded: 2 of 3. First: [fake] canceled before processing')
     expect(quotaUsed(db, projectId, 'claude')).toBe(1)
     expect(statuses()).toEqual(['partial'])
     expect(completed).toHaveBeenCalledTimes(1)

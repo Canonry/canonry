@@ -311,7 +311,7 @@ describe('batch lines that produce no answer', () => {
     const run = runRow(db, runId)
     expect(run.status).toBe('partial')
     expect(parseRunError(run.error)?.providers?.claude?.message)
-      .toBe('2 of 3 batch answer(s) were not recorded. First: [fake] errored line')
+      .toBe('Batch answers not recorded: 2 of 3. First: [fake] errored line')
     expect(parseRunError(run.error)?.providers?.gemini).toBeUndefined()
     expect(snapshotRows(db, runId).filter(row => row.provider === 'claude').map(row => row.measurementExecutionId)).toEqual(['exec-1'])
     expect(requestRows(db, batch!.id).map(row => [row.executionId, row.outcome, row.error])).toEqual([
@@ -372,7 +372,7 @@ describe('batch lines that produce no answer', () => {
     ])
     const run = runRow(db, runId)
     expect(run.status).toBe('partial')
-    expect(parseRunError(run.error)?.providers?.claude?.message).toMatch(/^1 of 2 batch answer\(s\) were not recorded\. First: \[provider-claude\] .*max_uses_exceeded/)
+    expect(parseRunError(run.error)?.providers?.claude?.message).toMatch(/^Batch answers not recorded: 1 of 2\. First: \[provider-claude\] .*max_uses_exceeded/)
     // An answer that came back was billed, readable or not: nothing is released.
     expect(batchRows(db, runId)[0]).toMatchObject({ quotaReleased: 0 })
     expect(quotaUsed(db, projectId, 'claude')).toBe(2)
