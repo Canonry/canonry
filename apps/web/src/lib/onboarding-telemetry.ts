@@ -51,6 +51,7 @@ const BLOCK_REASON_BY_ERROR_CODE: Readonly<Record<string, OnboardingBlockReason>
   RATE_LIMITED: 'rate_limited',
   QUOTA_EXCEEDED: 'rate_limited',
   PROVIDER_AUTH: 'provider_auth',
+  PROVIDERS_FAILING: 'provider_auth',
   AUTH_INVALID: 'provider_auth',
   FORBIDDEN: 'provider_auth',
   NETWORK: 'network',

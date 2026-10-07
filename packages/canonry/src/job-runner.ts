@@ -8,7 +8,7 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 import { recordSentimentCompletion, parseJsonColumn, providerBatches, providerBatchRequests, runFills, runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
 import type { PricingTier, ProviderBatchRequestOutcome, ProviderBatchResultLine, ProviderBatchStatus, ProviderBatchSubmitResult, ProviderDispatchMode, ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RawQueryResult, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto, RunStatus, TrackedQueryRequest } from '@ainyc/canonry-contracts'
 import { PricingTiers, ProviderBatchRequestOutcomes, ProviderBatchStatuses, ProviderBatchSubmitError, ProviderDispatchModes, RUN_FILL_PROVIDER_BREAKER, buildSnapshotUsage, formatRunErrorOneLine, parseRunError, resolveProviderModel } from '@ainyc/canonry-contracts'
-import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, competitorLabelFromDomain, computeCompetitorOverlap, extractRecommendedCompetitors, normalizeCompetitorAliases, type CompetitorIdentityInput, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isSearchLocationIgnored, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
+import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, competitorLabelFromDomain, computeCompetitorOverlap, extractRecommendedCompetitors, normalizeCompetitorAliases, type CompetitorIdentityInput, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildProviderRunError, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isSearchLocationIgnored, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
 import { backfillProjectAnswerMentions, captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep, type RunCompetitors } from '@ainyc/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
@@ -311,7 +311,7 @@ function runOutcome(inserted: number, providerErrors: ReadonlyMap<ProviderName, 
   const allFailed = inserted === 0 && someFailed
   return {
     status: allFailed ? RunStatuses.failed : someFailed ? RunStatuses.partial : RunStatuses.completed,
-    error: someFailed ? serializeRunError(buildRunErrorFromMessages(providerErrors)) : null,
+    error: someFailed ? serializeRunError(buildProviderRunError(providerErrors)) : null,
   }
 }
 
@@ -482,15 +482,15 @@ function classifyRunAbortReason(message: string): RunAbortReason | undefined {
   return undefined
 }
 
-/**
- * Coarse error category for runtime provider failures, used for telemetry
- * only. Best-effort regex match — not load-bearing for any control flow,
- * just a histogram bucket so dashboards can answer "why are real audit
- * failures happening?" without reading raw error strings.
- */
 /** How far back `priorFailureStreak` looks; a longer streak reports as this. */
 const FAILURE_STREAK_LOOKBACK = 50
 
+/**
+ * The most actionable provider error code of a run, for `run.completed`
+ * telemetry. The same classifier stamps each provider's `code` on the stored
+ * run error, which run admission reads (`providerAccountRefusal`), so a
+ * change to its patterns changes which runs are refused, not only a histogram.
+ */
 function classifyProviderErrors(
   errors: ReadonlyMap<ProviderName, string>,
 ): ProviderErrorCode {
@@ -2523,7 +2523,7 @@ export class JobRunner {
         // provider this fill tried carries its new reason; any other keeps
         // its original entry untouched, raw detail included.
         const previous = parseRunError(parent?.error)?.providers ?? {}
-        const fresh = buildRunErrorFromMessages(input.providerErrors).providers ?? {}
+        const fresh = buildProviderRunError(input.providerErrors).providers ?? {}
         const remaining = new Map<string, number>()
         for (const slot of state.missing) remaining.set(slot.provider, (remaining.get(slot.provider) ?? 0) + 1)
         const providers: Record<string, RunProviderErrorDto> = {}

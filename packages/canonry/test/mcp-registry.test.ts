@@ -849,6 +849,9 @@ describe('MCP tool registry', () => {
     // Batch dispatch (#1201): the same optional field POST /projects/:name/runs takes.
     expect(schemaProperty(runTriggerRequest, 'dispatchMode')).toMatchObject({ type: 'string', enum: ['sync', 'batch'] })
     expect(runTriggerRequest.required ?? []).not.toContain('dispatchMode')
+    // Account-failure admission override: optional, like every other run field.
+    expect(schemaProperty(runTriggerRequest, 'force')).toMatchObject({ type: 'boolean' })
+    expect(runTriggerRequest.required ?? []).not.toContain('force')
     const projectUpsertRequest = schemaProperty(inputSchemaFor('canonry_project_upsert'), 'request')
     expect(projectUpsertRequest.required ?? []).not.toContain('providerDispatchModes')
     expect(schemaProperty(projectUpsertRequest, 'providerDispatchModes')).toMatchObject({ type: 'object' })

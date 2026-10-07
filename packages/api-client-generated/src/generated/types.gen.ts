@@ -6795,6 +6795,7 @@ export type LatestProjectRunDto = {
                 [key: string]: {
                     message: string;
                     raw?: unknown;
+                    code?: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
                 };
             };
         } | null;
@@ -11244,6 +11245,7 @@ export type ProjectOverviewDto = {
                     [key: string]: {
                         message: string;
                         raw?: unknown;
+                        code?: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
                     };
                 };
             } | null;
@@ -11980,6 +11982,7 @@ export type RunDetailDto = {
             [key: string]: {
                 message: string;
                 raw?: unknown;
+                code?: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
             };
         };
     } | null;
@@ -12167,6 +12170,7 @@ export type RunDto = {
             [key: string]: {
                 message: string;
                 raw?: unknown;
+                code?: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
             };
         };
     } | null;
@@ -19261,6 +19265,10 @@ export type PostApiV1ProjectsByNameRunsData = {
          * How to dispatch the providers. Omitted or `sync` calls each provider per answer. `batch` sends every provider that can (a full sweep of a published plan, a batch-capable provider enabled in config.yaml, every answer's model frozen) to its asynchronous batch API; the rest run sync. Tuning, not identity: it changes cost and latency, never what is measured, and is frozen on the run as `dispatchModes`.
          */
         dispatchMode?: 'sync' | 'batch';
+        /**
+         * Queue the run even when it would be refused with PROVIDERS_FAILING. Admission only; never stored.
+         */
+        force?: boolean;
     };
     path: {
         /**
@@ -19282,7 +19290,7 @@ export type PostApiV1ProjectsByNameRunsErrors = {
      */
     409: ErrorEnvelope;
     /**
-     * Project has no tracked queries.
+     * NO_QUERIES: the project has no tracked queries. PROVIDERS_FAILING: every provider the run would call failed on its account (rejected key, denied access, no credit) in each of its last 10 runs. `details.providers` names each provider's code and `details.retryAfter` when one run is let through again (24h after the newest failure). Saving a new key, model or endpoint in a provider's settings lets the next run through at once, a probe is never refused, and `force: true` overrides.
      */
     422: ErrorEnvelope;
     /**
@@ -19368,6 +19376,10 @@ export type PostApiV1RunsData = {
          * How to dispatch the providers. Omitted or `sync` calls each provider per answer. `batch` sends every provider that can (a full sweep of a published plan, a batch-capable provider enabled in config.yaml, every answer's model frozen) to its asynchronous batch API; the rest run sync. Tuning, not identity: it changes cost and latency, never what is measured, and is frozen on the run as `dispatchModes`.
          */
         dispatchMode?: 'sync' | 'batch';
+        /**
+         * Queue projects that would be refused with PROVIDERS_FAILING. Admission only; never stored.
+         */
+        force?: boolean;
     };
     path?: never;
     query?: never;
@@ -19385,7 +19397,7 @@ export type PostApiV1RunsError = PostApiV1RunsErrors[keyof PostApiV1RunsErrors];
 
 export type PostApiV1RunsResponses = {
     /**
-     * One row per project: either a queued run or an error for that project alone. A project that cannot be measured (for example one whose published measurement plan expects a different number of answers per question) never prevents or hides the others.
+     * One row per project: either a queued run or an error for that project alone. A project that cannot be measured (for example one whose published measurement plan expects a different number of answers per question, or one whose providers all keep failing on their accounts: `errorCode: PROVIDERS_FAILING`) never prevents or hides the others.
      */
     207: Array<{
         [key: string]: unknown;

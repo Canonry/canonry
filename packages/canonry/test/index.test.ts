@@ -1390,6 +1390,68 @@ describe('canonry', () => {
     }
   })
 
+  it('settings/providers audits a key rotation without recording the key', async () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-provider-rotate-${crypto.randomUUID()}`)
+    fs.mkdirSync(tmpDir, { recursive: true })
+    vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
+    const dbPath = path.join(tmpDir, 'test.db')
+    const db = createClient(dbPath)
+    migrate(db)
+    const rawKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
+    db.insert(apiKeys).values({
+      id: crypto.randomUUID(),
+      name: 'test',
+      keyHash: crypto.createHash('sha256').update(rawKey).digest('hex'),
+      keyPrefix: rawKey.slice(0, 9),
+      scopes: ['*'],
+      createdAt: new Date().toISOString(),
+    }).run()
+    const app = await createServer({
+      config: {
+        apiUrl: 'http://localhost:4100',
+        database: dbPath,
+        apiKey: rawKey,
+        providers: {
+          gemini: { apiKey: 'g-old-key', model: 'gemini-2.5-flash' },
+          // A key read from OPENAI_API_KEY leaves the entry with an endpoint and no key.
+          openai: { baseUrl: 'https://proxy.example.com/v1', model: 'gpt-5' },
+        },
+      },
+      db,
+      logger: false,
+    })
+
+    try {
+      // Same model and endpoint: only the key changes, which the settings
+      // summary leaves out. Run admission reads this row to let a replaced key
+      // run again, so it must exist.
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/api/v1/settings/providers/gemini',
+        headers: { authorization: `Bearer ${rawKey}` },
+        payload: { apiKey: 'g-new-key' },
+      })
+      expect(res.statusCode).toBe(200)
+      const fromEnv = await app.inject({
+        method: 'PUT',
+        url: '/api/v1/settings/providers/openai',
+        headers: { authorization: `Bearer ${rawKey}` },
+        payload: { apiKey: 'sk-new-key' },
+      })
+      expect(fromEnv.statusCode).toBe(200)
+
+      const rows = db.select().from(auditLog).all().filter(entry => entry.entityType === 'provider')
+      expect(rows.map(row => [row.action, row.entityId]).sort()).toEqual([['provider.updated', 'gemini'], ['provider.updated', 'openai']])
+      for (const row of rows) {
+        expect(JSON.parse(row.diff ?? 'null')).toMatchObject({ apiKeyRotated: true })
+        expect(row.diff).not.toMatch(/g-old-key|g-new-key|sk-new-key/)
+      }
+    } finally {
+      await app.close()
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
   it('SPA deep-link serves index.html with <base href> so relative assets resolve', async () => {
     const tmpDir = path.join(os.tmpdir(), `canonry-spa-base-${crypto.randomUUID()}`)
     fs.mkdirSync(tmpDir, { recursive: true })

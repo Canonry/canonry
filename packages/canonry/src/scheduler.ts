@@ -745,6 +745,18 @@ export class Scheduler {
         if (!claimedOccurrence) this.updateScheduleTiming(currentSchedule.id, { nextRunAt })
         return
       }
+      if (queueResult.refused) {
+        // Every provider failed the project's recent runs on its account. Skip
+        // the slot (the queue already spent a calendar slot). A slot after
+        // `retryAfter`, or after a provider settings change, runs again.
+        log.warn('run.skipped-providers-failing', {
+          projectName: project.name,
+          scheduleId: currentSchedule.id,
+          ...queueResult.refused,
+        })
+        if (!claimedOccurrence) this.updateScheduleTiming(currentSchedule.id, { nextRunAt })
+        return
+      }
 
       const runId = queueResult.runId
       for (const [provider, reason] of Object.entries(queueResult.dispatch.ineligible)) {

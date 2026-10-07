@@ -4,8 +4,8 @@ import { getBoolean, getString, getStringArray, multiStringOption, parseIntegerO
 import { usageError } from '../cli-error.js'
 import { providerDispatchModeSchema, type ProviderDispatchMode } from '@ainyc/canonry-contracts'
 
-const RUN_TRIGGER_USAGE = 'canonry run trigger <project> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--dispatch-mode sync|batch] [--wait] [--format json]'
-const RUN_USAGE = 'canonry run <project|--all> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--dispatch-mode sync|batch] [--wait] [--format json]'
+const RUN_TRIGGER_USAGE = 'canonry run trigger <project> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--dispatch-mode sync|batch] [--force] [--wait] [--format json]'
+const RUN_USAGE = 'canonry run <project|--all> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--dispatch-mode sync|batch] [--force] [--wait] [--format json]'
 const RUN_FILL_USAGE = 'canonry run fill <run-id> [--provider <name>[,<name>]] [--dry-run] [--wait] [--format json]'
 const RUNS_USAGE = 'canonry runs <project> [--limit <n>] [--kind <kind>] [--status <status>] [--format json]'
 
@@ -29,6 +29,9 @@ const RUN_TRIGGER_OPTIONS = {
   // `batch` sends every provider that can to its asynchronous batch API (a
   // full plan sweep, enabled in config.yaml); refused when none can.
   'dispatch-mode': stringOption(),
+  // Run even though every provider failed its recent runs on a rejected key
+  // or an exhausted account (the API refuses with PROVIDERS_FAILING).
+  force: { type: 'boolean', default: false },
 } as const
 
 function parseDispatchMode(value: string | undefined, command: string, usage: string): ProviderDispatchMode | undefined {
@@ -79,6 +82,7 @@ async function triggerRunCommand(input: CliCommandInput, command: string): Promi
       allLocations: getBoolean(input.values, 'all-locations'),
       noLocation: getBoolean(input.values, 'no-location'),
       dispatchMode,
+      force: getBoolean(input.values, 'force'),
       format: input.format,
     })
     return
@@ -112,6 +116,7 @@ async function triggerRunCommand(input: CliCommandInput, command: string): Promi
     noLocation: getBoolean(input.values, 'no-location'),
     probe: getBoolean(input.values, 'probe'),
     dispatchMode,
+    force: getBoolean(input.values, 'force'),
     format: input.format,
   })
 }

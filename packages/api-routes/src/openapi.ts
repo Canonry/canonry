@@ -5,6 +5,8 @@ import {
   AdsOperationStates,
   MIN_PCT_BASE,
   OPERATIONAL_LOG_FIELDS_HEADER,
+  PROVIDER_ACCOUNT_FAILURE_STREAK,
+  PROVIDER_ACCOUNT_RETRY_HOURS,
   providerDispatchModeSchema,
   runKindSchema,
   runStatusSchema,
@@ -2312,6 +2314,10 @@ const routeCatalog: OpenApiOperation[] = [
               allLocations: booleanSchema,
               noLocation: booleanSchema,
               dispatchMode: dispatchModeRequestSchema,
+              force: {
+                type: 'boolean',
+                description: 'Queue the run even when it would be refused with PROVIDERS_FAILING. Admission only; never stored.',
+              },
             },
           },
         },
@@ -2324,7 +2330,13 @@ const routeCatalog: OpenApiOperation[] = [
         + 'a scope combined with a query list, a per-run location on a plan project, a provider roster the plan was not published for, '
         + 'or `dispatchMode: "batch"` when no provider of the run can batch (`details.ineligible` names each provider\'s reason).',
       ),
-      422: errorResponse('Project has no tracked queries.'),
+      422: errorResponse(
+        'NO_QUERIES: the project has no tracked queries. PROVIDERS_FAILING: every provider the run would call failed on its '
+        + `account (rejected key, denied access, no credit) in each of its last ${PROVIDER_ACCOUNT_FAILURE_STREAK} runs. `
+        + '`details.providers` names each provider\'s code and `details.retryAfter` when one run is let through again '
+        + `(${PROVIDER_ACCOUNT_RETRY_HOURS}h after the newest failure). Saving a new key, model or endpoint in a provider's settings `
+        + 'lets the next run through at once, a probe is never refused, and `force: true` overrides.',
+      ),
       409: errorResponse('Run already in progress.'),
       503: errorResponse('No runnable answer provider is configured.'),
     },
@@ -2379,6 +2391,10 @@ const routeCatalog: OpenApiOperation[] = [
               kind: stringSchema,
               providers: stringArraySchema,
               dispatchMode: dispatchModeRequestSchema,
+              force: {
+                type: 'boolean',
+                description: 'Queue projects that would be refused with PROVIDERS_FAILING. Admission only; never stored.',
+              },
             },
           },
         },
@@ -2388,8 +2404,8 @@ const routeCatalog: OpenApiOperation[] = [
       // TODO: Add `TriggerAllRunsResponse` Zod schema in contracts.
       207: rawJsonResponse(
         'One row per project: either a queued run or an error for that project alone. A project that cannot be measured '
-        + '(for example one whose published measurement plan expects a different number of answers per question) never '
-        + 'prevents or hides the others.',
+        + '(for example one whose published measurement plan expects a different number of answers per question, or one '
+        + 'whose providers all keep failing on their accounts: `errorCode: PROVIDERS_FAILING`) never prevents or hides the others.',
         { type: 'array', items: looseObjectSchema },
       ),
       400: errorResponse('Invalid request: an unknown provider name, or an unsupported run kind.'),

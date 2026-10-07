@@ -323,6 +323,9 @@ export const runs = sqliteTable('runs', {
   index('idx_runs_status').on(table.status),
   index('idx_runs_source').on(table.sourceId),
   index('idx_runs_measurement_plan').on(table.projectId, table.measurementPlanVersionId, table.createdAt),
+  // A project's newest runs of one kind: run admission reads ten of them on
+  // every queue (`providerAccountRefusal`), as does the failure-streak count.
+  index('idx_runs_project_kind_created').on(table.projectId, table.kind, table.createdAt),
   foreignKey({
     name: 'runs_measurement_plan_version_fk',
     columns: [table.projectId, table.measurementPlanVersionId],

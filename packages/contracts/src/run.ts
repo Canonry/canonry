@@ -3,6 +3,7 @@ import { locationContextSchema, providerNameSchema } from './provider.js'
 import { citedUrlCaptureStatusSchema } from './cited-urls.js'
 import { measurementExecutionIdentitySchema, measurementRunScopeRequestSchema, measurementRunScopeSchema } from './measurement-plan.js'
 import { retrievalContractSchema, retrievalStatusSchema } from './retrieval.js'
+import { classifyProviderErrorMessage, providerErrorCodeSchema } from './provider-errors.js'
 import { pricingTierSchema, providerBatchStatusSchema, providerDispatchModeSchema, snapshotUsageSchema } from './provider-batch.js'
 
 export const runStatusSchema = z.enum(['queued', 'running', 'completed', 'partial', 'failed', 'cancelled'])
@@ -123,6 +124,12 @@ export const runTriggerRequestSchema = z.object({
    * run sync.
    */
   dispatchMode: providerDispatchModeSchema.optional(),
+  /**
+   * Queue the run even though it would be refused with `PROVIDERS_FAILING`
+   * (see `PROVIDER_ACCOUNT_FAILURE_STREAK`). Admission only: it changes
+   * nothing about what the run measures, and is not stored.
+   */
+  force: z.boolean().optional(),
 }).refine(
   (data) => Number(Boolean(data.location)) + Number(Boolean(data.allLocations)) + Number(Boolean(data.noLocation)) <= 1,
   { message: 'Only one of "location", "allLocations", or "noLocation" may be provided' },
@@ -130,11 +137,26 @@ export const runTriggerRequestSchema = z.object({
 
 export type RunTriggerRequest = z.infer<typeof runTriggerRequestSchema>
 
+/**
+ * Run admission refuses a new answer-visibility run (`PROVIDERS_FAILING`) when
+ * every provider it would call failed on its account (a rejected key, denied
+ * access, or no credit) in each of its last this-many runs.
+ */
+export const PROVIDER_ACCOUNT_FAILURE_STREAK = 10
+/** How long after the newest such failure one run is let through again. */
+export const PROVIDER_ACCOUNT_RETRY_HOURS = 24
+
 export const runProviderErrorSchema = z.object({
   /** Human-readable error message (best-effort extracted from `raw.error.message` / `raw.message`, otherwise the raw text with any `[provider-X]` prefix stripped). */
   message: z.string(),
   /** Original provider response payload, if the underlying error body parsed as JSON. Use this for structured fields like HTTP status, error code, etc. */
   raw: z.unknown().optional(),
+  /**
+   * What kind of failure this was, classified from the provider's full error
+   * text when it happened. Absent on errors stored before per-provider codes
+   * existed and on entries that are not a provider's own failure.
+   */
+  code: providerErrorCodeSchema.optional(),
 })
 
 export type RunProviderErrorDto = z.infer<typeof runProviderErrorSchema>
@@ -298,6 +320,21 @@ export function buildRunErrorFromMessages(messages: Iterable<readonly [string, s
   const providers: Record<string, RunProviderErrorDto> = {}
   for (const [name, msg] of messages) {
     providers[name] = parseProviderErrorMessage(msg)
+  }
+  return { providers }
+}
+
+/**
+ * `buildRunErrorFromMessages` for answer-provider failures: each entry also
+ * carries its `code`, classified from the raw message. The stored `message`
+ * keeps only the readable part of a JSON body, which drops the very markers
+ * that tell a Gemini rate limit (`RESOURCE_EXHAUSTED`) from an exhausted
+ * account, so the code has to be decided here rather than read back later.
+ */
+export function buildProviderRunError(messages: Iterable<readonly [string, string]>): RunErrorDto {
+  const providers: Record<string, RunProviderErrorDto> = {}
+  for (const [name, msg] of messages) {
+    providers[name] = { ...parseProviderErrorMessage(msg), code: classifyProviderErrorMessage(msg) }
   }
   return { providers }
 }

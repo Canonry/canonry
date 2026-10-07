@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildProviderRunError,
   buildRunErrorFromMessages,
   formatRunErrorOneLine,
   parseProviderErrorMessage,
@@ -43,6 +44,22 @@ describe('buildRunErrorFromMessages', () => {
         openai: { message: 'timeout' },
       },
     })
+  })
+})
+
+describe('buildProviderRunError', () => {
+  it('stamps each provider with the code its full message classifies to, not the readable part', () => {
+    const geminiRateLimit = `[provider-gemini] ${JSON.stringify({
+      error: { code: 429, message: 'You exceeded your current quota, please check your plan and billing details.', status: 'RESOURCE_EXHAUSTED' },
+    })}`
+    const stored = buildProviderRunError(new Map([
+      ['gemini', geminiRateLimit],
+      ['openai', '[provider-openai] 429 You exceeded your current quota, please check your plan and billing details.'],
+    ])).providers!
+    // The stored message drops RESOURCE_EXHAUSTED, the one marker that makes
+    // this a rate limit and not an exhausted account.
+    expect(stored.gemini).toMatchObject({ message: 'You exceeded your current quota, please check your plan and billing details.', code: 'RATE_LIMITED' })
+    expect(stored.openai).toMatchObject({ code: 'PROVIDER_BILLING' })
   })
 })
 

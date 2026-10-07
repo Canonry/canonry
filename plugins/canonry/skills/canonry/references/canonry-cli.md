@@ -113,6 +113,7 @@ cnry run <project> --all-locations             # run for every configured locati
 cnry run <project> --no-location               # explicitly skip location context
 cnry run <project> --probe --provider openai --query "..."  # operator/agent test run — snapshot is inspectable but EXCLUDED from dashboard, analytics, intelligence, report, and notifications. Use for verification / "did this fix work?" / regression hypothesis testing.
 cnry run <project> --dispatch-mode batch       # send every eligible provider to its batch API (half-price tokens; answers can take up to the deadline)
+cnry run <project> --force                     # run even though every provider keeps failing on its account (see PROVIDERS_FAILING below)
 cnry run --all --wait                          # all projects
 cnry run cancel <project> [run-id]             # force-cancel stuck runs
 cnry run completeness <run-id>                 # answered vs missing answers per provider, and whether a fill is allowed
@@ -133,6 +134,13 @@ Run statuses: `queued` → `running` → `completed` / `failed` / `partial`
 - `completed`, `partial`, and `cancelled` → exit `0`. A partial run kept its answers, so finish it with `cnry run fill` instead of re-running the sweep. A cancelled run was stopped by an operator.
 - A batch-pending run (see Batch mode below) still reads `running`, so `--wait` stops there and exits `0`.
 - Without `--wait` the command exits `0` once the run is queued; read the outcome with `cnry run show <id>`.
+
+A run is refused before it starts, exit `1` with `PROVIDERS_FAILING`, when every provider it would call failed on its account in each of its last 10 runs: a rejected key or denied access (`PROVIDER_AUTH`) or no credit left (`PROVIDER_BILLING`). A narrower run (`--provider`, a probe) neither resets nor extends the other providers' counts. `details.providers` names each provider's code, as does `error.providers.<name>.code` on each failed run. Another run would only fail the same way, so fix the key, access or billing in the provider's console or settings, then:
+
+- Saving a new key, model or endpoint in the provider's settings (`cnry settings provider <name> --api-key <key>`) lets the next run through at once. A quota-only edit, or a change to the project's own model override, does not.
+- Otherwise (a billing top-up, an edited `config.yaml`) one run is let through 24 hours after the newest failure finished (`details.retryAfter`); scheduled sweeps skip their slots until then (`run.skipped-providers-failing` in the server log).
+- `cnry run <project> --probe` is never refused, and a probe that succeeds clears the refusal: use it to check a fix.
+- `--force` (`"force": true` on the API, `request.force` over MCP) runs now. Use it only when the user asks to run anyway.
 
 A partial run of a published measurement plan can be finished with `cnry run fill <run-id>`: it asks only the questions that have no answer yet, writes them into the same run, and marks the run `completed` once every expected answer exists. The run keeps its id, timestamps and place in history, so reports show one sweep, never two. It is refused (with a reason code) when the plan was republished since, the run started more than 24 hours ago (for a run that used batch mode: finished more than 24 hours ago), a newer sweep exists, or a missing answer has no frozen model. A provider that fails 3 times in a row is stopped for that fill; fill again once its limit lifts. Do not re-run the whole sweep to recover a few failed answers.
 
