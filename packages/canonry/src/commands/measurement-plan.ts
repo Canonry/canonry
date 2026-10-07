@@ -15,6 +15,7 @@ import {
   measurementPortfolioSummaryQuerySchema,
   measurementPropertyCompetitorsQuerySchema,
   unattributedAnswersLabel,
+  uncheckedSourcesLabel,
   UNATTRIBUTED_MENTION_REASON,
   type MeasurementAnswerEvidence,
   type MeasurementAttributionEvidence,
@@ -439,6 +440,16 @@ function unattributedText(metric: MetricValue): string | null {
   return metric.state === 'available' ? unattributedAnswersLabel(metric) : null
 }
 
+/** Answers a citation rate left out because their source-link capture was incomplete. */
+function uncheckedText(metric: MetricValue): string | null {
+  return metric.state === 'available' ? uncheckedSourcesLabel(metric) : null
+}
+
+/** A rate followed by the note naming the answers it left out, when there is one. */
+function metricWithNote(metric: MetricValue, note: string | null): string {
+  return `${metricText(metric)}${note ? ` · ${note}` : ''}`
+}
+
 function metricText(metric: MetricValue): string {
   if (metric.state === 'unavailable') return METRIC_REASONS[metric.reason] ?? `not measured (${metric.reason})`
   const percent = formatPercent(metric.value)
@@ -485,19 +496,24 @@ function printMeasurementProperty(response: MeasurementOverviewResponse): void {
   lines.push(`Measurement: ${response.measurement.state}${response.measurement.displayedRunId ? ` · run ${response.measurement.displayedRunId}` : ''}`)
   lines.push('')
   const mention = row ? row.mentionCoverage : response.metrics.mentionCoverage
-  const unattributed = unattributedText(mention)
-  lines.push(`Mentioned  ${metricText(mention)}${unattributed ? ` · ${unattributed}` : ''}`)
-  lines.push(`Cited      ${metricText(row ? row.citationCoverage : response.metrics.citationCoverage)}`)
+  const citation = row ? row.citationCoverage : response.metrics.citationCoverage
+  lines.push(`Mentioned  ${metricWithNote(mention, unattributedText(mention))}`)
+  lines.push(`Cited      ${metricWithNote(citation, uncheckedText(citation))}`)
   if (row && row.flags > 0) lines.push(`Flagged    ${row.flags} ${row.flags === 1 ? 'result needs' : 'results need'} review`)
 
   if (row && row.providers.length > 0) {
+    const engineWidth = 14
+    const mentionWidth = 34
     lines.push('')
-    lines.push(`${'Engine'.padEnd(14)}${'Mentioned'.padEnd(34)}Cited`)
+    lines.push(`${'Engine'.padEnd(engineWidth)}${'Mentioned'.padEnd(mentionWidth)}Cited`)
     for (const provider of row.providers) {
-      lines.push(`${provider.provider.padEnd(14)}${metricText(provider.mentionCoverage).padEnd(34)}${metricText(provider.citationCoverage)}`)
-      // Continues under the Mentioned column so the table's columns stay aligned.
+      lines.push(`${provider.provider.padEnd(engineWidth)}${metricText(provider.mentionCoverage).padEnd(mentionWidth)}${metricText(provider.citationCoverage)}`)
+      // Each note continues on its own line under its own column (mention
+      // under Mentioned, citation under Cited) so the columns stay aligned.
       const providerUnattributed = unattributedText(provider.mentionCoverage)
-      if (providerUnattributed) lines.push(`${''.padEnd(14)}${providerUnattributed}`)
+      if (providerUnattributed) lines.push(`${''.padEnd(engineWidth)}${providerUnattributed}`)
+      const providerUnchecked = uncheckedText(provider.citationCoverage)
+      if (providerUnchecked) lines.push(`${''.padEnd(engineWidth + mentionWidth)}${providerUnchecked}`)
     }
   }
   console.log(lines.join('\n'))

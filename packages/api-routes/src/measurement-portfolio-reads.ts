@@ -184,6 +184,8 @@ function coverageMetric(rate: MeasurementRate): MetricValue {
     state: 'available', value: rate.rate, numerator: rate.numerator, denominator: rate.denominator,
     // Answers the mention rate left out because their identity was unresolved.
     ...(rate.unattributed === undefined ? {} : { unattributed: rate.unattributed }),
+    // Saved answers the citation rate left out because their source capture was incomplete.
+    ...(rate.unchecked === undefined ? {} : { unchecked: rate.unchecked }),
   }
 }
 

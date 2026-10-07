@@ -494,7 +494,18 @@ export const measurementMetricValueSchema = z.discriminatedUnion('state', [
      * because they could not be tied to one Property. Absent means none.
      */
     unattributed: z.number().int().positive().optional(),
-  }).strict(),
+    /**
+     * Citation coverage only: saved answers left out of numerator and
+     * denominator because their source-link capture was incomplete. A link
+     * such an answer did capture is not counted either. Absent means none.
+     */
+    unchecked: z.number().int().positive().optional(),
+  }).strict().superRefine((value, ctx) => {
+    // On the object, not the union, so `options[0]` (a ranked row) keeps the rule.
+    if (value.unattributed !== undefined && value.unchecked !== undefined) {
+      ctx.addIssue({ code: 'custom', path: ['unchecked'], message: 'A metric reads one signal: unattributed (mention) and unchecked (citation) cannot share it' })
+    }
+  }),
   z.object({
     state: z.literal('unavailable'),
     reason: measurementMetricUnavailableReasonSchema,

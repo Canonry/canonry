@@ -7,7 +7,7 @@
  * prevents a read from mutating or re-fetching evidence.
  */
 
-import { answerProseForMentions, normalizeMeasurementHost } from '@ainyc/canonry-contracts'
+import { answerProseForMentions, normalizeMeasurementHost, rateOverChecked } from '@ainyc/canonry-contracts'
 
 export type MeasurementAttributionClass =
   | 'assigned'
@@ -177,12 +177,14 @@ export interface MeasurementAnswerEvidence {
 
 /**
  * `unattributed` appears only on a mention rate that left answers out because
- * their identity could not be tied to one Property. Those answers are in
- * neither the numerator nor the denominator; absent means none were left out.
+ * their identity could not be tied to one Property. `unchecked` appears only on
+ * a citation rate that left saved answers out because their source capture was
+ * incomplete. Those answers are in neither the numerator nor the denominator;
+ * absent means none were left out. The two never share one rate.
  */
 export type MeasurementRate =
-  | { numerator: number; denominator: number; rate: number; reason?: never; unattributed?: number }
-  | { numerator: null; denominator: null; rate: null; reason: MeasurementMetricReason; unattributed?: never }
+  | { numerator: number; denominator: number; rate: number; reason?: never; unattributed?: number; unchecked?: number }
+  | { numerator: null; denominator: null; rate: null; reason: MeasurementMetricReason; unattributed?: never; unchecked?: never }
 
 export interface MeasurementCompleteness {
   executed: number
@@ -996,7 +998,8 @@ function completeness(
  * some observations land with partial citation capture. Those rows are not zeros
  * and they are not grounds to refuse the whole population: they simply leave the
  * denominator. Every source-dependent rate is computed over exactly this basis,
- * and `MeasurementCompleteness.sourceCompleteObservations` reports its size.
+ * and `MeasurementCompleteness.sourceCompleteObservations` reports its size. An
+ * answer-level rate also counts the rows it left out as `unchecked`.
  */
 function sourceCompleteSlots(
   slots: readonly MeasurementExpectedSlotInput[],
@@ -1015,14 +1018,15 @@ function coverageRate(
   if (!status.complete) return { numerator: null, denominator: null, rate: null, reason: 'incomplete' }
 
   const basis = sourceCompleteSlots(slots, prepared)
-  if (basis.length === 0) return { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' }
-
   const edgeIds = new Set(edges.map(edge => edge.id))
   const assignedSlots = new Set(prepared.evidence
     .filter(row => edgeIds.has(row.usageEdgeId) && row.classification === 'assigned')
     .map(row => row.expectedSlotId))
   const numerator = basis.filter(slot => assignedSlots.has(slot.id)).length
-  return { numerator, denominator: basis.length, rate: numerator / basis.length }
+  // Every slot executed (checked above), so the slots outside the basis are
+  // exactly the saved answers whose capture was incomplete.
+  return rateOverChecked(numerator, slots.length, slots.length - basis.length, 'unchecked')
+    ?? unavailable('evidence-incomplete')
 }
 
 function targetCoverageRate(
@@ -1077,11 +1081,7 @@ function mentionRate(
  * The rate is still unavailable when no answer is left to measure.
  */
 function attributableMentionRate(numerator: number, answered: number, unattributed: number): MeasurementRate {
-  const denominator = answered - unattributed
-  if (denominator <= 0) return unavailable('identity-ambiguous')
-  return unattributed > 0
-    ? { numerator, denominator, rate: numerator / denominator, unattributed }
-    : { numerator, denominator, rate: numerator / denominator }
+  return rateOverChecked(numerator, answered, unattributed, 'unattributed') ?? unavailable('identity-ambiguous')
 }
 
 function providersFor(slots: readonly MeasurementExpectedSlotInput[]): string[] {
@@ -1208,6 +1208,8 @@ interface MeasurementOverviewIndexes {
   targetsById: ReadonlyMap<string, readonly MeasurementTargetInput[]>
   targetEdgesByTargetId: ReadonlyMap<string, readonly MeasurementTargetUsageEdge[]>
   slotsByExecutionId: ReadonlyMap<string, readonly MeasurementExpectedSlotInput[]>
+  /** Slots with a saved observation, answer text or not. */
+  observedSlotIds: ReadonlySet<string>
   answeredSlotIds: ReadonlySet<string>
   sourceCompleteSlotIds: ReadonlySet<string>
   mentionedSlotIdsByTargetId: ReadonlyMap<string, ReadonlySet<string>>
@@ -1250,11 +1252,13 @@ function buildMeasurementOverviewIndexes(
     slotsByExecutionId.set(slot.executionId, slots)
   }
 
+  const observedSlotIds = new Set<string>()
   const answeredSlotIds = new Set<string>()
   const sourceCompleteSlotIds = new Set<string>()
   const mentionedSlotIdsByTargetId = new Map<string, Set<string>>()
   const unknownMentionSlotIdsByTargetId = new Map<string, Set<string>>()
   for (const [slotId, observation] of prepared.observationsBySlot) {
+    observedSlotIds.add(slotId)
     if (observation.sourceComplete) sourceCompleteSlotIds.add(slotId)
     if (observation.input.answerText === null) continue
     answeredSlotIds.add(slotId)
@@ -1290,6 +1294,7 @@ function buildMeasurementOverviewIndexes(
     targetsById,
     targetEdgesByTargetId,
     slotsByExecutionId,
+    observedSlotIds,
     answeredSlotIds,
     sourceCompleteSlotIds,
     mentionedSlotIdsByTargetId,
@@ -1389,21 +1394,31 @@ function scopeMentionRate(
   return attributableMentionRate(numerator, answered.length, unattributed)
 }
 
+/**
+ * Citation coverage over the slots whose source capture is complete.
+ *
+ * A slot with no saved observation withholds the rate: a missing answer is not
+ * measured. A saved answer whose capture is incomplete leaves BOTH sides and is
+ * counted in `unchecked`, even when the links it did capture name the Property,
+ * so a few such answers in thousands cannot blank the number. With no checked
+ * answer left the rate is unavailable as `evidence-incomplete`.
+ */
 function indexedScopeCitationRate(
   slots: readonly MeasurementExpectedSlotInput[],
   edges: readonly MeasurementUsageEdgeInput[],
   indexes: MeasurementOverviewIndexes,
 ): MeasurementRate {
   if (slots.length === 0) return unavailable('no-population')
+  if (slots.some(slot => !indexes.observedSlotIds.has(slot.id))) return unavailable('evidence-incomplete')
   const basis = slots.filter(slot => indexes.sourceCompleteSlotIds.has(slot.id))
-  if (basis.length !== slots.length) return unavailable('evidence-incomplete')
 
   const assignedSlots = new Set<string>()
   for (const edge of edges) {
     for (const slotId of indexes.assignedSlotIdsByEdgeId.get(edge.id) ?? []) assignedSlots.add(slotId)
   }
   const numerator = basis.filter(slot => assignedSlots.has(slot.id)).length
-  return { numerator, denominator: basis.length, rate: numerator / basis.length }
+  return rateOverChecked(numerator, slots.length, slots.length - basis.length, 'unchecked')
+    ?? unavailable('evidence-incomplete')
 }
 
 function targetMentionRate(

@@ -109,6 +109,14 @@ describe('version-one advanced measurement adapter', () => {
     expect(adapted.overall.aggregate.properties[0]!.citationCoverage).toEqual({ numerator: 1, denominator: 1 })
   })
 
+  it('carries the answers a revision report could not check out of a citation rate', () => {
+    const partial = structuredClone(report)
+    partial.targets[0]!.citationCoverage = { numerator: 1, denominator: 1, rate: 1, unchecked: 2 }
+    const adapted = adaptVersionOneMeasurementReport(activePlan, partial)
+    expect(adapted.overall.aggregate.properties[0]!.citationCoverage).toEqual({ numerator: 1, denominator: 1, unchecked: 2 })
+    expect(adapted.overall.aggregate.properties[0]!.mentionCoverage).toEqual({ numerator: 1, denominator: 1 })
+  })
+
   it('reports legacy completeness and bridged provenance even without citation evidence', () => {
     const adapted = adaptVersionOneMeasurementReport(activePlan, {
       ...report,

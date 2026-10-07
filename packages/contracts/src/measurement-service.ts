@@ -171,10 +171,14 @@ export const measurementMetricReasonSchema = z.enum([
 export type MeasurementMetricReason = z.infer<typeof measurementMetricReasonSchema>
 
 /**
- * A rate is either measured or wholly unavailable. Missing evidence never
- * shrinks a denominator. The one exclusion is a mention rate's unattributable
- * answers: an answer whose identity could not be tied to one Property leaves
- * both sides of the rate and is counted in `unattributed` (absent means none).
+ * A rate is either measured or wholly unavailable. A missing answer never
+ * shrinks a denominator. Two kinds of saved answer leave both sides of a rate
+ * and are counted beside it instead (absent means none):
+ * - `unattributed`, on a mention rate: the answer's identity could not be tied
+ *   to one Property.
+ * - `unchecked`, on a citation rate: the answer's source-link capture was
+ *   incomplete. A link it did capture is not counted either.
+ * One rate reads one signal, so the two never appear together.
  */
 export const measurementRateSchema = z.union([
   z.object({
@@ -182,6 +186,7 @@ export const measurementRateSchema = z.union([
     denominator: z.number().int().positive(),
     rate: fraction(z.number().min(0).max(1)),
     unattributed: z.number().int().positive().optional(),
+    unchecked: z.number().int().positive().optional(),
   }).strict(),
   z.object({
     numerator: z.null(),
@@ -192,6 +197,9 @@ export const measurementRateSchema = z.union([
 ]).superRefine((value, ctx) => {
   if (value.numerator !== null && value.numerator > value.denominator) {
     ctx.addIssue({ code: 'custom', path: ['numerator'], message: 'Rate numerator cannot exceed denominator' })
+  }
+  if (value.numerator !== null && value.unattributed !== undefined && value.unchecked !== undefined) {
+    ctx.addIssue({ code: 'custom', path: ['unchecked'], message: 'A rate reads one signal: unattributed (mention) and unchecked (citation) cannot share it' })
   }
 })
 export type MeasurementRate = z.infer<typeof measurementRateSchema>

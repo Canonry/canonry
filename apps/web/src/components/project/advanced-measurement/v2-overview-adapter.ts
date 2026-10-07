@@ -48,6 +48,7 @@ function metric(value: OverviewMetric): AdvancedMeasurementMetric {
     numerator: value.numerator,
     denominator: value.denominator,
     ...(value.unattributed === undefined ? {} : { unattributed: value.unattributed }),
+    ...(value.unchecked === undefined ? {} : { unchecked: value.unchecked }),
   }
 }
 

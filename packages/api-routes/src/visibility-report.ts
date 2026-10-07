@@ -463,6 +463,8 @@ function frozenSimpleRun(
       mentionComplete: snapshot.answerText !== null || snapshot.answerMentioned !== null,
       mentionedTargetKeys: mentioned ? ['project'] : [],
       citedTargetKeys: snapshot.citationState === 'cited' ? ['project'] : [],
+      // Simple citation state comes from the stored cited domains, not from
+      // source-URL capture, so a saved Simple answer is never `unchecked`.
       citationComplete: true,
       competitorMentionDomains: competitorSignalsForSnapshot.mentioned,
       competitorCitationDomains: competitorSignalsForSnapshot.cited,
@@ -553,6 +555,7 @@ function legacySimpleRun(
       mentionComplete: snapshot.answerMentioned !== null,
       mentionedTargetKeys: snapshot.answerMentioned === true ? ['project'] : [],
       citedTargetKeys: snapshot.citationState === 'cited' ? ['project'] : [],
+      // Legacy rows carry only the stored citation state (see the frozen-simple note).
       citationComplete: true,
       competitorMentionDomains: [],
       competitorCitationDomains: [],

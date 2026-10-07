@@ -334,12 +334,31 @@ describe('measurement portfolio reads', () => {
     const reach = summary.body.metrics.propertiesMentioned
     expect(reach.state === 'available' ? reach.value : null).toBe(measured.propertyReach.numerator)
     expect(measured.mentionCoverage.rate).toBe(scenario === 'missing-answer' ? null : 0.5)
-    expect(measured.citationCoverage.rate).toBe(scenario === 'complete' ? 0.5 : null)
+    // A missing answer withholds the rate. A saved answer with incomplete
+    // source capture leaves both sides instead and is counted beside the rate:
+    // Harbor is cited in the 1 checked answer.
+    const citation = {
+      complete: {
+        report: { numerator: 1, denominator: 2, rate: 0.5 },
+        metric: { state: 'available', value: 0.5, numerator: 1, denominator: 2 },
+      },
+      'missing-answer': {
+        report: { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' },
+        metric: { state: 'unavailable', reason: 'evidence_incomplete' },
+      },
+      'partial-citation': {
+        report: { numerator: 1, denominator: 1, rate: 1, unchecked: 1 },
+        metric: { state: 'available', value: 1, numerator: 1, denominator: 1, unchecked: 1 },
+      },
+    }[scenario]
+    expect(measured.citationCoverage).toEqual(citation.report)
+    expect(summary.body.metrics.citationCoverage).toEqual(citation.metric)
 
-    // Missing evidence outside the chosen provider must not poison its rate.
+    // Missing evidence outside the chosen provider must not poison its rate,
+    // and an unchecked answer outside it is not counted beside it.
     const filtered = await portfolio(`queryClass=non-brand&runId=${runId}&provider=openai`)
     expect(filtered.body.metrics.mentionCoverage).toMatchObject({ state: 'available', value: 1, numerator: 1, denominator: 1 })
-    expect(filtered.body.metrics.citationCoverage).toMatchObject({ state: 'available', value: 1, numerator: 1, denominator: 1 })
+    expect(filtered.body.metrics.citationCoverage).toEqual({ state: 'available', value: 1, numerator: 1, denominator: 1 })
     const filteredResponse = await app.inject({ method: 'GET', url: `/api/v1/projects/northstar/visibility-report?queryClass=non-brand&runId=${runId}&provider=openai` })
     expect(filteredResponse.statusCode, filteredResponse.body).toBe(200)
     expect(filteredResponse.json<VisibilityReportResponse>().populations[0]!.summary.mentionCoverage).toEqual({ numerator: 1, denominator: 1, rate: 1 })
@@ -747,6 +766,29 @@ describe('measurement portfolio reads', () => {
     expect(children.markets).toHaveLength(3)
     expect(children).toMatchObject({ totalMarkets: 3, marketsTruncated: false })
     expect((await portfolio('limit=1&includeNestedMarkets=true')).body.markets).toHaveLength(6)
+  })
+
+  it('ties Properties at the weakest rate over the checked answers when one answer\'s sources could not be checked', async () => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedFullRun(versionId)
+    // Neither Property is named or cited; gemini's non-brand answer was saved
+    // with incomplete source capture, so each citation rate is 0 of 1 checked.
+    db.update(querySnapshots).set({ captureStatus: 'partial' }).where(and(
+      eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'), eq(querySnapshots.provider, 'gemini'),
+    )).run()
+
+    const { body } = await portfolio('limit=1')
+    const uncheckedZero = { state: 'available', value: 0, numerator: 0, denominator: 1, unchecked: 1 }
+    expect(body.tiedAtWeakest).toEqual({
+      count: 2, mentionRate: 0, citationRate: 0, note: 'tied Properties are ordered by name, not ranked',
+      byMetro: [{ metro: 'Regional comparison', count: 2 }],
+      namedInstead: [],
+      namedInsteadTotal: 0,
+    })
+    expect(body.weakestProperties.map(row => [row.targetKey, row.mentionCoverage, row.citationCoverage])).toEqual([
+      ['bayside', { state: 'available', value: 0, numerator: 0, denominator: 2 }, uncheckedZero],
+    ])
   })
 
   it('reports a tie at the weakest rate and where engines got the tied answers, each answer counted once', async () => {

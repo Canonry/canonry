@@ -15,7 +15,8 @@ vi.mock('recharts', async importOriginal => {
   return {
     ...actual,
     ResponsiveContainer: passthrough,
-    ComposedChart: passthrough,
+    // The plotted rows ride on an attribute, so a test reads which rates are drawn.
+    ComposedChart: ({ children, data }: { children?: ReactNode; data?: unknown[] }) => <div data-points={JSON.stringify(data ?? [])}>{children}</div>,
     CartesianGrid: nul,
     XAxis: nul,
     YAxis: nul,
@@ -185,7 +186,7 @@ describe('headline strip', () => {
     expect(REPORT_HEADLINE_HELP.simpleMention).toBe('Mentioned counts answers naming your brand in the answer text, not in the source links.')
     expect(REPORT_HEADLINE_HELP.simpleCitation).toBe('Cited counts answers linking to your site in the sources behind the answer, not in the answer text.')
     expect(REPORT_HEADLINE_HELP.advancedMention).toBe('An answer counts when it mentions any assigned property. This does not mean every property was mentioned. An answer that could not be tied to one property is left out of the rate, never counted as not mentioned.')
-    expect(REPORT_HEADLINE_HELP.advancedCitation).toBe('An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited.')
+    expect(REPORT_HEADLINE_HELP.advancedCitation).toBe('An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited. An answer whose sources could not be checked is left out of the rate, as neither cited nor not cited, and counted on its own line.')
     // Server truth: eligible = the property has a name to match (`mentionEligible`),
     // reach counts a property once across its answers, and one unknown property
     // makes the whole rate unavailable rather than partial.
@@ -299,6 +300,41 @@ describe('headline strip', () => {
     expect(visibleText(tile(MENTION_LABEL, 'branded'))).not.toContain(VISIBILITY_DISPLAY_COPY.ambiguous)
     // Cited is a separate signal with its own denominator and no such line.
     expect(cell(CITATION_LABEL, 'branded')).toEqual(figure(CITATION_LABEL, 'branded'))
+  })
+
+  it('shows the server citation rate over checked answers and, under it, the answers whose sources could not be checked', () => {
+    // The incident: 2 of 2796 saved answers had incomplete source capture. The
+    // server left them out of both sides; the tile states the rate and the count.
+    const checked: VisibilityReportRate = { numerator: 1397, denominator: 2794, rate: 0.5, unchecked: 2 }
+    render(<VisibilityReportView report={headlineReport({ answerCount: 2796, summary: { mentionCoverage: rate(1398, 2796), citationCoverage: checked } })} onSelectionChange={() => {}} />)
+    expect(cell(CITATION_LABEL)).toEqual([
+      [`50.0% · ${REPORT_CLASS_NOUN['non-brand']}`, 'report-headline-value'],
+      ['1397 of 2794 answers', DETAIL_CLASS],
+      ['2 of 2796 answers had sources that could not be checked', DETAIL_CLASS],
+    ])
+    // Mention reads the answer text, so its tile carries no source-check line.
+    expect(cell(MENTION_LABEL)).toEqual([
+      [`50.0% · ${REPORT_CLASS_NOUN['non-brand']}`, 'report-headline-value'],
+      ['1398 of 2796 answers', DETAIL_CLASS],
+    ])
+  })
+
+  it('reads each left-out count under its own signal only', () => {
+    // A mention rate's count says nothing about sources, and a citation rate's
+    // says nothing about property identity, whatever field a rate carries.
+    const mention: VisibilityReportRate = { numerator: 24, denominator: 36, rate: 24 / 36, unchecked: 3 }
+    const citation: VisibilityReportRate = { numerator: 24, denominator: 36, rate: 24 / 36, unattributed: 5 }
+    render(<VisibilityReportView report={headlineReport({ summary: { mentionCoverage: mention, citationCoverage: citation } })} onSelectionChange={() => {}} />)
+    expect(cell(MENTION_LABEL)).toEqual(figure(MENTION_LABEL))
+    expect(cell(CITATION_LABEL)).toEqual(figure(CITATION_LABEL))
+  })
+
+  it('leaves a Simple Cited tile as the rate and its count under the Simple help', () => {
+    // Simple citation state comes from stored cited domains, so the server never
+    // leaves a Simple answer unchecked and the tile keeps its two lines.
+    render(<VisibilityReportView report={headlineReport({ mode: 'simple' })} onSelectionChange={() => {}} />)
+    expect(cell('Cited answers')).toEqual([[`66.7% · ${REPORT_CLASS_NOUN['non-brand']}`, 'report-headline-value'], ['24 of 36 answers', DETAIL_CLASS]])
+    expect(within(tile('Cited answers')).getByRole('button', { name: REPORT_HEADLINE_HELP.simpleCitation })).toBeTruthy()
   })
 
   it('keeps an all-unattributable rate unavailable with its reason and no count line', () => {
@@ -426,6 +462,40 @@ describe('headline strip', () => {
     const [, , mentioned, cited] = [...within(breakdown).getByRole('button', { name: 'Harbor House' }).closest('tr')!.querySelectorAll('td')]
     expect(mentioned!.textContent).toBe('75.0%3 of 41 of 5 answers could not be tied to one property')
     expect(cited!.textContent).toBe('50.0%2 of 4')
+  })
+
+  it('states the answers whose sources could not be checked beneath a breakdown row\'s citation rate', () => {
+    const report = headlineReport()
+    report.populations[0]!.breakdown.properties[0]!.citationCoverage = { numerator: 2, denominator: 3, rate: 2 / 3, unchecked: 1 }
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    const breakdown = screen.getByRole('region', { name: 'Scope breakdown' })
+    fireEvent.click(within(breakdown).getByRole('button', { name: 'Properties' }))
+    const [, , mentioned, cited] = [...within(breakdown).getByRole('button', { name: 'Harbor House' }).closest('tr')!.querySelectorAll('td')]
+    expect(mentioned!.textContent).toBe('75.0%3 of 4')
+    expect(cited!.textContent).toBe('66.7%2 of 31 of 4 answers had sources that could not be checked')
+  })
+
+  it.each([
+    ['one earlier sweep is still unavailable', { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' } as VisibilityReportRate, null, true],
+    ['every sweep left some answers unchecked', { numerator: 9, denominator: 18, rate: 0.5, unchecked: 1 } as VisibilityReportRate, 0.5, false],
+  ])('plots a sweep whose citation rate left unchecked answers out when %s', (_name, earlier, earlierPlotted, notesMissing) => {
+    const report = headlineReport({ answerCount: 2796, summary: { mentionCoverage: rate(1398, 2796), citationCoverage: { numerator: 1397, denominator: 2794, rate: 0.5, unchecked: 2 } } })
+    report.populations[0]!.trend[0]!.citationCoverage = earlier
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    const chart = screen.getByRole('img', { name: 'Non-brand queries mention and citation trend' })
+    // Before the rule, the displayed sweep's citation rate was withheld and drew no point.
+    expect(JSON.parse(chart.querySelector<HTMLElement>('[data-points]')!.dataset.points!)).toEqual([
+      { createdAt: Date.parse(PREVIOUS_RUN.createdAt), 'mentioned-0': 0.75, 'cited-0': earlierPlotted },
+      { createdAt: Date.parse(DISPLAYED_RUN_AT), 'mentioned-0': 0.5, 'cited-0': 0.5 },
+    ])
+    const note = 'Missing citation results mean the saved evidence is incomplete.'
+    const describedBy = chart.getAttribute('aria-describedby')
+    expect(describedBy === null ? '' : document.getElementById(describedBy)!.textContent).toBe(notesMissing ? note : '')
+    // The history table carries the same count under Cited, never under Mentioned.
+    const history = within(screen.getByRole('table', { name: 'Non-brand queries trend data' })).getAllByRole('row')
+    const [, mentionedCell, citedCell] = [...history[2]!.querySelectorAll('td')]
+    expect(mentionedCell!.textContent).toBe('50.0%1398 of 2796')
+    expect(citedCell!.textContent).toBe('50.0%1397 of 27942 of 2796 answers had sources that could not be checked')
   })
 
   it('orders the strip, trend chart, breakdown, Property outcomes, and query results', () => {

@@ -95,6 +95,12 @@ describe('measurement service contracts', () => {
       .toEqual({ numerator: 9, denominator: 11, rate: 9 / 11, unattributed: 1 })
     expect(measurementRateSchema.safeParse({ numerator: 9, denominator: 11, rate: 9 / 11, unattributed: 0 }).success).toBe(false)
     expect(measurementRateSchema.safeParse({ numerator: null, denominator: null, rate: null, reason: 'identity-ambiguous', unattributed: 2 }).success).toBe(false)
+    // Answers whose citation capture was incomplete ride beside a measured rate only, never beside unattributed.
+    expect(measurementRateSchema.parse({ numerator: 3, denominator: 9, rate: 3 / 9, unchecked: 1 }))
+      .toEqual({ numerator: 3, denominator: 9, rate: 3 / 9, unchecked: 1 })
+    expect(measurementRateSchema.safeParse({ numerator: 3, denominator: 9, rate: 3 / 9, unchecked: 0 }).success).toBe(false)
+    expect(measurementRateSchema.safeParse({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete', unchecked: 2 }).success).toBe(false)
+    expect(measurementRateSchema.safeParse({ numerator: 3, denominator: 9, rate: 3 / 9, unattributed: 1, unchecked: 1 }).success).toBe(false)
     expect(measurementAttributionClassSchema.safeParse('unmapped').success).toBe(false)
     expect(measurementDiscoveryResponseSchema.safeParse({
       proposed: [], aliases: [], shared: [], unmatched: [], excluded: [{
