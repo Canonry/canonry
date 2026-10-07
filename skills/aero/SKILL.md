@@ -69,6 +69,21 @@ covering that work; an existing explicit authorization remains valid.
 - **Site Health:** read `references/site-health.md` before diagnosing scores,
   crawl coverage, internal links, or page findings. Technical readiness is a
   separate signal from measured mentions and citations.
+- **Sentiment (experimental):** the headline is branded. Read
+  `canonry_sentiment` with `queryClass: "branded"` and give favorable, mixed
+  and unfavorable as counts over rated answers, plus rated of eligible
+  answers. For the most criticized Properties use `criticizedProperties`, then
+  quote their answers with `canonry_sentiment_evidence` (scope `property`,
+  `outcome: ["mixed", "unfavorable"]`). Non-brand is exceptions only: report
+  its mixed or unfavorable answers, never a non-brand favorable share, and
+  never pool the two classes; do not quote `sentiment.overall` from the
+  project overview, which pools them. An absent subject is not unfavorable,
+  an unrated or partial result is not "no criticism", and partial values are
+  provisional.
+  Say the ratings are model-classified and experimental. A trend needs two
+  rated runs: use `canonry_sentiment_compare` and report its refusal reason
+  rather than inferring one. Aero cannot turn sentiment on or submit a
+  backfill; send those requests to the operator.
 - Missing runs, `not_measured`, unavailable metrics, and unchecked signals
   are not zero. Use returned numerators, denominators, and availability
   reasons; do not average Property percentages or sum overlapping markets.

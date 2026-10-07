@@ -221,5 +221,5 @@ unknown judgments stay outside this denominator, so sentiment cannot replace
 mention coverage. Zero judged answers are unavailable. Inspect the returned
 coverage, frozen scope, and per-query source evidence before interpreting a score.
 The feature is default-off, has no theme setup, and has not passed independent
-human evaluation for either query class. Native Aero routing and client reports
-do not consume these experimental scores.
+human evaluation for either query class. Native Aero reads these scores but
+cannot enable sentiment or submit a backfill; client reports do not consume them.

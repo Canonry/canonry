@@ -110,5 +110,5 @@ attempts. Evidence-only `assessmentId` narrows the stored verdict without
 widening project, class, source or subject scope; evidence-only `outcome` (an array of
 outcome codes) narrows the page to those outcomes, is echoed as `selection.outcome` and
 is bound into the cursor. Branded summaries carry the server's `criticizedProperties`. Configure accepts only enabled
-state, and no active tool accepts theme settings. Credentials are never accepted. Native Aero defers all nine tools until its
-separate sentiment evaluation and release gate.
+state, and no active tool accepts theme settings. Credentials are never accepted. Native Aero gets the seven reads; configure
+and backfill submit start paid classifier work and stay excluded (`AERO_EXCLUDED_MCP_TOOLS`).

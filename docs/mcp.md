@@ -559,5 +559,6 @@ class you need), inspect the returned selection and `skipped` reasons (including
 recorded), then submit its exact `previewToken` and an explicit `idempotencyKey`.
 Submission can disclose source answer text to TypeSafe and incur usage; unchanged
 retries return one job receipt. Read the job to inspect progress, safe attempt
-errors, unknown usage and cancellation epochs. Native Aero support remains
-deferred pending its separate evaluation and release gate.
+errors, unknown usage and cancellation epochs. Native Aero reads the seven
+stored-data tools after loading `monitoring`; configure and backfill submit stay
+with the operator.

@@ -88,4 +88,4 @@ The stance-only evaluator has schema version 2 and a new immutable definition ID
 
 ## Validation and release gates
 
-See [sentiment smoke validation](sentiment-validation.md) for reproducible built-package tests and the recorded synthetic live smoke. Aero routing and downstream reports remain follow-on work. Branded and non-brand accuracy require separate held-out evaluations; neither has passed that gate. Production rollout and claims of measured classifier quality require the independent evaluation rubric in `evals/sentiment/`; synthetic smoke is not that evaluation.
+See [sentiment smoke validation](sentiment-validation.md) for reproducible built-package tests and the recorded synthetic live smoke. Native Aero reads sentiment through the seven read tools; configure and backfill submit stay with the operator. Downstream reports remain follow-on work. Branded and non-brand accuracy require separate held-out evaluations; neither has passed that gate. Production rollout and claims of measured classifier quality require the independent evaluation rubric in `evals/sentiment/`; synthetic smoke is not that evaluation.

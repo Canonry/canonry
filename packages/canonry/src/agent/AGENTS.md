@@ -390,6 +390,10 @@ canonry agent memory set <project> --key <k> --value <v>    # upsert a note (2 K
 canonry agent memory forget <project> --key <k>      # delete a note
 ```
 
-All nine experimental `canonry_sentiment*` capabilities are excluded from native
-Aero through `AERO_EXCLUDED_MCP_TOOLS`. API, CLI and external MCP remain available;
-Aero interpretation and actions require their separate sentiment release gate.
+Native Aero reads experimental sentiment through the seven `canonry_sentiment*`
+read tools (settings, summary, evidence, compare, backfill preview, jobs, job), in
+admin and viewer turns alike. `canonry_sentiment_configure` and
+`canonry_sentiment_backfill` start paid classifier work, so they stay in
+`AERO_EXCLUDED_MCP_TOOLS`; API, CLI and external MCP keep them. How Aero reads
+the scores (branded headline, non-brand exceptions, model-classified) lives in
+`skills/aero/SKILL.md`.
