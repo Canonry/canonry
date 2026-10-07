@@ -188,6 +188,9 @@ describe('sentiment measurement invariants', () => {
     expect(sentimentSelectionSchema.safeParse({ runId: 'one', runIds: ['two'] }).success).toBe(false)
     expect(sentimentSelectionSchema.safeParse({ runIds: ['one', 'one'] }).success).toBe(false)
     expect(sentimentCompareRequestSchema.safeParse({ fromRunId: 'one', toRunId: 'two', runIds: ['one', 'two'] }).success).toBe(false)
+    const sameRun = sentimentCompareRequestSchema.safeParse({ fromRunId: 'one', toRunId: 'one' })
+    expect(sameRun.success).toBe(false)
+    expect(JSON.stringify(sameRun.error?.issues)).toContain('two different runs')
   })
   it('displays zero, full, small and rounded proportions honestly', () => {
     expect([null, 0, 1, 0.0004, 0.001, 0.0049, 0.01, 0.599, 199 / 200, 0.9996].map(sentimentRateDisplay))

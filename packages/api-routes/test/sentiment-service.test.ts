@@ -578,7 +578,7 @@ describe('sentiment evidence outcome filter', () => {
       for (const invalid of ['outcome=positive', 'outcome=mixed,positive', 'outcome=mixed&outcome=positive', 'outcome=', 'outcome=,', 'outcome=Mixed']) {
         const response = await get(`${EVIDENCE}?runId=r&${invalid}`)
         expect(response.statusCode, invalid).toBe(400)
-        expect(response.json().error).toMatchObject({ code: 'VALIDATION_ERROR', message: 'Invalid sentiment request.' })
+        expect(response.json().error).toMatchObject({ code: 'VALIDATION_ERROR', message: expect.stringMatching(/^Invalid sentiment request: /) })
         expect(response.json().error.details.issues.map((issue: { path: unknown[] }) => issue.path[0]), invalid).toContain('outcome')
       }
       // The filter narrows evidence only; the summary refuses it.

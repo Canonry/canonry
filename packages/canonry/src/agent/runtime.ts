@@ -38,8 +38,19 @@ interface Runtime {
   pinned: Set<string>
   /** The misspelled name the model wrote, by tool call id, for calls renamed to a visible tool. */
   corrected: Map<string, string>
+  /** Set once a turn past the tool limit has been asked for its final answer. */
+  wrapUp: boolean
 }
 const runtimes = new WeakMap<Agent, Runtime>()
+
+/**
+ * Sent with every tool removed to a turn that used its tool budget, so what
+ * it already read becomes an answer instead of an empty reply.
+ */
+export const TOOL_LIMIT_WRAP_UP =
+  'This turn has used its tool budget, and no tools are available now. Answer the question from the tool results above: '
+  + 'give what they establish with their numbers, say plainly which parts you could not check, '
+  + 'and suggest one narrower question the user could ask next.'
 
 function result(value: unknown) {
   return { content: [{ type: 'text' as const, text: truncateToolResult(value) }], details: value }
@@ -222,7 +233,7 @@ function explainMissingTool(runtime: Runtime, message: { isError?: boolean; cont
 export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?: AgentTurnLimits, progressive = true, pinned: readonly string[] = []): void {
   let runtime = runtimes.get(agent)
   if (!runtime) {
-    runtime = { allowed, loaded: new Set(), limits: agentTurnLimitsSchema.parse(limits ?? {}), calls: 0, rounds: 0, startedAt: 0, reason: 'completed', progressive, pinned: new Set(pinned), corrected: new Map() }
+    runtime = { allowed, loaded: new Set(), limits: agentTurnLimitsSchema.parse(limits ?? {}), calls: 0, rounds: 0, startedAt: 0, reason: 'completed', progressive, pinned: new Set(pinned), corrected: new Map(), wrapUp: false }
     runtimes.set(agent, runtime)
     const state = runtime
     const stream = agent.streamFunction
@@ -246,9 +257,25 @@ export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?
       return before?.(event, signal)
     }
     const finish = agent.finishTurn
-    // A turn that hit the tool limit ends the run once its batch settles,
-    // without another model call.
-    agent.finishTurn = (turn, signal) => state.reason === 'tool-limit' ? { action: 'end' } : finish?.(turn, signal)
+    // A turn that hit the tool limit gets one more model call once its batch
+    // settles, with no tools and a request to answer from what it read. The
+    // run ends after that call, whatever it returns.
+    agent.finishTurn = (turn, signal) => {
+      if (state.reason !== 'tool-limit') return finish?.(turn, signal)
+      if (state.wrapUp) return { action: 'end' }
+      state.wrapUp = true
+      return { action: 'continue' }
+    }
+    const prepare = agent.prepareNextTurnWithContext
+    agent.prepareNextTurnWithContext = (turn, signal) => {
+      if (state.reason === 'tool-limit' && state.wrapUp) {
+        return {
+          context: { ...turn.context, tools: [] },
+          messages: [{ role: 'system', content: TOOL_LIMIT_WRAP_UP, timestamp: Date.now() }],
+        }
+      }
+      return prepare ? prepare(turn, signal) : agent.prepareNextTurn?.(signal)
+    }
     agent.afterToolCall = async (event, signal) => {
       const override = await after?.(event, signal)
       if (event.toolCall.name === LOAD && !event.isError) {
@@ -302,6 +329,7 @@ export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?
         toolDurations.clear()
         overLimit.clear()
         state.corrected.clear()
+        state.wrapUp = false
         state.calls = 0
         state.rounds = 0
         state.reason = 'completed'
@@ -312,8 +340,9 @@ export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?
       } else if (event.type === 'agent_end') {
         state.finishedAt = Date.now()
         clearTimeout(state.timer)
-        if (state.reason === 'completed' && agent.signal?.aborted) state.reason = 'stopped'
-        if (state.reason === 'completed' && agent.state.errorMessage) state.reason = 'error'
+        if ((state.reason === 'completed' || state.reason === 'tool-limit') && agent.signal?.aborted) state.reason = 'stopped'
+        // A failed wrap-up request lost the answer, so it reports as an error, not a clean tool-limit stop.
+        if ((state.reason === 'completed' || state.reason === 'tool-limit') && agent.state.errorMessage) state.reason = 'error'
       }
     })
   }

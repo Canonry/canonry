@@ -7,7 +7,7 @@ import { canonryMcpTools, type CanonryMcpTool } from '../src/mcp/tool-registry.j
 import { getCanonryMcpTools } from '../src/mcp/server.js'
 import { MCP_OPENAPI_OPERATION_CLASSIFICATIONS } from '../src/mcp/openapi-classification.js'
 import { withToolErrors } from '../src/mcp/results.js'
-import { AERO_EXCLUDED_MCP_TOOLS } from '../src/agent/mcp-to-agent-tool.js'
+import { AERO_EXCLUDED_MCP_TOOLS, buildMcpAgentTools } from '../src/agent/mcp-to-agent-tool.js'
 
 function tool(name: string): CanonryMcpTool {
   const found = canonryMcpTools.find(item => item.name === name)
@@ -146,7 +146,29 @@ describe('sentiment MCP parity', () => {
     expect(result.isError).toBe(true)
     expect(result.structuredContent).toEqual({ error: { code: 'FORBIDDEN', message: 'Install administrator required', details: { credential } } })
   })
-  it('keeps all nine experimental capabilities out of native Aero pending its release gate', () => {
-    for (const name of cases.map(entry => entry.name)) expect(AERO_EXCLUDED_MCP_TOOLS.has(name as Parameters<typeof AERO_EXCLUDED_MCP_TOOLS.has>[0])).toBe(true)
+  it('gives native Aero the seven reads and keeps configure and backfill submit with the operator', () => {
+    const names = [...new Set(cases.map(entry => entry.name))]
+    const writes = ['canonry_sentiment_configure', 'canonry_sentiment_backfill']
+    const reads = names.filter(name => !writes.includes(name))
+    expect(reads).toHaveLength(7)
+    for (const name of reads) expect(tool(name).access).toBe('read')
+    const ctx = { client: {} as ApiClient, projectName: 'demo' }
+    // Admin turns get every tool Aero may call; viewer turns get reads only. Both carry the reads.
+    for (const options of [{}, { readOnly: true }, { managedSweeps: true }]) {
+      const visible = buildMcpAgentTools(canonryMcpTools, ctx, options).map(agentTool => agentTool.name)
+      for (const name of reads) expect(visible).toContain(name)
+      for (const name of writes) expect(visible).not.toContain(name)
+    }
+    for (const name of writes) expect(AERO_EXCLUDED_MCP_TOOLS.has(name as Parameters<typeof AERO_EXCLUDED_MCP_TOOLS.has>[0])).toBe(true)
+  })
+  it('runs an Aero sentiment read against the session project through the API client', async () => {
+    const getSentiment = vi.fn().mockResolvedValue(sentimentFixtureSummary)
+    const ctx = { client: { getSentiment } as unknown as ApiClient, projectName: 'demo' }
+    const read = buildMcpAgentTools(canonryMcpTools, ctx, { readOnly: true }).find(agentTool => agentTool.name === 'canonry_sentiment')!
+    // Aero never sees a project parameter; the session's project is injected.
+    expect(Object.keys((read.parameters as { properties: Record<string, unknown> }).properties)).not.toContain('project')
+    const result = await read.execute('call-1', { queryClass: 'branded' })
+    expect(getSentiment).toHaveBeenCalledWith('demo', expect.objectContaining({ queryClass: 'branded' }))
+    expect(result.details).toEqual(sentimentFixtureSummary)
   })
 })

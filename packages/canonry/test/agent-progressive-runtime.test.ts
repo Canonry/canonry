@@ -108,10 +108,37 @@ describe('Aero progressive tool execution', () => {
     configureAeroRuntime(agent, [{ name: 'check', label: 'Check', description: 'Test', parameters: Type.Object({}), execute }], { maxToolCalls: 1, timeoutMs: 1000 })
     faux.setResponses([fauxAssistantMessage([
       fauxToolCall('check', {}, { id: 'first' }), fauxToolCall('check', {}, { id: 'second' }),
-    ], { stopReason: 'toolUse' })])
+    ], { stopReason: 'toolUse' }), fauxAssistantMessage('One check ran.')])
     await agent.prompt('Check twice')
     expect(execute).toHaveBeenCalledTimes(1)
     expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'tool-limit', toolCalls: 1 })
+  })
+
+  it('reports a failed wrap-up request as an error, not a clean tool-limit stop', async () => {
+    const execute = vi.fn(async () => ({ content: [{ type: 'text' as const, text: 'done' }], details: {} }))
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
+    configureAeroRuntime(agent, [{ name: 'check', label: 'Check', description: 'Test', parameters: Type.Object({}), execute }], { maxToolCalls: 1, timeoutMs: 1000 })
+    faux.setResponses([
+      fauxAssistantMessage([fauxToolCall('check', {}, { id: 'first' }), fauxToolCall('check', {}, { id: 'second' })], { stopReason: 'toolUse' }),
+      fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'Provider unavailable' }),
+    ])
+    await agent.prompt('Check twice')
+    expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'error', toolCalls: 1, modelCalls: 2 })
+  })
+
+  it('reports a wrap-up the user stopped as stopped', async () => {
+    const execute = vi.fn(async () => ({ content: [{ type: 'text' as const, text: 'done' }], details: {} }))
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
+    configureAeroRuntime(agent, [{ name: 'check', label: 'Check', description: 'Test', parameters: Type.Object({}), execute }], { maxToolCalls: 1, timeoutMs: 1000 })
+    faux.setResponses([
+      fauxAssistantMessage([fauxToolCall('check', {}, { id: 'first' }), fauxToolCall('check', {}, { id: 'second' })], { stopReason: 'toolUse' }),
+      () => {
+        agent.abort()
+        return fauxAssistantMessage('', { stopReason: 'aborted', errorMessage: 'Request was aborted' })
+      },
+    ])
+    await agent.prompt('Check twice')
+    expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'stopped', toolCalls: 1 })
   })
 
   it('aborts a slow provider at the time limit', async () => {
@@ -136,9 +163,11 @@ it('counts malformed tool attempts and reports provider failure distinctly', asy
   faux.setResponses([
     fauxAssistantMessage(fauxToolCall('nonexistent', {}), { stopReason: 'toolUse' }),
     fauxAssistantMessage(fauxToolCall('nonexistent', {}), { stopReason: 'toolUse' }),
+    fauxAssistantMessage('Nothing could be checked.'),
   ])
   await agent.prompt('Try an invalid tool')
-  expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'tool-limit', toolCalls: 1, modelCalls: 2 })
+  // The third request is the tool-less wrap-up answer.
+  expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'tool-limit', toolCalls: 1, modelCalls: 3 })
   configureAeroRuntime(agent, [])
   faux.setResponses([fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'Provider unavailable' })])
   await agent.prompt('Try again')

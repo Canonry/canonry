@@ -345,13 +345,22 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
     return () => window.removeEventListener('keydown', onKey)
   }, [open, expanded, historyOpen])
 
+  const errorClearedFor = useRef<string | null>(null)
+  useEffect(() => { if (!open) errorClearedFor.current = null }, [open])
+
   // Load transcript when opened / when the project changes, and poll while
   // open so proactive turns (from RunCoordinator wake-ups) surface without a
   // page refresh or a user prompt.
   useEffect(() => {
     if (!open || !ready || preview) return
     let cancelled = false
-    setError(null)
+    // Clear a stale error when the bar opens or the project changes, never when
+    // a turn ends: this effect re-runs on `streaming`, and the error the turn
+    // just reported must stay visible.
+    if (errorClearedFor.current !== projectName) {
+      errorClearedFor.current = projectName
+      setError(null)
+    }
 
     const load = () => {
       if (cancelled || streaming || conversationOperation.current) return
@@ -530,6 +539,8 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
         if (event.status?.reason === 'tool-limit') setNotice('Tool-call limit reached. Partial response preserved.')
         else if (event.status?.reason === 'time-limit') setNotice('Time limit reached. Partial response preserved.')
         else if (event.status?.reason === 'completed') setRetry(null)
+        // A request that threw sends no error event (its failure message is filtered), only this status.
+        else if (event.status?.reason === 'error') setError((current) => current ?? 'Aero could not finish this answer. Retry to ask again.')
         break
       case 'tool_execution_start':
         setLiveTrail((prev) => [
