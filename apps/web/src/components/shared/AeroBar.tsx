@@ -2,7 +2,7 @@ import { trackUiAction } from '../../lib/ui-telemetry.js'
 import type { AgentViewContext, AgentConversationList, AgentConversation, AeroPreviewStarterId } from '@ainyc/canonry-contracts'
 import { useAeroView } from '../../contexts/aero-view-context.js'
 import { aeroViewFromLocation } from '../../lib/aero-view.js'
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useChatScroll } from '../../lib/use-chat-scroll.js'
 import {
   Radio,
@@ -829,7 +829,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
                   <StarterButtons onPick={(prompt) => { void send(prompt) }} />
                 </div>
               )}
-              {renderTranscript(messages, projectName, providerOverride, scope, liveTrail, streaming, !viewerMode && !preview)}
+              {renderTranscript(messages, projectName, providerOverride, scope, liveTrail, streaming, Boolean(streamingText.trim()), !viewerMode && !preview)}
               {streaming && streamingText && (
                 <div className="mt-3">
                   <div className="mb-0.5 text-[10px] uppercase tracking-wider text-positive-400">Aero</div>
@@ -1216,15 +1216,21 @@ function messageKey(message: AeroMessage, fallbackIndex: number): string {
 }
 
 /**
- * Walk the transcript once, grouping each assistant turn with its following
- * toolResult messages so we can render an inline tool trail beside the
- * assistant bubble. User messages flush as standalone rows. System wake-ups
- * are hidden — they're an internal follow-up plumbing detail.
+ * Walk the transcript once, pairing each assistant message's tool calls with
+ * the toolResult messages that follow it. Tool calls collect into one working
+ * group per run: the calls of consecutive assistant messages with no assistant
+ * text between them. Assistant text renders above its own calls and closes the
+ * group, so later calls start a new one. User messages, system wake-ups
+ * included, close it too. System wake-ups are hidden: they're an internal
+ * follow-up plumbing detail.
  *
  * `projectName` + `providerOverride` + `scope` let user bubbles render a
  * "copy as CLI" affordance reproducing the turn via `canonry agent ask` —
  * including the current tool-scope so a pasted command cannot quietly
  * escalate from read-only to write-capable.
+ *
+ * `answerStreaming` is true while the answer's text is arriving: the run
+ * before it is then over, not between steps.
  */
 function renderTranscript(
   messages: AeroMessage[],
@@ -1233,14 +1239,40 @@ function renderTranscript(
   scope: AeroToolScope,
   liveTrail: ToolTrail[],
   streaming: boolean,
+  answerStreaming: boolean,
   cliCopy = true,
 ): ReactNode[] {
   const nodes: ReactNode[] = []
+  let group: ToolTrail[] = []
+  // Only the turn after the last user message can still be running. A call
+  // from an earlier turn that never got a result was cut off, so it reads as
+  // interrupted even while a later turn streams.
+  let currentTurnStart = 0
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') {
+      currentTurnStart = i + 1
+      break
+    }
+  }
+  // Only the run still open when the transcript ends can be waiting on its
+  // next step; every other run was closed by text or a new turn.
+  const closeGroup = (trailing = false) => {
+    if (group.length === 0) return
+    nodes.push(
+      <ToolRunGroup
+        key={`tools:${group[0].id}`}
+        trails={group}
+        betweenSteps={trailing && streaming && !answerStreaming}
+      />,
+    )
+    group = []
+  }
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i]
     const key = messageKey(msg, i)
 
     if (msg.role === 'user') {
+      closeGroup()
       const text = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
       if (text.startsWith('[system]')) continue
       nodes.push(
@@ -1268,29 +1300,26 @@ function renderTranscript(
         results.set(r.toolCallId, r)
         cursor++
       }
+      const turnStreaming = streaming && i >= currentTurnStart
       const trails = extractTrails(msg, results).map(trail => {
         const live = liveTrail.find(item => item.id === trail.id)
-        const merged = { ...trail, ...live }
-        return { ...merged, interrupted: merged.endedAt === undefined && (!streaming || merged.interrupted) }
+        // A live start event can carry no label (the tool's toolkit was not
+        // loaded yet) while its saved result has one: keep the defined label,
+        // so the live run groups and names its steps as the saved one will.
+        const merged = { ...trail, ...live, label: trail.label ?? live?.label }
+        return { ...merged, interrupted: merged.endedAt === undefined && (!turnStreaming || merged.interrupted) }
       })
       const text = extractAssistantText(msg)
-      nodes.push(
-        <Fragment key={key}>
-          {text.trim() && (
-            <div className="mt-3">
-              <div className="mb-0.5 text-[10px] uppercase tracking-wider text-positive-400">Aero</div>
-              <AeroMarkdown content={text} />
-            </div>
-          )}
-          {trails.length > 0 && (
-            <div className="mt-3 space-y-1.5">
-              {trails.map((trail) => (
-                <ToolTrailRow key={trail.id} trail={trail} />
-              ))}
-            </div>
-          )}
-        </Fragment>,
-      )
+      if (text.trim()) {
+        closeGroup()
+        nodes.push(
+          <div key={key} className="mt-3">
+            <div className="mb-0.5 text-[10px] uppercase tracking-wider text-positive-400">Aero</div>
+            <AeroMarkdown content={text} />
+          </div>,
+        )
+      }
+      group.push(...trails)
       i = cursor - 1
       continue
     }
@@ -1298,6 +1327,7 @@ function renderTranscript(
     // Standalone toolResult messages (no preceding assistant in this window)
     // are dropped silently — pi's envelope always pairs them.
   }
+  closeGroup(true)
   return nodes
 }
 
@@ -1419,6 +1449,280 @@ function extractTrails(
 }
 
 /**
+ * Toolkit discovery and loading. They prepare the real steps, so a run's
+ * header neither counts them nor names them as its current step.
+ */
+const SETUP_TOOL_NAMES = new Set(['aero_list_toolkits', 'aero_load_toolkit'])
+
+/** A tool label's leading verb, as the running header says it. */
+const PROGRESSIVE_VERBS = new Map([
+  ['Read', 'Reading'],
+  ['List', 'Listing'],
+  ['Get', 'Getting'],
+  ['Load', 'Loading'],
+  ['Find', 'Finding'],
+  ['Check', 'Checking'],
+  ['Compare', 'Comparing'],
+  ['Inspect', 'Inspecting'],
+  ['Preview', 'Previewing'],
+  ['Search', 'Searching'],
+  ['Show', 'Showing'],
+  ['Run', 'Running'],
+])
+
+function trailIsRunning(trail: ToolTrail): boolean {
+  return trail.endedAt === undefined && !trail.interrupted
+}
+
+function trailLabel(trail: ToolTrail): string {
+  return trail.label ?? trail.name.replace(/^(?:canonry|aero)_/, '').replace(/_/g, ' ')
+}
+
+function trailDurationMs(trail: ToolTrail): number | null {
+  const durationMs = trail.durationMs ?? (trail.endedAt != null && trail.startedAt != null ? trail.endedAt - trail.startedAt : null)
+  return durationMs == null || durationMs < 0 ? null : durationMs
+}
+
+/** Summed known durations, or null when no call reported one. */
+function totalDurationMs(trails: ToolTrail[]): number | null {
+  let total: number | null = null
+  for (const trail of trails) {
+    const durationMs = trailDurationMs(trail)
+    if (durationMs != null) total = (total ?? 0) + durationMs
+  }
+  return total
+}
+
+function formatDurationMs(durationMs: number): string {
+  return durationMs < 1000 ? `${durationMs}ms` : `${(durationMs / 1000).toFixed(1)}s`
+}
+
+/** Whole seconds, for a clock that ticks once a second. */
+function formatElapsedMs(elapsedMs: number): string {
+  const seconds = Math.floor(Math.max(0, elapsedMs) / 1000)
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+}
+
+function countLabel(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`
+}
+
+function progressiveVerb(word = ''): string | undefined {
+  return PROGRESSIVE_VERBS.get(word.charAt(0).toUpperCase() + word.slice(1))
+}
+
+/**
+ * "Read sentiment evidence" becomes "Reading sentiment evidence…". A second
+ * verb after "or" or "and" needs its own -ing form too, so a pair the map
+ * cannot finish reads "Working…", as does an unknown leading verb.
+ */
+function progressiveLabel(label: string): string {
+  const [first, ...rest] = label.trim().split(/\s+/)
+  const verb = progressiveVerb(first)
+  if (!verb) return 'Working…'
+  if (rest[0] === 'or' || rest[0] === 'and') {
+    const second = progressiveVerb(rest[1])
+    if (!second) return 'Working…'
+    return `${[verb, rest[0], second.toLowerCase(), ...rest.slice(2)].join(' ')}…`
+  }
+  return `${[verb, ...rest].join(' ')}…`
+}
+
+/** The current time, refreshed every second while `active`. */
+function useTicker(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active) return
+    const tick = () => setNow(Date.now())
+    // Catch up at once: the clock stood still while inactive.
+    const first = window.setTimeout(tick, 0)
+    const timer = window.setInterval(tick, 1000)
+    return () => {
+      window.clearTimeout(first)
+      window.clearInterval(timer)
+    }
+  }, [active])
+  return now
+}
+
+/**
+ * One run of tool calls, collapsed to a single header row while it runs and
+ * after. Running, the header names the current step; done, it counts the real
+ * steps and sums their time. Failures and interruptions stay visible as pills.
+ * Expanded, calls with the same label merge into one row, and toolkit setup
+ * folds into one muted row. Keyed by the run's first call id, so the open or
+ * closed state survives the re-renders of a streaming turn.
+ */
+function ToolRunGroup({ trails, betweenSteps }: { trails: ToolTrail[]; betweenSteps: boolean }) {
+  const [expanded, setExpanded] = useState(false)
+  const panelId = useId()
+  const steps = trails.filter((trail) => !SETUP_TOOL_NAMES.has(trail.name))
+  const setup = trails.filter((trail) => SETUP_TOOL_NAMES.has(trail.name))
+  const runningSteps = steps.filter(trailIsRunning)
+  const current: ToolTrail | undefined = runningSteps.length > 0 ? runningSteps[runningSteps.length - 1] : undefined
+  const setupRunning = setup.some(trailIsRunning)
+  const running = current !== undefined || setupRunning || betweenSteps
+  // The header's count, failures and time describe the same calls: the real
+  // steps, or the setup alone when a run had nothing else. A failed setup
+  // call shows in the setup row, not as a failed step.
+  const counted = steps.length > 0 ? steps : setup
+  const failedCount = counted.filter((trail) => !trailIsRunning(trail) && trail.isError === true).length
+  const interrupted = trails.some((trail) => trail.interrupted)
+  const startTimes = trails.flatMap((trail) => (trail.startedAt === undefined ? [] : [trail.startedAt]))
+  const startedAt = startTimes.length > 0 ? Math.min(...startTimes) : undefined
+  const now = useTicker(running)
+  const totalMs = totalDurationMs(counted)
+
+  const title = running
+    ? current
+      ? progressiveLabel(trailLabel(current))
+      : setupRunning
+        ? 'Loading tools…'
+        : 'Working…'
+    : steps.length > 0
+      ? countLabel(steps.length, 'step', 'steps')
+      : countLabel(setup.length, 'setup step', 'setup steps')
+
+  // Same-label calls share a row, in the order each label first ran.
+  const byLabel = new Map<string, ToolTrail[]>()
+  for (const step of steps) {
+    const label = trailLabel(step)
+    const rows = byLabel.get(label)
+    if (rows) rows.push(step)
+    else byLabel.set(label, [step])
+  }
+
+  return (
+    <div className="mt-3 rounded-md border border-mono-800/70 bg-surface-hover">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left"
+        aria-expanded={expanded}
+        aria-controls={panelId}
+      >
+        <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+          {running ? (
+            <Loader2 className="h-3 w-3 animate-spin text-positive-400 motion-reduce:animate-none" aria-hidden="true" />
+          ) : failedCount > 0 ? (
+            <AlertTriangle className="h-3 w-3 text-negative-400" aria-hidden="true" />
+          ) : interrupted ? (
+            <Square className="h-3 w-3 text-muted" aria-hidden="true" />
+          ) : (
+            <Check className="h-3 w-3 text-muted" aria-hidden="true" />
+          )}
+        </span>
+        <span className="min-w-0 truncate text-sm font-medium text-heading">{title}</span>
+        {failedCount > 0 && (
+          <span className="shrink-0 rounded-md border border-negative-800/50 bg-negative-950/20 px-1.5 py-0.5 text-[10px] text-negative-400">
+            {failedCount} failed
+          </span>
+        )}
+        {interrupted && (
+          <span className="shrink-0 rounded-md border border-mono-800/70 px-1.5 py-0.5 text-[10px] text-muted">interrupted</span>
+        )}
+        <span className="ml-auto flex shrink-0 items-center gap-2 text-[10px] text-muted">
+          {running ? (
+            <>
+              {current && <span>step {steps.indexOf(current) + 1}</span>}
+              {/* Ticks every second: kept out of the button's name so a screen reader does not reread it. */}
+              {startedAt !== undefined && <span className="tabular-nums" aria-hidden="true">{formatElapsedMs(now - startedAt)}</span>}
+            </>
+          ) : (
+            totalMs != null && <span className="tabular-nums">{formatDurationMs(totalMs)}</span>
+          )}
+          <ChevronRight className={`h-3 w-3 transition-transform ${expanded ? 'rotate-90' : ''}`} aria-hidden="true" />
+        </span>
+      </button>
+      {expanded && (
+        <div id={panelId} className="space-y-1.5 border-t border-default px-2.5 py-2">
+          {[...byLabel].map(([label, calls]) => (
+            <TrailFold key={`label:${label}`} trails={calls} title={label} />
+          ))}
+          {setup.length > 0 && (
+            <TrailFold key="setup" trails={setup} title={`+ ${countLabel(setup.length, 'setup step', 'setup steps')}`} muted />
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * A row standing for several calls: same-label steps ("×4" with their summed
+ * time) or the muted toolkit setup. Expanding lists each call's own card.
+ *
+ * A label that ran once shows its call's card with no fold header. The card
+ * sits where it will sit inside the fold, so when a second call joins it the
+ * card stays mounted, open and focused. Focusing or clicking that card opens
+ * the fold it turns into, so the user keeps the detail they were reading.
+ */
+function TrailFold({ trails, title, muted = false }: { trails: ToolTrail[]; title: string; muted?: boolean }) {
+  const [expanded, setExpanded] = useState(false)
+  const panelId = useId()
+  const single = !muted && trails.length === 1
+  const running = trails.some(trailIsRunning)
+  const failedCount = trails.filter((trail) => !trailIsRunning(trail) && trail.isError === true).length
+  const interrupted = trails.some((trail) => trail.interrupted)
+  const totalMs = totalDurationMs(trails)
+  const keepOpen = single ? () => setExpanded(true) : undefined
+
+  return (
+    <div
+      className={single ? undefined : muted ? 'rounded-md' : 'rounded-md border border-mono-800/70 bg-surface-hover'}
+      onFocus={keepOpen}
+      onClick={keepOpen}
+    >
+      {!single && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left"
+          aria-expanded={expanded}
+          aria-controls={panelId}
+        >
+          {!muted && (
+            <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+              {running ? (
+                <Loader2 className="h-3 w-3 animate-spin text-positive-400 motion-reduce:animate-none" aria-hidden="true" />
+              ) : failedCount > 0 ? (
+                <AlertTriangle className="h-3 w-3 text-negative-400" aria-hidden="true" />
+              ) : (
+                <Wrench className="h-3 w-3 text-muted" aria-hidden="true" />
+              )}
+            </span>
+          )}
+          <span className={muted ? 'text-xs text-muted' : 'text-sm font-medium text-heading'}>{title}</span>
+          {!muted && <span className="text-[10px] text-muted">×{trails.length}</span>}
+          <span className="ml-auto flex items-center gap-2 text-[10px] text-muted">
+            {running ? (
+              <span className="text-positive-400">running…</span>
+            ) : (
+              <>
+                {failedCount > 0 ? (
+                  <span className="text-negative-400">{failedCount} failed</span>
+                ) : (
+                  <span>{interrupted ? 'interrupted' : 'done'}</span>
+                )}
+                {totalMs != null && <span className="tabular-nums">{formatDurationMs(totalMs)}</span>}
+              </>
+            )}
+            <ChevronRight className={`h-3 w-3 transition-transform ${expanded ? 'rotate-90' : ''}`} aria-hidden="true" />
+          </span>
+        </button>
+      )}
+      {(single || expanded) && (
+        <div id={panelId} className={single ? undefined : 'space-y-1.5 px-2.5 pb-2'}>
+          {trails.map((trail) => (
+            <ToolTrailRow key={trail.id} trail={trail} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
  * Collapsible card for a single tool invocation. Shows name + duration +
  * status glyph in the header; expanding reveals the args payload and a
  * truncated result preview. Args use zinc; errors pick up a rose accent so
@@ -1426,11 +1730,10 @@ function extractTrails(
  */
 function ToolTrailRow({ trail }: { trail: ToolTrail }) {
   const [expanded, setExpanded] = useState(false)
-  const running = trail.endedAt === undefined && !trail.interrupted
+  const running = trailIsRunning(trail)
   const failed = !running && trail.isError === true
-  const durationMs = trail.durationMs ?? (trail.endedAt != null && trail.startedAt != null ? trail.endedAt - trail.startedAt : null)
-  const durationLabel =
-    durationMs == null || durationMs < 0 ? null : durationMs < 1000 ? `${durationMs}ms` : `${(durationMs / 1000).toFixed(1)}s`
+  const durationMs = trailDurationMs(trail)
+  const durationLabel = durationMs == null ? null : formatDurationMs(durationMs)
 
   const borderClass = failed
     ? 'border-negative-800/50'
@@ -1456,7 +1759,7 @@ function ToolTrailRow({ trail }: { trail: ToolTrail }) {
             <Wrench className="h-3 w-3 text-muted" aria-hidden="true" />
           )}
         </span>
-        <span className="text-sm font-medium text-heading">{trail.label ?? trail.name.replace(/^(?:canonry|aero)_/, '').replace(/_/g, ' ')}</span>
+        <span className="text-sm font-medium text-heading">{trailLabel(trail)}</span>
         <span className="ml-auto flex items-center gap-2 text-[10px] text-muted">
           {running ? (
             <span className="text-positive-400">running…</span>
