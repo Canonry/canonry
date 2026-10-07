@@ -36,6 +36,7 @@ import {
   getApiV1ProjectsByNameSchedulesQueryKey,
   getApiV1ProjectsByNameScheduleQueryKey,
   getApiV1ProjectsByNameQueryKey,
+  getApiV1ProjectsByNameRunAdmissionQueryKey,
   getApiV1ProjectsByNameVisibilityReportQueryKey,
 } from '@ainyc/canonry-api-client/react-query'
 
@@ -111,6 +112,8 @@ async function renderAt(
     analyticsMetrics?: unknown
     /** GET /citations/visibility, so the By engine card renders in one pass. */
     citationVisibility?: unknown
+    /** GET /run-admission: whether the next sweep would be refused, or leave providers out. */
+    runAdmission?: unknown
   } = {},
 ): Promise<string> {
   if (embed) window.__CANONRY_CONFIG__ = { embed }
@@ -149,6 +152,9 @@ async function renderAt(
       getApiV1ProjectsByNameSchedulesQueryKey({ client: heyClient, path: { name: projectName } }),
       [options.schedule],
     )
+  }
+  if (options.runAdmission !== undefined) {
+    queryClient.setQueryData(getApiV1ProjectsByNameRunAdmissionQueryKey({ client: heyClient, path: { name: projectName } }), options.runAdmission)
   }
   if (options.scanSchedule !== undefined) {
     queryClient.setQueryData(
@@ -2164,6 +2170,38 @@ test('a project-scoped writer reads sweep readiness without instance settings ac
   expect(html).toContain('Run AI sweep')
   expect(html).not.toContain('Checking AI readiness')
   expect(html).not.toContain('Retry AI readiness')
+})
+
+test.each([
+  { name: 'Simple', measurement: { plan: { active: null } as MeasurementPlanResponse, setup: simpleMeasurementSetupResponse() } },
+  { name: 'Advanced', measurement: { plan: measurementPlanV2Response(4), visibilityReport: visibilityReportResponse({ mode: 'advanced' }) } },
+])('a $name project whose sweeps are on hold says so and holds its sweep button', async ({ measurement }) => {
+  const streak = { code: 'PROVIDER_AUTH', consecutiveRuns: 10, since: '2026-10-01T00:00:00.000Z', latestRunId: 'run-9', retryAfter: '2026-10-08T12:30:00.000Z' }
+  const page = (runAdmission: unknown) => renderAt('/projects/project_citypoint', undefined, measurement, {
+    settleReadiness: true,
+    readiness: true,
+    queries: [{ id: 'query-ready', query: 'emergency dentist brooklyn', createdAt: '2026-09-01T12:00:00.000Z' }],
+    // No sweep in flight: that state would label the button first.
+    configureFixture(dashboard) {
+      dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!.recentRuns = []
+      dashboard.runs = []
+    },
+    runAdmission,
+  })
+
+  const held = await page({ refused: true, retryAfter: streak.retryAfter, providers: { openai: streak } })
+  expect(held).toContain('Sweeps are on hold')
+  expect(held).toContain('AI sweeps on hold')
+  expect(held).not.toContain('>Run AI sweep<')
+
+  const skipped = await page({ refused: false, retryAfter: null, providers: { openai: streak } })
+  expect(skipped).toContain('OpenAI is left out of sweeps')
+  expect(skipped).toContain('Run AI sweep')
+  expect(skipped).not.toContain('AI sweeps on hold')
+
+  const clear = await page({ refused: false, retryAfter: null, providers: {} })
+  expect(clear).not.toContain('left out of sweeps')
+  expect(clear).not.toContain('on hold')
 })
 
 test('a project-scoped writer can retry when the project readiness read fails', async () => {

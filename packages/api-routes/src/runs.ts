@@ -429,7 +429,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     })
   })
 
-  // GET /projects/:name/run-admission — the `admission` of `/runs/latest`
+  // GET /projects/:name/run-admission: the `admission` of `/runs/latest`
   // without the latest run's answers, for the dashboard's notice on every
   // project page. Agents and the CLI read it on `/runs/latest` and the overview.
   app.get<{ Params: { name: string } }>('/projects/:name/run-admission', async (request, reply) => {

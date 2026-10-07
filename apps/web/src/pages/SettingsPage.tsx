@@ -72,7 +72,8 @@ function SettingsPageBody() {
           </div>
           <div className="divide-y divide-default border-y border-default">
             {settings.providerStatuses.map((provider) => (
-              <div key={provider.name} className="py-4">
+              // The project notice for a provider that keeps failing links here.
+              <div key={provider.name} id={`provider-${provider.name}`} className="scroll-mt-24 py-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <p className="font-medium text-heading">{provider.displayName ?? provider.name}</p>

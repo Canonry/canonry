@@ -136,6 +136,17 @@ function handleTrackedRunError(error: unknown, options?: {
   projectLabel?: string
   sourceAction?: TrackedRunSourceAction
 }) {
+  if (error instanceof ApiError && error.code === 'PROVIDERS_FAILING') {
+    addToast({
+      title: 'Sweep not started',
+      detail: 'Every provider keeps failing on its account. The AI Visibility notice says when sweeps resume.',
+      tone: 'caution',
+      durationMs: 8000,
+      dedupeKey: `providers-failing:${options?.projectKey ?? 'project'}:${options?.sourceAction ?? 'run'}`,
+      dedupeMode: 'replace',
+    })
+    return
+  }
   if (error instanceof ApiError && error.code === 'RUN_IN_PROGRESS') {
     addToast({
       title: 'Run already in progress',
