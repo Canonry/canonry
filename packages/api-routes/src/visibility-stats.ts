@@ -26,7 +26,7 @@ import {
   type VisibilityStatsShareOfVoice,
 } from '@ainyc/canonry-contracts'
 import { notProbeRun, resolveProject } from './helpers.js'
-import { projectQueryClassifier, shareOfVoiceFromLandscape, mentionShareCompetitorsFromDomains } from './mention-share-inputs.js'
+import { projectQueryClassifier, shareOfVoiceFromLandscape, mentionShareCompetitors } from './mention-share-inputs.js'
 import { computeVisibilityCompare, type VisibilityCompareSnapshotInput } from './visibility-compare.js'
 import { readVisibilityComparisonRuns } from './visibility-report.js'
 import { normalizeText, visibilityComparisonPopulation, VisibilityReportScopeError, type VisibilityReportReaderSelection } from './visibility-report-reader.js'
@@ -468,11 +468,11 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
     .all()
 
   const competitorRows = db
-    .select({ domain: competitors.domain })
+    .select({ domain: competitors.domain, aliases: competitors.aliases })
     .from(competitors)
     .where(eq(competitors.projectId, project.id))
     .all()
-  const competitorInputs = mentionShareCompetitorsFromDomains(competitorRows.map((c) => c.domain))
+  const competitorInputs = mentionShareCompetitors(competitorRows)
 
   const loadMonth = (bounds: MonthBounds) => {
     const runIds = legacyCompareRunIds(db, project.id, bounds)

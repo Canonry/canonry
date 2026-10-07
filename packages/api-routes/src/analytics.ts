@@ -18,7 +18,7 @@ import type {
   WindowChange, WindowRateChange,
 } from '@ainyc/canonry-contracts'
 import { buildMentionShare, type MentionShareCompetitor } from '@ainyc/canonry-intelligence'
-import { mentionShareCompetitorsFromDomains, projectQueryClassifier } from './mention-share-inputs.js'
+import { mentionShareCompetitors as mentionShareCompetitorsFor, projectQueryClassifier } from './mention-share-inputs.js'
 import { latestSweepRuns, planQueryClassesByRun, pooledRunIds } from './competitor-landscape.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned } from './helpers.js'
@@ -168,13 +168,12 @@ export async function analyticsRoutes(app: FastifyInstance) {
         s.queryId || '',
       runBasketRevision: runBasketRevision.get(s.runId) ?? null,
     }))
-    const mentionShareCompetitors = mentionShareCompetitorsFromDomains(
+    const mentionShareCompetitors = mentionShareCompetitorsFor(
       app.db
-        .select({ domain: competitors.domain })
+        .select({ domain: competitors.domain, aliases: competitors.aliases })
         .from(competitors)
         .where(eq(competitors.projectId, project.id))
-        .all()
-        .map(c => c.domain),
+        .all(),
     )
 
     // Overall metrics
@@ -533,14 +532,14 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const windowRunIds = windowRuns.map(r => r.id)
     // Tracked competitors, resolved once, plus one compiled alias matcher each:
     // the alias set is fixed and the answer corpus is not.
-    const competitorDomains = app.db
-      .select({ domain: competitors.domain })
+    const competitorRows = app.db
+      .select({ domain: competitors.domain, aliases: competitors.aliases })
       .from(competitors)
       .where(eq(competitors.projectId, project.id))
       .all()
-      .map(c => c.domain)
+    const competitorDomains = competitorRows.map(c => c.domain)
     const competitorMatchers = new Map(
-      mentionShareCompetitorsFromDomains(competitorDomains)
+      mentionShareCompetitorsFor(competitorRows)
         .map(c => [c.domain, compileBrandAliases([...c.brandTokens])]),
     )
     // Map runId → createdAt so we can key consistency sets by time-point

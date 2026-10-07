@@ -6,12 +6,12 @@ import { describe, expect, it, onTestFinished } from 'vitest'
 import { createClient, migrate, MIGRATION_VERSIONS, projects, type DatabaseClient } from '../src/index.js'
 import { insertLegacyProject } from './legacy-rows.js'
 
-// v168 adds the saved Site Health page budget, `projects.site_audit_max_pages`.
+// v169 adds the saved Site Health page budget, `projects.site_audit_max_pages`.
 // It is nullable with no default: null means the full site, so every project
 // stored before it, and every row an older writer inserts without naming it,
 // keeps scanning the full site.
 
-const BUDGET_VERSION = 168
+const BUDGET_VERSION = 169
 const NOW = '2026-10-06T00:00:00.000Z'
 
 function tempDb(versions = MIGRATION_VERSIONS): DatabaseClient {
@@ -35,12 +35,12 @@ function budgetOf(db: DatabaseClient, id: string) {
     .from(projects).where(eq(projects.id, id)).get()
 }
 
-describe('projects site audit max pages (v168)', () => {
+describe('projects site audit max pages (v169)', () => {
   it('is registered under its name', () => {
     expect(MIGRATION_VERSIONS.find(mv => mv.version === BUDGET_VERSION)?.name).toBe('projects-site-audit-max-pages')
   })
 
-  it('upgrades a v167 project to a nullable column that reads as the full site', () => {
+  it('upgrades a v168 project to a nullable column that reads as the full site', () => {
     const db = tempDb(MIGRATION_VERSIONS.filter(mv => mv.version < BUDGET_VERSION))
     expect(column(db)).toBeUndefined()
     insertLegacyProject(db, { id: 'legacy-project', displayName: 'Legacy', createdAt: NOW })

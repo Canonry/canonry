@@ -1,6 +1,6 @@
 import { Fragment, useId, useMemo, useState, type ReactNode } from 'react'
 import { ChevronRight } from 'lucide-react'
-import { CitationStates, brandLabelFromDomain, hostOf, normalizeQueryText, type QueryClass } from '@ainyc/canonry-contracts'
+import { CitationStates, hostOf, normalizeQueryText, type QueryClass } from '@ainyc/canonry-contracts'
 
 import { Button } from '../ui/button.js'
 import { CitationBadge } from '../shared/CitationBadge.js'
@@ -16,7 +16,7 @@ import { SentimentControls, SentimentHeadlines, SentimentQueryScore, SentimentAn
 import { CitationTimeline, mergeProviderHistories } from './CitationTimeline.js'
 import { useDrawer } from '../../hooks/use-drawer.js'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
-import type { HighlightTermGroup } from '../../lib/highlight.js'
+import { competitorHighlightTerms, type HighlightTermGroup } from '../../lib/highlight.js'
 import type { CitationInsightVm, CitationState, RunHistoryPoint } from '../../view-models.js'
 
 export type CoverageMode = 'citations' | 'mentions'
@@ -537,15 +537,9 @@ export function EvidenceTable({
   )
 }
 
-export function buildHighlightGroups(item: Pick<CitationInsightVm, 'matchedTerms' | 'mentionedCompetitorDomains' | 'recommendedCompetitors'>): HighlightTermGroup[] {
+export function buildHighlightGroups(item: Pick<CitationInsightVm, 'matchedTerms' | 'mentionedCompetitorDomains' | 'mentionedCompetitorTerms' | 'recommendedCompetitors'>): HighlightTermGroup[] {
   const brandTerms = (item.matchedTerms ?? []).filter(t => t.trim().length > 2)
-  const competitorTerms = [
-    ...(item.mentionedCompetitorDomains ?? []).flatMap(d => {
-      const brand = brandLabelFromDomain(d)
-      return brand.length >= 4 ? [brand] : []
-    }),
-    ...(item.recommendedCompetitors ?? []),
-  ].filter(t => t.trim().length > 2)
+  const competitorTerms = competitorHighlightTerms(item)
   const groups: HighlightTermGroup[] = []
   if (brandTerms.length > 0) groups.push({ terms: brandTerms, className: 'answer-highlight-brand' })
   if (competitorTerms.length > 0) groups.push({ terms: competitorTerms, className: 'answer-highlight-competitor' })
@@ -618,8 +612,11 @@ function AnswerInlinePanel({
   onViewFull: () => void
   contextOnly?: boolean
 }) {
-  const { matchedTerms, mentionedCompetitorDomains, recommendedCompetitors } = item
-  const groups = useMemo(() => buildHighlightGroups({ matchedTerms, mentionedCompetitorDomains, recommendedCompetitors }), [matchedTerms, mentionedCompetitorDomains, recommendedCompetitors])
+  const { matchedTerms, mentionedCompetitorDomains, mentionedCompetitorTerms, recommendedCompetitors } = item
+  const groups = useMemo(
+    () => buildHighlightGroups({ matchedTerms, mentionedCompetitorDomains, mentionedCompetitorTerms, recommendedCompetitors }),
+    [matchedTerms, mentionedCompetitorDomains, mentionedCompetitorTerms, recommendedCompetitors],
+  )
   const hasAnswer = item.answerSnippet.trim().length > 0
   if (!hasAnswer) {
     return (

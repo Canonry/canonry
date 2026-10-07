@@ -1,5 +1,6 @@
 import { test, expect } from 'vitest'
 import {
+  normalizeCompetitorDomain,
   configSpecSchema,
   normalizeProjectName,
   orderLocationsDefaultFirst,
@@ -134,4 +135,24 @@ test('project upsert bounds qualifiedAliases and leaves it optional', () => {
   expect(projectUpsertRequestSchema.safeParse({ ...base, qualifiedAliases: ['x'.repeat(201)] }).success).toBe(false)
   expect(projectUpsertRequestSchema.safeParse({ ...base, qualifiedAliases: Array.from({ length: 21 }, (_, i) => `Alias ${i}`) }).success).toBe(false)
   expect(projectUpsertRequestSchema.safeParse({ ...base, qualifiedAliases: Array.from({ length: 20 }, (_, i) => `Alias ${i}`) }).success).toBe(true)
+})
+
+// ---------------------------------------------------------------------------
+// normalizeCompetitorDomain: the stored registrable form every competitor
+// write and lookup uses, so a subdomain label never becomes a brand token.
+// ---------------------------------------------------------------------------
+
+test('normalizeCompetitorDomain reduces a subdomain to its registrable domain', () => {
+  expect(normalizeCompetitorDomain('offers.quotebird.test')).toBe('quotebird.test')
+  expect(normalizeCompetitorDomain('shop.rival.co.uk')).toBe('rival.co.uk')
+})
+
+test('normalizeCompetitorDomain strips scheme, www, path and case from a URL', () => {
+  expect(normalizeCompetitorDomain('https://www.Rival.example/pricing?ref=1')).toBe('rival.example')
+  expect(normalizeCompetitorDomain('WWW.RIVAL.EXAMPLE')).toBe('rival.example')
+})
+
+test('normalizeCompetitorDomain keeps a single-label host as its normalized host', () => {
+  expect(normalizeCompetitorDomain('localhost')).toBe('localhost')
+  expect(normalizeCompetitorDomain('  Intranet  ')).toBe('intranet')
 })

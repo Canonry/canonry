@@ -22,6 +22,7 @@ Cloud API entry point. A thin Fastify server that imports and mounts `packages/a
 - This app is intentionally thin. All shared route logic lives in `packages/api-routes`.
 - Cloud-specific concerns (managed Postgres, pg-boss job queue, CDN) are wired here.
 - Local equivalent is `packages/canonry/src/server.ts`.
+- Alias hooks run inline, inside the request rather than after the response, because Cloud Run may throttle an instance once the response is sent: `onAliasesChanged` runs the full `backfillProjectAnswerMentions(db, projectId)` and `onCompetitorAliasesChanged` the competitor-fields-only pass. A failed refresh is logged and never fails the committed write.
 - Boot applies the shared additive SQLite migrations before constructing the durable runtime log store. Application and Fastify logs use `api-routes/runtime-logger`; close unsubscribes capture and closes this host's database handle. HTTP request IDs are server-issued UUIDs.
 
 ## See Also

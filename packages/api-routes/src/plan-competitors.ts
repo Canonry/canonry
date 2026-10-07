@@ -1,10 +1,19 @@
-import { eq } from 'drizzle-orm'
+import { and, desc, eq, exists, inArray, isNotNull, ne, or } from 'drizzle-orm'
 import {
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
+  RunKinds,
+  RunStatuses,
+  brandKeyFromText,
+  hostMatchesDomain,
   hostOf,
+  normalizeCompetitorAliases,
+  normalizeCompetitorDomain,
   parseStoredMeasurementPlanAnyVersion,
+  type CompetitorAliasMarketPin,
+  type CompetitorIdentityInput,
 } from '@ainyc/canonry-contracts'
-import { measurementPlanVersions, type DatabaseClient } from '@ainyc/canonry-db'
+import { measurementPlanVersions, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { activePlanVersionRow, draftRow, parseStoredAuthoring } from './measurement-draft-repo.js'
 
 /** One competitor a plan revision names: its host and the names it goes by. */
 export interface PlanCompetitor {
@@ -121,10 +130,46 @@ export function measurementPlanCompetitorDomains(db: DatabaseClient, versionId: 
  * pins stay inside their own markets. A planless run, or an answer with no
  * execution id, gets exactly the project list. The revision is read once per
  * resolver, since a backfill scores many answers of the same few revisions.
+ *
+ * Project competitors carry their operator-curated aliases (`{ domain,
+ * aliases }`; a bare string is a domain with none), so planless answers and
+ * plan answers alike are scored against the curated names. A plan pin on a
+ * project competitor's host, or under it (`shop.rival.example` for
+ * `rival.example`), is that competitor, as the landscape merges them: its
+ * names are added to the project competitor's and it is not listed apart, so
+ * one answer never counts for both. Every citation of the pin's host still
+ * counts, since it falls under the project competitor's host. A pin on a
+ * parent or sibling host stays apart: a citation of `rival.example` is not one
+ * of `offers.rival.example`. Only a project competitor stored as a subdomain
+ * meets that case, and only an older discovery promote stored one (every write
+ * now stores the registrable domain): such a row and the pin share a domain
+ * label, so an answer naming it credits both in the stored overlap, while the
+ * landscape, which merges by registrable domain, counts one row. Removing and
+ * re-adding the competitor (restating its aliases) stores the registrable
+ * domain and ends the split.
  */
-export function createRunCompetitorResolver(db: DatabaseClient, projectCompetitorDomains: readonly string[]) {
+export function createRunCompetitorResolver(
+  db: DatabaseClient,
+  projectCompetitors: readonly (string | CompetitorIdentityInput)[],
+) {
   const scopes = new Map<string, PlanCompetitorScope | null>()
-  const listOnly = (): RunCompetitors => ({ domains: [...new Set(projectCompetitorDomains)], aliases: new Map() })
+  const project = projectCompetitors.map(entry => typeof entry === 'string'
+    ? { domain: entry, aliases: [] as string[] }
+    : { domain: entry.domain, aliases: normalizeCompetitorAliases(entry.aliases) })
+  const projectDomains = [...new Set(project.map(entry => entry.domain))]
+  const projectAliases = (): Map<string, string[]> => {
+    const aliases = new Map<string, string[]>()
+    for (const entry of project) {
+      if (entry.aliases.length === 0) continue
+      aliases.set(entry.domain, normalizeCompetitorAliases([...(aliases.get(entry.domain) ?? []), ...entry.aliases]))
+    }
+    return aliases
+  }
+  const listOnly = (): RunCompetitors => ({ domains: [...projectDomains], aliases: projectAliases() })
+  // The most specific project competitor whose host the pin's host is, or is under.
+  const coveringProjectDomain = (pinHost: string): string | undefined => projectDomains
+    .filter(domain => hostMatchesDomain(pinHost, domain))
+    .sort((left, right) => competitorKey(right).length - competitorKey(left).length)[0]
   return (versionId: string | null | undefined, executionId: string | null | undefined): RunCompetitors => {
     if (!versionId || !executionId) return listOnly()
     if (!scopes.has(versionId)) scopes.set(versionId, readScope(db, versionId))
@@ -132,13 +177,156 @@ export function createRunCompetitorResolver(db: DatabaseClient, projectCompetito
     if (pinned.length === 0) return listOnly()
     // The project's own spelling wins when both name the same host.
     const byKey = new Map<string, string>()
-    for (const domain of projectCompetitorDomains) if (!byKey.has(competitorKey(domain))) byKey.set(competitorKey(domain), domain)
-    const aliases = new Map<string, string[]>()
+    for (const domain of projectDomains) if (!byKey.has(competitorKey(domain))) byKey.set(competitorKey(domain), domain)
+    const aliases = projectAliases()
     for (const competitor of pinned) {
-      const domain = byKey.get(competitor.domain) ?? competitor.domain
+      const domain = byKey.get(competitor.domain) ?? coveringProjectDomain(competitor.domain) ?? competitor.domain
       byKey.set(competitor.domain, domain)
-      if (competitor.aliases.length) aliases.set(domain, competitor.aliases)
+      if (competitor.aliases.length) {
+        aliases.set(domain, normalizeCompetitorAliases([...(aliases.get(domain) ?? []), ...competitor.aliases]))
+      }
     }
-    return { domains: [...new Set([...projectCompetitorDomains, ...byKey.values()])], aliases }
+    return { domains: [...new Set([...projectDomains, ...byKey.values()])], aliases }
   }
+}
+
+/** A market as a pin reader sees it: its key and the competitors it pins. */
+export interface MarketPinGroup {
+  stableKey: string
+  /** v2 and draft groups carry `{ domain, label, aliases }`; a v1 group bare hosts. */
+  competitors?: ReadonlyArray<string | { domain: string; label: string; aliases: readonly string[] }>
+}
+
+/**
+ * The competitors `groups` pin, one per registrable domain, with every
+ * market's names for it and the markets that pin it, in first-seen order.
+ */
+export function marketPinsFromGroups(groups: readonly MarketPinGroup[]): CompetitorAliasMarketPin[] {
+  const byDomain = new Map<string, { domain: string; names: string[]; markets: string[] }>()
+  for (const group of groups) {
+    for (const competitor of group.competitors ?? []) {
+      const pin = typeof competitor === 'string' ? { domain: competitor, label: null, aliases: [] } : competitor
+      const domain = normalizeCompetitorDomain(pin.domain.trim())
+      if (!domain) continue
+      const merged = byDomain.get(domain) ?? { domain, names: [], markets: [] }
+      merged.names = normalizeCompetitorAliases([...merged.names, ...(pin.label ? [pin.label] : []), ...pin.aliases])
+      if (!merged.markets.includes(group.stableKey)) merged.markets.push(group.stableKey)
+      byDomain.set(domain, merged)
+    }
+  }
+  return [...byDomain.values()]
+}
+
+/**
+ * The pins `after` touches relative to `before`, one per domain: a pin new to
+ * a market carries every name it has (`marketPinsFromGroups`); a pin a market
+ * already had and now pins by a name it did not (same brand key) carries just
+ * those names and `renamed: true`, unless another market adds it. An unchanged
+ * pin is left out, so a check over the result never blocks a write for a pin
+ * or a name it did not touch.
+ */
+export function changedMarketPins(before: readonly MarketPinGroup[], after: readonly MarketPinGroup[]): CompetitorAliasMarketPin[] {
+  const previous = new Map<string, Map<string, Set<string>>>()
+  for (const group of before) {
+    const byDomain = previous.get(group.stableKey) ?? new Map<string, Set<string>>()
+    for (const pin of marketPinsFromGroups([group])) {
+      byDomain.set(pin.domain, new Set([...(byDomain.get(pin.domain) ?? []), ...pin.names.map(brandKeyFromText)]))
+    }
+    previous.set(group.stableKey, byDomain)
+  }
+  const changed = new Map<string, { domain: string; names: string[]; markets: string[]; added: boolean }>()
+  for (const group of after) {
+    for (const pin of marketPinsFromGroups([group])) {
+      const known = previous.get(group.stableKey)?.get(pin.domain)
+      const names = known ? pin.names.filter(name => !known.has(brandKeyFromText(name))) : pin.names
+      if (known && names.length === 0) continue
+      const merged = changed.get(pin.domain) ?? { domain: pin.domain, names: [], markets: [], added: false }
+      merged.names = normalizeCompetitorAliases([...merged.names, ...names])
+      if (!merged.markets.includes(group.stableKey)) merged.markets.push(group.stableKey)
+      merged.added ||= !known
+      changed.set(pin.domain, merged)
+    }
+  }
+  return [...changed.values()].map(({ added, ...pin }) => (added ? pin : { ...pin, renamed: true }))
+}
+
+/** The markets a stored revision of any schema version pins, or none when it is unreadable. */
+export function storedPlanPinGroups(canonicalJson: string): MarketPinGroup[] {
+  try {
+    return parseStoredMeasurementPlanAnyVersion(canonicalJson).groups
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Every competitor the project's Advanced markets pin: the active revision's
+ * groups (v2 with their names, v1 as bare hosts) and the pending draft's
+ * groups, which an Advanced read already counts, then the pins of every
+ * superseded revision whose answers are scored with them
+ * (`supersededRevisionPins`). A curated alias of a tracked competitor
+ * must stay clear of all of them. An unreadable revision or draft pins nothing
+ * here rather than failing a competitor write.
+ */
+export function readMarketCompetitorPins(db: Parameters<typeof draftRow>[0], projectId: string): CompetitorAliasMarketPin[] {
+  const groups: MarketPinGroup[] = []
+  let activeVersionId: string | null = null
+  try {
+    const active = activePlanVersionRow(db, projectId)
+    if (active) {
+      activeVersionId = active.id
+      groups.push(...storedPlanPinGroups(active.canonicalJson))
+    }
+  } catch {
+    // A pointer to a missing revision: no pins to check against.
+  }
+  const draft = draftRow(db, projectId)
+  if (draft) {
+    try {
+      groups.push(...parseStoredAuthoring(draft.authoringJson).groups)
+    } catch {
+      // Unreadable draft: no pins to check against.
+    }
+  }
+  return [...marketPinsFromGroups(groups), ...supersededRevisionPins(db, projectId, activeVersionId)]
+}
+
+/**
+ * The pins of every superseded revision that scores answers, newest revision
+ * first, each marked with its `supersededRevision`. The landscape and the
+ * stored competitor columns score each run against its own frozen revision
+ * (`createRunCompetitorResolver`), so those runs still count those pins after
+ * a later revision drops or renames them. A revision scores answers when an
+ * answer-visibility run measured under it stored at least one, or is still
+ * queued or running (its answers will be scored with it). A revision no run
+ * used, or whose runs all failed or were cancelled before storing an answer,
+ * scores nothing and is not read, so it never blocks a write for good.
+ */
+function supersededRevisionPins(
+  db: Parameters<typeof draftRow>[0],
+  projectId: string,
+  activeVersionId: string | null,
+): CompetitorAliasMarketPin[] {
+  const measured = db.select({ id: runs.measurementPlanVersionId })
+    .from(runs)
+    .where(and(
+      eq(runs.projectId, projectId),
+      eq(runs.kind, RunKinds['answer-visibility']),
+      isNotNull(runs.measurementPlanVersionId),
+      or(
+        inArray(runs.status, [RunStatuses.queued, RunStatuses.running]),
+        exists(db.select({ id: querySnapshots.id }).from(querySnapshots).where(eq(querySnapshots.runId, runs.id))),
+      ),
+    ))
+  const versions = db.select({ revision: measurementPlanVersions.revision, canonicalJson: measurementPlanVersions.canonicalJson })
+    .from(measurementPlanVersions)
+    .where(and(
+      eq(measurementPlanVersions.projectId, projectId),
+      inArray(measurementPlanVersions.id, measured),
+      ...(activeVersionId ? [ne(measurementPlanVersions.id, activeVersionId)] : []),
+    ))
+    .orderBy(desc(measurementPlanVersions.revision))
+    .all()
+  return versions.flatMap(version => marketPinsFromGroups(storedPlanPinGroups(version.canonicalJson))
+    .map(pin => ({ ...pin, supersededRevision: version.revision })))
 }

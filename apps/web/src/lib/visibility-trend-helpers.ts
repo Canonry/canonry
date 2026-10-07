@@ -156,12 +156,20 @@ export function normalizeProviderKey(provider: string): string {
 
 /**
  * The tracked competitor set as a cache-key segment. Analytics reads that
- * depend on it rotate their key when a competitor is added or removed, so the
- * change costs one fetch rather than an invalidation plus a refetch.
+ * depend on it rotate their key when a competitor is added or removed, or its
+ * curated aliases change (they change mention share), so the change costs one
+ * fetch rather than an invalidation plus a refetch.
  */
-export function competitorFrameKey(competitorDomains: readonly string[]): string {
+export function competitorFrameKey(
+  competitorDomains: readonly string[],
+  competitorAliases: Readonly<Record<string, readonly string[]>> = {},
+): string {
   return competitorDomains
-    .map(domain => domain.trim().toLowerCase())
+    .map(domain => {
+      const key = domain.trim().toLowerCase()
+      const aliases = (competitorAliases[domain] ?? []).map(alias => alias.trim().toLowerCase()).filter(Boolean).sort()
+      return key && aliases.length > 0 ? `${key}=${aliases.join('|')}` : key
+    })
     .filter(Boolean)
     .sort()
     .join('\n')

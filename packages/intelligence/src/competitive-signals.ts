@@ -1,13 +1,13 @@
 import {
-  MIN_DOMAIN_BRAND_KEY_LENGTH,
   answerProseForMentions,
   brandKeyFromText,
-  brandLabelFromDomain,
   compileBrandAliases,
+  competitorNameAliases,
   extractDomainsFromText,
   hostMatchesDomain,
   hostOf,
   matchedAliasKeys,
+  type CompetitorIdentityInput,
 } from '@ainyc/canonry-contracts'
 
 export interface CompetitiveSignalSource {
@@ -32,6 +32,12 @@ export interface CompetitiveSignalEvidence {
 export interface CompetitiveSignals {
   citedCompetitorDomains: string[]
   mentionedCompetitorDomains: string[]
+  /**
+   * The identities that made each mention: the competitor names (curated
+   * aliases, gated domain labels) and written hosts found in the prose, in
+   * competitor order. Readers highlight these instead of re-deriving names.
+   */
+  mentionedCompetitorTerms: string[]
 }
 
 export interface CompetitiveSignalResolver {
@@ -40,7 +46,11 @@ export interface CompetitiveSignalResolver {
 
 interface CompetitorIdentity {
   domain: string
-  domainBrandKey: string | null
+  /**
+   * The competitor's names (curated aliases plus the gated domain label), each
+   * with its `brandKeyFromText` key, the key the shared matcher reports.
+   */
+  names: Array<{ name: string; key: string }>
 }
 
 /**
@@ -52,30 +62,27 @@ interface CompetitorIdentity {
  * Exact written domains are always strong identities. A bare label derived
  * from a domain uses the same specificity floor as project answer mentions,
  * so `ai.com` is recognized when written but the generic word "AI" is not.
+ * Operator-curated aliases (`{ domain, aliases }` entries) are names too, at
+ * the alias floor, so "TuneSpoke" marks `spoketuneworks.example` mentioned.
+ * A bare string entry is a domain with no curated alias.
  */
 export function compileCompetitiveSignalResolver(
-  competitorDomains: readonly string[],
+  competitors: readonly (string | CompetitorIdentityInput)[],
 ): CompetitiveSignalResolver {
   const identities: CompetitorIdentity[] = []
   const seen = new Set<string>()
 
-  for (const candidate of competitorDomains) {
-    const domain = hostOf(candidate)
+  for (const candidate of competitors) {
+    const input = typeof candidate === 'string' ? { domain: candidate } : candidate
+    const domain = hostOf(input.domain)
     if (!domain || seen.has(domain)) continue
     seen.add(domain)
-    const domainBrandKey = brandKeyFromText(brandLabelFromDomain(domain))
-    identities.push({
-      domain,
-      domainBrandKey: domainBrandKey.length >= MIN_DOMAIN_BRAND_KEY_LENGTH
-        ? domainBrandKey
-        : null,
-    })
+    const names = competitorNameAliases({ domain, aliases: input.aliases })
+    identities.push({ domain, names: names.map(name => ({ name, key: brandKeyFromText(name) })) })
   }
 
-  const domainBrandMatcher = compileBrandAliases(
-    identities
-      .filter(identity => identity.domainBrandKey !== null)
-      .map(identity => brandLabelFromDomain(identity.domain)),
+  const nameMatcher = compileBrandAliases(
+    identities.flatMap(identity => identity.names.map(entry => entry.name)),
   )
 
   return {
@@ -87,30 +94,31 @@ export function compileCompetitiveSignalResolver(
       // Mentions read the answer's prose: a citation chip in the text is a citation.
       const prose = answerProseForMentions(evidence.answerText)
       const answerDomains = evidence.answerDomains ?? extractDomainsFromText(prose)
-      const mentionedBrandKeys = matchedAliasKeys(domainBrandMatcher, prose)
+      const mentionedNameKeys = matchedAliasKeys(nameMatcher, prose)
       const citedCompetitorDomains: string[] = []
       const mentionedCompetitorDomains: string[] = []
+      const mentionedCompetitorTerms = new Set<string>()
 
       for (const identity of identities) {
         if (citationCandidates.some(candidate => hostMatchesDomain(candidate, identity.domain))) {
           citedCompetitorDomains.push(identity.domain)
         }
-        if (
-          answerDomains.some(candidate => hostMatchesDomain(candidate, identity.domain))
-          || (identity.domainBrandKey !== null && mentionedBrandKeys.has(identity.domainBrandKey))
-        ) {
+        const writtenHosts = answerDomains.filter(candidate => hostMatchesDomain(candidate, identity.domain))
+        const names = identity.names.filter(entry => mentionedNameKeys.has(entry.key)).map(entry => entry.name)
+        if (writtenHosts.length > 0 || names.length > 0) {
           mentionedCompetitorDomains.push(identity.domain)
+          for (const term of [...names, ...writtenHosts]) mentionedCompetitorTerms.add(term)
         }
       }
 
-      return { citedCompetitorDomains, mentionedCompetitorDomains }
+      return { citedCompetitorDomains, mentionedCompetitorDomains, mentionedCompetitorTerms: [...mentionedCompetitorTerms] }
     },
   }
 }
 
 export function resolveCompetitiveSignals(
   evidence: CompetitiveSignalEvidence,
-  competitorDomains: readonly string[],
+  competitors: readonly (string | CompetitorIdentityInput)[],
 ): CompetitiveSignals {
-  return compileCompetitiveSignalResolver(competitorDomains).resolve(evidence)
+  return compileCompetitiveSignalResolver(competitors).resolve(evidence)
 }

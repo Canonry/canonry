@@ -97,6 +97,26 @@ test('answer highlighting consumes mentioned competitors only', () => {
   ])
 })
 
+test('answer highlighting uses the server-matched competitor terms, curated aliases included', () => {
+  const aliased = item([], {
+    citedCompetitorDomains: [],
+    mentionedCompetitorDomains: ['spoketuneworks.example', 'qvx.example'],
+    mentionedCompetitorTerms: ['TuneSpoke', 'QVX'],
+    recommendedCompetitors: ['Gearloft'],
+    competitorDomains: ['spoketuneworks.example', 'qvx.example'],
+  })
+  // No domain label is re-derived: the server said which names matched.
+  expect(buildHighlightGroups(aliased)).toEqual([
+    { terms: ['TuneSpoke', 'QVX', 'Gearloft'], className: 'answer-highlight-competitor' },
+  ])
+  // An empty server list is respected: nothing is re-derived from the domain.
+  expect(buildHighlightGroups(item([], {
+    mentionedCompetitorDomains: ['rival.example'],
+    mentionedCompetitorTerms: [],
+    competitorDomains: ['rival.example'],
+  }))).toEqual([])
+})
+
 test('source competitor tagging consumes cited competitors only', () => {
   const citationOnly = item([], {
     citedCompetitorDomains: ['www.rival.example'],

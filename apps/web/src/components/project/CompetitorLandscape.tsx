@@ -102,10 +102,13 @@ function displayName(row: Pick<CompetitorLandscapeRow, 'domain' | 'label'>): str
   return label && label.toLowerCase() !== row.domain.toLowerCase() && label.toLowerCase() !== generated.toLowerCase() ? label : null
 }
 
-/** A brand's display name with its domain beside it, or the domain alone. */
-function BrandName({ row }: { row: Pick<CompetitorLandscapeRow, 'domain' | 'label'> }) {
+/** A brand's display name with its domain beside it, or the domain alone, plus its curated aliases. */
+function BrandName({ row, aliases = [] }: { row: Pick<CompetitorLandscapeRow, 'domain' | 'label'>; aliases?: readonly string[] }) {
   const name = displayName(row)
-  return name ? <>{name} <span className="av-of">{row.domain}</span></> : <>{row.domain}</>
+  const aliasNote = aliases.length > 0 ? <span className="av-of block">Also named {aliases.join(', ')}</span> : null
+  return name
+    ? <>{name} <span className="av-of">{row.domain}</span>{aliasNote}</>
+    : <>{row.domain}{aliasNote}</>
 }
 
 /** The same, as plain text for a list line: "Review site (review.example)". */
@@ -308,6 +311,7 @@ export function CompetitorLandscape({
   window,
   landscape,
   pinnedFallback = [],
+  competitorAliases = {},
   canWrite,
   isEmbed,
   onWindowChange,
@@ -323,6 +327,8 @@ export function CompetitorLandscape({
   landscape?: CompetitorLandscapeData
   /** Current pins remain visible when the exploratory-history read fails. */
   pinnedFallback?: readonly CompetitorLandscapeRow[]
+  /** Tracked competitor domain to its curated answer-text aliases, shown on pinned rows. */
+  competitorAliases?: Readonly<Record<string, readonly string[]>>
   canWrite: boolean
   isEmbed: boolean
   onWindowChange: (value: CompetitorLandscapeWindow) => void
@@ -544,7 +550,7 @@ export function CompetitorLandscape({
               ) : null}
               {frameRows.map(row => (
                 <tr key={row.domain}>
-                  <th scope="row" className="av-row-label"><BrandName row={row} /></th>
+                  <th scope="row" className="av-row-label"><BrandName row={row} aliases={row.pinned ? competitorAliases[row.domain] : undefined} /></th>
                   <td className="av-brand-type text-[13px] text-secondary">{sourceClassLabel(row.surfaceClass)}</td>
                   <td><Share percent={row.shareOfVoice} state={metricState} toneClass="text-primary" /></td>
                   <td><Count count={row.mentionCount} of={named} state={metricState} toneClass="text-primary" /></td>

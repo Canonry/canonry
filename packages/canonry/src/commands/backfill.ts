@@ -1,10 +1,9 @@
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
-import { createRunCompetitorResolver } from '@ainyc/canonry-api-routes'
+import { backfillProjectAnswerMentions, createRunCompetitorResolver } from '@ainyc/canonry-api-routes'
 import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from 'drizzle-orm'
 import type { GroundingSource, NormalizedQueryResult, NormalizedTrafficRequest, RetrievalContract, RetrievalStatus } from '@ainyc/canonry-contracts'
-import type { DatabaseClient } from '@ainyc/canonry-db'
 import { aiUserFetchEventsHourly, auditLog, crawlerEventsHourly, createClient, gaAiReferrals, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, rawEventSamples, runs } from '@ainyc/canonry-db'
-import { determineAnswerMentioned, effectiveBrandNames, effectiveDomains, normalizeUrlPath, ProviderNames, RetrievalContracts, RunKinds, TrafficEventConfidences, TrafficEventKinds, TrafficEvidenceKinds, TrafficSourceTypes } from '@ainyc/canonry-contracts'
+import { computeCompetitorOverlap, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, extractRecommendedCompetitors, normalizeUrlPath, ProviderNames, RetrievalContracts, RunKinds, TrafficEventConfidences, TrafficEventKinds, TrafficEvidenceKinds, TrafficSourceTypes } from '@ainyc/canonry-contracts'
 import { classifyAiUserFetch, classifyCrawler } from '@ainyc/canonry-integration-traffic'
 import { OPENAI_RETRIEVAL_CONTRACT, reparseStoredResult as reparseOpenAIStoredResult } from '@ainyc/canonry-provider-openai'
 import { reparseStoredResult as reparseClaudeStoredResult } from '@ainyc/canonry-provider-claude'
@@ -14,11 +13,11 @@ import { reparseStoredResult as reparseMuseStoredResult } from '@ainyc/canonry-p
 import { loadConfig } from '../config.js'
 import type { CliFormat } from '../cli-error.js'
 import { isMachineFormat } from '../cli-error.js'
-import {
-  computeCompetitorOverlap,
-  determineCitationState,
-  extractRecommendedCompetitors,
-} from '../citation-utils.js'
+import { determineCitationState } from '../citation-utils.js'
+
+// The snapshot rescore lives in api-routes so Cloud can run it after an alias
+// write; existing imports from this module keep working.
+export { backfillProjectAnswerMentions, type ProjectAnswerMentionsBackfillResult } from '@ainyc/canonry-api-routes'
 
 const SNAPSHOT_BATCH_SIZE = 500
 // Short pages keep each write transaction brief while a server shares the database.
@@ -72,13 +71,13 @@ export async function backfillAnswerVisibilityCommand(opts?: {
     }
 
     for (const project of scopedProjects) {
-      const competitorDomains = db
-        .select({ domain: competitors.domain })
+      // Curated competitor aliases score the recomputed overlap and named
+      // competitors the same way a new sweep does.
+      const competitorsForRun = createRunCompetitorResolver(db, db
+        .select({ domain: competitors.domain, aliases: competitors.aliases })
         .from(competitors)
         .where(eq(competitors.projectId, project.id))
-        .all()
-        .map(row => row.domain)
-      const competitorsForRun = createRunCompetitorResolver(db, competitorDomains)
+        .all())
       const runIds = runIdsByProject.get(project.id) ?? []
       if (runIds.length === 0) continue
 
@@ -481,151 +480,6 @@ export async function backfillAiReferralPathsCommand(opts?: {
   console.log(`  Unchanged: ${unchanged}`)
 }
 
-export interface ProjectAnswerMentionsBackfillResult {
-  examined: number
-  updated: number
-  wouldUpdate?: number
-  mentioned: number
-}
-
-/**
- * Recomputes `answerMentioned`, `competitorOverlap`, and `recommendedCompetitors`
- * for every answer-visibility snapshot owned by `projectId` using the snapshot's
- * stored `answerText` + `citedDomains` and the `groundingSources` already cached
- * in the `rawResponse` envelope. Synchronous — better-sqlite3 has no async I/O.
- *
- * Does not touch `citationState`, `citedDomains`, or `rawResponse` — those are
- * computed by domain-to-domain matching which aliases do not affect.
- */
-export function backfillProjectAnswerMentions(
-  db: DatabaseClient,
-  projectId: string,
-  opts?: { dryRun?: boolean },
-): ProjectAnswerMentionsBackfillResult {
-  const isDryRun = opts?.dryRun === true
-  const project = db.select().from(projects).where(eq(projects.id, projectId)).get()
-  if (!project) return { examined: 0, updated: 0, mentioned: 0 }
-
-  const competitorDomains = db
-    .select({ domain: competitors.domain })
-    .from(competitors)
-    .where(eq(competitors.projectId, projectId))
-    .all()
-    .map(row => row.domain)
-
-  const runRows = db
-    .select({ id: runs.id, planVersionId: runs.measurementPlanVersionId })
-    .from(runs)
-    .where(and(eq(runs.kind, RunKinds['answer-visibility']), eq(runs.projectId, projectId)))
-    .all()
-  const runIds = runRows.map(r => r.id)
-  const planVersionByRun = new Map(runRows.map(run => [run.id, run.planVersionId]))
-  const competitorsForRun = createRunCompetitorResolver(db, competitorDomains)
-
-  let examined = 0
-  let updated = 0
-  let wouldUpdate = 0
-  let mentioned = 0
-  if (runIds.length === 0) {
-    return isDryRun ? { examined, updated, wouldUpdate, mentioned } : { examined, updated, mentioned }
-  }
-
-  const projectDomains = effectiveDomains({
-    canonicalDomain: project.canonicalDomain,
-    ownedDomains: project.ownedDomains,
-  })
-  const projectBrandNames = effectiveBrandNames({
-    displayName: project.displayName,
-    aliases: project.aliases,
-  })
-
-  for (let offset = 0; offset < runIds.length; offset += SNAPSHOT_BATCH_SIZE) {
-    const batchRunIds = runIds.slice(offset, offset + SNAPSHOT_BATCH_SIZE)
-    const snapshotRows = db.select({
-      id: querySnapshots.id,
-      runId: querySnapshots.runId,
-      executionId: querySnapshots.measurementExecutionId,
-      provider: querySnapshots.provider,
-      answerMentioned: querySnapshots.answerMentioned,
-      answerText: querySnapshots.answerText,
-      citedDomains: querySnapshots.citedDomains,
-      competitorOverlap: querySnapshots.competitorOverlap,
-      recommendedCompetitors: querySnapshots.recommendedCompetitors,
-      rawResponse: querySnapshots.rawResponse,
-    }).from(querySnapshots)
-      .where(inArray(querySnapshots.runId, batchRunIds))
-      .all()
-    const pendingUpdates: Array<{ id: string; patch: Record<string, unknown> }> = []
-
-    for (const snapshot of snapshotRows) {
-      examined++
-
-      const answerText = snapshot.answerText ?? ''
-      const nextAnswerMentioned = determineAnswerMentioned(answerText, projectBrandNames, projectDomains)
-      if (nextAnswerMentioned) mentioned++
-
-      const citedDomains = snapshot.citedDomains
-      const groundingSources = readStoredGroundingSources(snapshot.rawResponse)
-
-      const normalized: NormalizedQueryResult = {
-        provider: snapshot.provider,
-        answerText,
-        citedDomains,
-        groundingSources,
-        // Only feeds the competitor helpers, which ignore it. This pass never
-        // observes or writes retrieval.
-        retrievalStatus: 'unknown',
-
-        searchQueries: [],
-      }
-
-      const runCompetitors = competitorsForRun(planVersionByRun.get(snapshot.runId), snapshot.executionId)
-      const nextCompetitorOverlap = computeCompetitorOverlap(normalized, runCompetitors.domains, runCompetitors.aliases)
-      const nextRecommendedCompetitors = extractRecommendedCompetitors(
-        answerText,
-        projectDomains,
-        citedDomains,
-        runCompetitors.domains,
-        projectBrandNames,
-        runCompetitors.aliases,
-      )
-
-      const nextPatch: Record<string, unknown> = {}
-      if (snapshot.answerMentioned !== nextAnswerMentioned) {
-        nextPatch.answerMentioned = nextAnswerMentioned
-      }
-      if (JSON.stringify(snapshot.competitorOverlap) !== JSON.stringify(nextCompetitorOverlap)) {
-        nextPatch.competitorOverlap = nextCompetitorOverlap
-      }
-      if (JSON.stringify(snapshot.recommendedCompetitors) !== JSON.stringify(nextRecommendedCompetitors)) {
-        nextPatch.recommendedCompetitors = nextRecommendedCompetitors
-      }
-
-      if (Object.keys(nextPatch).length > 0) {
-        pendingUpdates.push({ id: snapshot.id, patch: nextPatch })
-      }
-    }
-
-    if (pendingUpdates.length > 0) {
-      if (isDryRun) {
-        wouldUpdate += pendingUpdates.length
-      } else {
-        db.transaction((tx) => {
-          for (const update of pendingUpdates) {
-            tx.update(querySnapshots)
-              .set(update.patch)
-              .where(eq(querySnapshots.id, update.id))
-              .run()
-          }
-        })
-        updated += pendingUpdates.length
-      }
-    }
-  }
-
-  return isDryRun ? { examined, updated, wouldUpdate, mentioned } : { examined, updated, mentioned }
-}
-
 /**
  * Lighter sibling of `backfillAnswerVisibilityCommand` — recomputes only the
  * three fields affected by the brand-token matching fix (`answerMentioned`,
@@ -697,23 +551,6 @@ export async function backfillAnswerMentionsCommand(opts?: {
   if (isDryRun) {
     console.log(`\nNo DB writes performed. Re-run without --dry-run to apply.`)
   }
-}
-
-function readStoredGroundingSources(rawResponse: string | null): GroundingSource[] {
-  const envelope = parseJsonColumn<Record<string, unknown>>(rawResponse, {})
-  const sources = envelope.groundingSources
-  if (!Array.isArray(sources)) return []
-  const result: GroundingSource[] = []
-  for (const source of sources) {
-    if (source && typeof source === 'object') {
-      const uri = (source as { uri?: unknown }).uri
-      const title = (source as { title?: unknown }).title
-      if (typeof uri === 'string') {
-        result.push({ uri, title: typeof title === 'string' ? title : '' })
-      }
-    }
-  }
-  return result
 }
 
 export async function backfillInsightsCommand(

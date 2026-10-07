@@ -108,6 +108,23 @@ export function registrableDomain(value: string | null | undefined): string {
   return getDomain(value, DOMAIN_PARSE_OPTIONS)?.toLowerCase() ?? ''
 }
 
+/** Normalize a user-supplied project domain for matching and deduplication. */
+export function normalizeProjectDomain(input: string): string {
+  return hostOf(input) ?? input.trim().toLowerCase().replace(/^www\./, '')
+}
+
+/**
+ * The stored form of a competitor domain: its registrable domain (eTLD+1), so
+ * a subdomain label like `offers` in `offers.quotebird.test` never leaks into
+ * brand-token matching, or the normalized host when there is no recognizable
+ * suffix. Every competitor write and lookup (REST, apply, CLI, discovery
+ * promote) uses this, and a lookup compares stored rows in this form too, so
+ * a row stored unnormalized by an older build stays reachable.
+ */
+export function normalizeCompetitorDomain(input: string): string {
+  return registrableDomain(input) || normalizeProjectDomain(input)
+}
+
 /** The registrable domain without its public suffix. */
 export function brandLabelFromDomain(value: string | null | undefined): string {
   if (value == null || value.trim() === '') return ''
