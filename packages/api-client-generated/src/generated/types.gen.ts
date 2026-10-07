@@ -3544,7 +3544,7 @@ export type CompetitorDto = {
 export type CompetitorLandscapeResponse = {
     basis?: 'tracked' | 'observed';
     availability?: 'measured' | 'not-measured' | 'unavailable';
-    reason?: 'select-query-class' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable';
+    reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable';
     comparison?: Array<{
         domain: string;
         mentions: number;
@@ -3635,7 +3635,7 @@ export type CompetitorLandscapeResponse = {
         groups: Array<{
             basis?: 'tracked' | 'observed';
             availability?: 'measured' | 'not-measured' | 'unavailable';
-            reason?: 'select-query-class' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable';
+            reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable';
             comparison?: Array<{
                 domain: string;
                 mentions: number;
@@ -8884,6 +8884,7 @@ export type MeasurementPortfolioSummaryResponse = {
     marketsTruncated: boolean;
     totalProperties: number;
     truncated: boolean;
+    pageList?: 'weakest-properties' | 'strongest-mentions' | 'weakest-mentions' | 'excluded-mentions' | 'markets' | 'observed-names' | 'cited-domains';
     nextCursor?: string | null;
     detailsOmitted?: Array<string>;
     answerEvidence?: {
@@ -12572,6 +12573,18 @@ export type SiteAuditScoreDto = {
         pagesPartial: number;
         pagesFailing: number;
     }>;
+    affectedPageRanking?: {
+        basis: 'pages-below-pass';
+        scope: 'audited-pages';
+        pagesAudited: number;
+        items: Array<{
+            factorId: string;
+            pagesBelowPass: number;
+            pagesFailing: number;
+            pagesPartial: number;
+        }>;
+        unavailableFactorIds: Array<string>;
+    };
     crossCuttingIssues: Array<{
         factorId: string;
         factorName: string;
@@ -13427,6 +13440,7 @@ export type SiteHealthPathResponseDto = {
 
 export type SiteHealthScansResponseDto = {
     project: string;
+    preferredRunId?: string | null;
     scans: Array<{
         runId: string;
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
@@ -14457,7 +14471,7 @@ export type VisibilityStatsDto = {
     shareOfVoice?: {
         basis?: 'tracked' | 'observed';
         availability?: 'measured' | 'not-measured' | 'unavailable';
-        reason?: 'select-query-class' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable';
+        reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable';
         measurementScope?: 'project' | 'all-markets';
         queryClass: 'branded' | 'non-brand' | 'pooled';
         percent: number | null;
@@ -17849,13 +17863,17 @@ export type GetApiV1ProjectsByNameMeasurementPortfolioSummaryData = {
     };
     query?: {
         /**
-         * Byte-bounded compact page over all lists, with totals and nextCursor. Default false for compatibility.
+         * Byte-bounded whole-row page of pageList, default weakest-properties. Other initial lists are bounded summaries. Default false for compatibility.
          */
         compact?: boolean;
         /**
          * nextCursor from the preceding compact page; keep every selection unchanged.
          */
         cursor?: string;
+        /**
+         * Compact page selection identity; enumerate this list only and omit sibling row lists. observed-names and cited-domains require answers=not-mentioned. Keep unchanged across cursors.
+         */
+        list?: 'weakest-properties' | 'strongest-mentions' | 'weakest-mentions' | 'excluded-mentions' | 'markets' | 'observed-names' | 'cited-domains';
         /**
          * Competitor evidence population. not-mentioned excludes every answer naming any targeted Property.
          */
@@ -17881,7 +17899,7 @@ export type GetApiV1ProjectsByNameMeasurementPortfolioSummaryData = {
          */
         runId?: string;
         /**
-         * Caps the Property lists only: weakest Properties and both mention rankings. Markets are never capped. Defaults to 4, maximum 50.
+         * Compact selected-list page size: auto-sized up to 50 by default; the byte budget may return fewer whole rows. Raw reads default to 4 Property rows and never cap markets.
          */
         limit?: number;
         /**

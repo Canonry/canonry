@@ -10,8 +10,8 @@ import {
   type AssistantMessage,
   type AssistantMessageEventStream,
 } from '@earendil-works/pi-ai'
-import { agentTurnLimitsSchema, type AgentTurnLimits } from '@ainyc/canonry-contracts'
-import { canonryMcpTools } from '../mcp/tool-registry.js'
+import { agentTurnLimitsSchema, MeasurementPortfolioLists, type AgentTurnLimits } from '@ainyc/canonry-contracts'
+import { canonryMcpTools, CanonryMcpToolNames } from '../mcp/tool-registry.js'
 import { CANONRY_MCP_TOOLKITS } from '../mcp/toolkits.js'
 import { isStoredPageReadTool, isStoredReadTool, truncateToolResult } from './mcp-to-agent-tool.js'
 
@@ -96,7 +96,12 @@ function pageDefaults(tool: AgentTool, params: Record<string, unknown>): Record<
 }
 
 function pageSelection(tool: AgentTool, params: Record<string, unknown>, parameter: string): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(pageDefaults(tool, params)).filter(([key, value]) => key !== parameter && !PAGE_SIZE_PARAMS.has(key) && value !== undefined))
+  const selection = pageDefaults(tool, params)
+  // Omission keeps first-page summaries at dispatch, but selects the same continuation list.
+  if (tool.name === CanonryMcpToolNames.canonry_measurement_portfolio_summary && selection.list === undefined) {
+    selection.list = MeasurementPortfolioLists['weakest-properties']
+  }
+  return Object.fromEntries(Object.entries(selection).filter(([key, value]) => key !== parameter && !PAGE_SIZE_PARAMS.has(key) && value !== undefined))
 }
 
 /** Inherit scope before pi validates required inputs; keep short references in its transcript. */

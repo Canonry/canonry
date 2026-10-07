@@ -237,8 +237,8 @@ describe('measurement portfolio reads', () => {
     const { status, body } = await portfolio('answers=not-mentioned&compact=true')
     expect(status).toBe(200)
     expect(body.metrics.propertiesMentioned).toEqual({ state: 'available', value: 0, numerator: 0, denominator: 1 })
-    expect(body.metrics.propertiesNeverMentioned).toEqual({ state: 'unavailable', reason: 'identity_ambiguous' })
-    expect(body.markets[0]?.propertiesNeverMentioned).toEqual({ state: 'unavailable', reason: 'identity_ambiguous' })
+    expect(body.metrics.propertiesNeverMentioned).toEqual({ state: 'unavailable', reason: 'not_applicable' })
+    expect(body.markets[0]?.propertiesNeverMentioned).toEqual({ state: 'unavailable', reason: 'not_applicable' })
     expect(body.answerEvidence).toMatchObject({ populationSize: 2, answerCount: 0, unknownMentionAnswers: 2 })
     const landscape = await app.inject({ method: 'GET', url: '/api/v1/projects/northstar/analytics/competitors?window=all&queryClass=non-brand&answers=not-mentioned' })
     expect(landscape.statusCode).toBe(200)
@@ -344,10 +344,28 @@ describe('measurement portfolio reads', () => {
       basis: 'initial-weakest-selection-and-zero-signal-tie', properties: 1, answers: 2,
       domains: [{ domain: 'listings.example', answers: 2 }], domainTotal: 1, ownDomainAnswers: 0,
     })
-    const second = await portfolio(`compact=true&limit=2&cursor=${encodeURIComponent(first.body.nextCursor!)}`)
+    const second = await portfolio(`compact=true&list=weakest-properties&limit=2&cursor=${encodeURIComponent(first.body.nextCursor!)}`)
     expect(second.status).toBe(200)
     expect(second.body.weakestProperties.map(row => row.targetKey)).toEqual(['harbor'])
     expect(second.body.weakestAnswerSources).toEqual(first.body.weakestAnswerSources)
+  })
+
+  it('requires a not-mentioned answer population for compact evidence-list pagination', async () => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    seedFullRun(versionId)
+    for (const list of ['observed-names', 'cited-domains']) {
+      const missing = await portfolio(`compact=true&list=${list}`)
+      expect(missing.status).toBe(400)
+      const pooled = await portfolio(`compact=true&answers=all&list=${list}`)
+      expect(pooled.status).toBe(400)
+      const selected = await portfolio(`compact=true&answers=not-mentioned&list=${list}`)
+      expect(selected.status).toBe(200)
+      expect(selected.body.pageList).toBe(list)
+      expect(selected.body.answerEvidence).toMatchObject({ answers: 'not-mentioned', populationSize: 2 })
+    }
+    const raw = await portfolio('compact=false&list=markets')
+    expect(raw.status).toBe(400)
   })
 
   it('filters competitor names and registrable domains by no named answer target, including a named sibling outside the selected group', async () => {
@@ -409,7 +427,7 @@ describe('measurement portfolio reads', () => {
     db.update(querySnapshots).set({ answerText: names.join(', '), recommendedCompetitors: names }).where(and(
       eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'), eq(querySnapshots.provider, 'openai'),
     )).run()
-    const first = await portfolio('compact=true&answers=not-mentioned&limit=50')
+    const first = await portfolio('compact=true&answers=not-mentioned&list=observed-names&limit=50')
     expect(first.status).toBe(200)
     expect(first.body.answerEvidence?.observedNamesTotal).toBe(names.length)
     expect(first.body.nextCursor).toBeTypeOf('string')
@@ -422,16 +440,18 @@ describe('measurement portfolio reads', () => {
       seen.push(...page.body.answerEvidence!.observedNames.map(row => row.name))
       expect(++pages).toBeLessThan(20)
       if (!page.body.nextCursor) break
-      page = await portfolio(`compact=true&answers=not-mentioned&limit=50&cursor=${encodeURIComponent(page.body.nextCursor)}`)
+      page = await portfolio(`compact=true&answers=not-mentioned&list=observed-names&limit=50&cursor=${encodeURIComponent(page.body.nextCursor)}`)
       expect(page.status).toBe(200)
     }
     expect(seen.sort()).toEqual(names.sort())
-    const mismatch = await portfolio(`compact=true&answers=not-mentioned&queryClass=branded&cursor=${encodeURIComponent(firstCursor)}`)
+    const mismatch = await portfolio(`compact=true&answers=not-mentioned&list=observed-names&queryClass=branded&cursor=${encodeURIComponent(firstCursor)}`)
     expect(mismatch.status).toBe(400)
+    const otherList = await portfolio(`compact=true&answers=not-mentioned&list=cited-domains&cursor=${encodeURIComponent(firstCursor)}`)
+    expect(otherList.status).toBe(400)
     db.update(querySnapshots).set({ recommendedCompetitors: ['Changed Rival'] }).where(and(
       eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'), eq(querySnapshots.provider, 'openai'),
     )).run()
-    const changed = await portfolio(`compact=true&answers=not-mentioned&cursor=${encodeURIComponent(firstCursor)}`)
+    const changed = await portfolio(`compact=true&answers=not-mentioned&list=observed-names&cursor=${encodeURIComponent(firstCursor)}`)
     expect(changed.status).toBe(400)
   })
   it('ranks usable mentions over attributable answers, independently of citation capture and the list limit', async () => {
@@ -909,8 +929,9 @@ describe('measurement portfolio reads', () => {
     let cursor: string | null | undefined
     const seenMarkets = new Set<string>()
     do {
-      const page = await portfolio(`compact=true&includeNestedMarkets=true&limit=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`)
+      const page = await portfolio(`compact=true&includeNestedMarkets=true&list=markets&limit=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`)
       expect(page.status).toBe(200)
+      expect(page.body.pageList).toBe('markets')
       expect(page.body.weakestMarkets).toEqual(expected)
       expect(JSON.stringify(page.body, null, 2).length).toBeLessThanOrEqual(18_000)
       for (const market of page.body.markets) {

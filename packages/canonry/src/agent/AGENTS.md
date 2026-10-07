@@ -88,7 +88,8 @@ stops the turn with an explicit partial-answer fallback. Provider failure during
 wrap-up reports error even with that fallback; a user abort reports stopped.
 Abort stops future calls; dispatched work may settle. Identical
 local stored-read calls reuse the earlier result within one turn; live provider
-reads, job polling, failures and external tools do not, and any other tool invalidates
+reads, run/progress polling (including project overview and measurement data quality),
+failures and external tools do not, and any other tool invalidates
 the memo. Intact native stored-read pages expose short, turn-specific cursor
 references in model-facing JSON only. Resolve them to the exact API token for
 the same tool and original filters. Omitted filters inherit the issuing call;
@@ -203,8 +204,13 @@ guard blind-sliced the serialized JSON, which could split an array element
 halfway (invalid JSON) and silently drop a cited evidence row mid-object. Now:
 an object whose largest field is an array drops WHOLE trailing rows and stamps
 `__truncated` + `__omittedRows`; a top-level array is wrapped as `{ items,
-__truncated, __omittedRows }`; oversized scalars and
-keyed fields are omitted explicitly in a bounded JSON projection. Every retained row stays byte-intact;
+__truncated, __omittedRows }`; fields without room are omitted explicitly
+in a bounded JSON projection. Oversized standalone
+strings and object string fields retain marked partial prefixes under
+`__truncation.slicedKeys` with exact kept/total character counts; never treat these
+as complete quotations. Array rows stay whole. Bounded display paths and a separate
+metadata budget prevent long map keys from erasing retained totals and rollups.
+Every retained row stays byte-intact;
 the programmatic `details` envelope is never trimmed, only the model-facing
 text.
 
@@ -225,12 +231,21 @@ a list whose owner carries a page cursor (`nextCursor`, `nextOffset`,
 `__truncation.cursors` says it skips the cut rows and what `limit` to re-request
 with. Lists the TOOL itself returned partially (its own total above the rows,
 or `truncated: true`) are named under `__partialLists`, always the FIRST key,
-whether or not the cap cut anything. Intact pages carry a `__pagination` note
-with the shown count, population and next cursor. Cap-cut pages are marked
+whether or not the cap cut anything. A bare parent `total` is a list total only
+with collection evidence: a cursor, explicit truncation flag, or conventional
+`items`/`rows`/`results` key. Named list totals remain authoritative; a page
+population total never implies that complete aggregate reason buckets are partial.
+Intact pages carry a `__pagination` note
+with the shown count, population and next cursor. Portfolio `pageList` owns the
+root cursor for exactly its selected list, including nested mention rankings or
+answer evidence; sibling summaries can disclose partial counts but never claim
+that continuation. Cap-cut pages are marked
 incomplete and must be re-requested from the original cursor with a smaller
 limit. A result with no partial list or next cursor serializes byte-identical
 to plain compact JSON. Remote tool results use the same structured truncation
-while preserving the complete programmatic envelope.
+while preserving the complete programmatic envelope. Multi-block protocol content
+is keyed only in model-facing output so long text blocks can retain marked
+prefixes without splitting native structured evidence rows.
 
 A misspelled tool name is corrected before pi prepares the call: the
 `agent.streamFunction` wrapper (`runtime.ts`) renames a tool call to the one VISIBLE

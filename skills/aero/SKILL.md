@@ -51,14 +51,15 @@ covering that work; an existing explicit authorization remains valid.
   - Which names answers give instead across the portfolio:
     `canonry_competitor_landscape` with `answers: not-mentioned`,
     `queryClass` and `runId: latest`. Report its selected answer count and
-    population. Per-Property named-instead lists sample weak Properties.
+    population. These conditioned reads provide counts, not competitive share
+    of voice. Per-Property named-instead lists sample weak Properties.
   - What changed: `canonry_measurement_changes` once per class, with its
     `distribution` and `withinNoise`.
   - Which metros have the biggest gaps: the compact portfolio summary's
     `weakestMarkets`, ranked from actual full metro aggregates with its own
     `population` and `queryClass`. Quote each row's mention and citation rates
     with their numerators and denominators. Its eligible/excluded counts cover
-    every top-level metro; `markets` pages provide the remaining rollups.
+    every top-level metro; `list: markets` pages provide the remaining rollups.
     `tiedAtWeakest.byMetro` counts zero-signal Properties within metros. Those
     Property counts never supply metro rates or a ranking of metros.
 - **Noise.** Between two sweeps, a Property that moved 2 answers or fewer
@@ -71,7 +72,8 @@ covering that work; an existing explicit authorization remains valid.
   how many of how many you saw, and never call those rows the biggest, all,
   or the full picture.
   Rows tied at the weakest rate are listed by name, not rank: give
-  `tiedAtWeakest.count` and `.byMetro` and call the rows examples.
+  `tiedAtWeakest.count` and call the rows examples. Compact reads omit
+  `.byMetro`; request raw detail only when those tie counts are needed.
 - **Site Health:** read `references/site-health.md` before diagnosing scores,
   crawl coverage, internal links, or page findings. Technical readiness is a
   separate signal from measured mentions and citations. Use the latest audit
@@ -114,7 +116,9 @@ covering that work; an existing explicit authorization remains valid.
   model-classified and experimental. A trend needs two different rated runs:
   pass `fromRunId: previous-rated` and the current `toRunId` to
   `canonry_sentiment_compare`. If no compatible rated predecessor exists,
-  say there is no trend yet; preserve other comparison refusal reasons.
+  say there is no trend yet. Preserve population-change and incomplete-target
+  reasons; a bounded-search refusal needs an explicit older run, not a claim
+  that no rating history exists. Preserve other comparison refusal reasons.
   Never compare a run with itself. Aero cannot turn sentiment on or
   submit a backfill; send those requests to the operator.
 - **Portfolio counts:** Properties named is `metrics.propertiesMentioned`;
@@ -124,7 +128,9 @@ covering that work; an existing explicit authorization remains valid.
   where none of an answer's targeted Properties was named, use
   `answers: not-mentioned` on the landscape or portfolio summary and report
   `answerCount` with `populationSize`. Summary reads use compact pages;
-  follow `nextCursor` with unchanged filters instead of repeating a page.
+  follow `nextCursor` with unchanged filters to complete only `pageList`.
+  Request the appropriate `list` for another ranking, markets or evidence;
+  the first-page sibling lists are bounded summaries, not complete lists.
   When `__truncation` says a cursor skips omitted rows, retry the original
   cursor with a smaller limit as instructed.
 - Missing runs, `not_measured`, unavailable metrics, and unchecked signals

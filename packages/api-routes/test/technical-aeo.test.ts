@@ -327,6 +327,45 @@ describe('GET /technical-aeo (score)', () => {
     expect(body.crossCuttingIssues[0]!.affectedPct).toBe(100)
   })
 
+  it.each([
+    {
+      population: 'recorded factor bands', pagesAudited: 100, unavailableFactorIds: [],
+      factors: [
+        { id: 'scarce-fail', name: 'Scarce failure', weight: 10, avgScore: 95, status: 'fail', pagesPassing: 95, pagesPartial: 0, pagesFailing: 5 },
+        { id: 'broad-partial', name: 'Broad partial', weight: 1, avgScore: 65, status: 'partial', pagesPassing: 10, pagesPartial: 90, pagesFailing: 0 },
+        { id: 'tie-b', name: 'Tie B', weight: 3, avgScore: 92, status: 'fail', pagesPassing: 92, pagesPartial: 0, pagesFailing: 8 },
+        { id: 'all-pass', name: 'All pass', weight: 20, avgScore: 100, status: 'pass', pagesPassing: 100, pagesPartial: 0, pagesFailing: 0 },
+        { id: 'tie-a', name: 'Tie A', weight: 2, avgScore: 94, status: 'partial', pagesPassing: 92, pagesPartial: 8, pagesFailing: 0 },
+      ] as SiteAuditFactorSummaryDto[],
+      expected: [
+        { factorId: 'broad-partial', pagesBelowPass: 90, pagesFailing: 0, pagesPartial: 90 },
+        { factorId: 'tie-a', pagesBelowPass: 8, pagesFailing: 0, pagesPartial: 8 },
+        { factorId: 'tie-b', pagesBelowPass: 8, pagesFailing: 8, pagesPartial: 0 },
+        { factorId: 'scarce-fail', pagesBelowPass: 5, pagesFailing: 5, pagesPartial: 0 },
+        { factorId: 'all-pass', pagesBelowPass: 0, pagesFailing: 0, pagesPartial: 0 },
+      ],
+    },
+    { population: 'zero audited pages', pagesAudited: 0, factors: [], expected: [], unavailableFactorIds: [] },
+    {
+      population: 'legacy missing bands', pagesAudited: 100,
+      factors: [
+        { id: 'missing-partial', name: 'Missing partial count', weight: 10, avgScore: 98, status: 'fail', pagesPassing: 98, pagesFailing: 2 },
+        { id: 'missing-failing', name: 'Missing failing count', weight: 2, avgScore: 96, status: 'partial', pagesPassing: 97, pagesPartial: 3 },
+      ] as unknown as SiteAuditFactorSummaryDto[],
+      expected: [], unavailableFactorIds: ['missing-failing', 'missing-partial'],
+    },
+  ])('ranks affected-page breadth independently of severity for $population', async ({ population, pagesAudited, factors, expected, unavailableFactorIds }) => {
+    ctx.db.update(siteAuditSnapshots).set({ pagesAudited, factorAverages: factors }).where(eq(siteAuditSnapshots.runId, ctx.runB)).run()
+    const { body } = await get<SiteAuditScoreDto & { affectedPageRanking?: unknown }>('/api/v1/projects/tech-aeo/technical-aeo')
+    expect(body.affectedPageRanking).toEqual({ basis: 'pages-below-pass', scope: 'audited-pages', pagesAudited, items: expected, unavailableFactorIds })
+    // This existing array is presentation order, not the new breadth ranking.
+    expect(body.factors.map(factor => factor.id)).toEqual(factors.map(factor => factor.id))
+    if (population === 'recorded factor bands') {
+      expect(body.factors[0]).toMatchObject({ id: 'scarce-fail', status: 'fail' })
+      expect(body.factors[1]).toMatchObject({ id: 'broad-partial', status: 'partial' })
+    }
+  })
+
   it('returns hasData=false for a project that was never audited', async () => {
     ctx.db.insert(projects).values({
       id: crypto.randomUUID(), name: 'fresh', displayName: 'Fresh', canonicalDomain: 'fresh.com',
@@ -338,6 +377,7 @@ describe('GET /technical-aeo (score)', () => {
     expect(body.aggregateScore).toBe(0)
     expect(body.deltaScore).toBeNull()
     expect(body.factors).toEqual([])
+    expect(body).not.toHaveProperty('affectedPageRanking')
   })
 
   it('returns a selected historical audit and computes its delta against the audit before it', async () => {
@@ -1917,7 +1957,7 @@ describe('legacy score-only runs stay honest instead of 404ing', () => {
 })
 
 describe('same-date site audit selection', () => {
-  function seedScan(createdAt: string, pages: number, complete: boolean, trigger = 'manual'): string {
+  function seedScan(createdAt: string, pages: number, complete: boolean, trigger = 'manual', auditedPages = pages): string {
     const runId = crypto.randomUUID()
     ctx.db.insert(runs).values({
       id: runId, projectId: ctx.projectId, kind: 'site-audit',
@@ -1930,25 +1970,26 @@ describe('same-date site audit selection', () => {
       crawlSchemaVersion: '1.0', engineVersion: 'crawl-test', normalizationVersion: 'url-v1',
       indexabilityVersion: 'index-v1', linkScoreVersion: 'links-v1',
       complete, termination: complete ? 'complete' : 'max-pages', detailsAvailable: false,
-      pagesDiscovered: pages, pagesFetched: pages, pagesEligible: pages, createdAt, updatedAt: createdAt,
+      pagesDiscovered: pages, pagesFetched: pages, pagesEligible: auditedPages, createdAt, updatedAt: createdAt,
     }).run()
     ctx.db.insert(siteAuditSnapshots).values({
       id: crypto.randomUUID(), projectId: ctx.projectId, runId,
       sitemapUrl: 'https://example.com/sitemap.xml', auditedAt: createdAt,
-      aggregateScore: 60, pagesDiscovered: pages, pagesAudited: pages,
+      aggregateScore: 60, pagesDiscovered: pages, pagesAudited: auditedPages,
       pagesSkipped: 0, pagesErrored: 0, factorAverages: [], crossCuttingIssues: [], prioritizedFixes: [], createdAt,
     }).run()
     return runId
   }
 
   it.each([
-    { complete: true, earlierPages: 2, laterPages: 4, reason: 'latest-date-complete' },
-    { complete: false, earlierPages: 5, laterPages: 2, reason: 'latest-date-most-pages' },
-  ])('prefers $reason on the latest date and exposes the other same-date scan', async ({ complete, earlierPages, laterPages, reason }) => {
+    { complete: true, earlierPages: 2, earlierAudited: 2, laterPages: 4, laterAudited: 4, reason: 'latest-date-complete' },
+    { complete: false, earlierPages: 5, earlierAudited: 5, laterPages: 2, laterAudited: 2, reason: 'latest-date-most-pages' },
+    { complete: false, earlierPages: 600, earlierAudited: 200, laterPages: 450, laterAudited: 420, reason: 'latest-date-most-pages' },
+  ])('prefers $reason on the latest date and exposes the other same-date scan', async ({ complete, earlierPages, earlierAudited, laterPages, laterAudited, reason }) => {
     const date = '2030-04-12'
     seedScan('2030-04-11T18:00:00.000Z', 9, true)
-    const preferred = seedScan(`${date}T09:00:00.000Z`, earlierPages, complete)
-    const later = seedScan(`${date}T16:00:00.000Z`, laterPages, false)
+    const preferred = seedScan(`${date}T09:00:00.000Z`, earlierPages, complete, 'manual', earlierAudited)
+    const later = seedScan(`${date}T16:00:00.000Z`, laterPages, false, 'manual', laterAudited)
     seedScan(`${date}T19:00:00.000Z`, 9, true, 'probe')
 
     for (const suffix of ['', '/pages', '/crawl', '/crawl/pages', '/crawl/pages/audit?nodeKey=home']) {
@@ -1965,8 +2006,26 @@ describe('same-date site audit selection', () => {
         ],
       })
     }
+    const scans = (await get<SiteHealthScansResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/runs?limit=1')).body
+    expect(scans.preferredRunId).toBe(preferred)
+    expect(scans.scans).toHaveLength(1)
     const pinned = await get<SiteCrawlSummaryDto>(`/api/v1/projects/tech-aeo/technical-aeo/crawl?runId=${later}`)
     expect(pinned.body).toMatchObject({ runId: later, complete: false, runSelection: { reason: 'explicit-run' } })
+  })
+
+  it('keeps the preferred crawl selected when no page was audited, with legacy scores available by run id', async () => {
+    const preferred = seedScan('2030-04-12T09:00:00.000Z', 4, false, 'manual', 0)
+    ctx.db.delete(siteAuditSnapshots).where(eq(siteAuditSnapshots.runId, preferred)).run()
+    const score = (await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body
+    expect(score).toMatchObject({ hasData: false, runId: preferred, runStatus: 'partial', runSelection: { reason: 'latest-date-most-pages' } })
+    const pages = (await get<SiteAuditPagesResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/pages')).body
+    expect(pages).toMatchObject({ runId: preferred, total: 0, pages: [] })
+    expect((await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${preferred}`)).body).toMatchObject({ hasData: false, runId: preferred, runSelection: { reason: 'explicit-run' } })
+    expect((await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${ctx.runA}`)).body).toMatchObject({ hasData: true, runId: ctx.runA })
+    expect((await get<SiteHealthScansResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/runs')).body.preferredRunId).toBe(preferred)
+    ctx.db.delete(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.projectId, ctx.projectId)).run()
+    expect((await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body).toMatchObject({ hasData: true, runId: ctx.runB })
+    expect((await get<SiteHealthScansResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/runs')).body.preferredRunId).toBe(ctx.runB)
   })
 
   it('bounds same-date candidates while preserving the total and deterministic ties', async () => {
@@ -2069,24 +2128,29 @@ describe('same-date site audit selection', () => {
     const original = ctx.db.select().from(siteCrawlPages).where(and(eq(siteCrawlPages.runId, ctx.runB), eq(siteCrawlPages.nodeKey, 'home'))).get()!
     for (const row of [
       { nodeKey: 'canonical', fetchState: 'html', indexabilityState: 'unknown', canonicalNodeKey: 'home' },
+      { nodeKey: 'noindex-canonical', fetchState: 'html', indexabilityState: 'noindex', canonicalNodeKey: 'home' },
+      { nodeKey: 'blocked-canonical', fetchState: 'html', indexabilityState: 'blocked', canonicalNodeKey: 'home' },
       { nodeKey: 'redirect', fetchState: 'redirect', indexabilityState: 'unknown', canonicalNodeKey: 'home' },
       { nodeKey: 'unknown', fetchState: 'html', indexabilityState: 'unknown', canonicalNodeKey: null },
       { nodeKey: 'error', fetchState: 'fetch-error', indexabilityState: 'unknown', canonicalNodeKey: null },
       { nodeKey: 'resource', fetchState: 'non-html', indexabilityState: 'unknown', canonicalNodeKey: null },
-    ]) ctx.db.insert(siteCrawlPages).values({ ...original, ...row, id: crypto.randomUUID(), inventoryEligible: false, url: `https://example.com/${row.nodeKey}`, path: `/${row.nodeKey}`, indexabilityReasons: [] }).run()
+    ]) ctx.db.insert(siteCrawlPages).values({ ...original, ...row, id: crypto.randomUUID(), inventoryEligible: false, url: `https://example.com/${row.nodeKey}`, path: `/${row.nodeKey}`, indexabilityReasons: row.indexabilityState === 'noindex' ? ['meta-robots-noindex'] : row.indexabilityState === 'blocked' ? ['robots-disallow'] : [] }).run()
     const first = (await get<SiteCrawlPagesResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl/pages?limit=1')).body
     expect(first.pages).toHaveLength(1)
-    expect(first.total).toBe(8)
-    expect(Object.fromEntries(first.healthReasonCounts!.map(row => [row.healthReason, row.pages]))).toEqual({ 'canonical-to-other': 2, 'fetch-error': 1, indexable: 1, noindex: 1, 'non-html': 1, 'redirect-terminal': 1, unknown: 1 })
-    expect(first.healthReasonCounts!.reduce((sum, row) => sum + row.pages, 0)).toBe(8)
-    expect(first.inventorySummary).toMatchObject({ scope: 'selected-snapshot', total: 8, eligible: 1, excluded: 7 })
-    expect(first.inventorySummary!.excludedReasons.reduce((sum, row) => sum + row.pages, 0)).toBe(7)
+    expect(first.total).toBe(10)
+    expect(Object.fromEntries(first.healthReasonCounts!.map(row => [row.healthReason, row.pages]))).toEqual({ 'canonical-to-other': 2, 'fetch-error': 1, indexable: 1, noindex: 2, 'non-html': 1, 'redirect-terminal': 1, 'robots-disallow': 1, unknown: 1 })
+    expect(first.healthReasonCounts!.reduce((sum, row) => sum + row.pages, 0)).toBe(10)
+    expect(first.inventorySummary).toMatchObject({ scope: 'selected-snapshot', total: 10, eligible: 1, excluded: 9 })
+    expect(first.inventorySummary!.excludedReasons.reduce((sum, row) => sum + row.pages, 0)).toBe(9)
     expect(first.inventorySummary!.excludedReasons.find(row => row.healthReason === 'canonical-to-other')).toEqual({ healthReason: 'canonical-to-other', pages: 2, exampleUrl: 'https://example.com/canonical' })
     const filtered = (await get<SiteCrawlPagesResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl/pages?inventoryEligible=false&limit=1')).body
-    expect(filtered.total).toBe(7)
-    expect(filtered.healthReasonCounts!.reduce((sum, row) => sum + row.pages, 0)).toBe(7)
+    expect(filtered.total).toBe(9)
+    expect(filtered.healthReasonCounts!.reduce((sum, row) => sum + row.pages, 0)).toBe(9)
     expect(filtered.healthReasonCounts!.some(row => row.healthReason === 'indexable')).toBe(false)
     expect(filtered.inventorySummary).toEqual(first.inventorySummary)
+    const noindex = (await get<SiteCrawlPagesResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl/pages?indexabilityState=noindex')).body
+    expect(noindex.healthReasonCounts).toEqual([{ healthReason: 'noindex', pages: 2, exampleUrl: 'https://example.com/gone' }])
+    expect(noindex.pages.map(page => page.healthReason)).toEqual(['noindex', 'noindex'])
     const empty = (await get<SiteCrawlPagesResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl/pages?nodeKey=not-in-this-snapshot')).body
     expect(empty).toMatchObject({ total: 0, healthReasonCounts: [], pages: [], nextCursor: null })
     expect(empty.inventorySummary).toEqual(first.inventorySummary)

@@ -39,15 +39,28 @@ export function sentimentSentenceSpans(text: string): SentimentClassifierInput['
   }
   return spans.map((span, index) => ({ id: `s${index + 1}`, ...span }))
 }
-export function sentimentClassifierInput(source: SentimentSourceAssessment, definition: SentimentEvaluationDefinition): SentimentClassifierInput {
+/** Frozen comparison identity without source-text hashing or sentence extraction. */
+export function sentimentClassifierIdentity(source: SentimentSourceAssessment): Pick<SentimentClassifierInput, 'subject' | 'language' | 'context'> {
   const edge = source.edges[0]!
   const subject = { id: source.subject.key, displayName: source.subject.name, aliases: source.subject.aliases, qualifiedAliases: source.subject.identityAliases, urls: source.subject.urls, mentionNotApplicable: source.subject.mentionNotApplicable }
   return {
-    sourceSnapshotId: source.snapshotId, sourceText: source.sourceText, sourceTextHash: sentimentHash(source.sourceText), subject,
-    subjectHash: sentimentHash({ subject, context: edge.context }), language: source.language, definition,
-    sentences: sentimentSentenceSpans(source.sourceText),
+    subject, language: source.language,
     context: { queryId: edge.queryKey, queryText: edge.queryText, queryClass: edge.queryClass, provider: edge.provider, requestedModel: edge.sourceModel, servedModel: edge.servedModel, location: edge.context?.label ?? null, locationContext: edge.context, revision: source.revision,
       usageEdges: source.edges.flatMap(item => (item.groupKeys.length ? item.groupKeys : [null]).flatMap(groupId => (item.marketKeys.length ? item.marketKeys : [null]).map(marketId => ({ queryId: item.queryKey, queryText: item.queryText, executionNodeKey: item.executionNodeKey, targetId: item.propertyKey, propertyId: source.revision === null ? null : item.propertyKey, groupId, marketId, queryClass: item.queryClass, location: item.context?.label ?? null })))),
     },
+  }
+}
+
+/** Stored-work membership must match the original source bytes and frozen subject. */
+export function sentimentSourceHashes(source: SentimentSourceAssessment, identity = sentimentClassifierIdentity(source)): Pick<SentimentClassifierInput, 'sourceTextHash' | 'subjectHash'> {
+  return { sourceTextHash: sentimentHash(source.sourceText), subjectHash: sentimentHash({ subject: identity.subject, context: source.edges[0]!.context }) }
+}
+
+export function sentimentClassifierInput(source: SentimentSourceAssessment, definition: SentimentEvaluationDefinition): SentimentClassifierInput {
+  const identity = sentimentClassifierIdentity(source)
+  return {
+    sourceSnapshotId: source.snapshotId, sourceText: source.sourceText,
+    ...identity, ...sentimentSourceHashes(source, identity), definition,
+    sentences: sentimentSentenceSpans(source.sourceText),
   }
 }

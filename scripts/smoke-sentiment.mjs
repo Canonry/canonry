@@ -285,7 +285,7 @@ try {
   const singleMarket = await http('advanced', '?scope=market&scopeKey=market-harbor')
   assert.equal(singleMarket.coverage.selected, 1)
   mark('persisted HTTP/CLI summaries and exact evidence agree; shared Advanced answer deduplicates')
-  const completeReceipts = await receipts(); assert(completeReceipts.length <= 6 && (absentSubject || completeReceipts.length > 0))
+  const completeReceipts = await receipts(); assert(completeReceipts.length <= (live ? 12 : 6) && (absentSubject || completeReceipts.length > 0))
   if (!live) assert.equal(completeReceipts.length, absentSubject ? 0 : 6)
   const measurementQuery = { queryClass, runId: 'advanced-run', limit: 1, answers: 'not-mentioned' }
   const portfolio = await apiRead('advanced', 'measurement-portfolio-summary', { ...measurementQuery, compact: true })

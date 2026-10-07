@@ -258,51 +258,87 @@ afterAll(async () => {
 })
 
 describe('portfolio summary size at portfolio scale', () => {
-  it('pages every compact Property, ranking, market and filtered evidence list under the formatted tool budget', async () => {
-    const keys = ['weakest', 'strongest', 'mentionWeakest', 'markets', 'names', 'domains'] as const
-    const seen = Object.fromEntries(keys.map(key => [key, new Set<string>()])) as Record<typeof keys[number], Set<string>>
-    const cursors = new Set<string>()
+  it('enumerates default compact Properties within one default Aero turn without repeating other rankings', async () => {
+    const seen = new Set<string>()
     let cursor: string | null | undefined
     let pages = 0
-    let namesTotal = 0
-    let domainsTotal = 0
     do {
-      const { status, body } = await summary(`compact=true&includeNestedMarkets=true&answers=not-mentioned&limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`)
+      const { status, body } = await summary(`compact=true${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`)
       expect(status).toBe(200)
       expect(JSON.stringify(body, null, 2).length).toBeLessThanOrEqual(18_000)
-      expect(body.totalProperties).toBe(PROPERTY_COUNT)
-      expect(body.totalMarkets).toBe(150)
-      expect(body.weakestAnswerSources).toMatchObject({
-        basis: 'initial-weakest-selection-and-zero-signal-tie', properties: TIED_AT_ZERO,
-        domainTotal: SOURCE_DOMAINS.length, ownDomainAnswers: 0,
-      })
-      expect(body.weakestAnswerSources?.domains).toHaveLength(10)
-      expect(body.detailsOmitted).not.toContain('weakestAnswerSources')
-      const values = [
-        body.weakestProperties.map(row => row.targetKey), body.mentionRanking.strongest.map(row => row.targetKey),
-        body.mentionRanking.weakest.map(row => row.targetKey), body.markets.map(row => row.groupKey),
-        body.answerEvidence!.observedNames.map(row => row.name), body.answerEvidence!.citedDomains.map(row => row.domain),
-      ]
-      values.forEach((rows, index) => rows.forEach(key => {
-        expect(seen[keys[index]!].has(key)).toBe(false)
-        seen[keys[index]!].add(key)
-      }))
-      namesTotal = body.answerEvidence!.observedNamesTotal
-      domainsTotal = body.answerEvidence!.citedDomainsTotal
-      cursor = body.nextCursor
-      if (cursor) {
-        expect(cursors.has(cursor)).toBe(false)
-        cursors.add(cursor)
+      expect(body.pageList).toBe('weakest-properties')
+      for (const row of body.weakestProperties) {
+        expect(seen.has(row.targetKey)).toBe(false)
+        seen.add(row.targetKey)
       }
-      expect(++pages).toBeLessThan(100)
+      if (pages === 0) {
+        expect(body.mentionRanking.strongest).toHaveLength(4)
+        expect(body.mentionRanking.weakest).toHaveLength(4)
+        expect(body.markets).toHaveLength(4)
+      } else {
+        expect(body.mentionRanking.strongest).toEqual([])
+        expect(body.mentionRanking.weakest).toEqual([])
+        expect(body.markets).toEqual([])
+      }
+      cursor = body.nextCursor
+      expect(++pages).toBeLessThanOrEqual(30)
     } while (cursor)
-    expect([...seen.weakest].sort()).toEqual(fixture.plan.targets.map(target => target.stableKey).sort())
-    expect([...seen.strongest].sort()).toEqual([...seen.weakest].sort())
-    expect([...seen.mentionWeakest].sort()).toEqual([...seen.weakest].sort())
-    expect([...seen.markets].sort()).toEqual(fixture.plan.groups.map(group => group.stableKey).sort())
-    expect(seen.names.size).toBe(namesTotal)
-    expect(seen.domains.size).toBe(domainsTotal)
-    expect(pages).toBeGreaterThan(1)
+    expect([...seen].sort()).toEqual(fixture.plan.targets.map(target => target.stableKey).sort())
+  }, 120_000)
+
+  it('pages every selected compact Property, ranking, market and filtered evidence list under the formatted tool budget', async () => {
+    const lists = ['weakest-properties', 'strongest-mentions', 'weakest-mentions', 'excluded-mentions', 'markets', 'observed-names', 'cited-domains'] as const
+    const seen = lists.map(() => new Set<string>())
+    let namesTotal = 0
+    let domainsTotal = 0
+    for (const [selected, list] of lists.entries()) {
+      const cursors = new Set<string>()
+      let cursor: string | null | undefined
+      let pages = 0
+      do {
+        const { status, body } = await summary(`compact=true&includeNestedMarkets=true&answers=not-mentioned&list=${list}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`)
+        expect(status).toBe(200)
+        expect(body.pageList).toBe(list)
+        expect(JSON.stringify(body, null, 2).length).toBeLessThanOrEqual(18_000)
+        expect(body.totalProperties).toBe(PROPERTY_COUNT)
+        expect(body.totalMarkets).toBe(150)
+        expect(body.weakestAnswerSources).toMatchObject({
+          basis: 'initial-weakest-selection-and-zero-signal-tie', properties: TIED_AT_ZERO,
+          domainTotal: SOURCE_DOMAINS.length, ownDomainAnswers: 0,
+        })
+        expect(body.weakestAnswerSources?.domains).toHaveLength(10)
+        expect(body.detailsOmitted).not.toContain('weakestAnswerSources')
+        const values = [
+          body.weakestProperties.map(row => row.targetKey), body.mentionRanking.strongest.map(row => row.targetKey),
+          body.mentionRanking.weakest.map(row => row.targetKey), body.mentionRanking.excluded.map(row => row.targetKey),
+          body.markets.map(row => row.groupKey), body.answerEvidence!.observedNames.map(row => row.name),
+          body.answerEvidence!.citedDomains.map(row => row.domain),
+        ]
+        for (const [index, rows] of values.entries()) {
+          if (index !== selected) expect(rows).toEqual([])
+          for (const key of rows) {
+            expect(seen[index]!.has(key)).toBe(false)
+            seen[index]!.add(key)
+          }
+        }
+        namesTotal = body.answerEvidence!.observedNamesTotal
+        domainsTotal = body.answerEvidence!.citedDomainsTotal
+        cursor = body.nextCursor
+        if (cursor) {
+          expect(cursors.has(cursor)).toBe(false)
+          cursors.add(cursor)
+        }
+        expect(++pages).toBeLessThanOrEqual(30)
+      } while (cursor)
+    }
+    const targetKeys = fixture.plan.targets.map(target => target.stableKey).sort()
+    expect([...seen[0]!].sort()).toEqual(targetKeys)
+    expect([...seen[1]!].sort()).toEqual(targetKeys)
+    expect([...seen[2]!].sort()).toEqual(targetKeys)
+    expect(seen[3]!.size).toBe(0)
+    expect([...seen[4]!].sort()).toEqual(fixture.plan.groups.map(group => group.stableKey).sort())
+    expect(seen[5]!.size).toBe(namesTotal)
+    expect(seen[6]!.size).toBe(domainsTotal)
   }, 120_000)
 
   it('pages compact overview rows without losing the remainder to the formatted result cap', async () => {

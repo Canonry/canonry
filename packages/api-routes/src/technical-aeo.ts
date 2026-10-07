@@ -675,6 +675,8 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
   }
 
   const resolveAudit = (projectId: string, runId?: string) => {
+    const crawl = resolveCrawl(projectId, runId)
+    const selectedRunId = runId ?? crawl?.snapshot.runId
     const filters = [
       eq(siteAuditSnapshots.projectId, projectId),
       eq(runs.projectId, projectId),
@@ -685,11 +687,12 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     const complete = sql<boolean>`case when ${runs.status} = ${RunStatuses.completed} then 1 else 0 end`
     const selected = app.db.select({ snap: siteAuditSnapshots, runStatus: runs.status })
       .from(siteAuditSnapshots).innerJoin(runs, eq(siteAuditSnapshots.runId, runs.id))
-      .where(and(...filters, runId ? eq(siteAuditSnapshots.runId, runId) : undefined))
+      .where(and(...filters, selectedRunId ? eq(siteAuditSnapshots.runId, selectedRunId) : undefined))
       .orderBy(desc(sql`substr(${siteAuditSnapshots.createdAt}, 1, 10)`), desc(complete),
         desc(siteAuditSnapshots.pagesAudited), desc(siteAuditSnapshots.createdAt), desc(siteAuditSnapshots.runId))
       .limit(1).get()
     if (!selected) return undefined
+    if (crawl) return { ...selected, runSelection: crawl.runSelection }
     const date = selected.snap.createdAt.slice(0, 10)
     const nextDate = new Date(`${date}T00:00:00.000Z`)
     nextDate.setUTCDate(nextDate.getUTCDate() + 1)
@@ -891,8 +894,12 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     const latest = resolveAudit(project.id, request.query.runId)
 
     if (!latest) {
-      if (request.query.runId) throw notFound('Site audit run', request.query.runId)
-      return emptyScore(project.name)
+      const crawl = resolveCrawl(project.id, request.query.runId)
+      if (!crawl && request.query.runId) throw notFound('Site audit run', request.query.runId)
+      return crawl ? {
+        ...emptyScore(project.name), runId: crawl.snapshot.runId, runStatus: crawl.runStatus as RunStatus,
+        runSelection: crawl.runSelection,
+      } : emptyScore(project.name)
     }
 
     const snap = latest.snap
@@ -912,6 +919,24 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
         : deltaScore < 0
           ? SiteAuditTrendDirections.down
           : SiteAuditTrendDirections.flat
+
+    const affectedPageRanking: NonNullable<SiteAuditScoreDto['affectedPageRanking']> = {
+      basis: 'pages-below-pass', scope: 'audited-pages', pagesAudited: snap.pagesAudited,
+      items: [], unavailableFactorIds: [],
+    }
+    for (const factor of snap.factorAverages) {
+      if (!Number.isInteger(factor.pagesFailing) || factor.pagesFailing < 0
+        || !Number.isInteger(factor.pagesPartial) || factor.pagesPartial < 0) {
+        affectedPageRanking.unavailableFactorIds.push(factor.id)
+        continue
+      }
+      affectedPageRanking.items.push({
+        factorId: factor.id, pagesBelowPass: factor.pagesFailing + factor.pagesPartial,
+        pagesFailing: factor.pagesFailing, pagesPartial: factor.pagesPartial,
+      })
+    }
+    affectedPageRanking.items.sort((a, b) => b.pagesBelowPass - a.pagesBelowPass || a.factorId.localeCompare(b.factorId))
+    affectedPageRanking.unavailableFactorIds.sort()
 
     return {
       project: project.name,
@@ -934,6 +959,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
         ...withRecordedShare(factor),
         status: factorStatusFromDistribution(factor),
       })),
+      affectedPageRanking,
       crossCuttingIssues: snap.crossCuttingIssues,
       prioritizedFixes: snap.prioritizedFixes,
     }
@@ -948,11 +974,12 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
 
     const latest = resolveAudit(project.id, request.query.runId)
 
-    if (!latest && request.query.runId) {
-      throw notFound('Site audit run', request.query.runId)
-    }
     if (!latest) {
-      return { project: project.name, runId: null, auditedAt: null, total: 0, pages: [] }
+      const crawl = resolveCrawl(project.id, request.query.runId)
+      if (!crawl && request.query.runId) throw notFound('Site audit run', request.query.runId)
+      return { project: project.name, runId: crawl?.snapshot.runId ?? null, auditedAt: null, total: 0, pages: [],
+        ...(crawl ? { runSelection: crawl.runSelection } : {}),
+      }
     }
 
     const statusFilter = request.query.status === 'success' || request.query.status === 'error'
@@ -2521,6 +2548,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
 
     return {
       project: project.name,
+      preferredRunId: resolveCrawl(project.id)?.snapshot.runId ?? resolveAudit(project.id)?.snap.runId ?? null,
       scans: rows.map((row) => ({
         ...row,
         status: row.status as RunStatus,

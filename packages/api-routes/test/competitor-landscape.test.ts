@@ -187,6 +187,33 @@ afterEach(async () => {
 })
 
 describe('GET /projects/:name/analytics/competitors', () => {
+  it('withholds competitive shares for a mention-conditioned answer selection, including every model group', async () => {
+    db.delete(querySnapshots).run()
+    db.update(queries).set({ query: 'best homes in the city' }).run()
+    db.insert(querySnapshots).values(['Northwind and Rival are good.', 'Rival is good.'].map((answerText, index) => ({
+      id: `conditioned-${index}`, runId: 'run_normal', queryId: 'market-query', queryText: 'best homes in the city',
+      provider: 'openai', model: 'model-one', citationState: 'not-cited', answerMentioned: index === 0,
+      answerText, citedDomains: ['rival.example'], citedUrls: ['https://rival.example/listing'],
+      captureStatus: 'complete', createdAt: NOW,
+    }))).run()
+    const all = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&queryClass=non-brand&groupBy=model' })
+    expect(all.statusCode).toBe(200)
+    expect(all.json()).toMatchObject({ availability: 'measured', project: { mentionCount: 1, shareOfVoice: 33.333333 }, pinned: [{ mentionCount: 2, shareOfVoice: 66.666667 }] })
+    const absent = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&queryClass=non-brand&answers=not-mentioned&groupBy=model' })
+    expect(absent.statusCode).toBe(200)
+    const body = absent.json()
+    expect(body).toMatchObject({
+      availability: 'not-measured', reason: 'answer-selection',
+      answerSelection: { answers: 'not-mentioned', populationSize: 2, answerCount: 1, unknownMentionAnswers: 0 },
+      project: { mentionCount: 0, shareOfVoice: null }, pinned: [{ mentionCount: 1, citationCount: 1, shareOfVoice: null }],
+    })
+    expect(body.modelComparison.groups).toHaveLength(1)
+    expect(body.modelComparison.groups[0]).toMatchObject({
+      availability: 'not-measured', reason: 'answer-selection', project: { shareOfVoice: null }, pinned: [{ shareOfVoice: null }],
+    })
+    expect(competitorLandscapeResponseSchema.safeParse(body).success).toBe(true)
+  })
+
   it('filters Simple landscape evidence to captured answers that did not mention the project, keeping missing-text answers unknown', async () => {
     db.update(querySnapshots).set({ recommendedCompetitors: ['Co Named Rival'] }).where(eq(querySnapshots.id, 'snapshot_answer')).run()
     const stored = db.select().from(querySnapshots).where(eq(querySnapshots.id, 'snapshot_answer')).get()!

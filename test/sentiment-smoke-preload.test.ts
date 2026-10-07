@@ -39,6 +39,17 @@ describe('installed sentiment smoke provider guard', () => {
       console.log(JSON.stringify({ calls, blocked, ...guard.snapshot() }));
     `)).toMatchObject({ calls: 0, blocked: 2, attempts: 0 })
   })
+  it('allows retries for six live smoke assessments while keeping the attempt ceiling', () => {
+    expect(run(`
+      let calls = 0;
+      const guard = installSentimentSmokeGuard({ live: true, transport: async () => ++calls === 1 ? new Response('{}', { status: 503 }) : Response.json(valid) });
+      for (let index = 0; index < 7; index++) { payload.state.subject = 'synthetic-' + index % 3; await request(); }
+      const afterRetry = guard.snapshot();
+      for (let index = 7; index < 12; index++) await request();
+      let blocked = false; try { await request(); } catch { blocked = true; }
+      console.log(JSON.stringify({ afterRetry: { attempts: afterRetry.attempts, assessments: afterRetry.assessments }, blocked, calls, attempts: guard.snapshot().attempts }));
+    `)).toEqual({ afterRetry: { attempts: 7, assessments: 3 }, blocked: true, calls: 12, attempts: 12 })
+  })
   it('refuses redirects before a loopback request can leave the allowlist', () => {
     expect(run(`
       const { createServer } = await import('node:http');

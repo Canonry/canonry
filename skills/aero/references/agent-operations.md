@@ -107,7 +107,10 @@ or stale inputs. For Advanced Property mention rankings, use
 returned class and report branded results separately. An unavailable portfolio
 aggregate does not invalidate available Property mention rates. Flag excluded
 Properties individually; do not silently replace mention ranking with citation
-ranking. Keep sample sizes and ties visible. Preparing a report does not
+ranking. Compact `nextCursor` completes only `pageList`; use `list` to enumerate
+one ranking, markets, observed names or cited domains, preserving filters.
+First-page sibling lists are bounded summaries. Keep sample sizes and ties
+visible. Preparing a report does not
 authorize new measurement.
 
 ## Authority and approval

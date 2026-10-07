@@ -1,7 +1,7 @@
 import { Type, type TSchema } from '@earendil-works/pi-ai'
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core'
-import { randomUUID } from 'node:crypto'
-import { RunKinds } from '@ainyc/canonry-contracts'
+import { createHash, randomUUID } from 'node:crypto'
+import { MeasurementPortfolioLists, RunKinds, truncateUtf16 } from '@ainyc/canonry-contracts'
 import { runWithUsageTags, type ApiClient } from '../client.js'
 import {
   CanonryMcpToolNames,
@@ -28,6 +28,16 @@ const TRUNCATION_SUMMARY_KEY = '__truncation'
 const PARTIAL_LISTS_KEY = '__partialLists'
 /** Page cursors that still resume after the last row the tool returned. */
 const CURSOR_KEYS = ['nextCursor', 'nextOffset', 'nextPageToken', 'next_cursor']
+/** Public compact portfolio selectors identify the sole list owned by the root cursor. */
+const PORTFOLIO_PAGE_LISTS = new Map<string, { path: string; totalKey: string }>([
+  [MeasurementPortfolioLists['weakest-properties'], { path: 'weakestProperties', totalKey: 'totalProperties' }],
+  [MeasurementPortfolioLists['strongest-mentions'], { path: 'mentionRanking.strongest', totalKey: 'eligiblePropertyCount' }],
+  [MeasurementPortfolioLists['weakest-mentions'], { path: 'mentionRanking.weakest', totalKey: 'eligiblePropertyCount' }],
+  [MeasurementPortfolioLists['excluded-mentions'], { path: 'mentionRanking.excluded', totalKey: 'excludedTotal' }],
+  [MeasurementPortfolioLists.markets, { path: 'markets', totalKey: 'totalMarkets' }],
+  [MeasurementPortfolioLists['observed-names'], { path: 'answerEvidence.observedNames', totalKey: 'observedNamesTotal' }],
+  [MeasurementPortfolioLists['cited-domains'], { path: 'answerEvidence.citedDomains', totalKey: 'citedDomainsTotal' }],
+])
 /**
  * Ceiling on the input the structured paths will attempt. Each of them
  * re-serializes the enclosing document per step. Above this size a bounded
@@ -45,6 +55,9 @@ const TRUNCATION_SERIALIZE_BUDGET_CHARS = 64_000_000
 const SMALL_LIST_ROWS = 25
 /** Bounds on fallback omission metadata, so it cannot crowd out the result. */
 const MAX_SUMMARY_KEYS = 30
+const MAX_SUMMARY_PATH_CHARS = 96
+const PROJECTION_SUMMARY_CHARS = 5_000
+const PROJECTION_METADATA_CHARS = PROJECTION_SUMMARY_CHARS - 500
 /** Bounds on the partial-list note: how deep it looks and how many lists it names. */
 const MAX_PARTIAL_DEPTH = 4
 const MAX_PARTIAL_NOTES = 12
@@ -69,6 +82,8 @@ interface TruncationSummary {
   keptItems: Record<string, string>
   /** Cursors that resume past rows this cut dropped, and how to read those rows. */
   cursors?: Record<string, string>
+  /** String prefixes are partial text, never complete quotations or evidence rows. */
+  slicedKeys?: Record<string, { keptChars: number; totalChars: number }>
 }
 
 type KeptCounts = ReadonlyMap<string, { kept: number; total: number }>
@@ -89,8 +104,8 @@ function keptSummary(counts: KeptCounts, cursors: Record<string, string> = {}): 
  * LAST row the tool returned, so following it skips every row cut here.
  * Cursors are opaque, so say so instead of rewriting one.
  */
-function noteCursor(owner: Record<string, unknown>, ownerPath: string, listPath: string, kept: number, total: number, notes: Record<string, string>): void {
-  const cursor = cursorForList(owner, ownerPath, listPath.slice(listPath.lastIndexOf('.') + 1))
+function noteCursor(owner: Record<string, unknown>, ownerPath: string, listPath: string, kept: number, total: number, notes: Record<string, string>, root = owner): void {
+  const cursor = cursorForList(owner, ownerPath, listPath.slice(listPath.lastIndexOf('.') + 1), root)
   if (!cursor || kept >= total) return
   notes[cursor.path] =
     `incomplete page: skips the ${total - kept} rows cut from ${listPath}; re-request the original cursor with ${kept > 0 ? `${cursor.limit} <= ${kept}` : `a lower ${cursor.limit}`}`
@@ -101,8 +116,8 @@ interface ListCount {
   text: string
 }
 
-/** Public sentiment pages place their cursors separately from their row lists. */
-function cursorForList(owner: Record<string, unknown>, ownerPath: string, listKey: string): {
+/** Public portfolio and sentiment pages can place cursors outside their selected row owner. */
+function cursorForList(owner: Record<string, unknown>, ownerPath: string, listKey: string, root = owner): {
   path: string; value: unknown; parameter: string; limit: string; total?: ListCount
 } | undefined {
   const prefix = ownerPath ? `${ownerPath}.` : ''
@@ -119,8 +134,19 @@ function cursorForList(owner: Record<string, unknown>, ownerPath: string, listKe
       ...(typeof owner.attemptCount === 'number' ? { total: { count: owner.attemptCount, text: String(owner.attemptCount) } } : {}),
     }
   }
-  const key = CURSOR_KEYS.find(candidate => owner[candidate] !== undefined && owner[candidate] !== null)
-  return key ? { path: `${prefix}${key}`, value: owner[key], parameter: 'cursor', limit: 'limit' } : undefined
+  const selected = typeof root.pageList === 'string' ? PORTFOLIO_PAGE_LISTS.get(root.pageList) : undefined
+  const selectedList = selected?.path === `${prefix}${listKey}`
+  // Sibling summaries do not own the root continuation, even when they are partial.
+  if (selected && owner === root && !selectedList) return undefined
+  const cursorOwner = selectedList ? root : owner
+  const cursorPrefix = selectedList ? '' : prefix
+  const key = CURSOR_KEYS.find(candidate => cursorOwner[candidate] !== undefined && cursorOwner[candidate] !== null)
+  if (!key) return undefined
+  const total = selectedList ? owner[selected.totalKey] : undefined
+  return {
+    path: `${cursorPrefix}${key}`, value: cursorOwner[key], parameter: 'cursor', limit: 'limit',
+    ...(typeof total === 'number' ? { total: { count: total, text: String(total) } } : {}),
+  }
 }
 
 /**
@@ -151,8 +177,12 @@ function bareTotal(numbers: ReadonlyArray<[string, number]>): ListCount | undefi
  * flags (a competitor's `questionsTruncated`) stay where they are. A map of
  * many keyed lists is not paired with totals.
  *
- * A bare `total` counts the one list with no total of its own (`competitors`
- * beside `citedDomains` + `citedDomainsTotal`). A bare `truncated: true`
+ * A bare `total` counts the one list with no total of its own only when a
+ * cursor, explicit truncation flag, or conventional page-row key identifies
+ * it as a collection (`competitors` beside `citedDomains` +
+ * `citedDomainsTotal` + `truncated`). Aggregate bucket counts need their own
+ * list total; their owner's population total does not count bucket rows.
+ * A bare `truncated: true`
  * names every list here that no count or `<key>Truncated` explains and that
  * holds rows, since the flag does not say which list it cut. Beside other
  * lists, a list of scalars is an identity (a portfolio's `engines`), not a
@@ -170,9 +200,16 @@ function partialLists(root: Record<string, unknown>): Record<string, string> | u
     }
     let noted = false
     if (lists.length <= MAX_SUMMARY_KEYS) {
-      const counts = lists.map(([key]) => ownListTotal(numbers, key) ?? cursorForList(object, path, key)?.total)
+      const counts = lists.map(([key]) => ownListTotal(numbers, key) ?? cursorForList(object, path, key, root)?.total)
       const uncounted = counts.flatMap((count, index) => count ? [] : [index])
-      if (uncounted.length === 1) counts[uncounted[0]!] = bareTotal(numbers)
+      if (uncounted.length === 1) {
+        const index = uncounted[0]!
+        const key = lists[index]![0]
+        const paged = cursorForList(object, path, key, root)
+          || typeof object.truncated === 'boolean' || typeof object[`${key}Truncated`] === 'boolean'
+          || ['items', 'rows', 'results'].includes(key)
+        if (paged) counts[index] = bareTotal(numbers)
+      }
       for (const [index, [key, rows]] of lists.entries()) {
         const label = path ? `${path}.${key}` : key
         const count = counts[index]
@@ -210,7 +247,7 @@ function withPartialLists(value: unknown): unknown {
     const lists = Object.entries(owner).filter((entry): entry is [string, unknown[]] => Array.isArray(entry[1]))
     const numbers = Object.entries(owner).filter((entry): entry is [string, number] => typeof entry[1] === 'number')
     for (const [key, rows] of lists) {
-      const cursor = cursorForList(owner, path, key)
+      const cursor = cursorForList(owner, path, key, value)
       if (!cursor || key.startsWith('__') || Object.keys(pagination).length >= MAX_PARTIAL_NOTES) continue
       const label = path ? `${path}.${key}` : key
       const total = cursor.total ?? ownListTotal(numbers, key) ?? (lists.length === 1 ? bareTotal(numbers) : undefined)
@@ -392,7 +429,7 @@ function currentSummary(root: Record<string, unknown>, owned: ReadonlyMap<object
           count.kept += value.length
           count.total += list.rows.length
           counts.set(list.path, count)
-          noteCursor(object, path, list.path, value.length, list.rows.length, cursors)
+          noteCursor(object, path, list.path, value.length, list.rows.length, cursors, root)
         }
         for (const row of value) if (isRecord(row)) visit(row, `${valuePath}[]`)
       } else if (isRecord(value)) {
@@ -523,22 +560,42 @@ function hasOtherLists(value: unknown, primary: unknown[]): boolean {
   return isRecord(value) && Object.values(value).some(child => hasOtherLists(child, primary))
 }
 
+/** Bounded display paths keep long query-text keys from consuming the omission reserve. */
+function projectionPath(path: string): string {
+  if (path.length <= MAX_SUMMARY_PATH_CHARS) return path
+  const digest = createHash('sha256').update(path).digest('hex').slice(0, 12)
+  return `${truncateUtf16(path, 48)}...#${digest}${path.slice(-24)}`
+}
+
 /**
  * Bounded fallback for very large results or an exhausted fair-share search.
- * Arrays keep complete original rows; oversized scalars and keyed fields are
- * omitted explicitly. Reserving room for the summary makes the output valid
- * JSON even when one evidence row alone exceeds the model-facing cap.
+ * Arrays keep complete original rows. Scalar text retains an explicitly marked
+ * prefix; omission metadata has its own bound and cannot erase retained totals.
  */
 function boundedProjection(full: string): string {
   const value: unknown = JSON.parse(full)
-  const summary: TruncationSummary & { moreDroppedKeys?: number; projection: string } = {
-    droppedKeys: [], keptItems: {}, projection: 'Only complete rows are shown; omitted fields are not evidence.',
+  const summary: TruncationSummary & { moreDroppedKeys?: number; moreMetadataEntries?: number; projection: string } = {
+    droppedKeys: [], keptItems: {},
+    projection: 'Only complete array rows and marked partial string prefixes are shown; omitted fields are not evidence. Never follow a cursor from a cut page; re-request the original cursor with a smaller limit.',
+  }
+  const skippedMetadata = (): void => { summary.moreMetadataEntries = (summary.moreMetadataEntries ?? 0) + 1 }
+  const record = <T>(entries: Record<string, T>, path: string, value: T): boolean => {
+    if (Object.keys(entries).length >= MAX_SUMMARY_KEYS) { skippedMetadata(); return false }
+    const key = projectionPath(path)
+    entries[key] = value
+    if (serializeResult(summary).length <= PROJECTION_METADATA_CHARS) return true
+    delete entries[key]
+    skippedMetadata()
+    return false
   }
   let dropped = 0
   const omit = (path: string): void => {
     dropped++
-    if (summary.droppedKeys.length < MAX_SUMMARY_KEYS) summary.droppedKeys.push(path)
-    else summary.moreDroppedKeys = dropped - MAX_SUMMARY_KEYS
+    if (summary.droppedKeys.length < MAX_SUMMARY_KEYS) {
+      summary.droppedKeys.push(projectionPath(path))
+      if (serializeResult(summary).length > PROJECTION_METADATA_CHARS) summary.droppedKeys.pop()
+    }
+    if (dropped > summary.droppedKeys.length) summary.moreDroppedKeys = dropped - summary.droppedKeys.length
   }
   const project = (input: unknown, budget: number, path: string, owner?: Record<string, unknown>, ownerPath = ''): string | undefined => {
     if (Array.isArray(input)) {
@@ -552,12 +609,14 @@ function boundedProjection(full: string): string {
         used += cost
       }
       if (rows.length < input.length) {
-        if (Object.keys(summary.keptItems).length < MAX_SUMMARY_KEYS) summary.keptItems[path || 'items'] = `${rows.length} of ${input.length}`
+        record(summary.keptItems, path || 'items', `${rows.length} of ${input.length}`)
         if (rows.length === 0) omit(path || 'items')
         if (owner) {
-          const cursors = summary.cursors ?? {}
-          noteCursor(owner, ownerPath, path, rows.length, input.length, cursors)
-          if (Object.keys(cursors).length > 0) summary.cursors = cursors
+          const cursors: Record<string, string> = {}
+          noteCursor(owner, ownerPath, path, rows.length, input.length, cursors, isRecord(value) ? value : owner)
+          for (const [cursor, note] of Object.entries(cursors)) {
+            record(summary.cursors ??= {}, cursor, note.replace(path, projectionPath(path)))
+          }
         }
       }
       return `[${rows.join(',')}]`
@@ -565,12 +624,20 @@ function boundedProjection(full: string): string {
     if (!isRecord(input)) {
       const text = serializeResult(input)
       if (text.length <= budget) return text
+      if (typeof input === 'string' && budget > 2) {
+        // Escaping can double the displayed size, so search serialized prefixes.
+        // No probe handles more input characters than the remaining output budget.
+        const kept = largestFitting(Math.min(input.length, budget - 2), length => serializeResult(truncateUtf16(input, length)).length <= budget)
+        const prefix = truncateUtf16(input, kept)
+        if (prefix.length > 0 && record(summary.slicedKeys ??= {}, path || '(root)', { keptChars: prefix.length, totalChars: input.length })) return serializeResult(prefix)
+      }
       omit(path || '(root)')
       return undefined
     }
     const fields = Object.entries(input).filter(([key]) => !key.startsWith('__'))
-    // Preserve identity, totals and cursors before spending room on evidence.
-    const priority = ([key, child]: [string, unknown]): number => key === 'queryPage' && isRecord(child) ? 0 : Number(typeof child === 'object' && child !== null)
+    // Preserve small identity values and totals before spending room on evidence.
+    const priority = ([key, child]: [string, unknown]): number => key === 'queryPage' && isRecord(child) ? 0
+      : typeof child === 'string' && child.length > budget ? 2 : Number(typeof child === 'object' && child !== null)
     fields.sort((a, b) => priority(a) - priority(b))
     const shown: string[] = []
     let used = 2
@@ -586,12 +653,10 @@ function boundedProjection(full: string): string {
     }
     return `{${shown.join(',')}}`
   }
-  const projected = project(value, MAX_TOOL_RESULT_CHARS - 5_000, '')
+  const projected = project(value, MAX_TOOL_RESULT_CHARS - PROJECTION_SUMMARY_CHARS, '')
   const shown: unknown = projected === undefined ? {} : JSON.parse(projected)
   const output = isRecord(shown) ? shown : { items: shown }
-  const serialized = serializeResult({ ...output, __truncated: true, [TRUNCATION_SUMMARY_KEY]: summary })
-  if (fitsCap(serialized)) return serialized
-  return serializeResult({ __truncated: true, [TRUNCATION_SUMMARY_KEY]: { droppedKeys: ['(root)'], keptItems: {}, projection: 'Result omitted because its truncation metadata exceeds the size cap. Request a smaller page or a narrower read.' } })
+  return serializeResult({ ...output, __truncated: true, [TRUNCATION_SUMMARY_KEY]: summary })
 }
 
 /**
@@ -617,7 +682,9 @@ function boundedProjection(full: string): string {
  * `__partialLists`, whether or not the cap cut anything. Retained evidence
  * rows stay byte-intact; grouping envelopes carry their own omission markers.
  * The structured output stays parseable JSON. Only the model-facing text is
- * trimmed; the programmatic `details` is never touched.
+ * trimmed; the programmatic `details` is never touched. Oversized scalar strings
+ * retain only explicitly marked partial prefixes; strings inside array rows
+ * are never sliced.
  */
 export function truncateToolResult(details: unknown): string {
   const annotated = withPartialLists(details)
@@ -691,7 +758,6 @@ function textResult<T>(details: T, responseSchemas: readonly Record<string, unkn
 
 /** Verified stored reads whose identical results can be referenced within a turn. */
 const MEMO_STORED_READS: ReadonlySet<string> = new Set([
-  CanonryMcpToolNames.canonry_project_overview,
   CanonryMcpToolNames.canonry_competitor_landscape,
   CanonryMcpToolNames.canonry_measurement_overview,
   CanonryMcpToolNames.canonry_measurement_portfolio_summary,
@@ -700,7 +766,6 @@ const MEMO_STORED_READS: ReadonlySet<string> = new Set([
   CanonryMcpToolNames.canonry_measurement_question_result,
   CanonryMcpToolNames.canonry_measurement_property_competitors,
   CanonryMcpToolNames.canonry_measurement_changes,
-  CanonryMcpToolNames.canonry_measurement_data_quality,
   CanonryMcpToolNames.canonry_visibility_report,
   CanonryMcpToolNames.canonry_visibility_stats,
   CanonryMcpToolNames.canonry_visibility_compare,
@@ -710,6 +775,14 @@ const MEMO_STORED_READS: ReadonlySet<string> = new Set([
   CanonryMcpToolNames.canonry_sentiment_compare,
   CanonryMcpToolNames.canonry_sentiment_backfill_preview,
   CanonryMcpToolNames.canonry_insights_list,
+])
+/** Paging handles apply to dynamic stored reads even when memoization is unsafe. */
+const STORED_PAGE_READS: ReadonlySet<string> = new Set([
+  ...MEMO_STORED_READS,
+  CanonryMcpToolNames.canonry_project_overview,
+  CanonryMcpToolNames.canonry_measurement_data_quality,
+  CanonryMcpToolNames.canonry_sentiment_job,
+  CanonryMcpToolNames.canonry_sentiment_jobs,
 ])
 const storedReadTools = new WeakSet<AgentTool>()
 const storedPageReadTools = new WeakSet<AgentTool>()
@@ -801,7 +874,7 @@ export function mcpToAgentTool(
     execute,
   } as AgentTool
   if (tool.access === 'read' && MEMO_STORED_READS.has(tool.name)) storedReadTools.add(adapted)
-  if (tool.access === 'read' && (MEMO_STORED_READS.has(tool.name) || tool.name === CanonryMcpToolNames.canonry_sentiment_job || tool.name === CanonryMcpToolNames.canonry_sentiment_jobs)) storedPageReadTools.add(adapted)
+  if (tool.access === 'read' && STORED_PAGE_READS.has(tool.name)) storedPageReadTools.add(adapted)
   return adapted
 }
 

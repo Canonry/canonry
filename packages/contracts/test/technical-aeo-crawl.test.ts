@@ -48,6 +48,8 @@ describe('Technical AEO crawl contracts', () => {
   it.each([
     { fetchState: 'redirect', indexabilityState: 'unknown', indexabilityReasons: ['redirect-terminal'], expected: 'redirect-terminal' },
     { fetchState: 'html', indexabilityState: 'unknown', indexabilityReasons: ['canonical-to-other'], expected: 'canonical-to-other' },
+    { fetchState: 'html', indexabilityState: 'noindex', indexabilityReasons: ['meta-robots-noindex'], nodeKey: 'page-2', canonicalNodeKey: 'page-1', expected: 'noindex' },
+    { fetchState: 'html', indexabilityState: 'blocked', indexabilityReasons: ['robots-disallow', 'canonical-to-other'], nodeKey: 'page-2', canonicalNodeKey: 'page-1', expected: 'robots-disallow' },
     { fetchState: 'html', indexabilityState: 'unknown', indexabilityReasons: [], expected: 'unknown' },
     { fetchState: 'non-html', indexabilityState: 'unknown', indexabilityReasons: [], expected: 'non-html' },
   ])('labels stored $fetchState evidence as $expected', ({ expected, ...row }) => {

@@ -1716,7 +1716,7 @@ export function SiteHealthSection({
   // the prior result; merely appearing in scan history does not release it.
   const requestedRunId = selectedRunId ?? (explicitOnboarding
     ? mutationRunId ?? activeAudit?.runId ?? latestTerminalAudit?.runId
-    : latestTerminalAudit?.runId ?? activeAudit?.runId) ?? null
+    : auditRunsQuery.data?.preferredRunId ?? latestTerminalAudit?.runId ?? activeAudit?.runId) ?? null
   // Scan history is eventually consistent. Keep its active state only until
   // the exact progress read for this selected run can say otherwise.
   const activeRequestedRun = activeAudit?.runId === requestedRunId ? activeAudit : null

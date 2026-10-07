@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   competitors,
@@ -207,7 +207,9 @@ export function readCompetitorLandscape(
         citedDomains: querySnapshots.citedDomains,
         citedUrls: querySnapshots.citedUrls,
         captureStatus: querySnapshots.captureStatus,
-        rawResponse: querySnapshots.rawResponse,
+        rawResponse: advanced && filters.answers === 'not-mentioned'
+          ? sql<string | null>`case when ${querySnapshots.citedUrls} is null then ${querySnapshots.rawResponse} else null end`
+          : sql<string | null>`null`,
         location: querySnapshots.location,
         measurementExecutionId: querySnapshots.measurementExecutionId,
         createdAt: querySnapshots.createdAt,
@@ -300,6 +302,7 @@ export function readCompetitorLandscape(
           // Share of voice needs one query class behind it. `all` pools branded
           // and non-brand, so withhold the ratio and publish the counts instead.
           shareOfVoiceEligible: filters.queryClass !== undefined && filters.queryClass !== 'all',
+          ...(filters.answers === 'not-mentioned' ? { shareOfVoiceUnavailableReason: 'answer-selection' as const } : {}),
           snapshots: selectedSnapshots.map((snapshot, i) => ({
             id: snapshot.id,
             createdAt: snapshot.createdAt,

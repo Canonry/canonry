@@ -129,14 +129,13 @@ export const siteAuditRunSelectionSchema = z.object({
 export type SiteAuditRunSelectionDto = z.infer<typeof siteAuditRunSelectionSchema>
 
 /**
- * The Technical AEO scorecard for a project — on the latest UTC scan date,
- * prefer a completed scan, then the most audited pages, then the newest scan.
- * The delta vs the prior run is computed server-side.
+ * The Technical AEO scorecard for the selected scan. Default reads use the
+ * preferred persisted crawl, or the preferred legacy score-only audit when
+ * no crawl exists. The delta vs the chronological prior audit is server-side.
  *
- * When the project has never been audited, `hasData` is `false`, `runId` /
- * `auditedAt` are `null`, the numeric fields are `0`, and the arrays are empty
- * — consumers should branch on `hasData` and render an onboarding state rather
- * than treating the zeros as a real score.
+ * `hasData: false` means no scored audit is available for the selected scan.
+ * Its crawl identity can still be present. The empty score is not a measured
+ * zero and does not establish that the project has never been audited.
  */
 export const siteAuditScoreSchema = z.object({
   project: z.string(),
@@ -157,6 +156,24 @@ export const siteAuditScoreSchema = z.object({
   previousAuditedAt: z.string().nullable(),
   runSelection: siteAuditRunSelectionSchema.optional(),
   factors: z.array(siteAuditFactorSummarySchema).default([]),
+  /**
+   * Audited-page breadth, independent of severity, average score and weight.
+   * Rows use recorded failing + partial counts, largest first, then factor ID;
+   * zero rows stay visible. Factor populations overlap and must not be summed.
+   * Missing counts are unavailable, not zero. Absent when no scored audit exists.
+   */
+  affectedPageRanking: z.object({
+    basis: z.literal('pages-below-pass'),
+    scope: z.literal('audited-pages'),
+    pagesAudited: z.number().int().nonnegative(),
+    items: z.array(z.object({
+      factorId: z.string(),
+      pagesBelowPass: z.number().int().nonnegative(),
+      pagesFailing: z.number().int().nonnegative(),
+      pagesPartial: z.number().int().nonnegative(),
+    })),
+    unavailableFactorIds: z.array(z.string()),
+  }).optional(),
   crossCuttingIssues: z.array(siteAuditCrossCuttingIssueSchema).default([]),
   prioritizedFixes: z.array(z.string()).default([]),
 })
@@ -473,11 +490,11 @@ export function deriveSiteHealthReason(input: SiteHealthStateInput): SiteHealthR
     case SiteCrawlFetchStates.html: break
     default: return SiteHealthReasons.unknown
   }
+  if (input.indexabilityState === SiteCrawlIndexabilityStates.noindex) return SiteHealthReasons.noindex
+  if (input.indexabilityState === SiteCrawlIndexabilityStates.blocked) return SiteHealthReasons['robots-disallow']
   if (pointsToOtherCanonical(input)) return SiteHealthReasons['canonical-to-other']
   switch (input.indexabilityState) {
     case SiteCrawlIndexabilityStates.indexable: return SiteHealthReasons.indexable
-    case SiteCrawlIndexabilityStates.noindex: return SiteHealthReasons.noindex
-    case SiteCrawlIndexabilityStates.blocked: return SiteHealthReasons['robots-disallow']
     case SiteCrawlIndexabilityStates.unknown:
     default: return SiteHealthReasons.unknown
   }
@@ -1859,6 +1876,8 @@ export type SiteHealthScanDto = z.infer<typeof siteHealthScanSchema>
 /** Non-probe site-audit runs for one project, newest first. */
 export const siteHealthScansResponseSchema = z.object({
   project: z.string(),
+  /** Default persisted scan selected by score/crawl reads, independent of the history page limit. */
+  preferredRunId: z.string().nullable().optional(),
   scans: z.array(siteHealthScanSchema).default([]),
 })
 export type SiteHealthScansResponseDto = z.infer<typeof siteHealthScansResponseSchema>

@@ -249,13 +249,17 @@ describe('Aero progressive tool execution', () => {
   it.each([
     { name: 'canonry_sentiment_jobs', params: {}, list: true },
     { name: 'canonry_sentiment_job', params: { jobId: 'job-1' }, list: false },
+    { name: 'canonry_project_overview', params: {}, list: false },
+    { name: 'canonry_measurement_data_quality', params: {}, list: false },
   ])('refreshes $name when a stored job finishes between polls', async ({ name, params, list }) => {
     let state = 'running'
     const read = vi.fn(async () => {
       const job = { id: 'job-1', state }
-      return list ? { jobs: [job] } : job
+      return name === 'canonry_project_overview' ? { latestRun: { id: 'job-1', status: state } }
+        : name === 'canonry_measurement_data_quality' ? { latestFill: job, completeness: { expected: 120, executed: state === 'running' ? 40 : 120 } }
+        : list ? { jobs: [job] } : job
     })
-    const client = { listSentimentJobs: read, getSentimentJob: read } as unknown as ApiClient
+    const client = { listSentimentJobs: read, getSentimentJob: read, getProjectOverview: read, getMeasurementDataQuality: read } as unknown as ApiClient
     const allowed = buildReadTools({ client, projectName: 'demo' }).filter(tool => tool.name === name)
     const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
     configureAeroRuntime(agent, allowed, undefined, false)
@@ -269,8 +273,13 @@ describe('Aero progressive tool execution', () => {
     ])
     await agent.prompt('Check the job until it finishes')
     const polls = agent.state.messages.filter(message => message.role === 'toolResult')
-    expect(JSON.stringify(polls[0])).toContain('"state":"running"')
-    expect(JSON.stringify(polls[1])).toContain('"state":"complete"')
+    const field = name === 'canonry_project_overview' ? 'status' : 'state'
+    expect(JSON.stringify(polls[0])).toContain(`"${field}":"running"`)
+    expect(JSON.stringify(polls[1])).toContain(`"${field}":"complete"`)
+    if (name === 'canonry_measurement_data_quality') {
+      expect(JSON.stringify(polls[0])).toContain('"executed":40')
+      expect(JSON.stringify(polls[1])).toContain('"executed":120')
+    }
     expect(read).toHaveBeenCalledTimes(2)
   })
 
@@ -285,7 +294,7 @@ describe('Aero progressive tool execution', () => {
     const first = owner === 'properties' ? { properties: { items: rows, totalEstimate: 2, nextCursor: cursor } }
       : owner === 'queryPage' ? { queries: rows, queryPage: { total: 2, limit: 2, nextCursor: cursor } }
         : field === 'nextAttemptCursor' ? { attempts: rows, attemptCount: 2, nextAttemptCursor: cursor }
-          : { weakestProperties: rows, totalProperties: 2, nextCursor: cursor }
+          : { weakestProperties: rows, totalProperties: 2, pageList: 'weakest-properties', nextCursor: cursor }
     const last = structuredClone(first) as Record<string, unknown>
     const lastOwner = (owner ? last[owner] : last) as Record<string, unknown>
     lastOwner[field] = null
@@ -304,15 +313,16 @@ describe('Aero progressive tool execution', () => {
         const result = context.messages.at(-1) as { content: Array<{ text: string }> }
         const shown = JSON.parse(result.content[0]!.text)
         reference = (owner ? shown[owner] : shown)[field]
-        return fauxAssistantMessage(fauxToolCall(name, { [size]: 1, [parameter]: reference, ...(name === 'canonry_measurement_portfolio_summary' ? { compact: true } : {}) }), { stopReason: 'toolUse' })
+        return fauxAssistantMessage(fauxToolCall(name, { [size]: 1, [parameter]: reference, ...(name === 'canonry_measurement_portfolio_summary' ? { compact: true, list: shown.pageList } : {}) }), { stopReason: 'toolUse' })
       },
       fauxAssistantMessage('Both pages read.'),
     ])
     await agent.prompt('Read every page')
     expect(reference.length).toBeLessThan(60)
     expect(read).toHaveBeenCalledTimes(2)
+    if (name === 'canonry_measurement_portfolio_summary') expect(read.mock.calls[0]).toEqual(['demo', { ...params, [size]: 2 }])
     const { jobId: _jobId, ...jobQuery } = params as Record<string, unknown>
-    const query = { ...(method === 'getSentimentJob' ? jobQuery : params), [size]: 1, [parameter]: cursor }
+    const query = { ...(method === 'getSentimentJob' ? jobQuery : params), [size]: 1, [parameter]: cursor, ...(name === 'canonry_measurement_portfolio_summary' ? { list: 'weakest-properties' } : {}) }
     expect(read.mock.calls[1]).toEqual(method === 'getSentimentJob' ? ['demo', 'job-1', query] : ['demo', query])
     const original = agent.state.messages.find(message => message.role === 'toolResult' && message.toolCallId === 'first-page') as { details: unknown; content: Array<{ text: string }> }
     expect(original.details).toBe(first)

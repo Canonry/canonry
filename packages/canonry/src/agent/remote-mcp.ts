@@ -133,6 +133,11 @@ function adaptRemoteTool(client: RemoteMcpClient, tool: RemoteToolDescriptor): A
       else if (envelope.content?.length === 1 && envelope.content[0]?.type === 'text') {
         const text = envelope.content[0].text ?? ''
         try { shown = JSON.parse(text) as unknown } catch { shown = text }
+      } else if (envelope.content?.some(block => block.type === 'text')) {
+        // Protocol content blocks are not native evidence rows. Key their model-only
+        // envelope so an oversized text block can retain a marked string prefix;
+        // structuredContent collections and the original details remain unchanged.
+        shown = { ...result, content: Object.fromEntries(envelope.content.map((block, index) => [`block_${index + 1}`, block])) }
       }
     }
     return {

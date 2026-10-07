@@ -70,6 +70,13 @@ export const MEASUREMENT_PORTFOLIO_WEAKEST_MARKET_LIMIT = 5
 export const MEASUREMENT_PORTFOLIO_TIE_NAMED_INSTEAD_LIMIT = 10
 export const MEASUREMENT_PORTFOLIO_TIE_NOTE = 'tied Properties have both zero mentions and zero citations; ordered by name, not ranked'
 
+/** One complete list selected for compact cursor pagination. */
+export const measurementPortfolioListSchema = z.enum([
+  'weakest-properties', 'strongest-mentions', 'weakest-mentions', 'excluded-mentions',
+  'markets', 'observed-names', 'cited-domains',
+])
+export const MeasurementPortfolioLists = measurementPortfolioListSchema.enum
+
 /** The portfolio demo defaults to the non-brand basket so its weakest rows remain actionable. */
 export const measurementPortfolioSummaryQuerySchema = z.object({
   runId: measurementDemoFilterQueryShape.runId,
@@ -77,7 +84,7 @@ export const measurementPortfolioSummaryQuerySchema = z.object({
   queryClass: measurementQueryClassFilterSchema.default('non-brand'),
   provider: measurementDemoFilterQueryShape.provider,
   location: measurementDemoFilterQueryShape.location,
-  /** Caps the Property lists (Property rows and both mention rankings). Defaults to 4. Markets are never capped. */
+  /** Raw reads cap Property rankings at 4 by default, without capping markets. Compact reads auto-size their selected list up to 50; an explicit limit lowers that page size. */
   limit: z.number().int().positive().max(50).optional(),
   /**
    * Off by default: `markets` holds one level only, every top-level market (or
@@ -85,8 +92,10 @@ export const measurementPortfolioSummaryQuerySchema = z.object({
    * market in scope at every level, as the roll-up did before it was levelled.
    */
   includeNestedMarkets: z.boolean().optional(),
-  /** Bounded agent projection with resumable whole-row pages. */
+  /** Bounded agent projection: nextCursor walks weakest-properties unless list selects another list. Other first-page lists are bounded summaries. */
   compact: z.boolean().optional(),
+  /** Compact page selection identity. Other row lists are omitted; totals remain complete. observed-names and cited-domains require answers=not-mentioned. */
+  list: measurementPortfolioListSchema.optional(),
   cursor: measurementDemoIdSchema.optional(),
   /** Select evidence from answers where none of their frozen target Properties was mentioned. */
   answers: z.enum(['all', 'not-mentioned']).optional(),
@@ -370,8 +379,9 @@ export const measurementPortfolioSummaryResponseSchema = z.object({
   /**
    * Markets worst-first. By default one level: every top-level market, or
    * every direct child of the selected group when `groupKey` is set (empty
-   * when it has none). `limit` never caps it. `includeNestedMarkets` returns
-   * every market in scope at every level. Empty when the plan defines no groups.
+   * when it has none). Raw reads return every market; compact reads return a
+   * bounded first-page summary or page this list with list=markets.
+   * includeNestedMarkets selects every level. Empty when no groups exist.
    */
   markets: z.array(measurementPortfolioMarketSchema),
   /** Markets at the returned level; more than returned means the list was cut. */
@@ -379,7 +389,9 @@ export const measurementPortfolioSummaryResponseSchema = z.object({
   marketsTruncated: z.boolean(),
   totalProperties: measurementDemoCountSchema,
   truncated: z.boolean(),
-  /** Compact pages resume every returned list at its own offset. */
+  /** The only list advanced by nextCursor. Other compact row lists are first-page summaries or explicitly omitted. */
+  pageList: measurementPortfolioListSchema.optional(),
+  /** Compact pages resume pageList; list selection, run, revision and evidence are fixed across pages. */
   nextCursor: measurementDemoIdSchema.nullable().optional(),
   detailsOmitted: z.array(z.string()).optional(),
   /** Complete selected answer population, independent of Property/market pagination. */

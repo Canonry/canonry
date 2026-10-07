@@ -121,6 +121,24 @@ describe('loadExternalMcpTools', () => {
     expect(result.details).toBe(envelope)
   })
 
+  it.each(['plain', 'json-field', 'blocks', 'structured-field'])('retains a marked text prefix for oversized remote %s results', async (shape) => {
+    const document = 'DOCUMENT_HEADER ' + 'synthetic text '.repeat(2_500) + 'DOCUMENT_END'
+    const envelope = shape === 'plain' ? { content: [{ type: 'text', text: document }] }
+      : shape === 'json-field' ? { content: [{ type: 'text', text: JSON.stringify({ title: 'Brief', markdown: document }) }] }
+      : shape === 'blocks' ? { content: [{ type: 'text', text: document }, { type: 'text', text: 'Second block' }] }
+      : { structuredContent: { page: document }, content: [{ type: 'text', text: 'Fallback' }] }
+    const [tool] = await loadExternalMcpTools([SERVER], { connect: async () => stubClient(envelope) })
+    const result = await tool!.execute('remote-document', {})
+    const text = result.content.find(block => block.type === 'text') as { text: string }
+    const shown = JSON.parse(text.text)
+    expect(text.text.length).toBeLessThanOrEqual(20_000)
+    expect(text.text).toContain('DOCUMENT_HEADER')
+    expect(text.text).not.toContain('DOCUMENT_END')
+    expect(shown.__truncated).toBe(true)
+    expect(shown.__truncation.slicedKeys).toBeDefined()
+    expect(result.details).toBe(envelope)
+  })
+
   it('filters OUT the write tool (not read-only)', async () => {
     const tools = await loadExternalMcpTools([SERVER], {
       connect: makeInMemoryServerClient,

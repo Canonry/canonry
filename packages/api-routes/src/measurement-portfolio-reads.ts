@@ -21,6 +21,7 @@ import {
   MEASUREMENT_PORTFOLIO_TIE_NAMED_INSTEAD_LIMIT,
   MEASUREMENT_PORTFOLIO_TIE_NOTE,
   MEASUREMENT_PORTFOLIO_WEAKEST_MARKET_LIMIT,
+  MeasurementPortfolioLists,
   MEASUREMENT_PROPERTY_CITED_DOMAINS_LIMIT,
   RunKinds,
   RunStatuses,
@@ -87,8 +88,8 @@ import { snapshotEvidenceFingerprint } from './snapshot-evidence-fingerprint.js'
 import { observedCompetitorNames } from './mention-share-inputs.js'
 
 /**
- * Compact demo lists intentionally stop at ten unless the caller asks for more.
- * The portfolio summary stops at `MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT` instead.
+ * Property competitor lists default to ten rows. Raw portfolio rankings default
+ * to four; compact selected-list pages auto-size up to fifty under their budget.
  */
 const DEFAULT_LIMIT = 10
 
@@ -203,7 +204,7 @@ function countMetric(rate: MeasurementRate): MetricValue {
 
 function neverMentionedMetric(rate: MeasurementRate, propertyCount: number): MetricValue {
   if (rate.numerator === null || rate.denominator === null) return unavailable(metricReason(rate.reason))
-  if (rate.denominator !== propertyCount) return unavailable('identity_ambiguous')
+  if (rate.denominator !== propertyCount) return unavailable('not_applicable')
   const neverMentioned = rate.denominator - rate.numerator
   return { state: 'available', value: neverMentioned, numerator: neverMentioned, denominator: rate.denominator }
 }
@@ -788,7 +789,7 @@ function portfolioFilterFingerprint(query: MeasurementPortfolioSummaryQuery): st
   return createHash('sha256').update(JSON.stringify([
     query.groupKey ?? null, query.queryClass, query.provider ?? null,
     query.location === undefined ? null : normalizeMeasurementLocation(query.location),
-    query.includeNestedMarkets ?? false, query.answers === 'not-mentioned' ? query.answers : null,
+    query.includeNestedMarkets ?? false, query.answers === 'not-mentioned' ? query.answers : null, query.list ?? MeasurementPortfolioLists['weakest-properties'],
   ])).digest('base64url')
 }
 
@@ -814,7 +815,7 @@ function portfolioCursor(query: MeasurementPortfolioSummaryQuery, versionId: str
   return cursor as unknown as PortfolioCursor
 }
 
-/** Every list advances independently, including the evidence for the answer filter. */
+/** One cursor enumerates one list; other default first-page lists are bounded summaries. */
 function compactPortfolioPage(
   response: MeasurementPortfolioSummaryResponse,
   query: MeasurementPortfolioSummaryQuery,
@@ -822,11 +823,22 @@ function compactPortfolioPage(
   evidence: string,
   cursor: PortfolioCursor | undefined,
 ): MeasurementPortfolioSummaryResponse {
-  if (!query.compact) return measurementPortfolioSummaryResponseSchema.parse(response)
+  if (!query.compact) {
+    if (query.list !== undefined) throw validationError('A portfolio list requires compact=true.')
+    return measurementPortfolioSummaryResponseSchema.parse(response)
+  }
   if (cursor !== undefined && (cursor.evidence !== evidence || cursor.runId !== response.measurement.displayedRunId)) {
     throw validationError('The measurement portfolio cursor evidence changed between pages.')
   }
-  const limit = query.limit ?? MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT
+  const lists = [
+    MeasurementPortfolioLists['weakest-properties'], MeasurementPortfolioLists['strongest-mentions'],
+    MeasurementPortfolioLists['weakest-mentions'], MeasurementPortfolioLists['excluded-mentions'],
+    MeasurementPortfolioLists.markets, MeasurementPortfolioLists['observed-names'], MeasurementPortfolioLists['cited-domains'],
+  ]
+  const paths = ['weakestProperties', 'mentionRanking.strongest', 'mentionRanking.weakest', 'mentionRanking.excluded',
+    'markets', 'answerEvidence.observedNames', 'answerEvidence.citedDomains']
+  const pageList = query.list ?? MeasurementPortfolioLists['weakest-properties']
+  const selected = lists.indexOf(pageList)
   const arrays = [
     response.weakestProperties, response.mentionRanking.strongest,
     response.mentionRanking.weakest, response.mentionRanking.excluded,
@@ -835,12 +847,18 @@ function compactPortfolioPage(
   ]
   const offsets = cursor?.offsets ?? arrays.map(() => 0)
   if (arrays.some((rows, index) => offsets[index]! > rows.length)) throw validationError('Invalid measurement portfolio cursor offset.')
-  const pages = arrays.map((rows, index) => rows.slice(offsets[index], offsets[index]! + limit))
-  const build = (): MeasurementPortfolioSummaryResponse => {
-    const nextOffsets = pages.map((rows, index) => offsets[index]! + rows.length)
-    const hasMore = arrays.some((rows, index) => nextOffsets[index]! < rows.length)
+  const requested = Math.min(query.limit ?? 50, arrays[selected]!.length - offsets[selected]!)
+  const initialSummaryLimit = query.list === undefined && cursor === undefined ? MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT : 0
+  const build = (count: number, summaryLimit: number): MeasurementPortfolioSummaryResponse => {
+    const pages = arrays.map((rows, index) => index === selected
+      ? rows.slice(offsets[index], offsets[index]! + count) : rows.slice(0, summaryLimit))
+    const nextOffsets = offsets.map((offset, index) => index === selected ? offset + count : offset)
+    const hasMore = nextOffsets[selected]! < arrays[selected]!.length
+    const omitted = paths.filter((_, index) => index !== selected && pages[index]!.length < arrays[index]!.length)
     return {
       ...response,
+      pageList,
+      detailsOmitted: [...(response.detailsOmitted ?? []), ...omitted],
       weakestProperties: pages[0] as MeasurementPortfolioSummaryResponse['weakestProperties'],
       mentionRanking: {
         ...response.mentionRanking,
@@ -863,22 +881,38 @@ function compactPortfolioPage(
       nextCursor: hasMore ? Buffer.from(JSON.stringify({
         v: 1, runId: response.measurement.displayedRunId, versionId,
         filters: portfolioFilterFingerprint(query), evidence, offsets: nextOffsets,
-        sourceLimit: cursor?.sourceLimit ?? limit,
+        sourceLimit: cursor?.sourceLimit ?? query.limit ?? MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT,
       } satisfies PortfolioCursor)).toString('base64url') : null,
     }
   }
-  let page = build()
-  while (JSON.stringify(page, null, 2).length > 18_000) {
-    // Drop complete rows from the largest list and mint its cursor AFTER the
-    // drop. Never return an empty page pointing to the same indivisible row.
-    const returned = pages.reduce((sum, rows) => sum + rows.length, 0)
-    if (returned <= 1) throw validationError('One portfolio row or its metadata exceeds the compact page budget. Read a narrower scope without compact=true.')
-    let largest = 0
-    for (let index = 1; index < pages.length; index++) {
-      if (JSON.stringify(pages[index], null, 2).length > JSON.stringify(pages[largest], null, 2).length) largest = index
-    }
-    pages[largest]!.pop()
-    page = build()
+  const fits = (page: MeasurementPortfolioSummaryResponse) => JSON.stringify(page, null, 2).length <= 18_000
+  // A terminal full page has no cursor and may fit when shorter pages do not.
+  const initialComplete = build(requested, initialSummaryLimit)
+  if (fits(initialComplete)) return measurementPortfolioSummaryResponseSchema.parse(initialComplete)
+  const minimum = Math.min(1, requested)
+  // Find a summary size that leaves room for at least one whole selected row.
+  // The summary cap is four, so this needs at most three serializations.
+  let summaryLow = 0
+  let summaryHigh = initialSummaryLimit
+  let summaryLimit = 0
+  while (summaryLow <= summaryHigh) {
+    const candidate = Math.floor((summaryLow + summaryHigh) / 2)
+    if (fits(build(minimum, candidate))) { summaryLimit = candidate; summaryLow = candidate + 1 }
+    else summaryHigh = candidate - 1
+  }
+  const complete = build(requested, summaryLimit)
+  if (fits(complete)) return measurementPortfolioSummaryResponseSchema.parse(complete)
+  let page = build(minimum, summaryLimit)
+  if (!fits(page)) throw validationError('One portfolio row or its metadata exceeds the compact page budget. Read a narrower scope without compact=true.')
+  // Page sizes are at most 50: logarithmic whole-page sizing replaces repeated
+  // per-row serialization of all seven lists.
+  let low = minimum + 1
+  let high = requested
+  while (low <= high) {
+    const count = Math.floor((low + high) / 2)
+    const candidate = build(count, summaryLimit)
+    if (fits(candidate)) { page = candidate; low = count + 1 }
+    else high = count - 1
   }
   return measurementPortfolioSummaryResponseSchema.parse(page)
 }
@@ -928,6 +962,10 @@ function portfolioResponse(
   query: MeasurementPortfolioSummaryQuery,
   ownDomains: readonly string[],
 ): MeasurementPortfolioSummaryResponse {
+  if ((query.list === MeasurementPortfolioLists['observed-names'] || query.list === MeasurementPortfolioLists['cited-domains'])
+    && query.answers !== 'not-mentioned') {
+    throw validationError('Portfolio evidence lists require answers=not-mentioned.')
+  }
   const group = query.groupKey === undefined ? undefined : requireGroup(plan, query.groupKey)
   const cursor = portfolioCursor(query, active.version.id)
   const run = selectMeasurementQuestionRun(db, active.version.projectId, active, query.runId ?? cursor?.runId ?? undefined)
