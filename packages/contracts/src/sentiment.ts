@@ -143,7 +143,12 @@ export const sentimentEvidenceOutcomeFilterSchema = z.preprocess(value => {
   return items ? [...new Set(items.flatMap((item): unknown[] => typeof item === 'string' ? item.split(',').map(part => part.trim()).filter(Boolean) : [item]))] : value
 }, z.array(sentimentOutcomeSchema).min(1).max(sentimentOutcomeSchema.options.length))
 export const sentimentEvidenceRequestSchema = sentimentSelectionBaseSchema.extend({ assessmentId: id.optional(), outcome: sentimentEvidenceOutcomeFilterSchema.optional(), cursor: z.string().min(1).max(16384).optional(), limit: z.coerce.number().int().min(1).max(100).default(50) }).superRefine(exclusiveSentimentRuns)
-export const sentimentCompareRequestSchema = sentimentSelectionBaseSchema.extend({ fromRunId: id, toRunId: id }).superRefine((value, ctx) => { exclusiveSentimentRuns(value, ctx); if (value.runIds) ctx.addIssue({ code: 'custom', path: ['runIds'], message: 'Comparison requires one explicit run per period.' }) })
+export const sentimentCompareRequestSchema = sentimentSelectionBaseSchema.extend({ fromRunId: id, toRunId: id }).superRefine((value, ctx) => {
+  exclusiveSentimentRuns(value, ctx)
+  if (value.runIds) ctx.addIssue({ code: 'custom', path: ['runIds'], message: 'Comparison requires one explicit run per period.' })
+  // A run compared with itself always reads "no change", which an agent would report as a trend.
+  if (value.fromRunId === value.toRunId) ctx.addIssue({ code: 'custom', path: ['toRunId'], message: 'Comparison requires two different runs; one rated run has no trend yet.' })
+})
 export const sentimentResolvedSelectionSchema = sentimentSelectionBaseSchema.extend({ runId: id.nullable(), revision: z.number().int().nullable(), evaluationDefinitionId: id.nullable(), mode: z.enum(['simple', 'advanced']) })
 export type SentimentResolvedSelection = z.infer<typeof sentimentResolvedSelectionSchema>
 export const sentimentCountsSchema = z.object(Object.fromEntries(sentimentOutcomeSchema.options.map(outcome => [outcome, count])) as Record<SentimentOutcome, typeof count>).strict()

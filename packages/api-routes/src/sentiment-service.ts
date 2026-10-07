@@ -560,5 +560,11 @@ function sourceFilter(selection: Partial<SentimentBackfillSelection> | Sentiment
   return { mode: selection.mode, runId: selection.runId ?? undefined, runIds: selection.runId ? undefined : extra.runIds, since: extra.from, until: extra.to, revision: selection.revision ?? undefined, queryClass: selection.queryClass, queryId: selection.queryId, executionNodeKey: selection.executionNodeKey, scope: selection.scope, scopeKey: selection.scopeKey, marketKey: selection.marketKey, provider: selection.provider, sourceModel: selection.model, location: selection.location }
 }
 function outcome(status: string, result?: string) { return sentimentOutcomeSchema.parse(status === 'completed' ? result ?? 'failed' : status) }
-function parse<T>(schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false; error: { issues: unknown } } }, value: unknown): T { const result = schema.safeParse(value); if (!result.success) throw validationError('Invalid sentiment request.', { issues: result.error.issues }); return result.data }
+function parse<T>(schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false; error: { issues: unknown } } }, value: unknown): T {
+  const result = schema.safeParse(value)
+  if (result.success) return result.data
+  // Name the first problem in the message: agents and the CLI show the message, not the details.
+  const first = Array.isArray(result.error.issues) ? (result.error.issues[0] as { message?: unknown } | undefined)?.message : undefined
+  throw validationError(typeof first === 'string' ? `Invalid sentiment request: ${first}` : 'Invalid sentiment request.', { issues: result.error.issues })
+}
 export { parse as parseSentimentRequest }

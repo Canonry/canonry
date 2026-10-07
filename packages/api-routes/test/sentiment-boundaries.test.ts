@@ -146,8 +146,13 @@ describe('sentiment stored-result and authorization boundaries', () => {
     const evidence = await get('/evidence', { runId: 'factual' })
     expect(evidence.items).toHaveLength(2)
     expect(evidence.items.every((item: { outcome: string; reason: string }) => item.outcome === 'factual' && item.reason === 'The answer only states facts.')).toBe(true)
-    const comparison = sentimentComparisonSchema.parse(await get('/compare', { fromRunId: 'factual', toRunId: 'factual' }))
+    simple('factual-later', ['q-one', 'q-two']); complete('factual-later', 'factual')
+    const comparison = sentimentComparisonSchema.parse(await get('/compare', { fromRunId: 'factual', toRunId: 'factual-later' }))
     expect(comparison).toMatchObject({ verdict: null, favorableRateDelta: null, refusalReasons: ['insufficient-judgments'] })
+    // A run cannot be compared with itself: that always reads "no change".
+    const sameRun = await app.inject({ method: 'GET', url: '/api/v1/projects/p/sentiment/compare?fromRunId=factual&toRunId=factual', headers })
+    expect(sameRun.statusCode).toBe(400)
+    expect(sameRun.json().error.message).toBe('Invalid sentiment request: Comparison requires two different runs; one rated run has no trend yet.')
   })
 
   it.each(['session', 'delegated'] as const)('rechecks a demoted administrator before %s backfill receipt replay', async transport => {

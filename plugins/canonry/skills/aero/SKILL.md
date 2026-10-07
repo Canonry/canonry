@@ -77,7 +77,12 @@ covering that work; an existing explicit authorization remains valid.
   sentiment questions. Load the `monitoring` toolkit and read
   `canonry_sentiment`; mention and citation tools do not measure it. One
   branded call returns the headline, per-engine and per-Property breakdowns
-  and `criticizedProperties`. Give favorable, mixed and unfavorable as counts
+  and `criticizedProperties`. Take per-engine figures from its `provider`
+  breakdowns instead of filtering. A `provider` filter takes ids (`openai`
+  for ChatGPT, `gemini`, `claude`), and an empty filtered read means the
+  filter matched nothing, not that sentiment is missing.
+  `criticizedProperties.keys` lists up to five Properties, most criticized
+  first. Give favorable, mixed and unfavorable as counts
   over rated answers, plus rated of eligible answers. Quote the most
   criticized Properties' answers with `canonry_sentiment_evidence` (scope
   `property`, `outcome: ["mixed", "unfavorable"]`). Non-brand is exceptions
@@ -87,9 +92,9 @@ covering that work; an existing explicit authorization remains valid.
   quote `sentiment.overall` from the project overview, which pools them. An
   absent subject is not unfavorable, an unrated or partial result is not "no
   criticism", and partial values are provisional. Say the ratings are
-  model-classified and experimental. A trend needs two different rated runs:
-  when `canonry_sentiment_compare` cannot be given two, say there is no trend
-  yet, and never compare a run with itself. Aero cannot turn sentiment on or
+  model-classified and experimental. A trend needs two different rated runs;
+  `canonry_sentiment_compare` refuses one run compared with itself. With one
+  rated run, say there is no trend yet. Aero cannot turn sentiment on or
   submit a backfill; send those requests to the operator.
 - **Portfolio counts:** Properties named is `metrics.propertiesMentioned`;
   never named is the Property count minus its numerator (per market,
