@@ -9,6 +9,7 @@
 
 import { createHash } from 'node:crypto'
 import {
+  rateOverChecked,
   visibilityReportResponseSchema,
   VisibilityReportScopeErrorReasons,
   type VisibilityReportComparedRun,
@@ -413,10 +414,53 @@ function targetValues(
   return { mention: false, citation }
 }
 
-function citationForCoverage(candidate: Candidate, targets: ReadonlyMap<string, VisibilityReportTargetInput>, targetKey?: string): boolean | null {
-  // A captured positive remains useful answer evidence, while aggregate rates
-  // retain the report's complete-capture denominator contract.
-  return candidate.observation?.citationComplete ? targetValues(candidate, targets, targetKey).citation : null
+/**
+ * One answer's citation for the monthly comparison population, which keeps the
+ * per-answer unknown and counts it itself (`excludedUnknown`). An answer with
+ * incomplete capture is null here even when it carried a captured positive.
+ * Aggregate rates use `citationRate`.
+ */
+function citationForCoverage(candidate: Candidate, targets: ReadonlyMap<string, VisibilityReportTargetInput>): boolean | null {
+  return candidate.observation?.citationComplete ? targetValues(candidate, targets).citation : null
+}
+
+/**
+ * Citation coverage over the answers whose source-link capture is complete.
+ *
+ * A MISSING answer (no saved observation for an expected slot) withholds the
+ * rate as `evidence-incomplete`. A SAVED answer whose capture is incomplete is
+ * different: it leaves BOTH the numerator and the denominator and is counted
+ * in `unchecked`, even when it carried a captured positive, since counting only
+ * the positives would bias the rate up. A population with no checked answer
+ * at all stays unavailable as `evidence-incomplete`. `isCited` reads one
+ * checked answer; a null from it withholds the rate.
+ *
+ * Simple runs mark every saved answer complete: their citation state comes
+ * from stored cited domains, not URL capture, so this never excludes one.
+ */
+function citationRate(candidates: readonly Candidate[], isCited: (candidate: Candidate) => boolean | null): VisibilityReportRate {
+  if (candidates.length === 0) return unavailable('no-population')
+  let numerator = 0
+  let unchecked = 0
+  for (const candidate of candidates) {
+    if (candidate.observation === null) return unavailable('evidence-incomplete')
+    if (!candidate.observation.citationComplete) {
+      unchecked++
+      continue
+    }
+    const cited = isCited(candidate)
+    if (cited === null) return unavailable('evidence-incomplete')
+    if (cited) numerator++
+  }
+  return rateOverChecked(numerator, candidates.length, unchecked, 'unchecked') ?? unavailable('evidence-incomplete')
+}
+
+function targetCitationRate(
+  candidates: readonly Candidate[],
+  targets: ReadonlyMap<string, VisibilityReportTargetInput>,
+  targetKey?: string,
+): VisibilityReportRate {
+  return citationRate(candidates, candidate => targetValues(candidate, targets, targetKey).citation)
 }
 
 /**
@@ -440,11 +484,7 @@ function mentionRate(candidates: readonly Candidate[], targets: ReadonlyMap<stri
       unattributed++
     }
   }
-  const denominator = values.length - unattributed
-  if (denominator === 0) return unavailable('identity-ambiguous')
-  return unattributed > 0
-    ? { numerator, denominator, rate: numerator / denominator, unattributed }
-    : { numerator, denominator, rate: numerator / denominator }
+  return rateOverChecked(numerator, values.length, unattributed, 'unattributed') ?? unavailable('identity-ambiguous')
 }
 
 function answered(candidate: Candidate): boolean {
@@ -467,7 +507,7 @@ function targetMetrics(
   const own = candidates.filter(candidate => candidate.edges.some(edge => edge.targetKey === targetKey))
   return {
     mentionCoverage: mentionRate(own, targets, targetKey),
-    citationCoverage: rate(own.map(candidate => citationForCoverage(candidate, targets, targetKey)), own.length),
+    citationCoverage: targetCitationRate(own, targets, targetKey),
   }
 }
 
@@ -476,18 +516,22 @@ function targetPresence(
   targets: ReadonlyMap<string, VisibilityReportTargetInput>,
   targetKey: string,
 ) {
-  const values = candidates
-    .filter(candidate => candidate.edges.some(edge => edge.targetKey === targetKey))
-    .map(candidate => targetValues(candidate, targets, targetKey))
+  const scoped = candidates.filter(candidate => candidate.edges.some(edge => edge.targetKey === targetKey))
+  const values = scoped.map(candidate => targetValues(candidate, targets, targetKey))
   // Reach asks whether any answer establishes the signal. An uncertain second
   // answer changes coverage, but cannot erase an already verified occurrence.
+  // An answer with incomplete source capture is such an uncertain answer, and
+  // as in the rate (`unchecked`) its captured links are not counted either: with
+  // no citation seen on a checked answer the Property's citation outcome is
+  // unknown (`notMeasured`), never "not cited", matching the kernel's outcomes.
+  const citations = scoped.map((candidate, index) => candidate.observation?.citationComplete === false ? null : values[index]!.citation)
   const anyKnown = (signals: readonly (boolean | null)[]): boolean | null => (
     signals.includes(true) ? true : signals.length === 0 || signals.includes(null) ? null : false
   )
   return {
     targetKey,
     mention: anyKnown(values.map(value => value.mention)),
-    citation: anyKnown(values.map(value => value.citation)),
+    citation: anyKnown(citations),
     identityAmbiguous: values.some(value => value.mentionUnavailableReason === 'identity-ambiguous'),
   }
 }
@@ -522,7 +566,7 @@ function coverageSummary(
     queryCount: new Set(rows.map(candidate => candidate.slot.queryKey)).size,
     answerCount: rows.filter(answered).length,
     mentionCoverage: mentionRate(rows, targets),
-    citationCoverage: rate(rows.map(candidate => citationForCoverage(candidate, targets)), rows.length),
+    citationCoverage: targetCitationRate(rows, targets),
   }
 }
 
@@ -654,17 +698,12 @@ function competitorRows(candidates: readonly Candidate[]) {
         ? null
         : observation.competitorMentionDomains.includes(domain)
     })
-    const citationValues = unique.map(candidate => {
-      const observation = candidate.observation
-      return observation === null || !observation.citationComplete
-        ? null
-        : observation.competitorCitationDomains.includes(domain)
-    })
     return {
       domain,
       answerCount: unique.filter(answered).length,
       mentionCoverage: rate(mentionValues, unique.length),
-      citationCoverage: rate(citationValues, unique.length),
+      // The Property rule: an unchecked answer leaves both sides of the rate.
+      citationCoverage: citationRate(unique, candidate => candidate.observation!.competitorCitationDomains.includes(domain)),
     }
   })
 }
@@ -719,7 +758,7 @@ function breakdown(
         .map(candidate => narrowedToTargetKeys(candidate, groupTargetKeys))
         .filter((candidate): candidate is Candidate => candidate !== null)
       const metrics = mentionRate(own, targets)
-      const citations = rate(own.map(candidate => citationForCoverage(candidate, targets)), own.length)
+      const citations = targetCitationRate(own, targets)
       return {
         id: group.id,
         label: group.label,

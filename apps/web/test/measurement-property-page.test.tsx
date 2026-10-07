@@ -25,7 +25,7 @@ const NEARBY_QUESTION = 'boutique hotels near the harbor'
 const EVIDENCE_SHAPE = 'answers' as const
 
 type Metric =
-  | { state: 'available'; value: number; numerator: number; denominator: number; unattributed?: number }
+  | { state: 'available'; value: number; numerator: number; denominator: number; unattributed?: number; unchecked?: number }
   | { state: 'unavailable'; reason: string }
 
 const available = (numerator: number, denominator: number): Metric => ({
@@ -711,6 +711,50 @@ describe('Property page', () => {
     expect(within(gemini).getByText('4 of 5 answers could not be tied to one property')).toBeTruthy()
     const openai = within(providers).getByText('openai').closest('tr')!
     expect(within(openai).getByText('No answer could be tied to one property')).toBeTruthy()
+  })
+
+  it('discloses the answers a citation rate could not check wherever that rate is shown, and never under Mentioned', async () => {
+    // Ten saved non-brand answers, two with incomplete source capture: the server
+    // measures citation over the eight it could check and says two were left out.
+    const unchecked = (numerator: number, denominator: number, count: number): Metric =>
+      ({ ...available(numerator, denominator), unchecked: count }) as Metric
+    await renderPropertyPage({
+      branded: overviewResponse('branded', {
+        mentionCoverage: available(4, 4),
+        citationCoverage: unavailable('evidence_incomplete'),
+      }),
+      nonBrand: overviewResponse('non-brand', {
+        mentionCoverage: available(5, 10),
+        citationCoverage: unchecked(2, 8, 2),
+        providers: [
+          { provider: 'gemini', mentionCoverage: available(2, 5), citationCoverage: unchecked(1, 3, 2) },
+          { provider: 'openai', mentionCoverage: available(3, 5), citationCoverage: available(1, 5) },
+        ],
+      }),
+    })
+
+    const line = '2 of 10 answers had sources that could not be checked'
+    const hero = await screen.findByRole('region', { name: 'Coverage for this Property' })
+    const nonBrandCited = within(hero).getAllByText('Cited')[0]!.closest('.aeo-hero-row')!
+    expect(nonBrandCited.querySelector('.aeo-hero-row-detail')!.textContent).toBe(`2 of 8${line}`)
+    const nonBrandMentioned = within(hero).getAllByText('Mentioned')[0]!.closest('.aeo-hero-row')!
+    expect(nonBrandMentioned.querySelector('.aeo-hero-row-detail')!.textContent).toBe('5 of 10')
+
+    const contrast = screen.getByRole('table', { name: 'Mention and citation coverage for this Property, split by query class' })
+    const nonBrand = within(contrast).getByText('When they don\'t').closest('tr')!
+    const [, mentioned, cited] = [...nonBrand.querySelectorAll('td')]
+    expect([...cited!.querySelectorAll('span span')].map(node => node.textContent)).toEqual(['25.0%', '2 of 8', line])
+    expect([...mentioned!.querySelectorAll('span span')].map(node => node.textContent)).toEqual(['50.0%', '5 of 10'])
+    // Every branded answer unchecked: unavailable, with its reason and no count line.
+    const branded = within(contrast).getByText('When they know your name').closest('tr')!
+    expect(branded.querySelectorAll('td')[2]!.textContent).toBe('Not measuredSource evidence is incomplete')
+
+    const providers = screen.getByRole('table', { name: 'Per-engine mention and citation coverage' })
+    const gemini = within(providers).getByText('gemini').closest('tr')!
+    expect(gemini.querySelectorAll('td')[2]!.textContent).toBe('33.3%1 of 32 of 5 answers had sources that could not be checked')
+    expect(gemini.querySelectorAll('td')[1]!.textContent).toBe('40.0%2 of 5')
+    const openai = within(providers).getByText('openai').closest('tr')!
+    expect(openai.querySelectorAll('td')[2]!.textContent).toBe('20.0%1 of 5')
   })
 
   it('lists the assigned questions, URLs, and scoped evidence for the selected class', async () => {

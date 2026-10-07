@@ -10,7 +10,7 @@ import {
   visibilityReportScopeErrorDetailsSchema,
   VisibilityReportScopeErrorReasons,
 } from '../src/visibility-report.js'
-import { unattributedAnswersLabel } from '../src/visibility-display.js'
+import { uncheckedSourcesLabel, unattributedAnswersLabel } from '../src/visibility-display.js'
 
 describe('visibility report contract', () => {
   it('defaults to the non-brand population and preserves explicit no-location', () => {
@@ -114,6 +114,39 @@ describe('visibility report contract', () => {
     // An all-unattributable population is unavailable with its reason, not a rate with a count.
     expect(visibilityReportRateSchema.safeParse({ numerator: null, denominator: null, rate: null, reason: 'identity-ambiguous', unattributed: 3 }).success).toBe(false)
     expect(visibilityReportRateSchema.safeParse({ numerator: null, denominator: null, rate: null, reason: 'identity-ambiguous' }).success).toBe(true)
+  })
+
+  it('carries the answers a citation rate could not check, only on an available rate and never beside unattributed', () => {
+    expect(visibilityReportRateSchema.parse({ numerator: 3, denominator: 9, rate: 3 / 9, unchecked: 1 }))
+      .toEqual({ numerator: 3, denominator: 9, rate: 3 / 9, unchecked: 1 })
+    expect(visibilityReportRateSchema.safeParse({ numerator: 3, denominator: 9, rate: 3 / 9, unchecked: 0 }).success).toBe(false)
+    expect(visibilityReportRateSchema.safeParse({ numerator: 3, denominator: 9, rate: 3 / 9, unchecked: 1.5 }).success).toBe(false)
+    // An all-unchecked population is unavailable with its reason, not a rate with a count.
+    expect(visibilityReportRateSchema.safeParse({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete', unchecked: 2 }).success).toBe(false)
+    // One rate reads one signal: a mention count and a citation count never share it.
+    expect(visibilityReportRateSchema.safeParse({ numerator: 3, denominator: 9, rate: 3 / 9, unattributed: 1, unchecked: 1 }).success).toBe(false)
+  })
+})
+
+describe('unchecked sources line', () => {
+  it('states the unchecked answers out of every saved answer the rate read', () => {
+    expect(uncheckedSourcesLabel({ numerator: 3, denominator: 9, rate: 3 / 9, unchecked: 1 }))
+      .toBe('1 of 10 answers had sources that could not be checked')
+    // The incident shape: 2 of 2,796 answers left out.
+    expect(uncheckedSourcesLabel({ state: 'available', value: 0.4, numerator: 1117, denominator: 2794, unchecked: 2 }))
+      .toBe('2 of 2796 answers had sources that could not be checked')
+    // One answer in all reads in the singular.
+    expect(uncheckedSourcesLabel({ denominator: 0, unchecked: 1 }))
+      .toBe('1 of 1 answer had sources that could not be checked')
+  })
+
+  it('says nothing when every answer was checked or the rate is unavailable', () => {
+    expect(uncheckedSourcesLabel({ numerator: 3, denominator: 4, rate: 0.75 })).toBeNull()
+    expect(uncheckedSourcesLabel({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' })).toBeNull()
+    expect(uncheckedSourcesLabel({ denominator: 4, unchecked: 0 })).toBeNull()
+    // A mention rate's left-out answers are not a citation statement.
+    expect(uncheckedSourcesLabel({ numerator: 1, denominator: 2, rate: 0.5, unattributed: 1 })).toBeNull()
+    expect(uncheckedSourcesLabel({})).toBeNull()
   })
 })
 

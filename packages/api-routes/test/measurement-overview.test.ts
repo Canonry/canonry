@@ -888,6 +888,19 @@ describe('measurementOutcomeCounts', () => {
     expect(counts).toEqual({ bothSignals: 0, mentionedOnly: 1, citedOnly: 0, neither: 0, notMeasured: 2, total: 3 })
   })
 
+  it('never turns an answer whose sources could not be checked into a confirmed absence of citation', () => {
+    // No citation in the 9 checked answers, and one saved answer whose source
+    // capture was incomplete: it may hold the citation nobody read.
+    const uncheckedZero: MetricValue = { state: 'available', value: 0, numerator: 0, denominator: 9, unchecked: 1 }
+    const counts = measurementOutcomeCounts([
+      row('mentioned', avail(2), uncheckedZero),
+      row('unmentioned', avail(0), uncheckedZero),
+      // A citation seen in a checked answer still stands beside an unchecked one.
+      row('cited', avail(2), { state: 'available', value: 3 / 9, numerator: 3, denominator: 9, unchecked: 1 }),
+    ])
+    expect(counts).toEqual({ bothSignals: 1, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 2, total: 3 })
+  })
+
   it('reports an empty scope as all zeroes rather than throwing', () => {
     expect(measurementOutcomeCounts([])).toEqual({
       bothSignals: 0, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 0, total: 0,

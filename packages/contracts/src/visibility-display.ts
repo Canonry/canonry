@@ -10,3 +10,15 @@ export function unattributedAnswersLabel(value: { denominator?: number | null; u
   if (value.unattributed === undefined || value.unattributed <= 0) return null
   return `${value.unattributed} of ${value.denominator + value.unattributed} answers could not be tied to one property`
 }
+
+/**
+ * Name the saved answers a citation rate could not check beside its
+ * denominator: their source-link capture was incomplete, so they are in
+ * neither side of the rate. The total is every saved answer the rate read.
+ */
+export function uncheckedSourcesLabel(value: { denominator?: number | null; unchecked?: number }): string | null {
+  if (value.denominator === null || value.denominator === undefined) return null
+  if (value.unchecked === undefined || value.unchecked <= 0) return null
+  const total = value.denominator + value.unchecked
+  return `${value.unchecked} of ${total} ${total === 1 ? 'answer' : 'answers'} had sources that could not be checked`
+}

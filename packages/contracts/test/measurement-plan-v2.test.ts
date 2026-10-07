@@ -359,6 +359,16 @@ describe('measurement metric value', () => {
     expect(measurementMetricValueSchema.safeParse({ state: 'available', value: 0.5, numerator: 3, denominator: 6, unattributed: 1.5 }).success).toBe(false)
     expect(measurementMetricValueSchema.safeParse({ state: 'unavailable', reason: 'identity_ambiguous', unattributed: 2 }).success).toBe(false)
   })
+
+  it('carries the answers a citation rate could not check, and never beside unattributed', () => {
+    expect(measurementMetricValueSchema.parse({ state: 'available', value: 3 / 9, numerator: 3, denominator: 9, unchecked: 1 }))
+      .toEqual({ state: 'available', value: 3 / 9, numerator: 3, denominator: 9, unchecked: 1 })
+    expect(measurementMetricValueSchema.safeParse({ state: 'available', value: 0.5, numerator: 3, denominator: 6, unchecked: 0 }).success).toBe(false)
+    expect(measurementMetricValueSchema.safeParse({ state: 'unavailable', reason: 'evidence_incomplete', unchecked: 2 }).success).toBe(false)
+    expect(measurementMetricValueSchema.safeParse({ state: 'available', value: 0.5, numerator: 3, denominator: 6, unattributed: 1, unchecked: 1 }).success).toBe(false)
+    // The ranked-row variant (`options[0]`) keeps the same rule.
+    expect(measurementMetricValueSchema.options[0].safeParse({ state: 'available', value: 0.5, numerator: 3, denominator: 6, unattributed: 1, unchecked: 1 }).success).toBe(false)
+  })
 })
 
 describe('measurement overview response', () => {

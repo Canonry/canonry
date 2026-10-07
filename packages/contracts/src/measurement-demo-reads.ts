@@ -100,7 +100,8 @@ export type MeasurementPortfolioMetro = z.output<typeof measurementPortfolioMetr
  * displayed run asked for this Property (the plan's assignments before any run
  * completes). Coverage denominators count ANSWERS, one per query per engine
  * (and per location where a query runs in several), so 8 queries on 3 engines
- * is a denominator of 24 answers.
+ * is a denominator of 24 answers, less any left out as `unattributed` (mentions)
+ * or `unchecked` (citations), which each rate counts beside it.
  */
 const measurementPortfolioPropertyContextShape = {
   /** The top-level group holding this Property; null when it is in none. */
