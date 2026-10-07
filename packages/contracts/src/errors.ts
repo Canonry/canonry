@@ -10,6 +10,7 @@ export type ErrorCode =
   | 'PROVIDER_AUTH'
   | 'NO_PROVIDER'
   | 'NO_QUERIES'
+  | 'PROVIDERS_FAILING'
   | 'RUN_IN_PROGRESS'
   | 'OPERATION_IN_PROGRESS'
   | 'UNSUPPORTED_KIND'
@@ -128,6 +129,17 @@ export function noProvider(projectName: string, details?: Record<string, unknown
     503,
     { projectName, ...details },
   )
+}
+
+/**
+ * Every provider a run would use has failed run after run on its account (a
+ * rejected key or no credit left), so queueing another would only spend
+ * quota failing the same way. 422 like `NO_QUERIES`: the project cannot run as
+ * configured, the operator fixes it, and the CLI exits 1. Never 401, which the
+ * dashboard reads as an expired session.
+ */
+export function providersFailing(message: string, details?: Record<string, unknown>): AppError {
+  return new AppError('PROVIDERS_FAILING', message, 422, details)
 }
 
 export function noQueries(projectName: string): AppError {

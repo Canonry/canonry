@@ -36,7 +36,7 @@ import {
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
 import { assertProjectScope } from './auth.js'
 import { gte } from 'drizzle-orm'
-import { assertMeasurementRunStampable, hasActiveMeasurementPlan, queueRunIfProjectIdle, resolveRunnableProviderSelection } from './run-queue.js'
+import { assertMeasurementRunStampable, findProviderAccountFailures, hasActiveMeasurementPlan, providersFailingError, queueRunIfProjectIdle, resolveRunnableProviderSelection } from './run-queue.js'
 import { queueRunFill, readRunCompleteness } from './run-fill.js'
 import { readRunProviderBatches } from './provider-batches.js'
 
@@ -236,6 +236,19 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
         if (activeRun) {
           return { conflict: true as const, activeRunId: activeRun.id }
         }
+        // Same admission rule as the queue helper this branch bypasses.
+        if (!body.force) {
+          const refused = findProviderAccountFailures(tx, {
+            projectId: project.id,
+            kind,
+            providers: () => resolveRunnableProviderSelection({
+              requestedProviders: providers,
+              projectProviders: project.providers,
+              runnableProviders: opts.getRunnableProviderNames?.(),
+            }).selectedProviders,
+          })
+          if (refused) return { conflict: false as const, refused }
+        }
 
         const inserted: Array<{ runId: string; loc: LocationContext }> = []
         for (const loc of projectLocations) {
@@ -258,6 +271,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       if (result.conflict) {
         throw runInProgress(project.name, kind, result.activeRunId)
       }
+      if (result.refused) throw providersFailingError(project.name, result.refused)
 
       const results = []
       for (const { runId, loc } of result.inserted) {
@@ -283,7 +297,8 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     // answers cost, never what is measured, so it stays out of the execution
     // identity and every series. It is frozen on the run row regardless. This
     // route never reuses an in-flight run (a second sweep is a 409), so the
-    // parameter can never be dropped onto another request's run.
+    // parameter can never be dropped onto another request's run. `force` is
+    // neither: it decides only whether the run is admitted, and is not stored.
     const queueResult = queueRunIfProjectIdle(app.db, {
       createdAt: now,
       kind,
@@ -297,9 +312,11 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       measurementScope: body.measurementScope ?? null,
       dispatchMode: body.dispatchMode ?? null,
       batchEligibleProviders: opts.getBatchEligibleProviderNames?.() ?? null,
+      force: body.force ?? false,
     })
 
     if (queueResult.conflict) throw runInProgress(project.name, kind, queueResult.activeRunId)
+    if (queueResult.refused) throw providersFailingError(project.name, queueResult.refused)
 
     const runId = queueResult.runId
 
@@ -447,7 +464,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
 
   // POST /runs — trigger a run for all projects
   app.post<{
-    Body: { kind?: string; providers?: string[]; dispatchMode?: string }
+    Body: { kind?: string; providers?: string[]; dispatchMode?: string; force?: boolean }
   }>('/runs', async (request, reply) => {
     // A project-scoped key may only trigger runs for ITS project — restrict the
     // batch to that project so it can never queue runs for a sibling.
@@ -468,6 +485,8 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     // Tuning, like the single-project route: frozen per run, never identity.
     const dispatchMode: ProviderDispatchMode | null = parsedDispatchMode.data ?? null
     const batchEligibleProviders = opts.getBatchEligibleProviderNames?.() ?? null
+    const force = request.body?.force
+    if (force !== undefined && typeof force !== 'boolean') throw validationError('"force" must be a boolean')
 
     const rawProviders = request.body?.providers
     if (rawProviders?.length) {
@@ -583,10 +602,16 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
         providerModels: opts.getEffectiveProviderModels?.(),
         dispatchMode,
         batchEligibleProviders,
+        force: force ?? false,
       })
 
       if (queueResult.conflict) {
         results.push({ projectName: project.name, projectId: project.id, status: 'conflict', error: 'run_in_progress' })
+        continue
+      }
+      if (queueResult.refused) {
+        const refusal = providersFailingError(project.name, queueResult.refused)
+        results.push({ projectName: project.name, projectId: project.id, status: 'error', error: refusal.message, errorCode: refusal.code })
         continue
       }
 

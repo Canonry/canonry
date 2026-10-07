@@ -3195,10 +3195,15 @@ export async function createServer(opts: {
       }
 
       const afterConfig = summarizeProviderConfig(opts.config.providers[name]);
-      if (JSON.stringify(beforeConfig) !== JSON.stringify(afterConfig)) {
+      // The summary leaves the key out, so a rotation alone would leave no
+      // trace. It is recorded (never the key itself): it is worth auditing,
+      // and run admission reads it to give a replaced key its next run.
+      const apiKeyRotated = Boolean(existing?.apiKey) && Boolean(apiKey) && apiKey !== existing?.apiKey;
+      if (apiKeyRotated || JSON.stringify(beforeConfig) !== JSON.stringify(afterConfig)) {
         const diff = JSON.stringify({
           before: existing ? beforeConfig : null,
           after: afterConfig,
+          ...(apiKeyRotated ? { apiKeyRotated: true } : {}),
         });
         const affectedProjectIds = opts.db
           .select({ id: projects.id, providers: projects.providers })

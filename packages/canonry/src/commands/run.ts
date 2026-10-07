@@ -59,7 +59,7 @@ function throwIfWaitedRunFailed(waited: readonly WaitedRun[]): void {
   })
 }
 
-export async function triggerRun(project: string, opts?: { provider?: string; queries?: string[]; groups?: string[]; targets?: string[]; wait?: boolean; format?: string; location?: string; allLocations?: boolean; noLocation?: boolean; probe?: boolean; dispatchMode?: ProviderDispatchMode }): Promise<void> {
+export async function triggerRun(project: string, opts?: { provider?: string; queries?: string[]; groups?: string[]; targets?: string[]; wait?: boolean; format?: string; location?: string; allLocations?: boolean; noLocation?: boolean; probe?: boolean; dispatchMode?: ProviderDispatchMode; force?: boolean }): Promise<void> {
   const client = getClient()
   const body: Record<string, unknown> = {}
   if (opts?.provider) {
@@ -93,6 +93,9 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
   }
   if (opts?.dispatchMode) {
     body.dispatchMode = opts.dispatchMode
+  }
+  if (opts?.force) {
+    body.force = true
   }
   const response = await client.triggerRun(project, body)
 
@@ -201,7 +204,7 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
   }
 }
 
-export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; format?: string; allLocations?: boolean; noLocation?: boolean; dispatchMode?: ProviderDispatchMode }): Promise<void> {
+export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; format?: string; allLocations?: boolean; noLocation?: boolean; dispatchMode?: ProviderDispatchMode; force?: boolean }): Promise<void> {
   const client = getClient()
   // Use full ProjectDto (not Array<{name}>) so we can check each
   // project's `locations` per-iteration. `listProjects()` already returns
@@ -231,6 +234,9 @@ export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; 
   }
   if (opts?.dispatchMode) {
     baseBody.dispatchMode = opts.dispatchMode
+  }
+  if (opts?.force) {
+    baseBody.force = true
   }
 
   // `location: string | null` distinguishes the multi-location fan-out

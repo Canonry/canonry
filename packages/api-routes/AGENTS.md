@@ -49,6 +49,20 @@ fan-out remains one atomic admission; a second visibility sweep is refused until
 all its active siblings finish. `RUN_IN_PROGRESS` includes the kind and blocking
 run ID. Keep existing per-kind deduplication and shared provider limits.
 
+Both admission points also refuse a visibility run with `PROVIDERS_FAILING`
+(422) when `findProviderAccountFailures` (`src/run-queue.ts`) finds the
+project's last `PROVIDER_ACCOUNT_FAILURE_STREAK` (10) non-probe runs all
+`failed`, every provider in each of them with a stored `code` of
+`PROVIDER_AUTH` / `PROVIDER_BILLING`, and every provider of the new run among
+the newest run's failures. A `provider.created` / `provider.updated` audit row
+for one of those providers restarts the count. `force: true` skips the check;
+it is admission only, never identity, and never stored. The queue helper returns
+`{ refused }` after the schedule claim, so a refused calendar slot is spent, not
+retried every tick; `POST /runs` turns it into that project's error row. Codes
+come from `buildProviderRunError`, which classifies the raw provider message:
+never re-classify a stored `message`, which has lost markers such as Gemini's
+`RESOURCE_EXHAUSTED`. Tests: `test/run-provider-account-guard.test.ts`.
+
 Fill expiry belongs to native HTTP completeness/admission tests for both
 portfolio kinds. Control the real Date clock, including the exact 24-hour edge,
 batch finish-time anchor and fallback; do not add a test-only now parameter.

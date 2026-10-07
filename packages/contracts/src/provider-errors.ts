@@ -2,25 +2,41 @@
  * Classification of raw provider failure text into a stable bucket.
  *
  * Provider adapters throw plain `Error`s carrying whatever the upstream API
- * said, so the only signal available is the message. Best-effort regex match:
- * it is a histogram bucket and a telemetry reason code, never load-bearing for
- * control flow.
+ * said, so the only signal available is the message. Best-effort regex match.
  *
- * Lives here because two callers need the same answer and must not drift: the
- * job runner, which stamps `errorCode` on `run.completed`, and the query
- * generation route, which has to preserve the provider's failure kind instead
- * of flattening it to `INTERNAL_ERROR` on the way to the dashboard.
+ * Lives here because every caller needs the same answer and must not drift: the
+ * job runner, which stamps `errorCode` on `run.completed` and a per-provider
+ * `code` on the stored run error, and the query generation route, which has to
+ * preserve the provider's failure kind instead of flattening it to
+ * `INTERNAL_ERROR` on the way to the dashboard.
+ *
+ * One decision does rest on it: run admission refuses new runs after a streak
+ * of runs in which every provider failed on its account (auth or billing; see
+ * `isProviderAccountFailure`). Those two buckets match only explicit statuses
+ * and phrases, and the refusal can always be overridden with `force`.
  */
+import { z } from 'zod'
 
-export type ProviderErrorCode =
-  | 'PROVIDER_AUTH'
-  | 'PROVIDER_BILLING'
-  | 'RATE_LIMITED'
-  | 'PROVIDER_UNAVAILABLE'
-  | 'NETWORK'
-  | 'TIMEOUT'
-  | 'PARSE_ERROR'
-  | 'UNKNOWN'
+export const providerErrorCodeSchema = z.enum([
+  'PROVIDER_AUTH',
+  'PROVIDER_BILLING',
+  'RATE_LIMITED',
+  'PROVIDER_UNAVAILABLE',
+  'NETWORK',
+  'TIMEOUT',
+  'PARSE_ERROR',
+  'UNKNOWN',
+])
+export type ProviderErrorCode = z.infer<typeof providerErrorCodeSchema>
+export const ProviderErrorCodes = providerErrorCodeSchema.enum
+
+/**
+ * A failure only the operator can fix, in the provider's console: a rejected
+ * key or an account out of credit. Retrying cannot help until they act.
+ */
+export function isProviderAccountFailure(code: ProviderErrorCode | null | undefined): boolean {
+  return code === ProviderErrorCodes.PROVIDER_AUTH || code === ProviderErrorCodes.PROVIDER_BILLING
+}
 
 /**
  * Priority when several providers fail differently in one run: report the one

@@ -746,6 +746,19 @@ export class Scheduler {
         if (!claimedOccurrence) this.updateScheduleTiming(currentSchedule.id, { nextRunAt })
         return
       }
+      if (queueResult.refused) {
+        // Every provider failed its recent runs on a rejected key or an
+        // exhausted account. Skip the slot (a calendar slot was already spent
+        // by the queue) and try again at the next one; saving the provider's
+        // settings lets the next slot run.
+        log.warn('run.skipped-providers-failing', {
+          projectName: project.name,
+          scheduleId: currentSchedule.id,
+          ...queueResult.refused,
+        })
+        if (!claimedOccurrence) this.updateScheduleTiming(currentSchedule.id, { nextRunAt })
+        return
+      }
 
       const runId = queueResult.runId
       for (const [provider, reason] of Object.entries(queueResult.dispatch.ineligible)) {

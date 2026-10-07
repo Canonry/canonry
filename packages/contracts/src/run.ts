@@ -3,6 +3,7 @@ import { locationContextSchema, providerNameSchema } from './provider.js'
 import { citedUrlCaptureStatusSchema } from './cited-urls.js'
 import { measurementExecutionIdentitySchema, measurementRunScopeRequestSchema, measurementRunScopeSchema } from './measurement-plan.js'
 import { retrievalContractSchema, retrievalStatusSchema } from './retrieval.js'
+import { classifyProviderErrorMessage, providerErrorCodeSchema } from './provider-errors.js'
 import { pricingTierSchema, providerBatchStatusSchema, providerDispatchModeSchema, snapshotUsageSchema } from './provider-batch.js'
 
 export const runStatusSchema = z.enum(['queued', 'running', 'completed', 'partial', 'failed', 'cancelled'])
@@ -123,6 +124,12 @@ export const runTriggerRequestSchema = z.object({
    * run sync.
    */
   dispatchMode: providerDispatchModeSchema.optional(),
+  /**
+   * Queue the run even though every provider it would use failed its last
+   * runs on a rejected key or an exhausted account (`PROVIDERS_FAILING`).
+   * Admission only: it changes nothing about what the run measures.
+   */
+  force: z.boolean().optional(),
 }).refine(
   (data) => Number(Boolean(data.location)) + Number(Boolean(data.allLocations)) + Number(Boolean(data.noLocation)) <= 1,
   { message: 'Only one of "location", "allLocations", or "noLocation" may be provided' },
@@ -135,6 +142,12 @@ export const runProviderErrorSchema = z.object({
   message: z.string(),
   /** Original provider response payload, if the underlying error body parsed as JSON. Use this for structured fields like HTTP status, error code, etc. */
   raw: z.unknown().optional(),
+  /**
+   * What kind of failure this was, classified from the provider's full error
+   * text when it happened. Absent on errors stored before canonry 7.3.0 and on
+   * entries that are not a provider's own failure.
+   */
+  code: providerErrorCodeSchema.optional(),
 })
 
 export type RunProviderErrorDto = z.infer<typeof runProviderErrorSchema>
@@ -298,6 +311,21 @@ export function buildRunErrorFromMessages(messages: Iterable<readonly [string, s
   const providers: Record<string, RunProviderErrorDto> = {}
   for (const [name, msg] of messages) {
     providers[name] = parseProviderErrorMessage(msg)
+  }
+  return { providers }
+}
+
+/**
+ * `buildRunErrorFromMessages` for answer-provider failures: each entry also
+ * carries its `code`, classified from the raw message. The stored `message`
+ * keeps only the readable part of a JSON body, which drops the very markers
+ * that tell a Gemini rate limit (`RESOURCE_EXHAUSTED`) from an exhausted
+ * account, so the code has to be decided here rather than read back later.
+ */
+export function buildProviderRunError(messages: Iterable<readonly [string, string]>): RunErrorDto {
+  const providers: Record<string, RunProviderErrorDto> = {}
+  for (const [name, msg] of messages) {
+    providers[name] = { ...parseProviderErrorMessage(msg), code: classifyProviderErrorMessage(msg) }
   }
   return { providers }
 }
