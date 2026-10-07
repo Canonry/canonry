@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterEach, expect, it, onTestFinished } from 'vitest'
-import { buildProviderRunError, serializeRunError } from '@ainyc/canonry-contracts'
+import { buildProviderRunError, PROVIDER_ACCOUNT_FAILURE_STREAK, serializeRunError } from '@ainyc/canonry-contracts'
 import { createClient, migrate, projects, queries, runs, schedules } from '@ainyc/canonry-db'
 import { addLogListener, type LogEntry } from '../src/logger.js'
 import { Scheduler } from '../src/scheduler.js'
@@ -13,9 +13,7 @@ import { Scheduler } from '../src/scheduler.js'
 // account the scheduler skips the slot instead of queueing another run that
 // would fail the same way, and moves the schedule on to its next slot.
 
-const NOW = '2026-10-07T06:00:00.000Z'
-/** The documented admission threshold (OpenAPI, MCP tool description). */
-const STREAK = 10
+const NOW = new Date().toISOString()
 
 let removeListener: (() => void) | null = null
 afterEach(() => {
@@ -35,11 +33,12 @@ it('skips a scheduled sweep while every provider fails on its account, and advan
     providers: ['openai'], createdAt: NOW, updatedAt: NOW,
   }).run()
   db.insert(queries).values({ id: crypto.randomUUID(), projectId, query: 'widget pricing', createdAt: NOW }).run()
-  for (let i = 0; i < STREAK; i += 1) {
+  for (let i = 0; i < PROVIDER_ACCOUNT_FAILURE_STREAK; i += 1) {
     db.insert(runs).values({
       id: crypto.randomUUID(), projectId, kind: 'answer-visibility', status: 'failed', trigger: 'scheduled',
       error: serializeRunError(buildProviderRunError([['openai', '[provider-openai] 401 Incorrect API key provided']])),
-      createdAt: new Date(Date.UTC(2026, 9, 1, i)).toISOString(),
+      // The last few minutes: inside the retry interval.
+      createdAt: new Date(Date.now() - (PROVIDER_ACCOUNT_FAILURE_STREAK - i) * 60_000).toISOString(),
     }).run()
   }
   db.insert(schedules).values({
@@ -56,9 +55,9 @@ it('skips a scheduled sweep while every provider fails on its account, and advan
   }).triggerRun('sched_stuck', projectId, 'answer-visibility')
 
   expect(created).toEqual([])
-  expect(db.select().from(runs).all()).toHaveLength(STREAK)
+  expect(db.select().from(runs).all()).toHaveLength(PROVIDER_ACCOUNT_FAILURE_STREAK)
   expect(logs.find(entry => entry.action === 'run.skipped-providers-failing')).toMatchObject({
-    level: 'warn', projectName: 'stuck', providers: { openai: 'PROVIDER_AUTH' },
+    level: 'warn', projectName: 'stuck', providers: { openai: 'PROVIDER_AUTH' }, retryAfter: expect.any(String),
   })
   expect(db.select().from(schedules).where(eq(schedules.id, 'sched_stuck')).get()?.nextRunAt).not.toBe(NOW)
 })

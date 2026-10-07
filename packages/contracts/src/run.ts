@@ -125,9 +125,9 @@ export const runTriggerRequestSchema = z.object({
    */
   dispatchMode: providerDispatchModeSchema.optional(),
   /**
-   * Queue the run even though every provider it would use failed its last
-   * runs on a rejected key or an exhausted account (`PROVIDERS_FAILING`).
-   * Admission only: it changes nothing about what the run measures.
+   * Queue the run even though it would be refused with `PROVIDERS_FAILING`
+   * (see `PROVIDER_ACCOUNT_FAILURE_STREAK`). Admission only: it changes
+   * nothing about what the run measures, and is not stored.
    */
   force: z.boolean().optional(),
 }).refine(
@@ -136,6 +136,15 @@ export const runTriggerRequestSchema = z.object({
 )
 
 export type RunTriggerRequest = z.infer<typeof runTriggerRequestSchema>
+
+/**
+ * Run admission refuses a new answer-visibility run (`PROVIDERS_FAILING`) when
+ * the project's last this-many runs all failed with every provider on a
+ * rejected key, denied access or an exhausted account.
+ */
+export const PROVIDER_ACCOUNT_FAILURE_STREAK = 10
+/** How long after the newest such failure one run is let through again. */
+export const PROVIDER_ACCOUNT_RETRY_HOURS = 24
 
 export const runProviderErrorSchema = z.object({
   /** Human-readable error message (best-effort extracted from `raw.error.message` / `raw.message`, otherwise the raw text with any `[provider-X]` prefix stripped). */

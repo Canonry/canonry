@@ -747,10 +747,9 @@ export class Scheduler {
         return
       }
       if (queueResult.refused) {
-        // Every provider failed its recent runs on a rejected key or an
-        // exhausted account. Skip the slot (a calendar slot was already spent
-        // by the queue) and try again at the next one; saving the provider's
-        // settings lets the next slot run.
+        // Every provider failed the project's recent runs on its account. Skip
+        // the slot (the queue already spent a calendar slot). A slot after
+        // `retryAfter`, or after a provider settings change, runs again.
         log.warn('run.skipped-providers-failing', {
           projectName: project.name,
           scheduleId: currentSchedule.id,

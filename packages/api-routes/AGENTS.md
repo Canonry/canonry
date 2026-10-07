@@ -50,18 +50,25 @@ all its active siblings finish. `RUN_IN_PROGRESS` includes the kind and blocking
 run ID. Keep existing per-kind deduplication and shared provider limits.
 
 Both admission points also refuse a visibility run with `PROVIDERS_FAILING`
-(422) when `findProviderAccountFailures` (`src/run-queue.ts`) finds the
-project's last `PROVIDER_ACCOUNT_FAILURE_STREAK` (10) non-probe runs all
-`failed`, every provider in each of them with a stored `code` of
-`PROVIDER_AUTH` / `PROVIDER_BILLING`, and every provider of the new run among
-the newest run's failures. A `provider.created` / `provider.updated` audit row
-for one of those providers restarts the count. `force: true` skips the check;
-it is admission only, never identity, and never stored. The queue helper returns
-`{ refused }` after the schedule claim, so a refused calendar slot is spent, not
-retried every tick; `POST /runs` turns it into that project's error row. Codes
-come from `buildProviderRunError`, which classifies the raw provider message:
-never re-classify a stored `message`, which has lost markers such as Gemini's
-`RESOURCE_EXHAUSTED`. Tests: `test/run-provider-account-guard.test.ts`.
+(422) through one function, `providerAccountRefusal` (`src/run-queue.ts`): the
+project's last `PROVIDER_ACCOUNT_FAILURE_STREAK` runs (probes included, ordered
+`createdAt, id`) all `failed`, every provider in each with a stored `code` of
+`PROVIDER_AUTH` / `PROVIDER_BILLING`, and every provider the new run would call
+(`providersARunWouldCall`: its roster less what this host cannot run, which the
+runner drops silently) failed in each of them. It is a backoff, not a block:
+`PROVIDER_ACCOUNT_RETRY_HOURS` after the newest failure one run is let through,
+so out-of-band fixes (console top-ups, config.yaml edits) recover on their own.
+A `provider.created` / `provider.updated` audit row after the oldest of those
+runs lets the next run through at once; a key-only rotation writes one. Probes
+are never refused. `force: true` skips the check; it is admission only, never
+identity, never stored. The dashboard deliberately has no force control: it
+shows the refusal, and the retry interval or a settings change recovers. The
+queue helper returns `{ refused }` after the schedule claim, so a refused
+calendar slot is spent, not retried every tick; `POST /runs` turns it into that
+project's error row. An all-locations fan-out counts each location as a run.
+Codes come from `buildProviderRunError`, which classifies the raw provider
+message: never re-classify a stored `message`, which has lost markers such as
+Gemini's `RESOURCE_EXHAUSTED`. Tests: `test/run-provider-account-guard.test.ts`.
 
 Fill expiry belongs to native HTTP completeness/admission tests for both
 portfolio kinds. Control the real Date clock, including the exact 24-hour edge,

@@ -10,10 +10,13 @@
  * preserve the provider's failure kind instead of flattening it to
  * `INTERNAL_ERROR` on the way to the dashboard.
  *
- * One decision does rest on it: run admission refuses new runs after a streak
- * of runs in which every provider failed on its account (auth or billing; see
- * `isProviderAccountFailure`). Those two buckets match only explicit statuses
- * and phrases, and the refusal can always be overridden with `force`.
+ * One decision rests on it: run admission refuses new runs after a streak of
+ * runs in which every provider failed on its account (`isProviderAccountFailure`).
+ * `PROVIDER_AUTH` is any 401/403 or auth wording, which covers a rejected key
+ * and also access the account lacks (a region, a disabled API, a blocking
+ * proxy). Both are standing failures that a retry cannot fix until someone
+ * changes something, which is what the rule needs. It backs off to one run a
+ * day rather than stopping for good, and `force` overrides it.
  */
 import { z } from 'zod'
 

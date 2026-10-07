@@ -208,17 +208,27 @@ describe('model-evidence anchor query plan', () => {
 
   it('would regress if the anchor were selected by provider (the original shape)', () => {
     // Proves the assertions above discriminate: this is the pre-fix query, and
-    // on the same database it produces exactly the plan they reject.
-    const plan = sqlite.prepare(`
-      EXPLAIN QUERY PLAN
-      SELECT runs.created_at FROM query_snapshots
-      INNER JOIN runs ON query_snapshots.run_id = runs.id
-      WHERE runs.project_id = ? AND runs.kind = 'answer-visibility'
-        AND runs.status IN ('completed', 'partial')
-        AND runs.created_at < ? AND query_snapshots.provider = ?
-        AND query_snapshots.query_id IS NOT NULL
-      ORDER BY runs.created_at DESC LIMIT 1
-    `).all(targetProjectId, new Date().toISOString(), 'openai') as Array<{ detail: string }>
+    // on the indexes it shipped against it produces exactly the plan they
+    // reject. The later `idx_runs_project_kind_created` (run admission) lets
+    // SQLite plan even this shape well, so it is dropped inside a transaction
+    // that is rolled back: SQLite DDL is transactional.
+    sqlite.exec('BEGIN')
+    let plan: Array<{ detail: string }>
+    try {
+      sqlite.exec('DROP INDEX idx_runs_project_kind_created')
+      plan = sqlite.prepare(`
+        EXPLAIN QUERY PLAN
+        SELECT runs.created_at FROM query_snapshots
+        INNER JOIN runs ON query_snapshots.run_id = runs.id
+        WHERE runs.project_id = ? AND runs.kind = 'answer-visibility'
+          AND runs.status IN ('completed', 'partial')
+          AND runs.created_at < ? AND query_snapshots.provider = ?
+          AND query_snapshots.query_id IS NOT NULL
+        ORDER BY runs.created_at DESC LIMIT 1
+      `).all(targetProjectId, new Date().toISOString(), 'openai') as Array<{ detail: string }>
+    } finally {
+      sqlite.exec('ROLLBACK')
+    }
     const details = plan.map(row => row.detail).join('\n')
 
     expect(details).toMatch(/idx_snapshots_provider_model/)

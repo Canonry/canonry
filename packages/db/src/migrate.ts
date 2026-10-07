@@ -4492,6 +4492,15 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       )`,
     ],
   },
+  {
+    // Run admission reads a project's ten newest runs of one kind on every
+    // queue; without this it sorted every run the project ever had.
+    version: 168,
+    name: 'runs-project-kind-created-index',
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_runs_project_kind_created ON runs(project_id, kind, created_at)`,
+    ],
+  },
 ]
 
 /**

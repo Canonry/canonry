@@ -36,7 +36,7 @@ import {
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
 import { assertProjectScope } from './auth.js'
 import { gte } from 'drizzle-orm'
-import { assertMeasurementRunStampable, findProviderAccountFailures, hasActiveMeasurementPlan, providersFailingError, queueRunIfProjectIdle, resolveRunnableProviderSelection } from './run-queue.js'
+import { assertMeasurementRunStampable, hasActiveMeasurementPlan, providerAccountRefusal, providersARunWouldCall, providersFailingError, queueRunIfProjectIdle, resolveRunnableProviderSelection } from './run-queue.js'
 import { queueRunFill, readRunCompleteness } from './run-fill.js'
 import { readRunProviderBatches } from './provider-batches.js'
 
@@ -237,18 +237,18 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
           return { conflict: true as const, activeRunId: activeRun.id }
         }
         // Same admission rule as the queue helper this branch bypasses.
-        if (!body.force) {
-          const refused = findProviderAccountFailures(tx, {
-            projectId: project.id,
-            kind,
-            providers: () => resolveRunnableProviderSelection({
-              requestedProviders: providers,
-              projectProviders: project.providers,
-              runnableProviders: opts.getRunnableProviderNames?.(),
-            }).selectedProviders,
-          })
-          if (refused) return { conflict: false as const, refused }
-        }
+        const refused = providerAccountRefusal(tx, {
+          projectId: project.id,
+          trigger,
+          force: body.force ?? false,
+          now,
+          providers: () => providersARunWouldCall(resolveRunnableProviderSelection({
+            requestedProviders: providers,
+            projectProviders: project.providers,
+            runnableProviders: opts.getRunnableProviderNames?.(),
+          }).selectedProviders, opts.getRunnableProviderNames?.()),
+        })
+        if (refused) return { conflict: false as const, refused }
 
         const inserted: Array<{ runId: string; loc: LocationContext }> = []
         for (const loc of projectLocations) {
