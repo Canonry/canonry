@@ -97,7 +97,10 @@ export function classifyProviderErrorMessage(message: string): ProviderErrorCode
   if (/timeout|timed out|ETIMEDOUT/i.test(message)) {
     return 'TIMEOUT'
   }
-  if (/ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|network|fetch failed|socket hang up/i.test(message)) {
+  // The OpenAI and Anthropic SDKs report an unreachable endpoint as
+  // `APIConnectionError` with the bare message "Connection error.": the
+  // ECONNREFUSED or ENOTFOUND behind it is only on the error's `cause`.
+  if (/ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|network|fetch failed|socket hang up|connection error|APIConnectionError/i.test(message)) {
     return 'NETWORK'
   }
   if (/parse|unexpected token|invalid json|malformed|JSON\.parse/i.test(message)) {
@@ -110,14 +113,13 @@ export function classifyProviderErrorMessage(message: string): ProviderErrorCode
 export function classifyProviderErrorMessages(
   messages: Iterable<string>,
 ): ProviderErrorCode {
-  const codes = new Set<ProviderErrorCode>()
-  for (const message of messages) {
-    codes.add(classifyProviderErrorMessage(message))
-  }
-  for (const code of PROVIDER_ERROR_PRIORITY) {
-    if (codes.has(code)) return code
-  }
-  return 'UNKNOWN'
+  return mostActionableProviderErrorCode([...messages].map(classifyProviderErrorMessage))
+}
+
+/** The code an operator can act on first among several (see `PROVIDER_ERROR_PRIORITY`); `UNKNOWN` for none. */
+export function mostActionableProviderErrorCode(codes: Iterable<ProviderErrorCode>): ProviderErrorCode {
+  const present = new Set(codes)
+  return PROVIDER_ERROR_PRIORITY.find(code => present.has(code)) ?? 'UNKNOWN'
 }
 
 /**
