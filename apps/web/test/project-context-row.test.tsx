@@ -244,8 +244,9 @@ test.each([
     label: 'Advanced overview without an explicit range',
     path: '/projects/project_citypoint',
     advanced: true,
-    // The v2 overview's measurement scope slot sits between identity and domain.
-    parts: [CONTEXT_TITLE_CLASS, 'project-context-scope', 'project-context-domain', 'project-context-actions'],
+    // The v2 overview's measurement scope slot sits between identity and domain;
+    // the Advanced tag follows the domain.
+    parts: [CONTEXT_TITLE_CLASS, 'project-context-scope', 'project-context-domain', 'project-mode-tag', 'project-context-actions'],
     meta: null,
   },
   {
@@ -254,7 +255,7 @@ test.each([
     label: 'Advanced overview with an explicit range',
     path: `/projects/project_citypoint${RANGE_QUERY}`,
     advanced: true,
-    parts: [CONTEXT_TITLE_CLASS, 'project-context-scope', 'project-context-domain', 'project-context-actions'],
+    parts: [CONTEXT_TITLE_CLASS, 'project-context-scope', 'project-context-domain', 'project-mode-tag', 'project-context-actions'],
     meta: null,
   },
 ])('the $label context row orders identity, meta and actions', async ({ path, advanced, parts, meta }) => {
@@ -275,6 +276,28 @@ test.each([
   })
   expect(doc.querySelector('.project-context-row')).not.toBeNull()
   expect(doc.querySelector('.project-context-domain')?.textContent ?? null).toBe(shown)
+})
+
+// ── Advanced tag ──
+
+function modeTag(doc: Document): string | null {
+  const tag = doc.querySelector('.project-context-row .project-mode-tag')
+  return tag ? [...tag.children].map(part => part.textContent).join('|') : null
+}
+
+// Every tab reads the active plan, for viewers too (portfolio-route.test.tsx pins
+// the viewer's single plan read on a scope-blind tab).
+test.each(PROJECT_PAGE_TABS)('an advanced project carries the Advanced tag on the %s tab', async tab => {
+  const path = tab === 'overview' ? '/projects/project_citypoint' : `/projects/project_citypoint/${tab}`
+  const { doc } = await renderAt(path, { plan: advancedPlan() })
+  expect(modeTag(doc)).toBe('Advanced|1 property · 1 market')
+})
+
+test('a project without an advanced setup renders no Advanced tag', async () => {
+  const overview = await renderAt('/projects/project_citypoint')
+  expect(modeTag(overview.doc)).toBeNull()
+  const activity = await renderAt('/projects/project_citypoint/activity')
+  expect(modeTag(activity.doc)).toBeNull()
 })
 
 // ── Embed ──

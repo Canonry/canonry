@@ -1053,6 +1053,24 @@
     @apply ml-auto flex flex-wrap items-center justify-end gap-3;
   }
 
+  /* Projects with an advanced (multi-property) setup carry a mode tag next to the domain. */
+  .project-mode-tag {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-inset px-2.5 py-0.5 text-[12px] leading-5;
+  }
+
+  .project-mode-tag-label {
+    @apply font-semibold text-heading;
+  }
+
+  .project-mode-tag-detail {
+    @apply text-secondary;
+  }
+
+  .project-mode-tag-detail::before {
+    content: '·';
+    @apply mr-1.5 text-faint;
+  }
+
   /* ── Eyebrow / labels ── */
 
   .eyebrow {

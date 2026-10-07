@@ -54,6 +54,7 @@ import { AdvancedMeasurementSection } from '../components/project/advanced-measu
 import { AdvancedMeasurementLanding } from '../components/project/advanced-measurement/AdvancedMeasurementLanding.js'
 import {
   advancedMeasurementSetupActionLabel,
+  advancedProjectTagDetail,
   resolveAdvancedMeasurementMode,
 } from '../components/project/advanced-measurement/model.js'
 import { adaptVersionOneMeasurementReport } from '../components/project/advanced-measurement/v1-report-adapter.js'
@@ -1792,9 +1793,9 @@ function ProjectPageContent({
   })
   const activeMeasurementPlanQuery = useQuery({
     ...getApiV1ProjectsByNameMeasurementPlanOptions({ client: heyClient, path: { name: projectName } }),
-    enabled: !isEmbed()
-      && Boolean(projectName)
-      && (canWrite || tab === 'portfolio' || tab === 'overview' || tab === 'settings'),
+    // Every tab, for viewers too: the context row's Advanced tag names the
+    // project's mode wherever it renders, including a deep link.
+    enabled: !isEmbed() && Boolean(projectName),
     staleTime: 0,
     refetchOnMount: 'always',
   })
@@ -1907,6 +1908,7 @@ function ProjectPageContent({
     hasDraft: measurementSetupQuery.data?.draft !== null && measurementSetupQuery.data?.draft !== undefined,
   })
   const isSimpleOverview = advancedMeasurementMode.surface === 'simple-overview'
+  const advancedProjectTag = activeMeasurementPlan?.plan.schemaVersion === 2 ? advancedProjectTagDetail(activeMeasurementPlan.plan) : null
   /**
    * Which overview to show is not known until one of the two plan reads lands.
    * Until then the expression above is `undefined ?? null`, and `null` is what
@@ -2753,6 +2755,12 @@ function ProjectPageContent({
           <h1 className="project-context-title md:sr-only">{model.project.displayName || model.project.name}</h1>
           {scopeSlotContent !== null ? <div className="project-context-scope">{scopeSlotContent}</div> : null}
           {model.project.canonicalDomain ? <span className="project-context-domain">{model.project.canonicalDomain}</span> : null}
+          {advancedProjectTag !== null ? (
+            <span className="project-mode-tag">
+              <span className="project-mode-tag-label">Advanced</span>
+              <span className="project-mode-tag-detail">{advancedProjectTag}</span>
+            </span>
+          ) : null}
           <div className="project-context-actions" data-project-actions>
             {isDashboardManagedSweeps() ? (
               <ManagedSweepStatus projectName={projectName} running={hasActiveVisibilitySweep} portfolio={!isSimpleOverview} />

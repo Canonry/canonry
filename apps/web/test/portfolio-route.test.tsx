@@ -2941,7 +2941,8 @@ test('a viewer reads setup on a scope-blind tab only when the URL is scoped', as
   const scoped = await renderScopeRoute('/projects/project_citypoint/technical-aeo?measurementScope=group&measurementScopeKey=north', trackingRoute(), { accountRole: 'viewer' })
   await waitFor(() => expect(contextRow(scoped.page.container).querySelector('.project-context-scope')?.textContent).toBe(PROJECT_SCOPE_COPY.projectWide))
   expect(scoped.observed.filter(url => url.pathname.endsWith('/measurement-setup'))).toHaveLength(1)
-  expect(scoped.observed.some(url => url.pathname.endsWith('/measurement-plan'))).toBe(false)
+  // The plan read is the context row's Advanced tag, which every tab renders.
+  expect(scoped.observed.filter(url => url.pathname.endsWith('/measurement-plan'))).toHaveLength(1)
   scoped.page.unmount()
 
   const unscoped = await renderScopeRoute('/projects/project_citypoint/technical-aeo', trackingRoute(), { accountRole: 'viewer' })
@@ -2949,13 +2950,14 @@ test('a viewer reads setup on a scope-blind tab only when the URL is scoped', as
   expect(unscoped.queryClient.getQueryState(setupKey(unscoped.projectName))?.fetchStatus ?? 'idle').toBe('idle')
   expect(unscoped.observed.some(url => url.pathname.endsWith('/measurement-setup'))).toBe(false)
   expect(contextRow(unscoped.page.container).querySelector('.project-context-scope')).toBeNull()
+  await waitFor(() => expect(contextRow(unscoped.page.container).querySelector('.project-mode-tag')).not.toBeNull())
+  expect(unscoped.observed.filter(url => url.pathname.endsWith('/measurement-plan'))).toHaveLength(1)
 })
 
-test('a viewer on Advanced tracked Queries gets exactly one scope trigger, in the row, without plan or setup reads', async () => {
+test('a viewer on Advanced tracked Queries gets exactly one scope trigger, in the row, without a setup read', async () => {
   const { observed, page, queryClient, projectName } = await renderScopeRoute('/projects/project_citypoint/queries', trackingRoute(), { accountRole: 'viewer' })
   const keyOptions = { client: heyClient, path: { name: projectName } }
   expect(queryClient.getQueryState(getApiV1ProjectsByNameMeasurementSetupQueryKey(keyOptions))?.fetchStatus ?? 'idle').toBe('idle')
-  expect(queryClient.getQueryState(getApiV1ProjectsByNameMeasurementPlanQueryKey(keyOptions))?.fetchStatus ?? 'idle').toBe('idle')
 
   expect(await page.findByText('Citypoint dentist')).toBeTruthy()
   const trigger = await rowTrigger(page.container)
@@ -2964,7 +2966,9 @@ test('a viewer on Advanced tracked Queries gets exactly one scope trigger, in th
   expect(page.getByRole('region', { name: 'Tracked queries' }).querySelector('.visibility-scope-trigger')).toBeNull()
   // The row reads the body's own workspace key, so it adds no request.
   expect(observed.filter(url => url.pathname.endsWith('/query-tracking'))).toHaveLength(1)
-  expect(observed.some(url => url.pathname.endsWith('/measurement-setup') || url.pathname.endsWith('/measurement-plan'))).toBe(false)
+  expect(observed.some(url => url.pathname.endsWith('/measurement-setup'))).toBe(false)
+  // One plan read, for the context row's Advanced tag.
+  expect(observed.filter(url => url.pathname.endsWith('/measurement-plan'))).toHaveLength(1)
   const nav = page.getByRole('navigation', { name: 'Project sections' })
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
   expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual(['Change History'])

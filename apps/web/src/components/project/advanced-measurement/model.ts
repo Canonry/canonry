@@ -43,3 +43,21 @@ export function resolveAdvancedMeasurementMode(status: AdvancedMeasurementStatus
     setupAction: status.hasDraft ? 'continue' : 'edit',
   }
 }
+
+interface AdvancedProjectTagPlan {
+  targets: readonly unknown[]
+  groups: readonly { parentGroupKey?: string }[]
+}
+
+/**
+ * The header tag's count line for a published advanced setup: every Property,
+ * plus the top-level markets when the setup has any. Child groups are
+ * navigation under a market, not markets of their own.
+ */
+export function advancedProjectTagDetail(plan: AdvancedProjectTagPlan): string {
+  const properties = plan.targets.length
+  const markets = plan.groups.filter(group => group.parentGroupKey === undefined).length
+  const parts = [`${properties} ${properties === 1 ? 'property' : 'properties'}`]
+  if (markets > 0) parts.push(`${markets} ${markets === 1 ? 'market' : 'markets'}`)
+  return parts.join(' · ')
+}
