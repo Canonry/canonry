@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { VISIBILITY_DISPLAY_COPY, visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
 import type { VisibilityReportComparison, VisibilityReportPopulationClass, VisibilityReportRate, VisibilityReportResponse } from '@ainyc/canonry-contracts'
 import { CHART_SERIES_COLORS, CHART_TONE } from '../src/components/shared/ChartPrimitives.js'
-import { REPORT_CHANGE_COPY, REPORT_CLASS_NOUN, REPORT_HEADLINE_HELP, VisibilityReportView } from '../src/components/project/VisibilityTrendSection.js'
+import { REPORT_TREND_UNCHECKED_NOTE, REPORT_CHANGE_COPY, REPORT_CLASS_NOUN, REPORT_HEADLINE_HELP, VisibilityReportView } from '../src/components/project/VisibilityTrendSection.js'
 
 // jsdom lays out no SVG, so each Recharts Line renders as a span carrying the
 // props that decide what is drawn: its series key, stroke, dash, and dot.
@@ -490,7 +490,8 @@ describe('headline strip', () => {
     ])
     const note = 'Missing citation results mean the saved evidence is incomplete.'
     const describedBy = chart.getAttribute('aria-describedby')
-    expect(describedBy === null ? '' : document.getElementById(describedBy)!.textContent).toBe(notesMissing ? note : '')
+    // The displayed sweep left 2 answers unchecked, so the chart says Cited counts only checked answers in both cases.
+    expect(describedBy === null ? '' : document.getElementById(describedBy)!.textContent).toBe(notesMissing ? `${note} ${REPORT_TREND_UNCHECKED_NOTE}` : REPORT_TREND_UNCHECKED_NOTE)
     // The history table carries the same count under Cited, never under Mentioned.
     const history = within(screen.getByRole('table', { name: 'Non-brand queries trend data' })).getAllByRole('row')
     const [, mentionedCell, citedCell] = [...history[2]!.querySelectorAll('td')]
