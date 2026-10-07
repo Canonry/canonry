@@ -50,7 +50,7 @@ interface AdvancedProjectTagPlan {
 }
 
 /**
- * The header tag's count line for a published advanced setup: every Property,
+ * The public demo's header tag count line for a published advanced setup: every Property,
  * plus the top-level markets when the setup has any. Child groups are
  * navigation under a market, not markets of their own.
  */

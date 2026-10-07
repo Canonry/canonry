@@ -108,12 +108,14 @@ function advancedPlan() {
 
 async function renderAt(pathname: string, options: {
   embed?: boolean
+  demo?: boolean
   configureFixture?: (dashboard: Dashboard) => void
   plan?: ReturnType<typeof advancedPlan>
   schedule?: ReturnType<typeof visibilitySchedule>
   seedProjectList?: boolean
 } = {}) {
   if (options.embed) window.__CANONRY_CONFIG__ = { embed: { enabled: true } }
+  else if (options.demo) window.__CANONRY_CONFIG__ = { demo: { enabled: true, readOnly: true, sampleData: true } }
   else delete window.__CANONRY_CONFIG__
 
   const fixture = createDashboardFixture({})
@@ -244,9 +246,8 @@ test.each([
     label: 'Advanced overview without an explicit range',
     path: '/projects/project_citypoint',
     advanced: true,
-    // The v2 overview's measurement scope slot sits between identity and domain;
-    // the Advanced tag follows the domain.
-    parts: [CONTEXT_TITLE_CLASS, 'project-context-scope', 'project-context-domain', 'project-mode-tag', 'project-context-actions'],
+    // The v2 overview's measurement scope slot sits between identity and domain.
+    parts: [CONTEXT_TITLE_CLASS, 'project-context-scope', 'project-context-domain', 'project-context-actions'],
     meta: null,
   },
   {
@@ -255,7 +256,7 @@ test.each([
     label: 'Advanced overview with an explicit range',
     path: `/projects/project_citypoint${RANGE_QUERY}`,
     advanced: true,
-    parts: [CONTEXT_TITLE_CLASS, 'project-context-scope', 'project-context-domain', 'project-mode-tag', 'project-context-actions'],
+    parts: [CONTEXT_TITLE_CLASS, 'project-context-scope', 'project-context-domain', 'project-context-actions'],
     meta: null,
   },
 ])('the $label context row orders identity, meta and actions', async ({ path, advanced, parts, meta }) => {
@@ -278,26 +279,31 @@ test.each([
   expect(doc.querySelector('.project-context-domain')?.textContent ?? null).toBe(shown)
 })
 
-// ── Advanced tag ──
+// ── Advanced tag (public demo only) ──
 
 function modeTag(doc: Document): string | null {
   const tag = doc.querySelector('.project-context-row .project-mode-tag')
   return tag ? [...tag.children].map(part => part.textContent).join('|') : null
 }
 
-// Every tab reads the active plan, for viewers too (portfolio-route.test.tsx pins
-// the viewer's single plan read on a scope-blind tab).
-test.each(PROJECT_PAGE_TABS)('an advanced project carries the Advanced tag on the %s tab', async tab => {
+test.each(PROJECT_PAGE_TABS)('the public demo tags an advanced project on the %s tab', async tab => {
   const path = tab === 'overview' ? '/projects/project_citypoint' : `/projects/project_citypoint/${tab}`
-  const { doc } = await renderAt(path, { plan: advancedPlan() })
+  const { doc } = await renderAt(path, { demo: true, plan: advancedPlan() })
   expect(modeTag(doc)).toBe('Advanced|1 property · 1 market')
 })
 
-test('a project without an advanced setup renders no Advanced tag', async () => {
-  const overview = await renderAt('/projects/project_citypoint')
+test('the public demo renders no tag for a project without an advanced setup', async () => {
+  const overview = await renderAt('/projects/project_citypoint', { demo: true })
   expect(modeTag(overview.doc)).toBeNull()
-  const activity = await renderAt('/projects/project_citypoint/activity')
+  const activity = await renderAt('/projects/project_citypoint/activity', { demo: true })
   expect(modeTag(activity.doc)).toBeNull()
+})
+
+test('outside the public demo an advanced project renders no tag', async () => {
+  for (const path of ['/projects/project_citypoint', '/projects/project_citypoint/activity']) {
+    const { doc } = await renderAt(path, { plan: advancedPlan() })
+    expect(modeTag(doc)).toBeNull()
+  }
 })
 
 // ── Embed ──

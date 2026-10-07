@@ -94,6 +94,7 @@ import {
   getViewerResearchConfig,
   isEmbed,
   isDashboardManagedSweeps,
+  isPublicDemo,
   type ApiBingConnection,
   type ApiBingSite,
   type ApiBingInspection,
@@ -1793,9 +1794,11 @@ function ProjectPageContent({
   })
   const activeMeasurementPlanQuery = useQuery({
     ...getApiV1ProjectsByNameMeasurementPlanOptions({ client: heyClient, path: { name: projectName } }),
-    // Every tab, for viewers too: the context row's Advanced tag names the
-    // project's mode wherever it renders, including a deep link.
-    enabled: !isEmbed() && Boolean(projectName),
+    // The public demo reads it on every tab: its context row tags an advanced
+    // project wherever it renders, including a deep link.
+    enabled: !isEmbed()
+      && Boolean(projectName)
+      && (canWrite || isPublicDemo() || tab === 'portfolio' || tab === 'overview' || tab === 'settings'),
     staleTime: 0,
     refetchOnMount: 'always',
   })
@@ -1908,7 +1911,10 @@ function ProjectPageContent({
     hasDraft: measurementSetupQuery.data?.draft !== null && measurementSetupQuery.data?.draft !== undefined,
   })
   const isSimpleOverview = advancedMeasurementMode.surface === 'simple-overview'
-  const advancedProjectTag = activeMeasurementPlan?.plan.schemaVersion === 2 ? advancedProjectTagDetail(activeMeasurementPlan.plan) : null
+  // Demo only: it tells a visitor switching projects why this one looks different.
+  const advancedProjectTag = isPublicDemo() && activeMeasurementPlan?.plan.schemaVersion === 2
+    ? advancedProjectTagDetail(activeMeasurementPlan.plan)
+    : null
   /**
    * Which overview to show is not known until one of the two plan reads lands.
    * Until then the expression above is `undefined ?? null`, and `null` is what
