@@ -9,7 +9,7 @@ import { pruneProviderDispatchModes, pruneProviderModelsForProviders, validatePr
 import { writeAuditLog } from './helpers.js'
 import { readMarketCompetitorPins } from './plan-competitors.js'
 import { marketNameChanges, readMarketCompetitorNames } from './market-competitor-names.js'
-import { assertProviderModelScope, requireQualifiedAliases } from './projects.js'
+import { aliasArraysEqual, assertProviderModelScope, requireQualifiedAliases } from './projects.js'
 import { assertQueryReplacementAllowed, replaceProjectQueries } from './query-replace.js'
 import { activeRevisionProviders } from './run-queue.js'
 import { nextRunFromSchedule, resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
@@ -490,16 +490,4 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       updatedAt: project.updatedAt,
     })
   })
-}
-
-// Case-insensitive value compare. Aliases are persisted post-normalize
-// (trimmed, deduped, stable order); two sets that differ only in casing
-// produce identical mention-detection output, so a casing rename does not
-// need a backfill.
-function aliasArraysEqual(a: readonly string[], b: readonly string[]): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (a[i]!.toLowerCase() !== b[i]!.toLowerCase()) return false
-  }
-  return true
 }

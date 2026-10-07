@@ -911,7 +911,7 @@ export function formatProject(row: InferSelectModel<typeof projects>, negativeRe
 // stable order). Two sets that differ only in casing match the same answer
 // text and produce the same persisted `answerMentioned` / overlap fields, so
 // the compare is case-insensitive — a casing rename doesn't need a backfill.
-function aliasArraysEqual(a: readonly string[], b: readonly string[]): boolean {
+export function aliasArraysEqual(a: readonly string[], b: readonly string[]): boolean {
   if (a.length !== b.length) return false
   for (let i = 0; i < a.length; i++) {
     if (a[i]!.toLowerCase() !== b[i]!.toLowerCase()) return false
