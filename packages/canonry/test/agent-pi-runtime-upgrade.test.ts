@@ -168,7 +168,7 @@ describe('tool arguments', () => {
 })
 
 describe('turn limits', () => {
-  it('runs the calls within the limit from one parallel batch, answers the rest with "Turn stopped." and ends without another model request', async () => {
+  it('runs the calls within the limit from one parallel batch, answers the rest with "Turn stopped.", then asks once, with no tools, for an answer', async () => {
     const execute = vi.fn(async (id: string) => ({ content: [{ type: 'text' as const, text: `ran ${id}` }], details: {} }))
     const check: AgentTool = { name: 'check', label: 'Check', description: 'Test', parameters: Type.Object({}), execute }
     const agent = fauxSession([check], { maxToolCalls: 2, timeoutMs: 10_000 })
@@ -180,6 +180,14 @@ describe('turn limits', () => {
         fauxToolCall('check', {}, { id: 'second' }),
         fauxToolCall('check', {}, { id: 'third' }),
       ], { stopReason: 'toolUse' }),
+      context => {
+        // The wrap-up request carries no tools and says why.
+        expect(getCurrentTools(context.messages)).toEqual([])
+        const last = context.messages.at(-1) as { role: string; content: unknown }
+        expect(last.role).toBe('system')
+        expect(JSON.stringify(last.content)).toContain('used its tool budget')
+        return fauxAssistantMessage('Two checks ran; the third could not.')
+      },
       fauxAssistantMessage('Should never be requested.'),
     ])
     await agent.prompt('Check three times')
@@ -191,13 +199,36 @@ describe('turn limits', () => {
       ['second', false, 'ran second'],
       ['third', true, 'Turn stopped.'],
     ])
-    expect(faux.state.callCount).toBe(1)
+    expect(faux.state.callCount).toBe(2)
     expect(faux.getPendingResponseCount()).toBe(1)
-    expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'tool-limit', toolCalls: 2, modelCalls: 1 })
+    expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'tool-limit', toolCalls: 2, modelCalls: 2 })
+    const answer = agent.state.messages.at(-1) as AssistantMessage
+    expect(answer.role).toBe('assistant')
+    expect(answer.content).toEqual([expect.objectContaining({ type: 'text', text: 'Two checks ran; the third could not.' })])
     // The limit is a clean stop, not a failed run.
     const withError = [...agent.state.messages, ...ended.flat()].filter(message => message.role === 'assistant' && (message as { errorMessage?: string }).errorMessage)
     expect(withError).toEqual([])
     expect(agent.state.errorMessage).toBeUndefined()
+  })
+
+  it('blocks a tool call made during the wrap-up and ends the run', async () => {
+    const execute = vi.fn(async () => ({ content: [{ type: 'text' as const, text: 'ran' }], details: {} }))
+    const check: AgentTool = { name: 'check', label: 'Check', description: 'Test', parameters: Type.Object({}), execute }
+    const agent = fauxSession([check], { maxToolCalls: 1, timeoutMs: 10_000 })
+    faux.setResponses([
+      fauxAssistantMessage([fauxToolCall('check', {}, { id: 'first' }), fauxToolCall('check', {}, { id: 'second' })], { stopReason: 'toolUse' }),
+      fauxAssistantMessage(fauxToolCall('check', {}, { id: 'ignored' }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Should never be requested.'),
+    ])
+    await agent.prompt('Keep checking')
+
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(faux.state.callCount).toBe(2)
+    expect(faux.getPendingResponseCount()).toBe(1)
+    // No tools are declared in the wrap-up, so the stray call is refused, never run.
+    const ignored = agent.state.messages.find(message => message.role === 'toolResult' && message.toolCallId === 'ignored') as { isError: boolean } | undefined
+    expect(ignored?.isError).toBe(true)
+    expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'tool-limit', toolCalls: 1, modelCalls: 2 })
   })
 
   it('counts unknown-tool and invalid-argument attempts toward the tool limit', async () => {
@@ -217,7 +248,8 @@ describe('turn limits', () => {
     await agent.prompt('Try three calls')
 
     expect(execute).not.toHaveBeenCalled()
-    expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'tool-limit', toolCalls: 2, modelCalls: 1 })
+    // The second request is the tool-less wrap-up answer.
+    expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'tool-limit', toolCalls: 2, modelCalls: 2 })
     const valid = agent.state.messages.find(message => message.role === 'toolResult' && message.toolCallId === 'valid') as { content: Array<{ text: string }> } | undefined
     expect(valid?.content[0]!.text).toBe('Turn stopped.')
   })

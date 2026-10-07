@@ -81,8 +81,11 @@ calculating metrics, preserves class denominators and missing states, and links
 the selected evidence. Do not persist context into the system-prompt snapshot.
 
 Default execution limits are 30 tool calls / 180 seconds; hard maxima are 100 /
-600 seconds. Count attempted calls, including invalid ones. Abort stops future
-calls; dispatched work may settle. SSE emits `aero_turn_status`; CLI and UI treat
+600 seconds. Count attempted calls, including invalid ones. A turn that reaches
+the tool limit makes one more model call with every tool removed and
+`TOOL_LIMIT_WRAP_UP` appended, so it answers from what it read; the run then
+ends whatever that call returns. Abort stops future calls; dispatched work may
+settle. SSE emits `aero_turn_status`; CLI and UI treat
 missing `stream_close` as failure. Observe socket closure during acquisition too.
 Transcript reads expose `isStreaming` so polling cannot erase live partial text.
 Tool results persist small labels/durations, not full `details` payloads.

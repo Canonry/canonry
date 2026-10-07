@@ -136,9 +136,11 @@ it('counts malformed tool attempts and reports provider failure distinctly', asy
   faux.setResponses([
     fauxAssistantMessage(fauxToolCall('nonexistent', {}), { stopReason: 'toolUse' }),
     fauxAssistantMessage(fauxToolCall('nonexistent', {}), { stopReason: 'toolUse' }),
+    fauxAssistantMessage('Nothing could be checked.'),
   ])
   await agent.prompt('Try an invalid tool')
-  expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'tool-limit', toolCalls: 1, modelCalls: 2 })
+  // The third request is the tool-less wrap-up answer.
+  expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'tool-limit', toolCalls: 1, modelCalls: 3 })
   configureAeroRuntime(agent, [])
   faux.setResponses([fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'Provider unavailable' })])
   await agent.prompt('Try again')

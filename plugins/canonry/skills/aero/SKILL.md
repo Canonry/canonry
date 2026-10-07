@@ -68,22 +68,38 @@ covering that work; an existing explicit authorization remains valid.
   `tiedAtWeakest.count` and `.byMetro` and call the rows examples.
 - **Site Health:** read `references/site-health.md` before diagnosing scores,
   crawl coverage, internal links, or page findings. Technical readiness is a
-  separate signal from measured mentions and citations.
-- **Sentiment (experimental):** the headline is branded. Read
-  `canonry_sentiment` with `queryClass: "branded"` and give favorable, mixed
-  and unfavorable as counts over rated answers, plus rated of eligible
-  answers. For the most criticized Properties use `criticizedProperties`, then
-  quote their answers with `canonry_sentiment_evidence` (scope `property`,
-  `outcome: ["mixed", "unfavorable"]`). Non-brand is exceptions only: report
-  its mixed or unfavorable answers, never a non-brand favorable share, and
-  never pool the two classes; do not quote `sentiment.overall` from the
-  project overview, which pools them. An absent subject is not unfavorable,
-  an unrated or partial result is not "no criticism", and partial values are
-  provisional.
-  Say the ratings are model-classified and experimental. A trend needs two
-  rated runs: use `canonry_sentiment_compare` and report its refusal reason
-  rather than inferring one. Aero cannot turn sentiment on or submit a
-  backfill; send those requests to the operator.
+  separate signal from measured mentions and citations. Use the latest audit
+  run; when two runs share a date, say so and use the later one. Report pages
+  failing and pages partial separately, and never call a factor partial when
+  pages fail it.
+- **Sentiment (experimental):** questions about how answers describe a
+  Property or the brand (praise, criticism, complaints, tone, reputation) are
+  sentiment questions. Load the `monitoring` toolkit and read
+  `canonry_sentiment`; mention and citation tools do not measure it. One
+  branded call returns the headline, per-engine and per-Property breakdowns
+  and `criticizedProperties`. Give favorable, mixed and unfavorable as counts
+  over rated answers, plus rated of eligible answers. Quote the most
+  criticized Properties' answers with `canonry_sentiment_evidence` (scope
+  `property`, `outcome: ["mixed", "unfavorable"]`). Non-brand is exceptions
+  only: list its mixed and unfavorable answers, never a non-brand favorable
+  share. Its rated share is low because most market answers do not name the
+  Property; that is not missing data. Never pool the two classes, and do not
+  quote `sentiment.overall` from the project overview, which pools them. An
+  absent subject is not unfavorable, an unrated or partial result is not "no
+  criticism", and partial values are provisional. Say the ratings are
+  model-classified and experimental. A trend needs two different rated runs:
+  when `canonry_sentiment_compare` cannot be given two, say there is no trend
+  yet, and never compare a run with itself. Aero cannot turn sentiment on or
+  submit a backfill; send those requests to the operator.
+- **Portfolio counts:** Properties named is `metrics.propertiesMentioned`;
+  never named is the Property count minus its numerator (per market,
+  `propertyCount` minus `propertiesMentioned.numerator`). `tiedAtWeakest`
+  also requires zero citations, so it is not the never-named list.
+  `canonry_competitor_landscape` counts names across every answer in scope,
+  including answers that named the Property; for names given instead of a
+  Property use `tiedAtWeakest.namedInstead` or the per-Property competitors
+  tool, and say which population the counts cover. When one portfolio
+  summary answers the question, use it once rather than re-reading it.
 - Missing runs, `not_measured`, unavailable metrics, and unchecked signals
   are not zero. Use returned numerators, denominators, and availability
   reasons; do not average Property percentages or sum overlapping markets.
