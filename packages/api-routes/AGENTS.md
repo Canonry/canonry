@@ -52,17 +52,21 @@ all its active siblings finish. `RUN_IN_PROGRESS` includes the kind and blocking
 run ID. Keep existing per-kind deduplication and shared provider limits.
 
 Both admission points also refuse a visibility run with `PROVIDERS_FAILING`
-(422) through one function, `providerAccountRefusal` (`src/run-queue.ts`): the
-project's last `PROVIDER_ACCOUNT_FAILURE_STREAK` runs (probes included, ordered
-`createdAt, id`) all `failed`, every provider in each with a stored `code` of
-`PROVIDER_AUTH` / `PROVIDER_BILLING`, and every provider the new run would call
-(`providersARunWouldCall`: its roster less what this host cannot run, which the
-runner drops silently) failed in each of them. It is a backoff, not a block:
-`PROVIDER_ACCOUNT_RETRY_HOURS` after the newest failure one run is let through,
-so out-of-band fixes (console top-ups, config.yaml edits) recover on their own.
-A `provider.created` / `provider.updated` audit row after the oldest of those
-runs lets the next run through at once; a key-only rotation writes one. Probes
-are never refused. `force: true` skips the check; it is admission only, never
+(422) through one function, `providerAccountRefusal` (`src/run-queue.ts`):
+every provider the new run would call (`providersARunWouldCall`: its roster
+less what this host cannot run) has a stored `code` of `PROVIDER_AUTH` /
+`PROVIDER_BILLING` in each of its last `PROVIDER_ACCOUNT_FAILURE_STREAK` runs.
+Streaks are per provider over the project's newest runs (probes included,
+ordered `createdAt, id`): a run that lists the provider with another code, or
+in which it answered (a snapshot exists), ends its streak; a run that does not
+list it and in which it did not answer did not call it and is skipped. It is a
+backoff, not a block: `PROVIDER_ACCOUNT_RETRY_HOURS` after the newest of those
+failures finished (`finishedAt`, else `createdAt`) one run is let through, so
+out-of-band fixes (console top-ups, config.yaml edits) recover on their own. A
+`provider.created` audit row, or a `provider.updated` one whose diff shows a
+new key (`apiKeyRotated`), model, endpoint or configured state, after the
+oldest run of that provider's streak lets the next run through at once; a
+quota-only edit does not. Probes are never refused. `force: true` skips the check; it is admission only, never
 identity, never stored. The dashboard deliberately has no force control: it
 shows the refusal, and the retry interval or a settings change recovers. The
 queue helper returns `{ refused }` after the schedule claim, so a refused

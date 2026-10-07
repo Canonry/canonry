@@ -42,7 +42,7 @@ import {
   type RunDispatchResolution,
 } from '@ainyc/canonry-contracts'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { auditLog, measurementPlans, measurementPlanVersions, projects, runs, schedules } from '@ainyc/canonry-db'
+import { auditLog, measurementPlans, measurementPlanVersions, projects, querySnapshots, runs, schedules } from '@ainyc/canonry-db'
 import { buildMeasurementRunManifest } from './measurement-report-adapter.js'
 import { ensureCurrentQueryBasketRevision } from './query-basket.js'
 
@@ -706,27 +706,57 @@ export function providersARunWouldCall(
   return listed.filter(provider => available.has(provider))
 }
 
+/** How many of a project's newest runs admission looks through for each provider's streak. */
+const PROVIDER_ACCOUNT_LOOKBACK = PROVIDER_ACCOUNT_FAILURE_STREAK * 5
+
+/**
+ * Whether a settings save can have fixed an account failure: a new key
+ * (`apiKeyRotated`), model or endpoint, or a provider configured for the
+ * first time. A quota-only edit cannot, so it does not restart the count.
+ */
+function providerSettingsChangeCouldFix(action: string, diff: string | null): boolean {
+  if (action === 'provider.created') return true
+  try {
+    const parsed = JSON.parse(diff ?? 'null') as {
+      apiKeyRotated?: boolean
+      before?: { configured?: boolean; model?: string | null; baseUrl?: string | null } | null
+      after?: { configured?: boolean; model?: string | null; baseUrl?: string | null } | null
+    } | null
+    if (!parsed) return false
+    if (parsed.apiKeyRotated) return true
+    const before = parsed.before ?? {}
+    const after = parsed.after ?? {}
+    return before.configured !== after.configured || before.model !== after.model || before.baseUrl !== after.baseUrl
+  } catch {
+    return false
+  }
+}
+
 /**
  * Whether to refuse a new answer-visibility run because it could only fail
- * the way the project's runs have been failing: its last
- * `PROVIDER_ACCOUNT_FAILURE_STREAK` runs (probes and spot checks included) all
- * failed outright, every provider in each of them on a rejected key, denied
- * access or an exhausted account, and every provider this run would call
- * failed that way in each of them.
+ * the way the project's runs have been failing: every provider it would call
+ * failed on its account (a rejected key, denied access, or no credit) in each
+ * of the last `PROVIDER_ACCOUNT_FAILURE_STREAK` runs that called it.
+ *
+ * Each provider's streak is its own. Walking the project's newest runs (probes
+ * included), a run that lists the provider with an account code extends its
+ * streak; one that lists it with any other code, or in which it answered, ends
+ * it; any other run did not call it and is skipped. So a narrower run
+ * (`--provider openai`, a probe) neither resets nor fakes another provider's
+ * streak, and a provider this host cannot run is never among those the run
+ * would call.
  *
  * One install ran 7,000 runs over four months against dead keys. The rule backs
  * off rather than stopping for good: `PROVIDER_ACCOUNT_RETRY_HOURS` after the
- * newest failure, one run is let through, so a fix made anywhere (a top-up in
- * the provider console, an edited config.yaml, an env var) is picked up within
- * a day, and a project still broken costs one run a day instead of one per
- * schedule tick. Saving a provider's settings with a changed key, model or
- * endpoint (`provider.created` / `provider.updated`) lets the next run through
- * at once. A probe is never refused: it is how an operator checks a fix, and a
- * probe that succeeds ends the streak.
+ * newest of those failures finished, one run is let through, so a fix made
+ * anywhere (a top-up in the provider console, an edited config.yaml, an env
+ * var) is picked up within a day, and a project still broken costs one visible
+ * failed run a day instead of one per schedule tick. Saving a provider's
+ * settings with a new key, model or endpoint lets the next run through at once.
+ * A probe is never refused, and one that succeeds ends every streak.
  *
- * Anything short of the full streak lets the run through: a partial or
- * completed run, a cancellation, a failure of another kind, or an error stored
- * without a `code` (before canonry 7.3.0).
+ * An error stored without a `code` (written before per-provider codes) ends
+ * the streak, so old history never refuses anything.
  */
 export function providerAccountRefusal(
   db: Pick<DatabaseClient, 'select'>,
@@ -736,12 +766,14 @@ export function providerAccountRefusal(
     force: boolean
     /** The new run's creation time, which the retry interval is measured to. */
     now: string
-    /** Resolved only once a streak is found, so an ordinary queue reads ten index entries. */
+    /** Resolved only once a streak is possible, so an ordinary queue reads one page of the runs index. */
     providers: () => readonly string[]
   },
 ): ProviderAccountFailures | null {
   if (params.force || params.trigger === RunTriggers.probe) return null
-  const recent = db.select({ id: runs.id, status: runs.status, error: runs.error, createdAt: runs.createdAt })
+  const recent = db.select({
+    id: runs.id, status: runs.status, error: runs.error, createdAt: runs.createdAt, finishedAt: runs.finishedAt,
+  })
     .from(runs)
     .where(and(
       eq(runs.projectId, params.projectId),
@@ -751,41 +783,70 @@ export function providerAccountRefusal(
     // `id` breaks the tie between an all-locations fan-out's siblings, which
     // share one creation time.
     .orderBy(desc(runs.createdAt), desc(runs.id))
-    .limit(PROVIDER_ACCOUNT_FAILURE_STREAK)
+    .limit(PROVIDER_ACCOUNT_LOOKBACK)
     .all()
-  if (recent.length < PROVIDER_ACCOUNT_FAILURE_STREAK) return null
-
-  const codesPerRun: Array<Record<string, ProviderErrorCode>> = []
-  for (const run of recent) {
-    if (run.status !== RunStatuses.failed) return null
-    const entries = Object.entries(parseRunError(run.error)?.providers ?? {})
-    if (entries.length === 0 || !entries.every(([, entry]) => isProviderAccountFailure(entry.code))) return null
-    codesPerRun.push(Object.fromEntries(entries.map(([provider, entry]) => [provider, entry.code!])))
-  }
-  const newest = recent[0]!
-  const oldest = recent[recent.length - 1]!
-  const retryAfterMs = Date.parse(newest.createdAt) + PROVIDER_ACCOUNT_RETRY_HOURS * 3_600_000
-  if (Date.parse(params.now) >= retryAfterMs) return null
+    .map(run => ({ ...run, providers: parseRunError(run.error)?.providers ?? {} }))
+  // No provider can have a streak without that many runs carrying an account failure.
+  const withAccountFailure = recent.filter(run =>
+    Object.values(run.providers).some(entry => isProviderAccountFailure(entry.code)))
+  if (withAccountFailure.length < PROVIDER_ACCOUNT_FAILURE_STREAK) return null
 
   const calling = normalizeProviders(params.providers())
   if (calling.length === 0) return null
-  if (!codesPerRun.every(codes => calling.every(provider => provider in codes))) return null
-  const changedSince = db.select({ id: auditLog.id }).from(auditLog)
-    .where(and(
-      eq(auditLog.entityType, 'provider'),
-      inArray(auditLog.entityId, calling),
-      gt(auditLog.createdAt, oldest.createdAt),
-    ))
+
+  const answered = (runId: string, provider: string) => db.select({ id: querySnapshots.id }).from(querySnapshots)
+    .where(and(eq(querySnapshots.runId, runId), eq(querySnapshots.provider, provider)))
     .limit(1)
-    .get()
-  if (changedSince) return null
+    .get() !== undefined
+  const streaks = new Map<string, { newest: typeof recent[number]; oldest: typeof recent[number]; code: ProviderErrorCode }>()
+  for (const provider of calling) {
+    let count = 0
+    let newest: typeof recent[number] | null = null
+    let oldest: typeof recent[number] | null = null
+    let code: ProviderErrorCode | null = null
+    for (const run of recent) {
+      const entry = run.providers[provider]
+      if (!entry) {
+        // A failed run lists every provider it called. A completed, partial or
+        // cancelled one lists only failures (or nothing), so this provider
+        // either answered, which ends its streak, or was not called.
+        if (run.status !== RunStatuses.failed && answered(run.id, provider)) return null
+        continue
+      }
+      if (!isProviderAccountFailure(entry.code)) return null
+      newest ??= run
+      code ??= entry.code!
+      oldest = run
+      count += 1
+      if (count === PROVIDER_ACCOUNT_FAILURE_STREAK) break
+    }
+    if (count < PROVIDER_ACCOUNT_FAILURE_STREAK) return null
+    streaks.set(provider, { newest: newest!, oldest: oldest!, code: code! })
+  }
+
+  const finished = (run: typeof recent[number]) => Date.parse(run.finishedAt ?? run.createdAt)
+  const newest = [...streaks.values()].map(streak => streak.newest).sort((a, b) => finished(b) - finished(a))[0]!
+  const retryAfterMs = finished(newest) + PROVIDER_ACCOUNT_RETRY_HOURS * 3_600_000
+  if (Date.parse(params.now) >= retryAfterMs) return null
+
+  const since = [...streaks.values()].map(streak => streak.oldest.createdAt).sort()[0]!
+  const settingsChanges = db.select({ entityId: auditLog.entityId, action: auditLog.action, diff: auditLog.diff, createdAt: auditLog.createdAt })
+    .from(auditLog)
+    .where(and(eq(auditLog.entityType, 'provider'), inArray(auditLog.entityId, calling), gt(auditLog.createdAt, since)))
+    .all()
+  const fixedSince = settingsChanges.some(change => {
+    const streak = streaks.get(change.entityId ?? '')
+    return streak !== undefined && change.createdAt > streak.oldest.createdAt
+      && providerSettingsChangeCouldFix(change.action, change.diff)
+  })
+  if (fixedSince) return null
 
   return {
-    consecutiveRuns: recent.length,
+    consecutiveRuns: PROVIDER_ACCOUNT_FAILURE_STREAK,
     latestRunId: newest.id,
-    since: oldest.createdAt,
+    since,
     retryAfter: new Date(retryAfterMs).toISOString(),
-    providers: Object.fromEntries(calling.map(provider => [provider, codesPerRun[0]![provider]!])),
+    providers: Object.fromEntries(calling.map(provider => [provider, streaks.get(provider)!.code])),
   }
 }
 
@@ -793,9 +854,9 @@ export function providerAccountRefusal(
 export function providersFailingError(projectName: string, failures: ProviderAccountFailures): AppError {
   const named = Object.entries(failures.providers).map(([provider, code]) => `${provider} (${code})`).join(', ')
   return providersFailing(
-    `Not starting a run for '${projectName}': every provider it would call failed each of the project's last `
-      + `${failures.consecutiveRuns} runs on its account (a rejected key, denied access, or no credit left): ${named}. `
-      + 'Fix it in the provider\'s console or settings. Changing the key, model or endpoint '
+    `Not starting a run for '${projectName}': every provider it would call failed on its account (a rejected key, `
+      + `denied access, or no credit left) in each of its last ${failures.consecutiveRuns} runs: ${named}. `
+      + 'Fix it in the provider\'s console or settings. Saving a new key, model or endpoint for the provider '
       + '(canonry settings provider <name>) lets the next run through; otherwise one run is let through after '
       + `${failures.retryAfter}. Pass force (canonry run --force) to run now.`,
     { projectName, ...failures },

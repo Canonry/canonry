@@ -242,11 +242,15 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
           trigger,
           force: body.force ?? false,
           now,
-          providers: () => providersARunWouldCall(resolveRunnableProviderSelection({
-            requestedProviders: providers,
-            projectProviders: project.providers,
-            runnableProviders: opts.getRunnableProviderNames?.(),
-          }).selectedProviders, opts.getRunnableProviderNames?.()),
+          providers: () => {
+            const runnable = opts.getRunnableProviderNames?.()
+            const roster = resolveRunnableProviderSelection({
+              requestedProviders: providers,
+              projectProviders: project.providers,
+              runnableProviders: runnable,
+            }).selectedProviders
+            return providersARunWouldCall(roster, runnable)
+          },
         })
         if (refused) return { conflict: false as const, refused }
 

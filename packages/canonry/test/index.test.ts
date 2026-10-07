@@ -1411,7 +1411,11 @@ describe('canonry', () => {
         apiUrl: 'http://localhost:4100',
         database: dbPath,
         apiKey: rawKey,
-        providers: { gemini: { apiKey: 'g-old-key', model: 'gemini-2.5-flash' } },
+        providers: {
+          gemini: { apiKey: 'g-old-key', model: 'gemini-2.5-flash' },
+          // A key read from OPENAI_API_KEY leaves the entry with an endpoint and no key.
+          openai: { baseUrl: 'https://proxy.example.com/v1', model: 'gpt-5' },
+        },
       },
       db,
       logger: false,
@@ -1428,11 +1432,20 @@ describe('canonry', () => {
         payload: { apiKey: 'g-new-key' },
       })
       expect(res.statusCode).toBe(200)
+      const fromEnv = await app.inject({
+        method: 'PUT',
+        url: '/api/v1/settings/providers/openai',
+        headers: { authorization: `Bearer ${rawKey}` },
+        payload: { apiKey: 'sk-new-key' },
+      })
+      expect(fromEnv.statusCode).toBe(200)
 
       const rows = db.select().from(auditLog).all().filter(entry => entry.entityType === 'provider')
-      expect(rows.map(row => [row.action, row.entityId])).toEqual([['provider.updated', 'gemini']])
-      expect(JSON.parse(rows[0]!.diff ?? 'null')).toMatchObject({ apiKeyRotated: true })
-      expect(rows[0]!.diff).not.toMatch(/g-old-key|g-new-key/)
+      expect(rows.map(row => [row.action, row.entityId]).sort()).toEqual([['provider.updated', 'gemini'], ['provider.updated', 'openai']])
+      for (const row of rows) {
+        expect(JSON.parse(row.diff ?? 'null')).toMatchObject({ apiKeyRotated: true })
+        expect(row.diff).not.toMatch(/g-old-key|g-new-key|sk-new-key/)
+      }
     } finally {
       await app.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })

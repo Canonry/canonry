@@ -19233,7 +19233,7 @@ export type PostApiV1ProjectsByNameRunsErrors = {
      */
     409: ErrorEnvelope;
     /**
-     * NO_QUERIES: the project has no tracked queries. PROVIDERS_FAILING: every provider the run would call failed each of the project's last 10 runs on its account (rejected key, denied access, no credit). `details.providers` names each provider's code and `details.retryAfter` when one run is let through again (24h after the newest failure). Changing a provider's key, model or endpoint lets the next run through at once, a probe is never refused, and `force: true` overrides.
+     * NO_QUERIES: the project has no tracked queries. PROVIDERS_FAILING: every provider the run would call failed on its account (rejected key, denied access, no credit) in each of its last 10 runs. `details.providers` names each provider's code and `details.retryAfter` when one run is let through again (24h after the newest failure). Saving a new key, model or endpoint in a provider's settings lets the next run through at once, a probe is never refused, and `force: true` overrides.
      */
     422: ErrorEnvelope;
     /**

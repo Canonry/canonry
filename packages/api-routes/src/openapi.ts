@@ -2331,11 +2331,11 @@ const routeCatalog: OpenApiOperation[] = [
         + 'or `dispatchMode: "batch"` when no provider of the run can batch (`details.ineligible` names each provider\'s reason).',
       ),
       422: errorResponse(
-        'NO_QUERIES: the project has no tracked queries. PROVIDERS_FAILING: every provider the run would call failed each of the '
-        + `project's last ${PROVIDER_ACCOUNT_FAILURE_STREAK} runs on its account (rejected key, denied access, no credit). `
+        'NO_QUERIES: the project has no tracked queries. PROVIDERS_FAILING: every provider the run would call failed on its '
+        + `account (rejected key, denied access, no credit) in each of its last ${PROVIDER_ACCOUNT_FAILURE_STREAK} runs. `
         + '`details.providers` names each provider\'s code and `details.retryAfter` when one run is let through again '
-        + `(${PROVIDER_ACCOUNT_RETRY_HOURS}h after the newest failure). Changing a provider's key, model or endpoint lets the next `
-        + 'run through at once, a probe is never refused, and `force: true` overrides.',
+        + `(${PROVIDER_ACCOUNT_RETRY_HOURS}h after the newest failure). Saving a new key, model or endpoint in a provider's settings `
+        + 'lets the next run through at once, a probe is never refused, and `force: true` overrides.',
       ),
       409: errorResponse('Run already in progress.'),
       503: errorResponse('No runnable answer provider is configured.'),

@@ -3197,8 +3197,9 @@ export async function createServer(opts: {
       const afterConfig = summarizeProviderConfig(opts.config.providers[name]);
       // The summary leaves the key out, so a rotation alone would leave no
       // trace. It is recorded (never the key itself): it is worth auditing,
-      // and run admission reads it to give a replaced key its next run.
-      const apiKeyRotated = Boolean(existing?.apiKey) && Boolean(apiKey) && apiKey !== existing?.apiKey;
+      // and run admission reads it to give a replaced key its next run. A key
+      // saved over one that came from an env var counts too.
+      const apiKeyRotated = Boolean(existing) && Boolean(apiKey) && apiKey !== existing?.apiKey;
       if (apiKeyRotated || JSON.stringify(beforeConfig) !== JSON.stringify(afterConfig)) {
         const diff = JSON.stringify({
           before: existing ? beforeConfig : null,

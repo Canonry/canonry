@@ -139,8 +139,8 @@ export type RunTriggerRequest = z.infer<typeof runTriggerRequestSchema>
 
 /**
  * Run admission refuses a new answer-visibility run (`PROVIDERS_FAILING`) when
- * the project's last this-many runs all failed with every provider on a
- * rejected key, denied access or an exhausted account.
+ * every provider it would call failed on its account (a rejected key, denied
+ * access, or no credit) in each of its last this-many runs.
  */
 export const PROVIDER_ACCOUNT_FAILURE_STREAK = 10
 /** How long after the newest such failure one run is let through again. */
@@ -153,8 +153,8 @@ export const runProviderErrorSchema = z.object({
   raw: z.unknown().optional(),
   /**
    * What kind of failure this was, classified from the provider's full error
-   * text when it happened. Absent on errors stored before canonry 7.3.0 and on
-   * entries that are not a provider's own failure.
+   * text when it happened. Absent on errors stored before per-provider codes
+   * existed and on entries that are not a provider's own failure.
    */
   code: providerErrorCodeSchema.optional(),
 })

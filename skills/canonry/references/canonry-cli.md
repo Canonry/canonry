@@ -135,10 +135,10 @@ Run statuses: `queued` → `running` → `completed` / `failed` / `partial`
 - A batch-pending run (see Batch mode below) still reads `running`, so `--wait` stops there and exits `0`.
 - Without `--wait` the command exits `0` once the run is queued; read the outcome with `cnry run show <id>`.
 
-A run is refused before it starts, exit `1` with `PROVIDERS_FAILING`, when every provider it would call failed each of the project's last 10 runs on its account: a rejected key or denied access (`PROVIDER_AUTH`) or no credit left (`PROVIDER_BILLING`). `details.providers` names each provider's code, as does `error.providers.<name>.code` on each failed run. Another run would only fail the same way, so fix the key, access or billing in the provider's console or settings, then:
+A run is refused before it starts, exit `1` with `PROVIDERS_FAILING`, when every provider it would call failed on its account in each of its last 10 runs: a rejected key or denied access (`PROVIDER_AUTH`) or no credit left (`PROVIDER_BILLING`). A narrower run (`--provider`, a probe) neither resets nor extends the other providers' counts. `details.providers` names each provider's code, as does `error.providers.<name>.code` on each failed run. Another run would only fail the same way, so fix the key, access or billing in the provider's console or settings, then:
 
-- Changing the key, model or endpoint (`cnry settings provider <name> --api-key <key>`) lets the next run through at once.
-- Otherwise (a billing top-up, an edited `config.yaml`) one run is let through 24 hours after the newest failure (`details.retryAfter`); scheduled sweeps skip their slots until then (`run.skipped-providers-failing` in the server log).
+- Saving a new key, model or endpoint in the provider's settings (`cnry settings provider <name> --api-key <key>`) lets the next run through at once. A quota-only edit, or a change to the project's own model override, does not.
+- Otherwise (a billing top-up, an edited `config.yaml`) one run is let through 24 hours after the newest failure finished (`details.retryAfter`); scheduled sweeps skip their slots until then (`run.skipped-providers-failing` in the server log).
 - `cnry run <project> --probe` is never refused, and a probe that succeeds clears the refusal: use it to check a fix.
 - `--force` (`"force": true` on the API, `request.force` over MCP) runs now. Use it only when the user asks to run anyway.
 

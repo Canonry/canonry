@@ -482,15 +482,15 @@ function classifyRunAbortReason(message: string): RunAbortReason | undefined {
   return undefined
 }
 
-/**
- * Coarse error category for runtime provider failures, used for telemetry
- * only. Best-effort regex match — not load-bearing for any control flow,
- * just a histogram bucket so dashboards can answer "why are real audit
- * failures happening?" without reading raw error strings.
- */
 /** How far back `priorFailureStreak` looks; a longer streak reports as this. */
 const FAILURE_STREAK_LOOKBACK = 50
 
+/**
+ * The most actionable provider error code of a run, for `run.completed`
+ * telemetry. The same classifier stamps each provider's `code` on the stored
+ * run error, which run admission reads (`providerAccountRefusal`), so a
+ * change to its patterns changes which runs are refused, not only a histogram.
+ */
 function classifyProviderErrors(
   errors: ReadonlyMap<ProviderName, string>,
 ): ProviderErrorCode {

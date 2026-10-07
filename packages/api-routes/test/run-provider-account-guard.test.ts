@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
-import { eq } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   buildProviderRunError,
@@ -13,7 +13,7 @@ import {
   PROVIDER_ACCOUNT_RETRY_HOURS,
   serializeRunError,
 } from '@ainyc/canonry-contracts'
-import { auditLog, createClient, measurementPlans, measurementPlanVersions, migrate, projects, queries, runs } from '@ainyc/canonry-db'
+import { auditLog, createClient, measurementPlans, measurementPlanVersions, migrate, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 /**
@@ -28,6 +28,8 @@ import { apiRoutes } from '../src/index.js'
 const BILLING = '[provider-claude] 400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}'
 const AUTH = '[provider-openai] 401 Incorrect API key provided'
 const RATE_LIMIT = `[provider-gemini] ${JSON.stringify({ error: { code: 429, message: 'You exceeded your current quota, please check your plan and billing details.', status: 'RESOURCE_EXHAUSTED' } })}`
+const GEMINI_BAD_KEY = `[provider-gemini] ${JSON.stringify({ error: { code: 400, message: 'API key not valid. Please pass a valid API key.', status: 'INVALID_ARGUMENT' } })}`
+const NOT_ON_HOST = 'No perplexity provider was available to this worker, so 2 expected measurement(s) did not run.'
 const HOUR = 3_600_000
 
 type Outcome = {
@@ -35,6 +37,8 @@ type Outcome = {
   errors?: Array<[string, string]>
   legacy?: boolean
   trigger?: 'scheduled' | 'probe'
+  /** Providers that answered: a completed or partial run stores their snapshots. */
+  answered?: string[]
 }
 
 const harnesses: Array<{ close: () => Promise<void> }> = []
@@ -84,11 +88,15 @@ async function harness(options: { locations?: boolean; projectProviders?: string
           // Stored before errors carried a code: the shape without `code`.
           ? JSON.stringify({ providers: Object.fromEntries(errors.map(([name, msg]) => [name, { message: msg }])) })
           : serializeRunError(buildProviderRunError(errors))
+      const runId = crypto.randomUUID()
+      const createdAt = new Date(newest - (outcomes.length - 1 - index) * 60_000).toISOString()
       db.insert(runs).values({
-        id: crypto.randomUUID(), projectId, kind: 'answer-visibility', status: outcome.status,
-        trigger: outcome.trigger ?? 'scheduled', error,
-        createdAt: new Date(newest - (outcomes.length - 1 - index) * 60_000).toISOString(),
+        id: runId, projectId, kind: 'answer-visibility', status: outcome.status,
+        trigger: outcome.trigger ?? 'scheduled', error, createdAt,
       }).run()
+      for (const provider of outcome.answered ?? []) {
+        db.insert(querySnapshots).values({ id: crypto.randomUUID(), runId, provider, citationState: 'not-cited', createdAt }).run()
+      }
     })
     return new Date(newest).toISOString()
   }
@@ -134,6 +142,49 @@ describe('run admission after provider account failures', () => {
     expect(refused.json().error.details.providers).toEqual({ claude: 'PROVIDER_BILLING', openai: 'PROVIDER_AUTH' })
   })
 
+  it('refuses for a dead Gemini key, which Gemini reports as a 400', async () => {
+    const h = await harness({ projectProviders: ['gemini'] })
+    h.seed(h.accountFailures(PROVIDER_ACCOUNT_FAILURE_STREAK, [['gemini', GEMINI_BAD_KEY]]))
+    const refused = await h.trigger()
+    expect(refused.statusCode).toBe(422)
+    expect(refused.json().error.details.providers).toEqual({ gemini: 'PROVIDER_AUTH' })
+  })
+
+  it.each<{ name: string; setup: (h: Harness) => void }>([
+    {
+      // A narrower run calls only some providers; it neither resets nor counts
+      // toward the others' streaks.
+      name: 'a failed single-provider probe after the streak',
+      setup: h => { h.seed([...h.accountFailures(PROVIDER_ACCOUNT_FAILURE_STREAK), { status: 'failed', trigger: 'probe', errors: [['openai', AUTH]] }]) },
+    },
+    {
+      name: 'a quota-only settings change',
+      setup: h => {
+        h.seed(h.accountFailures(PROVIDER_ACCOUNT_FAILURE_STREAK))
+        const summary = { configured: true, model: 'gpt-5', baseUrl: null }
+        h.db.insert(auditLog).values({
+          id: crypto.randomUUID(), projectId: h.projectId, actor: 'api', action: 'provider.updated', entityType: 'provider', entityId: 'openai',
+          diff: JSON.stringify({ before: { ...summary, quota: { maxRequestsPerDay: 500 } }, after: { ...summary, quota: { maxRequestsPerDay: 100 } } }),
+          createdAt: new Date().toISOString(),
+        }).run()
+      },
+    },
+    {
+      // Created long ago, finished an hour ago (a batch run waits on its batch):
+      // the retry interval runs from when it failed.
+      name: 'a newest failure that finished within the retry interval',
+      setup: h => {
+        h.seed(h.accountFailures(PROVIDER_ACCOUNT_FAILURE_STREAK), PROVIDER_ACCOUNT_RETRY_HOURS * HOUR + HOUR)
+        const newest = h.db.select({ id: runs.id }).from(runs).orderBy(desc(runs.createdAt)).limit(1).get()!
+        h.db.update(runs).set({ finishedAt: new Date(Date.now() - HOUR).toISOString() }).where(eq(runs.id, newest.id)).run()
+      },
+    },
+  ])('still refuses after $name', async ({ setup }) => {
+    const h = await harness()
+    setup(h)
+    expect((await h.trigger()).json().error?.code).toBe('PROVIDERS_FAILING')
+  })
+
   it.each<{ name: string; setup: (h: Harness) => void; body?: Record<string, unknown> }>([
     { name: 'one run short of the streak', setup: h => { h.seed(h.accountFailures(PROVIDER_ACCOUNT_FAILURE_STREAK - 1)) } },
     {
@@ -141,22 +192,23 @@ describe('run admission after provider account failures', () => {
       setup: h => {
         h.seed([
           ...h.accountFailures(PROVIDER_ACCOUNT_FAILURE_STREAK - 1),
-          { status: 'partial', errors: [['openai', AUTH]] },
+          { status: 'partial', errors: [['openai', AUTH]], answered: ['claude'] },
           ...h.accountFailures(1),
         ])
       },
     },
     {
-      // Every provider the run would call failed on its account here too; only
-      // Gemini's rate limit, worded as an exceeded quota, keeps this run from
-      // being a pure account failure.
+      // Gemini's key was dead in every earlier run; the newest failure is its
+      // rate limit, worded as an exceeded quota, which must not read as an
+      // exhausted account. The run asks for all three.
       name: 'a rate limit among the newest failures',
       setup: h => {
         h.seed([
-          ...h.accountFailures(PROVIDER_ACCOUNT_FAILURE_STREAK - 1),
+          ...h.accountFailures(PROVIDER_ACCOUNT_FAILURE_STREAK - 1, [['claude', BILLING], ['openai', AUTH], ['gemini', GEMINI_BAD_KEY]]),
           { status: 'failed', errors: [['claude', BILLING], ['openai', AUTH], ['gemini', RATE_LIMIT]] },
         ])
       },
+      body: { providers: ['claude', 'openai', 'gemini'] },
     },
     {
       // Claude failed once, in the newest run; the nine before it only tried openai.
@@ -174,7 +226,7 @@ describe('run admission after provider account failures', () => {
     },
     {
       name: 'a probe that succeeded after the failures',
-      setup: h => { h.seed([...h.accountFailures(PROVIDER_ACCOUNT_FAILURE_STREAK), { status: 'completed', trigger: 'probe' }]) },
+      setup: h => { h.seed([...h.accountFailures(PROVIDER_ACCOUNT_FAILURE_STREAK), { status: 'completed', trigger: 'probe', answered: ['claude', 'openai'] }]) },
     },
     {
       name: 'the retry interval elapsed since the newest failure',
@@ -207,7 +259,9 @@ describe('run admission after provider account failures', () => {
   })
 
   it('refuses a run of a published measurement plan the same way', async () => {
-    const h = await harness()
+    // The plan expects perplexity too, which this host cannot run: the runner
+    // records its slots as not run (UNKNOWN), and that must not keep the run admissible.
+    const h = await harness({ projectProviders: ['claude', 'openai', 'perplexity'] })
     const query = h.db.select().from(queries).where(eq(queries.projectId, h.projectId)).get()!
     const plan = compileMeasurementPlan({
       schemaVersion: 1,
@@ -220,7 +274,7 @@ describe('run admission after provider account failures', () => {
       targetQuerySelections: [{ targetKey: 'widgets', queryIds: [query.id] }],
     }, {
       canonicalDomain: 'acme.example', ownedDomains: [], defaultContext: null, locations: [],
-      trackedQueries: [{ id: query.id, query: query.query }], expectedSnapshots: 2,
+      trackedQueries: [{ id: query.id, query: query.query }], expectedSnapshots: 3,
     })
     const canonicalJson = canonicalMeasurementPlanJson(plan)
     const versionId = crypto.randomUUID()
@@ -230,7 +284,7 @@ describe('run admission after provider account failures', () => {
       checksum: crypto.createHash('sha256').update(canonicalJson).digest('hex'), createdAt: at,
     }).run()
     h.db.insert(measurementPlans).values({ projectId: h.projectId, activeVersionId: versionId, createdAt: at, updatedAt: at }).run()
-    h.seed(h.accountFailures(PROVIDER_ACCOUNT_FAILURE_STREAK))
+    h.seed(h.accountFailures(PROVIDER_ACCOUNT_FAILURE_STREAK, [['claude', BILLING], ['openai', AUTH], ['perplexity', NOT_ON_HOST]]))
 
     const refused = await h.trigger()
     expect(refused.statusCode).toBe(422)
