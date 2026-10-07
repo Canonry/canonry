@@ -3431,11 +3431,12 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         allEvents = drained.events
       } catch (e) {
         const msg = describeError(e)
-        // A rejected token fails every sync until it is replaced, like a Cloud
-        // Run credential that will not resolve, so it is labeled as auth rather
-        // than counted as a broken pull.
-        const rejectedToken = e instanceof VercelLogsApiError && (e.status === 401 || e.status === 403)
-        markFailed(msg, rejectedToken ? 'PROVIDER_AUTH' : 'PROVIDER_PULL')
+        // A 401/403 is the credential's problem, not the pull's: the token was
+        // rejected, or lacks access to this team, project or plan's request
+        // logs. Either way every sync fails until the token or its scope
+        // changes, like a Cloud Run credential that will not resolve.
+        const credentialRefused = e instanceof VercelLogsApiError && (e.status === 401 || e.status === 403)
+        markFailed(msg, credentialRefused ? 'PROVIDER_AUTH' : 'PROVIDER_PULL')
         throw providerError(`Vercel pull failed: ${msg}`)
       }
     }
