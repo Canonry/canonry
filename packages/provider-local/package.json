@@ -18,6 +18,6 @@
   },
   "dependencies": {
     "@ainyc/canonry-contracts": "workspace:*",
-    "openai": "^4.85.0"
+    "openai": "^6.0.0"
   }
 }
