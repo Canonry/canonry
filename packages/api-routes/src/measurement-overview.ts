@@ -218,6 +218,8 @@ function coverageMetric(rate: MeasurementRate): MetricValue {
     state: 'available', value: rate.rate, numerator: rate.numerator, denominator: rate.denominator,
     // Answers the mention rate left out because their identity was unresolved.
     ...(rate.unattributed === undefined ? {} : { unattributed: rate.unattributed }),
+    // Saved answers the citation rate left out because their source capture was incomplete.
+    ...(rate.unchecked === undefined ? {} : { unchecked: rate.unchecked }),
   }
 }
 
@@ -425,6 +427,15 @@ function validatedCursor(query: MeasurementOverviewQuery, activePlanVersionId: s
  * no verified mention, those answers are unknown rather than absent, so the
  * Property's mention outcome is unknown too: it counts as `notMeasured`, never
  * "neither" or "cited only". This matches reach, which also stays unknown then.
+ *
+ * A citation rate can likewise be available while leaving `unchecked` answers
+ * out (saved, but source capture incomplete). With no citation among the
+ * checked answers, an unchecked one may hold the citation nobody could read, so
+ * the outcome is `notMeasured`, never "mentioned only" or "neither". This is
+ * the visibility report's rule (`targetPresence`). One difference stays: the
+ * rate does not count a link an unchecked answer did capture, so a Property
+ * cited ONLY there reads `notMeasured` here while the visibility report, which
+ * sees the answer itself, counts it as cited.
  */
 export function measurementOutcomeCounts(
   rows: readonly MeasurementPropertyRow[],
@@ -447,6 +458,10 @@ export function measurementOutcomeCounts(
       continue
     }
     const cited = (citation.numerator ?? citation.value) > 0
+    if (!cited && citation.unchecked !== undefined) {
+      counts.notMeasured += 1
+      continue
+    }
     if (mentioned && cited) counts.bothSignals += 1
     else if (mentioned) counts.mentionedOnly += 1
     else if (cited) counts.citedOnly += 1

@@ -12,7 +12,7 @@
  *
  * One decision rests on it: run admission refuses new runs after a streak of
  * runs in which every provider failed on its account (`isProviderAccountFailure`).
- * `PROVIDER_AUTH` is any 401/403 or auth wording, which covers a rejected key
+ * `PROVIDER_AUTH` is a written 401/403 status or auth wording, which covers a rejected key
  * and also access the account lacks (a region, a disabled API, a blocking
  * proxy). Both are standing failures that a retry cannot fix until someone
  * changes something, which is what the rule needs. It backs off to one run a

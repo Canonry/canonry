@@ -411,6 +411,47 @@ describe('property row detail', () => {
     expect(within(ambiguousRow).getByText('Property identity unverified')).toBeTruthy()
   })
 
+  it('discloses the answers a citation rate could not check on the row and each engine, under Citation only', () => {
+    // Property 1: two saved answers, one with incomplete source capture. Citation
+    // reads 1 of the 1 checked; the engine whose only answer was unchecked is unavailable.
+    const { activePlan, overview } = fixture(2)
+    overview.measurement = { state: 'complete', completed: 2, expected: 2 }
+    overview.properties.items[0]!.mentionCoverage = { state: 'available', value: .5, numerator: 1, denominator: 2 }
+    overview.properties.items[0]!.citationCoverage = { state: 'available', value: 1, numerator: 1, denominator: 1, unchecked: 1 }
+    overview.properties.items[0]!.providers = [
+      { provider: 'openai', mentionCoverage: { state: 'available', value: 1, numerator: 1, denominator: 1 },
+        citationCoverage: { state: 'available', value: 1, numerator: 1, denominator: 1 } },
+      { provider: 'gemini', mentionCoverage: { state: 'available', value: 0, numerator: 0, denominator: 1 },
+        citationCoverage: { state: 'unavailable', reason: 'evidence_incomplete' } },
+    ]
+    // Property 2: each left-out count sits on the other signal's rate, so neither line may show.
+    overview.properties.items[1]!.mentionCoverage = { state: 'available', value: 1, numerator: 1, denominator: 1, unchecked: 2 }
+    overview.properties.items[1]!.citationCoverage = { state: 'available', value: 0, numerator: 0, denominator: 3, unattributed: 4 }
+
+    const report = adaptV2MeasurementOverview({ overview, activePlan })
+    const [first, second] = report.currentView!.aggregate.properties
+    expect(first!.citationCoverage).toEqual({ numerator: 1, denominator: 1, unchecked: 1 })
+    expect(first!.providers![1]!.citationCoverage).toEqual({ numerator: null, denominator: null, reason: 'evidence_incomplete' })
+    // A rate over the checked answers is a measured result, not an incomplete one.
+    expect(first!.status).toEqual({ label: 'Complete', tone: 'positive' })
+    expect(second!.mentionCoverage).toEqual({ numerator: 1, denominator: 1, unchecked: 2 })
+
+    render(<AdvancedMeasurementOverview report={report} canEdit onViewChange={vi.fn()} onLoadMore={vi.fn()} onPropertyExpand={vi.fn()} />)
+    const row = screen.getByRole('button', { name: 'Show details for Property 1' }).closest('tr')!
+    const [, mention, citation] = [...row.querySelectorAll('td')]
+    expect(mention!.textContent).toBe('1 of 2 (50.0%)')
+    expect(citation!.textContent).toBe('1 of 1 (100%)1 of 2 answers had sources that could not be checked')
+    fireEvent.click(row)
+    const openai = screen.getByText('openai').closest('tr')!
+    expect(openai.querySelectorAll('td')[2]!.textContent).toBe('1 of 1 (100%)')
+    const gemini = screen.getByText('gemini').closest('tr')!
+    expect(gemini.querySelectorAll('td')[2]!.querySelector('[title]')!.getAttribute('title')).toBe('Evidence incomplete.')
+    const crossed = screen.getByRole('button', { name: 'Show details for Property 2' }).closest('tr')!
+    const [, crossedMention, crossedCitation] = [...crossed.querySelectorAll('td')]
+    expect(crossedMention!.textContent).toBe('1 of 1 (100%)')
+    expect(crossedCitation!.textContent).toBe('0 of 3 (0%)')
+  })
+
   it('names the market a property belongs to, so a row is identifiable at portfolio scale', () => {
     const { activePlan, overview } = fixture(2)
     const report = adaptV2MeasurementOverview({ overview, activePlan })

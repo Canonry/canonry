@@ -7,7 +7,7 @@ import { useState } from 'react'
 import type { SentimentSummary, VisibilityReportResponse } from '@ainyc/canonry-contracts'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
 import { parseVisibilitySelection, patchVisibilitySelection } from '../src/lib/measurement-view-url.js'
-import { VisibilityOverview, VisibilityReportView, VisibilityResultsToolbar, VisibilityWorkspace, VISIBILITY_ANSWERS_LABEL, VISIBILITY_CLOSE_ANSWERS_LABEL, VISIBILITY_SCOPE_RECOVERY_COPY } from '../src/components/project/VisibilityTrendSection.js'
+import { REPORT_TREND_UNCHECKED_NOTE, VisibilityOverview, VisibilityReportView, VisibilityResultsToolbar, VisibilityWorkspace, VISIBILITY_ANSWERS_LABEL, VISIBILITY_CLOSE_ANSWERS_LABEL, VISIBILITY_SCOPE_RECOVERY_COPY } from '../src/components/project/VisibilityTrendSection.js'
 import { formatObservedInstantLabel, observedInstant } from '../src/components/shared/ChartPrimitives.js'
 import { ANSWER_SOURCES_LABEL } from '../src/components/shared/AnswerMarkdown.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
@@ -763,6 +763,47 @@ describe('shared production visibility view', () => {
       { value: '', label: 'All models' },
       { value: 'shared-model', label: 'shared-model' },
     ])
+  })
+
+  it('states the answers whose sources could not be checked under each Cited query and competitor result, never under Mentioned', () => {
+    const report = reportFixture()
+    const population = report.populations[0]!
+    // Three saved answers, one with incomplete source capture: Cited reads 1 of the 2 checked.
+    population.queries.items[0] = { ...population.queries.items[0]!, answerCount: 3, mentionCoverage: { numerator: 1, denominator: 3, rate: 1 / 3 }, citationCoverage: { numerator: 1, denominator: 2, rate: 0.5, unchecked: 1 } }
+    population.competitors = [{ domain: 'rival.example', answerCount: 3, mentionCoverage: { numerator: 2, denominator: 3, rate: 2 / 3 }, citationCoverage: { numerator: 0, denominator: 2, rate: 0, unchecked: 1 } }]
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    const line = '1 of 3 answers had sources that could not be checked'
+
+    fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
+    const engine = within(screen.getByRole('table', { name: 'Non-brand queries engine results' })).getByRole('button', { name: 'View answers for apartments near transit · gemini' }).closest('tr')!
+    const [, mentioned, cited] = [...engine.querySelectorAll('td')]
+    expect(mentioned!.textContent).toBe('Mentioned33.3%1 of 3')
+    expect(cited!.textContent).toBe(`Cited50.0%1 of 2${line}`)
+
+    const competitors = screen.getByRole('group', { name: 'Non-brand queries competitors' })
+    fireEvent.click(within(competitors).getByText('Competitors', { selector: 'span' }).closest('summary')!)
+    const [, competitorMentioned, competitorCited] = [...within(competitors).getByText('rival.example').closest('tr')!.querySelectorAll('td')]
+    expect(competitorMentioned!.textContent).toBe('66.7%2 of 3')
+    expect(competitorCited!.textContent).toBe(`0%0 of 2${line}`)
+  })
+
+  it('notes under the trend that Cited counts only checked answers when a plotted point left some out, and only then', () => {
+    const report = reportFixture()
+    const population = report.populations[0]!
+    const point = (index: number, citationCoverage: typeof population.summary.citationCoverage) => ({
+      runId: `run-${index}`, createdAt: `2026-09-0${index + 1}T10:00:00Z`, revision: 1,
+      provenance: report.selection.provenance, queryCount: 1, answerCount: 3,
+      mentionCoverage: population.summary.mentionCoverage, citationCoverage,
+      continuity: { state: index === 0 ? 'first' as const : 'comparable' as const, comparedRunId: index === 0 ? null : 'run-0' },
+    })
+    population.trend = [point(0, { numerator: 1, denominator: 3, rate: 1 / 3 }), point(1, { numerator: 1, denominator: 2, rate: 0.5, unchecked: 1 })]
+    const view = render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    expect(REPORT_TREND_UNCHECKED_NOTE).toBe('Cited counts only answers whose sources could be checked.')
+    expect(screen.getByText(REPORT_TREND_UNCHECKED_NOTE, { exact: false })).toBeTruthy()
+    view.unmount()
+    population.trend = [point(0, { numerator: 1, denominator: 3, rate: 1 / 3 }), point(1, { numerator: 2, denominator: 3, rate: 2 / 3 })]
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    expect(screen.queryByText(REPORT_TREND_UNCHECKED_NOTE, { exact: false })).toBeNull()
   })
 
   it.each(['definition-changed', 'model-changed', 'legacy-unknown'] as const)('explains %s trend gaps beside the chart', state => {

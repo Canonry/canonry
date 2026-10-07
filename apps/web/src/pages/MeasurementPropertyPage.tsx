@@ -3,7 +3,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
-import { formatPercent, MeasurementEvidenceShapes, UNATTRIBUTED_MENTION_REASON, unattributedAnswersLabel } from '@ainyc/canonry-contracts'
+import { formatPercent, MeasurementEvidenceShapes, UNATTRIBUTED_MENTION_REASON } from '@ainyc/canonry-contracts'
 import type {
   MeasurementOverviewResponse,
   MeasurementPlanResponse,
@@ -25,7 +25,7 @@ import { formatObservedInstantLabel, observedInstant } from '../components/share
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { AnswerMarkdown, ANSWER_SOURCES_LABEL } from '../components/shared/AnswerMarkdown.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
-import { splitPercentSign } from '../lib/format-helpers.js'
+import { excludedAnswersLabel, splitPercentSign, type CoverageSignal } from '../lib/format-helpers.js'
 import { SourceLink } from '../components/shared/SourceLink.js'
 import { carryVisibilitySearch, parseVisibilitySelection, patchVisibilitySelection } from '../lib/measurement-view-url.js'
 import type { VisibilitySelectionState } from '../lib/measurement-view-url.js'
@@ -236,7 +236,7 @@ function reasonText(metric: Extract<MetricValue, { state: 'unavailable' }>): str
  * "Not measured" and carries the server's reason, so an unmeasured Property can
  * never be read as a measured zero.
  */
-function MetricCell({ metric, emphasis = false }: { metric: MetricValue; emphasis?: boolean }) {
+function MetricCell({ metric, signal, emphasis = false }: { metric: MetricValue; signal: CoverageSignal; emphasis?: boolean }) {
   if (metric.state === 'unavailable') {
     return (
       <span className="inline-flex flex-col gap-0.5">
@@ -249,14 +249,15 @@ function MetricCell({ metric, emphasis = false }: { metric: MetricValue; emphasi
   const counted = metric.numerator === undefined || metric.denominator === undefined
     ? null
     : `${metric.numerator} of ${metric.denominator}`
-  // Answers the server left out of this rate because they could not be tied to
-  // one property. The count above already excludes them; this keeps them visible.
-  const unattributed = unattributedAnswersLabel(metric)
+  // Answers the server left out of both sides of this rate, named for its own
+  // signal: not tied to one property under Mentioned, sources that could not be
+  // checked under Cited. The count above already excludes them; this keeps them visible.
+  const excluded = excludedAnswersLabel(metric, signal)
   return (
     <span className="inline-flex flex-col gap-0.5 tabular-nums">
       <span className={emphasis ? 'text-lg font-semibold text-heading' : 'text-sm font-medium text-primary'}>{percent}</span>
       {counted ? <span className="text-xs text-muted">{counted}</span> : null}
-      {unattributed ? <span className="text-xs text-muted">{unattributed}</span> : null}
+      {excluded ? <span className="text-xs text-muted">{excluded}</span> : null}
     </span>
   )
 }
@@ -389,7 +390,7 @@ function MarketLink({
  * track beside "Not measured" reads as a measured zero, which is the one thing
  * this surface must never say.
  */
-function CoverageHeroRow({ label, metric, failed = false }: { label: string; metric: MetricValue | undefined; failed?: boolean }) {
+function CoverageHeroRow({ label, metric, signal, failed = false }: { label: string; metric: MetricValue | undefined; signal: CoverageSignal; failed?: boolean }) {
   if (metric === undefined) {
     // A class whose fetch failed also has no metric, and reporting that as
     // "Loading" is a spinner that never resolves: the retry lives in
@@ -426,7 +427,7 @@ function CoverageHeroRow({ label, metric, failed = false }: { label: string; met
   const counted = metric.numerator === undefined || metric.denominator === undefined
     ? null
     : `${metric.numerator} of ${metric.denominator}`
-  const unattributed = unattributedAnswersLabel(metric)
+  const excluded = excludedAnswersLabel(metric, signal)
   return (
     <div className="aeo-hero-row">
       <p className="aeo-hero-row-label">{label}</p>
@@ -436,7 +437,7 @@ function CoverageHeroRow({ label, metric, failed = false }: { label: string; met
       </div>
       <p className="aeo-hero-row-detail tabular-nums">
         {counted ?? ''}
-        {unattributed ? <span className="block">{unattributed}</span> : null}
+        {excluded ? <span className="block">{excluded}</span> : null}
       </p>
     </div>
   )
@@ -459,13 +460,13 @@ function CoverageHero({
       <div className="space-y-5">
         <div className="space-y-2">
           <p className="eyebrow eyebrow-soft">Non-brand &middot; the demand to earn</p>
-          <CoverageHeroRow label="Mentioned" metric={nonBrand?.mentionCoverage} failed={nonBrandFailed} />
-          <CoverageHeroRow label="Cited" metric={nonBrand?.citationCoverage} failed={nonBrandFailed} />
+          <CoverageHeroRow label="Mentioned" metric={nonBrand?.mentionCoverage} signal="mentioned" failed={nonBrandFailed} />
+          <CoverageHeroRow label="Cited" metric={nonBrand?.citationCoverage} signal="cited" failed={nonBrandFailed} />
         </div>
         <div className="space-y-2">
           <p className="eyebrow eyebrow-soft">Branded &middot; already named</p>
-          <CoverageHeroRow label="Mentioned" metric={branded?.mentionCoverage} failed={brandedFailed} />
-          <CoverageHeroRow label="Cited" metric={branded?.citationCoverage} failed={brandedFailed} />
+          <CoverageHeroRow label="Mentioned" metric={branded?.mentionCoverage} signal="mentioned" failed={brandedFailed} />
+          <CoverageHeroRow label="Cited" metric={branded?.citationCoverage} signal="cited" failed={brandedFailed} />
         </div>
       </div>
     </section>
@@ -537,8 +538,8 @@ function BrandContrast({
                 </td>
                 {row ? (
                   <>
-                    <td><MetricCell metric={row.mentionCoverage} emphasis /></td>
-                    <td><MetricCell metric={row.citationCoverage} emphasis /></td>
+                    <td><MetricCell metric={row.mentionCoverage} signal="mentioned" emphasis /></td>
+                    <td><MetricCell metric={row.citationCoverage} signal="cited" emphasis /></td>
                   </>
                 ) : isError ? (
                   <td colSpan={2}>
@@ -599,8 +600,8 @@ function ProviderBreakdown({ row, queryClass, isError }: { row: PropertyRow | un
               {row.providers.map(provider => (
                 <tr key={provider.provider}>
                   <td className="font-medium text-heading">{provider.provider}</td>
-                  <td><MetricCell metric={provider.mentionCoverage} /></td>
-                  <td><MetricCell metric={provider.citationCoverage} /></td>
+                  <td><MetricCell metric={provider.mentionCoverage} signal="mentioned" /></td>
+                  <td><MetricCell metric={provider.citationCoverage} signal="cited" /></td>
                 </tr>
               ))}
             </tbody>
