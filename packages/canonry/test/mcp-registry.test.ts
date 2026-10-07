@@ -345,7 +345,7 @@ describe('MCP tool registry', () => {
     const applySpec = schemaProperty(schemaProperty(inputSchemaFor('canonry_apply_config'), 'config'), 'spec')
     expect(schemaProperty(applySpec, 'siteAuditMaxPages')).toEqual(budgetSchema)
     expect(applySpec.required ?? []).not.toContain('siteAuditMaxPages')
-    expect(apply.description).toContain('an omitted siteAuditMaxPages keeps the stored Site Health page budget (null means the full site)')
+    expect(apply.description).toContain('An omitted siteAuditMaxPages keeps the stored Site Health page budget (null means the full site).')
   })
 
   it('tells agents each visibility population carries its change since the previous sweep', () => {
