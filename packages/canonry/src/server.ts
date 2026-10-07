@@ -636,6 +636,43 @@ export function isLoopbackBindHost(host: string | undefined): boolean {
   if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(normalized)) return true;
   return false;
 }
+/**
+ * Whether a request Host header value is expected for this server.
+ * The allowlist always includes loopback names; a non-loopback bind adds its
+ * configured host, and a configured public URL adds its hostname.
+ */
+export function isAllowedHost(host: string, allowedHosts: Set<string>): boolean {
+  const normalized = host.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  if (allowedHosts.has(normalized)) return true;
+  // 127.0.0.0/8 is loopback regardless of the specific address.
+  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(normalized)) return true;
+  return false;
+}
+
+/**
+ * Build the Host allowlist for DNS rebinding defense (#1177).
+ */
+export function buildAllowedHosts(
+  bindHost: string | undefined,
+  publicUrl: string | undefined,
+): Set<string> {
+  const allowed = new Set<string>(["localhost", "127.0.0.1", "::1"]);
+  if (bindHost) {
+    const normalized = bindHost.trim().toLowerCase().replace(/^\[|\]$/g, "");
+    if (normalized && !isLoopbackBindHost(normalized)) {
+      allowed.add(normalized);
+    }
+  }
+  if (publicUrl) {
+    try {
+      const url = new URL(publicUrl.trim());
+      if (url.hostname) allowed.add(url.hostname.toLowerCase());
+    } catch {
+      // Invalid publicUrl is validated elsewhere; ignore here.
+    }
+  }
+  return allowed;
+}
 
 export function resolveGooglePublicUrl(
   config: Pick<CanonryConfig, "apiUrl" | "publicUrl" | "port">,
@@ -866,6 +903,48 @@ export async function createServer(opts: {
     loggerInstance: logger,
     genReqId: () => crypto.randomUUID(),
     trustProxy,
+  });
+    // DNS rebinding defense (#1177). A page the operator visits can make the
+  // browser resolve an attacker domain to 127.0.0.1 after TTL expiry, at which
+  // point the request is same-origin and CORS is never consulted. The browser
+  // always sets Host from the URL, so rejecting unexpected Host values stops
+  // the attack. This mirrors webpack-dev-server's allowedHosts.
+  const allowedHosts = buildAllowedHosts(opts.host, opts.config.publicUrl);
+  const embedAllowedOrigins = new Set(
+    (embed.allowedOrigins ?? []).map((o) => {
+      try {
+        return new URL(o).host.toLowerCase();
+      } catch {
+        return null;
+      }
+    }).filter((h): h is string => h !== null)
+  );
+  app.addHook("onRequest", async (req, reply) => {
+    // Strip port, handling IPv6 brackets: "[::1]:4100" -> "::1".
+    const rawHostHeader = req.headers.host?.toLowerCase() ?? "";
+    let host = "";
+    if (rawHostHeader.startsWith("[")) {
+      const closeIdx = rawHostHeader.indexOf("]");
+      host = closeIdx > 0 ? rawHostHeader.slice(1, closeIdx) : "";
+    } else {
+      host = rawHostHeader.split(":")[0] ?? "";
+    }
+    if (host && !isAllowedHost(host, allowedHosts)) {
+      return reply.status(403).send({ error: "Unexpected Host header" });
+    }
+    const origin = req.headers.origin;
+    if (origin) {
+      let originHost: string | null = null;
+      try {
+        originHost = new URL(origin).host.toLowerCase();
+      } catch {
+        return reply.status(403).send({ error: "Invalid Origin header" });
+      }
+      const requestHost = req.headers.host?.toLowerCase() ?? "";
+      if (originHost !== requestHost && !embedAllowedOrigins.has(originHost)) {
+        return reply.status(403).send({ error: "Cross-origin request refused" });
+      }
+    }
   });
 
   // Build provider registry from config (with legacy field migration)
