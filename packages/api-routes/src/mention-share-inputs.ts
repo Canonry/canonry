@@ -1,20 +1,18 @@
 import {
   answerProseForMentions,
-  brandKeyFromText,
-  brandLabelFromDomain,
   compileQueryClassifier,
+  competitorBrandAliases,
   determineAnswerMentioned,
   effectiveBrandNames,
   effectiveDomains,
   extractDomainsFromText,
-  hostOf,
   surfaceClassFromCompetitorType,
-  MIN_DOMAIN_BRAND_KEY_LENGTH,
+  type CompetitorIdentityInput,
   type QueryClass,
   type VisibilityStatsShareOfVoice,
   type CompetitorLandscapeResponse,
 } from '@ainyc/canonry-contracts'
-import { storedDirectCompetitorDomains, usableBrandAliases, type MentionShareCompetitor, type MentionShareSnapshot, type CompetitorLandscapeSurfaceClass } from '@ainyc/canonry-intelligence'
+import { storedDirectCompetitorDomains, type MentionShareCompetitor, type MentionShareSnapshot, type CompetitorLandscapeSurfaceClass } from '@ainyc/canonry-intelligence'
 import { domainClassifications, type DatabaseClient } from '@ainyc/canonry-db'
 import { eq } from 'drizzle-orm'
 
@@ -50,28 +48,23 @@ export interface MentionShareInputs {
   classified: boolean
 }
 
+/** A tracked competitor as stored: its domain plus operator-curated aliases. */
+export type MentionShareCompetitorInput = CompetitorIdentityInput
+
 /**
- * Competitor aliases for answer-prose matching.
+ * Competitor brand tokens for answer-prose matching.
  *
- * A single brand token derived from the registrable domain (`offers.quotebird.test`
- * → `quotebird`), filtered by the SAME minimum length the metric uses everywhere.
- * A future column of operator-curated aliases layers on here.
+ * The domain label derived from the registrable domain (`offers.quotebird.test`
+ * → `quotebird`, kept only above the domain floor), the full written host, and
+ * the competitor's operator-curated aliases (alias floor, so a curated `QVX`
+ * counts while a derived `qvx` does not). `competitorBrandAliases` is the one
+ * builder, shared with the other competitor matchers.
  */
-export function mentionShareCompetitorsFromDomains(domains: readonly string[]): MentionShareCompetitor[] {
-  return domains.map(domain => {
-    const exactDomain = hostOf(domain)
-    const domainLabel = brandLabelFromDomain(domain)
-    return {
-      domain,
-      // A short registrable label is too noisy by itself (`AI`), but the full
-      // written domain is operator-approved identity (`ai.com`). Feeding both
-      // through the shared matcher keeps every mention-share surface aligned.
-      brandTokens: usableBrandAliases([
-        ...(brandKeyFromText(domainLabel).length >= MIN_DOMAIN_BRAND_KEY_LENGTH ? [domainLabel] : []),
-        ...(exactDomain?.includes('.') ? [exactDomain] : []),
-      ]),
-    }
-  })
+export function mentionShareCompetitors(competitors: readonly MentionShareCompetitorInput[]): MentionShareCompetitor[] {
+  return competitors.map(competitor => ({
+    domain: competitor.domain,
+    brandTokens: competitorBrandAliases(competitor),
+  }))
 }
 
 /** Reuse discovery's stored domain taxonomy; a read never starts classification. */
@@ -127,7 +120,8 @@ export function projectQueryClassifier(project: MentionShareProject): ((queryTex
  */
 export function buildMentionShareInputs(opts: {
   project: MentionShareProject
-  competitorDomains: readonly string[]
+  /** Stored competitors with their curated aliases (`{ domain, aliases }` rows). */
+  competitors: readonly MentionShareCompetitorInput[]
   snapshots: readonly MentionShareSnapshotRow[]
   queryTextById?: ReadonlyMap<string, string>
   /**
@@ -150,7 +144,7 @@ export function buildMentionShareInputs(opts: {
   })
   return {
     classified: classify !== null,
-    competitors: mentionShareCompetitorsFromDomains(opts.competitorDomains),
+    competitors: mentionShareCompetitors(opts.competitors),
     snapshots: opts.snapshots.map(snap => {
       const queryText = (snap.queryId ? opts.queryTextById?.get(snap.queryId) : undefined) ?? snap.queryText ?? null
       const cachedAnswerDomains = !snap.answerText || !opts.answerDomainsByText

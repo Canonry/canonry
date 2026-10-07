@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import {
+  getApiV1ProjectsByNameQueryKey,
   getApiV1ProjectsByNameTechnicalAeoRunsQueryKey,
   getApiV1ProjectsByNameTechnicalAeoCrawlPagesInfiniteQueryKey,
   getApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditQueryKey,
@@ -437,10 +438,27 @@ function seedRun(
   })
 }
 
+/** The project as GET /projects/:name returns it; Site Health reads only its saved page budget. */
+function storedProject(siteAuditMaxPages: number | null) {
+  return {
+    id: projectId, name: projectName, displayName: 'Citypoint', canonicalDomain: 'citypoint.example',
+    ownedDomains: [], aliases: [], qualifiedAliases: [], country: 'US', language: 'en', tags: [], labels: {},
+    providers: [], providerModels: {}, providerDispatchModes: {}, locations: [], defaultLocation: null,
+    autoExtractBacklinks: false, siteAuditMaxPages, configSource: 'api' as const, configRevision: 1,
+    createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z',
+  }
+}
+
+function projectKey() {
+  return getApiV1ProjectsByNameQueryKey({ client: heyClient, path: { name: projectName } })
+}
+
 function makeClient() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   })
+  // On the project page the project is already loaded; Scan settings reads that cache.
+  queryClient.setQueryData(projectKey(), storedProject(null))
   queryClient.setQueryData(scanHistoryKey(), scanHistory(scan('run_1')))
   queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlQueryKey({
     client: heyClient,
@@ -1204,6 +1222,92 @@ test('sends the chosen crawl budget so a scan that stopped early can be changed'
 })
 
 
+
+test.each([
+  { saved: null, label: 'Project default: full site (up to 50,000 pages)' },
+  { saved: 2_500, label: 'Project default (2,500 pages)' },
+  { saved: 750, label: 'Project default (750 pages)' },
+])('the no-budget choice names the saved budget ($saved) and still sends no budget', ({ saved, label }) => {
+  const queryClient = makeClient()
+  queryClient.setQueryData(projectKey(), storedProject(saved))
+  renderSection(queryClient)
+
+  const budget = screen.getByRole('combobox', { name: 'Page budget' }) as HTMLSelectElement
+  const options = within(budget).getAllByRole('option') as HTMLOptionElement[]
+  expect(options.map(option => [option.value, option.textContent])).toEqual([
+    ['', label],
+    // A smaller saved budget adds a one-off full-site choice; with none, the default already is the full site.
+    ...(saved === null ? [] : [['50000', 'Full site (up to 50,000 pages)']]),
+    ['100', '100 pages (quick look)'],
+    ['500', '500 pages'],
+    ['2500', '2,500 pages'],
+    ['10000', '10,000 pages'],
+  ])
+  expect(budget.value).toBe('')
+  fireEvent.click(screen.getByRole('button', { name: 'Run scan' }))
+  // The server resolves the saved budget; the dashboard never fills one in.
+  expect(mutationMock.mutate).toHaveBeenCalledExactlyOnceWith({ projectName, projectId, body: { checkDeadLinks: false } })
+})
+
+test('the no-budget choice follows the cached project after a Settings save', async () => {
+  const queryClient = makeClient()
+  renderSection(queryClient)
+  const budget = screen.getByRole('combobox', { name: 'Page budget' })
+  expect(within(budget).getByRole('option', { name: 'Project default: full site (up to 50,000 pages)' }).getAttribute('value')).toBe('')
+
+  // Project Settings writes the saved project into this same cache entry.
+  act(() => { queryClient.setQueryData(projectKey(), storedProject(10_000)) })
+
+  expect((await within(budget).findByRole('option', { name: 'Project default (10,000 pages)' })).getAttribute('value')).toBe('')
+  expect(within(budget).queryByRole('option', { name: 'Project default: full site (up to 50,000 pages)' })).toBeNull()
+})
+
+test('offers a one-off full-site scan only when the project saved a smaller budget, and sends the hard limit', async () => {
+  const queryClient = makeClient()
+  renderSection(queryClient)
+  const budget = screen.getByRole('combobox', { name: 'Page budget' })
+  // No saved budget: the project default already is the full site, so there is no second full-site choice.
+  expect(within(budget).queryByRole('option', { name: 'Full site (up to 50,000 pages)' })).toBeNull()
+
+  act(() => { queryClient.setQueryData(projectKey(), storedProject(10_000)) })
+  const fullSite = await within(budget).findByRole('option', { name: 'Full site (up to 50,000 pages)' })
+  expect(fullSite.getAttribute('value')).toBe('50000')
+  expect(within(budget).getAllByRole('option').map(option => option.textContent)).toEqual([
+    'Project default (10,000 pages)', 'Full site (up to 50,000 pages)', '100 pages (quick look)', '500 pages', '2,500 pages', '10,000 pages',
+  ])
+  fireEvent.change(budget, { target: { value: '50000' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Run scan' }))
+  expect(mutationMock.mutate).toHaveBeenCalledExactlyOnceWith({ projectName, projectId, body: { checkDeadLinks: false, maxPages: 50_000 } })
+})
+
+test('names no number for the no-budget choice before the project read lands', async () => {
+  const queryClient = makeClient()
+  queryClient.removeQueries({ queryKey: projectKey(), exact: true })
+  const project = deferredResponse()
+  const reads = installSiteReads({ '/projects/citypoint': project.promise })
+  renderSection(queryClient)
+
+  const budget = screen.getByRole('combobox', { name: 'Page budget' })
+  expect((within(budget).getAllByRole('option')[0] as HTMLOptionElement).textContent).toBe('Project default')
+  await waitFor(() => expect(reads.filter(read => read.path === '/api/v1/projects/citypoint')).toHaveLength(1))
+  await act(async () => { project.resolve(jsonResponse(storedProject(500))) })
+  await waitFor(() => expect((within(budget).getAllByRole('option')[0] as HTMLOptionElement).textContent).toBe('Project default (500 pages)'))
+})
+
+test.each([
+  { surface: 'onboarding', props: { showOnboardingActions: true }, role: undefined },
+  { surface: 'managed viewer', props: {}, role: 'viewer' as const },
+])('reads no project for a hidden Scan settings ($surface)', async ({ surface, props, role }) => {
+  if (surface === 'managed viewer') window.__CANONRY_CONFIG__ = { dashboard: { managedRunKinds: ['site-audit'] } }
+  const queryClient = makeClient()
+  queryClient.removeQueries({ queryKey: projectKey(), exact: true })
+  const reads = installSiteReads({})
+  renderSection(queryClient, props, role)
+  await act(async () => {})
+
+  expect(screen.queryByRole('combobox', { name: 'Page budget' })).toBeNull()
+  expect(reads.filter(read => read.path === '/api/v1/projects/citypoint')).toEqual([])
+})
 
 test('offers the onboarding continuation only after the selected active scan reaches its persisted 20-second threshold', () => {
   vi.useFakeTimers()

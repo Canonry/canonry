@@ -16,6 +16,8 @@ export const projects = sqliteTable('projects', {
    * sidecar at dispatch; never read by mention detection or query classes.
    */
   qualifiedAliases: text('qualified_aliases', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  /** Site Health page budget for scans that set none; null means the full site (up to 50,000 pages). */
+  siteAuditMaxPages: integer('site_audit_max_pages'),
   country: text('country').notNull(),
   language: text('language').notNull(),
   tags: text('tags', { mode: 'json' }).$type<string[]>().notNull().default([]),
@@ -60,6 +62,13 @@ export const competitors = sqliteTable('competitors', {
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   domain: text('domain').notNull(),
   provenance: text('provenance'),
+  /**
+   * Operator-curated names this competitor goes by in answer prose (a firm at
+   * `spoketuneworks.example` written as "TuneSpoke"). Layered onto the
+   * domain-derived label by every competitor mention matcher. Normalized by
+   * `normalizeCompetitorAliases`; never auto-populated from the domain label.
+   */
+  aliases: text('aliases', { mode: 'json' }).$type<string[]>().notNull().default([]),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_competitors_project').on(table.projectId),

@@ -48,6 +48,8 @@ function toProjectDto(p: ApiProject): ProjectDto {
     locations: p.locations ?? [],
     defaultLocation: p.defaultLocation ?? null,
     autoExtractBacklinks: p.autoExtractBacklinks ?? false,
+    // Null is the full site, as the server's own project formatter reads an unset budget.
+    siteAuditMaxPages: p.siteAuditMaxPages ?? null,
     configSource: p.configSource as ProjectDto['configSource'],
     configRevision: p.configRevision,
     createdAt: p.createdAt,
@@ -350,6 +352,7 @@ function buildEvidenceFromTimeline(
             evidenceUrls: snap?.citedUrls ?? [],
             citedCompetitorDomains,
             mentionedCompetitorDomains,
+            mentionedCompetitorTerms: snap?.mentionedCompetitorTerms ?? [],
             competitorDomains,
             recommendedCompetitors: snap?.recommendedCompetitors ?? [],
             matchedTerms: snap?.matchedTerms ?? [],
@@ -389,6 +392,7 @@ function buildEvidenceFromTimeline(
       evidenceUrls: [],
       citedCompetitorDomains: [],
       mentionedCompetitorDomains: [],
+      mentionedCompetitorTerms: [],
       competitorDomains: [],
       recommendedCompetitors: [],
       matchedTerms: [],
@@ -625,6 +629,7 @@ function adaptOverviewToCommandCenter(
     competitors: overview.competitors.map((row): CompetitorVm => ({
       id: row.id,
       domain: row.domain,
+      aliases: row.aliases ?? [],
       citationCount: row.citationCount,
       totalQueries: row.totalQueries,
       pressureLabel: row.pressureLabel,

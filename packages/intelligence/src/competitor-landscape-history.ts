@@ -6,13 +6,13 @@ import {
   hostMatchesAnyDomain,
   hostOf,
   matchedAliasKeys,
+  MIN_BRAND_ALIAS_KEY_LENGTH,
   MIN_DOMAIN_BRAND_KEY_LENGTH,
   percentOf,
   registrableDomain,
   type BrandAliasMatcher,
   type ShareOfVoiceContext,
 } from '@ainyc/canonry-contracts'
-import { MIN_BRAND_ALIAS_KEY_LENGTH } from './mention-share.js'
 import { buildShareOfVoiceFrame } from './share-of-voice-frame.js'
 
 /** A stored discovery classification, plus the explicit unknown state. */

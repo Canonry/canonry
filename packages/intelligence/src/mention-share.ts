@@ -1,34 +1,21 @@
 import {
   answerProseForMentions,
-  brandKeyFromText,
   compileBrandAliases,
   formatPercent,
   matcherMatchesText,
   percentOf,
   prepareBrandMatchText,
+  usableBrandAliases,
   type BrandAliasMatcher,
   type MetricTone,
   type QueryClass,
   type ScoreSummaryDto,
 } from '@ainyc/canonry-contracts'
 
-/**
- * The shortest brand alias that may be matched in answer prose.
- *
- * Three, because real brands are three letters (`COS`, `IBM`) and the matcher
- * this feeds requires COMPLETE adjacent words — `cos` never matches inside
- * `cosmetics`, so length is not what protects against a false hit. The one
- * threshold lives here rather than at each call site: the same brand counted by
- * one surface and dropped by another is a silent disagreement about the same
- * answer, which is exactly the class of bug that made a stored citation-side
- * column and this metric report different mention counts for the same run.
- */
-export const MIN_BRAND_ALIAS_KEY_LENGTH = 3
-
-/** Aliases worth compiling — short/empty tokens would match noise, not identity. */
-export function usableBrandAliases(aliases: readonly string[]): string[] {
-  return aliases.filter(alias => brandKeyFromText(alias).length >= MIN_BRAND_ALIAS_KEY_LENGTH)
-}
+// The alias floor and filter live in contracts so write-time validation (which
+// cannot import this package) and every matcher apply one rule. Re-exported
+// here for existing intelligence consumers.
+export { MIN_BRAND_ALIAS_KEY_LENGTH, usableBrandAliases } from '@ainyc/canonry-contracts'
 
 export interface MentionShareSnapshot {
   /** True when the project's brand or domain appears in the LLM's answer text.
@@ -50,8 +37,9 @@ export interface MentionShareSnapshot {
 export interface MentionShareCompetitor {
   /** Display name / registered domain — what the UI shows in the breakdown. */
   domain: string
-  /** Brand tokens to look for in answer prose. Caller builds these via
-   *  `brandLabelFromDomain` plus any operator-curated aliases. */
+  /** Brand tokens to look for in answer prose. Callers build these with
+   *  `competitorBrandAliases` (contracts): the domain label, the written
+   *  host, and the competitor's operator-curated aliases. */
   brandTokens: readonly string[]
 }
 

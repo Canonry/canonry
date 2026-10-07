@@ -8,12 +8,14 @@
  * detectors the run writer uses, applied to the answer and sources built here.
  */
 import {
+  computeCompetitorOverlap,
   determineAnswerMentioned,
   effectiveBrandNames,
   effectiveDomains,
+  extractRecommendedCompetitors,
   type NormalizedQueryResult,
 } from '@ainyc/canonry-contracts'
-import { computeCompetitorOverlap, determineCitationState, extractRecommendedCompetitors } from '../citation-utils.js'
+import { determineCitationState } from '../citation-utils.js'
 
 export const SUMMIT_SWEEP_COUNT = 6
 export const SUMMIT_ENGINES = ['openai', 'gemini', 'claude'] as const

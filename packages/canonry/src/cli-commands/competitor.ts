@@ -1,7 +1,10 @@
-import { addCompetitors, listCompetitors, removeCompetitors, showCompetitorLandscape } from '../commands/competitor.js'
+import { addCompetitors, competitorAliases, listCompetitors, removeCompetitors, showCompetitorLandscape } from '../commands/competitor.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
-import { getBoolean, getString, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
+import { getBoolean, getString, getStringArray, multiStringOption, requirePositional, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
+
+const ADD_USAGE = 'canonry competitor add <project> <domain...> [--alias <name>]... [--format json]'
+const ALIASES_USAGE = 'canonry competitor aliases <project> <domain> [--set <name>]... [--add <name>]... [--remove <name>]... [--clear] [--format json]'
 
 const LANDSCAPE_USAGE = 'canonry competitor landscape <project> [--window 7d|30d|90d|all] [--group-key <key>|--scope all-markets] [--by-model] [--provider <provider> [--model <id>]] [--query-class all|branded|non-brand] [--location <label>] [--run-id <id>] [--format json|jsonl]'
 
@@ -17,20 +20,60 @@ function parseLandscapeScope(value: string | undefined): 'all-markets' | undefin
 export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['competitor', 'add'],
-    usage: 'canonry competitor add <project> <domain...> [--format json]',
+    usage: ADD_USAGE,
+    options: {
+      alias: multiStringOption(),
+    },
     run: async (input) => {
-      const project = requireProject(input, 'competitor.add', 'canonry competitor add <project> <domain...> [--format json]')
+      const project = requireProject(input, 'competitor.add', ADD_USAGE)
       const domains = input.positionals.slice(1)
       if (domains.length === 0) {
-        throw usageError('Error: project name and at least one domain required\nUsage: canonry competitor add <project> <domain...> [--format json]', {
+        throw usageError(`Error: project name and at least one domain required\nUsage: ${ADD_USAGE}`, {
           message: 'project name and at least one domain required',
           details: {
             command: 'competitor.add',
-            usage: 'canonry competitor add <project> <domain...> [--format json]',
+            usage: ADD_USAGE,
           },
         })
       }
-      await addCompetitors(project, domains, input.format)
+      const aliases = getStringArray(input.values, 'alias') ?? []
+      if (aliases.length > 0 && domains.length !== 1) {
+        throw usageError(`Error: --alias names one competitor, so pass exactly one domain\nUsage: ${ADD_USAGE}`, {
+          message: '--alias names one competitor, so pass exactly one domain',
+          details: { command: 'competitor.add', usage: ADD_USAGE },
+        })
+      }
+      await addCompetitors(project, domains, input.format, aliases)
+    },
+  },
+  {
+    path: ['competitor', 'aliases'],
+    usage: ALIASES_USAGE,
+    options: {
+      set: multiStringOption(),
+      add: multiStringOption(),
+      remove: multiStringOption(),
+      clear: { type: 'boolean' },
+    },
+    run: async (input) => {
+      const project = requireProject(input, 'competitor.aliases', ALIASES_USAGE)
+      const domain = requirePositional(input, 1, {
+        command: 'competitor.aliases',
+        usage: ALIASES_USAGE,
+        message: 'competitor domain is required',
+      })
+      const set = getStringArray(input.values, 'set')
+      const add = getStringArray(input.values, 'add')
+      const remove = getStringArray(input.values, 'remove')
+      const clear = getBoolean(input.values, 'clear')
+      const exclusive = [set !== undefined, clear].filter(Boolean).length
+      if (exclusive > 1 || (exclusive === 1 && (add !== undefined || remove !== undefined))) {
+        throw usageError(`Error: --set and --clear replace the whole list, so they cannot be combined with each other or with --add/--remove\nUsage: ${ALIASES_USAGE}`, {
+          message: '--set and --clear cannot be combined with each other or with --add/--remove',
+          details: { command: 'competitor.aliases', usage: ALIASES_USAGE },
+        })
+      }
+      await competitorAliases(project, domain, { set, add, remove, clear, format: input.format })
     },
   },
   {
@@ -125,12 +168,12 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['competitor'],
-    usage: 'canonry competitor <add|remove|delete|list|landscape> <project> [args]',
+    usage: 'canonry competitor <add|aliases|remove|delete|list|landscape> <project> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'competitor',
-        usage: 'canonry competitor <add|remove|delete|list|landscape> <project> [args]',
-        available: ['add', 'remove', 'delete', 'list', 'landscape'],
+        usage: 'canonry competitor <add|aliases|remove|delete|list|landscape> <project> [args]',
+        available: ['add', 'aliases', 'remove', 'delete', 'list', 'landscape'],
       })
     },
   },

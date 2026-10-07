@@ -1,8 +1,7 @@
 import { z } from 'zod'
 import { categorizeSource, type SourceCategory } from './source-categories.js'
-import { normalizeProjectDomain } from './project.js'
 import { DiscoveryCompetitorTypes, type DiscoveryCompetitorType } from './discovery.js'
-import { hostMatchesAnyDomain } from './url-normalize.js'
+import { hostMatchesAnyDomain, normalizeProjectDomain } from './url-normalize.js'
 
 /**
  * Actionable classification of a cited domain, layered on top of the generic

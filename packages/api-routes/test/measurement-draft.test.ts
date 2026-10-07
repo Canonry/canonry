@@ -29,6 +29,7 @@ import {
 import {
   apiKeys,
   auditLog,
+  competitors,
   createClient,
   measurementOperationReceipts,
   measurementPlanDrafts,
@@ -1086,6 +1087,56 @@ describe('measurement draft publish', () => {
     expect(next.statusCode, next.body).toBe(200)
     const versions = db.select().from(measurementPlanVersions).all()
     expect(versions.find(version => version.revision === 2)?.comparableToVersionId).toBeNull()
+  })
+
+  it('seeds a domain-only pin with the tracked competitor\'s curated aliases, through publish', async () => {
+    const session = await readyDraft()
+    await session.run('upsert-group', { group: { stableKey: 'catalog', label: 'Catalog', targetKeys: ['widgets'], competitors: [] } })
+    expect((await publish(session, null)).statusCode).toBe(200)
+    // A Simple run would freeze these names for rival.example; an Advanced pin
+    // by domain alone carries the same ones.
+    db.insert(competitors).values({
+      id: crypto.randomUUID(),
+      projectId: 'prj_northwind',
+      domain: 'rival.example',
+      aliases: ['RVL Widgets', 'Rivalo'],
+      provenance: 'cli',
+      createdAt: NOW,
+    }).run()
+
+    const pinned = await action('pin-competitor', { payload: { expectedActiveRevision: 1, groupKey: 'catalog', domain: 'https://www.rival.example/catalog' } })
+    expect(pinned.statusCode, pinned.body).toBe(200)
+    expect(pinned.json().competitor).toMatchObject({ domain: 'rival.example', label: 'rival', aliases: ['RVL Widgets', 'Rivalo'] })
+
+    // A tracked row an older build stored as a subdomain is found by its
+    // registrable domain too.
+    db.insert(competitors).values({
+      id: crypto.randomUUID(),
+      projectId: 'prj_northwind',
+      domain: 'offers.vexlo.example',
+      aliases: ['Vexlo Widgets'],
+      provenance: 'discovery:legacy',
+      createdAt: NOW,
+    }).run()
+    const legacy = await action('pin-competitor', { payload: { expectedActiveRevision: 1, groupKey: 'catalog', domain: 'vexlo.example' } })
+    expect(legacy.statusCode, legacy.body).toBe(200)
+    expect(legacy.json().competitor).toMatchObject({ domain: 'vexlo.example', aliases: ['Vexlo Widgets'] })
+
+    // An explicit list still wins over the tracked one.
+    const explicit = await action('pin-competitor', { payload: { expectedActiveRevision: 1, groupKey: 'catalog', domain: 'other-rival.example', aliases: ['Other Rival'] } })
+    expect(explicit.statusCode, explicit.body).toBe(200)
+    expect(explicit.json().competitor.aliases).toEqual(['Other Rival'])
+
+    const published = await publish(new DraftSession(explicit.json().etag as string), 1)
+    expect(published.statusCode, published.body).toBe(200)
+    const revision = db.select().from(measurementPlanVersions).all().find(version => version.revision === 2)!
+    const frozen = JSON.parse(revision.canonicalJson) as { groups: Array<{ competitors: Array<{ domain: string; aliases: string[] }> }> }
+    // The canonical revision orders competitors by domain.
+    expect(frozen.groups[0]!.competitors.map(competitor => [competitor.domain, competitor.aliases])).toEqual([
+      ['other-rival.example', ['Other Rival']],
+      ['rival.example', ['RVL Widgets', 'Rivalo']],
+      ['vexlo.example', ['Vexlo Widgets']],
+    ])
   })
 
   it.each(['changed', 'removed'])('refuses automatic pin seeding when a frozen location was %s, but permits an explicit draft review', async change => {

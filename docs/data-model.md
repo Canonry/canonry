@@ -116,9 +116,9 @@ erDiagram
 
 | Table | Purpose | Key Constraints |
 |-------|---------|----------------|
-| **projects** | Root entity: domain, location config, provider list, `aliases`, `qualified_aliases` (JSON: the operator-chosen subset of `aliases` that Simple sentiment tells its evaluator are the brand's own names; frozen into each Simple run's sidecar, never read by mention detection), per-project `provider_models` overrides, `provider_dispatch_modes` (JSON: provider → `sync`/`batch`, read by scheduled sweeps only), `measurement_config` (JSON: marketing hosts, brand terms, and GA4 lead-event names), optional `icp_description` (free-text ICP used by discovery seed phase) | Unique: `name` |
+| **projects** | Root entity: domain, location config, provider list, `aliases`, `qualified_aliases` (JSON: the operator-chosen subset of `aliases` that Simple sentiment tells its evaluator are the brand's own names; frozen into each Simple run's sidecar, never read by mention detection), per-project `provider_models` overrides, `provider_dispatch_modes` (JSON: provider → `sync`/`batch`, read by scheduled sweeps only), `measurement_config` (JSON: marketing hosts, brand terms, and GA4 lead-event names), optional `icp_description` (free-text ICP used by discovery seed phase), nullable `site_audit_max_pages` (migration 169: the Site Health page budget for scans that set none, 1 to 50,000; null means the full site) | Unique: `name` |
 | **queries** | Tracked queries per project. `provenance` tags where the entry came from (e.g. `cli`, `discovery:<session_id>`) so adopted basket entries can be traced back to a discovery run. | Unique: `(projectId, query)` |
-| **competitors** | Competitor domains per project. `provenance` tags origin (`cli`, `discovery:<session_id>`) for the same traceability reason. | Unique: `(projectId, domain)` |
+| **competitors** | Competitor domains per project. `provenance` tags origin (`cli`, `discovery:<session_id>`) for the same traceability reason. `aliases` (JSON `string[]`, migration 168, default `[]`) holds operator-curated names the competitor goes by in answer text; every competitor mention matcher layers them onto the domain label, and a Simple run freezes them into its definition. Never auto-filled from the domain label. | Unique: `(projectId, domain)` |
 | **measurement_plans** | Optional active-plan pointer for a project. | PK: `projectId`; composite FK `(projectId, activeVersionId)` → plan version |
 | **measurement_plan_versions** | Immutable canonical Target-model revisions. A revision freezes project brand identity, Targets, optional reporting groups, URL matchers, query snapshots, deduplicated execution nodes with expected snapshot counts, and baseline/Target usage edges. Groups never own queries or execution edges. | Unique: `(projectId, revision)` |
 | **measurement_segments** | Stable project-local identity for a Target or group, including its immutable `kind`. Only explicit retirement permanently prevents key reuse; omission from a revision does not. First publish a revision without the key, then run `canonry measurement-plan retire <project> <stable-key>` (or the matching API/MCP mutation). Retirement is idempotent and irreversible. Labels, memberships, aliases, and URL matchers remain versioned in canonical plan JSON. | Unique: `(projectId, stableKey)` |
@@ -210,7 +210,7 @@ reused as seeds.
 
 | Table | Purpose | Key Constraints |
 |-------|---------|----------------|
-| **site_crawl_run_requests** | Canonical effective options and identity for a queued crawl. Identical requests may reuse one active run; different options receive a conflict. | PK: `runId`; composite FK `(projectId, runId)` → runs |
+| **site_crawl_run_requests** | Canonical effective options and identity for a queued crawl. Its stored `maxPages` option is the resolved budget: the request's, else the project's `site_audit_max_pages`, else the full site. Identical requests may reuse one active run; different options receive a conflict. | PK: `runId`; composite FK `(projectId, runId)` → runs |
 | **site_crawl_attempts** | Mutable event-stream progress for one execution attempt. | Unique: `(runId, attemptNumber)`; composite FK to runs |
 | **site_crawl_snapshots** | Immutable terminal crawl metadata, including the requested root, effective root, which rule classified the links (`template_detection`; NULL means a scan published before it existed), and the crawler landmark ruleset behind that rule (`link_placement_ruleset_version`; NULL means the scan recorded no placement and can never be reclassified). Default reads select the newest snapshot of a completed or partial (budget-capped) run; any older run stays selectable by ID. | Unique: `runId`; composite FK to runs and attempt |
 | **site_crawl_pages** | URL inventory with discovery provenance, fetch/indexability state, depth, internal-link counts, and link score. | Unique: `(projectId, runId, attemptId, nodeKey)` |
@@ -429,6 +429,7 @@ Several text columns store serialized JSON. Always use `parseJsonColumn()` from 
 | `runs.providerDispatchModes` | `Record<provider, 'batch'>` (native `mode: 'json'`; null = every provider sync) |
 | `runs.pendingProviderErrors` | `Record<provider, message>` (native `mode: 'json'`) |
 | `projects.providerDispatchModes` | `ProviderDispatchModesMap` (native `mode: 'json'`) |
+| `competitors.aliases` | `string[]` (native `mode: 'json'`; normalized by `normalizeCompetitorAliases`) |
 | `query_snapshots.usage` | `SnapshotUsage` (native `mode: 'json'`) |
 | `provider_batch_requests.requestedContext` | `LocationContext` (native `mode: 'json'`) |
 | `query_snapshots.citedDomains` | `string[]` |

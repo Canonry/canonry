@@ -12,6 +12,7 @@ describe('compileCompetitiveSignalResolver', () => {
     })).toEqual({
       citedCompetitorDomains: ['rival.com'],
       mentionedCompetitorDomains: ['enemy.com'],
+      mentionedCompetitorTerms: ['enemy'],
     })
   })
 
@@ -29,6 +30,7 @@ describe('compileCompetitiveSignalResolver', () => {
     expect(resolver.resolve({ answerText: 'Rival is recommended.' })).toEqual({
       citedCompetitorDomains: [],
       mentionedCompetitorDomains: ['rival.com'],
+      mentionedCompetitorTerms: ['rival'],
     })
   })
 
@@ -40,7 +42,7 @@ describe('compileCompetitiveSignalResolver', () => {
       answerDomains: extractDomainsFromText(answerProseForMentions(answerText)),
     })
 
-    expect(ordinary).toEqual({ citedCompetitorDomains: [], mentionedCompetitorDomains: ['rival.com'] })
+    expect(ordinary).toEqual({ citedCompetitorDomains: [], mentionedCompetitorDomains: ['rival.com'], mentionedCompetitorTerms: ['rival', 'rival.com'] })
     expect(reused).toEqual(ordinary)
   })
 
@@ -51,6 +53,7 @@ describe('compileCompetitiveSignalResolver', () => {
     expect(resolver.resolve({ answerText, citedDomains: ['rival.com', 'enemy.com'] })).toEqual({
       citedCompetitorDomains: ['rival.com', 'enemy.com'],
       mentionedCompetitorDomains: [],
+      mentionedCompetitorTerms: [],
     })
     expect(resolver.resolve({ answerText: 'Read https://www.rival.com/review before deciding.' }).mentionedCompetitorDomains)
       .toEqual([])
@@ -63,6 +66,42 @@ describe('compileCompetitiveSignalResolver', () => {
       .toEqual(['ai.com'])
     expect(short.resolve({ answerText: 'AI tools are improving.' }).mentionedCompetitorDomains)
       .toEqual([])
+  })
+
+  it('marks a competitor mentioned by a curated alias its domain never contains', () => {
+    const curated = compileCompetitiveSignalResolver([
+      { domain: 'spoketuneworks.example', aliases: ['TuneSpoke'] },
+      { domain: 'qvx.example', aliases: ['QVX'] },
+      'ravenwoodbikeinc.example',
+    ])
+
+    expect(curated.resolve({ answerText: 'TuneSpoke and QVX both quoted fast.' }).mentionedCompetitorDomains)
+      .toEqual(['spoketuneworks.example', 'qvx.example'])
+    // Mention never implies citation.
+    expect(curated.resolve({ answerText: 'TuneSpoke quoted fast.' }).citedCompetitorDomains).toEqual([])
+    // Without the curated alias the 3-letter label stays below the domain floor.
+    expect(compileCompetitiveSignalResolver(['qvx.example']).resolve({ answerText: 'QVX quoted fast.' }).mentionedCompetitorDomains)
+      .toEqual([])
+    // Exact brand identity: no substring hits.
+    expect(curated.resolve({ answerText: 'Great qvxshop deals here.' }).mentionedCompetitorDomains).toEqual([])
+  })
+
+  it('reports the names and written hosts that made each mention', () => {
+    const curated = compileCompetitiveSignalResolver([
+      { domain: 'spoketuneworks.example', aliases: ['TuneSpoke', 'Tune Spoke Crew'] },
+      { domain: 'qvx.example', aliases: ['QVX'] },
+      'ravenwoodbikeinc.example',
+    ])
+    const signals = curated.resolve({ answerText: 'Tune Spoke and QVX quoted fast; Ravenwoodbikeinc did not.' })
+    expect(signals.mentionedCompetitorDomains).toEqual(['spoketuneworks.example', 'qvx.example', 'ravenwoodbikeinc.example'])
+    // The stored spelling of a name, whatever spacing the answer used.
+    expect(signals.mentionedCompetitorTerms).toEqual(['TuneSpoke', 'QVX', 'ravenwoodbikeinc'])
+    expect(curated.resolve({ answerText: 'Nobody tracked is named.' }).mentionedCompetitorTerms).toEqual([])
+  })
+
+  it('ignores a stored alias below the alias floor', () => {
+    const short = compileCompetitiveSignalResolver([{ domain: 'qvx.example', aliases: ['QV'] }])
+    expect(short.resolve({ answerText: 'QV is short.' }).mentionedCompetitorDomains).toEqual([])
   })
 
   it('normalizes and deduplicates configured competitor domains', () => {

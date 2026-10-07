@@ -4,7 +4,6 @@ import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
 import { createClient, migrate, projects, schedules, runs, siteCrawlRunRequests } from '@ainyc/canonry-db'
-import { SITE_AUDIT_MAX_PAGE_LIMIT } from '@ainyc/canonry-contracts'
 import { Scheduler } from '../src/scheduler.js'
 
 /**
@@ -605,57 +604,70 @@ test('ads-sync trigger skips (no new run, no callback) when one is already in fl
   fs.rmSync(tmpDir, { recursive: true, force: true })
 })
 
-test('site-audit schedule scans the full site and hands the host its page budget', () => {
-  const { db, tmpDir } = createTempDb()
-  const now = new Date().toISOString()
-  db.insert(projects).values({
-    id: 'proj_site_audit',
-    name: 'site-audit-project',
-    displayName: 'Site Audit Project',
-    canonicalDomain: 'example.com',
-    country: 'US',
-    language: 'en',
-    createdAt: now,
-    updatedAt: now,
-  }).run()
-  db.insert(schedules).values({
-    id: 'sched_site_audit',
-    projectId: 'proj_site_audit',
-    kind: 'site-audit',
-    cronExpr: '0 5 * * *',
-    timezone: 'UTC',
-    enabled: true,
-    providers: [],
-    sourceId: null,
-    createdAt: now,
-    updatedAt: now,
-  }).run()
+// A scheduled audit uses the project's saved page budget, else the full site,
+// and records the budget it used on the run's request row.
+for (const { label, saved, expectedPages } of [
+  { label: 'a saved budget', saved: 2_500, expectedPages: 2_500 },
+  { label: 'no saved budget (the full site, the 50,000 hard limit)', saved: null, expectedPages: 50_000 },
+]) {
+  test(`site-audit schedule hands the host ${label} and records it`, () => {
+    const { db, tmpDir } = createTempDb()
+    const now = new Date().toISOString()
+    db.insert(projects).values({
+      id: 'proj_site_audit',
+      name: 'site-audit-project',
+      displayName: 'Site Audit Project',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+      siteAuditMaxPages: saved,
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+    db.insert(schedules).values({
+      id: 'sched_site_audit',
+      projectId: 'proj_site_audit',
+      kind: 'site-audit',
+      cronExpr: '0 5 * * *',
+      timezone: 'UTC',
+      enabled: true,
+      providers: [],
+      sourceId: null,
+      createdAt: now,
+      updatedAt: now,
+    }).run()
 
-  const calls: Array<{ runId: string; projectId: string; opts: { maxPages: number } }> = []
-  const scheduler = new Scheduler(db, {
-    onRunCreated: () => {},
-    onSiteAuditRequested: (runId, projectId, opts) => calls.push({ runId, projectId, opts }),
+    const calls: Array<{ runId: string; projectId: string; opts: { maxPages: number } }> = []
+    const scheduler = new Scheduler(db, {
+      onRunCreated: () => {},
+      onSiteAuditRequested: (runId, projectId, opts) => calls.push({ runId, projectId, opts }),
+    })
+    ;(scheduler as unknown as {
+      triggerRun: (scheduleId: string, projectId: string, kind: 'site-audit') => void
+    }).triggerRun('sched_site_audit', 'proj_site_audit', 'site-audit')
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.projectId).toBe('proj_site_audit')
+    expect(calls[0]!.opts).toEqual({ maxPages: expectedPages })
+    expect(db.select().from(runs).where(eq(runs.id, calls[0]!.runId)).get()).toMatchObject({
+      kind: 'site-audit',
+      status: 'queued',
+      trigger: 'scheduled',
+    })
+    expect(db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, calls[0]!.runId)).get()).toMatchObject({
+      projectId: 'proj_site_audit',
+      effectiveOptions: {
+        schemaVersion: 2,
+        sitemapUrl: null,
+        maxPages: expectedPages,
+        // Unattended crawls set no edge budget; the engine derives it.
+        maxEdges: null,
+        maxDepth: null,
+        checkDeadLinks: false,
+      },
+    })
+
+    scheduler.stop()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
   })
-  ;(scheduler as unknown as {
-    triggerRun: (scheduleId: string, projectId: string, kind: 'site-audit') => void
-  }).triggerRun('sched_site_audit', 'proj_site_audit', 'site-audit')
-
-  expect(calls).toHaveLength(1)
-  // A scheduled audit covers the whole site; 1,000 is only the manual default.
-  expect(calls[0]!.opts).toEqual({ maxPages: SITE_AUDIT_MAX_PAGE_LIMIT })
-  expect(db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, calls[0]!.runId)).get()).toMatchObject({
-    projectId: 'proj_site_audit',
-    effectiveOptions: {
-      schemaVersion: 2,
-      sitemapUrl: null,
-      maxPages: SITE_AUDIT_MAX_PAGE_LIMIT,
-      // Unattended crawls set no edge budget; the engine derives it.
-      maxEdges: null,
-      maxDepth: null,
-      checkDeadLinks: false,
-    },
-  })
-
-  scheduler.stop()
-  fs.rmSync(tmpDir, { recursive: true, force: true })
-})
+}

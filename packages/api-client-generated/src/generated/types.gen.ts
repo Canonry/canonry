@@ -3453,9 +3453,27 @@ export type CitationVisibilityResponse = {
     reason?: 'no-runs-yet' | 'no-queries';
 };
 
+export type CompetitorAliasesRequest = {
+    /**
+     * Operator-curated names this competitor goes by in answer text (at most 10, each 80 characters or fewer, at least 3 letters or digits).
+     */
+    aliases: Array<string>;
+};
+
+export type CompetitorAppendRequest = {
+    competitors: Array<string | {
+        domain: string;
+        /**
+         * Operator-curated names this competitor goes by in answer text (at most 10, each 80 characters or fewer, at least 3 letters or digits).
+         */
+        aliases?: Array<string>;
+    }>;
+};
+
 export type CompetitorDto = {
     id: string;
     domain: string;
+    aliases: Array<string>;
     createdAt: string;
 };
 
@@ -3980,6 +3998,23 @@ export type DiscoveryPromotePreview = {
         domain: string;
         hits: number;
         competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        sources: Array<{
+            domain: string;
+            hits: number;
+            competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        }>;
+    }>;
+    skippedCompetitors: Array<{
+        domain: string;
+        hits: number;
+        competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        sources: Array<{
+            domain: string;
+            hits: number;
+            competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        }>;
+        reason: 'already-tracked' | 'project-domain' | 'shared-host' | 'claimed-by-alias';
+        message: string;
     }>;
 };
 
@@ -3993,6 +4028,30 @@ export type DiscoveryPromoteResult = {
     skipped: {
         queries: Array<string>;
         competitors: Array<string>;
+    };
+    competitorDetails: {
+        promoted: Array<{
+            domain: string;
+            hits: number;
+            competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+            sources: Array<{
+                domain: string;
+                hits: number;
+                competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+            }>;
+        }>;
+        skipped: Array<{
+            domain: string;
+            hits: number;
+            competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+            sources: Array<{
+                domain: string;
+                hits: number;
+                competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+            }>;
+            reason: 'already-tracked' | 'project-domain' | 'shared-host' | 'claimed-by-alias';
+            message: string;
+        }>;
     };
 };
 
@@ -6751,6 +6810,7 @@ export type LatestProjectRunDto = {
             competitorOverlap: Array<string>;
             citedCompetitorDomains: Array<string>;
             mentionedCompetitorDomains: Array<string>;
+            mentionedCompetitorTerms: Array<string>;
             recommendedCompetitors: Array<string>;
             matchedTerms: Array<string>;
             groundingSources: Array<{
@@ -10691,6 +10751,7 @@ export type ProjectCreateRequest = {
     autoExtractBacklinks?: boolean;
     qualifiedAliases?: Array<string>;
     negativeReviewMaxStars?: number | null;
+    siteAuditMaxPages?: number | null;
     configSource?: 'cli' | 'api' | 'config-file';
     name: string;
 };
@@ -10731,6 +10792,7 @@ export type ProjectDto = {
     };
     autoExtractBacklinks: boolean;
     negativeReviewMaxStars?: number | null;
+    siteAuditMaxPages?: number | null;
     configSource: 'cli' | 'api' | 'config-file';
     configRevision: number;
     createdAt?: string;
@@ -10771,6 +10833,7 @@ export type ProjectUpsertRequest = {
     autoExtractBacklinks?: boolean;
     qualifiedAliases?: Array<string>;
     negativeReviewMaxStars?: number | null;
+    siteAuditMaxPages?: number | null;
     configSource?: 'cli' | 'api' | 'config-file';
 };
 
@@ -10793,7 +10856,13 @@ export type ProjectConfig = {
         language: string;
         queries?: Array<string>;
         keywords?: Array<string>;
-        competitors: Array<string>;
+        competitors: Array<string | {
+            domain: string;
+            /**
+             * Operator-curated names this competitor goes by in answer text (at most 10, each 80 characters or fewer, at least 3 letters or digits).
+             */
+            aliases?: Array<string>;
+        }>;
         providers: Array<string>;
         providerModels: {
             [key: string]: string;
@@ -10842,6 +10911,7 @@ export type ProjectConfig = {
         };
         autoExtractBacklinks: boolean;
         negativeReviewMaxStars?: number;
+        siteAuditMaxPages?: number | null;
     };
 };
 
@@ -11074,6 +11144,7 @@ export type ProjectOverviewDto = {
         };
         autoExtractBacklinks: boolean;
         negativeReviewMaxStars?: number | null;
+        siteAuditMaxPages?: number | null;
         configSource: 'cli' | 'api' | 'config-file';
         configRevision: number;
         createdAt?: string;
@@ -11147,6 +11218,7 @@ export type ProjectOverviewDto = {
                 competitorOverlap: Array<string>;
                 citedCompetitorDomains: Array<string>;
                 mentionedCompetitorDomains: Array<string>;
+                mentionedCompetitorTerms: Array<string>;
                 recommendedCompetitors: Array<string>;
                 matchedTerms: Array<string>;
                 groundingSources: Array<{
@@ -11459,6 +11531,7 @@ export type ProjectOverviewDto = {
     competitors: Array<{
         id: string;
         domain: string;
+        aliases?: Array<string>;
         citationCount: number;
         totalQueries: number;
         pressureLabel: 'None' | 'Low' | 'Moderate' | 'High';
@@ -11881,6 +11954,7 @@ export type RunDetailDto = {
         competitorOverlap: Array<string>;
         citedCompetitorDomains: Array<string>;
         mentionedCompetitorDomains: Array<string>;
+        mentionedCompetitorTerms: Array<string>;
         recommendedCompetitors: Array<string>;
         matchedTerms: Array<string>;
         groundingSources: Array<{
@@ -12944,6 +13018,7 @@ export type SnapshotListResponse = {
         competitorOverlap: Array<string>;
         citedCompetitorDomains: Array<string>;
         mentionedCompetitorDomains: Array<string>;
+        mentionedCompetitorTerms: Array<string>;
         recommendedCompetitors: Array<string>;
         matchedTerms: Array<string>;
         groundingSources: Array<{
@@ -18880,9 +18955,7 @@ export type GetApiV1ProjectsByNameCompetitorsResponses = {
 export type GetApiV1ProjectsByNameCompetitorsResponse = GetApiV1ProjectsByNameCompetitorsResponses[keyof GetApiV1ProjectsByNameCompetitorsResponses];
 
 export type PostApiV1ProjectsByNameCompetitorsData = {
-    body: {
-        competitors: Array<string>;
-    };
+    body: CompetitorAppendRequest;
     path: {
         /**
          * Project name.
@@ -18895,7 +18968,7 @@ export type PostApiV1ProjectsByNameCompetitorsData = {
 
 export type PostApiV1ProjectsByNameCompetitorsErrors = {
     /**
-     * Invalid competitor append request.
+     * Invalid competitor append request or competitor aliases.
      */
     400: ErrorEnvelope;
 };
@@ -18933,6 +19006,44 @@ export type PutApiV1ProjectsByNameCompetitorsResponses = {
 };
 
 export type PutApiV1ProjectsByNameCompetitorsResponse = PutApiV1ProjectsByNameCompetitorsResponses[keyof PutApiV1ProjectsByNameCompetitorsResponses];
+
+export type PutApiV1ProjectsByNameCompetitorsByDomainAliasesData = {
+    body: CompetitorAliasesRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Tracked competitor domain (any spelling of it; it is reduced to the stored registrable domain, and a row stored as a subdomain is found too). A competitor stored as two rows is refused (400) rather than one picked.
+         */
+        domain: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/competitors/{domain}/aliases';
+};
+
+export type PutApiV1ProjectsByNameCompetitorsByDomainAliasesErrors = {
+    /**
+     * Invalid competitor aliases.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or competitor not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PutApiV1ProjectsByNameCompetitorsByDomainAliasesError = PutApiV1ProjectsByNameCompetitorsByDomainAliasesErrors[keyof PutApiV1ProjectsByNameCompetitorsByDomainAliasesErrors];
+
+export type PutApiV1ProjectsByNameCompetitorsByDomainAliasesResponses = {
+    /**
+     * Competitor with its updated aliases returned.
+     */
+    200: CompetitorDto;
+};
+
+export type PutApiV1ProjectsByNameCompetitorsByDomainAliasesResponse = PutApiV1ProjectsByNameCompetitorsByDomainAliasesResponses[keyof PutApiV1ProjectsByNameCompetitorsByDomainAliasesResponses];
 
 export type DeleteApiV1ProjectsByNameCompetitorsByIdData = {
     body?: never;
@@ -29751,7 +29862,7 @@ export type PostApiV1ProjectsByNameTechnicalAeoRunsData = {
          */
         limit?: number;
         /**
-         * Crawl page budget. Defaults to 1000; max 50000.
+         * Crawl page budget. When omitted, the project's saved budget (siteAuditMaxPages) applies, else the full site; max 50000.
          */
         maxPages?: number;
         /**

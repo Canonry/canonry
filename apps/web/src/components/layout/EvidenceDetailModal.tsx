@@ -2,11 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Search, X } from 'lucide-react'
-import { brandKeyFromText, brandLabelFromDomain, CitationStates, effectiveDomains, normalizeProjectDomain } from '@ainyc/canonry-contracts'
+import { brandKeyFromText, CitationStates, effectiveDomains, normalizeProjectDomain } from '@ainyc/canonry-contracts'
 
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { SourceLink } from '../shared/SourceLink.js'
-import { highlightTermsInText, type HighlightTermGroup } from '../../lib/highlight.js'
+import { competitorHighlightTerms, highlightTermsInText, type HighlightTermGroup } from '../../lib/highlight.js'
 import { fetchRunDetail, type GroundingSource } from '../../api.js'
 import type { CitationInsightVm, ProjectCommandCenterVm } from '../../view-models.js'
 
@@ -22,6 +22,8 @@ export interface EvidenceDisplayData {
   citedDomains: string[]
   citedCompetitorDomains: string[]
   mentionedCompetitorDomains: string[]
+  /** Server-matched names and hosts behind `mentionedCompetitorDomains`; absent on older payloads. */
+  mentionedCompetitorTerms?: string[]
   recommendedCompetitors: string[]
   matchedTerms: string[]
   groundingSources: GroundingSource[]
@@ -34,16 +36,24 @@ export interface EvidenceDisplayData {
 interface CompetitorSignalFields {
   citedCompetitorDomains?: readonly string[]
   mentionedCompetitorDomains?: readonly string[]
+  mentionedCompetitorTerms?: readonly string[]
 }
 
-/** Preserve the two evidence signals independently for current, auto-fetched, and historical rows. */
+/**
+ * Preserve the two evidence signals independently for current, auto-fetched,
+ * and historical rows. Matched terms travel with the mention signal they
+ * explain, so a historical row never borrows the current row's terms.
+ */
 export function evidenceCompetitorSignals(
   value: CompetitorSignalFields,
   fallback?: CompetitorSignalFields,
-): Pick<EvidenceDisplayData, 'citedCompetitorDomains' | 'mentionedCompetitorDomains'> {
+): Pick<EvidenceDisplayData, 'citedCompetitorDomains' | 'mentionedCompetitorDomains' | 'mentionedCompetitorTerms'> {
+  const mentionSource = value.mentionedCompetitorDomains !== undefined ? value : fallback
+  const terms = mentionSource?.mentionedCompetitorTerms
   return {
     citedCompetitorDomains: [...(value.citedCompetitorDomains ?? fallback?.citedCompetitorDomains ?? [])],
-    mentionedCompetitorDomains: [...(value.mentionedCompetitorDomains ?? fallback?.mentionedCompetitorDomains ?? [])],
+    mentionedCompetitorDomains: [...(mentionSource?.mentionedCompetitorDomains ?? [])],
+    ...(terms !== undefined ? { mentionedCompetitorTerms: [...terms] } : {}),
   }
 }
 
@@ -172,22 +182,14 @@ export function EvidenceDetailModal({
     ...display.matchedTerms,
   ].filter(t => t.trim().length > 2)
 
-  // Build competitor highlight terms from overlap domains + recommended competitor names.
-  // Source the brand from the registrable domain — taking the leftmost label of
-  // a stored subdomain (e.g. `offers.quotebird.test` → `offers`) would highlight
-  // arbitrary words like "offers" in the prose. Use `quotebird` instead.
-  const competitorHighlightTerms = [
-    ...display.mentionedCompetitorDomains.flatMap(d => {
-      const brand = brandLabelFromDomain(d)
-      return brand.length >= 4 ? [brand] : []
-    }),
-    ...display.recommendedCompetitors,
-  ].filter(t => t.trim().length > 2)
+  // Competitor highlight terms: the server-matched names and hosts (curated
+  // aliases included) plus recommended competitor names.
+  const competitorTerms = competitorHighlightTerms(display)
 
   const highlightTermGroups: HighlightTermGroup[] = [
     { terms: brandTerms, className: 'answer-highlight-brand' },
-    ...(competitorHighlightTerms.length > 0
-      ? [{ terms: competitorHighlightTerms, className: 'answer-highlight-competitor' }]
+    ...(competitorTerms.length > 0
+      ? [{ terms: competitorTerms, className: 'answer-highlight-competitor' }]
       : []),
   ]
 

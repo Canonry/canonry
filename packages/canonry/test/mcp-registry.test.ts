@@ -178,6 +178,7 @@ const expectedToolNames = [
   'canonry_queries_remove',
   'canonry_keywords_remove',
   'canonry_competitors_add',
+  'canonry_competitors_aliases_set',
   'canonry_competitors_remove',
   'canonry_schedule_set',
   'canonry_schedule_delete',
@@ -318,6 +319,35 @@ describe('MCP tool registry', () => {
     expect(apply.description).toContain('an omitted qualifiedAliases keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it')
   })
 
+  it('carries siteAuditMaxPages on project upsert and apply as an optional 1-50,000 budget or null, and names the omitted-keeps exception', () => {
+    const budgetSchema = { anyOf: [{ type: 'integer', minimum: 1, maximum: 50_000 }, { type: 'null' }] }
+    const request = { displayName: 'Acme', canonicalDomain: 'acme.example', country: 'US', language: 'en' }
+
+    const upsert = canonryMcpTools.find(candidate => candidate.name === 'canonry_project_upsert')!
+    expect(upsert.inputSchema.parse({ project: 'acme', request: { ...request, siteAuditMaxPages: 2_500 } }).request.siteAuditMaxPages).toBe(2_500)
+    expect(upsert.inputSchema.parse({ project: 'acme', request: { ...request, siteAuditMaxPages: null } }).request.siteAuditMaxPages).toBeNull()
+    // Omitted must stay omitted: a schema default here would overwrite the stored budget on every upsert.
+    expect(upsert.inputSchema.parse({ project: 'acme', request }).request).not.toHaveProperty('siteAuditMaxPages')
+    for (const invalid of [0, 50_001, 2.5]) {
+      expect(upsert.inputSchema.safeParse({ project: 'acme', request: { ...request, siteAuditMaxPages: invalid } }).success, String(invalid)).toBe(false)
+    }
+    const upsertRequest = schemaProperty(inputSchemaFor('canonry_project_upsert'), 'request')
+    expect(schemaProperty(upsertRequest, 'siteAuditMaxPages')).toEqual(budgetSchema)
+    expect(upsertRequest.required ?? []).not.toContain('siteAuditMaxPages')
+    expect(upsert.description).toContain('An omitted siteAuditMaxPages (the Site Health page budget for scans that set none, 1 to 50,000) keeps the stored budget; send null for the full site.')
+
+    const apply = canonryMcpTools.find(candidate => candidate.name === 'canonry_apply_config')!
+    const config = { apiVersion: 'canonry/v1', kind: 'Project', metadata: { name: 'acme' }, spec: request }
+    expect(apply.inputSchema.parse({ config: { ...config, spec: { ...request, siteAuditMaxPages: 300 } } }).config.spec.siteAuditMaxPages).toBe(300)
+    expect(apply.inputSchema.parse({ config: { ...config, spec: { ...request, siteAuditMaxPages: null } } }).config.spec.siteAuditMaxPages).toBeNull()
+    expect(apply.inputSchema.parse({ config }).config.spec).not.toHaveProperty('siteAuditMaxPages')
+    expect(apply.inputSchema.safeParse({ config: { ...config, spec: { ...request, siteAuditMaxPages: 50_001 } } }).success).toBe(false)
+    const applySpec = schemaProperty(schemaProperty(inputSchemaFor('canonry_apply_config'), 'config'), 'spec')
+    expect(schemaProperty(applySpec, 'siteAuditMaxPages')).toEqual(budgetSchema)
+    expect(applySpec.required ?? []).not.toContain('siteAuditMaxPages')
+    expect(apply.description).toContain('An omitted siteAuditMaxPages keeps the stored Site Health page budget (null means the full site).')
+  })
+
   it('tells agents each visibility population carries its change since the previous sweep', () => {
     const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_visibility_report')!
     expect(tool.description).toContain(
@@ -444,7 +474,17 @@ describe('MCP tool registry', () => {
 
     const run = canonryMcpTools.find(candidate => candidate.name === 'canonry_technical_aeo_run')!
     expect(run.description).toContain('the engine derives the link-observation budget from that page count')
+    expect(run.description).toContain('Without maxPages it uses the project\'s saved page budget (siteAuditMaxPages), else the full site (up to 50,000 pages)')
+    expect(schemaProperty(inputSchemaFor('canonry_technical_aeo_run'), 'maxPages')).toMatchObject({
+      type: 'integer',
+      minimum: 1,
+      maximum: 50_000,
+      description: expect.stringContaining('Omitted uses the project\'s saved budget (siteAuditMaxPages'),
+    })
+    // An omitted budget is sent as omitted, so the server can apply the saved one.
+    expect(run.inputSchema.parse({ project: 'acme' })).not.toHaveProperty('maxPages')
     expect(run.inputSchema.safeParse({ project: 'acme', maxPages: 50_000, maxEdges: 1_000_000, maxDepth: 100, checkDeadLinks: true }).success).toBe(true)
+    expect(run.inputSchema.safeParse({ project: 'acme', maxPages: 0 }).success).toBe(false)
     expect(run.inputSchema.safeParse({ project: 'acme', maxPages: 50_001 }).success).toBe(false)
     expect(run.inputSchema.safeParse({ project: 'acme', maxEdges: 1_000_001 }).success).toBe(false)
   })
@@ -763,7 +803,7 @@ describe('MCP tool registry', () => {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
     expect(counts.get('monitoring')).toBe(61)
-    expect(counts.get('setup')).toBe(60)
+    expect(counts.get('setup')).toBe(61)
     expect(counts.get('gsc')).toBe(11)
     expect(counts.get('ga')).toBe(11)
     expect(counts.get('gbp')).toBe(14)
@@ -1031,6 +1071,11 @@ describe('MCP tool registry', () => {
       project: 'acme',
       request: { competitors: ['rival.example.com'] },
     })
+    // The same body POST /competitors takes: a domain or { domain, aliases }.
+    expect(competitorsTool!.inputSchema.parse({ project: 'acme', request: { competitors: [{ domain: ' qvx.example ', aliases: ['QVX'] }, 'rival.example.com'] } })).toEqual({
+      project: 'acme',
+      request: { competitors: [{ domain: 'qvx.example', aliases: ['QVX'] }, 'rival.example.com'] },
+    })
   })
 
   it('creates one API client per MCP server instance', () => {
@@ -1067,6 +1112,7 @@ describe('MCP tool registry', () => {
     expect(annotations.canonry_keywords_remove).toMatchObject({ idempotentHint: true, destructiveHint: true })
     expect(annotations.canonry_competitors_add).toMatchObject({ idempotentHint: true, destructiveHint: false })
     expect(annotations.canonry_competitors_remove).toMatchObject({ idempotentHint: true, destructiveHint: true })
+    expect(annotations.canonry_competitors_aliases_set).toMatchObject({ readOnlyHint: false, idempotentHint: true, destructiveHint: false })
     expect(annotations.canonry_schedule_set).toMatchObject({ idempotentHint: true, destructiveHint: false })
     expect(annotations.canonry_schedule_delete).toMatchObject({ idempotentHint: false, destructiveHint: true })
     expect(annotations.canonry_insight_dismiss).toMatchObject({ idempotentHint: true, destructiveHint: false })
