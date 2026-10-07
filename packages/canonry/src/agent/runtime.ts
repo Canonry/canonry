@@ -340,8 +340,9 @@ export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?
       } else if (event.type === 'agent_end') {
         state.finishedAt = Date.now()
         clearTimeout(state.timer)
-        if (state.reason === 'completed' && agent.signal?.aborted) state.reason = 'stopped'
-        if (state.reason === 'completed' && agent.state.errorMessage) state.reason = 'error'
+        if ((state.reason === 'completed' || state.reason === 'tool-limit') && agent.signal?.aborted) state.reason = 'stopped'
+        // A failed wrap-up request lost the answer, so it reports as an error, not a clean tool-limit stop.
+        if ((state.reason === 'completed' || state.reason === 'tool-limit') && agent.state.errorMessage) state.reason = 'error'
       }
     })
   }

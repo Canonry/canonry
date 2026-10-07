@@ -330,6 +330,20 @@ test('keeps intermediate responses and renders a completed tool call once', asyn
   expect(screen.getByText('Checking the selected market.')).toBeTruthy()
 })
 
+test('shows an error when a turn ends with an error status and no error event', async () => {
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
+  vi.spyOn(aero, 'promptAero').mockImplementation(async ({ onEvent }) => {
+    // A wrap-up request that threw: its failure message is filtered, only the status arrives.
+    onEvent({ type: 'aero_turn_status', status: { reason: 'error', toolCalls: 30, modelCalls: 12, durationMs: 9 } })
+  })
+  await renderWithProviderReadiness(READY_AERO)
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero/ }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message Aero' }), { target: { value: 'Which Properties are most criticized?' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await screen.findByText('Aero could not finish this answer. Retry to ask again.')
+  expect(screen.queryByText(/Tool-call limit reached/)).toBeNull()
+})
+
 test('Stop preserves a partial answer and offers an explicit retry', async () => {
   vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
   const prompt = vi.spyOn(aero, 'promptAero').mockImplementation(async ({ onEvent, signal }) => {

@@ -82,8 +82,10 @@ covering that work; an existing explicit authorization remains valid.
   for ChatGPT, `gemini`, `claude`), and an empty filtered read means the
   filter matched nothing, not that sentiment is missing.
   `criticizedProperties.keys` lists up to five Properties, most criticized
-  first. Give favorable, mixed and unfavorable as counts
-  over rated answers, plus rated of eligible answers. Quote the most
+  first. Give favorable, mixed and unfavorable as counts over
+  `coverage.judged`, which counts assessments (one answer can assess several
+  Properties), and report rated answers of eligible answers separately as
+  coverage; never divide outcome counts by answers. Quote the most
   criticized Properties' answers with `canonry_sentiment_evidence` (scope
   `property`, `outcome: ["mixed", "unfavorable"]`). Non-brand is exceptions
   only: list its mixed and unfavorable answers, never a non-brand favorable
