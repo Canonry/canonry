@@ -3,7 +3,7 @@ import { and, eq, ne, asc, desc, inArray, notInArray, or, sql } from 'drizzle-or
 import type { FastifyInstance } from 'fastify'
 import { runs, querySnapshots, queries, projects, competitors, parseJsonColumn } from '@ainyc/canonry-db'
 import { compileCompetitiveSignalResolver } from '@ainyc/canonry-intelligence'
-import type { CitationState, LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, ProviderDispatchMode, RunDispatchModes, RunListFilterQuery } from '@ainyc/canonry-contracts'
+import type { CitationState, LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, ProviderAccountStreak, ProviderDispatchMode, RunDispatchModes, RunListFilterQuery } from '@ainyc/canonry-contracts'
 import {
   AppError as AppErrorClass,
   type AppError,
@@ -36,7 +36,7 @@ import {
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
 import { assertProjectScope } from './auth.js'
 import { gte } from 'drizzle-orm'
-import { assertMeasurementRunStampable, hasActiveMeasurementPlan, providerAccountRefusal, providersARunWouldCall, providersFailingError, queueRunIfProjectIdle, resolveRunnableProviderSelection } from './run-queue.js'
+import { assertMeasurementRunStampable, hasActiveMeasurementPlan, providerAccountAdmission, providersARunWouldCall, providersFailingError, queueRunIfProjectIdle, resolveRunnableProviderSelection, runAdmissionState } from './run-queue.js'
 import { queueRunFill, readRunCompleteness } from './run-fill.js'
 import { readRunProviderBatches } from './provider-batches.js'
 import { competitorIdentityColumns } from './competitor-writes.js'
@@ -237,8 +237,9 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
         if (activeRun) {
           return { conflict: true as const, activeRunId: activeRun.id }
         }
-        // Same admission rule as the queue helper this branch bypasses.
-        const refused = providerAccountRefusal(tx, {
+        // Same admission rule as the queue helper this branch bypasses: one
+        // decision for the whole fan-out, so every location skips the same providers.
+        const admission = providerAccountAdmission(tx, {
           projectId: project.id,
           trigger,
           force: body.force ?? false,
@@ -253,7 +254,8 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
             return providersARunWouldCall(roster, runnable)
           },
         })
-        if (refused) return { conflict: false as const, refused }
+        if (admission.refused) return { conflict: false as const, refused: admission.refused }
+        const skippedProviders = Object.keys(admission.skipped).length > 0 ? admission.skipped : null
 
         const inserted: Array<{ runId: string; loc: LocationContext }> = []
         for (const loc of projectLocations) {
@@ -266,6 +268,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
             trigger,
             location: loc.label,
             queries: queriesColumn,
+            skippedProviders,
             createdAt: now,
           }).run()
           inserted.push({ runId, loc })
@@ -407,14 +410,35 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       .limit(1)
       .get()
 
+    // Whether the next sweep would be admitted: a project whose sweeps are
+    // refused has no newer run to show, so the latest run alone cannot say.
+    const admission = runAdmissionState(app.db, {
+      projectId: project.id,
+      now: new Date().toISOString(),
+      runnableProviders: opts.getRunnableProviderNames?.(),
+    })
+
     if (!latestRun) {
-      return reply.send({ totalRuns: 0, run: null })
+      return reply.send({ totalRuns: 0, run: null, admission })
     }
 
     return reply.send({
       totalRuns,
       run: loadRunDetail(app, latestRun),
+      admission,
     })
+  })
+
+  // GET /projects/:name/run-admission — the `admission` of `/runs/latest`
+  // without the latest run's answers, for the dashboard's notice on every
+  // project page. Agents and the CLI read it on `/runs/latest` and the overview.
+  app.get<{ Params: { name: string } }>('/projects/:name/run-admission', async (request, reply) => {
+    const project = resolveProject(app.db, request.params.name)
+    return reply.send(runAdmissionState(app.db, {
+      projectId: project.id,
+      now: new Date().toISOString(),
+      runnableProviders: opts.getRunnableProviderNames?.(),
+    }))
   })
 
   // GET /runs — list runs newest-first with sensible defaults
@@ -869,6 +893,7 @@ export function formatRun(row: {
   measurementScope?: MeasurementRunScope | null
   measurementExecutionIdentity?: MeasurementExecutionIdentity | null
   providerDispatchModes?: RunDispatchModes | null
+  skippedProviders?: Record<string, ProviderAccountStreak> | null
 }) {
   const measurementManifest = row.measurementManifest !== null
     && typeof row.measurementManifest === 'object'
@@ -900,6 +925,8 @@ export function formatRun(row: {
           dispatchModes: row.providerDispatchModes ?? {},
         }
       : {}),
+    // Only on a run that skipped a provider, so other runs read as before.
+    ...(row.skippedProviders && Object.keys(row.skippedProviders).length > 0 ? { skippedProviders: row.skippedProviders } : {}),
     createdAt: row.createdAt,
   }
 }

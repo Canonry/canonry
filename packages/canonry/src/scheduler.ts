@@ -18,6 +18,8 @@ import {
   describeError,
 } from '@ainyc/canonry-contracts'
 import { createLogger } from './logger.js'
+import { buildRunRefusedProps } from './run-telemetry.js'
+import { trackEvent } from './telemetry.js'
 
 const log = createLogger('Scheduler')
 
@@ -718,6 +720,9 @@ export class Scheduler {
         runnableProviders: this.callbacks.getRunnableProviderNames?.(),
         providerModels: this.callbacks.getEffectiveProviderModels?.(),
         batchEligibleProviders: this.callbacks.getBatchEligibleProviderNames?.() ?? null,
+        // A skipped slot is otherwise invisible: no run row, nothing in the
+        // dashboard. One audit row per refusal keeps it in the history.
+        auditRefusal: { actor: 'scheduler', entityType: 'schedule', entityId: currentSchedule.id },
         ...(claimedOccurrence && recurrence && currentSchedule.nextRunAt === claimedOccurrence ? {
           scheduleClaim: {
             scheduleId: currentSchedule.id,
@@ -748,12 +753,22 @@ export class Scheduler {
       if (queueResult.refused) {
         // Every provider failed the project's recent runs on its account. Skip
         // the slot (the queue already spent a calendar slot). A slot after
-        // `retryAfter`, or after a provider settings change, runs again.
+        // `retryAfter`, or after a provider settings change, runs again. The
+        // first skipped slot of a refusal wrote its `run.refused` audit row
+        // and reports it; later slots until a run is let through repeat it.
         log.warn('run.skipped-providers-failing', {
           projectName: project.name,
           scheduleId: currentSchedule.id,
           ...queueResult.refused,
         })
+        if (queueResult.refusalRecorded) {
+          trackEvent('run.aborted', buildRunRefusedProps({
+            providers: queueResult.refused.providers,
+            trigger: RunTriggers.scheduled,
+            canonicalDomain: project.canonicalDomain,
+            location: locationLabel,
+          }), { errorCode: 'PROVIDERS_FAILING' })
+        }
         if (!claimedOccurrence) this.updateScheduleTiming(currentSchedule.id, { nextRunAt })
         return
       }
@@ -776,7 +791,12 @@ export class Scheduler {
         nextRunAt,
       })
 
-      log.info('run.triggered', { runId, projectName: project.name, providers: providers ?? 'all' })
+      log.info('run.triggered', {
+        runId,
+        projectName: project.name,
+        providers: providers ?? 'all',
+        ...(Object.keys(queueResult.skippedProviders).length > 0 ? { skippedProviders: queueResult.skippedProviders } : {}),
+      })
       this.callbacks.onRunCreated(runId, projectId, providers, resolvedLocation)
     } catch (err: unknown) {
       log.error('trigger.error', { scheduleId, projectId, kind, error: describeError(err) })

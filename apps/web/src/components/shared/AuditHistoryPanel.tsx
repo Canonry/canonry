@@ -35,7 +35,7 @@ function clientLabel(entry: AuditLogEntry): string {
 }
 
 function actionTone(action: string): 'positive' | 'caution' | 'negative' | 'neutral' {
-  if (/delete|remove|revoke|disconnect|failed/.test(action)) return 'negative'
+  if (/delete|remove|revoke|disconnect|failed|refused/.test(action)) return 'negative'
   if (/create|add|connect|completed/.test(action)) return 'positive'
   if (/update|replace|sync|apply/.test(action)) return 'caution'
   return 'neutral'

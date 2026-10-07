@@ -1,6 +1,7 @@
 import { formatPercent, type MentionShareDto, type ProjectOverviewDto, type ScoreSummaryDto } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
+import { runAdmissionLines } from './run.js'
 
 export interface ShowOverviewOpts {
   format?: string
@@ -123,6 +124,8 @@ function renderHuman(overview: ProjectOverviewDto): void {
   } else {
     console.log('\n  No runs yet.')
   }
+  const admission = runAdmissionLines(meta.name, latestRun.admission)
+  if (admission.length > 0) console.log(`\n${admission.map(line => `  ${line}`).join('\n')}`)
 
   console.log('\nScores:')
   // Order matches the dashboard hero (Mention → Cited → Mention share)

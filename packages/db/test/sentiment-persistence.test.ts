@@ -9,7 +9,7 @@ import {
   sentimentDefinitions, sentimentSettings, sentimentCompletionReceipts, sentimentJobs,
   sentimentWorkItems, sentimentJobItems, sentimentResults, sentimentAttempts, llmUsageEvents,
 } from '../src/index.js'
-import { insertLegacyProject } from './legacy-rows.js'
+import { insertLegacyProject, insertLegacyRow } from './legacy-rows.js'
 
 const NOW = '2026-09-28T12:00:00.000Z'
 const SENTIMENT_MIGRATION = MIGRATION_VERSIONS.find(v => v.name === 'sentiment-durable-assessments')!.version
@@ -21,9 +21,9 @@ function fixture(upgrade = false) {
   onTestFinished(() => { db.$client.close(); fs.rmSync(dir, { recursive: true, force: true }) })
   migrate(db, upgrade ? MIGRATION_VERSIONS.filter(v => v.version < SENTIMENT_MIGRATION) : MIGRATION_VERSIONS)
   // Physical columns, not Drizzle: the upgrade path seeds a pre-sentiment schema,
-  // and Drizzle names every current `projects` column (see test/legacy-rows.ts).
+  // and Drizzle names every current `projects` and `runs` column (see test/legacy-rows.ts).
   insertLegacyProject(db, { id: 'p', name: 'project', displayName: 'Project', canonicalDomain: 'example.com', createdAt: NOW })
-  db.insert(runs).values({ id: 'r', projectId: 'p', status: 'completed', createdAt: NOW }).run()
+  insertLegacyRow(db, 'runs', { id: 'r', project_id: 'p', status: 'completed', created_at: NOW })
   db.insert(querySnapshots).values({ id: 's', runId: 'r', provider: 'openai', citationState: 'cited', answerText: 'A is excellent. B is poor.', createdAt: NOW }).run()
   if (upgrade) migrate(db)
   const repo = new SentimentRepository(db)

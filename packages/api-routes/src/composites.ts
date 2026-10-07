@@ -80,6 +80,7 @@ import {
   type SuggestedQueryGscRow,
 } from '@ainyc/canonry-intelligence'
 import { notProbeRun, resolveProject } from './helpers.js'
+import { runAdmissionState } from './run-queue.js'
 import {
   mergeGscQueryTotalsWithFallback, readGscQueryDailyFallbackRows, readGscQueryDailyRows,
   readLatestGscDataDate, resolveGscWindowDays,
@@ -109,7 +110,11 @@ const INTEGRATION_SYNC_KINDS: ReadonlySet<string> = new Set<RunKind>([
 type SnapshotMatchedField = ProjectSearchSnapshotHitDto['matchedField']
 type InsightMatchedField = ProjectSearchInsightHitDto['matchedField']
 
-export async function compositeRoutes(app: FastifyInstance, options: { sentiment?: SentimentServiceOptions }) {
+export async function compositeRoutes(app: FastifyInstance, options: {
+  sentiment?: SentimentServiceOptions
+  /** Current provider registry membership, for which providers the next sweep would call. */
+  getRunnableProviderNames?: () => readonly string[]
+}) {
   const sentiment = options.sentiment ? new SentimentService(app.db, options.sentiment) : null
   // GET /projects/:name/overview — composite read for "how is project X doing?".
   // Bundles project info, latest run, top insights, health, and a transitions
@@ -158,9 +163,16 @@ export async function compositeRoutes(app: FastifyInstance, options: { sentiment
     const previousVisibilityRun = pickGroupRepresentative(previousVisRunGroup)
     const latestRunRow = allRuns[0] ?? null
 
+    // Project-wide, never narrowed by the location or window filters: it says
+    // whether the next sweep would be admitted, which no past run can.
+    const admission = runAdmissionState(app.db, {
+      projectId: project.id,
+      now: new Date().toISOString(),
+      runnableProviders: options.getRunnableProviderNames?.(),
+    })
     const latestRun: LatestProjectRunDto = latestRunRow
-      ? { totalRuns, run: summarizeRun(latestRunRow) }
-      : { totalRuns: 0, run: null }
+      ? { totalRuns, run: summarizeRun(latestRunRow), admission }
+      : { totalRuns: 0, run: null, admission }
 
     const healthRow = app.db
       .select()
@@ -494,6 +506,7 @@ function summarizeRun(run: typeof runs.$inferSelect): RunDetailDto {
     startedAt: run.startedAt,
     finishedAt: run.finishedAt,
     error: parseRunError(run.error),
+    ...(run.skippedProviders && Object.keys(run.skippedProviders).length > 0 ? { skippedProviders: run.skippedProviders } : {}),
     createdAt: run.createdAt,
   }
 }

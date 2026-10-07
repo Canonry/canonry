@@ -1,6 +1,7 @@
-import type { ProjectDto, RunDto } from '@ainyc/canonry-contracts'
+import type { LatestProjectRunDto, ProjectDto, RunDto } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isEndpointMissing, isMachineFormat } from '../cli-error.js'
+import { runAdmissionLines } from './run.js'
 
 function getClient() {
   return createApiClient()
@@ -23,6 +24,8 @@ export async function showStatus(project: string, format?: string): Promise<void
       runs,
       latestRun: latest.run,
       totalRuns: latest.totalRuns,
+      // Absent from a server that predates it.
+      ...(latest.admission ? { admission: latest.admission } : {}),
     }, null, 2))
     return
   }
@@ -49,12 +52,15 @@ export async function showStatus(project: string, format?: string): Promise<void
       : `'${project.replaceAll("'", `'\\''`)}'`
     console.log(`\n  No runs yet. Capture Page Health with "canonry technical-aeo run ${projectArg}", or run an AI Visibility sweep after adding a provider.`)
   }
+
+  const admission = runAdmissionLines(project, latest.admission)
+  if (admission.length > 0) console.log(`\n${admission.map(line => `  ${line}`).join('\n')}`)
 }
 
 async function getLatestRunSummary(
   client: ReturnType<typeof getClient>,
   project: string,
-): Promise<{ totalRuns: number; run: RunDto | null }> {
+): Promise<LatestProjectRunDto> {
   try {
     return await client.getLatestRun(project)
   } catch (err) {

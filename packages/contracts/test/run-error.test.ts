@@ -6,6 +6,8 @@ import {
   parseProviderErrorMessage,
   parseRunError,
   serializeRunError,
+  withSkippedProviders,
+  type ProviderAccountStreak,
 } from '../src/run.js'
 
 describe('parseProviderErrorMessage', () => {
@@ -132,5 +134,39 @@ describe('formatRunErrorOneLine', () => {
 
   it('falls back to a default when neither providers nor message is present', () => {
     expect(formatRunErrorOneLine({})).toBe('Run failed.')
+  })
+})
+
+describe('withSkippedProviders', () => {
+  const streak: ProviderAccountStreak = {
+    code: 'PROVIDER_AUTH',
+    consecutiveRuns: 10,
+    since: '2026-10-01T00:00:00.000Z',
+    latestRunId: 'run-9',
+    retryAfter: '2026-10-08T09:00:00.000Z',
+  }
+
+  it('adds a skipped entry with the account code, replacing any other entry for that provider', () => {
+    // A restart or a gap count can name a provider the run never called.
+    const error = buildRunErrorFromMessages([['openai', 'Server restarted while run was in progress'], ['gemini', 'timeout']])
+    expect(withSkippedProviders(error, { openai: streak })).toEqual({
+      providers: {
+        gemini: { message: 'timeout' },
+        openai: {
+          message: 'Not called: openai failed on its account (PROVIDER_AUTH) in each of its last 10 runs. '
+            + 'It is called again after 2026-10-08T09:00:00.000Z, or as soon as a new key, model or endpoint is saved for it '
+            + '(canonry settings provider openai). Pass force (canonry run --force) to call it now.',
+          code: 'PROVIDER_AUTH',
+          skipped: true,
+        },
+      },
+    })
+  })
+
+  it('leaves an error untouched when nothing was skipped, and gives a skip-only run its own entries', () => {
+    const error = { providers: { gemini: { message: 'timeout' } } }
+    expect(withSkippedProviders(error, {})).toBe(error)
+    expect(Object.keys(withSkippedProviders({}, { openai: streak, claude: { ...streak, code: 'PROVIDER_BILLING' } }).providers ?? {}).sort())
+      .toEqual(['claude', 'openai'])
   })
 })

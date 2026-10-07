@@ -12,8 +12,10 @@ import {
   PROVIDER_ACCOUNT_FAILURE_STREAK,
   PROVIDER_ACCOUNT_RETRY_HOURS,
   serializeRunError,
+  withSkippedProviders,
+  type ProviderAccountStreak,
 } from '@ainyc/canonry-contracts'
-import { auditLog, createClient, measurementPlans, measurementPlanVersions, migrate, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
+import { auditLog, createClient, measurementPlans, measurementPlanVersions, migrate, projects, queries, querySnapshots, runs, schedules } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 /**
@@ -39,6 +41,8 @@ type Outcome = {
   trigger?: 'scheduled' | 'probe'
   /** Providers that answered: a completed or partial run stores their snapshots. */
   answered?: string[]
+  /** Providers the run skipped, stored the way the queue and the job runner store them. */
+  skipped?: Record<string, ProviderAccountStreak>
 }
 
 const harnesses: Array<{ close: () => Promise<void> }> = []
@@ -82,17 +86,19 @@ async function harness(options: { locations?: boolean; projectProviders?: string
     const newest = Date.now() - newestAgoMs
     outcomes.forEach((outcome, index) => {
       const errors = outcome.errors ?? []
-      const error = errors.length === 0
+      const skipped = outcome.skipped ?? {}
+      const error = errors.length === 0 && Object.keys(skipped).length === 0
         ? null
         : outcome.legacy
           // Stored before errors carried a code: the shape without `code`.
           ? JSON.stringify({ providers: Object.fromEntries(errors.map(([name, msg]) => [name, { message: msg }])) })
-          : serializeRunError(buildProviderRunError(errors))
+          : serializeRunError(withSkippedProviders(buildProviderRunError(errors), skipped))
       const runId = crypto.randomUUID()
       const createdAt = new Date(newest - (outcomes.length - 1 - index) * 60_000).toISOString()
       db.insert(runs).values({
         id: runId, projectId, kind: 'answer-visibility', status: outcome.status,
         trigger: outcome.trigger ?? 'scheduled', error, createdAt,
+        skippedProviders: outcome.skipped ?? null,
       }).run()
       for (const provider of outcome.answered ?? []) {
         db.insert(querySnapshots).values({ id: crypto.randomUUID(), runId, provider, citationState: 'not-cited', createdAt }).run()
@@ -103,8 +109,31 @@ async function harness(options: { locations?: boolean; projectProviders?: string
   const accountFailures = (count: number, errors: Array<[string, string]> = [['claude', BILLING], ['openai', AUTH]]): Outcome[] =>
     Array.from({ length: count }, () => ({ status: 'failed', errors }))
   const trigger = (body: Record<string, unknown> = {}) => app.inject({ method: 'POST', url: '/api/v1/projects/acme/runs', payload: body })
+  /** Runs where openai failed on its key while claude answered: the multi-provider case. */
+  const openaiFailures = (count: number): Outcome[] =>
+    Array.from({ length: count }, () => ({ status: 'partial', errors: [['openai', AUTH]], answered: ['claude'] }))
+  /** The finished runs, oldest first. */
+  const finished = () => db.select({ id: runs.id, createdAt: runs.createdAt }).from(runs)
+    .where(eq(runs.projectId, projectId)).orderBy(runs.createdAt).all()
+  const admissionReads = async () => Promise.all([
+    app.inject({ method: 'GET', url: '/api/v1/projects/acme/runs/latest' }).then(res => res.json().admission),
+    app.inject({ method: 'GET', url: '/api/v1/projects/acme/run-admission' }).then(res => res.json()),
+    app.inject({ method: 'GET', url: '/api/v1/projects/acme/overview' }).then(res => res.json().latestRun.admission),
+  ])
 
-  return { app, db, projectId, created, seed, accountFailures, trigger }
+  return { app, db, projectId, created, seed, accountFailures, openaiFailures, finished, admissionReads, trigger }
+}
+
+/** The streak admission reports for `provider` over runs seeded oldest first. */
+function streakOver(code: ProviderAccountStreak['code'], failures: ReadonlyArray<{ id: string; createdAt: string }>): ProviderAccountStreak {
+  const newest = failures[failures.length - 1]!
+  return {
+    code,
+    consecutiveRuns: PROVIDER_ACCOUNT_FAILURE_STREAK,
+    since: failures[failures.length - PROVIDER_ACCOUNT_FAILURE_STREAK]!.createdAt,
+    latestRunId: newest.id,
+    retryAfter: new Date(Date.parse(newest.createdAt) + PROVIDER_ACCOUNT_RETRY_HOURS * HOUR).toISOString(),
+  }
 }
 
 type Harness = Awaited<ReturnType<typeof harness>>
@@ -308,5 +337,131 @@ describe('run admission after provider account failures', () => {
     expect(response.statusCode).toBe(207)
     expect(response.json()).toMatchObject([{ projectName: 'acme', status: 'error', errorCode: 'PROVIDERS_FAILING' }])
     expect(h.created).toEqual([])
+  })
+})
+
+describe('skipping a provider that keeps failing on its account', () => {
+  it('queues the run without it, freezes the skip on the run, and reports it on every read', async () => {
+    const h = await harness()
+    h.seed(h.openaiFailures(PROVIDER_ACCOUNT_FAILURE_STREAK))
+    const openai = streakOver('PROVIDER_AUTH', h.finished())
+
+    const queued = await h.trigger()
+    expect(queued.statusCode).toBe(201)
+    expect(queued.json().skippedProviders).toEqual({ openai })
+    expect(h.created).toEqual([queued.json().id])
+    expect(h.db.select({ skippedProviders: runs.skippedProviders }).from(runs).where(eq(runs.id, queued.json().id)).get())
+      .toEqual({ skippedProviders: { openai } })
+
+    for (const admission of await h.admissionReads()) {
+      expect(admission).toEqual({ refused: false, retryAfter: null, providers: { openai } })
+    }
+  })
+
+  it('reports a refused sweep, and a healthy one, the same way on every read', async () => {
+    const healthy = await harness()
+    for (const admission of await healthy.admissionReads()) {
+      expect(admission).toEqual({ refused: false, retryAfter: null, providers: {} })
+    }
+
+    const h = await harness()
+    h.seed(h.accountFailures(PROVIDER_ACCOUNT_FAILURE_STREAK))
+    const failures = h.finished()
+    const claude = streakOver('PROVIDER_BILLING', failures)
+    for (const admission of await h.admissionReads()) {
+      expect(admission).toEqual({ refused: true, retryAfter: claude.retryAfter, providers: { claude, openai: { ...claude, code: 'PROVIDER_AUTH' } } })
+    }
+  })
+
+  it("judges the next sweep by the schedule's providers when it names some", async () => {
+    // Only openai was ever called, so claude has no streak: a sweep of the
+    // project's own list skips openai, but the schedule calls openai alone.
+    const h = await harness()
+    h.seed(h.accountFailures(PROVIDER_ACCOUNT_FAILURE_STREAK, [['openai', AUTH]]))
+    const openai = streakOver('PROVIDER_AUTH', h.finished())
+    expect((await h.admissionReads())[1]).toEqual({ refused: false, retryAfter: null, providers: { openai } })
+
+    const at = new Date().toISOString()
+    h.db.insert(schedules).values({
+      id: 'sched', projectId: h.projectId, kind: 'answer-visibility', cronExpr: '0 6 * * *', timezone: 'UTC',
+      enabled: true, providers: ['openai'], createdAt: at, updatedAt: at,
+    }).onConflictDoUpdate({ target: [schedules.projectId, schedules.kind], set: { enabled: true, providers: ['openai'] } }).run()
+    expect((await h.admissionReads())[1]).toEqual({ refused: true, retryAfter: openai.retryAfter, providers: { openai } })
+  })
+
+  // A run that skipped openai did not call it, so it neither extends nor ends
+  // its streak. More of them than the lookback holds must not let it through
+  // early: the newest skip vouches for the streak that skipped it.
+  const SKIPPED_RUNS = 45
+  it.each<{ name: string; after: (h: Harness) => Outcome[]; skipped: (streak: ProviderAccountStreak, h: Harness) => ProviderAccountStreak | undefined; failuresAgoMs?: number }>([
+    {
+      name: 'keeps skipping it through runs that skipped it',
+      after: () => [],
+      skipped: streak => streak,
+    },
+    {
+      name: 'calls it again once the retry interval has passed',
+      failuresAgoMs: PROVIDER_ACCOUNT_RETRY_HOURS * HOUR + HOUR,
+      after: () => [],
+      skipped: () => undefined,
+    },
+    {
+      name: 'restarts the interval from a retry that failed again',
+      after: h => h.openaiFailures(1),
+      skipped: (streak, h) => {
+        const retry = h.finished().at(-1)!
+        return { ...streak, latestRunId: retry.id, retryAfter: new Date(Date.parse(retry.createdAt) + PROVIDER_ACCOUNT_RETRY_HOURS * HOUR).toISOString() }
+      },
+    },
+    {
+      name: 'stops skipping it once a call answers',
+      after: () => [{ status: 'completed', answered: ['claude', 'openai'] }],
+      skipped: () => undefined,
+    },
+  ])('$name', async ({ after, skipped, failuresAgoMs }) => {
+    const h = await harness()
+    h.seed(h.openaiFailures(PROVIDER_ACCOUNT_FAILURE_STREAK), (failuresAgoMs ?? 0) + (SKIPPED_RUNS + 2) * 60_000)
+    const streak = streakOver('PROVIDER_AUTH', h.finished())
+    h.seed([
+      ...Array.from({ length: SKIPPED_RUNS }, (): Outcome => ({ status: 'partial', answered: ['claude'], skipped: { openai: streak } })),
+      ...after(h),
+    ])
+
+    const expected = skipped(streak, h)
+    const queued = await h.trigger()
+    expect(queued.statusCode).toBe(201)
+    expect(queued.json().skippedProviders).toEqual(expected ? { openai: expected } : undefined)
+  })
+
+  it('calls it again as soon as its key is saved', async () => {
+    const h = await harness()
+    h.seed(h.openaiFailures(PROVIDER_ACCOUNT_FAILURE_STREAK))
+    h.db.insert(auditLog).values({
+      id: crypto.randomUUID(), projectId: h.projectId, actor: 'api', action: 'provider.updated', entityType: 'provider',
+      entityId: 'openai', diff: JSON.stringify({ apiKeyRotated: true }), createdAt: new Date().toISOString(),
+    }).run()
+    expect((await h.trigger()).json().skippedProviders).toBeUndefined()
+  })
+
+  it.each([
+    { name: 'a forced run', body: { force: true } },
+    { name: 'a probe', body: { trigger: 'probe' } },
+  ])('skips nothing on $name', async ({ body }) => {
+    const h = await harness()
+    h.seed(h.openaiFailures(PROVIDER_ACCOUNT_FAILURE_STREAK))
+    const queued = await h.trigger(body)
+    expect(queued.statusCode).toBe(201)
+    expect(queued.json().skippedProviders).toBeUndefined()
+    expect(h.db.select({ skippedProviders: runs.skippedProviders }).from(runs).where(eq(runs.id, queued.json().id)).get())
+      .toEqual({ skippedProviders: null })
+  })
+
+  it('freezes one decision on every location of a fan-out', async () => {
+    const h = await harness({ locations: true })
+    h.seed(h.openaiFailures(PROVIDER_ACCOUNT_FAILURE_STREAK))
+    const openai = streakOver('PROVIDER_AUTH', h.finished())
+    const response = await h.trigger({ allLocations: true })
+    expect(response.statusCode).toBe(207)
+    expect(response.json()).toEqual([expect.objectContaining({ location: 'north', skippedProviders: { openai } })])
   })
 })

@@ -4582,6 +4582,16 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE dashboard_sessions ADD COLUMN password_fingerprint TEXT`,
     ],
   },
+  {
+    // Providers a run does not call because each keeps failing on its
+    // account, frozen at queue time. Nullable with no default: every existing
+    // run, and every run an older writer queues, skips none.
+    version: 175,
+    name: 'runs-skipped-providers',
+    statements: [
+      `ALTER TABLE runs ADD COLUMN skipped_providers TEXT`,
+    ],
+  },
 ]
 
 /**

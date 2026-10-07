@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { CompetitorAutoAlias as StoredCompetitorAutoAlias, CompetitorAutoAliasMode, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, SnapshotUsage } from '@ainyc/canonry-contracts'
+import type { CompetitorAutoAlias as StoredCompetitorAutoAlias, CompetitorAutoAliasMode, ProviderAccountStreak, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, SnapshotUsage } from '@ainyc/canonry-contracts'
 import type { CalendarRecurrence, AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, GbpReviewAlertState, GbpReviewOrigin, GbpReviewsAccess, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@ainyc/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
@@ -379,6 +379,12 @@ export const runs = sqliteTable('runs', {
    * lose them; folded into `error` and cleared when the run finalizes.
    */
   pendingProviderErrors: text('pending_provider_errors', { mode: 'json' }).$type<Record<string, string>>(),
+  /**
+   * Providers this run does not call because each keeps failing on its
+   * account, with the failure streak that decided it, frozen at queue time
+   * (`providerAccountAdmission`). Null when it skips none.
+   */
+  skippedProviders: text('skipped_providers', { mode: 'json' }).$type<Record<string, ProviderAccountStreak>>(),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_runs_project').on(table.projectId),

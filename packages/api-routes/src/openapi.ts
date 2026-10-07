@@ -2404,7 +2404,8 @@ const routeCatalog: OpenApiOperation[] = [
               dispatchMode: dispatchModeRequestSchema,
               force: {
                 type: 'boolean',
-                description: 'Queue the run even when it would be refused with PROVIDERS_FAILING. Admission only; never stored.',
+                description: 'Call every provider: queue the run even when it would be refused with PROVIDERS_FAILING, and skip no provider '
+                  + 'that keeps failing on its account. Admission only; never stored.',
               },
             },
           },
@@ -2412,7 +2413,11 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      201: jsonResponse('Run queued.', 'RunDto'),
+      201: jsonResponse(
+        'Run queued. `skippedProviders` names each provider it will not call because that provider failed on its account '
+        + `in each of its last ${PROVIDER_ACCOUNT_FAILURE_STREAK} runs (until its \`retryAfter\`); the run calls the rest and ends partial.`,
+        'RunDto',
+      ),
       400: errorResponse(
         'Invalid request: an untracked query, a measurement scope naming a group/target/question the published plan does not contain, '
         + 'a scope combined with a query list, a per-run location on a plan project, a provider roster the plan was not published for, '
@@ -2422,8 +2427,9 @@ const routeCatalog: OpenApiOperation[] = [
         'NO_QUERIES: the project has no tracked queries. PROVIDERS_FAILING: every provider the run would call failed on its '
         + `account (rejected key, denied access, no credit) in each of its last ${PROVIDER_ACCOUNT_FAILURE_STREAK} runs. `
         + '`details.providers` names each provider\'s code and `details.retryAfter` when one run is let through again '
-        + `(${PROVIDER_ACCOUNT_RETRY_HOURS}h after the newest failure). Saving a new key, model or endpoint in a provider's settings `
-        + 'lets the next run through at once, a probe is never refused, and `force: true` overrides.',
+        + `(${PROVIDER_ACCOUNT_RETRY_HOURS}h after a provider's newest failure; the run then calls only the providers due a retry). `
+        + 'Saving a new key, model or endpoint in a provider\'s settings lets the next run through at once, a probe is never '
+        + 'refused, and `force: true` overrides. When only some providers keep failing, the run is queued without them instead.',
       ),
       409: errorResponse('Run already in progress.'),
       503: errorResponse('No runnable answer provider is configured.'),
@@ -2443,10 +2449,26 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/runs/latest',
     summary: 'Get the latest project run',
+    description: 'The newest non-probe run, the run count, and `admission`: whether the next full sweep would be refused '
+      + '(PROVIDERS_FAILING) and which providers it would skip because each keeps failing on its account, with their codes '
+      + 'and `retryAfter`. A scheduled sweep that is refused leaves no run, so read `admission`, not the latest run, to tell.',
     tags: ['runs'],
     parameters: [nameParameter],
     responses: {
       200: jsonResponse('Latest run returned.', 'LatestProjectRunDto'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/run-admission',
+    summary: 'Get whether the next sweep would be admitted',
+    description: 'The `admission` of `/projects/{name}/runs/latest` without the latest run: whether the next full sweep would '
+      + 'be refused (PROVIDERS_FAILING) and which providers it would skip because each failed on its account in each of its '
+      + `last ${PROVIDER_ACCOUNT_FAILURE_STREAK} runs, with each provider's code and \`retryAfter\`.`,
+    tags: ['runs'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Run admission returned.', 'RunAdmissionDto'),
     },
   },
   {
@@ -2483,7 +2505,8 @@ const routeCatalog: OpenApiOperation[] = [
               dispatchMode: dispatchModeRequestSchema,
               force: {
                 type: 'boolean',
-                description: 'Queue projects that would be refused with PROVIDERS_FAILING. Admission only; never stored.',
+                description: 'Call every provider: queue projects that would be refused with PROVIDERS_FAILING, and skip no '
+                  + 'provider that keeps failing on its account. Admission only; never stored.',
               },
             },
           },

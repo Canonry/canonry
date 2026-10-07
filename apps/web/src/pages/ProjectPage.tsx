@@ -70,6 +70,7 @@ import { asyncHandler } from '../lib/async-handler.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
 import { ProjectEngineSettingsSection, SiteHealthScanSettingsSection } from '../components/project/ProjectEngineSettingsSection.js'
 import { ManagedSweepStatus, managedSweepDate } from '../components/project/ManagedSweepStatus.js'
+import { RunAdmissionNotice } from '../components/project/RunAdmissionNotice.js'
 import { ScheduleSection } from '../components/project/ScheduleSection.js'
 import { NotificationsSection } from '../components/project/NotificationsSection.js'
 import {
@@ -2886,6 +2887,8 @@ function ProjectPageContent({
           </div>
         ) : (
         <>
+          {/* Above both overviews: a refused or partial sweep is the project's state, whichever portfolio it is. */}
+          {!isEmbed() ? <RunAdmissionNotice projectName={projectName} canFix={canWrite} /> : null}
           {isActiveMeasurementPlanError ? (
             <div role="alert" className="mb-5 flex flex-wrap items-center gap-3 border-y border-negative-800/40 bg-negative-950/20 py-4 text-sm text-negative">
               <span>Could not check the advanced measurement setup. Existing project-wide results remain available.</span>

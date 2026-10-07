@@ -151,6 +151,28 @@ export const PROVIDER_ACCOUNT_FAILURE_STREAK = 10
 /** How long after the newest such failure one run is let through again. */
 export const PROVIDER_ACCOUNT_RETRY_HOURS = 24
 
+/**
+ * A provider held back because it keeps failing on its account: it failed
+ * with `PROVIDER_AUTH` or `PROVIDER_BILLING` in each of its last
+ * `PROVIDER_ACCOUNT_FAILURE_STREAK` runs that called it, the newest of those
+ * finished less than `PROVIDER_ACCOUNT_RETRY_HOURS` ago, and no settings save
+ * that could fix it came after the oldest. A run skips it; a run whose
+ * providers are all held is refused with `PROVIDERS_FAILING`.
+ */
+export const providerAccountStreakSchema = z.object({
+  /** How its newest failure was classified: `PROVIDER_AUTH` or `PROVIDER_BILLING`. */
+  code: providerErrorCodeSchema,
+  /** Runs in a row it failed this way (the threshold). */
+  consecutiveRuns: z.number().int().positive(),
+  /** When the oldest run of the streak was created. */
+  since: z.string(),
+  /** The newest run it failed in. */
+  latestRunId: z.string(),
+  /** When it is next called without `force`: the retry interval after its newest failure finished. */
+  retryAfter: z.string(),
+})
+export type ProviderAccountStreak = z.infer<typeof providerAccountStreakSchema>
+
 export const runProviderErrorSchema = z.object({
   /** Human-readable error message (best-effort extracted from `raw.error.message` / `raw.message`, otherwise the raw text with any `[provider-X]` prefix stripped). */
   message: z.string(),
@@ -162,6 +184,12 @@ export const runProviderErrorSchema = z.object({
    * existed and on entries that are not a provider's own failure.
    */
   code: providerErrorCodeSchema.optional(),
+  /**
+   * True when the run did not call this provider because it keeps failing on
+   * its account (the run's `skippedProviders`). `code` is that failure. A
+   * skipped provider neither extends nor ends its failure streak.
+   */
+  skipped: z.boolean().optional(),
 })
 
 export type RunProviderErrorDto = z.infer<typeof runProviderErrorSchema>
@@ -263,10 +291,32 @@ export const runDtoSchema = z.object({
    * measured a published plan; planless runs, which never batch, omit it.
    */
   dispatchModes: runDispatchModesSchema.optional(),
+  /**
+   * Providers this run does not call because each keeps failing on its
+   * account, decided when it was queued. A probe or a `force` run skips none.
+   * Each has an `error.providers` entry with `skipped: true` once the run
+   * finishes. Omitted when the run skips none.
+   */
+  skippedProviders: z.record(z.string(), providerAccountStreakSchema).optional(),
   createdAt: z.string(),
 })
 
 export type RunDto = z.infer<typeof runDtoSchema>
+
+/**
+ * Whether the project's next full answer-visibility sweep would be admitted,
+ * as the scheduler starts one: with the schedule's providers when it names
+ * some, else the project's. A probe or a `force` run is never held back.
+ */
+export const runAdmissionDtoSchema = z.object({
+  /** Every provider the sweep would call is held back, so it is refused (`PROVIDERS_FAILING`); a scheduled one skips its slot. */
+  refused: z.boolean(),
+  /** When a refused sweep is next let through without `force`: the earliest provider `retryAfter`. Null when not refused. */
+  retryAfter: z.string().nullable(),
+  /** Each provider the sweep would call that is held back. Empty when none is. */
+  providers: z.record(z.string(), providerAccountStreakSchema),
+})
+export type RunAdmissionDto = z.infer<typeof runAdmissionDtoSchema>
 
 const PROVIDER_PREFIX = /^\[provider-[\w-]+\]\s+/
 
@@ -342,6 +392,34 @@ export function buildProviderRunError(messages: Iterable<readonly [string, strin
     providers[name] = { ...parseProviderErrorMessage(msg), code: classifyProviderErrorMessage(msg) }
   }
   return { providers }
+}
+
+/** The stored error entry of a provider a run skipped because it keeps failing on its account. */
+export function skippedProviderRunError(provider: string, streak: ProviderAccountStreak): RunProviderErrorDto {
+  return {
+    message: `Not called: ${provider} failed on its account (${streak.code}) in each of its last ${streak.consecutiveRuns} runs. `
+      + `It is called again after ${streak.retryAfter}, or as soon as a new key, model or endpoint is saved for it `
+      + `(canonry settings provider ${provider}). Pass force (canonry run --force) to call it now.`,
+    code: streak.code,
+    skipped: true,
+  }
+}
+
+/**
+ * `error` with an entry for each provider the run skipped. A skip replaces any
+ * other entry for the same provider: a provider the run never called cannot
+ * have failed in it.
+ */
+export function withSkippedProviders(error: RunErrorDto, skipped: Readonly<Record<string, ProviderAccountStreak>>): RunErrorDto {
+  const entries = Object.entries(skipped)
+  if (entries.length === 0) return error
+  return {
+    ...error,
+    providers: {
+      ...error.providers,
+      ...Object.fromEntries(entries.map(([provider, streak]) => [provider, skippedProviderRunError(provider, streak)])),
+    },
+  }
 }
 
 /** Serialize a `RunErrorDto` for the `runs.error` DB column. */
@@ -527,6 +605,8 @@ export type RunDetailDto = z.infer<typeof runDetailDtoSchema>
 export const latestProjectRunDtoSchema = z.object({
   totalRuns: z.number().int().nonnegative(),
   run: runDetailDtoSchema.nullable(),
+  /** Whether the next full sweep would be admitted, and which providers it would skip. Absent from servers before it existed. */
+  admission: runAdmissionDtoSchema.optional(),
 })
 
 export type LatestProjectRunDto = z.infer<typeof latestProjectRunDtoSchema>

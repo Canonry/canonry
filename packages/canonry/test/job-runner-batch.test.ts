@@ -17,6 +17,7 @@ import {
   GEMINI_PRICING,
   GEMINI_STANDARD_COST,
   NORTH,
+  NOW,
   batchRows,
   deferred,
   dispatchOf,
@@ -236,6 +237,35 @@ describe('a mixed run: one sync provider, one batch provider', () => {
       gemini: expect.objectContaining({ message: '[fake-gemini] 429 rate limit exceeded' }),
     })
     expect(events('run.completed').map(([, props]) => (props as { status: string }).status)).toEqual(['partial'])
+  })
+})
+
+// A sync provider the run skipped (it keeps failing on its account) is not
+// called, and the finalizer that runs after the batch ends still records it as
+// skipped: a gap message in its place would read as a non-account failure and
+// end its streak, so the next run would call it again.
+describe('a provider skipped across a batch handoff', () => {
+  it('stays skipped in the final error and in telemetry', async () => {
+    const { db, projectId } = seedPlannedProject({ count: 2 })
+    const runId = queueBatchRun(db, projectId)
+    const streak = { code: 'PROVIDER_BILLING' as const, consecutiveRuns: 10, since: NOW, latestRunId: 'run-9', retryAfter: '2026-09-25T06:00:00.000Z' }
+    db.update(runs).set({ skippedProviders: { gemini: streak } }).where(eq(runs.id, runId)).run()
+    const { runner, transport, poller, syncCalls } = harness(db)
+
+    await runner.executeRun(runId, projectId)
+    expect(syncCalls.filter(call => call.provider === 'gemini')).toEqual([])
+    expect(runRow(db, runId).status).toBe('running')
+    transport.end(transport.only().id)
+    await poller.tick()
+
+    const run = runRow(db, runId)
+    expect(run.status).toBe('partial')
+    expect(parseRunError(run.error)?.providers).toEqual({
+      gemini: expect.objectContaining({ code: 'PROVIDER_BILLING', skipped: true, message: expect.stringMatching(/^Not called: gemini/) }),
+    })
+    expect(snapshotRows(db, runId).map(row => row.provider)).toEqual(['claude', 'claude'])
+    expect(events('run.completed').map(([, props, options]) => [(props as { providerOutcomes?: unknown }).providerOutcomes, options]))
+      .toEqual([[{ claude: 'ok', gemini: 'skipped' }, { errorCode: 'PROVIDER_BILLING' }]])
   })
 })
 

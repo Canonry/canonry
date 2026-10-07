@@ -8,6 +8,7 @@ import {
   buildMeasurementRunManifestV1,
   canonicalMeasurementPlanJson,
   compileMeasurementPlan,
+  parseRunError,
   resolveMeasurementRunScope,
   type LocationContext,
   type MeasurementPlan,
@@ -24,7 +25,7 @@ import {
   querySnapshots,
   runs,
 } from '@ainyc/canonry-db'
-import { buildMeasurementRunManifest, buildStoredMeasurementReport } from '@ainyc/canonry-api-routes'
+import { buildMeasurementRunManifest, buildStoredMeasurementReport, measurementRunSlotState } from '@ainyc/canonry-api-routes'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 import { fakeAdapter, type RecordedCall } from './fake-measurement-provider.js'
@@ -318,6 +319,25 @@ describe('expected slots that never ran', () => {
     const run = env.db.select().from(runs).where(eq(runs.id, env.runId)).get()!
     expect(run.status).toBe('partial')
     expect(run.error).toContain('gemini')
+  })
+
+  test('a provider the run skipped leaves its slots missing and says why, not that no provider was available', async () => {
+    const env = buildEnv({ providers: ['openai', 'gemini'] })
+    const streak = { code: 'PROVIDER_AUTH' as const, consecutiveRuns: 10, since: '2026-07-30T00:00:00.000Z', latestRunId: 'run-9', retryAfter: '2026-08-02T00:00:00.000Z' }
+    env.db.update(runs).set({ skippedProviders: { gemini: streak } }).where(eq(runs.id, env.runId)).run()
+    const calls: RecordedCall[] = []
+
+    await new JobRunner(env.db, registryFor(calls, [{ name: 'openai' }, { name: 'gemini' }])).executeRun(env.runId, env.projectId)
+
+    expect(calls.map(call => call.provider)).toEqual(['openai', 'openai'])
+    expect(snapshotsFor(env).map(row => row.provider)).toEqual(['openai', 'openai'])
+    const run = env.db.select().from(runs).where(eq(runs.id, env.runId)).get()!
+    expect(run.status).toBe('partial')
+    expect(parseRunError(run.error)?.providers).toEqual({
+      gemini: expect.objectContaining({ code: 'PROVIDER_AUTH', skipped: true, message: expect.stringMatching(/^Not called: gemini failed on its account/) }),
+    })
+    // The plan's report still expects gemini's answers: two slots read as missing.
+    expect(measurementRunSlotState(env.db, env.runId).missing.map(slot => slot.provider)).toEqual(['gemini', 'gemini'])
   })
 
   test('a run where no expected slot could run at all is failed, not completed', async () => {

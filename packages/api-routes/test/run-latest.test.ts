@@ -186,6 +186,7 @@ describe('GET /api/v1/projects/:name/runs/latest', () => {
     expect(JSON.parse(res.payload)).toEqual({
       totalRuns: 0,
       run: null,
+      admission: { refused: false, retryAfter: null, providers: {} },
     })
 
     await app.close()
