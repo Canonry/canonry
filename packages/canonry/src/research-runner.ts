@@ -4,13 +4,14 @@ import {
   determineAnswerMentioned,
   effectiveBrandNames,
   effectiveDomains,
+  extractRecommendedCompetitors,
   isBrowserProvider,
   mapWithConcurrency,
   ResearchQueryStatuses,
   ResearchRunStatuses,
   describeError,
 } from '@ainyc/canonry-contracts'
-import { computeCitedCompetitorDomains, determineCitationState, extractRecommendedCompetitors } from './citation-utils.js'
+import { computeCitedCompetitorDomains, determineCitationState } from './citation-utils.js'
 import type { ProviderRegistry } from './provider-registry.js'
 import { getSharedProviderExecutionGate } from './provider-execution-gate.js'
 import { getCurrentUsageDay, releaseDailyQueryQuota, reserveDailyQueryQuota } from './usage-quota.js'
@@ -56,7 +57,10 @@ export async function executeResearchRun(db: DatabaseClient, registry: ProviderR
     reserved = run.totalQueries
     reservation = { scope, period }
     const rows = db.select().from(researchRunQueries).where(eq(researchRunQueries.researchRunId, runId)).orderBy(researchRunQueries.position).all()
-    const competitorDomains = db.select({ domain: competitors.domain }).from(competitors).where(eq(competitors.projectId, projectId)).all().map(row => row.domain)
+    const competitorRows = db.select({ domain: competitors.domain, aliases: competitors.aliases }).from(competitors).where(eq(competitors.projectId, projectId)).all()
+    const competitorDomains = competitorRows.map(row => row.domain)
+    // Curated names identify a competitor in the answer the same way a sweep does.
+    const competitorAliases = new Map(competitorRows.filter(row => row.aliases.length > 0).map(row => [row.domain, row.aliases]))
     const domains = effectiveDomains(project)
     const brands = effectiveBrandNames(project)
     const config = { ...provider.config, model: run.resolvedModel }
@@ -85,6 +89,7 @@ export async function executeResearchRun(db: DatabaseClient, registry: ProviderR
           normalized.citedDomains,
           competitorDomains,
           brands,
+          competitorAliases,
         )
         const citedCompetitorDomains = computeCitedCompetitorDomains(normalized.citedDomains, competitorDomains)
         const completed = db.update(researchRunQueries).set({

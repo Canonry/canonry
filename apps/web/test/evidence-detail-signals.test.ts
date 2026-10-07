@@ -33,3 +33,24 @@ test('legacy mixed overlap is not promoted into either labelled signal', () => {
     mentionedCompetitorDomains: [],
   })
 })
+
+test('matched competitor terms travel with the mention signal they explain', () => {
+  const current = {
+    citedCompetitorDomains: [],
+    mentionedCompetitorDomains: ['spoketuneworks.example'],
+    mentionedCompetitorTerms: ['TuneSpoke'],
+  }
+  expect(evidenceCompetitorSignals(current)).toEqual(current)
+  // A historical row with its own mention signal never borrows current terms.
+  expect(evidenceCompetitorSignals({ mentionedCompetitorDomains: [], mentionedCompetitorTerms: [] }, current)).toEqual({
+    citedCompetitorDomains: [],
+    mentionedCompetitorDomains: [],
+    mentionedCompetitorTerms: [],
+  })
+  // A row without a mention signal falls back to the current one, terms included.
+  expect(evidenceCompetitorSignals({ citedCompetitorDomains: ['rival.example'] }, current)).toEqual({
+    citedCompetitorDomains: ['rival.example'],
+    mentionedCompetitorDomains: ['spoketuneworks.example'],
+    mentionedCompetitorTerms: ['TuneSpoke'],
+  })
+})

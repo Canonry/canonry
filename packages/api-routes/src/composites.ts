@@ -247,14 +247,12 @@ export async function compositeRoutes(app: FastifyInstance, options: { sentiment
     }
     const mentionShareInputs = buildMentionShareInputs({
       project,
-      competitorDomains: competitorRows.map(c => c.domain),
+      competitors: competitorRows,
       snapshots: trackedLatest,
       queryTextById: queryLookup.byId,
       answerDomainsByText,
     })
-    const competitiveSignalResolver = compileCompetitiveSignalResolver(
-      competitorRows.map(c => c.domain),
-    )
+    const competitiveSignalResolver = compileCompetitiveSignalResolver(competitorRows)
     const gapSignalSnapshots = trackedLatest.map(snapshot => ({
       ...snapshot,
       ...competitiveSignalResolver.resolve({
@@ -308,7 +306,7 @@ export async function compositeRoutes(app: FastifyInstance, options: { sentiment
     })
     const overviewCompetitors: ProjectOverviewCompetitorDto[] = buildOverviewCompetitors(
       trackedLatest,
-      competitorRows.map(c => ({ id: c.id, domain: c.domain })),
+      competitorRows.map(c => ({ id: c.id, domain: c.domain, aliases: c.aliases })),
       queryLookup,
     )
     const attentionItems = buildAttentionItems(insightRows, allRuns)
@@ -1041,6 +1039,7 @@ function formatProject(row: typeof projects.$inferSelect, negativeReviewMaxStars
     defaultLocation: row.defaultLocation,
     autoExtractBacklinks: row.autoExtractBacklinks,
     negativeReviewMaxStars,
+    siteAuditMaxPages: row.siteAuditMaxPages ?? null,
     configSource: row.configSource as ProjectDto['configSource'],
     configRevision: row.configRevision,
     createdAt: row.createdAt,

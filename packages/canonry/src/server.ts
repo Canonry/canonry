@@ -222,7 +222,7 @@ import { executeReleaseSync } from "./commoncrawl-sync.js";
 import { executeBacklinkExtract } from "./backlink-extract.js";
 import { executeDiscoveryRun } from "./discovery-run.js";
 import { executeSiteAudit } from "./execute-site-audit.js";
-import { backfillProjectAnswerMentions } from "./commands/backfill.js";
+import { backfillProjectAnswerMentions } from "@ainyc/canonry-api-routes";
 import { getBundledSkillSnapshots } from "./commands/skills.js";
 import {
   DUCKDB_SPEC,
@@ -3320,6 +3320,28 @@ export async function createServer(opts: {
           app.log.error(
             { err, projectId, projectName },
             "alias-triggered backfill failed",
+          );
+        }
+      });
+    },
+    onCompetitorAliasesChanged: (projectId: string, projectName: string) => {
+      // Read-time competitor matchers pick curated aliases up on their own;
+      // this refreshes the stored per-snapshot columns (`competitor_overlap`,
+      // `recommended_competitors`) only. A competitor's names say nothing
+      // about the project's own `answer_mentioned`, so that column is left alone.
+      // A sweep, fill or batch ingest still recording with the old names
+      // rescores its own run when it finishes (`reconcileRunCompetitorFields`).
+      setImmediate(() => {
+        try {
+          const result = backfillProjectAnswerMentions(opts.db, projectId, { competitorFieldsOnly: true });
+          app.log.info(
+            { projectId, projectName, ...result },
+            "competitor aliases changed: recomputed competitor fields on historical snapshots",
+          );
+        } catch (err) {
+          app.log.error(
+            { err, projectId, projectName },
+            "competitor-alias-triggered backfill failed",
           );
         }
       });

@@ -93,7 +93,7 @@ Rules for `canonry-mcp`, hosted MCP catalogs, guidance generation, MCP parity, a
 File-level rules for the MCP pieces in this package:
 
 - `src/mcp/server.ts` — `createCanonryMcpServer` registers all API tools, then disables non-core tiers unless `--eager`.
-- `src/mcp/tool-registry.ts` — all 245 API tools, including Site Health semantic graph and page-audit evidence reads, sitemap Target discovery, and revision-pinned measurement reports, each tagged with a `tier` (`core` or one of the toolkit names).
+- `src/mcp/tool-registry.ts` — all 246 API tools, including Site Health semantic graph and page-audit evidence reads, sitemap Target discovery, and revision-pinned measurement reports, each tagged with a `tier` (`core` or one of the toolkit names).
 - `src/mcp/cli.ts` — `canonry-mcp` stdio entrypoint; parses `--read-only`, `--eager`, `--scope`, plus `CANONRY_MCP_*` env. `resolveEffectiveScope()` best-effort probes `GET /keys/self` at startup and forces `read-only` when the configured key is read-only (auto-restricts the catalog to read tools; falls back to the flag scope on any probe failure).
 - `src/mcp/operations-guide.ts` — compact intent routing filtered against the connection's loaded tools; generated source is `docs/agent-operations/v1.md`. No provider calls or permission grants.
 - `src/commands/mcp.ts` — MCP client install helpers: `mcp install`, `mcp config` (writes to client config files only — separate from the `canonry-mcp` stdio bin). `src/mcp-clients.ts` is the registry of supported MCP clients (Claude Desktop, Cursor, Codex) — config-path resolvers and format hints used by `mcp install`/`mcp config`.
@@ -216,6 +216,13 @@ Queue-time configuration does not define simple runs because their inputs resolv
 This capture does not reconstruct historical definitions.
 
 Simple and Advanced snapshots use `isSearchLocationIgnored` to clear a search-tool location when retrieval is `not-used`. Preserve the requested location in `requestedContext` and record `supportedContext.status: 'ignored'` for these answers.
+
+A curated competitor alias saved while a sweep, fill or batch ingest is
+recording is applied once by `onCompetitorAliasesChanged`; each writer then
+calls `reconcileRunCompetitorFields` after its last write (success, cancel or
+failure) and rescores its own run against the current competitor names when
+they changed after it read them. `test/job-runner-competitor-alias-edits.test.ts`
+covers each writer, including a fill a newer sweep stops and one that fails.
 
 When a sweep finishes, the flow is: `JobRunner` → `RunCoordinator.onRunCompleted()` → `IntelligenceService.analyzeAndPersist()` then `Notifier.onRunCompleted()`. The coordinator runs intelligence first (synchronous) so insights are persisted before webhooks fire. Each subscriber is wrapped in an independent try/catch — one failing must not block the others.
 
@@ -443,6 +450,8 @@ It writes retrieval fields in exactly one case: OpenAI rows labelled `native-aut
 
 The command lives in `src/commands/backfill.ts` (historical recomputation for answer visibility fields and insights).
 
+The snapshot rescore behind `canonry backfill answer-mentions`, the alias hooks and `reconcileRunCompetitorFields`, `backfillProjectAnswerMentions`, lives in `@ainyc/canonry-api-routes` (`src/snapshot-competitor-refresh.ts`) so Cloud can run it too; `src/commands/backfill.ts` re-exports it. `src/citation-utils.ts` keeps only the citation helpers; the competitor matchers `computeCompetitorOverlap` and `extractRecommendedCompetitors` are in contracts (`competitor-matching.ts`).
+
 ### Server and SPA serving
 
 - `assets/`: `server.ts` default `assetsDir` is this dir; `createServer({assetsDir: '/tmp/my-dist'})` override lets tests/custom builds point elsewhere without forking the package.
@@ -497,12 +506,12 @@ Every field after `version` is optional and is omitted rather than nulled, so co
 
 ### Technical AEO / Site Health
 
-`src/scheduler.ts`: `onSiteAuditRequested` starts a Technical AEO full crawl unless one is active.
+`src/scheduler.ts`: a scheduled `site-audit` resolves its page budget with `normalizeSiteAuditRunRequest({}, project.siteAuditMaxPages)` (the project's saved budget, else the full site), records that identity on the run, then calls `onSiteAuditRequested`; it skips when a site-audit run is already queued or running.
 
 `src/execute-site-audit.ts` — `executeSiteAudit` runs `@canonry/aeo-audit`'s `runSiteCrawl`:
 
 - Events update an attempt graph with idempotent receipts. Terminal runs keep immutable complete or partial snapshots. Default reads select the newest one, complete or partial; only the `changes` diff is limited to complete snapshots.
-- The page budget defaults to 1,000; an unset edge budget is left unset so the engine derives it from the resolved page count (floored at 100,000), and an explicit one is a ceiling that replaces the derivation. Hard limits are 50,000 pages and 1,000,000 edges.
+- The page budget is the one the run creator resolved through `normalizeSiteAuditRunRequest`: the request's, else the project's saved `siteAuditMaxPages`, else the full site (`SITE_AUDIT_DEFAULT_PAGE_LIMIT` = the 50,000 hard limit), for manual and scheduled scans alike; onboarding sends its own 100. An unset edge budget is left unset so the engine derives it from the resolved page count (floored at 100,000), and an explicit one is a ceiling that replaces the derivation. Hard limits are 50,000 pages and 1,000,000 edges.
 - The engine (>= 7.1.0) derives `maxFetches`/`maxDurationMs`/`maxBytes`/`maxEdges` from the page budget natively and honours explicit values exactly, so this file passes ONLY `maxPages`/`maxEdges` (the operator-facing limits) and never a fetch-side budget — setting one would pin it and fight the derivation.
 - The engine also makes the dead-link split itself (6.0.0+): `deadLinks.findings` always carry a real 4xx/5xx status and `deadLinks.unverified` carries the targets the crawl could not check (timeout, reset socket, throttled 429), and ONLY findings are written to `site_crawl_findings` — every reader of that table renders a row as a broken link, and a crawl timeout is not evidence of one.
 - `deadLinkCheckedCount` excludes unfetchable targets for the same reason — a URL that never answered was attempted, not checked.
@@ -755,6 +764,7 @@ attribution and no provider calls or sync.
   safe provider catalog, and `access` metadata as REST; explicit read-only
   endpoints/flags never expose the research-start tool.
 
+- `competitor aliases <project> <domain>` reads or edits one competitor's curated answer-text names: `--set`/`--clear` write the exact list (`PUT .../aliases`); `--add` alone appends server-side in one call (`POST /competitors` with `{ domain, aliases }`), so concurrent adds never overwrite each other; `--remove` reads, edits and writes the list back, so an edit another client makes between that read and write is lost (documented in the CLI reference). `competitor add --alias` (one domain only) adds names on create; its JSON carries the aliased competitor as `competitor` (a `CompetitorDto`). `aliases` JSON output is the API's `CompetitorDto`. MCP twins: `canonry_competitors_aliases_set`, and `canonry_competitors_add` with `{ domain, aliases }` entries.
 - `competitor landscape --by-model` reads stored requested-model groups.
   Keep served identity separate. A model filter requires a provider.
   JSONL preserves the complete response as one compact document.

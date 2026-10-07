@@ -8,8 +8,8 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 import { recordSentimentCompletion, parseJsonColumn, providerBatches, providerBatchRequests, runFills, runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
 import type { PricingTier, ProviderBatchRequestOutcome, ProviderBatchResultLine, ProviderBatchStatus, ProviderBatchSubmitResult, ProviderDispatchMode, ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RawQueryResult, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto, RunStatus, TrackedQueryRequest } from '@ainyc/canonry-contracts'
 import { PricingTiers, ProviderBatchRequestOutcomes, ProviderBatchStatuses, ProviderBatchSubmitError, ProviderDispatchModes, RUN_FILL_PROVIDER_BREAKER, buildSnapshotUsage, formatRunErrorOneLine, parseRunError, resolveProviderModel } from '@ainyc/canonry-contracts'
-import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, competitorLabelFromDomain, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildProviderRunError, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isSearchLocationIgnored, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
-import { captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep, type RunCompetitors } from '@ainyc/canonry-api-routes'
+import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, competitorLabelFromDomain, computeCompetitorOverlap, extractRecommendedCompetitors, normalizeCompetitorAliases, type CompetitorIdentityInput, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildProviderRunError, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isSearchLocationIgnored, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
+import { backfillProjectAnswerMentions, captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep, type RunCompetitors } from '@ainyc/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
 import { buildProviderOutcomeProps, buildRunCompletedProps, buildSiteAuditCompletedProps, describeRunFailure, failureStreakSampling, hashDomain, runFailureSite, type RunPhaseTimings } from './run-telemetry.js'
@@ -17,11 +17,7 @@ import { createLogger } from './logger.js'
 import { ProviderExecutionGate, getSharedProviderExecutionGate } from './provider-execution-gate.js'
 import { getCurrentUsageDay, releaseDailyQueryQuota, reserveDailyQueryQuota } from './usage-quota.js'
 import { adapterSupportsBatch } from './provider-batch-config.js'
-import {
-  computeCompetitorOverlap,
-  determineCitationState,
-  extractRecommendedCompetitors,
-} from './citation-utils.js'
+import { determineCitationState } from './citation-utils.js'
 import { captureCitedUrls, type CitedUrlCapture } from './cited-url-capture.js'
 
 const log = createLogger('JobRunner')
@@ -85,8 +81,10 @@ interface RunRecordingContext {
    * The competitors one answer is scored against: the project list plus the
    * plan pins of the groups whose properties use that question.
    */
-  competitorsFor: (executionId: string) => RunCompetitors
+  competitorsFor: (executionId: string | null) => RunCompetitors
   allBrandNames: string[]
+  /** The project competitors this context read, as `competitorIdentityKey` spells them. */
+  competitorIdentity: string
 }
 
 /** What `recordSlot` needs: the run's identity and where a recorded answer is reported. */
@@ -318,6 +316,16 @@ function runOutcome(inserted: number, providerErrors: ReadonlyMap<ProviderName, 
 }
 
 /**
+ * The project competitors and their curated aliases as one comparable value,
+ * so a writer can tell whether the names it scored with are still current.
+ */
+function competitorIdentityKey(rows: readonly CompetitorIdentityInput[]): string {
+  return JSON.stringify(rows
+    .map(row => ({ domain: row.domain, aliases: normalizeCompetitorAliases(row.aliases) }))
+    .sort((left, right) => left.domain.localeCompare(right.domain)))
+}
+
+/**
  * Build the identity one run's answers are scored against from rows already
  * read. The sweep calls it with its own reads; a path that joins the run later
  * goes through `JobRunner.buildRunRecordingContext`, which reads them the same
@@ -329,15 +337,17 @@ function runRecordingContext(
     runId: string
     measurementPlanVersionId: string | null
     project: Pick<typeof projects.$inferSelect, 'canonicalDomain' | 'ownedDomains' | 'displayName' | 'aliases'>
-    competitorDomains: readonly string[]
+    /** Stored project competitors with their curated aliases. */
+    competitors: readonly CompetitorIdentityInput[]
   },
 ): RunRecordingContext {
-  const resolveCompetitors = createRunCompetitorResolver(db, input.competitorDomains)
+  const resolveCompetitors = createRunCompetitorResolver(db, input.competitors)
   return {
     runId: input.runId,
     allDomains: effectiveDomains({ canonicalDomain: input.project.canonicalDomain, ownedDomains: input.project.ownedDomains }),
     competitorsFor: executionId => resolveCompetitors(input.measurementPlanVersionId, executionId),
     allBrandNames: effectiveBrandNames({ displayName: input.project.displayName, aliases: input.project.aliases }),
+    competitorIdentity: competitorIdentityKey(input.competitors),
   }
 }
 
@@ -710,6 +720,8 @@ export class JobRunner {
     let planExecution: PlanExecution | null = null
     let runTrigger: string | undefined
     let canonicalDomain: string | undefined
+    // Set once the sweep has read the identity it scores answers with.
+    let recording: RunRecordingContext | undefined
     const providerDispatchCounts = new Map<ProviderName, number>()
     const providerReservations = new Map<ProviderName, { scope: string; period: string; reserved: number }>()
     // The provider batches this sweep writes, so a failure or a cancellation
@@ -849,13 +861,15 @@ export class JobRunner {
       // on the groups that use its question, so a project whose competitor
       // list was never filled in still measures them, market by market. The
       // planless path below keeps using exactly the project list.
-      const recording = runRecordingContext(this.db, {
+      recording = runRecordingContext(this.db, {
         runId,
         measurementPlanVersionId: existingRun.measurementPlanVersionId,
         project,
-        competitorDomains,
+        competitors: projectCompetitors,
       })
       const { allDomains, allBrandNames } = recording
+      // The project list's curated names, for the planless path below.
+      const { aliases: competitorAliases } = recording.competitorsFor(null)
       const executionContext: RunExecutionContext = {
         providerCount: activeProviders.length,
         providers: activeProviders.map(provider => provider.adapter.name),
@@ -972,13 +986,14 @@ export class JobRunner {
               allBrandNames,
               allDomains,
             )
-            const overlap = computeCompetitorOverlap(normalized, competitorDomains)
+            const overlap = computeCompetitorOverlap(normalized, competitorDomains, competitorAliases)
             const extractedCompetitors = extractRecommendedCompetitors(
               normalized.answerText,
               allDomains,
               normalized.citedDomains,
               competitorDomains,
               allBrandNames,
+              competitorAliases,
             )
 
             const answerLocation = runLocation && isSearchLocationIgnored(providerName, normalized.retrievalStatus)
@@ -1123,12 +1138,16 @@ export class JobRunner {
             provider: adapter.name,
             requestedModel: config.model ?? null,
           })),
-          // The legacy competitors table has domains only. Freeze the exact
-          // identity we actually dispatched with so later reporting never
-          // borrows renamed or newly added competitors from live project state.
+          // Freeze the exact identity we actually dispatched with (domain label
+          // plus curated aliases) so later reporting never borrows renamed or
+          // newly added competitors, or later alias edits, from live project
+          // state. A competitor with no curated alias freezes exactly as it did
+          // before aliases existed, so its definition checksum is unchanged.
           competitors: projectCompetitors.map(competitor => {
             const label = competitorLabelFromDomain(competitor.domain)
-            return { domain: competitor.domain, label, aliases: [label] }
+            const curated = normalizeCompetitorAliases(competitor.aliases)
+              .filter(alias => alias.toLowerCase() !== label.toLowerCase())
+            return { domain: competitor.domain, label, aliases: [label, ...curated] }
           }),
           queries: projectQueries.map(query => ({
             queryId: query.id,
@@ -1205,6 +1224,9 @@ export class JobRunner {
         }
       }
       providerCallEnd = Date.now()
+      // Every sync answer is stored. Before the run is finalized or handed to
+      // the batch poller, bring its competitor columns to the names saved last.
+      this.reconcileRunCompetitorFields(recording, projectId)
 
       this.throwIfRunCancelled(runId)
 
@@ -1219,7 +1241,7 @@ export class JobRunner {
           if (dispatched >= units.length || providerErrors.has(providerName)) continue
           providerErrors.set(
             providerName,
-            `${units.length - dispatched} expected measurement(s) did not run: no ${provider} provider was available to this worker.`,
+            `No ${provider} provider was available to this worker, so ${units.length - dispatched} expected measurement(s) did not run.`,
           )
         }
       }
@@ -1258,6 +1280,8 @@ export class JobRunner {
       // cancellation it is.
       if (!finalized && this.isRunCancelled(runId)) throw new RunCancelledError(runId)
     } catch (err: unknown) {
+      // A cancelled or failed sweep keeps the answers it stored.
+      if (recording) this.reconcileRunCompetitorFields(recording, projectId)
       const executionContext: RunExecutionContext = {
         providerCount: activeProviders.length,
         providers: activeProviders.map(provider => provider.adapter.name),
@@ -1620,7 +1644,7 @@ export class JobRunner {
             .all()
           const first = unrecorded[0]
           if (first) {
-            add(batch.provider, `${unrecorded.length} of ${batch.requestCount} batch answer(s) were not recorded. First: ${first.error ?? first.outcome}`)
+            add(batch.provider, `Batch answers not recorded: ${unrecorded.length} of ${batch.requestCount}. First: ${first.error ?? first.outcome}`)
           }
           break
         }
@@ -1635,7 +1659,7 @@ export class JobRunner {
     }
     const gaps = new Map<string, number>()
     for (const slot of missing) gaps.set(slot.provider, (gaps.get(slot.provider) ?? 0) + 1)
-    for (const [provider, gap] of gaps) add(provider, `${gap} expected measurement(s) have not run.`)
+    for (const [provider, gap] of gaps) add(provider, `Expected measurements not run yet: ${gap}.`)
     return errors
   }
 
@@ -2086,6 +2110,9 @@ export class JobRunner {
       if (!(failure instanceof RunCancelledError)) throw failure
       this.markBatchesCancelled([batch.id], 'Cancelled because its run is no longer running.')
       return { kind: 'cancelled' }
+    } finally {
+      // After the last chunk this ingest commits, and before it can finalize the run.
+      this.reconcileRunCompetitorFields(ctx, batch.projectId)
     }
     return this.completeBatchIngest(batch)
   }
@@ -2302,6 +2329,8 @@ export class JobRunner {
     let filled = 0
     let fatal: string | null = null
     let superseded = false
+    // Hoisted so a cancelled or failed fill still reconciles what it wrote.
+    let recording: RunRecordingContext | undefined
 
     try {
       const run = this.getRunState(runId)
@@ -2309,7 +2338,7 @@ export class JobRunner {
       if (run.status !== 'partial') throw new Error(`Run ${runId} is ${run.status}; only a partial run can be filled`)
       const runCreatedAt = this.db.select({ createdAt: runs.createdAt }).from(runs).where(eq(runs.id, runId)).get()!.createdAt
       // The same identity the sweep matched against, read the same way.
-      const recording = this.buildRunRecordingContext(runId, projectId)
+      recording = this.buildRunRecordingContext(runId, projectId)
       const projectQueries = this.db.select().from(queries).where(eq(queries.projectId, projectId)).all()
       const plan = resolvePlanExecution(run, projectQueries)
       if (!plan) throw new Error(`Run ${runId} did not measure a published plan`)
@@ -2441,6 +2470,9 @@ export class JobRunner {
       fatal = describeError(err)
       log.error('fill.failed', { fillId, runId, error: fatal })
     } finally {
+      // After the last write, success, cancel or failure alike: answers stored
+      // after a mid-fill alias edit are rescored against the current names.
+      if (recording) this.reconcileRunCompetitorFields(recording, projectId)
       this.flushProviderUsage(providerDispatchCounts, providerReservations)
     }
 
@@ -2496,7 +2528,7 @@ export class JobRunner {
         for (const slot of state.missing) remaining.set(slot.provider, (remaining.get(slot.provider) ?? 0) + 1)
         const providers: Record<string, RunProviderErrorDto> = {}
         for (const [provider, count] of remaining) {
-          providers[provider] = fresh[provider] ?? previous[provider] ?? { message: `${count} expected measurement(s) have not run.` }
+          providers[provider] = fresh[provider] ?? previous[provider] ?? { message: `Expected measurements not run yet: ${count}.` }
         }
         txDb.update(runs)
           .set({ error: serializeRunError({ providers }) })
@@ -2784,8 +2816,35 @@ export class JobRunner {
       runId,
       measurementPlanVersionId: run.measurementPlanVersionId,
       project,
-      competitorDomains: projectCompetitors.map(c => c.domain),
+      competitors: projectCompetitors,
     })
+  }
+
+  /**
+   * Rescore a run's stored competitor columns when the project's competitors
+   * changed after `recording` read them.
+   *
+   * Saving a competitor alias rescores the stored answers once
+   * (`onCompetitorAliasesChanged`). A writer that read the names before the
+   * edit keeps scoring with them, so an answer it stores afterwards would
+   * disagree with an identical one the edit rescored. Each writer calls this
+   * after its last write: when its names are no longer current, the whole run
+   * gets the same competitor-only pass the edit ran. A failure is logged and
+   * never fails the writer.
+   */
+  private reconcileRunCompetitorFields(recording: RunRecordingContext, projectId: string): void {
+    try {
+      const current = this.db
+        .select({ domain: competitors.domain, aliases: competitors.aliases })
+        .from(competitors)
+        .where(eq(competitors.projectId, projectId))
+        .all()
+      if (competitorIdentityKey(current) === recording.competitorIdentity) return
+      const result = backfillProjectAnswerMentions(this.db, projectId, { competitorFieldsOnly: true, runId: recording.runId })
+      log.info('run.competitor-fields-rescored', { runId: recording.runId, projectId, ...result })
+    } catch (err: unknown) {
+      log.error('run.competitor-fields-rescore-failed', { runId: recording.runId, projectId, error: describeError(err) })
+    }
   }
 
   private incrementUsage(scope: string, metric: string, count: number): void {

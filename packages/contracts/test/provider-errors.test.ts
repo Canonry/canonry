@@ -45,6 +45,22 @@ describe('classifyProviderErrorMessage', () => {
     expect(classifyProviderErrorMessage('[provider-perplexity] {"error":{"type":"insufficient_quota"}}')).toBe('PROVIDER_BILLING')
   })
 
+  it("reads Gemini's 400 for a bad or expired key as PROVIDER_AUTH", () => {
+    const body = (message: string, reason: string) => `[provider-gemini] ${JSON.stringify({
+      error: { code: 400, message, status: 'INVALID_ARGUMENT', details: [{ reason }] },
+    })}`
+    expect(classifyProviderErrorMessage(body('API key not valid. Please pass a valid API key.', 'API_KEY_INVALID'))).toBe('PROVIDER_AUTH')
+    expect(classifyProviderErrorMessage(body('API key expired. Please renew the API key.', 'API_KEY_INVALID'))).toBe('PROVIDER_AUTH')
+  })
+
+  it('never reads a count in the text as an HTTP status', () => {
+    // Canonry's own messages carry counts; only a written status is one.
+    expect(classifyProviderErrorMessage('Daily quota exceeded for openai: 401 queries used today, limit is 500.')).toBe('RATE_LIMITED')
+    expect(classifyProviderErrorMessage('No perplexity provider was available to this worker, so 403 expected measurement(s) did not run.')).toBe('UNKNOWN')
+    expect(classifyProviderErrorMessage('Batch answers not recorded: 402 of 900. First: canceled')).toBe('UNKNOWN')
+    expect(classifyProviderErrorMessage('Expected measurements not run yet: 503.')).toBe('UNKNOWN')
+  })
+
   it("keeps Gemini's quota-worded rate limits as RATE_LIMITED", () => {
     const geminiRateLimit = JSON.stringify({
       error: { code: 429, message: 'You exceeded your current quota, please check your plan and billing details.', status: 'RESOURCE_EXHAUSTED' },

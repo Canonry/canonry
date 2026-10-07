@@ -43,7 +43,7 @@ Page Health:
 Projects:
   project               Create, update, list, show, delete projects
   query                 Add, replace, remove, list, import, generate queries
-  competitor            Add, remove, list competitors
+  competitor            Add, remove, list competitors and their aliases
 
 Monitoring:
   run                   Trigger visibility sweeps

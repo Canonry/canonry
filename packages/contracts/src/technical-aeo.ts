@@ -1603,8 +1603,23 @@ export const siteCrawlDeadLinksResponseSchema = z.discriminatedUnion('state', [
 export type SiteCrawlDeadLinksResponseDto = z.infer<typeof siteCrawlDeadLinksResponseSchema>
 
 /** Canonry-local crawl defaults. These are part of request identity. */
-export const SITE_AUDIT_DEFAULT_PAGE_LIMIT = 1_000
 export const SITE_AUDIT_MAX_PAGE_LIMIT = 50_000
+/**
+ * A scan with no page budget covers the full site, up to the hard limit, as a
+ * scheduled audit does: a smaller default silently left large sites partly
+ * unchecked. Pass `maxPages` for a quick look (onboarding sends its own 100).
+ */
+export const SITE_AUDIT_DEFAULT_PAGE_LIMIT = SITE_AUDIT_MAX_PAGE_LIMIT
+/** A crawl page budget, requested for one scan or saved on a project: whole pages, 1 to the hard limit. */
+export const siteAuditPageBudgetSchema = z.number().int().min(1).max(SITE_AUDIT_MAX_PAGE_LIMIT)
+/** A page count in words: "1 page", "2,500 pages". */
+export function formatPageCount(pages: number): string {
+  return `${pages.toLocaleString('en-US')} ${pages === 1 ? 'page' : 'pages'}`
+}
+/** A saved Site Health page budget in words, lower case: "2,500 pages", or "full site (up to 50,000 pages)" for null. */
+export function formatSiteAuditPageBudget(maxPages: number | null): string {
+  return maxPages === null ? `full site (up to ${formatPageCount(SITE_AUDIT_MAX_PAGE_LIMIT)})` : formatPageCount(maxPages)
+}
 /**
  * The crawler's own depth limit when a request sets none
  * (`DEFAULT_SITE_CRAWL_LIMITS.maxDepth` in `@canonry/aeo-audit`, which a test
@@ -1630,8 +1645,8 @@ export const siteAuditRunRequestSchema = z.object({
   sitemapUrl: z.string().url().optional(),
   /** @deprecated Prefer `maxPages`; retained for compatibility. */
   limit: z.number().int().positive().max(2000).optional(),
-  /** Crawl page budget. When omitted, Canonry crawls up to 1,000 pages. */
-  maxPages: z.number().int().positive().max(50_000).optional(),
+  /** Crawl page budget. When omitted, the project's saved budget applies, else the full site (up to 50,000 pages). */
+  maxPages: siteAuditPageBudgetSchema.optional(),
   /** Internal-link observation budget. When omitted, the crawl engine derives it from the page count. */
   maxEdges: z.number().int().positive().max(1_000_000).optional(),
   /** Maximum crawl depth from the root. */
@@ -1665,11 +1680,17 @@ export interface SiteAuditEffectiveRequest {
   checkDeadLinks: boolean
 }
 
-export function normalizeSiteAuditRunRequest(request: Partial<SiteAuditRunRequest>): SiteAuditEffectiveRequest {
+/**
+ * The request a scan runs with. Its page budget is the request's own (`maxPages`,
+ * then the deprecated `limit`), else the project's saved budget, else the full
+ * site. Every run creator (the manual route and the scheduler) resolves through
+ * here before computing identity, so a run records the budget it actually used.
+ */
+export function normalizeSiteAuditRunRequest(request: Partial<SiteAuditRunRequest>, savedMaxPages?: number | null): SiteAuditEffectiveRequest {
   return {
     schemaVersion: 2,
     sitemapUrl: request.sitemapUrl ? new URL(request.sitemapUrl).toString() : null,
-    maxPages: request.maxPages ?? request.limit ?? SITE_AUDIT_DEFAULT_PAGE_LIMIT,
+    maxPages: request.maxPages ?? request.limit ?? savedMaxPages ?? SITE_AUDIT_DEFAULT_PAGE_LIMIT,
     maxEdges: request.maxEdges ?? null,
     maxDepth: request.maxDepth ?? null,
     checkDeadLinks: request.checkDeadLinks === true,

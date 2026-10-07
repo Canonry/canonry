@@ -11,6 +11,8 @@ import {
 import { measurementConfigSchema, defaultMeasurementConfig } from './measurement.js'
 import { providerDispatchModesSchema } from './provider-batch.js'
 import { gbpNegativeReviewMaxStarsSchema } from './gbp.js'
+import { competitorEntrySchema } from './competitor-aliases.js'
+import { siteAuditPageBudgetSchema } from './technical-aeo.js'
 
 export const configMetadataSchema = z.object({
   name: z.string().min(1).max(63).regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, {
@@ -70,7 +72,11 @@ export const configSpecSchema = z.object({
   language: z.string().min(2),
   queries: configQueryListSchema.optional(),
   keywords: configQueryListSchema.optional(),
-  competitors: z.array(z.string().min(1)).optional().default([]),
+  // Each entry is a bare domain or `{ domain, aliases }`. A bare domain (or an
+  // object without `aliases`) keeps that competitor's stored aliases on apply;
+  // `aliases` sets them exactly (`[]` clears). The domain set itself is still
+  // replaced by this list.
+  competitors: z.array(competitorEntrySchema).optional().default([]),
   providers: z.array(providerNameSchema).optional().default([]),
   providerModels: providerModelsSchema.optional().default({}),
   // No default on purpose: an apply that omits it leaves the project's stored
@@ -85,6 +91,12 @@ export const configSpecSchema = z.object({
   autoExtractBacklinks: z.boolean().optional().default(false),
   /** Highest star rating that counts as a negative Google review (1-4). Omitted means the default of 3. */
   negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.optional(),
+  /**
+   * Site Health page budget for scans that set none (1-50,000); null means the
+   * full site. Absent leaves the stored value alone, so a re-apply that never
+   * mentions it cannot undo a budget set in the dashboard.
+   */
+  siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
 }).superRefine((spec, ctx) => {
   if (spec.queries !== undefined && spec.keywords !== undefined) {
     ctx.addIssue({

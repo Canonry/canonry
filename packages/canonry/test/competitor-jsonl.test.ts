@@ -22,10 +22,11 @@ function captureStdout(fn: () => Promise<void>): { run: Promise<void>; lines: ()
 
 const { listCompetitors } = await import('../src/commands/competitor.js')
 
+// The stored shape: `aliases` is always present, often empty.
 const comps: CompetitorDto[] = [
-  { id: 'c1', domain: 'rival-one.com', createdAt: '2026-04-01T00:00:00.000Z' },
-  { id: 'c2', domain: 'rival-two.com', createdAt: '2026-04-02T00:00:00.000Z' },
-  { id: 'c3', domain: 'rival-three.com', createdAt: '2026-04-03T00:00:00.000Z' },
+  { id: 'c1', domain: 'rival-one.com', aliases: ['Rival One', 'R1 Supply'], createdAt: '2026-04-01T00:00:00.000Z' },
+  { id: 'c2', domain: 'rival-two.com', aliases: [], createdAt: '2026-04-02T00:00:00.000Z' },
+  { id: 'c3', domain: 'rival-three.com', aliases: [], createdAt: '2026-04-03T00:00:00.000Z' },
 ]
 
 describe('listCompetitors jsonl', () => {
@@ -54,12 +55,14 @@ describe('listCompetitors jsonl', () => {
     await cap.run
     const records = cap.lines().map(l => JSON.parse(l))
     expect(records.every(r => r.project === 'demo')).toBe(true)
-    expect(records[0]).toMatchObject({
+    expect(records[0]).toEqual({
       project: 'demo',
       id: 'c1',
       domain: 'rival-one.com',
+      aliases: ['Rival One', 'R1 Supply'],
       createdAt: '2026-04-01T00:00:00.000Z',
     })
+    expect(records.map(r => r.aliases)).toEqual([['Rival One', 'R1 Supply'], [], []])
   })
 
   it('format=jsonl on an empty collection writes nothing', async () => {
@@ -79,6 +82,8 @@ describe('listCompetitors jsonl', () => {
     } finally {
       console.log = origLog
     }
-    expect(JSON.parse(logs.join(''))).toEqual(comps)
+    const printed = JSON.parse(logs.join('')) as CompetitorDto[]
+    expect(printed).toEqual(comps)
+    expect(printed.map(c => c.aliases)).toEqual([['Rival One', 'R1 Supply'], [], []])
   })
 })

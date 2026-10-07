@@ -67,7 +67,7 @@ import type { QueryClassLookup } from '../lib/answer-movement.js'
 import { addToast } from '../lib/toast-store.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
-import { ProjectEngineSettingsSection } from '../components/project/ProjectEngineSettingsSection.js'
+import { ProjectEngineSettingsSection, SiteHealthScanSettingsSection } from '../components/project/ProjectEngineSettingsSection.js'
 import { ManagedSweepStatus, managedSweepDate } from '../components/project/ManagedSweepStatus.js'
 import { ScheduleSection } from '../components/project/ScheduleSection.js'
 import { NotificationsSection } from '../components/project/NotificationsSection.js'
@@ -1704,6 +1704,10 @@ function ProjectPageContent({
   const embedProjectTabs = useMemo(() => effectiveEmbedProjectTabs(getEmbedConfig()), [])
   const tab = resolveEmbedProjectTab(requestedTab, embedProjectTabs)
   const competitorDomains = useMemo(() => model.competitors.map(c => c.domain), [model.competitors])
+  const competitorAliases = useMemo<Record<string, readonly string[]>>(
+    () => Object.fromEntries(model.competitors.map(c => [c.domain, c.aliases ?? []])),
+    [model.competitors],
+  )
   // "Local Presence" is always shown — GbpSection renders a setup guide when no
   // Google Business Profile is connected, so the tab is the entry point to
   // connecting one rather than being hidden until after connection.
@@ -2022,7 +2026,7 @@ function ProjectPageContent({
   })
   useCompetitorLandscapeRefresh(projectName, JSON.stringify([
     competitorHistoryRevision,
-    model.competitors.map(competitor => competitor.domain).sort(),
+    model.competitors.map(competitor => `${competitor.domain}=${(competitor.aliases ?? []).join('|')}`).sort(),
     model.project.canonicalDomain, model.project.ownedDomains, model.project.aliases, model.project.displayName,
     activeMeasurementRevision,
     measurementSetupQuery.data?.draft?.etag ?? null,
@@ -2516,7 +2520,7 @@ function ProjectPageContent({
     }
   }
 
-  async function handleUpdateProject(pName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; aliases?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null; providers?: string[]; providerModels?: Record<string, string> }) {
+  async function handleUpdateProject(pName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; aliases?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null; providers?: string[]; providerModels?: Record<string, string>; siteAuditMaxPages?: number | null }) {
     const updated = await apiUpdateProject(pName, updates)
     // Invalidate the whole 'projects' branch (prefix match) so every consumer
     // — sidebar, project page, per-project detail queries — refetches the new
@@ -2679,6 +2683,7 @@ function ProjectPageContent({
       window={competitorLandscapeWindow}
       landscape={competitorLandscapeQuery.data}
       pinnedFallback={competitorLandscapePinnedFallback}
+      competitorAliases={competitorAliases}
       canWrite={canWrite}
       isEmbed={isEmbed()}
       onWindowChange={setCompetitorLandscapeWindow}
@@ -2916,6 +2921,7 @@ function ProjectPageContent({
             <VisibilityTrendSection
               projectName={model.project.name}
               competitorDomains={competitorDomains}
+              competitorAliases={competitorAliases}
               analyticsRevision={latestVisibilityRevision}
               queryTexts={trackedQueryTexts}
               classifyQuery={classifyQuery}
@@ -3111,6 +3117,7 @@ function ProjectPageContent({
         <>
           <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={async (name, updates) => { await handleUpdateProject(name, updates) }} onRefresh={() => void refetch()} />
           <ProjectEngineSettingsSection project={model.project} onSave={async next => { await handleUpdateProject(model.project.name, next) }} />
+          <SiteHealthScanSettingsSection key={model.project.id} project={model.project} onSave={async siteAuditMaxPages => { await handleUpdateProject(model.project.name, { siteAuditMaxPages }) }} />
           {canWrite && !isEmbed() ? (
             <section className="page-section-divider">
               <h2 className="text-lg font-semibold text-heading">Advanced measurement</h2>

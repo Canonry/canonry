@@ -11,6 +11,29 @@ import {
 /** Domain-derived labels need enough specificity to be safe as mention identities. */
 export const MIN_DOMAIN_BRAND_KEY_LENGTH = 4
 
+/**
+ * The shortest brand alias that may be matched in answer prose.
+ *
+ * Three, because real brands are three letters (`COS`, `IBM`) and the matcher
+ * this feeds requires COMPLETE adjacent words: `cos` never matches inside
+ * `cosmetics`, so length is not what protects against a false hit. The one
+ * threshold lives here rather than at each call site: the same brand counted by
+ * one surface and dropped by another is a silent disagreement about the same
+ * answer, which is exactly the class of bug that made a stored citation-side
+ * column and this metric report different mention counts for the same run.
+ *
+ * Operator-curated aliases (project aliases, competitor aliases) take this
+ * floor; a label DERIVED from a domain takes the stricter
+ * `MIN_DOMAIN_BRAND_KEY_LENGTH`, so a 3-letter brand counts only once someone
+ * approved it.
+ */
+export const MIN_BRAND_ALIAS_KEY_LENGTH = 3
+
+/** Aliases worth compiling: short/empty tokens would match noise, not identity. */
+export function usableBrandAliases(aliases: readonly string[]): string[] {
+  return aliases.filter(alias => brandKeyFromText(alias).length >= MIN_BRAND_ALIAS_KEY_LENGTH)
+}
+
 export interface AnswerMentionResult {
   mentioned: boolean
   matchedTerms: string[]

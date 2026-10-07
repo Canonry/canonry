@@ -1,10 +1,30 @@
 import type { ReactNode } from 'react'
 import React from 'react'
-import { brandKeyFromText } from '@ainyc/canonry-contracts'
+import { brandKeyFromText, brandLabelFromDomain } from '@ainyc/canonry-contracts'
 
 export interface HighlightTermGroup {
   terms: string[]
   className: string
+}
+
+/**
+ * Competitor terms to highlight in one answer: the names and written hosts the
+ * server matched (`mentionedCompetitorTerms`, curated aliases included) plus
+ * the recommended competitor names. The matching stays server-side; only a row
+ * from a payload without matched terms falls back to each mentioned domain's
+ * label (4 or more characters).
+ */
+export function competitorHighlightTerms(item: {
+  mentionedCompetitorDomains?: readonly string[]
+  mentionedCompetitorTerms?: readonly string[]
+  recommendedCompetitors?: readonly string[]
+}): string[] {
+  const mentioned = item.mentionedCompetitorTerms
+    ?? (item.mentionedCompetitorDomains ?? []).flatMap(domain => {
+      const brand = brandLabelFromDomain(domain)
+      return brand.length >= 4 ? [brand] : []
+    })
+  return [...mentioned, ...(item.recommendedCompetitors ?? [])].filter(term => term.trim().length > 2)
 }
 
 const SEPARATOR_CHARS = /[\s\-_]+/

@@ -125,13 +125,11 @@ export async function historyRoutes(app: FastifyInstance) {
       return reply.send({ snapshots: [], total: 0 })
     }
 
-    const competitorDomains = app.db
-      .select({ domain: competitors.domain })
+    const competitiveSignalResolver = compileCompetitiveSignalResolver(app.db
+      .select({ domain: competitors.domain, aliases: competitors.aliases })
       .from(competitors)
       .where(eq(competitors.projectId, project.id))
-      .all()
-      .map(row => row.domain)
-    const competitiveSignalResolver = compileCompetitiveSignalResolver(competitorDomains)
+      .all())
 
     // Get snapshots for these runs
     const allSnapshots = app.db

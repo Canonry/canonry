@@ -2510,7 +2510,8 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       })
     }
 
-    const effectiveRequest = normalizeSiteAuditRunRequest(parsed.data)
+    // The project's saved budget applies when the request sets none, before identity is computed.
+    const effectiveRequest = normalizeSiteAuditRunRequest(parsed.data, project.siteAuditMaxPages)
     const identityKey = siteAuditRequestIdentity(effectiveRequest)
     const result = app.db.transaction((tx) => {
       const existing = tx

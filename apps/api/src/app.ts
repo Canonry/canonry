@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import type { PlatformEnv } from '@ainyc/canonry-config'
 import { resolveOperatorApiKeyIds } from '@ainyc/canonry-config'
 import { createClient, migrate, OperationalLogStore } from '@ainyc/canonry-db'
-import { apiRoutes, resolveTrustProxy } from '@ainyc/canonry-api-routes'
+import { apiRoutes, backfillProjectAnswerMentions, resolveTrustProxy } from '@ainyc/canonry-api-routes'
 import { addLogListener, createFastifyLogger } from '@ainyc/canonry-api-routes/runtime-logger'
 
 import { registerHealthRoutes } from './routes/health.js'
@@ -198,6 +198,35 @@ export function buildApp(env: PlatformEnv) {
     trustProxyConfigured: trustProxy !== false,
     researchAllowViewers: env.research.allowViewers,
     researchViewerDailyRunLimit: env.research.viewerDailyRunLimit,
+    // A project alias change rescores stored answers in full, as local serve
+    // does: `answer_mentioned` and the competitor columns, which also covers a
+    // competitor alias the new project alias took over (that write fires only
+    // this hook). Inline for the same Cloud Run reason as the hook below.
+    onAliasesChanged: (projectId, projectName) => {
+      try {
+        const result = backfillProjectAnswerMentions(db, projectId)
+        app.log.info({ projectId, projectName, ...result }, 'aliases changed: recomputed mention fields on historical snapshots')
+      } catch (err) {
+        app.log.error({ err, projectId, projectName }, 'alias-triggered backfill failed')
+      }
+    },
+    // A competitor alias write refreshes the stored per-snapshot competitor
+    // columns (`competitor_overlap`, `recommended_competitors`) from stored
+    // answers, as local serve does; `answer_mentioned` is left alone. It runs
+    // inside the request, not after the response, because Cloud Run may
+    // throttle an instance once the response is sent. The write has already
+    // committed, so a failed refresh is logged and never fails the request.
+    onCompetitorAliasesChanged: (projectId, projectName) => {
+      try {
+        const result = backfillProjectAnswerMentions(db, projectId, { competitorFieldsOnly: true })
+        app.log.info(
+          { projectId, projectName, ...result },
+          'competitor aliases changed: recomputed competitor fields on historical snapshots',
+        )
+      } catch (err) {
+        app.log.error({ err, projectId, projectName }, 'competitor-alias-triggered backfill failed')
+      }
+    },
   })
 
   // NO MCP TRANSPORT AND NO OAUTH HERE, deliberately.

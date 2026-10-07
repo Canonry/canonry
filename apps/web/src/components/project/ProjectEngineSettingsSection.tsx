@@ -1,11 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 
-import { fetchSettings, isEmbed, type ApiProject } from '../../api.js'
+import { fetchSettings, isDashboardManagedRunKind, isEmbed, isPublicDemo, type ApiProject } from '../../api.js'
 import { useAccount } from '../../contexts/account-context.js'
+import {
+  FULL_SITE_PAGE_BUDGET_LABEL,
+  PAGE_BUDGET_PRESETS,
+  pageCountLabel,
+  savedPageBudgetLabel,
+} from '../../lib/site-audit-page-budget.js'
+import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { Button } from '../ui/button.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError, RunKinds, SITE_AUDIT_MAX_PAGE_LIMIT, SITE_AUDIT_ONBOARDING_PAGE_LIMIT, siteAuditPageBudgetSchema } from '@ainyc/canonry-contracts'
 
 type EngineProject = Pick<ApiProject, 'name' | 'providers' | 'providerModels'>
 type EngineSave = Pick<ApiProject, 'providers' | 'providerModels'>
@@ -232,6 +239,212 @@ export function ProjectEngineSettingsSection({
       {notice && <p role="status" className="text-sm text-positive-400">{notice}</p>}
       {hasModelChange && <p className="project-engine-warning">Applies on the next sweep. Existing history remains visible. If the recorded model changes, month-to-month comparison may exclude that engine.</p>}
       <div className="flex gap-2"><Button type="button" onClick={() => void save()} disabled={saving || (!automatic && selected.length === 0)}>{saving ? 'Saving engines…' : 'Save engines'}</Button><Button type="button" variant="outline" onClick={cancel} disabled={saving}>Cancel</Button></div>
+    </section>
+  )
+}
+
+/** Visible copy for the Site Health scans section, exported so tests assert the shipped strings. */
+export const SITE_HEALTH_SCAN_SETTINGS_COPY = {
+  heading: 'Site Health scans',
+  help: `Used by every scan that sets no budget, scheduled or manual. Onboarding's first look always checks ${pageCountLabel(SITE_AUDIT_ONBOARDING_PAGE_LIMIT)}.`,
+  pageBudget: 'Page budget',
+  customOption: 'Custom number...',
+  customLabel: 'Custom page budget',
+  customError: `Enter a whole number from 1 to ${SITE_AUDIT_MAX_PAGE_LIMIT.toLocaleString('en-US')}.`,
+  save: 'Save page budget',
+  saving: 'Saving page budget…',
+  saved: 'Page budget saved.',
+} as const
+
+const FULL_SITE_CHOICE = 'full'
+const CUSTOM_CHOICE = 'custom'
+
+type PageBudgetForm = { choice: string; customText: string }
+
+/** The select and custom field that show a saved budget: null is the full site, a preset its own option. */
+function pageBudgetForm(budget: number | null): PageBudgetForm {
+  if (budget === null) return { choice: FULL_SITE_CHOICE, customText: '' }
+  if (PAGE_BUDGET_PRESETS.some(preset => preset.value === budget)) return { choice: String(budget), customText: '' }
+  return { choice: CUSTOM_CHOICE, customText: String(budget) }
+}
+
+/**
+ * The budget a form would save: null for the full site, else whole pages. The
+ * contract's own budget schema decides a custom number, so the dashboard
+ * accepts exactly what the API does. Undefined while the custom number is not
+ * a valid budget.
+ */
+function pageBudgetFromForm({ choice, customText }: PageBudgetForm): number | null | undefined {
+  if (choice === FULL_SITE_CHOICE) return null
+  if (choice !== CUSTOM_CHOICE) return Number(choice)
+  const text = customText.trim()
+  if (text === '') return undefined
+  const parsed = siteAuditPageBudgetSchema.safeParse(Number(text))
+  return parsed.success ? parsed.data : undefined
+}
+
+/**
+ * The project's saved Site Health page budget: what every scan that sets no
+ * budget of its own uses, scheduled or manual. Null is the full site.
+ *
+ * Writers can change it, except that a deployment which manages Site Health
+ * scans leaves it to administrators, as it does the scan controls themselves.
+ * Everyone else, embeds and the public demo included, reads the saved value.
+ */
+export function SiteHealthScanSettingsSection({
+  project,
+  onSave,
+}: {
+  project: Pick<ApiProject, 'siteAuditMaxPages'>
+  onSave: (siteAuditMaxPages: number | null) => Promise<void>
+}) {
+  const { canWrite, isAdmin } = useAccount()
+  const canEdit = canWrite && !isEmbed() && !isPublicDemo()
+    && (!isDashboardManagedRunKind(RunKinds['site-audit']) || isAdmin)
+  const storedBudget = project.siteAuditMaxPages ?? null
+  const [saved, setSaved] = useState<number | null>(storedBudget)
+  const [form, setForm] = useState<PageBudgetForm>(() => pageBudgetForm(storedBudget))
+  // Only a custom number the operator has typed gets an error; choosing
+  // "Custom number..." opens an empty field without scolding.
+  const [customTouched, setCustomTouched] = useState(false)
+  // Mirrors the engine section: a background project refetch must not reset an edit in progress.
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const customInput = useRef<HTMLInputElement>(null)
+  const id = useId()
+  const headingId = `${id}-heading`
+  const selectId = `${id}-page-budget`
+  const customId = `${id}-custom-page-budget`
+  const customErrorId = `${id}-custom-page-budget-error`
+
+  useEffect(() => {
+    // Re-sync only when the stored budget itself changes, and never mid-edit.
+    // `editing`/`saving` are read but deliberately not dependencies.
+    if (saving || editing) return
+    setSaved(storedBudget)
+    setForm(pageBudgetForm(storedBudget))
+  }, [storedBudget])
+
+  const draft = pageBudgetFromForm(form)
+  const customInvalid = form.choice === CUSTOM_CHOICE && draft === undefined
+  const showCustomError = customInvalid && (customTouched || form.customText.trim() !== '')
+  const changed = draft !== undefined && draft !== saved
+
+  function choose(choice: string) {
+    setEditing(true)
+    setError(null)
+    setNotice(null)
+    setForm(current => ({ ...current, choice }))
+    if (choice === CUSTOM_CHOICE) {
+      setCustomTouched(false)
+      queueMicrotask(() => customInput.current?.focus())
+    }
+  }
+
+  function typeCustom(customText: string) {
+    setEditing(true)
+    setError(null)
+    setNotice(null)
+    setCustomTouched(true)
+    setForm(current => ({ ...current, customText }))
+  }
+
+  function cancel() {
+    setEditing(false)
+    setForm(pageBudgetForm(saved))
+    setCustomTouched(false)
+    setError(null)
+    setNotice(null)
+  }
+
+  async function save() {
+    if (saving || draft === undefined) return
+    setSaving(true)
+    setError(null)
+    setNotice(null)
+    try {
+      await onSave(draft)
+      setSaved(draft)
+      // A typed custom number that matches a preset shows as that preset.
+      setForm(pageBudgetForm(draft))
+      setCustomTouched(false)
+      setEditing(false)
+      setNotice(SITE_HEALTH_SCAN_SETTINGS_COPY.saved)
+    } catch (cause) {
+      setError(describeError(cause))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const fieldClass = 'h-9 w-full rounded-md border border-base bg-bg px-2 text-sm text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-600 disabled:opacity-60'
+
+  return (
+    <section className="project-engine-settings" aria-labelledby={headingId} aria-busy={saving}>
+      <div className="section-head section-head-inline">
+        {/* The tooltip is a SIBLING of the heading so its text stays out of the heading's name. */}
+        <div className="flex items-center gap-1.5">
+          <h2 id={headingId}>{SITE_HEALTH_SCAN_SETTINGS_COPY.heading}</h2>
+          <InfoTooltip text={SITE_HEALTH_SCAN_SETTINGS_COPY.help} />
+        </div>
+      </div>
+      {canEdit ? (
+        <>
+          <div className="grid max-w-sm gap-1">
+            <label htmlFor={selectId} className="text-sm font-medium text-heading">{SITE_HEALTH_SCAN_SETTINGS_COPY.pageBudget}</label>
+            <select
+              id={selectId}
+              value={form.choice}
+              disabled={saving}
+              onChange={event => choose(event.target.value)}
+              className={fieldClass}
+            >
+              <option value={FULL_SITE_CHOICE}>{FULL_SITE_PAGE_BUDGET_LABEL}</option>
+              {PAGE_BUDGET_PRESETS.map(preset => (
+                <option key={preset.value} value={String(preset.value)}>{preset.label}</option>
+              ))}
+              <option value={CUSTOM_CHOICE}>{SITE_HEALTH_SCAN_SETTINGS_COPY.customOption}</option>
+            </select>
+            {form.choice === CUSTOM_CHOICE && (
+              <>
+                <label htmlFor={customId} className="mt-2 text-sm font-medium text-heading">{SITE_HEALTH_SCAN_SETTINGS_COPY.customLabel}</label>
+                <input
+                  ref={customInput}
+                  id={customId}
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={SITE_AUDIT_MAX_PAGE_LIMIT}
+                  step={1}
+                  value={form.customText}
+                  disabled={saving}
+                  aria-invalid={showCustomError}
+                  aria-describedby={showCustomError ? customErrorId : undefined}
+                  onChange={event => typeCustom(event.target.value)}
+                  className={fieldClass}
+                />
+                {showCustomError && (
+                  <p id={customErrorId} role="alert" className="text-sm text-negative">{SITE_HEALTH_SCAN_SETTINGS_COPY.customError}</p>
+                )}
+              </>
+            )}
+          </div>
+          {error && <p role="alert" className="mt-3 text-sm text-negative">{error}</p>}
+          {notice && <p role="status" className="mt-3 text-sm text-positive">{notice}</p>}
+          <div className="mt-4 flex gap-2">
+            <Button type="button" onClick={() => void save()} disabled={saving || !changed}>
+              {saving ? SITE_HEALTH_SCAN_SETTINGS_COPY.saving : SITE_HEALTH_SCAN_SETTINGS_COPY.save}
+            </Button>
+            <Button type="button" variant="outline" onClick={cancel} disabled={saving || !editing}>Cancel</Button>
+          </div>
+        </>
+      ) : (
+        <p className="text-sm text-secondary">
+          {SITE_HEALTH_SCAN_SETTINGS_COPY.pageBudget}: <span className="text-strong">{savedPageBudgetLabel(saved)}</span>
+        </p>
+      )}
     </section>
   )
 }

@@ -922,6 +922,8 @@ export async function updateProject(projectName: string, updates: {
   defaultLocation?: string | null
   providers?: string[]
   providerModels?: Record<string, string>
+  /** Site Health page budget; null means the full site. Omitted keeps the stored value. */
+  siteAuditMaxPages?: number | null
 }): Promise<ApiProject> {
   const project = await fetchProject(projectName)
   return createProject(projectName, {
@@ -938,6 +940,10 @@ export async function updateProject(projectName: string, updates: {
     locations: updates.locations ?? project.locations,
     defaultLocation: updates.defaultLocation !== undefined ? updates.defaultLocation : project.defaultLocation,
     autoExtractBacklinks: project.autoExtractBacklinks,
+    // Sent only when this save sets it. The server keeps the stored budget when
+    // the field is omitted, so a save of any other setting can neither drop it
+    // nor overwrite a budget changed elsewhere since the read above.
+    ...(updates.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: updates.siteAuditMaxPages } : {}),
   })
 }
 

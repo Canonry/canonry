@@ -43,7 +43,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "AEO Discovery (Tracked-Basket Expansion)",
     description: "How to operate the tracked-basket discovery pipeline. Read when an operator asks to expand a project's basket, audit its competitive surface, or you wake unprompted on `aeo-discover-probe.completed`.",
     entryPoint: false,
-    characters: 12640,
+    characters: 13316,
     content: aeroReferencesAeoDiscoveryPart0,
   },
   {
@@ -73,7 +73,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Orchestration Workflows",
     description: "Workflow recipes — baseline, regression response, weekly review, content gap analysis. Read when planning a multi-step task or recurring review.",
     entryPoint: false,
-    characters: 7493,
+    characters: 7780,
     content: aeroReferencesOrchestrationPart0,
   },
   {
@@ -153,7 +153,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "AEO Analysis: Interpreting Canonry Results",
     description: "canonry skill reference: references/aeo-analysis.md",
     entryPoint: false,
-    characters: 16965,
+    characters: 17289,
     content: canonryReferencesAeoAnalysisPart0,
   },
   {
@@ -163,7 +163,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry CLI Reference",
     description: "canonry skill reference: references/canonry-cli.md",
     entryPoint: false,
-    characters: 129616,
+    characters: 136767,
     content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1, canonryReferencesCanonryCliPart2].join(''),
   },
   {

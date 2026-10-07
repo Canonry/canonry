@@ -1,5 +1,7 @@
 import { test, expect } from 'vitest'
 import {
+  normalizeCompetitorDomain,
+  configSpecSchema,
   normalizeProjectName,
   orderLocationsDefaultFirst,
   projectCreateRequestSchema,
@@ -39,6 +41,35 @@ test('project creation has a dedicated name field and a stable normalized route 
     country: 'US',
     language: 'en',
   }).name).toBe('Acme & Co.')
+})
+
+// ---------------------------------------------------------------------------
+// siteAuditMaxPages: the saved Site Health page budget. Absent must stay
+// absent (not defaulted) so PUT and apply can keep a stored value; null is the
+// explicit "full site" reset.
+// ---------------------------------------------------------------------------
+
+test('project upsert and config spec accept a saved page budget, null and absent, and reject out of range', () => {
+  const upsert = { displayName: 'Acme', canonicalDomain: 'acme.example', country: 'US', language: 'en' }
+  const spec = { displayName: 'Acme', canonicalDomain: 'acme.example', country: 'US', language: 'en' }
+
+  for (const [label, schema, base] of [
+    ['upsert', projectUpsertRequestSchema, upsert],
+    ['config spec', configSpecSchema, spec],
+  ] as const) {
+    for (const value of [1, 2_500, 50_000, null]) {
+      const parsed = schema.safeParse({ ...base, siteAuditMaxPages: value })
+      expect(parsed.success, `${label} ${value}`).toBe(true)
+      expect(parsed.data?.siteAuditMaxPages, `${label} ${value}`).toBe(value)
+    }
+    const absent = schema.safeParse(base)
+    expect(absent.success, label).toBe(true)
+    expect(Object.hasOwn(absent.data!, 'siteAuditMaxPages'), label).toBe(false)
+
+    for (const value of [0, 50_001, 1.5, '2500']) {
+      expect(schema.safeParse({ ...base, siteAuditMaxPages: value }).success, `${label} ${JSON.stringify(value)}`).toBe(false)
+    }
+  }
 })
 
 // ---------------------------------------------------------------------------
@@ -104,4 +135,24 @@ test('project upsert bounds qualifiedAliases and leaves it optional', () => {
   expect(projectUpsertRequestSchema.safeParse({ ...base, qualifiedAliases: ['x'.repeat(201)] }).success).toBe(false)
   expect(projectUpsertRequestSchema.safeParse({ ...base, qualifiedAliases: Array.from({ length: 21 }, (_, i) => `Alias ${i}`) }).success).toBe(false)
   expect(projectUpsertRequestSchema.safeParse({ ...base, qualifiedAliases: Array.from({ length: 20 }, (_, i) => `Alias ${i}`) }).success).toBe(true)
+})
+
+// ---------------------------------------------------------------------------
+// normalizeCompetitorDomain: the stored registrable form every competitor
+// write and lookup uses, so a subdomain label never becomes a brand token.
+// ---------------------------------------------------------------------------
+
+test('normalizeCompetitorDomain reduces a subdomain to its registrable domain', () => {
+  expect(normalizeCompetitorDomain('offers.quotebird.test')).toBe('quotebird.test')
+  expect(normalizeCompetitorDomain('shop.rival.co.uk')).toBe('rival.co.uk')
+})
+
+test('normalizeCompetitorDomain strips scheme, www, path and case from a URL', () => {
+  expect(normalizeCompetitorDomain('https://www.Rival.example/pricing?ref=1')).toBe('rival.example')
+  expect(normalizeCompetitorDomain('WWW.RIVAL.EXAMPLE')).toBe('rival.example')
+})
+
+test('normalizeCompetitorDomain keeps a single-label host as its normalized host', () => {
+  expect(normalizeCompetitorDomain('localhost')).toBe('localhost')
+  expect(normalizeCompetitorDomain('  Intranet  ')).toBe('intranet')
 })

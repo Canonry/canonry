@@ -253,7 +253,9 @@ export function readCompetitorLandscape(
       classifications.set(domain, surfaceClass)
     }
 
-    const projectPins = app.db.select({ domain: competitors.domain })
+    // Curated aliases reinterpret stored history at read time, like the pin
+    // itself; the generated domain label stays the display label.
+    const projectPins = app.db.select({ domain: competitors.domain, aliases: competitors.aliases })
       .from(competitors)
       .where(eq(competitors.projectId, project.id))
       .all()
@@ -261,11 +263,11 @@ export function readCompetitorLandscape(
         domain: row.domain,
         label: brandLabelFromDomain(row.domain) || row.domain,
         labelSource: 'domain' as const,
-        aliases: [],
+        aliases: row.aliases,
       }))
     const pinned = mergePins(advanced?.pendingPins ?? [], advanced?.activePinned ?? [], projectPins)
     const buildHistory = (selectedSnapshots: typeof snapshots) => {
-      const inputs = buildMentionShareInputs({ project, competitorDomains: [], snapshots: selectedSnapshots, queryTextById })
+      const inputs = buildMentionShareInputs({ project, competitors: [], snapshots: selectedSnapshots, queryTextById })
       // Sorted by answer count, so the cap keeps the most-named. On a large
       // portfolio the full list runs to thousands of names.
       const allObservedNames = observedCompetitorNames(selectedSnapshots)

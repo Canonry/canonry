@@ -422,6 +422,12 @@ export const querySnapshotDtoSchema = z.object({
   citedCompetitorDomains: z.array(z.string()).default([]),
   /** Tracked competitors present in answer prose. */
   mentionedCompetitorDomains: z.array(z.string()).default([]),
+  /**
+   * The competitor names (curated aliases, domain labels) and written hosts
+   * that produced `mentionedCompetitorDomains`, matched server-side, so a
+   * reader can highlight them without re-deriving competitor identity.
+   */
+  mentionedCompetitorTerms: z.array(z.string()).default([]),
   recommendedCompetitors: z.array(z.string()).default([]),
   matchedTerms: z.array(z.string()).default([]),
   groundingSources: z.array(groundingSourceSchema).default([]),

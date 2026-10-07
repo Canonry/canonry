@@ -4493,9 +4493,30 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     ],
   },
   {
+    // Operator-curated competitor names for answer-text matching. Defaulted,
+    // so every competitor stored before it reads as having no curated alias
+    // (domain label only, as before), and an older writer that omits the
+    // column still inserts.
+    version: 168,
+    name: 'competitors-aliases',
+    statements: [
+      `ALTER TABLE competitors ADD COLUMN aliases TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
+  {
+    // Saved Site Health page budget for scans that set none. Nullable with no
+    // default: every existing project reads as full site, and an older writer
+    // that never sets it leaves it null.
+    version: 169,
+    name: 'projects-site-audit-max-pages',
+    statements: [
+      `ALTER TABLE projects ADD COLUMN site_audit_max_pages INTEGER`,
+    ],
+  },
+  {
     // Run admission reads a project's ten newest runs of one kind on every
     // queue; without this it sorted every run the project ever had.
-    version: 168,
+    version: 170,
     name: 'runs-project-kind-created-index',
     statements: [
       `CREATE INDEX IF NOT EXISTS idx_runs_project_kind_created ON runs(project_id, kind, created_at)`,

@@ -59,7 +59,17 @@ const PROVIDER_ERROR_PRIORITY: readonly ProviderErrorCode[] = [
 ]
 
 export function classifyProviderErrorMessage(message: string): ProviderErrorCode {
-  if (/\b401\b|\b403\b|unauthorized|forbidden|invalid[_ -]?api[_ -]?key|missing[_ -]?api[_ -]?key|authentication/i.test(message)) {
+  // A number counts as an HTTP status only where one is written (see
+  // `extractProviderHttpStatus`), never anywhere in the text: canonry's own
+  // messages carry counts ("401 queries used today") that are not statuses.
+  const status = extractProviderHttpStatus(message)
+  // Gemini rejects a bad or expired key with a 400 INVALID_ARGUMENT, so only
+  // its wording says auth: "API key not valid", "API_KEY_INVALID", "API key expired".
+  if (
+    status === 401
+    || status === 403
+    || /unauthorized|forbidden|invalid[_ -]?api[_ -]?key|missing[_ -]?api[_ -]?key|api[_ -]?key[_ -]?(?:is[_ -]?)?(?:not[_ -]?valid|invalid|expired)|authentication/i.test(message)
+  ) {
     return 'PROVIDER_AUTH'
   }
   // An account out of credit fails every run until someone pays, so it must
@@ -68,7 +78,6 @@ export function classifyProviderErrorMessage(message: string): ProviderErrorCode
   // per-minute and per-day limits the same way ("You exceeded your current
   // quota") but always tags them `RESOURCE_EXHAUSTED`, so those stay
   // `RATE_LIMITED`.
-  const status = extractProviderHttpStatus(message)
   if (
     status === 402
     || /payment required|credit balance|insufficient[_ -]?(?:quota|credits?|balance|funds)/i.test(message)
@@ -76,7 +85,7 @@ export function classifyProviderErrorMessage(message: string): ProviderErrorCode
   ) {
     return 'PROVIDER_BILLING'
   }
-  if (/\b429\b|rate[_ -]?limit|too many requests|quota[_ -]?exceeded/i.test(message)) {
+  if (status === 429 || /rate[_ -]?limit|too many requests|quota[_ -]?exceeded/i.test(message)) {
     return 'RATE_LIMITED'
   }
   // A provider-side outage (5xx, Anthropic's 529 "overloaded") is not ours to

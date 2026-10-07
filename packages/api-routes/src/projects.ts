@@ -5,8 +5,8 @@ import { projects, queries, competitors, schedules, notifications, runs, querySn
 import type { InferSelectModel } from 'drizzle-orm'
 import {
   alreadyExists,
-  competitorLabelFromDomain,
   describeError,
+  competitorAliasProjectIdentity,
   forbidden,
   hostOf,
   notFound,
@@ -23,9 +23,11 @@ import {
   PROJECTS_WRITE_SCOPE,
   SchedulableRunKinds,
 } from '@ainyc/canonry-contracts'
-import type { LocationContext, MeasurementConfig, ProjectCreateRequest, ProviderDispatchModesMap, ProviderModels } from '@ainyc/canonry-contracts'
+import type { CompetitorAliasRejection, LocationContext, MeasurementConfig, ProjectCreateRequest, ProviderDispatchModesMap, ProviderModels } from '@ainyc/canonry-contracts'
 import { requireAdminSession, requireScope } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import { competitorNames, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
+import { readMarketCompetitorPins } from './plan-competitors.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
 import type { ProviderAdapterInfo } from './settings.js'
 import { pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
@@ -64,6 +66,8 @@ export interface ProjectRoutesOptions {
    * Skipped when only other fields change.
    */
   onAliasesChanged?: (projectId: string, projectName: string) => void
+  /** Fired when a project identity change drops a competitor alias. See `CompetitorRoutesOptions`. */
+  onCompetitorAliasesChanged?: (projectId: string, projectName: string) => void
   /** Full descriptors from registered adapters — validate names and model overrides. */
   providerAdapters?: ProviderAdapterInfo[]
 }
@@ -178,6 +182,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         locations: nextLocations,
         defaultLocation: nextDefaultLocation,
         autoExtractBacklinks: body.autoExtractBacklinks ?? false,
+        siteAuditMaxPages: body.siteAuditMaxPages ?? null,
         configSource: body.configSource ?? 'api',
         configRevision: 1,
         createdAt: now,
@@ -221,6 +226,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       defaultLocation?: string | null
       autoExtractBacklinks?: boolean
       negativeReviewMaxStars?: number | null
+      siteAuditMaxPages?: number | null
       configSource?: string
       providerModels?: Record<string, string>
       providerDispatchModes?: ProviderDispatchModesMap
@@ -289,6 +295,9 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     const nextAutoExtractBacklinks = body.autoExtractBacklinks !== undefined
       ? body.autoExtractBacklinks
       : existing?.autoExtractBacklinks ?? false
+    // Omitted keeps the stored budget: the dashboard and CLI resend the whole
+    // project without fields they do not edit. Null means the full site.
+    const nextSiteAuditMaxPages = body.siteAuditMaxPages !== undefined ? body.siteAuditMaxPages : existing?.siteAuditMaxPages ?? null
     // Omitted keeps the stored threshold; an explicit null resets it to the default.
     const nextNegativeReviewMaxStars = body.negativeReviewMaxStars !== undefined
       ? body.negativeReviewMaxStars
@@ -303,7 +312,25 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     // Sentiment only reads it, so a change here never triggers the mention
     // backfill.
     const nextIdentity = { displayName: body.displayName, aliases: nextAliases }
-    const liveCompetitors = existing ? liveCompetitorNames(app.db, existing.id) : []
+    // A competitor alias the project now claims as its own name would count
+    // the project as its own competitor, so it is dropped (and audited).
+    // Qualified aliases are checked against the competitor names that remain.
+    const nextAliasIdentity = competitorAliasProjectIdentity({
+      displayName: body.displayName,
+      aliases: nextAliases,
+      canonicalDomain: body.canonicalDomain,
+      ownedDomains: body.ownedDomains ?? [],
+    })
+    // Planned against the market pins too, so the names checked here are the
+    // ones the transaction's `syncCompetitorSet` keeps.
+    const competitorAliasPrune = existing
+      ? planCompetitorSet(readStoredCompetitors(app.db, existing.id), [], {
+          replace: false,
+          project: nextAliasIdentity,
+          marketPins: readMarketCompetitorPins(app.db, existing.id),
+        })
+      : null
+    const liveCompetitors = competitorAliasPrune ? competitorNames(competitorAliasPrune.final) : []
     const nextQualifiedAliases = body.qualifiedAliases !== undefined
       ? requireQualifiedAliases(nextIdentity, body.qualifiedAliases, liveCompetitors)
       : resolveProjectQualifiedAliases(nextIdentity, existing?.qualifiedAliases ?? [], liveCompetitors).value
@@ -311,6 +338,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     if (existing) {
       const prevAliases = existing.aliases
       const aliasesChanged = !aliasArraysEqual(prevAliases, nextAliases)
+      let droppedCompetitorAliases: CompetitorAliasRejection[] = []
 
       app.db.transaction((tx) => {
         tx.update(projects).set({
@@ -330,11 +358,19 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           locations: nextLocations,
           defaultLocation: nextDefaultLocation,
           autoExtractBacklinks: nextAutoExtractBacklinks,
+          siteAuditMaxPages: nextSiteAuditMaxPages,
           configSource: body.configSource ?? 'api',
           configRevision: existing.configRevision + 1,
           updatedAt: now,
         }).where(eq(projects.id, existing.id)).run()
         writeNegativeReviewMaxStars(tx, existing.id, nextNegativeReviewMaxStars, now)
+        if (competitorAliasPrune?.aliasChanges.length) {
+          droppedCompetitorAliases = syncCompetitorSet(tx, existing.id, [], {
+            replace: false,
+            project: nextAliasIdentity,
+            now,
+          }).droppedAliases
+        }
 
         writeAuditLog(tx, {
           projectId: existing.id,
@@ -342,11 +378,13 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           action: 'project.updated',
           entityType: 'project',
           entityId: existing.id,
+          ...(droppedCompetitorAliases.length ? { diff: { droppedCompetitorAliases } } : {}),
         })
       })
 
       opts.onProjectUpserted?.(existing.id, name)
       if (aliasesChanged) opts.onAliasesChanged?.(existing.id, name)
+      else if (droppedCompetitorAliases.length) opts.onCompetitorAliasesChanged?.(existing.id, name)
 
       const updated = app.db.select().from(projects).where(eq(projects.id, existing.id)).get()!
       return reply.status(200).send(formatProject(updated, nextNegativeReviewMaxStars))
@@ -373,6 +411,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         locations: nextLocations,
         defaultLocation: nextDefaultLocation,
         autoExtractBacklinks: nextAutoExtractBacklinks,
+        siteAuditMaxPages: nextSiteAuditMaxPages,
         configSource: body.configSource ?? 'api',
         configRevision: 1,
         createdAt: now,
@@ -646,7 +685,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     const exportedQualifiedAliases = resolveProjectQualifiedAliases(
       project,
       project.qualifiedAliases,
-      comps.map(c => competitorLabelFromDomain(c.domain)),
+      competitorNames(comps),
     ).value
 
     const config = {
@@ -665,7 +704,10 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         country: project.country,
         language: project.language,
         queries: qs.map(q => q.query),
-        competitors: comps.map(c => c.domain),
+        // A competitor with curated aliases exports as `{ domain, aliases }`,
+        // so export -> apply round-trips them; one without stays a bare
+        // domain, so an alias-free export is unchanged.
+        competitors: comps.map(c => c.aliases.length > 0 ? { domain: c.domain, aliases: c.aliases } : c.domain),
         providers: project.providers,
         ...(Object.keys(project.providerModels).length > 0 ? { providerModels: project.providerModels } : {}),
         ...(Object.keys(project.providerDispatchModes).length > 0 ? { providerDispatchModes: project.providerDispatchModes } : {}),
@@ -674,6 +716,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         ...(project.defaultLocation ? { defaultLocation: project.defaultLocation } : {}),
         ...(project.autoExtractBacklinks ? { autoExtractBacklinks: true } : {}),
         ...(negativeReviewMaxStars !== null ? { negativeReviewMaxStars } : {}),
+        ...(project.siteAuditMaxPages !== null ? { siteAuditMaxPages: project.siteAuditMaxPages } : {}),
         notifications: notificationRows.map((row) => {
           const cfg = row.config
           return {
@@ -759,13 +802,12 @@ export function requireQualifiedAliases(
 }
 
 /**
- * A project's live competitor names as a Simple run freezes them: the legacy
- * table holds domains only, so each contributes its brand label.
+ * A project's live competitor names as a Simple run freezes them: each
+ * competitor's brand label plus its curated aliases.
  */
 export function liveCompetitorNames(db: Pick<DatabaseClient, 'select'>, projectId: string): string[] {
-  return db.select({ domain: competitors.domain }).from(competitors)
-    .where(eq(competitors.projectId, projectId)).all()
-    .map(row => competitorLabelFromDomain(row.domain))
+  return competitorNames(db.select({ domain: competitors.domain, aliases: competitors.aliases }).from(competitors)
+    .where(eq(competitors.projectId, projectId)).all())
 }
 
 /**
@@ -824,6 +866,7 @@ export function formatProject(row: InferSelectModel<typeof projects>, negativeRe
     defaultLocation: row.defaultLocation,
     autoExtractBacklinks: row.autoExtractBacklinks,
     negativeReviewMaxStars,
+    siteAuditMaxPages: row.siteAuditMaxPages ?? null,
     configSource: row.configSource,
     configRevision: row.configRevision,
     createdAt: row.createdAt,
