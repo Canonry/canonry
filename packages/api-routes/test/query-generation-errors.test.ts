@@ -71,6 +71,14 @@ describe('query generation preserves the provider failure kind', () => {
     expect(response.statusCode).toBe(502)
   })
 
+  it('reports an account out of credit as an account problem, not an internal error', async () => {
+    const response = await generateWith(new Error(
+      '400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}',
+    ))
+    expect(response.json().error.code).toBe('PROVIDER_AUTH')
+    expect(response.json().error.message).toMatch(/credit balance is too low/)
+  })
+
   it('reports a dropped connection as an upstream failure', async () => {
     const response = await generateWith(new Error('fetch failed: ECONNRESET'))
     expect(response.json().error.code).toBe('PROVIDER_ERROR')

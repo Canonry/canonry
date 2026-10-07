@@ -14,6 +14,7 @@
 
 export type ProviderErrorCode =
   | 'PROVIDER_AUTH'
+  | 'PROVIDER_BILLING'
   | 'RATE_LIMITED'
   | 'PROVIDER_UNAVAILABLE'
   | 'NETWORK'
@@ -23,11 +24,13 @@ export type ProviderErrorCode =
 
 /**
  * Priority when several providers fail differently in one run: report the one
- * an operator can act on first. Auth is a standing misconfiguration, a rate
- * limit is a retry, and `UNKNOWN` is what is left when nothing matched.
+ * an operator can act on first. Auth and billing are standing account
+ * problems, a rate limit is a retry, and `UNKNOWN` is what is left when
+ * nothing matched.
  */
 const PROVIDER_ERROR_PRIORITY: readonly ProviderErrorCode[] = [
   'PROVIDER_AUTH',
+  'PROVIDER_BILLING',
   'RATE_LIMITED',
   'PROVIDER_UNAVAILABLE',
   'TIMEOUT',
@@ -37,16 +40,38 @@ const PROVIDER_ERROR_PRIORITY: readonly ProviderErrorCode[] = [
 ]
 
 export function classifyProviderErrorMessage(message: string): ProviderErrorCode {
-  if (/\b401\b|\b403\b|unauthorized|forbidden|invalid[_ -]?api[_ -]?key|missing[_ -]?api[_ -]?key|authentication/i.test(message)) {
+  // A number counts as an HTTP status only where one is written (see
+  // `extractProviderHttpStatus`), never anywhere in the text: canonry's own
+  // messages carry counts ("401 queries used today") that are not statuses.
+  const status = extractProviderHttpStatus(message)
+  // Gemini rejects a bad or expired key with a 400 INVALID_ARGUMENT, so only
+  // its wording says auth: "API key not valid", "API_KEY_INVALID", "API key expired".
+  if (
+    status === 401
+    || status === 403
+    || /unauthorized|forbidden|invalid[_ -]?api[_ -]?key|missing[_ -]?api[_ -]?key|api[_ -]?key[_ -]?(?:is[_ -]?)?(?:not[_ -]?valid|invalid|expired)|authentication/i.test(message)
+  ) {
     return 'PROVIDER_AUTH'
   }
-  if (/\b429\b|rate[_ -]?limit|too many requests|quota[_ -]?exceeded/i.test(message)) {
+  // An account out of credit fails every run until someone pays, so it must
+  // not read as a retryable rate limit. Checked before the 429 rule because
+  // OpenAI reports an exhausted balance as a 429. Gemini words its
+  // per-minute and per-day limits the same way ("You exceeded your current
+  // quota") but always tags them `RESOURCE_EXHAUSTED`, so those stay
+  // `RATE_LIMITED`.
+  if (
+    status === 402
+    || /payment required|credit balance|insufficient[_ -]?(?:quota|credits?|balance|funds)/i.test(message)
+    || (/exceeded your current quota/i.test(message) && !/RESOURCE_EXHAUSTED/.test(message))
+  ) {
+    return 'PROVIDER_BILLING'
+  }
+  if (status === 429 || /rate[_ -]?limit|too many requests|quota[_ -]?exceeded/i.test(message)) {
     return 'RATE_LIMITED'
   }
   // A provider-side outage (5xx, Anthropic's 529 "overloaded") is not ours to
   // fix and not the operator's either. Checked before timeout/network so a
   // "503 Service Unavailable" is never counted as a local connectivity issue.
-  const status = extractProviderHttpStatus(message)
   if ((status !== undefined && status >= 500) || /overloaded|service unavailable|bad gateway|internal server error/i.test(message)) {
     return 'PROVIDER_UNAVAILABLE'
   }

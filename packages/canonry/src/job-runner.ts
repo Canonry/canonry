@@ -1241,7 +1241,7 @@ export class JobRunner {
           if (dispatched >= units.length || providerErrors.has(providerName)) continue
           providerErrors.set(
             providerName,
-            `${units.length - dispatched} expected measurement(s) did not run: no ${provider} provider was available to this worker.`,
+            `No ${provider} provider was available to this worker, so ${units.length - dispatched} expected measurement(s) did not run.`,
           )
         }
       }
@@ -1644,7 +1644,7 @@ export class JobRunner {
             .all()
           const first = unrecorded[0]
           if (first) {
-            add(batch.provider, `${unrecorded.length} of ${batch.requestCount} batch answer(s) were not recorded. First: ${first.error ?? first.outcome}`)
+            add(batch.provider, `Batch answers not recorded: ${unrecorded.length} of ${batch.requestCount}. First: ${first.error ?? first.outcome}`)
           }
           break
         }
@@ -1659,7 +1659,7 @@ export class JobRunner {
     }
     const gaps = new Map<string, number>()
     for (const slot of missing) gaps.set(slot.provider, (gaps.get(slot.provider) ?? 0) + 1)
-    for (const [provider, gap] of gaps) add(provider, `${gap} expected measurement(s) have not run.`)
+    for (const [provider, gap] of gaps) add(provider, `Expected measurements not run yet: ${gap}.`)
     return errors
   }
 
@@ -2528,7 +2528,7 @@ export class JobRunner {
         for (const slot of state.missing) remaining.set(slot.provider, (remaining.get(slot.provider) ?? 0) + 1)
         const providers: Record<string, RunProviderErrorDto> = {}
         for (const [provider, count] of remaining) {
-          providers[provider] = fresh[provider] ?? previous[provider] ?? { message: `${count} expected measurement(s) have not run.` }
+          providers[provider] = fresh[provider] ?? previous[provider] ?? { message: `Expected measurements not run yet: ${count}.` }
         }
         txDb.update(runs)
           .set({ error: serializeRunError({ providers }) })
