@@ -248,7 +248,7 @@ const readToolCases = [
     operation: 'GET /api/v1/projects/{name}/measurement-overview',
     input: { project, scope: 'all', search: 'Target', limit: 25, sort: 'citationCoverage-asc' },
     method: 'getMeasurementOverview',
-    args: [project, { scope: 'all', search: 'Target', limit: 25, sort: 'citationCoverage-asc' }],
+    args: [project, { scope: 'all', search: 'Target', limit: 25, sort: 'citationCoverage-asc', compact: true }],
   },
   {
     name: 'canonry_measurement_draft_get',
@@ -472,6 +472,7 @@ describe('Advanced Measurement v2 MCP tools', () => {
     expect(client.getMeasurementOverview).toHaveBeenCalledWith(project, {
       scope: 'all',
       sort: 'mentionCoverage-desc',
+      compact: true,
     })
   })
 

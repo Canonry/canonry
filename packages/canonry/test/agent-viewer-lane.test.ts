@@ -171,6 +171,9 @@ describe('ViewerAeroSessions', () => {
     for (const name of AERO_VIEWER_EXCLUDED_MCP_TOOLS) expect(names).not.toContain(name)
     for (const name of AERO_MANAGED_SWEEP_MCP_TOOLS) expect(names).not.toContain(name)
     expect(names).toContain('canonry_project_overview')
+    expect(names).toContain('canonry_sentiment')
+    expect(names).toContain('canonry_sentiment_evidence')
+    expect(names).toContain('canonry_sentiment_compare')
   })
 
   it('keeps the viewer catalog under the function limit, with the project-shape tools visible from the start', async () => {

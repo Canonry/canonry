@@ -49,12 +49,18 @@ covering that work; an existing explicit authorization remains valid.
     answers per engine. A Healthy run status and `canonry_doctor` are not
     completeness checks.
   - Which names answers give instead across the portfolio:
-    `canonry_competitor_landscape` with `queryClass` and `runId: latest`.
-    Per-Property named-instead lists are samples of weak Properties.
+    `canonry_competitor_landscape` with `answers: not-mentioned`,
+    `queryClass` and `runId: latest`. Report its selected answer count and
+    population. Per-Property named-instead lists sample weak Properties.
   - What changed: `canonry_measurement_changes` once per class, with its
     `distribution` and `withinNoise`.
-  - Which metros have the biggest gaps: the portfolio summary's `markets`
-    (every metro) and `tiedAtWeakest.byMetro`.
+  - Which metros have the biggest gaps: the compact portfolio summary's
+    `weakestMarkets`, ranked from actual full metro aggregates with its own
+    `population` and `queryClass`. Quote each row's mention and citation rates
+    with their numerators and denominators. Its eligible/excluded counts cover
+    every top-level metro; `markets` pages provide the remaining rollups.
+    `tiedAtWeakest.byMetro` counts zero-signal Properties within metros. Those
+    Property counts never supply metro rates or a ranking of metros.
 - **Noise.** Between two sweeps, a Property that moved 2 answers or fewer
   (`withinNoise: true`) is within noise. Never call it a gain, loss, trend,
   or regression.
@@ -69,7 +75,18 @@ covering that work; an existing explicit authorization remains valid.
 - **Site Health:** read `references/site-health.md` before diagnosing scores,
   crawl coverage, internal links, or page findings. Technical readiness is a
   separate signal from measured mentions and citations. Use the latest audit
-  run; when two runs share a date, say so and use the later one. Report pages
+  run selected by the tool. `runSelection` explains same-date ambiguity and
+  prefers complete scans, then the largest page sample, on the latest date.
+  For a dated question, pass `date: YYYY-MM-DD` to the crawl or crawl-pages
+  read. An empty read for an assumed year does not prove a historical scan is
+  missing. When the user omitted the year, use
+  `availableScanDates.matchingMonthDayDates` from the dated no-data result to
+  resolve it, then request the exact returned `YYYY-MM-DD`. If several years
+  match, clarify the year. Its date lists are bounded: `totalDates` and
+  `matchingMonthDayTotal` describe the full stored populations. Never silently
+  fall back to another date. Use `inventorySummary` for complete eligibility
+  and exclusion counts;
+  unknown indexability never means a canonical points elsewhere. Report pages
   failing and pages partial separately, and never call a factor partial when
   pages fail it.
 - **Sentiment (experimental):** questions about how answers describe a
@@ -94,19 +111,22 @@ covering that work; an existing explicit authorization remains valid.
   quote `sentiment.overall` from the project overview, which pools them. An
   absent subject is not unfavorable, an unrated or partial result is not "no
   criticism", and partial values are provisional. Say the ratings are
-  model-classified and experimental. A trend needs two different rated runs;
-  `canonry_sentiment_compare` refuses one run compared with itself. With one
-  rated run, say there is no trend yet. Aero cannot turn sentiment on or
+  model-classified and experimental. A trend needs two different rated runs:
+  pass `fromRunId: previous-rated` and the current `toRunId` to
+  `canonry_sentiment_compare`. If no compatible rated predecessor exists,
+  say there is no trend yet; preserve other comparison refusal reasons.
+  Never compare a run with itself. Aero cannot turn sentiment on or
   submit a backfill; send those requests to the operator.
 - **Portfolio counts:** Properties named is `metrics.propertiesMentioned`;
-  never named is the Property count minus its numerator (per market,
-  `propertyCount` minus `propertiesMentioned.numerator`). `tiedAtWeakest`
-  also requires zero citations, so it is not the never-named list.
-  `canonry_competitor_landscape` counts names across every answer in scope,
-  including answers that named the Property; for names given instead of a
-  Property use `tiedAtWeakest.namedInstead` or the per-Property competitors
-  tool, and say which population the counts cover. When one portfolio
-  summary answers the question, use it once rather than re-reading it.
+  never named is `metrics.propertiesNeverMentioned`, also available per
+  market. Preserve unavailable identities and unmeasured states.
+  `tiedAtWeakest` requires zero mentions and zero citations. For names given
+  where none of an answer's targeted Properties was named, use
+  `answers: not-mentioned` on the landscape or portfolio summary and report
+  `answerCount` with `populationSize`. Summary reads use compact pages;
+  follow `nextCursor` with unchanged filters instead of repeating a page.
+  When `__truncation` says a cursor skips omitted rows, retry the original
+  cursor with a smaller limit as instructed.
 - Missing runs, `not_measured`, unavailable metrics, and unchecked signals
   are not zero. Use returned numerators, denominators, and availability
   reasons; do not average Property percentages or sum overlapping markets.

@@ -198,6 +198,17 @@ afterEach(async () => {
 })
 
 describe('measurement overview', () => {
+  it('refuses an indivisible oversized compact row with a typed error instead of returning an empty repeating page', async () => {
+    plan.targets = [plan.targets[0]!]
+    plan.targets[0]!.label = 'Harbor '.repeat(4_000).trim()
+    plan.groups[0]!.targetKeys = ['harbor']
+    plan.assignments = plan.assignments.filter(assignment => assignment.targetKey === 'harbor')
+    plan.usageEdges = plan.usageEdges.filter(edge => edge.targetKey === 'harbor')
+    activate(seedVersion(1))
+    const response = await app.inject({ method: 'GET', url: '/api/v1/projects/northstar/measurement-overview?scope=all&compact=true' })
+    expect(response.statusCode).toBe(400)
+    expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR', message: 'One measurement Property row exceeds the compact page budget. Read a narrower scope without compact=true.' } })
+  })
   it('answers 404 until a plan is active', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/v1/projects/northstar/measurement-overview?scope=all' })
     expect(response.statusCode).toBe(404)
@@ -340,7 +351,7 @@ describe('measurement overview', () => {
     expect(nonBrand.body.queryClass).toBe('non-brand')
   })
 
-  it('splits a Property row by answer engine over that engine\'s own slots', async () => {
+  it('splits a Property row by engine over its own slots and explicitly omits that detail in compact rows', async () => {
     const versionId = seedVersion(1)
     activate(versionId)
     seedMeasuredRun(versionId)
@@ -366,6 +377,14 @@ describe('measurement overview', () => {
         citationCoverage: { state: 'available', value: 1, numerator: 2, denominator: 2 },
       },
     ])
+
+    const compact = await overview('scope=property&targetKey=harbor&compact=true')
+    expect(compact.status).toBe(200)
+    expect(compact.body).toEqual({
+      ...body,
+      properties: { ...body.properties, items: [{ ...row, providers: [] }] },
+      detailsOmitted: ['properties.providers'],
+    })
   })
 
   it('withholds a Property with no question of the requested class instead of reading it as zero', async () => {
@@ -418,6 +437,15 @@ describe('measurement overview', () => {
         { kind: 'project', stableKey: 'project', label: 'Northstar', domain: 'northstar.example', credits: 2, share: 0.5 },
         { kind: 'competitor', stableKey: 'challenger', label: 'Challenger', domain: 'challenger.example', credits: 2, share: 0.5 },
       ],
+    })
+
+    const compact = await overview('scope=group&groupKey=regional&queryClass=non-brand&compact=true')
+    expect(compact.status).toBe(200)
+    const { namedShareOfVoice: _namedShareOfVoice, ...full } = group.body
+    expect(compact.body).toEqual({
+      ...full,
+      properties: { ...full.properties, items: full.properties.items.map(row => ({ ...row, providers: [] })) },
+      detailsOmitted: ['properties.providers', 'namedShareOfVoice'],
     })
 
     for (const scope of ['scope=all&queryClass=non-brand', 'scope=property&targetKey=harbor&queryClass=non-brand', 'scope=group&groupKey=regional']) {

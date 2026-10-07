@@ -677,6 +677,8 @@ export const competitorLandscapeQuerySchema = z.object({
   location: z.string().trim().min(1).optional(),
   /** One stored answer-visibility run, or `latest` (`LATEST_RUN_ID`) for the project's latest sweep. Omit to pool every run in the window. */
   runId: z.string().trim().min(1).optional(),
+  /** Answer evidence where no frozen target Property (or Simple project brand) was mentioned. */
+  answers: z.enum(['all', 'not-mentioned']).optional(),
 }).strict().superRefine((value, context) => {
   if (value.scope === 'all-markets' && value.groupKey !== undefined) {
     context.addIssue({
@@ -800,6 +802,13 @@ export const competitorLandscapeResponseSchema = z.object({
   observedNames: z.array(z.object({ name: z.string(), answerCount: z.number().int().nonnegative() })).optional(),
   /** Distinct observed names before the cap. Greater than `observedNames.length` when the list was cut. */
   observedNamesTotal: z.number().int().nonnegative().optional(),
+  answerSelection: z.object({
+    answers: z.literal('not-mentioned'),
+    /** Stored answers in the selected scope before filtering. */
+    populationSize: z.number().int().nonnegative(),
+    answerCount: z.number().int().nonnegative(),
+    unknownMentionAnswers: z.number().int().nonnegative(),
+  }).strict().optional(),
   window: metricsWindowSchema,
   scope: competitorLandscapeScopeSchema,
   project: competitorLandscapeRowSchema,
@@ -831,6 +840,7 @@ export const competitorLandscapeResponseSchema = z.object({
     queryClass: competitorLandscapeQueryClassSchema,
     location: z.string().nullable(),
     runId: z.string().nullable(),
+    answers: z.enum(['all', 'not-mentioned']).optional(),
   }).strict(),
   /** True when ranked observed/source lists exceed the server cap; pinned rows are never dropped. */
   truncated: z.boolean(),

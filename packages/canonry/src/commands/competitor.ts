@@ -224,6 +224,7 @@ export async function showCompetitorLandscape(project: string, options: Competit
     queryClass: options.queryClass,
     location: options.location,
     runId: options.runId,
+    answers: options.answers,
   })
 
   if (options.format === 'json') {

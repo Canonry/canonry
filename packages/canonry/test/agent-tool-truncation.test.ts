@@ -150,17 +150,17 @@ describe('truncateToolResult (OSS-C)', () => {
     expect(parsed.modelComparison.totalGroups).toBe(300)
   })
 
-  it('falls back to a marked string slice for an oversized scalar with nothing to drop', () => {
+  it('marks an oversized scalar as omitted without emitting partial JSON', () => {
     const giant = 'y'.repeat(CAP + 5_000)
     const out = truncateToolResult(giant)
     expect(out.length).toBeLessThanOrEqual(CAP + 50)
-    expect(out).toContain('truncated')
+    expect(JSON.parse(out).__truncated).toBe(true)
   })
 
-  it('preserves the scalar fallback for objects with a scalar JSON representation', () => {
+  it('marks oversized scalar JSON representations as omitted', () => {
     const out = truncateToolResult({ toJSON: () => 'x'.repeat(CAP + 1_000) })
     expect(out.length).toBeLessThanOrEqual(CAP + 50)
-    expect(out).toContain('truncated')
+    expect(JSON.parse(out).__truncated).toBe(true)
   })
 
   // Both structured paths re-serialize the enclosing document per step, so the
@@ -212,7 +212,7 @@ describe('truncateToolResult (OSS-C)', () => {
   // in the number of collections. A real 20 MB run payload spent 289 seconds of
   // the server's single thread to emit the same ~19k characters a slice gives.
   // Above the ceiling the marked slice is taken instead.
-  it('falls back to the marked slice instead of walking a pathological payload', () => {
+  it('projects complete rows instead of walking a pathological payload', () => {
     const payload = {
       run: {
         id: 'run-1',
@@ -234,9 +234,10 @@ describe('truncateToolResult (OSS-C)', () => {
     const elapsedMs = Date.now() - started
 
     expect(out.length).toBeLessThanOrEqual(CAP + 50)
-    // The marked slice ends with the truncation note; the structure-aware path
-    // would instead return JSON carrying __truncated, so this discriminates.
-    expect(out.trimEnd().endsWith('result too large)')).toBe(true)
+    // Even the bounded fallback returns complete evidence rows as JSON.
+    const parsed = JSON.parse(out)
+    expect(parsed.run.snapshots).toEqual(payload.run.snapshots.slice(0, parsed.run.snapshots.length))
+    expect(parsed.__truncation.keptItems['run.snapshots']).toBe(`${parsed.run.snapshots.length} of 6000`)
     expect(elapsedMs).toBeLessThan(3_000)
   })
 })
@@ -250,15 +251,6 @@ function propertyRow(i: number, namesSeen = 5) {
     citationCoverage: { state: 'available', value: 0, numerator: 0, denominator: 24 },
     namedInstead: Array.from({ length: namesSeen }, (_, n) => ({ name: `Example Residences ${i}-${n}`, answers: n + 1 })),
   }
-}
-
-/** The `__truncation` line a plain slice carries just before its closing note. */
-function sliceSummary(out: string): { cutAt: string; droppedKeys: string[]; keptItems: Record<string, string>; moreDroppedKeys?: number } {
-  const lines = out.split('\n')
-  expect(lines.at(-1)).toBe('... (truncated, result too large)')
-  const line = lines.at(-2)!
-  expect(line.startsWith('__truncation: ')).toBe(true)
-  return JSON.parse(line.slice('__truncation: '.length))
 }
 
 describe('truncateToolResult never truncates silently', () => {
@@ -355,66 +347,42 @@ describe('truncateToolResult never truncates silently', () => {
     expect(wrapped.__truncation).toEqual({ droppedKeys: [], keptItems: { items: `${wrapped.items.length} of 600` } })
   })
 
-  it('ends a plain slice with a line naming the cut and unseen top-level keys and their counts', () => {
-    // Past the structured ceiling, so the slice is taken. Row text carries
-    // quotes, braces, brackets and backslashes the cut scanner must skip.
-    const tricky = 'says "{not a brace}" [or a bracket] \\ and, commas '
-    const rows = Array.from({ length: 6_000 }, (_, i) => ({ id: `row-${i}`, answerText: tricky.repeat(8) }))
-    const details = {
-      summary: { answers: 6_000, class: 'non-brand' },
-      rows,
-      markets: Array.from({ length: 150 }, (_, i) => ({ groupKey: `market-${i}` })),
-      sources: { total: 12 },
-      total: 6_000,
-    }
-    expect(JSON.stringify(details, null, 2).length).toBeGreaterThan(2_000_000)
-
+  it('keeps large evidence rows whole, preserves totals and marks incomplete cursor pages', () => {
+    const rows = Array.from({ length: 6_000 }, (_, i) => ({ id: `row-${i}`, answerText: 'synthetic evidence'.repeat(32) }))
+    const details = { summary: { answers: 6_000, queryClass: 'non-brand' }, rows, total: 6_000, nextCursor: 'page-6000' }
+    expect(JSON.stringify(details).length).toBeGreaterThan(2_000_000)
     const out = truncateToolResult(details)
-    expect(out.length).toBeLessThanOrEqual(CAP + 50)
-    const summary = sliceSummary(out)
-
-    expect(summary.droppedKeys).toEqual(['markets', 'sources', 'total'])
-    expect(summary.keptItems.markets).toBe('0 of 150')
-    const shownRows = Number(summary.keptItems.rows!.split(' of ')[0])
-    expect(summary.keptItems.rows).toBe(`${shownRows} of 6000`)
-    // Either inside the next row, or between rows when the cut lands on one.
-    expect(summary.cutAt === 'rows' || summary.cutAt.startsWith(`rows[${shownRows}]`)).toBe(true)
-    // The count is exact: the last counted row is complete in the text, the
-    // next one is not.
-    expect(out).toContain(JSON.stringify(rows[shownRows - 1]))
-    expect(out).not.toContain(JSON.stringify(rows[shownRows]))
-    // Fully shown keys are not listed.
-    expect(summary.keptItems.summary).toBeUndefined()
-    expect(summary.droppedKeys).not.toContain('summary')
+    const parsed = JSON.parse(out)
+    expect(out.length).toBeLessThanOrEqual(CAP)
+    expect(parsed.rows).toEqual(rows.slice(0, parsed.rows.length))
+    expect(parsed.rows.length).toBeGreaterThan(0)
+    expect(parsed.total).toBe(6_000)
+    expect(parsed.nextCursor).toBe('page-6000')
+    expect(parsed.__truncation.keptItems.rows).toBe(`${parsed.rows.length} of 6000`)
+    expect(parsed.__truncation.cursors.nextCursor).toContain('re-request the original cursor')
   })
 
-  it('names the cut map when a keyed collection cannot fit even emptied', () => {
-    // Hundreds of distinct keys each holding a list: emptying every list
-    // still exceeds the cap, so the walk is skipped for the slice.
+  it('projects keyed collections without cutting an evidence row or exceeding the cap', () => {
     const byQuery: Record<string, unknown> = {}
-    for (let q = 0; q < 900; q++) byQuery[`best apartments near example ${q}`] = [{ domain: 'example.com', count: q }]
-    const extra = Array.from({ length: 50 }, (_, i) => [`key${i}`, i] as const)
-    const details = { overall: [{ domain: 'example.com', count: 900 }], byQuery, ...Object.fromEntries(extra) }
-
+    for (let q = 0; q < 900; q++) byQuery[`query-${q}`] = [{ domain: 'example.com', count: q }]
+    const details = { overall: [{ domain: 'example.com', count: 900 }], byQuery, total: 900 }
     const started = Date.now()
     const out = truncateToolResult(details)
+    const parsed = JSON.parse(out)
     expect(Date.now() - started).toBeLessThan(1_000)
-    expect(out.length).toBeLessThanOrEqual(CAP + 50)
-    const summary = sliceSummary(out)
-
-    const shownKeys = Number(summary.keptItems.byQuery!.split(' of ')[0])
-    expect(summary.keptItems.byQuery).toBe(`${shownKeys} of 900 keys`)
-    expect(summary.cutAt.startsWith('byQuery')).toBe(true)
-    // Unseen top-level keys are listed up to a bound, with the rest counted.
-    expect(summary.droppedKeys).toHaveLength(30)
-    expect(summary.droppedKeys[0]).toBe('key0')
-    expect(summary.moreDroppedKeys).toBe(20)
+    expect(out.length).toBeLessThanOrEqual(CAP)
+    expect(parsed.total).toBe(900)
+    expect(parsed.overall).toEqual(details.overall)
+    for (const [key, rows] of Object.entries(parsed.byQuery)) {
+      expect(rows).toEqual((byQuery[key] as unknown[]).slice(0, (rows as unknown[]).length))
+    }
+    expect(parsed.__truncation.droppedKeys.length).toBeGreaterThan(0)
   })
 
-  it('adds no key line when the result has no keys to name', () => {
-    const out = truncateToolResult('y'.repeat(CAP + 5_000))
-    expect(out).not.toContain('__truncation')
-    expect(out.endsWith('\n... (truncated, result too large)')).toBe(true)
+  it('marks an oversized scalar as omitted in parseable JSON', () => {
+    const parsed = JSON.parse(truncateToolResult('y'.repeat(CAP + 5_000)))
+    expect(parsed.__truncated).toBe(true)
+    expect(parsed.__truncation.droppedKeys).toEqual(['(root)'])
   })
 })
 
@@ -516,7 +484,7 @@ describe('truncateToolResult keeps rollups and says what is partial', () => {
     expect(kept).toBeLessThan(100)
     expect(parsed.properties.nextCursor).toBe('cursor-100')
     expect(parsed.__truncation.cursors).toEqual({
-      'properties.nextCursor': `skips the ${100 - kept} rows cut from properties.items; to read them, call again with limit <= ${kept}`,
+      'properties.nextCursor': `incomplete page: skips the ${100 - kept} rows cut from properties.items; re-request the original cursor with limit <= ${kept}`,
     })
     expect(parsed.__partialLists).toEqual({ 'properties.items': `${kept} of about 120` })
 
@@ -524,8 +492,42 @@ describe('truncateToolResult keeps rollups and says what is partial', () => {
     const changes = Array.from({ length: 300 }, (_, i) => evidenceRow(i))
     const flat = JSON.parse(truncateToolResult({ changes, total: 300, nextCursor: 'c-300' }))
     expect(flat.__truncation.cursors).toEqual({
-      nextCursor: `skips the ${300 - flat.changes.length} rows cut from changes; to read them, call again with limit <= ${flat.changes.length}`,
+      nextCursor: `incomplete page: skips the ${300 - flat.changes.length} rows cut from changes; re-request the original cursor with limit <= ${flat.changes.length}`,
     })
+  })
+
+  it.each([
+    { list: 'queries', count: 100, cursorPath: 'queryPage.nextCursor', limit: 'queryLimit' },
+    { list: 'attempts', count: 100, cursorPath: 'nextAttemptCursor', limit: 'attemptLimit' },
+    { list: 'queries', count: 6000, cursorPath: 'queryPage.nextCursor', limit: 'queryLimit' },
+  ])('marks the $list sentiment page incomplete when $count whole rows exceed the cap', ({ list, count, cursorPath, limit }) => {
+    const rows = Array.from({ length: count }, (_, index) => ({ id: `row-${index}`, text: 'synthetic'.repeat(60) }))
+    const page = { total: count + 10, limit: count, nextCursor: `after-${count}` }
+    const details = list === 'queries'
+      ? { queries: rows, queryPage: page }
+      : { attempts: rows, attemptCount: count + 10, nextAttemptCursor: page.nextCursor }
+    const out = truncateToolResult(details)
+    const parsed = JSON.parse(out)
+    const kept = parsed[list].length
+    expect(out.length).toBeLessThanOrEqual(CAP)
+    expect(kept).toBeGreaterThan(0)
+    expect(kept).toBeLessThan(count)
+    expect(parsed[list]).toEqual(rows.slice(0, kept))
+    if (list === 'queries') expect(parsed.queryPage).toEqual(page)
+    else {
+      expect(parsed.attemptCount).toBe(count + 10)
+      expect(parsed.nextAttemptCursor).toBe(page.nextCursor)
+    }
+    expect(parsed.__truncation.cursors[cursorPath]).toBe(`incomplete page: skips the ${count - kept} rows cut from ${list}; re-request the original cursor with ${limit} <= ${kept}`)
+  })
+
+  it('gives a direct next-page instruction for an intact compact page', () => {
+    const details = { items: [{ targetKey: 'p-1' }, { targetKey: 'p-2' }], total: 11, nextCursor: 'page-2' }
+    const parsed = JSON.parse(truncateToolResult(details))
+    expect(parsed.items).toEqual(details.items)
+    expect(parsed.__pagination).toEqual({ items: 'showing 2 of 11; pass cursor "page-2"' })
+    expect(parsed.__partialLists).toEqual({ items: '2 of 11' })
+    expect(details).not.toHaveProperty('__pagination')
   })
 
   it('names lists the tool itself cut first, even when the cap cut nothing', () => {

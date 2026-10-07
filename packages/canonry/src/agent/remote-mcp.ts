@@ -5,6 +5,7 @@ import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core'
 import { createLogger } from '../logger.js'
 import type { ExternalMcpServerConfig } from '../config.js'
 import { describeError } from '@ainyc/canonry-contracts'
+import { truncateToolResult } from './mcp-to-agent-tool.js'
 
 const log = createLogger('RemoteMcp')
 
@@ -35,14 +36,6 @@ const log = createLogger('RemoteMcp')
  * from an external server we do not own.
  */
 export const AERO_EXCLUDED_MCP_TOOLS: ReadonlySet<string> = new Set<string>([])
-
-/** Max characters of a remote tool result we hand back to the model. */
-const MAX_TOOL_RESULT_CHARS = 20_000
-
-function truncate(text: string): string {
-  if (text.length <= MAX_TOOL_RESULT_CHARS) return text
-  return text.slice(0, MAX_TOOL_RESULT_CHARS) + '\n... (truncated, result too large)'
-}
 
 /** Shape of a single tool entry returned by the MCP SDK `client.listTools()`. */
 interface RemoteToolDescriptor {
@@ -133,8 +126,17 @@ function adaptRemoteTool(client: RemoteMcpClient, tool: RemoteToolDescriptor): A
     params: Record<string, unknown>,
   ): Promise<AgentToolResult<unknown>> => {
     const result = await client.callTool({ name: tool.name, arguments: params })
+    let shown = result
+    if (result && typeof result === 'object') {
+      const envelope = result as { structuredContent?: unknown; content?: Array<{ type?: string; text?: string }> }
+      if (envelope.structuredContent !== undefined) shown = envelope.structuredContent
+      else if (envelope.content?.length === 1 && envelope.content[0]?.type === 'text') {
+        const text = envelope.content[0].text ?? ''
+        try { shown = JSON.parse(text) as unknown } catch { shown = text }
+      }
+    }
     return {
-      content: [{ type: 'text', text: truncate(JSON.stringify(result, null, 2)) }],
+      content: [{ type: 'text', text: truncateToolResult(shown) }],
       details: result,
       isError: isRemoteToolError(result),
     }

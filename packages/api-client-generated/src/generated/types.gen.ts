@@ -17,6 +17,10 @@ export type SentimentSummary = {
         eligibleAnswers?: number;
         ratedAnswers?: number;
         ratedAnswerRate?: number | null;
+        /**
+         * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+         */
+        subjectNotMentioned?: number | null;
         counts: {
             favorable: number;
             mixed: number;
@@ -103,6 +107,10 @@ export type SentimentSummary = {
             eligibleAnswers?: number;
             ratedAnswers?: number;
             ratedAnswerRate?: number | null;
+            /**
+             * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+             */
+            subjectNotMentioned?: number | null;
             counts: {
                 favorable: number;
                 mixed: number;
@@ -158,6 +166,10 @@ export type SentimentSummary = {
             eligibleAnswers?: number;
             ratedAnswers?: number;
             ratedAnswerRate?: number | null;
+            /**
+             * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+             */
+            subjectNotMentioned?: number | null;
             counts: {
                 favorable: number;
                 mixed: number;
@@ -229,6 +241,10 @@ export type SentimentSummary = {
                 eligibleAnswers?: number;
                 ratedAnswers?: number;
                 ratedAnswerRate?: number | null;
+                /**
+                 * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+                 */
+                subjectNotMentioned?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;
@@ -399,6 +415,10 @@ export type SentimentComparison = {
             eligibleAnswers?: number;
             ratedAnswers?: number;
             ratedAnswerRate?: number | null;
+            /**
+             * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+             */
+            subjectNotMentioned?: number | null;
             counts: {
                 favorable: number;
                 mixed: number;
@@ -485,6 +505,10 @@ export type SentimentComparison = {
                 eligibleAnswers?: number;
                 ratedAnswers?: number;
                 ratedAnswerRate?: number | null;
+                /**
+                 * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+                 */
+                subjectNotMentioned?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;
@@ -540,6 +564,10 @@ export type SentimentComparison = {
                 eligibleAnswers?: number;
                 ratedAnswers?: number;
                 ratedAnswerRate?: number | null;
+                /**
+                 * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+                 */
+                subjectNotMentioned?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;
@@ -611,6 +639,10 @@ export type SentimentComparison = {
                     eligibleAnswers?: number;
                     ratedAnswers?: number;
                     ratedAnswerRate?: number | null;
+                    /**
+                     * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+                     */
+                    subjectNotMentioned?: number | null;
                     counts: {
                         favorable: number;
                         mixed: number;
@@ -675,6 +707,10 @@ export type SentimentComparison = {
             eligibleAnswers?: number;
             ratedAnswers?: number;
             ratedAnswerRate?: number | null;
+            /**
+             * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+             */
+            subjectNotMentioned?: number | null;
             counts: {
                 favorable: number;
                 mixed: number;
@@ -761,6 +797,10 @@ export type SentimentComparison = {
                 eligibleAnswers?: number;
                 ratedAnswers?: number;
                 ratedAnswerRate?: number | null;
+                /**
+                 * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+                 */
+                subjectNotMentioned?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;
@@ -816,6 +856,10 @@ export type SentimentComparison = {
                 eligibleAnswers?: number;
                 ratedAnswers?: number;
                 ratedAnswerRate?: number | null;
+                /**
+                 * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+                 */
+                subjectNotMentioned?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;
@@ -887,6 +931,10 @@ export type SentimentComparison = {
                     eligibleAnswers?: number;
                     ratedAnswers?: number;
                     ratedAnswerRate?: number | null;
+                    /**
+                     * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+                     */
+                    subjectNotMentioned?: number | null;
                     counts: {
                         favorable: number;
                         mixed: number;
@@ -3506,6 +3554,12 @@ export type CompetitorLandscapeResponse = {
         answerCount: number;
     }>;
     observedNamesTotal?: number;
+    answerSelection?: {
+        answers: 'not-mentioned';
+        populationSize: number;
+        answerCount: number;
+        unknownMentionAnswers: number;
+    };
     window: '7d' | '30d' | '90d' | 'all';
     scope: {
         kind: 'project';
@@ -3686,6 +3740,7 @@ export type CompetitorLandscapeResponse = {
         queryClass: 'all' | 'branded' | 'non-brand';
         location: string | null;
         runId: string | null;
+        answers?: 'all' | 'not-mentioned';
     };
     truncated: boolean;
     runCount?: number;
@@ -8518,6 +8573,7 @@ export type MeasurementOverviewResponse = {
             share: number;
         }>;
     };
+    detailsOmitted?: Array<string>;
 };
 
 export type MeasurementPortfolioSummaryResponse = {
@@ -8536,6 +8592,15 @@ export type MeasurementPortfolioSummaryResponse = {
     engines: Array<string>;
     metrics: {
         propertiesMentioned: {
+            state: 'available';
+            value: number;
+            numerator?: number;
+            denominator?: number;
+        } | {
+            state: 'unavailable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+        };
+        propertiesNeverMentioned?: {
             state: 'available';
             value: number;
             numerator?: number;
@@ -8566,6 +8631,37 @@ export type MeasurementPortfolioSummaryResponse = {
             state: 'unavailable';
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
         };
+    };
+    /**
+     * Compact unscoped ranking from actual full top-level metro aggregates before pagination. Each rate uses the complete selected run/filter/class market population; tiedAtWeakest.byMetro counts only zero-signal Properties and never supplies these rates.
+     */
+    weakestMarkets?: {
+        population: 'top-level-markets';
+        queryClass: 'all' | 'branded' | 'non-brand';
+        totalMarkets: number;
+        eligibleMarketCount: number;
+        excludedMarketCount: number;
+        items: Array<{
+            groupKey: string;
+            label: string;
+            propertyCount: number;
+            mentionCoverage: {
+                state: 'available';
+                value: number;
+                numerator?: number;
+                denominator?: number;
+                unattributed?: number;
+                unchecked?: number;
+            };
+            citationCoverage: {
+                state: 'available';
+                value: number;
+                numerator?: number;
+                denominator?: number;
+                unattributed?: number;
+                unchecked?: number;
+            };
+        }>;
     };
     weakestProperties: Array<{
         targetKey: string;
@@ -8603,22 +8699,22 @@ export type MeasurementPortfolioSummaryResponse = {
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
         };
         flags: number;
-        namedInsteadInAnswerText: Array<{
+        namedInsteadInAnswerText?: Array<{
             name: string;
             answers: number;
         }>;
-        namedInsteadInAnswerTextTotal: number;
-        citedDomains: Array<{
+        namedInsteadInAnswerTextTotal?: number;
+        citedDomains?: Array<{
             domain: string;
             answers: number;
         }>;
-        citedDomainsTotal: number;
+        citedDomainsTotal?: number;
         /**
          * Deprecated: read namedInsteadInAnswerText, which carries the same names in the same order. occurrences counts answers, exactly as answers does there.
          *
          * @deprecated
          */
-        recommendedInstead: Array<{
+        recommendedInstead?: Array<{
             name: string;
             occurrences: number;
         }>;
@@ -8627,19 +8723,19 @@ export type MeasurementPortfolioSummaryResponse = {
          *
          * @deprecated
          */
-        recommendedInsteadTotal: number;
+        recommendedInsteadTotal?: number;
         /**
          * Deprecated: true when namedInsteadInAnswerTextTotal exceeds the names returned in namedInsteadInAnswerText.
          *
          * @deprecated
          */
-        recommendedInsteadTruncated: boolean;
+        recommendedInsteadTruncated?: boolean;
     }>;
     tiedAtWeakest: {
         count: number;
         mentionRate: number;
         citationRate: number;
-        note: 'tied Properties are ordered by name, not ranked';
+        note: 'tied Properties have both zero mentions and zero citations; ordered by name, not ranked' | 'tied Properties are ordered by name, not ranked';
         byMetro?: Array<{
             metro: string | null;
             count: number;
@@ -8650,7 +8746,8 @@ export type MeasurementPortfolioSummaryResponse = {
         }>;
         namedInsteadTotal?: number;
     } | null;
-    weakestAnswerSources: {
+    weakestAnswerSources?: {
+        basis?: 'initial-weakest-selection-and-zero-signal-tie';
         properties: number;
         answers: number;
         domains: Array<{
@@ -8734,6 +8831,7 @@ export type MeasurementPortfolioSummaryResponse = {
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
         }>;
         truncated: boolean;
+        excludedTotal?: number;
     };
     markets: Array<{
         groupKey: string;
@@ -8742,6 +8840,15 @@ export type MeasurementPortfolioSummaryResponse = {
         childMarketCount: number;
         propertyCount: number;
         propertiesMentioned: {
+            state: 'available';
+            value: number;
+            numerator?: number;
+            denominator?: number;
+        } | {
+            state: 'unavailable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+        };
+        propertiesNeverMentioned?: {
             state: 'available';
             value: number;
             numerator?: number;
@@ -8777,6 +8884,24 @@ export type MeasurementPortfolioSummaryResponse = {
     marketsTruncated: boolean;
     totalProperties: number;
     truncated: boolean;
+    nextCursor?: string | null;
+    detailsOmitted?: Array<string>;
+    answerEvidence?: {
+        answers: 'not-mentioned';
+        populationSize: number;
+        answerCount: number;
+        unknownMentionAnswers: number;
+        observedNames: Array<{
+            name: string;
+            answerCount: number;
+        }>;
+        observedNamesTotal: number;
+        citedDomains: Array<{
+            domain: string;
+            answers: number;
+        }>;
+        citedDomainsTotal: number;
+    };
 };
 
 export type MeasurementPlanCompilePreviewResponse = {
@@ -10989,6 +11114,10 @@ export type ProjectOverviewDto = {
                 eligibleAnswers?: number;
                 ratedAnswers?: number;
                 ratedAnswerRate?: number | null;
+                /**
+                 * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+                 */
+                subjectNotMentioned?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;
@@ -11057,6 +11186,10 @@ export type ProjectOverviewDto = {
                 eligibleAnswers?: number;
                 ratedAnswers?: number;
                 ratedAnswerRate?: number | null;
+                /**
+                 * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+                 */
+                subjectNotMentioned?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;
@@ -11112,7 +11245,8 @@ export type ProjectOverviewDto = {
             };
             runIds: Array<string>;
         };
-        overall?: {
+        headlineQueryClass?: 'branded';
+        pooledOverall?: {
             state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
             reason: string | null;
             provisional: boolean;
@@ -11125,6 +11259,10 @@ export type ProjectOverviewDto = {
                 eligibleAnswers?: number;
                 ratedAnswers?: number;
                 ratedAnswerRate?: number | null;
+                /**
+                 * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+                 */
+                subjectNotMentioned?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;
@@ -11163,6 +11301,68 @@ export type ProjectOverviewDto = {
                 limitation: string;
             };
             queryClass: 'all';
+            pooled?: true;
+            runIds: Array<string>;
+        };
+        /**
+         * Deprecated compatibility field. Pooled branded and non-brand assessments; never use as the sentiment headline.
+         */
+        overall?: {
+            state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+            reason: string | null;
+            provisional: boolean;
+            coverage: {
+                selected: number;
+                eligibleAssessments: number;
+                unadmittedAssessments: number;
+                judged: number;
+                distinctSourceAnswers: number;
+                eligibleAnswers?: number;
+                ratedAnswers?: number;
+                ratedAnswerRate?: number | null;
+                /**
+                 * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+                 */
+                subjectNotMentioned?: number | null;
+                counts: {
+                    favorable: number;
+                    mixed: number;
+                    unfavorable: number;
+                    factual: number;
+                    'subject-not-mentioned': number;
+                    'wrong-subject': number;
+                    'ambiguous-subject': number;
+                    'ambiguous-judgment': number;
+                    'subject-not-applicable': number;
+                    'unsupported-language': number;
+                    'missing-source-text': number;
+                    'input-too-large': number;
+                    'invalid-conclusion-evidence': number;
+                    pending: number;
+                    running: number;
+                    'waiting-to-retry': number;
+                    failed: number;
+                    canceled: number;
+                };
+                expectedProviderSlots: number;
+                completedProviderSlots: number;
+            };
+            score: {
+                favorableRate: number | null;
+                mixedRate: number | null;
+                unfavorableRate: number | null;
+                favorableDisplay: string;
+                mixedDisplay: string;
+                unfavorableDisplay: string;
+                interval: {
+                    low: number;
+                    high: number;
+                } | null;
+                method: 'wilson-independent-v1';
+                limitation: string;
+            };
+            queryClass: 'all';
+            pooled?: true;
             runIds: Array<string>;
         };
     };
@@ -12271,6 +12471,19 @@ export type SiteAuditPagesResponseDto = {
     project: string;
     runId: string | null;
     auditedAt: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     total: number;
     pages: Array<{
         url: string;
@@ -12335,6 +12548,19 @@ export type SiteAuditScoreDto = {
     trend: 'up' | 'down' | 'flat' | null;
     previousScore: number | null;
     previousAuditedAt: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     factors: Array<{
         id: string;
         name: string;
@@ -12373,16 +12599,55 @@ export type SiteCrawlDeadLinksResponseDto = {
     runId: string | null;
     state: 'unavailable';
     legacyAuditAvailable: boolean;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
 } | {
     project: string;
     runId: string;
     state: 'disabled';
     checkDeadLinks: false;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
 } | {
     project: string;
     runId: string;
     state: 'complete';
     checkDeadLinks: true;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     checked: number;
     found: number;
     unverified: number;
@@ -12404,6 +12669,19 @@ export type SiteCrawlDeadLinksResponseDto = {
     runId: string;
     state: 'partial';
     checkDeadLinks: true;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     checked: number;
     found: number;
     unverified: number;
@@ -12429,6 +12707,19 @@ export type SiteCrawlGraphResponseDto = {
     rootNodeKey: string | null;
     complete: boolean;
     termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     layout: {
         state: 'ready';
         version: string;
@@ -12459,6 +12750,7 @@ export type SiteCrawlGraphResponseDto = {
         outboundUniqueEdges: number;
         linkScoreNormalized: number | null;
         healthState: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
+        healthReason?: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
         x: number;
         y: number;
     }>;
@@ -12481,6 +12773,19 @@ export type SiteCrawlInternalLinksResponseDto = {
     runId: string | null;
     complete: boolean;
     termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     total: number;
     nextCursor: string | null;
     templateDetection: 'applied' | 'applied-placement' | 'applied-placement-with-ubiquity' | 'applied-placement-partial' | 'unavailable-too-few-pages' | 'unavailable-legacy-scan';
@@ -12515,6 +12820,19 @@ export type SiteCrawlNeighborsResponseDto = {
     runId: string | null;
     complete: boolean;
     termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     nodeKey: string | null;
     url: string | null;
     templateDetection: 'applied' | 'applied-placement' | 'applied-placement-with-ubiquity' | 'applied-placement-partial' | 'unavailable-too-few-pages' | 'unavailable-legacy-scan';
@@ -12576,18 +12894,57 @@ export type SiteCrawlPageAuditDto = {
     runId: string;
     complete: boolean;
     termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     state: 'details-unavailable';
 } | {
     project: string;
     runId: string;
     complete: boolean;
     termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     state: 'not-found';
 } | {
     project: string;
     runId: string;
     complete: boolean;
     termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     nodeKey: string;
     url: string;
     auditState: string;
@@ -12619,6 +12976,19 @@ export type SiteCrawlPageAuditDto = {
     runId: string;
     complete: boolean;
     termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     nodeKey: string;
     url: string;
     auditState: string;
@@ -12654,6 +13024,42 @@ export type SiteCrawlPagesResponseDto = {
     runId: string | null;
     complete: boolean;
     termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
+    requestedDate?: string;
+    availableScanDates?: {
+        recentDates: Array<string>;
+        totalDates: number;
+        matchingMonthDayDates: Array<string>;
+        matchingMonthDayTotal: number;
+    };
+    inventorySummary?: {
+        scope: 'selected-snapshot';
+        total: number;
+        eligible: number;
+        excluded: number;
+        excludedReasons: Array<{
+            healthReason: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
+            pages: number;
+            exampleUrl: string;
+        }>;
+    } | null;
+    healthReasonCounts?: Array<{
+        healthReason: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
+        pages: number;
+        exampleUrl: string;
+    }> | null;
     total: number;
     nextCursor: string | null;
     healthStateFilter: 'applied' | 'unavailable-legacy-scan' | null;
@@ -12680,6 +13086,7 @@ export type SiteCrawlPagesResponseDto = {
         linkScoreRaw: number | null;
         linkScoreNormalized: number | null;
         healthState: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
+        healthReason?: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
     }>;
 };
 
@@ -12689,6 +13096,19 @@ export type SiteCrawlStructureResponseDto = {
     runId: string | null;
     complete: boolean;
     termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     parentPath: string;
     nextCursor: string | null;
     children: Array<{
@@ -12706,6 +13126,37 @@ export type SiteCrawlSummaryDto = {
     hasCrawlData: boolean;
     legacyAuditAvailable: boolean;
     runId: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
+    requestedDate?: string;
+    availableScanDates?: {
+        recentDates: Array<string>;
+        totalDates: number;
+        matchingMonthDayDates: Array<string>;
+        matchingMonthDayTotal: number;
+    };
+    inventorySummary?: {
+        scope: 'selected-snapshot';
+        total: number;
+        eligible: number;
+        excluded: number;
+        excludedReasons: Array<{
+            healthReason: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
+            pages: number;
+            exampleUrl: string;
+        }>;
+    } | null;
     runStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | null;
     requestedRootUrl: string | null;
     rootUrl: string | null;
@@ -12815,6 +13266,7 @@ export type SiteHealthChangesResponseDto = {
             linkScoreRaw: number | null;
             linkScoreNormalized: number | null;
             healthState: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
+            healthReason?: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
         } | null;
         after: {
             nodeKey: string;
@@ -12839,6 +13291,7 @@ export type SiteHealthChangesResponseDto = {
             linkScoreRaw: number | null;
             linkScoreNormalized: number | null;
             healthState: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
+            healthReason?: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
         } | null;
     } | {
         entity: 'link';
@@ -12897,6 +13350,19 @@ export type SiteHealthPathResponseDto = {
     runId: string | null;
     complete: boolean;
     termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     state: 'no-crawl' | 'details-unavailable' | 'found' | 'unreachable' | 'truncated';
     from: {
         nodeKey: string;
@@ -12933,6 +13399,7 @@ export type SiteHealthPathResponseDto = {
         linkScoreRaw: number | null;
         linkScoreNormalized: number | null;
         healthState: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
+        healthReason?: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
     }>;
     edges: Array<{
         edgeKey: string;
@@ -12976,6 +13443,19 @@ export type SiteHealthSubgraphResponseDto = {
     runId: string | null;
     complete: boolean;
     termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     state: 'no-crawl' | 'details-unavailable' | 'ready';
     focusNodeKey: string | null;
     focusUrl: string | null;
@@ -13005,6 +13485,7 @@ export type SiteHealthSubgraphResponseDto = {
         linkScoreRaw: number | null;
         linkScoreNormalized: number | null;
         healthState: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
+        healthReason?: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
         distance: number;
         relationToFocus: 'focus' | 'inbound' | 'outbound' | 'both' | 'transitive';
     }>;
@@ -16508,6 +16989,10 @@ export type GetApiV1ProjectsByNameMeasurementOverviewData = {
     };
     query: {
         /**
+         * Byte-bounded whole-row page; omits optional heavy detail with explicit metadata. Default false for compatibility.
+         */
+        compact?: boolean;
+        /**
          * Reporting scope.
          */
         scope: 'all' | 'group' | 'property';
@@ -16933,11 +17418,11 @@ export type GetApiV1ProjectsByNameSentimentCompareData = {
          */
         revision?: number;
         /**
-         * Exact source run for this period.
+         * Exact source run or previous-rated to resolve the preceding rated run in this scope. Identical run IDs are refused.
          */
         fromRunId: string;
         /**
-         * Exact source run for this period.
+         * Exact target run for this period.
          */
         toRunId: string;
     };
@@ -17363,6 +17848,18 @@ export type GetApiV1ProjectsByNameMeasurementPortfolioSummaryData = {
         name: string;
     };
     query?: {
+        /**
+         * Byte-bounded compact page over all lists, with totals and nextCursor. Default false for compatibility.
+         */
+        compact?: boolean;
+        /**
+         * nextCursor from the preceding compact page; keep every selection unchanged.
+         */
+        cursor?: string;
+        /**
+         * Competitor evidence population. not-mentioned excludes every answer naming any targeted Property.
+         */
+        answers?: 'all' | 'not-mentioned';
         /**
          * Optional reporting group stable key.
          */
@@ -19149,6 +19646,10 @@ export type GetApiV1ProjectsByNameAnalyticsCompetitorsData = {
         name: string;
     };
     query?: {
+        /**
+         * not-mentioned selects only answers where none of their targeted subjects was named. all or omitted keeps the full population; answerSelection reports population and selected counts.
+         */
+        answers?: 'all' | 'not-mentioned';
         /**
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
@@ -29321,11 +29822,19 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlData = {
          * Historical site-audit run ID. Omit for the latest crawl.
          */
         runId?: string;
+        /**
+         * UTC scan date YYYY-MM-DD, mutually exclusive with runId. Prefer complete, then largest, then latest scans on that exact date; missing data never falls back to another date.
+         */
+        date?: string;
     };
     url: '/api/v1/projects/{name}/technical-aeo/crawl';
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlErrors = {
+    /**
+     * Invalid date, conflicting runId/date, or invalid cursor identity.
+     */
+    400: ErrorEnvelope;
     /**
      * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
      */
@@ -29624,6 +30133,10 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesData = {
          */
         runId?: string;
         /**
+         * UTC scan date YYYY-MM-DD, mutually exclusive with runId. Prefer complete, then largest, then latest scans on that exact date; missing data never falls back to another date.
+         */
+        date?: string;
+        /**
          * Filter Canonry technical inventory eligibility (`true` or `false`).
          */
         inventoryEligible?: boolean;
@@ -29664,6 +30177,10 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesData = {
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesErrors = {
+    /**
+     * Invalid date, conflicting runId/date, or invalid cursor identity.
+     */
+    400: ErrorEnvelope;
     /**
      * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
      */

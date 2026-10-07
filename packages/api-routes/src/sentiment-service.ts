@@ -16,6 +16,7 @@ import {
 } from '@ainyc/canonry-db'
 import { matchesSentimentEdge, selectSentimentSources, type SentimentSourceAssessment, type SentimentSourceEdge, type SentimentSourceSelection, type SentimentSourceFilter } from './sentiment-source.js'
 import { sentimentClassifierInput, sentimentHash } from './sentiment-input.js'
+import { notProbeRun } from './helpers.js'
 
 export interface SentimentInstallState { enabled: boolean; ready: boolean; reason: string | null; model: string }
 export interface SentimentServiceOptions { install: () => SentimentInstallState; previewSecret: string; now?: () => Date; estimate?: (input: SentimentClassifierInput) => number }
@@ -400,7 +401,8 @@ export class SentimentService {
       return { state: result.state, reason: result.reason, provisional: result.provisional, coverage: result.coverage, score: result.score, selection: result.selection, runIds: result.selection.runIds ?? (result.selection.runId ? [result.selection.runId] : []) }
     }
     const branded = headline('branded'), nonBrand = headline('non-brand')
-    return { configured, branded, nonBrand, overall: overallSentiment(reads, !configured) }
+    const pooledOverall = { ...overallSentiment(reads, !configured), pooled: true as const }
+    return { configured, branded, nonBrand, headlineQueryClass: 'branded', pooledOverall, overall: pooledOverall }
   }
   evidence(projectId: string, query: SentimentEvidenceSelection, limit: number, cursor?: string) {
     const { assessmentId, outcome, ...sourceSelection } = query
@@ -422,12 +424,37 @@ export class SentimentService {
     const page = items.slice(0, limit)
     return { state, selection, items: page.map(item => item.evidence), nextCursor: items.length > limit ? this.sign({ projectId, selection, fingerprint: read.fingerprint, after: page.at(-1)!.work.id }) : null }
   }
+  private previousRatedRun(projectId: string, query: SentimentSelection, toRunId: string): string {
+    const target = this.db.select().from(runs).where(and(eq(runs.projectId, projectId), eq(runs.id, toRunId))).get()
+    if (!target) throw notFound('Run', toRunId)
+    const selected = this.resolve(projectId, { ...query, runId: toRunId })
+    const filter = sourceFilter(query), definition = createSentimentEvaluationDefinition()
+    // Match the eligible frozen population even when the target has not been admitted yet.
+    // Evaluator and source-model changes remain comparison refusal reasons, not selector filters.
+    const population = (source: SentimentSourceSelection) => new Set(source.assessments.map(member => comparisonUnit(sentimentClassifierInput({ ...member, edges: member.edges.filter(edge => matchesSentimentEdge(edge, filter)) }, definition))))
+    const targetUnits = population(selected.source)
+    const requestedVersion = query.revision === undefined ? undefined : this.db.select({ id: measurementPlanVersions.id }).from(measurementPlanVersions).where(and(eq(measurementPlanVersions.projectId, projectId), eq(measurementPlanVersions.revision, query.revision))).get()?.id ?? '__missing-revision__'
+    const candidates = this.db.select({ id: runs.id }).from(runs).where(and(
+      eq(runs.projectId, projectId), eq(runs.kind, target.kind), notProbeRun(),
+      requestedVersion ? eq(runs.measurementPlanVersionId, requestedVersion) : undefined,
+      or(lt(runs.createdAt, target.createdAt), and(eq(runs.createdAt, target.createdAt), lt(runs.id, target.id))),
+      target.measurementPlanVersionId ? isNotNull(runs.measurementPlanVersionId) : isNull(runs.measurementPlanVersionId),
+    )).orderBy(desc(runs.createdAt), desc(runs.id)).all()
+    for (const candidate of candidates) {
+      const read = this.resolve(projectId, { ...query, runId: candidate.id })
+      const candidateUnits = population(read.source)
+      if (candidateUnits.size !== targetUnits.size || [...targetUnits].some(key => !candidateUnits.has(key))) continue
+      if (this.items(projectId, read.selection, read.source).some(item => RATED_OUTCOMES.has(item.outcome))) return candidate.id
+    }
+    throw validationError('No previous rated run exists for the selected sentiment scope.', { reason: 'previous-rated-run-unavailable' })
+  }
   compare(projectId: string, query: SentimentSelection, fromRunId: string, toRunId: string): SentimentComparison {
     if (query.runIds) throw validationError('Comparison requires one explicit run per period.')
+    if (fromRunId === toRunId) throw validationError('Sentiment comparison requires two distinct runs.', { reason: 'same-run' })
+    if (fromRunId === 'previous-rated') fromRunId = this.previousRatedRun(projectId, query, toRunId)
     const from = this.resolve(projectId, { ...query, runId: fromRunId }), to = this.resolve(projectId, { ...query, runId: toRunId })
     const fromItems = this.items(projectId, from.selection, from.source, true), toItems = this.items(projectId, to.selection, to.source, true)
-    const unit = (item: DetailedItem) => sentimentHash({ query: item.evidence.context.queryId, queryText: item.evidence.context.queryText, provider: item.input.context.provider, subject: item.input.subject, context: item.evidence.context.locationContext, language: item.input.language, usageEdges: item.evidence.context.usageEdges })
-    const units = (items: DetailedItem[]) => { const byItem = new Map(items.map(item => [item, unit(item)])), byUnit = new Map<string, DetailedItem>(); for (const [item, key] of byItem) if (!byUnit.has(key)) byUnit.set(key, item); return { byItem, byUnit } }
+    const units = (items: DetailedItem[]) => { const byItem = new Map(items.map(item => [item, comparisonUnit(item.input, item.evidence.context)])), byUnit = new Map<string, DetailedItem>(); for (const [item, key] of byItem) if (!byUnit.has(key)) byUnit.set(key, item); return { byItem, byUnit } }
     const fromUnits = units(fromItems), toUnits = units(toItems)
     const common = new Set([...fromUnits.byUnit.keys()].filter(key => toUnits.byUnit.has(key)))
     const settings = this.settings(projectId)
@@ -461,6 +488,10 @@ export class SentimentService {
     const verdict = refusalReasons.length || !intervalFrom || !intervalTo ? null : intervalTo.low > intervalFrom.high ? 'improved' : intervalTo.high < intervalFrom.low ? 'declined' : 'no-clear-change'
     return { from: fromSummary, to: toSummary, verdict, favorableRateDelta: verdict && fromSummary.score.favorableRate !== null && toSummary.score.favorableRate !== null ? toSummary.score.favorableRate - fromSummary.score.favorableRate : null, refusalReasons: [...new Set(refusalReasons)], commonUnits: common.size, excludedFrom: expectedFrom - fromSummary.coverage.selected, excludedTo: expectedTo - toSummary.coverage.selected, changedScope, method: 'wilson-independent-v1', limitation: SENTIMENT_INTERVAL_LIMITATION }
   }
+}
+/** Frozen execution identity shared by source selection and admitted comparison units. */
+function comparisonUnit(input: SentimentClassifierInput, context = input.context): string {
+  return sentimentHash({ query: context.queryId, queryText: context.queryText, provider: input.context.provider, subject: input.subject, context: context.locationContext, language: input.language, usageEdges: context.usageEdges })
 }
 const jobAttemptJoin = and(eq(sentimentJobItems.workItemId, sentimentAttempts.workItemId), eq(sentimentJobItems.projectId, sentimentAttempts.projectId))
 function emptySource(): SentimentSourceSelection { return { assessments: [], runIds: [], sourceCoverage: { expected: 0, completed: 0 }, sourceSlotIds: { expected: [], completed: [] }, skipped: {} } }

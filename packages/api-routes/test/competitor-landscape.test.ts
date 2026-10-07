@@ -187,6 +187,27 @@ afterEach(async () => {
 })
 
 describe('GET /projects/:name/analytics/competitors', () => {
+  it('filters Simple landscape evidence to captured answers that did not mention the project, keeping missing-text answers unknown', async () => {
+    db.update(querySnapshots).set({ recommendedCompetitors: ['Co Named Rival'] }).where(eq(querySnapshots.id, 'snapshot_answer')).run()
+    const stored = db.select().from(querySnapshots).where(eq(querySnapshots.id, 'snapshot_answer')).get()!
+    db.insert(querySnapshots).values({
+      ...stored, id: 'snapshot_unmentioned', answerMentioned: false,
+      answerText: 'Rival is recommended.', recommendedCompetitors: ['Missed Rival', 'Missed Rival'],
+      citedDomains: ['rival.example'], citedUrls: ['https://rival.example/listing'],
+    }).run()
+    const response = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&answers=not-mentioned' })
+    expect(response.statusCode).toBe(200)
+    const body = competitorLandscapeResponseSchema.parse(response.json())
+    expect(body.answerSelection).toEqual({ answers: 'not-mentioned', populationSize: 3, answerCount: 1, unknownMentionAnswers: 1 })
+    expect(body.observedNames).toEqual([{ name: 'Missed Rival', answerCount: 1 }])
+    expect(body.pinned[0]).toMatchObject({ domain: 'rival.example', mentionCount: 1, citationCount: 1 })
+    expect(body.otherSources).toEqual([])
+    expect(body.filters.answers).toBe('not-mentioned')
+    const all = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&answers=all' })
+    expect(all.statusCode).toBe(200)
+    expect(all.json().observedNames).toEqual([{ name: 'Co Named Rival', answerCount: 1 }, { name: 'Missed Rival', answerCount: 1 }])
+    expect(all.json().answerSelection).toBeUndefined()
+  })
   it('withholds share of voice without a comparison set, including model groups', async () => {
     db.delete(competitors).run()
     db.delete(domainClassifications).run()
@@ -635,6 +656,15 @@ describe('GET /projects/:name/analytics/competitors', () => {
     // The pooled reading is still honest without a brand, so it still answers.
     const pooled = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all' })
     expect(pooled.statusCode, pooled.body).toBe(200)
+
+    for (const queryClass of ['', '&queryClass=all']) {
+      const absent = await app.inject({ method: 'GET', url: `/api/v1/projects/northwind/analytics/competitors?window=all&answers=not-mentioned${queryClass}` })
+      expect(absent.statusCode, absent.body).toBe(200)
+      const body = absent.json()
+      expect(body.answerSelection).toEqual({ answers: 'not-mentioned', populationSize: 2, answerCount: 0, unknownMentionAnswers: 2 })
+      expect(body.pinned[0]).toMatchObject({ mentionCount: 0, citationCount: 0 })
+      expect(body.otherSources).toEqual([])
+    }
   })
 
   it.each(['model=model-a', 'provider=openai&model=', 'provider=openai&model=%20%20', 'groupBy=provider', 'groupBy=model&groupKey=regional&scope=all-markets'])(

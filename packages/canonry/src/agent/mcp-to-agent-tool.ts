@@ -12,11 +12,10 @@ import {
 import { renderRatioUnits, responseComponents, responseSchemasFor } from './tool-result-units.js'
 
 const MAX_TOOL_RESULT_CHARS = 20_000
-const TRUNCATION_NOTE = '... (truncated, result too large)'
 /**
  * Every truncation says what it cut, under this key. Structured output
- * carries it as a field next to `__truncated`; the plain slice carries it as
- * a `__truncation: {...}` line just before the closing note. Collection
+ * carries it as a field next to `__truncated`, including bounded fallback
+ * projections. Collection
  * paths use `[]` for "every row" (`rows[].tags`) and `[3]` for one row.
  */
 const TRUNCATION_SUMMARY_KEY = '__truncation'
@@ -31,26 +30,21 @@ const PARTIAL_LISTS_KEY = '__partialLists'
 const CURSOR_KEYS = ['nextCursor', 'nextOffset', 'nextPageToken', 'next_cursor']
 /**
  * Ceiling on the input the structured paths will attempt. Each of them
- * re-serializes the enclosing document per step, and a pathological payload
- * once spent 289s of the server's single thread to emit the same 19,397
- * characters a plain slice produces. Above this size, fall through to the
- * marked slice: the structure-aware path exists to keep evidence rows
- * parseable, and at this scale it is discarding almost everything regardless.
+ * re-serializes the enclosing document per step. Above this size a bounded
+ * projection keeps complete rows without searching the whole document.
  */
 const MAX_STRUCTURED_TRUNCATION_CHARS = 2_000_000
 /**
  * Bound on the characters the nested path serializes while it searches. Byte
  * size alone does not bound this work: every probe re-serializes the trimmed
  * copy. A real result settles in a few dozen probes; a pathological one
- * spends this and takes the marked slice.
+ * spends this and takes the bounded JSON projection.
  */
 const TRUNCATION_SERIALIZE_BUDGET_CHARS = 64_000_000
 /** Lists this long or shorter read as rollups (markets, rankings) and keep their rows longest. */
 const SMALL_LIST_ROWS = 25
-/** Bounds on the slice fallback's summary line, so it cannot crowd out the result. */
-const MAX_SUMMARY_DEPTH = 5
+/** Bounds on fallback omission metadata, so it cannot crowd out the result. */
 const MAX_SUMMARY_KEYS = 30
-const MAX_SUMMARY_SEGMENT_CHARS = 60
 /** Bounds on the partial-list note: how deep it looks and how many lists it names. */
 const MAX_PARTIAL_DEPTH = 4
 const MAX_PARTIAL_NOTES = 12
@@ -69,7 +63,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 interface TruncationSummary {
-  /** Collections (or, for the slice, top-level keys) the model sees none of. */
+  /** Collections or projected keys the model sees none of. */
   droppedKeys: string[]
   /** `"<kept> of <total>"` for every collection that lost rows. */
   keptItems: Record<string, string>
@@ -96,15 +90,37 @@ function keptSummary(counts: KeptCounts, cursors: Record<string, string> = {}): 
  * Cursors are opaque, so say so instead of rewriting one.
  */
 function noteCursor(owner: Record<string, unknown>, ownerPath: string, listPath: string, kept: number, total: number, notes: Record<string, string>): void {
-  const key = CURSOR_KEYS.find(candidate => owner[candidate] !== undefined && owner[candidate] !== null)
-  if (!key || kept >= total) return
-  notes[ownerPath ? `${ownerPath}.${key}` : key] =
-    `skips the ${total - kept} rows cut from ${listPath}; to read them, call again with ${kept > 0 ? `limit <= ${kept}` : 'a lower limit'}`
+  const cursor = cursorForList(owner, ownerPath, listPath.slice(listPath.lastIndexOf('.') + 1))
+  if (!cursor || kept >= total) return
+  notes[cursor.path] =
+    `incomplete page: skips the ${total - kept} rows cut from ${listPath}; re-request the original cursor with ${kept > 0 ? `${cursor.limit} <= ${kept}` : `a lower ${cursor.limit}`}`
 }
 
 interface ListCount {
   count: number
   text: string
+}
+
+/** Public sentiment pages place their cursors separately from their row lists. */
+function cursorForList(owner: Record<string, unknown>, ownerPath: string, listKey: string): {
+  path: string; value: unknown; parameter: string; limit: string; total?: ListCount
+} | undefined {
+  const prefix = ownerPath ? `${ownerPath}.` : ''
+  if (listKey === 'queries' && isRecord(owner.queryPage) && owner.queryPage.nextCursor !== undefined && owner.queryPage.nextCursor !== null) {
+    const page = owner.queryPage
+    return {
+      path: `${prefix}queryPage.nextCursor`, value: page.nextCursor, parameter: 'queryCursor', limit: 'queryLimit',
+      ...(typeof page.total === 'number' ? { total: { count: page.total, text: String(page.total) } } : {}),
+    }
+  }
+  if (listKey === 'attempts' && owner.nextAttemptCursor !== undefined && owner.nextAttemptCursor !== null) {
+    return {
+      path: `${prefix}nextAttemptCursor`, value: owner.nextAttemptCursor, parameter: 'attemptCursor', limit: 'attemptLimit',
+      ...(typeof owner.attemptCount === 'number' ? { total: { count: owner.attemptCount, text: String(owner.attemptCount) } } : {}),
+    }
+  }
+  const key = CURSOR_KEYS.find(candidate => owner[candidate] !== undefined && owner[candidate] !== null)
+  return key ? { path: `${prefix}${key}`, value: owner[key], parameter: 'cursor', limit: 'limit' } : undefined
 }
 
 /**
@@ -154,7 +170,7 @@ function partialLists(root: Record<string, unknown>): Record<string, string> | u
     }
     let noted = false
     if (lists.length <= MAX_SUMMARY_KEYS) {
-      const counts = lists.map(([key]) => ownListTotal(numbers, key))
+      const counts = lists.map(([key]) => ownListTotal(numbers, key) ?? cursorForList(object, path, key)?.total)
       const uncounted = counts.flatMap((count, index) => count ? [] : [index])
       if (uncounted.length === 1) counts[uncounted[0]!] = bareTotal(numbers)
       for (const [index, [key, rows]] of lists.entries()) {
@@ -188,9 +204,25 @@ function withPartialLists(value: unknown): unknown {
   if (!isRecord(value) || typeof value.toJSON === 'function') return value
   const hadNote = Object.hasOwn(value, PARTIAL_LISTS_KEY)
   const notes = partialLists(value)
-  if (!notes && !hadNote) return value
-  const { [PARTIAL_LISTS_KEY]: _previous, ...rest } = value
-  return notes ? { [PARTIAL_LISTS_KEY]: notes, ...rest } : rest
+  if (!notes && !hadNote && value.nextAttemptCursor == null && !CURSOR_KEYS.some(key => value[key] !== undefined && value[key] !== null) && !Object.values(value).some(child => isRecord(child) && CURSOR_KEYS.some(key => child[key] !== undefined && child[key] !== null))) return value
+  const pagination: Record<string, string> = {}
+  const visit = (owner: Record<string, unknown>, path: string, depth: number): void => {
+    const lists = Object.entries(owner).filter((entry): entry is [string, unknown[]] => Array.isArray(entry[1]))
+    const numbers = Object.entries(owner).filter((entry): entry is [string, number] => typeof entry[1] === 'number')
+    for (const [key, rows] of lists) {
+      const cursor = cursorForList(owner, path, key)
+      if (!cursor || key.startsWith('__') || Object.keys(pagination).length >= MAX_PARTIAL_NOTES) continue
+      const label = path ? `${path}.${key}` : key
+      const total = cursor.total ?? ownListTotal(numbers, key) ?? (lists.length === 1 ? bareTotal(numbers) : undefined)
+      const incomplete = owner.__truncated === true || isRecord(owner.__omittedRowsByField) && typeof owner.__omittedRowsByField[key] === 'number'
+      pagination[label] = `showing ${rows.length}${total ? ` of ${total.text}` : ' rows'}; ${incomplete ? `incomplete page: re-request the original cursor with a smaller ${cursor.limit}; the next cursor skips omitted rows` : `pass ${cursor.parameter} ${JSON.stringify(cursor.value)}`}`
+    }
+    if (depth >= MAX_PARTIAL_DEPTH) return
+    for (const [key, child] of Object.entries(owner)) if (!key.startsWith('__') && isRecord(child)) visit(child, path ? `${path}.${key}` : key, depth + 1)
+  }
+  visit(value, '', 1)
+  const { [PARTIAL_LISTS_KEY]: _previous, __pagination: _pagination, ...rest } = value
+  return { ...(notes ? { [PARTIAL_LISTS_KEY]: notes } : {}), ...(Object.keys(pagination).length > 0 ? { __pagination: pagination } : {}), ...rest }
 }
 
 /** The object key whose array value serializes largest (the one worth trimming). */
@@ -491,156 +523,75 @@ function hasOtherLists(value: unknown, primary: unknown[]): boolean {
   return isRecord(value) && Object.values(value).some(child => hasOtherLists(child, primary))
 }
 
-/** An object or array still open where the slice cuts the text. */
-interface OpenContainer {
-  kind: 'object' | 'array'
-  path: string
-  /** The value this container renders, looked up in the original result. */
-  value: unknown
-  /** Children rendered in full: followed by a comma, or a closed container. */
-  complete: number
-  childClosed: boolean
-  expectKey: boolean
-  key?: string
-}
-
-function shortSegment(key: string): string {
-  return key.length > MAX_SUMMARY_SEGMENT_CHARS ? `${key.slice(0, MAX_SUMMARY_SEGMENT_CHARS)}...` : key
-}
-
-function childPath(container: OpenContainer): string {
-  if (container.kind === 'array') return `${container.path}[${container.complete}]`
-  const key = shortSegment(container.key ?? '')
-  return container.path ? `${container.path}.${key}` : key
-}
-
-/** Keys JSON.stringify emits for a plain object, in emitted order. */
-function serializedKeys(value: unknown): string[] | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
-  const record = value as Record<string, unknown>
-  if (typeof record.toJSON === 'function') return undefined
-  return Object.keys(record).filter((key) => {
-    const child = record[key]
-    return child !== undefined && typeof child !== 'function' && typeof child !== 'symbol'
-  })
-}
-
-/** The containers open at the end of `shown`, a prefix of the result's serialized JSON. */
-function openContainersAt(shown: string, details: unknown): OpenContainer[] {
-  const stack: OpenContainer[] = []
-  let inString = false
-  let escaped = false
-  let stringStart = 0
-  for (let i = 0; i < shown.length; i++) {
-    const ch = shown[i]
-    const top = stack.at(-1)
-    if (inString) {
-      if (escaped) escaped = false
-      else if (ch === '\\') escaped = true
-      else if (ch === '"') {
-        inString = false
-        if (top?.kind === 'object' && top.expectKey) {
-          top.key = JSON.parse(shown.slice(stringStart, i + 1)) as string
-          top.expectKey = false
+/**
+ * Bounded fallback for very large results or an exhausted fair-share search.
+ * Arrays keep complete original rows; oversized scalars and keyed fields are
+ * omitted explicitly. Reserving room for the summary makes the output valid
+ * JSON even when one evidence row alone exceeds the model-facing cap.
+ */
+function boundedProjection(full: string): string {
+  const value: unknown = JSON.parse(full)
+  const summary: TruncationSummary & { moreDroppedKeys?: number; projection: string } = {
+    droppedKeys: [], keptItems: {}, projection: 'Only complete rows are shown; omitted fields are not evidence.',
+  }
+  let dropped = 0
+  const omit = (path: string): void => {
+    dropped++
+    if (summary.droppedKeys.length < MAX_SUMMARY_KEYS) summary.droppedKeys.push(path)
+    else summary.moreDroppedKeys = dropped - MAX_SUMMARY_KEYS
+  }
+  const project = (input: unknown, budget: number, path: string, owner?: Record<string, unknown>, ownerPath = ''): string | undefined => {
+    if (Array.isArray(input)) {
+      const rows: string[] = []
+      let used = 2
+      for (const row of input) {
+        const text = serializeResult(row)
+        const cost = text.length + (rows.length > 0 ? 1 : 0)
+        if (used + cost > budget) break
+        rows.push(text)
+        used += cost
+      }
+      if (rows.length < input.length) {
+        if (Object.keys(summary.keptItems).length < MAX_SUMMARY_KEYS) summary.keptItems[path || 'items'] = `${rows.length} of ${input.length}`
+        if (rows.length === 0) omit(path || 'items')
+        if (owner) {
+          const cursors = summary.cursors ?? {}
+          noteCursor(owner, ownerPath, path, rows.length, input.length, cursors)
+          if (Object.keys(cursors).length > 0) summary.cursors = cursors
         }
       }
-      continue
+      return `[${rows.join(',')}]`
     }
-    if (ch === '"') {
-      inString = true
-      stringStart = i
-    } else if (ch === '{' || ch === '[') {
-      let value: unknown = details
-      if (top) {
-        const parent = top.value as Record<string, unknown> | unknown[] | null | undefined
-        value = top.kind === 'array'
-          ? (Array.isArray(parent) ? parent[top.complete] : undefined)
-          : (parent && typeof parent === 'object' ? (parent as Record<string, unknown>)[top.key ?? ''] : undefined)
-      }
-      stack.push({
-        kind: ch === '{' ? 'object' : 'array',
-        path: top ? childPath(top) : '',
-        value,
-        complete: 0,
-        childClosed: false,
-        expectKey: ch === '{',
-      })
-    } else if (ch === '}' || ch === ']') {
-      stack.pop()
-      const parent = stack.at(-1)
-      if (parent) parent.childClosed = true
-    } else if (ch === ',' && top) {
-      top.complete++
-      top.childClosed = false
-      top.expectKey = top.kind === 'object'
+    if (!isRecord(input)) {
+      const text = serializeResult(input)
+      if (text.length <= budget) return text
+      omit(path || '(root)')
+      return undefined
     }
-  }
-  return stack
-}
-
-/**
- * The `__truncation` line for a plain slice: where the text stops, how much
- * of each collection around that point was shown, and which top-level keys
- * the model never sees (with array lengths). It reads only the shown prefix
- * and the result's own key lists, so it stays cheap on any payload.
- */
-function sliceSummaryLine(shown: string, details: unknown): string {
-  if (!shown.startsWith('{') && !shown.startsWith('[')) return ''
-  const stack = openContainersAt(shown, details)
-  const root = stack.at(0)
-  const deepest = stack.at(-1)
-  if (!root || !deepest) return ''
-  const summary: TruncationSummary & { cutAt: string; moreDroppedKeys?: number } = {
-    // Between two children the cut is named by their container.
-    cutAt: deepest.childClosed || deepest.expectKey ? deepest.path : childPath(deepest),
-    droppedKeys: [],
-    keptItems: {},
-  }
-  for (const container of stack.slice(0, MAX_SUMMARY_DEPTH)) {
-    const total = container.kind === 'array'
-      ? (Array.isArray(container.value) ? container.value.length : undefined)
-      : serializedKeys(container.value)?.length
-    if (total === undefined) break
-    if (container === root && container.kind === 'object') continue
-    const shownCount = container.complete + (container.childClosed ? 1 : 0)
-    summary.keptItems[container.path || '(root)'] = container.kind === 'array'
-      ? `${shownCount} of ${total}`
-      : `${shownCount} of ${total} keys`
-  }
-  const rootKeys = root.kind === 'object' ? serializedKeys(root.value) : undefined
-  if (rootKeys) {
-    const inProgress = root.expectKey || root.childClosed ? 0 : 1
-    const dropped = rootKeys.slice(root.complete + (root.childClosed ? 1 : 0) + inProgress)
-    const record = root.value as Record<string, unknown>
-    for (const key of dropped.slice(0, MAX_SUMMARY_KEYS)) {
-      const label = shortSegment(key)
-      summary.droppedKeys.push(label)
-      const value = record[key]
-      if (Array.isArray(value)) summary.keptItems[label] = `0 of ${value.length}`
+    const fields = Object.entries(input).filter(([key]) => !key.startsWith('__'))
+    // Preserve identity, totals and cursors before spending room on evidence.
+    const priority = ([key, child]: [string, unknown]): number => key === 'queryPage' && isRecord(child) ? 0 : Number(typeof child === 'object' && child !== null)
+    fields.sort((a, b) => priority(a) - priority(b))
+    const shown: string[] = []
+    let used = 2
+    for (const [key, child] of fields) {
+      const childPath = path ? `${path}.${key}` : key
+      const prefix = `${JSON.stringify(key)}:`
+      const allowance = budget - used - prefix.length - (shown.length > 0 ? 1 : 0)
+      if (allowance < 2) { omit(childPath); continue }
+      const text = project(child, allowance, childPath, input, path)
+      if (text === undefined) continue
+      shown.push(prefix + text)
+      used += prefix.length + text.length + (shown.length > 1 ? 1 : 0)
     }
-    if (dropped.length > MAX_SUMMARY_KEYS) summary.moreDroppedKeys = dropped.length - MAX_SUMMARY_KEYS
+    return `{${shown.join(',')}}`
   }
-  return `${TRUNCATION_SUMMARY_KEY}: ${JSON.stringify(summary)}`
-}
-
-/**
- * Last resort: a plain slice of the serialized text. It still names what was
- * cut, in a `__truncation` line before the closing note, sized so the slice,
- * the line and the note stay within the cap plus the note.
- */
-function markedSlice(full: string, details: unknown): string {
-  let cut = MAX_TOOL_RESULT_CHARS
-  // The line describes the text shown before `cut`, and its own length moves
-  // `cut`; a couple of rounds settle it.
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const line = sliceSummaryLine(full.slice(0, cut), details)
-    const cost = line ? line.length + 1 : 0
-    if (cut + cost <= MAX_TOOL_RESULT_CHARS) {
-      return full.slice(0, cut) + '\n' + (line ? line + '\n' : '') + TRUNCATION_NOTE
-    }
-    cut = MAX_TOOL_RESULT_CHARS - cost - attempt * 16
-  }
-  return full.slice(0, MAX_TOOL_RESULT_CHARS) + '\n' + TRUNCATION_NOTE
+  const projected = project(value, MAX_TOOL_RESULT_CHARS - 5_000, '')
+  const shown: unknown = projected === undefined ? {} : JSON.parse(projected)
+  const output = isRecord(shown) ? shown : { items: shown }
+  const serialized = serializeResult({ ...output, __truncated: true, [TRUNCATION_SUMMARY_KEY]: summary })
+  if (fitsCap(serialized)) return serialized
+  return serializeResult({ __truncated: true, [TRUNCATION_SUMMARY_KEY]: { droppedKeys: ['(root)'], keptItems: {}, projection: 'Result omitted because its truncation metadata exceeds the size cap. Request a smaller page or a narrower read.' } })
 }
 
 /**
@@ -658,9 +609,9 @@ function markedSlice(full: string, details: unknown): string {
  *    counts in `__omittedRowsByField`; of this and the largest-array cut, the
  *    one keeping more rows across every list wins;
  *  - any other still-oversized value (a giant scalar / string with nothing
- *    structured to drop): a marked string slice, the last resort.
+ *    structured to drop): a bounded JSON projection, the last resort.
  * Every truncation also names what it cut under `__truncation`: a field on the
- * structured output, a line before the note on the slice. A page cut short
+ * structured output and on fallback projections. A page cut short
  * says there that its cursor skips the cut rows. Lists the tool itself cut
  * (its own total above the rows, or `truncated: true`) are named first, under
  * `__partialLists`, whether or not the cap cut anything. Retained evidence
@@ -676,9 +627,9 @@ export function truncateToolResult(details: unknown): string {
   // Bound the work BEFORE any structured path. Each of them re-serializes the
   // enclosing document per step, so a guard in front of only the nested path
   // left the top-level-array and largest-array paths exposed. Past this size
-  // they discard nearly everything they walk, so the walk is cost without
-  // benefit.
-  if (full.length > MAX_STRUCTURED_TRUNCATION_CHARS) return markedSlice(full, annotated)
+  // they discard nearly everything they walk, so project complete rows in
+  // a single bounded pass instead.
+  if (full.length > MAX_STRUCTURED_TRUNCATION_CHARS) return boundedProjection(full)
 
   // Top-level array: trim whole elements, wrap with the marker (always fits, an
   // empty `items` is tiny).
@@ -697,7 +648,7 @@ export function truncateToolResult(details: unknown): string {
   if (details && typeof details === 'object') {
     const obj = details as Record<string, unknown>
     const arrayKey = largestArrayKey(obj)
-    if (!arrayKey) return trimNestedArrays(full) ?? markedSlice(full, annotated)
+    if (!arrayKey) return trimNestedArrays(full) ?? boundedProjection(full)
     const rows = obj[arrayKey] as unknown[]
     const render = (kept: unknown[]): string => {
       const cursors: Record<string, string> = {}
@@ -722,7 +673,7 @@ export function truncateToolResult(details: unknown): string {
     if (nested !== undefined) return nested
   }
 
-  return markedSlice(full, annotated)
+  return boundedProjection(full)
 }
 
 /**
@@ -737,6 +688,37 @@ function textResult<T>(details: T, responseSchemas: readonly Record<string, unkn
     details,
   }
 }
+
+/** Verified stored reads whose identical results can be referenced within a turn. */
+const MEMO_STORED_READS: ReadonlySet<string> = new Set([
+  CanonryMcpToolNames.canonry_project_overview,
+  CanonryMcpToolNames.canonry_competitor_landscape,
+  CanonryMcpToolNames.canonry_measurement_overview,
+  CanonryMcpToolNames.canonry_measurement_portfolio_summary,
+  CanonryMcpToolNames.canonry_measurement_property_evidence,
+  CanonryMcpToolNames.canonry_measurement_property_questions,
+  CanonryMcpToolNames.canonry_measurement_question_result,
+  CanonryMcpToolNames.canonry_measurement_property_competitors,
+  CanonryMcpToolNames.canonry_measurement_changes,
+  CanonryMcpToolNames.canonry_measurement_data_quality,
+  CanonryMcpToolNames.canonry_visibility_report,
+  CanonryMcpToolNames.canonry_visibility_stats,
+  CanonryMcpToolNames.canonry_visibility_compare,
+  CanonryMcpToolNames.canonry_sentiment,
+  CanonryMcpToolNames.canonry_sentiment_settings,
+  CanonryMcpToolNames.canonry_sentiment_evidence,
+  CanonryMcpToolNames.canonry_sentiment_compare,
+  CanonryMcpToolNames.canonry_sentiment_backfill_preview,
+  CanonryMcpToolNames.canonry_insights_list,
+])
+const storedReadTools = new WeakSet<AgentTool>()
+const storedPageReadTools = new WeakSet<AgentTool>()
+
+/** Only local adapter reads that do not call live providers may be memoized. */
+export function isStoredReadTool(tool: AgentTool): boolean { return storedReadTools.has(tool) }
+
+/** Verified native stored reads, including job polling, may use turn-local page references. */
+export function isStoredPageReadTool(tool: AgentTool): boolean { return storedPageReadTools.has(tool) }
 
 export interface AgentMcpAdapterContext {
   client: ApiClient
@@ -811,13 +793,16 @@ export function mcpToAgentTool(
     return textResult(result, responseSchemas)
   }
 
-  return {
+  const adapted = {
     name: tool.name,
     label: tool.title,
     description: tool.description,
     parameters,
     execute,
   } as AgentTool
+  if (tool.access === 'read' && MEMO_STORED_READS.has(tool.name)) storedReadTools.add(adapted)
+  if (tool.access === 'read' && (MEMO_STORED_READS.has(tool.name) || tool.name === CanonryMcpToolNames.canonry_sentiment_job || tool.name === CanonryMcpToolNames.canonry_sentiment_jobs)) storedPageReadTools.add(adapted)
+  return adapted
 }
 
 /**
@@ -826,8 +811,8 @@ export function mcpToAgentTool(
  * a foot-gun (it would erase the user's context mid-turn).
  */
 export const AERO_EXCLUDED_MCP_TOOLS: ReadonlySet<CanonryMcpToolName> = new Set([
-  // Aero reads stored sentiment. Turning it on and submitting a backfill start
-  // paid classifier work, so they stay with the operator (API, CLI, external MCP).
+  // Aero reads stored sentiment. Configuration and backfill submission can
+  // start paid classifier work and remain operator actions.
   'canonry_sentiment_configure',
   'canonry_sentiment_backfill',
 

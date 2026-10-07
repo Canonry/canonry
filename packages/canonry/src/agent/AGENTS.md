@@ -81,11 +81,26 @@ calculating metrics, preserves class denominators and missing states, and links
 the selected evidence. Do not persist context into the system-prompt snapshot.
 
 Default execution limits are 30 tool calls / 180 seconds; hard maxima are 100 /
-600 seconds. Count attempted calls, including invalid ones. A turn that reaches
-the tool limit makes one more model call with every tool removed and
-`TOOL_LIMIT_WRAP_UP` appended, so it answers from what it read; the run then
-ends whatever that call returns. Abort stops future calls; dispatched work may
-settle. SSE emits `aero_turn_status`; CLI and UI treat
+600 seconds. Count attempted calls, including invalid ones. Tool and research-time limits get
+one final model request with all tools removed. Reserve up to 15 seconds (10%
+of the deadline, at least 250 ms) for that answer; the total deadline still
+stops the turn with an explicit partial-answer fallback. Provider failure during
+wrap-up reports error even with that fallback; a user abort reports stopped.
+Abort stops future calls; dispatched work may settle. Identical
+local stored-read calls reuse the earlier result within one turn; live provider
+reads, job polling, failures and external tools do not, and any other tool invalidates
+the memo. Intact native stored-read pages expose short, turn-specific cursor
+references in model-facing JSON only. Resolve them to the exact API token for
+the same tool and original filters. Omitted filters inherit the issuing call;
+explicit filters must match after schema defaults. Only limit/queryLimit/attemptLimit
+may change. Inherit required scope before model-call argument validation.
+Bound the references by the turn call budget and clear them on reset/end. Raw
+API details, CLI/MCP cursors, external tools and cap-cut next cursors stay intact.
+Supply UTC turn-start time after the static system prefix for each model request;
+use its date/year for relative or omitted-year periods unless the user names a year.
+Keep stored run/scan dates authoritative. The clock stays fixed within one turn,
+refreshes on the next and never enters the persisted transcript.
+SSE emits `aero_turn_status`; CLI and UI treat
 missing `stream_close` as failure. Observe socket closure during acquisition too.
 Transcript reads expose `isStreaming` so polling cannot erase live partial text.
 Tool results persist small labels/durations, not full `details` payloads.
@@ -188,8 +203,8 @@ guard blind-sliced the serialized JSON, which could split an array element
 halfway (invalid JSON) and silently drop a cited evidence row mid-object. Now:
 an object whose largest field is an array drops WHOLE trailing rows and stamps
 `__truncated` + `__omittedRows`; a top-level array is wrapped as `{ items,
-__truncated, __omittedRows }`; only a giant scalar with nothing structured to
-drop falls back to a marked string slice. Every retained row stays byte-intact;
+__truncated, __omittedRows }`; oversized scalars and
+keyed fields are omitted explicitly in a bounded JSON projection. Every retained row stays byte-intact;
 the programmatic `details` envelope is never trimmed, only the model-facing
 text.
 
@@ -210,8 +225,12 @@ a list whose owner carries a page cursor (`nextCursor`, `nextOffset`,
 `__truncation.cursors` says it skips the cut rows and what `limit` to re-request
 with. Lists the TOOL itself returned partially (its own total above the rows,
 or `truncated: true`) are named under `__partialLists`, always the FIRST key,
-whether or not the cap cut anything; a result with nothing partial serializes
-byte-identical to plain compact JSON.
+whether or not the cap cut anything. Intact pages carry a `__pagination` note
+with the shown count, population and next cursor. Cap-cut pages are marked
+incomplete and must be re-requested from the original cursor with a smaller
+limit. A result with no partial list or next cursor serializes byte-identical
+to plain compact JSON. Remote tool results use the same structured truncation
+while preserving the complete programmatic envelope.
 
 A misspelled tool name is corrected before pi prepares the call: the
 `agent.streamFunction` wrapper (`runtime.ts`) renames a tool call to the one VISIBLE
@@ -393,10 +412,7 @@ canonry agent memory set <project> --key <k> --value <v>    # upsert a note (2 K
 canonry agent memory forget <project> --key <k>      # delete a note
 ```
 
-Native Aero reads experimental sentiment through the seven `canonry_sentiment*`
-read tools (settings, summary, evidence, compare, backfill preview, jobs, job), in
-admin and viewer turns alike. `canonry_sentiment_configure` and
-`canonry_sentiment_backfill` start paid classifier work, so they stay in
-`AERO_EXCLUDED_MCP_TOOLS`; API, CLI and external MCP keep them. How Aero reads
-the scores (branded headline, non-brand exceptions, model-classified) lives in
-`skills/aero/SKILL.md`.
+Aero exposes the seven stored sentiment read tools in administrator and viewer
+turns. `canonry_sentiment_configure` and `canonry_sentiment_backfill` stay excluded
+from native Aero because they can start paid classifier work; API, CLI and
+external MCP retain those operator actions.

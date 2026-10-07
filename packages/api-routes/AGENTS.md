@@ -130,6 +130,36 @@ recommendations only for the returned properties. The limit does not truncate
 market rollups or change portfolio totals. Keep the evaluator request-local so
 run, revision, provider, location, and query-class selections cannot share stale data.
 
+`compact=true` on measurement overview and portfolio summary keeps formatted
+tool responses below the page budget, dropping whole rows with resumable cursors.
+Portfolio cursors advance Property, ranking, market and selected-answer evidence
+lists independently and bind the frozen revision, displayed run, filters and stored
+evidence. Compact portfolio evidence omissions are named in `detailsOmitted`,
+never represented by empty evidence arrays. An indivisible oversized row returns
+a validation error rather than an empty repeating page. Legacy reads retain their
+detail fields and market level behavior.
+
+Compact portfolio reads retain the bounded `weakestAnswerSources` summary so an
+agent can answer source questions directly. Its explicit basis covers the initial
+weakest Property selection plus the complete zero-signal tie; the cursor preserves
+that selection when later page limits change.
+
+Compact portfolio reads without `groupKey` expose `weakestMarkets`: at most five
+top-level markets ranked over their full run/filter/class populations before
+paging, by mention rate, citation rate, then label/key. Both rates must be
+available; eligible and excluded counts cover every top-level market. Nested
+markets never participate. `tiedAtWeakest.byMetro` groups zero-signal Properties
+and never supplies a metro's aggregate rate.
+
+`answers=not-mentioned` filters portfolio evidence and competitor landscapes by
+answers where none of the answer's frozen target Properties was named, including
+a sibling outside the requested group; unknown identity or missing answer text
+cannot establish absence. Simple landscapes apply the same rule to their project
+brand. The response exposes the original population, selected answers and unknown
+answers. `propertiesNeverMentioned` is independent of citations; `tiedAtWeakest`
+requires both signals to be zero. Cited-domain lists aggregate registrable domains,
+deduplicated once per answer, after filtering provider infrastructure hosts.
+
 ### Route file structure
 
 Each file exports an async Fastify plugin function:
@@ -648,7 +678,8 @@ WordPress backfill is forbidden while either continuation field is set.
 - `POST /technical-aeo/runs` persists normalized request identity, with the saved page budget already resolved, before queueing: only identical effective options reuse an active run; a sitemap, budget, depth, or dead-link difference returns `409`.
 - `GET /technical-aeo/runs` is the Site Health scan history: every non-probe site-audit run newest-first, each with `hasCrawlData`.
 - A `runId` naming a real surfaceable run that published no crawl (a legacy score-only scan) gets that route's own no-crawl shape, NOT a 404; only an unknown or foreign `runId` still 404s.
-- Crawl-scoped reads without a `runId` (`resolveCrawl`) select the newest non-probe crawl of a `completed` or `partial` run: a `partial` crawl stopped at an operator-chosen budget, and a site larger than the page budget never produces anything else. Every crawl read carries `complete` / `termination` (`completenessOf`; `false` / null with no crawl), so an absent page or link from a capped scan is never read as site-wide, and the CLI prints the caveat. A scan with no crawl (scorecard-only, failed, cancelled, running) is never the default. Only `changes` requires complete crawls; with only partial ones it answers `partial-not-comparable`.
+- Crawl-scoped reads without a `runId` (`resolveCrawl`) select from the latest UTC scan date: prefer a complete non-probe crawl, then the most fetched pages, then the newest scan. Scorecard/page reads (`resolveAudit`) use the same date/completeness priority and audited-page count. `runSelection` exposes the reason, same-date total and up to ten candidates; explicit `runId` always pins the scan. A newer-day partial scan stays current: a `partial` crawl stopped at an operator-chosen budget, and a site larger than the page budget never produces anything else. Every crawl read carries `complete` / `termination` (`completenessOf`; `false` / null with no crawl), so an absent page or link from a capped scan is never read as site-wide, and the CLI prints the caveat. A scan with no crawl (scorecard-only, failed, cancelled, running) is never the default. Only `changes` requires complete crawls; with only partial ones it answers `partial-not-comparable`.
+- Crawl summary and page reads accept a UTC calendar `date` instead of `runId` (selection identity, mutually exclusive). A missing date echoes `requestedDate` with no crawl; it never falls back to latest. Dated no-data reads add `availableScanDates`: up to ten recent dates and ten matching month/day dates across years, each with its full distinct-date total. These are candidates for explicit selection, never automatic substitutions. Their `inventorySummary` counts the whole selected snapshot regardless of page filters/cursor. Page `healthReasonCounts` count the filtered set before paging. Both use bounded SQL state groups classified by `deriveSiteHealthReason`; unknown indexability never proves a canonical exclusion. New page cursors bind the selected run, attempt, date and effective filters; legacy offset cursors remain readable.
 - The graph read carries `rootNodeKey` so the home page is identified by the server rather than guessed from a path or a depth.
 - The dashboard graph reads only the persisted 20k-node / 50k-edge projection; agent reads traverse canonical page/edge rows without layout coordinates and return bounded/truncated states.
 - Every link-bearing read tags each edge `isTemplate` (nav, header, or footer chrome) plus `templateSource` and `placementOccurrences` (which rule decided it and the DOM evidence behind it), accepts a `linkKind` filter (`all` by default, so an existing caller's counts do not move), and reports `templateDetection`, so an empty content-only list can never be mistaken for a real zero and no count silently mixes the placement and ubiquity rules.

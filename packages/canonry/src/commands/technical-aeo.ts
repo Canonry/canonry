@@ -1,4 +1,4 @@
-import { formatPercent, RatioUnits, type SiteHealthChangeRecordDto } from '@ainyc/canonry-contracts'
+import { formatPercent, RatioUnits, type SiteCrawlAvailableScanDatesDto, type SiteCrawlInventorySummaryDto, type SiteHealthChangeRecordDto } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -144,14 +144,18 @@ export async function technicalAeoProgress(
 /** `canonry technical-aeo crawl <project>` — persisted crawl metadata, not a graph dump. */
 export async function technicalAeoCrawl(
   project: string,
-  opts: { runId?: string; format?: string },
+  opts: { runId?: string; date?: string; format?: string },
 ): Promise<void> {
-  const crawl = await getClient().getTechnicalAeoCrawl(project, { runId: opts.runId })
+  const crawl = await getClient().getTechnicalAeoCrawl(project, { runId: opts.runId, date: opts.date })
   if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(crawl, null, 2))
     return
   }
   if (!crawl.hasCrawlData) {
+    if (opts.date) {
+      console.log([`No persisted site crawl for "${project}" on ${opts.date}.`, ...availableScanDateLines(crawl.availableScanDates)].join('\n'))
+      return
+    }
     console.log(`No persisted site crawl for "${project}". Run \`canonry technical-aeo run ${project}\` first.`)
     return
   }
@@ -162,6 +166,7 @@ export async function technicalAeoCrawl(
     `Links: ${crawl.counts.edges} internal/external observations · ${crawl.counts.findings} findings`,
     `Dead links: ${formatDeadLinkState(crawl.deadLinks)}`,
   ]
+  lines.push(...inventorySummaryLines(crawl.inventorySummary))
   if (crawl.termination) lines.push(`Stopped: ${crawl.termination}`)
   console.log(lines.join('\n'))
 }
@@ -298,11 +303,29 @@ function partialCrawlNote(res: { hasCrawlData: boolean; complete?: boolean; term
   return `Partial crawl (${res.termination ?? 'incomplete'}): pages and links beyond the crawl budget were not observed, so a missing page or link is not proof it does not exist.`
 }
 
+function availableScanDateLines(dates: SiteCrawlAvailableScanDatesDto | undefined): string[] {
+  if (!dates) return []
+  return [
+    `Known scan dates: ${dates.totalDates} distinct dates`,
+    `Recent dates: ${dates.recentDates.join(', ') || 'none'}`,
+    `Same month and day: ${dates.matchingMonthDayDates.join(', ') || 'none'} (${dates.matchingMonthDayTotal} distinct dates)`,
+  ]
+}
+
+function inventorySummaryLines(summary: SiteCrawlInventorySummaryDto | null | undefined): string[] {
+  if (!summary) return []
+  return [
+    `Stored canonical pages: ${summary.total} total · ${summary.eligible} eligible · ${summary.excluded} excluded`,
+    ...summary.excludedReasons.map(reason => `Excluded · ${reason.healthReason}: ${reason.pages}`),
+  ]
+}
+
 /** `canonry technical-aeo crawl-pages <project>` — cursor-paged crawl nodes. */
 export async function technicalAeoCrawlPages(
   project: string,
   opts: {
     runId?: string
+    date?: string
     inventoryEligible?: boolean
     fetchState?: string
     indexabilityState?: string
@@ -320,6 +343,11 @@ export async function technicalAeoCrawlPages(
       project,
       runId: res.runId,
       complete: res.complete,
+      runSelection: res.runSelection,
+      requestedDate: res.requestedDate,
+      availableScanDates: res.availableScanDates,
+      inventorySummary: res.inventorySummary,
+      healthReasonCounts: res.healthReasonCounts,
       termination: res.termination,
       total: res.total,
       nextCursor: res.nextCursor,
@@ -332,14 +360,16 @@ export async function technicalAeoCrawlPages(
     return
   }
   const note = partialCrawlNote(res)
+  const inventoryLines = inventorySummaryLines(res.inventorySummary)
   if (res.pages.length === 0) {
-    console.log([`No persisted crawl pages for "${project}".`, ...(note ? [note] : [])].join('\n'))
+    console.log([opts.date && !res.hasCrawlData ? `No persisted crawl pages for "${project}" on ${opts.date}.` : `No persisted crawl pages for "${project}".`, ...availableScanDateLines(res.availableScanDates), ...inventoryLines, ...(note ? [note] : [])].join('\n'))
     return
   }
   const lines = [`${res.pages.length} of ${res.total} crawl page(s)${res.nextCursor ? ' (more available)' : ''}:`, '']
-  lines.push(`${'Depth'.padStart(5)}  ${'Score'.padStart(5)}  ${'Indexability'.padEnd(15)}  URL`)
+  lines.push(...inventoryLines)
+  lines.push(`${'Depth'.padStart(5)}  ${'Score'.padStart(5)}  ${'Page state'.padEnd(21)}  URL`)
   for (const page of res.pages) {
-    lines.push(`${String(page.depth ?? '-').padStart(5)}  ${String(page.auditScore ?? '-').padStart(5)}  ${page.indexabilityState.slice(0, 15).padEnd(15)}  ${page.url}`)
+    lines.push(`${String(page.depth ?? '-').padStart(5)}  ${String(page.auditScore ?? '-').padStart(5)}  ${(page.healthReason ?? page.healthState ?? page.indexabilityState).slice(0, 21).padEnd(21)}  ${page.url}`)
   }
   if (res.nextCursor) lines.push(`\nNext cursor: ${res.nextCursor}`)
   if (note) lines.push('', note)

@@ -98,10 +98,27 @@ describe('loadExternalMcpTools', () => {
     // tool's known artifact rides inside that envelope's first text block.
     const details = result.details as { content: Array<{ type: string; text: string }> }
     expect(JSON.parse(details.content[0].text)).toEqual(KNOWN_ARTIFACT)
-    // And the model-facing content is the serialized envelope (carrying the artifact).
+    // The model reads structured evidence directly, while details keep the envelope.
     const text = result.content.find((c) => c.type === 'text') as { text: string } | undefined
     expect(text?.text).toContain('reasonCode')
     expect(text?.text).toContain('R7')
+  })
+
+  it('keeps large remote structured rows whole and retains the original programmatic envelope', async () => {
+    const rows = Array.from({ length: 2_500 }, (_, index) => ({ id: `remote-${index}`, evidence: 'synthetic evidence'.repeat(55) }))
+    const envelope = { content: [{ type: 'text', text: JSON.stringify({ rows, total: rows.length }) }], structuredContent: { rows, total: rows.length } }
+    const [tool] = await loadExternalMcpTools([SERVER], { connect: async () => ({
+      listTools: async () => ({ tools: [{ name: READ_TOOL, inputSchema: { type: 'object' }, annotations: { readOnlyHint: true } }] }),
+      callTool: async () => envelope,
+    }) })
+    const result = await tool!.execute('remote-large', {})
+    const text = result.content.find(block => block.type === 'text') as { text: string }
+    const parsed = JSON.parse(text.text)
+    expect(text.text.length).toBeLessThanOrEqual(20_000)
+    expect(parsed.rows).toEqual(rows.slice(0, parsed.rows.length))
+    expect(parsed.rows.length).toBeGreaterThan(0)
+    expect(parsed.total).toBe(2_500)
+    expect(result.details).toBe(envelope)
   })
 
   it('filters OUT the write tool (not read-only)', async () => {
@@ -171,7 +188,7 @@ describe('remote tool errors', () => {
 
     const result = await tool!.execute('call-err', {})
     expect(result.isError).toBe(true)
-    expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(envelope, null, 2) }])
+    expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(envelope === null || typeof envelope !== 'object' ? envelope : envelope.content[0].text) }])
     expect(result.details).toEqual(envelope)
   })
 
@@ -186,7 +203,7 @@ describe('remote tool errors', () => {
 
     const result = await tool!.execute('call-ok', {})
     expect(result.isError ?? false).toBe(false)
-    expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(envelope, null, 2) }])
+    expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(envelope === null || typeof envelope !== 'object' ? envelope : envelope.content[0].text) }])
   })
 })
 
