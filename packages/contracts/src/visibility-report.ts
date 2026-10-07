@@ -145,6 +145,21 @@ export const visibilityReportRateSchema = z.object({
    * unavailable with reason `identity-ambiguous` instead.
    */
   unattributed: z.number().int().positive().optional(),
+  /**
+   * Saved answers left out of a citation rate because their source-link
+   * capture was incomplete (`citationComplete: false`). They leave the
+   * numerator AND the denominator: a link that was never read is not counted as
+   * not cited, and a link that was read on such an answer is not counted as
+   * cited either, since counting only those positives would bias the rate up.
+   * Present only on an available rate that left at least one answer out;
+   * absent means none were. When every answer is unchecked the rate is
+   * unavailable with reason `evidence-incomplete`, and a missing answer (no
+   * saved observation) still withholds the rate that way. Never beside
+   * `unattributed`: one rate reads one signal. A Simple project's citation
+   * state comes from stored cited domains, not URL capture, so its rates never
+   * carry this field.
+   */
+  unchecked: z.number().int().positive().optional(),
 }).strict().superRefine((value, ctx) => {
   const unavailable = value.numerator === null || value.denominator === null || value.rate === null
   if (unavailable) {
@@ -154,10 +169,16 @@ export const visibilityReportRateSchema = z.object({
     if (value.unattributed !== undefined) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['unattributed'], message: 'Only an available rate can leave answers out' })
     }
+    if (value.unchecked !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['unchecked'], message: 'Only an available rate can leave answers out' })
+    }
     return
   }
   if (value.reason !== undefined) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Available rates cannot carry a reason' })
+  }
+  if (value.unattributed !== undefined && value.unchecked !== undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['unchecked'], message: 'A rate reads one signal: unattributed (mention) and unchecked (citation) cannot share it' })
   }
   const { numerator, denominator } = value
   if (denominator === null || numerator === null) return

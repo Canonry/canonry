@@ -106,3 +106,4 @@ export * from './sentiment-read.js'
 
 export * from './traffic-analytics.js'
 export * from './visibility-display.js'
+export * from './coverage-rate.js'

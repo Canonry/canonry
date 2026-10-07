@@ -659,6 +659,54 @@ describe('measurement-plan CLI commands', () => {
     expect(lines[openai + 1]).toBeUndefined()
   })
 
+  it('discloses answers whose sources could not be checked beside every citation rate, under the Cited column on engine rows', async () => {
+    // 2 engines x 2 queries = 4 answers. Two had incomplete source capture
+    // (one per engine), so citation reads 1 of the 2 checked answers.
+    getMeasurementOverview.mockResolvedValueOnce({
+      ...OVERVIEW,
+      properties: {
+        ...OVERVIEW.properties,
+        items: [{
+          ...OVERVIEW.properties.items[0]!,
+          mentionCoverage: { state: 'available', value: 2 / 3, numerator: 2, denominator: 3, unattributed: 1 },
+          citationCoverage: { state: 'available', value: 0.5, numerator: 1, denominator: 2, unchecked: 2 },
+          providers: [
+            {
+              provider: 'gemini',
+              mentionCoverage: { state: 'available', value: 1, numerator: 1, denominator: 1, unattributed: 1 },
+              citationCoverage: { state: 'available', value: 0, numerator: 0, denominator: 1, unchecked: 1 },
+            },
+            {
+              provider: 'openai',
+              mentionCoverage: { state: 'available', value: 0.5, numerator: 1, denominator: 2 },
+              citationCoverage: { state: 'available', value: 1, numerator: 1, denominator: 1, unchecked: 1 },
+            },
+          ],
+        }],
+      },
+    })
+    const logged: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation(line => { logged.push(String(line)) })
+
+    await command('measurement-plan property').run({
+      positionals: ['acme'], values: { 'target-key': 'harbor-view' }, format: 'text', dryRun: false,
+    })
+
+    log.mockRestore()
+    const lines = logged.join('\n').split('\n')
+    expect(lines).toContain('Mentioned  2 of 3 (66.7%) · 1 of 4 answers could not be tied to one property')
+    expect(lines).toContain('Cited      1 of 2 (50.0%) · 2 of 4 answers had sources that could not be checked')
+    const gemini = lines.findIndex(line => line.startsWith('gemini'))
+    expect(lines.slice(gemini)).toEqual([
+      `${'gemini'.padEnd(14)}${'1 of 1 (100%)'.padEnd(34)}0 of 1 (0%)`,
+      // Each note continues under its own column: mention under Mentioned, citation under Cited.
+      `${''.padEnd(14)}1 of 2 answers could not be tied to one property`,
+      `${''.padEnd(48)}1 of 2 answers had sources that could not be checked`,
+      `${'openai'.padEnd(14)}${'1 of 2 (50.0%)'.padEnd(34)}1 of 1 (100%)`,
+      `${''.padEnd(48)}1 of 2 answers had sources that could not be checked`,
+    ])
+  })
+
   it('names an all-unattributable Property as not measured, never as zero', async () => {
     const ambiguous = { state: 'unavailable', reason: 'identity_ambiguous' }
     getMeasurementOverview.mockResolvedValueOnce({

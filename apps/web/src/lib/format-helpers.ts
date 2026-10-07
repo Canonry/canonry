@@ -1,4 +1,4 @@
-import { formatRunErrorOneLine, type RunErrorDto } from '@ainyc/canonry-contracts'
+import { formatRunErrorOneLine, unattributedAnswersLabel, uncheckedSourcesLabel, type RunErrorDto } from '@ainyc/canonry-contracts'
 
 /** Common search-analytics metrics shared across GSC, Bing, etc. */
 export enum SearchMetric {
@@ -33,6 +33,23 @@ export const summarizeRunError = formatRunErrorOneLine
  */
 export function splitPercentSign(text: string): { figure: string; sign: string } {
   return text.endsWith('%') ? { figure: text.slice(0, -1), sign: '%' } : { figure: text, sign: '' }
+}
+
+/** The signal a coverage rate reads: the answer text (`mentioned`) or its source links (`cited`). */
+export type CoverageSignal = 'mentioned' | 'cited'
+
+/**
+ * The server's count of saved answers a rate left out of both its sides, as the
+ * shared label for that rate's own signal: a mention rate names the answers it
+ * could not tie to one property (`unattributed`), a citation rate the answers
+ * whose sources could not be checked (`unchecked`). Each count belongs to one
+ * signal, so its line never shows under the other.
+ */
+export function excludedAnswersLabel(
+  value: { denominator?: number | null; unattributed?: number; unchecked?: number },
+  signal: CoverageSignal,
+): string | null {
+  return signal === 'cited' ? uncheckedSourcesLabel(value) : unattributedAnswersLabel(value)
 }
 
 export function formatErrorLog(error: RunErrorDto): string {

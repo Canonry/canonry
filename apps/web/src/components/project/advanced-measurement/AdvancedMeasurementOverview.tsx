@@ -1,8 +1,9 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import type { KeyboardEvent, ReactNode } from 'react'
-import { formatPercent, UNATTRIBUTED_MENTION_REASON, unattributedAnswersLabel } from '@ainyc/canonry-contracts'
+import { formatPercent, UNATTRIBUTED_MENTION_REASON } from '@ainyc/canonry-contracts'
 import type { MetricTone } from '../../../view-models.js'
+import { excludedAnswersLabel, type CoverageSignal } from '../../../lib/format-helpers.js'
 
 import { InfoTooltip } from '../../shared/InfoTooltip.js'
 import { ToneBadge } from '../../shared/ToneBadge.js'
@@ -29,13 +30,13 @@ export type AdvancedMeasurementEvidenceKind =
   | 'invalid-url'
 
 /**
- * `unattributed` is carried only on a measured mention rate that left answers
- * out because they could not be tied to one property; they are in neither side
- * of `numerator of denominator`.
+ * A measured rate may carry the answers the server left out of both sides of
+ * `numerator of denominator`: `unattributed` on a mention rate (not tied to one
+ * property), `unchecked` on a citation rate (source capture incomplete).
  */
 export type AdvancedMeasurementMetric =
-  | { numerator: number; denominator: number; reason?: never; unattributed?: number }
-  | { numerator: null; denominator: null; reason: string; unattributed?: never }
+  | { numerator: number; denominator: number; reason?: never; unattributed?: number; unchecked?: number }
+  | { numerator: null; denominator: null; reason: string; unattributed?: never; unchecked?: never }
 
 export interface AdvancedMeasurementPropertyProvider {
   provider: string
@@ -306,23 +307,25 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
 
 function MetricValue({
   metric,
+  signal,
   compact = false,
 }: {
   metric: AdvancedMeasurementMetric
+  signal: CoverageSignal
   compact?: boolean
 }) {
   const valueClassName = compact
     ? isMeasured(metric) ? 'text-sm font-medium text-primary' : 'text-sm font-medium text-secondary'
     : isMeasured(metric) ? 'text-lg font-semibold text-heading' : 'text-lg font-semibold text-secondary'
-  // Answers the server left out of this rate because they could not be tied to one property.
-  const unattributed = isMeasured(metric) ? unattributedAnswersLabel(metric) : null
+  // Answers the server left out of this rate, named for its own signal only.
+  const excluded = isMeasured(metric) ? excludedAnswersLabel(metric, signal) : null
   return (
     <span
       className="inline-flex flex-wrap items-baseline gap-x-1.5 gap-y-1 tabular-nums"
       {...(!isMeasured(metric) ? { title: metricReason(metric) } : {})}
     >
       <span className={valueClassName}>{metricLabel(metric)}</span>
-      {unattributed ? <span className="text-xs text-secondary">{unattributed}</span> : null}
+      {excluded ? <span className="text-xs text-secondary">{excluded}</span> : null}
     </span>
   )
 }
@@ -461,7 +464,7 @@ function CompetitorShareOfVoice({ values }: { values: readonly AdvancedMeasureme
           <tbody>{values.map(value => (
             <tr key={value.name}>
               <td className="font-medium text-heading">{value.name}</td>
-              <td className="text-secondary"><MetricValue metric={value.coverage} compact /></td>
+              <td className="text-secondary"><MetricValue metric={value.coverage} signal="mentioned" compact /></td>
             </tr>
           ))}</tbody>
         </table>
@@ -915,15 +918,15 @@ export function AdvancedMeasurementOverview({
                           <div className="mt-0.5 text-xs font-normal text-faint">{propertySubtitle(property)}</div>
                         ) : null}
                       </td>
-                      <td className="text-secondary"><MetricValue metric={property.mentionCoverage} compact /></td>
-                      <td className="text-secondary"><MetricValue metric={property.citationCoverage} compact /></td>
+                      <td className="text-secondary"><MetricValue metric={property.mentionCoverage} signal="mentioned" compact /></td>
+                      <td className="text-secondary"><MetricValue metric={property.citationCoverage} signal="cited" compact /></td>
                       <td className="text-right"><Button size="icon" variant="ghost" aria-expanded={expanded} aria-label={expanded ? `Hide details for ${property.name}` : `Show details for ${property.name}`} onClick={() => toggleProperty(property.id)}><ChevronDown className={`h-4 w-4 transition-transform duration-200 motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`} aria-hidden="true" /></Button></td>
                     </tr>
                     {expanded ? (property.providers ?? []).map(engine => (
                       <tr key={`${property.id}:${engine.provider}`} className="measurement-subrow">
                         <td className="measurement-subrow-name">{engine.provider}</td>
-                        <td className="text-secondary"><MetricValue metric={engine.mentionCoverage} compact /></td>
-                        <td className="text-secondary"><MetricValue metric={engine.citationCoverage} compact /></td>
+                        <td className="text-secondary"><MetricValue metric={engine.mentionCoverage} signal="mentioned" compact /></td>
+                        <td className="text-secondary"><MetricValue metric={engine.citationCoverage} signal="cited" compact /></td>
                         <td />
                       </tr>
                     )) : null}

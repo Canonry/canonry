@@ -12,7 +12,11 @@ import {
   RunKinds,
   RunStatuses,
   RunTriggers,
+  type MeasurementChangesResponse,
+  type MeasurementOverviewResponse,
   type MeasurementPlanV2,
+  type MeasurementPortfolioSummaryResponse,
+  type VisibilityReportRate,
   type VisibilityReportResponse,
 } from '@ainyc/canonry-contracts'
 import {
@@ -617,5 +621,299 @@ describe('visibility report hierarchy scopes', () => {
     expect(scopes.find(scope => scope.id === 'submarket')?.parentGroupIds).toEqual(['metro'])
     expect(scopes.find(scope => scope.id === 'harbor')?.parentGroupIds).toEqual(['metro', 'submarket'])
     expect(scopes.find(scope => scope.id === 'bayside')?.parentGroupIds).toEqual(['metro'])
+  })
+})
+
+// ── Citation coverage with incomplete source capture ────────────────────────
+//
+// Three engines answer each query, so one answer can be left out of a rate
+// while others are still checked. `CITING` answers capture Harbor's page and
+// the tracked competitor; the rest capture nothing. An answer saved with
+// `captureStatus: 'partial'` is unchecked: it leaves both sides of every
+// citation rate, even when it captured a positive.
+const CAPTURE_PROVIDERS = ['claude', 'gemini', 'openai'] as const
+const CITING = new Set(['exec-nearby:openai', 'exec-nearby:gemini', 'exec-brand:openai', 'exec-brand:gemini'])
+/** One unchecked non-brand answer (a captured positive) and two unchecked branded answers. */
+const UNCHECKED = ['exec-nearby:gemini', 'exec-brand:gemini', 'exec-brand:claude'] as const
+const EVIDENCE_INCOMPLETE: VisibilityReportRate = { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' }
+
+function capturePlan(): MeasurementPlanV2 {
+  const base = measurementPlanV2Fixture()
+  return measurementPlanV2Fixture({
+    executionNodes: base.executionNodes.map(node => ({
+      ...node,
+      context: { ...node.context, providers: [...CAPTURE_PROVIDERS] },
+      expectedSnapshots: CAPTURE_PROVIDERS.length,
+    })),
+    reportingScopes: [{
+      stableKey: 'bayside-market', label: 'Bayside market', kind: 'market',
+      usageEdges: [{ executionNodeKey: 'exec-nearby', targetKey: 'bayside', queryId: 'q-nearby' }],
+    }],
+  })
+}
+
+function seedCaptureRun(input: {
+  versionId: string
+  frozenPlan: MeasurementPlanV2
+  createdAt: string
+  unchecked?: readonly string[]
+  /** Answers whose captured links name Harbor; defaults to `CITING`. */
+  citing?: ReadonlySet<string>
+  status?: typeof RunStatuses[keyof typeof RunStatuses]
+}): string {
+  const id = crypto.randomUUID()
+  const manifest = buildMeasurementPlanV2Manifest(input.frozenPlan)
+  db.insert(runs).values({
+    id,
+    projectId,
+    kind: RunKinds['answer-visibility'],
+    status: input.status ?? RunStatuses.completed,
+    trigger: RunTriggers.manual,
+    measurementPlanVersionId: input.versionId,
+    measurementManifest: manifest,
+    measurementExecutionIdentity: {
+      schemaVersion: 1,
+      providers: [...CAPTURE_PROVIDERS],
+      models: { claude: 'pin-claude', gemini: 'pin-gemini', openai: 'pin-openai' },
+      checksum: 'capture-series',
+    },
+    finishedAt: input.createdAt,
+    createdAt: input.createdAt,
+  }).run()
+  for (const slot of manifest.expectedSlots) {
+    const key = `${slot.executionId}:${slot.provider}`
+    const cites = (input.citing ?? CITING).has(key)
+    db.insert(querySnapshots).values({
+      id: crypto.randomUUID(),
+      runId: id,
+      queryId: null,
+      queryText: slot.queryText,
+      provider: slot.provider,
+      servedModel: `${slot.provider}-served`,
+      citationState: cites ? 'cited' : 'not-cited',
+      answerMentioned: true,
+      answerText: slot.executionId === 'exec-nearby' ? 'Harbor Homes and Challenger are recommended.' : 'Northstar is reliable.',
+      citedDomains: cites ? ['northstar.example', 'challenger.example'] : [],
+      citedUrls: cites ? ['https://northstar.example/locations/harbor/details'] : [],
+      captureStatus: input.unchecked?.includes(key) ? 'partial' : 'complete',
+      recommendedCompetitors: [],
+      location: HARBOR_CONTEXT.label,
+      measurementExecutionId: slot.executionId,
+      requestedContext: HARBOR_CONTEXT,
+      supportedContext: { status: 'applied', resolved: HARBOR_CONTEXT },
+      createdAt: input.createdAt,
+    }).run()
+  }
+  return id
+}
+
+/** A complete previous sweep and a current one with the `UNCHECKED` answers. */
+function seedCaptureSeries(): { previousId: string; currentId: string } {
+  const frozenPlan = capturePlan()
+  const versionId = seedVersion(1, frozenPlan)
+  activate(versionId)
+  const previousId = seedCaptureRun({ versionId, frozenPlan, createdAt: FIRST })
+  const currentId = seedCaptureRun({ versionId, frozenPlan, createdAt: SECOND, unchecked: UNCHECKED })
+  return { previousId, currentId }
+}
+
+async function read<T>(route: string, query: string): Promise<T> {
+  const response = await app.inject({
+    method: 'GET',
+    url: `/api/v1/projects/northstar/${route}?${query}`,
+    headers: { authorization: `Bearer ${READ_KEY}` },
+  })
+  expect(response.statusCode, response.body).toBe(200)
+  return response.json() as T
+}
+
+function population(body: VisibilityReportResponse, queryClass: 'branded' | 'non-brand' | 'unknown') {
+  return body.populations.find(row => row.queryClass === queryClass)!
+}
+
+describe('visibility report citation coverage with incomplete source capture', () => {
+  it('leaves a saved unchecked answer out of both sides of every citation rate and counts it beside the rate', async () => {
+    const { previousId, currentId } = seedCaptureSeries()
+
+    const body = await read<VisibilityReportResponse>('visibility-report', 'queryClass=non-brand')
+    expect(body.selection.run).toEqual({ id: currentId, explicit: false })
+    const nonBrand = population(body, 'non-brand')
+    // Openai cites Harbor, claude cites nothing, gemini's capture is incomplete:
+    // 1 of the 2 checked answers, though gemini captured a Harbor link too.
+    const checked = { numerator: 1, denominator: 2, rate: 0.5, unchecked: 1 }
+    expect(nonBrand.summary).toMatchObject({ answerCount: 3, citationCoverage: checked })
+    // Mention is a separate signal: the unchecked answer still counts for it.
+    expect(nonBrand.summary.mentionCoverage).toEqual({ numerator: 3, denominator: 3, rate: 1 })
+    // Bayside is cited in no checked answer, and the unchecked one may hold the
+    // citation nobody read: its outcome is unknown, never "neither".
+    expect(nonBrand.summary.outcomes).toEqual({ bothSignals: 1, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 1, total: 2 })
+    expect(nonBrand.breakdown.properties.map(row => [row.id, row.citationCoverage])).toEqual([
+      ['bayside', { numerator: 0, denominator: 2, rate: 0, unchecked: 1 }],
+      ['harbor', checked],
+    ])
+    expect(nonBrand.breakdown.groups.map(row => [row.id, row.citationCoverage])).toEqual([['regional', checked]])
+    expect(nonBrand.trend.map(point => [point.runId, point.citationCoverage])).toEqual([
+      [previousId, { numerator: 2, denominator: 3, rate: 2 / 3 }],
+      [currentId, checked],
+    ])
+    expect(nonBrand.comparison).toMatchObject({
+      state: 'available',
+      citationCoverage: { state: 'available', previous: { numerator: 2, denominator: 3, rate: 2 / 3 }, delta: 1 / 2 - 2 / 3 },
+    })
+    // Every query row holds one engine's answer, so the unchecked one is a row
+    // with nothing checked: unavailable, not a zero. The other rows are exact.
+    expect(nonBrand.queries.items.map(row => [row.provider, row.citationCoverage])).toEqual([
+      ['claude', { numerator: 0, denominator: 1, rate: 0 }],
+      ['gemini', EVIDENCE_INCOMPLETE],
+      ['openai', { numerator: 1, denominator: 1, rate: 1 }],
+    ])
+    expect(nonBrand.competitors).toEqual([{
+      domain: 'challenger.example',
+      answerCount: 3,
+      mentionCoverage: { numerator: 3, denominator: 3, rate: 1 },
+      citationCoverage: checked,
+    }])
+
+    // A market reads its own edges under the same rule.
+    const market = population(await read<VisibilityReportResponse>('visibility-report', 'scope=market&scopeKey=bayside-market&queryClass=non-brand'), 'non-brand')
+    const baysideChecked = { numerator: 0, denominator: 2, rate: 0, unchecked: 1 }
+    expect(market.summary.citationCoverage).toEqual(baysideChecked)
+    expect(market.breakdown.properties.map(row => [row.id, row.citationCoverage])).toEqual([['bayside', baysideChecked]])
+  })
+
+  it('reports the same checked rate on the Advanced overview, portfolio and changes reads', async () => {
+    seedCaptureSeries()
+    const checked = { state: 'available', value: 0.5, numerator: 1, denominator: 2, unchecked: 1 }
+    const baysideChecked = { state: 'available', value: 0, numerator: 0, denominator: 2, unchecked: 1 }
+    const report = population(await read<VisibilityReportResponse>('visibility-report', 'queryClass=non-brand'), 'non-brand')
+
+    const overview = await read<MeasurementOverviewResponse>('measurement-overview', 'scope=all&queryClass=non-brand')
+    expect(overview.metrics.citationCoverage).toEqual(checked)
+    expect(overview.outcomes).toEqual(report.summary.outcomes)
+    const harbor = overview.properties.items.find(row => row.targetKey === 'harbor')!
+    expect(harbor.citationCoverage).toEqual(checked)
+    expect(overview.properties.items.find(row => row.targetKey === 'bayside')!.citationCoverage).toEqual(baysideChecked)
+    // One engine's split holds one answer each: gemini's has nothing checked.
+    expect(harbor.providers.map(row => [row.provider, row.citationCoverage])).toEqual([
+      ['claude', { state: 'available', value: 0, numerator: 0, denominator: 1 }],
+      ['gemini', { state: 'unavailable', reason: 'evidence_incomplete' }],
+      ['openai', { state: 'available', value: 1, numerator: 1, denominator: 1 }],
+    ])
+
+    const portfolio = await read<MeasurementPortfolioSummaryResponse>('measurement-portfolio-summary', 'queryClass=non-brand')
+    expect(portfolio.metrics.citationCoverage).toEqual(checked)
+    expect(portfolio.markets.map(row => [row.groupKey, row.citationCoverage])).toEqual([['regional', checked]])
+    expect(portfolio.mentionRanking.strongest.map(row => [row.targetKey, row.citationCoverage])).toEqual([
+      ['harbor', checked],
+      ['bayside', baysideChecked],
+    ])
+
+    const changes = await read<MeasurementChangesResponse>('measurement-changes', 'queryClass=non-brand')
+    if (changes.comparison.state !== 'available') throw new Error('Expected a comparable measurement run.')
+    expect(changes.comparison.metrics.citationCoverage).toEqual({
+      state: 'available',
+      previous: { state: 'available', value: 2 / 3, numerator: 2, denominator: 3 },
+      current: checked,
+      delta: 1 / 2 - 2 / 3,
+    })
+    expect(changes.comparison.changedProperties.find(row => row.targetKey === 'harbor')).toMatchObject({
+      citationAnswersDelta: -1,
+      denominatorChanged: true,
+      citationCoverage: { state: 'available', current: checked },
+    })
+  })
+
+  it('never lets a link captured only on an unchecked answer decide a Property outcome, on either surface', async () => {
+    const frozenPlan = capturePlan()
+    const versionId = seedVersion(1, frozenPlan)
+    activate(versionId)
+    // Harbor's only captured link is on gemini's answer, whose capture is incomplete.
+    seedCaptureRun({ versionId, frozenPlan, createdAt: SECOND, unchecked: ['exec-nearby:gemini'], citing: new Set(['exec-nearby:gemini']) })
+    const report = population(await read<VisibilityReportResponse>('visibility-report', 'queryClass=non-brand'), 'non-brand')
+    // The rate leaves gemini out, so Harbor is cited in 0 of 2 checked answers...
+    expect(report.breakdown.properties.find(row => row.id === 'harbor')!.citationCoverage).toEqual({ numerator: 0, denominator: 2, rate: 0, unchecked: 1 })
+    // ...and its outcome is unknown, not cited: the same link the rate refuses never counts here either.
+    expect(report.summary.outcomes).toEqual({ bothSignals: 0, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 2, total: 2 })
+    const overview = await read<MeasurementOverviewResponse>('measurement-overview', 'scope=all&queryClass=non-brand')
+    expect(overview.outcomes).toEqual(report.summary.outcomes)
+  })
+
+  it('keeps each query class to its own unchecked answers', async () => {
+    seedCaptureSeries()
+    // Branded: openai cites Harbor; gemini (a captured positive) and claude are unchecked.
+    const body = await read<VisibilityReportResponse>('visibility-report', 'queryClass=all')
+    expect(body.populations.map(row => [row.queryClass, row.summary.citationCoverage])).toEqual([
+      ['branded', { numerator: 1, denominator: 1, rate: 1, unchecked: 2 }],
+      ['non-brand', { numerator: 1, denominator: 2, rate: 0.5, unchecked: 1 }],
+      ['unknown', { numerator: null, denominator: null, rate: null, reason: 'no-population' }],
+    ])
+    expect(population(body, 'branded').competitors.map(row => row.citationCoverage))
+      .toEqual([{ numerator: 1, denominator: 1, rate: 1, unchecked: 2 }])
+
+    const branded = await read<MeasurementOverviewResponse>('measurement-overview', 'scope=all&queryClass=branded')
+    expect(branded.metrics.citationCoverage).toEqual({ state: 'available', value: 1, numerator: 1, denominator: 1, unchecked: 2 })
+
+    const changes = await read<MeasurementChangesResponse>('measurement-changes', 'queryClass=all')
+    if (changes.comparison.state !== 'available') throw new Error('Expected a comparable measurement run.')
+    // The pooled block reads all six answers; each class beside it reads only its own.
+    expect(changes.comparison.metrics.citationCoverage).toMatchObject({
+      current: { state: 'available', value: 2 / 3, numerator: 2, denominator: 3, unchecked: 3 },
+    })
+    expect(changes.comparison.metricsByClass?.branded.citationCoverage).toMatchObject({
+      current: { state: 'available', value: 1, numerator: 1, denominator: 1, unchecked: 2 },
+    })
+    expect(changes.comparison.metricsByClass?.nonBrand.citationCoverage).toMatchObject({
+      current: { state: 'available', value: 0.5, numerator: 1, denominator: 2, unchecked: 1 },
+    })
+  })
+
+  it('stays evidence-incomplete when no answer could be checked', async () => {
+    const frozenPlan = capturePlan()
+    const versionId = seedVersion(1, frozenPlan)
+    activate(versionId)
+    seedCaptureRun({ versionId, frozenPlan, createdAt: FIRST, unchecked: [...CITING, 'exec-nearby:claude', 'exec-brand:claude'] })
+
+    const nonBrand = population(await read<VisibilityReportResponse>('visibility-report', 'queryClass=non-brand'), 'non-brand')
+    expect(nonBrand.summary.citationCoverage).toEqual(EVIDENCE_INCOMPLETE)
+    expect(nonBrand.breakdown.properties.map(row => row.citationCoverage)).toEqual([EVIDENCE_INCOMPLETE, EVIDENCE_INCOMPLETE])
+    expect(nonBrand.competitors.map(row => row.citationCoverage)).toEqual([EVIDENCE_INCOMPLETE])
+    expect(nonBrand.summary.mentionCoverage).toEqual({ numerator: 3, denominator: 3, rate: 1 })
+    const overview = await read<MeasurementOverviewResponse>('measurement-overview', 'scope=all&queryClass=non-brand')
+    expect(overview.metrics.citationCoverage).toEqual({ state: 'unavailable', reason: 'evidence_incomplete' })
+    const portfolio = await read<MeasurementPortfolioSummaryResponse>('measurement-portfolio-summary', 'queryClass=non-brand')
+    expect(portfolio.metrics.citationCoverage).toEqual({ state: 'unavailable', reason: 'evidence_incomplete' })
+  })
+
+  it('still withholds the rate for a missing answer beside an unchecked one', async () => {
+    const frozenPlan = capturePlan()
+    const versionId = seedVersion(1, frozenPlan)
+    activate(versionId)
+    const runId = seedCaptureRun({ versionId, frozenPlan, createdAt: FIRST, unchecked: UNCHECKED, status: RunStatuses.partial })
+    // Claude's non-brand answer was never saved.
+    const claude = db.select().from(querySnapshots).where(eq(querySnapshots.runId, runId)).all()
+      .find(row => row.measurementExecutionId === 'exec-nearby' && row.provider === 'claude')!
+    db.delete(querySnapshots).where(eq(querySnapshots.id, claude.id)).run()
+
+    const nonBrand = population(await read<VisibilityReportResponse>('visibility-report', `queryClass=non-brand&runId=${runId}`), 'non-brand')
+    expect(nonBrand.summary.answerCount).toBe(2)
+    expect(nonBrand.summary.citationCoverage).toEqual(EVIDENCE_INCOMPLETE)
+    expect(nonBrand.breakdown.properties.map(row => row.citationCoverage)).toEqual([EVIDENCE_INCOMPLETE, EVIDENCE_INCOMPLETE])
+    expect(nonBrand.breakdown.groups.map(row => row.citationCoverage)).toEqual([EVIDENCE_INCOMPLETE])
+    expect(nonBrand.competitors.map(row => row.citationCoverage)).toEqual([EVIDENCE_INCOMPLETE])
+    const portfolio = await read<MeasurementPortfolioSummaryResponse>('measurement-portfolio-summary', `queryClass=non-brand&runId=${runId}`)
+    expect(portfolio.metrics.citationCoverage).toEqual({ state: 'unavailable', reason: 'evidence_incomplete' })
+  })
+
+  it('never leaves a Simple answer out: its citation state comes from stored cited domains, not URL capture', async () => {
+    seedSimpleRun('simple-frozen', SECOND, true)
+    seedSimpleRun('simple-legacy', THIRD, false)
+    db.update(querySnapshots).set({ captureStatus: 'partial', citedUrls: null }).run()
+
+    const frozen = population(await read<VisibilityReportResponse>('visibility-report', 'mode=simple&runId=simple-frozen&queryClass=non-brand'), 'non-brand')
+    expect(frozen.summary.citationCoverage).toEqual({ numerator: 1, denominator: 1, rate: 1 })
+    expect(frozen.competitors.map(row => [row.domain, row.citationCoverage]))
+      .toEqual([['challenger.example', { numerator: 1, denominator: 1, rate: 1 }]])
+    const legacy = population(await read<VisibilityReportResponse>('visibility-report', 'mode=simple&runId=simple-legacy&queryClass=all'), 'unknown')
+    expect(legacy.summary.citationCoverage).toEqual({ numerator: 1, denominator: 1, rate: 1 })
   })
 })

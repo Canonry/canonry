@@ -224,8 +224,10 @@ results separately, or `all` only when a combined comparison is intended.
 list limit, independently of citation availability. `eligiblePropertyCount` is
 the ranked population; `excluded` lists every excluded Property with its reason,
 without being cut off by the ranked list limit. `truncated` describes the two
-ranked lists. Keep numerator/denominator with each rate; rates can tie and the
-stable label/key tie-break does not establish a unique winner. These are
+ranked lists. Keep numerator/denominator with each rate, plus any `unattributed`
+(mention) or `unchecked` (citation) count of saved answers left out of both
+sides; rates can tie and the stable label/key tie-break does not establish a
+unique winner. These are
 descriptive rates from each Property's assigned questions, not matched-query or
 confidence-adjusted comparisons. An unavailable portfolio aggregate does not
 invalidate known Property rates. Flag ambiguous Properties separately; never
