@@ -206,6 +206,23 @@ available.
 
 You can serve canonry behind any reverse proxy — nginx, Caddy, Traefik, etc. — at either the root path or a sub-path.
 
+Canonry checks the HTTP `Host` header to prevent DNS rebinding. It accepts
+`localhost`, valid IPv4/IPv6 addresses, the configured bind hostname, and the
+hostnames in `apiUrl` and `publicUrl`. Other DNS names receive HTTP 403.
+
+If the proxy hostname is absent from `apiUrl`, set `publicUrl` in
+`~/.canonry/config.yaml`:
+
+```yaml
+publicUrl: https://example.com
+```
+
+Use the external URL's actual scheme and hostname. Restart Canonry after this
+change. Configure the proxy to forward the external `Host` header.
+
+For a sub-path, include the prefix in `publicUrl`, for example
+`https://example.com/canonry/`, and set `basePath: /canonry/`.
+
 ### Root path (`/`)
 
 Proxy all traffic on a domain directly to canonry's port:
@@ -336,6 +353,14 @@ CANONRY_INSTANCE=acme-demo CANONRY_INSTANCE_ROLE=client-demo canonry serve
 
 To share canonry over a Tailscale network with HTTPS:
 
+Set `publicUrl` to your Tailscale HTTPS URL in `~/.canonry/config.yaml`:
+
+```yaml
+publicUrl: https://your-node.your-tailnet.ts.net
+```
+
+Restart Canonry after this change.
+
 ```bash
 # Expose port 4100 via Tailscale Serve (HTTPS on :443)
 tailscale serve --bg http://localhost:4100
@@ -394,6 +419,10 @@ docker run -d \
   -e CANONRY_BASE_PATH=/canonry/ \
   canonry
 ```
+
+Direct access through `localhost` or the Docker host's IP address requires no
+`publicUrl`. For a DNS name, configure `publicUrl` as described under
+"Behind a Reverse Proxy".
 
 ---
 

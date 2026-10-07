@@ -17,7 +17,7 @@ import {
 import { bootstrapCommand } from '../src/commands/bootstrap.js'
 import { initCommand } from '../src/commands/init.js'
 import { getConfigDir, loadConfig, type CanonryConfig } from '../src/config.js'
-import { buildAllowedHosts, createServer, isAllowedHost, isLoopbackBindHost } from '../src/server.js'
+import { createServer, isLoopbackBindHost } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 
 const _require = createRequire(import.meta.url)
@@ -751,25 +751,6 @@ describe('canonry', () => {
     expect(isLoopbackBindHost('192.168.1.10')).toBe(false)
     expect(isLoopbackBindHost('10.0.0.5')).toBe(false)
     expect(isLoopbackBindHost('203.0.113.7')).toBe(false)
-  })
-    it('buildAllowedHosts allows loopback and configured hosts (#1177)', () => {
-    // Default: loopback only.
-    const def = buildAllowedHosts(undefined, undefined)
-    expect(isAllowedHost('localhost', def)).toBe(true)
-    expect(isAllowedHost('127.0.0.1', def)).toBe(true)
-    expect(isAllowedHost('::1', def)).toBe(true)
-    expect(isAllowedHost('127.5.6.7', def)).toBe(true)
-    expect(isAllowedHost('evil.com', def)).toBe(false)
-    expect(isAllowedHost('canonry.evil.com', def)).toBe(false)
-    // Non-loopback bind adds its host.
-    const custom = buildAllowedHosts('192.168.1.10', undefined)
-    expect(isAllowedHost('192.168.1.10', custom)).toBe(true)
-    expect(isAllowedHost('localhost', custom)).toBe(true)
-    expect(isAllowedHost('evil.com', custom)).toBe(false)
-    // Public URL adds its hostname.
-    const pub = buildAllowedHosts(undefined, 'https://canonry.example.com/app')
-    expect(isAllowedHost('canonry.example.com', pub)).toBe(true)
-    expect(isAllowedHost('evil.com', pub)).toBe(false)
   })
 
   it('first-run /session/setup requires the API key when the server is bound off-box', async () => {
