@@ -1591,6 +1591,7 @@ function TrendDataSummary({
 export function VisibilityTrendSection({
   projectName,
   competitorDomains = [],
+  competitorAliases,
   analyticsRevision = 'none',
   queryTexts = [],
   classifyQuery,
@@ -1598,6 +1599,8 @@ export function VisibilityTrendSection({
 }: {
   projectName: string
   competitorDomains?: readonly string[]
+  /** Domain to curated aliases; part of the trend's cache key because aliases change mention share. */
+  competitorAliases?: Readonly<Record<string, readonly string[]>>
   /** Latest completed answer-visibility logical-sweep revision from dashboard polling. */
   analyticsRevision?: string
   /** Query text as people wrote it, to name the stored (lowercase) keys of added and removed queries. */
@@ -1614,7 +1617,7 @@ export function VisibilityTrendSection({
   // another), which is the first thing an operator needs to see.
   const [mode, setMode] = useState<TrendSeriesMode>('byProvider')
   const titleId = useId()
-  const metricsFrameKey = useMemo(() => competitorFrameKey(competitorDomains), [competitorDomains])
+  const metricsFrameKey = useMemo(() => competitorFrameKey(competitorDomains, competitorAliases), [competitorDomains, competitorAliases])
 
   const metricsQuery = useQuery({
     queryKey: ['analytics-metrics', projectName, window, metricsFrameKey, analyticsRevision],

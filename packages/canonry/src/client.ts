@@ -251,6 +251,7 @@ import type {
   RecommendationBriefDto,
   WinnabilityClass,
   CompetitorDto,
+  CompetitorEntry,
   KeywordDto,
   QueryDto,
   ProjectOverviewDto,
@@ -335,6 +336,7 @@ import {
   postApiV1ProjectsByNameKeywordsGenerate,
   getApiV1ProjectsByNameCompetitors,
   postApiV1ProjectsByNameCompetitors,
+  putApiV1ProjectsByNameCompetitorsByDomainAliases,
   deleteApiV1ProjectsByNameCompetitors,
   // Runs / timeline / history / snapshots
   getApiV1ProjectsByNameRuns,
@@ -1469,12 +1471,24 @@ export class ApiClient {
     )
   }
 
-  async appendCompetitors(project: string, competitors: string[]): Promise<CompetitorDto[]> {
+  /** Each entry is a domain or `{ domain, aliases }`; stated aliases are added to that competitor's list. */
+  async appendCompetitors(project: string, competitors: CompetitorEntry[]): Promise<CompetitorDto[]> {
     return this.invoke<CompetitorDto[]>(() =>
       postApiV1ProjectsByNameCompetitors({
         client: this.heyClient,
         path: { name: project },
         body: { competitors },
+      }),
+    )
+  }
+
+  /** Set one competitor's curated aliases exactly (`[]` clears). Returns that competitor. */
+  async setCompetitorAliases(project: string, domain: string, aliases: string[]): Promise<CompetitorDto> {
+    return this.invoke<CompetitorDto>(() =>
+      putApiV1ProjectsByNameCompetitorsByDomainAliases({
+        client: this.heyClient,
+        path: { name: project, domain },
+        body: { aliases },
       }),
     )
   }

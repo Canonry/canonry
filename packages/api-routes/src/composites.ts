@@ -247,14 +247,12 @@ export async function compositeRoutes(app: FastifyInstance, options: { sentiment
     }
     const mentionShareInputs = buildMentionShareInputs({
       project,
-      competitorDomains: competitorRows.map(c => c.domain),
+      competitors: competitorRows,
       snapshots: trackedLatest,
       queryTextById: queryLookup.byId,
       answerDomainsByText,
     })
-    const competitiveSignalResolver = compileCompetitiveSignalResolver(
-      competitorRows.map(c => c.domain),
-    )
+    const competitiveSignalResolver = compileCompetitiveSignalResolver(competitorRows)
     const gapSignalSnapshots = trackedLatest.map(snapshot => ({
       ...snapshot,
       ...competitiveSignalResolver.resolve({
@@ -308,7 +306,7 @@ export async function compositeRoutes(app: FastifyInstance, options: { sentiment
     })
     const overviewCompetitors: ProjectOverviewCompetitorDto[] = buildOverviewCompetitors(
       trackedLatest,
-      competitorRows.map(c => ({ id: c.id, domain: c.domain })),
+      competitorRows.map(c => ({ id: c.id, domain: c.domain, aliases: c.aliases })),
       queryLookup,
     )
     const attentionItems = buildAttentionItems(insightRows, allRuns)

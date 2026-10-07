@@ -60,6 +60,13 @@ export const competitors = sqliteTable('competitors', {
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   domain: text('domain').notNull(),
   provenance: text('provenance'),
+  /**
+   * Operator-curated names this competitor goes by in answer prose (a firm at
+   * `spoketuneworks.example` written as "TuneSpoke"). Layered onto the
+   * domain-derived label by every competitor mention matcher. Normalized by
+   * `normalizeCompetitorAliases`; never auto-populated from the domain label.
+   */
+  aliases: text('aliases', { mode: 'json' }).$type<string[]>().notNull().default([]),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_competitors_project').on(table.projectId),

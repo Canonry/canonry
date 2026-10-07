@@ -25,6 +25,8 @@ import {
   adsOperationReconcileRequestSchema,
   adsPauseRequestSchema,
   adsUnresolvedOperationListQuerySchema,
+  competitorAliasesRequestSchema,
+  competitorAppendRequestSchema,
   competitorBatchRequestSchema,
   competitorLandscapeQuerySchema,
   contentTargetDismissRequestSchema,
@@ -834,6 +836,14 @@ const keywordGenerateInputSchema = z.object({
 const competitorsInputSchema = z.object({
   project: projectNameSchema,
   request: competitorBatchRequestSchema,
+})
+const competitorsAddInputSchema = z.object({
+  project: projectNameSchema,
+  request: competitorAppendRequestSchema,
+})
+const competitorAliasesInputSchema = competitorAliasesRequestSchema.safeExtend({
+  project: projectNameSchema,
+  domain: z.string().trim().min(1).describe('Tracked competitor domain (any spelling; it resolves to the stored registrable domain).'),
 })
 const latestSweepRunIdDescription = 'A run id, or latest for the latest sweep (the run the measurement reads display). With queryClass branded or non-brand and neither runId nor window, this tool reads latest; pass window to pool every sweep in it.'
 const competitorLandscapeInputSchema = competitorLandscapeQuerySchema.safeExtend({
@@ -1923,7 +1933,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_competitors_list',
     title: 'List competitors',
-    description: 'List tracked competitors for a Canonry project.',
+    description: 'List tracked competitors for a Canonry project, each with its operator-curated `aliases` (the names it goes by in answer text; `[]` means the domain label alone identifies it).',
     access: 'read',
     tier: 'setup',
     inputSchema: projectInputSchema,
@@ -2662,7 +2672,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_project_upsert',
     title: 'Create or replace project',
-    description: 'Create or replace a Canonry project. PUT semantics: fields not in the request are reset to their defaults. Provide the full intended project shape. Exceptions: an omitted providerDispatchModes (provider → sync|batch for scheduled sweeps) keeps the stored preference; send {} to clear it. An omitted qualifiedAliases (the aliases Simple sentiment treats as this brand\'s own names) keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it.',
+    description: 'Create or replace a Canonry project. PUT semantics: fields not in the request are reset to their defaults. Provide the full intended project shape. Exceptions: an omitted providerDispatchModes (provider → sync|batch for scheduled sweeps) keeps the stored preference; send {} to clear it. An omitted qualifiedAliases (the aliases Simple sentiment treats as this brand\'s own names) keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it. Competitors are not part of this request, but a new identity (display name, aliases, domains) that claims a tracked competitor\'s curated alias drops that alias, and the drop is audited.',
     access: 'write',
     tier: 'setup',
     inputSchema: projectUpsertInputSchema,
@@ -2673,7 +2683,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_apply_config',
     title: 'Apply project config',
-    description: 'Apply one Canonry config-as-code project document. Replaces the project to match the config; fields omitted from the spec are reset to defaults, with these exceptions: a spec with neither queries nor keywords leaves the tracked-query basket unchanged (to clear the basket, pass an explicit empty queries list); an omitted providerDispatchModes keeps the stored preference; and an omitted qualifiedAliases keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it. For multi-document YAML, call this tool once per project document.',
+    description: 'Apply one Canonry config-as-code project document. Replaces the project to match the config; fields omitted from the spec are reset to defaults, with these exceptions: a spec with neither queries nor keywords leaves the tracked-query basket unchanged (to clear the basket, pass an explicit empty queries list); an omitted providerDispatchModes keeps the stored preference; an omitted qualifiedAliases keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it; and a competitor given as a plain domain keeps its stored curated aliases, while `{ domain, aliases }` sets them exactly (`[]` clears). A spec identity that claims a competitor\'s alias drops that alias (audited); a new competitor whose name overlaps another competitor\'s alias (one brand key contains the other) or that is the project\'s own site fails the apply. For multi-document YAML, call this tool once per project document.',
     access: 'write',
     tier: 'core',
     inputSchema: applyConfigInputSchema,
@@ -3181,15 +3191,26 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_competitors_add',
     title: 'Add competitors',
-    description: 'Add tracked competitor domains to a Canonry project.',
+    description: 'Add tracked competitor domains to a Canonry project. Each entry is a domain, or `{ domain, aliases }` to also add curated answer-text names to that competitor (tracked already or not; existing aliases are kept, the same rules as canonry_competitors_aliases_set apply). A new domain whose name overlaps another competitor\'s curated alias, or the label or a curated alias of a competitor an Advanced market pins (one brand key contains the other, so the alias "Tune" claims tunespoke.example), is rejected until that name is removed, and so is the project\'s own site. Already tracked domains (any spelling) are skipped.',
     access: 'write',
     tier: 'setup',
-    inputSchema: competitorsInputSchema,
+    inputSchema: competitorsAddInputSchema,
     annotations: writeAnnotations({ idempotentHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/competitors'],
     handler: async (client, input) => {
-      await client.appendCompetitors(input.project, uniqueStrings(input.request.competitors))
+      await client.appendCompetitors(input.project, input.request.competitors)
     },
+  }),
+  defineTool({
+    name: 'canonry_competitors_aliases_set',
+    title: 'Set competitor aliases',
+    description: 'Set one tracked competitor\'s operator-curated aliases exactly (`[]` clears): the brand names it goes by in answer text when they differ from its domain, e.g. "TuneSpoke" for spoketuneworks.example or a 3-letter brand the domain label floor drops. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) uses them on stored answers at read time. Rejected: aliases under 3 letters or digits, over 80 characters, more than 10, or whose brand key contains, or sits inside, one of the project\'s own names or hosts or a name another tracked competitor answers to (its aliases, domain label or written host), because answers may split or join the words: "Tune" cannot belong to one competitor while another answers to "Tune Spoke", "TuneSpoke" or tunespoke.example, and joined-word lookalikes ("Tune" and "Tuner") are refused too. A competitor an Advanced market pins (active revision, pending draft, or a superseded revision the project\'s runs were measured under) counts as another competitor. Idempotent; returns the competitor.',
+    access: 'write',
+    tier: 'setup',
+    inputSchema: competitorAliasesInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['PUT /api/v1/projects/{name}/competitors/{domain}/aliases'],
+    handler: (client, input) => client.setCompetitorAliases(input.project, input.domain, input.aliases),
   }),
   defineTool({
     name: 'canonry_competitors_remove',
@@ -3472,7 +3493,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_discover_promote_preview',
     title: 'Preview discovery promotion',
-    description: 'Read-only preview of available promotion candidates for a session: bucketed query lists and recurring suggested competitor domains not already in the project\'s tracked competitor list. Use it to confirm a basket before calling canonry_discover_promote.',
+    description: 'Read-only preview of available promotion candidates for a session: bucketed query lists, the recurring competitors a promote could add (suggestedCompetitors, each stored as its registrable domain with the cited hosts merged into it as sources), and the eligible ones it would leave out with a reason (skippedCompetitors: already-tracked, project-domain, shared-host, claimed-by-alias). Use it to confirm a basket before calling canonry_discover_promote.',
     access: 'read',
     tier: 'discovery',
     inputSchema: discoverySessionIdInputSchema,
@@ -3483,7 +3504,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_discover_promote',
     title: 'Promote discovery session',
-    description: 'Adopt a completed discovery session\'s bucketed queries into the project\'s tracked basket, tagged with provenance "discovery:<sessionId>". By default, only cited + aspirational queries are promoted; include wasted-surface explicitly when off-ICP competitor gaps should also be tracked. Recurring discovered competitor domains classified as direct-competitor are also merged by default — pass request.competitorTypes to adopt editorial-media channels or recover legacy unknown entries. Add-only and idempotent: queries/domains already tracked are returned under `skipped`, never inserted twice. Only sessions with status "completed" can be promoted. Call canonry_discover_promote_preview first to inspect candidates.',
+    description: 'Adopt a completed discovery session\'s bucketed queries into the project\'s tracked basket, tagged with provenance "discovery:<sessionId>". By default, only cited + aspirational queries are promoted; include wasted-surface explicitly when off-ICP competitor gaps should also be tracked. Recurring discovered competitor domains classified as direct-competitor are also merged by default; pass request.competitorTypes to adopt editorial-media channels or recover legacy unknown entries. Cited subdomains are stored as their registrable domain; a competitor that is the project\'s own site, was cited as two or more different subdomains of one possibly shared host, or is claimed by another competitor\'s curated alias is left out with a reason in competitorDetails while the rest proceeds. Add-only and idempotent: queries/domains already tracked are returned under `skipped`, never inserted twice. Only sessions with status "completed" can be promoted. Call canonry_discover_promote_preview first to inspect candidates.',
     access: 'write',
     tier: 'discovery',
     inputSchema: discoveryPromoteInputSchema,

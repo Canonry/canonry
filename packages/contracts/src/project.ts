@@ -3,10 +3,11 @@ import { validationError } from './errors.js'
 import { locationContextSchema, providerModelsSchema, providerNameSchema, type LocationContext } from './provider.js'
 import { measurementConfigSchema, defaultMeasurementConfig } from './measurement.js'
 import { providerDispatchModesSchema } from './provider-batch.js'
-import { brandLabelFromDomain, hostOf } from './url-normalize.js'
+import { brandLabelFromDomain, normalizeProjectDomain } from './url-normalize.js'
 import { brandKeyFromText } from './brand-matching.js'
 import { gbpNegativeReviewMaxStarsSchema } from './gbp.js'
 import { MIN_DOMAIN_BRAND_KEY_LENGTH } from './answer-visibility.js'
+import { competitorEntrySchema, type CompetitorAliasProjectIdentity } from './competitor-aliases.js'
 
 export const configSourceSchema = z.enum(['cli', 'api', 'config-file'])
 export type ConfigSource = z.infer<typeof configSourceSchema>
@@ -248,6 +249,12 @@ export type KeywordGenerateRequest = QueryGenerateRequest
 export const competitorDtoSchema = z.object({
   id: z.string(),
   domain: z.string(),
+  /**
+   * Operator-curated names this competitor goes by in answer text, layered onto
+   * the domain label by every competitor mention matcher. Always present;
+   * `[]` means the domain label alone identifies it.
+   */
+  aliases: z.array(z.string()),
   createdAt: z.string(),
 })
 
@@ -259,10 +266,16 @@ export const competitorBatchRequestSchema = z.object({
 
 export type CompetitorBatchRequest = z.infer<typeof competitorBatchRequestSchema>
 
-/** Normalize a user-supplied project domain for matching and deduplication. */
-export function normalizeProjectDomain(input: string): string {
-  return hostOf(input) ?? input.trim().toLowerCase().replace(/^www\./, '')
-}
+/**
+ * `POST /projects/{name}/competitors`: each entry is a bare domain or
+ * `{ domain, aliases }`. Aliases on an already-tracked domain are added to its
+ * stored list; a bare domain leaves stored aliases alone.
+ */
+export const competitorAppendRequestSchema = z.object({
+  competitors: z.array(competitorEntrySchema).min(1),
+})
+
+export type CompetitorAppendRequest = z.infer<typeof competitorAppendRequestSchema>
 
 /** Returns deduplicated list of all domains owned by the project. */
 export function effectiveDomains(project: { canonicalDomain: string; ownedDomains?: string[] }): string[] {
@@ -400,4 +413,25 @@ export function effectiveBrandNames(project: {
     }
   }
   return names
+}
+
+/**
+ * The project identity a competitor alias must stay clear of: its brand names
+ * (`effectiveBrandNames`) and its own domains (canonical plus owned), which
+ * answer prose can write out as hosts. Every competitor alias write plans
+ * against this (`planCompetitorAliases`).
+ */
+export function competitorAliasProjectIdentity(project: {
+  displayName?: string | null
+  aliases?: string[] | null
+  canonicalDomain?: string | null
+  ownedDomains?: string[] | null
+}): CompetitorAliasProjectIdentity {
+  return {
+    brandNames: effectiveBrandNames(project),
+    domains: effectiveDomains({
+      canonicalDomain: project.canonicalDomain ?? '',
+      ownedDomains: project.ownedDomains ?? [],
+    }).map(normalizeProjectDomain),
+  }
 }

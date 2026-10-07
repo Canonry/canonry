@@ -15,6 +15,8 @@ function setup(opts: {
   answer?: string
   citedDomains?: string[]
   competitorDomains?: string[]
+  /** Curated aliases per competitor domain. */
+  competitorAliases?: Record<string, string[]>
   failQueries?: boolean
   blockBad?: Promise<void>
 } = {}) {
@@ -25,7 +27,7 @@ function setup(opts: {
   const now = new Date().toISOString()
   db.insert(projects).values({ id: 'p', name: 'p', displayName: 'Alpha', canonicalDomain: 'alpha.com', country: 'US', language: 'en', createdAt: now, updatedAt: now }).run()
   for (const domain of opts.competitorDomains ?? []) {
-    db.insert(competitors).values({ id: crypto.randomUUID(), projectId: 'p', domain, createdAt: now }).run()
+    db.insert(competitors).values({ id: crypto.randomUUID(), projectId: 'p', domain, aliases: opts.competitorAliases?.[domain] ?? [], createdAt: now }).run()
   }
   db.insert(researchRuns).values({ id: 'r', projectId: 'p', status: 'queued', provider: 'test', resolvedModel: 'exact-model', totalQueries: 2, completedQueries: 0, failedQueries: 0, createdAt: now }).run()
   for (const [position, queryText] of ['good', 'bad'].entries()) {
@@ -116,6 +118,27 @@ describe('executeResearchRun', () => {
     const completed = db.select().from(researchRunQueries).all()
     expect(completed.every(row => row.namedCompetitors.includes('Rival'))).toBe(true)
     expect(completed.map(row => row.citedCompetitorDomains)).toEqual([['rival.example'], ['rival.example']])
+  })
+
+  it('names a competitor by its curated alias when the answer uses that name', async () => {
+    const answer = '- **TuneSpoke**: a strong alternative for growing teams.'
+    const run = async (aliases: string[]) => {
+      const { db, registry } = setup({
+        answer,
+        citedDomains: ['independent.example'],
+        competitorDomains: ['spoketuneworks.example'],
+        competitorAliases: { 'spoketuneworks.example': aliases },
+        failQueries: false,
+      })
+      await executeResearchRun(db, registry, 'r', 'p')
+      return db.select().from(researchRunQueries).all()
+    }
+    // Without the alias the bullet's name lines up with no known competitor.
+    expect((await run([])).map(row => row.namedCompetitors)).toEqual([[], []])
+    const withAlias = await run(['TuneSpoke'])
+    expect(withAlias.map(row => row.namedCompetitors)).toEqual([['TuneSpoke'], ['TuneSpoke']])
+    // A name is not a citation.
+    expect(withAlias.every(row => row.citedCompetitorDomains.length === 0)).toBe(true)
   })
 
   it('does not turn an answer-text competitor name into a citation', async () => {

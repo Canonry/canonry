@@ -509,3 +509,25 @@ describe('CompetitorLandscape restored figures (a cleanup never removes data)', 
     }
   })
 })
+
+test('shows a pinned competitor\'s curated aliases beside its domain, and only on pinned rows', () => {
+  renderLandscape({
+    landscape: landscape({
+      pinned: [row({ domain: 'spoketuneworks.example', label: 'spoketuneworks', pinned: true })],
+    }),
+    competitorAliases: { 'spoketuneworks.example': ['TuneSpoke', 'Tune Spoke'], 'observed.example': ['Ignored'] },
+  })
+  const grid = screen.getByRole('table', { name: 'Competitors over time' })
+  const pinnedRow = within(grid).getByRole('rowheader', { name: /spoketuneworks\.example/ })
+  expect(pinnedRow.textContent).toBe('spoketuneworks.exampleAlso named TuneSpoke, Tune Spoke')
+  expect(within(grid).queryByText(/Ignored/)).toBeNull()
+})
+
+test('renders a pinned competitor without aliases exactly as before', () => {
+  renderLandscape({
+    landscape: landscape({ pinned: [row({ domain: 'qvx.example', label: 'qvx', pinned: true })] }),
+    competitorAliases: { 'qvx.example': [] },
+  })
+  const grid = screen.getByRole('table', { name: 'Competitors over time' })
+  expect(within(grid).getByRole('rowheader', { name: 'qvx.example' }).textContent).toBe('qvx.example')
+})

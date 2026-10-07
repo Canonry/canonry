@@ -178,6 +178,7 @@ const expectedToolNames = [
   'canonry_queries_remove',
   'canonry_keywords_remove',
   'canonry_competitors_add',
+  'canonry_competitors_aliases_set',
   'canonry_competitors_remove',
   'canonry_schedule_set',
   'canonry_schedule_delete',
@@ -763,7 +764,7 @@ describe('MCP tool registry', () => {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
     expect(counts.get('monitoring')).toBe(61)
-    expect(counts.get('setup')).toBe(60)
+    expect(counts.get('setup')).toBe(61)
     expect(counts.get('gsc')).toBe(11)
     expect(counts.get('ga')).toBe(11)
     expect(counts.get('gbp')).toBe(14)
@@ -1031,6 +1032,11 @@ describe('MCP tool registry', () => {
       project: 'acme',
       request: { competitors: ['rival.example.com'] },
     })
+    // The same body POST /competitors takes: a domain or { domain, aliases }.
+    expect(competitorsTool!.inputSchema.parse({ project: 'acme', request: { competitors: [{ domain: ' qvx.example ', aliases: ['QVX'] }, 'rival.example.com'] } })).toEqual({
+      project: 'acme',
+      request: { competitors: [{ domain: 'qvx.example', aliases: ['QVX'] }, 'rival.example.com'] },
+    })
   })
 
   it('creates one API client per MCP server instance', () => {
@@ -1067,6 +1073,7 @@ describe('MCP tool registry', () => {
     expect(annotations.canonry_keywords_remove).toMatchObject({ idempotentHint: true, destructiveHint: true })
     expect(annotations.canonry_competitors_add).toMatchObject({ idempotentHint: true, destructiveHint: false })
     expect(annotations.canonry_competitors_remove).toMatchObject({ idempotentHint: true, destructiveHint: true })
+    expect(annotations.canonry_competitors_aliases_set).toMatchObject({ readOnlyHint: false, idempotentHint: true, destructiveHint: false })
     expect(annotations.canonry_schedule_set).toMatchObject({ idempotentHint: true, destructiveHint: false })
     expect(annotations.canonry_schedule_delete).toMatchObject({ idempotentHint: false, destructiveHint: true })
     expect(annotations.canonry_insight_dismiss).toMatchObject({ idempotentHint: true, destructiveHint: false })

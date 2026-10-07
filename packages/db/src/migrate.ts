@@ -4492,6 +4492,17 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       )`,
     ],
   },
+  {
+    // Operator-curated competitor names for answer-text matching. Defaulted,
+    // so every competitor stored before it reads as having no curated alias
+    // (domain label only, as before), and an older writer that omits the
+    // column still inserts.
+    version: 168,
+    name: 'competitors-aliases',
+    statements: [
+      `ALTER TABLE competitors ADD COLUMN aliases TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
 ]
 
 /**

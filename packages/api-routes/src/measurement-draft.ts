@@ -47,6 +47,7 @@ import {
   type MeasurementV2UrlMatcher,
   type StoredMeasurementPlan,
   hostOf,
+  normalizeCompetitorAliases,
 } from '@ainyc/canonry-contracts'
 import {
   measurementPlanDrafts,
@@ -62,8 +63,10 @@ import {
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import { requireScope } from './auth.js'
+import { findStoredCompetitor, readStoredCompetitors, requireMarketPinsClearOfCompetitorAliases } from './competitor-writes.js'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
 import { MEASUREMENT_PLAN_WRITE_SCOPE } from './measurement-plan.js'
+import { storedPlanPinGroups } from './plan-competitors.js'
 import {
   applyDraftAction,
   applyAssignmentsToAuthoring,
@@ -354,9 +357,23 @@ function assertPinLocationsPreserved(project: ProjectRow, plan: MeasurementPlanV
   }
 }
 
+/**
+ * The curated aliases of the project's tracked competitor for `domain`, so an
+ * Advanced pin by domain alone carries the same answer-text names a Simple run
+ * freezes. Empty when the domain is not tracked. Any spelling finds the stored
+ * row (`findStoredCompetitor`), which fails rather than pick one of several
+ * rows for the same competitor.
+ */
+function trackedCompetitorAliases(db: Pick<DatabaseClient, 'select'>, projectId: string, domain: string): string[] {
+  const host = hostOf(domain)
+  if (!host) return []
+  return normalizeCompetitorAliases(findStoredCompetitor(readStoredCompetitors(db, projectId), host)?.aliases)
+}
+
 function pinCompetitorInAuthoring(
   authoring: MeasurementDraftAuthoring,
   input: MeasurementDraftPinCompetitorRequest,
+  trackedAliases: () => readonly string[] = () => [],
 ): { authoring: MeasurementDraftAuthoring; competitor: MeasurementV2Competitor } {
   const domain = hostOf(input.domain)
   if (!domain) throw validationError('A competitor domain must be a valid hostname.')
@@ -372,7 +389,12 @@ function pinCompetitorInAuthoring(
   // word as its brand. Preserve previously curated identities and aliases.
   const generatedLabel = brandKeyFromText(domainLabel).length >= MIN_DOMAIN_BRAND_KEY_LENGTH ? domainLabel : domain
   const label = input.label ?? existing?.label ?? generatedLabel
-  const aliases = input.aliases ?? existing?.aliases ?? (input.label ? [input.label] : [])
+  // A new pin with no stated aliases takes the tracked competitor's curated
+  // names (plus an explicit label), matching what a Simple run freezes.
+  const aliases = input.aliases ?? existing?.aliases ?? normalizeCompetitorAliases([
+    ...(input.label ? [input.label] : []),
+    ...trackedAliases(),
+  ])
   const stableKey = existing?.stableKey ?? nextCompetitorStableKey(sourceGroup, domain)
   const competitor: MeasurementV2Competitor = measurementDraftCompetitorSchema.parse({ stableKey, label, domain, aliases })
   const competitors = existingIndex === -1
@@ -748,8 +770,11 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
       const before = row
         ? parseStoredAuthoring(row.authoringJson)
         : seedAuthoring(gate.project, activePlan, actionContextFor(app.db, gate.project), opts)
-      const result = pinCompetitorInAuthoring(before, input)
+      const result = pinCompetitorInAuthoring(before, input, () => trackedCompetitorAliases(tx, gate.project.id, input.domain))
       assertMeasurementDraftAuthoringLimits(before, result.authoring)
+      // A pin that answers to another tracked competitor's curated alias
+      // would credit one answer to both.
+      requireMarketPinsClearOfCompetitorAliases(tx, gate.project.id, before.groups, result.authoring.groups)
       const changed = authoringIdentity(result.authoring) !== authoringIdentity(before)
       const etagVersion = row ? (changed ? row.etagVersion + 1 : row.etagVersion) : 1
       const response: MeasurementDraftPinCompetitorResponse = measurementDraftPinCompetitorResponseSchema.parse({
@@ -845,6 +870,9 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
           throw measurementDraftEtagStale(ifMatch, measurementDraftEtag(current.etagVersion))
         }
         if (!changed) return
+        // Competitor and group upserts may pin a competitor, or give a pin a
+        // name, that another tracked competitor's curated alias answers to.
+        requireMarketPinsClearOfCompetitorAliases(tx, gate.project.id, before.groups, result.authoring.groups)
         const updated = tx.update(measurementPlanDrafts).set({
           authoringJson: JSON.stringify(result.authoring),
           etagVersion,
@@ -1118,6 +1146,16 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
       if (compiled.plan.compiledChecksum !== parsed.data.expectedCompiledChecksum) {
         throw measurementCompiledChecksumConflict(parsed.data.expectedCompiledChecksum, compiled.plan.compiledChecksum)
       }
+      // The pins this publish adds or renames go live here, including a draft
+      // pin held from before the pin checks or next to a tracked alias an
+      // older build stored. A pin the active revision already has is not
+      // checked again.
+      requireMarketPinsClearOfCompetitorAliases(
+        tx,
+        gate.project.id,
+        active ? storedPlanPinGroups(active.canonicalJson) : [],
+        compiled.plan.groups,
+      )
 
       const clearDraft = () => {
         tx.delete(measurementPlanDrafts).where(eq(measurementPlanDrafts.id, row.id)).run()

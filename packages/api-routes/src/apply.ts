@@ -1,11 +1,13 @@
 import crypto from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { projects, competitors, schedules, notifications, readNegativeReviewMaxStars, writeNegativeReviewMaxStars } from '@ainyc/canonry-db'
-import { competitorLabelFromDomain, forbidden, nextScheduleUpdatedAt, normalizeProjectAliases, normalizeProjectDomain, projectConfigSchema, registrableDomain, resolveConfigSpecQueries, resolveProjectQualifiedAliases, SchedulableRunKinds, validationError, describeError } from '@ainyc/canonry-contracts'
+import { projects, schedules, notifications, readNegativeReviewMaxStars, writeNegativeReviewMaxStars } from '@ainyc/canonry-db'
+import { competitorAliasProjectIdentity, forbidden, nextScheduleUpdatedAt, normalizeProjectAliases, projectConfigSchema, resolveConfigSpecQueries, resolveProjectQualifiedAliases, SchedulableRunKinds, validationError, describeError } from '@ainyc/canonry-contracts'
+import { competitorAliasAuditFields, competitorNames, competitorWritesFromEntries, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
 import type { ProviderAdapterInfo } from './settings.js'
 import { pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
 import { writeAuditLog } from './helpers.js'
+import { readMarketCompetitorPins } from './plan-competitors.js'
 import { assertProviderModelScope, requireQualifiedAliases } from './projects.js'
 import { assertQueryReplacementAllowed, replaceProjectQueries } from './query-replace.js'
 import { activeRevisionProviders } from './run-queue.js'
@@ -19,6 +21,8 @@ export interface ApplyRoutesOptions {
   onProjectCreated?: (projectId: string, projectName: string) => void
   /** See `ProjectRoutesOptions.onAliasesChanged`. */
   onAliasesChanged?: (projectId: string, projectName: string) => void
+  /** See `CompetitorRoutesOptions.onCompetitorAliasesChanged`. */
+  onCompetitorAliasesChanged?: (projectId: string, projectName: string) => void
   onGoogleConnectionPropertyUpdated?: (domain: string, connectionType: 'gsc' | 'ga4', propertyId: string) => void
   /** Full descriptors from registered adapters — used to reject unknown providers and invalid model overrides. */
   providerAdapters?: ProviderAdapterInfo[]
@@ -73,19 +77,18 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     const specDispatchModes = config.spec.providerDispatchModes === undefined
       ? undefined
       : validateProviderDispatchModes(config.spec.providerDispatchModes, opts?.providerAdapters)
-    // Present = the exact list, validated against the spec's own competitors
-    // because apply replaces that set. Absent keeps the stored list (below).
-    const specCompetitorNames = normalizeCompetitorList(config.spec.competitors).map(competitorLabelFromDomain)
-    const specQualifiedAliases = config.spec.qualifiedAliases === undefined
-      ? undefined
-      : requireQualifiedAliases(
-          {
-            displayName: config.spec.displayName,
-            aliases: normalizeProjectAliases(config.spec.displayName, config.spec.aliases),
-          },
-          config.spec.qualifiedAliases,
-          specCompetitorNames,
-        )
+    // The spec's competitor set: a bare domain keeps that competitor's curated
+    // aliases, `{ domain, aliases }` sets them exactly. It is planned against
+    // the stored rows after the scope check (a stated alias that breaks the
+    // shared rules fails the apply before any write) and redone inside the
+    // transaction. Aliases the spec's own identity claims cannot be competitors'.
+    const specAliasIdentity = competitorAliasProjectIdentity({
+      displayName: config.spec.displayName,
+      aliases: normalizeProjectAliases(config.spec.displayName, config.spec.aliases),
+      canonicalDomain: config.spec.canonicalDomain,
+      ownedDomains: config.spec.ownedDomains,
+    })
+    const competitorWrites = competitorWritesFromEntries(config.spec.competitors)
 
     // Validate schedule before entering transaction
     let resolvedSchedule: { cronExpr: string; preset: string | null; recurrence: import('@ainyc/canonry-contracts').CalendarRecurrence | null; timezone: string } | null = null
@@ -158,9 +161,33 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     // back door into choosing the execution model.
     assertProviderModelScope(request, target?.providerModels ?? {}, providerModels, specProviders)
 
+    // Planned only after the project-scope check, so a rejection naming another
+    // competitor can never describe a project this key may not read. Planned
+    // against the market pins too, so the preview's names match the
+    // transaction's (`syncCompetitorSet` reads them there).
+    const competitorPreview = planCompetitorSet(
+      target ? readStoredCompetitors(app.db, target.id) : [],
+      competitorWrites,
+      { replace: true, project: specAliasIdentity, marketPins: target ? readMarketCompetitorPins(app.db, target.id) : [] },
+    )
+    // Present = the exact list, validated against the spec's own competitors
+    // (domain labels plus curated aliases) because apply replaces that set.
+    // Absent keeps the stored list (below).
+    const specCompetitorNames = competitorNames(competitorPreview.final)
+    const specQualifiedAliases = config.spec.qualifiedAliases === undefined
+      ? undefined
+      : requireQualifiedAliases(
+          {
+            displayName: config.spec.displayName,
+            aliases: normalizeProjectAliases(config.spec.displayName, config.spec.aliases),
+          },
+          config.spec.qualifiedAliases,
+          specCompetitorNames,
+        )
+
     // All validation done — wrap all writes in a single transaction
     let projectId: string
-    const lifecycle = { projectCreated: false }
+    const lifecycle = { projectCreated: false, competitorAliasesChanged: false }
     let scheduleAction: 'upsert' | 'delete' | null = null
     let aliasesChanged = false
 
@@ -278,24 +305,24 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         })
       }
 
-      tx.delete(competitors).where(eq(competitors.projectId, projectId)).run()
-      const normalizedCompetitors = normalizeCompetitorList(config.spec.competitors)
-      for (const domain of normalizedCompetitors) {
-        tx.insert(competitors).values({
-          id: crypto.randomUUID(),
-          projectId,
-          domain,
-          provenance: 'cli',
-          createdAt: now,
-        }).run()
-      }
+      // Domains that stay keep their row (id, provenance, curated aliases);
+      // removed domains are deleted and new ones inserted.
+      const competitorPlan = syncCompetitorSet(tx, projectId, competitorWrites, {
+        replace: true,
+        project: specAliasIdentity,
+        now,
+      })
+      lifecycle.competitorAliasesChanged = !lifecycle.projectCreated && competitorPlan.aliasChanges.length > 0
 
       writeAuditLog(tx, {
         projectId,
         actor: 'api',
         action: 'competitors.replaced',
         entityType: 'competitor',
-        diff: { competitors: normalizedCompetitors },
+        diff: {
+          competitors: competitorWrites.map(write => write.domain),
+          ...competitorAliasAuditFields(competitorPlan),
+        },
       })
 
       // Handle schedule. `canonry apply` only manages the answer-visibility
@@ -404,6 +431,8 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     }
     if (aliasesChanged) {
       opts?.onAliasesChanged?.(projectId!, config.metadata.name)
+    } else if (lifecycle.competitorAliasesChanged) {
+      opts?.onCompetitorAliasesChanged?.(projectId!, config.metadata.name)
     }
     if ('google' in rawSpec && config.spec.google?.gsc?.propertyUrl) {
       opts?.onGoogleConnectionPropertyUpdated?.(config.spec.canonicalDomain, 'gsc', config.spec.google.gsc.propertyUrl)
@@ -448,21 +477,4 @@ function aliasArraysEqual(a: readonly string[], b: readonly string[]): boolean {
     if (a[i]!.toLowerCase() !== b[i]!.toLowerCase()) return false
   }
   return true
-}
-
-// Reduce competitor domains to their registrable form (eTLD+1) and dedupe.
-// Mirrors the helper in `competitors.ts` so both the YAML apply path and the
-// REST endpoints store competitors uniformly without subdomain noise.
-function normalizeCompetitorList(domains: readonly string[]): string[] {
-  const seen = new Set<string>()
-  const result: string[] = []
-  for (const raw of domains) {
-    const trimmed = raw?.trim()
-    if (!trimmed) continue
-    const normalized = registrableDomain(trimmed) || normalizeProjectDomain(trimmed)
-    if (!normalized || seen.has(normalized)) continue
-    seen.add(normalized)
-    result.push(normalized)
-  }
-  return result
 }

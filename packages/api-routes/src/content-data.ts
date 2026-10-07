@@ -44,6 +44,7 @@ import {
   hostOf,
   RunKinds,
   RunStatuses,
+  type CompetitorIdentityInput,
   type GroundingSource,
   type LocationContext,
   type ProviderName,
@@ -86,8 +87,12 @@ export function loadOrchestratorInput(
   const trackedQueries = listQueries(db, projectId)
   const candidateQueryStrings = trackedQueries.filter(isBlogShapedQuery)
 
-  const trackedCompetitors = listCompetitorDomains(db, projectId).map(domain => hostOf(domain) ?? '')
+  const competitorRows = listCompetitors(db, projectId)
+  const trackedCompetitors = competitorRows.map(row => hostOf(row.domain) ?? '')
   const competitorSet = new Set(trackedCompetitors)
+  // Mention matching also reads each competitor's curated aliases; citation
+  // matching stays on the host set above.
+  const competitorIdentities = competitorRows.map(row => ({ domain: hostOf(row.domain) ?? '', aliases: row.aliases }))
 
   // Limit the orchestrator window to runs at the latest run's location so
   // content opportunities and gaps reflect the same geographic context as
@@ -105,6 +110,7 @@ export function loadOrchestratorInput(
     latestRunId,
     ourDomains,
     competitorSet,
+    competitorIdentities,
     gscWindowDays,
   })
 
@@ -236,13 +242,12 @@ function listQueries(db: DatabaseClient, projectId: string): string[] {
   return rows.map((r) => r.text)
 }
 
-function listCompetitorDomains(db: DatabaseClient, projectId: string): string[] {
-  const rows = db
-    .select({ domain: competitorsTable.domain })
+function listCompetitors(db: DatabaseClient, projectId: string): CompetitorIdentityInput[] {
+  return db
+    .select({ domain: competitorsTable.domain, aliases: competitorsTable.aliases })
     .from(competitorsTable)
     .where(eq(competitorsTable.projectId, projectId))
     .all()
-  return rows.map((r) => r.domain)
 }
 
 function listRecentAnswerVisibilityRunIds(
@@ -411,6 +416,8 @@ interface BuildCandidateQueriesOpts {
   latestRunId: string
   ourDomains: Set<string>
   competitorSet: Set<string>
+  /** Tracked competitors with curated aliases, for the mention tally. */
+  competitorIdentities: readonly CompetitorIdentityInput[]
   /** Days of GSC history to score demand over. See resolveContentGscWindow. */
   gscWindowDays: number
 }
@@ -494,6 +501,7 @@ function buildCandidateQueries(opts: BuildCandidateQueriesOpts): CandidateQuery[
       gsc,
       ourDomains: opts.ourDomains,
       competitorSet: opts.competitorSet,
+      competitorIdentities: opts.competitorIdentities,
       latestRunId: opts.latestRunId,
     })
   })
@@ -649,6 +657,8 @@ interface AggregateCandidateOpts {
   gsc: AggregateGscEntry | null
   ourDomains: Set<string>
   competitorSet: Set<string>
+  /** Tracked competitors with curated aliases, for the mention tally. */
+  competitorIdentities: readonly CompetitorIdentityInput[]
   latestRunId: string
 }
 
@@ -673,7 +683,7 @@ function aggregateCandidate(opts: AggregateCandidateOpts): CandidateQuery {
   // both, and the two observations must remain independent.
   const competitorTally = new Map<string, number>()
   const competitorMentionTally = new Map<string, number>()
-  const competitiveSignalResolver = compileCompetitiveSignalResolver([...opts.competitorSet])
+  const competitiveSignalResolver = compileCompetitiveSignalResolver(opts.competitorIdentities)
   const competitorGroundingTally = new Map<string, GroundingUrlEvidence>()
   const ourGroundingTally = new Map<string, GroundingUrlEvidence>()
   // Full cited surface: every non-own cited domain → citation count, NOT

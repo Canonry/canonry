@@ -365,8 +365,54 @@ export const discoveryPromoteRequestSchema = z.object({
 export type DiscoveryPromoteRequest = z.infer<typeof discoveryPromoteRequestSchema>
 
 /**
+ * One competitor a promote adds (or, in the preview, would add): the
+ * registrable domain it is stored as (`normalizeCompetitorDomain`), the number
+ * of probes that cite any of its hosts, the type of its lead host, and every
+ * cited host merged into it (`sources`, the session's competitor-map entries),
+ * so a subdomain promoted as its registrable domain is visible
+ * (`offers.rival.example` promotes as `rival.example`).
+ */
+export const discoveryPromoteCompetitorSchema = z.object({
+  domain: z.string().min(1),
+  hits: z.number().int().positive(),
+  competitorType: discoveryCompetitorTypeSchema,
+  sources: z.array(discoveryCompetitorMapEntrySchema),
+})
+export type DiscoveryPromoteCompetitor = z.infer<typeof discoveryPromoteCompetitorSchema>
+
+/**
+ * Why an eligible competitor is not promoted:
+ *
+ * - `already-tracked`: the project tracks it under some spelling.
+ * - `project-domain`: it is the project's own site, a subdomain of it, or a
+ *   parent of an owned domain, so it would count every project citation.
+ * - `shared-host`: it was cited as two or more different subdomains, which
+ *   may be different sites on one shared host (blog and site builders), so it
+ *   is never merged silently; add it by hand when they are one competitor.
+ * - `claimed-by-alias`: its domain name overlaps another competitor's curated
+ *   alias, so one answer would count both; the rest of the promote proceeds.
+ */
+export const discoveryPromoteCompetitorSkipReasonSchema = z.enum([
+  'already-tracked',
+  'project-domain',
+  'shared-host',
+  'claimed-by-alias',
+])
+export type DiscoveryPromoteCompetitorSkipReason = z.infer<typeof discoveryPromoteCompetitorSkipReasonSchema>
+export const DiscoveryPromoteCompetitorSkipReasons = discoveryPromoteCompetitorSkipReasonSchema.enum
+
+/** An eligible competitor a promote leaves out, with the reason and a message naming the way forward. */
+export const discoveryPromoteSkippedCompetitorSchema = discoveryPromoteCompetitorSchema.extend({
+  reason: discoveryPromoteCompetitorSkipReasonSchema,
+  message: z.string(),
+})
+export type DiscoveryPromoteSkippedCompetitor = z.infer<typeof discoveryPromoteSkippedCompetitorSchema>
+
+/**
  * `GET .../promote` response — a read-only preview of what a promote would
- * persist. Bucketed query lists plus competitor domains not already tracked.
+ * persist. Bucketed query lists, the recurring competitors of every type a
+ * promote could add (`suggestedCompetitors`), and the eligible ones it would
+ * leave out (`skippedCompetitors`).
  */
 export const discoveryPromotePreviewSchema = z.object({
   sessionId: z.string(),
@@ -377,7 +423,8 @@ export const discoveryPromotePreviewSchema = z.object({
     aspirational: z.array(z.string()),
     'wasted-surface': z.array(z.string()),
   }),
-  suggestedCompetitors: z.array(discoveryCompetitorMapEntrySchema),
+  suggestedCompetitors: z.array(discoveryPromoteCompetitorSchema),
+  skippedCompetitors: z.array(discoveryPromoteSkippedCompetitorSchema),
 })
 export type DiscoveryPromotePreview = z.infer<typeof discoveryPromotePreviewSchema>
 
@@ -385,6 +432,8 @@ export type DiscoveryPromotePreview = z.infer<typeof discoveryPromotePreviewSche
  * `POST .../promote` response. Promotion is add-only and idempotent: queries
  * and competitor domains already tracked by the project land in `skipped`
  * rather than being inserted twice, so re-running a promote is safe.
+ * `skipped.competitors` lists every eligible competitor left out, for any
+ * reason; `competitorDetails` carries each one's merged hosts and reason.
  */
 export const discoveryPromoteResultSchema = z.object({
   sessionId: z.string(),
@@ -396,6 +445,10 @@ export const discoveryPromoteResultSchema = z.object({
   skipped: z.object({
     queries: z.array(z.string()),
     competitors: z.array(z.string()),
+  }),
+  competitorDetails: z.object({
+    promoted: z.array(discoveryPromoteCompetitorSchema),
+    skipped: z.array(discoveryPromoteSkippedCompetitorSchema),
   }),
 })
 export type DiscoveryPromoteResult = z.infer<typeof discoveryPromoteResultSchema>

@@ -303,12 +303,22 @@ test('discoveryPromoteRequestSchema rejects empty / unknown buckets and competit
   expect(() => discoveryPromoteRequestSchema.parse({ competitorTypes: ['not-a-type'] })).toThrow()
 })
 
-test('discoveryPromoteResultSchema requires promoted + skipped query/competitor lists', () => {
-  const input = { sessionId: 'sess-1', projectId: 'proj-1', promoted: { queries: ['q1', 'q2'], competitors: ['a.com'] }, skipped: { queries: ['q3'], competitors: [] } }
+test('discoveryPromoteResultSchema requires promoted + skipped query/competitor lists and competitor details', () => {
+  const promotedEntry = { domain: 'a.com', hits: 3, competitorType: 'direct-competitor', sources: [{ domain: 'offers.a.com', hits: 3, competitorType: 'direct-competitor' }] }
+  const skippedEntry = { ...promotedEntry, domain: 'b.com', sources: [], reason: 'shared-host', message: 'b.com was cited as 2 different subdomains' }
+  const input = {
+    sessionId: 'sess-1',
+    projectId: 'proj-1',
+    promoted: { queries: ['q1', 'q2'], competitors: ['a.com'] },
+    skipped: { queries: ['q3'], competitors: ['b.com'] },
+    competitorDetails: { promoted: [promotedEntry], skipped: [skippedEntry] },
+  }
   expect(discoveryPromoteResultSchema.parse(input)).toEqual(input)
   const missing = [
-    [{ sessionId: 'sess-1', projectId: 'proj-1', skipped: input.skipped }, ['promoted']],
-    [{ sessionId: 'sess-1', projectId: 'proj-1', promoted: input.promoted }, ['skipped']],
+    [{ sessionId: 'sess-1', projectId: 'proj-1', skipped: input.skipped, competitorDetails: input.competitorDetails }, ['promoted']],
+    [{ sessionId: 'sess-1', projectId: 'proj-1', promoted: input.promoted, competitorDetails: input.competitorDetails }, ['skipped']],
+    [{ sessionId: 'sess-1', projectId: 'proj-1', promoted: input.promoted, skipped: input.skipped }, ['competitorDetails']],
+    [{ ...input, competitorDetails: { promoted: [], skipped: [{ ...skippedEntry, reason: undefined }] } }, ['competitorDetails', 'skipped', 0, 'reason']],
     [{ ...input, promoted: { competitors: ['a.com'] } }, ['promoted', 'queries']],
     [{ ...input, promoted: { queries: ['q1', 'q2'] } }, ['promoted', 'competitors']],
     [{ ...input, skipped: { competitors: [] } }, ['skipped', 'queries']],
