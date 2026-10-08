@@ -141,17 +141,20 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
     if (effectiveInitial) return effectiveInitial
     if (!projectsQuery.data || !runsQuery.data) return null
     if (projects.length > 0 && !allProjectOverviewsLoaded) return null
+    const projectsById = new Map(projects.map(project => [project.id, project]))
 
     const projectDataList: ProjectData[] = includeOverviews
       ? projectOverviewQueries
         .map((q) => {
           if (!q.data) return null
-          // Re-project runs through the fresh allRuns array so in-progress
-          // sweeps (queued / running, started after the overview was cached)
-          // surface in the run badges. Same pattern as `useDashboard`.
+          const project = projectsById.get(q.data.project.id)
+          if (!project) return null
+          // Cached summaries outlive metadata edits and newly-started sweeps.
+          // Use the current lists for project fields and run badges.
           return {
             ...q.data,
-            runs: allRuns.filter((r) => r.projectId === q.data!.project.id),
+            project,
+            runs: allRuns.filter((r) => r.projectId === project.id),
           }
         })
         .filter((d): d is ProjectData => d != null)
@@ -173,7 +176,6 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
       })
 
     const built = buildDashboard(projectDataList, settingsQuery.data ?? null)
-    const projectsById = new Map(projects.map(project => [project.id, project]))
     if (loadActivity) {
       built.portfolioOverview.recentRuns = (activityQuery.data ?? [])
         .filter(run => run.trigger !== RunTriggers.probe && projectsById.has(run.projectId))

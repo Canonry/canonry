@@ -60,6 +60,7 @@ Users usually arrive to answer four questions, in this order:
   audits, backlink extractions, discovery, sitemap inspections, and syncs.
   Single-URL inspections stay out; read-only embeds retain sweep-only history.
 - Prefer familiar product controls over invented interactions.
+- Successful browser writes update the affected views without a page reload.
 
 ## Voice
 

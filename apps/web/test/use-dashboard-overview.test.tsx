@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, onTestFinished, test, vi } from 'vitest'
-import { waitFor, renderHook } from '@testing-library/react'
+import { act, waitFor, renderHook } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createElement, type ReactNode } from 'react'
 import { RunKinds, RunStatuses, RunTriggers, type RunDto } from '@ainyc/canonry-contracts'
+import { getApiV1ProjectsQueryKey } from '@ainyc/canonry-api-client/react-query'
 
+import { heyClient } from '../src/api.js'
 import { useDashboardOverview } from '../src/queries/use-dashboard-overview.js'
 
 function jsonResponse(body: unknown, status = 200) {
@@ -45,6 +47,39 @@ afterEach(() => {
 })
 
 describe('useDashboardOverview', () => {
+  test('updates project metadata from the refreshed list while retaining cached summaries', async () => {
+    let currentProject = metadataProject
+    let overviewReads = 0
+    const restoreFetch = mockFetch((path) => {
+      const url = new URL(path, 'http://localhost')
+      if (url.pathname === '/api/v1/projects/alpha/overview') {
+        overviewReads += 1
+        return jsonResponse(null)
+      }
+      if (url.pathname === '/api/v1/projects') return jsonResponse([currentProject])
+      if (url.pathname === '/api/v1/runs') return jsonResponse([])
+      return jsonResponse({ error: `unexpected ${path}` }, 404)
+    })
+    onTestFinished(restoreFetch)
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    onTestFinished(() => client.clear())
+    const { result } = renderHook(() => useDashboardOverview(null, { includeSettings: false }), {
+      wrapper: ({ children }) => createElement(QueryClientProvider, { client }, children),
+    })
+    await waitFor(() => expect(result.current.dashboard?.projects[0]?.project.displayName).toBe('Alpha'))
+    expect(overviewReads).toBe(1)
+
+    currentProject = { ...metadataProject, displayName: 'Alpha renamed', canonicalDomain: 'renamed.example' }
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: getApiV1ProjectsQueryKey({ client: heyClient }) })
+    })
+
+    await waitFor(() => expect(result.current.dashboard?.projects[0]?.project.displayName).toBe('Alpha renamed'))
+    expect(result.current.dashboard?.projects[0]?.project.canonicalDomain).toBe('renamed.example')
+    expect(result.current.dashboard?.portfolioOverview.projects[0]?.project.displayName).toBe('Alpha renamed')
+    expect(overviewReads).toBe(1)
+  })
+
   test('shows the five newest larger jobs without displacing either project sweep baseline', async () => {
     const beta = { ...metadataProject, id: 'beta-id', name: 'beta', displayName: 'Beta' }
     const run = (id: string, kind: RunDto['kind'], day: number, projectId = metadataProject.id): RunDto => ({

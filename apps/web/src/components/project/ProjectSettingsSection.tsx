@@ -9,11 +9,9 @@ import { asyncHandler } from '../../lib/async-handler.js'
 export function ProjectSettingsSection({
   project,
   onUpdateProject,
-  onRefresh,
 }: {
   project: { name: string; displayName: string; canonicalDomain: string; ownedDomains: string[]; aliases: string[]; country: string; language: string; tags?: string[]; locations: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation: string | null }
   onUpdateProject: (projectName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; aliases?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null }) => Promise<void>
-  onRefresh: () => void
 }) {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -131,7 +129,6 @@ export function ProjectSettingsSection({
       const loc: ApiLocation = { label, city, region, country: locCountry }
       if (newLocTimezone.trim()) loc.timezone = newLocTimezone.trim()
       await addLocation(project.name, loc)
-      onRefresh()
       setNewLocLabel('')
       setNewLocCity('')
       setNewLocRegion('')
@@ -157,7 +154,6 @@ export function ProjectSettingsSection({
     setLocationError(null)
     try {
       await removeLocation(project.name, label)
-      onRefresh()
       addToast({
         title: 'Location removed',
         detail: `${label} was removed from ${project.name}.`,
@@ -177,7 +173,6 @@ export function ProjectSettingsSection({
     setLocationError(null)
     try {
       await setDefaultLocation(project.name, label)
-      onRefresh()
       addToast({
         title: 'Default location updated',
         detail: `${label} is now the default for ${project.name}.`,

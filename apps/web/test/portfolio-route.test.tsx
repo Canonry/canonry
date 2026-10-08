@@ -13,6 +13,7 @@ import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { heyClient } from '../src/api.js'
+import { createQueryClient } from '../src/queries/query-client.js'
 import { MANAGED_SWEEPS_COPY, MANAGED_SWEEPS_UNAVAILABLE_COPY, MANAGED_SWEEPS_RUNNING_COPY, MANAGED_SWEEPS_NEXT_LABEL } from '../src/components/project/ManagedSweepStatus.js'
 import { VISIBILITY_SCOPE_RECOVERY_COPY } from '../src/components/project/VisibilityTrendSection.js'
 import { MARKET_SCOPE_COPY } from '../src/components/project/VisibilityScopePicker.js'
@@ -2284,7 +2285,9 @@ test('saving the project provider allowlist refreshes server-owned sweep readine
   }) as typeof fetch
   onTestFinished(() => { globalThis.fetch = realFetch })
 
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const queryClient = createQueryClient()
+  queryClient.setDefaultOptions({ queries: { retry: false } })
+  onTestFinished(() => queryClient.clear())
   const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/settings'] })
   await router.load()
   const page = render(
