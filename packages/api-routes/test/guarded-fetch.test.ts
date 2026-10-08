@@ -1,3 +1,5 @@
+import type { AddressInfo } from 'node:net'
+import tls from 'node:tls'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { createGuardedFetch, EgressFailedError, EgressRefusedError, GUARDED_FETCH_MAX_REDIRECTS } from '../src/guarded-fetch.js'
 import { resolveWebhookTarget, type ResolveWebhookTargetResult } from '../src/webhooks.js'
@@ -51,6 +53,27 @@ describe('createGuardedFetch', () => {
       { path: '/wp-json', host: `${PUBLIC_SITE}:${site.port}`, authorization: 'Basic d3A6cGFzcw==' },
       { path: '/wp-json/', host: `${PUBLIC_SITE}:${site.port}`, authorization: 'Basic d3A6cGFzcw==' },
     ])
+  })
+
+  test('offers the hostname, not the pinned address, as the TLS server name', async () => {
+    // The endpoint records the server name the client offers and ends the
+    // handshake right there, so no certificate is needed to see it.
+    const offered: string[] = []
+    const server = tls.createServer({
+      SNICallback: (servername, callback) => {
+        offered.push(servername)
+        callback(new Error('the fixture ends the handshake'))
+      },
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+
+    try {
+      await expect(createGuardedFetch({ resolveTarget: publicFixturePolicy })(`https://${PUBLIC_SITE}:${port}/`)).rejects.toThrow()
+      expect(offered).toEqual([PUBLIC_SITE])
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
   })
 
   test('refuses a first hop the policy refuses without dialing it', async () => {
