@@ -33,6 +33,7 @@ export const SETUP_ROOT_KEY_COPY = {
   help: 'To create the password from here, enter the root API key (apiKey in config.yaml). It is used once and not saved.',
   missing: 'Enter the root API key.',
   rejected: 'That is not the root API key for this install.',
+  show: 'Show passwords and key',
 } as const
 
 /**
@@ -568,7 +569,7 @@ export function AuthGate() {
                         autoFocus
                         id="dashboard-setup-root-key"
                         className="w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-heading outline-none transition focus:border-mono-600"
-                        type="password"
+                        type={showPassword ? 'text' : 'password'}
                         name="apiKey"
                         autoComplete="off"
                         spellCheck={false}
@@ -590,7 +591,7 @@ export function AuthGate() {
                       checked={showPassword}
                       onChange={(event) => setShowPassword(event.target.checked)}
                     />
-                    Show passwords
+                    {setupNeedsRootKey ? SETUP_ROOT_KEY_COPY.show : 'Show passwords'}
                   </label>
                   {error ? <p id="dashboard-password-setup-error" role="alert" className="text-sm text-negative-400">{error}</p> : null}
                   <Button type="submit" disabled={submitting || !setupFormIsValid}>

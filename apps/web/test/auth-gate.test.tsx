@@ -282,6 +282,39 @@ describe('AuthGate', () => {
       expect(screen.queryByLabelText(SETUP_ROOT_KEY_COPY.label)).toBeNull()
     })
 
+    test('reveals the root API key with the passwords so a pasted key can be checked', async () => {
+      mockFetch((url, init) => {
+        if (url.includes('/auth/session')) return jsonResponse({ authRequired: false, user: null })
+        if (url.endsWith('/session/setup') && init?.method === 'POST') {
+          return jsonResponse({ error: { code: 'AUTH_REQUIRED', message: 'Root API key required' } }, 401)
+        }
+        if (url.endsWith('/session')) return jsonResponse({ authenticated: false, setupRequired: true })
+        return dashboardFallback(url)
+      })
+
+      render(<AuthGate />)
+      await screen.findByRole('heading', { name: 'Create a dashboard password' })
+      const password = screen.getByLabelText('Password') as HTMLInputElement
+      fireEvent.change(password, { target: { value: 'long-enough' } })
+      fireEvent.change(screen.getByLabelText('Confirm password'), { target: { value: 'long-enough' } })
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Create password and continue' }))
+      })
+
+      const rootKey = await screen.findByLabelText(SETUP_ROOT_KEY_COPY.label) as HTMLInputElement
+      expect(screen.queryByLabelText('Show passwords')).toBeNull()
+      const show = screen.getByLabelText(SETUP_ROOT_KEY_COPY.show) as HTMLInputElement
+      expect(rootKey.type).toBe('password')
+
+      fireEvent.click(show)
+      expect(rootKey.type).toBe('text')
+      expect(password.type).toBe('text')
+
+      fireEvent.click(show)
+      expect(rootKey.type).toBe('password')
+      expect(password.type).toBe('password')
+    })
+
     test('hides the saved password and dashboard while initial access verification is pending', async () => {
       let resolveMetadata: (response: Response) => void = () => { throw new Error('Metadata was not requested') }
       mockFetch((url, init) => {
