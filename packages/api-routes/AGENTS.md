@@ -42,6 +42,7 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/measurement-scope-options.ts` | `planScopeOptions` is the single scope-option builder. The visibility report calls it with `marketLinks: true`; the query-tracking workspace calls it with `marketLinks: false`. |
 | `src/provider-batches.ts` | Reads over `provider_batches`: the run detail's `providerBatches`, `runHadProviderBatch` (fill age), `hasOutstandingProviderBatch` (scheduler `batch-pending`). Writes belong to the job runner and the poller. |
 | `src/snapshot-evidence-fingerprint.ts` | The one evidence fingerprint measurement cursors pin. It excludes the dispatch provenance columns so their addition never invalidates a cursor. |
+| `src/egress-policy.ts` | The one outbound address policy: `blockedAddressReason` and `isLoopbackAddress`, both decided by the address bytes. `resolveWebhookTarget` (`src/webhooks.ts`) and `resolvePublicHttpTarget` (`resolveMeasurementSitemapTarget`) classify every resolved address with it, so add or remove a range here, never in a gate. `allowLoopback` admits loopback by its bytes only. Both gates are tested against `test/egress-address-fixture.ts`. |
 
 ## Patterns
 

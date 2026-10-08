@@ -902,8 +902,11 @@ export { auditFromRequest, notProbeRun, writeAuditLog } from './helpers.js'
 // Shared public-egress preflight: validates every resolved address class and
 // returns the exact address callers must dial to prevent DNS rebinding.
 export { resolveMeasurementSitemapTarget as resolvePublicHttpTarget } from './measurement-sitemap-fetch.js'
+// The address policy both preflights apply, for a caller that checks an
+// address it dials itself (a pinned connection, a redirect hop).
+export { blockedAddressReason, isLoopbackAddress } from './egress-policy.js'
 export { redactNotificationDiff, redactNotificationUrl } from './notification-redaction.js'
-export type { SafeWebhookTarget } from './webhooks.js'
+export type { ResolveWebhookTargetOptions, ResolveWebhookTargetResult, SafeWebhookTarget } from './webhooks.js'
 export type { RunRoutesOptions } from './runs.js'
 // Pure GBP summary math — reused by the intelligence service to derive
 // per-location signals (window deltas, lodging/CTA flags) for gbp-sync insights.
