@@ -1035,10 +1035,17 @@ export function fetchSession(): Promise<ApiSessionState> {
   return apiFetch('/session')
 }
 
-export function setupDashboardPassword(password: string): Promise<ApiSessionState> {
+/**
+ * First-run password setup. A server reached through a proxy or over the
+ * network refuses it without the install's root API key (401
+ * `AUTH_REQUIRED`); `rootApiKey` is then sent as the bearer on this one
+ * request. It is never stored, and no later request carries it.
+ */
+export function setupDashboardPassword(password: string, rootApiKey?: string): Promise<ApiSessionState> {
   return apiFetch('/session/setup', {
     method: 'POST',
     body: JSON.stringify({ password }),
+    ...(rootApiKey ? { headers: { Authorization: `Bearer ${rootApiKey}` } } : {}),
   })
 }
 
