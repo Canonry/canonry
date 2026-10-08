@@ -21,7 +21,8 @@ import { resolveWebhookTarget, type ResolveWebhookTargetResult, type SafeWebhook
  *
  * The caller's `redirect` mode is not read: redirects are always followed,
  * checked, up to {@link GUARDED_FETCH_MAX_REDIRECTS}. Use only `http:` and
- * `https:` URLs; the policy refuses every other scheme.
+ * `https:` URLs; the policy refuses every other scheme. The caller's `signal`
+ * also bounds the name lookups, so a slow resolver cannot outlast its timeout.
  */
 export type GuardedFetch = (input: string | URL, init?: RequestInit) => Promise<Response>
 
@@ -60,15 +61,19 @@ export function createGuardedFetch(options: GuardedFetchOptions = {}): GuardedFe
     let method = (init.method ?? 'GET').toUpperCase()
     let body = init.body ?? null
     const headers = new Headers(init.headers)
+    const signal = init.signal ?? undefined
 
     for (let redirects = 0; ; redirects += 1) {
-      const check = await resolveTarget(href)
+      // undici honors the signal while it connects and reads, but not while
+      // the policy resolves the name, so the lookup races it here.
+      signal?.throwIfAborted()
+      const check = await untilAborted(resolveTarget(href), signal)
       if (!check.ok) {
         const host = URL.canParse(href) ? new URL(href).host || href : href
         throw new EgressRefusedError(`Refused to connect to ${host}: ${check.message.replace(/^"url" /, '')}`)
       }
       const url = check.target.url
-      const response = await requestPinned(check.target, { method, headers, body, signal: init.signal ?? undefined })
+      const response = await requestPinned(check.target, { method, headers, body, signal })
       const location = isLocationRedirectStatus(response.status) ? response.headers.get('location') : null
       if (location === null) return response
 
@@ -95,6 +100,23 @@ export function createGuardedFetch(options: GuardedFetchOptions = {}): GuardedFe
       }
       href = next.href
     }
+  }
+}
+
+/** Settles with `operation`, or rejects with the signal's reason as soon as it aborts. */
+async function untilAborted<T>(operation: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return await operation
+  let onAbort: (() => void) | undefined
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_resolve, reject) => {
+        onAbort = () => reject(signal.reason)
+        signal.addEventListener('abort', onAbort, { once: true })
+      }),
+    ])
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort)
   }
 }
 

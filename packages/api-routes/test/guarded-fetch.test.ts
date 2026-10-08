@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import { createGuardedFetch, EgressRefusedError, GUARDED_FETCH_MAX_REDIRECTS } from '../src/guarded-fetch.js'
 import { resolveWebhookTarget, type ResolveWebhookTargetResult } from '../src/webhooks.js'
 import { startRecordingSite, type RecordingSite } from './recording-site-fixture.js'
@@ -181,6 +181,32 @@ describe('createGuardedFetch', () => {
       body: followedBody,
       contentType: followedBody ? 'application/json' : undefined,
     })
+  })
+
+  test("gives up on a slow name lookup when the caller's signal times out", async () => {
+    let lateAnswer: ReturnType<typeof setTimeout> | undefined
+    const guardedFetch = createGuardedFetch({
+      // A resolver that answers long after the caller's timeout.
+      resolveTarget: () => new Promise((resolve) => {
+        lateAnswer = setTimeout(() => resolve({ ok: false, message: '"url" hostname could not be resolved' }), 2_000)
+      }),
+    })
+
+    try {
+      await expect(guardedFetch(`http://${PUBLIC_SITE}/slow`, { signal: AbortSignal.timeout(20) }))
+        .rejects.toMatchObject({ name: 'TimeoutError' })
+    } finally {
+      clearTimeout(lateAnswer)
+    }
+  })
+
+  test('looks nothing up for a signal that has already aborted', async () => {
+    const reason = new Error('caller gave up')
+    const resolveTarget = vi.fn(publicFixturePolicy)
+
+    await expect(createGuardedFetch({ resolveTarget })(`http://${PUBLIC_SITE}/`, { signal: AbortSignal.abort(reason) }))
+      .rejects.toBe(reason)
+    expect(resolveTarget).not.toHaveBeenCalled()
   })
 
   test(`stops after ${GUARDED_FETCH_MAX_REDIRECTS} redirects`, async () => {
