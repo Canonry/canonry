@@ -96,6 +96,25 @@ describe('first-run POST /session/setup authority', () => {
     return response.json() as { id: string; key: string; scopes: string[]; projectId: string | null }
   }
 
+  /** Takes the root key's row away, leaving `apiKey` in config.yaml, and returns a live full-instance key. */
+  async function loseRootKey(state: 'revoked' | 'deleted', rootKey: string) {
+    const other = await mintKey(rootKey, { name: 'ci' })
+    if (state === 'revoked') {
+      const revoke = await app!.inject({
+        method: 'POST', url: `/api/v1/keys/${DEFAULT_KEY_ID}/revoke`, headers: { ...LAN, authorization: `Bearer ${other.key}` },
+      })
+      expect(revoke.statusCode).toBe(200)
+    } else {
+      db!.delete(apiKeys).where(eq(apiKeys.id, DEFAULT_KEY_ID)).run()
+    }
+    return other
+  }
+
+  /** Authorization values from a caller who does not hold the configured root key. */
+  function notTheConfiguredKey(liveKey: string) {
+    return [`Bearer ${liveKey}`, `Bearer cnry_${crypto.randomBytes(16).toString('hex')}`, 'Bearer junk', '', undefined]
+  }
+
   async function createProject(rootKey: string) {
     const response = await app!.inject({
       method: 'PUT', url: '/api/v1/projects/acme', headers: { ...LAN, authorization: `Bearer ${rootKey}` },
@@ -227,26 +246,42 @@ describe('first-run POST /session/setup authority', () => {
       expect(await sessionKey(signIn, LAN)).toMatchObject({ id: DEFAULT_KEY_ID })
     })
 
-    // No key can pass while the root key has no live row, so a caller who
-    // presents one, such as the revoked key still in config.yaml, is told to
-    // rerun bootstrap rather than that the key is wrong.
-    it.each(['revoked', 'deleted'] as const)('refuses every key with the bootstrap error when the root key is %s, writing nothing', async (state) => {
+    // No key can pass while the root key has no live row. The caller who
+    // presents the key still in config.yaml is told to rerun bootstrap rather
+    // than that the key is wrong; any other caller learns nothing about the
+    // key's state.
+    it.each(['revoked', 'deleted'] as const)('refuses every key when the root key is %s, writing nothing, and tells only its holder to rerun bootstrap', async (state) => {
       const { config, rootKey } = await buildServer('0.0.0.0')
-      const other = await mintKey(rootKey, { name: 'ci' })
-      if (state === 'revoked') {
-        const revoke = await app!.inject({
-          method: 'POST', url: `/api/v1/keys/${DEFAULT_KEY_ID}/revoke`, headers: { ...LAN, authorization: `Bearer ${other.key}` },
-        })
-        expect(revoke.statusCode).toBe(200)
-      } else {
-        db!.delete(apiKeys).where(eq(apiKeys.id, DEFAULT_KEY_ID)).run()
-      }
+      const other = await loseRootKey(state, rootKey)
 
-      for (const key of [rootKey, other.key]) {
-        const refused = await setup({ ...LAN, authorization: `Bearer ${key}` })
-        expectRefusedWithoutWrites(refused, config, SERVER_KEY_MISSING)
+      expectRefusedWithoutWrites(await setup({ ...LAN, authorization: `Bearer ${rootKey}` }), config, SERVER_KEY_MISSING)
+      for (const authorization of notTheConfiguredKey(other.key)) {
+        const refused = await setup({ ...LAN, ...(authorization === undefined ? {} : { authorization }) })
+        expectRefusedWithoutWrites(refused, config, ROOT_KEY_REQUIRED)
       }
-      expectRefusedWithoutWrites(await setup(LAN), config, ROOT_KEY_REQUIRED)
+    })
+
+    // The gate answers before the one-time check, so this holds long after
+    // setup too, for example once an operator revokes the root key.
+    it.each(['revoked', 'deleted'] as const)('tells only the root key holder to rerun bootstrap after setup when the root key is %s', async (state) => {
+      const { config, rootKey } = await buildServer('0.0.0.0')
+      expect((await setup({ ...LAN, authorization: `Bearer ${rootKey}` })).statusCode).toBe(200)
+      const passwordHash = config.dashboardPasswordHash
+      const configured = fs.readFileSync(path.join(tmpDir, 'config.yaml'), 'utf8')
+      const other = await loseRootKey(state, rootKey)
+
+      for (const authorization of notTheConfiguredKey(other.key)) {
+        const refused = await setup({ ...LAN, ...(authorization === undefined ? {} : { authorization }) })
+        expect(refused.statusCode).toBe(401)
+        expect(refused.json()).toEqual({ error: ROOT_KEY_REQUIRED })
+        expect(refused.cookies).toEqual([])
+      }
+      const holder = await setup({ ...LAN, authorization: `Bearer ${rootKey}` })
+      expect(holder.statusCode).toBe(401)
+      expect(holder.json()).toEqual({ error: SERVER_KEY_MISSING })
+      expect(holder.cookies).toEqual([])
+      expect(config.dashboardPasswordHash).toBe(passwordHash)
+      expect(fs.readFileSync(path.join(tmpDir, 'config.yaml'), 'utf8')).toBe(configured)
     })
 
     // The audit row, the session, and config.yaml are written together: a
@@ -409,15 +444,7 @@ describe('first-run POST /session/setup authority', () => {
 
     it.each(['revoked', 'deleted'] as const)('refuses a direct request when the root key is %s, writing nothing', async (state) => {
       const { config, rootKey } = await buildServer('127.0.0.1')
-      if (state === 'revoked') {
-        const other = await mintKey(rootKey, { name: 'ci' })
-        const revoke = await app!.inject({
-          method: 'POST', url: `/api/v1/keys/${DEFAULT_KEY_ID}/revoke`, headers: { ...LAN, authorization: `Bearer ${other.key}` },
-        })
-        expect(revoke.statusCode).toBe(200)
-      } else {
-        db!.delete(apiKeys).where(eq(apiKeys.id, DEFAULT_KEY_ID)).run()
-      }
+      await loseRootKey(state, rootKey)
 
       const refused = await setup({ host: '127.0.0.1:4100' })
       expectRefusedWithoutWrites(refused, config, SERVER_KEY_MISSING)

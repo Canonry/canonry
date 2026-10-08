@@ -2574,12 +2574,17 @@ export async function createServer(opts: {
     // over the network or through a proxy must present the root key itself.
     const found = getDefaultApiKey();
     const defaultKey = found && !found.revokedAt ? found : undefined;
-    const presentedRootKey = defaultKey !== undefined && requestPresentsKey(request, defaultKey);
+    // Whether the caller holds `apiKey` from config.yaml, live row or not.
+    const presentsConfiguredKey = opts.config.apiKey
+      ? requestPresentsKey(request, { keyHash: hashApiKey(opts.config.apiKey) })
+      : false;
+    const presentedRootKey = defaultKey !== undefined && presentsConfiguredKey;
     if (!presentedRootKey && !(keylessLocalSetup && isDirectLocalRequest(request))) {
-      // With no live root key, no key can pass. A caller who sent one (often
-      // the revoked key still in config.yaml) is told to rerun bootstrap
-      // rather than that the key is wrong.
-      const err = !defaultKey && request.headers.authorization !== undefined
+      // With no live root key, no key can pass. Only the caller who holds the
+      // configured key (often revoked but still in config.yaml) is told to
+      // rerun bootstrap; telling anyone else would reveal the key's state
+      // before authentication.
+      const err = presentsConfiguredKey
         ? serverApiKeyMissing()
         : authRequired(
           "Setting the dashboard password requires the root API key (apiKey in config.yaml), unless the request comes directly from this machine to a loopback-bound server that has no external URL or trusted proxy configured.",

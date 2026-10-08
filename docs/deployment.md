@@ -77,7 +77,9 @@ grep '^apiKey:' "${CANONRY_CONFIG_DIR:-$HOME/.canonry}/config.yaml"
 
 The same rule applies to `POST /api/v1/session/setup` with
 `Authorization: Bearer <root API key>`. Without the key, the request gets
-`401 AUTH_REQUIRED` and Canonry writes nothing.
+`401 AUTH_REQUIRED` and Canonry writes nothing. If the root API key in
+`config.yaml` was revoked or deleted, a request with that key gets
+`401 AUTH_INVALID`, which tells you to run `canonry bootstrap`.
 
 Dashboard sessions persist in the database and survive server restarts. Shared-password
 and API-key logins expire twelve hours after sign-in; logout and key revocation
