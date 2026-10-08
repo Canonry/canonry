@@ -139,6 +139,29 @@ describe('openapi contract', () => {
     expect(body.paths['/api/v1/projects/{name}/google/callback']?.get?.security).toEqual([])
   })
 
+  it('lists null in every nullable enum, so generated clients keep the null', () => {
+    const doc = buildOpenApiDocument()
+    // OpenAPI 3.0.3 admits null into an enum only when null is listed;
+    // `nullable: true` beside the enum does not widen it.
+    const offenders: string[] = []
+    const visit = (node: unknown, at: string): void => {
+      if (Array.isArray(node)) {
+        node.forEach((item, index) => visit(item, `${at}[${index}]`))
+        return
+      }
+      if (node === null || typeof node !== 'object') return
+      const record = node as Record<string, unknown>
+      if (record.nullable === true && Array.isArray(record.enum) && !record.enum.includes(null)) offenders.push(at)
+      for (const [key, value] of Object.entries(record)) visit(value, `${at}.${key}`)
+    }
+    visit(doc, '$')
+    expect(offenders).toEqual([])
+
+    // GA status answers `authMethod: null` while the project is disconnected.
+    const gaStatus = (doc.components?.schemas as Record<string, { properties: Record<string, unknown> }>).GA4StatusDto
+    expect(gaStatus?.properties.authMethod).toMatchObject({ enum: ['service-account', 'oauth', null], nullable: true })
+  })
+
   it('documents all schedulable kinds (incl. backlinks-sync) via a single SchedulableRunKind component', async () => {
     const ctx = buildObservedApp()
     contexts.push(ctx)

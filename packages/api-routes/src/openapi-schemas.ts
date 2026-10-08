@@ -653,13 +653,38 @@ const SHARED_ENUM_REFS: ReadonlyArray<{ schema: RegisteredSchemaName; property: 
 ]
 
 /**
+ * OpenAPI 3.0.3 admits `null` into an `enum` only when `null` is one of the
+ * listed values; `nullable: true` beside the `enum` does not widen it. Zod's
+ * `toJSONSchema` emits `z.enum([...]).nullable()` as `{ type, enum,
+ * nullable: true }`, so codegen dropped the `| null` (e.g.
+ * `Ga4StatusDto.authMethod`). Append `null` to every such `enum` so the
+ * generated types keep it. A nullable `$ref` is left alone: its enum lives in
+ * the shared component, which is not nullable everywhere.
+ */
+function addNullToNullableEnums(node: unknown): void {
+  if (Array.isArray(node)) {
+    for (const item of node) addNullToNullableEnums(item)
+    return
+  }
+  if (node === null || typeof node !== 'object') return
+  const record = node as Record<string, unknown>
+  if (record.nullable === true && Array.isArray(record.enum)) {
+    const values: unknown[] = record.enum
+    if (!values.includes(null)) record.enum = [...values, null]
+  }
+  for (const value of Object.values(record)) addNullToNullableEnums(value)
+}
+
+/**
  * Convert every registered schema to its OpenAPI 3.0 JSON Schema. Called once
  * during spec build, embedded as `components.schemas` in the OpenAPI doc.
  */
 export function buildComponentSchemas(): Record<string, Record<string, unknown>> {
   const out: Record<string, Record<string, unknown>> = {}
   for (const [name, schema] of Object.entries(SCHEMA_TABLE) as [string, ZodType][]) {
-    out[name] = z.toJSONSchema(schema, { target: 'openapi-3.0' }) as Record<string, unknown>
+    const json = z.toJSONSchema(schema, { target: 'openapi-3.0' }) as Record<string, unknown>
+    addNullToNullableEnums(json)
+    out[name] = json
   }
   for (const { schema, property, component } of SHARED_ENUM_REFS) {
     const properties = out[schema]?.properties as Record<string, unknown> | undefined
