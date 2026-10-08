@@ -125,7 +125,9 @@ async function untilAborted<T>(operation: Promise<T>, signal: AbortSignal | unde
     return await Promise.race([
       operation,
       new Promise<never>((_resolve, reject) => {
-        onAbort = () => reject(signal.reason)
+        // A signal's reason is an Error (AbortError, TimeoutError) unless a
+        // caller aborted with something else.
+        onAbort = () => reject(signal.reason instanceof Error ? signal.reason : new DOMException('This operation was aborted', 'AbortError'))
         signal.addEventListener('abort', onAbort, { once: true })
       }),
     ])
