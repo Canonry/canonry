@@ -1,4 +1,4 @@
-import type { GaConnectResponse, GA4PropertiesDto, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GaMeasurementAnalysisDto, GaSearchLandingMetrics, GaSearchLandingPagesResponse, GaSocialReferralTrendResponse, GaAttributionTrendResponse, GaSourceMover, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '@ainyc/canonry-contracts'
+import type { AiEngineLeadRateUnavailableReason, GaConnectResponse, GA4PropertiesDto, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GaMeasurementAnalysisDto, GaSocialReferralTrendResponse, GaAttributionTrendResponse, GaSourceMover, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, GaSearchLandingMetrics, GaSearchLandingPagesResponse } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -431,6 +431,69 @@ export async function gaTraffic(project: string, opts?: GaRangeOptions & { limit
   }
 }
 
+type AiEngineLeads = GaMeasurementAnalysisDto['leads']['aiEngines']
+type AiEngineLeadClass = AiEngineLeads['organic']
+
+/** Why the lead rates are blank; `no-data` prints nothing because the block is empty. */
+const AI_ENGINE_LEAD_RATE_NOTES: Record<AiEngineLeadRateUnavailableReason, string | null> = {
+  'no-data': null,
+  'sync-not-ready': 'the latest acquisition or lead sync failed, so sessions and lead events may cover different days; rerun the GA sync for lead rates.',
+  'channel-leads-unfiltered': 'lead events are channel-level here, so host and path filters narrow sessions but not leads; rerun with --host-scope all and no --path-prefix for lead rates.',
+  'paid-split-needs-landing-page': 'lead events are channel-level here, so the paid/organic split cannot read landing-page utm tags, and some AI sessions were paid only by those tags (counted as organic above); tag paid AI links with a paid utm_medium such as cpc for lead rates.',
+  'sessions-behind-leads': 'stored lead events run past the last stored session date, so recent leads have no sessions to divide by; rerun the GA sync for lead rates.',
+  'sessions-missing-on-lead-days': 'some days in this window have stored lead events but no stored sessions, so those leads have no sessions to divide by; rerun the GA sync with --days covering the window for lead rates.',
+}
+
+function hasAiEngineLeadRows(block: AiEngineLeadClass): boolean {
+  return block.engines.length > 0 || block.unattributed.sources.length > 0
+}
+
+/** One row per AI engine, the unattributed AI channel rows, and the class total; each cell is one 30-day cohort. */
+function printAiEngineLeadClass(heading: string, block: AiEngineLeadClass): void {
+  const cell = (period: AiEngineLeadClass['periods'][number]) => (
+    `${period.eventCount} / ${period.sessions}  ${formatPercent(period.leadRate)}`
+  )
+  const rows = [
+    ...block.engines.map(engine => ({ label: engine.label, cells: engine.periods.map(cell) })),
+    ...(block.unattributed.sources.length > 0
+      ? [{ label: 'Other AI Assistant', cells: block.unattributed.periods.map(cell) }]
+      : []),
+    { label: 'All AI', cells: block.periods.map(cell) },
+  ]
+  const labelWidth = Math.max('ENGINE'.length, ...rows.map(row => row.label.length))
+  const widths = block.periods.map((period, index) => Math.max(
+    period.label.length,
+    ...rows.map(row => row.cells[index]?.length ?? 0),
+  ))
+  const line = (label: string, cells: string[]) => (
+    `    ${label.padEnd(labelWidth)}  ${cells.map((value, index) => value.padEnd(widths[index] ?? 0)).join('  ')}`.trimEnd()
+  )
+  console.log(`  ${heading} (lead events / AI sessions, lead rate)`)
+  console.log(line('ENGINE', block.periods.map(period => period.label.toUpperCase())))
+  for (const row of rows) console.log(line(row.label, row.cells))
+}
+
+/**
+ * Organic AI leads by engine, then paid AI clicks only when there are any, then why rates are blank.
+ * A server older than `leads.aiEngines` omits the block, so there is nothing to print.
+ */
+function printAiEngineLeads(aiEngines: AiEngineLeads | undefined): void {
+  if (!aiEngines) return
+  if (aiEngines.organic.periods.length === 0) return
+  if (!hasAiEngineLeadRows(aiEngines.organic) && !hasAiEngineLeadRows(aiEngines.paid)) {
+    console.log('  Leads by AI engine: no AI engine sessions or lead events in this window')
+    return
+  }
+  printAiEngineLeadClass('Leads by AI engine, organic', aiEngines.organic)
+  if (hasAiEngineLeadRows(aiEngines.paid)) {
+    printAiEngineLeadClass('Leads by AI engine, paid clicks', aiEngines.paid)
+  }
+  const note = aiEngines.leadRateUnavailableReason === null
+    ? null
+    : AI_ENGINE_LEAD_RATE_NOTES[aiEngines.leadRateUnavailableReason]
+  if (note) console.log(`    Note: ${note}`)
+}
+
 export async function gaMeasurementAnalysis(project: string, opts?: {
   window?: string
   hostScope?: string
@@ -472,6 +535,7 @@ export async function gaMeasurementAnalysis(project: string, opts?: {
   for (const period of result.leads.periods) {
     console.log(`    ${period.label.padEnd(8)} ${period.eventCount} leads  ${period.startDate} to ${period.endDate}`)
   }
+  printAiEngineLeads(result.leads.aiEngines)
 
   console.log(`  Search demand: ${result.searchDemand.status}`)
   for (const period of result.searchDemand.periods) {
