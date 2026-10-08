@@ -1,4 +1,5 @@
-import { describe, it, afterEach, expect } from 'vitest'
+import { describe, it, afterEach, expect, vi } from 'vitest'
+import dns from 'node:dns/promises'
 import http from 'node:http'
 import { gzipSync } from 'node:zlib'
 import { fetchAndParseSitemap } from '../src/sitemap-parser.js'
@@ -27,6 +28,7 @@ describe('fetchAndParseSitemap', () => {
   let server: http.Server | null = null
 
   afterEach(() => {
+    vi.restoreAllMocks()
     if (server) {
       server.close()
       server = null
@@ -206,6 +208,14 @@ describe('fetchAndParseSitemap', () => {
     await expect(() => fetchAndParseSitemap('http://192.168.1.1/sitemap.xml')).rejects.toThrow(/rejected/)
     // Non-http(s) schemes are rejected too.
     await expect(() => fetchAndParseSitemap('file:///etc/passwd')).rejects.toThrow(/rejected/)
+  })
+
+  it('reports a sitemap host that does not resolve as a fetch failure, not a rejection', async () => {
+    vi.spyOn(dns, 'resolve4').mockResolvedValue([])
+    vi.spyOn(dns, 'resolve6').mockResolvedValue([])
+
+    await expect(() => fetchAndParseSitemap('https://gone.example.test/sitemap.xml'))
+      .rejects.toThrow(new Error('Failed to fetch sitemap at https://gone.example.test/sitemap.xml: Could not resolve gone.example.test'))
   })
 
   it('follows a same-origin redirect to the sitemap', async () => {

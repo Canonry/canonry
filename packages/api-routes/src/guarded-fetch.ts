@@ -47,6 +47,19 @@ export class EgressRefusedError extends Error {
   }
 }
 
+/**
+ * The request, or one of its redirect hops, could not be made for a reason
+ * the policy did not decide: the name has no address, or the site redirected
+ * too often or to a Location that is not a URL. Like a network error from
+ * `fetch`, it is the site's or the network's failure, not bad input.
+ */
+export class EgressFailedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'EgressFailedError'
+  }
+}
+
 const CROSS_ORIGIN_DROPPED_HEADERS = ['authorization', 'cookie', 'proxy-authorization'] as const
 /** The headers that describe a body. They go with the body when a redirect turns the request into a GET. */
 const BODY_HEADERS = ['content-encoding', 'content-language', 'content-length', 'content-location', 'content-type'] as const
@@ -69,8 +82,9 @@ export function createGuardedFetch(options: GuardedFetchOptions = {}): GuardedFe
       signal?.throwIfAborted()
       const check = await untilAborted(resolveTarget(href), signal)
       if (!check.ok) {
-        const host = URL.canParse(href) ? new URL(href).host || href : href
-        throw new EgressRefusedError(`Refused to connect to ${host}: ${check.message.replace(/^"url" /, '')}`)
+        const parsed = URL.canParse(href) ? new URL(href) : null
+        if (check.unresolved) throw new EgressFailedError(`Could not resolve ${parsed?.hostname || href}`)
+        throw new EgressRefusedError(`Refused to connect to ${parsed?.host || href}: ${check.message.replace(/^"url" /, '')}`)
       }
       const url = check.target.url
       const response = await requestPinned(check.target, { method, headers, body, signal })
@@ -80,13 +94,13 @@ export function createGuardedFetch(options: GuardedFetchOptions = {}): GuardedFe
       // The redirect's own body is never read, so release its connection now.
       await response.body?.cancel()
       if (redirects >= GUARDED_FETCH_MAX_REDIRECTS) {
-        throw new EgressRefusedError(`${url.host} redirected more than ${GUARDED_FETCH_MAX_REDIRECTS} times`)
+        throw new EgressFailedError(`${url.host} redirected more than ${GUARDED_FETCH_MAX_REDIRECTS} times`)
       }
       let next: URL
       try {
         next = new URL(location, url)
       } catch {
-        throw new EgressRefusedError(`${url.host} redirected to an invalid Location`)
+        throw new EgressFailedError(`${url.host} redirected to an invalid Location`)
       }
 
       const status = response.status

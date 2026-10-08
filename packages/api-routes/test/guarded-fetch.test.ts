@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { createGuardedFetch, EgressRefusedError, GUARDED_FETCH_MAX_REDIRECTS } from '../src/guarded-fetch.js'
+import { createGuardedFetch, EgressFailedError, EgressRefusedError, GUARDED_FETCH_MAX_REDIRECTS } from '../src/guarded-fetch.js'
 import { resolveWebhookTarget, type ResolveWebhookTargetResult } from '../src/webhooks.js'
 import { startRecordingSite, type RecordingSite } from './recording-site-fixture.js'
 
@@ -82,6 +82,17 @@ describe('createGuardedFetch', () => {
     await expect(refused).rejects.toBeInstanceOf(EgressRefusedError)
     await expect(refused).rejects.toThrow(reason)
     expect(site.requests.map(({ path }) => path)).toEqual(['/start'])
+  })
+
+  test('reports a name with no address as a failure to reach the site, not a refusal', async () => {
+    const guardedFetch = createGuardedFetch({
+      resolveTarget: (url) => resolveWebhookTarget(url, { resolveAddresses: async () => [] }),
+    })
+
+    const failed = guardedFetch('https://gone.example.test:8443/wp-json/')
+
+    await expect(failed).rejects.toBeInstanceOf(EgressFailedError)
+    await expect(failed).rejects.toThrow('Could not resolve gone.example.test')
   })
 
   test('checks the name again on every request, so a name that rebinds to private space is refused', async () => {
@@ -215,8 +226,10 @@ describe('createGuardedFetch', () => {
     })
     const guardedFetch = createGuardedFetch({ allowLoopback: true })
 
-    await expect(guardedFetch(`http://127.0.0.1:${site.port}/hop-0`))
-      .rejects.toThrow(new EgressRefusedError(`127.0.0.1:${site.port} redirected more than ${GUARDED_FETCH_MAX_REDIRECTS} times`))
+    // A redirect loop is the site's failure, not a refused target.
+    const failed = guardedFetch(`http://127.0.0.1:${site.port}/hop-0`)
+    await expect(failed).rejects.toBeInstanceOf(EgressFailedError)
+    await expect(failed).rejects.toThrow(`127.0.0.1:${site.port} redirected more than ${GUARDED_FETCH_MAX_REDIRECTS} times`)
     expect(site.requests).toHaveLength(GUARDED_FETCH_MAX_REDIRECTS + 1)
   })
 })

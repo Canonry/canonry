@@ -25,7 +25,7 @@ import {
   WordpressApiError,
 } from '@ainyc/canonry-integration-wordpress'
 import type { SchemaProfileFile, WordpressClientConnection, WordpressConnectionRecord } from '@ainyc/canonry-integration-wordpress'
-import { createGuardedFetch, EgressRefusedError } from './guarded-fetch.js'
+import { createGuardedFetch, EgressFailedError, EgressRefusedError } from './guarded-fetch.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { resolveWebhookTarget } from './webhooks.js'
 
@@ -95,6 +95,9 @@ async function withWordpressErrorHandling<T>(handler: () => Promise<T>): Promise
     // The stored site URL now resolves to a refused address, or the site
     // redirected there: the same refusal connect gives for such a URL.
     if (error instanceof EgressRefusedError) throw validationError(error.message)
+    // The site's name stopped resolving, or it redirected too often: the site
+    // or the network failed, so the caller may retry, as for any upstream error.
+    if (error instanceof EgressFailedError) throw providerError(error.message)
     throw error
   }
 }

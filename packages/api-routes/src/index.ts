@@ -909,7 +909,7 @@ export { resolveMeasurementSitemapTarget as resolvePublicHttpTarget } from './me
 export { blockedAddressReason, isLoopbackAddress } from './egress-policy.js'
 // A fetch that applies that policy to every request and redirect hop and dials
 // only the address it checked, for a URL this instance did not choose.
-export { createGuardedFetch, EgressRefusedError } from './guarded-fetch.js'
+export { createGuardedFetch, EgressFailedError, EgressRefusedError } from './guarded-fetch.js'
 export type { GuardedFetch, GuardedFetchOptions } from './guarded-fetch.js'
 export { redactNotificationDiff, redactNotificationUrl } from './notification-redaction.js'
 export type { ResolveWebhookTargetOptions, ResolveWebhookTargetResult, SafeWebhookTarget } from './webhooks.js'

@@ -1,4 +1,4 @@
-import { createGuardedFetch, EgressRefusedError } from '@ainyc/canonry-api-routes'
+import { createGuardedFetch, EgressFailedError, EgressRefusedError } from '@ainyc/canonry-api-routes'
 import { createLogger } from './logger.js'
 import { describeError } from '@ainyc/canonry-contracts'
 
@@ -28,6 +28,7 @@ async function fetchSitemap(url: string): Promise<Response> {
     return await sitemapFetch(url)
   } catch (err) {
     if (err instanceof EgressRefusedError) throw new Error(`Sitemap URL rejected: ${err.message} (${url})`)
+    if (err instanceof EgressFailedError) throw new Error(`Failed to fetch sitemap at ${url}: ${err.message}`)
     throw err
   }
 }

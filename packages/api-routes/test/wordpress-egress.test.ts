@@ -31,7 +31,8 @@ type Respond = (request: RecordedRequest, response: http.ServerResponse, port: n
 
 let site: RecordingSite
 let respond: Respond
-let siteAddress: string
+/** The address `wp.test` resolves to; null when the name has no address. */
+let siteAddress: string | null
 let cleanup: Array<() => Promise<void> | void> = []
 
 function redirectInternal(response: http.ServerResponse, port: number): void {
@@ -108,7 +109,7 @@ beforeEach(async () => {
   respond = (_request, response) => response.writeHead(404).end()
   siteAddress = '127.0.0.1'
   // The real egress policy resolves the site's name; only that name is answered.
-  vi.spyOn(dns, 'resolve4').mockImplementation(async (hostname) => (hostname === SITE_HOST ? [siteAddress] : []))
+  vi.spyOn(dns, 'resolve4').mockImplementation(async (hostname) => (hostname === SITE_HOST && siteAddress ? [siteAddress] : []))
   vi.spyOn(dns, 'resolve6').mockResolvedValue([])
 })
 
@@ -153,6 +154,18 @@ describe('WordPress publishing routes', () => {
     expect(second.json().error.message)
       .toBe(`Refused to connect to ${SITE_HOST}:${site.port}: must not resolve to a private or loopback address`)
     expect(servedPaths()).toEqual(['/wp-json/wp/v2/pages'])
+  })
+
+  it('answers a stored site whose name stops resolving as an upstream failure, not a refusal', async () => {
+    const { app } = await buildApp()
+    siteAddress = null
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-project/wordpress/pages' })
+
+    // A DNS outage is retryable; VALIDATION_ERROR would tell the caller its input was wrong.
+    expect(res.statusCode).toBe(502)
+    expect(res.json()).toEqual({ error: { code: 'PROVIDER_ERROR', message: `Could not resolve ${SITE_HOST}` } })
+    expect(servedPaths()).toEqual([])
   })
 
   it('never fetches a rendered page link that points at an internal address', async () => {

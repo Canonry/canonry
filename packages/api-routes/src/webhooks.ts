@@ -21,7 +21,8 @@ export interface SafeWebhookTarget {
 
 export type ResolveWebhookTargetResult =
   | { ok: true; target: SafeWebhookTarget }
-  | { ok: false; message: string }
+  /** `unresolved` marks a name with no address: nothing was refused, the target could not be found. */
+  | { ok: false; message: string; unresolved?: true }
 
 export interface ResolveWebhookTargetOptions {
   /**
@@ -62,7 +63,7 @@ export async function resolveWebhookTarget(
 
   const addresses = await resolveHostAddresses(lookupHost, options.resolveAddresses)
   if (addresses.length === 0) {
-    return { ok: false, message: '"url" hostname could not be resolved' }
+    return { ok: false, message: '"url" hostname could not be resolved', unresolved: true }
   }
 
   const blocked = addresses.find((entry) => isBlockedAddress(entry.address, options))
