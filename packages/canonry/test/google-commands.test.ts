@@ -1,5 +1,4 @@
-import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest'
-import dns from 'node:dns/promises'
+import { describe, it, beforeEach, afterEach, expect } from 'vitest'
 import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -27,12 +26,6 @@ describe('google CLI commands', () => {
   let close: () => Promise<void>
 
   beforeEach(async () => {
-    // Setting a sitemap or refreshing queues a sitemap inspection, which
-    // fetches the project's sitemap through the egress guard. That fetch does
-    // not go through `globalThis.fetch`, so answer its DNS lookup with nothing
-    // and keep it off the network.
-    vi.spyOn(dns, 'resolve4').mockResolvedValue([])
-    vi.spyOn(dns, 'resolve6').mockResolvedValue([])
     tmpDir = path.join(os.tmpdir(), `canonry-google-cmd-test-${crypto.randomUUID()}`)
     fs.mkdirSync(tmpDir, { recursive: true })
     origConfigDir = process.env.CANONRY_CONFIG_DIR
@@ -100,7 +93,6 @@ describe('google CLI commands', () => {
   })
 
   afterEach(async () => {
-    vi.restoreAllMocks()
     await close()
     if (origConfigDir === undefined) {
       delete process.env.CANONRY_CONFIG_DIR
