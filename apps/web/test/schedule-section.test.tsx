@@ -6,6 +6,7 @@ import { getApiV1ProjectsByNameSchedulesQueryKey } from '@ainyc/canonry-api-clie
 
 import { ScheduleSection, SCHEDULE_COPY } from '../src/components/project/ScheduleSection.js'
 import { heyClient, type ApiSchedule } from '../src/api.js'
+import { createQueryClient } from '../src/queries/query-client.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 
 afterEach(() => {
@@ -309,6 +310,61 @@ test('revalidates before saving and refuses a version that changed after editing
   expect(scheduleReads).toBe(2)
   expect(scheduleWrites).toBe(0)
   expect((screen.getByRole('button', { name: 'Save schedule' }) as HTMLButtonElement).disabled).toBe(true)
+})
+
+test('does not call its own successful save an external change while the response body is pending', async () => {
+  const saved = makeSchedule({
+    cronExpr: '0 9 * * *',
+    preset: 'daily@9',
+    nextRunAt: '2026-08-09T09:00:00.000Z',
+    updatedAt: '2026-08-08T00:00:00.001Z',
+  })
+  let current = makeSchedule()
+  let scheduleReads = 0
+  let finishWrite: (() => void) | undefined
+  const restore = mockFetch((url, init) => {
+    if (init?.method === 'PUT') {
+      expect(JSON.parse(String(init.body))).toMatchObject({
+        preset: 'daily@9',
+        expectedUpdatedAt: current.updatedAt,
+      })
+      current = saved
+      return new Response(new ReadableStream({
+        start(controller) {
+          finishWrite = () => {
+            controller.enqueue(new TextEncoder().encode(JSON.stringify(saved)))
+            controller.close()
+            finishWrite = undefined
+          }
+        },
+      }), { status: 200, headers: { 'content-type': 'application/json' } })
+    }
+    expect(init?.method).toBe('GET')
+    expect(url).toContain('/projects/citypoint/schedules')
+    scheduleReads += 1
+    return jsonResponse([current])
+  })
+  onTestFinished(restore)
+  onTestFinished(() => finishWrite?.())
+  const queryClient = createQueryClient()
+  onTestFinished(() => queryClient.clear())
+  render(<QueryClientProvider client={queryClient}><ScheduleSection projectName="citypoint" /></QueryClientProvider>)
+
+  fireEvent.click(await screen.findByRole('button', { name: SCHEDULE_COPY.edit }))
+  fireEvent.change(screen.getAllByRole('combobox')[1]!, { target: { value: '9' } })
+  fireEvent.click(screen.getByRole('button', { name: SCHEDULE_COPY.save }))
+
+  await waitFor(() => expect(scheduleReads).toBe(3))
+  await waitFor(() => expect(screen.queryByText('Loading...')).toBeNull())
+  expect(screen.getByRole('button', { name: 'Saving...' })).toBeTruthy()
+  const prematureConflict = screen.queryByRole('alert')?.textContent ?? null
+  await act(async () => { finishWrite?.() })
+
+  expect(await screen.findByText('0 9 * * *')).toBeTruthy()
+  expect(prematureConflict).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: SCHEDULE_COPY.edit }))
+  expect((screen.getAllByRole('combobox')[1] as HTMLSelectElement).value).toBe('9')
+  expect(screen.queryByRole('alert')).toBeNull()
 })
 
 test('sends the editor version and reloads accessibly after an atomic save conflict', async () => {

@@ -5,7 +5,7 @@ import path from "node:path";
 import { isIP } from "node:net";
 import { fileURLToPath } from "node:url";
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
-import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds, sentimentInstallReadiness } from "@ainyc/canonry-config";
 import { CliError } from "./cli-error.js";
 import { createTypeSafeClassifier, buildJevSentimentRequest } from "@ainyc/canonry-integration-typesafe";
@@ -22,6 +22,7 @@ import type { SetHeadersResponse } from "@fastify/static";
 import { anyUsersExist, apiRoutes, createProjectPassQueue, previewCompetitorAutoAliases, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS } from "@ainyc/canonry-api-routes";
 import {
   apiKeys,
+  dashboardSessions,
   auditLog,
   googleAdsConnections,
   gtmConnections,
@@ -256,7 +257,7 @@ import { ViewerAeroSessions } from "./agent/viewer-sessions.js";
 import { buildAgentProvidersResponse } from "./agent/providers.js";
 import { describeAgentPin } from "./agent/session.js";
 import { registerMcpHttpRoutes, mcpTransportPaths, mcpHttpHealth } from "./mcp-http.js";
-import { registerOAuthRoutes, registerOAuthAdminRoutes, createCredentialChecker, parseCookieHeader, resolveUserSession, createUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME } from "@ainyc/canonry-api-routes";
+import { registerOAuthRoutes, registerOAuthAdminRoutes, cookieIsSecure, createCredentialChecker, hashSessionToken, parseCookieHeader, resolveUserSession, createUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME } from "@ainyc/canonry-api-routes";
 import { registerAgentRoutes } from "./agent/agent-routes.js";
 import {
   createRecommendationExplainer,
@@ -298,11 +299,6 @@ const DEFAULT_QUOTA = {
 
 const SESSION_COOKIE_NAME = "canonry_session";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
-
-interface SessionRecord {
-  apiKeyId: string;
-  expiresAt: number;
-}
 
 /**
  * The model each registered provider will actually answer with: whatever this
@@ -2354,33 +2350,48 @@ export async function createServer(opts: {
     opts.config.publicUrl?.startsWith("https://") ||
     opts.config.apiUrl?.startsWith("https://"),
   );
-  const sessions = new Map<string, SessionRecord>();
+  const currentPasswordFingerprint = () => hashSessionToken(opts.config.dashboardPasswordHash ?? "");
+  opts.db.delete(dashboardSessions).where(or(
+    eq(dashboardSessions.apiKeyHash, ""),
+    and(
+      isNotNull(dashboardSessions.passwordFingerprint),
+      ne(dashboardSessions.passwordFingerprint, currentPasswordFingerprint()),
+    ),
+  )).run();
 
-  const pruneExpiredSessions = () => {
-    const now = Date.now();
-    for (const [sessionId, session] of sessions.entries()) {
-      if (session.expiresAt <= now) {
-        sessions.delete(sessionId);
-      }
-    }
-  };
-
-  const createSession = (apiKeyId: string) => {
-    pruneExpiredSessions();
+  const createSession = (key: Pick<typeof apiKeys.$inferSelect, "id" | "keyHash">, passwordBased = false) => {
+    const now = new Date();
+    opts.db.delete(dashboardSessions).where(lte(dashboardSessions.expiresAt, now.toISOString())).run();
     const sessionId = crypto.randomBytes(32).toString("hex");
-    sessions.set(sessionId, {
-      apiKeyId,
-      expiresAt: Date.now() + SESSION_TTL_MS,
-    });
+    opts.db.insert(dashboardSessions).values({
+      tokenHash: hashSessionToken(sessionId),
+      apiKeyId: key.id,
+      apiKeyHash: key.keyHash,
+      passwordFingerprint: passwordBased ? currentPasswordFingerprint() : null,
+      createdAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + SESSION_TTL_MS).toISOString(),
+    }).run();
     return sessionId;
   };
 
   const resolveSessionApiKeyId = (sessionId: string) => {
-    pruneExpiredSessions();
-    const session = sessions.get(sessionId);
+    const tokenHash = hashSessionToken(sessionId);
+    const session = opts.db.select({
+      apiKeyId: dashboardSessions.apiKeyId,
+      apiKeyHash: dashboardSessions.apiKeyHash,
+      currentApiKeyHash: apiKeys.keyHash,
+      passwordFingerprint: dashboardSessions.passwordFingerprint,
+      expiresAt: dashboardSessions.expiresAt,
+    })
+      .from(dashboardSessions)
+      .innerJoin(apiKeys, eq(apiKeys.id, dashboardSessions.apiKeyId))
+      .where(and(eq(dashboardSessions.tokenHash, tokenHash), isNull(apiKeys.revokedAt))).get();
     if (!session) return null;
-    if (session.expiresAt <= Date.now()) {
-      sessions.delete(sessionId);
+    const expiresAt = Date.parse(session.expiresAt);
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()
+      || session.apiKeyHash !== session.currentApiKeyHash
+      || (session.passwordFingerprint !== null && session.passwordFingerprint !== currentPasswordFingerprint())) {
+      opts.db.delete(dashboardSessions).where(eq(dashboardSessions.tokenHash, tokenHash)).run();
       return null;
     }
     return session.apiKeyId;
@@ -2388,7 +2399,7 @@ export async function createServer(opts: {
 
   const clearSession = (sessionId: string | undefined) => {
     if (sessionId) {
-      sessions.delete(sessionId);
+      opts.db.delete(dashboardSessions).where(eq(dashboardSessions.tokenHash, hashSessionToken(sessionId))).run();
     }
   };
 
@@ -2407,7 +2418,7 @@ export async function createServer(opts: {
     const key = getDefaultApiKey();
     if (!key || key.revokedAt) return false;
 
-    const sessionId = createSession(key.id);
+    const sessionId = createSession(key, true);
     reply.header(
       "set-cookie",
       serializeSessionCookie({
@@ -2585,7 +2596,7 @@ export async function createServer(opts: {
         .where(eq(apiKeys.id, key.id))
         .run();
 
-      const sessionId = createSession(key.id);
+      const sessionId = createSession(key);
       reply.header(
         "set-cookie",
         serializeSessionCookie({
@@ -3922,11 +3933,18 @@ export async function createServer(opts: {
       resourcePaths: mcpTransportPaths().map((suffix) =>
         `${basePath ?? "/"}api/v1${suffix}`.replace("//", "/"),
       ),
-      resolveUser: (request) => {
+      resolveUser: (request, reply) => {
         const cookies = parseCookieHeader(request.headers.cookie);
         const token = cookies[USER_SESSION_COOKIE_NAME];
         if (!token) return null;
         const resolved = resolveUserSession(opts.db, token);
+        if (resolved?.renewedExpiresAt) {
+          reply.header("set-cookie", serializeUserSessionCookie({
+            value: token,
+            path: sessionCookiePath,
+            secure: cookieIsSecure(request, sessionCookieSecure ? true : undefined),
+          }));
+        }
         return resolved ? { id: resolved.user.id, name: resolved.user.name } : null;
       },
       credentials: credentialChecker,

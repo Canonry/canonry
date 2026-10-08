@@ -771,6 +771,20 @@ export const userSessions = sqliteTable('user_sessions', {
   index('idx_user_sessions_expires').on(table.expiresAt),
 ])
 
+/** Shared-password/API-key dashboard sessions survive restarts; only token digests are stored. */
+export const dashboardSessions = sqliteTable('dashboard_sessions', {
+  tokenHash: text('token_hash').primaryKey(),
+  apiKeyId: text('api_key_id').notNull().references(() => apiKeys.id, { onDelete: 'cascade' }),
+  apiKeyHash: text('api_key_hash').notNull().default(''),
+  /** Null for API-key sign-ins; password sign-ins bind the configured password hash's digest. */
+  passwordFingerprint: text('password_fingerprint'),
+  createdAt: text('created_at').notNull(),
+  expiresAt: text('expires_at').notNull(),
+}, (table) => [
+  index('idx_dashboard_sessions_key').on(table.apiKeyId),
+  index('idx_dashboard_sessions_expires').on(table.expiresAt),
+])
+
 /**
  * OAuth 2.1 clients registered against this instance.
  *

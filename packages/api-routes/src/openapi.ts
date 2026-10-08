@@ -365,7 +365,7 @@ const scheduleExpectedUpdatedAtQueryParameter: OpenApiParameter = {
   schema: { type: 'string', format: 'date-time' },
 }
 
-// Both list filters take their enum from the contracts schema the route
+// List filters take their enum from the contracts schema the route
 // validates against, so the spec (and the generated SDK) cannot drift from
 // what the server accepts.
 const runsListKindQueryParameter: OpenApiParameter = {
@@ -373,6 +373,22 @@ const runsListKindQueryParameter: OpenApiParameter = {
   in: 'query',
   description: 'Restrict results to a single run kind. Without this filter, integration syncs (bing-inspect, gsc-sync, ga-sync) can fill the default 500-row cap within minutes on busy projects and push answer-visibility runs out of the response. Unknown values are rejected with 400.',
   schema: { type: 'string', enum: [...runKindSchema.options] },
+}
+
+const runsListExcludeKindQueryParameter: OpenApiParameter = {
+  name: 'excludeKind',
+  in: 'query',
+  description: 'Exclude one run kind before applying the row limit. Combines with kind and status filters. Unknown values are rejected with 400.',
+  schema: { type: 'string', enum: [...runKindSchema.options] },
+}
+
+const runsListExcludeKindsQueryParameter: OpenApiParameter = {
+  name: 'excludeKinds',
+  in: 'query',
+  description: 'Exclude multiple run kinds before applying the row limit. Accepts repeated or comma-separated values. Combines with excludeKind, kind, and status; unknown values are rejected with 400.',
+  style: 'form',
+  explode: true,
+  schema: { type: 'array', items: { type: 'string', enum: [...runKindSchema.options] }, maxItems: runKindSchema.options.length },
 }
 
 const runsListStatusQueryParameter: OpenApiParameter = {
@@ -2418,7 +2434,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/runs',
     summary: 'List project runs',
     tags: ['runs'],
-    parameters: [nameParameter, limitQueryParameter, runsListKindQueryParameter, runsListStatusQueryParameter],
+    parameters: [nameParameter, limitQueryParameter, runsListKindQueryParameter, runsListExcludeKindQueryParameter, runsListExcludeKindsQueryParameter, runsListStatusQueryParameter],
     responses: {
       200: jsonArrayResponse('Runs returned.', 'RunDto'),
     },
@@ -2443,6 +2459,8 @@ const routeCatalog: OpenApiOperation[] = [
       runsListSinceQueryParameter,
       runsListIncludeProbeQueryParameter,
       runsListKindQueryParameter,
+      runsListExcludeKindQueryParameter,
+      runsListExcludeKindsQueryParameter,
       runsListStatusQueryParameter,
     ],
     responses: {
@@ -4246,6 +4264,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('List of discovered locations and selection summary returned.', 'GbpLocationListResponse'),
       400: errorResponse('Invalid discover request, unknown account, account-switch not opted into, or scope/API problem.'),
+      403: errorResponse('The Google connection was rejected; reconnect Google Business Profile.'),
       404: errorResponse('Project not found.'),
       429: errorResponse('GBP API quota exceeded (access form may not be approved).'),
     },
@@ -4259,6 +4278,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Accounts the OAuth user manages or owns.', 'GbpAccountListResponse'),
       400: errorResponse('No GBP connection or scope/API problem.'),
+      403: errorResponse('The Google connection was rejected; reconnect Google Business Profile.'),
       404: errorResponse('Project not found.'),
       429: errorResponse('GBP API quota exceeded (access form may not be approved).'),
     },

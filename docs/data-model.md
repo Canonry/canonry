@@ -108,6 +108,7 @@ erDiagram
   projects ||--o{ research_runs : has
   research_runs ||--o{ research_run_queries : contains
   users ||--o{ api_keys : delegates
+  api_keys ||--o{ dashboard_sessions : authenticates
 ```
 
 ## Table Groups
@@ -382,6 +383,7 @@ Sentiment JSON columns use native Drizzle JSON mode. Provider calls run outside 
 | Table | Purpose |
 |-------|---------|
 | **api_keys** | API authentication. Unique: `keyHash`. Internal nullable `delegatedUserId` → users (cascade delete) preserves OAuth account authority and research attribution across the MCP-to-REST hop; ordinary/historical keys remain null. |
+| **dashboard_sessions** | Durable shared-password/API-key browser sessions (migration 173). PK: SHA-256 token digest; FK: `apiKeyId` → api_keys (cascade delete). Fixed twelve-hour expiry, indexed by key and expiry. Migration 174 adds `apiKeyHash` and nullable `passwordFingerprint` to bind the credential used at sign-in. Rotation/revocation deletes bound sessions transactionally; native startup removes sessions with missing or outdated password bindings. Named-account sessions remain in `user_sessions`. |
 | **usage_counters** | Rate limiting and usage tracking. Unique: `(scope, period, metric)` |
 | **runtime_logs** | Sanitized runtime messages and allowlisted metadata, queried with indexed identity/time filters and opaque keyset cursors. Default retention: 10,000 events/seven days. Separate from business audit history; logs contain no raw HTTP bodies, headers, or provider payloads. |
 | **runtime_log_metadata** | Store identity, sequence, and eviction accounting for restart-safe pagination and honest retention/loss reporting. Runtime diagnostic data is bounded; audit history is not pruned by this policy. |

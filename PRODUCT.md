@@ -56,7 +56,12 @@ Users usually arrive to answer four questions, in this order:
 - Scope Advanced Measurement competitor landscapes to the selected market.
   Aggregate all markets from raw evidence, never by averaging market rates.
 - Use truthful readiness, empty, loading, success, and failure states.
+- Portfolio Activity includes bulk jobs across projects, including sweeps,
+  audits, backlink extractions, discovery, sitemap inspections, and syncs.
+  Traffic pulls and single-URL inspections stay out before the five-job limit;
+  read-only embeds retain sweep-only history.
 - Prefer familiar product controls over invented interactions.
+- Successful browser writes update the affected views without a page reload.
 
 ## Voice
 

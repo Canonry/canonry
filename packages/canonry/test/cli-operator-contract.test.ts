@@ -3,6 +3,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import { createClient, migrate, apiKeys, queries, querySnapshots, runs } from '@ainyc/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
@@ -123,6 +124,41 @@ describe('operator CLI contract', () => {
     }
     expect(parsed.project.name).toBe('test-proj')
     expect(parsed.runs).toBeInstanceOf(Array)
+  })
+
+  it.each([
+    { label: 'combined legacy and multiple exclusions', flags: ['--exclude-kind', 'bing-inspect', '--exclude-kinds', 'traffic-sync'] },
+    { label: 'multiple exclusions', flags: ['--exclude-kinds', 'bing-inspect,traffic-sync'] },
+  ])('lists five meaningful activity runs through the CLI with $label', async ({ flags }) => {
+    await client.putProject('demo', {
+      displayName: 'Demo', canonicalDomain: 'demo.example.com', country: 'US', language: 'en',
+    })
+    const project = await client.getProject('demo')
+    const kinds = [
+      ...Array.from({ length: 6 }, () => RunKinds['traffic-sync']),
+      RunKinds['bing-inspect'], RunKinds['bing-inspect'],
+      RunKinds['site-audit'], RunKinds['backlink-extract'], RunKinds['answer-visibility'],
+      RunKinds['gsc-sync'], RunKinds['bing-inspect-sitemap'], RunKinds['ga-sync'],
+    ]
+    const ids = kinds.map(() => crypto.randomUUID())
+    db.insert(runs).values(kinds.map((kind, index) => ({
+      id: ids[index]!, projectId: project.id, kind,
+      status: kind === RunKinds['answer-visibility'] ? RunStatuses.failed : RunStatuses.completed,
+      trigger: kind === RunKinds['traffic-sync'] ? RunTriggers.scheduled : RunTriggers.manual,
+      createdAt: `2026-10-07T21:${String(59 - index).padStart(2, '0')}:00.000Z`,
+    }))).run()
+
+    const result = await invokeCli(['runs', 'demo', ...flags, '--limit', '5', '--format', 'json'])
+
+    expect(result.exitCode).toBe(undefined)
+    expect(result.stderr).toBe('')
+    const parsed = JSON.parse(result.stdout) as Array<{ id: string; kind: string; status: string }>
+    expect(parsed.map(run => run.id)).toEqual(ids.slice(8, 13).reverse())
+    expect(parsed.map(run => run.kind)).toEqual([
+      RunKinds['bing-inspect-sitemap'], RunKinds['gsc-sync'], RunKinds['answer-visibility'],
+      RunKinds['backlink-extract'], RunKinds['site-audit'],
+    ])
+    expect(parsed.find(run => run.kind === RunKinds['answer-visibility'])?.status).toBe(RunStatuses.failed)
   })
 
   it('supports JSON output for query replace and competitor remove', async () => {

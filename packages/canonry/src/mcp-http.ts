@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 
 import { isReadOnlyKey, type McpHealth } from '@ainyc/canonry-contracts'
-import { apiKeys, type DatabaseClient } from '@ainyc/canonry-db'
+import { apiKeys, dashboardSessions, type DatabaseClient } from '@ainyc/canonry-db'
 import { hashApiKey } from '@ainyc/canonry-api-routes'
 import { eq } from 'drizzle-orm'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
@@ -85,7 +85,10 @@ function mintSessionKey(db: DatabaseClient, scopes: readonly string[], userId: s
 
 function revokeSessionKey(db: DatabaseClient, id: string): void {
   try {
-    db.update(apiKeys).set({ revokedAt: new Date().toISOString() }).where(eq(apiKeys.id, id)).run()
+    db.transaction(tx => {
+      tx.delete(dashboardSessions).where(eq(dashboardSessions.apiKeyId, id)).run()
+      tx.update(apiKeys).set({ revokedAt: new Date().toISOString() }).where(eq(apiKeys.id, id)).run()
+    })
   } catch {
     // A revoked-or-gone key is the desired end state either way.
   }

@@ -526,6 +526,7 @@ export async function userSessionRoutes(app: FastifyInstance, opts: UserSessionR
       const err = authRequired('Sign in to see where you are signed in.')
       return reply.status(err.statusCode).send(err.toJSON())
     }
+    if (resolved.renewedExpiresAt) setSessionCookie(request, reply, token)
 
     const currentHash = hashSessionToken(token)
     const rows = app.db.select().from(userSessions)

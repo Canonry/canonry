@@ -1,8 +1,9 @@
 import { test, expect, beforeAll, afterEach, onTestFinished } from 'vitest'
 import React from 'react'
-import { render, waitFor, act, cleanup } from '@testing-library/react'
+import { render, screen, waitFor, act, cleanup, fireEvent, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
+import { RunKinds, RunStatuses, projectDtoSchema, runDetailDtoSchema } from '@ainyc/canonry-contracts'
 
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
@@ -10,6 +11,7 @@ import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { heyClient } from '../src/api.js'
 import { getApiV1ProjectsQueryKey } from '@ainyc/canonry-api-client/react-query'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
+import { createQueryClient } from '../src/queries/query-client.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 
 afterEach(cleanup)
@@ -202,6 +204,84 @@ test('/ does not treat a failed cold project-list request as an empty portfolio'
   expect(router.state.location.pathname).toBe('/')
 })
 
+test.each([false, true])('deleting a project updates the live portfolio before navigation (last project: %s)', async lastProject => {
+  const makeProject = (name: string) => projectDtoSchema.parse({
+    id: `${name}-id`, name, displayName: name === 'alpha' ? 'Alpha' : 'Beta',
+    canonicalDomain: `${name}.example`, country: 'US', language: 'en',
+    createdAt: '2026-10-08T00:00:00.000Z', updatedAt: '2026-10-08T00:00:00.000Z',
+  })
+  let projects = [makeProject('alpha'), ...(lastProject ? [] : [makeProject('beta')])]
+  const runs = projects.map(project => runDetailDtoSchema.parse({
+    id: `${project.name}-run`, projectId: project.id,
+    kind: project.name === 'alpha' ? RunKinds['site-audit'] : RunKinds['backlink-extract'],
+    status: RunStatuses.completed, trigger: 'manual', createdAt: '2026-10-08T00:00:00.000Z',
+    snapshots: [],
+  }))
+  const deletes: string[] = []
+  const restore = mockFetch((input, init) => {
+    const url = new URL(input)
+    const path = url.pathname
+    if (init?.method === 'DELETE' && path === '/api/v1/projects/alpha') {
+      deletes.push(path)
+      projects = projects.filter(project => project.name !== 'alpha')
+      return new Response(null, { status: 204 })
+    }
+    if (path === '/api/v1/projects') return jsonResponse(projects)
+    if (path === '/api/v1/runs') {
+      return jsonResponse(runs.filter(run => projects.some(project => project.id === run.projectId)
+        && (!url.searchParams.has('kind') || run.kind === url.searchParams.get('kind'))))
+    }
+    if (path === '/api/v1/settings') return jsonResponse({ providers: [], providerCatalog: [], google: {}, bing: {} })
+    if (path === '/api/v1/cdp/status') return jsonResponse({ connected: false, targets: [] })
+    if (path === '/health') return jsonResponse({ status: 'ok' })
+    const projectPath = path.match(/^\/api\/v1\/projects\/([^/]+)(?:\/(.*))?$/)
+    const project = projects.find(item => item.name === projectPath?.[1])
+    if (project) {
+      const endpoint = projectPath?.[2]
+      if (!endpoint) return jsonResponse(project)
+      if (endpoint === 'overview') return jsonResponse(null)
+      if (endpoint === 'measurement-plan') return jsonResponse({ active: null })
+      if (endpoint === 'measurement-setup') return jsonResponse({
+        state: 'simple', nextAction: 'start_setup', mode: 'simple', answerVisibilityProviderReady: true,
+        activeRevision: null, activeSchemaVersion: null, draft: null,
+      })
+      if (['runs', 'queries', 'schedules', 'notifications', 'google/connections'].includes(endpoint ?? '')) return jsonResponse([])
+    }
+    return jsonResponse({ error: { code: 'NOT_FOUND', message: `Unavailable ${path}` } }, 404)
+  })
+  onTestFinished(restore)
+  const queryClient = createQueryClient()
+  queryClient.setDefaultOptions({ queries: { retry: false, staleTime: Infinity, refetchOnWindowFocus: false } })
+  onTestFinished(() => queryClient.clear())
+  const router = createAppRouter(queryClient, { initialEntries: ['/'] })
+  await router.load()
+  const { unmount } = render(<QueryClientProvider client={queryClient}><RouterProvider router={router} /></QueryClientProvider>)
+  onTestFinished(unmount)
+
+  const activity = () => within(screen.getByRole('heading', { name: 'Activity', exact: true }).closest('section')!)
+  await waitFor(() => expect(activity().getByRole('button', { name: /Alpha.*Site audit completed/ })).toBeTruthy())
+  await act(async () => { await router.navigate({ to: '/projects/$projectName/settings', params: { projectName: 'alpha' } }) })
+  const deleteButton = await screen.findByRole('button', { name: 'Delete project', exact: true })
+  await waitFor(() => expect(queryClient.isFetching()).toBe(0))
+  fireEvent.click(deleteButton)
+  fireEvent.click(screen.getByRole('button', { name: 'Yes, delete project' }))
+
+  await waitFor(() => expect(deletes).toEqual(['/api/v1/projects/alpha']))
+  await waitFor(() => expect(router.state.location.pathname).toBe(lastProject ? '/setup' : '/'))
+  await waitFor(() => expect(screen.queryByRole('link', { name: 'Alpha', exact: true })).toBeNull())
+  expect(queryClient.getQueryData<Array<{ name: string }>>(projectsCacheKey)?.map(project => project.name))
+    .toEqual(lastProject ? [] : ['beta'])
+  if (!lastProject) {
+    expect(screen.getByRole('link', { name: 'Beta', exact: true })).toBeTruthy()
+    await waitFor(() => {
+      expect(activity().getByRole('button', { name: /Beta.*Backlink extract completed/ })).toBeTruthy()
+      expect(activity().queryByRole('button', { name: /Alpha/ })).toBeNull()
+    })
+    expect(screen.getByRole('link', { name: 'beta', exact: true })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'alpha', exact: true })).toBeNull()
+  }
+})
+
 test('/setup stays available when projects exist so incomplete setup can resume', async () => {
   const fixture = createDashboardFixture()
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -240,6 +320,32 @@ test('?runId= opens the run drawer', async () => {
     await waitFor(() => {
       expect(container.innerHTML).toMatch(firstRun.summary)
     })
+  }
+})
+
+test.each([
+  [RunKinds['site-audit'], RunStatuses.running, 'Run is in progress...'],
+  [RunKinds['backlink-extract'], RunStatuses.completed, 'Run completed.'],
+  [RunKinds['answer-visibility'], RunStatuses.running, 'Waiting for first query result...'],
+  [RunKinds['answer-visibility'], RunStatuses.completed, 'No snapshot data available.'],
+])('run drawer describes %s %s without query snapshots', async (kind, status, expected) => {
+  const run = runDetailDtoSchema.parse({
+    id: 'drawer_run', projectId: 'project_citypoint', kind, status,
+    trigger: 'manual', createdAt: '2026-10-07T12:00:00Z',
+    startedAt: '2026-10-07T12:00:00Z',
+    finishedAt: status === RunStatuses.completed ? '2026-10-07T12:01:00Z' : null,
+    snapshots: [],
+  })
+  const restore = mockFetch(url => pathOf(url) === '/api/v1/runs/drawer_run'
+    ? jsonResponse(run)
+    : jsonResponse({ error: { message: 'Unneeded read for run drawer' } }, 503))
+  onTestFinished(restore)
+  const { unmount } = await renderRoute('/?runId=drawer_run')
+  onTestFinished(unmount)
+
+  await waitFor(() => expect(screen.getByRole('dialog').textContent).toContain(expected))
+  if (kind !== RunKinds['answer-visibility']) {
+    expect(screen.getByRole('dialog').textContent).not.toMatch(/first query result|No snapshot data/)
   }
 })
 

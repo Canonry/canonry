@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { AppError, agentBusy } from '@ainyc/canonry-contracts'
 import type { AgentViewContext } from '@ainyc/canonry-contracts'
-import { apiKeys, type DatabaseClient } from '@ainyc/canonry-db'
+import { apiKeys, dashboardSessions, type DatabaseClient } from '@ainyc/canonry-db'
 import { hashApiKey } from '@ainyc/canonry-api-routes'
 import type { Agent, AgentMessage, AgentTool } from '@earendil-works/pi-agent-core'
 import { and, eq, isNotNull, like } from 'drizzle-orm'
@@ -299,7 +299,10 @@ export class ViewerAeroSessions {
       this.opts.db.delete(apiKeys).where(eq(apiKeys.id, id)).run()
     } catch {
       try {
-        this.opts.db.update(apiKeys).set({ revokedAt: new Date(this.now()).toISOString() }).where(eq(apiKeys.id, id)).run()
+        this.opts.db.transaction(tx => {
+          tx.delete(dashboardSessions).where(eq(dashboardSessions.apiKeyId, id)).run()
+          tx.update(apiKeys).set({ revokedAt: new Date(this.now()).toISOString() }).where(eq(apiKeys.id, id)).run()
+        })
       } catch {
         // Gone or revoked is the desired end state either way.
       }

@@ -64,7 +64,7 @@ describe('project settings tab', () => {
       throw new Error(`Unexpected fetch: ${path}`)
     })
     render(withQueryClient(<>
-      <ProjectSettingsSection project={project} onUpdateProject={vi.fn()} onRefresh={vi.fn()} />
+      <ProjectSettingsSection project={project} onUpdateProject={vi.fn()} />
       <ScheduleSection projectName="test-project" />
       <NotificationsSection projectName="test-project" />
     </>))

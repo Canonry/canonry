@@ -4560,6 +4560,28 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_market_competitor_names_project_domain ON market_competitor_names(project_id, domain)`,
     ],
   },
+  {
+    version: 173,
+    name: 'durable-dashboard-sessions',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS dashboard_sessions (
+        token_hash TEXT PRIMARY KEY,
+        api_key_id TEXT NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_dashboard_sessions_key ON dashboard_sessions(api_key_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_dashboard_sessions_expires ON dashboard_sessions(expires_at)`,
+    ],
+  },
+  {
+    version: 174,
+    name: 'dashboard-session-credential-binding',
+    statements: [
+      `ALTER TABLE dashboard_sessions ADD COLUMN api_key_hash TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE dashboard_sessions ADD COLUMN password_fingerprint TEXT`,
+    ],
+  },
 ]
 
 /**

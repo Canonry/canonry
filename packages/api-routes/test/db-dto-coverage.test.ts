@@ -892,7 +892,11 @@ const COVERAGE: Record<string, CoverageEntry> = {
   },
   userSessions: {
     kind: 'internal-only',
-    reason: 'Live sign-in sessions; the row id IS the cookie value and is never returned in a response body.',
+    reason: 'Named-account session token digests and expiry; never returned as a row DTO.',
+  },
+  dashboardSessions: {
+    kind: 'internal-only',
+    reason: 'API-key-bound dashboard session token digests and expiry; no public row DTO.',
   },
   measurementPlans: {
     kind: 'internal-only',

@@ -297,6 +297,16 @@ function useProject(name: string) {
 - Auth-expiry (401/403) flows through the `heyClient` response interceptor.
 - Generated types come from the spec; consumer types stay in sync.
 
+`createQueryClient` installs successful-write refresh handling on `heyClient`.
+It starts background refreshes of affected generated/composite reads and global
+lists, marks inactive reads stale, and never holds a successful write open for
+refetches. Cancel only active reads; imperative initial loads must retain their
+promises. Run launches refresh run state; completion refreshes results, without
+rescanning analytics or live integration reads on launch. Direct SDK calls and API wrappers share
+this path; don't add a second ordinary success refetch. Job completion and local
+imperative state still use their own refresh flows. New composite query keys
+must declare their project identity position in `queries/query-invalidation.ts`.
+
 **2. Typed wrappers in `src/api.ts` (for composites + imperative reads)** —
 each wrapper is a thin shim over a generated SDK call that handles `ApiError`
 mapping + 204 No Content + base-path resolution. Use them when you need
@@ -719,4 +729,3 @@ cannot silently send into a different conversation.
 - **A read or write whose failure status is a normal outcome** (the code handles it as "none yet" or a conflict) adds its method, template and statuses to `EXPECTED_STATUSES`, so it is not reported as a UI error.
 - **A new shared filter** either writes a URL search param listed in `FILTER_BY_SEARCH_KEY` (picked up at the router) or calls `trackUiFilterChange(dimension)` when its value changes; a new table search uses `DataTableSearch`, which already reports `search.submit`. Never pass the value or the text.
 - **An OAuth start is `integration.connect_started`**; record `integration.connect` only where the connection is confirmed.
-

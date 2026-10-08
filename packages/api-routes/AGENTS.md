@@ -351,6 +351,7 @@ Every read-time competitor reader scores stored answers with the names the proje
 #### Auth plugin gates (`src/auth.ts`)
 
 - The auth plugin does API key and session validation. It exports `hashApiKey()` (sha256 of a raw `cnry_…` token → `api_keys.key_hash`) and `requireScope()`; both are reused by `keys.ts`.
+- Every path that renews a named-account session must reissue its browser cookie in the same response, including public session reads and native OAuth consent. A renewed database row alone leaves the browser dropping the cookie at its prior expiry. Use the host's cookie path and `cookieIsSecure` request/proxy fallback; preserve the existing idle and absolute lifetimes.
 - The `onRequest` hook also enforces the **global read-only gate**: a read-only key (`isReadOnlyKey(scopes)` from contracts — has `read`, no `*`/`*.write`) is rejected on every mutating HTTP method (POST/PUT/PATCH/DELETE) with `403`; GET/HEAD/OPTIONS pass. Method-based, so a new write route is read-only-protected automatically — see "Deployment posture and key authority" above (the read-only keys bullet in "Operational guidance").
 - It also exports `requirePaidReadScope()`, the gate for GETs that SPEND (they call a provider live on the caller's behalf rather than returning stored data): an ALLOW list of `*` / `ads.write` / `ads.approve` / `ads.activate`, so a read-only key, a key scoped to something unrelated, and an empty scope list are all refused. Pair it with `requireAdminSession()` — the scope gate returns early for a signed-in person, so alone it would let a viewer spend.
 - `requireInstanceAdministrator()` gates an ADMINISTRATOR SURFACE, and asks two questions where the others ask one: the caller must not be a signed-in viewer, AND must not be a credential narrower than the install (one confined to a project, or carrying anything less than the wildcard). `requireAdminSession()` alone answers only the first, because it reads a role and an API key carries none, so every key passes it. Use this wherever a narrow key reaching the route would be wrong rather than merely unusual: every `/projects/:name/agent/*` route carries it, since Aero's tools execute with the install root key and its transcript is the operator's own conversation. `isInstanceAdministrator()` is the non-throwing form, for a read that stays available but discloses less (the `config.agent-providers` doctor check consults it).
@@ -363,7 +364,7 @@ API key management:
 - `GET /keys` (ungated list, SAFE metadata only: id/name/prefix/scopes/timestamps + `projectId`/`projectName` + derived `readOnly`, never the hash or plaintext).
 - `GET /keys/self` (introspect the CURRENT request's key — ungated read, returns the same SAFE DTO incl. `readOnly`; powers `canonry key whoami` + the MCP read-only auto-detection).
 - `POST /keys` (mint a `cnry_…` token, returns the plaintext ONCE; gated by the `KEYS_WRITE_SCOPE` = `keys.write`).
-- `POST /keys/:id/revoke` (sets `revokedAt`, idempotent, refuses to revoke the currently-authenticating key; gated by `keys.write`).
+- `POST /keys/:id/revoke` (sets `revokedAt` and deletes bound `dashboardSessions` in the same transaction, idempotent, refuses to revoke the currently-authenticating key; gated by `keys.write`). Key rotation and revocation writers must delete those sessions so restoring a key cannot revive old browser cookies.
 - The derived `readOnly` flag comes from `isReadOnlyKey(scopes)` in `toApiKeyDto`.
 - Audit-logs `api-key.created` / `api-key.revoked` (prefix + scopes only, never key material).
 
@@ -501,6 +502,7 @@ The dimensioned search-data table is valid for RANKING and invalid for TOTALS. R
 `src/google.ts` (GBP):
 
 - OAuth connect/callback (shares the Google OAuth client; `gbp` connectionType).
+- Upstream Google 401 errors return `FORBIDDEN` (403) with `reason: gbp-reconnect` and `upstreamStatus: 401`; reconnect the Google connection without ending the caller's Canonry session. Canonry 401 is reserved for its own authentication failures.
 - `GET /gbp/accounts` (accounts the OAuth user can access — account selection is **per project**).
 - `POST /gbp/locations/discover` (resolves the account: explicit `accountName` > the account the project already tracks > first visible; re-pointing a project at a different account is destructive and requires `switchAccount: true`, which clears the old account's footprint via the shared `clearGbpProjectData` helper) + select/deselect.
 - `POST /gbp/sync` (creates the `gbp-sync` run, fires `onGbpSyncRequested`).

@@ -1,12 +1,7 @@
-import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { RunKinds } from '@ainyc/canonry-contracts'
 import {
-  getApiV1ProjectsQueryKey,
-  getApiV1RunsQueryKey,
-} from '@ainyc/canonry-api-client/react-query'
-import {
   ApiError,
-  heyClient,
   type ApiRun,
   type ApiTriggerAllRunsResult,
   appendQueries,
@@ -21,18 +16,6 @@ import { useAccount } from '../contexts/account-context.js'
 import { assertCanWrite } from '../lib/write-guard.js'
 import { createTrackedBatch, trackRun, type TrackedRunSourceAction } from '../lib/run-tracker-store.js'
 import { addToast } from '../lib/toast-store.js'
-import { invalidateQueriesForRunKind } from './run-invalidations.js'
-
-/**
- * Invalidate the two top-level list endpoints. We use exact-key matches
- * (not a prefix predicate) so we don't accidentally invalidate every
- * project sub-endpoint — Bing/GSC/GA all live under `/projects/:name/...`
- * and have separate, more surgical invalidation flows below.
- */
-function invalidateProjectAndRunQueries(queryClient: QueryClient) {
-  void queryClient.invalidateQueries({ queryKey: getApiV1RunsQueryKey({ client: heyClient }) })
-  void queryClient.invalidateQueries({ queryKey: getApiV1ProjectsQueryKey({ client: heyClient }) })
-}
 
 /**
  * Refuse a view-only account before the request goes out.
@@ -173,7 +156,6 @@ function handleTrackedRunError(error: unknown, options?: {
 
 export function useTriggerRun() {
   const guardWrite = useWriteGuard()
-  const queryClient = useQueryClient()
   return useMutation({
     onMutate: guardWrite,
     meta: { skipGlobalErrorToast: true },
@@ -184,7 +166,6 @@ export function useTriggerRun() {
       sourceAction: TrackedRunSourceAction
     }) => triggerRun(projectName, opts),
     onSuccess: (run, variables) => {
-      invalidateProjectAndRunQueries(queryClient)
       queueTrackedRunToast(run, {
         projectLabel: variables.projectLabel ?? variables.projectName,
         sourceAction: variables.sourceAction,
@@ -203,13 +184,11 @@ export function useTriggerRun() {
 
 export function useTriggerAllRuns() {
   const guardWrite = useWriteGuard()
-  const queryClient = useQueryClient()
   return useMutation({
     onMutate: guardWrite,
     meta: { skipGlobalErrorToast: true },
     mutationFn: (body?: { providers?: string[] }) => triggerAllRuns(body),
     onSuccess: (results) => {
-      invalidateProjectAndRunQueries(queryClient)
       queueTrackedBatchToast(results)
     },
     onError: (error) => {
@@ -223,7 +202,6 @@ export function useTriggerAllRuns() {
 
 export function useTriggerSiteAudit() {
   const guardWrite = useWriteGuard()
-  const queryClient = useQueryClient()
   return useMutation({
     onMutate: guardWrite,
     meta: { skipGlobalErrorToast: true },
@@ -235,7 +213,6 @@ export function useTriggerSiteAudit() {
       body?: Parameters<typeof triggerSiteAudit>[1]
     }) => triggerSiteAudit(projectName, body),
     onSuccess: (result, variables) => {
-      invalidateQueriesForRunKind(queryClient, RunKinds['site-audit'], variables.projectName)
       trackRun({
         id: result.runId,
         projectId: variables.projectId,
@@ -265,7 +242,6 @@ export function useTriggerSiteAudit() {
 
 export function useTriggerGscSync() {
   const guardWrite = useWriteGuard()
-  const queryClient = useQueryClient()
   return useMutation({
     onMutate: guardWrite,
     meta: { skipGlobalErrorToast: true },
@@ -275,7 +251,6 @@ export function useTriggerGscSync() {
       opts?: Parameters<typeof triggerGscSync>[1]
     }) => triggerGscSync(projectName, opts),
     onSuccess: (run, variables) => {
-      invalidateQueriesForRunKind(queryClient, RunKinds['gsc-sync'], variables.projectName)
       queueTrackedRunToast(run, {
         projectLabel: variables.projectLabel ?? variables.projectName,
         sourceAction: 'gsc-sync',
@@ -293,7 +268,6 @@ export function useTriggerGscSync() {
 
 export function useTriggerDiscoverSitemaps() {
   const guardWrite = useWriteGuard()
-  const queryClient = useQueryClient()
   return useMutation({
     onMutate: guardWrite,
     meta: { skipGlobalErrorToast: true },
@@ -302,7 +276,6 @@ export function useTriggerDiscoverSitemaps() {
       projectLabel?: string
     }) => triggerDiscoverSitemaps(projectName),
     onSuccess: (result, variables) => {
-      invalidateQueriesForRunKind(queryClient, result.run.kind, variables.projectName)
       queueTrackedRunToast(result.run, {
         projectLabel: variables.projectLabel ?? variables.projectName,
         sourceAction: 'discover-sitemaps',
@@ -320,7 +293,6 @@ export function useTriggerDiscoverSitemaps() {
 
 export function useTriggerInspectSitemap() {
   const guardWrite = useWriteGuard()
-  const queryClient = useQueryClient()
   return useMutation({
     onMutate: guardWrite,
     meta: { skipGlobalErrorToast: true },
@@ -330,7 +302,6 @@ export function useTriggerInspectSitemap() {
       opts?: Parameters<typeof triggerInspectSitemap>[1]
     }) => triggerInspectSitemap(projectName, opts),
     onSuccess: (run, variables) => {
-      invalidateQueriesForRunKind(queryClient, RunKinds['inspect-sitemap'], variables.projectName)
       queueTrackedRunToast(run, {
         projectLabel: variables.projectLabel ?? variables.projectName,
         sourceAction: 'inspect-sitemap',
@@ -374,26 +345,9 @@ export function isProjectDetailQuery(query: { queryKey: readonly unknown[] }): b
 
 export function useAppendQueries() {
   const guardWrite = useWriteGuard()
-  const queryClient = useQueryClient()
   return useMutation({
     onMutate: guardWrite,
     mutationFn: ({ projectName, queries }: { projectName: string; queries: string[] }) =>
       appendQueries(projectName, queries),
-    onSuccess: () => {
-      // Top-level projects list — exact key so we don't accidentally
-      // invalidate every per-project sub-endpoint.
-      void queryClient.invalidateQueries({ queryKey: getApiV1ProjectsQueryKey({ client: heyClient }) })
-      // The per-project dashboard detail in `use-dashboard.ts` (key shape
-      // `['projects', projectId, latestRunIdsKey]`) is where the
-      // SuggestedQueriesCard reads its `rows`. Without invalidating it the
-      // newly-tracked query still shows up as "Suggested" until the user
-      // hard-reloads. We don't know the projectId at mutation time (the
-      // mutation has projectName), so use a predicate that matches the
-      // dashboard's tuple shape — first element is the literal `'projects'`
-      // string with at least one more element. The top-level invalidation
-      // above uses a different key shape (from the generated SDK helper),
-      // so there's no overlap.
-      void queryClient.invalidateQueries({ predicate: isProjectDetailQuery })
-    },
   })
 }

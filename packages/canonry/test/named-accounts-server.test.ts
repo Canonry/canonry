@@ -11,8 +11,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, it, describe } from 'vitest'
-import { apiKeys, createClient, migrate, users, type DatabaseClient } from '@ainyc/canonry-db'
-import { hashUserPassword } from '@ainyc/canonry-api-routes'
+import { eq } from 'drizzle-orm'
+import { apiKeys, createClient, migrate, oauthClients, users, userSessions, type DatabaseClient } from '@ainyc/canonry-db'
+import { hashUserPassword, USER_SESSION_COOKIE_NAME } from '@ainyc/canonry-api-routes'
 import { createServer } from '../src/server.js'
 
 let tmpDir: string
@@ -20,13 +21,14 @@ let db: DatabaseClient
 let app: Awaited<ReturnType<typeof createServer>>
 let rawKey: string
 
-async function bootServer() {
+async function bootServer(publicUrl?: string) {
   return createServer({
     config: {
       apiUrl: 'http://localhost:4100',
       database: path.join(tmpDir, 'test.db'),
       apiKey: rawKey,
       geminiApiKey: 'test-key',
+      ...(publicUrl ? { publicUrl } : {}),
     },
     db,
     logger: false,
@@ -157,5 +159,63 @@ describe('the sign-in cookie on a real server', () => {
 
     expect(res.statusCode).toBe(200)
     expect(String(res.headers['set-cookie'])).toContain('Secure')
+  })
+
+  it.each(['GET', 'POST'] as const)('renews the browser cookie when %s OAuth consent renews the session', async (method) => {
+    await app.close()
+    app = await bootServer('https://canonry.test')
+    const password = 'a-long-enough-admin-password'
+    const userId = crypto.randomUUID()
+    db.insert(users).values({
+      id: userId,
+      name: 'owner',
+      nameKey: 'owner',
+      passwordHash: await hashUserPassword(password),
+      role: 'admin',
+      createdAt: new Date().toISOString(),
+    }).run()
+    const login = await app.inject({
+      method: 'POST', url: '/api/v1/auth/login',
+      payload: { name: 'owner', password },
+    })
+    expect(login.statusCode).toBe(200)
+    const cookie = String(login.headers['set-cookie']).split(';')[0]!
+    const token = decodeURIComponent(cookie.slice(cookie.indexOf('=') + 1))
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex')
+    db.insert(oauthClients).values({
+      id: 'desktop', name: 'Desktop', redirectUris: ['https://client.example/callback'],
+      createdAt: new Date().toISOString(),
+    }).run()
+    const query = new URLSearchParams({
+      response_type: 'code', client_id: 'desktop', redirect_uri: 'https://client.example/callback',
+      code_challenge: crypto.createHash('sha256').update('a'.repeat(64)).digest('base64url'),
+      code_challenge_method: 'S256', scope: 'read',
+    }).toString()
+    const headers = { cookie, host: 'canonry.test', origin: 'https://canonry.test', 'x-forwarded-proto': 'https' }
+    let csrf: string | undefined
+    if (method === 'POST') {
+      const page = await app.inject({ method: 'GET', url: `/oauth/authorize?${query}`, headers })
+      expect(page.statusCode).toBe(200)
+      csrf = /name="csrf" value="([^"]+)"/.exec(page.body)?.[1]
+      expect(csrf).toBeTruthy()
+    }
+    const nearlyDone = new Date(Date.now() + 60_000).toISOString()
+    db.update(userSessions).set({ expiresAt: nearlyDone }).where(eq(userSessions.tokenHash, tokenHash)).run()
+
+    const response = await app.inject(method === 'GET'
+      ? { method, url: `/oauth/authorize?${query}`, headers }
+      : {
+          method, url: `/oauth/authorize/consent?${query}`,
+          headers: { ...headers, 'content-type': 'application/x-www-form-urlencoded' },
+          payload: new URLSearchParams({ csrf: csrf!, approve: 'yes' }).toString(),
+        })
+
+    expect(response.statusCode).toBe(method === 'GET' ? 200 : 302)
+    expect(String(response.headers['set-cookie'])).toContain(`${USER_SESSION_COOKIE_NAME}=${token}`)
+    for (const attribute of ['HttpOnly', 'SameSite=Lax', 'Max-Age=43200', 'Secure']) {
+      expect(String(response.headers['set-cookie'])).toContain(attribute)
+    }
+    expect(Date.parse(db.select().from(userSessions).where(eq(userSessions.tokenHash, tokenHash)).get()!.expiresAt))
+      .toBeGreaterThan(Date.parse(nearlyDone))
   })
 })

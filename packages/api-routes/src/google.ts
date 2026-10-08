@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, gbpReviews, gbpReviewRatings, readNegativeReviewMaxStars, runs, projects, type DatabaseClient } from '@ainyc/canonry-db'
 import {
   validationError, notFound, normalizeProjectDomain, parseWindow,
-  authRequired, forbidden, quotaExceeded, providerError, escapeLikePattern, AppError,
+  forbidden, quotaExceeded, providerError, escapeLikePattern, AppError,
   hostMatchesDomain,
   hostOf,
   type GoogleConnectionType,
@@ -2039,7 +2039,12 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         { reason: err.reason, body: err.body },
       )
     }
-    if (err.status === 401) return authRequired()
+    if (err.status === 401) {
+      return forbidden(
+        `${context}: the Google connection has expired or was revoked. Reconnect Google Business Profile.`,
+        { reason: 'gbp-reconnect', upstreamStatus: 401 },
+      )
+    }
     return providerError(`${context}: ${err.message}`, { reason: err.reason ?? undefined, status: err.status })
   }
 
