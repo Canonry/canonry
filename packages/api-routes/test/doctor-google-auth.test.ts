@@ -99,6 +99,26 @@ describe('google.auth.connection', () => {
     expect(result.code).toBe('google.auth.refresh-failed')
     expect(result.details).toMatchObject({ error: 'invalid_grant' })
   })
+
+  it('returns refresh-unreachable, not a rejected token, when Google cannot be reached', async () => {
+    // What Node's fetch rejects with when a DNS filter answers 0.0.0.0.
+    refreshAccessTokenMock.mockRejectedValue(new TypeError('fetch failed', {
+      cause: Object.assign(new Error('connect ECONNREFUSED 0.0.0.0:443'), { code: 'ECONNREFUSED', syscall: 'connect', address: '0.0.0.0', port: 443 }),
+    }))
+    const result = await check.run(ctx({}))
+    expect(result.status).toBe('fail')
+    expect(result.code).toBe('google.auth.refresh-unreachable')
+    const error = 'fetch failed (ECONNREFUSED connecting to oauth2.googleapis.com at 0.0.0.0:443)'
+    expect(result.summary).toBe(`Could not reach Google to refresh the GSC token: ${error}`)
+    expect(result.details).toMatchObject({ error })
+    expect(result.remediation).not.toContain('re-authorize')
+  })
+
+  it('returns refresh-unreachable when the token request times out', async () => {
+    refreshAccessTokenMock.mockRejectedValue(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))
+    const result = await check.run(ctx({}))
+    expect(result.code).toBe('google.auth.refresh-unreachable')
+  })
 })
 
 describe('google.auth.property-access', () => {
@@ -141,6 +161,26 @@ describe('google.auth.property-access', () => {
     const result = await check.run(ctx({}))
     expect(result.status).toBe('fail')
     expect(result.code).toBe('google.auth.principal-forbidden')
+  })
+
+  it('returns list-sites-unreachable when the Search Console API cannot be reached', async () => {
+    refreshAccessTokenMock.mockResolvedValue({ access_token: 'tok', expires_in: 3600 })
+    listSitesMock.mockRejectedValue(new TypeError('fetch failed', {
+      cause: Object.assign(new Error('getaddrinfo ENOTFOUND www.googleapis.com'), { code: 'ENOTFOUND', syscall: 'getaddrinfo', hostname: 'www.googleapis.com' }),
+    }))
+    const result = await check.run(ctx({}))
+    expect(result.status).toBe('fail')
+    expect(result.code).toBe('google.auth.list-sites-unreachable')
+    expect(result.summary).toContain('fetch failed (ENOTFOUND resolving www.googleapis.com)')
+  })
+
+  it('returns list-sites-failed when Search Console answers with an error', async () => {
+    const { GoogleApiError } = await import('@ainyc/canonry-integration-google')
+    refreshAccessTokenMock.mockResolvedValue({ access_token: 'tok', expires_in: 3600 })
+    listSitesMock.mockRejectedValue(new GoogleApiError('backend error', 503))
+    const result = await check.run(ctx({}))
+    expect(result.status).toBe('fail')
+    expect(result.code).toBe('google.auth.list-sites-failed')
   })
 
   it('returns property-unverified when the property is present but the account is an unverified user', async () => {

@@ -363,3 +363,103 @@ export function describeError(err: unknown): string {
     return 'unknown error'
   }
 }
+
+/** Upper-case Node and undici error codes: `ECONNREFUSED`, `UND_ERR_CONNECT_TIMEOUT`, `ERR_SSL_…`, `CERT_HAS_EXPIRED`. */
+const NETWORK_ERROR_CODE = /^[A-Z][A-Z0-9_]{1,63}$/
+const MAX_CAUSE_DEPTH = 5
+const RESOLVE_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ENODATA'])
+const CONNECT_CODES = new Set(['ECONNREFUSED', 'UND_ERR_CONNECT_TIMEOUT', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH'])
+
+interface NetworkCause {
+  code: string
+  syscall: string | null
+  hostname: string | null
+  address: string | null
+  port: number | null
+}
+
+function stringField(value: unknown): string | null {
+  return typeof value === 'string' && value !== '' ? value : null
+}
+
+/** The first coded error on the error itself, its `cause` chain, or an AggregateError's first member. */
+function findNetworkCause(err: unknown): NetworkCause | null {
+  let node: unknown = err
+  for (let depth = 0; depth < MAX_CAUSE_DEPTH && node !== null && typeof node === 'object'; depth++) {
+    const record = node as { code?: unknown; syscall?: unknown; hostname?: unknown; address?: unknown; port?: unknown; cause?: unknown; errors?: unknown }
+    if (typeof record.code === 'string' && NETWORK_ERROR_CODE.test(record.code)) {
+      return {
+        code: record.code,
+        syscall: stringField(record.syscall),
+        hostname: stringField(record.hostname),
+        address: stringField(record.address),
+        port: typeof record.port === 'number' && Number.isInteger(record.port) ? record.port : null,
+      }
+    }
+    node = record.cause ?? (Array.isArray(record.errors) ? (record.errors as unknown[])[0] : undefined)
+  }
+  return null
+}
+
+function requestHostname(requestUrl: string | URL | undefined): string | null {
+  if (requestUrl === undefined) return null
+  try {
+    return stringField(new URL(requestUrl).hostname)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Render a rejected `fetch` with the network cause it hides.
+ *
+ * Node's fetch (undici) rejects every transport failure with the same
+ * `TypeError: fetch failed` and puts the reason on `error.cause`: a DNS miss
+ * (`ENOTFOUND`), a refused or reset connection, a connect timeout
+ * (`UND_ERR_CONNECT_TIMEOUT`), a TLS failure (`ERR_SSL_…`). The bare message
+ * cannot tell a host DNS filter that null-routes an API host from a provider
+ * outage, so a sync that failed for weeks recorded only "fetch failed".
+ *
+ * Appends the first error code on the error or its cause chain, the host, and
+ * the dialed address: `fetch failed (ECONNREFUSED connecting to
+ * api.example.com at 0.0.0.0:443)`. Only the hostname of `requestUrl` is read,
+ * never its path or query, and no cause message, header, or body is copied,
+ * so the result carries no more secret material than `describeError(err)`.
+ * Without a code anywhere it returns `describeError(err)` unchanged. Never
+ * throws.
+ */
+export function describeFetchError(err: unknown, requestUrl?: string | URL): string {
+  const message = describeError(err)
+  let cause: NetworkCause | null
+  try {
+    cause = findNetworkCause(err)
+  } catch {
+    // A throwing getter on a foreign error object; the plain message stands.
+    return message
+  }
+  if (!cause) return message
+
+  const host = cause.hostname ?? requestHostname(requestUrl)
+  const resolving = cause.syscall === 'getaddrinfo' || RESOLVE_CODES.has(cause.code)
+  const connecting = cause.syscall === 'connect' || CONNECT_CODES.has(cause.code)
+  const verb = resolving ? 'resolving' : connecting ? 'connecting to' : 'calling'
+  const address = cause.address && cause.address !== host
+    ? `${cause.address.includes(':') ? `[${cause.address}]` : cause.address}${cause.port !== null ? `:${cause.port}` : ''}`
+    : null
+  const parts = [cause.code, host ? `${verb} ${host}` : null, address ? `at ${address}` : null]
+  return `${message} (${parts.filter((part): part is string => part !== null).join(' ')})`
+}
+
+/**
+ * Whether a request got no answer at all, so the caller learned nothing about
+ * what it asked. Node's fetch (undici) rejects every transport failure (DNS,
+ * connect, reset, TLS) as `TypeError: fetch failed`, and a request cut off by
+ * its timeout rejects as a `TimeoutError` (`AbortSignal.timeout`) or an
+ * `AbortError` (an `AbortController` aborted on a timer). An error built from
+ * a response the server sent, or thrown before any request, returns false.
+ */
+export function isFetchTransportError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  if (err.name === 'TimeoutError' || err.name === 'AbortError') return true
+  return err instanceof TypeError && err.message === 'fetch failed'
+}

@@ -101,6 +101,16 @@ describe('gbp.auth.connection', () => {
     expect(result.status).toBe('fail')
     expect(result.code).toBe('gbp.auth.refresh-failed')
   })
+  it('fail as refresh-unreachable, not a rejected token, when Google cannot be reached', async () => {
+    refreshAccessTokenMock.mockRejectedValue(new TypeError('fetch failed', {
+      cause: Object.assign(new Error('getaddrinfo ENOTFOUND oauth2.googleapis.com'), { code: 'ENOTFOUND', syscall: 'getaddrinfo', hostname: 'oauth2.googleapis.com' }),
+    }))
+    const result = await check.run(ctx({}))
+    expect(result.status).toBe('fail')
+    expect(result.code).toBe('gbp.auth.refresh-unreachable')
+    expect(result.summary).toBe('Could not reach Google to refresh the GBP token: fetch failed (ENOTFOUND resolving oauth2.googleapis.com)')
+    expect(result.remediation).not.toContain('re-authorize')
+  })
 })
 
 describe('gbp.auth.scopes', () => {
@@ -160,6 +170,14 @@ describe('gbp.account.access', () => {
     const result = await check.run(ctx({}))
     expect(result.status).toBe('fail')
     expect(result.code).toBe('gbp.account.list-failed')
+  })
+  it('fail as list-unreachable when the Business Profile API cannot be reached', async () => {
+    // The GBP client aborts a request on its own timer, which rejects as an AbortError.
+    listAccountsMock.mockRejectedValue(new DOMException('This operation was aborted', 'AbortError'))
+    const result = await check.run(ctx({}))
+    expect(result.status).toBe('fail')
+    expect(result.code).toBe('gbp.account.list-unreachable')
+    expect(result.summary).toBe('Could not reach the Business Profile API to list GBP accounts: This operation was aborted')
   })
   it('skipped when there is no connection', async () => {
     const result = await check.run(ctx({ googleConnectionStore: buildStore() }))

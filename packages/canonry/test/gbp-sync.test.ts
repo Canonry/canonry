@@ -20,6 +20,7 @@ import {
 } from '@ainyc/canonry-db'
 import { hashPlaceDetails } from '@ainyc/canonry-integration-google-places'
 import { hashLodging, countPopulatedGroups, hashAttributes, GbpApiError, type GbpLocation } from '@ainyc/canonry-integration-google-business-profile'
+import { GBP_NO_SELECTED_LOCATIONS_ERROR, serializeRunError } from '@ainyc/canonry-contracts'
 import { executeGbpSync } from '../src/gbp-sync.js'
 import type { CanonryConfig } from '../src/config.js'
 
@@ -228,6 +229,28 @@ describe('executeGbpSync — selected location profile refresh', () => {
       expect(row!.openStatus).toBe('OPEN')
       expect(row!.openingDate).toBe('2012')
       expect(row!.syncedAt).toBeTruthy()
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('executeGbpSync without a selected location', () => {
+  test('fails with the shared no-locations error, stored as the doctor sync check matches it', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db)
+      db.update(gbpLocations).set({ selected: false }).where(eq(gbpLocations.id, 'loc_1')).run()
+      seedRun(db, 'run_1')
+
+      await expect(executeGbpSync(db, 'run_1', 'proj_gbp', { config: testConfig() })).rejects.toThrow(GBP_NO_SELECTED_LOCATIONS_ERROR)
+
+      // `gbp.sync.recent-failures` leaves out runs whose error is exactly this.
+      expect(db.select().from(runs).where(eq(runs.id, 'run_1')).get()).toMatchObject({
+        status: 'failed',
+        error: serializeRunError({ message: GBP_NO_SELECTED_LOCATIONS_ERROR }),
+      })
+      expect(listLocationsMock).not.toHaveBeenCalled()
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
