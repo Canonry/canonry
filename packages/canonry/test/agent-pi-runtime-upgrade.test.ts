@@ -63,6 +63,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   faux.unregister()
   fs.rmSync(directory, { recursive: true, force: true })
 })
@@ -344,6 +345,8 @@ describe('system messages', () => {
   }
 
   it('keeps one leading system message with the prompt Canonry set, never persists or streams it, and replaces it without accumulating', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2030-12-31T23:59:55.000Z'))
     const seen: string[] = []
     faux.setResponses([
       context => {
@@ -358,7 +361,13 @@ describe('system messages', () => {
     const turn = await promptTurn('What docs do you have?')
 
     const expected = registry.buildHydratedSystemPrompt(projectId, loadAeroSystemPrompt()) + aeroProjectShape(db, projectId).prompt + aeroViewPrompt(undefined)
-    expect(seen).toEqual([expected, expected])
+    expect(seen).toHaveLength(2)
+    for (const prompt of seen) {
+      const [staticPrefix, clock] = prompt.split('\n\nCurrent turn clock (UTC): ')
+      expect(staticPrefix).toBe(expected)
+      expect(clock).toMatch(/^2030-12-31T23:59:55\.000Z\./)
+      expect(prompt.match(/Current turn clock \(UTC\):/g)).toHaveLength(1)
+    }
     const agent = registry.getOrCreate('demo')
     const inMemory = agent.state.messages
     expect(inMemory[0]!.role).toBe('system')
@@ -372,6 +381,7 @@ describe('system messages', () => {
     const stored = parseJsonColumn<AgentMessage[]>(sessionRow(projectId)!.messages, [])
     expect(stored.map(message => message.role)).toEqual(['user', 'assistant', 'toolResult', 'assistant'])
     expect(turn.body).not.toContain('"role":"system"')
+    expect(turn.body).not.toContain('Current turn clock (UTC):')
     expect(turn.events.find(event => event.type === 'agent_end')!.messages!.map(message => (message as { role: string }).role)).toEqual(['user', 'assistant', 'toolResult', 'assistant'])
     const transcript = (await app.inject('/projects/demo/agent/transcript')).json() as { messages: Array<{ role: string }> }
     expect(transcript.messages.map(message => message.role)).toEqual(['user', 'assistant', 'toolResult', 'assistant'])

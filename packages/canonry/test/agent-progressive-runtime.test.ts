@@ -124,6 +124,7 @@ describe('Aero progressive tool execution', () => {
     ])
     await agent.prompt('Check twice')
     expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'error', toolCalls: 1, modelCalls: 2 })
+    expect(JSON.stringify(agent.state.messages.at(-1))).toContain('could not complete the answer')
   })
 
   it('reports a wrap-up the user stopped as stopped', async () => {
@@ -141,19 +142,290 @@ describe('Aero progressive tool execution', () => {
     expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'stopped', toolCalls: 1 })
   })
 
-  it('aborts a slow provider at the time limit', async () => {
+  it('supplies a trusted UTC clock per turn without persisting it or changing the stable system prefix', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const firstTime = '2030-12-31T23:59:55.000Z'
+    const nextTime = '2031-01-01T00:00:05.000Z'
+    vi.setSystemTime(new Date(firstTime))
+    const execute = vi.fn(async () => {
+      vi.setSystemTime(new Date(nextTime))
+      return { content: [{ type: 'text' as const, text: 'Stored evidence read.' }], details: {} }
+    })
+    const agent = new Agent({ initialState: { model: faux.getModel(), systemPrompt: 'Stable synthetic system instructions.' }, streamFn: aeroStreamFn })
+    configureAeroRuntime(agent, [{ name: 'check', label: 'Check', description: 'Synthetic stored read', parameters: Type.Object({}), execute }], undefined, false)
+    const requests: Array<{ prefix: string; index: number; priorSystems: boolean; clock: string; text: string; lastRole?: string }> = []
+    const capture = (context: { messages: readonly { role: string }[] }) => {
+      const index = context.messages.findIndex(message => message.role === 'system' && JSON.stringify(message).includes('Current turn clock (UTC):'))
+      requests.push({
+        prefix: JSON.stringify(context.messages[0]), index,
+        priorSystems: context.messages.slice(0, index).every(message => message.role === 'system'),
+        clock: JSON.stringify(context.messages[index]) ?? '', text: JSON.stringify(context.messages), lastRole: context.messages.at(-1)?.role,
+      })
+    }
+    faux.setResponses([
+      context => {
+        capture(context)
+        return fauxAssistantMessage(fauxToolCall('check', {}), { stopReason: 'toolUse' })
+      },
+      context => {
+        capture(context)
+        return fauxAssistantMessage('The current turn clock stayed fixed.')
+      },
+    ])
+    await agent.prompt('Inspect stored evidence')
+    expect(requests[0]?.clock).toContain(firstTime)
+    expect(requests[0]?.prefix).toContain('Stable synthetic system instructions.')
+    expect(requests[0]?.index).toBeGreaterThan(0)
+    expect(requests[0]?.priorSystems).toBe(true)
+    expect(requests[0]?.clock).toContain('unless the user explicitly specifies a year')
+    expect(requests[0]?.clock).toContain('Stored run and scan dates remain authoritative')
+    expect(requests[1]?.clock).toContain(firstTime)
+    expect(requests[1]?.text).not.toContain(nextTime)
+    expect(requests[1]?.lastRole).toBe('toolResult')
+    expect(JSON.stringify(agent.state.messages)).not.toContain(firstTime)
+    faux.setResponses([context => {
+      capture(context)
+      return fauxAssistantMessage('The new turn uses the new year.')
+    }])
+    await agent.prompt('Preview September without a year')
+    expect(requests[2]?.clock).toContain(nextTime)
+    expect(requests[2]?.text).not.toContain(firstTime)
+    expect(JSON.stringify(agent.state.messages)).not.toContain(nextTime)
+  })
+
+  it('reserves time for one answer without tools when research times out', async () => {
     vi.useFakeTimers()
     const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
     configureAeroRuntime(agent, [], { maxToolCalls: 3, timeoutMs: 1000 })
     faux.setResponses([async (_context, options) => {
       await new Promise<void>(resolve => options?.signal?.addEventListener('abort', () => resolve(), { once: true }))
-      return fauxAssistantMessage('Stopped', { stopReason: 'aborted' })
-    }])
+      return fauxAssistantMessage('', { stopReason: 'aborted' })
+    }, context => {
+      expect(getCurrentTools(context.messages)).toEqual([])
+      expect(JSON.stringify(context.messages.at(-1))).toContain('research time budget')
+      return fauxAssistantMessage('No evidence was gathered before the time limit.')
+    }, fauxAssistantMessage('Never requested.')])
     const prompt = agent.prompt('Wait')
     await vi.advanceTimersByTimeAsync(1001)
     await prompt
-    expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'time-limit', toolCalls: 0 })
+    expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'time-limit', toolCalls: 0, modelCalls: 2 })
+    expect(agent.state.messages.at(-1)).toMatchObject({ role: 'assistant', content: [{ type: 'text', text: 'No evidence was gathered before the time limit.' }] })
+    expect(faux.getPendingResponseCount()).toBe(1)
   })
+
+  it('finishes with an explicit partial-answer message if the reserved answer budget also expires', async () => {
+    vi.useFakeTimers()
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
+    configureAeroRuntime(agent, [], { maxToolCalls: 3, timeoutMs: 1000 })
+    const wait = async (_context: unknown, options?: { signal?: AbortSignal }) => {
+      await new Promise<void>(resolve => options?.signal?.addEventListener('abort', () => resolve(), { once: true }))
+      return fauxAssistantMessage('', { stopReason: 'aborted' })
+    }
+    faux.setResponses([wait, wait])
+    const prompt = agent.prompt('Wait')
+    await vi.advanceTimersByTimeAsync(1001)
+    await prompt
+    expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'time-limit', modelCalls: 2 })
+    expect(JSON.stringify(agent.state.messages.at(-1))).toContain('could not complete the answer')
+  })
+
+  it('does not memoize live provider reads or failed stored reads', async () => {
+    const gscSitemaps = vi.fn(async () => ({ sitemaps: [] }))
+    const getAdsLiveDelivery = vi.fn(async () => ({ campaigns: [] }))
+    const getInsights = vi.fn().mockRejectedValueOnce(new Error('Temporary failure')).mockResolvedValue([])
+    const allowed = buildReadTools({ client: { gscSitemaps, getAdsLiveDelivery, getInsights } as unknown as ApiClient, projectName: 'demo' }).filter(tool => ['canonry_gsc_sitemaps', 'canonry_ads_live_delivery', 'canonry_insights_list'].includes(tool.name))
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
+    configureAeroRuntime(agent, allowed, undefined, false)
+    faux.setResponses([
+      ...['canonry_gsc_sitemaps', 'canonry_gsc_sitemaps', 'canonry_ads_live_delivery', 'canonry_ads_live_delivery', 'canonry_insights_list', 'canonry_insights_list'].map((name, index) => fauxAssistantMessage(fauxToolCall(name, {}, { id: `read-${index}` }), { stopReason: 'toolUse' })),
+      fauxAssistantMessage('Done.'),
+    ])
+    await agent.prompt('Retry reads')
+    expect(gscSitemaps).toHaveBeenCalledTimes(2)
+    expect(getAdsLiveDelivery).toHaveBeenCalledTimes(2)
+    expect(getInsights).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    { name: 'canonry_sentiment_jobs', params: {}, list: true },
+    { name: 'canonry_sentiment_job', params: { jobId: 'job-1' }, list: false },
+    { name: 'canonry_project_overview', params: {}, list: false },
+    { name: 'canonry_measurement_data_quality', params: {}, list: false },
+  ])('refreshes $name when a stored job finishes between polls', async ({ name, params, list }) => {
+    let state = 'running'
+    const read = vi.fn(async () => {
+      const job = { id: 'job-1', state }
+      return name === 'canonry_project_overview' ? { latestRun: { id: 'job-1', status: state } }
+        : name === 'canonry_measurement_data_quality' ? { latestFill: job, completeness: { expected: 120, executed: state === 'running' ? 40 : 120 } }
+        : list ? { jobs: [job] } : job
+    })
+    const client = { listSentimentJobs: read, getSentimentJob: read, getProjectOverview: read, getMeasurementDataQuality: read } as unknown as ApiClient
+    const allowed = buildReadTools({ client, projectName: 'demo' }).filter(tool => tool.name === name)
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
+    configureAeroRuntime(agent, allowed, undefined, false)
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall(name, params, { id: 'first-poll' }), { stopReason: 'toolUse' }),
+      () => {
+        state = 'complete'
+        return fauxAssistantMessage(fauxToolCall(name, params, { id: 'second-poll' }), { stopReason: 'toolUse' })
+      },
+      fauxAssistantMessage('The stored job has completed.'),
+    ])
+    await agent.prompt('Check the job until it finishes')
+    const polls = agent.state.messages.filter(message => message.role === 'toolResult')
+    const field = name === 'canonry_project_overview' ? 'status' : 'state'
+    expect(JSON.stringify(polls[0])).toContain(`"${field}":"running"`)
+    expect(JSON.stringify(polls[1])).toContain(`"${field}":"complete"`)
+    if (name === 'canonry_measurement_data_quality') {
+      expect(JSON.stringify(polls[0])).toContain('"executed":40')
+      expect(JSON.stringify(polls[1])).toContain('"executed":120')
+    }
+    expect(read).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    { name: 'canonry_measurement_overview', method: 'getMeasurementOverview', owner: 'properties', field: 'nextCursor', parameter: 'cursor', size: 'limit', params: { scope: 'all', queryClass: 'non-brand', compact: true } },
+    { name: 'canonry_measurement_portfolio_summary', method: 'getMeasurementPortfolioSummary', owner: '', field: 'nextCursor', parameter: 'cursor', size: 'limit', params: { queryClass: 'non-brand', compact: true } },
+    { name: 'canonry_sentiment', method: 'getSentiment', owner: 'queryPage', field: 'nextCursor', parameter: 'queryCursor', size: 'queryLimit', params: { mode: 'auto', queryClass: 'branded', scope: 'project' } },
+    { name: 'canonry_sentiment_job', method: 'getSentimentJob', owner: '', field: 'nextAttemptCursor', parameter: 'attemptCursor', size: 'attemptLimit', params: { jobId: 'job-1' } },
+  ])('continues $name using a short page reference while preserving the native API cursor and selection', async ({ name, method, owner, field, parameter, size, params }) => {
+    const cursor = 'opaque-native-cursor-'.repeat(30)
+    const rows = [{ id: 'first-row' }]
+    const first = owner === 'properties' ? { properties: { items: rows, totalEstimate: 2, nextCursor: cursor } }
+      : owner === 'queryPage' ? { queries: rows, queryPage: { total: 2, limit: 2, nextCursor: cursor } }
+        : field === 'nextAttemptCursor' ? { attempts: rows, attemptCount: 2, nextAttemptCursor: cursor }
+          : { weakestProperties: rows, totalProperties: 2, pageList: 'weakest-properties', nextCursor: cursor }
+    const last = structuredClone(first) as Record<string, unknown>
+    const lastOwner = (owner ? last[owner] : last) as Record<string, unknown>
+    lastOwner[field] = null
+    const read = vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(last)
+    const client = { [method]: read } as unknown as ApiClient
+    const allowed = buildReadTools({ client, projectName: 'demo' }).filter(tool => tool.name === name)
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
+    configureAeroRuntime(agent, allowed, undefined, false)
+    let reference = ''
+    const initialParams: Record<string, unknown> = { ...params }
+    if (name === 'canonry_measurement_portfolio_summary') delete initialParams.compact
+    if (name === 'canonry_sentiment') delete initialParams.mode
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall(name, { ...initialParams, [size]: 2 }, { id: 'first-page' }), { stopReason: 'toolUse' }),
+      context => {
+        const result = context.messages.at(-1) as { content: Array<{ text: string }> }
+        const shown = JSON.parse(result.content[0]!.text)
+        reference = (owner ? shown[owner] : shown)[field]
+        return fauxAssistantMessage(fauxToolCall(name, { [size]: 1, [parameter]: reference, ...(name === 'canonry_measurement_portfolio_summary' ? { compact: true, list: shown.pageList } : {}) }), { stopReason: 'toolUse' })
+      },
+      fauxAssistantMessage('Both pages read.'),
+    ])
+    await agent.prompt('Read every page')
+    expect(reference.length).toBeLessThan(60)
+    expect(read).toHaveBeenCalledTimes(2)
+    if (name === 'canonry_measurement_portfolio_summary') expect(read.mock.calls[0]).toEqual(['demo', { ...params, [size]: 2 }])
+    const { jobId: _jobId, ...jobQuery } = params as Record<string, unknown>
+    const query = { ...(method === 'getSentimentJob' ? jobQuery : params), [size]: 1, [parameter]: cursor, ...(name === 'canonry_measurement_portfolio_summary' ? { list: 'weakest-properties' } : {}) }
+    expect(read.mock.calls[1]).toEqual(method === 'getSentimentJob' ? ['demo', 'job-1', query] : ['demo', query])
+    const original = agent.state.messages.find(message => message.role === 'toolResult' && message.toolCallId === 'first-page') as { details: unknown; content: Array<{ text: string }> }
+    expect(original.details).toBe(first)
+    expect(original.content[0]!.text).not.toContain(cursor)
+  })
+
+  it('rejects another tool, changed filters and a previous turn when resolving page references', async () => {
+    const cursor = 'native-cursor-'.repeat(40)
+    const getMeasurementPortfolioSummary = vi.fn().mockResolvedValue({ items: [{ id: 'row' }], total: 2, nextCursor: cursor })
+    const getMeasurementOverview = vi.fn().mockResolvedValue({ properties: { items: [], nextCursor: null } })
+    const allowed = buildReadTools({ client: { getMeasurementPortfolioSummary, getMeasurementOverview } as unknown as ApiClient, projectName: 'demo' }).filter(tool => ['canonry_measurement_portfolio_summary', 'canonry_measurement_overview'].includes(tool.name))
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
+    configureAeroRuntime(agent, allowed, undefined, false)
+    let reference = ''
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('canonry_measurement_portfolio_summary', { queryClass: 'non-brand', compact: true, limit: 2 }), { stopReason: 'toolUse' }),
+      context => {
+        reference = JSON.parse((context.messages.at(-1) as { content: Array<{ text: string }> }).content[0]!.text).nextCursor
+        return fauxAssistantMessage(fauxToolCall('canonry_measurement_overview', { scope: 'all', queryClass: 'non-brand', compact: true, cursor: reference }, { id: 'wrong-tool' }), { stopReason: 'toolUse' })
+      },
+      () => fauxAssistantMessage(fauxToolCall('canonry_measurement_portfolio_summary', { queryClass: 'branded', compact: true, cursor: reference }, { id: 'changed-filter' }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('The original selection must be preserved.'),
+    ])
+    await agent.prompt('Read with a changed selection')
+    expect(getMeasurementPortfolioSummary).toHaveBeenCalledTimes(1)
+    expect(getMeasurementOverview).not.toHaveBeenCalled()
+    for (const id of ['wrong-tool', 'changed-filter']) {
+      const rejected = agent.state.messages.find(message => message.role === 'toolResult' && message.toolCallId === id)
+      expect(rejected).toMatchObject({ isError: true })
+      expect(JSON.stringify(rejected)).toContain('same tool and original filters')
+    }
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('canonry_measurement_portfolio_summary', { queryClass: 'non-brand', compact: true, cursor: reference }, { id: 'stale-reference' }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Read the first page again.'),
+    ])
+    await agent.prompt('Continue the prior turn')
+    expect(getMeasurementPortfolioSummary).toHaveBeenCalledTimes(1)
+    const stale = agent.state.messages.find(message => message.role === 'toolResult' && message.toolCallId === 'stale-reference')
+    expect(stale).toMatchObject({ isError: true })
+    expect(JSON.stringify(stale)).toContain('no longer available')
+  })
+
+  it('keeps the original page reference usable for a smaller retry when Aero cuts the next page', async () => {
+    const cursor = 'native-first-page-'.repeat(30)
+    const unsafeCursor = 'native-after-cut-page-'.repeat(30)
+    const first = { properties: { items: [{ targetKey: 'first' }], totalEstimate: 202, nextCursor: cursor } }
+    const rows = Array.from({ length: 200 }, (_, index) => ({ targetKey: `property-${index}`, evidence: 'synthetic'.repeat(120) }))
+    const cut = { properties: { items: rows, totalEstimate: 202, nextCursor: unsafeCursor } }
+    const getMeasurementOverview = vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(cut).mockResolvedValueOnce({ properties: { items: [rows[0]], totalEstimate: 202, nextCursor: null } })
+    const allowed = buildReadTools({ client: { getMeasurementOverview } as unknown as ApiClient, projectName: 'demo' }).filter(tool => tool.name === 'canonry_measurement_overview')
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
+    configureAeroRuntime(agent, allowed, undefined, false)
+    let reference = ''
+    let second: { __truncated?: boolean; properties?: { nextCursor?: unknown }; __truncation?: { cursors?: Record<string, string> } } = {}
+    const selection = { scope: 'all', queryClass: 'non-brand', compact: true }
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('canonry_measurement_overview', { ...selection, limit: 50 }), { stopReason: 'toolUse' }),
+      context => {
+        reference = JSON.parse((context.messages.at(-1) as { content: Array<{ text: string }> }).content[0]!.text).properties.nextCursor
+        return fauxAssistantMessage(fauxToolCall('canonry_measurement_overview', { ...selection, limit: 50, cursor: reference }), { stopReason: 'toolUse' })
+      },
+      context => {
+        second = JSON.parse((context.messages.at(-1) as { content: Array<{ text: string }> }).content[0]!.text)
+        return fauxAssistantMessage(fauxToolCall('canonry_measurement_overview', { ...selection, limit: 1, cursor: reference }), { stopReason: 'toolUse' })
+      },
+      fauxAssistantMessage('The smaller page was read.'),
+    ])
+    await agent.prompt('Retry any incomplete page')
+    expect(reference.length).toBeLessThan(60)
+    expect(second.__truncated).toBe(true)
+    expect(second.properties?.nextCursor).toBe(unsafeCursor)
+    expect(second.__truncation?.cursors?.['properties.nextCursor']).toContain('re-request the original cursor')
+    expect(getMeasurementOverview.mock.calls.slice(1)).toEqual([
+      ['demo', { ...selection, limit: 50, cursor }],
+      ['demo', { ...selection, limit: 1, cursor }],
+    ])
+  })
+
+  it('reuses identical stored reads within one turn but refetches after a write and on the next turn', async () => {
+    const getInsights = vi.fn(async () => [{ id: 'insight-1', title: 'Synthetic signal' }])
+    const dismissInsight = vi.fn(async () => ({ dismissed: true }))
+    const client = { getInsights, dismissInsight } as unknown as ApiClient
+    const allowed = buildAllTools({ client, projectName: 'demo' }).filter(tool => ['canonry_insights_list', 'canonry_insight_dismiss'].includes(tool.name))
+    const agent = new Agent({ initialState: { model: faux.getModel() }, streamFn: aeroStreamFn })
+    configureAeroRuntime(agent, allowed, undefined, false)
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('canonry_insights_list', {}, { id: 'first' }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage(fauxToolCall('canonry_insights_list', {}, { id: 'repeat' }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage(fauxToolCall('canonry_insight_dismiss', { insightId: 'insight-1' }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage(fauxToolCall('canonry_insights_list', {}), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Done.'),
+    ])
+    await agent.prompt('Read, dismiss, and read again')
+    const repeated = agent.state.messages.find(message => message.role === 'toolResult' && message.toolCallId === 'repeat')
+    expect(JSON.stringify(repeated)).toContain('Already returned above')
+    expect(dismissInsight).toHaveBeenCalledTimes(1)
+    expect(getInsights).toHaveBeenCalledTimes(2)
+    configureAeroRuntime(agent, allowed, undefined, false)
+    faux.setResponses([fauxAssistantMessage(fauxToolCall('canonry_insights_list', {}), { stopReason: 'toolUse' }), fauxAssistantMessage('Done.')])
+    await agent.prompt('Read again')
+    expect(getInsights).toHaveBeenCalledTimes(3)
+  })
+
 })
 
 

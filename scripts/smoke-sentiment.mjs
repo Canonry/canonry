@@ -76,13 +76,26 @@ async function call(client, name, parameters, denied = false) {
   const text = result.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
   return JSON.parse(text)
 }
+function resultValue(result) {
+  return result.structuredContent ?? JSON.parse(result.content.filter(block => block.type === 'text').map(block => block.text).join('\n'))
+}
+function sameRunError(value, client = false) {
+  assert.equal(value.error.code, 'VALIDATION_ERROR')
+  assert.equal(value.error.details.reason, 'same-run')
+  if (client) {
+    assert.equal(value.error.details.httpStatus, 400)
+    assert.match(value.error.details.requestId, /^[a-f\d-]{36}$/i)
+  }
+  const { requestId: _requestId, httpStatus: _httpStatus, ...details } = value.error.details
+  return { ...value.error, details }
+}
 async function connect(transport) {
   const client = new Client({ name: 'canonry-sentiment-packaged-smoke', version: '1.0.0' })
   clients.push(client); await client.connect(transport); return client
 }
 function stable(value) { const cloned = JSON.parse(JSON.stringify(value)); delete cloned.generatedAt; return cloned }
 try {
-  seedSentimentSmoke(database, { queryClass, absentSubject })
+  seedSentimentSmoke(database, { queryClass, absentSubject, previousPeriod: true, datedCrawls: true })
   if (!live) {
     provider = createServer(async (request, response) => {
       try {
@@ -135,6 +148,14 @@ try {
     if (denied) { assert.notEqual(result.code, 0); return result }
     assert.equal(result.code, 0, result.stderr); return JSON.parse(result.stdout)
   }
+  async function apiRead(project, resource, query) {
+    const response = await fetch(`${base}/api/v1/projects/${project}/${resource}?${new URLSearchParams(query)}`, { signal: AbortSignal.timeout(15000), headers: { authorization: `Bearer ${SMOKE_ADMIN}` } })
+    const data = await response.json(); assertSafe(data); assert.equal(response.status, 200, JSON.stringify(data)); return data
+  }
+  async function installedRead(argv, role = 'admin') {
+    const result = await run(bin, [...argv, '--format', 'json'], configs[role])
+    assertSafe(result.stdout); assertSafe(result.stderr); assert.equal(result.code, 0, result.stderr); return JSON.parse(result.stdout)
+  }
   for (let tries = 0; ; tries++) {
     try { const health = await fetch(`${base}/health`, { signal: AbortSignal.timeout(3000) }); if (health.ok) break } catch { /* bounded readiness polling */ }
     if (tries >= 120 || child.exitCode !== null) throw new Error(`Installed server failed readiness: ${output}`)
@@ -155,13 +176,15 @@ try {
   for (const [project, count] of [['simple', 1], ['advanced', 2]]) {
     await http(project, '/settings', { method: 'PUT', body: { enabled: true } })
     assert.equal((await http(project, '/jobs')).jobs.length, 0)
-    const preview = await http(project, `/backfill-preview?runId=${project}-run`)
-    assert.equal(preview.eligibleAssessments, count, JSON.stringify(preview)); assert(preview.previewToken)
-    const body = { previewToken: preview.previewToken, idempotencyKey: `synthetic-${project}` }
-    const job = await http(project, '/backfills', { method: 'POST', body }); jobs.push({ project, body, id: job.id })
-    assert.equal((await http(project, '/backfills', { method: 'POST', body })).id, job.id)
+    for (const runId of [`${project}-run`, `${project}-previous-run`]) {
+      const preview = await http(project, `/backfill-preview?runId=${runId}`)
+      assert.equal(preview.eligibleAssessments, count, JSON.stringify(preview)); assert(preview.previewToken)
+      const body = { previewToken: preview.previewToken, idempotencyKey: `synthetic-${runId}` }
+      const job = await http(project, '/backfills', { method: 'POST', body }); jobs.push({ project, runId, body, id: job.id })
+      assert.equal((await http(project, '/backfills', { method: 'POST', body })).id, job.id)
+    }
   }
-  mark('explicit frozen backfill admits exactly three assessments and replays receipts')
+  mark('explicit frozen backfill admits six assessments across two periods and replays receipts')
   for (const { project, id } of jobs) {
     for (let tries = 0; ; tries++) {
       const job = await http(project, `/jobs/${id}`)
@@ -170,7 +193,7 @@ try {
       await wait(1000)
     }
   }
-  const summaries = {}; const evidence = {}; const comparisons = {}
+  const summaries = {}; const evidence = {}; const comparisons = {}; const selfComparisonErrors = {}
   for (const [project, count] of [['simple', 1], ['advanced', 2]]) {
     summaries[project] = await http(project)
     evidence[project] = await http(project, '/evidence')
@@ -194,8 +217,16 @@ try {
     const otherClass = await http(project, `?queryClass=${queryClass === 'branded' ? 'non-brand' : 'branded'}`)
     assert.equal(otherClass.coverage.selected, 0)
     assert.equal(otherClass.score.favorableRate, null)
-    comparisons[project] = await http(project, `/compare?fromRunId=${project}-run&toRunId=${project}-run`)
-    assert.deepEqual(stable(await cli(['compare', project, '--from-run-id', `${project}-run`, '--to-run-id', `${project}-run`])), stable(comparisons[project]))
+    comparisons[project] = await http(project, `/compare?fromRunId=${project}-previous-run&toRunId=${project}-run`)
+    assert.equal(comparisons[project].from.selection.runId, `${project}-previous-run`)
+    assert.equal(comparisons[project].to.selection.runId, `${project}-run`)
+    assert.equal(comparisons[project].commonUnits, count)
+    assert.equal(comparisons[project].changedScope, false)
+    assert.deepEqual(stable(await cli(['compare', project, '--from-run-id', `${project}-previous-run`, '--to-run-id', `${project}-run`])), stable(comparisons[project]))
+    selfComparisonErrors[project] = sameRunError(await http(project, `/compare?fromRunId=${project}-run&toRunId=${project}-run`, { expected: 400 }))
+    const refused = await cli(['compare', project, '--from-run-id', `${project}-run`, '--to-run-id', `${project}-run`], 'admin', true)
+    assert.equal(refused.code, 1)
+    assert.deepEqual(sameRunError(JSON.parse(refused.stderr), true), selfComparisonErrors[project])
     assert.deepEqual(await cli(['settings', project]), await http(project, '/settings'))
     assert.deepEqual(await cli(['jobs', project]), await http(project, '/jobs'))
     const receipt = jobs.find(job => job.project === project)
@@ -211,6 +242,9 @@ try {
       assert.equal(summary.score.favorableRate, null)
       assert.equal(summary.score.favorableDisplay, 'Unavailable')
       assert.equal(summary.score.interval, null)
+      assert.equal(comparisons[project].verdict, null)
+      assert.equal(comparisons[project].favorableRateDelta, null)
+      assert.deepEqual(comparisons[project].refusalReasons, ['insufficient-judgments'])
     }
     mark('non-brand absent subjects abstain locally without adverse judgments or provider calls')
   } else if (zeroJudgment) {
@@ -240,14 +274,94 @@ try {
     assert.equal(summaries.simple.score.favorableRate, 1)
     assert.equal(summaries.advanced.score.favorableRate, 0.5)
     assert.deepEqual(evidence.advanced.items.map(item => item.outcome).sort(), ['favorable', 'unfavorable'])
+    for (const project of ['simple', 'advanced']) {
+      assert.equal(comparisons[project].verdict, 'no-clear-change')
+      assert.equal(comparisons[project].favorableRateDelta, 0)
+      assert.deepEqual(comparisons[project].refusalReasons, [])
+    }
   }
   const allMarket = await http('advanced', '?scope=market&scopeKey=market-all')
   assert.equal(allMarket.coverage.selected, 2); assert.equal(allMarket.coverage.distinctSourceAnswers, 1)
   const singleMarket = await http('advanced', '?scope=market&scopeKey=market-harbor')
   assert.equal(singleMarket.coverage.selected, 1)
   mark('persisted HTTP/CLI summaries and exact evidence agree; shared Advanced answer deduplicates')
-  const completeReceipts = await receipts(); assert(completeReceipts.length <= 6 && (absentSubject || completeReceipts.length > 0))
-  if (!live) assert.equal(completeReceipts.length, absentSubject ? 0 : 3)
+  const completeReceipts = await receipts(); assert(completeReceipts.length <= (live ? 12 : 6) && (absentSubject || completeReceipts.length > 0))
+  if (!live) assert.equal(completeReceipts.length, absentSubject ? 0 : 6)
+  const measurementQuery = { queryClass, runId: 'advanced-run', limit: 1, answers: 'not-mentioned' }
+  const portfolio = await apiRead('advanced', 'measurement-portfolio-summary', { ...measurementQuery, compact: true })
+  assert.equal(portfolio.totalProperties, 2)
+  assert.equal(portfolio.metrics.propertiesNeverMentioned.state, 'available')
+  assert.equal(portfolio.metrics.propertiesNeverMentioned.value, absentSubject ? 2 : 0)
+  assert(portfolio.markets.every(market => market.propertiesNeverMentioned.state === 'available'))
+  assert(portfolio.nextCursor)
+  assert(portfolio.detailsOmitted.includes('weakestProperties.answerEvidence'))
+  assert.equal(portfolio.answerEvidence.populationSize, 1)
+  assert.equal(portfolio.answerEvidence.answerCount, absentSubject ? 1 : 0)
+  assert.equal(portfolio.answerEvidence.unknownMentionAnswers, 0)
+  assert(JSON.stringify(portfolio, null, 2).length <= 18000)
+  const measurementQueryFile = path.join(scratch, 'measurement-query.json')
+  await writeFile(measurementQueryFile, JSON.stringify(measurementQuery))
+  assert.deepEqual(stable(await installedRead(['measurement-plan', 'advanced', 'advanced', 'portfolio-summary', measurementQueryFile])), stable(portfolio))
+  const overviewQuery = { scope: 'all', queryClass, runId: 'advanced-run', limit: 1 }
+  const overview = await apiRead('advanced', 'measurement-overview', { ...overviewQuery, compact: true })
+  assert.equal(overview.properties.totalEstimate, 2)
+  assert(overview.properties.nextCursor)
+  const overviewQueryFile = path.join(scratch, 'overview-query.json')
+  await writeFile(overviewQueryFile, JSON.stringify(overviewQuery))
+  assert.deepEqual(stable(await installedRead(['measurement-plan', 'advanced', 'advanced', 'overview', overviewQueryFile])), stable(overview))
+  const landscapes = {}
+  for (const project of ['simple', 'advanced']) {
+    const selected = { queryClass, runId: `${project}-run`, answers: 'not-mentioned' }
+    landscapes[project] = await apiRead(project, 'analytics/competitors', selected)
+    assert.deepEqual(landscapes[project].answerSelection, { answers: 'not-mentioned', populationSize: 1, answerCount: absentSubject ? 1 : 0, unknownMentionAnswers: 0 })
+    assert.deepEqual(stable(await installedRead(['competitor', 'landscape', project, '--query-class', queryClass, '--run-id', `${project}-run`, '--answers', 'not-mentioned'])), stable(landscapes[project]))
+  }
+  mark('compact Advanced summaries and filtered Simple/Advanced competitor reads match installed CLI')
+  const crawlReads = {}
+  for (const project of ['simple', 'advanced']) {
+    const latest = await apiRead(project, 'technical-aeo/crawl', {})
+    assert.equal(latest.runId, `${project}-crawl-2026-09-28`)
+    assert.equal(latest.inventorySummary.total, 5)
+    crawlReads[project] = []
+    for (const date of ['2026-09-26', '2026-09-25', '2025-09-26']) {
+      const summary = await apiRead(project, 'technical-aeo/crawl', { date })
+      const pagesQuery = { date, inventoryEligible: false, limit: 1 }
+      const pages = await apiRead(project, 'technical-aeo/crawl/pages', pagesQuery)
+      assert.equal(summary.requestedDate, date)
+      assert.equal(pages.requestedDate, date)
+      if (date === '2026-09-26') {
+        assert.equal(summary.runId, `${project}-crawl-${date}`)
+        assert.notEqual(summary.runId, latest.runId)
+        assert.equal(summary.runSelection.reason, 'requested-date-complete')
+        assert.equal(summary.inventorySummary.total, 4)
+        assert.equal(summary.inventorySummary.eligible, 1)
+        assert.equal(summary.inventorySummary.excluded, 3)
+        assert.deepEqual(Object.fromEntries(summary.inventorySummary.excludedReasons.map(row => [row.healthReason, row.pages])), { 'canonical-to-other': 1, 'redirect-terminal': 1, unknown: 1 })
+        assert.deepEqual(pages.inventorySummary, summary.inventorySummary)
+        assert.equal(pages.runId, summary.runId)
+        assert.equal(pages.total, 3)
+        assert.equal(pages.pages.length, 1)
+        assert(pages.nextCursor)
+        assert.deepEqual(pages.healthReasonCounts, summary.inventorySummary.excludedReasons)
+      } else {
+        for (const value of [summary, pages]) {
+          assert.equal(value.hasCrawlData, false)
+          assert.equal(value.runId, null)
+          assert.equal(value.inventorySummary, null)
+          assert.equal(value.availableScanDates.totalDates, 2)
+          assert.deepEqual(value.availableScanDates.recentDates, ['2026-09-28', '2026-09-26'])
+          assert.deepEqual(value.availableScanDates.matchingMonthDayDates, date === '2025-09-26' ? ['2026-09-26'] : [])
+          assert.equal(value.availableScanDates.matchingMonthDayTotal, date === '2025-09-26' ? 1 : 0)
+        }
+        assert.equal(pages.total, 0)
+        assert.deepEqual(pages.pages, [])
+      }
+      assert.deepEqual(stable(await installedRead(['technical-aeo', 'crawl', project, '--date', date])), stable(summary))
+      assert.deepEqual(stable(await installedRead(['technical-aeo', 'crawl-pages', project, '--date', date, '--inventory-eligible', 'false', '--limit', '1'])), stable(pages))
+      crawlReads[project].push({ date, summary, pagesQuery, pages })
+    }
+  }
+  mark('dated crawl reads select older inventory and withhold missing dates across HTTP and installed CLI')
   for (const role of ['admin', 'read', 'scoped']) {
     for (const kind of ['http', 'stdio']) {
       const token = role === 'admin' ? SMOKE_ADMIN : role === 'read' ? SMOKE_READ : SMOKE_SCOPED
@@ -256,17 +370,29 @@ try {
       assert.deepEqual(stable(await call(client, 'canonry_sentiment', { project: 'simple' })), stable(summaries.simple))
       assert.deepEqual(stable(await call(client, 'canonry_sentiment_evidence', { project: 'simple' })), stable(evidence.simple))
       assert.deepEqual(await call(client, 'canonry_sentiment', { project: 'simple', queryId: 'simple-query' }), await http('simple', '?queryId=simple-query'))
-      assert.deepEqual(stable(await call(client, 'canonry_sentiment_compare', { project: 'simple', fromRunId: 'simple-run', toRunId: 'simple-run' })), stable(comparisons.simple))
+      assert.deepEqual(stable(await call(client, 'canonry_sentiment_compare', { project: 'simple', fromRunId: 'simple-previous-run', toRunId: 'simple-run' })), stable(comparisons.simple))
+      assert.deepEqual(sameRunError(resultValue(await call(client, 'canonry_sentiment_compare', { project: 'simple', fromRunId: 'simple-run', toRunId: 'simple-run' }, true)), true), selfComparisonErrors.simple)
+      assert.deepEqual(stable(await call(client, 'canonry_competitor_landscape', { project: 'simple', queryClass, runId: 'simple-run', answers: 'not-mentioned' })), stable(landscapes.simple))
       if (role === 'admin') {
         assert.deepEqual(await call(client, 'canonry_sentiment_settings', { project: 'simple' }), await http('simple', '/settings'))
         assert.deepEqual(await call(client, 'canonry_sentiment_jobs', { project: 'simple' }), await http('simple', '/jobs'))
         assert.equal((await call(client, 'canonry_sentiment_backfill', { project: 'simple', ...jobs[0].body })).id, jobs[0].id)
         assert.deepEqual(await call(client, 'canonry_sentiment_job', { project: 'simple', jobId: jobs[0].id }), await http('simple', `/jobs/${jobs[0].id}`))
+        for (const project of ['simple', 'advanced']) for (const selected of crawlReads[project]) {
+          for (const name of ['canonry_site_health_overview', 'canonry_technical_aeo_crawl']) {
+            assert.deepEqual(stable(await call(client, name, { project, date: selected.date })), stable(selected.summary))
+          }
+          assert.deepEqual(stable(await call(client, 'canonry_technical_aeo_crawl_pages', { project, ...selected.pagesQuery })), stable(selected.pages))
+        }
       }
       if (role !== 'scoped') {
         assert.deepEqual(stable(await call(client, 'canonry_sentiment', { project: 'advanced' })), stable(summaries.advanced))
         assert.deepEqual(stable(await call(client, 'canonry_sentiment_evidence', { project: 'advanced' })), stable(evidence.advanced))
-        assert.deepEqual(stable(await call(client, 'canonry_sentiment_compare', { project: 'advanced', fromRunId: 'advanced-run', toRunId: 'advanced-run' })), stable(comparisons.advanced))
+        assert.deepEqual(stable(await call(client, 'canonry_sentiment_compare', { project: 'advanced', fromRunId: 'advanced-previous-run', toRunId: 'advanced-run' })), stable(comparisons.advanced))
+        assert.deepEqual(sameRunError(resultValue(await call(client, 'canonry_sentiment_compare', { project: 'advanced', fromRunId: 'advanced-run', toRunId: 'advanced-run' }, true)), true), selfComparisonErrors.advanced)
+        assert.deepEqual(stable(await call(client, 'canonry_measurement_portfolio_summary', { project: 'advanced', ...measurementQuery })), stable(portfolio))
+        assert.deepEqual(stable(await call(client, 'canonry_measurement_overview', { project: 'advanced', ...overviewQuery })), stable(overview))
+        assert.deepEqual(stable(await call(client, 'canonry_competitor_landscape', { project: 'advanced', queryClass, runId: 'advanced-run', answers: 'not-mentioned' })), stable(landscapes.advanced))
       }
       if (role === 'scoped') await call(client, 'canonry_sentiment', { project: 'advanced' }, true)
       if (role === 'read') {
@@ -277,7 +403,9 @@ try {
     }
   }
   mark('HTTP MCP and installed stdio MCP match persisted results and enforce read/scoped credentials')
-  mark('same-period comparison responses agree across HTTP, CLI and both MCP transports')
+  mark('distinct-period comparisons and same-run refusal agree across HTTP, CLI and both MCP transports')
+  mark('compact measurement projections and filtered competitor populations agree across both MCP transports')
+  mark('dated Simple/Advanced crawl inventory and missing-date reads agree across both MCP transports')
   mark('frozen query scores agree across every transport and branded/non-brand populations never pool')
   if (zeroJudgment) mark('zero-judgment exclusions and unavailable rates agree across installed clients, including human CLI display')
   for (const { project, body, id } of jobs) {
@@ -287,7 +415,7 @@ try {
   }
   assert.equal((await receipts()).length, completeReceipts.length)
   mark('repeated reads and disabled receipt replay make zero additional provider calls')
-  const report = { mode: live ? 'live' : zeroJudgment ? 'stub-zero-judgment' : absentSubject ? 'stub-absent-subject' : 'stub', queryClass, packageRoot, scratch, completedAt: new Date().toISOString(), checks, receipts: completeReceipts, summaries, evidence, comparisons, qualityGate: 'UNMET: bounded synthetic smoke is not independent human-held-out evaluation.' }
+  const report = { mode: live ? 'live' : zeroJudgment ? 'stub-zero-judgment' : absentSubject ? 'stub-absent-subject' : 'stub', queryClass, packageRoot, scratch, completedAt: new Date().toISOString(), checks, receipts: completeReceipts, summaries, evidence, comparisons, selfComparisonErrors, portfolio, overview, landscapes, crawlReads, qualityGate: 'UNMET: bounded synthetic smoke is not independent human-held-out evaluation.' }
   assertSafe(report); assertSafe(output)
   await writeFile(path.join(scratch, 'report.json'), JSON.stringify(report, null, 2))
   console.log(`REPORT ${path.join(scratch, 'report.json')}`)

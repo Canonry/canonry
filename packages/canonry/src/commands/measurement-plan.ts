@@ -179,12 +179,16 @@ export async function runAdvancedMeasurementOperation(
       advancedEmptyInputSchema.parse(input)
       result = await client.getMeasurementSetup(project)
       break
-    case 'overview':
-      result = await client.getMeasurementOverview(project, measurementOverviewQuerySchema.parse(input))
+    case 'overview': {
+      const query = measurementOverviewQuerySchema.parse(input)
+      result = await client.getMeasurementOverview(project, { ...query, compact: typeof input === 'object' && input !== null && 'compact' in input ? query.compact : true })
       break
-    case 'portfolio-summary':
-      result = await client.getMeasurementPortfolioSummary(project, measurementPortfolioSummaryQuerySchema.parse(input))
+    }
+    case 'portfolio-summary': {
+      const query = measurementPortfolioSummaryQuerySchema.parse(input)
+      result = await client.getMeasurementPortfolioSummary(project, { ...query, compact: typeof input === 'object' && input !== null && 'compact' in input ? query.compact : true })
       break
+    }
     case 'property-questions':
       result = await client.getMeasurementPropertyQuestions(project, measurementPropertyQuestionsQuerySchema.parse(input))
       break

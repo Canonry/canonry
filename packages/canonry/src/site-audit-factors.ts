@@ -1,5 +1,6 @@
 import {
   factorStatusFromScore,
+  factorStatusFromDistribution,
   roundPreservingTotal,
   SiteAuditFactorStatuses,
   type SiteAuditFactorSummaryDto,
@@ -90,7 +91,7 @@ export function computeFactorAverages(pages: readonly SiteAuditFactorPage[]): Si
       weight: rollup.weight,
       sharePct: shares?.[index] ?? null,
       avgScore,
-      status: factorStatusFromScore(avgScore),
+      status: factorStatusFromDistribution({ pagesFailing: rollup.fail, pagesPartial: rollup.partial }),
       pagesPassing: rollup.pass,
       pagesPartial: rollup.partial,
       pagesFailing: rollup.fail,

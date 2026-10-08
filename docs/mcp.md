@@ -222,9 +222,9 @@ It defaults to `queryClass=non-brand`; name that class in the report. Request br
 results separately, or `all` only when a combined comparison is intended.
 `mentionRanking.strongest` and `.weakest` rank available mention rates before the
 list limit, independently of citation availability. `eligiblePropertyCount` is
-the ranked population; `excluded` lists every excluded Property with its reason,
-without being cut off by the ranked list limit. `truncated` describes the two
-ranked lists. Keep numerator/denominator with each rate, plus any `unattributed`
+the ranked population. Raw reads list every excluded Property with its reason;
+compact reads page exclusions with `list: excluded-mentions` and preserve
+`excludedTotal`. `truncated` describes the two ranked lists. Keep numerator/denominator with each rate, plus any `unattributed`
 (mention) or `unchecked` (citation) count of saved answers left out of both
 sides; rates can tie and the stable label/key tie-break does not establish a
 unique winner. These are
@@ -235,16 +235,29 @@ substitute citation ranking without saying the metric changed. Aggregate metrics
 the existing combined-signal `weakestProperties`, and overview pagination retain
 their existing semantics.
 
-Agent-facing defaults live in the MCP layer; the HTTP API is unchanged.
-`canonry_measurement_portfolio_summary` returns at most 4 Property rows, with or
-without `groupKey`; a larger `limit` is lowered and the result starts with `limitNote`,
-and the deprecated `recommendedInstead*` row fields are left out.
+`canonry_measurement_portfolio_summary` defaults to `compact: true`; HTTP reads
+retain the raw shape unless compact is requested. Compact pages contain whole
+rows under an 18,000-character formatted budget. `nextCursor` advances only
+`pageList`, default `weakest-properties`. Other first-page lists are bounded
+summaries and later pages omit their row bodies. To enumerate a different list,
+set `list` to `strongest-mentions`, `weakest-mentions`, `excluded-mentions`,
+`markets`, `observed-names` or `cited-domains`. Selected-list mode omits sibling
+row lists while retaining complete totals and `detailsOmitted`. Keep list and
+filters unchanged across cursors; page size may change. Without `limit`, pages
+auto-size up to 50 rows; the byte budget may return fewer. A null cursor completes
+only `pageList`. `weakestMarkets` supplies the bounded full-rate weakest metro
+headline; compact rows omit per-Property answer evidence and tie-cohort details,
+available on drill-down tools or a raw `compact: false` read.
 `canonry_measurement_changes` defaults `queryClass` to `non-brand` and caps
 `limit` at 20. `canonry_measurement_property_competitors` and
 `canonry_measurement_property_evidence` read `non-brand` when `queryClass` is
 omitted. `canonry_analytics_sources` and `canonry_competitor_landscape` read the
 latest sweep (`runId=latest`) when `queryClass` is `branded` or `non-brand` and
 neither `runId` nor `window` is given.
+Competitor reads with `answers: not-mentioned` preserve evidence counts but
+withhold competitive shares with reason `answer-selection`, including model
+groups. A population selected by the project's mention cannot measure its
+unconditioned competitive share.
 Historical competitor percentages require explicit `queryClass: "non-brand"`
 for a competitive comparison, or `"branded"` for brand recall. Omitting the
 class or requesting `all` returns pooled counts with null shares.

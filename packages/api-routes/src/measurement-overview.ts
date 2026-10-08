@@ -174,7 +174,11 @@ export function createMeasurementOverviewCache(
 }
 
 function parseOverviewQuery(raw: Record<string, unknown>): MeasurementOverviewQuery {
-  const candidate = { ...raw, ...(raw.limit === undefined ? {} : { limit: Number(raw.limit) }) }
+  const candidate = {
+    ...raw,
+    ...(raw.limit === undefined ? {} : { limit: Number(raw.limit) }),
+    ...(raw.compact === 'true' || raw.compact === 'false' ? { compact: raw.compact === 'true' } : {}),
+  }
   const parsed = measurementOverviewQuerySchema.safeParse(candidate)
   if (!parsed.success) throw validationError('Invalid measurement overview query', { issues: parsed.error.issues })
   return parsed.data
@@ -257,6 +261,7 @@ function overviewFilterFingerprint(query: MeasurementOverviewQuery): string {
     from: query.from ?? null,
     to: query.to ?? null,
     search: query.search === undefined ? null : normalizedText(query.search),
+    compact: query.compact ?? false,
   }
   return createHash('sha256').update(JSON.stringify(filters)).digest('base64url')
 }
@@ -501,12 +506,21 @@ function pageOf(
     if (index < 0) throw validationError('The measurement overview cursor does not belong to this result set.')
     offset = index + 1
   }
-  const items = ordered.slice(offset, offset + limit)
+  const selected = ordered.slice(offset, offset + limit)
+  const items = query.compact ? selected.map(row => ({ ...row, providers: [] })) : selected
+  if (query.compact) {
+    // Leave room for selection, aggregate metrics and the resume token. Keep
+    // complete rows so a shortened page is always resumable without data loss.
+    while (JSON.stringify(items, null, 2).length > 12_000 && items.length > 1) items.pop()
+    if (JSON.stringify(items, null, 2).length > 12_000) {
+      throw validationError('One measurement Property row exceeds the compact page budget. Read a narrower scope without compact=true.')
+    }
+  }
   const last = items.at(-1)
   return {
     page: {
       items,
-      nextCursor: last === undefined || ordered.at(offset + limit) === undefined
+      nextCursor: last === undefined || ordered.at(offset + items.length) === undefined
         ? null
         : cursorOf(
             last,
@@ -1007,6 +1021,16 @@ export async function measurementOverviewRoutes(app: FastifyInstance, options: M
       const response = active.plan.schemaVersion === MEASUREMENT_PLAN_V2_SCHEMA_VERSION
         ? planV2Overview(app.db, project.id, active, active.plan, query, scope, cache)
         : planV1Overview(app.db, project.id, active, query, scope)
+      if (query.compact) {
+        response.detailsOmitted = ['properties.providers', ...(response.detailsOmitted ?? [])]
+        if (response.namedShareOfVoice !== undefined) {
+          delete response.namedShareOfVoice
+          response.detailsOmitted.push('namedShareOfVoice')
+        }
+      }
+      if (query.compact && JSON.stringify(response, null, 2).length > 18_000) {
+        throw validationError('Measurement overview metadata exceeds the compact page budget. Read a narrower scope without compact=true.')
+      }
       return measurementOverviewResponseSchema.parse(response)
     },
   )

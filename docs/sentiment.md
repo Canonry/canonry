@@ -89,3 +89,22 @@ The stance-only evaluator has schema version 2 and a new immutable definition ID
 ## Validation and release gates
 
 See [sentiment smoke validation](sentiment-validation.md) for reproducible built-package tests and the recorded synthetic live smoke. Native Aero reads sentiment through the seven read tools; configure and backfill submit stay with the operator. Downstream reports remain follow-on work. Branded and non-brand accuracy require separate held-out evaluations; neither has passed that gate. Production rollout and claims of measured classifier quality require the independent evaluation rubric in `evals/sentiment/`; synthetic smoke is not that evaluation.
+
+Comparison requires distinct run IDs. Set `fromRunId=previous-rated` (CLI
+`--from-run-id previous-rated`) to select the preceding run with stored ratings
+in the same query class and scope; probes and unrated runs are skipped. No
+predecessor returns an explicit refusal. The search checks at most 50 rated candidates,
+ignoring unrated history before loading answers. A bounded-search refusal asks for
+an explicit older run; population changes and incomplete target runs have separate
+reasons. Partially rated predecessors remain eligible and comparison compatibility
+checks still apply.
+
+`coverage.subjectNotMentioned` counts distinct admitted answers where every
+assessed subject is absent. These answers are expected in a non-brand basket,
+so a low rated share alone does not imply missing classification. Disabled
+sentiment returns null for this count.
+
+Project overview leads with `sentiment.branded` and identifies that headline
+with `headlineQueryClass`. `pooledOverall` combines both query classes and is
+marked `pooled: true`; the deprecated `overall` alias remains for compatibility.
+Neither pooled field is a class-specific sentiment headline.

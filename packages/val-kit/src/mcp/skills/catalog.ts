@@ -33,7 +33,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "aero skill",
     description: "Diagnose AEO regressions and interpret Canonry AI visibility, Advanced multi-property portfolios, and Site Health evidence. Use when a mention or citation coverage number moved and needs explaining, when comparing Properties or markets, diagnosing crawl or page findings, preparing a client report or month-over-month comparison, or analyzing a completed `cnry` sweep or site audit. Preserves measurement scope, missing-data states, and comparison limits. Use the canonry skill for setup and operations.",
     entryPoint: true,
-    characters: 17157,
+    characters: 19031,
     content: aeroSkillPart0,
   },
   {
@@ -53,7 +53,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry Operations Guide v1",
     description: "Shared Canonry vocabulary, evidence scope, comparison rules, and authority boundaries. Read when interpreting unfamiliar data or checking an operation.",
     entryPoint: false,
-    characters: 14120,
+    characters: 14315,
     content: aeroReferencesAgentOperationsPart0,
   },
   {
@@ -83,7 +83,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Portfolio analysis",
     description: "Interpret Simple and Advanced portfolios, compare Properties and markets, trace answer evidence, and qualify missing or incompatible measurements.",
     entryPoint: false,
-    characters: 9883,
+    characters: 10787,
     content: aeroReferencesPortfolioAnalysisPart0,
   },
   {
@@ -143,7 +143,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "canonry skill",
     description: "Navigate Canonry through connected MCP tools or the `cnry` CLI to inspect evidence, diagnose changes, plan measurement, review integrations, and report results. Use this optional host-native skill for CLI workflows and detailed references; connected MCP users can operate through canonry_help without installing a local runtime or skill.",
     entryPoint: true,
-    characters: 14338,
+    characters: 14533,
     content: canonrySkillPart0,
   },
   {

@@ -143,12 +143,7 @@ export const sentimentEvidenceOutcomeFilterSchema = z.preprocess(value => {
   return items ? [...new Set(items.flatMap((item): unknown[] => typeof item === 'string' ? item.split(',').map(part => part.trim()).filter(Boolean) : [item]))] : value
 }, z.array(sentimentOutcomeSchema).min(1).max(sentimentOutcomeSchema.options.length))
 export const sentimentEvidenceRequestSchema = sentimentSelectionBaseSchema.extend({ assessmentId: id.optional(), outcome: sentimentEvidenceOutcomeFilterSchema.optional(), cursor: z.string().min(1).max(16384).optional(), limit: z.coerce.number().int().min(1).max(100).default(50) }).superRefine(exclusiveSentimentRuns)
-export const sentimentCompareRequestSchema = sentimentSelectionBaseSchema.extend({ fromRunId: id, toRunId: id }).superRefine((value, ctx) => {
-  exclusiveSentimentRuns(value, ctx)
-  if (value.runIds) ctx.addIssue({ code: 'custom', path: ['runIds'], message: 'Comparison requires one explicit run per period.' })
-  // A run compared with itself always reads "no change", which an agent would report as a trend.
-  if (value.fromRunId === value.toRunId) ctx.addIssue({ code: 'custom', path: ['toRunId'], message: 'Comparison requires two different runs; one rated run has no trend yet.' })
-})
+export const sentimentCompareRequestSchema = sentimentSelectionBaseSchema.extend({ fromRunId: id.describe('Run ID or previous-rated to select the preceding run with stored ratings in this scope.'), toRunId: id }).superRefine((value, ctx) => { exclusiveSentimentRuns(value, ctx); if (value.runIds) ctx.addIssue({ code: 'custom', path: ['runIds'], message: 'Comparison requires one explicit run per period.' }) })
 export const sentimentResolvedSelectionSchema = sentimentSelectionBaseSchema.extend({ runId: id.nullable(), revision: z.number().int().nullable(), evaluationDefinitionId: id.nullable(), mode: z.enum(['simple', 'advanced']) })
 export type SentimentResolvedSelection = z.infer<typeof sentimentResolvedSelectionSchema>
 export const sentimentCountsSchema = z.object(Object.fromEntries(sentimentOutcomeSchema.options.map(outcome => [outcome, count])) as Record<SentimentOutcome, typeof count>).strict()
@@ -165,6 +160,7 @@ export type SentimentCounts = z.infer<typeof sentimentCountsSchema>
 export const sentimentCoverageSchema = z.object({
   selected: count, eligibleAssessments: count, unadmittedAssessments: count, judged: count, distinctSourceAnswers: count,
   eligibleAnswers: count.optional(), ratedAnswers: count.optional(), ratedAnswerRate: rate.optional(),
+  subjectNotMentioned: count.nullable().optional().describe('Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.'),
   counts: sentimentCountsSchema, expectedProviderSlots: count, completedProviderSlots: count,
 }).strict()
 export const sentimentScoreSchema = z.object({ favorableRate: rate, mixedRate: rate, unfavorableRate: rate, favorableDisplay: z.string(), mixedDisplay: z.string(), unfavorableDisplay: z.string(), interval: z.object({ low: z.number(), high: z.number() }).strict().nullable(), method: z.literal('wilson-independent-v1'), limitation: z.string() }).strict()
@@ -172,9 +168,9 @@ const headlineFields = { state: sentimentStateSchema, reason: z.string().nullabl
 export const sentimentHeadlineSchema = z.object({ ...headlineFields, selection: sentimentResolvedSelectionSchema, runIds: z.array(id) }).strict()
 export type SentimentHeadline = z.infer<typeof sentimentHeadlineSchema>
 /** Overview-only combined assessment population; class-specific analysis stays separate. */
-export const sentimentOverallHeadlineSchema = z.object({ ...headlineFields, queryClass: z.literal('all'), runIds: z.array(id) }).strict()
+export const sentimentOverallHeadlineSchema = z.object({ ...headlineFields, queryClass: z.literal('all'), pooled: z.literal(true).optional(), runIds: z.array(id) }).strict()
 export type SentimentOverallHeadline = z.infer<typeof sentimentOverallHeadlineSchema>
-export const sentimentOverviewSchema = z.object({ configured: z.boolean(), branded: sentimentHeadlineSchema, nonBrand: sentimentHeadlineSchema, overall: sentimentOverallHeadlineSchema.optional() }).strict()
+export const sentimentOverviewSchema = z.object({ configured: z.boolean(), branded: sentimentHeadlineSchema, nonBrand: sentimentHeadlineSchema, headlineQueryClass: z.literal('branded').optional(), pooledOverall: sentimentOverallHeadlineSchema.optional(), overall: sentimentOverallHeadlineSchema.optional().describe('Deprecated compatibility field. Pooled branded and non-brand assessments; never use as the sentiment headline.') }).strict()
 export type SentimentOverview = z.infer<typeof sentimentOverviewSchema>
 /** Compact stored assessment metadata for exact engine rows; never carries answer text or quotes. */
 export const sentimentAssessmentSummarySchema = z.object({
@@ -292,6 +288,9 @@ export function aggregateSentiment(items: readonly SentimentAggregateItem[], opt
   for (const item of unique) counts[item.outcome]++
   const judged = counts.favorable + counts.mixed + counts.unfavorable
   const distinctSourceAnswers = new Set(unique.map(item => item.sourceSnapshotId)).size
+  const absentSources = new Set(unique.filter(item => item.outcome === SentimentOutcomes['subject-not-mentioned']).map(item => item.sourceSnapshotId))
+  for (const item of unique) if (item.outcome !== SentimentOutcomes['subject-not-mentioned']) absentSources.delete(item.sourceSnapshotId)
+  const subjectNotMentioned = options.disabled ? null : absentSources.size
   const ratedInItems = new Set(unique.filter(item => JUDGED_OUTCOMES.has(item.outcome)).map(item => item.sourceSnapshotId)).size
   const ratedAnswers = Math.max(options.ratedAnswers ?? ratedInItems, ratedInItems)
   const eligibleAnswers = Math.max(options.eligibleAnswers ?? distinctSourceAnswers, distinctSourceAnswers)
@@ -304,7 +303,7 @@ export function aggregateSentiment(items: readonly SentimentAggregateItem[], opt
   const unfavorableRate = judged && !options.disabled ? counts.unfavorable / judged : null
   return {
     state, provisional,
-    coverage: { selected: unique.length, eligibleAssessments: Math.max(options.eligibleAssessments ?? unique.length, unique.length), unadmittedAssessments: Math.max(0, (options.eligibleAssessments ?? unique.length) - unique.length), judged, distinctSourceAnswers, eligibleAnswers, ratedAnswers, ratedAnswerRate, counts, expectedProviderSlots: options.expectedProviderSlots ?? 0, completedProviderSlots: options.completedProviderSlots ?? 0 },
+    coverage: { selected: unique.length, eligibleAssessments: Math.max(options.eligibleAssessments ?? unique.length, unique.length), unadmittedAssessments: Math.max(0, (options.eligibleAssessments ?? unique.length) - unique.length), judged, distinctSourceAnswers, eligibleAnswers, ratedAnswers, ratedAnswerRate, subjectNotMentioned, counts, expectedProviderSlots: options.expectedProviderSlots ?? 0, completedProviderSlots: options.completedProviderSlots ?? 0 },
     score: { favorableRate, mixedRate, unfavorableRate, favorableDisplay: sentimentRateDisplay(favorableRate), mixedDisplay: sentimentRateDisplay(mixedRate), unfavorableDisplay: sentimentRateDisplay(unfavorableRate), interval: options.disabled ? null : wilsonInterval(counts.favorable, judged), method: 'wilson-independent-v1' as const, limitation: SENTIMENT_INTERVAL_LIMITATION },
   }
 }

@@ -4094,12 +4094,12 @@ export class ApiClient {
   }
 
   /** Persisted full-crawl metadata. This never synthesizes a graph from legacy audit rows. */
-  async getTechnicalAeoCrawl(project: string, opts?: { runId?: string }): Promise<SiteCrawlSummaryDto> {
+  async getTechnicalAeoCrawl(project: string, opts?: { runId?: string; date?: string }): Promise<SiteCrawlSummaryDto> {
     return this.invoke<SiteCrawlSummaryDto>(() =>
       getApiV1ProjectsByNameTechnicalAeoCrawl({
         client: this.heyClient,
         path: { name: project },
-        query: { runId: opts?.runId },
+        query: { runId: opts?.runId, date: opts?.date },
       }),
     )
   }
@@ -4172,6 +4172,7 @@ export class ApiClient {
     project: string,
     opts?: {
       runId?: string
+      date?: string
       inventoryEligible?: boolean
       fetchState?: string
       indexabilityState?: string
@@ -4187,6 +4188,7 @@ export class ApiClient {
         path: { name: project },
         query: {
           runId: opts?.runId,
+          date: opts?.date,
           inventoryEligible: opts?.inventoryEligible,
           fetchState: opts?.fetchState,
           indexabilityState: opts?.indexabilityState,

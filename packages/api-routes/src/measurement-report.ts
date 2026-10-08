@@ -725,6 +725,26 @@ export function targetMentionedInAnswer(
   return state.unknown.has(targetId) ? null : state.mentioned.has(targetId)
 }
 
+/** Prepared frozen identities for repeated answer reads, preserving ambiguous matches. */
+export function createTargetMentionReader(targets: readonly MeasurementTargetInput[], ownedHosts: readonly string[] = []): (answerText: string | null, targetIds: readonly string[], citedUrls?: readonly string[]) => boolean | null {
+  const compiledAliases = compiledMentionAliases(targets)
+  const mentionableIds = new Set(compiledAliases.map(alias => alias.targetId))
+  const aliases = indexMentionAliases(compiledAliases)
+  const ambiguityPatterns = new Map(targets.map(target => [target.id, identityAmbiguityPatterns(target.aliases)]))
+  const routes = compiledTargetRoutes(targets)
+  const normalizedOwnedHosts = ownedHosts.map(normalizedHost)
+  return (answerText, targetIds, citedUrls = []) => {
+    if (answerText === null || targetIds.length === 0) return null
+    const citedTargetIds = new Set(citedUrls.flatMap(url => {
+      const source = classifySourceAttribution(url, routes, normalizedOwnedHosts)
+      return source.classification === 'matched' ? source.matchedTargetIds : []
+    }))
+    const state = resolveMentionIdentity(answerProseForMentions(answerText), targets, aliases, citedTargetIds, ambiguityPatterns)
+    if (targetIds.some(id => state.mentioned.has(id))) return true
+    return targetIds.some(id => !mentionableIds.has(id) || state.unknown.has(id)) ? null : false
+  }
+}
+
 function observationSource(observation: MeasurementObservationInput): {
   urls: string[]
   historical: boolean

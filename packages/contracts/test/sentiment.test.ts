@@ -133,8 +133,11 @@ describe('sentiment measurement invariants', () => {
   it('keeps absent subjects and canceled work outside the judged denominator', () => {
     expect(aggregateSentiment([{ ...canonical[0]!, outcome: 'canceled' }])).toMatchObject({ state: 'canceled', coverage: { selected: 1, judged: 0, counts: { canceled: 1 } } })
     const result = aggregateSentiment([{ ...canonical[0]!, outcome: 'subject-not-mentioned' }, canonical[1]!])
-    expect(result.coverage).toMatchObject({ selected: 2, judged: 1, counts: { 'subject-not-mentioned': 1, unfavorable: 0 } })
+    expect(result.coverage).toMatchObject({ selected: 2, judged: 1, subjectNotMentioned: 1, counts: { 'subject-not-mentioned': 1, unfavorable: 0 } })
     expect(result.score.favorableRate).toBe(1)
+    const shared = [{ ...canonical[0]!, outcome: 'subject-not-mentioned' as const }, { ...canonical[1]!, sourceSnapshotId: canonical[0]!.sourceSnapshotId }]
+    expect(aggregateSentiment([...shared, shared[0]!]).coverage).toMatchObject({ selected: 2, distinctSourceAnswers: 1, ratedAnswers: 1, subjectNotMentioned: 0 })
+    expect(aggregateSentiment(shared, { disabled: true }).coverage.subjectNotMentioned).toBeNull()
   })
   it('pins the stance-only evaluator identity independently of answer text', () => {
     const definition = createSentimentEvaluationDefinition()
@@ -188,9 +191,6 @@ describe('sentiment measurement invariants', () => {
     expect(sentimentSelectionSchema.safeParse({ runId: 'one', runIds: ['two'] }).success).toBe(false)
     expect(sentimentSelectionSchema.safeParse({ runIds: ['one', 'one'] }).success).toBe(false)
     expect(sentimentCompareRequestSchema.safeParse({ fromRunId: 'one', toRunId: 'two', runIds: ['one', 'two'] }).success).toBe(false)
-    const sameRun = sentimentCompareRequestSchema.safeParse({ fromRunId: 'one', toRunId: 'one' })
-    expect(sameRun.success).toBe(false)
-    expect(JSON.stringify(sameRun.error?.issues)).toContain('two different runs')
   })
   it('displays zero, full, small and rounded proportions honestly', () => {
     expect([null, 0, 1, 0.0004, 0.001, 0.0049, 0.01, 0.599, 199 / 200, 0.9996].map(sentimentRateDisplay))

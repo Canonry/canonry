@@ -14,6 +14,15 @@ import { createCanonryMcpServer, createCanonryMcpServerWithCatalog, getCanonryMc
 import { jsonToolResult, withToolErrors } from '../src/mcp/results.js'
 import { CANONRY_MCP_TIERS, CANONRY_MCP_TOOLKITS } from '../src/mcp/toolkits.js'
 
+/** These stored reads now request the API's compact page by default. */
+function compactMeasurementCase(scenario: NativeDispatchCase): NativeDispatchCase {
+  if (scenario.tool !== 'canonry_measurement_overview' && scenario.tool !== 'canonry_measurement_portfolio_summary') return scenario
+  return {
+    ...scenario,
+    requests: scenario.requests.map(request => ({ ...request, query: [['compact', 'true'], ...request.query] })),
+  }
+}
+
 const expectedToolNames = [
   'canonry_sentiment_settings',
   'canonry_sentiment_configure',
@@ -522,20 +531,10 @@ describe('MCP tool registry', () => {
   it('defaults MCP portfolio comparisons to non-brand without overriding an explicit class', async () => {
     const fixture = await startNativeMcpDispatchFixture()
     try {
-      for (const scenario of selectNativeDispatchCases(dedicatedDispatchCases, 'portfolio-defaults')) await fixture.verify(scenario)
+      for (const scenario of selectNativeDispatchCases(dedicatedDispatchCases, 'portfolio-defaults')) await fixture.verify(compactMeasurementCase(scenario))
     } finally {
       await fixture.close()
     }
-  })
-
-  it('documents the portfolio summary inputs that keep its result under the tool-result cap', () => {
-    const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_measurement_portfolio_summary')!
-    const shape = tool.inputSchema.shape
-    expect(shape.limit!.description).toContain('Default 4')
-    expect(shape.groupKey!.description).toContain('metro.groupKey')
-    expect(shape.includeNestedMarkets!.description).toContain('Off by default')
-    expect(tool.inputSchema.parse({ project: 'acme', groupKey: 'metro-a', includeNestedMarkets: true, limit: 4 }))
-      .toEqual({ project: 'acme', groupKey: 'metro-a', includeNestedMarkets: true, limit: 4, queryClass: 'non-brand' })
   })
 
   it('reads analytics sources without the per-query breakdown unless asked, forwarding run and class', async () => {
@@ -565,49 +564,6 @@ describe('MCP tool registry', () => {
     } finally {
       await fixture.close()
     }
-  })
-
-  it('lowers an agent portfolio limit to the rows that fit one result, and drops the deprecated name copy', async () => {
-    const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_measurement_portfolio_summary')!
-    const row = {
-      targetKey: 'harbor', label: 'Harbor', namedInsteadInAnswerText: [{ name: 'Bayside', answers: 3 }], namedInsteadInAnswerTextTotal: 1,
-      recommendedInstead: [{ name: 'Bayside', occurrences: 3 }], recommendedInsteadTotal: 1, recommendedInsteadTruncated: false,
-    }
-    const getMeasurementPortfolioSummary = vi.fn().mockResolvedValue({ queryClass: 'non-brand', weakestProperties: [row], markets: [] })
-    const client = { getMeasurementPortfolioSummary } as unknown as ApiClient
-
-    // Portfolio-wide, 4 rows fit: a larger limit is lowered and the result says so first.
-    const lowered = await tool.handler(client, { project: 'acme', queryClass: 'non-brand', limit: 6 }) as Record<string, unknown>
-    expect(getMeasurementPortfolioSummary).toHaveBeenLastCalledWith('acme', { queryClass: 'non-brand', limit: 4 })
-    expect(Object.keys(lowered)[0]).toBe('limitNote')
-    expect(lowered.limitNote).toBe('limit 6 was lowered to 4, the most rows that fit one result. For other rows pass groupKey (one metro\'s weakest), or page canonry_measurement_overview.')
-    expect(lowered.weakestProperties).toEqual([{ targetKey: 'harbor', label: 'Harbor', namedInsteadInAnswerText: [{ name: 'Bayside', answers: 3 }], namedInsteadInAnswerTextTotal: 1 }])
-    expect(lowered).toMatchObject({ queryClass: 'non-brand', markets: [] })
-
-    // A metro lists every one of its submarkets, so its rows are capped at 4 too.
-    const scoped = await tool.handler(client, { project: 'acme', queryClass: 'non-brand', groupKey: 'metro-east', limit: 6 }) as Record<string, unknown>
-    expect(getMeasurementPortfolioSummary).toHaveBeenLastCalledWith('acme', { queryClass: 'non-brand', groupKey: 'metro-east', limit: 4 })
-    expect(Object.keys(scoped)[0]).toBe('limitNote')
-    expect(scoped.limitNote).toBe('limit 6 was lowered to 4, the most rows that fit one result. For more rows page canonry_measurement_overview with scope group.')
-    await tool.handler(client, { project: 'acme', queryClass: 'non-brand', groupKey: 'metro-east', limit: 4 })
-    expect(getMeasurementPortfolioSummary).toHaveBeenLastCalledWith('acme', { queryClass: 'non-brand', groupKey: 'metro-east', limit: 4 })
-
-    // A limit that fits, or none, passes through unchanged.
-    await tool.handler(client, { project: 'acme', queryClass: 'non-brand', limit: 3 })
-    expect(getMeasurementPortfolioSummary).toHaveBeenLastCalledWith('acme', { queryClass: 'non-brand', limit: 3 })
-    const plain = await tool.handler(client, { project: 'acme', queryClass: 'non-brand' }) as Record<string, unknown>
-    expect(getMeasurementPortfolioSummary).toHaveBeenLastCalledWith('acme', { queryClass: 'non-brand' })
-    expect(plain).not.toHaveProperty('limitNote')
-
-    // The schema keeps the earlier maximum of 10, so a larger request is lowered with a note, not refused.
-    expect(tool.inputSchema.safeParse({ project: 'acme', limit: 10 }).success).toBe(true)
-    expect(tool.inputSchema.safeParse({ project: 'acme', limit: 11 }).success).toBe(false)
-    expect(schemaProperty(inputSchemaFor(tool.name), 'limit')).toMatchObject({ maximum: 10 })
-    await tool.handler(client, { project: 'acme', queryClass: 'non-brand', limit: 10 })
-    expect(getMeasurementPortfolioSummary).toHaveBeenLastCalledWith('acme', { queryClass: 'non-brand', limit: 4 })
-    expect(tool.description).toContain('markets lists every market at one level')
-    expect(tool.description).toContain('tiedAtWeakest.byMetro')
-    expect(tool.description).toContain('tiedAtWeakest.namedInstead')
   })
 
   it('defaults an agent\'s Property and change reads to non-brand without overriding an explicit class', async () => {
@@ -659,7 +615,7 @@ describe('MCP tool registry', () => {
   it('forwards measurement-plan inputs to the matching ApiClient methods', async () => {
     const fixture = await startNativeMcpDispatchFixture()
     try {
-      for (const scenario of selectNativeDispatchCases(dedicatedDispatchCases, 'measurement-wire')) await fixture.verify(scenario)
+      for (const scenario of selectNativeDispatchCases(dedicatedDispatchCases, 'measurement-wire')) await fixture.verify(compactMeasurementCase(scenario))
     } finally {
       await fixture.close()
     }
@@ -1033,6 +989,7 @@ describe('MCP tool registry', () => {
       search: 'harbor',
       cursor: 'next-page',
       limit: 100,
+      compact: true,
     })
     expect(() => measurementOverview?.inputSchema.parse({ project: 'acme', scope: 'all', limit: 101 })).toThrow()
     expect(() => measurementOverview?.inputSchema.parse({ project: 'acme', scope: 'property' })).toThrow()

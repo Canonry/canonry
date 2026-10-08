@@ -6,6 +6,7 @@
  * must describe precisely what that immutable run measured.
  */
 
+import { createHash } from 'node:crypto'
 import { and, desc, eq, inArray, lt, or } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
@@ -15,9 +16,12 @@ import {
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
   MEASUREMENT_PORTFOLIO_ANSWER_SOURCES_LIMIT,
   MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT,
+  MEASUREMENT_PORTFOLIO_DEFAULT_ROW_EVIDENCE_LIMIT,
   MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT,
   MEASUREMENT_PORTFOLIO_TIE_NAMED_INSTEAD_LIMIT,
   MEASUREMENT_PORTFOLIO_TIE_NOTE,
+  MEASUREMENT_PORTFOLIO_WEAKEST_MARKET_LIMIT,
+  MeasurementPortfolioLists,
   MEASUREMENT_PROPERTY_CITED_DOMAINS_LIMIT,
   RunKinds,
   RunStatuses,
@@ -35,6 +39,7 @@ import {
   measurementPropertyCompetitorsQuerySchema,
   measurementPropertyCompetitorsResponseSchema,
   notFound,
+  registrableDomain,
   validationError,
   type MeasurementChangesQuery,
   type MeasurementChangesResponse,
@@ -49,6 +54,7 @@ import {
   type MeasurementPortfolioSummaryQuery,
   type MeasurementPortfolioWeakestTie,
   type MeasurementPortfolioSummaryResponse,
+  type MeasurementPortfolioWeakestMarkets,
   type MeasurementPropertyCompetitorsQuery,
   type MeasurementPropertyCompetitorsResponse,
   type MeasurementQueryClassFilter,
@@ -78,10 +84,12 @@ import {
 import { comparableMeasurementVersionIds, measurementRunExpectedSlots } from './measurement-report-adapter.js'
 import { measurementRunCompleteness } from './measurement-run-completeness.js'
 import { formatRunFill } from './run-fill.js'
+import { snapshotEvidenceFingerprint } from './snapshot-evidence-fingerprint.js'
+import { observedCompetitorNames } from './mention-share-inputs.js'
 
 /**
- * Compact demo lists intentionally stop at ten unless the caller asks for more.
- * The portfolio summary stops at `MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT` instead.
+ * Property competitor lists default to ten rows. Raw portfolio rankings default
+ * to four; compact selected-list pages auto-size up to fifty under their budget.
  */
 const DEFAULT_LIMIT = 10
 
@@ -192,6 +200,13 @@ function coverageMetric(rate: MeasurementRate): MetricValue {
 function countMetric(rate: MeasurementRate): MetricValue {
   if (rate.numerator === null) return unavailable(metricReason(rate.reason))
   return { state: 'available', value: rate.numerator, numerator: rate.numerator, denominator: rate.denominator }
+}
+
+function neverMentionedMetric(rate: MeasurementRate, propertyCount: number): MetricValue {
+  if (rate.numerator === null || rate.denominator === null) return unavailable(metricReason(rate.reason))
+  if (rate.denominator !== propertyCount) return unavailable('not_applicable')
+  const neverMentioned = rate.denominator - rate.numerator
+  return { state: 'available', value: neverMentioned, numerator: neverMentioned, denominator: rate.denominator }
 }
 
 /** The materializer reads through its explicit DB argument; the report kernel never does. */
@@ -418,7 +433,8 @@ function domainRows(
 ): { rows: Array<{ domain: string; answers: number }>; total: number } {
   const counts = new Map<string, number>()
   for (const answer of answers) {
-    for (const domain of answerDomains(answer)) counts.set(domain, (counts.get(domain) ?? 0) + 1)
+    const domains = new Set([...answerDomains(answer)].map(host => registrableDomain(host) || host))
+    for (const domain of domains) counts.set(domain, (counts.get(domain) ?? 0) + 1)
   }
   const rows = [...counts]
     .map(([domain, count]) => ({ domain, answers: count }))
@@ -506,8 +522,8 @@ function recommendationRows(
  * deprecated one existing consumers still read. Both carry the same names in
  * the same order; `occurrences` is the same per-answer count as `answers`.
  */
-function namedInsteadFields(names: readonly RecommendationRow[]) {
-  const returned = names.slice(0, MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT)
+function namedInsteadFields(names: readonly RecommendationRow[], limit = MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT) {
+  const returned = names.slice(0, limit)
   return {
     namedInsteadInAnswerText: returned.map(({ name, occurrences }) => ({ name, answers: occurrences })),
     namedInsteadInAnswerTextTotal: names.length,
@@ -657,6 +673,7 @@ function marketRollup(
         ...identity,
         propertyCount: group.targetKeys.length,
         propertiesMentioned: unavailable('no_completed_run'),
+        propertiesNeverMentioned: unavailable('no_completed_run'),
         mentionCoverage: unavailable('no_completed_run'),
         citationCoverage: unavailable('no_completed_run'),
       }
@@ -672,11 +689,26 @@ function marketRollup(
       ...identity,
       propertyCount: targetKeys.length,
       propertiesMentioned: countMetric(overview.propertiesMentioned),
+      propertiesNeverMentioned: neverMentionedMetric(overview.propertiesMentioned, targetKeys.length),
       mentionCoverage: coverageMetric(overview.mentionCoverage),
       citationCoverage: coverageMetric(overview.citationCoverage),
     }
   }).sort(compareWeakestMarket)
   return { markets, totalMarkets: markets.length, marketsTruncated: false }
+}
+
+/** Rank complete top-level market populations, never a Property tie cohort or a paged market sample. */
+function weakestMarkets(markets: readonly MeasurementPortfolioMarket[], queryClass: MeasurementQueryClassFilter): MeasurementPortfolioWeakestMarkets {
+  const topLevel = markets.filter(market => market.parentGroupKey === null)
+  const eligible = topLevel.flatMap(market => market.mentionCoverage.state === 'available' && market.citationCoverage.state === 'available'
+    ? [{ ...market, mentionCoverage: market.mentionCoverage, citationCoverage: market.citationCoverage }]
+    : [])
+  return {
+    population: 'top-level-markets', queryClass, totalMarkets: topLevel.length,
+    eligibleMarketCount: eligible.length, excludedMarketCount: topLevel.length - eligible.length,
+    items: eligible.sort(compareWeakestMarket).slice(0, MEASUREMENT_PORTFOLIO_WEAKEST_MARKET_LIMIT)
+      .map(({ groupKey, label, propertyCount, mentionCoverage, citationCoverage }) => ({ groupKey, label, propertyCount, mentionCoverage, citationCoverage })),
+  }
 }
 
 /**
@@ -743,6 +775,186 @@ function mentionRanking(
   }
 }
 
+interface PortfolioCursor {
+  v: 1
+  runId: string | null
+  versionId: string
+  filters: string
+  evidence: string
+  offsets: number[]
+  sourceLimit: number
+}
+
+function portfolioFilterFingerprint(query: MeasurementPortfolioSummaryQuery): string {
+  return createHash('sha256').update(JSON.stringify([
+    query.groupKey ?? null, query.queryClass, query.provider ?? null,
+    query.location === undefined ? null : normalizeMeasurementLocation(query.location),
+    query.includeNestedMarkets ?? false, query.answers === 'not-mentioned' ? query.answers : null, query.list ?? MeasurementPortfolioLists['weakest-properties'],
+  ])).digest('base64url')
+}
+
+function portfolioCursor(query: MeasurementPortfolioSummaryQuery, versionId: string): PortfolioCursor | undefined {
+  if (query.cursor === undefined) return undefined
+  if (!query.compact) throw validationError('A portfolio cursor requires compact=true.')
+  let value: unknown
+  try {
+    value = JSON.parse(Buffer.from(query.cursor, 'base64url').toString('utf8'))
+  } catch {
+    throw validationError('Invalid measurement portfolio cursor.')
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw validationError('Invalid measurement portfolio cursor.')
+  const cursor = value as Record<string, unknown>
+  if (cursor.v !== 1 || (cursor.runId !== null && typeof cursor.runId !== 'string')
+    || cursor.versionId !== versionId || cursor.filters !== portfolioFilterFingerprint(query)
+    || typeof cursor.evidence !== 'string' || !Array.isArray(cursor.offsets)
+    || !Number.isSafeInteger(cursor.sourceLimit) || Number(cursor.sourceLimit) < 1 || Number(cursor.sourceLimit) > 50
+    || cursor.offsets.length !== 7 || cursor.offsets.some(offset => !Number.isSafeInteger(offset) || Number(offset) < 0)
+    || (query.runId !== undefined && cursor.runId !== query.runId)) {
+    throw validationError('The measurement portfolio cursor does not match the run, revision or filters.')
+  }
+  return cursor as unknown as PortfolioCursor
+}
+
+/** One cursor enumerates one list; other default first-page lists are bounded summaries. */
+function compactPortfolioPage(
+  response: MeasurementPortfolioSummaryResponse,
+  query: MeasurementPortfolioSummaryQuery,
+  versionId: string,
+  evidence: string,
+  cursor: PortfolioCursor | undefined,
+): MeasurementPortfolioSummaryResponse {
+  if (!query.compact) {
+    if (query.list !== undefined) throw validationError('A portfolio list requires compact=true.')
+    return measurementPortfolioSummaryResponseSchema.parse(response)
+  }
+  if (cursor !== undefined && (cursor.evidence !== evidence || cursor.runId !== response.measurement.displayedRunId)) {
+    throw validationError('The measurement portfolio cursor evidence changed between pages.')
+  }
+  const lists = [
+    MeasurementPortfolioLists['weakest-properties'], MeasurementPortfolioLists['strongest-mentions'],
+    MeasurementPortfolioLists['weakest-mentions'], MeasurementPortfolioLists['excluded-mentions'],
+    MeasurementPortfolioLists.markets, MeasurementPortfolioLists['observed-names'], MeasurementPortfolioLists['cited-domains'],
+  ]
+  const paths = ['weakestProperties', 'mentionRanking.strongest', 'mentionRanking.weakest', 'mentionRanking.excluded',
+    'markets', 'answerEvidence.observedNames', 'answerEvidence.citedDomains']
+  const pageList = query.list ?? MeasurementPortfolioLists['weakest-properties']
+  const selected = lists.indexOf(pageList)
+  const arrays = [
+    response.weakestProperties, response.mentionRanking.strongest,
+    response.mentionRanking.weakest, response.mentionRanking.excluded,
+    response.markets, response.answerEvidence?.observedNames ?? [],
+    response.answerEvidence?.citedDomains ?? [],
+  ]
+  const offsets = cursor?.offsets ?? arrays.map(() => 0)
+  if (arrays.some((rows, index) => offsets[index]! > rows.length)) throw validationError('Invalid measurement portfolio cursor offset.')
+  const requested = Math.min(query.limit ?? 50, arrays[selected]!.length - offsets[selected]!)
+  const initialSummaryLimit = query.list === undefined && cursor === undefined ? MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT : 0
+  const build = (count: number, summaryLimit: number): MeasurementPortfolioSummaryResponse => {
+    const pages = arrays.map((rows, index) => index === selected
+      ? rows.slice(offsets[index], offsets[index]! + count) : rows.slice(0, summaryLimit))
+    const nextOffsets = offsets.map((offset, index) => index === selected ? offset + count : offset)
+    const hasMore = nextOffsets[selected]! < arrays[selected]!.length
+    const omitted = paths.filter((_, index) => index !== selected && pages[index]!.length < arrays[index]!.length)
+    return {
+      ...response,
+      pageList,
+      detailsOmitted: [...(response.detailsOmitted ?? []), ...omitted],
+      weakestProperties: pages[0] as MeasurementPortfolioSummaryResponse['weakestProperties'],
+      mentionRanking: {
+        ...response.mentionRanking,
+        strongest: pages[1] as MeasurementPortfolioSummaryResponse['mentionRanking']['strongest'],
+        weakest: pages[2] as MeasurementPortfolioSummaryResponse['mentionRanking']['weakest'],
+        excluded: pages[3] as MeasurementPortfolioSummaryResponse['mentionRanking']['excluded'],
+        excludedTotal: response.mentionRanking.excluded.length,
+        truncated: pages[1]!.length < response.mentionRanking.eligiblePropertyCount || pages[2]!.length < response.mentionRanking.eligiblePropertyCount,
+      },
+      markets: pages[4] as MeasurementPortfolioSummaryResponse['markets'],
+      marketsTruncated: pages[4]!.length < response.totalMarkets,
+      truncated: pages[0]!.length < response.totalProperties,
+      ...(response.answerEvidence === undefined ? {} : {
+        answerEvidence: {
+          ...response.answerEvidence,
+          observedNames: pages[5] as NonNullable<MeasurementPortfolioSummaryResponse['answerEvidence']>['observedNames'],
+          citedDomains: pages[6] as NonNullable<MeasurementPortfolioSummaryResponse['answerEvidence']>['citedDomains'],
+        },
+      }),
+      nextCursor: hasMore ? Buffer.from(JSON.stringify({
+        v: 1, runId: response.measurement.displayedRunId, versionId,
+        filters: portfolioFilterFingerprint(query), evidence, offsets: nextOffsets,
+        sourceLimit: cursor?.sourceLimit ?? query.limit ?? MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT,
+      } satisfies PortfolioCursor)).toString('base64url') : null,
+    }
+  }
+  const fits = (page: MeasurementPortfolioSummaryResponse) => JSON.stringify(page, null, 2).length <= 18_000
+  // A terminal full page has no cursor and may fit when shorter pages do not.
+  const initialComplete = build(requested, initialSummaryLimit)
+  if (fits(initialComplete)) return measurementPortfolioSummaryResponseSchema.parse(initialComplete)
+  const minimum = Math.min(1, requested)
+  // Find a summary size that leaves room for at least one whole selected row.
+  // The summary cap is four, so this needs at most three serializations.
+  let summaryLow = 0
+  let summaryHigh = initialSummaryLimit
+  let summaryLimit = 0
+  while (summaryLow <= summaryHigh) {
+    const candidate = Math.floor((summaryLow + summaryHigh) / 2)
+    if (fits(build(minimum, candidate))) { summaryLimit = candidate; summaryLow = candidate + 1 }
+    else summaryHigh = candidate - 1
+  }
+  const complete = build(requested, summaryLimit)
+  if (fits(complete)) return measurementPortfolioSummaryResponseSchema.parse(complete)
+  let page = build(minimum, summaryLimit)
+  if (!fits(page)) throw validationError('One portfolio row or its metadata exceeds the compact page budget. Read a narrower scope without compact=true.')
+  // Page sizes are at most 50: logarithmic whole-page sizing replaces repeated
+  // per-row serialization of all seven lists.
+  let low = minimum + 1
+  let high = requested
+  while (low <= high) {
+    const count = Math.floor((low + high) / 2)
+    const candidate = build(count, summaryLimit)
+    if (fits(candidate)) { page = candidate; low = count + 1 }
+    else high = count - 1
+  }
+  return measurementPortfolioSummaryResponseSchema.parse(page)
+}
+
+function portfolioAnswerEvidence(
+  plan: MeasurementPlanV2,
+  materialized: MaterializedRun,
+  filters: MeasurementFilters,
+  targetKeys: readonly string[],
+): NonNullable<MeasurementPortfolioSummaryResponse['answerEvidence']> {
+  const targets = new Set(targetKeys)
+  const executions = new Set(plan.assignments.filter(assignment => targets.has(assignment.targetKey)
+    && (filters.queryClass === 'all' || assignment.queryClass === filters.queryClass)).map(assignment => assignment.executionNodeKey))
+  const slots = materialized.input.expectedSlots.filter(slot => executions.has(slot.executionId)
+    && (filters.provider === undefined || normalizeText(slot.provider) === normalizeText(filters.provider))
+    && (filters.location === undefined || normalizeMeasurementLocation(slot.location) === normalizeMeasurementLocation(filters.location)))
+  const mentionsBySlot = new Map<string, Array<boolean | null>>()
+  for (const answer of materialized.evidence.answers) pushTo(mentionsBySlot, answer.expectedSlotId, answer.mentioned)
+  const selected: SourceAnswer[] = []
+  let unknownMentionAnswers = 0
+  for (const slot of slots) {
+    const mentions = mentionsBySlot.get(slot.id)
+    // Any named target disqualifies the answer, including one outside the
+    // selected group that shared this execution. Unknown never means absent.
+    if (mentions?.some(mentioned => mentioned === true)) continue
+    const observation = materialized.observationsBySlot.get(slot.id)
+    const snapshot = observation === undefined ? undefined : materialized.snapshotsById.get(observation.id)
+    if (!snapshot || snapshot.answerText === null || !mentions?.length || mentions.some(mentioned => mentioned === null)) {
+      unknownMentionAnswers++
+      continue
+    }
+    selected.push({ slotId: slot.id, snapshot, citedUrls: observation!.citedUrls ?? observation!.historicalCitedUrls ?? [] })
+  }
+  const names = observedCompetitorNames(selected.map(answer => answer.snapshot))
+  const domains = domainRows(selected, Number.POSITIVE_INFINITY)
+  return {
+    answers: 'not-mentioned', populationSize: slots.length, answerCount: selected.length,
+    unknownMentionAnswers, observedNames: names, observedNamesTotal: names.length,
+    citedDomains: domains.rows, citedDomainsTotal: domains.total,
+  }
+}
+
 function portfolioResponse(
   db: DatabaseClient,
   active: ActiveMeasurementPlan,
@@ -750,8 +962,13 @@ function portfolioResponse(
   query: MeasurementPortfolioSummaryQuery,
   ownDomains: readonly string[],
 ): MeasurementPortfolioSummaryResponse {
+  if ((query.list === MeasurementPortfolioLists['observed-names'] || query.list === MeasurementPortfolioLists['cited-domains'])
+    && query.answers !== 'not-mentioned') {
+    throw validationError('Portfolio evidence lists require answers=not-mentioned.')
+  }
   const group = query.groupKey === undefined ? undefined : requireGroup(plan, query.groupKey)
-  const run = selectMeasurementQuestionRun(db, active.version.projectId, active, query.runId)
+  const cursor = portfolioCursor(query, active.version.id)
+  const run = selectMeasurementQuestionRun(db, active.version.projectId, active, query.runId ?? cursor?.runId ?? undefined)
   const requestedTargetKeys = group?.targetKeys ?? plan.targets.map(target => target.stableKey)
   const targetKeys = targetKeysForRun(plan, run, requestedTargetKeys, false)
   const targets = targetKeys.map(targetKey => requireTarget(plan, targetKey))
@@ -767,6 +984,7 @@ function portfolioResponse(
   const locate = propertyLocations(plan)
 
   if (!run) {
+    const markets = marketRollup(plan, undefined, group, includeNestedMarkets)
     const rows = targets.map(target => ({
       ...propertyDto(target),
       ...locate(target.stableKey),
@@ -778,27 +996,35 @@ function portfolioResponse(
       citedDomains: [],
       citedDomainsTotal: 0,
     })).sort(compareWeakest)
-    return measurementPortfolioSummaryResponseSchema.parse({
+    const response: MeasurementPortfolioSummaryResponse = {
       portfolio: { groupKey: group?.stableKey ?? null, label: group?.label ?? null, measurementScope: null },
       measurement,
       queryClass: query.queryClass,
       engines: [],
       metrics: {
         propertiesMentioned: unavailable('no_completed_run'),
+        propertiesNeverMentioned: unavailable('no_completed_run'),
         mentionCoverage: unavailable('no_completed_run'),
         citationCoverage: unavailable('no_completed_run'),
       },
-      weakestProperties: rows.slice(0, limit),
+      ...(query.compact && group === undefined ? { weakestMarkets: weakestMarkets(markets.markets, query.queryClass) } : {}),
+      weakestProperties: query.compact ? rows.map(({ namedInsteadInAnswerText: _names, namedInsteadInAnswerTextTotal: _namesTotal,
+        recommendedInstead: _recommended, recommendedInsteadTotal: _recommendedTotal, recommendedInsteadTruncated: _recommendedTruncated,
+        citedDomains: _domains, citedDomainsTotal: _domainsTotal, ...row }) => row) : rows.slice(0, limit),
       tiedAtWeakest: null,
       weakestAnswerSources: null,
-      mentionRanking: mentionRanking(rows, limit),
+      mentionRanking: mentionRanking(rows, query.compact ? Number.POSITIVE_INFINITY : limit),
       // Sorted through the same comparator as the measured branch. Plan order
       // is `stableKey`, so emitting it raw put markets in an order the schema
       // documents as worst-first and that changes the moment a run lands.
-      ...marketRollup(plan, undefined, group, includeNestedMarkets),
+      ...markets,
       totalProperties: rows.length,
       truncated: rows.length > limit,
-    })
+      ...((query.compact || query.answers === 'not-mentioned') ? {
+        detailsOmitted: [...(query.compact ? ['weakestProperties.answerEvidence'] : []), ...(query.answers === 'not-mentioned' ? ['answerEvidence.noCompletedRun'] : [])],
+      } : {}),
+    }
+    return compactPortfolioPage(response, query, active.version.id, 'no-run', cursor)
   }
 
   const { materialized, overview, evaluator } = filteredOverviewWithDb(db, active, plan, run, filters, targetKeys)
@@ -820,11 +1046,13 @@ function portfolioResponse(
     }
   }).sort(compareWeakest)
   const displayed = ranked.slice(0, limit)
-  const rows = displayed.map(({ target, population, ...row }) => {
-    const domains = domainRows(population.sourceAnswers, MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT)
+  const rows = (query.compact ? ranked : displayed).map(({ target, population, ...row }) => {
+    if (query.compact) return row
+    const evidenceLimit = query.limit === undefined ? MEASUREMENT_PORTFOLIO_DEFAULT_ROW_EVIDENCE_LIMIT : MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT
+    const domains = domainRows(population.sourceAnswers, evidenceLimit)
     return {
       ...row,
-      ...namedInsteadFields(recommendationRows(target, population)),
+      ...namedInsteadFields(recommendationRows(target, population), evidenceLimit),
       citedDomains: domains.rows,
       citedDomainsTotal: domains.total,
     }
@@ -832,7 +1060,10 @@ function portfolioResponse(
   const tie = weakestTie(ranked)
   const engines = new Set<string>()
   for (const population of populations.values()) for (const provider of population.providers) engines.add(provider)
-  return measurementPortfolioSummaryResponseSchema.parse({
+  const answerEvidence = query.answers !== 'not-mentioned' ? undefined : portfolioAnswerEvidence(plan, materialized, filters, targetKeys)
+  const sourceRows = query.compact ? ranked.slice(0, cursor?.sourceLimit ?? limit) : displayed
+  const markets = marketRollup(plan, { run, evaluator }, group, includeNestedMarkets)
+  const response: MeasurementPortfolioSummaryResponse = {
     portfolio: {
       groupKey: group?.stableKey ?? null,
       label: group?.label ?? null,
@@ -843,17 +1074,35 @@ function portfolioResponse(
     engines: [...engines].sort(compareText),
     metrics: {
       propertiesMentioned: countMetric(overview.propertiesMentioned),
+      propertiesNeverMentioned: neverMentionedMetric(overview.propertiesMentioned, targetKeys.length),
       mentionCoverage: coverageMetric(overview.mentionCoverage),
       citationCoverage: coverageMetric(overview.citationCoverage),
     },
+    ...(query.compact && group === undefined ? { weakestMarkets: weakestMarkets(markets.markets, query.queryClass) } : {}),
     weakestProperties: rows,
-    tiedAtWeakest: tie.summary,
-    weakestAnswerSources: weakestAnswerSources([...displayed, ...tie.rows], ownDomains),
-    mentionRanking: mentionRanking(ranked, limit),
-    ...marketRollup(plan, { run, evaluator }, group, includeNestedMarkets),
+    tiedAtWeakest: query.compact && tie.summary !== null ? {
+      count: tie.summary.count, mentionRate: tie.summary.mentionRate, citationRate: tie.summary.citationRate, note: tie.summary.note,
+    } : tie.summary,
+    ...(query.compact ? {
+      detailsOmitted: ['weakestProperties.answerEvidence', 'tiedAtWeakest.byMetro', 'tiedAtWeakest.namedInstead'],
+    } : {}),
+    weakestAnswerSources: {
+      ...weakestAnswerSources([...sourceRows, ...tie.rows], ownDomains),
+      ...(query.compact ? { basis: 'initial-weakest-selection-and-zero-signal-tie' as const } : {}),
+    },
+    mentionRanking: mentionRanking(ranked, query.compact ? Number.POSITIVE_INFINITY : limit),
+    ...markets,
     totalProperties: ranked.length,
     truncated: ranked.length > limit,
-  })
+    ...(answerEvidence === undefined ? {} : {
+      answerEvidence: query.compact ? answerEvidence : {
+        ...answerEvidence,
+        observedNames: answerEvidence.observedNames.slice(0, MEASUREMENT_PORTFOLIO_TIE_NAMED_INSTEAD_LIMIT),
+        citedDomains: answerEvidence.citedDomains.slice(0, MEASUREMENT_PORTFOLIO_ANSWER_SOURCES_LIMIT),
+      },
+    }),
+  }
+  return compactPortfolioPage(response, query, active.version.id, snapshotEvidenceFingerprint([...materialized.snapshotsById.values()]), cursor)
 }
 
 interface TiedRow extends PropertyLocation {
@@ -879,6 +1128,7 @@ function weakestTie<Row extends TiedRow>(
   }
   const mentionRate = first.mentionCoverage.value
   const citationRate = first.citationCoverage.value
+  if (mentionRate !== 0 || citationRate !== 0) return { summary: null, rows: [] }
   const rows = ranked.filter(row => (
     row.mentionCoverage.state === 'available' && row.mentionCoverage.value === mentionRate
     && row.citationCoverage.state === 'available' && row.citationCoverage.value === citationRate
@@ -1610,9 +1860,11 @@ export async function measurementPortfolioReadRoutes(app: FastifyInstance) {
       const project = resolveProject(app.db, request.params.name)
       const nested = request.query.includeNestedMarkets
       // A query string carries the flag as text; anything but true/false is left to fail validation.
-      const raw = nested === 'true' || nested === 'false'
+      const nestedRaw = nested === 'true' || nested === 'false'
         ? { ...request.query, includeNestedMarkets: nested === 'true' }
         : request.query
+      const compact = request.query.compact
+      const raw = compact === 'true' || compact === 'false' ? { ...nestedRaw, compact: compact === 'true' } : nestedRaw
       const query = parseLimitQuery(raw, measurementPortfolioSummaryQuerySchema, 'Invalid measurement portfolio summary query')
       const { active, plan } = activeV2Plan(app.db, project.id, 'Portfolio summary')
       return portfolioResponse(app.db, active, plan, query, effectiveDomains(project))

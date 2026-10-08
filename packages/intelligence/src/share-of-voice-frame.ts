@@ -9,6 +9,8 @@ export const MIN_OBSERVED_ANSWERS = 3
 export function buildShareOfVoiceFrame(input: {
   tracked: boolean
   classSelected: boolean
+  /** A population selected by the measured outcome cannot publish competitive ratios. */
+  unavailableReason?: ShareOfVoiceContext['reason']
   projectMentions: number
   answeredResults: number
   competitors: readonly { domain: string; mentions: number }[]
@@ -24,11 +26,11 @@ export function buildShareOfVoiceFrame(input: {
   const competitorMentions = selected.reduce((sum, row) => sum + row.mentions, 0)
   const denominator = input.projectMentions + competitorMentions
   const basis = input.tracked ? 'tracked' : input.competitors.length > 0 ? 'observed' : null
-  const reason: ShareOfVoiceContext['reason'] = !input.classSelected ? 'select-query-class'
+  const reason: ShareOfVoiceContext['reason'] = input.unavailableReason ?? (!input.classSelected ? 'select-query-class'
     : basis === null ? 'no-competitors'
       : !input.tracked && domains.length < MIN_OBSERVED_COMPETITORS ? 'insufficient-observed'
         : input.answeredResults === 0 ? 'no-answers'
-          : denominator === 0 ? 'no-mentions' : null
+          : denominator === 0 ? 'no-mentions' : null)
   return {
     basis, reason, availability: reason === null ? 'measured' : 'not-measured',
     score: reason === null ? percentOf(input.projectMentions, denominator) : null,

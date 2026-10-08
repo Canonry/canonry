@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   buildMeasurementExecutionIdentity,
   canonicalMeasurementPlanV2Json,
+  MEASUREMENT_PORTFOLIO_TIE_NOTE,
   type MeasurementChangesResponse,
   type MeasurementDataQualityResponse,
   type MeasurementPlanV2,
@@ -228,6 +229,231 @@ afterEach(async () => {
 })
 
 describe('measurement portfolio reads', () => {
+  it.each([{ aliases: [] }, { aliases: ['!!!'] }])('withholds never-mentioned totals and treats unusable stored aliases as unknown: $aliases', async ({ aliases }) => {
+    plan.targets[1]!.aliases = aliases
+    const versionId = seedVersion(1)
+    activate(versionId)
+    seedFullRun(versionId)
+    const { status, body } = await portfolio('answers=not-mentioned&compact=true')
+    expect(status).toBe(200)
+    expect(body.metrics.propertiesMentioned).toEqual({ state: 'available', value: 0, numerator: 0, denominator: 1 })
+    expect(body.metrics.propertiesNeverMentioned).toEqual({ state: 'unavailable', reason: 'not_applicable' })
+    expect(body.markets[0]?.propertiesNeverMentioned).toEqual({ state: 'unavailable', reason: 'not_applicable' })
+    expect(body.answerEvidence).toMatchObject({ populationSize: 2, answerCount: 0, unknownMentionAnswers: 2 })
+    const landscape = await app.inject({ method: 'GET', url: '/api/v1/projects/northstar/analytics/competitors?window=all&queryClass=non-brand&answers=not-mentioned' })
+    expect(landscape.statusCode).toBe(200)
+    expect(landscape.json().answerSelection).toEqual({ answers: 'not-mentioned', populationSize: 2, answerCount: 0, unknownMentionAnswers: 2 })
+  })
+
+  it.each([
+    { capture: 'captured', citedUrls: ['https://northstar.example/locations/harbor'], rawResponse: null, captureStatus: 'complete' as const },
+    { capture: 'recovered', citedUrls: null, rawResponse: JSON.stringify({ groundingSources: [{ uri: 'https://northstar.example/locations/harbor' }] }), captureStatus: null },
+  ])('resolves a known alias with its $capture own source without inferring a mention from a source alone', async ({ citedUrls, rawResponse, captureStatus }) => {
+    plan.targets[0]!.identityAliases = ['Harbor Homes North']
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedFullRun(versionId)
+    db.update(querySnapshots).set({ citedUrls, rawResponse, captureStatus, citedDomains: ['northstar.example'] }).where(and(
+      eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'),
+    )).run()
+    db.update(querySnapshots).set({ answerText: 'Harbor Homes is recommended.', recommendedCompetitors: ['Co Named Rival'] }).where(and(
+      eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'), eq(querySnapshots.provider, 'openai'),
+    )).run()
+    db.update(querySnapshots).set({ answerText: 'Missed Rival is recommended.', recommendedCompetitors: ['Missed Rival'] }).where(and(
+      eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'), eq(querySnapshots.provider, 'gemini'),
+    )).run()
+    const { status, body } = await portfolio('answers=not-mentioned&compact=true')
+    expect(status).toBe(200)
+    expect(body.metrics.propertiesNeverMentioned).toEqual({ state: 'available', value: 1, numerator: 1, denominator: 2 })
+    expect(body.answerEvidence).toMatchObject({
+      populationSize: 2, answerCount: 1, unknownMentionAnswers: 0, observedNames: [{ name: 'Missed Rival', answerCount: 1 }],
+    })
+    const landscape = await app.inject({ method: 'GET', url: '/api/v1/projects/northstar/analytics/competitors?window=all&queryClass=non-brand&answers=not-mentioned' })
+    expect(landscape.statusCode).toBe(200)
+    expect(landscape.json()).toMatchObject({
+      answerSelection: { answers: 'not-mentioned', populationSize: 2, answerCount: 1, unknownMentionAnswers: 0 },
+      observedNames: [{ name: 'Missed Rival', answerCount: 1 }],
+    })
+  })
+
+  it('counts Properties never mentioned independently from their citations, overall and per market', async () => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedFullRun(versionId)
+    db.update(querySnapshots).set({
+      answerText: 'Bayside Homes is recommended.',
+      citedUrls: ['https://northstar.example/locations/harbor'],
+      citedDomains: ['northstar.example'],
+      answerMentioned: true,
+    }).where(and(eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'))).run()
+
+    const { status, body } = await portfolio()
+    expect(status).toBe(200)
+    expect(body.metrics.propertiesMentioned).toEqual({ state: 'available', value: 1, numerator: 1, denominator: 2 })
+    expect(body.metrics.propertiesNeverMentioned).toEqual({ state: 'available', value: 1, numerator: 1, denominator: 2 })
+    expect(body.markets[0]?.propertiesNeverMentioned).toEqual(body.metrics.propertiesNeverMentioned)
+    expect(body.tiedAtWeakest).toBeNull()
+    expect(body.weakestProperties.find(row => row.targetKey === 'harbor')?.citationCoverage).toEqual({ state: 'available', value: 1, numerator: 2, denominator: 2 })
+  })
+
+  it('counts cited registrable domains once per stored answer despite full URLs, mixed case and multiple subdomains', async () => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedFullRun(versionId)
+    db.update(querySnapshots).set({
+      citedDomains: ['HTTPS://Offers.QuoteBird.CO.UK/listing', 'reviews.quotebird.co.uk', 'List.Other.COM'],
+      citedUrls: ['https://offers.quotebird.co.uk/listing', 'https://news.other.com/story'],
+    }).where(and(eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'))).run()
+    const { status, body } = await competitors('targetKey=harbor&queryClass=non-brand')
+    expect(status).toBe(200)
+    expect(body).toMatchObject({
+      citedDomainsTotal: 2, citedDomainsAnswers: 2,
+      citedDomains: [{ domain: 'other.com', answers: 2 }, { domain: 'quotebird.co.uk', answers: 2 }],
+    })
+  })
+
+  it('preserves exact own-host evidence while displaying a registrable domain shared with an unowned sibling', async () => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedFullRun(versionId)
+    db.update(projects).set({ canonicalDomain: 'HTTPS://OWNED.Example.COM/root', ownedDomains: [] }).where(eq(projects.id, projectId)).run()
+    for (const [provider, host] of [['openai', 'owned.example.com'], ['gemini', 'unowned.example.com']]) {
+      db.update(querySnapshots).set({ citedDomains: [host!], citedUrls: [`https://${host}/source`] }).where(and(
+        eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'), eq(querySnapshots.provider, provider!),
+      )).run()
+    }
+    const { status, body } = await portfolio('limit=1')
+    expect(status).toBe(200)
+    expect(body.weakestAnswerSources).toEqual({
+      properties: 2, answers: 2, domains: [{ domain: 'example.com', answers: 2 }], domainTotal: 1, ownDomainAnswers: 1,
+    })
+  })
+
+  it('keeps compact weakest-source selection fixed when the caller changes the next page limit', async () => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedFullRun(versionId)
+    db.update(querySnapshots).set({
+      answerText: 'Harbor Homes and Bayside Homes are recommended.',
+      citedDomains: ['listings.example'], citedUrls: ['https://listings.example/options'],
+    }).where(and(eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'))).run()
+    const first = await portfolio('compact=true&limit=1')
+    expect(first.status).toBe(200)
+    expect(first.body.tiedAtWeakest).toBeNull()
+    expect(first.body.weakestAnswerSources).toEqual({
+      basis: 'initial-weakest-selection-and-zero-signal-tie', properties: 1, answers: 2,
+      domains: [{ domain: 'listings.example', answers: 2 }], domainTotal: 1, ownDomainAnswers: 0,
+    })
+    const second = await portfolio(`compact=true&list=weakest-properties&limit=2&cursor=${encodeURIComponent(first.body.nextCursor!)}`)
+    expect(second.status).toBe(200)
+    expect(second.body.weakestProperties.map(row => row.targetKey)).toEqual(['harbor'])
+    expect(second.body.weakestAnswerSources).toEqual(first.body.weakestAnswerSources)
+  })
+
+  it('requires a not-mentioned answer population for compact evidence-list pagination', async () => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    seedFullRun(versionId)
+    for (const list of ['observed-names', 'cited-domains']) {
+      const missing = await portfolio(`compact=true&list=${list}`)
+      expect(missing.status).toBe(400)
+      const pooled = await portfolio(`compact=true&answers=all&list=${list}`)
+      expect(pooled.status).toBe(400)
+      const selected = await portfolio(`compact=true&answers=not-mentioned&list=${list}`)
+      expect(selected.status).toBe(200)
+      expect(selected.body.pageList).toBe(list)
+      expect(selected.body.answerEvidence).toMatchObject({ answers: 'not-mentioned', populationSize: 2 })
+    }
+    const raw = await portfolio('compact=false&list=markets')
+    expect(raw.status).toBe(400)
+  })
+
+  it('filters competitor names and registrable domains by no named answer target, including a named sibling outside the selected group', async () => {
+    plan.groups[0]!.targetKeys = ['harbor']
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedFullRun(versionId)
+    db.update(querySnapshots).set({
+      answerText: 'Bayside Homes and False Rival are recommended.',
+      recommendedCompetitors: ['False Rival'], citedDomains: ['false-rival.example'],
+    }).where(and(eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'), eq(querySnapshots.provider, 'openai'))).run()
+    db.update(querySnapshots).set({
+      answerText: 'True Rival is recommended.', recommendedCompetitors: ['True Rival', 'True Rival'],
+      citedDomains: ['HTTPS://Offers.QuoteBird.CO.UK/listing', 'reviews.quotebird.co.uk'],
+      citedUrls: ['https://northstar.example/locations/harbor', 'https://offers.quotebird.co.uk/listing'],
+    }).where(and(eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'), eq(querySnapshots.provider, 'gemini'))).run()
+    const { status, body } = await portfolio('groupKey=regional&answers=not-mentioned&compact=true')
+    expect(status).toBe(200)
+    expect(body.answerEvidence).toEqual({
+      answers: 'not-mentioned', populationSize: 2, answerCount: 1, unknownMentionAnswers: 0,
+      observedNames: [{ name: 'True Rival', answerCount: 1 }], observedNamesTotal: 1,
+      citedDomains: [{ domain: 'northstar.example', answers: 1 }, { domain: 'quotebird.co.uk', answers: 1 }], citedDomainsTotal: 2,
+    })
+    expect(body.weakestProperties[0]).not.toHaveProperty('citedDomains')
+    expect(body.detailsOmitted).toContain('weakestProperties.answerEvidence')
+
+    const landscape = await app.inject({ method: 'GET', url: `/api/v1/projects/northstar/analytics/competitors?window=all&groupKey=regional&queryClass=non-brand&answers=not-mentioned&runId=${runId}` })
+    expect(landscape.statusCode).toBe(200)
+    expect(landscape.json()).toMatchObject({
+      answerSelection: { answers: 'not-mentioned', populationSize: 2, answerCount: 1, unknownMentionAnswers: 0 },
+      observedNames: [{ name: 'True Rival', answerCount: 1 }],
+    })
+    expect(landscape.json().otherSources.map((row: { domain: string }) => row.domain)).not.toContain('false-rival.example')
+    const all = await portfolio('groupKey=regional&answers=all&compact=true')
+    expect(all.status).toBe(200)
+    expect(all.body.answerEvidence).toBeUndefined()
+    const allLandscape = await app.inject({ method: 'GET', url: `/api/v1/projects/northstar/analytics/competitors?window=all&groupKey=regional&queryClass=non-brand&answers=all&runId=${runId}` })
+    expect(allLandscape.statusCode).toBe(200)
+    expect(allLandscape.json().observedNames).toEqual([{ name: 'False Rival', answerCount: 1 }, { name: 'True Rival', answerCount: 1 }])
+    expect(allLandscape.json().answerSelection).toBeUndefined()
+  })
+
+  it('withholds a never-mentioned count and filtered-answer verdict when a stored answer is absent', async () => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedFullRun(versionId)
+    db.delete(querySnapshots).where(and(eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'), eq(querySnapshots.provider, 'gemini'))).run()
+    const { status, body } = await portfolio('answers=not-mentioned&compact=true')
+    expect(status).toBe(200)
+    expect(body.metrics.propertiesNeverMentioned).toEqual({ state: 'unavailable', reason: 'evidence_incomplete' })
+    expect(body.answerEvidence).toMatchObject({ populationSize: 2, answerCount: 1, unknownMentionAnswers: 1 })
+  })
+
+  it('resumes long stored observed names as whole evidence rows and rejects a cursor used with different filters or changed evidence', async () => {
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedFullRun(versionId)
+    const names = Array.from({ length: 7 }, (_, index) => `Birch ${'Court '.repeat(500)}${index}`)
+    db.update(querySnapshots).set({ answerText: names.join(', '), recommendedCompetitors: names }).where(and(
+      eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'), eq(querySnapshots.provider, 'openai'),
+    )).run()
+    const first = await portfolio('compact=true&answers=not-mentioned&list=observed-names&limit=50')
+    expect(first.status).toBe(200)
+    expect(first.body.answerEvidence?.observedNamesTotal).toBe(names.length)
+    expect(first.body.nextCursor).toBeTypeOf('string')
+    const firstCursor = first.body.nextCursor!
+    const seen: string[] = []
+    let page = first
+    let pages = 0
+    for (;;) {
+      expect(JSON.stringify(page.body, null, 2).length).toBeLessThanOrEqual(18_000)
+      seen.push(...page.body.answerEvidence!.observedNames.map(row => row.name))
+      expect(++pages).toBeLessThan(20)
+      if (!page.body.nextCursor) break
+      page = await portfolio(`compact=true&answers=not-mentioned&list=observed-names&limit=50&cursor=${encodeURIComponent(page.body.nextCursor)}`)
+      expect(page.status).toBe(200)
+    }
+    expect(seen.sort()).toEqual(names.sort())
+    const mismatch = await portfolio(`compact=true&answers=not-mentioned&list=observed-names&queryClass=branded&cursor=${encodeURIComponent(firstCursor)}`)
+    expect(mismatch.status).toBe(400)
+    const otherList = await portfolio(`compact=true&answers=not-mentioned&list=cited-domains&cursor=${encodeURIComponent(firstCursor)}`)
+    expect(otherList.status).toBe(400)
+    db.update(querySnapshots).set({ recommendedCompetitors: ['Changed Rival'] }).where(and(
+      eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'), eq(querySnapshots.provider, 'openai'),
+    )).run()
+    const changed = await portfolio(`compact=true&answers=not-mentioned&list=observed-names&cursor=${encodeURIComponent(firstCursor)}`)
+    expect(changed.status).toBe(400)
+  })
   it('ranks usable mentions over attributable answers, independently of citation capture and the list limit', async () => {
     const uncertain = { ...structuredClone(plan.targets[0]!), stableKey: 'cedar', label: 'Cedar Court', aliases: ['Cedar Court'], urlMatchers: [] }
     plan.targets.push(uncertain)
@@ -651,6 +877,81 @@ describe('measurement portfolio reads', () => {
     }
   }
 
+  it('ranks actual full top-level metro rates independently of zero-signal Property ties and pagination', async () => {
+    const cedar = { ...structuredClone(plan.targets[1]!), stableKey: 'cedar', label: 'Cedar Court', aliases: ['Cedar Court'] }
+    const unmeasured = { ...structuredClone(cedar), stableKey: 'unmeasured', label: 'Unmeasured Court', aliases: ['Unmeasured Court'] }
+    plan.targets.push(cedar, unmeasured)
+    for (const assignment of plan.assignments.filter(row => row.targetKey === 'bayside')) {
+      plan.assignments.push({ ...assignment, targetKey: cedar.stableKey })
+      plan.usageEdges.push({ targetKey: cedar.stableKey, queryId: assignment.queryId, executionNodeKey: assignment.executionNodeKey })
+    }
+    plan.groups = [
+      { stableKey: 'weak', label: 'Zero Metro', targetKeys: ['bayside'], competitors: [] },
+      { stableKey: 'b-alpha', label: 'Alpha Metro', targetKeys: ['harbor', 'bayside'], competitors: [] },
+      { stableKey: 'a-alpha', label: 'Alpha Metro', targetKeys: ['harbor', 'cedar'], competitors: [] },
+      ...['bravo', 'charlie', 'delta', 'echo'].map(key => ({ stableKey: key, label: `${key} Metro`, targetKeys: ['harbor', 'bayside'], competitors: [] })),
+      { stableKey: 'unmeasured', label: 'Unmeasured Metro', targetKeys: ['unmeasured'], competitors: [] },
+      { stableKey: 'nested-zero', label: 'Nested Zero', parentGroupKey: 'b-alpha', targetKeys: ['bayside'], competitors: [] },
+    ]
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const beforeRun = await portfolio('compact=true&includeNestedMarkets=true')
+    expect(beforeRun.status).toBe(200)
+    expect(beforeRun.body.weakestMarkets).toEqual({
+      population: 'top-level-markets', queryClass: 'non-brand', totalMarkets: 8,
+      eligibleMarketCount: 0, excludedMarketCount: 8, items: [],
+    })
+    const runId = seedFullRun(versionId)
+    db.update(querySnapshots).set({ citedUrls: ['https://northstar.example/locations/harbor'] })
+      .where(and(eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'))).run()
+    db.update(querySnapshots).set({ answerText: 'Harbor Homes is recommended.' }).where(and(
+      eq(querySnapshots.runId, runId), eq(querySnapshots.measurementExecutionId, 'exec-nearby'), eq(querySnapshots.provider, 'openai'),
+    )).run()
+    const raw = await portfolio('includeNestedMarkets=true&limit=50')
+    expect(raw.status).toBe(200)
+    expect(raw.body.weakestMarkets).toBeUndefined()
+    expect(raw.body.tiedAtWeakest?.count).toBe(2)
+    const expected = {
+      population: 'top-level-markets', queryClass: 'non-brand', totalMarkets: 8,
+      eligibleMarketCount: 7, excludedMarketCount: 1,
+      items: ['weak', 'a-alpha', 'b-alpha', 'bravo', 'charlie'].map(groupKey => {
+        const market = raw.body.markets.find(row => row.groupKey === groupKey)!
+        return {
+          groupKey, label: market.label, propertyCount: market.propertyCount,
+          mentionCoverage: { state: 'available', value: groupKey === 'weak' ? 0 : 0.5, numerator: groupKey === 'weak' ? 0 : 1, denominator: 2 },
+          citationCoverage: { state: 'available', value: groupKey === 'weak' ? 0 : 1, numerator: groupKey === 'weak' ? 0 : 2, denominator: 2 },
+        }
+      }),
+    }
+    for (const row of expected.items) {
+      expect(raw.body.markets.find(market => market.groupKey === row.groupKey)).toMatchObject(row)
+    }
+    let cursor: string | null | undefined
+    const seenMarkets = new Set<string>()
+    do {
+      const page = await portfolio(`compact=true&includeNestedMarkets=true&list=markets&limit=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`)
+      expect(page.status).toBe(200)
+      expect(page.body.pageList).toBe('markets')
+      expect(page.body.weakestMarkets).toEqual(expected)
+      expect(JSON.stringify(page.body, null, 2).length).toBeLessThanOrEqual(18_000)
+      for (const market of page.body.markets) {
+        expect(seenMarkets.has(market.groupKey)).toBe(false)
+        seenMarkets.add(market.groupKey)
+      }
+      cursor = page.body.nextCursor
+    } while (cursor)
+    expect([...seenMarkets].sort()).toEqual(plan.groups.map(group => group.stableKey).sort())
+    expect((await portfolio('compact=true')).body.weakestMarkets).toEqual(expected)
+    expect((await portfolio('compact=true&groupKey=b-alpha')).body.weakestMarkets).toBeUndefined()
+    const branded = await portfolio('compact=true&queryClass=branded')
+    expect(branded.status).toBe(200)
+    expect(branded.body.weakestMarkets).toMatchObject({ population: 'top-level-markets', queryClass: 'branded', totalMarkets: 8, eligibleMarketCount: 6, excludedMarketCount: 2 })
+    for (const row of branded.body.weakestMarkets!.items) {
+      expect(row.mentionCoverage).toEqual({ state: 'available', value: 0, numerator: 0, denominator: 2 })
+      expect(row.citationCoverage).toEqual({ state: 'available', value: 0, numerator: 0, denominator: 2 })
+    }
+  })
+
   it('places every Property row in its metro and submarkets and states the queries behind its answers', async () => {
     nestPlan()
     const versionId = seedVersion(1)
@@ -781,7 +1082,7 @@ describe('measurement portfolio reads', () => {
     const { body } = await portfolio('limit=1')
     const uncheckedZero = { state: 'available', value: 0, numerator: 0, denominator: 1, unchecked: 1 }
     expect(body.tiedAtWeakest).toEqual({
-      count: 2, mentionRate: 0, citationRate: 0, note: 'tied Properties are ordered by name, not ranked',
+      count: 2, mentionRate: 0, citationRate: 0, note: MEASUREMENT_PORTFOLIO_TIE_NOTE,
       byMetro: [{ metro: 'Regional comparison', count: 2 }],
       namedInstead: [],
       namedInsteadTotal: 0,
@@ -807,7 +1108,7 @@ describe('measurement portfolio reads', () => {
     const { body } = await portfolio('limit=1')
     // Both Properties missed both answers. Their order is the label tie-break.
     expect(body.tiedAtWeakest).toEqual({
-      count: 2, mentionRate: 0, citationRate: 0, note: 'tied Properties are ordered by name, not ranked',
+      count: 2, mentionRate: 0, citationRate: 0, note: MEASUREMENT_PORTFOLIO_TIE_NOTE,
       byMetro: [{ metro: 'Regional comparison', count: 2 }],
       namedInstead: [],
       namedInsteadTotal: 0,

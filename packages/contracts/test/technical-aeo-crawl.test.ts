@@ -4,6 +4,8 @@ import {
   SITE_AUDIT_MAX_EDGE_LIMIT,
   SITE_AUDIT_MAX_PAGE_LIMIT,
   deriveSiteHealthState,
+  deriveSiteHealthReason,
+  factorStatusFromDistribution,
   normalizeSiteAuditRunRequest,
   siteAuditRequestIdentity,
   siteAuditFactorSummarySchema,
@@ -35,6 +37,25 @@ describe('Site Health page budget wording', () => {
 })
 
 describe('Technical AEO crawl contracts', () => {
+  it.each([
+    { pagesFailing: 1, pagesPartial: 2, expected: 'fail' },
+    { pagesFailing: 0, pagesPartial: 1, expected: 'partial' },
+    { pagesFailing: 0, pagesPartial: 0, expected: 'pass' },
+  ])('preserves the worst observed page band $expected', ({ pagesFailing, pagesPartial, expected }) => {
+    expect(factorStatusFromDistribution({ pagesFailing, pagesPartial })).toBe(expected)
+  })
+
+  it.each([
+    { fetchState: 'redirect', indexabilityState: 'unknown', indexabilityReasons: ['redirect-terminal'], expected: 'redirect-terminal' },
+    { fetchState: 'html', indexabilityState: 'unknown', indexabilityReasons: ['canonical-to-other'], expected: 'canonical-to-other' },
+    { fetchState: 'html', indexabilityState: 'noindex', indexabilityReasons: ['meta-robots-noindex'], nodeKey: 'page-2', canonicalNodeKey: 'page-1', expected: 'noindex' },
+    { fetchState: 'html', indexabilityState: 'blocked', indexabilityReasons: ['robots-disallow', 'canonical-to-other'], nodeKey: 'page-2', canonicalNodeKey: 'page-1', expected: 'robots-disallow' },
+    { fetchState: 'html', indexabilityState: 'unknown', indexabilityReasons: [], expected: 'unknown' },
+    { fetchState: 'non-html', indexabilityState: 'unknown', indexabilityReasons: [], expected: 'non-html' },
+  ])('labels stored $fetchState evidence as $expected', ({ expected, ...row }) => {
+    expect(deriveSiteHealthReason(row)).toBe(expected)
+  })
+
   it('defaults the page budget but leaves the edge budget unset for the engine to derive', () => {
     // A scan with no page budget covers the full site, the same budget scheduled audits pass.
     expect(SITE_AUDIT_DEFAULT_PAGE_LIMIT).toBe(SITE_AUDIT_MAX_PAGE_LIMIT)

@@ -39,13 +39,13 @@ invented combined share-of-voice ratio.
 | Question | Stored evidence |
 |---|---|
 | How is a Simple portfolio doing? | `canonry_project_overview`, `canonry_visibility_stats`; preserve sample sizes and returned class |
-| Which Advanced Properties are strongest or weakest? | `canonry_measurement_portfolio_summary`; use `mentionRanking.strongest`, `.weakest`, and `.excluded`, plus `tiedAtWeakest`. It returns at most 4 rows, with or without `groupKey`; pass `groupKey` for one metro's weakest, or page `canonry_measurement_overview` for more |
-| Which metros have the biggest gaps? | The portfolio summary's `markets` (every metro, worst-first, whatever the limit) and `tiedAtWeakest.byMetro`; `groupKey` lists one metro's submarkets |
+| Which Advanced Properties are strongest or weakest? | `canonry_measurement_portfolio_summary`; use the first-page `mentionRanking` summaries and `tiedAtWeakest`. Default `nextCursor` walks only `pageList: weakest-properties`; use `list: strongest-mentions`, `weakest-mentions` or `excluded-mentions` for a complete other ranking. Pass `groupKey` for one metro |
+| Which metros have the biggest gaps? | The portfolio summary's `weakestMarkets` ranks full top-level metro rates before paging. For every metro, page `list: markets`; `groupKey` selects one metro's direct submarkets. `tiedAtWeakest` describes a zero-mention AND zero-citation Property cohort, not full metro rates |
 | What is measured for one Property or market? | `canonry_measurement_overview` with `scope: property` / `targetKey` or `scope: group` / `groupKey` |
 | Which questions explain a Property's gaps? | `canonry_measurement_property_questions`, then `canonry_measurement_question_result` with a returned `resultId` |
 | What was mentioned or linked in individual answers? | `canonry_measurement_property_evidence` with `shape: answers` |
-| Who appeared instead of one Property? | `canonry_measurement_property_competitors`, or `namedInsteadInAnswerText` on a weakest row; these names were written in the answer text, not cited |
-| Who do answers name instead across the portfolio? | `canonry_competitor_landscape` with `queryClass` and `runId: latest`; `tiedAtWeakest.namedInstead` for the weakest tie. Per-Property lists are samples of weak Properties, never a portfolio ranking |
+| Who appeared instead of one Property? | `canonry_measurement_property_competitors`; compact summary rows omit per-Property named-instead evidence. Names are written in answer prose, independently of citations |
+| Who do answers name instead across the portfolio? | `canonry_competitor_landscape` with `queryClass`, `runId: latest` and `answers: not-mentioned`; this selection publishes counts, never competitive shares. Or page the compact portfolio summary's `list: observed-names` with `answers: not-mentioned`. Per-Property lists are samples, never a portfolio ranking |
 | Where do engines get these answers? | For one Property, `citedDomains` from `canonry_measurement_property_competitors`. Project-wide, `canonry_analytics_sources` with `queryClass` and `runId: latest`, since without them it pools both classes and every sweep. `weakestAnswerSources` pools the weakest rows and the tie; never present it as one Property's sources |
 | Did performance change? | `canonry_measurement_changes` once per class for changed Properties (Advanced): rows come largest move first, `distribution` counts every Property, `withinNoise` marks noise. `populations[].comparison` from `canonry_visibility_report` for the displayed selection's headline; `canonry_visibility_compare` for calendar-month comparisons (Simple, or Advanced with a Property, group or market `scope`) |
 | Is the sweep complete, or is anything unreliable? | `canonry_measurement_data_quality`: quote completeness `expected`, `executed` and `missing`, plus `unattributedByClass` (per class, never pooled) and `latestFill`; it also reports capture, retrieval and comparability. Then `canonry_run_completeness` with `run.displayedRunId` for missing answers per engine. A Healthy run status and `canonry_doctor` are not completeness checks |
@@ -112,7 +112,15 @@ within noise, or did not change), and flag only moves beyond noise, or the
 same move repeated over several sweeps, as worth checking.
 
 Carry the displayed run and the supported filters into follow-up reads.
-Reuse cursors unchanged with the same scope, class, sort, shape, and filters.
+Reuse cursors unchanged with the same scope, class, sort, shape, selected `list`, and filters.
+Compact portfolio `nextCursor` advances only `pageList`: `weakest-properties`
+by default. Other first-page lists are bounded summaries and later omitted.
+For a complete alternative list set `list` to `strongest-mentions`,
+`weakest-mentions`, `excluded-mentions`, `markets`, `observed-names` or
+`cited-domains`. Selected-list mode omits sibling row lists but retains totals;
+`detailsOmitted` explains those omissions. With no `limit`, compact pages
+auto-size up to 50 whole rows under the byte budget. A null cursor establishes
+completion only for `pageList`, never every summary list.
 A revision or evidence change can invalidate a cursor; restart that read
 without merging pages from incompatible snapshots. Overview search narrows
 displayed rows without changing metric denominators.
@@ -123,8 +131,8 @@ present: each list the tool itself returned only part of, as shown of total),
 and under `cursors` any page cursor that now skips cut rows), `__omittedRows`,
 and `__omittedRowsByField` as well as API pagination metadata: `truncated: true`,
 a total (`totalProperties`, `total`, `questionTotal`) above the rows
-returned, or a `nextCursor`. A text result that ends with a `__truncation:`
-line and the truncation note is a partial slice. Never list, rank, count, or
+returned, or a `nextCursor`. `__truncation.slicedKeys` names partially shown
+text fields; a retained prefix is incomplete evidence. Never list, rank, count, or
 group items you did not see; say how many of how many you saw, never call
 the rows the biggest, strongest, all, or the full picture, then request a
 smaller page or narrower scope (a `groupKey` for the portfolio summary)
