@@ -165,7 +165,8 @@ const GSC_SPEC: FreshnessSpec = {
   brokenExplanation: 'If the site did have impressions, check that the property still lists this site and the connected account still has access.',
 }
 
-function gaConnected(ctx: DoctorContext): 'connected' | 'not-connected' | 'store-unavailable' {
+/** GA4 is connected through its credential store (service account) or a Google OAuth `ga4` connection. */
+export function gaConnected(ctx: DoctorContext): 'connected' | 'not-connected' | 'store-unavailable' {
   const project = ctx.project!
   if (!ctx.ga4CredentialStore && !ctx.googleConnectionStore) return 'store-unavailable'
   if (ctx.ga4CredentialStore?.getConnection(project.name)) return 'connected'

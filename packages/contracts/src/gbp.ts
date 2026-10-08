@@ -105,6 +105,14 @@ export const gbpSyncResponseSchema = z.object({
 })
 export type GbpSyncResponse = z.infer<typeof gbpSyncResponseSchema>
 
+/**
+ * The message a GBP sync fails with when its project selects no location. A
+ * GBP connection belongs to the domain, so the data refresh syncs every
+ * project on it, and each one without a selected location fails this way by
+ * design. The doctor's sync-failure check reads it to leave those runs out.
+ */
+export const GBP_NO_SELECTED_LOCATIONS_ERROR = 'No selected GBP locations to sync. Discover and select locations first.'
+
 export const gbpDailyMetricDtoSchema = z.object({
   locationName: z.string(),
   date: z.string(),

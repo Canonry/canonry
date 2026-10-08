@@ -416,6 +416,26 @@ describe('GoogleAdsClient retry and errors', () => {
     expect((error as Error).message).not.toContain(credentials.accessToken)
     expect((error as Error).message).toContain('Bearer ***')
   })
+
+  it('names the network cause and Google Ads host when fetch rejects', async () => {
+    // Node's fetch rejects a connection a host DNS filter null-routed to
+    // 0.0.0.0 with this exact shape: the reason lives only on `cause`.
+    const fetch: GoogleAdsFetch = async () => {
+      throw new TypeError('fetch failed', {
+        cause: Object.assign(new Error('connect ECONNREFUSED 0.0.0.0:443'), {
+          errno: -111, code: 'ECONNREFUSED', syscall: 'connect', address: '0.0.0.0', port: 443,
+        }),
+      })
+    }
+    const client = new GoogleAdsClient(credentials, { fetch, retry: { maxRetries: 0 } })
+
+    const error = await client.listAccessibleCustomers().catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(GoogleAdsApiError)
+    expect((error as Error).message).toBe(
+      'Google Ads API request failed: fetch failed (ECONNREFUSED connecting to googleads.googleapis.com at 0.0.0.0:443)',
+    )
+  })
 })
 
 describe('bounded daily metric queries', () => {

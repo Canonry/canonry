@@ -5,9 +5,11 @@ import {
   CheckScopes,
   CheckStatuses,
   describeError,
+  describeFetchError,
+  isFetchTransportError,
 } from '@ainyc/canonry-contracts'
-import { refreshAccessToken } from '@ainyc/canonry-integration-google'
-import { GBP_SCOPE, listAccounts, GbpApiError } from '@ainyc/canonry-integration-google-business-profile'
+import { GOOGLE_TOKEN_URL, refreshAccessToken } from '@ainyc/canonry-integration-google'
+import { GBP_ACCOUNT_MANAGEMENT_BASE, GBP_SCOPE, listAccounts, GbpApiError } from '@ainyc/canonry-integration-google-business-profile'
 import type { CheckDefinition, CheckOutput, DoctorContext } from '../types.js'
 import type { GoogleConnectionRecord } from '../../google.js'
 
@@ -89,6 +91,20 @@ async function resolveGbpToken(
     const tokens = await refreshAccessToken(auth.clientId, auth.clientSecret, conn.refreshToken)
     return { ok: true, token: { accessToken: tokens.access_token, conn } }
   } catch (err) {
+    // No answer from Google says nothing about the grant (see google-auth).
+    if (isFetchTransportError(err)) {
+      const error = describeFetchError(err, GOOGLE_TOKEN_URL)
+      return {
+        ok: false,
+        output: {
+          status: CheckStatuses.fail,
+          code: 'gbp.auth.refresh-unreachable',
+          summary: `Could not reach Google to refresh the GBP token: ${error}`,
+          remediation: 'Check that this host can resolve and connect to Google (DNS filtering, firewall, or proxy), then re-run. The stored grant was not tested.',
+          details: { domain: conn.domain, error },
+        },
+      }
+    }
     const message = describeError(err)
     return {
       ok: false,
@@ -224,6 +240,16 @@ const accountAccessCheck: CheckDefinition = {
           summary: `Failed to list GBP accounts: ${err.message}`,
           remediation: 'Check Business Profile API availability and that the API is enabled on the GCP project, then re-run.',
           details: { reason: err.reason ?? undefined, status: err.status },
+        }
+      }
+      if (isFetchTransportError(err)) {
+        const error = describeFetchError(err, GBP_ACCOUNT_MANAGEMENT_BASE)
+        return {
+          status: CheckStatuses.fail,
+          code: 'gbp.account.list-unreachable',
+          summary: `Could not reach the Business Profile API to list GBP accounts: ${error}`,
+          remediation: 'Check that this host can resolve and connect to the Business Profile API (DNS filtering, firewall, or proxy), then re-run. Account access was not tested.',
+          details: { error },
         }
       }
       const message = describeError(err)

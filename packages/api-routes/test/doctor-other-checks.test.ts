@@ -118,6 +118,25 @@ describe('ga.auth.connection', () => {
     expect(result.details).toMatchObject({ propertyId: '123456' })
   })
 
+  it('fails as verify-unreachable, not a rejected key, when Google cannot be reached', async () => {
+    verifyConnectionMock.mockRejectedValue(new TypeError('fetch failed', {
+      cause: Object.assign(new Error('getaddrinfo ENOTFOUND oauth2.googleapis.com'), { code: 'ENOTFOUND', syscall: 'getaddrinfo', hostname: 'oauth2.googleapis.com' }),
+    }))
+    const record: Ga4CredentialRecord = {
+      projectName: 'demo',
+      propertyId: '123456',
+      clientEmail: 'svc@project.iam',
+      privateKey: 'key',
+      createdAt: '2026-04-01T00:00:00.000Z',
+      updatedAt: '2026-04-01T00:00:00.000Z',
+    }
+    const result = await gaCheck.run({ db: {} as DoctorContext['db'], project, ga4CredentialStore: gaStore(record) })
+    expect(result.status).toBe('fail')
+    expect(result.code).toBe('ga.auth.verify-unreachable')
+    expect(result.summary).toBe('Could not reach Google to verify the GA4 service account: fetch failed (ENOTFOUND resolving oauth2.googleapis.com)')
+    expect(result.details).toMatchObject({ propertyId: '123456', authMethod: 'service-account' })
+  })
+
   it('fails when service account is incomplete', async () => {
     const record: Ga4CredentialRecord = {
       projectName: 'demo',
@@ -158,6 +177,36 @@ describe('ga.auth.connection', () => {
     expect(result.status).toBe('fail')
     expect(result.code).toBe('ga.auth.refresh-failed')
     expect(result.details).toMatchObject({ authMethod: 'oauth', error: 'invalid_grant' })
+  })
+
+  it('reports refresh-unreachable when the OAuth token host cannot be reached', async () => {
+    refreshAccessTokenMock.mockRejectedValue(new TypeError('fetch failed', {
+      cause: Object.assign(new Error('connect ECONNREFUSED 0.0.0.0:443'), { code: 'ECONNREFUSED', syscall: 'connect', address: '0.0.0.0', port: 443 }),
+    }))
+    const result = await gaCheck.run({
+      db: {} as DoctorContext['db'],
+      project,
+      googleConnectionStore: googleStoreWithGa4({}),
+      getGoogleAuthConfig: () => ({ clientId: 'client', clientSecret: 'secret' }),
+    })
+    expect(result.status).toBe('fail')
+    expect(result.code).toBe('ga.auth.refresh-unreachable')
+    expect(result.summary).toBe('Could not reach Google to refresh the GA4 token: fetch failed (ECONNREFUSED connecting to oauth2.googleapis.com at 0.0.0.0:443)')
+    expect(result.details).toMatchObject({ authMethod: 'oauth' })
+  })
+
+  it('reports verify-unreachable when the GA4 Data API cannot be reached', async () => {
+    refreshAccessTokenMock.mockResolvedValue({ access_token: 'tok', expires_in: 3600 })
+    verifyConnectionWithTokenMock.mockRejectedValue(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))
+    const result = await gaCheck.run({
+      db: {} as DoctorContext['db'],
+      project,
+      googleConnectionStore: googleStoreWithGa4({}),
+      getGoogleAuthConfig: () => ({ clientId: 'client', clientSecret: 'secret' }),
+    })
+    expect(result.status).toBe('fail')
+    expect(result.code).toBe('ga.auth.verify-unreachable')
+    expect(result.summary).toBe('Could not reach Google to verify GA4 property access: The operation was aborted due to timeout')
   })
 
   it('reports verify-failed when OAuth token cannot reach property', async () => {

@@ -3,13 +3,36 @@ import {
   CheckScopes,
   CheckStatuses,
   describeError,
+  describeFetchError,
+  isFetchTransportError,
 } from '@ainyc/canonry-contracts'
 import {
+  GA4_DATA_API_BASE,
   verifyConnection,
   verifyConnectionWithToken,
 } from '@ainyc/canonry-integration-google-analytics'
-import { refreshAccessToken } from '@ainyc/canonry-integration-google'
+import { GOOGLE_TOKEN_URL, refreshAccessToken } from '@ainyc/canonry-integration-google'
 import type { CheckDefinition, CheckOutput, DoctorContext } from '../types.js'
+
+/**
+ * A GA4 call that got no answer tested neither the credential nor property
+ * access, so it must not read as a rejection (or supersede the sync failure
+ * that names DNS). `requestUrl` names the host when the error does not.
+ */
+function unreachable(
+  step: { code: 'ga.auth.refresh-unreachable' | 'ga.auth.verify-unreachable'; action: string; requestUrl?: string },
+  err: unknown,
+  details: Record<string, unknown>,
+): CheckOutput {
+  const error = describeFetchError(err, step.requestUrl)
+  return {
+    status: CheckStatuses.fail,
+    code: step.code,
+    summary: `Could not reach Google to ${step.action}: ${error}`,
+    remediation: 'Check that this host can resolve and connect to Google (DNS filtering, firewall, or proxy), then re-run. The credential was not tested.',
+    details: { ...details, error },
+  }
+}
 
 async function checkServiceAccount(conn: NonNullable<ReturnType<NonNullable<DoctorContext['ga4CredentialStore']>['getConnection']>>): Promise<CheckOutput> {
   if (!conn.propertyId) {
@@ -35,6 +58,11 @@ async function checkServiceAccount(conn: NonNullable<ReturnType<NonNullable<Doct
   try {
     await verifyConnection(conn.clientEmail, conn.privateKey, conn.propertyId)
   } catch (err) {
+    // The token exchange and the report call reach different hosts; the
+    // error names the one that failed when it carries a hostname.
+    if (isFetchTransportError(err)) {
+      return unreachable({ code: 'ga.auth.verify-unreachable', action: 'verify the GA4 service account' }, err, { propertyId: conn.propertyId, authMethod: 'service-account' })
+    }
     const message = describeError(err)
     return {
       status: CheckStatuses.fail,
@@ -87,6 +115,9 @@ async function checkOAuthConnection(ctx: DoctorContext, projectName: string, con
     const tokens = await refreshAccessToken(auth.clientId, auth.clientSecret, conn.refreshToken)
     accessToken = tokens.access_token
   } catch (err) {
+    if (isFetchTransportError(err)) {
+      return unreachable({ code: 'ga.auth.refresh-unreachable', action: 'refresh the GA4 token', requestUrl: GOOGLE_TOKEN_URL }, err, { propertyId: conn.propertyId, authMethod: 'oauth' })
+    }
     const message = describeError(err)
     return {
       status: CheckStatuses.fail,
@@ -99,6 +130,9 @@ async function checkOAuthConnection(ctx: DoctorContext, projectName: string, con
   try {
     await verifyConnectionWithToken(accessToken, conn.propertyId)
   } catch (err) {
+    if (isFetchTransportError(err)) {
+      return unreachable({ code: 'ga.auth.verify-unreachable', action: 'verify GA4 property access', requestUrl: GA4_DATA_API_BASE }, err, { propertyId: conn.propertyId, authMethod: 'oauth' })
+    }
     const message = describeError(err)
     return {
       status: CheckStatuses.fail,
