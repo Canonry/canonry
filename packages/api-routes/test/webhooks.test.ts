@@ -1,5 +1,10 @@
-import { test, expect } from 'vitest'
+import dns from 'node:dns/promises'
+import { afterEach, test, expect, vi } from 'vitest'
 import { resolveWebhookTarget } from '../src/webhooks.js'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 test('resolveWebhookTarget rejects private and unspecified literal addresses', async () => {
   for (const url of [
@@ -46,4 +51,24 @@ test('resolveWebhookTarget accepts public literal addresses', async () => {
   if (result.ok) {
     expect(result.target.address).toBe('8.8.8.8')
   }
+})
+
+// The DNS queries the gate makes never read the hosts file, and on macOS they
+// answer `localhost` with ENOTFOUND. A local WordPress (wp-env) links and
+// redirects to http://localhost:8888, so the name must reach loopback anyway.
+test.each([
+  'http://localhost:8888/about/',
+  'http://LOCALHOST./hook',
+  'http://wp.localhost/hook',
+])('resolveWebhookTarget answers %s as loopback without asking DNS', async (url) => {
+  const notFound = Object.assign(new Error('queryA ENOTFOUND'), { code: 'ENOTFOUND' })
+  const resolve4 = vi.spyOn(dns, 'resolve4').mockRejectedValue(notFound)
+  const resolve6 = vi.spyOn(dns, 'resolve6').mockRejectedValue(notFound)
+
+  expect(await resolveWebhookTarget(url, { allowLoopback: true }))
+    .toMatchObject({ ok: true, target: { address: '127.0.0.1', family: 4 } })
+  expect(await resolveWebhookTarget(url))
+    .toEqual({ ok: false, message: '"url" must not resolve to a private or loopback address' })
+  expect(resolve4).not.toHaveBeenCalled()
+  expect(resolve6).not.toHaveBeenCalled()
 })

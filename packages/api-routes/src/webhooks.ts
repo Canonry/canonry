@@ -128,6 +128,13 @@ export async function deliverWebhook(
   })
 }
 
+const LOCALHOST_ADDRESSES = [{ address: '127.0.0.1', family: 4 }, { address: '::1', family: 6 }] as const
+
+function isLocalhostName(hostname: string): boolean {
+  const name = hostname.toLowerCase().replace(/\.$/, '')
+  return name === 'localhost' || name.endsWith('.localhost')
+}
+
 async function resolveHostAddresses(
   hostname: string,
   resolveAddresses: ResolveWebhookTargetOptions['resolveAddresses'],
@@ -136,6 +143,12 @@ async function resolveHostAddresses(
   if (family === 4 || family === 6) {
     return [{ address: hostname, family }]
   }
+  // `localhost` and every name under it are loopback by definition (RFC 6761
+  // §6.3) and never go to DNS. The queries below do not read the hosts file,
+  // so without this `localhost` does not resolve at all on some hosts (macOS)
+  // and resolves on others. The policy still refuses loopback unless
+  // `allowLoopback` admits it.
+  if (isLocalhostName(hostname)) return LOCALHOST_ADDRESSES
   if (resolveAddresses) return await resolveAddresses(hostname)
 
   try {
