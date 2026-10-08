@@ -177,11 +177,14 @@ function bareTotal(numbers: ReadonlyArray<[string, number]>): ListCount | undefi
  * flags (a competitor's `questionsTruncated`) stay where they are. A map of
  * many keyed lists is not paired with totals.
  *
- * A bare `total` counts the one list with no total of its own only when a
- * cursor, explicit truncation flag, or conventional page-row key identifies
- * it as a collection (`competitors` beside `citedDomains` +
- * `citedDomainsTotal` + `truncated`). Aggregate bucket counts need their own
- * list total; their owner's population total does not count bucket rows.
+ * A bare `total` counts the one list with no total of its own at the
+ * result's root, where offset-paged reads return their page
+ * (`{snapshots, total}`, `{project, runId, total, pages}`). Below the root
+ * it does so only when a cursor, explicit truncation flag, or conventional
+ * page-row key identifies it as a collection (`competitors` beside
+ * `citedDomains` + `citedDomainsTotal` + `truncated`). Nested aggregate
+ * bucket counts need their own list total; their owner's population total
+ * (`inventorySummary.total`) does not count bucket rows.
  * A bare `truncated: true`
  * names every list here that no count or `<key>Truncated` explains and that
  * holds rows, since the flag does not say which list it cut. Beside other
@@ -205,7 +208,7 @@ function partialLists(root: Record<string, unknown>): Record<string, string> | u
       if (uncounted.length === 1) {
         const index = uncounted[0]!
         const key = lists[index]![0]
-        const paged = cursorForList(object, path, key, root)
+        const paged = object === root || cursorForList(object, path, key, root)
           || typeof object.truncated === 'boolean' || typeof object[`${key}Truncated`] === 'boolean'
           || ['items', 'rows', 'results'].includes(key)
         if (paged) counts[index] = bareTotal(numbers)
@@ -571,12 +574,21 @@ function projectionPath(path: string): string {
  * Bounded fallback for very large results or an exhausted fair-share search.
  * Arrays keep complete original rows. Scalar text retains an explicitly marked
  * prefix; omission metadata has its own bound and cannot erase retained totals.
+ *
+ * With `partialRows`, a row whole-row cuts cannot show (the first row of a
+ * list with no room for it whole, or a row alone over the cap) is shown
+ * projected (`items[0].markdown` under `slicedKeys`), and the map records
+ * that list's path and the row's index. The result then carries the tool's
+ * own list notes first, as whole-row cuts do, with `reserve` characters
+ * taken from the rows to make room for them.
  */
-function boundedProjection(full: string): string {
+function boundedProjection(full: string, partialRows?: Map<string, number>, reserve = 0): string {
   const value: unknown = JSON.parse(full)
-  const summary: TruncationSummary & { moreDroppedKeys?: number; moreMetadataEntries?: number; projection: string } = {
+  let summary: TruncationSummary & { moreDroppedKeys?: number; moreMetadataEntries?: number; projection: string } = {
     droppedKeys: [], keptItems: {},
-    projection: 'Only complete array rows and marked partial string prefixes are shown; omitted fields are not evidence. Never follow a cursor from a cut page; re-request the original cursor with a smaller limit.',
+    projection: partialRows
+      ? 'Array rows are complete unless slicedKeys or droppedKeys name a field inside one; sliced strings are partial prefixes and omitted fields are not evidence. Never follow a cursor from a cut page; re-request the original cursor with a smaller limit.'
+      : 'Only complete array rows and marked partial string prefixes are shown; omitted fields are not evidence. Never follow a cursor from a cut page; re-request the original cursor with a smaller limit.',
   }
   const skippedMetadata = (): void => { summary.moreMetadataEntries = (summary.moreMetadataEntries ?? 0) + 1 }
   const record = <T>(entries: Record<string, T>, path: string, value: T): boolean => {
@@ -597,6 +609,8 @@ function boundedProjection(full: string): string {
     }
     if (dropped > summary.droppedKeys.length) summary.moreDroppedKeys = dropped - summary.droppedKeys.length
   }
+  /** Owners of a list that lost rows, marked so their page notes read as incomplete. */
+  const cutOwners = new Set<Record<string, unknown>>()
   const project = (input: unknown, budget: number, path: string, owner?: Record<string, unknown>, ownerPath = ''): string | undefined => {
     if (Array.isArray(input)) {
       const rows: string[] = []
@@ -604,11 +618,27 @@ function boundedProjection(full: string): string {
       for (const row of input) {
         const text = serializeResult(row)
         const cost = text.length + (rows.length > 0 ? 1 : 0)
-        if (used + cost > budget) break
-        rows.push(text)
-        used += cost
+        if (used + cost <= budget) {
+          rows.push(text)
+          used += cost
+          continue
+        }
+        if (partialRows && (rows.length === 0 || text.length > MAX_TOOL_RESULT_CHARS)) {
+          const before = { summary: serializeResult(summary), dropped }
+          const partial = project(row, budget - used - (rows.length > 0 ? 1 : 0), `${path || 'items'}[${rows.length}]`)
+          if (partial !== undefined && partial !== '{}' && partial !== '[]') {
+            partialRows.set(path || 'items', rows.length)
+            rows.push(partial)
+          } else {
+            // A row with no field left to show is dropped like any other, without naming its fields.
+            summary = JSON.parse(before.summary) as typeof summary
+            dropped = before.dropped
+          }
+        }
+        break
       }
       if (rows.length < input.length) {
+        if (partialRows && owner) cutOwners.add(owner)
         record(summary.keptItems, path || 'items', `${rows.length} of ${input.length}`)
         if (rows.length === 0) omit(path || 'items')
         if (owner) {
@@ -634,11 +664,17 @@ function boundedProjection(full: string): string {
       omit(path || '(root)')
       return undefined
     }
-    const fields = Object.entries(input).filter(([key]) => !key.startsWith('__'))
     // Preserve small identity values and totals before spending room on evidence.
+    // With partial rows, a list or object too large to show whole also waits for
+    // its smaller siblings, so a document shown in part cannot crowd out `warnings`.
     const priority = ([key, child]: [string, unknown]): number => key === 'queryPage' && isRecord(child) ? 0
-      : typeof child === 'string' && child.length > budget ? 2 : Number(typeof child === 'object' && child !== null)
-    fields.sort((a, b) => priority(a) - priority(b))
+      : typeof child === 'string' && child.length > budget ? 2
+        : typeof child !== 'object' || child === null ? 0
+          : partialRows && serializeResult(child).length > budget ? 2 : 1
+    const fields = Object.entries(input).filter(([key]) => !key.startsWith('__'))
+      .map(field => ({ field, rank: priority(field) }))
+      .sort((a, b) => a.rank - b.rank)
+      .map(({ field }) => field)
     const shown: string[] = []
     let used = 2
     for (const [key, child] of fields) {
@@ -651,12 +687,54 @@ function boundedProjection(full: string): string {
       shown.push(prefix + text)
       used += prefix.length + text.length + (shown.length > 1 ? 1 : 0)
     }
+    // The root is marked below; a nested owner of a cut list is marked as whole-row cuts mark it.
+    if (path && cutOwners.has(input)) shown.push('"__truncated":true')
     return `{${shown.join(',')}}`
   }
-  const projected = project(value, MAX_TOOL_RESULT_CHARS - PROJECTION_SUMMARY_CHARS, '')
+  const projected = project(value, MAX_TOOL_RESULT_CHARS - PROJECTION_SUMMARY_CHARS - reserve, '')
   const shown: unknown = projected === undefined ? {} : JSON.parse(projected)
   const output = isRecord(shown) ? shown : { items: shown }
-  return serializeResult({ ...output, __truncated: true, [TRUNCATION_SUMMARY_KEY]: summary })
+  const result = { ...output, __truncated: true, [TRUNCATION_SUMMARY_KEY]: summary }
+  return serializeResult(partialRows ? withPartialLists(result) : result)
+}
+
+/**
+ * Rows a cut result shows of the list at a projection `path` (`data.results`),
+ * 0 when the cut left it out. Lists inside a row are not compared.
+ */
+function rowsShown(cut: unknown, path: string): number {
+  if (path.includes('[')) return Infinity
+  const list = path.split('.').reduce<unknown>((owner, key) => (isRecord(owner) ? owner[key] : undefined), cut)
+  return Array.isArray(list) ? list.length : 0
+}
+
+/**
+ * `whole`, or a projection of `full` that shows in part a row `whole` drops
+ * and no whole-row cut can show. Decided per list, so a sibling list
+ * (`images`, `warnings`) that keeps its rows does not keep the document out.
+ */
+function withPartialRows(full: string, whole: string): string {
+  const rescued = new Map<string, number>()
+  let partial = boundedProjection(full, rescued)
+  // The restored list notes can outgrow the summary's reserve; take their room from the rows.
+  if (!fitsCap(partial)) {
+    const { [PARTIAL_LISTS_KEY]: lists, __pagination: pagination } = JSON.parse(partial) as Record<string, unknown>
+    rescued.clear()
+    partial = boundedProjection(full, rescued, serializeResult({ lists, pagination }).length)
+  }
+  if (!fitsCap(partial)) return whole
+  const cut: unknown = JSON.parse(whole)
+  return [...rescued].some(([path, index]) => rowsShown(cut, path) <= index) ? partial : whole
+}
+
+export interface TruncateToolResultOptions {
+  /**
+   * Show in part a row whole-row cuts drop and can never show (a row alone
+   * over the cap, or a first row with no room for it whole), its fields
+   * marked under `slicedKeys` and `droppedKeys`. For remote tools, whose rows
+   * are fetched documents rather than native evidence rows.
+   */
+  partialRows?: boolean
 }
 
 /**
@@ -684,13 +762,19 @@ function boundedProjection(full: string): string {
  * The structured output stays parseable JSON. Only the model-facing text is
  * trimmed; the programmatic `details` is never touched. Oversized scalar strings
  * retain only explicitly marked partial prefixes; strings inside array rows
- * are never sliced.
+ * are never sliced, unless `partialRows` is set and a whole-row cut would
+ * drop a row it can never show.
  */
-export function truncateToolResult(details: unknown): string {
+export function truncateToolResult(details: unknown, options: TruncateToolResultOptions = {}): string {
   const annotated = withPartialLists(details)
   const full = serializeResult(annotated)
   if (full.length <= MAX_TOOL_RESULT_CHARS) return full
+  const whole = truncateWholeRows(details, full)
+  return options.partialRows ? withPartialRows(full, whole) : whole
+}
 
+/** The cut `truncateToolResult` makes for a `full` text over the cap, keeping retained rows whole. */
+function truncateWholeRows(details: unknown, full: string): string {
   // Bound the work BEFORE any structured path. Each of them re-serializes the
   // enclosing document per step, so a guard in front of only the nested path
   // left the top-level-array and largest-array paths exposed. Past this size

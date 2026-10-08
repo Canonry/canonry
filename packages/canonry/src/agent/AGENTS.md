@@ -208,9 +208,10 @@ __truncated, __omittedRows }`; fields without room are omitted explicitly
 in a bounded JSON projection. Oversized standalone
 strings and object string fields retain marked partial prefixes under
 `__truncation.slicedKeys` with exact kept/total character counts; never treat these
-as complete quotations. Array rows stay whole. Bounded display paths and a separate
+as complete quotations. Array rows stay whole, except a remote result's
+row that no whole-row cut can show (below). Bounded display paths and a separate
 metadata budget prevent long map keys from erasing retained totals and rollups.
-Every retained row stays byte-intact;
+Every retained whole row stays byte-intact;
 the programmatic `details` envelope is never trimmed, only the model-facing
 text.
 
@@ -231,8 +232,10 @@ a list whose owner carries a page cursor (`nextCursor`, `nextOffset`,
 `__truncation.cursors` says it skips the cut rows and what `limit` to re-request
 with. Lists the TOOL itself returned partially (its own total above the rows,
 or `truncated: true`) are named under `__partialLists`, always the FIRST key,
-whether or not the cap cut anything. A bare parent `total` is a list total only
-with collection evidence: a cursor, explicit truncation flag, or conventional
+whether or not the cap cut anything. A bare `total` at the result root counts
+its one uncounted list, the page of an offset-paged read (`{snapshots, total}`,
+`{project, runId, total, pages}`). Below the root, a bare parent `total` is a
+list total only with collection evidence: a cursor, explicit truncation flag, or conventional
 `items`/`rows`/`results` key. Named list totals remain authoritative; a page
 population total never implies that complete aggregate reason buckets are partial.
 Intact pages carry a `__pagination` note
@@ -245,7 +248,16 @@ limit. A result with no partial list or next cursor serializes byte-identical
 to plain compact JSON. Remote tool results use the same structured truncation
 while preserving the complete programmatic envelope. Multi-block protocol content
 is keyed only in model-facing output so long text blocks can retain marked
-prefixes without splitting native structured evidence rows.
+prefixes without splitting native structured evidence rows. When a whole-row
+cut would drop a remote row it can never show (a fetched document alone over the
+cap, or a first row with no room left for it whole),
+`truncateToolResult(shown, { partialRows: true })` shows that row in part and
+names its cut fields under `slicedKeys` and `droppedKeys` (`results[0].markdown`).
+The choice is made per list, so `images`, `warnings` or whole rows before the
+document do not keep it out; smaller siblings are shown first and the document
+gets the remaining room. `__partialLists` and `__pagination` stay the first keys,
+and an owner whose list lost rows carries `__truncated`, so its cursor reads as
+incomplete. Native results never get partial rows.
 
 A misspelled tool name is corrected before pi prepares the call: the
 `agent.streamFunction` wrapper (`runtime.ts`) renames a tool call to the one VISIBLE

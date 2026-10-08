@@ -304,6 +304,13 @@ function scanTone(status: string | null | undefined): MetricTone {
 }
 
 /**
+ * The scan history default is the API's preferred scan: the latest scan date,
+ * a complete scan first, then the most pages checked. It is not always the
+ * newest scan, so the label names the rule rather than saying "latest".
+ */
+const DEFAULT_SCAN_OPTION_LABEL = 'Most complete scan from latest day'
+
+/**
  * A scan that kept no crawl is still real, selectable history. Say what it
  * holds ("Score only") rather than hiding it or letting it look broken.
  */
@@ -1652,6 +1659,8 @@ export function SiteHealthSection({
   const [view, setView] = useState<SiteHealthView>('map')
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
   const [selectedRunId, setSelectedRunId] = useState<string | null>(() => initialRunId ?? null)
+  // A scan this section started stops being followed once the operator picks a scan.
+  const [releasedRescanRunId, setReleasedRescanRunId] = useState<string | null>(null)
   const previousInitialRunId = useRef(initialRunId)
   const [selectedNodeKey, setSelectedNodeKey] = useState<string | null>(null)
   const [checkDeadLinks, setCheckDeadLinks] = useState(false)
@@ -1711,12 +1720,19 @@ export function SiteHealthSection({
   const latestTerminalAudit = auditScans
     .find((scan) => scan.status === 'completed' || scan.status === 'partial')
   const mutationRunId = explicitOnboarding ? runMutation.data?.runId ?? null : null
+  // The default is the API's preferred scan, which can be an earlier, fuller
+  // scan from the same day. A scan started here is the result the operator is
+  // waiting for, so once it finishes it is shown until they pick another scan.
+  const rescanRunId = explicitOnboarding ? null : runMutation.data?.runId ?? null
+  const finishedRescanRunId = rescanRunId && rescanRunId !== releasedRescanRunId && auditScans.some(
+    (scan) => scan.runId === rescanRunId && (scan.status === 'completed' || scan.status === 'partial'),
+  ) ? rescanRunId : null
   // During explicit setup, a replacement scan remains the current work through
   // every status transition. Its own terminal evidence or recovery must replace
   // the prior result; merely appearing in scan history does not release it.
   const requestedRunId = selectedRunId ?? (explicitOnboarding
     ? mutationRunId ?? activeAudit?.runId ?? latestTerminalAudit?.runId
-    : auditRunsQuery.data?.preferredRunId ?? latestTerminalAudit?.runId ?? activeAudit?.runId) ?? null
+    : finishedRescanRunId ?? auditRunsQuery.data?.preferredRunId ?? latestTerminalAudit?.runId ?? activeAudit?.runId) ?? null
   // Scan history is eventually consistent. Keep its active state only until
   // the exact progress read for this selected run can say otherwise.
   const activeRequestedRun = activeAudit?.runId === requestedRunId ? activeAudit : null
@@ -2066,6 +2082,7 @@ export function SiteHealthSection({
   const transientView = currentView === 'technical' ? 'map' : currentView
   const selectRun = (runId: string) => {
     setSelectedRunId(runId || null)
+    setReleasedRescanRunId(rescanRunId)
     setSelectedNodeKey(null)
   }
   const startScan = () => {
@@ -2139,11 +2156,11 @@ export function SiteHealthSection({
             Scan history
             <select
               aria-label="View a Site Health scan"
-              value={selectedRunId ?? ''}
+              value={selectedRunId ?? finishedRescanRunId ?? ''}
               onChange={(event) => selectRun(event.target.value)}
               className="h-9 min-w-48 rounded-md border border-base bg-bg px-3 text-sm text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-600"
             >
-              <option value="">Latest scan</option>
+              <option value="">{DEFAULT_SCAN_OPTION_LABEL}</option>
               {selectableScans.map((scan) => (
                 <option key={scan.runId} value={scan.runId}>{scanOptionLabel(scan)}</option>
               ))}

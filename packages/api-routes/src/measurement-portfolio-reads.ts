@@ -409,19 +409,42 @@ function plannedQueryCount(plan: MeasurementPlanV2, targetKey: string, queryClas
     .map(assignment => assignment.queryId)).size
 }
 
+/** A cited source's host and registrable domain, or null for provider plumbing. */
+type CitedHostReader = (raw: string) => { host: string; domain: string } | null
+
 /**
- * Hosts an answer cited, once each, without provider plumbing such as
- * grounding redirects: its stored domains plus the hosts of the URLs citation
- * coverage read. Gemini can store no domain for a redirect it could not
- * decode while URL capture resolved the source, so the stored domains alone
- * report a cited answer as citing nothing.
+ * Resolves each distinct cited source once. Answers in one run cite the same
+ * sources over and over, and the provider-infrastructure check parses both
+ * hosts of every comparison, so resolving per answer made each portfolio
+ * page cost half a second at 200 Properties.
  */
-function answerDomains(answer: Pick<SourceAnswer, 'snapshot' | 'citedUrls'>): Set<string> {
-  const domains = new Set<string>()
+function createCitedHostReader(): CitedHostReader {
+  const resolved = new Map<string, { host: string; domain: string } | null>()
+  return raw => {
+    let cited = resolved.get(raw)
+    if (cited === undefined) {
+      const host = hostOf(raw)
+      cited = !host || hostMatchesAnyDomain(host, AI_PROVIDER_INFRA_DOMAINS)
+        ? null
+        : { host, domain: registrableDomain(host) || host }
+      resolved.set(raw, cited)
+    }
+    return cited
+  }
+}
+
+/**
+ * Hosts an answer cited, once each, mapped to their registrable domains,
+ * without provider plumbing such as grounding redirects: its stored domains
+ * plus the hosts of the URLs citation coverage read. Gemini can store no
+ * domain for a redirect it could not decode while URL capture resolved the
+ * source, so the stored domains alone report a cited answer as citing nothing.
+ */
+function answerDomains(answer: Pick<SourceAnswer, 'snapshot' | 'citedUrls'>, readHost: CitedHostReader): Map<string, string> {
+  const domains = new Map<string, string>()
   for (const raw of [...answer.snapshot.citedDomains, ...answer.citedUrls]) {
-    const host = hostOf(raw)
-    if (!host || hostMatchesAnyDomain(host, AI_PROVIDER_INFRA_DOMAINS)) continue
-    domains.add(host)
+    const cited = readHost(raw)
+    if (cited) domains.set(cited.host, cited.domain)
   }
   return domains
 }
@@ -430,10 +453,11 @@ function answerDomains(answer: Pick<SourceAnswer, 'snapshot' | 'citedUrls'>): Se
 function domainRows(
   answers: readonly Pick<SourceAnswer, 'snapshot' | 'citedUrls'>[],
   limit: number,
+  readHost: CitedHostReader = createCitedHostReader(),
 ): { rows: Array<{ domain: string; answers: number }>; total: number } {
   const counts = new Map<string, number>()
   for (const answer of answers) {
-    const domains = new Set([...answerDomains(answer)].map(host => registrableDomain(host) || host))
+    const domains = new Set(answerDomains(answer, readHost).values())
     for (const domain of domains) counts.set(domain, (counts.get(domain) ?? 0) + 1)
   }
   const rows = [...counts]
@@ -1057,7 +1081,7 @@ function portfolioResponse(
       citedDomainsTotal: domains.total,
     }
   })
-  const tie = weakestTie(ranked)
+  const tie = weakestTie(ranked, !query.compact)
   const engines = new Set<string>()
   for (const population of populations.values()) for (const provider of population.providers) engines.add(provider)
   const answerEvidence = query.answers !== 'not-mentioned' ? undefined : portfolioAnswerEvidence(plan, materialized, filters, targetKeys)
@@ -1080,9 +1104,7 @@ function portfolioResponse(
     },
     ...(query.compact && group === undefined ? { weakestMarkets: weakestMarkets(markets.markets, query.queryClass) } : {}),
     weakestProperties: rows,
-    tiedAtWeakest: query.compact && tie.summary !== null ? {
-      count: tie.summary.count, mentionRate: tie.summary.mentionRate, citationRate: tie.summary.citationRate, note: tie.summary.note,
-    } : tie.summary,
+    tiedAtWeakest: tie.summary,
     ...(query.compact ? {
       detailsOmitted: ['weakestProperties.answerEvidence', 'tiedAtWeakest.byMetro', 'tiedAtWeakest.namedInstead'],
     } : {}),
@@ -1120,6 +1142,8 @@ interface TiedRow extends PropertyLocation {
  */
 function weakestTie<Row extends TiedRow>(
   ranked: readonly Row[],
+  /** Compact reads omit where the tie sits and what its answers named, so they never read every tied answer for it. */
+  detailed: boolean,
 ): { summary: MeasurementPortfolioWeakestTie | null; rows: Row[] } {
   if (ranked.length === 0) return { summary: null, rows: [] }
   const first = ranked[0]!
@@ -1134,13 +1158,12 @@ function weakestTie<Row extends TiedRow>(
     && row.citationCoverage.state === 'available' && row.citationCoverage.value === citationRate
   ))
   if (rows.length < 2) return { summary: null, rows: [] }
+  const summary: MeasurementPortfolioWeakestTie = { count: rows.length, mentionRate, citationRate, note: MEASUREMENT_PORTFOLIO_TIE_NOTE }
+  if (!detailed) return { summary, rows }
   const namedInstead = tieNamedInstead(rows)
   return {
     summary: {
-      count: rows.length,
-      mentionRate,
-      citationRate,
-      note: MEASUREMENT_PORTFOLIO_TIE_NOTE,
+      ...summary,
       byMetro: tieByMetro(rows),
       namedInstead: namedInstead.rows,
       namedInsteadTotal: namedInstead.total,
@@ -1219,10 +1242,11 @@ function weakestAnswerSources(
     properties.add(row.targetKey)
     for (const answer of row.population.sourceAnswers) answers.set(answer.snapshot.id, answer)
   }
-  const domains = domainRows([...answers.values()], MEASUREMENT_PORTFOLIO_ANSWER_SOURCES_LIMIT)
+  const readHost = createCitedHostReader()
+  const domains = domainRows([...answers.values()], MEASUREMENT_PORTFOLIO_ANSWER_SOURCES_LIMIT, readHost)
   let ownDomainAnswers = 0
   for (const answer of answers.values()) {
-    if ([...answerDomains(answer)].some(host => hostMatchesAnyDomain(host, ownDomains))) ownDomainAnswers++
+    if ([...answerDomains(answer, readHost).keys()].some(host => hostMatchesAnyDomain(host, ownDomains))) ownDomainAnswers++
   }
   return { properties: properties.size, answers: answers.size, domains: domains.rows, domainTotal: domains.total, ownDomainAnswers }
 }

@@ -768,7 +768,8 @@ test('leads with the map, truthful crawl metrics, and an explicit disabled dead-
   const queryClient = renderSection()
 
   expect(screen.getByRole('heading', { name: 'Site Health', level: 2 })).not.toBeNull()
-  expect(screen.getByRole('option', { name: 'Latest scan' })).not.toBeNull()
+  expect(screen.getByRole('option', { name: 'Most complete scan from latest day' })).not.toBeNull()
+  expect(screen.queryByRole('option', { name: 'Latest scan' })).toBeNull()
   expect(screen.getByRole('tab', { name: 'Map' }).getAttribute('aria-selected')).toBe('true')
   expect(screen.getByRole('img', { name: 'Interactive site map' })).not.toBeNull()
   expect(screen.getByText('Indexable')).not.toBeNull()
@@ -1076,6 +1077,63 @@ test('uses the API preferred scan by default and preserves an explicitly selecte
   expect(screen.getByText('18')).not.toBeNull()
   fireEvent.click(screen.getByRole('tab', { name: 'Page health' }))
   expect(screen.getByText('Page health for run_partial')).not.toBeNull()
+})
+
+test('shows a finished rescan started here even when the preferred scan is an earlier same-day scan', async () => {
+  const queryClient = makeClient()
+  // Both scans completed on the same day; the API prefers the one that checked more pages.
+  const sched = { ...scan('run_sched'), finishedAt: '2026-08-08T08:05:00.000Z' }
+  const manualFinished = { ...scan('run_manual'), createdAt: '2026-08-08T14:00:00.000Z', startedAt: '2026-08-08T14:00:00.000Z', finishedAt: '2026-08-08T14:05:00.000Z' }
+  const manualRunning = { ...manualFinished, status: 'running' as const, finishedAt: null, hasCrawlData: false }
+  queryClient.setQueryData(scanHistoryKey(), { ...scanHistory(sched), preferredRunId: 'run_sched' })
+  seedRun(queryClient, 'run_sched', summary('run_sched', 502))
+  seedRun(queryClient, 'run_manual', summary('run_manual', 500))
+  mutationMock.mutate.mockImplementation(() => { mutationMock.data = { runId: 'run_manual', status: 'queued' } })
+  renderSection(queryClient)
+  const history = screen.getByRole('combobox', { name: 'View a Site Health scan' }) as HTMLSelectElement
+  expect(screen.getByText('502')).not.toBeNull()
+  expect(history.value).toBe('')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Run scan' }))
+  act(() => {
+    queryClient.setQueryData(scanHistoryKey(), { ...scanHistory(manualRunning, sched), preferredRunId: 'run_sched' })
+  })
+  expect(await screen.findByText(/a newer scan is running/i)).not.toBeNull()
+  expect(screen.getByText('502')).not.toBeNull()
+
+  act(() => {
+    queryClient.setQueryData(scanHistoryKey(), { ...scanHistory(manualFinished, sched), preferredRunId: 'run_sched' })
+  })
+  await waitFor(() => expect(screen.getByText('500')).not.toBeNull())
+  expect(history.value).toBe('run_manual')
+  fireEvent.click(screen.getByRole('tab', { name: 'Page health' }))
+  expect(screen.getByText('Page health for run_manual')).not.toBeNull()
+
+  // Choosing the default returns to the preferred scan and stops following the rescan.
+  fireEvent.change(history, { target: { value: '' } })
+  expect(await screen.findByText('Page health for run_sched')).not.toBeNull()
+  expect(history.value).toBe('')
+  act(() => {
+    queryClient.setQueryData(scanHistoryKey(), { ...scanHistory(manualFinished, sched), preferredRunId: 'run_sched' })
+  })
+  expect(screen.getByText('Page health for run_sched')).not.toBeNull()
+})
+
+test('keeps the preferred scan when a rescan started here fails', async () => {
+  const queryClient = makeClient()
+  queryClient.setQueryData(scanHistoryKey(), { ...scanHistory(scan('run_1')), preferredRunId: 'run_1' })
+  mutationMock.mutate.mockImplementation(() => { mutationMock.data = { runId: 'run_failed', status: 'queued' } })
+  renderSection(queryClient)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Run scan' }))
+  act(() => {
+    queryClient.setQueryData(scanHistoryKey(), { ...scanHistory(scan('run_failed', 'failed', false), scan('run_1')), preferredRunId: 'run_1' })
+  })
+
+  expect(await screen.findByText(/the latest scan failed/i)).not.toBeNull()
+  expect((screen.getByRole('combobox', { name: 'View a Site Health scan' }) as HTMLSelectElement).value).toBe('')
+  fireEvent.click(screen.getByRole('tab', { name: 'Page health' }))
+  expect(screen.getByText('Page health for run_1')).not.toBeNull()
 })
 
 test('falls back to the newest terminal run when scan history omits preferred selection', () => {
