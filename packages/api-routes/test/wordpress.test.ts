@@ -7,6 +7,7 @@ import Fastify from 'fastify'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createClient, migrate, projects } from '@ainyc/canonry-db'
 import { WordpressApiError } from '@ainyc/canonry-integration-wordpress'
+import { wordpressPageListDtoSchema } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import type { WordpressConnectionStore } from '../src/wordpress.js'
 
@@ -308,6 +309,7 @@ describe('WordPress routes', () => {
         },
       ],
     })
+    expect(wordpressPageListDtoSchema.parse(res.json())).toEqual(res.json())
     expect(listPagesSpy).toHaveBeenCalledWith(expect.objectContaining({ projectName: 'test-project' }), 'staging')
   })
 

@@ -254,6 +254,11 @@ export const projectDtoSchema = z.object({
 
 export type ProjectDto = z.infer<typeof projectDtoSchema>
 
+export const projectDefaultLocationResponseSchema = z.object({
+  defaultLocation: z.string(),
+})
+export type ProjectDefaultLocationResponse = z.infer<typeof projectDefaultLocationResponseSchema>
+
 export const queryDtoSchema = z.object({
   id: z.string(),
   query: z.string(),
@@ -292,6 +297,12 @@ export const queryGenerateRequestSchema = z.object({
 })
 
 export type QueryGenerateRequest = z.infer<typeof queryGenerateRequestSchema>
+
+export const queryGenerateResponseSchema = z.object({
+  queries: z.array(z.string()),
+  provider: z.string(),
+})
+export type QueryGenerateResponse = z.infer<typeof queryGenerateResponseSchema>
 
 /** @deprecated Legacy alias kept for the `/keywords/generate` back-compat surface. New code should use {@link queryGenerateRequestSchema}. */
 export const keywordGenerateRequestSchema = queryGenerateRequestSchema

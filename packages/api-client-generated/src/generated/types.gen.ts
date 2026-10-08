@@ -11092,6 +11092,10 @@ export type ProjectDto = {
     updatedAt?: string;
 };
 
+export type ProjectDefaultLocationResponse = {
+    defaultLocation: string;
+};
+
 export type ProjectUpsertRequest = {
     displayName: string;
     canonicalDomain: string;
@@ -12094,6 +12098,11 @@ export type QueryDto = {
     id: string;
     query: string;
     createdAt: string;
+};
+
+export type QueryGenerateResponse = {
+    queries: Array<string>;
+    provider: string;
 };
 
 export type ReferralAssessment = {
@@ -14756,13 +14765,16 @@ export type WordpressPageDetailDto = {
     }>;
 };
 
-export type WordpressPageSummaryDto = {
-    id: number;
-    slug: string;
-    title: string;
-    status: string;
-    modifiedAt?: string | null;
-    link?: string | null;
+export type WordpressPageListDto = {
+    env: 'live' | 'staging';
+    pages: Array<{
+        id: number;
+        slug: string;
+        title: string;
+        status: string;
+        modifiedAt?: string | null;
+        link?: string | null;
+    }>;
 };
 
 export type WordpressSchemaBlockDto = {
@@ -19181,7 +19193,7 @@ export type PutApiV1ProjectsByNameLocationsDefaultResponses = {
     /**
      * Default location updated.
      */
-    200: ProjectDto;
+    200: ProjectDefaultLocationResponse;
 };
 
 export type PutApiV1ProjectsByNameLocationsDefaultResponse = PutApiV1ProjectsByNameLocationsDefaultResponses[keyof PutApiV1ProjectsByNameLocationsDefaultResponses];
@@ -19462,9 +19474,7 @@ export type PostApiV1ProjectsByNameQueriesGenerateResponses = {
     /**
      * Query suggestions returned.
      */
-    200: {
-        suggestions?: Array<string>;
-    };
+    200: QueryGenerateResponse;
 };
 
 export type PostApiV1ProjectsByNameQueriesGenerateResponse = PostApiV1ProjectsByNameQueriesGenerateResponses[keyof PostApiV1ProjectsByNameQueriesGenerateResponses];
@@ -26634,7 +26644,7 @@ export type GetApiV1ProjectsByNameWordpressPagesResponses = {
     /**
      * WordPress pages returned.
      */
-    200: Array<WordpressPageSummaryDto>;
+    200: WordpressPageListDto;
 };
 
 export type GetApiV1ProjectsByNameWordpressPagesResponse = GetApiV1ProjectsByNameWordpressPagesResponses[keyof GetApiV1ProjectsByNameWordpressPagesResponses];

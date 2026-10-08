@@ -48,6 +48,12 @@ export const wordpressPageSummaryDtoSchema = z.object({
 })
 export type WordpressPageSummaryDto = z.infer<typeof wordpressPageSummaryDtoSchema>
 
+export const wordpressPageListDtoSchema = z.object({
+  env: wordpressEnvSchema,
+  pages: z.array(wordpressPageSummaryDtoSchema),
+})
+export type WordpressPageListDto = z.infer<typeof wordpressPageListDtoSchema>
+
 export const wordpressSeoStateDtoSchema = z.object({
   title: z.string().nullable(),
   description: z.string().nullable(),

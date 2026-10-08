@@ -139,6 +139,19 @@ describe('openapi contract', () => {
     expect(body.paths['/api/v1/projects/{name}/google/callback']?.get?.security).toEqual([])
   })
 
+  it('documents the bodies the pages, query-generation and default-location routes send', () => {
+    // Each handler's own test pins the body and parses it with the schema named here.
+    const paths = buildOpenApiDocument().paths as Record<string, Record<string, {
+      responses: Record<string, { content?: Record<string, { schema?: { $ref?: string } }> }>
+    }>>
+    const okRef = (path: string, method: string) =>
+      paths[path]?.[method]?.responses['200']?.content?.['application/json']?.schema?.$ref
+
+    expect(okRef('/api/v1/projects/{name}/wordpress/pages', 'get')).toBe('#/components/schemas/WordpressPageListDto')
+    expect(okRef('/api/v1/projects/{name}/queries/generate', 'post')).toBe('#/components/schemas/QueryGenerateResponse')
+    expect(okRef('/api/v1/projects/{name}/locations/default', 'put')).toBe('#/components/schemas/ProjectDefaultLocationResponse')
+  })
+
   it('lists null in every nullable enum, so generated clients keep the null', () => {
     const doc = buildOpenApiDocument()
     // OpenAPI 3.0.3 admits null into an enum only when null is listed;

@@ -6,6 +6,7 @@ import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { and, eq } from 'drizzle-orm'
 import { auditLog, competitors, createClient, migrate, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
+import { projectDefaultLocationResponseSchema, queryGenerateResponseSchema } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
 
@@ -410,6 +411,7 @@ describe('api-routes', () => {
         provider: 'gemini',
         queries: ['answer visibility software', 'ai citation tracking'],
       })
+      expect(queryGenerateResponseSchema.parse(JSON.parse(res.payload))).toEqual(JSON.parse(res.payload))
     } finally {
       await ctx.app.close()
       fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
@@ -1366,6 +1368,7 @@ describe('api-routes', () => {
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload)
     expect(body.defaultLocation).toBe('nyc')
+    expect(projectDefaultLocationResponseSchema.parse(body)).toEqual(body)
 
     // Verify via GET locations
     const getRes = await app.inject({ method: 'GET', url: '/api/v1/projects/my-site/locations' })

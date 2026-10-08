@@ -1824,7 +1824,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: jsonResponse('Default location updated.', 'ProjectDto'),
+      200: jsonResponse('Default location updated.', 'ProjectDefaultLocationResponse'),
       400: errorResponse('Invalid location.'),
       404: errorResponse('Project not found.'),
     },
@@ -2040,7 +2040,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: rawJsonResponse('Query suggestions returned.', { type: 'object', properties: { suggestions: { type: 'array', items: { type: 'string' } } } }),
+      200: jsonResponse('Query suggestions returned.', 'QueryGenerateResponse'),
       501: errorResponse('Query generation is not available.'),
     },
   },
@@ -5486,7 +5486,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['wordpress'],
     parameters: [nameParameter, wordpressEnvQueryParameter],
     responses: {
-      200: jsonArrayResponse('WordPress pages returned.', 'WordpressPageSummaryDto'),
+      200: jsonResponse('WordPress pages returned.', 'WordpressPageListDto'),
       400: errorResponse('Invalid environment or missing connection.'),
       404: errorResponse('Project not found.'),
     },
