@@ -626,23 +626,38 @@ function isLoopbackPeerAddress(address: string | undefined): boolean {
 }
 
 /**
- * Whether a request came straight from a process on this machine: the server
- * listens on loopback, the socket peer is loopback, no proxy header is
- * present, and Host names this machine (`localhost` or a loopback literal)
- * rather than a `publicUrl`. A loopback BIND alone proves nothing, because a
- * reverse proxy or Tailscale Serve on the same host forwards remote visitors
- * to it. Reads the raw socket and raw headers, never `request.ip` or
- * `request.hostname`, which a configured `trustProxy` rewrites from headers.
+ * Headers that a proxy, tunnel, or CDN adds besides the client-address headers
+ * `hasForwardedHeaders` reads. A proxy that sends only one of these (the
+ * original host, scheme, or port, a `Via` hop, or a CDN's client address)
+ * still put itself in the path.
  */
-function isDirectLocalRequest(request: FastifyRequest, boundToLoopback: boolean): boolean {
-  if (!boundToLoopback) return false;
+const PROXY_PATH_HEADERS = [
+  "x-forwarded-host",
+  "x-forwarded-proto",
+  "x-forwarded-port",
+  "x-forwarded-server",
+  "via",
+  "cf-connecting-ip",
+  "true-client-ip",
+] as const;
+
+/**
+ * Whether a request looks like it came straight from a process on this
+ * machine: the socket peer is loopback, no proxy header is present, and Host
+ * names this machine (`localhost` or a loopback literal). Reads the raw socket
+ * and raw headers, never `request.ip` or `request.hostname`, which a
+ * configured `trustProxy` rewrites from headers.
+ *
+ * The client chooses Host, so this proves nothing about a proxy or TCP
+ * forwarder on the same host that adds no forwarding header: it hands a remote
+ * visitor's `Host: localhost` over loopback. Callers also require a loopback
+ * bind whose config names no other way in (`configuresExternalAccess`).
+ */
+function isDirectLocalRequest(request: FastifyRequest): boolean {
   if (!isLoopbackPeerAddress(request.raw.socket.remoteAddress)) return false;
-  // `hasForwardedHeaders` covers the client-address headers; a proxy that
-  // forwards only the original host or scheme still put itself in the path.
   if (
     hasForwardedHeaders(request) ||
-    request.headers["x-forwarded-host"] !== undefined ||
-    request.headers["x-forwarded-proto"] !== undefined
+    PROXY_PATH_HEADERS.some((header) => request.headers[header] !== undefined)
   ) {
     return false;
   }
@@ -655,6 +670,29 @@ function isDirectLocalRequest(request: FastifyRequest, boundToLoopback: boolean)
     return false;
   }
   return hostname !== "" && isLoopbackBindHost(hostname);
+}
+
+/**
+ * Whether config declares a way to reach this server other than a direct local
+ * connection: a trusted proxy (`CANONRY_TRUST_PROXY`), or an `apiUrl` or
+ * `publicUrl` whose hostname is not loopback. A URL that does not parse
+ * counts as external, so a typo cannot turn keyless setup back on.
+ */
+function configuresExternalAccess(
+  trustProxy: boolean | number | string[],
+  ...configuredUrls: (string | undefined)[]
+): boolean {
+  if (trustProxy !== false) return true;
+  return configuredUrls.some((configuredUrl) => {
+    const value = configuredUrl?.trim();
+    if (!value) return false;
+    try {
+      const { hostname } = new URL(value);
+      return hostname === "" || !isLoopbackBindHost(hostname);
+    } catch {
+      return true;
+    }
+  });
 }
 
 /**
@@ -884,10 +922,12 @@ export async function createServer(opts: {
   /**
    * The network interface the server will bind to (from `canonry serve`).
    * Used to gate the first-run dashboard password setup: only on a loopback
-   * bind can a direct local request (see `isDirectLocalRequest`) claim the
-   * initial password without the root API key. On a non-loopback bind
-   * (`0.0.0.0`, a LAN IP) every setup request must present the root key, so a
-   * remote first visitor cannot mint a standing full-access credential.
+   * bind, and only while config names no other way in
+   * (`configuresExternalAccess`), can a direct local request (see
+   * `isDirectLocalRequest`) claim the initial password without the root API
+   * key. On a non-loopback bind (`0.0.0.0`, a LAN IP) every setup request must
+   * present the root key, so a remote first visitor cannot mint a standing
+   * full-access credential.
    * Defaults to loopback when unset (programmatic/test callers).
    */
   host?: string;
@@ -2455,10 +2495,14 @@ export async function createServer(opts: {
     return true;
   };
 
-  // Whether the server is bound to a loopback interface. Only then can a
-  // direct local request set the first dashboard password without the root
-  // key (see `isDirectLocalRequest` and `/session/setup`).
-  const boundToLoopback = isLoopbackBindHost(opts.host);
+  // Whether a direct local request (see `isDirectLocalRequest`) may set the
+  // first dashboard password without the root key. Only on a loopback bind,
+  // and only while config names no other way in: once an operator sets a
+  // non-loopback `apiUrl` / `publicUrl` or trusts a proxy, remote visitors
+  // reach this server over loopback, and a client-chosen `Host: localhost`
+  // through a proxy that adds no forwarding header looks local.
+  const keylessLocalSetup = isLoopbackBindHost(opts.host)
+    && !configuresExternalAccess(trustProxy, opts.config.apiUrl, opts.config.publicUrl);
 
   // The dashboard password is a standing credential for the install's DEFAULT
   // key: every password sign-in binds to it (`createPasswordSession`), and it
@@ -2526,9 +2570,9 @@ export async function createServer(opts: {
     const found = getDefaultApiKey();
     const defaultKey = found && !found.revokedAt ? found : undefined;
     const presentedRootKey = defaultKey !== undefined && requestPresentsKey(request, defaultKey);
-    if (!presentedRootKey && !isDirectLocalRequest(request, boundToLoopback)) {
+    if (!presentedRootKey && !(keylessLocalSetup && isDirectLocalRequest(request))) {
       const err = authRequired(
-        "Setting the dashboard password requires the root API key (apiKey in config.yaml), unless the request comes directly from this machine to a loopback-bound server.",
+        "Setting the dashboard password requires the root API key (apiKey in config.yaml), unless the request comes directly from this machine to a loopback-bound server that has no external URL or trusted proxy configured.",
       );
       return reply.status(err.statusCode).send(err.toJSON());
     }

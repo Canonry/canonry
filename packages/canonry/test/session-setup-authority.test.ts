@@ -20,9 +20,12 @@ const PASSWORD = 'operator-chosen-password'
 const DEFAULT_KEY_ID = 'key_default'
 const PUBLIC_HOST = 'canonry.example.com'
 const LAN = { host: '192.168.1.10:4100' }
+// What a remote visitor sends through a proxy that forwards the client's Host
+// and adds no forwarding header (nginx `proxy_set_header Host $host;` alone).
+const LOCAL_LOOKING = { host: 'localhost:4100' }
 const ROOT_KEY_REQUIRED = {
   code: 'AUTH_REQUIRED',
-  message: 'Setting the dashboard password requires the root API key (apiKey in config.yaml), unless the request comes directly from this machine to a loopback-bound server.',
+  message: 'Setting the dashboard password requires the root API key (apiKey in config.yaml), unless the request comes directly from this machine to a loopback-bound server that has no external URL or trusted proxy configured.',
 }
 const SERVER_KEY_MISSING = {
   code: 'AUTH_INVALID',
@@ -30,7 +33,8 @@ const SERVER_KEY_MISSING = {
 }
 
 interface InjectHeaders { [name: string]: string }
-interface SetupRequestCase { name: string; headers: InjectHeaders; remoteAddress?: string; trustProxy?: string }
+interface SetupRequestCase { name: string; headers: InjectHeaders; remoteAddress?: string }
+interface ConfiguredAccessCase { name: string; configPatch?: Partial<CanonryConfig>; trustProxy?: string }
 
 describe('first-run POST /session/setup authority', () => {
   let tmpDir: string
@@ -221,26 +225,25 @@ describe('first-run POST /session/setup authority', () => {
   })
 
   describe('on a loopback bind', () => {
-    const PROXIED = { publicUrl: `https://${PUBLIC_HOST}` }
-
+    // Each case changes one thing about an otherwise direct local request, on a
+    // server whose config names no other way in.
     it.each<SetupRequestCase>([
-      { name: 'Host is the publicUrl host', headers: { host: PUBLIC_HOST } },
       { name: 'Host is a LAN address', headers: { host: '192.168.1.10:4100' } },
       { name: 'X-Forwarded-For is present', headers: { host: '127.0.0.1:4100', 'x-forwarded-for': '203.0.113.9' } },
+      // A trusted proxy would turn this into a loopback `request.ip`; the header alone refuses it.
+      { name: 'X-Forwarded-For names a loopback client', headers: { host: '127.0.0.1:4100', 'x-forwarded-for': '127.0.0.1' } },
       { name: 'Forwarded is present', headers: { host: '127.0.0.1:4100', forwarded: 'for=203.0.113.9;proto=https' } },
-      { name: 'X-Forwarded-Host is present', headers: { host: 'localhost:4100', 'x-forwarded-host': PUBLIC_HOST } },
-      { name: 'X-Forwarded-Proto is present', headers: { host: 'localhost:4100', 'x-forwarded-proto': 'https' } },
-      { name: 'X-Real-IP is present', headers: { host: 'localhost:4100', 'x-real-ip': '203.0.113.9' } },
+      { name: 'X-Forwarded-Host is present', headers: { ...LOCAL_LOOKING, 'x-forwarded-host': PUBLIC_HOST } },
+      { name: 'X-Forwarded-Proto is present', headers: { ...LOCAL_LOOKING, 'x-forwarded-proto': 'https' } },
+      { name: 'X-Forwarded-Port is present', headers: { ...LOCAL_LOOKING, 'x-forwarded-port': '443' } },
+      { name: 'X-Forwarded-Server is present', headers: { ...LOCAL_LOOKING, 'x-forwarded-server': PUBLIC_HOST } },
+      { name: 'X-Real-IP is present', headers: { ...LOCAL_LOOKING, 'x-real-ip': '203.0.113.9' } },
+      { name: 'Via is present', headers: { ...LOCAL_LOOKING, via: '1.1 edge-proxy' } },
+      { name: 'CF-Connecting-IP is present', headers: { ...LOCAL_LOOKING, 'cf-connecting-ip': '203.0.113.9' } },
+      { name: 'True-Client-IP is present', headers: { ...LOCAL_LOOKING, 'true-client-ip': '203.0.113.9' } },
       { name: 'the socket peer is not loopback', headers: { host: '127.0.0.1:4100' }, remoteAddress: '203.0.113.9' },
-      // A trusted proxy rewrites `request.ip`; the gate must not read it.
-      {
-        name: 'a trusted proxy reports a loopback client',
-        headers: { host: PUBLIC_HOST, 'x-forwarded-for': '127.0.0.1' },
-        trustProxy: 'true',
-      },
-    ])('requires the root key when $name', async ({ headers, remoteAddress, trustProxy }) => {
-      if (trustProxy) vi.stubEnv('CANONRY_TRUST_PROXY', trustProxy)
-      const { config, rootKey } = await buildServer('127.0.0.1', PROXIED)
+    ])('requires the root key when $name', async ({ headers, remoteAddress }) => {
+      const { config, rootKey } = await buildServer('127.0.0.1')
 
       const refused = await setup(headers, remoteAddress)
       expectRefusedWithoutWrites(refused, config, ROOT_KEY_REQUIRED)
@@ -251,13 +254,47 @@ describe('first-run POST /session/setup authority', () => {
       expect(await sessionKey(accepted, headers)).toMatchObject({ id: DEFAULT_KEY_ID })
     })
 
-    it.each<SetupRequestCase>([
+    // Host is whatever the client sent, and a proxy or TCP forwarder that adds
+    // no forwarding header delivers a remote visitor's `Host: localhost` over
+    // loopback. Config that names another way in therefore turns keyless setup
+    // off, for requests that look local too.
+    it.each<ConfiguredAccessCase>([
+      { name: 'publicUrl names an external host', configPatch: { publicUrl: `https://${PUBLIC_HOST}` } },
+      { name: 'publicUrl names an external sub-path', configPatch: { publicUrl: `https://${PUBLIC_HOST}/canonry/` } },
+      { name: 'apiUrl names an external host', configPatch: { apiUrl: `https://${PUBLIC_HOST}` } },
+      { name: 'publicUrl names a LAN address', configPatch: { publicUrl: 'http://192.168.1.10:4100' } },
+      { name: 'publicUrl cannot be parsed', configPatch: { publicUrl: 'canonry example' } },
+      { name: 'CANONRY_TRUST_PROXY trusts every hop', trustProxy: 'true' },
+      { name: 'CANONRY_TRUST_PROXY trusts one hop', trustProxy: '1' },
+      { name: 'CANONRY_TRUST_PROXY trusts an address', trustProxy: '127.0.0.1' },
+    ])('requires the root key for a local-looking request when $name', async ({ configPatch, trustProxy }) => {
+      if (trustProxy) vi.stubEnv('CANONRY_TRUST_PROXY', trustProxy)
+      const { config, rootKey } = await buildServer('127.0.0.1', configPatch)
+
+      for (const headers of [LOCAL_LOOKING, { host: '127.0.0.1:4100' }]) {
+        expectRefusedWithoutWrites(await setup(headers), config, ROOT_KEY_REQUIRED)
+      }
+
+      const accepted = await setup({ ...LOCAL_LOOKING, authorization: `Bearer ${rootKey}` })
+      expect(accepted.statusCode).toBe(200)
+      expect(await sessionKey(accepted, LOCAL_LOOKING)).toMatchObject({ id: DEFAULT_KEY_ID })
+    })
+
+    it.each<SetupRequestCase & ConfiguredAccessCase>([
       { name: '127.0.0.1', headers: { host: '127.0.0.1:4100' } },
-      { name: 'localhost', headers: { host: 'localhost:4100' } },
+      { name: 'localhost', headers: LOCAL_LOOKING },
       { name: 'IPv6 loopback', headers: { host: '[::1]:4100' }, remoteAddress: '::1' },
-      { name: 'an IPv4-mapped loopback peer', headers: { host: 'localhost:4100' }, remoteAddress: '::ffff:127.0.0.1' },
-    ])('lets a direct request to $name set the password without a key', async ({ headers, remoteAddress }) => {
-      const { config, rootKey } = await buildServer('127.0.0.1', PROXIED)
+      { name: 'an IPv4-mapped loopback peer', headers: LOCAL_LOOKING, remoteAddress: '::ffff:127.0.0.1' },
+      // Loopback URLs and a disabled proxy setting name no other way in.
+      {
+        name: 'localhost with loopback apiUrl and publicUrl',
+        headers: LOCAL_LOOKING,
+        configPatch: { apiUrl: 'http://127.0.0.1:4100', publicUrl: 'http://localhost:4100/canonry/' },
+      },
+      { name: 'localhost with CANONRY_TRUST_PROXY=false', headers: LOCAL_LOOKING, trustProxy: 'false' },
+    ])('lets a direct request to $name set the password without a key', async ({ headers, remoteAddress, configPatch, trustProxy }) => {
+      if (trustProxy) vi.stubEnv('CANONRY_TRUST_PROXY', trustProxy)
+      const { config, rootKey } = await buildServer('127.0.0.1', configPatch)
 
       const accepted = await setup(headers, remoteAddress)
       expect(accepted.statusCode).toBe(200)
@@ -273,7 +310,7 @@ describe('first-run POST /session/setup authority', () => {
 
     // `inject` fakes the socket; this proves the gate reads a real one.
     it('applies the same rule over a real loopback socket', async () => {
-      const { config } = await buildServer('127.0.0.1', PROXIED)
+      const { config } = await buildServer('127.0.0.1')
       const address = await app!.listen({ port: 0, host: '127.0.0.1' })
       const { port } = new URL(address)
       const post = (headers: InjectHeaders) => new Promise<{ status: number; setCookie: string[] }>((resolve, reject) => {
