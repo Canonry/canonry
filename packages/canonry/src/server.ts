@@ -19,7 +19,7 @@ const { version: PKG_VERSION } = _require("../package.json") as {
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { SetHeadersResponse } from "@fastify/static";
-import { anyUsersExist, apiRoutes, createProjectPassQueue, hasForwardedHeaders, hashApiKey, previewCompetitorAutoAliases, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS } from "@ainyc/canonry-api-routes";
+import { anyUsersExist, apiRoutes, auditFromRequest, createProjectPassQueue, hasForwardedHeaders, hashApiKey, previewCompetitorAutoAliases, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS, writeAuditLog } from "@ainyc/canonry-api-routes";
 import {
   apiKeys,
   dashboardSessions,
@@ -2420,11 +2420,15 @@ export async function createServer(opts: {
     ),
   )).run();
 
-  const createSession = (key: Pick<typeof apiKeys.$inferSelect, "id" | "keyHash">, passwordBased = false) => {
+  const createSession = (
+    key: Pick<typeof apiKeys.$inferSelect, "id" | "keyHash">,
+    passwordBased = false,
+    db: Pick<DatabaseClient, "delete" | "insert"> = opts.db,
+  ) => {
     const now = new Date();
-    opts.db.delete(dashboardSessions).where(lte(dashboardSessions.expiresAt, now.toISOString())).run();
+    db.delete(dashboardSessions).where(lte(dashboardSessions.expiresAt, now.toISOString())).run();
     const sessionId = crypto.randomBytes(32).toString("hex");
-    opts.db.insert(dashboardSessions).values({
+    db.insert(dashboardSessions).values({
       tokenHash: hashSessionToken(sessionId),
       apiKeyId: key.id,
       apiKeyHash: key.keyHash,
@@ -2475,13 +2479,7 @@ export async function createServer(opts: {
       .get();
   };
 
-  const createPasswordSession = (
-    reply: FastifyReply,
-    key: typeof apiKeys.$inferSelect | undefined = getDefaultApiKey(),
-  ) => {
-    if (!key || key.revokedAt) return false;
-
-    const sessionId = createSession(key, true);
+  const setSessionCookie = (reply: FastifyReply, sessionId: string) => {
     reply.header(
       "set-cookie",
       serializeSessionCookie({
@@ -2492,6 +2490,13 @@ export async function createServer(opts: {
         ttlMs: SESSION_TTL_MS,
       }),
     );
+  };
+
+  const createPasswordSession = (reply: FastifyReply) => {
+    const key = getDefaultApiKey();
+    if (!key || key.revokedAt) return false;
+
+    setSessionCookie(reply, createSession(key, true));
     return true;
   };
 
@@ -2600,30 +2605,35 @@ export async function createServer(opts: {
       return reply.status(err.statusCode).send(err.toJSON());
     }
 
+    // The session binds a digest of the configured password hash, so set it
+    // first, and take it back if any write below fails.
     opts.config.dashboardPasswordHash = hashDashboardPassword(password);
-    saveConfigPatch(opts.config);
+    let sessionId: string;
+    try {
+      sessionId = opts.db.transaction((tx) => {
+        // Audit which key the password now signs in to and how the caller was
+        // allowed to set it. Never the password, in any form.
+        writeAuditLog(tx, auditFromRequest(request, {
+          actor: `api-key:${defaultKey.id}`,
+          credentialId: presentedRootKey ? defaultKey.id : null,
+          requestId: request.id,
+          action: "dashboard-password.created",
+          entityType: "dashboard-password",
+          diff: { authorizedBy: presentedRootKey ? "root-api-key" : "local-request" },
+        }));
+        const created = createSession(defaultKey, true, tx);
+        // config.yaml goes last, inside the transaction: a failed write rolls
+        // back the audit row and the session, while `saveConfigPatch` can never
+        // take a saved password back off disk if a later step failed.
+        saveConfigPatch(opts.config);
+        return created;
+      });
+    } catch (err) {
+      opts.config.dashboardPasswordHash = undefined;
+      throw err;
+    }
 
-    // Audit which key the password now signs in to and how the caller was
-    // allowed to set it. Never the password, in any form.
-    opts.db
-      .insert(auditLog)
-      .values({
-        id: crypto.randomUUID(),
-        projectId: null,
-        actor: `api-key:${defaultKey.id}`,
-        userAgent: null,
-        actorSession: null,
-        credentialId: presentedRootKey ? defaultKey.id : null,
-        requestId: request.id,
-        action: "dashboard-password.created",
-        entityType: "dashboard-password",
-        entityId: null,
-        diff: JSON.stringify({ authorizedBy: presentedRootKey ? "root-api-key" : "local-request" }),
-        createdAt: new Date().toISOString(),
-      })
-      .run();
-
-    createPasswordSession(reply, defaultKey);
+    setSessionCookie(reply, sessionId);
     return reply.send({ authenticated: true });
   });
 

@@ -181,7 +181,7 @@ describe('first-run POST /session/setup authority', () => {
       const { config, rootKey } = await buildServer('0.0.0.0')
       const root = { ...LAN, authorization: `Bearer ${rootKey}` }
 
-      const accepted = await setup(root)
+      const accepted = await setup({ ...root, 'user-agent': 'setup-client/1.0' })
       expect(accepted.statusCode).toBe(200)
       expect(accepted.json()).toEqual({ authenticated: true })
       expect(await sessionKey(accepted, LAN)).toMatchObject({ id: DEFAULT_KEY_ID, scopes: ['*'], projectId: null })
@@ -192,6 +192,7 @@ describe('first-run POST /session/setup authority', () => {
         projectId: null,
         actor: `api-key:${DEFAULT_KEY_ID}`,
         credentialId: DEFAULT_KEY_ID,
+        userAgent: 'setup-client/1.0',
         entityType: 'dashboard-password',
         entityId: null,
         diff: { authorizedBy: 'root-api-key' },
@@ -229,6 +230,51 @@ describe('first-run POST /session/setup authority', () => {
         expectRefusedWithoutWrites(refused, config, SERVER_KEY_MISSING)
       }
       expectRefusedWithoutWrites(await setup(LAN), config, ROOT_KEY_REQUIRED)
+    })
+
+    // The audit row, the session, and config.yaml are written together: a
+    // failure in any of them leaves no password behind, so a retry can finish.
+    it('writes nothing when the audit row cannot be written, and a retry succeeds', async () => {
+      const { config, rootKey } = await buildServer('0.0.0.0')
+      const root = { ...LAN, authorization: `Bearer ${rootKey}` }
+      db!.$client.exec(`CREATE TEMP TRIGGER refuse_audit BEFORE INSERT ON main.audit_log
+        BEGIN SELECT RAISE(ABORT, 'audit log unavailable'); END`)
+
+      const failed = await setup(root)
+      expect(failed.statusCode).toBe(500)
+      expect(failed.cookies).toEqual([])
+      expect(config.dashboardPasswordHash).toBeUndefined()
+      expect(fs.existsSync(path.join(tmpDir, 'config.yaml'))).toBe(false)
+      expect(db!.select().from(dashboardSessions).all()).toEqual([])
+
+      db!.$client.exec('DROP TRIGGER temp.refuse_audit')
+      const retried = await setup(root)
+      expect(retried.statusCode).toBe(200)
+      expect(await sessionKey(retried, LAN)).toMatchObject({ id: DEFAULT_KEY_ID })
+      expect(await setupAuditEntries(rootKey)).toHaveLength(1)
+    })
+
+    it('writes nothing when config.yaml cannot be saved, and a retry succeeds', async () => {
+      const { config, rootKey } = await buildServer('0.0.0.0')
+      const root = { ...LAN, authorization: `Bearer ${rootKey}` }
+      // A config directory under a regular file cannot be created.
+      const blocker = path.join(tmpDir, 'blocker')
+      fs.writeFileSync(blocker, '')
+      vi.stubEnv('CANONRY_CONFIG_DIR', path.join(blocker, 'config'))
+
+      const failed = await setup(root)
+      expect(failed.statusCode).toBe(500)
+      expect(failed.cookies).toEqual([])
+      expect(config.dashboardPasswordHash).toBeUndefined()
+      expect(db!.select().from(dashboardSessions).all()).toEqual([])
+
+      vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
+      expect(await setupAuditEntries(rootKey)).toEqual([])
+      const retried = await setup(root)
+      expect(retried.statusCode).toBe(200)
+      expect(await sessionKey(retried, LAN)).toMatchObject({ id: DEFAULT_KEY_ID })
+      expect(await setupAuditEntries(rootKey)).toHaveLength(1)
+      expect(fs.existsSync(path.join(tmpDir, 'config.yaml'))).toBe(true)
     })
   })
 
