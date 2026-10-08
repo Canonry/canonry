@@ -177,6 +177,23 @@ describe('first-run POST /session/setup authority', () => {
       expectRefusedWithoutWrites(refused, config, ROOT_KEY_REQUIRED)
     })
 
+    // Only the bind refuses these: each request is direct and local in every
+    // way the request checks can see. A same-host proxy or a `--network host`
+    // container sends a remote visitor's request exactly like this.
+    it.each<SetupRequestCase & { bind: string }>([
+      { name: 'localhost', bind: '0.0.0.0', headers: LOCAL_LOOKING },
+      { name: '127.0.0.1', bind: '0.0.0.0', headers: { host: '127.0.0.1:4100' } },
+      { name: 'IPv6 loopback', bind: '::', headers: { host: '[::1]:4100' }, remoteAddress: '::1' },
+    ])('requires the root key for a direct request to $name on a $bind bind', async ({ bind, headers, remoteAddress }) => {
+      const { config, rootKey } = await buildServer(bind)
+
+      expectRefusedWithoutWrites(await setup(headers, remoteAddress), config, ROOT_KEY_REQUIRED)
+
+      const accepted = await setup({ ...headers, authorization: `Bearer ${rootKey}` }, remoteAddress)
+      expect(accepted.statusCode).toBe(200)
+      expect(await sessionKey(accepted, headers)).toMatchObject({ id: DEFAULT_KEY_ID })
+    })
+
     it('accepts the root key and binds the password to it', async () => {
       const { config, rootKey } = await buildServer('0.0.0.0')
       const root = { ...LAN, authorization: `Bearer ${rootKey}` }
