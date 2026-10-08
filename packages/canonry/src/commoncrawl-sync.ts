@@ -17,7 +17,7 @@ import {
   queryBacklinks,
   type BacklinkRow,
 } from '@ainyc/canonry-integration-commoncrawl'
-import { BacklinkSources, CcReleaseSyncStatuses, describeError } from '@ainyc/canonry-contracts'
+import { BacklinkSources, CcReleaseSyncStatuses, computeBacklinkSummaryMetrics, describeError } from '@ainyc/canonry-contracts'
 import { createLogger } from './logger.js'
 
 const log = createLogger('CommonCrawlSync')
@@ -155,7 +155,7 @@ export async function executeReleaseSync(
       const rowsByProject = groupByProject(rows, projectsByDomain)
       for (const p of allProjects) {
         const projectRows = rowsByProject.get(p.id) ?? []
-        const summary = computeSummary(projectRows)
+        const summary = computeBacklinkSummaryMetrics(projectRows)
         tx.insert(backlinkSummaries).values({
           id: crypto.randomUUID(),
           projectId: p.id,
@@ -241,27 +241,6 @@ function groupByProject(
     }
   }
   return out
-}
-
-interface SummaryMetrics {
-  totalLinkingDomains: number
-  totalHosts: number
-  top10HostsShare: string
-}
-
-function computeSummary(rows: BacklinkRow[]): SummaryMetrics {
-  if (rows.length === 0) {
-    return { totalLinkingDomains: 0, totalHosts: 0, top10HostsShare: '0' }
-  }
-  const sorted = [...rows].sort((a, b) => b.numHosts - a.numHosts)
-  const totalHosts = sorted.reduce((acc, r) => acc + r.numHosts, 0)
-  const top10Hosts = sorted.slice(0, 10).reduce((acc, r) => acc + r.numHosts, 0)
-  const share = totalHosts > 0 ? top10Hosts / totalHosts : 0
-  return {
-    totalLinkingDomains: rows.length,
-    totalHosts,
-    top10HostsShare: share.toFixed(6),
-  }
 }
 
 // Referenced so drizzle's SQL tag is retained when this module is bundled; no-op in prod.
