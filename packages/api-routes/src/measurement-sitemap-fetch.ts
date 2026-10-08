@@ -272,7 +272,7 @@ export async function requestPinnedSitemap(
     path: `${target.url.pathname}${target.url.search}`,
     headers: { Host: target.url.host, Accept: 'application/xml,text/xml,*/*;q=0.1', 'Accept-Encoding': 'gzip' },
   }
-  if (secure) requestOptions.servername = target.url.hostname.replace(/^\[|\]$/g, '')
+  if (secure) requestOptions.servername = stripIpv6Brackets(target.url.hostname)
 
   return await new Promise((resolve, reject) => {
     let settled = false
