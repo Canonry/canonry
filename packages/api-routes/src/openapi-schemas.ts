@@ -680,13 +680,22 @@ function addNullToNullableEnums(node: unknown): void {
 }
 
 /**
+ * Schemas documented in their input form. A config document travels as
+ * written: `POST /apply` fills the defaults when it parses one, and
+ * `GET /export` leaves defaulted fields out. The output form would mark every
+ * defaulted field (`providerModels`, `autoExtractBacklinks`, ...) required.
+ */
+const INPUT_FORM_SCHEMAS: ReadonlySet<string> = new Set<RegisteredSchemaName>(['ProjectConfig'])
+
+/**
  * Convert every registered schema to its OpenAPI 3.0 JSON Schema. Called once
  * during spec build, embedded as `components.schemas` in the OpenAPI doc.
  */
 export function buildComponentSchemas(): Record<string, Record<string, unknown>> {
   const out: Record<string, Record<string, unknown>> = {}
   for (const [name, schema] of Object.entries(SCHEMA_TABLE) as [string, ZodType][]) {
-    const json = z.toJSONSchema(schema, { target: 'openapi-3.0' }) as Record<string, unknown>
+    const io = INPUT_FORM_SCHEMAS.has(name) ? 'input' : 'output'
+    const json = z.toJSONSchema(schema, { target: 'openapi-3.0', io }) as Record<string, unknown>
     addNullToNullableEnums(json)
     out[name] = json
   }

@@ -11143,35 +11143,35 @@ export type ProjectConfig = {
     kind: 'Project';
     metadata: {
         name: string;
-        labels: {
+        labels?: {
             [key: string]: string;
         };
     };
     spec: {
         displayName: string;
         canonicalDomain: string;
-        ownedDomains: Array<string>;
-        aliases: Array<string>;
+        ownedDomains?: Array<string>;
+        aliases?: Array<string>;
         qualifiedAliases?: Array<string>;
         country: string;
         language: string;
         queries?: Array<string>;
         keywords?: Array<string>;
-        competitors: Array<string | {
+        competitors?: Array<string | {
             domain: string;
             /**
              * Operator-curated names this competitor goes by in answer text (at most 10, each 80 characters or fewer, at least 3 letters or digits).
              */
             aliases?: Array<string>;
         }>;
-        providers: Array<string>;
-        providerModels: {
+        providers?: Array<string>;
+        providerModels?: {
             [key: string]: string;
         };
         providerDispatchModes?: {
             [key: string]: 'sync' | 'batch';
         };
-        locations: Array<{
+        locations?: Array<{
             label: string;
             city: string;
             region: string;
@@ -11179,7 +11179,7 @@ export type ProjectConfig = {
             timezone?: string;
         }>;
         defaultLocation?: string;
-        measurement: {
+        measurement?: {
             marketingHosts: Array<string>;
             brandTerms: Array<string>;
             leadEventNames: Array<string>;
@@ -11192,11 +11192,11 @@ export type ProjectConfig = {
                 startDate: string;
                 time: string;
             };
-            timezone: string;
-            providers: Array<string>;
+            timezone?: string;
+            providers?: Array<string>;
             enabled?: boolean;
         };
-        notifications: Array<{
+        notifications?: Array<{
             channel: 'webhook';
             url: string;
             events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'review.negative' | 'review.rating-dropped'>;
@@ -11210,7 +11210,7 @@ export type ProjectConfig = {
                 cron?: string;
             };
         };
-        autoExtractBacklinks: boolean;
+        autoExtractBacklinks?: boolean;
         negativeReviewMaxStars?: number;
         siteAuditMaxPages?: number | null;
         /**

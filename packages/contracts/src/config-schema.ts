@@ -143,5 +143,8 @@ export function resolveConfigSpecQueries(spec: { queries?: string[]; keywords?: 
 }
 
 export type ProjectConfig = z.infer<typeof projectConfigSchema>
+/** A config document as written: defaulted fields may be absent, as `GET /export` leaves them. */
+export type ProjectConfigInput = z.input<typeof projectConfigSchema>
+export type ConfigNotification = z.infer<typeof configNotificationSchema>
 export type ConfigMetadata = z.infer<typeof configMetadataSchema>
 export type ConfigSpec = z.infer<typeof configSpecSchema>

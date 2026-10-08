@@ -152,6 +152,19 @@ describe('openapi contract', () => {
     expect(okRef('/api/v1/projects/{name}/locations/default', 'put')).toBe('#/components/schemas/ProjectDefaultLocationResponse')
   })
 
+  it('documents config documents in their input form, as GET /export writes them', () => {
+    // Export leaves a field out when it holds its default, and apply fills the
+    // default back in, so neither may be documented as required.
+    const schemas = buildOpenApiDocument().components?.schemas as Record<string, {
+      required?: string[]
+      properties: Record<string, { required?: string[] }>
+    }>
+    const config = schemas.ProjectConfig!
+    expect(config.required).toEqual(['apiVersion', 'kind', 'metadata', 'spec'])
+    expect(config.properties.spec!.required).toEqual(['displayName', 'canonicalDomain', 'country', 'language'])
+    expect(config.properties.metadata!.required).toEqual(['name'])
+  })
+
   it('lists null in every nullable enum, so generated clients keep the null', () => {
     const doc = buildOpenApiDocument()
     // OpenAPI 3.0.3 admits null into an enum only when null is listed;
