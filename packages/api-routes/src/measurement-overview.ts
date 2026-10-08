@@ -40,6 +40,7 @@ import {
   type RunStatus,
   type StoredMeasurementPlan,
   compareText as compareGroupText,
+  normalizeIdentityText as normalizedText,
 } from '@ainyc/canonry-contracts'
 import {
   measurementPlanDrafts,
@@ -245,10 +246,6 @@ function providerRows(property: MeasurementOverviewPropertyRow): MeasurementProp
 function countMetric(rate: MeasurementRate): MetricValue {
   if (rate.numerator === null) return unavailable(metricReason(rate.reason))
   return { state: 'available', value: rate.numerator, numerator: rate.numerator, denominator: rate.denominator }
-}
-
-function normalizedText(value: string): string {
-  return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en')
 }
 
 function overviewFilterFingerprint(query: MeasurementOverviewQuery): string {

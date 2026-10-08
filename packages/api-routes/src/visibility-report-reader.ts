@@ -26,6 +26,7 @@ import {
   type VisibilityReportScopeKind,
   type VisibilityReportScopeOption,
   compareText,
+  normalizeIdentityText as normalizeText,
 } from '@ainyc/canonry-contracts'
 
 export interface VisibilityReportTargetInput {
@@ -216,11 +217,6 @@ interface CursorEnvelope {
 }
 
 const ALL_CLASSES: readonly VisibilityReportPopulationClass[] = ['branded', 'non-brand', 'unknown']
-
-/** Selection text identity (provider, location, model): compatibility-normalized, trimmed, space-collapsed, case-folded. */
-export function normalizeText(value: string): string {
-  return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en')
-}
 
 function locationMatches(location: string | null, selected: VisibilityReportLocationSelection): boolean {
   if (selected.kind === 'all') return true

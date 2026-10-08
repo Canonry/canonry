@@ -24,12 +24,13 @@ import {
   type VisibilityStatsProviderEntry,
   type VisibilityStatsQueryEntry,
   type VisibilityStatsShareOfVoice,
+  normalizeIdentityText as normalizeText,
 } from '@ainyc/canonry-contracts'
 import { notProbeRun, resolveProject } from './helpers.js'
 import { projectQueryClassifier, shareOfVoiceFromLandscape, mentionShareCompetitors } from './mention-share-inputs.js'
 import { computeVisibilityCompare, type VisibilityCompareSnapshotInput } from './visibility-compare.js'
 import { readVisibilityComparisonRuns } from './visibility-report.js'
-import { normalizeText, visibilityComparisonPopulation, VisibilityReportScopeError, type VisibilityReportReaderSelection } from './visibility-report-reader.js'
+import { visibilityComparisonPopulation, VisibilityReportScopeError, type VisibilityReportReaderSelection } from './visibility-report-reader.js'
 import { competitorIdentityColumns } from './competitor-writes.js'
 
 /** Snapshot fields the aggregation reads. Tri-state `answerMentioned` is read RAW. */

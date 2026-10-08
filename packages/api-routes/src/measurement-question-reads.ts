@@ -22,6 +22,7 @@ import {
   validationError,
   type MeasurementPlanV2,
   compareText,
+  normalizeIdentityText as normalizeText,
 } from '@ainyc/canonry-contracts'
 import {
   measurementPlanVersions,
@@ -65,10 +66,6 @@ interface MeasurementQuestionRunScope {
   executionIds: readonly string[]
   provider?: string
   location?: string
-}
-
-function normalizeText(value: string): string {
-  return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en')
 }
 
 function excerptOf(answer: string): string {

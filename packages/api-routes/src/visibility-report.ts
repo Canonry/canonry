@@ -28,6 +28,7 @@ import {
   type SimpleMeasurementDefinition,
   type VisibilityReportPopulationClass,
   type VisibilityReportQuery,
+  normalizeIdentityText as normalizedText,
 } from '@ainyc/canonry-contracts'
 import {
   measurementPlanVersions,
@@ -55,10 +56,6 @@ import {
   type VisibilityReportReaderInput,
   type VisibilityReportRunInput,
 } from './visibility-report-reader.js'
-
-function normalizedText(value: string): string {
-  return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en')
-}
 
 /** Provider-supplied alternative names are observations, never identities. */
 function observedCompetitorNames(values: readonly string[] | null | undefined): string[] {

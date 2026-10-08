@@ -60,6 +60,7 @@ import {
   type MeasurementQueryClassFilter,
   type MetricValue,
   compareText,
+  normalizeIdentityText as normalizeText,
 } from '@ainyc/canonry-contracts'
 import { querySnapshots, runFills, runs, type DatabaseClient } from '@ainyc/canonry-db'
 import { resolveProject } from './helpers.js'
@@ -123,10 +124,6 @@ interface RecommendationRow {
   occurrences: number
   providers: string[]
   questions: string[]
-}
-
-function normalizeText(value: string): string {
-  return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en')
 }
 
 function parseLimitQuery<T>(

@@ -9,3 +9,14 @@
 export function normalizeQueryText(value: string): string {
   return value.trim().toLowerCase()
 }
+
+/**
+ * Selection and query-control text identity used by the api-routes
+ * measurement readers and query tracking: compatibility-normalized (NFKC),
+ * trimmed, internal whitespace collapsed, and case-folded with the `en`
+ * locale. Those readers key rows on it, so they share this one definition.
+ * Unlike {@link normalizeQueryText}, it collapses internal whitespace.
+ */
+export function normalizeIdentityText(value: string): string {
+  return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en')
+}
