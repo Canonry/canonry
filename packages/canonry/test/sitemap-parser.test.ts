@@ -199,13 +199,74 @@ describe('fetchAndParseSitemap', () => {
 
   it('rejects sitemap URLs that resolve to private / metadata ranges (SSRF guard)', async () => {
     // Literal addresses — no DNS, deterministic. Loopback is intentionally
-    // allowed (see validateSitemapUrl), but these non-loopback internal ranges
+    // allowed (see `sitemapFetch`), but these non-loopback internal ranges
     // and the cloud metadata IP must be blocked before any fetch.
     await expect(() => fetchAndParseSitemap('http://169.254.169.254/sitemap.xml')).rejects.toThrow(/rejected/)
     await expect(() => fetchAndParseSitemap('http://10.0.0.5/sitemap.xml')).rejects.toThrow(/rejected/)
     await expect(() => fetchAndParseSitemap('http://192.168.1.1/sitemap.xml')).rejects.toThrow(/rejected/)
     // Non-http(s) schemes are rejected too.
     await expect(() => fetchAndParseSitemap('file:///etc/passwd')).rejects.toThrow(/rejected/)
+  })
+
+  it('follows a same-origin redirect to the sitemap', async () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://example.com/moved</loc></url>
+</urlset>`
+    const srv = http.createServer((req, res) => {
+      if (req.url === '/sitemap.xml') {
+        res.writeHead(301, { Location: '/sitemap_index.xml' })
+        res.end()
+      } else if (req.url === '/sitemap_index.xml') {
+        res.writeHead(200, { 'Content-Type': 'application/xml' })
+        res.end(xml)
+      } else {
+        res.writeHead(404)
+        res.end()
+      }
+    })
+    const s = await new Promise<{ server: http.Server; baseUrl: string }>((resolve) => {
+      srv.listen(0, '127.0.0.1', () => {
+        const addr = srv.address()
+        const port = typeof addr === 'object' && addr ? addr.port : 0
+        resolve({ server: srv, baseUrl: `http://127.0.0.1:${port}` })
+      })
+    })
+    server = s.server
+
+    expect(await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`)).toEqual(['https://example.com/moved'])
+  })
+
+  // The redirect is checked like the first request. 0.0.0.0 reaches this
+  // host, so an unchecked redirect there would show up as a served request.
+  it.each([
+    ['the metadata address', () => 'http://169.254.169.254/latest/meta-data/'],
+    ['the unspecified address', (port: number) => `http://0.0.0.0:${port}/internal.xml`],
+  ])('refuses a sitemap that redirects to %s', async (_name, location) => {
+    const served: string[] = []
+    const srv = http.createServer((req, res) => {
+      served.push(req.url ?? '')
+      if (req.url === '/sitemap.xml') {
+        const addr = srv.address()
+        res.writeHead(302, { Location: location(typeof addr === 'object' && addr ? addr.port : 0) })
+        res.end()
+      } else {
+        res.writeHead(200, { 'Content-Type': 'application/xml' })
+        res.end('<urlset><url><loc>https://internal.example/secret</loc></url></urlset>')
+      }
+    })
+    const s = await new Promise<{ server: http.Server; baseUrl: string }>((resolve) => {
+      srv.listen(0, '127.0.0.1', () => {
+        const addr = srv.address()
+        const port = typeof addr === 'object' && addr ? addr.port : 0
+        resolve({ server: srv, baseUrl: `http://127.0.0.1:${port}` })
+      })
+    })
+    server = s.server
+
+    await expect(() => fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`))
+      .rejects.toThrow(/^Sitemap URL rejected: Refused to connect to .+: must not resolve to a private or loopback address/)
+    expect(served).toEqual(['/sitemap.xml'])
   })
 
   it('rejects a nested sitemap-index entry pointing at an internal host', async () => {

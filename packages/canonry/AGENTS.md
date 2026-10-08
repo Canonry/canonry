@@ -82,7 +82,7 @@ async myNewThing(name: string): Promise<MyNewDto> {
 }
 ```
 
-`invoke()` handles base-path probing, CliError mapping, structured-error envelopes, and the `CANONRY_TRACE=1` request log. **Do not call `fetch()` directly** — ESLint blocks it in `packages/canonry/src/**` except in a handful of files that legitimately hit external HTTP (`telemetry.ts` → telemetry collector, `update-check.ts` → npm registry, `sitemap-parser.ts` → user sitemap, `commands/daemon.ts` → localhost health probe). If you need raw `fetch()` for a NEW external service, add the file to the `ignores` list in `eslint.config.js` with a one-line comment naming the service.
+`invoke()` handles base-path probing, CliError mapping, structured-error envelopes, and the `CANONRY_TRACE=1` request log. **Do not call `fetch()` directly** — ESLint blocks it in `packages/canonry/src/**` except in a handful of files that legitimately hit external HTTP (`telemetry.ts` → telemetry collector, `update-check.ts` → npm registry, `commands/daemon.ts` → localhost health probe). If you need raw `fetch()` for a NEW external service, add the file to the `ignores` list in `eslint.config.js` with a one-line comment naming the service. A URL an operator or a third party supplies (a sitemap, a site, a redirect target) never gets raw `fetch()`: use `createGuardedFetch` from `@ainyc/canonry-api-routes`, which checks every request and redirect hop against the egress policy and dials only the checked address (`sitemap-parser.ts` does).
 
 The legacy `request<T>()` raw-fetch wrapper was removed in v4.51; if you find any reference to it, replace with an SDK call through `invoke()`.
 
