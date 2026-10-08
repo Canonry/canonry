@@ -42,6 +42,33 @@ Provider credentials are optional for bootstrap and Page Health.
 > *connection refused* even though the server is up — browse to
 > `http://127.0.0.1:4100` instead, or set `CANONRY_HOST=::1` to bind IPv6.
 
+### First-run dashboard password
+
+The first time you open the dashboard, it asks you to create a dashboard
+password. Every password sign-in uses the install's root API key (`apiKey` in
+`config.yaml`), so setting the password gives full access to every project.
+
+- **On this machine:** with the default loopback bind, open
+  `http://127.0.0.1:4100` or `http://localhost:4100` and create the password.
+  No API key is needed.
+- **From another machine or through a proxy:** the dashboard also asks for the
+  root API key. This applies to every request when Canonry binds a non-loopback
+  address (`--host 0.0.0.0`, Docker), and to any request that comes through a
+  reverse proxy or Tailscale Serve, also when Canonry binds loopback. The
+  dashboard sends the key with that one setup request and does not store it.
+  Other API keys, including full-access keys from `canonry key create`, are
+  refused.
+
+To find the root API key, read `apiKey` in the config file:
+
+```bash
+grep '^apiKey:' "${CANONRY_CONFIG_DIR:-$HOME/.canonry}/config.yaml"
+```
+
+The same rule applies to `POST /api/v1/session/setup` with
+`Authorization: Bearer <root API key>`. Without the key, the request gets
+`401 AUTH_REQUIRED` and Canonry writes nothing.
+
 Dashboard sessions persist in the database and survive server restarts. Shared-password
 and API-key logins expire twelve hours after sign-in; logout and key revocation
 still end access. Rotating an API key ends its browser sessions, even when bootstrap
@@ -230,6 +257,17 @@ change. Configure the proxy to forward the external `Host` header.
 For a sub-path, include the prefix in `publicUrl`, for example
 `https://example.com/canonry/`, and set `basePath: /canonry/`.
 
+**First-run password through a proxy.** The proxy connects to Canonry over
+loopback, but the visitor is remote. Canonry refuses a first-run password
+setup without the root API key when the request has a `Forwarded`,
+`X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, or `X-Real-IP`
+header, or a `Host` that is not `localhost` or a loopback address. Enter the
+root API key in the setup form (see
+[First-run dashboard password](#first-run-dashboard-password)). You can also
+create the password on the server itself before you open the proxy. Forward
+the external `Host` header as shown below: a proxy that sends neither the
+external `Host` nor a forwarding header looks like a local request to Canonry.
+
 ### Root path (`/`)
 
 Proxy all traffic on a domain directly to canonry's port:
@@ -375,6 +413,10 @@ tailscale serve --bg http://localhost:4100
 # Access at https://<hostname>.tail…ts.net
 ```
 
+Tailscale Serve is a reverse proxy, so the first-run password setup over the
+tailnet asks for the root API key (see
+[First-run dashboard password](#first-run-dashboard-password)).
+
 For sub-path via Caddy + Tailscale, configure Tailscale Serve to point at Caddy's port (80) and use the Caddy sub-path config above.
 
 ---
@@ -430,6 +472,15 @@ docker run -d \
 Direct access through `localhost` or the Docker host's IP address requires no
 `publicUrl`. For a DNS name, configure `publicUrl` as described under
 "Behind a Reverse Proxy".
+
+The container binds `0.0.0.0`, so the first-run password setup always asks
+for the root API key, also from the Docker host. In the example above, the key
+is `apiKey` in the mounted `$HOME/.canonry/config.yaml`. For a container
+without that mount, read it from the container:
+
+```bash
+docker exec <container> sh -c 'grep "^apiKey:" "${CANONRY_CONFIG_DIR:-$HOME/.canonry}/config.yaml"'
+```
 
 ---
 
