@@ -44,9 +44,20 @@ import { createPlanPinLookup, readMarketCompetitorPins } from './plan-competitor
  * curated names, and its learned names are stored for it in
  * `market_competitor_names`, never as a project competitor.
  *
- * Callers: `GET /competitor-auto-aliases` (dry run), `POST` (apply now), and
- * the local server after every completed answer-visibility run and whenever a
- * competitor is added (`createCompetitorAutoAliasRunner` in packages/canonry).
+ * A candidate counts as naming a competitor only outside its longer names
+ * (its domain label, a curated alias, a longer stored name), so the scan
+ * passes each competitor's curated names to the accumulator: a tracked
+ * competitor's curated aliases, a market-only competitor's plan label and
+ * aliases. A tracked competitor's own pin names are not passed.
+ *
+ * Callers: `GET /competitor-auto-aliases` (dry run), `POST` (apply now, in
+ * every `competitorAutoAliases` mode), and the local server's unattended pass
+ * after every completed or partial non-probe answer-visibility run, a
+ * competitor add, an unblock and a market pin write that changes the pins,
+ * which follows the project's mode: `apply`
+ * stores through `createCompetitorAutoAliasRunner` (packages/canonry),
+ * `preview` (the default) runs `previewCompetitorAutoAliases` and logs, `off`
+ * runs nothing.
  */
 
 /**
@@ -79,9 +90,11 @@ export async function scanCompetitorAutoAliasEvidence(
   const marketDomains = new Set(market.map(entry => entry.domain))
   const pinsFor = createPlanPinLookup(db)
   const accumulator = createAutoAliasAccumulator({
+    // Curated names (a market competitor's plan label and aliases) go in so a
+    // candidate written only inside one of them is not counted as naming it.
     competitors: [
-      ...tracked.map(row => ({ domain: row.domain })),
-      ...market.map(entry => ({ domain: entry.domain, scoped: true })),
+      ...tracked.map(row => ({ domain: row.domain, aliases: row.aliases })),
+      ...market.map(entry => ({ domain: entry.domain, scoped: true, aliases: entry.names })),
     ],
     project: competitorAliasProjectIdentity(project),
   })

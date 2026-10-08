@@ -175,6 +175,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
     dto: projectDtoSchema,
     internal: {
       icpDescription: 'Aero analyst context; not exposed on the public project DTO.',
+      answerFieldsRecompute: 'Local-server bookkeeping: a stored-answer-field recompute owed after an identity change, requeued on boot.',
     },
   },
   queries: {

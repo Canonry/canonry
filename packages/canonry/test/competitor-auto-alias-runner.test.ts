@@ -10,8 +10,9 @@ import { extractStoredAnswerAnchors } from '../src/stored-answer-anchors.js'
 import { createServer } from '../src/server.js'
 
 // Answer-derived competitor aliases off the run-completion path: the runner the
-// server schedules after every sweep and on every competitor add, over
-// fictional stored answers in the Gemini and Claude response shapes.
+// server uses for an apply-now request and, for a project in `apply` mode,
+// after every sweep and competitor add, over fictional stored answers in the
+// Gemini and Claude response shapes.
 
 const REDIRECT = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbC'
 
@@ -213,9 +214,10 @@ describe('server wiring', () => {
   }
 
   it('scans stored history when a competitor is added, then recomputes the stored competitor fields', async () => {
+    // Unattended passes store names only for a project opted into `apply`.
     const created = await app.inject({
       method: 'PUT', url: '/api/v1/projects/rotorwise', headers: auth,
-      payload: { displayName: 'Rotorwise', canonicalDomain: 'rotorwise.example', country: 'US', language: 'en' },
+      payload: { displayName: 'Rotorwise', canonicalDomain: 'rotorwise.example', country: 'US', language: 'en', competitorAutoAliases: 'apply' },
     })
     expect(created.statusCode, created.body).toBe(201)
     const projectId = db.select().from(projects).where(eq(projects.name, 'rotorwise')).get()!.id

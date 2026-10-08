@@ -19,7 +19,7 @@ import type {
 } from '@ainyc/canonry-contracts'
 import { buildMentionShare, type MentionShareCompetitor } from '@ainyc/canonry-intelligence'
 import { mentionShareCompetitors as mentionShareCompetitorsFor, projectQueryClassifier } from './mention-share-inputs.js'
-import { latestSweepRuns, planQueryClassesByRun, pooledRunIds } from './competitor-landscape.js'
+import { latestSweepRuns, planQueryClassesByRun, pooledRunIds, readCompetitorIdentityChangedAt } from './competitor-landscape.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned } from './helpers.js'
 import { buildModelAttribution, buildServedModelAttribution } from './analytics-model-attribution.js'
@@ -85,6 +85,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         servedModelAttribution: {},
         modelServiceMismatch: {},
         modelPointerChanges: {},
+        competitorIdentityChangedAt: readCompetitorIdentityChangedAt(app.db, project.id),
       } satisfies BrandMetricsDto)
     }
 
@@ -483,7 +484,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       previousExecutionChecksum = identity.checksum
     }
 
-    return reply.send({ window, mentionShareScope, buckets, overall, byProvider, trend, mentionTrend, windowChange, queryChanges, basketChanges, executionIdentityChanges, referenceBasketRevision: latestBasket?.revision ?? null, modelAttribution, servedModelAttribution, modelServiceMismatch, modelPointerChanges } satisfies BrandMetricsDto)
+    return reply.send({ window, mentionShareScope, buckets, overall, byProvider, trend, mentionTrend, windowChange, queryChanges, basketChanges, executionIdentityChanges, referenceBasketRevision: latestBasket?.revision ?? null, modelAttribution, servedModelAttribution, modelServiceMismatch, modelPointerChanges, competitorIdentityChangedAt: readCompetitorIdentityChangedAt(app.db, project.id) } satisfies BrandMetricsDto)
   })
 
   // GET /projects/:name/analytics/gaps — brand gap analysis

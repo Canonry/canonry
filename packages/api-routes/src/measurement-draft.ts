@@ -47,9 +47,7 @@ import {
   type MeasurementV2UrlMatcher,
   type StoredMeasurementPlan,
   hostOf,
-  competitorIdentityAliases,
   normalizeCompetitorAliases,
-  normalizeCompetitorDomain,
 } from '@ainyc/canonry-contracts'
 import {
   measurementPlanDrafts,
@@ -66,7 +64,6 @@ import {
 } from '@ainyc/canonry-db'
 import { requireScope } from './auth.js'
 import { findStoredCompetitor, readStoredCompetitors, requireMarketPinsClearOfCompetitorAliases } from './competitor-writes.js'
-import { readMarketCompetitorNames } from './market-competitor-names.js'
 import { beginMarketPinWrite, marketPinWriteAuditFields, notifyMarketPinWrite, type MarketPinWriteEffect, type MarketPinWriteHooks } from './market-pin-writes.js'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
 import { MEASUREMENT_PLAN_WRITE_SCOPE } from './measurement-plan.js'
@@ -362,21 +359,23 @@ function assertPinLocationsPreserved(project: ProjectRow, plan: MeasurementPlanV
 }
 
 /**
- * The aliases (curated plus auto-detected, minus blocked) of the project's
- * tracked competitor for `domain`, so an Advanced pin by domain alone carries
- * the same answer-text names a Simple run freezes. For a domain the project
- * does not track, the names learned for it in the markets the active plan
- * pins it in (`readMarketCompetitorNames`), so pinning it in another market
- * carries them too. Empty when there are none. Any spelling finds the stored
- * row (`findStoredCompetitor`), which fails rather than pick one of several
- * rows for the same competitor.
+ * The curated aliases of the project's tracked competitor for `domain`, so an
+ * Advanced pin by domain alone carries the operator's names for it. Empty
+ * when the domain is not tracked. Any spelling finds the stored row
+ * (`findStoredCompetitor`), which fails rather than pick one of several rows
+ * for the same competitor.
+ *
+ * Never its auto-detected names, nor the names learned for an untracked
+ * domain (`market_competitor_names`): a pin's names become curated plan names,
+ * frozen into every revision that publishes them, so a later block of a name
+ * or its decay out of detection could no longer take it back. Every reader
+ * that scores answers against live identity layers those names onto the pin
+ * at read time instead (`createRunCompetitorResolver`, the landscape).
  */
 function trackedCompetitorAliases(db: Pick<DatabaseClient, 'select'>, projectId: string, domain: string): string[] {
   const host = hostOf(domain)
   if (!host) return []
-  const tracked = findStoredCompetitor(readStoredCompetitors(db, projectId), host)
-  if (tracked) return competitorIdentityAliases(tracked)
-  return readMarketCompetitorNames(db, projectId).get(normalizeCompetitorDomain(host)) ?? []
+  return normalizeCompetitorAliases(findStoredCompetitor(readStoredCompetitors(db, projectId), host)?.aliases)
 }
 
 function pinCompetitorInAuthoring(
@@ -399,7 +398,8 @@ function pinCompetitorInAuthoring(
   const generatedLabel = brandKeyFromText(domainLabel).length >= MIN_DOMAIN_BRAND_KEY_LENGTH ? domainLabel : domain
   const label = input.label ?? existing?.label ?? generatedLabel
   // A new pin with no stated aliases takes the tracked competitor's curated
-  // names (plus an explicit label), matching what a Simple run freezes.
+  // names (plus an explicit label). Its auto-detected names are layered onto
+  // the pin at read time, never frozen into it (`trackedCompetitorAliases`).
   const aliases = input.aliases ?? existing?.aliases ?? normalizeCompetitorAliases([
     ...(input.label ? [input.label] : []),
     ...trackedAliases(),

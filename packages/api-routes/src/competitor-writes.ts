@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
-import { eq } from 'drizzle-orm'
-import { competitors, type DatabaseClient } from '@ainyc/canonry-db'
+import { and, eq } from 'drizzle-orm'
+import { competitors, marketCompetitorNames, type DatabaseClient } from '@ainyc/canonry-db'
 import {
   brandKeyFromText,
   competitorDomainProjectClaim,
@@ -37,6 +37,14 @@ import { changedMarketPins, readMarketCompetitorPins, type MarketPinGroup } from
  * last, and a domain-only write never wipes stored aliases. The two DELETE
  * routes remove rows directly (removing a competitor cannot break another
  * competitor's alias) and audit the aliases they discard.
+ *
+ * Blocked names outlive the row: every removal keeps them on the project's
+ * `market_competitor_names` row for the registrable domain
+ * (`keepBlockedAliasesOfRemovedCompetitors`), and every new row starts with
+ * the blocked names stored there, so removing and re-adding a competitor
+ * (the duplicate-row remedy, a config apply that drops and re-adds it) or
+ * promoting a competitor only a market pinned never lets detection re-apply a
+ * name the operator blocked.
  *
  * Every write stores the registrable form (`normalizeCompetitorDomain`), and
  * every lookup by domain compares stored rows in that form too, so a row an
@@ -184,7 +192,9 @@ export function storedCompetitorMatches<T extends { domain: string }>(rows: read
  * stored next to its registrable form). A write cannot pick one, so the error
  * names every row and the way out every surface has: remove the competitor
  * (every row goes) and add it again, restating the curated aliases the rows
- * carry (`aliases`), which the removal discards.
+ * carry (`aliases`), which the removal discards. Their blocked names are kept
+ * through the removal (`keepBlockedAliasesOfRemovedCompetitors`), so the
+ * re-added row starts with them.
  */
 export function duplicateCompetitorRowsError(
   domain: string,
@@ -382,13 +392,86 @@ export function replanCompetitorAutoAliases(
   return { autoAliasChanges: pruned.autoAliasChanges, droppedAutoAliases: pruned.droppedAutoAliases }
 }
 
+/** Names deduplicated by brand key, first spelling kept. */
+function uniqueByBrandKey(names: readonly string[]): string[] {
+  const seen = new Set<string>()
+  return names.filter((name) => {
+    const key = brandKeyFromText(name)
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+/**
+ * The blocked names stored for `domain` (registrable form) on the project's
+ * `market_competitor_names` row: a market-only pin's blocks, or the blocks a
+ * removed project competitor left there. Empty when there is no row.
+ */
+function storedDomainBlockedAliases(tx: Pick<DatabaseClient, 'select'>, projectId: string, domain: string): string[] {
+  const row = tx.select({ blockedAliases: marketCompetitorNames.blockedAliases })
+    .from(marketCompetitorNames)
+    .where(and(eq(marketCompetitorNames.projectId, projectId), eq(marketCompetitorNames.domain, domain)))
+    .get()
+  return row?.blockedAliases ?? []
+}
+
+/**
+ * Inside the removing transaction: keep the blocked names of removed project
+ * competitors on the project's `market_competitor_names` row for each one's
+ * registrable domain (a row with no learned names when there was none), so a
+ * later add of the same competitor starts with them (`applyCompetitorSetPlan`)
+ * and a market pin of the domain keeps them. The stored list becomes exactly
+ * the removed rows' blocks: the project row was the live list while it
+ * existed (it started from the stored one), so an unblock made meanwhile is
+ * kept too. A row without learned names is read by nothing but block targets
+ * and adds; a market row's learned names are left as stored.
+ */
+export function keepBlockedAliasesOfRemovedCompetitors(
+  tx: Pick<DatabaseClient, 'select' | 'insert' | 'update'>,
+  projectId: string,
+  removed: readonly Pick<StoredCompetitor, 'domain' | 'blockedAliases'>[],
+  now: string,
+): void {
+  const byDomain = new Map<string, string[]>()
+  for (const row of removed) {
+    const domain = normalizeCompetitorDomain(row.domain)
+    if (!domain) continue
+    byDomain.set(domain, uniqueByBrandKey([...(byDomain.get(domain) ?? []), ...row.blockedAliases]))
+  }
+  for (const [domain, blockedAliases] of byDomain) {
+    const stored = tx.select({ id: marketCompetitorNames.id, blockedAliases: marketCompetitorNames.blockedAliases })
+      .from(marketCompetitorNames)
+      .where(and(eq(marketCompetitorNames.projectId, projectId), eq(marketCompetitorNames.domain, domain)))
+      .get()
+    if (stored) {
+      if (!sameAliases(stored.blockedAliases, blockedAliases)) {
+        tx.update(marketCompetitorNames).set({ blockedAliases, updatedAt: now }).where(eq(marketCompetitorNames.id, stored.id)).run()
+      }
+      continue
+    }
+    if (blockedAliases.length === 0) continue
+    tx.insert(marketCompetitorNames).values({
+      id: crypto.randomUUID(),
+      projectId,
+      domain,
+      autoAliases: [],
+      blockedAliases,
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+  }
+}
+
 /**
  * Write a plan made against `stored` (read in the same transaction). New rows
  * take `provenance` (default `cli`, the value every REST and apply write has
- * always stored).
+ * always stored) and the blocked names stored for their domain
+ * (`market_competitor_names`); removed rows leave theirs there
+ * (`keepBlockedAliasesOfRemovedCompetitors`).
  */
 export function applyCompetitorSetPlan(
-  tx: Pick<DatabaseClient, 'insert' | 'update' | 'delete'>,
+  tx: Pick<DatabaseClient, 'select' | 'insert' | 'update' | 'delete'>,
   projectId: string,
   stored: readonly StoredCompetitor[],
   plan: CompetitorSetPlan,
@@ -398,6 +481,7 @@ export function applyCompetitorSetPlan(
   for (const row of plan.removed) {
     tx.delete(competitors).where(eq(competitors.id, row.id)).run()
   }
+  keepBlockedAliasesOfRemovedCompetitors(tx, projectId, plan.removed, now)
   const storedByDomain = new Map(stored.map(row => [row.domain, row]))
   const aliasesByDomain = new Map(plan.final.map(competitor => [competitor.domain, competitor.aliases]))
   for (const change of plan.aliasChanges) {
@@ -416,6 +500,7 @@ export function applyCompetitorSetPlan(
       projectId,
       domain,
       aliases: aliasesByDomain.get(domain) ?? [],
+      blockedAliases: storedDomainBlockedAliases(tx, projectId, domain),
       provenance,
       createdAt: now,
     }).onConflictDoNothing({

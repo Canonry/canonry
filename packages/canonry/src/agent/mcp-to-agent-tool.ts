@@ -1,7 +1,14 @@
 import { Type, type TSchema } from '@earendil-works/pi-ai'
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core'
 import { createHash, randomUUID } from 'node:crypto'
-import { MeasurementPortfolioLists, RunKinds, truncateUtf16 } from '@ainyc/canonry-contracts'
+import {
+  DEFAULT_COMPETITOR_AUTO_ALIAS_MODE,
+  MeasurementPortfolioLists,
+  RunKinds,
+  truncateUtf16,
+  type CompetitorAutoAliasMode,
+} from '@ainyc/canonry-contracts'
+import { CliError } from '../cli-error.js'
 import { runWithUsageTags, type ApiClient } from '../client.js'
 import {
   CanonryMcpToolNames,
@@ -973,6 +980,13 @@ export const AERO_EXCLUDED_MCP_TOOLS: ReadonlySet<CanonryMcpToolName> = new Set(
   'canonry_sentiment_configure',
   'canonry_sentiment_backfill',
 
+  // Applying answer-derived competitor names changes the measured competitor
+  // identity and restates stored history. Aero may preview detection
+  // (`canonry_competitors_auto_aliases_detect`); applying stays an operator action.
+  // The project writes that set the mode refuse a change instead; see
+  // `refuseCompetitorAutoAliasModeChange`.
+  CanonryMcpToolNames.canonry_competitors_auto_aliases_apply,
+
   CanonryMcpToolNames.canonry_agent_clear,
   CanonryMcpToolNames.canonry_agent_conversations_new,
   CanonryMcpToolNames.canonry_agent_conversations_resume,
@@ -1022,6 +1036,64 @@ function refuseManagedSweepCancel(tool: AgentTool, ctx: AgentMcpAdapterContext):
   } as AgentTool
 }
 
+export const COMPETITOR_AUTO_ALIAS_MODE_REFUSAL =
+  'Aero cannot change a project\'s competitorAutoAliases mode. Omit competitorAutoAliases to keep the stored mode, or ask the operator to change it.'
+
+/** The project writes whose request can set `competitorAutoAliases`. */
+const COMPETITOR_AUTO_ALIAS_MODE_WRITES: ReadonlySet<CanonryMcpToolName> = new Set([
+  CanonryMcpToolNames.canonry_project_upsert,
+  CanonryMcpToolNames.canonry_apply_config,
+])
+
+/** The project a mode write targets and the mode it sends, if any. */
+function requestedCompetitorAutoAliasMode(
+  toolName: string,
+  params: unknown,
+  ctx: AgentMcpAdapterContext,
+): { project: unknown; mode: unknown } {
+  if (!isRecord(params)) return { project: undefined, mode: undefined }
+  if (toolName === CanonryMcpToolNames.canonry_project_upsert) {
+    const request = isRecord(params.request) ? params.request : {}
+    return { project: ctx.projectName, mode: request.competitorAutoAliases }
+  }
+  const config = isRecord(params.config) ? params.config : {}
+  const metadata = isRecord(config.metadata) ? config.metadata : {}
+  const spec = isRecord(config.spec) ? config.spec : {}
+  return { project: metadata.name, mode: spec.competitorAutoAliases }
+}
+
+/** The stored mode, or the mode a new project starts in. */
+async function storedCompetitorAutoAliasMode(client: ApiClient, project: unknown): Promise<CompetitorAutoAliasMode> {
+  if (typeof project !== 'string') return DEFAULT_COMPETITOR_AUTO_ALIAS_MODE
+  try {
+    return (await client.getProject(project)).competitorAutoAliases ?? DEFAULT_COMPETITOR_AUTO_ALIAS_MODE
+  } catch (err) {
+    if (err instanceof CliError && err.code === 'NOT_FOUND') return DEFAULT_COMPETITOR_AUTO_ALIAS_MODE
+    throw err
+  }
+}
+
+/**
+ * The project's `competitorAutoAliases` mode decides whether detection stores
+ * names after sweeps and competitor adds, so setting `apply` would let Aero do
+ * what withholding `canonry_competitors_auto_aliases_apply` prevents. A write
+ * that omits the mode or restates the stored one goes through; one that would
+ * change it is refused.
+ */
+function refuseCompetitorAutoAliasModeChange(tool: AgentTool, ctx: AgentMcpAdapterContext): AgentTool {
+  const write = tool.execute
+  return {
+    ...tool,
+    execute: async (toolCallId, params, ...rest) => {
+      const { project, mode } = requestedCompetitorAutoAliasMode(tool.name, params, ctx)
+      if (mode !== undefined && mode !== await storedCompetitorAutoAliasMode(ctx.client, project)) {
+        throw new Error(COMPETITOR_AUTO_ALIAS_MODE_REFUSAL)
+      }
+      return write(toolCallId, params, ...rest)
+    },
+  } as AgentTool
+}
+
 export interface BuildMcpAgentToolsOptions {
   /** Filter to read-only tools when true. */
   readOnly?: boolean
@@ -1052,6 +1124,7 @@ export function buildMcpAgentTools(
     .filter((tool) => (opts.managedSweeps ? !AERO_MANAGED_SWEEP_MCP_TOOLS.has(tool.name) : true))
     .map((tool) => {
       const agentTool = mcpToAgentTool(tool, ctx)
+      if (COMPETITOR_AUTO_ALIAS_MODE_WRITES.has(tool.name)) return refuseCompetitorAutoAliasModeChange(agentTool, ctx)
       return opts.managedSweeps && tool.name === CanonryMcpToolNames.canonry_run_cancel
         ? refuseManagedSweepCancel(agentTool, ctx)
         : agentTool

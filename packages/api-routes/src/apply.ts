@@ -2,12 +2,13 @@ import crypto from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { projects, schedules, notifications, readNegativeReviewMaxStars, writeNegativeReviewMaxStars } from '@ainyc/canonry-db'
-import { competitorAliasProjectIdentity, forbidden, nextScheduleUpdatedAt, normalizeProjectAliases, projectConfigSchema, resolveConfigSpecQueries, resolveProjectQualifiedAliases, SchedulableRunKinds, validationError, describeError } from '@ainyc/canonry-contracts'
+import { competitorAliasProjectIdentity, DEFAULT_COMPETITOR_AUTO_ALIAS_MODE, forbidden, nextScheduleUpdatedAt, normalizeProjectAliases, projectConfigSchema, resolveConfigSpecQueries, resolveProjectQualifiedAliases, SchedulableRunKinds, validationError, describeError } from '@ainyc/canonry-contracts'
 import { competitorAliasAuditFields, competitorIdentityChanged, competitorNames, competitorWritesFromEntries, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
 import type { ProviderAdapterInfo } from './settings.js'
 import { pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
 import { writeAuditLog } from './helpers.js'
 import { readMarketCompetitorPins } from './plan-competitors.js'
+import { marketNameChanges, readMarketCompetitorNames } from './market-competitor-names.js'
 import { assertProviderModelScope, requireQualifiedAliases } from './projects.js'
 import { assertQueryReplacementAllowed, replaceProjectQueries } from './query-replace.js'
 import { activeRevisionProviders } from './run-queue.js'
@@ -196,6 +197,10 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     app.db.transaction((tx) => {
       // Upsert project
       const existing = tx.select().from(projects).where(eq(projects.name, name)).get()
+      // The spec's identity and competitor set can claim, or release, a name
+      // learned for a competitor only a market pins without changing a stored
+      // name: compare the names readers layer onto it before and after.
+      const marketNamesBefore = existing ? readMarketCompetitorNames(tx, existing.id) : new Map<string, string[]>()
 
       const nextAliases = normalizeProjectAliases(config.spec.displayName, config.spec.aliases ?? [])
       // Only fire on actual changes to an existing project — a brand-new project
@@ -237,6 +242,8 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           autoExtractBacklinks: config.spec.autoExtractBacklinks ?? false,
           // Present sets (null = full site); absent leaves the stored budget alone.
           ...(config.spec.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: config.spec.siteAuditMaxPages } : {}),
+          // Present sets; absent leaves the stored detection mode alone.
+          ...(config.spec.competitorAutoAliases !== undefined ? { competitorAutoAliases: config.spec.competitorAutoAliases } : {}),
           configSource: 'config-file',
           configRevision: existing.configRevision + 1,
           updatedAt: now,
@@ -248,6 +255,9 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           action: 'project.applied',
           entityType: 'project',
           entityId: projectId,
+          ...(config.spec.competitorAutoAliases !== undefined && config.spec.competitorAutoAliases !== existing.competitorAutoAliases
+            ? { diff: { competitorAutoAliases: { before: existing.competitorAutoAliases, after: config.spec.competitorAutoAliases } } }
+            : {}),
         })
       } else {
         projectId = crypto.randomUUID()
@@ -272,6 +282,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           defaultLocation: config.spec.defaultLocation ?? null,
           autoExtractBacklinks: config.spec.autoExtractBacklinks ?? false,
           siteAuditMaxPages: config.spec.siteAuditMaxPages ?? null,
+          competitorAutoAliases: config.spec.competitorAutoAliases ?? DEFAULT_COMPETITOR_AUTO_ALIAS_MODE,
           configSource: 'config-file',
           configRevision: 1,
           createdAt: now,
@@ -317,7 +328,9 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         project: specAliasIdentity,
         now,
       })
-      lifecycle.competitorAliasesChanged = !lifecycle.projectCreated && competitorIdentityChanged(competitorPlan)
+      const marketNamesChanged = existing ? marketNameChanges(marketNamesBefore, readMarketCompetitorNames(tx, projectId)) : []
+      lifecycle.competitorAliasesChanged = !lifecycle.projectCreated
+        && (competitorIdentityChanged(competitorPlan) || marketNamesChanged.length > 0)
       lifecycle.competitorsAdded = !lifecycle.projectCreated && competitorPlan.added.length > 0
 
       writeAuditLog(tx, {
@@ -328,6 +341,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         diff: {
           competitors: competitorWrites.map(write => write.domain),
           ...competitorAliasAuditFields(competitorPlan),
+          ...(marketNamesChanged.length ? { marketNameChanges: marketNamesChanged } : {}),
         },
       })
 
@@ -469,6 +483,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       autoExtractBacklinks: project.autoExtractBacklinks,
       negativeReviewMaxStars: readNegativeReviewMaxStars(app.db, project.id),
       siteAuditMaxPages: project.siteAuditMaxPages ?? null,
+      competitorAutoAliases: project.competitorAutoAliases,
       configSource: project.configSource,
       configRevision: project.configRevision,
       createdAt: project.createdAt,

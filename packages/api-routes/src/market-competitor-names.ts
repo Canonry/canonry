@@ -28,17 +28,25 @@ import { activePlanMarketPins, readMarketCompetitorPins } from './plan-competito
  * live identity layers them onto the pin at read time
  * (`readMarketCompetitorNames`): the stored per-snapshot competitor fields
  * (sweeps and their recomputes) and the Advanced competitor landscape. A new
- * pin of the domain in a draft takes them like a tracked competitor's names.
+ * pin of the domain in a draft never copies them (a pin by domain alone copies
+ * a tracked competitor's curated aliases only): copied, they would become
+ * curated plan names, frozen into every revision that publishes them, so a
+ * later block or their decay out of detection could no longer take them back.
  * The frozen measurement reports keep reading each revision's own names, as
  * they do for a tracked competitor's later names.
+ *
+ * A row may also hold only blocked names: the blocks a removed project
+ * competitor left (`keepBlockedAliasesOfRemovedCompetitors` in
+ * `competitor-writes.ts`), which a re-added or promoted competitor starts
+ * with. Such a row adds no name to any reader.
  *
  * Which competitors: every domain the ACTIVE revision pins that is not a
  * project competitor (compared by registrable domain). Names stored for a
  * domain the active revision no longer pins are kept: they still apply to the
  * runs whose own revision pins it (the resolver adds them only where a run's
  * revision pins the domain), so publishing a revision that drops a pin never
- * rewrites the history of the runs that measured it, and a new pin of the
- * domain takes them again.
+ * rewrites the history of the runs that measured it, and readers layer them
+ * onto a new pin of the domain again.
  *
  * One identity for every competitor: every market pin the curated alias
  * rules take (`readMarketCompetitorPins`: the active revision, the pending
@@ -142,6 +150,62 @@ export function readMarketCompetitorNames(db: Reader, projectId: string): Map<st
     if (kept.length > 0) names.set(entry.domain, kept)
   })
   return names
+}
+
+/**
+ * One competitor only an Advanced market pins whose learned names
+ * (`readMarketCompetitorNames`) a write changed: claimed by a name it now
+ * overlaps (a project identity, a tracked competitor's domain label, curated
+ * alias or kept auto name, a market pin of another domain), released when
+ * that name went, or dropped when the domain became a tracked competitor.
+ */
+export interface MarketNameChange {
+  domain: string
+  before: string[]
+  after: string[]
+}
+
+/**
+ * The learned market names that differ between two readings of
+ * `readMarketCompetitorNames` taken inside one write's transaction, before
+ * and after it, by domain. Those names are filtered against the current
+ * identity at read time, so a write that changes no stored name can still
+ * change them; the writer puts the result on its audit row as
+ * `marketNameChanges`, which `readCompetitorIdentityChangedAt` reads as a
+ * names change. Empty when nothing changed.
+ */
+export function marketNameChanges(
+  before: ReadonlyMap<string, readonly string[]>,
+  after: ReadonlyMap<string, readonly string[]>,
+): MarketNameChange[] {
+  const sameNames = (left: readonly string[], right: readonly string[]) => {
+    const sorted = [...right].sort()
+    return left.length === right.length && [...left].sort().every((name, index) => name === sorted[index])
+  }
+  return [...new Set([...before.keys(), ...after.keys()])].sort().flatMap((domain) => {
+    const was = before.get(domain) ?? []
+    const now = after.get(domain) ?? []
+    return sameNames(was, now) ? [] : [{ domain, before: [...was], after: [...now] }]
+  })
+}
+
+/**
+ * Tracks the learned market names around one write: call inside the
+ * writer's transaction BEFORE it writes, and `finish` after the write, before
+ * its audit row. `finish` returns `marketNameChanges` for the two readings.
+ * The competitor routes (set, add, alias set, block, unblock, both deletes)
+ * and discovery promote use it; the project update and apply read the names
+ * around their own writes, and the market pin writers through
+ * `beginMarketPinWrite` (`src/market-pin-writes.ts`).
+ */
+export function beginMarketNameWrite(db: Reader, projectId: string): { finish(): MarketNameChange[] } {
+  const before = readMarketCompetitorNames(db, projectId)
+  return { finish: () => marketNameChanges(before, readMarketCompetitorNames(db, projectId)) }
+}
+
+/** The audit-diff field for learned market names a write moved; empty when it moved none. */
+export function marketNameAuditFields(changes: readonly MarketNameChange[]): { marketNameChanges?: MarketNameChange[] } {
+  return changes.length ? { marketNameChanges: [...changes] } : {}
 }
 
 /** Store a market competitor's names (insert on first write). */

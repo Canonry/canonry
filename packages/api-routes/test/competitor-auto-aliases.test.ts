@@ -204,6 +204,26 @@ describe('GET and POST /projects/:name/competitor-auto-aliases', () => {
     expect(preview.competitors[0]!.candidates[0]).toMatchObject({ name: 'TuneSpoke', status: 'rejected', reason: 'too-few-runs', directPairs: 3, runs: 1 })
   })
 
+  it('does not count an answer that writes the name only inside a curated alias as naming it', async () => {
+    await startApp()
+    const projectId = await createProject()
+    track(projectId, 'spoketuneworks.example')
+    // Per sweep: one answer pairs "TuneSpoke" with its site, two write only
+    // the longer "TuneSpoke Garage" and cite nothing, two do neither.
+    const GARAGE_ANSWER: SeededAnswer = { text: 'Riders swear by TuneSpoke Garage for wheel truing.', cited: [] }
+    seedSweeps(projectId, [0, 1, 2].map(() => [TUNESPOKE_ANSWER, GARAGE_ANSWER, GARAGE_ANSWER, OTHER_ANSWER, OTHER_ANSWER]))
+    const candidate = async () => (await detect('GET')).competitors[0]!.candidates.find(item => item.name === 'TuneSpoke')
+
+    // Counted as naming it, the garage answers sink its lift: (3/9) / ((0 + 1) / (6 + 2)) < 3.
+    expect(await candidate()).toMatchObject({ status: 'rejected', reason: 'low-lift', namingAnswers: 9, citingAnswers: 3 })
+
+    const res = await app.inject({ method: 'PUT', url: '/api/v1/projects/rotorwise/competitors/spoketuneworks.example/aliases', payload: { aliases: ['TuneSpoke Garage'] } })
+    expect(res.statusCode, res.body).toBe(200)
+    // Once "TuneSpoke Garage" is curated, those answers name the curated
+    // alias, not "TuneSpoke": (3/3) / ((0 + 1) / (12 + 2)) = 14.
+    expect(await candidate()).toMatchObject({ status: 'added', namingAnswers: 3, citingAnswers: 3, precision: 1, lift: 14 })
+  })
+
   it('stops at the snapshot cap inside a run instead of reading the run whole', async () => {
     await startApp()
     const projectId = await createProject()
@@ -442,22 +462,25 @@ describe('a competitor an Advanced market pins without tracking it project-wide'
    * the competitor is not measured, ten answers per sweep name "TuneSpoke"
    * and cite nothing: counted, they would sink its precision to 3 of 33.
    */
-  function seedMarketSweeps(projectId: string, versionId: string): void {
+  function seedMarketSweeps(projectId: string, versionId: string, opts: { /** At most 6. */ extraNorth?: SeededAnswer[] } = {}): void {
     for (const day of ['01', '02', '03']) {
       const runId = crypto.randomUUID()
       const at = `2026-09-${day}T00:00:00.000Z`
       db.insert(runs).values({ id: runId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'scheduled', measurementPlanVersionId: versionId, createdAt: at, finishedAt: at }).run()
       const north = nodes('north')
-      const answers: (SeededAnswer & { node: string })[] = [
+      const answers: (SeededAnswer & { node: string; provider?: string })[] = [
         { ...TUNESPOKE_ANSWER, node: north[0]! },
         { ...OTHER_ANSWER, node: north[1]! },
         { ...OTHER_ANSWER, node: north[2]! },
+        // More answers per sweep to the north market's questions, from other
+        // providers (one snapshot per run, execution node and provider).
+        ...(opts.extraNorth ?? []).map((entry, index) => ({ ...entry, node: north[index % 3]!, provider: ['openai', 'claude'][Math.floor(index / 3)]! })),
         ...nodes('south').map(node => ({ text: 'Riders in the south say TuneSpoke is worth a look.', cited: [], node })),
       ]
       db.transaction((tx) => {
         for (const entry of answers) {
           tx.insert(querySnapshots).values({
-            id: crypto.randomUUID(), runId, provider: 'gemini', citationState: 'not-cited', answerMentioned: false,
+            id: crypto.randomUUID(), runId, provider: entry.provider ?? 'gemini', citationState: 'not-cited', answerMentioned: false,
             answerText: entry.text, citedDomains: entry.cited, measurementExecutionId: `exec-${entry.node}`, createdAt: at,
           }).run()
         }
@@ -492,6 +515,22 @@ describe('a competitor an Advanced market pins without tracking it project-wide'
     expect((await landscape('north')).pinned.find(row => row.domain === 'spoketuneworks.example')).toMatchObject({ mentionCount: 3 })
     expect((await landscape('south')).pinned.map(row => row.domain)).toEqual([])
     expect((await detect('POST')).changed).toBe(false)
+  })
+
+  it('does not count a north answer that writes the name only inside the pin\'s plan alias as naming it', async () => {
+    await startApp()
+    const projectId = await createProject()
+    const GARAGE_ANSWER: SeededAnswer = { text: 'Riders swear by TuneSpoke Garage for wheel truing.', cited: [] }
+    const versionId = seedMarkets(projectId, { north: [{ ...SPOKE_PIN, aliases: ['TuneSpoke Garage'] }] })
+    seedMarketSweeps(projectId, versionId, { extraNorth: [GARAGE_ANSWER, GARAGE_ANSWER] })
+
+    const market = (await detect('GET')).competitors.find(entry => entry.domain === 'spoketuneworks.example')!
+    expect(market).toMatchObject({ marketKeys: ['north'], aliases: ['Spoke Tune Works', 'TuneSpoke Garage'], added: ['TuneSpoke'] })
+    // 15 north answers: 3 pair and name "TuneSpoke"; the 6 that write only
+    // "TuneSpoke Garage" name the plan alias, so they neither name it nor
+    // sink its lift to (3/9) / ((0 + 1) / (6 + 2)).
+    expect(market.candidates.find(item => item.name === 'TuneSpoke'))
+      .toMatchObject({ status: 'added', namingAnswers: 3, citingAnswers: 3, precision: 1, lift: 14 })
   })
 
   it('blocks and unblocks a learned market name like a project competitor\'s', async () => {

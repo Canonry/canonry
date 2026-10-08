@@ -1,4 +1,4 @@
-import { readCompetitorLandscape } from './competitor-landscape.js'
+import { readCompetitorIdentityChangedAt, readCompetitorLandscape } from './competitor-landscape.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
@@ -509,6 +509,11 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
   const fromMonth = loadMonth(fromBounds)
   const toMonth = loadMonth(toBounds)
 
+  // Both months are read with the tracked competitors' current names; this
+  // says when the project's competitor names last changed (market pin and
+  // learned names included, which share of voice does not read), so a reader
+  // can tell a restated month.
+  const competitorIdentityChangedAt = readCompetitorIdentityChangedAt(db, project.id)
   const dto = computeVisibilityCompare({
     project: project.name,
     queries: projectQueries,
@@ -527,9 +532,10 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
         ...advancedComparison.metrics.filter(metric => isVisibilityCompareClassMetric(metric.key)),
       ],
       classComparison: { from, to, basket, continuity, modelChanges },
+      competitorIdentityChangedAt,
     }
   }
-  return { ...dto, selection: filters }
+  return { ...dto, selection: filters, competitorIdentityChangedAt }
 }
 
 type MonthBounds = { since: string; until: string }

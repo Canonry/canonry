@@ -3,6 +3,7 @@ import { calendarRecurrenceSchema } from './schedule.js'
 import { providerModelsSchema, providerNameSchema, locationContextSchema } from './provider.js'
 import { notificationEventSchema } from './notification.js'
 import {
+  competitorAutoAliasModeInputSchema,
   findDuplicateLocationLabels,
   hasLocationLabel,
   PROJECT_QUALIFIED_ALIAS_LIMIT,
@@ -97,6 +98,12 @@ export const configSpecSchema = z.object({
    * mentions it cannot undo a budget set in the dashboard.
    */
   siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
+  /**
+   * Answer-derived competitor alias detection: `off`, `preview` (log only) or
+   * `apply`. Absent leaves the stored mode alone; a new project starts in
+   * `preview`.
+   */
+  competitorAutoAliases: competitorAutoAliasModeInputSchema,
 }).superRefine((spec, ctx) => {
   if (spec.queries !== undefined && spec.keywords !== undefined) {
     ctx.addIssue({

@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { CompetitorAutoAlias as StoredCompetitorAutoAlias, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, SnapshotUsage } from '@ainyc/canonry-contracts'
+import type { CompetitorAutoAlias as StoredCompetitorAutoAlias, CompetitorAutoAliasMode, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, SnapshotUsage } from '@ainyc/canonry-contracts'
 import type { CalendarRecurrence, AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, GbpReviewAlertState, GbpReviewOrigin, GbpReviewsAccess, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@ainyc/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
@@ -18,6 +18,23 @@ export const projects = sqliteTable('projects', {
   qualifiedAliases: text('qualified_aliases', { mode: 'json' }).$type<string[]>().notNull().default([]),
   /** Site Health page budget for scans that set none; null means the full site (up to 50,000 pages). */
   siteAuditMaxPages: integer('site_audit_max_pages'),
+  /**
+   * What the unattended answer-derived competitor alias pass does
+   * (`CompetitorAutoAliasMode`), queued after a completed or partial sweep, a
+   * competitor add, an unblock or a market pin write that changes pins: `off`
+   * (no pass), `preview` (the default: the pass logs what it would change and
+   * stores nothing) or `apply` (it stores the names). An explicit apply-now
+   * stores in every mode.
+   */
+  competitorAutoAliases: text('competitor_auto_aliases').$type<CompetitorAutoAliasMode>().notNull().default('preview'),
+  /**
+   * A recompute of the stored per-snapshot answer fields that the local server
+   * queued after an identity change and has not finished: `full` (a project
+   * alias change, `answer_mentioned` too) or `competitors` (a competitor names
+   * change). Null when none is owed. The recompute queue lives in memory, so
+   * the server requeues every project carrying one when it boots.
+   */
+  answerFieldsRecompute: text('answer_fields_recompute').$type<'full' | 'competitors'>(),
   country: text('country').notNull(),
   language: text('language').notNull(),
   tags: text('tags', { mode: 'json' }).$type<string[]>().notNull().default([]),
@@ -72,12 +89,18 @@ export const competitors = sqliteTable('competitors', {
   /**
    * Names detected automatically from the project's own stored answers, each
    * with its evidence (`CompetitorAutoAlias` in contracts). Matched exactly
-   * like curated aliases; curated wins a conflict. Written only by
-   * `api-routes/src/competitor-auto-aliases.ts` (and pruned by the shared
-   * competitor writer).
+   * like curated aliases; curated wins a conflict. Stored only by a pass that
+   * applies (`api-routes/src/competitor-auto-aliases.ts`: the project's
+   * `competitor_auto_aliases` mode is `apply`, or an explicit apply-now), and
+   * pruned by the shared competitor writer and the block route.
    */
   autoAliases: text('auto_aliases', { mode: 'json' }).$type<StoredCompetitorAutoAlias[]>().notNull().default([]),
-  /** Names the operator blocked from auto-detection, never auto-applied again until unblocked. */
+  /**
+   * Names the operator blocked from auto-detection, never auto-applied again
+   * until unblocked. They outlive the row: removing the competitor keeps them
+   * on `market_competitor_names` for its registrable domain, and a new row for
+   * that domain starts with them.
+   */
   blockedAliases: text('blocked_aliases', { mode: 'json' }).$type<string[]>().notNull().default([]),
   createdAt: text('created_at').notNull(),
 }, (table) => [
@@ -90,8 +113,17 @@ export const competitors = sqliteTable('competitors', {
  * tracking it project-wide (no `competitors` row), keyed by its registrable
  * domain. Published plan revisions are immutable, so the names live here and
  * every reader that scores a market answer against its live identity layers
- * them onto the pin (`readMarketCompetitorNames` in api-routes). Written only
- * by `api-routes/src/competitor-auto-aliases.ts` and the block/unblock routes.
+ * them onto the pin (`readMarketCompetitorNames` in api-routes).
+ *
+ * A row also keeps the blocked names of a removed project competitor, with no
+ * learned names when the domain had none (`keepBlockedAliasesOfRemovedCompetitors`
+ * in `api-routes/src/competitor-writes.ts`), so re-adding the competitor or
+ * promoting a market-only pin starts its `competitors` row with them, and the
+ * block/unblock routes reach the domain by this row. A row with blocked names
+ * and no learned names is not empty: never clean it up.
+ *
+ * Written by `api-routes/src/competitor-auto-aliases.ts` (learned names), the
+ * block/unblock routes, and the shared competitor writer on a removal.
  */
 export const marketCompetitorNames = sqliteTable('market_competitor_names', {
   id: text('id').primaryKey(),

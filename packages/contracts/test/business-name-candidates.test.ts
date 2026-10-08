@@ -70,11 +70,11 @@ describe('names written with letters outside ASCII', () => {
       'Ünal Çark',
       'Søren Spokes',
     ])
+    // The stored-value layouts read the same letters, but never a curly apostrophe.
     expect(extractLaidOutBusinessNames(text)).toEqual([
       'TuneSpóke',
       'Éclair Vélo',
       'Café Tunequill Cycles',
-      'Joe’s Spokes',
       '東京スポーク',
       'Ünal Çark',
       'Søren Spokes',
@@ -126,7 +126,19 @@ describe('names written with apostrophes', () => {
     ].join('\n')
     const names = ['Joe\u2018s Spokes', "O'Quillan's Bikes", "D'Avrel Cycles", 'O\u2019Quillan Wheels']
     expect(extractBusinessNameCandidates(text)).toEqual(names)
-    expect(extractLaidOutBusinessNames(text)).toEqual(names)
+    // The stored-value layouts keep the straight apostrophe only.
+    expect(extractLaidOutBusinessNames(text)).toEqual(["O'Quillan's Bikes", "D'Avrel Cycles"])
+  })
+
+  it('never reads a stored-value name through a curly apostrophe, so contractions and possessive phrases stay out', () => {
+    const text = [
+      '- **If you\u2019re shopping in Lakeview**: compare three quotes.',
+      '- **Don\u2019t block Google/Bing crawlers** - keep pages indexable.',
+      '- Allow Spokebot\u2019s crawler: in robots.txt.',
+      '### Rimworks\u2019 strict wheel codes',
+      'Ask about **Tunequill\u2019s city bike page** first, or [Gearloft\u2018s list](https://gearloft.example/list).',
+    ].join('\n')
+    expect(extractLaidOutBusinessNames(text)).toEqual([])
   })
 
   it('never opens a name at an apostrophe followed by a lowercase letter', () => {

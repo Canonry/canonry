@@ -33,11 +33,16 @@ export interface CompetitorAutoAliasRunner {
 
 /**
  * Runs answer-derived competitor alias detection (`applyCompetitorAutoAliases`)
- * off the request and run-completion paths: after every completed or partial
- * answer-visibility run, after a competitor is added, after a name is
- * unblocked, and for an apply-now request. When a pass changes any
- * competitor's auto names, `onNamesChanged` refreshes the stored competitor
- * fields, the same recompute a curated alias edit triggers.
+ * off the request and run-completion paths, and stores the result. The server
+ * calls it for an apply-now request (every `competitorAutoAliases` mode) and
+ * for its unattended passes (after every completed or partial non-probe
+ * answer-visibility run, a competitor add, an unblock and a market pin write
+ * that changes the pins)
+ * only when the project is in `apply` mode; in `preview` it runs
+ * `previewCompetitorAutoAliases` and logs instead, and in `off` nothing
+ * (`server.ts`). When a pass changes any competitor's auto names,
+ * `onNamesChanged` refreshes the stored competitor fields, the same recompute
+ * a curated alias edit triggers.
  */
 export function createCompetitorAutoAliasRunner(opts: {
   db: DatabaseClient

@@ -19,15 +19,17 @@ import {
   resolveProjectQualifiedAliases,
   findDuplicateLocationLabels,
   hasLocationLabel,
+  DEFAULT_COMPETITOR_AUTO_ALIAS_MODE,
   DEFAULT_MEASUREMENT_CONFIG,
   PROJECTS_WRITE_SCOPE,
   SchedulableRunKinds,
 } from '@ainyc/canonry-contracts'
-import type { CompetitorAliasRejection, CompetitorAutoAliasDrop, LocationContext, MeasurementConfig, ProjectCreateRequest, ProviderDispatchModesMap, ProviderModels } from '@ainyc/canonry-contracts'
+import type { CompetitorAliasRejection, CompetitorAutoAliasDrop, CompetitorAutoAliasMode, LocationContext, MeasurementConfig, ProjectCreateRequest, ProviderDispatchModesMap, ProviderModels } from '@ainyc/canonry-contracts'
 import { requireAdminSession, requireScope } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { competitorIdentityChanged, competitorIdentityColumns, competitorNames, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
 import { readMarketCompetitorPins } from './plan-competitors.js'
+import { marketNameChanges, readMarketCompetitorNames, type MarketNameChange } from './market-competitor-names.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
 import type { ProviderAdapterInfo } from './settings.js'
 import { pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
@@ -183,6 +185,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         defaultLocation: nextDefaultLocation,
         autoExtractBacklinks: body.autoExtractBacklinks ?? false,
         siteAuditMaxPages: body.siteAuditMaxPages ?? null,
+        competitorAutoAliases: body.competitorAutoAliases ?? DEFAULT_COMPETITOR_AUTO_ALIAS_MODE,
         configSource: body.configSource ?? 'api',
         configRevision: 1,
         createdAt: now,
@@ -227,6 +230,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       autoExtractBacklinks?: boolean
       negativeReviewMaxStars?: number | null
       siteAuditMaxPages?: number | null
+      competitorAutoAliases?: CompetitorAutoAliasMode
       configSource?: string
       providerModels?: Record<string, string>
       providerDispatchModes?: ProviderDispatchModesMap
@@ -298,6 +302,11 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     // Omitted keeps the stored budget: the dashboard and CLI resend the whole
     // project without fields they do not edit. Null means the full site.
     const nextSiteAuditMaxPages = body.siteAuditMaxPages !== undefined ? body.siteAuditMaxPages : existing?.siteAuditMaxPages ?? null
+    // Omitted keeps the stored detection mode for the same reason; a new
+    // project starts in preview.
+    const nextCompetitorAutoAliases = body.competitorAutoAliases
+      ?? existing?.competitorAutoAliases
+      ?? DEFAULT_COMPETITOR_AUTO_ALIAS_MODE
     // Omitted keeps the stored threshold; an explicit null resets it to the default.
     const nextNegativeReviewMaxStars = body.negativeReviewMaxStars !== undefined
       ? body.negativeReviewMaxStars
@@ -340,8 +349,16 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       const aliasesChanged = !aliasArraysEqual(prevAliases, nextAliases)
       let droppedCompetitorAliases: CompetitorAliasRejection[] = []
       let droppedAutoAliases: CompetitorAutoAliasDrop[] = []
+      // A new identity can claim, or release, a name learned for a competitor
+      // only a market pins: no stored name changes, so compare the names
+      // readers layer onto it before and after.
+      let marketNamesChanged: MarketNameChange[] = []
+      const autoAliasModeChange = existing.competitorAutoAliases !== nextCompetitorAutoAliases
+        ? { before: existing.competitorAutoAliases, after: nextCompetitorAutoAliases }
+        : null
 
       app.db.transaction((tx) => {
+        const marketNamesBefore = readMarketCompetitorNames(tx, existing.id)
         tx.update(projects).set({
           displayName: body.displayName,
           canonicalDomain: body.canonicalDomain,
@@ -360,6 +377,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           defaultLocation: nextDefaultLocation,
           autoExtractBacklinks: nextAutoExtractBacklinks,
           siteAuditMaxPages: nextSiteAuditMaxPages,
+          competitorAutoAliases: nextCompetitorAutoAliases,
           configSource: body.configSource ?? 'api',
           configRevision: existing.configRevision + 1,
           updatedAt: now,
@@ -374,6 +392,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           droppedCompetitorAliases = pruned.droppedAliases
           droppedAutoAliases = pruned.autoAliasChanges.length ? pruned.droppedAutoAliases : []
         }
+        marketNamesChanged = marketNameChanges(marketNamesBefore, readMarketCompetitorNames(tx, existing.id))
 
         writeAuditLog(tx, {
           projectId: existing.id,
@@ -381,10 +400,12 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           action: 'project.updated',
           entityType: 'project',
           entityId: existing.id,
-          ...(droppedCompetitorAliases.length || droppedAutoAliases.length
+          ...(droppedCompetitorAliases.length || droppedAutoAliases.length || marketNamesChanged.length || autoAliasModeChange
             ? { diff: {
                 ...(droppedCompetitorAliases.length ? { droppedCompetitorAliases } : {}),
                 ...(droppedAutoAliases.length ? { droppedAutoAliases } : {}),
+                ...(marketNamesChanged.length ? { marketNameChanges: marketNamesChanged } : {}),
+                ...(autoAliasModeChange ? { competitorAutoAliases: autoAliasModeChange } : {}),
               } }
             : {}),
         })
@@ -392,7 +413,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
 
       opts.onProjectUpserted?.(existing.id, name)
       if (aliasesChanged) opts.onAliasesChanged?.(existing.id, name)
-      else if (droppedCompetitorAliases.length || droppedAutoAliases.length) opts.onCompetitorAliasesChanged?.(existing.id, name)
+      else if (droppedCompetitorAliases.length || droppedAutoAliases.length || marketNamesChanged.length) opts.onCompetitorAliasesChanged?.(existing.id, name)
 
       const updated = app.db.select().from(projects).where(eq(projects.id, existing.id)).get()!
       return reply.status(200).send(formatProject(updated, nextNegativeReviewMaxStars))
@@ -420,6 +441,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         defaultLocation: nextDefaultLocation,
         autoExtractBacklinks: nextAutoExtractBacklinks,
         siteAuditMaxPages: nextSiteAuditMaxPages,
+        competitorAutoAliases: nextCompetitorAutoAliases,
         configSource: body.configSource ?? 'api',
         configRevision: 1,
         createdAt: now,
@@ -725,6 +747,8 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         ...(project.autoExtractBacklinks ? { autoExtractBacklinks: true } : {}),
         ...(negativeReviewMaxStars !== null ? { negativeReviewMaxStars } : {}),
         ...(project.siteAuditMaxPages !== null ? { siteAuditMaxPages: project.siteAuditMaxPages } : {}),
+        // Only a mode other than the default, so a preview project's export is unchanged.
+        ...(project.competitorAutoAliases !== DEFAULT_COMPETITOR_AUTO_ALIAS_MODE ? { competitorAutoAliases: project.competitorAutoAliases } : {}),
         notifications: notificationRows.map((row) => {
           const cfg = row.config
           return {
@@ -875,6 +899,7 @@ export function formatProject(row: InferSelectModel<typeof projects>, negativeRe
     autoExtractBacklinks: row.autoExtractBacklinks,
     negativeReviewMaxStars,
     siteAuditMaxPages: row.siteAuditMaxPages ?? null,
+    competitorAutoAliases: row.competitorAutoAliases,
     configSource: row.configSource,
     configRevision: row.configRevision,
     createdAt: row.createdAt,

@@ -361,6 +361,37 @@ describe('MCP tool registry', () => {
     expect(apply.description).toContain('An omitted siteAuditMaxPages keeps the stored Site Health page budget (null means the full site).')
   })
 
+  it('carries competitorAutoAliases on project upsert and apply as an optional off|preview|apply mode that an omission keeps', () => {
+    const modeSchema = { type: 'string', enum: ['off', 'preview', 'apply'] }
+    const request = { displayName: 'Acme', canonicalDomain: 'acme.example', country: 'US', language: 'en' }
+
+    const upsert = canonryMcpTools.find(candidate => candidate.name === 'canonry_project_upsert')!
+    expect(upsert.inputSchema.parse({ project: 'acme', request: { ...request, competitorAutoAliases: 'apply' } }).request.competitorAutoAliases).toBe('apply')
+    // Omitted must stay omitted: a schema default here would reset the stored mode on every upsert.
+    expect(upsert.inputSchema.parse({ project: 'acme', request }).request).not.toHaveProperty('competitorAutoAliases')
+    expect(upsert.inputSchema.safeParse({ project: 'acme', request: { ...request, competitorAutoAliases: 'auto' } }).success).toBe(false)
+    const upsertRequest = schemaProperty(inputSchemaFor('canonry_project_upsert'), 'request')
+    expect(schemaProperty(upsertRequest, 'competitorAutoAliases')).toMatchObject(modeSchema)
+    expect(schemaProperty(upsertRequest, 'competitorAutoAliases').description).toContain('Omit to keep the stored mode')
+    expect(upsertRequest.required ?? []).not.toContain('competitorAutoAliases')
+    expect(upsert.description).toContain('An omitted competitorAutoAliases keeps the stored answer-derived competitor alias mode')
+
+    const apply = canonryMcpTools.find(candidate => candidate.name === 'canonry_apply_config')!
+    const config = { apiVersion: 'canonry/v1', kind: 'Project', metadata: { name: 'acme' }, spec: request }
+    expect(apply.inputSchema.parse({ config: { ...config, spec: { ...request, competitorAutoAliases: 'off' } } }).config.spec.competitorAutoAliases).toBe('off')
+    expect(apply.inputSchema.parse({ config }).config.spec).not.toHaveProperty('competitorAutoAliases')
+    const applySpec = schemaProperty(schemaProperty(inputSchemaFor('canonry_apply_config'), 'config'), 'spec')
+    expect(schemaProperty(applySpec, 'competitorAutoAliases')).toMatchObject(modeSchema)
+    expect(schemaProperty(applySpec, 'competitorAutoAliases').description).toContain('Omit to keep the stored mode')
+    expect(apply.description).toContain('An omitted competitorAutoAliases keeps the stored answer-derived competitor alias mode (off, preview or apply).')
+
+    // The apply-now tool stores in every mode; the dry run says what the unattended pass does per mode.
+    expect(canonryMcpTools.find(candidate => candidate.name === 'canonry_competitors_auto_aliases_apply')!.description)
+      .toContain('whatever the project\'s competitorAutoAliases mode')
+    expect(canonryMcpTools.find(candidate => candidate.name === 'canonry_competitors_auto_aliases_detect')!.description)
+      .toContain('`apply` stores its result, `preview` (the default) only logs it, `off` skips it')
+  })
+
   it('tells agents each visibility population carries its change since the previous sweep', () => {
     const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_visibility_report')!
     expect(tool.description).toContain(

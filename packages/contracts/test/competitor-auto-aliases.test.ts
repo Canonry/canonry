@@ -177,20 +177,24 @@ describe('createAutoAliasAccumulator', () => {
   })
 
   // A service heading the dominant source is cited for, and answers that say
-  // the phrase in lowercase, half of them citing that source anyway.
+  // the phrase in lowercase, half of them citing that source anyway. The
+  // source's label opens with the phrase, so label affinity holds and the
+  // evidence alone has to reject it.
+  const roofRepair = 'roofrepairpros.example'
+  const withRoofRepair = [...COMPETITORS, { domain: roofRepair }]
   const serviceHeading = (backgroundCited: string[]) => [
     ...['run-1', 'run-2'].map((run) => {
       const line = '- **Roof Repair** - most leaks start at the flashing.'
-      return answer(run, `What to budget for after hail:\n${line}\n`, ['roofpro.example'], [windowAnchor(line, 'roofpro.example')])
+      return answer(run, `What to budget for after hail:\n${line}\n`, [roofRepair], [windowAnchor(line, roofRepair)])
     }),
-    ...Array.from({ length: 6 }, (_, index) => answer(`run-${index % 3 + 1}`, 'Roof repair after hail usually runs a few hundred dollars.', [index % 2 === 0 ? 'roofpro.example' : 'insurer.example'])),
+    ...Array.from({ length: 6 }, (_, index) => answer(`run-${index % 3 + 1}`, 'Roof repair after hail usually runs a few hundred dollars.', [index % 2 === 0 ? roofRepair : 'insurer.example'])),
     ...background(4, backgroundCited),
     ...background(4),
   ]
 
   it('rejects a generic phrase a dominant competitor is cited near: its precision passes, its lift does not', () => {
-    // roofpro.example is cited in 9 of 16 answers, so any phrase looks precise.
-    const generic = evidence(score(serviceHeading(['roofpro.example'])), 'roofpro.example', 'Roof Repair')!
+    // roofrepairpros.example is cited in 9 of 16 answers, so any phrase looks precise.
+    const generic = evidence(score(serviceHeading([roofRepair]), withRoofRepair), roofRepair, 'Roof Repair')!
     expect(generic).toMatchObject({ directPairs: 2, runs: 2, namingAnswers: 8, citingAnswers: 5, precision: 0.625, labelAffinity: true })
     // 0.625 over (9 - 5 + 1) / (16 - 8 + 2) = 0.5.
     expect(generic.lift).toBe(1.25)
@@ -199,9 +203,9 @@ describe('createAutoAliasAccumulator', () => {
   })
 
   it('rejects a phrase answers write in lowercase even when its lift passes', () => {
-    // The same answers with roofpro.example cited nowhere else: lift is
+    // The same answers with roofrepairpros.example cited nowhere else: lift is
     // 0.625 / ((5 - 5 + 1) / 10) = 6.25, but 6 of 8 answers say "roof repair".
-    const lowercase = evidence(score(serviceHeading(['insurer.example'])), 'roofpro.example', 'Roof Repair')!
+    const lowercase = evidence(score(serviceHeading(['insurer.example']), withRoofRepair), roofRepair, 'Roof Repair')!
     expect(lowercase).toMatchObject({ namingAnswers: 8, nameCasedAnswers: 2, precision: 0.625, lift: 6.25, rejection: 'lowercase-usage' })
     expect(lowercase.nameCasedAnswers < AUTO_ALIAS_MIN_NAME_CASED_SHARE * lowercase.namingAnswers).toBe(true)
   })
@@ -488,29 +492,37 @@ describe('resolveCompetitorAutoAliases', () => {
   })
 
   describe('a short name and the longer names built on it', () => {
+    // Both have label affinity: "Acme Cycle" opens acmecycles.example and
+    // covers most of it, and "Acme" and "Cycle" open it back to back.
     const competitors = [{ domain: 'acmecycles.example' }, { domain: 'rimdoctor.example' }]
     const acme = score([
       ...['run-1', 'run-2', 'run-3'].flatMap(run => [
-        paired(run, 'Acme', 'acmecycles.example'),
-        paired(run, 'Acme Bike Co', 'acmecycles.example'),
-        paired(run, 'Acme Bike Co', 'acmecycles.example'),
+        paired(run, 'Acme Cycle', 'acmecycles.example'),
+        paired(run, 'Acme Cycle Co', 'acmecycles.example'),
+        paired(run, 'Acme Cycle Co', 'acmecycles.example'),
       ]),
       ...background(12),
     ], competitors)
 
-    it('applies the shortest and drops the longer ones as subsumed', () => {
+    it('applies the shortest and drops the longer ones as subsumed, though the longer one has more pairs', () => {
       const [result] = resolveCompetitorAutoAliases(acme, state({}, competitors), PROJECT, NOW)
-      expect(result!.added).toEqual(['Acme'])
-      expect(result!.candidates.find(candidate => candidate.name === 'Acme Bike Co')).toMatchObject({ status: 'rejected', reason: 'subsumed' })
+      expect(result!.added).toEqual(['Acme Cycle'])
+      expect(result!.candidates.find(candidate => candidate.name === 'Acme Cycle Co')).toMatchObject({ status: 'rejected', reason: 'subsumed' })
     })
 
     it('applies the longer name once the operator blocks the short one', () => {
-      const [result] = resolveCompetitorAutoAliases(acme, state({ 'acmecycles.example': { blockedAliases: ['Acme'] } }, competitors), PROJECT, NOW)
-      expect(result!.added).toEqual(['Acme Bike Co'])
+      const [result] = resolveCompetitorAutoAliases(acme, state({ 'acmecycles.example': { blockedAliases: ['Acme Cycle'] } }, competitors), PROJECT, NOW)
+      expect(result!.added).toEqual(['Acme Cycle Co'])
       expect(result!.candidates.map(candidate => [candidate.name, candidate.status, candidate.reason])).toEqual([
-        ['Acme Bike Co', 'added', undefined],
-        ['Acme', 'rejected', 'blocked'],
+        ['Acme Cycle Co', 'added', undefined],
+        ['Acme Cycle', 'rejected', 'blocked'],
       ])
+    })
+
+    it('replaces a stored longer name with the shorter one it is built on', () => {
+      const [result] = resolveCompetitorAutoAliases(acme, state({ 'acmecycles.example': { autoAliases: [stored('Acme Cycle Co')] } }, competitors), PROJECT, NOW)
+      expect(result!).toMatchObject({ added: ['Acme Cycle'], removed: [{ name: 'Acme Cycle Co', reason: 'subsumed' }], namesChanged: true })
+      expect(result!.autoAliases.map(record => record.name)).toEqual(['Acme Cycle'])
     })
   })
 
@@ -553,10 +565,12 @@ describe('resolveCompetitorAutoAliases', () => {
         .toMatchObject({ status: 'rejected', reason: 'other-competitor', conflictsWith: 'tunequotes.example' })
     })
 
-    it('still lets the competitor itself learn a name its pin lists: outside those markets the pin does not name it', () => {
+    it('counts the competitor\'s own active pin names as its identity, so they spend no slot', () => {
       const own = [{ domain: 'spoketuneworks.example', names: ['TuneSpoke'], markets: ['north'] }]
       const result = byDomain(resolveCompetitorAutoAliases(scores, state(), PROJECT, NOW, own))
-      expect(result['spoketuneworks.example']!.added).toEqual(['TuneSpoke'])
+      expect(result['spoketuneworks.example']!.added).toEqual([])
+      expect(result['spoketuneworks.example']!.candidates.find(candidate => candidate.name === 'TuneSpoke'))
+        .toMatchObject({ status: 'rejected', reason: 'already-matched' })
     })
   })
 
@@ -605,20 +619,20 @@ describe('resolveCompetitorAutoAliases', () => {
     // Named in 30 answers, 2 pairing and citing it: precision 1/15, under
     // the 0.1 apply floor and over the 0.05 remove bound.
     const between = [
-      ...['run-1', 'run-2'].map(run => paired(run, 'Spoke Doctor', 'rimdoctor.example')),
-      ...Array.from({ length: 28 }, (_, index) => answer(`run-${index % 3 + 1}`, 'Ask **Spoke Doctor** about truing.', [])),
+      ...['run-1', 'run-2'].map(run => paired(run, 'Rim Truing Doctor', 'rimdoctor.example')),
+      ...Array.from({ length: 28 }, (_, index) => answer(`run-${index % 3 + 1}`, 'Ask **Rim Truing Doctor** about truing.', [])),
       ...background(200),
     ]
     const accumulator = createAutoAliasAccumulator({ competitors: COMPETITORS, project: PROJECT })
     for (const item of between) accumulator.add(item)
-    const scored = accumulator.finish({ storedNames: [{ domain: 'rimdoctor.example', name: 'Spoke Doctor' }] })
-    expect(evidence(scored, 'rimdoctor.example', 'Spoke Doctor')).toMatchObject({ namingAnswers: 30, citingAnswers: 2, precision: 0.06666667, rejection: 'low-precision' })
+    const scored = accumulator.finish({ storedNames: [{ domain: 'rimdoctor.example', name: 'Rim Truing Doctor' }] })
+    expect(evidence(scored, 'rimdoctor.example', 'Rim Truing Doctor')).toMatchObject({ namingAnswers: 30, citingAnswers: 2, precision: 0.06666667, labelAffinity: true, rejection: 'low-precision' })
 
     const fresh = byDomain(resolveCompetitorAutoAliases(scored, state(), PROJECT, NOW))
     expect(fresh['rimdoctor.example']!.added).toEqual([])
-    const kept = byDomain(resolveCompetitorAutoAliases(scored, state({ 'rimdoctor.example': { autoAliases: [stored('Spoke Doctor')] } }), PROJECT, NOW))
+    const kept = byDomain(resolveCompetitorAutoAliases(scored, state({ 'rimdoctor.example': { autoAliases: [stored('Rim Truing Doctor')] } }), PROJECT, NOW))
     expect(kept['rimdoctor.example']!).toMatchObject({ removed: [], namesChanged: false })
-    expect(kept['rimdoctor.example']!.autoAliases.map(record => record.name)).toEqual(['Spoke Doctor'])
+    expect(kept['rimdoctor.example']!.autoAliases.map(record => record.name)).toEqual(['Rim Truing Doctor'])
   })
 
   it('removes a stored name answers have started writing in lowercase', () => {

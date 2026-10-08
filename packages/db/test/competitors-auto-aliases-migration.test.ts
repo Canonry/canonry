@@ -3,13 +3,16 @@ import os from 'node:os'
 import path from 'node:path'
 import { eq, sql } from 'drizzle-orm'
 import { describe, expect, it, onTestFinished } from 'vitest'
-import { competitors, createClient, migrate, MIGRATION_VERSIONS, type DatabaseClient } from '../src/index.js'
+import { competitors, createClient, migrate, MIGRATION_VERSIONS, projects, type DatabaseClient } from '../src/index.js'
 import { insertLegacyProject, insertLegacyRow } from './legacy-rows.js'
 
 // v171 adds answer-derived `competitors.auto_aliases` and operator
 // `competitors.blocked_aliases`. Both are defaulted, so every competitor
 // stored before reads as having none, curated aliases survive the upgrade,
-// and an older writer that omits the columns still inserts.
+// and an older writer that omits the columns still inserts. It also adds the
+// per-project detection mode `projects.competitor_auto_aliases`, defaulted to
+// `preview` so no project starts storing detected names on upgrade, and the
+// nullable `projects.answer_fields_recompute` mark of an owed recompute.
 
 const AUTO_ALIASES_VERSION = 171
 const NOW = '2026-10-06T00:00:00.000Z'
@@ -28,6 +31,12 @@ function tempDb(versions = MIGRATION_VERSIONS): DatabaseClient {
 function columns(db: DatabaseClient) {
   return (db.all(sql.raw(`PRAGMA table_info('competitors')`)) as Array<{ name: string; notnull: number; dflt_value: string | null }>)
     .filter(entry => entry.name === 'auto_aliases' || entry.name === 'blocked_aliases')
+    .map(({ name, notnull, dflt_value }) => ({ name, notnull, dflt_value }))
+}
+
+function projectColumns(db: DatabaseClient) {
+  return (db.all(sql.raw(`PRAGMA table_info('projects')`)) as Array<{ name: string; notnull: number; dflt_value: string | null }>)
+    .filter(entry => entry.name === 'competitor_auto_aliases' || entry.name === 'answer_fields_recompute')
     .map(({ name, notnull, dflt_value }) => ({ name, notnull, dflt_value }))
 }
 
@@ -61,6 +70,27 @@ describe('competitors auto aliases (v171)', () => {
       blockedAliases: competitors.blockedAliases,
     }).from(competitors).where(eq(competitors.id, 'legacy-competitor')).get())
       .toEqual({ aliases: ['TuneSpoke'], autoAliases: [], blockedAliases: [] })
+  })
+
+  it('upgrades every existing project to preview with no recompute owed', () => {
+    const db = tempDb(MIGRATION_VERSIONS.filter(mv => mv.version < AUTO_ALIASES_VERSION))
+    expect(projectColumns(db)).toEqual([])
+    insertLegacyProject(db, { id: 'legacy-project', createdAt: NOW })
+
+    migrate(db)
+
+    expect(projectColumns(db)).toEqual([
+      { name: 'competitor_auto_aliases', notnull: 1, dflt_value: "'preview'" },
+      { name: 'answer_fields_recompute', notnull: 0, dflt_value: null },
+    ])
+    expect(db.select({ mode: projects.competitorAutoAliases, owed: projects.answerFieldsRecompute })
+      .from(projects).where(eq(projects.id, 'legacy-project')).get())
+      .toEqual({ mode: 'preview', owed: null })
+
+    // An older writer that omits both columns still inserts, in preview.
+    insertLegacyProject(db, { id: 'older-writer', createdAt: NOW })
+    expect(db.select({ mode: projects.competitorAutoAliases }).from(projects).where(eq(projects.id, 'older-writer')).get())
+      .toEqual({ mode: 'preview' })
   })
 
   it('lets an older writer that omits the columns insert, and round-trips evidence', () => {

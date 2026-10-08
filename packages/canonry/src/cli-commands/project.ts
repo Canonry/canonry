@@ -22,10 +22,12 @@ import {
 } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
 import {
+  competitorAutoAliasModeSchema,
   gbpNegativeReviewMaxStarsSchema,
   providerDispatchModeSchema,
   SITE_AUDIT_MAX_PAGE_LIMIT,
   siteAuditPageBudgetSchema,
+  type CompetitorAutoAliasMode,
   type ProviderDispatchModesMap,
 } from '@ainyc/canonry-contracts'
 
@@ -71,7 +73,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['project', 'update'],
-    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--site-audit-max-pages <1-50000|full>] [--format json]',
+    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--site-audit-max-pages <1-50000|full>] [--competitor-auto-aliases <off|preview|apply>] [--format json]',
     options: {
       domain: { type: 'string', short: 'd' },
       'owned-domain': multiStringOption(),
@@ -93,12 +95,13 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'clear-dispatch-mode': multiStringOption(),
       'negative-review-max-stars': stringOption(),
       'site-audit-max-pages': stringOption(),
+      'competitor-auto-aliases': stringOption(),
     },
     run: async (input) => {
       const name = requireProject(
         input,
         'project.update',
-        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--site-audit-max-pages <1-50000|full>] [--format json]',
+        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--site-audit-max-pages <1-50000|full>] [--competitor-auto-aliases <off|preview|apply>] [--format json]',
       )
       const providers = getStringArray(input.values, 'provider')
       const allProviders = getBoolean(input.values, 'all-providers')
@@ -133,6 +136,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         clearDispatchModes,
         negativeReviewMaxStars: parseNegativeReviewMaxStars(getString(input.values, 'negative-review-max-stars')),
         siteAuditMaxPages: parseSiteAuditMaxPages(getString(input.values, 'site-audit-max-pages'), 'project.update'),
+        competitorAutoAliases: parseCompetitorAutoAliasMode(getString(input.values, 'competitor-auto-aliases')),
         format: input.format,
       })
     },
@@ -309,6 +313,22 @@ function parseSiteAuditMaxPages(raw: string | undefined, command: string): numbe
     throw usageError(`Error: --site-audit-max-pages must be a whole number of pages from 1 to ${SITE_AUDIT_MAX_PAGE_LIMIT}, or "full" for the full site`, {
       message: `--site-audit-max-pages must be 1-${SITE_AUDIT_MAX_PAGE_LIMIT} or "full"`,
       details: { command, option: 'site-audit-max-pages', value: raw },
+    })
+  }
+  return parsed.data
+}
+
+/**
+ * `off`, `preview` or `apply` sets what answer-derived competitor alias
+ * detection does after each sweep; absent leaves the stored mode alone.
+ */
+function parseCompetitorAutoAliasMode(raw: string | undefined): CompetitorAutoAliasMode | undefined {
+  if (raw === undefined) return undefined
+  const parsed = competitorAutoAliasModeSchema.safeParse(raw.trim().toLowerCase())
+  if (!parsed.success) {
+    throw usageError('Error: --competitor-auto-aliases must be off, preview or apply', {
+      message: '--competitor-auto-aliases must be off, preview or apply',
+      details: { command: 'project.update', option: 'competitor-auto-aliases', value: raw },
     })
   }
   return parsed.data

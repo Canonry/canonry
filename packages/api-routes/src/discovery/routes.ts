@@ -64,6 +64,7 @@ import {
   type StoredCompetitor,
 } from '../competitor-writes.js'
 import { readMarketCompetitorPins } from '../plan-competitors.js'
+import { beginMarketNameWrite, marketNameAuditFields } from '../market-competitor-names.js'
 
 /**
  * Fired after a `discovery_sessions` row + matching `runs` row are inserted
@@ -671,6 +672,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
     let competitorAliasesChanged = { identityChanged: false, added: false }
     if (promotedQueries.length > 0 || promotedCompetitors.length > 0) {
       competitorAliasesChanged = app.db.transaction((tx) => {
+        const marketNames = beginMarketNameWrite(tx, project.id)
         for (const query of promotedQueries) {
           tx.insert(queries).values({
             id: crypto.randomUUID(),
@@ -694,6 +696,9 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
         const droppedQualifiedAliases = promotedCompetitors.length
           ? pruneQualifiedAliasesForCompetitors(tx, project.id, now)
           : []
+        // A promoted domain's label can claim a name learned for a competitor
+        // only a market pins, and promoting that competitor drops its own.
+        const marketNamesChanged = marketNames.finish()
         writeAuditLog(tx, {
           projectId: project.id,
           actor: 'api',
@@ -705,11 +710,12 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
             competitors: promotedCompetitors,
             ...(heldCompetitors.length ? { skippedCompetitors: heldCompetitors } : {}),
             ...(competitorPlan ? competitorAliasAuditFields(competitorPlan) : {}),
+            ...marketNameAuditFields(marketNamesChanged),
             ...(droppedQualifiedAliases.length ? { droppedQualifiedAliases } : {}),
           },
         })
         return {
-          identityChanged: competitorPlan ? competitorIdentityChanged(competitorPlan) : false,
+          identityChanged: (competitorPlan ? competitorIdentityChanged(competitorPlan) : false) || marketNamesChanged.length > 0,
           added: (competitorPlan?.added.length ?? 0) > 0,
         }
       })

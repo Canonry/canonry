@@ -240,10 +240,12 @@ export interface ApiRoutesOptions {
   onCompetitorAliasesChanged?: (projectId: string, projectName: string) => void
   /**
    * Callback asking for an answer-derived competitor alias detection pass
-   * (`applyCompetitorAutoAliases`) off the request path: a competitor was
-   * added by any surface (REST, apply, discovery promote) or a name was
-   * unblocked. The local server schedules it; without it, detection still
-   * runs after every completed sweep and on `POST /competitor-auto-aliases`.
+   * off the request path: a competitor was added by any surface (REST,
+   * apply, discovery promote), a name was unblocked, or a market pin write
+   * changed the pins. The local server queues it, and the project's
+   * `competitorAutoAliases` mode decides what the pass does (`apply` stores,
+   * `preview` logs only, `off` skips). Without it, detection still runs on
+   * `POST /competitor-auto-aliases`, which stores in every mode.
    */
   onCompetitorAutoAliasRescan?: (projectId: string, projectName: string) => void
   /**

@@ -4527,11 +4527,18 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     // evidence) and the names an operator blocked from that detection. Both
     // defaulted, so every competitor stored before reads as having none, and
     // an older writer that omits the columns still inserts.
+    // `projects.competitor_auto_aliases` is the per-project detection mode;
+    // every existing and new project starts in `preview` (detect and log,
+    // store nothing) until an operator opts it into `apply`.
+    // `projects.answer_fields_recompute` marks a recompute of the stored
+    // answer fields that is owed (null: none), so a restart can resume it.
     version: 171,
     name: 'competitors-auto-aliases',
     statements: [
       `ALTER TABLE competitors ADD COLUMN auto_aliases TEXT NOT NULL DEFAULT '[]'`,
       `ALTER TABLE competitors ADD COLUMN blocked_aliases TEXT NOT NULL DEFAULT '[]'`,
+      `ALTER TABLE projects ADD COLUMN competitor_auto_aliases TEXT NOT NULL DEFAULT 'preview'`,
+      `ALTER TABLE projects ADD COLUMN answer_fields_recompute TEXT`,
     ],
   },
   {

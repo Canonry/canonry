@@ -19,14 +19,27 @@ import { brandKeyFromText } from './brand-matching.js'
  */
 
 /**
+ * The apostrophes a detection name may carry: straight, and the curly right
+ * and left single quotes (`Joe’s`, `Joe‘s`), as character-class members.
+ */
+const ALL_APOSTROPHES = String.raw`'\u2018\u2019`
+/**
+ * The only apostrophe a stored recommended-competitor name may carry. Answer
+ * engines write contractions and possessives with the curly quote ("If
+ * you’re", "Don’t block", "Allow Spokebot’s crawler"), so a layout read through
+ * one is mostly a phrase, not a name, and any known identity it holds would
+ * make the phrase a stored "recommended" name. Stored values keep the
+ * straight apostrophe only, as they always have.
+ */
+const STRAIGHT_APOSTROPHE = "'"
+/**
  * Name characters, Unicode-aware: letters of any script with their combining
  * marks (`TuneSpóke`, `Søren`, a decomposed accent), digits, `_`, spaces, and
- * the punctuation names carry (`.&',/()-`, and the curly apostrophes of
- * `Joe’s` and `Joe‘s`).
+ * the punctuation names carry (`.&,/()-` and `apostrophes`).
  */
-const NAME_CHARACTER = String.raw`[\p{L}\p{M}\p{N}_\s.&'\u2018\u2019,/()-]`
-/** The apostrophes a name may carry: straight, and the curly right and left single quotes. */
-const APOSTROPHE = String.raw`['\u2018\u2019]`
+function nameCharacter(apostrophes: string): string {
+  return String.raw`[\p{L}\p{M}\p{N}_\s.&${apostrophes},/()-]`
+}
 /**
  * A letter or digit a name may open with: a capital (titlecase included), a
  * digit, or a letter of a script with no case (CJK, Thai, Arabic, ...), which
@@ -36,18 +49,25 @@ const APOSTROPHE = String.raw`['\u2018\u2019]`
 const NAME_OPENING = String.raw`[\p{Lu}\p{Lt}\p{Lo}\p{N}]\p{M}*`
 /**
  * How a name opens: `NAME_OPENING` and a letter or digit, or a capital, an
- * apostrophe and a capital (`O'Quillan's`, `D'Avrel`).
+ * apostrophe (one of `apostrophes`) and a capital (`O'Quillan's`, `D'Avrel`).
  */
-const NAME_START = String.raw`(?:${NAME_OPENING}[\p{L}\p{N}]|\p{Lu}\p{M}*${APOSTROPHE}(?=\p{Lu}))`
-/** A name body: opens with `NAME_START`, then up to 50 name characters. */
-const NAME_BODY = String.raw`${NAME_START}${NAME_CHARACTER}{1,50}`
+function nameStart(apostrophes: string): string {
+  return String.raw`(?:${NAME_OPENING}[\p{L}\p{N}]|\p{Lu}\p{M}*[${apostrophes}](?=\p{Lu}))`
+}
 /**
- * The detection body also opens with dotted initials (`A.J. Spokes`) or a
- * number followed by a capitalized word (`1 Spoke Lane`). The extractor that
- * writes stored `recommended_competitors` keeps `NAME_BODY`, so those two
- * openings never reach its stored values.
+ * The stored-value name body: opens with `nameStart`, then up to 50 name
+ * characters, with the straight apostrophe only (`STRAIGHT_APOSTROPHE`).
  */
-const DETECTION_NAME_BODY = String.raw`(?:${NAME_START}|\p{Lu}\p{M}*\.(?=\p{Lu})|\p{N}{1,4}\s(?=\p{Lu}))${NAME_CHARACTER}{1,50}`
+const NAME_BODY = String.raw`${nameStart(STRAIGHT_APOSTROPHE)}${nameCharacter(STRAIGHT_APOSTROPHE)}{1,50}`
+/**
+ * The detection body reads every apostrophe (detection's own name-shape and
+ * evidence rules judge each candidate), and also opens with dotted initials
+ * (`A.J. Spokes`) or a number followed by a capitalized word (`1 Spoke Lane`).
+ * The extractor that writes stored `recommended_competitors` keeps
+ * `NAME_BODY`, so curly apostrophes and those two openings never reach its
+ * stored values.
+ */
+const DETECTION_NAME_BODY = String.raw`(?:${nameStart(ALL_APOSTROPHES)}|\p{Lu}\p{M}*\.(?=\p{Lu})|\p{N}{1,4}\s(?=\p{Lu}))${nameCharacter(ALL_APOSTROPHES)}{1,50}`
 
 function layoutPatterns(body: string): readonly RegExp[] {
   return [
@@ -182,7 +202,9 @@ function scanLayouts(
  * (`GENERIC_CANDIDATE_KEYS`), names longer than `MAX_BUSINESS_NAME_WORDS`
  * words, and repeats of the same spelling. The recommended-competitor
  * extractor reads these, so the stored `recommended_competitors` values keep
- * their form.
+ * their form. A name here carries only the straight apostrophe
+ * (`STRAIGHT_APOSTROPHE`): a layout written with a curly one ("Don’t block
+ * ...", "Allow Spokebot’s crawler") is not read.
  */
 export function extractLaidOutBusinessNames(text: string | null | undefined): string[] {
   return scanLayouts(text, LAYOUT_PATTERNS, trimLaidOutName)

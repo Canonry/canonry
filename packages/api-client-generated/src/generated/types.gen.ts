@@ -3425,6 +3425,10 @@ export type BrandMetricsDto = {
             checkedThroughPeriodEnd: boolean;
         };
     };
+    /**
+     * When the names the project's competitors are matched by last changed: a tracked competitor's curated or stored auto-detected names (a block counts only when it removes a stored name), a detection pass that stored or removed a market-only competitor's learned names, a write that claimed, released or dropped a market-only competitor's learned names, or a published revision that renamed a market pin; null if never. The competitor landscape reads every period with the current names, so a figure for any period quoted before this time was restated at this time. Analytics mention share and project-frame visibility-compare share of voice read only tracked competitors' names, so a market pin or learned-name change moves this time without changing them. Adding or removing a competitor or a pin is a names change only when it moves a stored or learned name.
+     */
+    competitorIdentityChangedAt?: string | null;
 };
 
 export type CcAvailableRelease = {
@@ -3843,6 +3847,10 @@ export type CompetitorLandscapeResponse = {
         distinctNames: Array<string>;
         runs: Array<string>;
     };
+    /**
+     * When the names the project's competitors are matched by last changed: a tracked competitor's curated or stored auto-detected names (a block counts only when it removes a stored name), a detection pass that stored or removed a market-only competitor's learned names, a write that claimed, released or dropped a market-only competitor's learned names, or a published revision that renamed a market pin; null if never. The competitor landscape reads every period with the current names, so a figure for any period quoted before this time was restated at this time. Analytics mention share and project-frame visibility-compare share of voice read only tracked competitors' names, so a market pin or learned-name change moves this time without changing them. Adding or removing a competitor or a pin is a names change only when it moves a stored or learned name.
+     */
+    competitorIdentityChangedAt?: string | null;
 };
 
 export type ContentGapsResponseDto = {
@@ -11029,6 +11037,10 @@ export type ProjectCreateRequest = {
     qualifiedAliases?: Array<string>;
     negativeReviewMaxStars?: number | null;
     siteAuditMaxPages?: number | null;
+    /**
+     * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
+     */
+    competitorAutoAliases?: 'off' | 'preview' | 'apply';
     configSource?: 'cli' | 'api' | 'config-file';
     name: string;
 };
@@ -11070,6 +11082,10 @@ export type ProjectDto = {
     autoExtractBacklinks: boolean;
     negativeReviewMaxStars?: number | null;
     siteAuditMaxPages?: number | null;
+    /**
+     * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins. `preview` (every project's default): the pass scores the stored answers and logs what it would add or remove, storing nothing. `apply`: the pass stores the detected names and removes stored ones it no longer keeps; the read-time competitor matchers then use them, restating every period's competitor counts (see competitorIdentityChangedAt). `off`: no pass runs. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode; switching to preview or off keeps names already stored. Absent only from a server that predates the setting.
+     */
+    competitorAutoAliases?: 'off' | 'preview' | 'apply';
     configSource: 'cli' | 'api' | 'config-file';
     configRevision: number;
     createdAt?: string;
@@ -11111,6 +11127,10 @@ export type ProjectUpsertRequest = {
     qualifiedAliases?: Array<string>;
     negativeReviewMaxStars?: number | null;
     siteAuditMaxPages?: number | null;
+    /**
+     * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
+     */
+    competitorAutoAliases?: 'off' | 'preview' | 'apply';
     configSource?: 'cli' | 'api' | 'config-file';
 };
 
@@ -11189,6 +11209,10 @@ export type ProjectConfig = {
         autoExtractBacklinks: boolean;
         negativeReviewMaxStars?: number;
         siteAuditMaxPages?: number | null;
+        /**
+         * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
+         */
+        competitorAutoAliases?: 'off' | 'preview' | 'apply';
     };
 };
 
@@ -11497,6 +11521,10 @@ export type ProjectOverviewDto = {
         autoExtractBacklinks: boolean;
         negativeReviewMaxStars?: number | null;
         siteAuditMaxPages?: number | null;
+        /**
+         * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins. `preview` (every project's default): the pass scores the stored answers and logs what it would add or remove, storing nothing. `apply`: the pass stores the detected names and removes stored ones it no longer keeps; the read-time competitor matchers then use them, restating every period's competitor counts (see competitorIdentityChangedAt). `off`: no pass runs. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode; switching to preview or off keeps names already stored. Absent only from a server that predates the setting.
+         */
+        competitorAutoAliases?: 'off' | 'preview' | 'apply';
         configSource: 'cli' | 'api' | 'config-file';
         configRevision: number;
         createdAt?: string;
@@ -14509,6 +14537,10 @@ export type VisibilityCompareDto = {
             mentions: number;
         }>;
     };
+    /**
+     * When the names the project's competitors are matched by last changed: a tracked competitor's curated or stored auto-detected names (a block counts only when it removes a stored name), a detection pass that stored or removed a market-only competitor's learned names, a write that claimed, released or dropped a market-only competitor's learned names, or a published revision that renamed a market pin; null if never. The competitor landscape reads every period with the current names, so a figure for any period quoted before this time was restated at this time. Analytics mention share and project-frame visibility-compare share of voice read only tracked competitors' names, so a market pin or learned-name change moves this time without changing them. Adding or removing a competitor or a pin is a names change only when it moves a stored or learned name.
+     */
+    competitorIdentityChangedAt?: string | null;
 };
 
 export type VisibilityStatsDto = {
@@ -19793,11 +19825,11 @@ export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesBlockData = {
 
 export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesBlockErrors = {
     /**
-     * Invalid names, or a name is a curated alias.
+     * Invalid names, more than 50 blocked names, or a name is a curated alias or a name of the plan's own pin of this competitor.
      */
     400: ErrorEnvelope;
     /**
-     * Project or competitor not found.
+     * Project not found, or the domain is not a tracked competitor, an active market pin, or a domain with stored market competitor names.
      */
     404: ErrorEnvelope;
 };
@@ -19835,7 +19867,7 @@ export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesUnblockErrors = {
      */
     400: ErrorEnvelope;
     /**
-     * Project or competitor not found.
+     * Project not found, or the domain is not a tracked competitor, an active market pin, or a domain with stored market competitor names.
      */
     404: ErrorEnvelope;
 };

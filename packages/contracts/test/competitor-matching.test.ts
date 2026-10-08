@@ -135,6 +135,27 @@ test('extractRecommendedCompetitors keeps possessive names and names identified 
     .toEqual(["Joe's Spokes", "Ana's", 'Bike Repair Co (gearloft.example)'])
 })
 
+test('extractRecommendedCompetitors never stores a curly-apostrophe contraction or possessive phrase that holds a known name', () => {
+  // Each line holds a cited or tracked identity (Google, Bing, Spokebot,
+  // Tunequill, Lakeview), so a layout read through the curly apostrophe would
+  // store the whole phrase as a recommended name.
+  const answer = [
+    'How to get found:',
+    '- **If you\u2019re shopping in Lakeview**: compare three quotes.',
+    '- **Don\u2019t block Google/Bing crawlers** - keep pages indexable.',
+    '- Allow Spokebot\u2019s crawler: in robots.txt.',
+    '- **Tunequill\u2019s city bike page** - the one to beat.',
+    '- **Tunequill** - mobile tune-ups.',
+  ].join('\n')
+  expect(extractRecommendedCompetitors(
+    answer,
+    ['rotorwise.example'],
+    ['google.com', 'bing.com', 'spokebot.example', 'lakeview.example'],
+    ['tunequill.example'],
+    ['Rotorwise'],
+  )).toEqual(['Tunequill'])
+})
+
 test('extractRecommendedCompetitors still recommends a marketplace the operator tracks as a competitor', () => {
   const answer = '1. **Zillow** - search every listing in one place\n2. **Other Pick** - an alternative'
   expect(extractRecommendedCompetitors(answer, ['brand.example'], ['zillow.com'], ['zillow.com'], ['Brand'])).toEqual(['Zillow'])

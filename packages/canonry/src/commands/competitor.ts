@@ -225,7 +225,8 @@ const CANDIDATE_MARKS: Record<CompetitorAutoAliasCandidate['status'], string> = 
 /**
  * `canonry competitor aliases detect`: answer-derived alias detection across
  * every tracked competitor, from stored answers only. A dry run by default;
- * `--apply` stores the result now (the server also runs it after every sweep).
+ * `--apply` stores the result now, in every `competitorAutoAliases` mode (after
+ * each sweep the server stores only for a project in `apply` mode).
  */
 export async function detectCompetitorAutoAliases(project: string, options: CompetitorAutoAliasDetectOptions): Promise<void> {
   const client = getClient()

@@ -4,9 +4,9 @@ import { MIN_BRAND_ALIAS_KEY_LENGTH, MIN_DOMAIN_BRAND_KEY_LENGTH } from './answe
 import {
   aliasOccurrencesAsWritten,
   brandKeyFromText,
+  brandWords,
   compileBrandAliases,
   matchedAliasKeys,
-  textContainsAnyBrandAlias,
 } from './brand-matching.js'
 import {
   cleanBusinessNameCandidate,
@@ -15,7 +15,6 @@ import {
 } from './business-name-candidates.js'
 import {
   competitorNameAliases,
-  normalizeCompetitorAliases,
   planCompetitorAutoAliases,
   type CompetitorAliasMarketPin,
   type CompetitorAliasProjectIdentity,
@@ -56,7 +55,13 @@ import {
  *
  * WHAT REJECTS A PHRASE THAT IS NOT A BRAND. Three measures over the scanned
  * answers whose prose names the candidate as complete words (the mention
- * matcher's text, `answerProseForMentions`):
+ * matcher's text, `answerProseForMentions`), outside any longer name of the
+ * same competitor (its domain label, a curated alias, a longer stored name,
+ * and for a competitor only an Advanced market pins its plan label and
+ * aliases): when the brand is "Lark Bay Suites", an answer that writes only
+ * "Lark Bay Suites" says nothing about the shorter candidate "Lark Bay"
+ * (often the place), and counting it would hand that truncation the brand's
+ * own precision and lift:
  * - PRECISION: the share of them that cite the competitor's domain. A floor
  *   only: in a category where answers list many businesses and cite few
  *   (hotels), real brands sat between 0.06 and 0.4 on stored answers, while
@@ -80,14 +85,17 @@ import {
  * multi-location sweep, count once); at least `AUTO_ALIAS_MIN_NAMING_ANSWERS`
  * answers naming it; precision at least `AUTO_ALIAS_MIN_PRECISION`; lift at
  * least `AUTO_ALIAS_MIN_LIFT`; name casing at least
- * `AUTO_ALIAS_MIN_NAME_CASED_SHARE`; a name shape (`isAutoAliasNameShaped`);
- * this competitor holds at least `AUTO_ALIAS_DOMINANCE_RATIO` times the
- * direct pairs of any other tracked competitor for the name (a business
- * described next to several citations belongs to its own site); a brand key
- * of at least `AUTO_ALIAS_MIN_KEY_LENGTH` (a 3-letter name is listed for
- * review, `needs-approval`, as a 3-letter domain label needs approval); and
- * LABEL AFFINITY with the domain (`hasDomainLabelAffinity`). Applied names
- * then pass the shared identity rules (`planCompetitorAutoAliases`).
+ * `AUTO_ALIAS_MIN_NAME_CASED_SHARE`; a name shape (`isAutoAliasNameShaped`,
+ * which also rejects place shapes such as "Larkfield, CO" and "Metro
+ * Larkfield"); this competitor holds at least `AUTO_ALIAS_DOMINANCE_RATIO`
+ * times the direct pairs of any other tracked competitor for the name (a
+ * business described next to several citations belongs to its own site); a
+ * brand key of at least `AUTO_ALIAS_MIN_KEY_LENGTH` (a 3-letter name is
+ * listed for review, `needs-approval`, as a 3-letter domain label needs
+ * approval); and LABEL AFFINITY with the domain (`hasDomainLabelAffinity`).
+ * Applied names then pass the shared identity rules
+ * (`planCompetitorAutoAliases`), strongest evidence first into the
+ * `COMPETITOR_ALIAS_LIMIT` cap.
  *
  * Why affinity stays required: a competitor's site describes OTHER things it
  * is cited next to (a partner it integrates with, a rival it compares itself
@@ -97,9 +105,21 @@ import {
  * affinity that passed every other rule even at a stricter bar (4 pairs over
  * 3 sweeps, precision 0.5, lift 10), 1 was the competitor's own name; the
  * rest were other companies it integrates with or is listed beside, a
- * product feature and a generic phrase. Those names are listed for review
- * (`no-label-affinity`) for an operator to verify and add as curated
- * aliases.
+ * product feature and a generic phrase. One word the name shares with the
+ * label is not affinity either, unless the word is the whole label: a city
+ * the label opens or ends with, or a neighbouring business sharing the word
+ * the label opens with, passed every scoring rule on stored answers, and so
+ * does a neighbour that adds a word found further on in the label. Those
+ * names are listed for review (`no-label-affinity`)
+ * for an operator to verify and add as curated aliases, after the identity
+ * rules that need no other auto name (`planCompetitorAutoAliases` review),
+ * at the 3-character curated floor: never a name overlapping the project's
+ * names or hosts, another competitor's domain label, host or curated alias,
+ * or a market pin of another domain, a blocked name, or one the
+ * competitor's own names or planned auto names already match. Unlike
+ * applied names, review names are not checked against other competitors'
+ * auto-detected names, so a name another competitor stores or learns in the
+ * same pass can still be listed.
  */
 
 /** Distinct answers that must pair the name with the competitor's site. */
@@ -195,8 +215,82 @@ const HOST_SHAPED = /^(?:https?:\/\/)?(?:www\.)?(?:[\p{L}\p{N}](?:[\p{L}\p{N}-]{
 /** Legal suffixes dropped before the subsequence affinity check. */
 const LEGAL_SUFFIX_KEYS: readonly string[] = ['company', 'corp', 'inc', 'llc', 'ltd', 'co']
 
+/**
+ * Words a registrant puts before a brand in a domain label
+ * (`thehotelwren.example`, `myspokeiq.example`): a name may open the label
+ * right after one.
+ */
+const LABEL_LEAD_WORDS: readonly string[] = ['the', 'get', 'try', 'go', 'my', 'use', 'hey', 'join', 'shop', 'visit']
+
+/**
+ * Codes written after a comma in a place ("Larkfield, CO"): US states and
+ * territories, Canadian provinces, Australian states, and country codes.
+ * Matched as written, so "Acme, Co" (a company) stays a name.
+ * `CREDENTIAL_PLACE_CODES` are also written after a firm's or a person's name.
+ */
+const PLACE_CODES: ReadonlySet<string> = new Set([
+  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'DC', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME',
+  'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI',
+  'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY', 'PR', 'GU', 'VI',
+  'AB', 'BC', 'MB', 'NB', 'NL', 'NS', 'NT', 'NU', 'ON', 'PE', 'QC', 'SK', 'YT',
+  'NSW', 'VIC', 'QLD', 'TAS', 'ACT',
+  'US', 'USA', 'UK',
+])
+/** US state names, lowercased, written after a comma in a place ("Larkfield, Colorado"). */
+const US_STATE_NAMES: ReadonlySet<string> = new Set([
+  'alabama', 'alaska', 'arizona', 'arkansas', 'california', 'colorado', 'connecticut', 'delaware', 'florida', 'georgia',
+  'hawaii', 'idaho', 'illinois', 'indiana', 'iowa', 'kansas', 'kentucky', 'louisiana', 'maine', 'maryland',
+  'massachusetts', 'michigan', 'minnesota', 'mississippi', 'missouri', 'montana', 'nebraska', 'nevada', 'new hampshire',
+  'new jersey', 'new mexico', 'new york', 'north carolina', 'north dakota', 'ohio', 'oklahoma', 'oregon', 'pennsylvania',
+  'rhode island', 'south carolina', 'south dakota', 'tennessee', 'texas', 'utah', 'vermont', 'virginia', 'washington',
+  'west virginia', 'wisconsin', 'wyoming', 'district of columbia', 'puerto rico',
+])
+/**
+ * Place codes that are also a professional or legal suffix ("Smith & Jones,
+ * PA", "Jane Lee, MD", "Back in Line, DC", "Ada Fox, PE"): a place only after
+ * one word ("Erie, PA"). A longer place written with one ("Silver Spring,
+ * MD") is left to label affinity.
+ */
+const CREDENTIAL_PLACE_CODES: ReadonlySet<string> = new Set(['PA', 'MD', 'DC', 'ND', 'NV', 'MA', 'PE'])
+/**
+ * First words of a metro area or a neighborhood, a place when one word
+ * follows ("Metro Larkfield", "Greater Larkfield", "Downtown Larkfield").
+ * Lossy on purpose: a two-word business ("Metro Diner") reads the same way.
+ * A longer name ("Metro Roofing Supply") is left to label affinity.
+ */
+const PLACE_LEAD_WORDS: ReadonlySet<string> = new Set(['metro', 'greater', 'downtown', 'midtown', 'uptown'])
+/** Compass words, a place before an abbreviated city ("West LA"). */
+const COMPASS_WORDS: ReadonlySet<string> = new Set(['north', 'south', 'east', 'west', 'northeast', 'northwest', 'southeast', 'southwest'])
+/** Last words of a region ("Oakvale County", "Larkfield Area"). */
+const REGION_LAST_WORDS: ReadonlySet<string> = new Set(['county', 'parish', 'borough', 'township', 'area', 'region'])
+
 function isConnectorWord(word: string): boolean {
   return NAME_CONNECTOR_WORDS.has(word.toLowerCase())
+}
+
+/**
+ * True when a name is written the way places are: "City, ST" or "City,
+ * State" (`CREDENTIAL_PLACE_CODES` only after one word), "X County" (or
+ * Parish, Borough, Township, Area, Region), "Metro X", "Greater X" or
+ * "Downtown X" (or Midtown, Uptown) with one word after it, and a compass
+ * word before an abbreviated city ("West LA"). A place answers cite next to a
+ * local competitor is paired with its site, rises with it and is capitalized,
+ * so scoring cannot tell it from a brand. A one-word city ("Larkfield") has
+ * no shape; label affinity keeps it out (`hasDomainLabelAffinity`).
+ */
+function isPlaceShaped(name: string): boolean {
+  const comma = name.lastIndexOf(',')
+  if (comma !== -1) {
+    const after = name.slice(comma + 1).trim().replace(/\.$/, '')
+    if (US_STATE_NAMES.has(after.toLowerCase())) return true
+    if (PLACE_CODES.has(after) && (!CREDENTIAL_PLACE_CODES.has(after) || !/\s/.test(name.slice(0, comma).trim()))) return true
+  }
+  const words = name.replace(/,/g, ' ').trim().split(/\s+/)
+  if (words.length < 2) return false
+  if (REGION_LAST_WORDS.has(words.at(-1)!.toLowerCase())) return true
+  if (words.length !== 2) return false
+  const first = words[0]!.toLowerCase()
+  return PLACE_LEAD_WORDS.has(first) || (COMPASS_WORDS.has(first) && /^\p{Lu}{2,3}$/u.test(words[1]!))
 }
 
 function nameWordShaped(word: string): boolean {
@@ -220,10 +314,12 @@ function isNameCasedOccurrence(words: readonly string[]): boolean {
 
 /**
  * True when a candidate reads as a business name rather than a heading, a
- * stat, a step or a source address: at most `MAX_BUSINESS_NAME_WORDS` words,
- * every word capitalized, numeric or a connector ("of", "the", "&", ...), no
- * `% + ? : / |`, no written host, and not opening with a heading word ("Why",
- * "How", "Top", "Your", ...). A bare number may open it only before a
+ * stat, a step, a source address or a place: at most
+ * `MAX_BUSINESS_NAME_WORDS` words, every word capitalized, numeric or a
+ * connector ("of", "the", "&", ...), no `% + ? : / |`, no written host, not
+ * opening with a heading word ("Why", "How", "Top", "Your", ...), and not
+ * written as a place (`isPlaceShaped`: "Larkfield, CO", "Oakvale County",
+ * "Metro Larkfield", "West LA"). A bare number may open it only before a
  * capitalized word that is not a plural count ("1 Spoke Lane" is a name, "24
  * Hours" and "7 Ways to Save" are not).
  */
@@ -240,21 +336,65 @@ export function isAutoAliasNameShaped(name: string): boolean {
     if (!next || !/^\p{Lu}/u.test(next) || /\p{Ll}s$/u.test(next)) return false
   }
   if (NON_NAME_LEAD_WORDS.has(first.toLowerCase())) return false
-  return words.every(nameWordShaped)
+  return words.every(nameWordShaped) && !isPlaceShaped(trimmed)
 }
 
-/** A name's words as brand keys, with joined words split at case changes (`TuneSpoke` is `tune` and `spoke`). */
+/**
+ * A name's words as brand keys, in order, with joined words split at case
+ * changes (`TuneSpoke` is `tune` and `spoke`), so every run of them starts
+ * and ends on a word boundary.
+ */
 function affinityWords(name: string): string[] {
-  const words = new Set<string>()
-  for (const raw of name.split(/[^\p{L}\p{N}]+/u)) {
-    if (!raw) continue
-    words.add(brandKeyFromText(raw))
+  const words: string[] = []
+  for (const raw of name.normalize('NFKC').split(/[^\p{L}\p{M}\p{N}]+/u)) {
     for (const part of raw.split(/(?<=\p{Ll})(?=\p{Lu})|(?<=\p{Lu})(?=\p{Lu}\p{Ll})/u)) {
       const key = brandKeyFromText(part)
-      if (key) words.add(key)
+      if (key) words.push(key)
     }
   }
-  return [...words].filter(Boolean)
+  return words
+}
+
+/** True when consecutive whole words of the name join to exactly the label key. */
+function wordsSpellLabel(words: readonly string[], labelKey: string): boolean {
+  for (let start = 0; start < words.length; start++) {
+    let joined = ''
+    for (let end = start; end < words.length && joined.length < labelKey.length; end++) {
+      joined += words[end]
+      if (joined === labelKey) return true
+    }
+  }
+  return false
+}
+
+/**
+ * True when two or more of the name's words (3+ letters, not a connector or a
+ * legal suffix) sit back to back in the label, the first of them opening it
+ * (at `opening`), together they cover at least half of it, and one of them
+ * of 4+ letters is not shared by two or more `identityLabelKeys`. Back to
+ * back, in any order ("TuneSpoke" for `spoketuneworks`): a word placed
+ * further on proves nothing ("Austin Roof Pros" for `roofmaxaustin` shares
+ * the opener and a place, with "max" between them).
+ */
+function wordsCoverLabel(words: readonly string[], labelKey: string, opening: number, identityLabelKeys: readonly string[]): boolean {
+  const usable = [...new Set(words)]
+    .filter(word => word.length >= 3 && !NAME_CONNECTOR_WORDS.has(word) && !LEGAL_SUFFIX_KEYS.includes(word))
+    .sort((left, right) => right.length - left.length)
+  const distinctive = (word: string): boolean =>
+    word.length >= 4 && identityLabelKeys.filter(key => key.includes(word)).length < 2
+  for (const opener of usable) {
+    if (!labelKey.startsWith(opener, opening)) continue
+    const placed = [opener]
+    const placedAt = (at: number) => usable.find(word => !placed.includes(word) && labelKey.startsWith(word, at))
+    let end = opening + opener.length
+    for (let next = placedAt(end); next; next = placedAt(end)) {
+      placed.push(next)
+      end += next.length
+    }
+    if (placed.length < 2 || (end - opening) * 2 < labelKey.length) continue
+    if (placed.some(distinctive)) return true
+  }
+  return false
 }
 
 function isSubsequence(needle: string, haystack: string): boolean {
@@ -275,18 +415,38 @@ function withoutLegalSuffix(key: string): string {
 
 /**
  * True when the name visibly belongs to the competitor's domain:
- * - its brand key contains the domain label's key, or sits inside it and
- *   covers at least half of it ("Spoke Garage" for `spokegarage.example`; a
- *   short word inside a long label, "Get" in `getgoingbikes.example`, proves
- *   nothing);
- * - one of its words of four or more characters sits inside the label and is
- *   not shared by two or more tracked identity labels (`identityLabelKeys`:
- *   the project's and every competitor's, so an industry word such as
- *   "roofing" proves nothing);
- * - without a trailing legal suffix, its key is an in-order subsequence of the
- *   label that opens like it: the same first four characters ("FoamSeal" for
- *   `foamandsealworks.example`), or a first word of three or more characters
- *   the label starts with ("AIR Spokes" for `airinspokes.example`).
+ * - consecutive whole words of it spell the label ("Spoke Garage Bikes" for
+ *   `spokegarage.example`, "QVX Parts" for `qvx.example`); a label that
+ *   only spans a word boundary proves nothing ("Roof Rescue" does not spell
+ *   `roofr`);
+ * - a name of two or more words (not counting connectors and legal
+ *   suffixes) opens the label whole, right at its start or after a lead word
+ *   (`LABEL_LEAD_WORDS`: "SpokeIQ" for `myspokeiq.example`), and covers at
+ *   least half of it (a short word inside a long label, "Get" in
+ *   `getgoingbikes.example`, proves nothing, and neither does a name inside
+ *   the label that does not open it, "Larkfield" in `velolarkfield.example`);
+ * - two or more of its words sit back to back in the label, the first
+ *   opening it, and cover at least half of it, one of them distinctive: four
+ *   or more letters and not shared by two or more tracked identity labels
+ *   (`identityLabelKeys`: the project's and every competitor's, so an
+ *   industry word such as "roofing" proves nothing). "TuneSpoke" for
+ *   `spoketuneworks.example`, "Gale Shield Roofing" for
+ *   `galeshieldrc.example`;
+ * - a name of two or more words, without a trailing legal suffix, has a key
+ *   that is an in-order subsequence of the label and opens like it: the same
+ *   first four characters ("FoamSeal" for `foamandsealworks.example`), or a
+ *   first word of three or more characters the label starts with ("AIR
+ *   Spokes" for `airinspokes.example`).
+ *
+ * ONE shared word never does, unless it is the whole label: a place the
+ * label opens or ends with ("Detroit" for `detroitroofing.example`, "Austin"
+ * for `roofmaxaustin.example`), a neighbouring business sharing only the
+ * word the label opens with ("Rim Doctor" for `doctorspokes.example`), or
+ * one sharing that word plus a word further on ("Austin Roof Pros" for
+ * `roofmaxaustin.example`),
+ * is paired with the site, rises with it and is capitalized just like its
+ * brand, so it is listed for review instead. That includes a one-word brand
+ * shorter than its label ("Acme" for `acmecycles.example`).
  */
 export function hasDomainLabelAffinity(
   name: string,
@@ -296,13 +456,17 @@ export function hasDomainLabelAffinity(
   const labelKey = brandKeyFromText(brandLabelFromDomain(domain) || domain)
   const nameKey = brandKeyFromText(name)
   if (!labelKey || !nameKey) return false
-  if (nameKey.includes(labelKey)) return true
-  if (labelKey.includes(nameKey) && nameKey.length * 2 >= labelKey.length) return true
-  for (const word of affinityWords(name)) {
-    if (word.length < 4 || !labelKey.includes(word)) continue
-    if (identityLabelKeys.filter(key => key.includes(word)).length >= 2) continue
-    return true
+  const words = affinityWords(name)
+  if (wordsSpellLabel(words, labelKey)) return true
+  // One word that is not the whole label is never enough: "Detroit" opens
+  // `detroitroofing` and covers half of it, and is the city.
+  const multiWord = words.filter(word => !NAME_CONNECTOR_WORDS.has(word) && !LEGAL_SUFFIX_KEYS.includes(word)).length >= 2
+  const openings = [0, ...LABEL_LEAD_WORDS.filter(lead => labelKey.length > lead.length && labelKey.startsWith(lead)).map(lead => lead.length)]
+  for (const opening of openings) {
+    if (multiWord && labelKey.startsWith(nameKey, opening) && nameKey.length * 2 >= labelKey.length) return true
+    if (wordsCoverLabel(words, labelKey, opening, identityLabelKeys)) return true
   }
+  if (!multiWord) return false
   const core = withoutLegalSuffix(nameKey)
   if (core.length < 4 || !isSubsequence(core, labelKey)) return false
   if (core.slice(0, 4) === labelKey.slice(0, 4)) return true
@@ -394,7 +558,11 @@ export interface AutoAliasAnswerInput {
   scopedCompetitors?: readonly string[]
 }
 
-/** Options for scoring: the competitors' current auto names, scored even without a pairing in the window. */
+/**
+ * Options for scoring: the competitors' current auto names, scored even
+ * without a pairing in the window, and part of the identity a shorter
+ * candidate is measured outside of.
+ */
 export interface AutoAliasFinishOptions {
   storedNames?: readonly { domain: string; name: string }[]
 }
@@ -417,6 +585,12 @@ export interface AutoAliasCompetitorInput {
    * competitor's pairings there do not count against it.
    */
   scoped?: boolean
+  /**
+   * Its curated aliases (for a market competitor, its plan label and
+   * aliases). A candidate written only inside one of them, or inside the
+   * domain label or a longer stored name, is not counted as naming it.
+   */
+  aliases?: readonly string[]
 }
 
 export type AutoAliasCandidateRejection =
@@ -474,6 +648,31 @@ interface PairStats {
   lastSeen: string
 }
 
+/** A match's first and last word, as indexes into `brandWords` of the text. */
+type WordSpan = readonly [number, number]
+
+/**
+ * Where each of `keys` is written as complete adjacent words: the walk
+ * `matchedAliasKeys` makes over the same words (`brandWords`), keeping each
+ * match's position so a match inside a longer one can be told apart.
+ */
+function keySpans(words: readonly string[], keys: ReadonlySet<string>, longest: number): Map<string, WordSpan[]> {
+  const spans = new Map<string, WordSpan[]>()
+  for (let start = 0; start < words.length; start++) {
+    let candidate = ''
+    for (let end = start; end < words.length; end++) {
+      candidate += words[end]
+      if (keys.has(candidate)) {
+        const found = spans.get(candidate)
+        if (found) found.push([start, end])
+        else spans.set(candidate, [[start, end]])
+      }
+      if (candidate.length >= longest) break
+    }
+  }
+  return spans
+}
+
 /** Lift to 2 decimals (a multiple, not a ratio unit). */
 function roundLift(value: number): number {
   return Math.round(value * 100) / 100
@@ -493,6 +692,7 @@ export function createAutoAliasAccumulator(input: {
     key: normalizeCompetitorDomain(competitor.domain),
     host: hostOf(competitor.domain),
     scoped: competitor.scoped === true,
+    aliases: competitor.aliases ?? [],
   }))
   const scopedIndexByKey = new Map(competitors.flatMap((competitor, index) => competitor.scoped ? [[competitor.key, index] as const] : []))
   const projectDomains = input.project.domains
@@ -580,10 +780,12 @@ export function createAutoAliasAccumulator(input: {
 
   /** The scoring pass behind `finish`, pausing (`yield`) between chunks of answers. */
   function* scoreSteps(opts: AutoAliasFinishOptions): Generator<void, AutoAliasScores> {
+    const storedByIndex = competitors.map(() => [] as string[])
     for (const stored of opts.storedNames ?? []) {
       const key = brandKeyFromText(stored.name)
       const index = competitors.findIndex(competitor => competitor.key === normalizeCompetitorDomain(stored.domain))
       if (!key || index === -1) continue
+      storedByIndex[index]!.push(stored.name)
       let byCompetitor = pairs.get(key)
       if (!byCompetitor) pairs.set(key, byCompetitor = new Map<number, PairStats>())
       if (!byCompetitor.has(index)) {
@@ -595,12 +797,49 @@ export function createAutoAliasAccumulator(input: {
       .filter(([key, paired]) => storedKeys.has(key) || [...paired.values()].some(stats => stats.answers.size >= AUTO_ALIAS_MIN_DIRECT_ANSWERS))
       .map(([key]) => key)
     const scored = new Set(keys)
+    // A name written only inside a longer name of the same competitor says
+    // nothing on its own: an answer that writes "Lark Bay Suites" names that
+    // brand, not the shorter "Lark Bay" (often the place), so counting it
+    // would hand the truncation the brand's precision and lift. Per scored
+    // key, the competitors whose own identity (domain label, the `aliases`
+    // passed in, stored names) has a longer key containing it.
+    const identityKeys = competitors.map((competitor, index) => [...new Set(
+      [...competitorNameAliases({ domain: competitor.domain, aliases: competitor.aliases }), ...storedByIndex[index]!]
+        .map(brandKeyFromText)
+        .filter(Boolean),
+    )])
+    const longerIdentity = new Map<string, Map<number, string[]>>()
+    const spanKeys = new Set(keys)
+    for (const key of keys) {
+      for (const index of pairs.get(key)!.keys()) {
+        const longer = identityKeys[index]!.filter(identity => identity.length > key.length && identity.includes(key))
+        if (longer.length === 0) continue
+        let byCompetitor = longerIdentity.get(key)
+        if (!byCompetitor) longerIdentity.set(key, byCompetitor = new Map<number, string[]>())
+        byCompetitor.set(index, longer)
+        for (const identity of longer) spanKeys.add(identity)
+      }
+    }
+    let spanLongest = 0
+    for (const key of spanKeys) spanLongest = Math.max(spanLongest, key.length)
     // Per scope, so each competitor sums only the answers it is measured by.
     const naming = new Map<string, number[]>()
     const nameCased = new Map<string, number[]>()
     const countIn = (counts: Map<string, number[]>, key: string, scope: number): void => {
       let perScope = counts.get(key)
       if (!perScope) counts.set(key, perScope = scopes.map(() => 0))
+      perScope[scope]!++
+    }
+    // Per key and competitor: naming (and name-cased) answers that are not
+    // naming answers for that competitor, because every occurrence (or every
+    // name-cased one) sits inside its longer identity.
+    const maskedNaming = new Map<string, Map<number, number[]>>()
+    const maskedNameCased = new Map<string, Map<number, number[]>>()
+    const countMasked = (counts: Map<string, Map<number, number[]>>, key: string, index: number, scope: number): void => {
+      let byCompetitor = counts.get(key)
+      if (!byCompetitor) counts.set(key, byCompetitor = new Map<number, number[]>())
+      let perScope = byCompetitor.get(index)
+      if (!perScope) byCompetitor.set(index, perScope = scopes.map(() => 0))
       perScope[scope]!++
     }
     const citing = new Map<string, Map<number, number>>()
@@ -613,12 +852,32 @@ export function createAutoAliasAccumulator(input: {
         const found = matchedAliasKeys(matcher, answer.prose)
         if (found.size === 0) continue
         const occurrences = aliasOccurrencesAsWritten(matcher, answer.prose)
+        let spans: Map<string, WordSpan[]> | undefined
         for (const key of found) {
+          const written = occurrences.get(key) ?? []
+          const cased = written.some(isNameCasedOccurrence)
           countIn(naming, key, answer.scope)
-          if (occurrences.get(key)?.some(isNameCasedOccurrence)) countIn(nameCased, key, answer.scope)
-          const paired = pairs.get(key)!
-          for (const index of answer.cited) {
-            if (!paired.has(index)) continue
+          if (cased) countIn(nameCased, key, answer.scope)
+          for (const index of pairs.get(key)!.keys()) {
+            const longer = longerIdentity.get(key)?.get(index)
+            if (longer) {
+              spans ??= keySpans(brandWords(answer.prose), spanKeys, spanLongest)
+              const own = spans.get(key) ?? []
+              const outer = longer.flatMap(identity => spans!.get(identity) ?? [])
+              const standalone = own.flatMap(([start, end], position) =>
+                outer.some(([outerStart, outerEnd]) => outerStart <= start && end <= outerEnd) ? [] : [position])
+              if (own.length > 0 && standalone.length === 0) {
+                countMasked(maskedNaming, key, index, answer.scope)
+                if (cased) countMasked(maskedNameCased, key, index, answer.scope)
+                continue
+              }
+              // The written occurrences come from the same walk, so when they
+              // line up, casing reads only the ones written on their own.
+              if (cased && written.length === own.length && !standalone.some(position => isNameCasedOccurrence(written[position]!))) {
+                countMasked(maskedNameCased, key, index, answer.scope)
+              }
+            }
+            if (!answer.cited.includes(index)) continue
             let counts = citing.get(key)
             if (!counts) citing.set(key, counts = new Map<number, number>())
             counts.set(index, (counts.get(index) ?? 0) + 1)
@@ -639,7 +898,7 @@ export function createAutoAliasAccumulator(input: {
       for (const [index, stats] of paired) {
         const competitor = competitors[index]!
         const name = preferredSpelling(stats.spellings)
-        const namingAnswers = sumInScope(naming.get(key), index)
+        const namingAnswers = sumInScope(naming.get(key), index) - sumInScope(maskedNaming.get(key)?.get(index), index)
         const citingAnswers = citing.get(key)?.get(index) ?? 0
         const precision = namingAnswers > 0 ? roundRatio(citingAnswers / namingAnswers, RatioUnits.fraction) : null
         // Laplace-smoothed, so a name every answer carries (no answers left
@@ -670,14 +929,20 @@ export function createAutoAliasAccumulator(input: {
           cooccurrences: cooccurrences.get(key)?.get(index)?.size ?? 0,
           namingAnswers,
           citingAnswers,
-          nameCasedAnswers: sumInScope(nameCased.get(key), index),
+          nameCasedAnswers: sumInScope(nameCased.get(key), index) - sumInScope(maskedNameCased.get(key)?.get(index), index),
           precision,
           lift,
           otherCompetitorPairs,
           via: [...stats.via].sort(),
           firstSeen: stats.firstSeen,
           lastSeen: stats.lastSeen,
-          labelAffinity: hasDomainLabelAffinity(name, competitor.domain, identityLabelKeys),
+          // A stored name is judged as stored: answers that write "TuneSpoke"
+          // as "Tunespoke" say nothing about its words.
+          labelAffinity: hasDomainLabelAffinity(
+            storedByIndex[index]!.find(storedName => brandKeyFromText(storedName) === key) ?? name,
+            competitor.domain,
+            identityLabelKeys,
+          ),
           rejection: null,
         }
         evidence.rejection = candidateRejection(evidence)
@@ -958,44 +1223,65 @@ function strongestFirst(a: AutoAliasEvidence, b: AutoAliasEvidence): number {
     || a.name.localeCompare(b.name)
 }
 
-/**
- * Shortest brand key first, then strongest evidence: a shorter name that
- * passes covers the longer ones built on it ("TuneSpoke" covers "TuneSpoke
- * Springfield"), so the plan meets it first and drops the longer ones as
- * subsumed.
- */
-function shortestFirst(a: AutoAliasEvidence, b: AutoAliasEvidence): number {
-  return a.key.length - b.key.length || strongestFirst(a, b)
-}
-
 function sameRecords(a: readonly CompetitorAutoAlias[], b: readonly CompetitorAutoAlias[]): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
 }
 
-/** The rule a stored name's window evidence clearly contradicts, or null. */
-function contradiction(seen: AutoAliasEvidence | undefined): 'low-precision' | 'low-lift' | 'lowercase-usage' | null {
-  if (!seen || seen.namingAnswers < AUTO_ALIAS_MIN_NAMING_ANSWERS) return null
-  if ((seen.precision ?? 0) < AUTO_ALIAS_REMOVE_BELOW_PRECISION) return 'low-precision'
-  if ((seen.lift ?? 0) < AUTO_ALIAS_REMOVE_BELOW_LIFT) return 'low-lift'
-  if (seen.nameCasedAnswers < AUTO_ALIAS_REMOVE_BELOW_NAME_CASED_SHARE * seen.namingAnswers) return 'lowercase-usage'
+/** A rule that removes a stored name (`contradiction`). */
+type StoredNameContradiction = 'low-precision' | 'low-lift' | 'lowercase-usage' | 'other-competitor-dominates' | 'no-label-affinity'
+
+/**
+ * The rule a stored name's window evidence clearly contradicts, or null:
+ * precision, lift or name casing below the REMOVE bounds (with at least
+ * `AUTO_ALIAS_MIN_NAMING_ANSWERS` answers naming it); another tracked
+ * competitor now pairing it in at least `AUTO_ALIAS_MIN_DIRECT_ANSWERS`
+ * answers and at least `AUTO_ALIAS_DOMINANCE_RATIO` times as many as this
+ * one (a neighbour's name captured before its own site was tracked); or no
+ * label affinity against the current identity labels (a newly tracked label
+ * now shares its word).
+ */
+function contradiction(seen: AutoAliasEvidence | undefined): StoredNameContradiction | null {
+  if (!seen) return null
+  if (seen.namingAnswers >= AUTO_ALIAS_MIN_NAMING_ANSWERS) {
+    if ((seen.precision ?? 0) < AUTO_ALIAS_REMOVE_BELOW_PRECISION) return 'low-precision'
+    if ((seen.lift ?? 0) < AUTO_ALIAS_REMOVE_BELOW_LIFT) return 'low-lift'
+    if (seen.nameCasedAnswers < AUTO_ALIAS_REMOVE_BELOW_NAME_CASED_SHARE * seen.namingAnswers) return 'lowercase-usage'
+  }
+  if (seen.otherCompetitorPairs >= AUTO_ALIAS_MIN_DIRECT_ANSWERS
+    && seen.otherCompetitorPairs >= AUTO_ALIAS_DOMINANCE_RATIO * seen.directPairs) return 'other-competitor-dominates'
+  if (!seen.labelAffinity) return 'no-label-affinity'
   return null
+}
+
+/** A passing name listed for an operator to verify rather than applied (`passingStatus`). */
+function isReviewStatus(evidence: AutoAliasEvidence): boolean {
+  const status = passingStatus(evidence)
+  return status === 'needs-approval' || status === 'no-label-affinity'
 }
 
 /**
  * Merge a scan's scores into every competitor's stored state. Stored names are
- * STICKY: a name stays until the operator blocks it, curated identity or the
- * shared identity rules claim it, or the scanned answers clearly contradict it
- * (at least `AUTO_ALIAS_MIN_NAMING_ANSWERS` answers name it and precision,
- * lift or name casing fell below the lower REMOVE bounds). A name the window no longer
- * mentions keeps its last evidence, so a bounded scan never churns stored
- * identity. New names are the candidates that pass every rule, shortest
- * first so a passing short name subsumes the longer ones built on it,
- * through `planCompetitorAutoAliases` (which drops a blocked name before it
- * can subsume anything).
+ * STICKY: a name stays until the operator blocks it, the shared identity
+ * rules claim it (the competitor's own curated identity already matches it,
+ * it overlaps the project's names or hosts, another competitor's domain
+ * label, host or curated alias, a market pin of another domain, or another
+ * competitor's stored auto name that comes earlier in `competitors` order),
+ * a newly accepted shorter name it is built on replaces it, or the scanned
+ * answers clearly contradict it (`contradiction`: precision, lift or name
+ * casing below the lower REMOVE bounds with at least
+ * `AUTO_ALIAS_MIN_NAMING_ANSWERS` naming answers, another tracked competitor
+ * now pairing it in at least `AUTO_ALIAS_MIN_DIRECT_ANSWERS` answers and at
+ * least `AUTO_ALIAS_DOMINANCE_RATIO` times as often, or no label affinity
+ * left). A name the window no longer mentions keeps its last
+ * evidence, so a bounded scan never churns stored identity. New names are the
+ * candidates that pass every rule, strongest evidence first (the cap keeps
+ * the strongest), through `planCompetitorAutoAliases`, which lets a passing
+ * short name subsume the longer ones built on it and drops a blocked name
+ * before it can subsume anything.
  *
  * Competitors are resolved in `competitors` order, which decides which of two
  * competitors' STORED names wins when an identity change makes them overlap;
- * the scan passes them sorted by domain.
+ * the scan passes tracked competitors first, then market-only ones, each sorted by domain.
  */
 export function resolveCompetitorAutoAliases(
   scores: AutoAliasScores,
@@ -1015,19 +1301,18 @@ export function resolveCompetitorAutoAliases(
     return rule ? [[brandKeyFromText(record.name), rule] as const] : []
   })))
   const entries = competitors.map((competitor, index) => {
-    const evidence = evidenceFor(competitor.domain)
+    const evidence = [...evidenceFor(competitor.domain).values()]
     const storedKeys = new Set(competitor.autoAliases.map(record => brandKeyFromText(record.name)))
-    const candidates = [...evidence.values()]
-      .filter(item => passingStatus(item) === 'apply' && !storedKeys.has(item.key))
-      .sort(shortestFirst)
-      .map(item => item.name)
+    const fresh = evidence.filter(item => !storedKeys.has(item.key)).sort(strongestFirst)
     return {
       domain: competitor.domain,
       aliases: competitor.aliases,
       autoAliases: competitor.autoAliases
         .map(record => record.name)
         .filter(name => !contradicted[index]!.has(brandKeyFromText(name))),
-      candidates,
+      // Strongest first: the plan fills the cap in this order.
+      candidates: fresh.filter(item => passingStatus(item) === 'apply').map(item => item.name),
+      review: fresh.filter(item => item.directPairs > 0 && isReviewStatus(item)).map(item => item.name),
       blockedAliases: competitor.blockedAliases,
     }
   })
@@ -1101,26 +1386,31 @@ export function resolveCompetitorAutoAliases(
       candidates.push(candidateFromEvidence(evidence.get(key)!, 'added'))
     }
     const unlisted = [...evidence.values()].filter(item => !listed.has(item.key) && item.directPairs > 0).sort(strongestFirst)
-    // A review name the competitor's identity already matches as complete
-    // words ("Acme Bikes Repair" once "Acme Bikes" is a name) adds nothing.
-    const identity = [...competitorNameAliases({ domain: competitor.domain, aliases: competitor.aliases }), ...planned]
-    const blocked = new Set(normalizeCompetitorAliases(competitor.blockedAliases).map(brandKeyFromText))
-    const review = unlisted
-      .filter((item) => {
-        const status = passingStatus(item)
-        return (status === 'needs-approval' || status === 'no-label-affinity')
-          && !blocked.has(item.key)
-          && !textContainsAnyBrandAlias(item.name, identity)
-      })
-      .slice(0, AUTO_ALIAS_REPORT_LIMIT)
+    // Review names pass the plan's `review` checks: never a name overlapping
+    // the project's names or hosts, another competitor's domain label, host
+    // or curated alias, or a market pin of another domain, a blocked name,
+    // or one the competitor's identity or planned auto names already match
+    // as complete words ("Acme Bikes Repair" once "Acme Bikes" is a name).
+    // They are not checked against other competitors' auto-detected names,
+    // as applied names are. A place written in a place shape ("Larkfield, CO",
+    // "Oakvale County", "Metro Larkfield") fails the name shape and never
+    // gets here; a one-word city or a longer region phrase has no shape and
+    // can still be listed, which is why review names are never applied.
+    const reviewKeys = new Set(plan.review[index]!.map(brandKeyFromText))
+    const review = unlisted.filter(item => reviewKeys.has(item.key)).slice(0, AUTO_ALIAS_REPORT_LIMIT)
     for (const item of review) candidates.push(candidateFromEvidence(item, 'review', passingStatus(item) as CompetitorAutoAliasReason))
     const reviewed = new Set(review.map(item => item.key))
+    // A review name another identity claims is reported as rejected, with
+    // the rule; one the competitor already matches adds nothing to report.
+    const reviewDrops = new Map(plan.reviewDropped
+      .filter(drop => drop.reason !== 'already-matched' && normalizeCompetitorDomain(drop.domain) === normalizeCompetitorDomain(competitor.domain))
+      .map(drop => [brandKeyFromText(drop.alias), drop]))
     const rejected = unlisted
-      .filter(item => !reviewed.has(item.key) && item.directPairs >= AUTO_ALIAS_MIN_DIRECT_ANSWERS && (item.rejection !== null || passingStatus(item) === 'apply' || blocked.has(item.key)))
+      .filter(item => !reviewed.has(item.key) && item.directPairs >= AUTO_ALIAS_MIN_DIRECT_ANSWERS && (item.rejection !== null || passingStatus(item) === 'apply' || reviewDrops.has(item.key)))
       .slice(0, AUTO_ALIAS_REPORT_LIMIT)
     for (const item of rejected) {
-      const drop = drops.find(entry => !entry.stored && brandKeyFromText(entry.alias) === item.key)
-      const reason: CompetitorAutoAliasReason = item.rejection ?? drop?.reason ?? (blocked.has(item.key) ? 'blocked' : 'over-limit')
+      const drop = reviewDrops.get(item.key) ?? drops.find(entry => !entry.stored && brandKeyFromText(entry.alias) === item.key)
+      const reason: CompetitorAutoAliasReason = item.rejection ?? drop?.reason ?? 'over-limit'
       candidates.push(candidateFromEvidence(item, 'rejected', reason, drop?.conflictsWith))
     }
 
