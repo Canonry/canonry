@@ -850,7 +850,7 @@ export type { UserSessionCookieOptions } from './user-session.js'
 export { requireAdminSession, requireBroadInstanceKey, requireInstanceAdministrator, isInstanceAdministrator, requirePaidReadScope, requireResearchGrant } from './auth.js'
 export { assertSameOriginWrite, assertCookieWriteOrigin, FOREIGN_ORIGIN_MESSAGE } from './same-origin.js'
 // How a host decides which proxy hops may be believed about who is calling.
-export { resolveTrustProxy, resolveCallerKey, hasForwardedHeaders } from './trust-proxy.js'
+export { resolveTrustProxy, resolveCallerKey, hasForwardedHeaders, hasProxyHeaders } from './trust-proxy.js'
 // Password storage, exported so a host can seed an account without
 // reimplementing the derivation that `auth` verifies against.
 export { hashUserPassword, verifyUserPassword } from './user-password.js'

@@ -19,7 +19,7 @@ const { version: PKG_VERSION } = _require("../package.json") as {
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { SetHeadersResponse } from "@fastify/static";
-import { anyUsersExist, apiRoutes, auditFromRequest, createProjectPassQueue, hasForwardedHeaders, hashApiKey, previewCompetitorAutoAliases, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS, writeAuditLog } from "@ainyc/canonry-api-routes";
+import { anyUsersExist, apiRoutes, auditFromRequest, createProjectPassQueue, hashApiKey, hasProxyHeaders, previewCompetitorAutoAliases, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS, writeAuditLog } from "@ainyc/canonry-api-routes";
 import {
   apiKeys,
   dashboardSessions,
@@ -626,22 +626,6 @@ function isLoopbackPeerAddress(address: string | undefined): boolean {
 }
 
 /**
- * Headers that a proxy, tunnel, or CDN adds besides the client-address headers
- * `hasForwardedHeaders` reads. A proxy that sends only one of these (the
- * original host, scheme, or port, a `Via` hop, or a CDN's client address)
- * still put itself in the path.
- */
-const PROXY_PATH_HEADERS = [
-  "x-forwarded-host",
-  "x-forwarded-proto",
-  "x-forwarded-port",
-  "x-forwarded-server",
-  "via",
-  "cf-connecting-ip",
-  "true-client-ip",
-] as const;
-
-/**
  * Whether a request looks like it came straight from a process on this
  * machine: the socket peer is loopback, no proxy header is present, and Host
  * names this machine (`localhost` or a loopback literal). Reads the raw socket
@@ -655,12 +639,7 @@ const PROXY_PATH_HEADERS = [
  */
 function isDirectLocalRequest(request: FastifyRequest): boolean {
   if (!isLoopbackPeerAddress(request.raw.socket.remoteAddress)) return false;
-  if (
-    hasForwardedHeaders(request) ||
-    PROXY_PATH_HEADERS.some((header) => request.headers[header] !== undefined)
-  ) {
-    return false;
-  }
+  if (hasProxyHeaders(request)) return false;
   const host = request.headers.host;
   if (!host) return false;
   let hostname: string;
