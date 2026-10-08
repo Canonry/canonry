@@ -100,6 +100,8 @@ function insertAcquisition(
     hostName: string
     landingPage: string
     sessions: number
+    source?: string
+    medium?: string
   },
 ) {
   ctx.db.insert(gaAcquisitionDaily).values({
@@ -107,8 +109,8 @@ function insertAcquisition(
     projectId: ctx.projectId,
     date: daysBefore(GA_ANCHOR, input.daysAgo),
     channelGroup: input.channelGroup,
-    source: input.channelGroup === 'Direct' ? '(direct)' : 'google',
-    medium: input.channelGroup === 'Paid Search' ? 'cpc' : 'organic',
+    source: input.source ?? (input.channelGroup === 'Direct' ? '(direct)' : 'google'),
+    medium: input.medium ?? (input.channelGroup === 'Paid Search' ? 'cpc' : 'organic'),
     hostName: input.hostName,
     landingPage: input.landingPage,
     landingPageNormalized: input.landingPage.split('?')[0]!,
@@ -127,6 +129,8 @@ function insertLead(
     landingPage: string
     eventCount: number
     attributionScope?: 'landing-page' | 'channel'
+    source?: string
+    medium?: string
   },
 ) {
   const attributionScope = input.attributionScope ?? 'landing-page'
@@ -136,8 +140,8 @@ function insertLead(
     date: daysBefore(GA_ANCHOR, input.daysAgo),
     eventName: 'generate_lead',
     channelGroup: input.channelGroup,
-    source: 'google',
-    medium: input.channelGroup === 'Paid Search' ? 'cpc' : 'organic',
+    source: input.source ?? 'google',
+    medium: input.medium ?? (input.channelGroup === 'Paid Search' ? 'cpc' : 'organic'),
     hostName: input.hostName,
     landingPage: input.landingPage,
     landingPageNormalized: attributionScope === 'landing-page'
@@ -663,6 +667,362 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
           expect.objectContaining({ landingPage: '/pricing' }),
         ]),
       },
+    })
+  })
+
+  describe('leads by AI engine', () => {
+    const MARKETING = 'www.harbor-iq.test'
+    const PREVIEW = 'harbor-iq.vercel.app'
+
+    function markLeadsSynced(
+      scope: 'landing-page' | 'channel',
+      status: { acquisition?: 'ready' | 'error'; leads?: 'ready' | 'error' } = {},
+    ) {
+      const values = {
+        acquisitionStatus: status.acquisition ?? 'ready',
+        acquisitionSyncedAt: NOW,
+        leadStatus: status.leads ?? 'ready',
+        leadSyncedAt: NOW,
+        leadAttributionScope: scope,
+        updatedAt: NOW,
+      }
+      ctx.db.insert(gaMeasurementSyncStates).values({ projectId: ctx.projectId, ...values }).onConflictDoUpdate({
+        target: gaMeasurementSyncStates.projectId,
+        set: values,
+      }).run()
+    }
+
+    function seedAiSessions() {
+      // Latest cohort (days 0..29 ago) unless noted. Sources are stored the way
+      // GA4 returns sessionSource: referrer hosts, utm tags, mixed case.
+      const rows: Array<{ daysAgo: number; hostName: string; landingPage: string; source: string; sessions: number; channelGroup?: string }> = [
+        { daysAgo: 0, hostName: MARKETING, landingPage: '/pricing', source: 'chatgpt.com', sessions: 40 },
+        { daysAgo: 1, hostName: MARKETING, landingPage: '/pricing?utm_source=ChatGPT.com', source: 'ChatGPT.com', sessions: 10 },
+        { daysAgo: 2, hostName: MARKETING, landingPage: '/pricing', source: 'perplexity', sessions: 20 },
+        { daysAgo: 3, hostName: MARKETING, landingPage: '/blog/post', source: 'perplexity.ai', sessions: 30 },
+        { daysAgo: 4, hostName: MARKETING, landingPage: '/pricing', source: 'copilot.microsoft.com', sessions: 5 },
+        { daysAgo: 0, hostName: PREVIEW, landingPage: '/pricing', source: 'chatgpt.com', sessions: 500 },
+        { daysAgo: 0, hostName: MARKETING, landingPage: '/pricing', source: 'google', sessions: 100, channelGroup: 'Organic Search' },
+        // Previous cohort (days 30..59 ago).
+        { daysAgo: 40, hostName: MARKETING, landingPage: '/pricing', source: 'chatgpt.com', sessions: 25 },
+      ]
+      for (const row of rows) {
+        insertAcquisition(ctx, { channelGroup: 'Referral', ...row })
+      }
+    }
+
+    function seedAiLeads() {
+      const rows: Array<{ daysAgo: number; hostName: string; landingPage: string; source: string; eventCount: number; channelGroup?: string }> = [
+        { daysAgo: 0, hostName: MARKETING, landingPage: '/pricing', source: 'chatgpt.com', eventCount: 3 },
+        { daysAgo: 1, hostName: MARKETING, landingPage: '/pricing?utm_source=ChatGPT.com', source: 'ChatGPT.com', eventCount: 2 },
+        { daysAgo: 2, hostName: MARKETING, landingPage: '/pricing', source: 'perplexity', eventCount: 1 },
+        { daysAgo: 3, hostName: MARKETING, landingPage: '/blog/post', source: 'perplexity.ai', eventCount: 1 },
+        // A lead with no matching acquisition session: a count, but no rate.
+        { daysAgo: 5, hostName: MARKETING, landingPage: '/pricing', source: 'gemini.google.com', eventCount: 2 },
+        { daysAgo: 0, hostName: PREVIEW, landingPage: '/pricing', source: 'chatgpt.com', eventCount: 9 },
+        { daysAgo: 0, hostName: MARKETING, landingPage: '/pricing', source: 'google', eventCount: 7, channelGroup: 'Organic Search' },
+        { daysAgo: 40, hostName: MARKETING, landingPage: '/pricing', source: 'chatgpt.com', eventCount: 1 },
+      ]
+      for (const row of rows) {
+        insertLead(ctx, { channelGroup: 'Referral', ...row })
+      }
+    }
+
+    async function analysis(query: string) {
+      const response = await ctx.app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/harbor-iq/ga/measurement-analysis?${query}`,
+      })
+      expect(response.statusCode).toBe(200)
+      return gaMeasurementAnalysisDtoSchema.parse(JSON.parse(response.body))
+    }
+
+    const previous = { label: 'previous', startDate: daysBefore(GA_ANCHOR, 59), endDate: daysBefore(GA_ANCHOR, 30) }
+    const latest = { label: 'latest', startDate: daysBefore(GA_ANCHOR, 29), endDate: GA_ANCHOR }
+    type Bucket = { label: string; startDate: string; endDate: string }
+    const empty = (bucket: Bucket) => ({ ...bucket, eventCount: 0, sessions: 0, leadRate: null })
+    const noUnattributed = (buckets: Bucket[]) => ({ sources: [], periods: buckets.map(empty) })
+
+    it('counts lead events and same-source sessions per engine in the channel cohorts, with a lead rate', async () => {
+      seedAiSessions()
+      seedAiLeads()
+      markLeadsSynced('landing-page')
+
+      const body = await analysis('window=60d')
+      const { aiEngines } = body.leads
+
+      expect(aiEngines.leadRateAvailable).toBe(true)
+      expect(aiEngines.leadRateUnavailableReason).toBeNull()
+      expect(aiEngines.organic.engines).toEqual([
+        {
+          engine: 'chatgpt',
+          label: 'ChatGPT',
+          // Both spellings fold into one engine; the preview host is filtered out.
+          sources: ['ChatGPT.com', 'chatgpt.com'],
+          periods: [
+            { ...previous, eventCount: 1, sessions: 25, leadRate: 0.04 },
+            { ...latest, eventCount: 5, sessions: 50, leadRate: 0.1 },
+          ],
+        },
+        {
+          engine: 'perplexity',
+          label: 'Perplexity',
+          sources: ['perplexity', 'perplexity.ai'],
+          periods: [
+            { ...previous, eventCount: 0, sessions: 0, leadRate: null },
+            { ...latest, eventCount: 2, sessions: 50, leadRate: 0.04 },
+          ],
+        },
+        {
+          // Ties Perplexity on lead events; ranks below it on sessions.
+          engine: 'gemini',
+          label: 'Gemini',
+          sources: ['gemini.google.com'],
+          periods: [
+            { ...previous, eventCount: 0, sessions: 0, leadRate: null },
+            { ...latest, eventCount: 2, sessions: 0, leadRate: null },
+          ],
+        },
+        {
+          // Sessions but no lead events is a measured 0% rate, not a missing one.
+          engine: 'copilot',
+          label: 'Copilot',
+          sources: ['copilot.microsoft.com'],
+          periods: [
+            { ...previous, eventCount: 0, sessions: 0, leadRate: null },
+            { ...latest, eventCount: 0, sessions: 5, leadRate: 0 },
+          ],
+        },
+      ])
+      expect(aiEngines.organic.unattributed).toEqual(noUnattributed([previous, latest]))
+      // 9 / 105 at wire precision.
+      expect(aiEngines.organic.periods).toEqual([
+        { ...previous, eventCount: 1, sessions: 25, leadRate: 0.04 },
+        { ...latest, eventCount: 9, sessions: 105, leadRate: 0.08571429 },
+      ])
+      // No paid evidence on any row: the paid block is all zero.
+      expect(aiEngines.paid).toEqual({
+        periods: [empty(previous), empty(latest)],
+        engines: [],
+        unattributed: noUnattributed([previous, latest]),
+      })
+
+      // The engine rows add up to the all-engine total, and that total is every
+      // lead in the window minus the non-AI source (google, 7 latest events).
+      for (const [index, total] of aiEngines.organic.periods.entries()) {
+        const engineSum = aiEngines.organic.engines.reduce((sum, row) => sum + row.periods[index]!.eventCount, 0)
+        expect(engineSum).toBe(total.eventCount)
+      }
+      expect(body.leads.periods.map(period => period.eventCount)).toEqual([1, 16])
+    })
+
+    it('keeps tagged ChatGPT ad clicks out of the organic ChatGPT row and rates them on their own', async () => {
+      seedAiSessions()
+      seedAiLeads()
+      // The shape GA4 gives a tagged ChatGPT ad click: source chatgpt, medium cpc, Paid Other.
+      insertAcquisition(ctx, {
+        daysAgo: 0,
+        channelGroup: 'Paid Other',
+        hostName: MARKETING,
+        landingPage: '/pricing?utm_source=chatgpt&utm_medium=cpc&utm_campaign=spring',
+        source: 'chatgpt',
+        medium: 'cpc',
+        sessions: 200,
+      })
+      insertLead(ctx, {
+        daysAgo: 0,
+        channelGroup: 'Paid Other',
+        hostName: MARKETING,
+        landingPage: '/pricing?utm_source=chatgpt&utm_medium=cpc&utm_campaign=spring',
+        source: 'chatgpt',
+        medium: 'cpc',
+        eventCount: 30,
+      })
+      markLeadsSynced('landing-page')
+
+      const { aiEngines } = (await analysis('window=30d')).leads
+
+      // Organic ChatGPT is unchanged by the 200 paid sessions and 30 paid leads.
+      expect(aiEngines.organic.engines[0]).toEqual({
+        engine: 'chatgpt',
+        label: 'ChatGPT',
+        sources: ['ChatGPT.com', 'chatgpt.com'],
+        periods: [{ ...latest, eventCount: 5, sessions: 50, leadRate: 0.1 }],
+      })
+      expect(aiEngines.organic.periods).toEqual([{ ...latest, eventCount: 9, sessions: 105, leadRate: 0.08571429 }])
+      expect(aiEngines.paid).toEqual({
+        periods: [{ ...latest, eventCount: 30, sessions: 200, leadRate: 0.15 }],
+        engines: [{
+          engine: 'chatgpt',
+          label: 'ChatGPT',
+          sources: ['chatgpt'],
+          periods: [{ ...latest, eventCount: 30, sessions: 200, leadRate: 0.15 }],
+        }],
+        unattributed: noUnattributed([latest]),
+      })
+    })
+
+    it('counts GA4 AI Assistant channel rows that match no engine as unattributed AI traffic', async () => {
+      seedAiSessions()
+      seedAiLeads()
+      insertAcquisition(ctx, {
+        daysAgo: 0,
+        channelGroup: 'AI Assistant',
+        hostName: MARKETING,
+        landingPage: '/pricing',
+        source: 'assistant.example.com',
+        medium: 'ai-assistant',
+        sessions: 20,
+      })
+      insertLead(ctx, {
+        daysAgo: 0,
+        channelGroup: 'AI Assistant',
+        hostName: MARKETING,
+        landingPage: '/pricing',
+        source: 'assistant.example.com',
+        medium: 'ai-assistant',
+        eventCount: 4,
+      })
+      // An unknown source outside the AI channel is not AI traffic.
+      insertAcquisition(ctx, {
+        daysAgo: 0,
+        channelGroup: 'Referral',
+        hostName: MARKETING,
+        landingPage: '/pricing',
+        source: 'news.example.com',
+        sessions: 70,
+      })
+      markLeadsSynced('landing-page')
+
+      const body = await analysis('window=30d')
+      const { organic } = body.leads.aiEngines
+
+      expect(organic.engines.map(row => row.engine)).toEqual(['chatgpt', 'perplexity', 'gemini', 'copilot'])
+      expect(organic.unattributed).toEqual({
+        sources: ['assistant.example.com'],
+        periods: [{ ...latest, eventCount: 4, sessions: 20, leadRate: 0.2 }],
+      })
+      // The total includes the unattributed rows, so it never reads below GA4's AI channel.
+      expect(organic.periods).toEqual([{ ...latest, eventCount: 13, sessions: 125, leadRate: 0.104 }])
+      const aiChannel = body.leads.channels.find(row => row.channelGroup === 'AI Assistant')
+      expect(organic.periods[0]!.eventCount).toBeGreaterThanOrEqual(aiChannel!.periods[0]!.eventCount)
+    })
+
+    it('applies pathPrefix and hostScope to both the lead events and the sessions', async () => {
+      seedAiSessions()
+      seedAiLeads()
+      markLeadsSynced('landing-page')
+
+      const blog = await analysis('window=30d&pathPrefix=%2Fblog')
+      // The cohort anchors on the newest row inside the path, as the channel breakdown does.
+      const blogLatest = { label: 'latest', startDate: daysBefore(GA_ANCHOR, 32), endDate: daysBefore(GA_ANCHOR, 3) }
+      expect(blog.leads.aiEngines.leadRateAvailable).toBe(true)
+      expect(blog.leads.aiEngines.organic).toEqual({
+        periods: [{ ...blogLatest, eventCount: 1, sessions: 30, leadRate: 0.03333333 }],
+        engines: [{
+          engine: 'perplexity',
+          label: 'Perplexity',
+          sources: ['perplexity.ai'],
+          periods: [{ ...blogLatest, eventCount: 1, sessions: 30, leadRate: 0.03333333 }],
+        }],
+        unattributed: noUnattributed([blogLatest]),
+      })
+
+      // Every host: the preview host's 500 sessions and 9 lead events join ChatGPT.
+      const allHosts = await analysis('window=30d&hostScope=all')
+      expect(allHosts.leads.aiEngines.organic.engines[0]).toEqual({
+        engine: 'chatgpt',
+        label: 'ChatGPT',
+        sources: ['ChatGPT.com', 'chatgpt.com'],
+        periods: [{ ...latest, eventCount: 14, sessions: 550, leadRate: 0.02545455 }],
+      })
+    })
+
+    it('keeps channel-scoped AI lead counts but withholds the rate while host or path filters narrow sessions', async () => {
+      seedAiSessions()
+      insertLead(ctx, {
+        daysAgo: 0,
+        channelGroup: 'Referral',
+        hostName: '(not available)',
+        landingPage: '(not available)',
+        source: 'chatgpt.com',
+        eventCount: 4,
+        attributionScope: 'channel',
+      })
+      markLeadsSynced('channel')
+
+      const marketing = await analysis('window=30d')
+      expect(marketing.leads.attributionScope).toBe('channel')
+      expect(marketing.leads.aiEngines.leadRateAvailable).toBe(false)
+      expect(marketing.leads.aiEngines.leadRateUnavailableReason).toBe('channel-leads-unfiltered')
+      expect(marketing.leads.aiEngines.organic.engines[0]).toEqual({
+        engine: 'chatgpt',
+        label: 'ChatGPT',
+        sources: ['ChatGPT.com', 'chatgpt.com'],
+        periods: [{ ...latest, eventCount: 4, sessions: 50, leadRate: null }],
+      })
+      expect(marketing.leads.aiEngines.organic.periods).toEqual([
+        { ...latest, eventCount: 4, sessions: 105, leadRate: null },
+      ])
+
+      // No narrowing filter: channel-level leads and all-host sessions share a scope.
+      const allHosts = await analysis('window=30d&hostScope=all&pathPrefix=%2F')
+      expect(allHosts.leads.aiEngines.leadRateAvailable).toBe(true)
+      expect(allHosts.leads.aiEngines.leadRateUnavailableReason).toBeNull()
+      expect(allHosts.leads.aiEngines.organic.engines[0]?.periods).toEqual([
+        { ...latest, eventCount: 4, sessions: 550, leadRate: 0.00727273 },
+      ])
+    })
+
+    it('withholds the rate when lead events run past the last stored acquisition date', async () => {
+      // Acquisition stopped landing 17 days ago while leads kept syncing.
+      insertAcquisition(ctx, { daysAgo: 17, channelGroup: 'Referral', hostName: MARKETING, landingPage: '/pricing', source: 'chatgpt.com', sessions: 40 })
+      insertLead(ctx, { daysAgo: 17, channelGroup: 'Referral', hostName: MARKETING, landingPage: '/pricing', source: 'chatgpt.com', eventCount: 2 })
+      insertLead(ctx, { daysAgo: 0, channelGroup: 'Referral', hostName: MARKETING, landingPage: '/pricing', source: 'chatgpt.com', eventCount: 3 })
+      markLeadsSynced('landing-page')
+
+      const { aiEngines } = (await analysis('window=30d')).leads
+
+      expect(aiEngines.leadRateAvailable).toBe(false)
+      expect(aiEngines.leadRateUnavailableReason).toBe('sessions-behind-leads')
+      // Counts stay; the rate that would read 5 / 40 is withheld.
+      expect(aiEngines.organic.engines[0]?.periods).toEqual([
+        { ...latest, eventCount: 5, sessions: 40, leadRate: null },
+      ])
+      expect(aiEngines.organic.periods).toEqual([
+        { ...latest, eventCount: 5, sessions: 40, leadRate: null },
+      ])
+    })
+
+    it('withholds the rate while the latest acquisition or lead sync is in error', async () => {
+      seedAiSessions()
+      seedAiLeads()
+      markLeadsSynced('landing-page', { leads: 'error' })
+
+      const leadError = (await analysis('window=30d')).leads.aiEngines
+      expect(leadError.leadRateAvailable).toBe(false)
+      expect(leadError.leadRateUnavailableReason).toBe('sync-not-ready')
+      expect(leadError.organic.engines[0]?.periods).toEqual([
+        { ...latest, eventCount: 5, sessions: 50, leadRate: null },
+      ])
+
+      markLeadsSynced('landing-page', { acquisition: 'error' })
+      const acquisitionError = (await analysis('window=30d')).leads.aiEngines
+      expect(acquisitionError.leadRateUnavailableReason).toBe('sync-not-ready')
+      expect(acquisitionError.organic.periods.every(period => period.leadRate === null)).toBe(true)
+    })
+
+    it('leaves the block empty when no lead sync has run, even with AI sessions', async () => {
+      seedAiSessions()
+
+      const body = await analysis('window=30d')
+      expect(body.leads.status).toBe('never-synced')
+      expect(body.leads.aiEngines).toEqual({
+        leadRateAvailable: false,
+        leadRateUnavailableReason: 'no-data',
+        organic: { periods: [], engines: [], unattributed: { sources: [], periods: [] } },
+        paid: { periods: [], engines: [], unattributed: { sources: [], periods: [] } },
+      })
     })
   })
 

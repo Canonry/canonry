@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { aiReferralEngineSchema } from './ai-referral-engine.js'
 import { fraction } from './ratio-unit.js'
 
 function dedupeStable(values: readonly string[], caseInsensitive = false): string[] {
@@ -112,6 +113,96 @@ const analysisDemandPeriodSchema = analysisPeriodSchema.extend({
 })
 
 /**
+ * Lead events and sessions from one AI engine (or a total) in one 30-day
+ * bucket and one traffic class. Both counts are keyed on the same GA4
+ * `sessionSource` and the same paid/organic classification, so the rate
+ * compares a numerator and denominator drawn from the same sessions.
+ */
+const analysisAiEngineLeadPeriodSchema = analysisPeriodSchema.extend({
+  /** Configured lead events whose session came from this engine. */
+  eventCount: z.number().int().nonnegative(),
+  /** Sessions from this engine, read from acquisition under the same host and path filters. */
+  sessions: z.number().int().nonnegative(),
+  /**
+   * `eventCount / sessions`: lead events per AI session. It can exceed 1 when
+   * one session fires several lead events. `null` when the bucket has no
+   * sessions, or when `leadRateAvailable` is false on the block.
+   */
+  leadRate: fraction(z.number().nonnegative()).nullable(),
+})
+
+/**
+ * Why `leads.aiEngines` withholds every lead rate:
+ * - `no-data`: no lead sync has run, or no stored GA row falls inside the
+ *   filters, and the block is empty.
+ * - `sync-not-ready`: the latest acquisition or lead sync did not succeed, so
+ *   one side may be stale while the other is current.
+ * - `channel-leads-unfiltered`: lead events are channel-scoped (GA4 could not
+ *   attribute them to a landing page, so host and path filters cannot narrow
+ *   them) while those filters narrow the sessions.
+ * - `sessions-behind-leads`: stored lead events run past the last stored
+ *   acquisition date, so the latest bucket holds leads for days with no
+ *   sessions.
+ */
+export const aiEngineLeadRateUnavailableReasonSchema = z.enum([
+  'no-data',
+  'sync-not-ready',
+  'channel-leads-unfiltered',
+  'sessions-behind-leads',
+])
+export type AiEngineLeadRateUnavailableReason = z.infer<typeof aiEngineLeadRateUnavailableReasonSchema>
+export const AiEngineLeadRateUnavailableReasons = aiEngineLeadRateUnavailableReasonSchema.enum
+
+/**
+ * One traffic class (`classifyAiReferralTrafficClass` on each row's source,
+ * medium, channel group and landing page) of the AI engine breakdown. Paid
+ * and organic never share a row or a rate.
+ */
+const analysisAiEngineLeadClassSchema = z.object({
+  /**
+   * Every row of this class combined (the engines plus `unattributed`), one
+   * entry per bucket. Empty without a lead timeline.
+   */
+  periods: z.array(analysisAiEngineLeadPeriodSchema),
+  /**
+   * One row per engine with a lead event or a session of this class in the
+   * window, ranked by latest-bucket lead events, then total lead events, then
+   * sessions.
+   */
+  engines: z.array(z.object({
+    engine: aiReferralEngineSchema,
+    label: z.string(),
+    /** The stored `sessionSource` values attributed to this engine in the window. */
+    sources: z.array(z.string()),
+    periods: z.array(analysisAiEngineLeadPeriodSchema),
+  })),
+  /**
+   * Rows in GA4's own AI channel group (`GA4_AI_ASSISTANT_CHANNEL_GROUP`)
+   * whose source matches none of the engines. They count toward `periods`, so
+   * the AI channel never reads higher than this block. All zero (and no
+   * sources) when every AI channel row matched an engine.
+   */
+  unattributed: z.object({
+    sources: z.array(z.string()),
+    periods: z.array(analysisAiEngineLeadPeriodSchema),
+  }),
+})
+
+const analysisAiEngineLeadsSchema = z.object({
+  /**
+   * False when a rate would divide unlike data; `leadRateUnavailableReason`
+   * says why. The counts stay populated and every `leadRate` is null.
+   */
+  leadRateAvailable: z.boolean(),
+  /** Null exactly when `leadRateAvailable` is true. */
+  leadRateUnavailableReason: aiEngineLeadRateUnavailableReasonSchema.nullable(),
+  /** Sessions and lead events with no paid attribution evidence. */
+  organic: analysisAiEngineLeadClassSchema,
+  /** Paid AI clicks (for example tagged ChatGPT ads: `cpc`, `Paid Other`) and their lead events. */
+  paid: analysisAiEngineLeadClassSchema,
+})
+
+/**
  * GA4 engagement + returning users for one 30-day bucket.
  *
  * Every metric is nullable, and `metricsAvailable` says which of the two
@@ -186,6 +277,14 @@ export const gaMeasurementAnalysisDtoSchema = z.object({
       channelGroup: z.string(),
       periods: z.array(analysisEventPeriodSchema),
     })),
+    /**
+     * Lead events broken down by the AI engine that sent the session (GA4
+     * `sessionSource` through `aiEngineForReferralSource`) and by traffic
+     * class, with the same engine's sessions and the lead rate. Finer than
+     * GA4's own AI channel group in `channels`, which does not say which
+     * engine and pools paid with organic.
+     */
+    aiEngines: analysisAiEngineLeadsSchema,
   }),
   engagement: z.object({
     status: z.enum(['ready', 'unavailable']),

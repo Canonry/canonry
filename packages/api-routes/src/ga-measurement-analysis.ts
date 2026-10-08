@@ -10,18 +10,30 @@ import {
   gscSearchData,
 } from '@ainyc/canonry-db'
 import {
+  AiEngineLeadRateUnavailableReasons,
+  aiEngineForReferralSource,
+  aiReferralEngineLabel,
+  AiReferralTrafficClasses,
+  classifyAiReferralTrafficClass,
   filterBrandedSeedCandidates,
   gaMeasurementAnalysisDtoSchema,
   gaMeasurementAnalysisWindowSchema,
   gaMeasurementHostScopeSchema,
   hostOf,
   hostMatchesAnyDomain,
+  isGa4AiAssistantChannel,
   normalizeUrlPath,
+  RatioUnits,
+  roundRatio,
   validationError,
 } from '@ainyc/canonry-contracts'
 import type {
+  AiEngineLeadRateUnavailableReason,
+  AiReferralEngine,
+  AiReferralTrafficClass,
   GaMeasurementAnalysisDto,
   GaMeasurementAnalysisWindow,
+  GaMeasurementComponentStatus,
 } from '@ainyc/canonry-contracts'
 import { resolveProject } from './helpers.js'
 
@@ -107,6 +119,207 @@ function clickPeriods(periods: Period[], clicks: number[], impressions: number[]
     clicks: clicks[index] ?? 0,
     impressions: impressions[index] ?? 0,
   }))
+}
+
+// Plain code-unit order, so the wire order of raw source strings does not
+// depend on the server's locale.
+function compareCodeUnits(left: string, right: string): number {
+  if (left < right) return -1
+  return left > right ? 1 : 0
+}
+
+function aiEngineLeadPeriods(
+  periods: Period[],
+  eventCounts: number[],
+  sessionCounts: number[],
+  leadRateAvailable: boolean,
+) {
+  return periods.map((period, index) => {
+    const eventCount = eventCounts[index] ?? 0
+    const sessions = sessionCounts[index] ?? 0
+    return {
+      ...period,
+      eventCount,
+      sessions,
+      leadRate: leadRateAvailable && sessions > 0
+        ? roundRatio(eventCount / sessions, RatioUnits.fraction)
+        : null,
+    }
+  })
+}
+
+type AiSourceRow = {
+  date: string
+  source: string
+  medium: string
+  channelGroup: string
+  landingPage: string
+}
+
+const UNATTRIBUTED_AI = '(unattributed)'
+type AiAttributionKey = AiReferralEngine | typeof UNATTRIBUTED_AI
+
+type AttributedAiRow = {
+  date: string
+  source: string
+  key: AiAttributionKey
+  trafficClass: AiReferralTrafficClass
+  value: number
+}
+
+/** One traffic class of the breakdown: engine rows, the unattributed AI channel rows, and their total. */
+function buildAiEngineLeadClass(input: {
+  periods: Period[]
+  leads: AttributedAiRow[]
+  sessions: AttributedAiRow[]
+  leadRateAvailable: boolean
+}) {
+  const { periods, leadRateAvailable } = input
+  const sourcesByKey = new Map<AiAttributionKey, Set<string>>()
+  for (const row of [...input.leads, ...input.sessions]) {
+    const sources = sourcesByKey.get(row.key) ?? new Set<string>()
+    sources.add(row.source)
+    sourcesByKey.set(row.key, sources)
+  }
+  const leadsByKey = aggregateByKey(input.leads, periods, row => row.key, row => row.value)
+  const sessionsByKey = aggregateByKey(input.sessions, periods, row => row.key, row => row.value)
+  const zeros = Array<number>(periods.length).fill(0)
+  const sum = (values: number[]) => values.reduce((total, value) => total + value, 0)
+  const countsFor = (key: AiAttributionKey) => ({
+    leads: leadsByKey.get(key) ?? zeros,
+    sessions: sessionsByKey.get(key) ?? zeros,
+  })
+  const sourcesFor = (key: AiAttributionKey) => (
+    [...(sourcesByKey.get(key) ?? [])].sort(compareCodeUnits)
+  )
+  const engineRows = [...sourcesByKey.keys()]
+    .filter((key): key is AiReferralEngine => key !== UNATTRIBUTED_AI)
+    .map(engine => ({ engine, ...countsFor(engine) }))
+    .sort((left, right) => (
+      (right.leads.at(-1) ?? 0) - (left.leads.at(-1) ?? 0)
+      || sum(right.leads) - sum(left.leads)
+      || (right.sessions.at(-1) ?? 0) - (left.sessions.at(-1) ?? 0)
+      || sum(right.sessions) - sum(left.sessions)
+      || left.engine.localeCompare(right.engine)
+    ))
+  const unattributed = countsFor(UNATTRIBUTED_AI)
+  const allRows = [...engineRows, unattributed]
+  const totalLeads = periods.map((_, index) => sum(allRows.map(row => row.leads[index] ?? 0)))
+  const totalSessions = periods.map((_, index) => sum(allRows.map(row => row.sessions[index] ?? 0)))
+
+  return {
+    periods: aiEngineLeadPeriods(periods, totalLeads, totalSessions, leadRateAvailable),
+    engines: engineRows.map(row => ({
+      engine: row.engine,
+      label: aiReferralEngineLabel(row.engine),
+      sources: sourcesFor(row.engine),
+      periods: aiEngineLeadPeriods(periods, row.leads, row.sessions, leadRateAvailable),
+    })),
+    unattributed: {
+      sources: sourcesFor(UNATTRIBUTED_AI),
+      periods: aiEngineLeadPeriods(periods, unattributed.leads, unattributed.sessions, leadRateAvailable),
+    },
+  }
+}
+
+/**
+ * Lead events and sessions per AI engine, in the same buckets as the channel
+ * breakdown, split into organic and paid. Both sides are attributed through
+ * `aiEngineForReferralSource` on GA4 `sessionSource` and classified through
+ * `classifyAiReferralTrafficClass`, and both arrive here already host/path
+ * filtered the way the channel breakdown filters them, so a rate divides like
+ * by like unless the caller gives a reason it cannot. A row whose source
+ * matches no engine is kept, as unattributed, only when GA4 put it in its own
+ * AI channel group.
+ */
+function buildAiEngineLeads(input: {
+  periods: Period[]
+  leads: Array<AiSourceRow & { eventCount: number }>
+  sessions: Array<AiSourceRow & { sessions: number }>
+  leadRateUnavailableReason: AiEngineLeadRateUnavailableReason | null
+}) {
+  const leadRateAvailable = input.leadRateUnavailableReason === null
+  const engineBySource = new Map<string, AiReferralEngine | null>()
+  const engineOf = (source: string) => {
+    let engine = engineBySource.get(source)
+    if (engine === undefined) {
+      engine = aiEngineForReferralSource(source)
+      engineBySource.set(source, engine)
+    }
+    return engine
+  }
+  const attribute = <T extends AiSourceRow>(
+    rows: T[],
+    valueOf: (row: T) => number,
+  ): AttributedAiRow[] => rows.flatMap((row) => {
+    const engine = engineOf(row.source)
+    if (engine === null && !isGa4AiAssistantChannel(row.channelGroup)) return []
+    return [{
+      date: row.date,
+      source: row.source,
+      key: engine ?? UNATTRIBUTED_AI,
+      // The raw landing page keeps the utm parameters the classifier reads.
+      trafficClass: classifyAiReferralTrafficClass({
+        source: row.source,
+        medium: row.medium,
+        channelGroup: row.channelGroup,
+        landingPage: row.landingPage,
+      }),
+      value: valueOf(row),
+    }]
+  })
+  const leads = attribute(input.leads, row => row.eventCount)
+  const sessions = attribute(input.sessions, row => row.sessions)
+  const classBlock = (trafficClass: AiReferralTrafficClass) => buildAiEngineLeadClass({
+    periods: input.periods,
+    leads: leads.filter(row => row.trafficClass === trafficClass),
+    sessions: sessions.filter(row => row.trafficClass === trafficClass),
+    leadRateAvailable,
+  })
+
+  return {
+    leadRateAvailable,
+    leadRateUnavailableReason: input.leadRateUnavailableReason,
+    organic: classBlock(AiReferralTrafficClasses.organic),
+    paid: classBlock(AiReferralTrafficClasses.paid),
+  }
+}
+
+function latestDate(rows: Array<{ date: string }>): string | null {
+  let latest: string | null = null
+  for (const row of rows) {
+    if (latest === null || row.date > latest) latest = row.date
+  }
+  return latest
+}
+
+/**
+ * Why a lead rate would divide unlike data, or null when it is honest. The
+ * coverage check reads the unfiltered rows of the window: acquisition and
+ * leads are separate sync components, and when acquisition stops landing
+ * while leads keep landing, the latest bucket holds leads for days with no
+ * stored sessions.
+ */
+function aiEngineLeadRateUnavailableReason(input: {
+  hasData: boolean
+  acquisitionStatus: GaMeasurementComponentStatus | undefined
+  leadStatus: GaMeasurementComponentStatus | undefined
+  channelLeadsUnfiltered: boolean
+  latestAcquisitionDate: string | null
+  latestLeadDate: string | null
+}): AiEngineLeadRateUnavailableReason | null {
+  if (!input.hasData) return AiEngineLeadRateUnavailableReasons['no-data']
+  if (input.acquisitionStatus !== 'ready' || input.leadStatus !== 'ready') {
+    return AiEngineLeadRateUnavailableReasons['sync-not-ready']
+  }
+  if (input.channelLeadsUnfiltered) return AiEngineLeadRateUnavailableReasons['channel-leads-unfiltered']
+  if (
+    input.latestLeadDate !== null
+    && (input.latestAcquisitionDate === null || input.latestAcquisitionDate < input.latestLeadDate)
+  ) {
+    return AiEngineLeadRateUnavailableReasons['sessions-behind-leads']
+  }
+  return null
 }
 
 type EngagementRow = typeof gaDailyTotals.$inferSelect
@@ -394,6 +607,27 @@ export function buildGaMeasurementAnalysis(
     row => row.channelGroup,
     row => row.eventCount,
   )
+  // Channel-scoped lead rows carry no landing page, so the host/path filters
+  // that narrow the session side cannot narrow them. A rate is only honest
+  // when those filters are no-ops (every host, whole site).
+  const filtersNarrowSessions = parsedHostScope.data === 'marketing'
+    || (pathPrefix !== null && pathPrefix !== '/')
+  // Without a lead timeline there is nothing to divide, so the block stays
+  // empty even when AI sessions exist.
+  const hasAiEngineLeadData = gaAnchor !== null && hasLeadTimeline
+  const aiEngineLeads = buildAiEngineLeads({
+    periods: hasAiEngineLeadData ? gaPeriods : [],
+    leads: hasAiEngineLeadData ? leads : [],
+    sessions: hasAiEngineLeadData ? acquisition : [],
+    leadRateUnavailableReason: aiEngineLeadRateUnavailableReason({
+      hasData: hasAiEngineLeadData,
+      acquisitionStatus: state?.acquisitionStatus,
+      leadStatus: state?.leadStatus,
+      channelLeadsUnfiltered: attributionScope === 'channel' && filtersNarrowSessions,
+      latestAcquisitionDate: latestDate(acquisitionRows),
+      latestLeadDate: latestDate(leadRows),
+    }),
+  })
 
   const propertyClicks = aggregateByKey(
     propertyRows,
@@ -508,6 +742,7 @@ export function buildGaMeasurementAnalysis(
         channelGroup,
         periods: eventPeriods(gaPeriods, values),
       })),
+      aiEngines: aiEngineLeads,
     },
     engagement: {
       status: engagementAnchor === null ? 'unavailable' : 'ready',

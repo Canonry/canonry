@@ -2234,7 +2234,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_ga_measurement_analysis',
     title: 'Analyze GA acquisition and search demand',
-    description: 'Compare native GA4 channels and lead events with branded/non-brand Search Console demand over fixed 30-day cohorts.',
+    description: 'Compare native GA4 channels and lead events (also split by AI engine, with each engine\'s sessions and lead rate) with branded/non-brand Search Console demand over fixed 30-day cohorts.',
     access: 'read',
     tier: 'ga',
     inputSchema: gaMeasurementAnalysisInputSchema,
