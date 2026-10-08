@@ -11270,6 +11270,88 @@ export type ProjectConfig = {
     };
 };
 
+export type ProjectConfigExport = {
+    apiVersion: 'canonry/v1';
+    kind: 'Project';
+    metadata: {
+        name: string;
+        labels: {
+            [key: string]: string;
+        };
+    };
+    spec: {
+        displayName: string;
+        canonicalDomain: string;
+        ownedDomains: Array<string>;
+        aliases: Array<string>;
+        qualifiedAliases?: Array<string>;
+        country: string;
+        language: string;
+        queries?: Array<string>;
+        keywords?: Array<string>;
+        competitors: Array<string | {
+            domain: string;
+            /**
+             * Operator-curated names this competitor goes by in answer text (at most 10, each 80 characters or fewer, at least 3 letters or digits).
+             */
+            aliases?: Array<string>;
+        }>;
+        providers: Array<string>;
+        providerModels?: {
+            [key: string]: string;
+        };
+        providerDispatchModes?: {
+            [key: string]: 'sync' | 'batch';
+        };
+        locations: Array<{
+            label: string;
+            city: string;
+            region: string;
+            country: string;
+            timezone?: string;
+        }>;
+        defaultLocation?: string;
+        measurement: {
+            marketingHosts: Array<string>;
+            brandTerms: Array<string>;
+            leadEventNames: Array<string>;
+        };
+        schedule?: {
+            preset?: string;
+            cron?: string;
+            recurrence?: {
+                everyDays: number;
+                startDate: string;
+                time: string;
+            };
+            timezone: string;
+            providers: Array<string>;
+            enabled?: boolean;
+        };
+        notifications: Array<{
+            channel: 'webhook';
+            url: string;
+            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'review.negative' | 'review.rating-dropped'>;
+        }>;
+        google?: {
+            gsc?: {
+                propertyUrl: string;
+            };
+            syncSchedule?: {
+                preset?: string;
+                cron?: string;
+            };
+        };
+        autoExtractBacklinks?: boolean;
+        negativeReviewMaxStars?: number;
+        siteAuditMaxPages?: number | null;
+        /**
+         * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
+         */
+        competitorAutoAliases?: 'off' | 'preview' | 'apply';
+    };
+};
+
 export type ProjectOverviewDto = {
     sentiment?: {
         configured: boolean;
@@ -19329,7 +19411,7 @@ export type GetApiV1ProjectsByNameExportResponses = {
     /**
      * Project configuration returned.
      */
-    200: ProjectConfig;
+    200: ProjectConfigExport;
 };
 
 export type GetApiV1ProjectsByNameExportResponse = GetApiV1ProjectsByNameExportResponses[keyof GetApiV1ProjectsByNameExportResponses];

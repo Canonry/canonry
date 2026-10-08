@@ -1852,7 +1852,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['projects'],
     parameters: [nameParameter],
     responses: {
-      200: jsonResponse('Project configuration returned.', 'ProjectConfig'),
+      200: jsonResponse('Project configuration returned.', 'ProjectConfigExport'),
       404: errorResponse('Project not found.'),
     },
   },

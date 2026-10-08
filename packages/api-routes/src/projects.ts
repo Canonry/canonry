@@ -24,7 +24,7 @@ import {
   PROJECTS_WRITE_SCOPE,
   SchedulableRunKinds,
 } from '@ainyc/canonry-contracts'
-import type { CompetitorAliasRejection, CompetitorAutoAliasDrop, CompetitorAutoAliasMode, ConfigNotification, LocationContext, MeasurementConfig, ProjectConfigInput, ProjectCreateRequest, ProviderDispatchModesMap, ProviderModels } from '@ainyc/canonry-contracts'
+import type { CompetitorAliasRejection, CompetitorAutoAliasDrop, CompetitorAutoAliasMode, ConfigNotification, LocationContext, MeasurementConfig, ProjectConfigExport, ProjectCreateRequest, ProviderDispatchModesMap, ProviderModels } from '@ainyc/canonry-contracts'
 import { requireAdminSession, requireScope } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { competitorIdentityChanged, competitorIdentityColumns, competitorNames, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
@@ -718,7 +718,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       competitorNames(comps),
     ).value
 
-    const config: ProjectConfigInput = {
+    const config: ProjectConfigExport = {
       apiVersion: 'canonry/v1',
       kind: 'Project',
       metadata: {

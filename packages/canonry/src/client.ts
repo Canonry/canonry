@@ -42,6 +42,7 @@ import {
 import type {
   ProjectDto,
   ProjectConfig,
+  ProjectConfigExport,
   ProjectUpsertRequest,
   RunDto,
   RunDetailDto,
@@ -777,7 +778,7 @@ export interface TimelineDto {
 }
 
 /** Export DTO */
-export interface ExportDto extends ProjectConfig {
+export interface ExportDto extends ProjectConfigExport {
   results?: unknown
 }
 

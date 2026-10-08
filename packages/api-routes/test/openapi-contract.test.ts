@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { createClient, migrate } from '@ainyc/canonry-db'
+import { projectConfigExportSchema } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
 import { buildOpenApiDocument, canonryLocalRouteCatalog } from '../src/openapi.js'
@@ -152,10 +153,16 @@ describe('openapi contract', () => {
     expect(okRef('/api/v1/projects/{name}/locations/default', 'put')).toBe('#/components/schemas/ProjectDefaultLocationResponse')
   })
 
-  it('documents config documents in their input form, as GET /export writes them', () => {
-    // Export leaves a field out when it holds its default, and apply fills the
-    // default back in, so neither may be documented as required.
-    const schemas = buildOpenApiDocument().components?.schemas as Record<string, {
+  it('documents the POST /apply config document in its input form', () => {
+    // Apply fills a defaulted field when the document leaves it out, so none
+    // of them may be documented as required on the request body.
+    const doc = buildOpenApiDocument()
+    const apply = (doc.paths as Record<string, Record<string, {
+      requestBody?: { content: Record<string, { schema?: { $ref?: string } }> }
+    }>>)['/api/v1/apply']?.post
+    expect(apply?.requestBody?.content['application/json']?.schema?.$ref).toBe('#/components/schemas/ProjectConfig')
+
+    const schemas = doc.components?.schemas as Record<string, {
       required?: string[]
       properties: Record<string, { required?: string[] }>
     }>
@@ -163,6 +170,55 @@ describe('openapi contract', () => {
     expect(config.required).toEqual(['apiVersion', 'kind', 'metadata', 'spec'])
     expect(config.properties.spec!.required).toEqual(['displayName', 'canonicalDomain', 'country', 'language'])
     expect(config.properties.metadata!.required).toEqual(['name'])
+  })
+
+  it('documents GET /export with every field it always writes required', async () => {
+    const doc = buildOpenApiDocument()
+    const exportOperation = (doc.paths as Record<string, Record<string, {
+      responses: Record<string, { content?: Record<string, { schema?: { $ref?: string } }> }>
+    }>>)['/api/v1/projects/{name}/export']?.get
+    expect(exportOperation?.responses['200']?.content?.['application/json']?.schema?.$ref)
+      .toBe('#/components/schemas/ProjectConfigExport')
+
+    type ObjectSchema = { required?: string[]; properties: Record<string, ObjectSchema> }
+    const exported = (doc.components?.schemas as Record<string, ObjectSchema>).ProjectConfigExport!
+    const spec = exported.properties.spec!
+    expect(exported.required).toEqual(['apiVersion', 'kind', 'metadata', 'spec'])
+    expect(exported.properties.metadata!.required).toEqual(['name', 'labels'])
+    expect(spec.required).toEqual([
+      'displayName', 'canonicalDomain', 'ownedDomains', 'aliases', 'country', 'language',
+      'competitors', 'providers', 'locations', 'measurement', 'notifications',
+    ])
+    expect(spec.properties.schedule!.required).toEqual(['timezone', 'providers'])
+    // Export leaves these two out at their defaults (an empty map, false).
+    expect(Object.keys(spec.properties)).toEqual(expect.arrayContaining(['providerModels', 'autoExtractBacklinks']))
+
+    const ctx = buildObservedApp()
+    contexts.push(ctx)
+    await ctx.app.ready()
+    const project = await ctx.app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/exportable',
+      payload: { displayName: 'Exportable', canonicalDomain: 'example.com', country: 'US', language: 'en' },
+    })
+    expect(project.statusCode).toBe(201)
+    const schedule = await ctx.app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/exportable/schedule',
+      payload: { preset: 'daily', timezone: 'UTC', providers: ['gemini'] },
+    })
+    expect(schedule.statusCode).toBe(201)
+
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/exportable/export' })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { metadata: Record<string, unknown>; spec: Record<string, unknown> & { schedule: Record<string, unknown> } }
+    expect(Object.keys(body.metadata)).toEqual(expect.arrayContaining(exported.properties.metadata!.required!))
+    expect(Object.keys(body.spec)).toEqual(expect.arrayContaining(spec.required!))
+    expect(Object.keys(body.spec.schedule)).toEqual(expect.arrayContaining(spec.properties.schedule!.required!))
+    expect(body.spec).not.toHaveProperty('providerModels')
+    expect(body.spec).not.toHaveProperty('autoExtractBacklinks')
+    // Parsing fills no default and drops no key, so the schema describes the body exactly.
+    expect(projectConfigExportSchema.parse(body)).toEqual(body)
   })
 
   it('lists null in every nullable enum, so generated clients keep the null', () => {

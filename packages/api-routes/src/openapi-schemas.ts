@@ -223,6 +223,7 @@ import {
   projectDefaultLocationResponseSchema,
   projectUpsertRequestSchema,
   projectConfigSchema,
+  projectConfigExportSchema,
   projectOverviewDtoSchema,
   trafficAnalyticsResponseSchema,
   projectSearchResponseSchema,
@@ -551,6 +552,7 @@ const SCHEMA_TABLE = {
   ProjectDefaultLocationResponse: projectDefaultLocationResponseSchema,
   ProjectUpsertRequest: projectUpsertRequestSchema,
   ProjectConfig: projectConfigSchema,
+  ProjectConfigExport: projectConfigExportSchema,
   ProjectOverviewDto: projectOverviewDtoSchema,
   TrafficAnalyticsResponse: trafficAnalyticsResponseSchema,
   ProjectSearchResponseDto: projectSearchResponseSchema,
@@ -682,10 +684,11 @@ function addNullToNullableEnums(node: unknown): void {
 }
 
 /**
- * Schemas documented in their input form. A config document travels as
- * written: `POST /apply` fills the defaults when it parses one, and
- * `GET /export` leaves defaulted fields out. The output form would mark every
- * defaulted field (`providerModels`, `autoExtractBacklinks`, ...) required.
+ * Schemas documented in their input form. `ProjectConfig` is the `POST /apply`
+ * body, which may leave any defaulted field out: apply fills the defaults when
+ * it parses the document. The output form would mark every defaulted field
+ * (`providerModels`, `autoExtractBacklinks`, ...) required. `GET /export`
+ * writes most of them, so it has its own `ProjectConfigExport`.
  */
 const INPUT_FORM_SCHEMAS: ReadonlySet<string> = new Set<RegisteredSchemaName>(['ProjectConfig'])
 

@@ -138,13 +138,27 @@ export const projectConfigSchema = z.object({
   spec: configSpecSchema,
 })
 
+/**
+ * The document `GET /projects/:name/export` sends: the parsed form of
+ * {@link projectConfigSchema}, with every defaulted field written out, except
+ * that export leaves `spec.providerModels` out while it is empty and
+ * `spec.autoExtractBacklinks` out while it is false. `POST /apply` fills both
+ * defaults back in when it reads the document.
+ */
+export const projectConfigExportSchema = projectConfigSchema.extend({
+  spec: z.object({
+    ...configSpecSchema.shape,
+    providerModels: providerModelsSchema.optional(),
+    autoExtractBacklinks: z.boolean().optional(),
+  }),
+})
+
 export function resolveConfigSpecQueries(spec: { queries?: string[]; keywords?: string[] }): string[] {
   return spec.queries ?? spec.keywords ?? []
 }
 
 export type ProjectConfig = z.infer<typeof projectConfigSchema>
-/** A config document as written: defaulted fields may be absent, as `GET /export` leaves them. */
-export type ProjectConfigInput = z.input<typeof projectConfigSchema>
+export type ProjectConfigExport = z.infer<typeof projectConfigExportSchema>
 export type ConfigNotification = z.infer<typeof configNotificationSchema>
 export type ConfigMetadata = z.infer<typeof configMetadataSchema>
 export type ConfigSpec = z.infer<typeof configSpecSchema>
