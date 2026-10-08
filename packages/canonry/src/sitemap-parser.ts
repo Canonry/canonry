@@ -27,7 +27,9 @@ async function fetchSitemap(url: string): Promise<Response> {
   try {
     return await sitemapFetch(url)
   } catch (err) {
-    if (err instanceof EgressRefusedError) throw new Error(`Sitemap URL rejected: ${err.message} (${url})`)
+    // The refusal names the hop it refused, which a redirect makes different
+    // from the sitemap that was asked for, so the message names both.
+    if (err instanceof EgressRefusedError) throw new Error(`Sitemap ${url} rejected: ${err.message}`)
     if (err instanceof EgressFailedError) throw new Error(`Failed to fetch sitemap at ${url}: ${err.message}`)
     throw err
   }

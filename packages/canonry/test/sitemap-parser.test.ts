@@ -274,8 +274,12 @@ describe('fetchAndParseSitemap', () => {
     })
     server = s.server
 
-    await expect(() => fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`))
-      .rejects.toThrow(/^Sitemap URL rejected: Refused to connect to .+: must not resolve to a private or loopback address/)
+    // The message names the sitemap that was asked for and the hop that was refused.
+    const port = Number(new URL(s.baseUrl).port)
+    await expect(() => fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`)).rejects.toThrow(new Error(
+      `Sitemap ${s.baseUrl}/sitemap.xml rejected: Refused to connect to ${new URL(location(port)).host}: ` +
+      'must not resolve to a private or loopback address',
+    ))
     expect(served).toEqual(['/sitemap.xml'])
   })
 
