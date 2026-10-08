@@ -55,14 +55,20 @@ export default defineConfig({
     },
   },
   server: {
+    // `dev` listens on every interface and reaches canonry serve over
+    // loopback with Host rewritten to the target. `xfwd` adds X-Forwarded-For,
+    // so a LAN visitor's call never looks like a direct local request (which
+    // may set the first dashboard password without the root API key).
     proxy: {
       '/api/v1': {
         target: cannonryTarget,
         changeOrigin: true,
+        xfwd: true,
       },
       '/health': {
         target: cannonryTarget,
         changeOrigin: true,
+        xfwd: true,
       },
     },
   },
