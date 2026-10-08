@@ -54,7 +54,7 @@ const ENV_KEYS = [
   'CANONRY_DASHBOARD_MANAGED_RUN_KINDS', 'CANONRY_ONBOARDING_MODE',
   'CANONRY_RESEARCH_ALLOW_VIEWERS', 'CANONRY_RESEARCH_VIEWER_DAILY_RUN_LIMIT',
 ] as const
-const WARN = 'First-run dashboard password setup is unauthenticated only on loopback; complete setup from this machine first or use a bearer cnry_... key.'
+const WARN = 'This server is not bound to loopback, so first-run dashboard password setup requires the root API key (apiKey in config.yaml).'
 const OFF = { enabled: false }
 const ON = { enabled: true, projectTabs: ['overview'] }
 const LIMITED = { enabled: true, views: ['overview', 'project'], projectTabs: ['overview'] }
