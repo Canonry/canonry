@@ -445,7 +445,7 @@ That is not a style preference. The gate used to be a `let` inside `inspectUrlsP
 
 ### Data refresh
 
-`src/data-refresh.ts`: `refreshAllIntegrations` — fires GSC + Bing + GA + GBP + ads syncs for a project via the in-process API client, `Promise.allSettled` for per-integration isolation. Wired to the scheduler's `data-refresh` kind in `server.ts`.
+`src/data-refresh.ts`: `refreshAllIntegrations` fires GSC + Bing + GA + GBP + ads syncs for a project via the in-process API client, `Promise.allSettled` for per-integration isolation. Wired to the scheduler's `data-refresh` kind in `server.ts`. Only GA syncs before its endpoint answers, so only GA logs `integration.refreshed`; every other endpoint only queues a run and logs `integration.queued` with its `runId`, and its real outcome lands on that run row. The `<integration>.sync.recent-failures` doctor checks grade the run rows of Google Ads, GTM, GBP, GSC and GA. Bing `bing-inspect-sitemap` runs are not graded, and OpenAI Ads is covered only by `ads.data.recent-sync`. A refused endpoint logs `integration.refresh-failed`.
 
 ### Backfill behavior
 

@@ -20,6 +20,7 @@ import { RUNTIME_STATE_CHECKS } from './checks/runtime-state.js'
 import { TRAFFIC_SOURCE_CHECKS } from './checks/traffic-source.js'
 import { WORDPRESS_PUBLISH_CHECKS } from './checks/wordpress-publish.js'
 import { GOOGLE_MARKETING_DOCTOR_CHECKS } from './checks/google-marketing.js'
+import { INTEGRATION_SYNC_CHECKS } from './checks/integration-sync.js'
 import { VERSION_CHECKS } from './checks/version.js'
 import type { CheckDefinition } from './types.js'
 
@@ -42,6 +43,7 @@ export const ALL_CHECKS: readonly CheckDefinition[] = [
   ...REFERRAL_ASSESSMENT_CHECKS,
   ...ADS_CHECKS,
   ...GOOGLE_MARKETING_DOCTOR_CHECKS,
+  ...INTEGRATION_SYNC_CHECKS,
   ...PROVIDERS_CHECKS,
   ...TRAFFIC_SOURCE_CHECKS,
   ...BACKLINKS_CHECKS,

@@ -1,14 +1,15 @@
 import { describe, expect, test, vi } from 'vitest'
 
 import { gaRefreshDays, refreshAllIntegrations, type DataRefreshClient } from '../src/data-refresh.js'
+import { addLogListener, type LogEntry } from '../src/logger.js'
 
 function makeClient(overrides: Partial<DataRefreshClient> = {}): DataRefreshClient {
   return {
-    gscSync: vi.fn(async () => ({})),
-    bingInspectSitemap: vi.fn(async () => ({})),
-    gaSync: vi.fn(async () => ({})),
-    triggerGbpSync: vi.fn(async () => ({ runId: 'r', status: 'running' })),
-    triggerAdsSync: vi.fn(async () => ({ runId: 'a', status: 'queued' })),
+    gscSync: vi.fn(async () => ({ id: 'gsc-run', status: 'queued' })),
+    bingInspectSitemap: vi.fn(async () => ({ id: 'bing-run', status: 'queued' })),
+    gaSync: vi.fn(async () => ({ synced: true })),
+    triggerGbpSync: vi.fn(async () => ({ runId: 'gbp-run', status: 'running' })),
+    triggerAdsSync: vi.fn(async () => ({ runId: 'ads-run', status: 'queued' })),
     triggerGoogleAdsSync: vi.fn(async () => ({ id: 'google-ads-run', status: 'queued' })),
     triggerGtmSync: vi.fn(async () => ({ id: 'gtm-run', status: 'queued' })),
     ...overrides,
@@ -85,5 +86,33 @@ describe('refreshAllIntegrations', () => {
 
     await expect(refreshAllIntegrations(client, 'proj')).resolves.toBeUndefined()
     expect(boom).toHaveBeenCalledTimes(7)
+  })
+
+  test('logs refreshed only for the synchronous GA sync and queued, with the run id, for the rest', async () => {
+    const entries: LogEntry[] = []
+    const remove = addLogListener(entry => { if (entry.module === 'DataRefresh') entries.push(entry) })
+    const client = makeClient({
+      // An endpoint that refuses (not connected) still logs as a failure.
+      bingInspectSitemap: vi.fn(async () => { throw new Error('No Bing site configured') }),
+    })
+
+    try {
+      await refreshAllIntegrations(client, 'proj', new Date('2026-09-28T12:00:00Z'))
+    } finally {
+      remove()
+    }
+
+    const byIntegration = Object.fromEntries(entries.map(entry => [entry.integration, entry]))
+    expect(byIntegration.ga).toMatchObject({ action: 'integration.refreshed', projectName: 'proj' })
+    expect(byIntegration.bing).toMatchObject({ action: 'integration.refresh-failed', error: 'No Bing site configured' })
+    // A queued run's real outcome lands later on its run row, so the log
+    // names the run instead of claiming the sync succeeded.
+    expect(byIntegration.gsc).toMatchObject({ action: 'integration.queued', runId: 'gsc-run', runStatus: 'queued' })
+    expect(byIntegration.gbp).toMatchObject({ action: 'integration.queued', runId: 'gbp-run', runStatus: 'running' })
+    expect(byIntegration.ads).toMatchObject({ action: 'integration.queued', runId: 'ads-run', runStatus: 'queued' })
+    expect(byIntegration['google-ads']).toMatchObject({ action: 'integration.queued', runId: 'google-ads-run', runStatus: 'queued' })
+    expect(byIntegration.gtm).toMatchObject({ action: 'integration.queued', runId: 'gtm-run', runStatus: 'queued' })
+    expect(entries.filter(entry => entry.action === 'integration.refreshed').map(entry => entry.integration)).toEqual(['ga'])
+    expect(entries).toHaveLength(7)
   })
 })

@@ -226,8 +226,10 @@ cnry doctor --project my-site --check 'google-ads.*' --format json
 cnry doctor --project my-site --check 'gtm.*' --format json
 ```
 
-Doctor reports credential metadata, OAuth scopes, selected resources, and
-snapshot age. Doctor does not call Google or prove browser tag firing.
+Doctor reports credential metadata, OAuth scopes, selected resources, snapshot
+age, and repeated sync failures from stored run rows (the latest run error and
+the last successful sync). Doctor does not call Google or prove browser tag
+firing.
 
 Then review each integrity assessment. Inspect every `fail` or `unknown`
 finding and its evidence IDs.
