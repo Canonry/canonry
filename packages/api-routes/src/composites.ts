@@ -1043,7 +1043,7 @@ function formatProject(row: typeof projects.$inferSelect, negativeReviewMaxStars
     negativeReviewMaxStars,
     siteAuditMaxPages: row.siteAuditMaxPages ?? null,
     competitorAutoAliases: row.competitorAutoAliases,
-    configSource: row.configSource as ProjectDto['configSource'],
+    configSource: row.configSource,
     configRevision: row.configRevision,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
