@@ -6914,6 +6914,11 @@ export type KeywordDto = {
     createdAt: string;
 };
 
+export type KeywordGenerateResponse = {
+    keywords: Array<string>;
+    provider: string;
+};
+
 export type LatestProjectRunDto = {
     totalRuns: number;
     run: {
@@ -19794,9 +19799,7 @@ export type PostApiV1ProjectsByNameKeywordsGenerateResponses = {
     /**
      * Legacy keyword suggestions returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: KeywordGenerateResponse;
 };
 
 export type PostApiV1ProjectsByNameKeywordsGenerateResponse = PostApiV1ProjectsByNameKeywordsGenerateResponses[keyof PostApiV1ProjectsByNameKeywordsGenerateResponses];

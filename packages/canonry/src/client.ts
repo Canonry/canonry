@@ -43,6 +43,8 @@ import type {
   ProjectDto,
   ProjectConfig,
   ProjectConfigExport,
+  KeywordGenerateResponse,
+  QueryGenerateResponse,
   ProjectUpsertRequest,
   RunDto,
   RunDetailDto,
@@ -1427,8 +1429,8 @@ export class ApiClient {
     )
   }
 
-  async generateQueries(project: string, provider: string, count?: number): Promise<{ queries: string[]; provider: string }> {
-    return this.invoke<{ queries: string[]; provider: string }>(() =>
+  async generateQueries(project: string, provider: string, count?: number): Promise<QueryGenerateResponse> {
+    return this.invoke<QueryGenerateResponse>(() =>
       postApiV1ProjectsByNameQueriesGenerate({
         client: this.heyClient,
         path: { name: project },
@@ -1461,8 +1463,8 @@ export class ApiClient {
     )
   }
 
-  async generateKeywords(project: string, provider: string, count?: number): Promise<{ keywords: string[]; provider: string }> {
-    return this.invoke<{ keywords: string[]; provider: string }>(() =>
+  async generateKeywords(project: string, provider: string, count?: number): Promise<KeywordGenerateResponse> {
+    return this.invoke<KeywordGenerateResponse>(() =>
       postApiV1ProjectsByNameKeywordsGenerate({
         client: this.heyClient,
         path: { name: project },

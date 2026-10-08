@@ -2165,8 +2165,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      // TODO: Add `KeywordGenerateResponse` Zod schema (`{ suggestions: string[] }`) in contracts.
-      200: rawJsonResponse('Legacy keyword suggestions returned.', looseObjectSchema),
+      200: jsonResponse('Legacy keyword suggestions returned.', 'KeywordGenerateResponse'),
       501: errorResponse('Legacy keyword generation is not available.'),
     },
   },

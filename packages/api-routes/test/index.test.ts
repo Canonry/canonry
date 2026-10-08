@@ -6,7 +6,7 @@ import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { and, eq } from 'drizzle-orm'
 import { auditLog, competitors, createClient, migrate, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
-import { projectDefaultLocationResponseSchema, queryGenerateResponseSchema } from '@ainyc/canonry-contracts'
+import { keywordGenerateResponseSchema, projectDefaultLocationResponseSchema, queryGenerateResponseSchema } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
 
@@ -371,6 +371,7 @@ describe('api-routes', () => {
       })
       expect(generatedRes.statusCode).toBe(200)
       expect(generatedRes.json()).toEqual({ keywords: ['ai citation tracking'], provider: 'gemini' })
+      expect(keywordGenerateResponseSchema.parse(generatedRes.json())).toEqual(generatedRes.json())
     } finally {
       await ctx.app.close()
       fs.rmSync(ctx.tmpDir, { recursive: true, force: true })

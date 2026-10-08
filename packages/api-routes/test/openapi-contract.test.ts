@@ -142,7 +142,8 @@ describe('openapi contract', () => {
 
   it('documents the bodies the pages, query-generation and default-location routes send', () => {
     // Each handler's own test pins the body and parses it with the schema named here.
-    const paths = buildOpenApiDocument().paths as Record<string, Record<string, {
+    const doc = buildOpenApiDocument()
+    const paths = doc.paths as Record<string, Record<string, {
       responses: Record<string, { content?: Record<string, { schema?: { $ref?: string } }> }>
     }>>
     const okRef = (path: string, method: string) =>
@@ -151,6 +152,10 @@ describe('openapi contract', () => {
     expect(okRef('/api/v1/projects/{name}/wordpress/pages', 'get')).toBe('#/components/schemas/WordpressPageListDto')
     expect(okRef('/api/v1/projects/{name}/queries/generate', 'post')).toBe('#/components/schemas/QueryGenerateResponse')
     expect(okRef('/api/v1/projects/{name}/locations/default', 'put')).toBe('#/components/schemas/ProjectDefaultLocationResponse')
+    // The legacy alias sends the same suggestions under `keywords`.
+    expect(okRef('/api/v1/projects/{name}/keywords/generate', 'post')).toBe('#/components/schemas/KeywordGenerateResponse')
+    const schemas = doc.components?.schemas as Record<string, { required?: string[] }>
+    expect(schemas.KeywordGenerateResponse?.required).toEqual(['keywords', 'provider'])
   })
 
   it('documents the POST /apply config document in its input form', () => {

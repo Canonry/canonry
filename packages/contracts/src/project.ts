@@ -309,6 +309,13 @@ export const keywordGenerateRequestSchema = queryGenerateRequestSchema
 /** @deprecated Legacy alias kept for the `/keywords/generate` back-compat surface. New code should use {@link QueryGenerateRequest}. */
 export type KeywordGenerateRequest = QueryGenerateRequest
 
+/** The legacy `/keywords/generate` response: the suggestions {@link queryGenerateResponseSchema} sends as `queries`, under `keywords`. */
+export const keywordGenerateResponseSchema = z.object({
+  keywords: z.array(z.string()),
+  provider: z.string(),
+})
+export type KeywordGenerateResponse = z.infer<typeof keywordGenerateResponseSchema>
+
 export const competitorDtoSchema = z.object({
   id: z.string(),
   domain: z.string(),
