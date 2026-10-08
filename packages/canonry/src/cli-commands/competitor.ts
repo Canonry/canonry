@@ -1,11 +1,12 @@
 import { competitorLandscapeQuerySchema } from '@ainyc/canonry-contracts'
-import { addCompetitors, competitorAliases, listCompetitors, removeCompetitors, showCompetitorLandscape } from '../commands/competitor.js'
+import { addCompetitors, competitorAliases, detectCompetitorAutoAliases, listCompetitors, removeCompetitors, showCompetitorLandscape } from '../commands/competitor.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, getStringArray, multiStringOption, requirePositional, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
 
 const ADD_USAGE = 'canonry competitor add <project> <domain...> [--alias <name>]... [--format json]'
-const ALIASES_USAGE = 'canonry competitor aliases <project> <domain> [--set <name>]... [--add <name>]... [--remove <name>]... [--clear] [--format json]'
+const ALIASES_USAGE = 'canonry competitor aliases <project> <domain> [--set <name>]... [--add <name>]... [--remove <name>]... [--clear] [--block <name>]... [--unblock <name>]... [--format json]'
+const DETECT_USAGE = 'canonry competitor aliases detect <project> [--apply] [--format json|jsonl]'
 
 const LANDSCAPE_USAGE = 'canonry competitor landscape <project> [--window 7d|30d|90d|all] [--group-key <key>|--scope all-markets] [--by-model] [--provider <provider> [--model <id>]] [--query-class all|branded|non-brand] [--answers all|not-mentioned] [--location <label>] [--run-id <id>] [--format json|jsonl]'
 
@@ -48,6 +49,20 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    // Longest path wins in dispatch, so `detect` is reserved as the first
+    // positional: a project literally named "detect" reads its aliases with
+    // `competitor list detect`.
+    path: ['competitor', 'aliases', 'detect'],
+    usage: DETECT_USAGE,
+    options: {
+      apply: { type: 'boolean' },
+    },
+    run: async (input) => {
+      const project = requireProject(input, 'competitor.aliases.detect', DETECT_USAGE)
+      await detectCompetitorAutoAliases(project, { apply: getBoolean(input.values, 'apply'), format: input.format })
+    },
+  },
+  {
     path: ['competitor', 'aliases'],
     usage: ALIASES_USAGE,
     options: {
@@ -55,6 +70,8 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
       add: multiStringOption(),
       remove: multiStringOption(),
       clear: { type: 'boolean' },
+      block: multiStringOption(),
+      unblock: multiStringOption(),
     },
     run: async (input) => {
       const project = requireProject(input, 'competitor.aliases', ALIASES_USAGE)
@@ -67,6 +84,15 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const add = getStringArray(input.values, 'add')
       const remove = getStringArray(input.values, 'remove')
       const clear = getBoolean(input.values, 'clear')
+      const block = getStringArray(input.values, 'block')
+      const unblock = getStringArray(input.values, 'unblock')
+      if ((block !== undefined || unblock !== undefined)
+        && (block !== undefined && unblock !== undefined || set !== undefined || clear || add !== undefined || remove !== undefined)) {
+        throw usageError(`Error: --block and --unblock change answer-derived auto-detection only, so they cannot be combined with each other or with curated edits (--set, --add, --remove, --clear)\nUsage: ${ALIASES_USAGE}`, {
+          message: '--block and --unblock cannot be combined with each other or with --set/--add/--remove/--clear',
+          details: { command: 'competitor.aliases', usage: ALIASES_USAGE },
+        })
+      }
       const exclusive = [set !== undefined, clear].filter(Boolean).length
       if (exclusive > 1 || (exclusive === 1 && (add !== undefined || remove !== undefined))) {
         throw usageError(`Error: --set and --clear replace the whole list, so they cannot be combined with each other or with --add/--remove\nUsage: ${ALIASES_USAGE}`, {
@@ -74,7 +100,7 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
           details: { command: 'competitor.aliases', usage: ALIASES_USAGE },
         })
       }
-      await competitorAliases(project, domain, { set, add, remove, clear, format: input.format })
+      await competitorAliases(project, domain, { set, add, remove, clear, block, unblock, format: input.format })
     },
   },
   {

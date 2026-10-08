@@ -3,8 +3,10 @@ import {
   AppError,
   brandKeyFromText,
   COMPETITOR_ALIAS_LIMIT,
+  competitorAutoAliasNames,
   competitorBrandAliases,
   competitorDomainProjectClaim,
+  competitorIdentityAliases,
   competitorEntryParts,
   competitorEntrySchema,
   competitorAliasProjectIdentity,
@@ -15,6 +17,7 @@ import {
   MIN_BRAND_ALIAS_KEY_LENGTH,
   normalizeCompetitorAliases,
   planCompetitorAliases,
+  planCompetitorAutoAliases,
   projectConfigSchema,
   requireCompetitorAliasPlan,
   textContainsAnyBrandAlias,
@@ -760,5 +763,78 @@ describe('competitor entries', () => {
       },
     })
     expect(parsed.spec.competitors).toEqual(['ravenwood.example', { domain: 'spoketuneworks.example', aliases: ['TuneSpoke'] }])
+  })
+})
+
+describe('auto-detected names in the matcher identity', () => {
+  it('merges curated then auto names, drops blocked ones by brand key and lets a curated spelling win', () => {
+    const competitor = {
+      domain: 'spoketuneworks.example',
+      aliases: ['TuneSpoke'],
+      autoAliases: [{ name: 'tunespoke' }, { name: 'Spoke Tune Works Co' }, { name: 'Spoke-Crew' }],
+      blockedAliases: ['spoke crew'],
+    }
+    expect(competitorIdentityAliases(competitor)).toEqual(['TuneSpoke', 'Spoke Tune Works Co'])
+    expect(competitorAutoAliasNames(competitor)).toEqual(['Spoke Tune Works Co'])
+    expect(competitorNameAliases(competitor)).toEqual(['spoketuneworks', 'TuneSpoke', 'Spoke Tune Works Co'])
+    expect(textContainsAnyBrandAlias('Ask Spoke Tune Works Co.', competitorNameAliases(competitor))).toBe(true)
+    expect(textContainsAnyBrandAlias('Ask Spoke Crew.', competitorNameAliases(competitor))).toBe(false)
+  })
+})
+
+describe('planCompetitorAutoAliases', () => {
+  const entry = (domain: string, extra: Partial<Parameters<typeof planCompetitorAutoAliases>[0][number]> = {}) =>
+    ({ domain, aliases: [], autoAliases: [], ...extra })
+
+  it('drops too-short, project-brand and other competitors\' domain names without failing', () => {
+    const plan = planCompetitorAutoAliases([
+      entry('spoketuneworks.example', { candidates: ['Q.V', 'Rotorwise Pros Bikes', 'Rim Doctor Tune', 'TuneSpoke'] }),
+      entry('rimdoctor.example'),
+    ], PROJECT_BRAND)
+    expect(plan.competitors).toEqual([
+      { domain: 'spoketuneworks.example', autoAliases: ['TuneSpoke'] },
+      { domain: 'rimdoctor.example', autoAliases: [] },
+    ])
+    expect(plan.dropped).toEqual([
+      { domain: 'spoketuneworks.example', alias: 'Q.V', reason: 'too-short', stored: false },
+      { domain: 'spoketuneworks.example', alias: 'Rotorwise Pros Bikes', reason: 'project-brand', stored: false, conflictingName: 'Rotorwise' },
+      { domain: 'spoketuneworks.example', alias: 'Rim Doctor Tune', reason: 'other-competitor', stored: false, conflictsWith: 'rimdoctor.example', conflictingName: 'rimdoctor' },
+    ])
+  })
+
+  it('drops both new candidates that overlap across competitors, whatever the entry order', () => {
+    for (const entries of [
+      [entry('spoketuneworks.example', { candidates: ['Tune Hub'] }), entry('rimdoctor.example', { candidates: ['Tune Hub Rims'] })],
+      [entry('rimdoctor.example', { candidates: ['Tune Hub Rims'] }), entry('spoketuneworks.example', { candidates: ['Tune Hub'] })],
+    ]) {
+      const plan = planCompetitorAutoAliases(entries, NO_PROJECT)
+      expect(plan.competitors.flatMap(competitor => competitor.autoAliases)).toEqual([])
+      expect(plan.dropped.map(drop => [drop.domain, drop.alias, drop.reason]).sort()).toEqual([
+        ['rimdoctor.example', 'Tune Hub Rims', 'other-competitor'],
+        ['spoketuneworks.example', 'Tune Hub', 'other-competitor'],
+      ])
+    }
+  })
+
+  it('keeps a stored name over a new one it overlaps, and a candidate the stored set already covers is redundant', () => {
+    const plan = planCompetitorAutoAliases([
+      entry('spoketuneworks.example', { autoAliases: ['Tune Hub'], candidates: ['Tune Hub Springfield'] }),
+      entry('rimdoctor.example', { candidates: ['Tune Hub Rims'] }),
+    ], NO_PROJECT)
+    expect(plan.competitors).toEqual([
+      { domain: 'spoketuneworks.example', autoAliases: ['Tune Hub'] },
+      { domain: 'rimdoctor.example', autoAliases: [] },
+    ])
+    expect(plan.dropped).toEqual([
+      { domain: 'spoketuneworks.example', alias: 'Tune Hub Springfield', reason: 'already-matched', stored: false },
+      { domain: 'rimdoctor.example', alias: 'Tune Hub Rims', reason: 'other-competitor', stored: false, conflictsWith: 'spoketuneworks.example', conflictingName: 'Tune Hub' },
+    ])
+  })
+
+  it('keeps at most the alias limit, stored names first', () => {
+    const stored = Array.from({ length: COMPETITOR_ALIAS_LIMIT }, (_, i) => `Spoke Tune ${String.fromCharCode(65 + i)}x`)
+    const plan = planCompetitorAutoAliases([entry('spoketuneworks.example', { autoAliases: stored, candidates: ['Wheel Wizards'] })], NO_PROJECT)
+    expect(plan.competitors[0]!.autoAliases).toEqual(stored)
+    expect(plan.dropped).toEqual([{ domain: 'spoketuneworks.example', alias: 'Wheel Wizards', reason: 'over-limit', stored: false }])
   })
 })

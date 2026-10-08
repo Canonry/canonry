@@ -76,7 +76,7 @@ describe('competitor alias CLI', () => {
       competitor: { domain: 'spoketuneworks.example', aliases: ['TuneSpoke', 'Tune Spoke'] },
     })
     // `competitor` is the API's CompetitorDto, the same shape `competitor list` returns.
-    expect(Object.keys(body.competitor).sort()).toEqual(['aliases', 'createdAt', 'domain', 'id'])
+    expect(Object.keys(body.competitor).sort()).toEqual(['aliases', 'autoAliases', 'blockedAliases', 'createdAt', 'domain', 'id'])
     expect((await client.listCompetitors('rotorwise')).map(c => c.aliases)).toEqual([['TuneSpoke', 'Tune Spoke']])
   })
 
@@ -99,7 +99,7 @@ describe('competitor alias CLI', () => {
     const set = await invokeCli(['competitor', 'aliases', 'rotorwise', 'qvx.example', '--set', 'QVX', '--set', 'QVX Stores', '--format', 'json'])
     expect(set.exitCode).toBeUndefined()
     const setBody = JSON.parse(set.stdout) as { id: string; domain: string; aliases: string[]; createdAt: string }
-    expect(Object.keys(setBody).sort()).toEqual(['aliases', 'createdAt', 'domain', 'id'])
+    expect(Object.keys(setBody).sort()).toEqual(['aliases', 'autoAliases', 'blockedAliases', 'createdAt', 'domain', 'id'])
     expect(setBody.aliases).toEqual(['QVX', 'QVX Stores'])
 
     const edited = await invokeCli(['competitor', 'aliases', 'rotorwise', 'shop.qvx.example', '--add', 'Quiet Vox Supply', '--remove', 'qvx stores', '--format', 'json'])
@@ -114,14 +114,18 @@ describe('competitor alias CLI', () => {
     await client.setCompetitorAliases('rotorwise', 'qvx.example', ['QVX', 'Quiet Vox Supply'])
 
     const text = await invokeCli(['competitor', 'aliases', 'rotorwise', 'qvx.example'])
-    expect(text.stdout).toBe('Aliases for qvx.example: QVX, Quiet Vox Supply')
+    expect(text.stdout).toBe([
+      'Aliases for qvx.example: QVX, Quiet Vox Supply',
+      'Auto-detected from stored answers: (none)',
+      'Blocked from auto-detection: (none)',
+    ].join('\n'))
 
     const list = await invokeCli(['competitor', 'list', 'rotorwise'])
     expect(list.stdout).toContain('  qvx.example  (aliases: QVX, Quiet Vox Supply)')
 
     const cleared = await invokeCli(['competitor', 'aliases', 'rotorwise', 'qvx.example', '--clear', '--format', 'json'])
     expect(JSON.parse(cleared.stdout).aliases).toEqual([])
-    expect((await invokeCli(['competitor', 'aliases', 'rotorwise', 'qvx.example'])).stdout).toBe('Aliases for qvx.example: (none)')
+    expect((await invokeCli(['competitor', 'aliases', 'rotorwise', 'qvx.example'])).stdout.split('\n')[0]).toBe('Aliases for qvx.example: (none)')
   })
 
   it('surfaces the server validation error and exits 1', async () => {
@@ -149,7 +153,7 @@ describe('competitor alias CLI', () => {
     expect(added.exitCode, added.stderr).toBeUndefined()
     expect(JSON.parse(added.stdout)).toMatchObject({ domain: 'offers.spoketuneworks.example', aliases: ['TuneSpoke'] })
     expect((await invokeCli(['competitor', 'aliases', 'rotorwise', 'spoketuneworks.example'])).stdout)
-      .toBe('Aliases for offers.spoketuneworks.example: TuneSpoke')
+      .toContain('Aliases for offers.spoketuneworks.example: TuneSpoke\n')
 
     const removed = await invokeCli(['competitor', 'remove', 'rotorwise', 'spoketuneworks.example', '--format', 'json'])
     expect(removed.exitCode, removed.stderr).toBeUndefined()
@@ -195,7 +199,9 @@ describe('competitor alias CLI', () => {
     const result = await invokeCli(['competitor', 'aliases', '--help'])
     expect(result.exitCode).toBeUndefined()
     expect(result.stderr).toBe('')
-    expect(result.stdout).toContain('canonry competitor aliases <project> <domain> [--set <name>]... [--add <name>]... [--remove <name>]... [--clear] [--format json]')
+    expect(result.stdout).toContain('canonry competitor aliases <project> <domain> [--set <name>]... [--add <name>]... [--remove <name>]... [--clear] [--block <name>]... [--unblock <name>]... [--format json]')
+    const detect = await invokeCli(['competitor', 'aliases', 'detect', '--help'])
+    expect(detect.stdout).toContain('canonry competitor aliases detect <project> [--apply] [--format json|jsonl]')
     const add = await invokeCli(['competitor', 'add', '--help'])
     expect(add.stdout).toContain('canonry competitor add <project> <domain...> [--alias <name>]... [--format json]')
   })

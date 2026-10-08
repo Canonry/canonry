@@ -251,6 +251,7 @@ import type {
   RecommendationBriefDto,
   WinnabilityClass,
   CompetitorDto,
+  CompetitorAutoAliasDetectionDto,
   CompetitorEntry,
   KeywordDto,
   QueryDto,
@@ -337,6 +338,10 @@ import {
   getApiV1ProjectsByNameCompetitors,
   postApiV1ProjectsByNameCompetitors,
   putApiV1ProjectsByNameCompetitorsByDomainAliases,
+  getApiV1ProjectsByNameCompetitorAutoAliases,
+  postApiV1ProjectsByNameCompetitorAutoAliases,
+  postApiV1ProjectsByNameCompetitorsByDomainAliasesBlock,
+  postApiV1ProjectsByNameCompetitorsByDomainAliasesUnblock,
   deleteApiV1ProjectsByNameCompetitors,
   // Runs / timeline / history / snapshots
   getApiV1ProjectsByNameRuns,
@@ -1486,6 +1491,42 @@ export class ApiClient {
   async setCompetitorAliases(project: string, domain: string, aliases: string[]): Promise<CompetitorDto> {
     return this.invoke<CompetitorDto>(() =>
       putApiV1ProjectsByNameCompetitorsByDomainAliases({
+        client: this.heyClient,
+        path: { name: project, domain },
+        body: { aliases },
+      }),
+    )
+  }
+
+  /** Dry run of answer-derived competitor alias detection over stored answers. Writes nothing. */
+  async previewCompetitorAutoAliases(project: string): Promise<CompetitorAutoAliasDetectionDto> {
+    return this.invoke<CompetitorAutoAliasDetectionDto>(() =>
+      getApiV1ProjectsByNameCompetitorAutoAliases({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  /** Run answer-derived competitor alias detection now and store the result. */
+  async applyCompetitorAutoAliases(project: string): Promise<CompetitorAutoAliasDetectionDto> {
+    return this.invoke<CompetitorAutoAliasDetectionDto>(() =>
+      postApiV1ProjectsByNameCompetitorAutoAliases({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  /** Block names from auto-detection for one competitor (a stored auto name among them is removed). */
+  async blockCompetitorAliases(project: string, domain: string, aliases: string[]): Promise<CompetitorDto> {
+    return this.invoke<CompetitorDto>(() =>
+      postApiV1ProjectsByNameCompetitorsByDomainAliasesBlock({
+        client: this.heyClient,
+        path: { name: project, domain },
+        body: { aliases },
+      }),
+    )
+  }
+
+  /** Release blocked names back to auto-detection for one competitor. */
+  async unblockCompetitorAliases(project: string, domain: string, aliases: string[]): Promise<CompetitorDto> {
+    return this.invoke<CompetitorDto>(() =>
+      postApiV1ProjectsByNameCompetitorsByDomainAliasesUnblock({
         client: this.heyClient,
         path: { name: project, domain },
         body: { aliases },

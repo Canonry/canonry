@@ -19,6 +19,7 @@ import type { ProjectRoutesOptions } from './projects.js'
 import { queryRoutes } from './queries.js'
 import type { QueryRoutesOptions } from './queries.js'
 import { competitorRoutes, type CompetitorRoutesOptions } from './competitors.js'
+import type { AppliedCompetitorAutoAliases, CompetitorAnswerAnchorReader } from './competitor-auto-aliases.js'
 import { competitorLandscapeRoutes } from './competitor-landscape.js'
 import { runRoutes } from './runs.js'
 import type { RunRoutesOptions } from './runs.js'
@@ -237,6 +238,28 @@ export interface ApiRoutesOptions {
    * project's own `answer_mentioned`.
    */
   onCompetitorAliasesChanged?: (projectId: string, projectName: string) => void
+  /**
+   * Callback asking for an answer-derived competitor alias detection pass
+   * off the request path: a competitor was added by any surface (REST,
+   * apply, discovery promote), a name was unblocked, or a market pin write
+   * changed the pins. The local server queues it, and the project's
+   * `competitorAutoAliases` mode decides what the pass does (`apply` stores,
+   * `preview` logs only, `off` skips). Without it, detection still runs on
+   * `POST /competitor-auto-aliases`, which stores in every mode.
+   */
+  onCompetitorAutoAliasRescan?: (projectId: string, projectName: string) => void
+  /**
+   * Reads one stored snapshot's provider citation structure for competitor
+   * auto-alias detection (packages/canonry `extractStoredAnswerAnchors`).
+   * api-routes has no provider dependency, so the host injects it.
+   */
+  competitorAnswerAnchors?: CompetitorAnswerAnchorReader
+  /**
+   * Runs one competitor auto-alias detection pass through the host's
+   * per-project queue (`POST /competitor-auto-aliases` awaits it), so an
+   * apply-now never races the post-run pass. See `CompetitorRoutesOptions`.
+   */
+  runCompetitorAutoAliasPass?: (projectId: string) => Promise<AppliedCompetitorAutoAliases | null>
   /** Callback to generate a one-shot AI perception snapshot */
   onSnapshotRequested?: SnapshotRoutesOptions['onSnapshotRequested']
   /** Callback to generate query suggestions using an LLM provider */
@@ -573,6 +596,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     } satisfies QueryRoutesOptions)
     await api.register(competitorRoutes, {
       onCompetitorAliasesChanged: opts.onCompetitorAliasesChanged,
+      onCompetitorAutoAliasRescan: opts.onCompetitorAutoAliasRescan,
+      competitorAnswerAnchors: opts.competitorAnswerAnchors,
+      runCompetitorAutoAliasPass: opts.runCompetitorAutoAliasPass,
     } satisfies CompetitorRoutesOptions)
     await api.register(competitorLandscapeRoutes)
     await api.register(runRoutes, {
@@ -587,6 +613,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     } satisfies RunRoutesOptions)
     await api.register(measurementPlanRoutes, {
       getRunnableProviderNames: opts.getRunnableProviderNames,
+      onCompetitorAliasesChanged: opts.onCompetitorAliasesChanged,
+      onCompetitorAutoAliasRescan: opts.onCompetitorAutoAliasRescan,
     } satisfies MeasurementPlanRoutesOptions)
     await api.register(measurementServiceRoutes, {
       fetchSitemap: opts.fetchMeasurementSitemap,
@@ -595,6 +623,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     // handlers never have to touch this file or `openapi.ts`.
     await api.register(measurementDraftRoutes, {
       getRunnableProviderNames: opts.getRunnableProviderNames,
+      onCompetitorAliasesChanged: opts.onCompetitorAliasesChanged,
+      onCompetitorAutoAliasRescan: opts.onCompetitorAutoAliasRescan,
     } satisfies MeasurementDraftRoutesOptions)
     await api.register(measurementDiscoveryV2Routes)
     await api.register(measurementOverviewRoutes, { cache: opts.measurementOverviewCache })
@@ -612,6 +642,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onProjectCreated: opts.onProjectCreated,
       onAliasesChanged: opts.onAliasesChanged,
       onCompetitorAliasesChanged: opts.onCompetitorAliasesChanged,
+      onCompetitorAutoAliasRescan: opts.onCompetitorAutoAliasRescan,
       providerAdapters: opts.providerAdapters,
       allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
       onGoogleConnectionPropertyUpdated: (domain, connectionType, propertyId) => {
@@ -770,6 +801,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       harvestSearchQueries: opts.harvestSearchQueries,
       embedQueries: opts.embedQueries,
       onCompetitorAliasesChanged: opts.onCompetitorAliasesChanged,
+      onCompetitorAutoAliasRescan: opts.onCompetitorAutoAliasRescan,
     } satisfies DiscoveryRoutesOptions)
     await api.register(researchRoutes, {
       getCachedProviderModels: opts.getCachedProviderModels,
@@ -827,7 +859,23 @@ export { hasActiveMeasurementPlan, queueRunIfProjectIdle } from './run-queue.js'
 export { evaluateRunFill, formatRunFill, newerFullSweep, queueRunFill, readRunCompleteness } from './run-fill.js'
 export { formatProviderBatchSummary, hasOutstandingProviderBatch, readRunProviderBatches, runHadProviderBatch } from './provider-batches.js'
 export { createRunCompetitorResolver, measurementPlanCompetitorDomains, measurementPlanCompetitors, type PlanCompetitor, type RunCompetitors } from './plan-competitors.js'
-export { backfillProjectAnswerMentions, type ProjectAnswerMentionsBackfillResult } from './snapshot-competitor-refresh.js'
+export {
+  applyCompetitorAutoAliases,
+  previewCompetitorAutoAliases,
+  scanCompetitorAutoAliasEvidence,
+  type AppliedCompetitorAutoAliases,
+  type CompetitorAnswerAnchorReader,
+} from './competitor-auto-aliases.js'
+export { competitorIdentityColumns } from './competitor-writes.js'
+export { answerIdentityChanged, answerIdentityFrom, readAnswerIdentity, type AnswerIdentity, type AnswerIdentityFingerprint } from './answer-identity.js'
+export { readMarketCompetitorNames } from './market-competitor-names.js'
+export { createProjectPassQueue, type ProjectPassQueue } from './project-pass-queue.js'
+export {
+  backfillProjectAnswerMentions,
+  backfillProjectAnswerMentionsInChunks,
+  type ProjectAnswerMentionsBackfillOptions,
+  type ProjectAnswerMentionsBackfillResult,
+} from './snapshot-competitor-refresh.js'
 export { captureSimpleMeasurementDefinition } from './simple-measurement-definitions.js'
 export { ensureCurrentQueryBasketRevision, latestQueryBasketRevision } from './query-basket.js'
 export { nextRunFromCron, nextRunFromRecurrence, nextRunFromSchedule } from './schedule-utils.js'

@@ -188,6 +188,10 @@ const expectedToolNames = [
   'canonry_keywords_remove',
   'canonry_competitors_add',
   'canonry_competitors_aliases_set',
+  'canonry_competitors_auto_aliases_detect',
+  'canonry_competitors_auto_aliases_apply',
+  'canonry_competitors_aliases_block',
+  'canonry_competitors_aliases_unblock',
   'canonry_competitors_remove',
   'canonry_schedule_set',
   'canonry_schedule_delete',
@@ -355,6 +359,37 @@ describe('MCP tool registry', () => {
     expect(schemaProperty(applySpec, 'siteAuditMaxPages')).toEqual(budgetSchema)
     expect(applySpec.required ?? []).not.toContain('siteAuditMaxPages')
     expect(apply.description).toContain('An omitted siteAuditMaxPages keeps the stored Site Health page budget (null means the full site).')
+  })
+
+  it('carries competitorAutoAliases on project upsert and apply as an optional off|preview|apply mode that an omission keeps', () => {
+    const modeSchema = { type: 'string', enum: ['off', 'preview', 'apply'] }
+    const request = { displayName: 'Acme', canonicalDomain: 'acme.example', country: 'US', language: 'en' }
+
+    const upsert = canonryMcpTools.find(candidate => candidate.name === 'canonry_project_upsert')!
+    expect(upsert.inputSchema.parse({ project: 'acme', request: { ...request, competitorAutoAliases: 'apply' } }).request.competitorAutoAliases).toBe('apply')
+    // Omitted must stay omitted: a schema default here would reset the stored mode on every upsert.
+    expect(upsert.inputSchema.parse({ project: 'acme', request }).request).not.toHaveProperty('competitorAutoAliases')
+    expect(upsert.inputSchema.safeParse({ project: 'acme', request: { ...request, competitorAutoAliases: 'auto' } }).success).toBe(false)
+    const upsertRequest = schemaProperty(inputSchemaFor('canonry_project_upsert'), 'request')
+    expect(schemaProperty(upsertRequest, 'competitorAutoAliases')).toMatchObject(modeSchema)
+    expect(schemaProperty(upsertRequest, 'competitorAutoAliases').description).toContain('Omit to keep the stored mode')
+    expect(upsertRequest.required ?? []).not.toContain('competitorAutoAliases')
+    expect(upsert.description).toContain('An omitted competitorAutoAliases keeps the stored answer-derived competitor alias mode')
+
+    const apply = canonryMcpTools.find(candidate => candidate.name === 'canonry_apply_config')!
+    const config = { apiVersion: 'canonry/v1', kind: 'Project', metadata: { name: 'acme' }, spec: request }
+    expect(apply.inputSchema.parse({ config: { ...config, spec: { ...request, competitorAutoAliases: 'off' } } }).config.spec.competitorAutoAliases).toBe('off')
+    expect(apply.inputSchema.parse({ config }).config.spec).not.toHaveProperty('competitorAutoAliases')
+    const applySpec = schemaProperty(schemaProperty(inputSchemaFor('canonry_apply_config'), 'config'), 'spec')
+    expect(schemaProperty(applySpec, 'competitorAutoAliases')).toMatchObject(modeSchema)
+    expect(schemaProperty(applySpec, 'competitorAutoAliases').description).toContain('Omit to keep the stored mode')
+    expect(apply.description).toContain('An omitted competitorAutoAliases keeps the stored answer-derived competitor alias mode (off, preview or apply).')
+
+    // The apply-now tool stores in every mode; the dry run says what the unattended pass does per mode.
+    expect(canonryMcpTools.find(candidate => candidate.name === 'canonry_competitors_auto_aliases_apply')!.description)
+      .toContain('whatever the project\'s competitorAutoAliases mode')
+    expect(canonryMcpTools.find(candidate => candidate.name === 'canonry_competitors_auto_aliases_detect')!.description)
+      .toContain('`apply` stores its result, `preview` (the default) only logs it, `off` skips it')
   })
 
   it('tells agents each visibility population carries its change since the previous sweep', () => {
@@ -721,7 +756,7 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(canonryMcpTools.filter(tool => tool.access === 'read')).toHaveLength(163)
+    expect(canonryMcpTools.filter(tool => tool.access === 'read')).toHaveLength(164)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -759,7 +794,7 @@ describe('MCP tool registry', () => {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
     expect(counts.get('monitoring')).toBe(61)
-    expect(counts.get('setup')).toBe(61)
+    expect(counts.get('setup')).toBe(65)
     expect(counts.get('gsc')).toBe(11)
     expect(counts.get('ga')).toBe(11)
     expect(counts.get('gbp')).toBe(14)
@@ -1073,6 +1108,9 @@ describe('MCP tool registry', () => {
     expect(annotations.canonry_competitors_add).toMatchObject({ idempotentHint: true, destructiveHint: false })
     expect(annotations.canonry_competitors_remove).toMatchObject({ idempotentHint: true, destructiveHint: true })
     expect(annotations.canonry_competitors_aliases_set).toMatchObject({ readOnlyHint: false, idempotentHint: true, destructiveHint: false })
+    expect(annotations.canonry_competitors_auto_aliases_apply).toMatchObject({ readOnlyHint: false, idempotentHint: true, destructiveHint: false })
+    expect(annotations.canonry_competitors_aliases_block).toMatchObject({ readOnlyHint: false, idempotentHint: true, destructiveHint: false })
+    expect(annotations.canonry_competitors_aliases_unblock).toMatchObject({ readOnlyHint: false, idempotentHint: true, destructiveHint: false })
     expect(annotations.canonry_schedule_set).toMatchObject({ idempotentHint: true, destructiveHint: false })
     expect(annotations.canonry_schedule_delete).toMatchObject({ idempotentHint: false, destructiveHint: true })
     expect(annotations.canonry_insight_dismiss).toMatchObject({ idempotentHint: true, destructiveHint: false })

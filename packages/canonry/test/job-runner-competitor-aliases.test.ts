@@ -17,7 +17,7 @@ import {
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 import { resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'
-import { backfillProjectAnswerMentions } from '../src/commands/backfill.js'
+import { backfillProjectAnswerMentions, backfillProjectAnswerMentionsInChunks } from '../src/commands/backfill.js'
 import { fakeAdapter, type RecordedCall } from './fake-measurement-provider.js'
 
 // Curated competitor aliases reach the values a planless sweep freezes: the
@@ -98,6 +98,29 @@ test('freezes curated aliases into the Simple definition and scores the planless
       { domain: 'spoketuneworks.example', label: 'spoketuneworks', aliases: ['spoketuneworks', 'TuneSpoke'] },
     ])
 
+    const snapshot = db.select().from(querySnapshots).where(eq(querySnapshots.runId, runId)).get()!
+    expect(snapshot.competitorOverlap).toEqual(['spoketuneworks.example'])
+    expect(snapshot.recommendedCompetitors).toEqual(['TuneSpoke'])
+  } finally {
+    db.$client.close()
+  }
+})
+
+test('freezes auto-detected names (minus blocked ones) after curated aliases, and scores with them', async () => {
+  const db = buildDb()
+  try {
+    const { projectId, runId } = seed(db, [])
+    const evidence = { directPairs: 3, cooccurrences: 3, namingAnswers: 3, precision: 1, runs: 2, firstSeen: NOW, lastSeen: NOW, addedAt: NOW }
+    db.update(competitors).set({
+      autoAliases: [{ name: 'TuneSpoke', ...evidence }, { name: 'Spoke Crew', ...evidence }],
+      blockedAliases: ['spoke crew'],
+    }).where(eq(competitors.projectId, projectId)).run()
+    await new JobRunner(db, registry([])).executeRun(runId, projectId)
+
+    expect(db.select().from(simpleMeasurementDefinitions)
+      .where(eq(simpleMeasurementDefinitions.runId, runId)).get()!.definition.competitors).toEqual([
+      { domain: 'spoketuneworks.example', label: 'spoketuneworks', aliases: ['spoketuneworks', 'TuneSpoke'] },
+    ])
     const snapshot = db.select().from(querySnapshots).where(eq(querySnapshots.runId, runId)).get()!
     expect(snapshot.competitorOverlap).toEqual(['spoketuneworks.example'])
     expect(snapshot.recommendedCompetitors).toEqual(['TuneSpoke'])
@@ -209,6 +232,85 @@ test('the competitor-only backfill leaves answer_mentioned alone and skips snaps
     // identity no longer matches) and the legacy row's competitor columns are
     // recomputed from no text. The legacy mention itself stays stored.
     expect(backfillProjectAnswerMentions(db, projectId, { dryRun: true })).toEqual({ examined: 2, updated: 0, wouldUpdate: 2, mentioned: 1 })
+  } finally {
+    db.$client.close()
+  }
+})
+
+test('the chunked competitor-fields recompute writes what the one-pass recompute writes, pausing between chunks', async () => {
+  const db = buildDb()
+  try {
+    const { projectId, runId } = seed(db, [])
+    await new JobRunner(db, registry([])).executeRun(runId, projectId)
+    const sweep = db.select().from(querySnapshots).where(eq(querySnapshots.runId, runId)).get()!
+    // A second, larger sweep of the same answer: 250 rows are five chunks.
+    const bigRun = crypto.randomUUID()
+    db.insert(runs).values({ id: bigRun, projectId, kind: RunKinds['answer-visibility'], status: RunStatuses.completed, trigger: RunTriggers.scheduled, createdAt: NOW }).run()
+    db.transaction((tx) => {
+      for (let index = 0; index < 250; index++) {
+        tx.insert(querySnapshots).values({
+          id: `big-${String(index).padStart(3, '0')}`, runId: bigRun, queryId: sweep.queryId, provider: 'openai', citationState: 'not-cited',
+          answerMentioned: true, answerText: ANSWER, citedDomains: [], competitorOverlap: [], recommendedCompetitors: [], createdAt: NOW,
+        }).run()
+      }
+    })
+    db.update(competitors).set({ aliases: ['TuneSpoke'] }).where(eq(competitors.projectId, projectId)).run()
+
+    expect(backfillProjectAnswerMentions(db, projectId, { competitorFieldsOnly: true, dryRun: true }))
+      .toEqual({ examined: 251, updated: 0, wouldUpdate: 251, mentioned: 251 })
+    let pauses = 0
+    const result = await backfillProjectAnswerMentionsInChunks(db, projectId, { competitorFieldsOnly: true, pause: async () => { pauses++ } })
+    expect(result).toEqual({ examined: 251, updated: 251, mentioned: 251 })
+    // Six chunks: the 1-row sweep, then five of 50 rows from the larger one.
+    expect(pauses).toBe(5)
+    const rows = db.select().from(querySnapshots).where(eq(querySnapshots.runId, bigRun)).all()
+    expect(new Set(rows.map(row => JSON.stringify([row.competitorOverlap, row.recommendedCompetitors])))).toEqual(new Set([JSON.stringify([['spoketuneworks.example'], ['TuneSpoke']])]))
+    expect(backfillProjectAnswerMentions(db, projectId, { competitorFieldsOnly: true })).toEqual({ examined: 251, updated: 0, mentioned: 251 })
+  } finally {
+    db.$client.close()
+  }
+})
+
+test('a chunked competitor-fields pass never writes from an identity a newer project alias change replaced', async () => {
+  const db = buildDb()
+  try {
+    const { projectId, runId } = seed(db, ['TuneSpoke'])
+    db.update(runs).set({ status: RunStatuses.completed }).where(eq(runs.id, runId)).run()
+    const queryId = db.select({ id: queries.id }).from(queries).where(eq(queries.projectId, projectId)).get()!.id
+    // "Rotor Crew" is laid out and its site is cited, so it reads as a
+    // recommended competitor until the project claims the name.
+    const answer = 'Top picks for bike repair:\n- **TuneSpoke**: fast quotes.\n- **Rotor Crew**: same-day service.'
+    db.transaction((tx) => {
+      for (let index = 0; index < 150; index++) {
+        tx.insert(querySnapshots).values({
+          id: `row-${String(index).padStart(3, '0')}`, runId, queryId, provider: 'openai', citationState: 'not-cited',
+          answerMentioned: false, answerText: answer, citedDomains: ['rotorcrew.example'], competitorOverlap: [], recommendedCompetitors: [], createdAt: NOW,
+        }).run()
+      }
+    })
+
+    // The older pass (a competitor names change) yields after its first
+    // chunk; meanwhile the project takes "Rotor Crew" as its own name and the
+    // newer project-alias refresh runs to the end, as the server's hook does.
+    let pauses = 0
+    const older = await backfillProjectAnswerMentionsInChunks(db, projectId, {
+      competitorFieldsOnly: true,
+      pause: async () => {
+        if (pauses++ > 0) return
+        db.update(projects).set({ aliases: ['Rotor Crew'] }).where(eq(projects.id, projectId)).run()
+        backfillProjectAnswerMentions(db, projectId)
+      },
+    })
+
+    const rows = db.select().from(querySnapshots).where(eq(querySnapshots.runId, runId)).all()
+    expect(rows).toHaveLength(150)
+    // Every row reads the newer identity: the project's own name is never a
+    // recommended competitor, and the newer pass's mention stands.
+    expect(new Set(rows.map(row => JSON.stringify([row.recommendedCompetitors, row.answerMentioned]))))
+      .toEqual(new Set([JSON.stringify([['TuneSpoke'], true])]))
+    // The older pass started over under the newer identity and finished it.
+    expect(older).toMatchObject({ examined: 150, restarts: 1 })
+    expect(backfillProjectAnswerMentions(db, projectId)).toEqual({ examined: 150, updated: 0, mentioned: 150 })
   } finally {
     db.$client.close()
   }

@@ -1,4 +1,4 @@
-import type { ProjectDto, ProviderDispatchModesMap } from '@ainyc/canonry-contracts'
+import type { CompetitorAutoAliasMode, ProjectDto, ProviderDispatchModesMap } from '@ainyc/canonry-contracts'
 import { effectiveDomains, normalizeProjectAliases, resolveNegativeReviewMaxStars, formatSiteAuditPageBudget, resolveProjectQualifiedAliases } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat, usageError } from '../cli-error.js'
@@ -139,11 +139,21 @@ export async function showProject(name: string, format?: string): Promise<void> 
   if (project.siteAuditMaxPages !== undefined) {
     console.log(`  Site Health page budget: ${formatSiteAuditPageBudget(project.siteAuditMaxPages)}`)
   }
+  // Absent only from a server that predates the setting.
+  if (project.competitorAutoAliases !== undefined) {
+    console.log(`  Competitor auto aliases: ${formatCompetitorAutoAliasMode(project.competitorAutoAliases)}`)
+  }
   console.log(`  Tags:             ${project.tags.length > 0 ? project.tags.join(', ') : '(none)'}`)
   const labelEntries = Object.entries(project.labels)
   console.log(`  Labels:           ${labelEntries.length > 0 ? labelEntries.map(([k, v]) => `${k}=${v}`).join(', ') : '(none)'}`)
   if (project.createdAt) console.log(`  Created:          ${project.createdAt}`)
   if (project.updatedAt) console.log(`  Updated:          ${project.updatedAt}`)
+}
+
+function formatCompetitorAutoAliasMode(mode: CompetitorAutoAliasMode): string {
+  if (mode === 'apply') return 'apply (names detected after each sweep are stored and counted)'
+  if (mode === 'off') return 'off (no detection after sweeps)'
+  return 'preview (detected after each sweep and logged; nothing stored)'
 }
 
 export async function updateProjectSettings(
@@ -170,6 +180,8 @@ export async function updateProjectSettings(
     negativeReviewMaxStars?: number | null
     /** 1-50,000 sets the Site Health page budget, null means the full site, undefined leaves it. */
     siteAuditMaxPages?: number | null
+    /** Sets the answer-derived competitor alias detection mode; undefined leaves it. */
+    competitorAutoAliases?: CompetitorAutoAliasMode
     format?: string
   },
 ): Promise<void> {
@@ -276,6 +288,8 @@ export async function updateProjectSettings(
     // Same for the page budget: never echoed from the read above, so an edit
     // that does not touch it cannot overwrite a newer one or send a stray null.
     ...(opts.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: opts.siteAuditMaxPages } : {}),
+    // Same for the detection mode.
+    ...(opts.competitorAutoAliases !== undefined ? { competitorAutoAliases: opts.competitorAutoAliases } : {}),
   })
 
   // What the server was left holding: the map sent, else the stored one.

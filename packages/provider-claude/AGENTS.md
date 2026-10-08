@@ -25,6 +25,8 @@ All provider packages follow the same 4-file structure and implement the same `P
 - **`normalizeResult(raw)`** — convert provider-specific response to standard `NormalizedQueryResult`
 - **`generateText(config, prompt)`** — general-purpose text generation
 
+- **Answer anchors for competitor auto-aliases.** `extractAnchoredSpans` (`src/anchored-spans.ts`) pairs each `web_search_result_location` citation URL with its cited text block plus the last line of the uncited block before it (where `**Name** -` usually sits). `cited_text` and `title` are the source page's words and are never read. Stored data only.
+
 ## Retrieval contract
 
 Each tracked query records `retrievalContract`. `claudeRetrievalContractForModel(model)` in `src/normalize.ts` picks it, and `tool_choice` comes from the contract, so the stored contract always describes the request that was sent. Models in `CLAUDE_MODELS_REJECTING_FORCED_TOOL_CHOICE` return 400 for a forced `tool_choice`, so they run `native-auto-v1` (`tool_choice: auto`). Every other model runs `search-required-v1` (forced `web_search`). Details: `docs/providers/claude.md` → "Retrieval contract".

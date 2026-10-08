@@ -4522,6 +4522,44 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_runs_project_kind_created ON runs(project_id, kind, created_at)`,
     ],
   },
+  {
+    // Competitor names detected from the project's stored answers (with their
+    // evidence) and the names an operator blocked from that detection. Both
+    // defaulted, so every competitor stored before reads as having none, and
+    // an older writer that omits the columns still inserts.
+    // `projects.competitor_auto_aliases` is the per-project detection mode;
+    // every existing and new project starts in `preview` (detect and log,
+    // store nothing) until an operator opts it into `apply`.
+    // `projects.answer_fields_recompute` marks a recompute of the stored
+    // answer fields that is owed (null: none), so a restart can resume it.
+    version: 171,
+    name: 'competitors-auto-aliases',
+    statements: [
+      `ALTER TABLE competitors ADD COLUMN auto_aliases TEXT NOT NULL DEFAULT '[]'`,
+      `ALTER TABLE competitors ADD COLUMN blocked_aliases TEXT NOT NULL DEFAULT '[]'`,
+      `ALTER TABLE projects ADD COLUMN competitor_auto_aliases TEXT NOT NULL DEFAULT 'preview'`,
+      `ALTER TABLE projects ADD COLUMN answer_fields_recompute TEXT`,
+    ],
+  },
+  {
+    // Answer-derived names of competitors an Advanced market pins without a
+    // project competitors row. A new table: no existing row changes, and an
+    // older build simply never reads it.
+    version: 172,
+    name: 'market-competitor-names',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS market_competitor_names (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        domain TEXT NOT NULL,
+        auto_aliases TEXT NOT NULL DEFAULT '[]',
+        blocked_aliases TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_market_competitor_names_project_domain ON market_competitor_names(project_id, domain)`,
+    ],
+  },
 ]
 
 /**

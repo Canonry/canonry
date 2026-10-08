@@ -26,6 +26,8 @@ All provider packages follow the same 4-file structure and implement the same `P
 
 The adapter object in `adapter.ts` wires these functions together with metadata (`name`, `displayName`, `mode`, `keyUrl`).
 
+- **Answer anchors for competitor auto-aliases.** `extractAnchoredSpans` (`src/anchored-spans.ts`) pairs each grounding support's `segment.text` with the site of every chunk it cites: `web.title` (the source domain), since `web.uri` is a Vertex redirect that is never resolved. Segment offsets are UTF-8 bytes and `startIndex` is omitted when 0, so they are never used to slice. Stored data only.
+
 ## Common Mistakes
 
 - **Not normalizing grounding sources to standard `CitedSource` format** — each provider returns different shapes. Normalization must extract domain, URL, and title consistently.

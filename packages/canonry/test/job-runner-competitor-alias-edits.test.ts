@@ -353,3 +353,48 @@ describe('a competitor alias saved while answers are being recorded', () => {
     expect(competitorColumns(db, earlierRunId)).toEqual([STALE])
   })
 })
+
+describe('any other identity change while answers are being recorded', () => {
+  const mentioned = (db: DatabaseClient, runId: string) => db.select({ answerMentioned: querySnapshots.answerMentioned })
+    .from(querySnapshots).where(eq(querySnapshots.runId, runId)).all().map(row => row.answerMentioned)
+
+  it('a detection pass that stores an auto-detected name mid-sweep ends with every answer scored against it', async () => {
+    const db = tempDb('canonry-alias-edit-')
+    const projectId = seedSimpleProject(db)
+    const runId = queue(db, projectId)
+    // What a detection pass writes, then the recompute its names change runs.
+    const storeAutoName = () => {
+      db.update(competitors).set({
+        autoAliases: [{
+          name: 'TuneSpoke', directPairs: 4, cooccurrences: 2, namingAnswers: 5, precision: 0.8, lift: 12,
+          nameCasedAnswers: 5, runs: 3, firstSeen: NOW, lastSeen: NOW, addedAt: NOW,
+        }],
+      }).where(eq(competitors.projectId, projectId)).run()
+      backfillProjectAnswerMentions(db, projectId, { competitorFieldsOnly: true })
+    }
+
+    await new JobRunner(db, serialRegistry(editingAdapter('openai', { 2: storeAutoName }))).executeRun(runId, projectId)
+
+    expect(runStatus(db, runId)).toBe(RunStatuses.completed)
+    expect(competitorColumns(db, runId)).toEqual([CURRENT, CURRENT])
+  })
+
+  it('a project alias saved mid-sweep ends with every answer\'s mention scored against it', async () => {
+    const db = tempDb('canonry-alias-edit-')
+    const projectId = seedSimpleProject(db)
+    // The project goes by another name, so "Rotorwise" in the answer is not
+    // its mention until the edit adds the alias.
+    db.update(projects).set({ displayName: 'Quiet Vox', canonicalDomain: 'quietvox.example' }).where(eq(projects.id, projectId)).run()
+    const runId = queue(db, projectId)
+    // The project alias write, then the full rescore the server's hook runs.
+    const saveProjectAlias = () => {
+      db.update(projects).set({ aliases: ['Rotorwise'] }).where(eq(projects.id, projectId)).run()
+      backfillProjectAnswerMentions(db, projectId)
+    }
+
+    await new JobRunner(db, serialRegistry(editingAdapter('openai', { 2: saveProjectAlias }))).executeRun(runId, projectId)
+
+    expect(runStatus(db, runId)).toBe(RunStatuses.completed)
+    expect(mentioned(db, runId)).toEqual([true, true])
+  })
+})

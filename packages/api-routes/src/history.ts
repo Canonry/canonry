@@ -17,6 +17,7 @@ import { runFillInProgress,
 import { requireAdminSession, requireScope } from './auth.js'
 import { writeAuditLog, notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState } from './helpers.js'
 import { redactNotificationDiff } from './notification-redaction.js'
+import { competitorIdentityColumns } from './competitor-writes.js'
 
 export async function historyRoutes(app: FastifyInstance) {
   app.post<{ Params: { name: string }; Body: unknown }>('/projects/:name/results/clear', async request => {
@@ -126,9 +127,10 @@ export async function historyRoutes(app: FastifyInstance) {
     }
 
     const competitiveSignalResolver = compileCompetitiveSignalResolver(app.db
-      .select({ domain: competitors.domain, aliases: competitors.aliases })
+      .select(competitorIdentityColumns)
       .from(competitors)
       .where(eq(competitors.projectId, project.id))
+      .orderBy(competitors.domain)
       .all())
 
     // Get snapshots for these runs

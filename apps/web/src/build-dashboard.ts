@@ -630,6 +630,7 @@ function adaptOverviewToCommandCenter(
       id: row.id,
       domain: row.domain,
       aliases: row.aliases ?? [],
+      autoAliases: row.autoAliasNames ?? [],
       citationCount: row.citationCount,
       totalQueries: row.totalQueries,
       pressureLabel: row.pressureLabel,

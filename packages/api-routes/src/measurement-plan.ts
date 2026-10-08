@@ -28,12 +28,13 @@ import {
 } from '@ainyc/canonry-db'
 import { requireScope } from './auth.js'
 import { requireMarketPinsClearOfCompetitorAliases } from './competitor-writes.js'
+import { beginMarketPinWrite, marketPinWriteAuditFields, notifyMarketPinWrite, type MarketPinWriteEffect, type MarketPinWriteHooks } from './market-pin-writes.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { storedPlanPinGroups } from './plan-competitors.js'
 
 export const MEASUREMENT_PLAN_WRITE_SCOPE = 'measurement-plan.write'
 
-export interface MeasurementPlanRoutesOptions {
+export interface MeasurementPlanRoutesOptions extends MarketPinWriteHooks {
   getRunnableProviderNames?: () => readonly string[]
 }
 
@@ -369,7 +370,9 @@ export async function measurementPlanRoutes(app: FastifyInstance, opts: Measurem
     const checksum = crypto.createHash('sha256').update(canonicalJson).digest('hex')
     const now = new Date().toISOString()
     const desired = desiredSegmentKinds(compiled)
+    let pinEffect: MarketPinWriteEffect | null = null
     const published = app.db.transaction(tx => {
+      const pinWrite = beginMarketPinWrite(tx, project)
       const activePlan = tx.select().from(measurementPlans)
         .where(eq(measurementPlans.projectId, project.id)).get()
       const activeVersion = activePlan
@@ -444,15 +447,19 @@ export async function measurementPlanRoutes(app: FastifyInstance, opts: Measurem
           updatedAt: now,
         }).run()
       }
+      pinEffect = pinWrite.finish()
+      const auditFields = marketPinWriteAuditFields(pinEffect)
       writeAuditLog(tx, {
         projectId: project.id,
         actor: 'api',
         action: 'measurement-plan.published',
         entityType: 'measurement-plan',
         entityId: String(revision),
+        ...(Object.keys(auditFields).length > 0 ? { diff: auditFields } : {}),
       })
       return { kind: 'created' as const, versionId }
     })
+    notifyMarketPinWrite(opts, project, pinEffect)
     if (published.kind === 'existing') return reply.status(200).send({ active: activeDto(published.version) })
 
     const created = app.db.select().from(measurementPlanVersions)

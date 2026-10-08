@@ -164,7 +164,7 @@ function seedAdvancedRun(input: {
   return id
 }
 
-function seedSimpleRun(id: string, capturedAt: string, withDefinition: boolean, requestedModel = 'simple-pin', qualifiedAliases?: string[]): void {
+function seedSimpleRun(id: string, capturedAt: string, withDefinition: boolean, requestedModel = 'simple-pin', qualifiedAliases?: string[], competitorAliases = ['Challenger']): void {
   db.insert(runs).values({
     id,
     projectId,
@@ -186,7 +186,7 @@ function seedSimpleRun(id: string, capturedAt: string, withDefinition: boolean, 
       identity: { displayName: 'Frozen Northstar', aliases: ['Northstar'], canonicalDomain: 'northstar.example', ownedDomains: [], qualifiedAliases },
       country: 'US', language: 'en', location: null,
       engines: [{ provider: 'openai', requestedModel }],
-      competitors: [{ domain: 'challenger.example', label: 'Challenger', aliases: ['Challenger'] }],
+      competitors: [{ domain: 'challenger.example', label: 'Challenger', aliases: competitorAliases }],
       queries: [{ queryId: 'simple-query', queryText: 'frozen simple query', provenance: 'manual' }],
     })
     db.insert(simpleMeasurementDefinitions).values({
@@ -538,6 +538,22 @@ describe('visibility report route', () => {
       { state: 'comparable', comparedRunId: 'simple-first' },
     ])
     expect(population.trend.map(point => point.runId)).toEqual(['simple-first', 'simple-qualified'])
+  })
+
+  it('compares sweeps whose frozen competitors differ only in their names, as auto-detected names do after each sweep', async () => {
+    seedSimpleRun('simple-first', FIRST, true)
+    seedSimpleRun('simple-auto-name', SECOND, true, 'simple-pin', undefined, ['Challenger', 'Challenger Labs'])
+    const stored = db.select().from(simpleMeasurementDefinitions).all()
+    expect(stored.map(row => row.definition.competitors?.[0]?.aliases)).toEqual([['Challenger'], ['Challenger', 'Challenger Labs']])
+
+    const result = await report('mode=simple&queryClass=non-brand')
+    expect(result.status).toBe(200)
+    const population = (result.body as VisibilityReportResponse).populations[0]!
+    expect(population.trend.map(point => point.continuity)).toEqual([
+      { state: 'first', comparedRunId: null },
+      { state: 'comparable', comparedRunId: 'simple-first' },
+    ])
+    expect(population.comparison).toMatchObject({ state: 'available', previousRun: { id: 'simple-first' } })
   })
 
   it('rejects malformed selection cursors and missing scope keys, while a scoped read-only key can read only its own project', async () => {

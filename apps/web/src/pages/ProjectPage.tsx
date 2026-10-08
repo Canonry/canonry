@@ -1708,6 +1708,17 @@ function ProjectPageContent({
     () => Object.fromEntries(model.competitors.map(c => [c.domain, c.aliases ?? []])),
     [model.competitors],
   )
+  // Names detected from stored answers, shown labelled "auto" beside the curated ones.
+  const competitorAutoAliases = useMemo<Record<string, readonly string[]>>(
+    () => Object.fromEntries(model.competitors.map(c => [c.domain, c.autoAliases ?? []])),
+    [model.competitors],
+  )
+  // Every name a competitor answers to (curated and auto): both change mention
+  // share, so both key the cached trend frames.
+  const competitorIdentityNames = useMemo<Record<string, readonly string[]>>(
+    () => Object.fromEntries(model.competitors.map(c => [c.domain, [...(c.aliases ?? []), ...(c.autoAliases ?? [])]])),
+    [model.competitors],
+  )
   // "Local Presence" is always shown — GbpSection renders a setup guide when no
   // Google Business Profile is connected, so the tab is the entry point to
   // connecting one rather than being hidden until after connection.
@@ -2026,7 +2037,7 @@ function ProjectPageContent({
   })
   useCompetitorLandscapeRefresh(projectName, JSON.stringify([
     competitorHistoryRevision,
-    model.competitors.map(competitor => `${competitor.domain}=${(competitor.aliases ?? []).join('|')}`).sort(),
+    model.competitors.map(competitor => `${competitor.domain}=${[...(competitor.aliases ?? []), ...(competitor.autoAliases ?? [])].join('|')}`).sort(),
     model.project.canonicalDomain, model.project.ownedDomains, model.project.aliases, model.project.displayName,
     activeMeasurementRevision,
     measurementSetupQuery.data?.draft?.etag ?? null,
@@ -2684,6 +2695,7 @@ function ProjectPageContent({
       landscape={competitorLandscapeQuery.data}
       pinnedFallback={competitorLandscapePinnedFallback}
       competitorAliases={competitorAliases}
+      competitorAutoAliases={competitorAutoAliases}
       canWrite={canWrite}
       isEmbed={isEmbed()}
       onWindowChange={setCompetitorLandscapeWindow}
@@ -2921,7 +2933,7 @@ function ProjectPageContent({
             <VisibilityTrendSection
               projectName={model.project.name}
               competitorDomains={competitorDomains}
-              competitorAliases={competitorAliases}
+              competitorAliases={competitorIdentityNames}
               analyticsRevision={latestVisibilityRevision}
               queryTexts={trackedQueryTexts}
               classifyQuery={classifyQuery}

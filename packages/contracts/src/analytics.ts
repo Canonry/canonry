@@ -327,6 +327,28 @@ export const executionIdentityChangeEventSchema = z.object({
 })
 export type ExecutionIdentityChangeEvent = z.infer<typeof executionIdentityChangeEventSchema>
 
+/**
+ * When the names the project's competitors are matched by last changed; null
+ * when they never did (`readCompetitorIdentityChangedAt` in api-routes): a
+ * tracked competitor's curated or stored auto-detected names (a block counts
+ * only when it removes a stored name), a detection pass that stored or removed
+ * a market-only competitor's learned names, a write that claimed, released or
+ * dropped a market-only competitor's learned names (all from the audit trail), or a published revision that renamed a market pin
+ * (from the revisions). The competitor landscape reads every one of these
+ * names as the project has them now, so every period it reports, including
+ * one already reported, was restated at this time: a figure quoted before it
+ * may differ from the same period read after it. Analytics mention share and
+ * project-frame `visibility-compare` share of voice read only the tracked
+ * competitors' names (curated plus auto-detected, minus blocked), so a market
+ * pin or learned-name change moves this time without changing those figures.
+ * Frozen names (a Simple definition, an Advanced revision's own pins) are
+ * never restated. Adding or removing a competitor or a pin is a names change
+ * only when it moves a stored or learned name. Absent from a server that predates the
+ * field.
+ */
+export const competitorIdentityChangedAtSchema = z.string().nullable()
+  .describe('When the names the project\'s competitors are matched by last changed: a tracked competitor\'s curated or stored auto-detected names (a block counts only when it removes a stored name), a detection pass that stored or removed a market-only competitor\'s learned names, a write that claimed, released or dropped a market-only competitor\'s learned names, or a published revision that renamed a market pin; null if never. The competitor landscape reads every period with the current names, so a figure for any period quoted before this time was restated at this time. Analytics mention share and project-frame visibility-compare share of voice read only tracked competitors\' names, so a market pin or learned-name change moves this time without changing them. Adding or removing a competitor or a pin is a names change only when it moves a stored or learned name.')
+
 export const brandMetricsDtoSchema = z.object({
   window: metricsWindowSchema,
   /** Scope that applies even when `buckets` is empty. `pooled` means classification was unavailable. */
@@ -394,6 +416,13 @@ export const brandMetricsDtoSchema = z.object({
    * exists to prevent. Empty only for a project entirely on fixed model ids.
    */
   modelPointerChanges: z.record(z.string(), modelPointerChangeDisclosureSchema).default({}),
+  /**
+   * See `competitorIdentityChangedAtSchema`. The mention share series reads
+   * the tracked competitors' current names, so it was restated at this time
+   * when the change was to a tracked competitor's names; a market pin or
+   * learned-name change moves the time without changing the series.
+   */
+  competitorIdentityChangedAt: competitorIdentityChangedAtSchema.optional(),
 })
 export type BrandMetricsDto = z.infer<typeof brandMetricsDtoSchema>
 
@@ -850,6 +879,7 @@ export const competitorLandscapeResponseSchema = z.object({
   runIds: z.array(z.string()).optional(),
   /** What each count counts: answers or distinct names. See `COMPETITOR_LANDSCAPE_COUNT_UNITS`. */
   countUnits: competitorLandscapeCountUnitsSchema.optional(),
+  competitorIdentityChangedAt: competitorIdentityChangedAtSchema.optional(),
 }).strict()
 export type CompetitorLandscapeResponse = z.infer<typeof competitorLandscapeResponseSchema>
 
