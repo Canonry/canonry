@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { isIP } from "node:net";
 import { fileURLToPath } from "node:url";
 import { and, eq } from "drizzle-orm";
 import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds, sentimentInstallReadiness } from "@ainyc/canonry-config";
@@ -636,6 +637,40 @@ export function isLoopbackBindHost(host: string | undefined): boolean {
   if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(normalized)) return true;
   return false;
 }
+/**
+ * Whether a request Host header value is expected for this server.
+ * IP literals cannot be DNS-rebound. DNS names must be explicitly configured.
+ */
+function isAllowedHost(host: string, allowedHosts: Set<string>): boolean {
+  const normalized = host.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  return allowedHosts.has(normalized) || isIP(normalized) !== 0;
+}
+
+/**
+ * Build the Host allowlist for DNS rebinding defense (#1177).
+ */
+function buildAllowedHosts(
+  bindHost: string | undefined,
+  ...configuredUrls: (string | undefined)[]
+): Set<string> {
+  const allowed = new Set<string>(["localhost", "127.0.0.1", "::1"]);
+  if (bindHost) {
+    const normalized = bindHost.trim().toLowerCase().replace(/^\[|\]$/g, "");
+    if (normalized && !isLoopbackBindHost(normalized)) {
+      allowed.add(normalized);
+    }
+  }
+  for (const configuredUrl of configuredUrls) {
+    if (!configuredUrl) continue;
+    try {
+      const url = new URL(configuredUrl.trim());
+      if (url.hostname) allowed.add(url.hostname.toLowerCase().replace(/^\[|\]$/g, ""));
+    } catch {
+      // Malformed URLs cannot add an allowed hostname.
+    }
+  }
+  return allowed;
+}
 
 export function resolveGooglePublicUrl(
   config: Pick<CanonryConfig, "apiUrl" | "publicUrl" | "port">,
@@ -866,6 +901,50 @@ export async function createServer(opts: {
     loggerInstance: logger,
     genReqId: () => crypto.randomUUID(),
     trustProxy,
+  });
+  // DNS rebinding defense (#1177). A page the operator visits can make the
+  // browser resolve an attacker domain to 127.0.0.1 after TTL expiry, at which
+  // point the request is same-origin and CORS is never consulted. The browser
+  // always sets Host from the URL, so rejecting unexpected Host values stops
+  // the attack. This mirrors webpack-dev-server's allowedHosts.
+  const allowedHosts = buildAllowedHosts(opts.host, opts.config.apiUrl, opts.config.publicUrl);
+  const embedAllowedOrigins = new Set(
+    (embed.allowedOrigins ?? []).map((o) => {
+      try {
+        return new URL(o).origin;
+      } catch {
+        return null;
+      }
+    }).filter((h): h is string => h !== null)
+  );
+  app.addHook("onRequest", async (req, reply) => {
+    const reject = (message: string) => {
+      const error = forbidden(message);
+      return reply.status(error.statusCode).send(error.toJSON());
+    };
+    const rawHostHeader = req.headers.host?.toLowerCase() ?? "";
+    let requestUrl: URL;
+    try {
+      requestUrl = new URL(`http://${rawHostHeader}`);
+    } catch {
+      return reject("Unexpected Host header");
+    }
+    if (!isAllowedHost(requestUrl.hostname, allowedHosts)) {
+      return reject("Unexpected Host header");
+    }
+    const origin = req.headers.origin;
+    if (origin) {
+      let originUrl: URL;
+      try {
+        originUrl = new URL(origin);
+      } catch {
+        return reject("Invalid Origin header");
+      }
+      const requestHost = req.headers.host?.toLowerCase() ?? "";
+      if (originUrl.host !== requestHost && !embedAllowedOrigins.has(originUrl.origin)) {
+        return reject("Cross-origin request refused");
+      }
+    }
   });
 
   // Build provider registry from config (with legacy field migration)

@@ -1,6 +1,6 @@
-import { test, expect, beforeAll, onTestFinished } from 'vitest'
+import { test, expect, beforeAll, afterEach, onTestFinished } from 'vitest'
 import React from 'react'
-import { render, waitFor, act } from '@testing-library/react'
+import { render, waitFor, act, cleanup } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 
@@ -11,6 +11,8 @@ import { heyClient } from '../src/api.js'
 import { getApiV1ProjectsQueryKey } from '@ainyc/canonry-api-client/react-query'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
+
+afterEach(cleanup)
 
 beforeAll(async () => {
   await preloadAllLazyRoutes()

@@ -454,6 +454,7 @@ The snapshot rescore behind `canonry backfill answer-mentions`, the alias hooks 
 
 ### Server and SPA serving
 
+- `server.ts` checks request Host names against loopback, valid IP literals, the bind hostname, and the configured `apiUrl` / `publicUrl` hostnames. A wildcard bind does not allow arbitrary DNS names; reverse proxies use `publicUrl` for their external hostname. Keep IPv6 normalization consistent and cover admission through real `createServer` requests in `test/server-host-validation.test.ts`.
 - `assets/`: `server.ts` default `assetsDir` is this dir; `createServer({assetsDir: '/tmp/my-dist'})` override lets tests/custom builds point elsewhere without forking the package.
 - `src/server.ts`: `createServer` opts take an optional `assetsDir` override (default = bundled `assets/`) so integration tests can point at a temp `index.html`.
 - The SPA document's embed config and headers are covered in "Embed mode (#716)".
