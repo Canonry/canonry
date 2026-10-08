@@ -27,6 +27,13 @@ import { Card, CardContent, CardDescription, CardHeader } from '../ui/card.js'
 
 const SESSION_RECHECK_MS = 60_000
 
+/**
+ * The setup card's description. The password signs in from any browser that
+ * reaches the server, also when setup ran from another machine with the root
+ * key, so the copy ties it to no machine.
+ */
+export const SETUP_DESCRIPTION = 'Anyone with this password can sign in to this dashboard.'
+
 /** Shown when the server refuses a keyless first-run setup from this address. */
 export const SETUP_ROOT_KEY_COPY = {
   label: 'Root API key',
@@ -503,9 +510,7 @@ export function AuthGate() {
               <CardHeader>
                 <p className="eyebrow eyebrow-soft">First-time setup</p>
                 <h1 className="font-medium tracking-tight text-primary">Create a dashboard password</h1>
-                <CardDescription>
-                  This password protects the dashboard on this computer.
-                </CardDescription>
+                <CardDescription>{SETUP_DESCRIPTION}</CardDescription>
               </CardHeader>
               <CardContent>
                 <form className="space-y-4" onSubmit={asyncHandler(handleSetup)}>

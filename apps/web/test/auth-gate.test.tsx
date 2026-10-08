@@ -4,7 +4,7 @@ import React from 'react'
 import { render, screen, act, cleanup, fireEvent } from '@testing-library/react'
 
 import { handleAuthExpired } from '../src/api.js'
-import { AuthGate, SETUP_ROOT_KEY_COPY } from '../src/components/auth/AuthGate.js'
+import { AuthGate, SETUP_DESCRIPTION, SETUP_ROOT_KEY_COPY } from '../src/components/auth/AuthGate.js'
 import { accountStateForApiKey } from '../src/contexts/account-context.js'
 import { mockFetch as installMockFetch, jsonResponse } from './mock-fetch.js'
 
@@ -95,7 +95,10 @@ describe('AuthGate', () => {
       // One screen, one thing to act on. What the CLI's API key is for belongs
       // where that key is printed, not in front of someone who has not reached
       // a terminal yet.
-      expect(screen.getByText('This password protects the dashboard on this computer.')).toBeTruthy()
+      expect(screen.getByText(SETUP_DESCRIPTION)).toBeTruthy()
+      // The password signs in from any browser, also when setup ran from
+      // another machine with the root key, so the copy names no machine.
+      expect(screen.queryByText(/this computer/i)).toBeNull()
       // The sign-in screen already offers "Forgot password? Use API key", so a
       // warning that it cannot be recovered contradicts the product.
       expect(screen.queryByText(/cannot recover/i)).toBeNull()
