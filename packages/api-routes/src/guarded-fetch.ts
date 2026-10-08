@@ -121,19 +121,24 @@ async function requestPinned(
 }
 
 /**
- * An agent whose every connection dials `target.address`, whatever the
+ * An agent whose every connection dials the checked addresses, whatever the
  * resolver says now. Node does not call `lookup` for an IP-literal host, which
  * is safe: a literal is checked as itself, so it is the checked address.
  */
 function pinnedAgent(target: SafeWebhookTarget): Agent {
-  const family = target.family === 6 ? 6 : 4
+  const addresses = target.addresses ?? [{ address: target.address, family: target.family }]
   return new Agent({
+    // Try the next checked address when one does not answer, so a dual-stack
+    // site whose first address is unreachable (an IPv6-only network, a dead A
+    // record) still loads, as it does through global `fetch`. Every address
+    // passed the policy, so falling back reaches nothing it refused.
+    autoSelectFamily: true,
     connect: {
       lookup: (_hostname, options, callback) => {
-        // undici v7 asks with `{ all: true }`, and Node then expects an array
-        // of `{ address, family }` rather than one address.
-        if (options.all) callback(null, [{ address: target.address, family }])
-        else callback(null, target.address, family)
+        // With `autoSelectFamily` Node asks with `{ all: true }` and expects
+        // an array of `{ address, family }` rather than one address.
+        if (options.all) callback(null, addresses.map(({ address, family }) => ({ address, family })))
+        else callback(null, addresses[0]!.address, addresses[0]!.family)
       },
     },
   })

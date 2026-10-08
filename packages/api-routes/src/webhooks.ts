@@ -11,6 +11,12 @@ export interface SafeWebhookTarget {
   url: URL
   address: string
   family: 4 | 6
+  /**
+   * Every address the name resolved to, all checked, in the order to try
+   * them; `address` is the first. A caller that can fall back to the next
+   * address when one does not answer dials from this list.
+   */
+  addresses?: ReadonlyArray<{ address: string; family: 4 | 6 }>
 }
 
 export type ResolveWebhookTargetResult =
@@ -70,6 +76,7 @@ export async function resolveWebhookTarget(
       url: parsed,
       address: addresses[0]!.address,
       family: addresses[0]!.family,
+      addresses,
     },
   }
 }

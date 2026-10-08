@@ -97,6 +97,25 @@ describe('createGuardedFetch', () => {
     expect(site.requests.map(({ path }) => path)).toEqual(['/a'])
   })
 
+  test('falls back to the next checked address when the first does not answer', async () => {
+    // The fixture listens on 127.0.0.1 only, so the name's first address
+    // (::1) refuses the connection, or is unreachable on a host without IPv6.
+    site = await startRecordingSite((_request, response) => response.writeHead(200).end('ok'))
+    const guardedFetch = createGuardedFetch({
+      resolveTarget: (url) => resolveWebhookTarget(url, {
+        allowLoopback: true,
+        resolveAddresses: async () => [{ address: '::1', family: 6 }, { address: '127.0.0.1', family: 4 }],
+      }),
+    })
+
+    const response = await guardedFetch(`http://${PUBLIC_SITE}:${site.port}/dual-stack`)
+
+    expect(await response.text()).toBe('ok')
+    expect(site.requests.map(({ path, headers }) => ({ path, host: headers.host }))).toEqual([
+      { path: '/dual-stack', host: `${PUBLIC_SITE}:${site.port}` },
+    ])
+  })
+
   test('drops credentials on a cross-origin redirect and keeps the method and body of a 307', async () => {
     otherSite = await startRecordingSite((_request, response) => response.writeHead(200).end('landed'))
     const landing = `http://127.0.0.1:${otherSite.port}/landing`
