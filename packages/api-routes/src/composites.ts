@@ -29,6 +29,7 @@ import {
   roundRatio,
   RunKinds,
   RunStatuses,
+  RunTriggers,
   type AttentionItemDto,
   type CitationState,
   type RunKind,
@@ -165,14 +166,16 @@ export async function compositeRoutes(app: FastifyInstance, options: {
 
     // Project-wide, never narrowed by the location or window filters: it says
     // whether the next sweep would be admitted, which no past run can.
-    const admission = runAdmissionState(app.db, {
+    const admissionParams = {
       projectId: project.id,
       now: new Date().toISOString(),
       runnableProviders: options.getRunnableProviderNames?.(),
-    })
+    }
+    const admission = runAdmissionState(app.db, admissionParams)
+    const manualAdmission = runAdmissionState(app.db, { ...admissionParams, selection: RunTriggers.manual })
     const latestRun: LatestProjectRunDto = latestRunRow
-      ? { totalRuns, run: summarizeRun(latestRunRow), admission }
-      : { totalRuns: 0, run: null, admission }
+      ? { totalRuns, run: summarizeRun(latestRunRow), admission, manualAdmission }
+      : { totalRuns: 0, run: null, admission, manualAdmission }
 
     const healthRow = app.db
       .select()

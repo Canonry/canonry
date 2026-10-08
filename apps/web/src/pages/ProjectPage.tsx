@@ -1640,7 +1640,7 @@ function ProjectPageContent({
 }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const { account, canWrite } = useAccount()
+  const { account, canWrite, isAdmin } = useAccount()
   const [sweepConfirmationProject, setSweepConfirmationProject] = useState<string | null>(null)
   const sweepOpener = useRef<HTMLButtonElement | null>(null)
   const initialDashboard = useInitialDashboard()
@@ -2184,9 +2184,11 @@ function ProjectPageContent({
   const hasActiveVisibilitySweep = (model?.recentRuns ?? []).some(
     r => r.kind === RunKinds['answer-visibility'] && (r.status === RunStatuses.running || r.status === RunStatuses.queued),
   )
-  // Whether the next sweep would be admitted. A refused one would only fail
-  // the way the last ones did, so the sweep button waits with the notice.
-  const runAdmission = useRunAdmission(projectName, !isEmbed()).data
+  // Manual launches use the project roster; schedules may select other providers.
+  const runAdmission = useRunAdmission(projectName, !isEmbed() && !isDashboardManagedSweeps(), 'manual').data
+  const scheduledRunAdmission = useRunAdmission(projectName, !isEmbed(), 'scheduled').data
+  const admissionScopesDiffer = runAdmission && scheduledRunAdmission
+    && JSON.stringify(runAdmission) !== JSON.stringify(scheduledRunAdmission)
   const sweepsOnHold = runAdmission?.refused === true
   const sweepLeavesOut = runAdmission && !runAdmission.refused ? Object.keys(runAdmission.providers) : []
   // `queryCounts` is derived from the authoritative latest completed/partial
@@ -2893,7 +2895,10 @@ function ProjectPageContent({
       ) : tab === 'overview' ? (
         <>
         {/* Above both overviews and their loading state: a refused or partial sweep is the project's state, whichever portfolio it is. */}
-        {runAdmission && !isEmbed() ? <RunAdmissionNoticeView admission={runAdmission} canFix={canWrite} /> : null}
+        {!isEmbed() ? <>
+          {scheduledRunAdmission ? <RunAdmissionNoticeView admission={scheduledRunAdmission} canFix={canWrite && isAdmin} selection={admissionScopesDiffer || !runAdmission ? 'scheduled' : undefined} /> : null}
+          {runAdmission && (admissionScopesDiffer || !scheduledRunAdmission) ? <RunAdmissionNoticeView admission={runAdmission} canFix={canWrite && isAdmin} selection="manual" /> : null}
+        </> : null}
         {isMeasurementModeUnresolved || (isSimpleOverview && !hasInitialProjectDashboard && (!overviewRequested || overviewLoading)) ? (
           <div role="status" aria-live="polite">
             <span className="sr-only">Loading project overview</span>

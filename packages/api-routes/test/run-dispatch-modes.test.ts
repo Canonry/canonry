@@ -6,8 +6,11 @@ import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  buildProviderRunError,
   canonicalMeasurementPlanV2Json,
   measurementPlanV2ChecksumJson,
+  PROVIDER_ACCOUNT_FAILURE_STREAK,
+  serializeRunError,
   type LocationContext,
   type MeasurementPlanV2,
   type SnapshotUsage,
@@ -23,6 +26,7 @@ import {
   querySnapshots,
   runFills,
   runs,
+  schedules,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
@@ -134,6 +138,16 @@ async function seedPortfolio(kind: 'simple' | 'advanced', name = 'planned'): Pro
   if (kind === 'simple') await publishV1(name)
   else publishV2(projectId)
   return projectId
+}
+
+function seedOpenaiAccountFailures(projectId: string) {
+  for (let index = 0; index < PROVIDER_ACCOUNT_FAILURE_STREAK; index += 1) {
+    db.insert(runs).values({
+      id: crypto.randomUUID(), projectId, kind: 'answer-visibility', status: 'failed', trigger: 'manual',
+      error: serializeRunError(buildProviderRunError([['openai', '[provider-openai] 401 Incorrect API key provided']])),
+      createdAt: new Date(Date.now() - (PROVIDER_ACCOUNT_FAILURE_STREAK - index) * 60_000).toISOString(),
+    }).run()
+  }
 }
 
 function setPreference(projectId: string, modes: Record<string, 'sync' | 'batch'>) {
@@ -250,6 +264,23 @@ describe.each(['simple', 'advanced'] as const)('queue-time dispatch freezing (%s
     expect(created).toEqual([])
   })
 
+  it('refuses an explicit batch request whose only batch provider is held back', async () => {
+    const projectId = await seedPortfolio(portfolio)
+    seedOpenaiAccountFailures(projectId)
+    batchEligible = ['openai']
+
+    const response = await inject('POST', '/api/v1/projects/planned/runs', { dispatchMode: 'batch' })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json().error).toMatchObject({
+      code: 'VALIDATION_ERROR',
+      details: { ineligible: { claude: 'batch_unavailable' }, skippedProviders: { openai: { code: 'PROVIDER_AUTH' } } },
+    })
+    expect(response.json().error.message).toContain('No provider in this run can use batch dispatch.')
+    expect(db.select().from(runs).all()).toHaveLength(PROVIDER_ACCOUNT_FAILURE_STREAK)
+    expect(created).toEqual([])
+  })
+
   it('refuses a batch request on a slice', async () => {
     await seedPortfolio(portfolio)
 
@@ -274,6 +305,23 @@ describe.each(['simple', 'advanced'] as const)('queue-time dispatch freezing (%s
 })
 
 describe('dispatch rules that depend on the portfolio kind', () => {
+  it('both admission selections use the Advanced revision\'s frozen providers', async () => {
+    const projectId = await seedPortfolio('advanced')
+    seedOpenaiAccountFailures(projectId)
+    db.update(projects).set({ providers: ['gemini'] }).where(eq(projects.id, projectId)).run()
+    db.insert(schedules).values({
+      id: crypto.randomUUID(), projectId, kind: 'answer-visibility', enabled: true,
+      cronExpr: '0 6 * * *', timezone: 'UTC', providers: ['gemini'], createdAt: NOW, updatedAt: NOW,
+    }).onConflictDoUpdate({ target: [schedules.projectId, schedules.kind], set: { enabled: true, providers: ['gemini'] } }).run()
+
+    for (const selection of ['manual', 'scheduled']) {
+      const response = await inject('GET', `/api/v1/projects/planned/run-admission?selection=${selection}`)
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toMatchObject({ refused: false, retryAfter: null, providers: { openai: { code: 'PROVIDER_AUTH' } } })
+      expect(Object.keys(response.json().providers)).toEqual(['openai'])
+    }
+  })
+
   it('a simple plan with no model for a provider cannot batch that provider', async () => {
     const projectId = await seedPortfolio('simple')
 
@@ -381,6 +429,32 @@ describe('planless runs never batch', () => {
 })
 
 describe('POST /runs (every project)', () => {
+  it.each([false, true])('reports held batch providers per project and preserves force=%s', async force => {
+    await seedPortfolio('simple', 'healthy')
+    const heldProjectId = await seedPortfolio('advanced', 'held')
+    seedOpenaiAccountFailures(heldProjectId)
+    batchEligible = ['openai']
+
+    const response = await inject('POST', '/api/v1/runs', { dispatchMode: 'batch', force })
+
+    expect(response.statusCode).toBe(207)
+    const rows = response.json() as Array<Record<string, unknown>>
+    const healthy = rows.find(row => row.projectName === 'healthy')!
+    const held = rows.find(row => row.projectName === 'held')!
+    expect(healthy).toMatchObject({ status: 'queued', dispatchModes: { openai: 'batch' } })
+    if (force) {
+      expect(held).toMatchObject({ status: 'queued', dispatchModes: { openai: 'batch' } })
+      expect(held).not.toHaveProperty('skippedProviders')
+      expect(created.sort()).toEqual([healthy.id, held.id].sort())
+      expect(db.select().from(runs).all()).toHaveLength(PROVIDER_ACCOUNT_FAILURE_STREAK + 2)
+    } else {
+      expect(held).toMatchObject({ status: 'error', errorCode: 'VALIDATION_ERROR' })
+      expect(held.error).toContain('No provider in this run can use batch dispatch.')
+      expect(created).toEqual([healthy.id])
+      expect(db.select().from(runs).all()).toHaveLength(PROVIDER_ACCOUNT_FAILURE_STREAK + 1)
+    }
+  })
+
   it('queues the projects that can batch and reports the others as their own error rows', async () => {
     await seedPortfolio('simple', 'planned')
     await seedProject('plainco')

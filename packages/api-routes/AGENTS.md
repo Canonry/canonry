@@ -94,7 +94,12 @@ all-locations fan-out counts each location as a run and freezes one decision on
 every sibling. `runAdmissionState` is the read side, from the same streaks for
 a sweep as the scheduler starts it: `admission` on `GET /projects/:name/runs/latest`
 and on the overview's `latestRun`, and alone on `GET /projects/:name/run-admission`
-(the dashboard notice). Codes come from `buildProviderRunError`, which
+(the dashboard notice). Those reads default to the scheduled roster;
+`manualAdmission` beside `admission` on latest-run/overview reads and
+`run-admission?selection=manual` describe an unfiltered manual launch using
+the project's providers instead of a schedule override. `selection` is
+read-selection identity, not tuning. Both selections use the active v2 plan's
+frozen providers. Codes come from `buildProviderRunError`, which
 classifies the raw provider message: never re-classify a stored `message`,
 which has lost markers such as Gemini's `RESOURCE_EXHAUSTED`. Tests:
 `test/run-provider-account-guard.test.ts`.
@@ -105,6 +110,14 @@ batch finish-time anchor and fallback; do not add a test-only now parameter.
 Queue timestamps and real batch-gap fills must use that same clock.
 
 ### Batch dispatch (queue time)
+
+After account holds remove providers, an explicit batch request still needs
+at least one called provider that can batch. `dispatchAfterProviderAdmission`
+checks this in the queue and the bulk pre-pass, so a held sole batch provider
+cannot silently turn an explicit batch request into an entirely synchronous
+run. `details.skippedProviders` explains those holds alongside
+`details.ineligible`; a fully held roster keeps its `PROVIDERS_FAILING`
+refusal. The bulk pre-pass passes `force` and the queue timestamp too.
 
 `queueRunIfProjectIdle` freezes which providers batch into `runs.provider_dispatch_modes` inside the queue transaction, after the stamp. The rules are `resolveRunDispatchModes` in contracts; do not re-derive them. A scheduled run reads the project's `providerDispatchModes`. A manual or API run batches only on `dispatchMode: 'batch'`, and a batch request no provider can honour is a 400 whose `details.ineligible` names each reason. `POST /runs` runs the same check in its pre-pass, so one project's refusal is its own error row. `dispatchMode` is TUNING, not identity: it stays out of `measurementExecutionIdentity`, and the trigger routes never reuse an in-flight run. `providerDispatchModes` on project writes follows `providerModels` (key validation, pruning), except that `pruneProviderDispatchModes` also keeps the engines an Advanced project's active v2 revision measures (`activeRevisionProviders`): its runs measure those whatever `providers` lists, so simple and custom portfolios both keep a preference for every engine their runs measure. An omitted value leaves the stored preference untouched on PUT and apply. Fill age counts from `finishedAt` for a run with any `provider_batches` row (`runFillAgeAnchor`). The run detail's `usage` comes from `summarizeRunUsage`. `DELETE /projects/:name` awaits `cancelRunProviderBatches` for each run with a `submitted`/`ended` batch FIRST, before `onProjectDeleting` and its transaction, because the cascade removes the only rows holding the provider's batch id. It is best effort and never blocks the delete. Those awaits are the handler's only suspension point, so it re-reads the project by id after them: when a concurrent DELETE committed meanwhile, it answers the missing-project 404 without calling `onProjectDeleting`, writing an audit row or running a rollback (test: `test/project-delete-provider-batches.test.ts`). Keep every other side effect after that re-read, with no await before the commit. See `docs/batch-mode.md`.
 

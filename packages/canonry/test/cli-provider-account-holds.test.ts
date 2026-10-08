@@ -52,9 +52,9 @@ async function captured(fn: () => Promise<void> | void): Promise<string[]> {
   return lines.join('\n').split('\n')
 }
 
-function statusWith(admission: RunAdmissionDto | undefined) {
+function statusWith(admission: RunAdmissionDto | undefined, manualAdmission?: RunAdmissionDto) {
   mockGetProject.mockResolvedValue({ id: 'p-1', name: 'acme co', displayName: 'Acme', canonicalDomain: 'acme.example', country: 'US', language: 'en' })
-  mockGetLatestRun.mockResolvedValue({ totalRuns: 10, run: RUN, ...(admission ? { admission } : {}) })
+  mockGetLatestRun.mockResolvedValue({ totalRuns: 10, run: RUN, ...(admission ? { admission } : {}), ...(manualAdmission ? { manualAdmission } : {}) })
 }
 
 afterEach(() => { vi.clearAllMocks() })
@@ -94,6 +94,39 @@ describe('canonry status', () => {
 
     statusWith(undefined)
     expect(JSON.parse((await captured(() => showStatus('acme co', 'json'))).join('\n'))).not.toHaveProperty('admission')
+  })
+
+  it('preserves manual admission in JSON and distinguishes it from a healthy narrower schedule', async () => {
+    const admission: RunAdmissionDto = { refused: false, retryAfter: null, providers: {} }
+    const manualAdmission: RunAdmissionDto = { refused: false, retryAfter: null, providers: { openai: OPENAI } }
+    statusWith(admission, manualAdmission)
+    expect(JSON.parse((await captured(() => showStatus('acme co', 'json'))).join('\n'))).toMatchObject({ admission, manualAdmission })
+    const lines = await captured(() => showStatus('acme co'))
+    expect(lines.slice(lines.indexOf('  Scheduled sweep: no providers held back.'))).toEqual([
+      '  Scheduled sweep: no providers held back.',
+      '  Manual sweep: skips a provider that keeps failing on its account; the rest run.',
+      `    ${OPENAI_LINE}`,
+      `  ${FIX_LINE}`,
+    ])
+  })
+
+  it('does not tell a manual sweep it is refused when only the narrower schedule is refused', async () => {
+    statusWith(
+      { refused: true, retryAfter: OPENAI.retryAfter, providers: { openai: OPENAI } },
+      { refused: false, retryAfter: null, providers: { openai: OPENAI } },
+    )
+    const lines = await captured(() => showStatus('acme co'))
+    expect(lines).toContain('  Scheduled sweep: refused (PROVIDERS_FAILING). Every provider it would call keeps failing on its account; scheduled sweeps skip their slots until 2026-10-08T09:00:00.000Z.')
+    expect(lines).toContain('  Manual sweep: skips a provider that keeps failing on its account; the rest run.')
+    expect(lines.filter(line => line.includes(FIX_LINE))).toHaveLength(1)
+  })
+
+  it('keeps the existing single decision when scheduled and manual admission match', async () => {
+    const admission: RunAdmissionDto = { refused: true, retryAfter: OPENAI.retryAfter, providers: { claude: CLAUDE, openai: OPENAI } }
+    statusWith(admission, { ...admission, providers: { openai: { ...OPENAI }, claude: { ...CLAUDE } } })
+    const lines = await captured(() => showStatus('acme co'))
+    expect(lines.some(line => line.includes('Next sweep: refused (PROVIDERS_FAILING)'))).toBe(true)
+    expect(lines.some(line => line.includes('Scheduled sweep:') || line.includes('Manual sweep:'))).toBe(false)
   })
 })
 

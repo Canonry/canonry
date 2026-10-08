@@ -433,6 +433,14 @@ Base path comes from `window.__CANONRY_CONFIG__.basePath`. Never hardcode `/api/
 
 ### Managed run kinds
 
+`ProjectPage` reads run admission with `selection=manual` for its sweep button
+and skipped-provider confirmation, and `selection=scheduled` for the schedule
+notice. When those admissions differ, notices name their scope. Held admissions
+refresh at the earliest provider retry deadline and stop polling once clear;
+deadline refreshes never invalidate saved sweep results.
+Provider-settings recovery requires both write access and instance administrator
+authority; project-scoped writers receive the administrator recovery instruction.
+
 `isDashboardManagedRunKind(kind)` reads the optional deployment list, with
 `managedSweeps: true` as the legacy answer-visibility-only fallback.
 `isDashboardManagedSweeps()` delegates to it. When true,

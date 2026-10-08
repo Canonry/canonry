@@ -140,7 +140,7 @@ A provider that failed on its account in each of its last 10 runs that called it
 
 - When only some of a run's providers are held back, the run is queued without them. `skippedProviders` on the run names each with its code, streak and `retryAfter`; the run calls the rest and ends `partial`, and `error.providers.<name>` has `skipped: true`. `cnry run` and `cnry run show` print a `Skipped:` line for each.
 - When every provider it would call is held back, the run is refused before it starts, exit `1` with `PROVIDERS_FAILING`. `details.providers` names each provider's code, as does `error.providers.<name>.code` on each failed run. Scheduled sweeps skip their slots instead: the first skipped slot writes a `run.refused` row to `cnry history <project>`.
-- `cnry status <project>` (and `admission` on `GET /projects/<name>/runs/latest`, or `latestRun.admission` on the overview) says whether the next sweep would be refused or which providers it would skip. Read it when sweeps look stalled: a refused sweep leaves no run.
+- `cnry status <project>` reports whether sweeps would be refused or which providers they would skip. `admission` on `GET /projects/<name>/runs/latest` (or `latestRun.admission` on the overview) uses the schedule's providers; `manualAdmission` uses the project's providers, as a manual full sweep does. Both use a published plan's frozen providers. Read these when sweeps look stalled: a refused sweep leaves no run.
 
 Another call would only fail the same way, so fix the key, access or billing in the provider's console or settings, then:
 

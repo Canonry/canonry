@@ -26,6 +26,7 @@ export async function showStatus(project: string, format?: string): Promise<void
       totalRuns: latest.totalRuns,
       // Absent from a server that predates it.
       ...(latest.admission ? { admission: latest.admission } : {}),
+      ...(latest.manualAdmission ? { manualAdmission: latest.manualAdmission } : {}),
     }, null, 2))
     return
   }
@@ -53,7 +54,7 @@ export async function showStatus(project: string, format?: string): Promise<void
     console.log(`\n  No runs yet. Capture Page Health with "canonry technical-aeo run ${projectArg}", or run an AI Visibility sweep after adding a provider.`)
   }
 
-  const admission = runAdmissionLines(project, latest.admission)
+  const admission = runAdmissionLines(project, latest.admission, latest.manualAdmission)
   if (admission.length > 0) console.log(`\n${admission.map(line => `  ${line}`).join('\n')}`)
 }
 

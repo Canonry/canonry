@@ -2451,7 +2451,8 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'Get the latest project run',
     description: 'The newest non-probe run, the run count, and `admission`: whether the next full sweep would be refused '
       + '(PROVIDERS_FAILING) and which providers it would skip because each keeps failing on its account, with their codes '
-      + 'and `retryAfter`. A scheduled sweep that is refused leaves no run, so read `admission`, not the latest run, to tell.',
+      + 'and `retryAfter`. `admission` uses the scheduled roster; `manualAdmission` describes an unfiltered manual launch. '
+      + 'A scheduled sweep that is refused leaves no run, so read `admission`, not the latest run, to tell.',
     tags: ['runs'],
     parameters: [nameParameter],
     responses: {
@@ -2462,13 +2463,23 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/run-admission',
     summary: 'Get whether the next sweep would be admitted',
-    description: 'The `admission` of `/projects/{name}/runs/latest` without the latest run: whether the next full sweep would '
+    description: 'The `admission` or `manualAdmission` of `/projects/{name}/runs/latest` without the latest run: whether the next full sweep would '
       + 'be refused (PROVIDERS_FAILING) and which providers it would skip because each failed on its account in each of its '
       + `last ${PROVIDER_ACCOUNT_FAILURE_STREAK} runs, with each provider's code and \`retryAfter\`.`,
     tags: ['runs'],
-    parameters: [nameParameter],
+    parameters: [
+      nameParameter,
+      {
+        name: 'selection',
+        in: 'query',
+        description: 'Read-selection identity: scheduled (default) uses the enabled schedule\'s providers; manual uses the '
+          + 'unfiltered manual launch\'s project or instance providers. Both use an Advanced revision\'s frozen engines.',
+        schema: { type: 'string', enum: ['manual', 'scheduled'], default: 'scheduled' },
+      },
+    ],
     responses: {
       200: jsonResponse('Run admission returned.', 'RunAdmissionDto'),
+      400: errorResponse('Invalid admission selection.'),
     },
   },
   {

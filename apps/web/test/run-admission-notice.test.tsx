@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
+import { getApiV1RunsByIdOptions } from '@ainyc/canonry-api-client/react-query'
 import {
   createMemoryHistory,
   createRootRoute,
@@ -12,6 +13,7 @@ import {
 import type { ProviderAccountStreak } from '@ainyc/canonry-contracts'
 import { RunAdmissionNoticeView, useRunAdmission } from '../src/components/project/RunAdmissionNotice.js'
 import { formatSweepInstant } from '../src/lib/format-helpers.js'
+import { heyClient } from '../src/api.js'
 
 // The dashboard's notice for a project whose next sweep is refused, or leaves
 // out providers that keep failing on their accounts. It renders the API's
@@ -25,6 +27,7 @@ const BILLING: ProviderAccountStreak = { ...AUTH, code: 'PROVIDER_BILLING', retr
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  vi.useRealTimers()
 })
 
 /** Render `node` inside a router (the settings action is a router link) and a query client. */
@@ -48,7 +51,7 @@ test('the project page reads the run admission of its own project', async () => 
   const request = vi.fn(async () => new Response(JSON.stringify({ refused: false, retryAfter: null, providers: {} }), { status: 200, headers: { 'content-type': 'application/json' } }))
   vi.stubGlobal('fetch', request)
   function Probe() {
-    const admission = useRunAdmission('acme', true).data
+    const admission = useRunAdmission('acme', true, 'scheduled').data
     return admission ? <RunAdmissionNoticeView admission={admission} canFix /> : null
   }
   const client = await renderInApp(() => <Probe />)
@@ -56,6 +59,46 @@ test('the project page reads the run admission of its own project', async () => 
   expect(new URL((request.mock.calls[0] as unknown as [Request])[0].url).pathname).toBe('/api/v1/projects/acme/run-admission')
   // Every provider is called: nothing to say.
   expect(screen.queryByRole('region')).toBeNull()
+})
+
+test('a hold refreshes at its provider retry deadline without rereading completed results', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] })
+  vi.setSystemTime(new Date('2026-10-08T08:59:00.000Z'))
+  const reads: URL[] = []
+  vi.stubGlobal('fetch', async (request: Request) => {
+    const url = new URL(request.url)
+    reads.push(url)
+    const data = url.pathname.endsWith('/run-admission')
+      ? Date.now() < Date.parse(RETRY)
+        ? { refused: true, retryAfter: RETRY, providers: { openai: AUTH } }
+        : { refused: false, retryAfter: null, providers: {} }
+      : { id: 'historic', projectId: 'acme', kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt: '2026-10-01T00:00:00.000Z', snapshots: [] }
+    return new Response(JSON.stringify(data), { status: 200, headers: { 'content-type': 'application/json' } })
+  })
+  function Probe() {
+    const admission = useRunAdmission('acme', true, 'manual').data
+    const historic = useQuery({ ...getApiV1RunsByIdOptions({ client: heyClient, path: { id: 'historic' } }), staleTime: Infinity })
+    return <>
+      {admission ? <RunAdmissionNoticeView admission={admission} canFix /> : null}
+      <p>{historic.data?.id}</p>
+    </>
+  }
+  const client = await renderInApp(() => <Probe />)
+  await screen.findByRole('region', { name: 'Sweeps are on hold' })
+  await screen.findByText('historic')
+  await waitFor(() => expect(client.isFetching()).toBe(0))
+  expect(reads.filter(url => url.pathname.endsWith('/run-admission'))).toHaveLength(1)
+  await act(async () => { await vi.advanceTimersByTimeAsync(59_999) })
+  expect(reads.filter(url => url.pathname.endsWith('/run-admission'))).toHaveLength(1)
+  await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+  await waitFor(() => expect(screen.queryByRole('region')).toBeNull())
+  await waitFor(() => expect(client.isFetching()).toBe(0))
+  expect(reads.filter(url => url.pathname.endsWith('/run-admission'))).toHaveLength(2)
+  await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+  expect(reads.filter(url => url.pathname.endsWith('/run-admission'))).toHaveLength(2)
+  expect(reads.filter(url => url.pathname.endsWith('/runs/historic'))).toHaveLength(1)
+  cleanup()
+  client.clear()
 })
 
 test('a refused sweep says when the hold lifts and links an administrator to the rejected key', async () => {

@@ -387,6 +387,28 @@ describe('skipping a provider that keeps failing on its account', () => {
       enabled: true, providers: ['openai'], createdAt: at, updatedAt: at,
     }).onConflictDoUpdate({ target: [schedules.projectId, schedules.kind], set: { enabled: true, providers: ['openai'] } }).run()
     expect((await h.admissionReads())[1]).toEqual({ refused: true, retryAfter: openai.retryAfter, providers: { openai } })
+
+    const scheduled = await h.app.inject({ method: 'GET', url: '/api/v1/projects/acme/run-admission?selection=scheduled' })
+    expect(scheduled.statusCode).toBe(200)
+    expect(scheduled.json()).toEqual({ refused: true, retryAfter: openai.retryAfter, providers: { openai } })
+    const manual = await h.app.inject({ method: 'GET', url: '/api/v1/projects/acme/run-admission?selection=manual' })
+    expect(manual.statusCode).toBe(200)
+    expect(manual.json()).toEqual({ refused: false, retryAfter: null, providers: { openai } })
+    const latest = await h.app.inject({ method: 'GET', url: '/api/v1/projects/acme/runs/latest' })
+    const overview = await h.app.inject({ method: 'GET', url: '/api/v1/projects/acme/overview' })
+    expect(latest.json().manualAdmission).toEqual(manual.json())
+    expect(overview.json().latestRun.manualAdmission).toEqual(manual.json())
+    // The manual preview must describe the actual unfiltered manual launch.
+    const queued = await h.trigger()
+    expect(queued.statusCode).toBe(201)
+    expect(queued.json().skippedProviders).toEqual(manual.json().providers)
+  })
+
+  it('rejects an unknown admission selection rather than describing another sweep', async () => {
+    const h = await harness()
+    const response = await h.app.inject({ method: 'GET', url: '/api/v1/projects/acme/run-admission?selection=all' })
+    expect(response.statusCode).toBe(400)
+    expect(response.json().error).toMatchObject({ code: 'VALIDATION_ERROR', message: '"selection" must be one of: manual, scheduled' })
   })
 
   // A run that skipped openai did not call it, so it neither extends nor ends

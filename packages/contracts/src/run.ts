@@ -305,8 +305,9 @@ export type RunDto = z.infer<typeof runDtoSchema>
 
 /**
  * Whether the project's next full answer-visibility sweep would be admitted,
- * as the scheduler starts one: with the schedule's providers when it names
- * some, else the project's. A probe or a `force` run is never held back.
+ * for a selected provider list. Scheduled sweeps use the schedule's providers
+ * when it names some, while manual sweeps use the project's providers. Both
+ * use a published plan's frozen providers. A probe or a `force` run is never held back.
  */
 export const runAdmissionDtoSchema = z.object({
   /** Every provider the sweep would call is held back, so it is refused (`PROVIDERS_FAILING`); a scheduled one skips its slot. */
@@ -607,6 +608,8 @@ export const latestProjectRunDtoSchema = z.object({
   run: runDetailDtoSchema.nullable(),
   /** Whether the next full sweep would be admitted, and which providers it would skip. Absent from servers before it existed. */
   admission: runAdmissionDtoSchema.optional(),
+  /** Admission for a manual full sweep, using the project's providers rather than a schedule override. */
+  manualAdmission: runAdmissionDtoSchema.optional(),
 })
 
 export type LatestProjectRunDto = z.infer<typeof latestProjectRunDtoSchema>

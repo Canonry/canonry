@@ -7079,6 +7079,19 @@ export type LatestProjectRunDto = {
             };
         };
     };
+    manualAdmission?: {
+        refused: boolean;
+        retryAfter: string | null;
+        providers: {
+            [key: string]: {
+                code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                consecutiveRuns: number;
+                since: string;
+                latestRunId: string;
+                retryAfter: string;
+            };
+        };
+    };
 };
 
 export type RunAdmissionDto = {
@@ -11720,6 +11733,19 @@ export type ProjectOverviewDto = {
             }>;
         } | null;
         admission?: {
+            refused: boolean;
+            retryAfter: string | null;
+            providers: {
+                [key: string]: {
+                    code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                    consecutiveRuns: number;
+                    since: string;
+                    latestRunId: string;
+                    retryAfter: string;
+                };
+            };
+        };
+        manualAdmission?: {
             refused: boolean;
             retryAfter: string | null;
             providers: {
@@ -20208,9 +20234,23 @@ export type GetApiV1ProjectsByNameRunAdmissionData = {
          */
         name: string;
     };
-    query?: never;
+    query?: {
+        /**
+         * Read-selection identity: scheduled (default) uses the enabled schedule's providers; manual uses the unfiltered manual launch's project or instance providers. Both use an Advanced revision's frozen engines.
+         */
+        selection?: 'manual' | 'scheduled';
+    };
     url: '/api/v1/projects/{name}/run-admission';
 };
+
+export type GetApiV1ProjectsByNameRunAdmissionErrors = {
+    /**
+     * Invalid admission selection.
+     */
+    400: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameRunAdmissionError = GetApiV1ProjectsByNameRunAdmissionErrors[keyof GetApiV1ProjectsByNameRunAdmissionErrors];
 
 export type GetApiV1ProjectsByNameRunAdmissionResponses = {
     /**

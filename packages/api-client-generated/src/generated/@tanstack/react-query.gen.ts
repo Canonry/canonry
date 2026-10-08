@@ -2614,7 +2614,7 @@ export const getApiV1ProjectsByNameRunsLatestQueryKey = (options: Options<GetApi
 /**
  * Get the latest project run
  *
- * The newest non-probe run, the run count, and `admission`: whether the next full sweep would be refused (PROVIDERS_FAILING) and which providers it would skip because each keeps failing on its account, with their codes and `retryAfter`. A scheduled sweep that is refused leaves no run, so read `admission`, not the latest run, to tell.
+ * The newest non-probe run, the run count, and `admission`: whether the next full sweep would be refused (PROVIDERS_FAILING) and which providers it would skip because each keeps failing on its account, with their codes and `retryAfter`. `admission` uses the scheduled roster; `manualAdmission` describes an unfiltered manual launch. A scheduled sweep that is refused leaves no run, so read `admission`, not the latest run, to tell.
  */
 export const getApiV1ProjectsByNameRunsLatestOptions = (options: Options<GetApiV1ProjectsByNameRunsLatestData>) => {
     return queryOptions({
@@ -2636,7 +2636,7 @@ export const getApiV1ProjectsByNameRunAdmissionQueryKey = (options: Options<GetA
 /**
  * Get whether the next sweep would be admitted
  *
- * The `admission` of `/projects/{name}/runs/latest` without the latest run: whether the next full sweep would be refused (PROVIDERS_FAILING) and which providers it would skip because each failed on its account in each of its last 10 runs, with each provider's code and `retryAfter`.
+ * The `admission` or `manualAdmission` of `/projects/{name}/runs/latest` without the latest run: whether the next full sweep would be refused (PROVIDERS_FAILING) and which providers it would skip because each failed on its account in each of its last 10 runs, with each provider's code and `retryAfter`.
  */
 export const getApiV1ProjectsByNameRunAdmissionOptions = (options: Options<GetApiV1ProjectsByNameRunAdmissionData>) => {
     return queryOptions({

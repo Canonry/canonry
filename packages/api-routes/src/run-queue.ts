@@ -649,7 +649,11 @@ function sliceFor(plan: MeasurementPlan, params: QueueRunParams) {
  */
 export function assertMeasurementRunStampable(db: DatabaseClient, params: QueueRunParams): void {
   const stamp = measurementStamp(db, params)
-  resolveQueueDispatch(db, params, stamp)
+  const dispatch = resolveQueueDispatch(db, params, stamp)
+  if (params.dispatchMode === ProviderDispatchModes.batch) {
+    const admission = queueProviderAdmission(db, params, stamp, params.createdAt ?? new Date().toISOString())
+    dispatchAfterProviderAdmission(params, dispatch, admission)
+  }
 }
 
 /**
@@ -683,6 +687,47 @@ function resolveQueueDispatch(tx: DatabaseClient, params: QueueRunParams, stamp:
     throw validationError(batchDispatchRefusalMessage(resolution.ineligible), { ineligible: resolution.ineligible })
   }
   return resolution
+}
+
+/** An explicit batch request still needs a called provider that can batch after account holds. */
+function dispatchAfterProviderAdmission(
+  params: QueueRunParams,
+  dispatch: RunDispatchResolution,
+  admission: ProviderAccountAdmission,
+): RunDispatchResolution {
+  // A completely held roster is refused with PROVIDERS_FAILING instead.
+  if (admission.refused) return dispatch
+  const skippedProviders = admission.skipped
+  const modes = Object.fromEntries(Object.entries(dispatch.modes).filter(([provider]) => !(provider in skippedProviders)))
+  if (params.dispatchMode === ProviderDispatchModes.batch && Object.keys(modes).length === 0) {
+    throw validationError(
+      `${batchDispatchRefusalMessage(dispatch.ineligible)} Held back after repeated account failures: ${Object.keys(skippedProviders).join(', ')}. `
+        + 'Pass force to call those providers now.',
+      { ineligible: dispatch.ineligible, skippedProviders },
+    )
+  }
+  return { ...dispatch, modes }
+}
+
+/** The queue and its bulk pre-pass judge account holds against the same frozen roster. */
+function queueProviderAdmission(
+  db: DatabaseClient,
+  params: QueueRunParams,
+  stamp: MeasurementStamp | null,
+  now: string,
+): ProviderAccountAdmission {
+  return (params.kind ?? RunKinds['answer-visibility']) === RunKinds['answer-visibility']
+    ? providerAccountAdmission(db, {
+        projectId: params.projectId,
+        trigger: stamp?.scope ? RunTriggers.probe : params.trigger ?? RunTriggers.manual,
+        force: params.force ?? false,
+        now,
+        providers: () => providersARunWouldCall(
+          stamp?.identity.providers ?? providerRoster(db, params),
+          params.runnableProviders,
+        ),
+      })
+    : { skipped: {} }
 }
 
 /** Why a run was refused: the streaks it would have extended. */
@@ -941,7 +986,12 @@ export function providerAccountAdmission(
  * some, else the project's own list, else everything this host can run, less
  * what this host cannot run.
  */
-function sweepProviders(db: Pick<DatabaseClient, 'select'>, projectId: string, runnable: readonly string[] | null | undefined): string[] {
+function sweepProviders(
+  db: Pick<DatabaseClient, 'select'>,
+  projectId: string,
+  runnable: readonly string[] | null | undefined,
+  selection: typeof RunTriggers.manual | typeof RunTriggers.scheduled,
+): string[] {
   const planProviders = activeRevisionProviders(db, projectId)
   if (planProviders.length > 0) return providersARunWouldCall(planProviders, runnable)
   const schedule = db.select({ providers: schedules.providers, enabled: schedules.enabled }).from(schedules)
@@ -949,7 +999,7 @@ function sweepProviders(db: Pick<DatabaseClient, 'select'>, projectId: string, r
     .get()
   const project = db.select({ providers: projects.providers }).from(projects).where(eq(projects.id, projectId)).get()
   return providersARunWouldCall(resolveRunProviderSelection({
-    requestedProviders: schedule?.enabled ? schedule.providers : null,
+    requestedProviders: selection === RunTriggers.scheduled && schedule?.enabled ? schedule.providers : null,
     projectProviders: project?.providers ?? [],
     runnableProviders: runnable,
   }), runnable)
@@ -963,10 +1013,16 @@ function sweepProviders(db: Pick<DatabaseClient, 'select'>, projectId: string, r
  */
 export function runAdmissionState(
   db: Pick<DatabaseClient, 'select'>,
-  params: { projectId: string; now: string; runnableProviders?: readonly string[] | null },
+  params: {
+    projectId: string
+    now: string
+    runnableProviders?: readonly string[] | null
+    /** Scheduling remains the default; a manual preview uses the unfiltered manual launch's roster. */
+    selection?: typeof RunTriggers.manual | typeof RunTriggers.scheduled
+  },
 ): RunAdmissionDto {
   let calling: string[] | null = null
-  const providers = () => (calling ??= sweepProviders(db, params.projectId, params.runnableProviders))
+  const providers = () => (calling ??= sweepProviders(db, params.projectId, params.runnableProviders, params.selection ?? RunTriggers.scheduled))
   const held = heldProviderAccounts(db, { projectId: params.projectId, now: params.now, providers })
   const refused = held.size > 0 && providers().every(provider => held.has(provider))
   return {
@@ -1101,18 +1157,7 @@ export function queueRunIfProjectIdle(db: DatabaseClient, params: QueueRunParams
 
     // After the schedule claim on purpose: a refused calendar slot is spent,
     // not retried every tick while the keys stay broken.
-    const admission: ProviderAccountAdmission = kind === RunKinds['answer-visibility']
-      ? providerAccountAdmission(tx, {
-          projectId: params.projectId,
-          trigger: stamp?.scope ? RunTriggers.probe : trigger,
-          force: params.force ?? false,
-          now: createdAt,
-          providers: () => providersARunWouldCall(
-            stamp?.identity.providers ?? providerRoster(tx as unknown as DatabaseClient, params),
-            params.runnableProviders,
-          ),
-        })
-      : { skipped: {} }
+    const admission = queueProviderAdmission(tx as unknown as DatabaseClient, params, stamp, createdAt)
     if (admission.refused) {
       const refusalRecorded = params.auditRefusal
         ? recordRunRefusal(tx as unknown as DatabaseClient, params.projectId, admission.refused, params.auditRefusal)
@@ -1121,7 +1166,8 @@ export function queueRunIfProjectIdle(db: DatabaseClient, params: QueueRunParams
     }
     const skippedProviders = admission.skipped
     // A provider the run skips is not dispatched in any mode.
-    const dispatchModes = Object.fromEntries(Object.entries(dispatch.modes).filter(([provider]) => !(provider in skippedProviders)))
+    const admittedDispatch = dispatchAfterProviderAdmission(params, dispatch, admission)
+    const dispatchModes = admittedDispatch.modes
 
     // Stamp the query set this run is about to measure, so analytics can compare
     // like-for-like later without inferring membership from row timestamps.
@@ -1163,6 +1209,6 @@ export function queueRunIfProjectIdle(db: DatabaseClient, params: QueueRunParams
       createdAt,
     }).run()
 
-    return { conflict: false, runId, dispatch: { ...dispatch, modes: dispatchModes }, skippedProviders } as const
+    return { conflict: false, runId, dispatch: admittedDispatch, skippedProviders } as const
   })
 }

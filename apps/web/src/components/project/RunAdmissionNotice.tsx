@@ -11,16 +11,24 @@ import { Button } from '../ui/button.js'
 
 /**
  * `GET /projects/:name/run-admission`: whether the next sweep would be refused,
- * and which providers it would leave out. The project page reads it once for
- * both the notice and the sweep button.
+ * and which providers it would leave out, for the selected sweep roster.
  */
-export function useRunAdmission(projectName: string, enabled: boolean) {
+export function useRunAdmission(projectName: string, enabled: boolean, selection: 'manual' | 'scheduled') {
   return useQuery({
-    ...getApiV1ProjectsByNameRunAdmissionOptions({ client: heyClient, path: { name: projectName } }),
+    ...getApiV1ProjectsByNameRunAdmissionOptions({ client: heyClient, path: { name: projectName }, query: { selection } }),
     enabled: enabled && Boolean(projectName),
     staleTime: RUNS_STALE_MS,
     // A key saved from the CLI or in another tab lifts the hold.
     refetchOnWindowFocus: 'always',
+    // Retry deadlines can lift holds while the operator stays on this page.
+    // Refresh only admission; saved sweep results keep their own lifetime.
+    refetchInterval: query => {
+      const retries = Object.values(query.state.data?.providers ?? {})
+        .map(hold => Date.parse(hold.retryAfter)).filter(Number.isFinite)
+      if (retries.length === 0) return false
+      const remaining = Math.min(...retries) - Date.now()
+      return remaining > 0 ? remaining : RUNS_STALE_MS
+    },
     retry: false,
   })
 }
@@ -60,7 +68,7 @@ function When({ iso }: { iso: string }) {
  * action appears only when a held provider's key was rejected; credit is added
  * in the provider's own console.
  */
-export function RunAdmissionNoticeView({ admission, canFix }: { admission: RunAdmissionDto; canFix: boolean }) {
+export function RunAdmissionNoticeView({ admission, canFix, selection }: { admission: RunAdmissionDto; canFix: boolean; selection?: 'manual' | 'scheduled' }) {
   const headingId = useId()
   const held = Object.entries(admission.providers)
   if (held.length === 0) return null
@@ -70,11 +78,12 @@ export function RunAdmissionNoticeView({ admission, canFix }: { admission: RunAd
   const runs = first.consecutiveRuns
   const keyFixable = held.find(([, streak]) => streak.code === ProviderErrorCodes.PROVIDER_AUTH)
 
+  const sweeps = selection ? `${selection} sweeps` : 'sweeps'
   const title = admission.refused
-    ? 'Sweeps are on hold'
+    ? `${selection ? selection === 'manual' ? 'Manual sweeps' : 'Scheduled sweeps' : 'Sweeps'} are on hold`
     : single
-      ? `${firstName} is left out of sweeps`
-      : `${held.length} providers are left out of sweeps`
+      ? `${firstName} is left out of ${sweeps}`
+      : `${held.length} providers are left out of ${sweeps}`
 
   let summary: ReactNode
   if (single) {

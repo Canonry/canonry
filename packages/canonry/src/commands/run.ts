@@ -51,19 +51,39 @@ function providerAccountFixLine(project: string): string {
 }
 
 /**
- * Lines `canonry status` and `canonry overview` print about the next sweep:
- * refused, or skipping some providers. None when it would call every provider.
+ * Compare decisions without depending on provider-map or field insertion order.
  */
-export function runAdmissionLines(project: string, admission: RunAdmissionDto | undefined): string[] {
-  const held = Object.entries(admission?.providers ?? {})
-  if (!admission || held.length === 0) return []
+function admissionDecisionKey(admission: RunAdmissionDto): string {
+  return JSON.stringify([
+    admission.refused,
+    admission.retryAfter,
+    Object.entries(admission.providers).sort(([left], [right]) => left.localeCompare(right))
+      .map(([provider, streak]) => [provider, streak.code, streak.consecutiveRuns, streak.since, streak.latestRunId, streak.retryAfter]),
+  ])
+}
+
+function admissionScopeLines(admission: RunAdmissionDto, label: string, showAllowed: boolean): string[] {
+  const held = Object.entries(admission.providers)
+  if (held.length === 0) return showAllowed ? [`${label}: no providers held back.`] : []
+  const retry = label === 'Manual sweep'
+    ? `it can retry after ${admission.retryAfter}`
+    : `scheduled sweeps skip their slots until ${admission.retryAfter}`
   return [
     admission.refused
-      ? `Next sweep: refused (PROVIDERS_FAILING). Every provider it would call keeps failing on its account; scheduled sweeps skip their slots until ${admission.retryAfter}.`
-      : `Next sweep: skips ${providersThatKeepFailing(held.length)}; the rest run.`,
+      ? `${label}: refused (PROVIDERS_FAILING). Every provider it would call keeps failing on its account; ${retry}.`
+      : `${label}: skips ${providersThatKeepFailing(held.length)}; the rest run.`,
     ...held.map(([provider, streak]) => `  ${providerAccountStreakLine(provider, streak)}`),
-    providerAccountFixLine(project),
   ]
+}
+
+/** Keep one next-sweep decision unless scheduled and manual provider scopes differ. */
+export function runAdmissionLines(project: string, admission: RunAdmissionDto | undefined, manualAdmission?: RunAdmissionDto): string[] {
+  if (!admission) return []
+  const differs = manualAdmission !== undefined && admissionDecisionKey(admission) !== admissionDecisionKey(manualAdmission)
+  const lines = differs
+    ? [...admissionScopeLines(admission, 'Scheduled sweep', true), ...admissionScopeLines(manualAdmission, 'Manual sweep', true)]
+    : admissionScopeLines(admission, 'Next sweep', false)
+  return lines.length > 0 ? [...lines, providerAccountFixLine(project)] : []
 }
 
 /** The providers a queued run will not call, as the trigger output prints them. */

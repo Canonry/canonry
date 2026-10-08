@@ -187,6 +187,7 @@ describe('GET /api/v1/projects/:name/runs/latest', () => {
       totalRuns: 0,
       run: null,
       admission: { refused: false, retryAfter: null, providers: {} },
+      manualAdmission: { refused: false, retryAfter: null, providers: {} },
     })
 
     await app.close()

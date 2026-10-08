@@ -412,32 +412,40 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
 
     // Whether the next sweep would be admitted: a project whose sweeps are
     // refused has no newer run to show, so the latest run alone cannot say.
-    const admission = runAdmissionState(app.db, {
+    const admissionParams = {
       projectId: project.id,
       now: new Date().toISOString(),
       runnableProviders: opts.getRunnableProviderNames?.(),
-    })
+    }
+    const admission = runAdmissionState(app.db, admissionParams)
+    const manualAdmission = runAdmissionState(app.db, { ...admissionParams, selection: RunTriggers.manual })
 
     if (!latestRun) {
-      return reply.send({ totalRuns: 0, run: null, admission })
+      return reply.send({ totalRuns: 0, run: null, admission, manualAdmission })
     }
 
     return reply.send({
       totalRuns,
       run: loadRunDetail(app, latestRun),
       admission,
+      manualAdmission,
     })
   })
 
-  // GET /projects/:name/run-admission: the `admission` of `/runs/latest`
+  // GET /projects/:name/run-admission: the `admission` or `manualAdmission` of `/runs/latest`
   // without the latest run's answers, for the dashboard's notice on every
   // project page. Agents and the CLI read it on `/runs/latest` and the overview.
-  app.get<{ Params: { name: string } }>('/projects/:name/run-admission', async (request, reply) => {
+  app.get<{ Params: { name: string }; Querystring: { selection?: string } }>('/projects/:name/run-admission', async (request, reply) => {
+    const selection = request.query.selection ?? RunTriggers.scheduled
+    if (selection !== RunTriggers.manual && selection !== RunTriggers.scheduled) {
+      throw validationError('"selection" must be one of: manual, scheduled')
+    }
     const project = resolveProject(app.db, request.params.name)
     return reply.send(runAdmissionState(app.db, {
       projectId: project.id,
       now: new Date().toISOString(),
       runnableProviders: opts.getRunnableProviderNames?.(),
+      selection,
     }))
   })
 
@@ -601,6 +609,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     for (const entry of eligible) {
       try {
         assertMeasurementRunStampable(app.db, {
+          createdAt: now,
           projectId: entry.project.id,
           kind,
           trigger: 'manual',
@@ -610,6 +619,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
           providerModels: opts.getEffectiveProviderModels?.(),
           dispatchMode,
           batchEligibleProviders,
+          force: force ?? false,
         })
         dispatchable.push(entry)
       } catch (error) {

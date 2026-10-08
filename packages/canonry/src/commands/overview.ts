@@ -124,7 +124,7 @@ function renderHuman(overview: ProjectOverviewDto): void {
   } else {
     console.log('\n  No runs yet.')
   }
-  const admission = runAdmissionLines(meta.name, latestRun.admission)
+  const admission = runAdmissionLines(meta.name, latestRun.admission, latestRun.manualAdmission)
   if (admission.length > 0) console.log(`\n${admission.map(line => `  ${line}`).join('\n')}`)
 
   console.log('\nScores:')
