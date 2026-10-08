@@ -1,6 +1,6 @@
 import { MANAGED_SWEEPS_COPY } from '../src/components/project/ManagedSweepStatus.js'
 import { afterEach, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   createMemoryHistory,
@@ -304,7 +304,7 @@ const READY_AERO = {
 }
 const EMPTY_TRANSCRIPT = { messages: [], modelProvider: 'openai', modelId: 'model', updatedAt: null }
 
-test('keeps intermediate responses and renders a completed tool call once', async () => {
+test('keeps intermediate responses and renders a completed tool call once, behind its run header', async () => {
   const transcript = vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
   vi.spyOn(aero, 'promptAero').mockImplementation(async ({ onEvent }) => {
     const assistant: aero.AeroAssistantMessage = { role: 'assistant', timestamp: 1, content: [
@@ -326,8 +326,513 @@ test('keeps intermediate responses and renders a completed tool call once', asyn
   fireEvent.change(screen.getByRole('textbox', { name: 'Message Aero' }), { target: { value: 'Check this market' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
   await screen.findByText('No active insights.')
-  expect(screen.getAllByText('Read insights')).toHaveLength(1)
   expect(screen.getByText('Checking the selected market.')).toBeTruthy()
+  // The live event and the persisted call are one step, collapsed under one header.
+  const header = screen.getByRole('button', { name: /^1 step/ })
+  expect(header.getAttribute('aria-expanded')).toBe('false')
+  expect(screen.queryByText('Read insights')).toBeNull()
+  fireEvent.click(header)
+  expect(screen.getAllByText('Read insights')).toHaveLength(1)
+})
+
+// ── Tool runs ────────────────────────────────────────────────────────
+// A run is the tool calls of consecutive assistant messages with no text
+// between them. Its header counts real steps; toolkit setup is not one.
+
+interface ScriptedCall {
+  id: string
+  name: string
+  label: string
+  durationMs: number
+  isError?: boolean
+  /** The live start event names no label, as for a tool whose toolkit is not loaded yet. */
+  startUnlabelled?: boolean
+}
+interface ScriptedRound { text?: string; calls: ScriptedCall[] }
+type OnAeroEvent = (event: aero.AeroEvent) => void
+
+const LIST_TOOLKITS: ScriptedCall = { id: 'setup-1', name: 'aero_list_toolkits', label: 'Find relevant tools', durationMs: 5 }
+const LOAD_TOOLKIT: ScriptedCall = { id: 'setup-2', name: 'aero_load_toolkit', label: 'Load relevant tools', durationMs: 7 }
+
+function readInsights(id: string, durationMs: number, extra: Partial<ScriptedCall> = {}): ScriptedCall {
+  return { id, name: 'canonry_insights_list', label: 'Read insights', durationMs, ...extra }
+}
+
+function readSentiment(id: string, durationMs: number, extra: Partial<ScriptedCall> = {}): ScriptedCall {
+  return { id, name: 'canonry_sentiment_evidence', label: 'Read sentiment evidence', durationMs, ...extra }
+}
+
+/**
+ * Toolkit setup, then insights, sentiment and insights again, one round each:
+ * 3 steps in 120 + 900 + 180 = 1200ms. Setup's 5 + 7ms is not a step's time.
+ */
+const MULTI_ROUND_RUN: ScriptedRound[] = [
+  { calls: [LIST_TOOLKITS] },
+  { calls: [LOAD_TOOLKIT] },
+  { calls: [readInsights('step-1', 120)] },
+  { calls: [readSentiment('step-2', 900)] },
+  { calls: [readInsights('step-3', 180)] },
+]
+const MULTI_ROUND_ANSWER = 'Two insights need attention.'
+const MULTI_ROUND_HEADER = '3 steps1.2s'
+const SAVED_AT = '2026-10-07T10:00:00.000Z'
+
+function scriptedAssistant(round: ScriptedRound, timestamp: number): aero.AeroAssistantMessage {
+  return { role: 'assistant', timestamp, stopReason: 'toolUse', content: [
+    ...(round.text ? [{ type: 'text' as const, text: round.text }] : []),
+    ...round.calls.map((call) => ({ type: 'toolCall' as const, id: call.id, name: call.name, arguments: {} })),
+  ] }
+}
+
+function scriptedResult(call: ScriptedCall, timestamp: number): aero.AeroToolResultMessage {
+  return {
+    role: 'toolResult', timestamp, toolCallId: call.id, isError: call.isError ?? false,
+    aeroToolLabel: call.label, aeroDurationMs: call.durationMs, content: [{ type: 'text', text: '{}' }],
+  }
+}
+
+function finalAnswer(text: string, timestamp = 99): aero.AeroAssistantMessage {
+  return { role: 'assistant', timestamp, stopReason: 'stop', content: [{ type: 'text', text }] }
+}
+
+function partialAnswer(text: string): aero.AeroEvent {
+  return { type: 'message_update', message: { role: 'assistant', content: [{ type: 'text', text }] }, assistantMessageEvent: {} }
+}
+
+/** The transcript the server saves for a scripted turn. */
+function scriptedMessages(rounds: ScriptedRound[], answer: string): aero.AeroMessage[] {
+  const messages: aero.AeroMessage[] = [{ role: 'user', content: 'Which insights need attention?', timestamp: 1 }]
+  rounds.forEach((round, index) => {
+    messages.push(scriptedAssistant(round, 10 + index * 10))
+    round.calls.forEach((call, offset) => messages.push(scriptedResult(call, 11 + index * 10 + offset)))
+  })
+  messages.push(finalAnswer(answer))
+  return messages
+}
+
+function startCall(onEvent: OnAeroEvent, call: ScriptedCall) {
+  onEvent({ type: 'tool_execution_start', toolCallId: call.id, toolName: call.name, label: call.startUnlabelled ? undefined : call.label, args: {} })
+}
+
+function endCall(onEvent: OnAeroEvent, call: ScriptedCall, timestamp: number) {
+  onEvent({ type: 'tool_execution_end', toolCallId: call.id, toolName: call.name, isError: call.isError ?? false, result: {} })
+  onEvent({ type: 'message_end', message: scriptedResult(call, timestamp) })
+}
+
+/** One round's live events: the message asking for its calls, then each call's start, end and result. */
+function emitRound(onEvent: OnAeroEvent, round: ScriptedRound, index: number) {
+  onEvent({ type: 'message_end', message: scriptedAssistant(round, 10 + index * 10) })
+  for (const call of round.calls) startCall(onEvent, call)
+  round.calls.forEach((call, offset) => endCall(onEvent, call, 11 + index * 10 + offset))
+}
+
+function gate() {
+  let open!: () => void
+  const wait = new Promise<void>((resolve) => { open = resolve })
+  return { wait, open }
+}
+
+/**
+ * Stream a scripted turn through the live events, then hold it open after the
+ * answer so a test reads the live render before the saved transcript replaces
+ * it. `finish` releases the turn and waits for the saved transcript's reload.
+ */
+function streamScriptedTurn(rounds: ScriptedRound[], answer: string) {
+  const transcript = vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
+  const held = gate()
+  vi.spyOn(aero, 'promptAero').mockImplementation(async ({ onEvent }) => {
+    rounds.forEach((round, index) => emitRound(onEvent, round, index))
+    onEvent({ type: 'message_end', message: finalAnswer(answer) })
+    onEvent({ type: 'aero_turn_status', status: { reason: 'completed', toolCalls: 5, modelCalls: rounds.length + 1, durationMs: 1300 } })
+    await held.wait
+    transcript.mockResolvedValue({ ...EMPTY_TRANSCRIPT, messages: scriptedMessages(rounds, answer), updatedAt: SAVED_AT })
+  })
+  return {
+    async finish() {
+      // Still the live turn: nothing has been reloaded yet.
+      expect(screen.getByRole('button', { name: 'Stop Aero' })).toBeTruthy()
+      const reloads = transcript.mock.calls.length
+      await act(async () => { held.open() })
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Stop Aero' })).toBeNull())
+      expect(transcript.mock.calls.length).toBeGreaterThan(reloads)
+    },
+  }
+}
+
+async function openAero() {
+  await renderWithProviderReadiness(READY_AERO)
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero/ }))
+}
+
+function sendPrompt(prompt: string) {
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message Aero' }), { target: { value: prompt } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+}
+
+async function askAero(prompt = 'Which insights need attention?') {
+  await openAero()
+  sendPrompt(prompt)
+}
+
+/** Run headers only: "3 steps…" when done, "Reading insights…" or "Working…" while running. */
+function runHeaders() {
+  return screen.getAllByRole('button', { name: /^(\d+ (setup )?steps?|[A-Z][a-z]+ing\b[^…]*…)/ })
+}
+
+function runPanel(header: HTMLElement) {
+  const panel = document.getElementById(header.getAttribute('aria-controls') ?? '')
+  expect(panel).not.toBeNull()
+  return within(panel as HTMLElement)
+}
+
+test('collapses a multi-round tool run into one header that counts real steps, live and saved', async () => {
+  const turn = streamScriptedTurn(MULTI_ROUND_RUN, MULTI_ROUND_ANSWER)
+  await askAero()
+  await screen.findByText(MULTI_ROUND_ANSWER)
+
+  const expectOneCollapsedRun = () => {
+    const headers = runHeaders()
+    expect(headers).toHaveLength(1)
+    expect(headers[0].textContent).toBe(MULTI_ROUND_HEADER)
+    expect(headers[0].getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByText('Read insights')).toBeNull()
+    expect(screen.queryByText('Find relevant tools')).toBeNull()
+  }
+  // The live render of the finished turn, before any reload.
+  expectOneCollapsedRun()
+  await turn.finish()
+  // The saved transcript renders the same run.
+  expectOneCollapsedRun()
+})
+
+test('an expanded run merges same-label calls in first-seen order and folds toolkit setup out of the step count', async () => {
+  const turn = streamScriptedTurn(MULTI_ROUND_RUN, MULTI_ROUND_ANSWER)
+  await askAero()
+  await screen.findByText(MULTI_ROUND_ANSWER)
+
+  fireEvent.click(runHeaders()[0])
+  // One row per label, in the order each label first ran: both insight reads
+  // (×2, 120 + 180ms) come before sentiment, which ran between them. Setup is
+  // one muted row (5 + 7ms) after the steps.
+  const expectRows = () => {
+    const [header] = runHeaders()
+    expect(header.getAttribute('aria-expanded')).toBe('true')
+    expect(runPanel(header).getAllByRole('button').map((row) => row.textContent)).toEqual([
+      'Read insights×2done300ms',
+      'Read sentiment evidencedone900ms',
+      '+ 2 setup stepsdone12ms',
+    ])
+  }
+  expectRows()
+  await turn.finish()
+  // The reload keeps the run open, with the same rows.
+  expectRows()
+
+  const steps = runPanel(runHeaders()[0])
+  expect(steps.queryByText('Find relevant tools')).toBeNull()
+  fireEvent.click(steps.getByRole('button', { name: /setup steps/ }))
+  expect(steps.getByText('Find relevant tools')).toBeTruthy()
+  expect(steps.getByText('Load relevant tools')).toBeTruthy()
+  fireEvent.click(steps.getByRole('button', { name: /^Read insights/ }))
+  // The merged row's title plus each call's own card.
+  expect(steps.getAllByText('Read insights')).toHaveLength(3)
+})
+
+test('the run header names the step in flight and keeps its open state while the turn streams', async () => {
+  const transcript = vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
+  const loading = gate()
+  const between = gate()
+  const reading = gate()
+  const answering = gate()
+  const read = readSentiment('step-1', 900)
+  // Whitespace ahead of a message's calls is not text: it neither closes the run nor ends it.
+  const rounds: ScriptedRound[] = [{ calls: [LOAD_TOOLKIT] }, { text: '\n\n', calls: [read] }]
+  vi.spyOn(aero, 'promptAero').mockImplementation(async ({ onEvent }) => {
+    onEvent({ type: 'message_end', message: scriptedAssistant(rounds[0], 10) })
+    startCall(onEvent, LOAD_TOOLKIT)
+    await loading.wait
+    endCall(onEvent, LOAD_TOOLKIT, 11)
+    onEvent(partialAnswer('\n\n'))
+    await between.wait
+    onEvent({ type: 'message_end', message: scriptedAssistant(rounds[1], 20) })
+    startCall(onEvent, read)
+    await reading.wait
+    endCall(onEvent, read, 21)
+    onEvent(partialAnswer('Two insights'))
+    await answering.wait
+    onEvent({ type: 'message_end', message: finalAnswer(MULTI_ROUND_ANSWER) })
+    transcript.mockResolvedValue({ ...EMPTY_TRANSCRIPT, messages: scriptedMessages(rounds, MULTI_ROUND_ANSWER), updatedAt: SAVED_AT })
+  })
+  await askAero()
+
+  // Only toolkit setup is running: no step yet.
+  const header = await screen.findByRole('button', { name: /^Loading tools…/ })
+  expect(header.getAttribute('aria-expanded')).toBe('false')
+  expect(within(header).queryByText(/^step/)).toBeNull()
+
+  // Between steps the run still reads as working, whitespace streaming or not.
+  await act(async () => { loading.open() })
+  await waitFor(() => expect(within(header).getByText('Working…')).toBeTruthy())
+  fireEvent.click(header)
+  expect(header.getAttribute('aria-expanded')).toBe('true')
+
+  await act(async () => { between.open() })
+  await waitFor(() => expect(within(header).getByText('Reading sentiment evidence…')).toBeTruthy())
+  // The ticking clock is shown but kept out of the button's name.
+  expect(screen.getByRole('button', { name: /^Reading sentiment evidence…\s*step 1$/ })).toBe(header)
+  expect(within(header).getByText(/^\d+s$/)).toBeTruthy()
+  expect(runHeaders()).toHaveLength(1)
+  // A new step does not close the open run.
+  expect(header.getAttribute('aria-expanded')).toBe('true')
+  expect(runPanel(header).getByText('running…')).toBeTruthy()
+
+  // Once the answer streams, the run before it is done.
+  await act(async () => { reading.open() })
+  await screen.findByText('Two insights')
+  await waitFor(() => expect(header.textContent).toBe('1 step900ms'))
+  expect(header.getAttribute('aria-expanded')).toBe('true')
+
+  await act(async () => { answering.open() })
+  await screen.findByText(MULTI_ROUND_ANSWER)
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Stop Aero' })).toBeNull())
+  // The saved transcript's reload keeps the same run, still open.
+  const [saved] = runHeaders()
+  expect(saved.textContent).toBe('1 step900ms')
+  expect(saved.getAttribute('aria-expanded')).toBe('true')
+})
+
+test('a two-verb tool label reads as working rather than half a sentence', async () => {
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
+  const clearing = gate()
+  const clear: ScriptedCall = { id: 'step-1', name: 'canonry_results_clear', label: 'Preview or clear saved results', durationMs: 30 }
+  vi.spyOn(aero, 'promptAero').mockImplementation(async ({ onEvent }) => {
+    onEvent({ type: 'message_end', message: scriptedAssistant({ calls: [clear] }, 10) })
+    startCall(onEvent, clear)
+    await clearing.wait
+    endCall(onEvent, clear, 11)
+    onEvent({ type: 'message_end', message: finalAnswer('Nothing was cleared.') })
+  })
+  await askAero()
+
+  expect(await screen.findByRole('button', { name: /^Working…\s*step 1$/ })).toBeTruthy()
+  expect(screen.queryByText(/^Previewing or clear/)).toBeNull()
+  await act(async () => { clearing.open() })
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Stop Aero' })).toBeNull())
+})
+
+test('a failed step stays visible on the collapsed run header; a failed setup call is not a failed step', async () => {
+  const turn = streamScriptedTurn([
+    { calls: [{ ...LOAD_TOOLKIT, isError: true }] },
+    { calls: [readInsights('step-1', 100), readSentiment('step-2', 50, { isError: true })] },
+  ], 'Sentiment could not be read.')
+  await askAero()
+  await screen.findByText('Sentiment could not be read.')
+
+  const expectFailedRun = () => {
+    const [header] = runHeaders()
+    expect(header.getAttribute('aria-expanded')).toBe('false')
+    // One of two steps failed, in 100 + 50ms. The failed toolkit load adds
+    // neither a failure nor time to the steps.
+    expect(header.textContent).toBe('2 steps1 failed150ms')
+    // The failing call's own card stays folded until the run opens.
+    expect(screen.queryByText('Read sentiment evidence')).toBeNull()
+    expect(screen.queryByText('failed')).toBeNull()
+  }
+  expectFailedRun()
+  await turn.finish()
+  expectFailedRun()
+
+  // The setup row keeps its own failure.
+  const [header] = runHeaders()
+  fireEvent.click(header)
+  expect(runPanel(header).getByRole('button', { name: /setup step/ }).textContent).toBe('+ 1 setup step1 failed7ms')
+})
+
+test('a call that streams with no label takes its saved label, so live and saved rows match', async () => {
+  // Called before its toolkit loaded: the live start event has no label, the saved result does.
+  const turn = streamScriptedTurn([
+    { calls: [readInsights('step-1', 5, { isError: true, startUnlabelled: true })] },
+    { calls: [LOAD_TOOLKIT] },
+    { calls: [readInsights('step-2', 50)] },
+  ], MULTI_ROUND_ANSWER)
+  await askAero()
+  await screen.findByText(MULTI_ROUND_ANSWER)
+
+  fireEvent.click(runHeaders()[0])
+  const expectRows = () => {
+    const [header] = runHeaders()
+    expect(header.textContent).toBe('2 steps1 failed55ms')
+    expect(runPanel(header).getAllByRole('button').map((row) => row.textContent)).toEqual([
+      'Read insights×21 failed55ms',
+      '+ 1 setup stepdone7ms',
+    ])
+  }
+  expectRows()
+  await turn.finish()
+  expectRows()
+})
+
+test('a step row keeps its place, open and focused, when a same-label call joins it', async () => {
+  const transcript = vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
+  const firstDone = gate()
+  const held = gate()
+  const rounds: ScriptedRound[] = [{ calls: [readInsights('step-1', 120)] }, { calls: [readInsights('step-2', 180)] }]
+  vi.spyOn(aero, 'promptAero').mockImplementation(async ({ onEvent }) => {
+    emitRound(onEvent, rounds[0], 0)
+    await firstDone.wait
+    emitRound(onEvent, rounds[1], 1)
+    await held.wait
+    onEvent({ type: 'message_end', message: finalAnswer(MULTI_ROUND_ANSWER) })
+    transcript.mockResolvedValue({ ...EMPTY_TRANSCRIPT, messages: scriptedMessages(rounds, MULTI_ROUND_ANSWER), updatedAt: SAVED_AT })
+  })
+  await askAero()
+
+  const header = await screen.findByRole('button', { name: /^Working…/ })
+  fireEvent.click(header)
+  // One call so far: its own card, opened and focused to read its inputs.
+  const card = runPanel(header).getByRole('button', { name: /^Read insights/ })
+  act(() => { card.focus() })
+  fireEvent.click(card)
+  expect(card.getAttribute('aria-expanded')).toBe('true')
+  expect(runPanel(header).getByText('Inputs')).toBeTruthy()
+
+  await act(async () => { firstDone.open() })
+  await waitFor(() => expect(runPanel(header).getAllByRole('button')).toHaveLength(3))
+  const [fold, first, second] = runPanel(header).getAllByRole('button')
+  // The fold header joins above the same card, which stays mounted, open and focused.
+  expect(fold.textContent).toBe('Read insights×2done300ms')
+  expect(fold.getAttribute('aria-expanded')).toBe('true')
+  expect(first).toBe(card)
+  expect(card.isConnected).toBe(true)
+  expect(document.activeElement).toBe(card)
+  expect(card.getAttribute('aria-expanded')).toBe('true')
+  expect(second.getAttribute('aria-expanded')).toBe('false')
+
+  await act(async () => { held.open() })
+  await screen.findByText(MULTI_ROUND_ANSWER)
+})
+
+test('a saved transcript renders the same collapsed run header as the live turn', async () => {
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue({
+    ...EMPTY_TRANSCRIPT,
+    messages: scriptedMessages(MULTI_ROUND_RUN, MULTI_ROUND_ANSWER),
+    updatedAt: SAVED_AT,
+  })
+  await openAero()
+  await screen.findByText(MULTI_ROUND_ANSWER)
+
+  const headers = runHeaders()
+  expect(headers).toHaveLength(1)
+  expect(headers[0].textContent).toBe(MULTI_ROUND_HEADER)
+  expect(headers[0].getAttribute('aria-expanded')).toBe('false')
+  // Nothing is streaming, so nothing in the saved run is running or interrupted.
+  expect(screen.queryByText('interrupted')).toBeNull()
+})
+
+test('assistant text between tool calls closes one run and starts the next', async () => {
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue({
+    ...EMPTY_TRANSCRIPT,
+    messages: scriptedMessages([
+      { calls: [readInsights('step-1', 100)] },
+      { text: 'Two insights are open. Checking sentiment next.', calls: [readSentiment('step-2', 200)] },
+    ], MULTI_ROUND_ANSWER),
+    updatedAt: SAVED_AT,
+  })
+  await openAero()
+  await screen.findByText(MULTI_ROUND_ANSWER)
+
+  const headers = runHeaders()
+  expect(headers.map((header) => header.textContent)).toEqual(['1 step100ms', '1 step200ms'])
+  const interim = screen.getByText('Two insights are open. Checking sentiment next.')
+  // The interim text sits between the two runs, above the calls it introduced.
+  expect(headers[0].compareDocumentPosition(interim) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(interim.compareDocumentPosition(headers[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
+test('a new prompt closes the run before it, even when that turn ended on tool calls', async () => {
+  const first = readInsights('step-1', 100)
+  const second = readSentiment('step-2', 200)
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue({
+    ...EMPTY_TRANSCRIPT,
+    // The first turn hit its tool limit: calls, no text.
+    messages: [
+      { role: 'user', content: 'Which insights need attention?', timestamp: 1 },
+      scriptedAssistant({ calls: [first] }, 10),
+      scriptedResult(first, 11),
+      { role: 'user', content: 'And sentiment?', timestamp: 20 },
+      scriptedAssistant({ calls: [second] }, 30),
+      scriptedResult(second, 31),
+      finalAnswer(MULTI_ROUND_ANSWER),
+    ],
+    updatedAt: SAVED_AT,
+  })
+  await openAero()
+  await screen.findByText(MULTI_ROUND_ANSWER)
+
+  const headers = runHeaders()
+  expect(headers.map((header) => header.textContent)).toEqual(['1 step100ms', '1 step200ms'])
+  const secondPrompt = screen.getByText('And sentiment?')
+  expect(headers[0].compareDocumentPosition(secondPrompt) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(secondPrompt.compareDocumentPosition(headers[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
+test('runs from earlier turns stay settled while a new turn streams', async () => {
+  const cutOff = readInsights('cut-1', 0)
+  const earlier = readSentiment('done-1', 100)
+  const current = readInsights('live-1', 40)
+  const savedEarlier: aero.AeroMessage[] = [
+    { role: 'user', content: 'Which insights need attention?', timestamp: 1 },
+    // Stopped while the model was still asking for a call: no result was saved.
+    { role: 'assistant', timestamp: 10, stopReason: 'aborted', content: [
+      { type: 'text', text: 'Looking.' },
+      { type: 'toolCall', id: cutOff.id, name: cutOff.name, arguments: {} },
+    ] },
+    { role: 'user', content: 'And sentiment?', timestamp: 20 },
+    scriptedAssistant({ calls: [earlier] }, 30),
+    scriptedResult(earlier, 31),
+    finalAnswer('Sentiment is steady.', 40),
+  ]
+  const transcript = vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue({ ...EMPTY_TRANSCRIPT, messages: savedEarlier, updatedAt: SAVED_AT })
+  const inFlight = gate()
+  const between = gate()
+  vi.spyOn(aero, 'promptAero').mockImplementation(async ({ onEvent }) => {
+    onEvent({ type: 'message_end', message: scriptedAssistant({ calls: [current] }, 50) })
+    startCall(onEvent, current)
+    await inFlight.wait
+    endCall(onEvent, current, 51)
+    await between.wait
+    onEvent({ type: 'message_end', message: finalAnswer('The market held.', 60) })
+    transcript.mockResolvedValue({ ...EMPTY_TRANSCRIPT, messages: [
+      ...savedEarlier,
+      { role: 'user', content: 'And the market?', timestamp: 45 },
+      scriptedAssistant({ calls: [current] }, 50),
+      scriptedResult(current, 51),
+      finalAnswer('The market held.', 60),
+    ], updatedAt: '2026-10-07T10:05:00.000Z' })
+  })
+  await openAero()
+  await screen.findByText('Sentiment is steady.')
+  expect(runHeaders().map((header) => header.textContent)).toEqual(['1 stepinterrupted', '1 step100ms'])
+
+  sendPrompt('And the market?')
+  // The cut-off call is not running again, and the finished run is not waiting on a step.
+  const expectEarlierRunsSettled = () => {
+    const headers = runHeaders()
+    expect(headers).toHaveLength(3)
+    expect(headers[0].textContent).toBe('1 stepinterrupted')
+    expect(headers[1].textContent).toBe('1 step100ms')
+    return headers[2]
+  }
+  await screen.findByRole('button', { name: /^Reading insights…/ })
+  expect(expectEarlierRunsSettled().textContent).toMatch(/^Reading insights…step 1\d+s$/)
+
+  await act(async () => { inFlight.open() })
+  await waitFor(() => expect(expectEarlierRunsSettled().textContent).toMatch(/^Working…\d+s$/))
+
+  await act(async () => { between.open() })
+  await screen.findByText('The market held.')
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Stop Aero' })).toBeNull())
+  expect(runHeaders().map((header) => header.textContent)).toEqual(['1 stepinterrupted', '1 step100ms', '1 step40ms'])
 })
 
 test('shows an error when a turn ends with an error status and no error event', async () => {
@@ -530,10 +1035,12 @@ test('a demo starter plays its scripted answer, shows the tool once and complete
   await screen.findByText('The latest sweep completed on all three engines.')
   expect(screen.getByText(STATUS_PROMPT)).toBeTruthy()
   expect(screen.getByText('Checking the latest sweep.')).toBeTruthy()
+  const header = screen.getByRole('button', { name: /^1 step/ })
+  expect(header.textContent).toBe('1 step640ms')
+  expect(screen.queryByText('interrupted')).toBeNull()
+  fireEvent.click(header)
   expect(screen.getAllByText('Get project overview (composite)')).toHaveLength(1)
   expect(screen.getByText('done')).toBeTruthy()
-  expect(screen.getByText('640ms')).toBeTruthy()
-  expect(screen.queryByText('interrupted')).toBeNull()
   // Nothing an operator would run elsewhere: the demo has no CLI to paste into.
   expect(screen.queryByRole('button', { name: 'Copy as CLI command' })).toBeNull()
   // The starters stay in reach once an answer is in.
@@ -601,13 +1108,14 @@ test('Stop in the demo keeps the partial answer and says nothing was left runnin
   fireEvent.click(await screen.findByRole('button', { name: 'Status' }))
 
   await screen.findByText('Checking the latest sweep.')
-  expect(screen.getByText('running…')).toBeTruthy()
+  expect(screen.getByText('Getting project overview (composite)…')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Stop Aero' }))
 
   expect(await screen.findByText('Stopped. The sample answer so far is kept.')).toBeTruthy()
   expect(screen.queryByText(/dispatched/)).toBeNull()
   expect(screen.getByText('Checking the latest sweep.')).toBeTruthy()
-  expect(screen.getByText('interrupted')).toBeTruthy()
+  // The pill stays on the collapsed header.
+  expect(screen.getByRole('button', { name: /^1 step/ }).textContent).toBe('1 stepinterrupted')
   expect(screen.queryByText('The latest sweep completed on all three engines.')).toBeNull()
   expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
   expectNoLiveCalls()
@@ -618,9 +1126,13 @@ test('with motion the demo shows the tool running, then types the answer to comp
   fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
   fireEvent.click(await screen.findByRole('button', { name: 'Status' }))
 
-  expect(await screen.findByText('running…')).toBeTruthy()
+  expect(await screen.findByText('Getting project overview (composite)…')).toBeTruthy()
+  expect(screen.getByText('step 1')).toBeTruthy()
   await screen.findByText('The latest sweep completed on all three engines.', {}, { timeout: 4000 })
   await waitFor(() => expect(screen.queryByRole('button', { name: 'Stop Aero' })).toBeNull())
+  const header = screen.getByRole('button', { name: /^1 step/ })
+  expect(header.textContent).toBe('1 step640ms')
+  fireEvent.click(header)
   expect(screen.getByText('done')).toBeTruthy()
   expect(screen.getAllByText('Get project overview (composite)')).toHaveLength(1)
 })
