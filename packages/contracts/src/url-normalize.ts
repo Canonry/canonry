@@ -8,6 +8,7 @@
 import { LinkifyIt } from 'linkify-it'
 import tlds from 'tlds'
 import { getDomain, getDomainWithoutSuffix, getHostname } from 'tldts'
+import { compareText } from './text-order.js'
 
 const DOMAIN_PARSE_OPTIONS = { allowPrivateDomains: true } as const
 const LINKIFY = new LinkifyIt({ fuzzyLink: true, fuzzyEmail: false }).tlds(tlds)
@@ -247,11 +248,7 @@ export function normalizeUrlPath(input: string | null | undefined): string | nul
   pathPart = dropTrailingSlash(pathPart)
 
   const pairs = parseQuery(queryPart).filter((p) => !shouldStrip(p.key))
-  pairs.sort((a, b) => {
-    if (a.key < b.key) return -1
-    if (a.key > b.key) return 1
-    return 0
-  })
+  pairs.sort((a, b) => compareText(a.key, b.key))
 
   if (pairs.length === 0) return pathPart
   return `${pathPart}?${encodeQuery(pairs)}`

@@ -287,7 +287,7 @@ function compareLabels(left: PropertyLabel, right: PropertyLabel): number {
   const leftLabel = normalizedText(left.label)
   const rightLabel = normalizedText(right.label)
   if (leftLabel !== rightLabel) return leftLabel < rightLabel ? -1 : 1
-  return left.targetKey < right.targetKey ? -1 : left.targetKey > right.targetKey ? 1 : 0
+  return compareGroupText(left.targetKey, right.targetKey)
 }
 
 function compareLabelSort(left: PropertyLabel, right: PropertyLabel, descending: boolean): number {
@@ -297,7 +297,7 @@ function compareLabelSort(left: PropertyLabel, right: PropertyLabel, descending:
     const compared = leftLabel < rightLabel ? -1 : 1
     return descending ? -compared : compared
   }
-  return left.targetKey < right.targetKey ? -1 : left.targetKey > right.targetKey ? 1 : 0
+  return compareGroupText(left.targetKey, right.targetKey)
 }
 
 function metricForSort(row: MeasurementPropertyRow, sort: MeasurementOverviewSort): MetricValue | null {
