@@ -39,6 +39,10 @@ export const RunKinds = runKindSchema.enum
 export const runListFilterQuerySchema = z.object({
   kind: runKindSchema.optional(),
   excludeKind: runKindSchema.optional(),
+  excludeKinds: z.preprocess(value => {
+    const items: readonly unknown[] | null = typeof value === 'string' ? [value] : Array.isArray(value) ? value : null
+    return items ? [...new Set(items.flatMap((item): unknown[] => typeof item === 'string' ? item.split(',').map(part => part.trim()).filter(Boolean) : [item]))] : value
+  }, z.array(runKindSchema).max(runKindSchema.options.length)).optional(),
   status: runStatusSchema.optional(),
 })
 export type RunListFilterQuery = z.infer<typeof runListFilterQuerySchema>

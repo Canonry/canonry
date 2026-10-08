@@ -382,6 +382,15 @@ const runsListExcludeKindQueryParameter: OpenApiParameter = {
   schema: { type: 'string', enum: [...runKindSchema.options] },
 }
 
+const runsListExcludeKindsQueryParameter: OpenApiParameter = {
+  name: 'excludeKinds',
+  in: 'query',
+  description: 'Exclude multiple run kinds before applying the row limit. Accepts repeated or comma-separated values. Combines with excludeKind, kind, and status; unknown values are rejected with 400.',
+  style: 'form',
+  explode: true,
+  schema: { type: 'array', items: { type: 'string', enum: [...runKindSchema.options] }, maxItems: runKindSchema.options.length },
+}
+
 const runsListStatusQueryParameter: OpenApiParameter = {
   name: 'status',
   in: 'query',
@@ -2425,7 +2434,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/runs',
     summary: 'List project runs',
     tags: ['runs'],
-    parameters: [nameParameter, limitQueryParameter, runsListKindQueryParameter, runsListExcludeKindQueryParameter, runsListStatusQueryParameter],
+    parameters: [nameParameter, limitQueryParameter, runsListKindQueryParameter, runsListExcludeKindQueryParameter, runsListExcludeKindsQueryParameter, runsListStatusQueryParameter],
     responses: {
       200: jsonArrayResponse('Runs returned.', 'RunDto'),
     },
@@ -2451,6 +2460,7 @@ const routeCatalog: OpenApiOperation[] = [
       runsListIncludeProbeQueryParameter,
       runsListKindQueryParameter,
       runsListExcludeKindQueryParameter,
+      runsListExcludeKindsQueryParameter,
       runsListStatusQueryParameter,
     ],
     responses: {

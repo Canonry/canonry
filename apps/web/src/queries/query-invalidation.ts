@@ -71,17 +71,18 @@ const GLOBAL_PROJECT_READS = new Set([
 ])
 
 /** Successful SDK writes refresh both generated queries and composite views. */
-export async function refreshQueriesAfterWrite(queryClient: QueryClient, request: Request, body: unknown): Promise<void> {
+export function refreshQueriesAfterWrite(queryClient: QueryClient, request: Request, body: unknown): void {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) return
   const pathname = new URL(request.url).pathname
   const apiPath = pathname.match(/\/api\/v1\/(.*)$/)?.[1]
   if (!apiPath || /^(?:telemetry|feedback|auth|session)(?:\/|$)/.test(apiPath)) return
-  // These POSTs compute a preview or test a connection without changing saved data.
-  if (/(?:^|\/)(?:[^/]*-preview|preview(?:-[^/]+)?|test|generate)$/.test(apiPath)) return
+  const projectPath = apiPath.match(/^projects\/([^/]+)(?:\/(.*))?$/)
+  const resourcePath = projectPath ? projectPath[2] ?? '' : apiPath
+  // Only POST actions are previews/tests; project names and location labels are data.
+  if (request.method === 'POST' && /(?:^|\/)(?:[^/]*-preview|preview(?:-[^/]+)?|test|generate)$/.test(resourcePath)) return
   const input = body && typeof body === 'object' ? body as { dryRun?: boolean; confirm?: boolean } : null
   if (input?.dryRun === true || (apiPath.endsWith('/results/clear') && input?.confirm !== true)) return
 
-  const projectPath = apiPath.match(/^projects\/([^/]+)(?:\/(.*))?$/)
   const projectName = projectPath ? decodeURIComponent(projectPath[1]!) : null
   const agentOnly = projectPath?.[2]?.startsWith('agent/') ?? false
   const identities = new Set<string>(projectName ? [projectName] : [])
@@ -125,20 +126,29 @@ export async function refreshQueriesAfterWrite(queryClient: QueryClient, request
     return head?._id === 'getApiV1RunsById' && !!data?.projectId && projectIds.has(data.projectId)
   }
   const isGlobalRead = (query: Query): boolean => GLOBAL_PROJECT_READS.has((query.queryKey[0] as SdkQueryKey | undefined)?._id ?? '')
+  // Queueing work changes run state; its results change only after completion.
+  const runTrigger = request.method === 'POST' && /^(?:runs|technical-aeo\/runs|discover\/run|backlinks\/extract|google\/gsc\/(?:sync|inspect-sitemap)|bing\/inspect-sitemap|(?:gbp|ads|google-ads|gtm)\/sync)$/.test(resourcePath)
+  const isRunStateRead = (query: Query): boolean => {
+    const head = query.queryKey[0] as SdkQueryKey | undefined
+    return isGlobalRead(query)
+      || ['getApiV1ProjectsByName', 'getApiV1ProjectsByNameOverview', 'getApiV1ProjectsByNameRuns', 'getApiV1ProjectsByNameTechnicalAeoRuns', 'getApiV1ProjectsByNameTimeline'].includes(head?._id ?? '')
+      || (query.queryKey[0] === 'project-dashboard-full' && query.queryKey[3] === 'overview')
+      || query.queryKey[0] === 'project-overview-slim'
+  }
   const predicate = projectName
-    ? (query: Query) => isProjectRead(query) || (!agentOnly && isGlobalRead(query))
-    : () => true
+    ? (query: Query) => (isProjectRead(query) && (!runTrigger || isRunStateRead(query))) || (!agentOnly && isGlobalRead(query))
+    : (query: Query) => !runTrigger || isRunStateRead(query)
 
-  // Supersede an initial read too: invalidation alone can reuse its pre-write response.
-  await queryClient.cancelQueries({ predicate })
+  // Supersede mounted reads, while imperative first loads keep their caller's promise.
+  void queryClient.cancelQueries({ predicate, type: 'active' })
   if (projectPath && !projectPath[2] && request.method === 'DELETE') {
     queryClient.removeQueries({ predicate: isProjectRead })
     queryClient.setQueriesData<ApiProject[]>({ predicate: query => (query.queryKey[0] as SdkQueryKey | undefined)?._id === 'getApiV1Projects' },
       projects => projects?.filter(project => !identities.has(project.name) && !identities.has(project.id)))
     queryClient.setQueriesData<ApiRun[]>({ predicate: query => (query.queryKey[0] as SdkQueryKey | undefined)?._id === 'getApiV1Runs' },
       runs => runs?.filter(run => !projectIds.has(run.projectId)))
-    await queryClient.invalidateQueries({ predicate: isGlobalRead })
+    void queryClient.invalidateQueries({ predicate: isGlobalRead })
     return
   }
-  await queryClient.invalidateQueries({ predicate })
+  void queryClient.invalidateQueries({ predicate })
 }

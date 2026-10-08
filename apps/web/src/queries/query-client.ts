@@ -71,10 +71,10 @@ export function createQueryClient() {
     requests.add(request)
     return request
   })
-  const responseInterceptor = heyClient.interceptors.response.use(async (response, request, options) => {
+  const responseInterceptor = heyClient.interceptors.response.use((response, request, options) => {
     // An old account's in-flight write cannot modify a replacement account's cache.
     if (response.ok && requests.has(request)) {
-      await refreshQueriesAfterWrite(client, request, options.body)
+      refreshQueriesAfterWrite(client, request, options.body)
     }
     return response
   })

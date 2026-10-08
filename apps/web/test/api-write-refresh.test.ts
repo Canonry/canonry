@@ -4,11 +4,17 @@ import { waitFor } from '@testing-library/react'
 import {
   getApiV1ProjectsByNameOptions,
   getApiV1ProjectsByNameQueryTrackingOptions,
+  getApiV1ProjectsByNameGoogleGscPerformanceOptions,
+  getApiV1ProjectsByNameBingStatusOptions,
+  getApiV1ProjectsByNameGaStatusOptions,
+  getApiV1ProjectsByNameTechnicalAeoRunsOptions,
+  getApiV1ProjectsOptions,
+  getApiV1RunsOptions,
   getApiV1ProjectsQueryKey,
   getApiV1SettingsOptions,
 } from '@ainyc/canonry-api-client/react-query'
-import { postApiV1ProjectsByNameQueryTrackingCommit, postApiV1ProjectsByNameQueryTrackingPreview } from '@ainyc/canonry-api-client'
-import { appendQueries, applyProjectConfig, deleteProject, fetchSettings, heyClient, recordOnboardingEvent, updateGoogleAuthConfig } from '../src/api.js'
+import { postApiV1ProjectsByNameAdsSync, postApiV1ProjectsByNameGbpSync, postApiV1ProjectsByNameGoogleAdsSync, postApiV1ProjectsByNameGtmSync, postApiV1ProjectsByNameQueryTrackingCommit, postApiV1ProjectsByNameQueryTrackingPreview, putApiV1ProjectsByName } from '@ainyc/canonry-api-client'
+import { appendQueries, applyProjectConfig, deleteProject, fetchSettings, heyClient, inspectBingSitemap, recordOnboardingEvent, removeLocation, triggerAllRuns, triggerGscSync, triggerInspectSitemap, triggerRun, triggerSiteAudit, updateGoogleAuthConfig } from '../src/api.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 import { jsonResponse, mockFetch as installMockFetch, pathOf } from './mock-fetch.js'
 
@@ -203,7 +209,7 @@ test('a previous account deletion cannot evict the replacement account project c
   expect(replacement.getQueryData(key)).toEqual([{ id: 'different-account-project', name: 'alpha' }])
 })
 
-test.each(['none', 'sentiment'])('deleting project %s preserves unrelated composite caches with matching key metadata', async name => {
+test.each(['none', 'sentiment', 'test', 'generate', 'audit-preview'])('deleting project %s preserves unrelated composite caches with matching key metadata', async name => {
   const survivor = { id: 'beta-id', name: 'beta' }
   const restore = mockFetch((_url, init) => init?.method === 'DELETE'
     ? new Response(null, { status: 204 }) : jsonResponse([survivor]))
@@ -217,6 +223,169 @@ test.each(['none', 'sentiment'])('deleting project %s preserves unrelated compos
 
   await deleteProject(name)
 
+  expect(queryClient.getQueryData(getApiV1ProjectsQueryKey({ client: heyClient }))).toEqual([survivor])
   expect(queryClient.getQueryData(dashboardKey)).toEqual({ project: survivor })
   expect(queryClient.getQueryData(sentimentKey)).toEqual({ score: 80 })
+})
+
+test.each(['test', 'generate', 'audit-preview'])('editing project %s refreshes its saved data', async name => {
+  let revision = 1
+  const restore = mockFetch((_url, init) => {
+    if (init?.method === 'PUT') revision = 2
+    return jsonResponse({ id: 'alpha-id', name, configRevision: revision })
+  })
+  onTestFinished(restore)
+  const queryClient = client()
+  const observer = new QueryObserver(queryClient, getApiV1ProjectsByNameOptions({ client: heyClient, path: { name } }))
+  onTestFinished(observer.subscribe(() => {}))
+  await waitFor(() => expect(observer.getCurrentResult().data?.configRevision).toBe(1))
+
+  await putApiV1ProjectsByName({ client: heyClient, path: { name }, body: { canonicalDomain: 'example.com', country: 'US', language: 'en' } })
+
+  await waitFor(() => expect(observer.getCurrentResult().data?.configRevision).toBe(2))
+})
+
+test('deleting a location named test refreshes the project', async () => {
+  let revision = 1
+  const restore = mockFetch((_url, init) => {
+    if (init?.method === 'DELETE') { revision = 2; return new Response(null, { status: 204 }) }
+    return jsonResponse({ id: 'alpha-id', name: 'alpha', configRevision: revision })
+  })
+  onTestFinished(restore)
+  const queryClient = client()
+  const observer = new QueryObserver(queryClient, getApiV1ProjectsByNameOptions({ client: heyClient, path: { name: 'alpha' } }))
+  onTestFinished(observer.subscribe(() => {}))
+  await waitFor(() => expect(observer.getCurrentResult().data?.configRevision).toBe(1))
+  await removeLocation('alpha', 'test')
+  await waitFor(() => expect(observer.getCurrentResult().data?.configRevision).toBe(2))
+})
+
+test.each(['edit', 'delete'])('%s resolves and applies local changes while the replacement read is still pending', async action => {
+  let reads = 0
+  let releaseRead!: (response: Response) => void
+  const projects = [{ id: 'alpha-id', name: 'alpha' }, { id: 'beta-id', name: 'beta' }]
+  const restore = mockFetch((_url, init) => {
+    if (init?.method === 'DELETE') return new Response(null, { status: 204 })
+    if (init?.method === 'POST') return jsonResponse([])
+    reads += 1
+    return reads === 1 ? jsonResponse(action === 'delete' ? projects : { ...projects[0], configRevision: 1 })
+      : new Promise<Response>(resolve => { releaseRead = resolve })
+  })
+  onTestFinished(restore)
+  const queryClient = client()
+  if (action === 'delete') {
+    const observer = new QueryObserver(queryClient, getApiV1ProjectsOptions({ client: heyClient }))
+    onTestFinished(observer.subscribe(() => {}))
+  } else {
+    const observer = new QueryObserver(queryClient, getApiV1ProjectsByNameOptions({ client: heyClient, path: { name: 'alpha' } }))
+    onTestFinished(observer.subscribe(() => {}))
+  }
+  await waitFor(() => expect(reads).toBe(1))
+  let completed = false
+  const write = (action === 'delete' ? deleteProject('alpha') : appendQueries('alpha', ['new'])).then(() => { completed = true })
+  await waitFor(() => expect(reads).toBe(2))
+  try {
+    await waitFor(() => expect(completed).toBe(true))
+    if (action === 'delete') expect(queryClient.getQueryData(getApiV1ProjectsQueryKey({ client: heyClient }))).toEqual([projects[1]])
+  } finally {
+    releaseRead(jsonResponse(action === 'delete' ? [projects[1]] : { ...projects[0], configRevision: 2 }))
+    await write
+  }
+})
+
+test.each([
+  { scope: 'project', launch: () => triggerRun('alpha') },
+  { scope: 'all', launch: () => triggerAllRuns() },
+  { scope: 'site-audit', launch: () => triggerSiteAudit('alpha') },
+  { scope: 'gsc-sync', launch: () => triggerGscSync('alpha') },
+  { scope: 'gsc-inspect-sitemap', launch: () => triggerInspectSitemap('alpha') },
+  { scope: 'bing-inspect-sitemap', launch: () => inspectBingSitemap('alpha') },
+  { scope: 'gbp-sync', launch: () => postApiV1ProjectsByNameGbpSync({ client: heyClient, path: { name: 'alpha' }, body: {} }) },
+  { scope: 'ads-sync', launch: () => postApiV1ProjectsByNameAdsSync({ client: heyClient, path: { name: 'alpha' } }) },
+  { scope: 'google-ads-sync', launch: () => postApiV1ProjectsByNameGoogleAdsSync({ client: heyClient, path: { name: 'alpha' } }) },
+  { scope: 'gtm-sync', launch: () => postApiV1ProjectsByNameGtmSync({ client: heyClient, path: { name: 'alpha' } }) },
+])('$scope job launch refreshes run state without rereading stored evidence, analytics, or Google data', async ({ scope, launch }) => {
+  let runReads = 0
+  let analyticsReads = 0
+  let googleReads = 0
+  let evidenceReads = 0
+  let scanReads = 0
+  let queued = false
+  let releaseRuns!: (response: Response) => void
+  let releaseEvidence: (() => void) | undefined
+  const restore = mockFetch((url, init) => {
+    if (init?.method === 'POST') {
+      queued = true
+      return jsonResponse(scope === 'all' ? [] : scope === 'site-audit' ? { runId: 'queued-run', status: 'queued' } : { id: 'queued-run' })
+    }
+    if (pathOf(url) === '/api/v1/projects/alpha') return jsonResponse({ id: 'alpha-id', name: 'alpha' })
+    if (pathOf(url) === '/api/v1/projects/alpha/technical-aeo/runs') {
+      scanReads += 1
+      return jsonResponse({ scans: queued && scope === 'site-audit' ? [{ runId: 'queued-run', status: 'queued' }] : [] })
+    }
+    if (pathOf(url) === '/api/v1/runs') {
+      runReads += 1
+      return runReads === 1 ? jsonResponse([]) : new Promise<Response>(resolve => { releaseRuns = resolve })
+    }
+    googleReads += 1
+    return jsonResponse({})
+  })
+  onTestFinished(restore)
+  const queryClient = client()
+  const runs = new QueryObserver(queryClient, getApiV1RunsOptions({ client: heyClient }))
+  onTestFinished(runs.subscribe(() => {}))
+  const project = new QueryObserver(queryClient, getApiV1ProjectsByNameOptions({ client: heyClient, path: { name: 'alpha' } }))
+  onTestFinished(project.subscribe(() => {}))
+  await waitFor(() => expect(project.getCurrentResult().data?.id).toBe('alpha-id'))
+  const scans = new QueryObserver(queryClient, getApiV1ProjectsByNameTechnicalAeoRunsOptions({ client: heyClient, path: { name: 'alpha' } }))
+  onTestFinished(scans.subscribe(() => {}))
+  await waitFor(() => expect(scans.getCurrentResult().isSuccess).toBe(true))
+  await observe(queryClient, ['project-dashboard-full', 'alpha-id', 'none', 'evidence'], async () => {
+    evidenceReads += 1
+    if (evidenceReads > 1) await new Promise<void>(resolve => { releaseEvidence = resolve })
+    return { project: { id: 'alpha-id', name: 'alpha' }, queries: [], timeline: [], latestRunDetails: [] }
+  })
+  await observe(queryClient, ['analytics-metrics', 'alpha', '90d'], async () => { analyticsReads += 1; return { trend: [] } })
+  const google = new QueryObserver(queryClient, getApiV1ProjectsByNameGoogleGscPerformanceOptions({ client: heyClient, path: { name: 'alpha' } }))
+  onTestFinished(google.subscribe(() => {}))
+  await waitFor(() => expect(google.getCurrentResult().isSuccess).toBe(true))
+  let completed = false
+  const write = launch().then(() => { completed = true })
+  await waitFor(() => expect(runReads).toBe(2))
+  try {
+    expect(evidenceReads).toBe(1)
+    expect(analyticsReads).toBe(1)
+    expect(googleReads).toBe(1)
+    if (scope === 'site-audit') {
+      await waitFor(() => expect(scans.getCurrentResult().data?.scans).toEqual([{ runId: 'queued-run', status: 'queued' }]))
+      expect(scanReads).toBe(2)
+    }
+    await waitFor(() => expect(completed).toBe(true))
+  } finally {
+    releaseEvidence?.()
+    releaseRuns(jsonResponse([]))
+    await write
+  }
+})
+
+test.each([
+  { name: 'Google Search Console', load: (queryClient: ReturnType<typeof createQueryClient>) => queryClient.fetchQuery(getApiV1ProjectsByNameGoogleGscPerformanceOptions({ client: heyClient, path: { name: 'alpha' } })) },
+  { name: 'Bing', load: (queryClient: ReturnType<typeof createQueryClient>) => queryClient.fetchQuery(getApiV1ProjectsByNameBingStatusOptions({ client: heyClient, path: { name: 'alpha' } })) },
+  { name: 'Google Analytics', load: (queryClient: ReturnType<typeof createQueryClient>) => queryClient.fetchQuery(getApiV1ProjectsByNameGaStatusOptions({ client: heyClient, path: { name: 'alpha' } })) },
+])('$name imperative initial load is not cancelled by another successful write', async ({ load }) => {
+  let releaseRead!: (response: Response) => void
+  let started = false
+  const restore = mockFetch((_url, init) => {
+    if (init?.method === 'POST') return jsonResponse([])
+    started = true
+    return new Promise<Response>(resolve => { releaseRead = resolve })
+  })
+  onTestFinished(restore)
+  const queryClient = client()
+  const initial = load(queryClient)
+    .then(data => ({ data }), error => ({ error }))
+  await waitFor(() => expect(started).toBe(true))
+  await appendQueries('alpha', ['new'])
+  releaseRead(jsonResponse({ connected: true }))
+  expect(await initial).toEqual({ data: { connected: true } })
 })

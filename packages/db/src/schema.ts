@@ -775,6 +775,9 @@ export const userSessions = sqliteTable('user_sessions', {
 export const dashboardSessions = sqliteTable('dashboard_sessions', {
   tokenHash: text('token_hash').primaryKey(),
   apiKeyId: text('api_key_id').notNull().references(() => apiKeys.id, { onDelete: 'cascade' }),
+  apiKeyHash: text('api_key_hash').notNull().default(''),
+  /** Null for API-key sign-ins; password sign-ins bind the configured password hash's digest. */
+  passwordFingerprint: text('password_fingerprint'),
   createdAt: text('created_at').notNull(),
   expiresAt: text('expires_at').notNull(),
 }, (table) => [

@@ -364,7 +364,7 @@ API key management:
 - `GET /keys` (ungated list, SAFE metadata only: id/name/prefix/scopes/timestamps + `projectId`/`projectName` + derived `readOnly`, never the hash or plaintext).
 - `GET /keys/self` (introspect the CURRENT request's key — ungated read, returns the same SAFE DTO incl. `readOnly`; powers `canonry key whoami` + the MCP read-only auto-detection).
 - `POST /keys` (mint a `cnry_…` token, returns the plaintext ONCE; gated by the `KEYS_WRITE_SCOPE` = `keys.write`).
-- `POST /keys/:id/revoke` (sets `revokedAt`, idempotent, refuses to revoke the currently-authenticating key; gated by `keys.write`).
+- `POST /keys/:id/revoke` (sets `revokedAt` and deletes bound `dashboardSessions` in the same transaction, idempotent, refuses to revoke the currently-authenticating key; gated by `keys.write`). Key rotation and revocation writers must delete those sessions so restoring a key cannot revive old browser cookies.
 - The derived `readOnly` flag comes from `isReadOnlyKey(scopes)` in `toApiKeyDto`.
 - Audit-logs `api-key.created` / `api-key.revoked` (prefix + scopes only, never key material).
 

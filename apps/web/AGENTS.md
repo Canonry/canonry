@@ -298,8 +298,11 @@ function useProject(name: string) {
 - Generated types come from the spec; consumer types stay in sync.
 
 `createQueryClient` installs successful-write refresh handling on `heyClient`.
-It refreshes the affected project's generated and composite reads plus global
-lists, and marks inactive reads stale. Direct SDK calls and API wrappers share
+It starts background refreshes of affected generated/composite reads and global
+lists, marks inactive reads stale, and never holds a successful write open for
+refetches. Cancel only active reads; imperative initial loads must retain their
+promises. Run launches refresh run state; completion refreshes results, without
+rescanning analytics or live integration reads on launch. Direct SDK calls and API wrappers share
 this path; don't add a second ordinary success refetch. Job completion and local
 imperative state still use their own refresh flows. New composite query keys
 must declare their project identity position in `queries/query-invalidation.ts`.

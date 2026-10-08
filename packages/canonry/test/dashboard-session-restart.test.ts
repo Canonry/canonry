@@ -2,11 +2,12 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { apiKeys, dashboardSessions, createClient, migrate, type DatabaseClient } from '@ainyc/canonry-db'
+import { apiKeys, dashboardSessions, createClient, migrate, MIGRATION_VERSIONS, type DatabaseClient } from '@ainyc/canonry-db'
 import { hashUserPassword } from '@ainyc/canonry-api-routes'
-import type { CanonryConfig } from '../src/config.js'
+import { loadConfig, saveConfig, type CanonryConfig } from '../src/config.js'
+import { bootstrapCommand } from '../src/commands/bootstrap.js'
 import { createServer } from '../src/server.js'
 
 let tmpDir: string
@@ -23,10 +24,13 @@ beforeEach(async () => {
   vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
   vi.stubEnv('CANONRY_BASE_PATH', undefined)
   vi.stubEnv('CANONRY_PORT', undefined)
+  vi.stubEnv('CANONRY_API_KEY', undefined)
+  vi.stubEnv('CANONRY_API_URL', undefined)
+  vi.stubEnv('CANONRY_DATABASE_PATH', path.join(tmpDir, 'test.db'))
   db = createClient(path.join(tmpDir, 'test.db'))
   migrate(db)
   db.insert(apiKeys).values({
-    id: 'root', name: 'root', keyHash: crypto.createHash('sha256').update(key).digest('hex'),
+    id: 'root', name: 'default', keyHash: crypto.createHash('sha256').update(key).digest('hex'),
     keyPrefix: key.slice(0, 9), scopes: ['*'], createdAt: new Date().toISOString(),
   }).run()
   config = {
@@ -63,6 +67,18 @@ async function restart() {
   app = await createServer({ config, db, logger: false })
 }
 
+async function bootstrap(apiKey?: string) {
+  saveConfig(config)
+  vi.stubEnv('CANONRY_API_KEY', apiKey)
+  const output = vi.spyOn(console, 'log').mockImplementation(() => {})
+  try {
+    await bootstrapCommand({ format: 'json' })
+  } finally {
+    output.mockRestore()
+  }
+  config = loadConfig()
+}
+
 test.each(['password', 'api-key'])('%s dashboard login survives a server restart and logout remains durable', async mode => {
   const readKey = 'cnry_dashboard_restart_read'
   if (mode === 'api-key') {
@@ -72,6 +88,7 @@ test.each(['password', 'api-key'])('%s dashboard login survives a server restart
     }).run()
   }
   const cookie = await login(mode === 'password' ? { password } : { apiKey: readKey })
+  await bootstrap()
   await restart()
   const status = await app.inject({ method: 'GET', url: sessionPath, headers: { cookie } })
   expect(status.json()).toEqual({ authenticated: true, setupRequired: false })
@@ -101,6 +118,102 @@ test('a revoked bound key stays revoked after restart', async () => {
   await restart()
   expect((await app.inject({ method: 'GET', url: sessionPath, headers: { cookie } })).json().authenticated).toBe(false)
   expect((await app.inject({ method: 'GET', url: '/canonry/api/v1/projects', headers: { cookie } })).statusCode).toBe(401)
+})
+
+test('upgrading a v173 database ends unfingerprinted sessions at native startup and permits fresh sign-in', async () => {
+  await app.close()
+  db.$client.close()
+  config.database = path.join(tmpDir, 'legacy.db')
+  db = createClient(config.database)
+  migrate(db, MIGRATION_VERSIONS.filter(version => version.version <= 173))
+  const now = new Date()
+  const token = crypto.randomBytes(32).toString('hex')
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex')
+  const keyHash = crypto.createHash('sha256').update(key).digest('hex')
+  db.run(sql`INSERT INTO api_keys (id, name, key_hash, key_prefix, scopes, created_at)
+    VALUES ('root', 'default', ${keyHash}, ${key.slice(0, 9)}, ${JSON.stringify(['*'])}, ${now.toISOString()})`)
+  db.run(sql`INSERT INTO dashboard_sessions (token_hash, api_key_id, created_at, expires_at)
+    VALUES (${tokenHash}, 'root', ${now.toISOString()}, ${new Date(now.getTime() + 12 * 60 * 60 * 1000).toISOString()})`)
+
+  migrate(db)
+  expect(db.select().from(dashboardSessions).all()).toHaveLength(1)
+  app = await createServer({ config, db, logger: false })
+  expect(db.select().from(dashboardSessions).all()).toHaveLength(0)
+  const cookie = `canonry_session=${token}`
+  expect((await app.inject({ method: 'GET', url: sessionPath, headers: { cookie } })).json().authenticated).toBe(false)
+  expect((await app.inject({ method: 'GET', url: '/canonry/api/v1/projects', headers: { cookie } })).statusCode).toBe(401)
+  const freshCookie = await login({ password })
+  expect((await app.inject({ method: 'GET', url: '/canonry/api/v1/projects', headers: { cookie: freshCookie } })).statusCode).toBe(200)
+})
+
+test('changing the dashboard password ends password-derived sessions while API-key sessions remain usable', async () => {
+  const passwordCookie = await login({ password })
+  const unusedPasswordCookie = await login({ password })
+  const keyCookie = await login({ apiKey: key })
+  const originalPasswordHash = config.dashboardPasswordHash
+  const nextPassword = 'the-replacement-dashboard-password'
+  config.dashboardPasswordHash = await hashUserPassword(nextPassword)
+  await restart()
+
+  expect((await app.inject({ method: 'GET', url: sessionPath, headers: { cookie: passwordCookie } })).json().authenticated).toBe(false)
+  expect((await app.inject({ method: 'GET', url: '/canonry/api/v1/projects', headers: { cookie: passwordCookie } })).statusCode).toBe(401)
+  expect((await app.inject({ method: 'GET', url: '/canonry/api/v1/projects', headers: { cookie: keyCookie } })).statusCode).toBe(200)
+  expect((await app.inject({ method: 'POST', url: sessionPath, headers, payload: { password } })).statusCode).toBe(401)
+  const freshCookie = await login({ password: nextPassword })
+  expect((await app.inject({ method: 'GET', url: '/canonry/api/v1/projects', headers: { cookie: freshCookie } })).statusCode).toBe(200)
+
+  config.dashboardPasswordHash = originalPasswordHash
+  await restart()
+  expect((await app.inject({ method: 'GET', url: '/canonry/api/v1/projects', headers: { cookie: unusedPasswordCookie } })).statusCode).toBe(401)
+  const restoredPasswordCookie = await login({ password })
+  expect((await app.inject({ method: 'GET', url: '/canonry/api/v1/projects', headers: { cookie: restoredPasswordCookie } })).statusCode).toBe(200)
+})
+
+test.each(['password', 'api-key'])('bootstrap key rotation ends old %s sessions without changing the bound key id', async mode => {
+  const cookie = await login(mode === 'password' ? { password } : { apiKey: key })
+  const unusedCookie = await login(mode === 'password' ? { password } : { apiKey: key })
+  const nextKey = 'cnry_dashboard_rotated_root'
+  await bootstrap(nextKey)
+  expect(db.select().from(apiKeys).where(eq(apiKeys.id, 'root')).get()).toMatchObject({
+    id: 'root', keyHash: crypto.createHash('sha256').update(nextKey).digest('hex'), revokedAt: null,
+  })
+  await restart()
+
+  expect((await app.inject({ method: 'GET', url: sessionPath, headers: { cookie } })).json().authenticated).toBe(false)
+  expect((await app.inject({ method: 'GET', url: '/canonry/api/v1/projects', headers: { cookie } })).statusCode).toBe(401)
+  const freshCookie = await login(mode === 'password' ? { password } : { apiKey: nextKey })
+  expect((await app.inject({ method: 'GET', url: '/canonry/api/v1/projects', headers: { cookie: freshCookie } })).statusCode).toBe(200)
+
+  await bootstrap(key)
+  await restart()
+  expect((await app.inject({ method: 'GET', url: '/canonry/api/v1/projects', headers: { cookie: unusedCookie } })).statusCode).toBe(401)
+  const restoredKeyCookie = await login(mode === 'password' ? { password } : { apiKey: key })
+  expect((await app.inject({ method: 'GET', url: '/canonry/api/v1/projects', headers: { cookie: restoredKeyCookie } })).statusCode).toBe(200)
+})
+
+test('bootstrap restoration of a revoked key cannot revive a cookie that was unused during revocation', async () => {
+  const cookie = await login({ apiKey: key })
+  const revoker = 'cnry_dashboard_revoker'
+  db.insert(apiKeys).values({
+    id: 'revoker', name: 'revoker', keyHash: crypto.createHash('sha256').update(revoker).digest('hex'),
+    keyPrefix: revoker.slice(0, 9), scopes: ['*'], createdAt: new Date().toISOString(),
+  }).run()
+  const revoked = await app.inject({
+    method: 'POST', url: '/canonry/api/v1/keys/root/revoke',
+    headers: { authorization: `Bearer ${revoker}` },
+  })
+  expect(revoked.statusCode).toBe(200)
+  expect(db.select().from(apiKeys).where(eq(apiKeys.id, 'root')).get()?.revokedAt).not.toBeNull()
+  await bootstrap()
+  expect(db.select().from(apiKeys).where(eq(apiKeys.id, 'root')).get()).toMatchObject({
+    id: 'root', keyHash: crypto.createHash('sha256').update(key).digest('hex'), revokedAt: null,
+  })
+  await restart()
+
+  expect((await app.inject({ method: 'GET', url: sessionPath, headers: { cookie } })).json().authenticated).toBe(false)
+  expect((await app.inject({ method: 'GET', url: '/canonry/api/v1/projects', headers: { cookie } })).statusCode).toBe(401)
+  const freshCookie = await login({ apiKey: key })
+  expect((await app.inject({ method: 'GET', url: '/canonry/api/v1/projects', headers: { cookie: freshCookie } })).statusCode).toBe(200)
 })
 
 test('restart does not extend the original twelve-hour lifetime', async () => {

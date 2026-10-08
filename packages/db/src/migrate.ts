@@ -4574,6 +4574,14 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_dashboard_sessions_expires ON dashboard_sessions(expires_at)`,
     ],
   },
+  {
+    version: 174,
+    name: 'dashboard-session-credential-binding',
+    statements: [
+      `ALTER TABLE dashboard_sessions ADD COLUMN api_key_hash TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE dashboard_sessions ADD COLUMN password_fingerprint TEXT`,
+    ],
+  },
 ]
 
 /**

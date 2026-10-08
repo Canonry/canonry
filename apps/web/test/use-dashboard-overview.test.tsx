@@ -80,17 +80,19 @@ describe('useDashboardOverview', () => {
     expect(overviewReads).toBe(1)
   })
 
-  test('shows the five newest larger jobs without displacing either project sweep baseline', async () => {
+  test('keeps meaningful Activity jobs and failed sweeps visible behind routine traffic syncs', async () => {
     const beta = { ...metadataProject, id: 'beta-id', name: 'beta', displayName: 'Beta' }
     const run = (id: string, kind: RunDto['kind'], day: number, projectId = metadataProject.id): RunDto => ({
       id, projectId, kind, status: RunStatuses.completed, trigger: RunTriggers.manual,
       createdAt: `2026-02-${String(day).padStart(2, '0')}T00:00:00.000Z`,
     })
     const runs: RunDto[] = [
-      run('audit', RunKinds['site-audit'], 10),
-      run('backlinks', RunKinds['backlink-extract'], 9, beta.id),
-      run('sitemap', RunKinds['inspect-sitemap'], 8),
-      { ...run('ads', RunKinds['google-ads-sync'], 7, beta.id), status: RunStatuses.running },
+      { ...run('failed-sweep', RunKinds['answer-visibility'], 12), status: RunStatuses.failed },
+      run('audit', RunKinds['site-audit'], 11),
+      run('backlinks', RunKinds['backlink-extract'], 10, beta.id),
+      run('discovery', RunKinds['aeo-discover-probe'], 9),
+      { ...run('ads', RunKinds['google-ads-sync'], 8, beta.id), status: RunStatuses.running },
+      run('sitemap', RunKinds['inspect-sitemap'], 7),
       run('alpha-sweep', RunKinds['answer-visibility'], 6),
       run('gsc', RunKinds['gsc-sync'], 5, beta.id),
       run('alpha-previous', RunKinds['answer-visibility'], 4),
@@ -100,6 +102,11 @@ describe('useDashboardOverview', () => {
       })),
       { ...run('sweep-probe', RunKinds['answer-visibility'], 17), trigger: RunTriggers.probe },
       ...Array.from({ length: 500 }, (_, index) => run(`url-inspection-${index}`, RunKinds['bing-inspect'], 20)),
+      ...Array.from({ length: 10 }, (_, index) => ({
+        ...run(`routine-traffic-${index}`, RunKinds['traffic-sync'], 21, index % 2 ? beta.id : metadataProject.id),
+        trigger: RunTriggers.scheduled,
+        createdAt: new Date(Date.parse('2026-02-21T12:00:00.000Z') - index * 30 * 60_000).toISOString(),
+      })),
     ]
     const restoreFetch = mockFetch((path) => {
       const url = new URL(path, 'http://localhost')
@@ -107,12 +114,15 @@ describe('useDashboardOverview', () => {
       if (url.pathname === '/api/v1/projects') return jsonResponse([metadataProject, beta])
       if (url.pathname === '/api/v1/runs') {
         const kind = url.searchParams.get('kind')
-        const excludeKind = url.searchParams.get('excludeKind')
+        const excludedKinds = [
+          ...url.searchParams.getAll('excludeKind'),
+          ...url.searchParams.getAll('excludeKinds').flatMap(value => value.split(',')),
+        ]
         const limit = Number(url.searchParams.get('limit') ?? 500)
         return jsonResponse(runs
           .filter(item => item.trigger !== RunTriggers.probe
             && (!kind || item.kind === kind)
-            && (!excludeKind || item.kind !== excludeKind))
+            && !excludedKinds.includes(item.kind))
           .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
           .slice(0, limit))
       }
@@ -125,11 +135,11 @@ describe('useDashboardOverview', () => {
     await waitFor(() => expect(result.current.dashboard?.portfolioOverview.recentRuns.map(item => [
       item.id, item.projectName, item.status,
     ])).toEqual([
+      ['failed-sweep', 'Alpha', RunStatuses.failed],
       ['audit', 'Alpha', RunStatuses.completed],
       ['backlinks', 'Beta', RunStatuses.completed],
-      ['sitemap', 'Alpha', RunStatuses.completed],
+      ['discovery', 'Alpha', RunStatuses.completed],
       ['ads', 'Beta', RunStatuses.running],
-      ['alpha-sweep', 'Alpha', RunStatuses.completed],
     ]))
     expect(result.current.dashboard?.projects.map(project => [
       project.project.name, project.visibilitySweeps.map(item => item.id),
@@ -138,7 +148,7 @@ describe('useDashboardOverview', () => {
       ['beta', ['beta-sweep']],
     ])
     expect(result.current.dashboard?.portfolioOverview.projects.map(project => project.lastRun.id))
-      .toEqual(['alpha-sweep', 'beta-sweep'])
+      .toEqual(['failed-sweep', 'beta-sweep'])
   })
 
   test('keeps the dashboard available when Activity refresh fails and recovers on retry', async () => {

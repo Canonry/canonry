@@ -538,7 +538,7 @@ test('tracks a queued Technical AEO audit for the global task center', async () 
   expect(queryClient.getQueryState(projectSiteAuditRunsKey)?.isInvalidated).toBe(true)
 })
 
-test('useTriggerGscSync invalidates GSC project queries when the mutation succeeds', async () => {
+test('useTriggerGscSync tracks queued work without making stored GSC evidence stale', async () => {
   const fetchMock = vi.fn(async () => jsonResponse({
     ...makeRun('queued'),
     kind: 'gsc-sync',
@@ -546,7 +546,7 @@ test('useTriggerGscSync invalidates GSC project queries when the mutation succee
   vi.stubGlobal('fetch', fetchMock)
 
   const queryClient = createQueryClient()
-  // Pre-populate the cache so we can observe invalidation.
+  // Queue admission changes run state; stored evidence changes at completion.
   queryClient.setQueryData(gscCoverageKey, { stale: true })
 
   render(
@@ -558,9 +558,14 @@ test('useTriggerGscSync invalidates GSC project queries when the mutation succee
   fireEvent.click(screen.getByRole('button', { name: 'Trigger GSC sync' }))
 
   await waitFor(() => {
-    const state = queryClient.getQueryState(gscCoverageKey)
-    expect(state?.isInvalidated).toBe(true)
+    expect(getRunTrackerState().runs.run_1).toMatchObject({
+      projectId: 'proj_1',
+      kind: 'gsc-sync',
+      sourceAction: 'gsc-sync',
+    })
   })
+  expect(queryClient.getQueryState(gscCoverageKey)?.isInvalidated).toBe(false)
+  expect(queryClient.getQueryData(gscCoverageKey)).toEqual({ stale: true })
 })
 
 test('maps RUN_IN_PROGRESS errors to one caution toast with an extended timer', async () => {

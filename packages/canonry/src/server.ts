@@ -5,7 +5,7 @@ import path from "node:path";
 import { isIP } from "node:net";
 import { fileURLToPath } from "node:url";
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
-import { and, eq, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds, sentimentInstallReadiness } from "@ainyc/canonry-config";
 import { CliError } from "./cli-error.js";
 import { createTypeSafeClassifier, buildJevSentimentRequest } from "@ainyc/canonry-integration-typesafe";
@@ -2350,13 +2350,24 @@ export async function createServer(opts: {
     opts.config.publicUrl?.startsWith("https://") ||
     opts.config.apiUrl?.startsWith("https://"),
   );
-  const createSession = (apiKeyId: string) => {
+  const currentPasswordFingerprint = () => hashSessionToken(opts.config.dashboardPasswordHash ?? "");
+  opts.db.delete(dashboardSessions).where(or(
+    eq(dashboardSessions.apiKeyHash, ""),
+    and(
+      isNotNull(dashboardSessions.passwordFingerprint),
+      ne(dashboardSessions.passwordFingerprint, currentPasswordFingerprint()),
+    ),
+  )).run();
+
+  const createSession = (key: Pick<typeof apiKeys.$inferSelect, "id" | "keyHash">, passwordBased = false) => {
     const now = new Date();
     opts.db.delete(dashboardSessions).where(lte(dashboardSessions.expiresAt, now.toISOString())).run();
     const sessionId = crypto.randomBytes(32).toString("hex");
     opts.db.insert(dashboardSessions).values({
       tokenHash: hashSessionToken(sessionId),
-      apiKeyId,
+      apiKeyId: key.id,
+      apiKeyHash: key.keyHash,
+      passwordFingerprint: passwordBased ? currentPasswordFingerprint() : null,
       createdAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + SESSION_TTL_MS).toISOString(),
     }).run();
@@ -2365,13 +2376,21 @@ export async function createServer(opts: {
 
   const resolveSessionApiKeyId = (sessionId: string) => {
     const tokenHash = hashSessionToken(sessionId);
-    const session = opts.db.select({ apiKeyId: dashboardSessions.apiKeyId, expiresAt: dashboardSessions.expiresAt })
+    const session = opts.db.select({
+      apiKeyId: dashboardSessions.apiKeyId,
+      apiKeyHash: dashboardSessions.apiKeyHash,
+      currentApiKeyHash: apiKeys.keyHash,
+      passwordFingerprint: dashboardSessions.passwordFingerprint,
+      expiresAt: dashboardSessions.expiresAt,
+    })
       .from(dashboardSessions)
       .innerJoin(apiKeys, eq(apiKeys.id, dashboardSessions.apiKeyId))
       .where(and(eq(dashboardSessions.tokenHash, tokenHash), isNull(apiKeys.revokedAt))).get();
     if (!session) return null;
     const expiresAt = Date.parse(session.expiresAt);
-    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()
+      || session.apiKeyHash !== session.currentApiKeyHash
+      || (session.passwordFingerprint !== null && session.passwordFingerprint !== currentPasswordFingerprint())) {
       opts.db.delete(dashboardSessions).where(eq(dashboardSessions.tokenHash, tokenHash)).run();
       return null;
     }
@@ -2399,7 +2418,7 @@ export async function createServer(opts: {
     const key = getDefaultApiKey();
     if (!key || key.revokedAt) return false;
 
-    const sessionId = createSession(key.id);
+    const sessionId = createSession(key, true);
     reply.header(
       "set-cookie",
       serializeSessionCookie({
@@ -2577,7 +2596,7 @@ export async function createServer(opts: {
         .where(eq(apiKeys.id, key.id))
         .run();
 
-      const sessionId = createSession(key.id);
+      const sessionId = createSession(key);
       reply.header(
         "set-cookie",
         serializeSessionCookie({

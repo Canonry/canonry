@@ -44,10 +44,15 @@ Provider credentials are optional for bootstrap and Page Health.
 
 Dashboard sessions persist in the database and survive server restarts. Shared-password
 and API-key logins expire twelve hours after sign-in; logout and key revocation
-still end access. Named-account sessions renew during use, up to thirty days.
+still end access. Rotating an API key ends its browser sessions, even when bootstrap
+retains the key's ID. Changing the dashboard password hash and restarting ends
+password-derived sessions; API-key sign-ins are independent of that password.
+Restoring previous credentials does not revive ended sessions. Named-account
+sessions renew during use, up to thirty days.
 Cookies are HttpOnly, so page JavaScript cannot read them; inspect them in the
 browser's cookie storage. Sessions created before durable storage was introduced
-need one new sign-in after upgrading.
+need one new sign-in after upgrading. Upgrading sessions without credential
+bindings also requires a new sign-in.
 
 > **Only disable the dashboard password behind upstream auth.** `dashboard:
 > { requirePassword: false }` (or `CANONRY_DASHBOARD_REQUIRE_PASSWORD=0`) skips

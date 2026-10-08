@@ -217,6 +217,8 @@ describe('project-scoped API keys', () => {
     '/api/v1/runs',
     '/api/v1/runs?excludeKind=bing-inspect',
     '/api/v1/projects/project-a/runs?excludeKind=bing-inspect',
+    '/api/v1/runs?excludeKinds=bing-inspect&excludeKinds=traffic-sync',
+    '/api/v1/projects/project-a/runs?excludeKinds=bing-inspect,traffic-sync',
   ])('%s returns ONLY the scoped project\'s runs', async (route) => {
     const res = await authed('GET', route, SCOPED_KEY)
     expect(res.statusCode).toBe(200)

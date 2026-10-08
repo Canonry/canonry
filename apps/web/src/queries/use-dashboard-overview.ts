@@ -57,11 +57,11 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
     },
   })
 
-  // Exclude per-URL inspections before the server caps Activity at five jobs.
+  // Exclude per-URL inspections and routine traffic pulls before the five-job cap.
   // Keep the sweep history above independent for measurement reads.
   // Embeds deliberately permit only answer sweeps in run lists and details.
   const activityQuery = useQuery({
-    ...getApiV1RunsOptions({ client: heyClient, query: { excludeKind: RunKinds['bing-inspect'], limit: 5 } }),
+    ...getApiV1RunsOptions({ client: heyClient, query: { excludeKinds: [RunKinds['bing-inspect'], RunKinds['traffic-sync']], limit: 5 } }),
     enabled: loadActivity,
     staleTime: RUNS_STALE_MS,
     refetchInterval: (query) => query.state.data?.some(run =>

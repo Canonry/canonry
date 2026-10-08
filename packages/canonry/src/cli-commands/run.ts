@@ -7,7 +7,7 @@ import { providerDispatchModeSchema, type ProviderDispatchMode } from '@ainyc/ca
 const RUN_TRIGGER_USAGE = 'canonry run trigger <project> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--dispatch-mode sync|batch] [--force] [--wait] [--format json]'
 const RUN_USAGE = 'canonry run <project|--all> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--dispatch-mode sync|batch] [--force] [--wait] [--format json]'
 const RUN_FILL_USAGE = 'canonry run fill <run-id> [--provider <name>[,<name>]] [--dry-run] [--wait] [--format json]'
-const RUNS_USAGE = 'canonry runs <project> [--limit <n>] [--kind <kind>] [--exclude-kind <kind>] [--status <status>] [--format json]'
+const RUNS_USAGE = 'canonry runs <project> [--limit <n>] [--kind <kind>] [--exclude-kind <kind>] [--exclude-kinds <kind>[,<kind>]]... [--status <status>] [--format json]'
 
 const RUN_TRIGGER_OPTIONS = {
   provider: stringOption(),
@@ -211,6 +211,7 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
       limit: stringOption(),
       kind: stringOption(),
       'exclude-kind': stringOption(),
+      'exclude-kinds': multiStringOption(),
       status: stringOption(),
     },
     run: async (input) => {
@@ -226,6 +227,7 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
         }),
         kind: getString(input.values, 'kind'),
         excludeKind: getString(input.values, 'exclude-kind'),
+        excludeKinds: getStringArray(input.values, 'exclude-kinds'),
         status: getString(input.values, 'status'),
       })
     },
