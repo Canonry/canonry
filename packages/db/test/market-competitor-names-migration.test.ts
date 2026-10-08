@@ -49,7 +49,7 @@ describe('market competitor names (v172)', () => {
   })
 
   it('is idempotent when the statements run again', () => {
-    const db = tempDb()
+    const db = tempDb(MIGRATION_VERSIONS.filter(mv => mv.version <= MARKET_NAMES_VERSION))
     db.$client.prepare('DELETE FROM _migrations WHERE version = ?').run(MARKET_NAMES_VERSION)
     expect(() => migrate(db)).not.toThrow()
     expect(db.$client.prepare('SELECT COUNT(*) AS count FROM _migrations WHERE version = ?').get(MARKET_NAMES_VERSION))

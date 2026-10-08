@@ -23985,6 +23985,10 @@ export type PostApiV1ProjectsByNameGbpLocationsDiscoverErrors = {
      */
     400: ErrorEnvelope;
     /**
+     * The Google connection was rejected; reconnect Google Business Profile.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project not found.
      */
     404: ErrorEnvelope;
@@ -24022,6 +24026,10 @@ export type GetApiV1ProjectsByNameGbpAccountsErrors = {
      * No GBP connection or scope/API problem.
      */
     400: ErrorEnvelope;
+    /**
+     * The Google connection was rejected; reconnect Google Business Profile.
+     */
+    403: ErrorEnvelope;
     /**
      * Project not found.
      */

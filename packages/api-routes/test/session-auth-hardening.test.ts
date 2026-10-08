@@ -266,7 +266,7 @@ test('a referer stands in when the origin header is absent', async () => {
 
 // ─── P2.6 sliding sessions ─────────────────────────────────────────────────
 
-test('the status poll that renews a session also refreshes the browser cookie', async () => {
+test.each(['/auth/session', '/auth/sessions'])('the %s read that renews a session also refreshes the browser cookie', async (route) => {
   await createAccount('owner', ADMIN_PASSWORD, 'admin')
   const session = await signIn('owner', ADMIN_PASSWORD)
   const tokenHash = crypto.createHash('sha256').update(session).digest('hex')
@@ -278,7 +278,7 @@ test('the status poll that renews a session also refreshes the browser cookie', 
 
   const polled = await app.inject({
     method: 'GET',
-    url: '/api/v1/auth/session',
+    url: `/api/v1${route}`,
     headers: { cookie: `${USER_SESSION_COOKIE_NAME}=${session}` },
   })
 

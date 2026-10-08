@@ -4254,6 +4254,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('List of discovered locations and selection summary returned.', 'GbpLocationListResponse'),
       400: errorResponse('Invalid discover request, unknown account, account-switch not opted into, or scope/API problem.'),
+      403: errorResponse('The Google connection was rejected; reconnect Google Business Profile.'),
       404: errorResponse('Project not found.'),
       429: errorResponse('GBP API quota exceeded (access form may not be approved).'),
     },
@@ -4267,6 +4268,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Accounts the OAuth user manages or owns.', 'GbpAccountListResponse'),
       400: errorResponse('No GBP connection or scope/API problem.'),
+      403: errorResponse('The Google connection was rejected; reconnect Google Business Profile.'),
       404: errorResponse('Project not found.'),
       429: errorResponse('GBP API quota exceeded (access form may not be approved).'),
     },
