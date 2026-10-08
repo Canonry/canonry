@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { locationContextSchema, providerNameSchema } from './provider.js'
 import { effectiveBrandNames, resolveProjectQualifiedAliases } from './project.js'
 import { compileQueryClassifier, queryClassSchema } from './query-class.js'
+import { compareText } from './text-order.js'
 
 /** First immutable snapshot format for a planless simple measurement run. */
 export const SIMPLE_MEASUREMENT_DEFINITION_SCHEMA_VERSION = 1 as const
@@ -211,10 +212,6 @@ export function buildSimpleMeasurementDefinition(
       queryClass: classifier?.classify(query.queryText) ?? null,
     })),
   })
-}
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }
 
 /**

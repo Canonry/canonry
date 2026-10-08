@@ -49,6 +49,7 @@ import {
   type QueryTrackingWorkload,
   type QueryTrackingWorkspaceResponse,
   type SimpleMeasurementDefinition,
+  compareText,
 } from '@ainyc/canonry-contracts'
 import {
   discoveryProbes,
@@ -155,10 +156,6 @@ interface Candidate {
   mutatedQueryIds: Set<string>
   diff: QueryTrackingDiff
   workload: QueryTrackingWorkload
-}
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }
 
 function normalizeText(value: string): string {

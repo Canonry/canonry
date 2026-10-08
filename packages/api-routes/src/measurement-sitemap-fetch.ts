@@ -1,4 +1,4 @@
-import { isLocationRedirectStatus } from '@ainyc/canonry-contracts'
+import { isLocationRedirectStatus, compareText, sortedUnique as sortedUniqueUrls } from '@ainyc/canonry-contracts'
 import crypto from 'node:crypto'
 import dns from 'node:dns/promises'
 import { gunzip } from 'node:zlib'
@@ -560,14 +560,6 @@ function decodeXmlEntities(value: string): string {
 
 function firstHeader(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value
-}
-
-function compareText(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0
-}
-
-function sortedUniqueUrls(values: string[]): string[] {
-  return [...new Set(values)].sort(compareText)
 }
 
 function assertLimits(limits: MeasurementSitemapFetchLimits): void {

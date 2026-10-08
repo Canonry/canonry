@@ -25,6 +25,7 @@ import {
   type VisibilityReportScopeErrorDetails,
   type VisibilityReportScopeKind,
   type VisibilityReportScopeOption,
+  compareText,
 } from '@ainyc/canonry-contracts'
 
 export interface VisibilityReportTargetInput {
@@ -215,10 +216,6 @@ interface CursorEnvelope {
 }
 
 const ALL_CLASSES: readonly VisibilityReportPopulationClass[] = ['branded', 'non-brand', 'unknown']
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
-}
 
 /** Selection text identity (provider, location, model): compatibility-normalized, trimmed, space-collapsed, case-folded. */
 export function normalizeText(value: string): string {

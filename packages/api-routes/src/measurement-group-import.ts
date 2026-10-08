@@ -11,6 +11,7 @@ import {
   type MeasurementDraftGroupMembershipRowReason,
   type MeasurementDraftPreviewGroupMembershipResponse,
   type MeasurementDraftSegmentDescriptor,
+  compareText,
 } from '@ainyc/canonry-contracts'
 
 /** Errors are data-only so route wiring can map the status to the host's error envelope. */
@@ -119,10 +120,6 @@ interface ResolutionArtifacts {
   readonly groupChanges: MeasurementDraftGroupMembershipChange[]
   readonly counts: MeasurementDraftGroupMembershipImportCounts
   readonly identities: readonly GroupIdentity[]
-}
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }
 
 function sha256Hex(value: string): string {

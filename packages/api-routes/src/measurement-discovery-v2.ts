@@ -20,10 +20,10 @@ import {
   validationError,
   type MeasurementDiscoveryRule,
   type MeasurementDraftAuthoring,
-  type MeasurementDraftCounts,
   type MeasurementDraftTarget,
   type MeasurementDraftWarning,
   describeError,
+  compareText,
 } from '@ainyc/canonry-contracts'
 import {
   measurementDiscoveryConfigs,
@@ -38,6 +38,7 @@ import {
   MeasurementDiscoveryConfigurationError,
   type MeasurementDiscoveryCandidate,
 } from './measurement-discovery.js'
+import { draftCounts } from './measurement-draft-repo.js'
 import { MEASUREMENT_PLAN_WRITE_SCOPE } from './measurement-plan.js'
 import { fetchMeasurementSitemap, type MeasurementSitemapDocument } from './measurement-sitemap-fetch.js'
 
@@ -227,10 +228,6 @@ function hostOfUrl(value: string): string {
   return normalizeMeasurementHost(new URL(value).hostname)
 }
 
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
-}
-
 function canonicalJson(value: unknown): string {
   const canonical = (input: unknown): unknown => {
     if (Array.isArray(input)) return input.map(canonical)
@@ -271,17 +268,6 @@ export function measurementDiscoveryInputChecksum(input: {
     exclusions: [...new Set(input.exclusions.map(value => value.trim().toLowerCase()))].sort(compareText),
     bytesChecksum: input.bytesChecksum,
   }))
-}
-
-function draftCounts(authoring: MeasurementDraftAuthoring): MeasurementDraftCounts {
-  return {
-    targets: authoring.targets.length,
-    includedTargets: authoring.targets.filter(target => target.status === 'included').length,
-    assignments: authoring.assignments.length,
-    unclassifiedAssignments: authoring.assignments.filter(assignment => assignment.queryClass === 'unclassified').length,
-    groups: authoring.groups.length,
-    competitors: authoring.groups.reduce((total, group) => total + group.competitors.length, 0),
-  }
 }
 
 interface LoadedDraft {

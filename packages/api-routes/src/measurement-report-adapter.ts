@@ -30,6 +30,7 @@ import {
   type MeasurementV2UrlMatcher,
   type RunStatus,
   type StoredMeasurementPlan,
+  compareText,
 } from '@ainyc/canonry-contracts'
 import {
   measurementPlanVersions,
@@ -50,10 +51,6 @@ export type StoredMeasurementReport =
   | { kind: 'no-plan'; revision: number }
   | { kind: 'no-population'; reason: 'no-run'; report: MeasurementReportResponse }
   | { kind: 'report'; report: MeasurementReportResponse }
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
-}
 
 function normalizedProviders(values: readonly string[]): string[] {
   const providers = values.map(value => value.trim().toLocaleLowerCase('en'))

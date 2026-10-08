@@ -7,7 +7,7 @@
  * prevents a read from mutating or re-fetching evidence.
  */
 
-import { answerProseForMentions, normalizeMeasurementHost, rateOverChecked } from '@ainyc/canonry-contracts'
+import { answerProseForMentions, normalizeMeasurementHost, rateOverChecked, compareText, sortedUnique } from '@ainyc/canonry-contracts'
 
 export type MeasurementAttributionClass =
   | 'assigned'
@@ -393,12 +393,6 @@ interface PreparedReport {
   answers: MeasurementAnswerEvidence[]
   evidence: MeasurementAttributionEvidence[]
   diagnostics: MeasurementReport['diagnostics']
-}
-
-const compareText = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0
-
-function sortedUnique(values: readonly string[]): string[] {
-  return [...new Set(values)].sort(compareText)
 }
 
 function normalizedHost(value: string): string {

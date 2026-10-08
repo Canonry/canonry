@@ -39,6 +39,7 @@ import {
   type NamedShareOfVoice,
   type RunStatus,
   type StoredMeasurementPlan,
+  compareText as compareGroupText,
 } from '@ainyc/canonry-contracts'
 import {
   measurementPlanDrafts,
@@ -705,10 +706,6 @@ export interface PropertyLocation {
   metro: MeasurementPropertyMetro | null
   otherMetros?: MeasurementPropertyMetro[]
   submarkets: string[]
-}
-
-function compareGroupText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }
 
 /**

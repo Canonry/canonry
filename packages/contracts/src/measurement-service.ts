@@ -8,6 +8,7 @@ import {
   measurementStateSchema,
   measurementV2StableKeySchema,
 } from './measurement-plan-v2.js'
+import { compareText } from './text-order.js'
 
 /** The five deterministic outcomes produced by sitemap target discovery. */
 export const measurementDiscoveryClassificationSchema = z.enum([
@@ -237,7 +238,6 @@ export function parseMeasurementRunManifestV1(value: unknown): MeasurementRunMan
 }
 
 export function buildMeasurementRunManifestV1(input: Omit<MeasurementRunManifestV1, 'schemaVersion'>): MeasurementRunManifestV1 {
-  const compareText = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0
   const expectedSlots = [...input.expectedSlots]
     .map(slot => measurementExpectedSlotV1Schema.parse(slot))
     .sort((left, right) => (
