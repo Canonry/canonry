@@ -417,18 +417,10 @@ export async function showRun(id: string, format?: string): Promise<void> {
 
 export async function listRuns(
   project: string,
-  opts?: { format?: string; limit?: number; kind?: string; status?: string },
+  opts?: { format?: string; limit?: number; kind?: string; excludeKind?: string; status?: string },
 ): Promise<void> {
   const client = getClient()
-  const runs = await client.listRuns(project, opts?.limit, opts?.kind, opts?.status) as Array<{
-    id: string
-    status: string
-    kind: string
-    trigger: string
-    startedAt: string | null
-    finishedAt: string | null
-    createdAt: string
-  }>
+  const runs = await client.listRuns(project, opts?.limit, opts?.kind, opts?.status, opts?.excludeKind)
 
   if (opts?.format === 'json') {
     console.log(JSON.stringify(runs, null, 2))

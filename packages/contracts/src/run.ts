@@ -38,6 +38,7 @@ export const RunKinds = runKindSchema.enum
  */
 export const runListFilterQuerySchema = z.object({
   kind: runKindSchema.optional(),
+  excludeKind: runKindSchema.optional(),
   status: runStatusSchema.optional(),
 })
 export type RunListFilterQuery = z.infer<typeof runListFilterQuerySchema>

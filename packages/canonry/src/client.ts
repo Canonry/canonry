@@ -2244,13 +2244,13 @@ export class ApiClient {
     )
   }
 
-  async listRuns(project: string, limit?: number, kind?: string, status?: string): Promise<RunDto[]> {
+  async listRuns(project: string, limit?: number, kind?: string, status?: string, excludeKind?: string): Promise<RunDto[]> {
     return this.invoke<RunDto[]>(() =>
       getApiV1ProjectsByNameRuns({
         client: this.heyClient,
         path: { name: project },
-        // kind/status arrive as free CLI strings; the server validates them against the enums.
-        query: { limit, kind, status } as GetApiV1ProjectsByNameRunsData['query'],
+        // Filters arrive as free CLI strings; the server validates them against the enums.
+        query: { limit, kind, status, excludeKind } as GetApiV1ProjectsByNameRunsData['query'],
       }),
     )
   }

@@ -7,7 +7,7 @@ import { providerDispatchModeSchema, type ProviderDispatchMode } from '@ainyc/ca
 const RUN_TRIGGER_USAGE = 'canonry run trigger <project> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--dispatch-mode sync|batch] [--force] [--wait] [--format json]'
 const RUN_USAGE = 'canonry run <project|--all> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--dispatch-mode sync|batch] [--force] [--wait] [--format json]'
 const RUN_FILL_USAGE = 'canonry run fill <run-id> [--provider <name>[,<name>]] [--dry-run] [--wait] [--format json]'
-const RUNS_USAGE = 'canonry runs <project> [--limit <n>] [--kind <kind>] [--status <status>] [--format json]'
+const RUNS_USAGE = 'canonry runs <project> [--limit <n>] [--kind <kind>] [--exclude-kind <kind>] [--status <status>] [--format json]'
 
 const RUN_TRIGGER_OPTIONS = {
   provider: stringOption(),
@@ -210,11 +210,12 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
     options: {
       limit: stringOption(),
       kind: stringOption(),
+      'exclude-kind': stringOption(),
       status: stringOption(),
     },
     run: async (input) => {
       const project = requireProject(input, 'runs', RUNS_USAGE)
-      // kind/status pass through as typed; the server validates them against
+      // Filters pass through as typed; the server validates them against
       // the run enums and its 400 names the allowed values.
       await listRuns(project, {
         format: input.format,
@@ -224,6 +225,7 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
           message: '--limit must be an integer',
         }),
         kind: getString(input.values, 'kind'),
+        excludeKind: getString(input.values, 'exclude-kind'),
         status: getString(input.values, 'status'),
       })
     },

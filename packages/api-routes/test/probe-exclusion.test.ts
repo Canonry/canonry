@@ -361,9 +361,19 @@ describe('probe runs remain queryable for operators', () => {
     expect(body.trigger).toBe('probe')
   })
 
-  it('GET /projects/:name/runs lists probes alongside real runs (operator visibility)', async () => {
+  it('GET /runs keeps its default probe exclusion and explicit opt-in with excludeKind', async () => {
+    const { status, body } = await get<Array<{ id: string }>>('/api/v1/runs?excludeKind=bing-inspect')
+    expect(status).toBe(200)
+    expect(body.map(r => r.id)).toEqual([ctx.realRunId])
+
+    const included = await get<Array<{ id: string }>>('/api/v1/runs?excludeKind=bing-inspect&includeProbe=1')
+    expect(included.status).toBe(200)
+    expect(included.body.map(r => r.id)).toEqual([ctx.probeRunId, ctx.realRunId])
+  })
+
+  it.each(['', '?excludeKind=bing-inspect'])('GET /projects/:name/runs%s lists probes alongside real runs', async (query) => {
     const { body } = await get<{ id: string; trigger: string }[]>(
-      `/api/v1/projects/probe-excl/runs`,
+      `/api/v1/projects/probe-excl/runs${query}`,
     )
     const triggers = new Set(body.map(r => r.trigger))
     expect(triggers.has('manual')).toBe(true)

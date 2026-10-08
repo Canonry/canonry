@@ -365,13 +365,20 @@ const scheduleExpectedUpdatedAtQueryParameter: OpenApiParameter = {
   schema: { type: 'string', format: 'date-time' },
 }
 
-// Both list filters take their enum from the contracts schema the route
+// List filters take their enum from the contracts schema the route
 // validates against, so the spec (and the generated SDK) cannot drift from
 // what the server accepts.
 const runsListKindQueryParameter: OpenApiParameter = {
   name: 'kind',
   in: 'query',
   description: 'Restrict results to a single run kind. Without this filter, integration syncs (bing-inspect, gsc-sync, ga-sync) can fill the default 500-row cap within minutes on busy projects and push answer-visibility runs out of the response. Unknown values are rejected with 400.',
+  schema: { type: 'string', enum: [...runKindSchema.options] },
+}
+
+const runsListExcludeKindQueryParameter: OpenApiParameter = {
+  name: 'excludeKind',
+  in: 'query',
+  description: 'Exclude one run kind before applying the row limit. Combines with kind and status filters. Unknown values are rejected with 400.',
   schema: { type: 'string', enum: [...runKindSchema.options] },
 }
 
@@ -2352,7 +2359,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/runs',
     summary: 'List project runs',
     tags: ['runs'],
-    parameters: [nameParameter, limitQueryParameter, runsListKindQueryParameter, runsListStatusQueryParameter],
+    parameters: [nameParameter, limitQueryParameter, runsListKindQueryParameter, runsListExcludeKindQueryParameter, runsListStatusQueryParameter],
     responses: {
       200: jsonArrayResponse('Runs returned.', 'RunDto'),
     },
@@ -2377,6 +2384,7 @@ const routeCatalog: OpenApiOperation[] = [
       runsListSinceQueryParameter,
       runsListIncludeProbeQueryParameter,
       runsListKindQueryParameter,
+      runsListExcludeKindQueryParameter,
       runsListStatusQueryParameter,
     ],
     responses: {

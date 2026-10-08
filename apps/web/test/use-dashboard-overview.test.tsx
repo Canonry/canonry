@@ -2,6 +2,7 @@ import { afterEach, describe, expect, onTestFinished, test, vi } from 'vitest'
 import { waitFor, renderHook } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createElement, type ReactNode } from 'react'
+import { RunKinds, RunStatuses, RunTriggers, type RunDto } from '@ainyc/canonry-contracts'
 
 import { useDashboardOverview } from '../src/queries/use-dashboard-overview.js'
 
@@ -44,6 +45,105 @@ afterEach(() => {
 })
 
 describe('useDashboardOverview', () => {
+  test('shows the five newest larger jobs without displacing either project sweep baseline', async () => {
+    const beta = { ...metadataProject, id: 'beta-id', name: 'beta', displayName: 'Beta' }
+    const run = (id: string, kind: RunDto['kind'], day: number, projectId = metadataProject.id): RunDto => ({
+      id, projectId, kind, status: RunStatuses.completed, trigger: RunTriggers.manual,
+      createdAt: `2026-02-${String(day).padStart(2, '0')}T00:00:00.000Z`,
+    })
+    const runs: RunDto[] = [
+      run('audit', RunKinds['site-audit'], 10),
+      run('backlinks', RunKinds['backlink-extract'], 9, beta.id),
+      run('sitemap', RunKinds['inspect-sitemap'], 8),
+      { ...run('ads', RunKinds['google-ads-sync'], 7, beta.id), status: RunStatuses.running },
+      run('alpha-sweep', RunKinds['answer-visibility'], 6),
+      run('gsc', RunKinds['gsc-sync'], 5, beta.id),
+      run('alpha-previous', RunKinds['answer-visibility'], 4),
+      { ...run('beta-sweep', RunKinds['answer-visibility'], 3, beta.id), measurementPlanVersionId: 'published-plan' },
+      ...Array.from({ length: 6 }, (_, index) => ({
+        ...run(`audit-probe-${index}`, RunKinds['site-audit'], 11 + index), trigger: RunTriggers.probe,
+      })),
+      { ...run('sweep-probe', RunKinds['answer-visibility'], 17), trigger: RunTriggers.probe },
+      ...Array.from({ length: 500 }, (_, index) => run(`url-inspection-${index}`, RunKinds['bing-inspect'], 20)),
+    ]
+    const restoreFetch = mockFetch((path) => {
+      const url = new URL(path, 'http://localhost')
+      if (/\/projects\/[^/]+\/overview$/.test(url.pathname)) return jsonResponse(null)
+      if (url.pathname === '/api/v1/projects') return jsonResponse([metadataProject, beta])
+      if (url.pathname === '/api/v1/runs') {
+        const kind = url.searchParams.get('kind')
+        const excludeKind = url.searchParams.get('excludeKind')
+        const limit = Number(url.searchParams.get('limit') ?? 500)
+        return jsonResponse(runs
+          .filter(item => item.trigger !== RunTriggers.probe
+            && (!kind || item.kind === kind)
+            && (!excludeKind || item.kind !== excludeKind))
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+          .slice(0, limit))
+      }
+      return jsonResponse({ error: `unexpected ${path}` }, 404)
+    })
+    onTestFinished(restoreFetch)
+
+    const { result } = renderHook(() => useDashboardOverview(null, { includeSettings: false }), { wrapper })
+
+    await waitFor(() => expect(result.current.dashboard?.portfolioOverview.recentRuns.map(item => [
+      item.id, item.projectName, item.status,
+    ])).toEqual([
+      ['audit', 'Alpha', RunStatuses.completed],
+      ['backlinks', 'Beta', RunStatuses.completed],
+      ['sitemap', 'Alpha', RunStatuses.completed],
+      ['ads', 'Beta', RunStatuses.running],
+      ['alpha-sweep', 'Alpha', RunStatuses.completed],
+    ]))
+    expect(result.current.dashboard?.projects.map(project => [
+      project.project.name, project.visibilitySweeps.map(item => item.id),
+    ])).toEqual([
+      ['alpha', ['alpha-sweep', 'alpha-previous']],
+      ['beta', ['beta-sweep']],
+    ])
+    expect(result.current.dashboard?.portfolioOverview.projects.map(project => project.lastRun.id))
+      .toEqual(['alpha-sweep', 'beta-sweep'])
+  })
+
+  test('keeps the dashboard available when Activity refresh fails and recovers on retry', async () => {
+    let failActivity = false
+    const sweep: RunDto = {
+      id: 'saved-sweep', projectId: metadataProject.id, kind: RunKinds['answer-visibility'],
+      status: RunStatuses.completed, trigger: RunTriggers.manual, createdAt: '2026-02-01T00:00:00.000Z',
+    }
+    const audit: RunDto = { ...sweep, id: 'saved-audit', kind: RunKinds['site-audit'], createdAt: '2026-02-02T00:00:00.000Z' }
+    const restoreFetch = mockFetch((path) => {
+      const url = new URL(path, 'http://localhost')
+      if (/\/projects\/[^/]+\/overview$/.test(url.pathname)) return jsonResponse(null)
+      if (url.pathname === '/api/v1/projects') return jsonResponse([metadataProject])
+      if (url.pathname === '/api/v1/runs') {
+        if (url.searchParams.get('kind') === RunKinds['answer-visibility']) return jsonResponse([sweep])
+        if (failActivity) return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'Activity unavailable' } }, 500)
+        return jsonResponse([audit])
+      }
+      return jsonResponse({ error: `unexpected ${path}` }, 404)
+    })
+    onTestFinished(restoreFetch)
+
+    const { result } = renderHook(() => useDashboardOverview(null, { includeSettings: false }), { wrapper })
+    await waitFor(() => expect(result.current.dashboard?.portfolioOverview.recentRuns.map(item => item.id)).toEqual(['saved-audit']))
+
+    failActivity = true
+    await result.current.refetch()
+    await waitFor(() => expect(result.current.activityError).toBe(true))
+    expect(result.current.isError).toBe(false)
+    expect(result.current.dashboard?.projects[0]?.visibilitySweeps.map(item => item.id)).toEqual(['saved-sweep'])
+
+    failActivity = false
+    audit.id = 'refreshed-audit'
+    await result.current.refetch()
+    await waitFor(() => {
+      expect(result.current.activityError).toBe(false)
+      expect(result.current.dashboard?.portfolioOverview.recentRuns.map(item => item.id)).toEqual(['refreshed-audit'])
+    })
+  })
+
   test('can skip the global settings read for embed rendering', async () => {
     const paths: string[] = []
     const restoreFetch = mockFetch((path) => {
@@ -108,8 +208,32 @@ describe('useDashboardOverview', () => {
 
     await waitFor(() => expect(result.current.dashboard?.projects.map(project => project.project.name)).toEqual(['alpha']))
     expect(paths.some(path => /\/overview(?:\?|$)/.test(path))).toBe(false)
+    expect(paths.filter(path => path.startsWith('/api/v1/runs')).every(path =>
+      new URL(path, 'http://localhost').searchParams.get('kind') === RunKinds['answer-visibility'])).toBe(true)
 
     await result.current.refetch()
     expect(paths.some(path => /\/overview(?:\?|$)/.test(path))).toBe(false)
+    expect(paths.filter(path => path.startsWith('/api/v1/runs')).every(path =>
+      new URL(path, 'http://localhost').searchParams.get('kind') === RunKinds['answer-visibility'])).toBe(true)
+  })
+
+  test('keeps broader job history out of the read-only embed request surface', async () => {
+    window.__CANONRY_CONFIG__ = { embed: { enabled: true } }
+    const kinds: Array<string | null> = []
+    const restoreFetch = mockFetch((path) => {
+      const url = new URL(path, 'http://localhost')
+      if (url.pathname === '/api/v1/projects') return jsonResponse([])
+      if (url.pathname === '/api/v1/runs') {
+        kinds.push(url.searchParams.get('kind'))
+        return jsonResponse([])
+      }
+      return jsonResponse({ error: `unexpected ${path}` }, 404)
+    })
+    onTestFinished(restoreFetch)
+
+    const { result } = renderHook(() => useDashboardOverview(null, { includeSettings: false }), { wrapper })
+    await waitFor(() => expect(result.current.dashboard).not.toBeNull())
+    await result.current.refetch()
+    expect(kinds).toEqual([RunKinds['answer-visibility'], RunKinds['answer-visibility']])
   })
 })

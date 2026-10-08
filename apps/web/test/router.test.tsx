@@ -1,8 +1,9 @@
 import { test, expect, beforeAll, afterEach, onTestFinished } from 'vitest'
 import React from 'react'
-import { render, waitFor, act, cleanup } from '@testing-library/react'
+import { render, screen, waitFor, act, cleanup } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
+import { RunKinds, RunStatuses, runDetailDtoSchema } from '@ainyc/canonry-contracts'
 
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
@@ -240,6 +241,32 @@ test('?runId= opens the run drawer', async () => {
     await waitFor(() => {
       expect(container.innerHTML).toMatch(firstRun.summary)
     })
+  }
+})
+
+test.each([
+  [RunKinds['site-audit'], RunStatuses.running, 'Run is in progress...'],
+  [RunKinds['backlink-extract'], RunStatuses.completed, 'Run completed.'],
+  [RunKinds['answer-visibility'], RunStatuses.running, 'Waiting for first query result...'],
+  [RunKinds['answer-visibility'], RunStatuses.completed, 'No snapshot data available.'],
+])('run drawer describes %s %s without query snapshots', async (kind, status, expected) => {
+  const run = runDetailDtoSchema.parse({
+    id: 'drawer_run', projectId: 'project_citypoint', kind, status,
+    trigger: 'manual', createdAt: '2026-10-07T12:00:00Z',
+    startedAt: '2026-10-07T12:00:00Z',
+    finishedAt: status === RunStatuses.completed ? '2026-10-07T12:01:00Z' : null,
+    snapshots: [],
+  })
+  const restore = mockFetch(url => pathOf(url) === '/api/v1/runs/drawer_run'
+    ? jsonResponse(run)
+    : jsonResponse({ error: { message: 'Unneeded read for run drawer' } }, 503))
+  onTestFinished(restore)
+  const { unmount } = await renderRoute('/?runId=drawer_run')
+  onTestFinished(unmount)
+
+  await waitFor(() => expect(screen.getByRole('dialog').textContent).toContain(expected))
+  if (kind !== RunKinds['answer-visibility']) {
+    expect(screen.getByRole('dialog').textContent).not.toMatch(/first query result|No snapshot data/)
   }
 })
 

@@ -93,7 +93,7 @@ function OverviewProjectCard({
 export function OverviewPage() {
   const { isAdmin } = useAccount()
   const contextDashboard = useInitialDashboard()
-  const { dashboard, isLoading, isError, refetch } = useDashboard()
+  const { dashboard, isLoading, isError, activityLoading, activityError, refetch } = useDashboard()
   const safeDashboard = dashboard ?? contextDashboard?.dashboard
 
   // Every hook has to run on every render, so they all sit above the skeleton
@@ -239,7 +239,14 @@ export function OverviewPage() {
             </div>
           </div>
           <div className="compact-stack compact-stack-scrollable">
-            {model.recentRuns.length > 0 ? (
+            {activityError ? (
+              <div role="alert">
+                <p className="text-sm text-secondary">Recent jobs could not be loaded.</p>
+                <Button type="button" variant="secondary" className="mt-3" onClick={() => { void refetch() }}>Retry loading activity</Button>
+              </div>
+            ) : activityLoading ? (
+              <p className="supporting-copy" role="status">Loading recent jobs…</p>
+            ) : model.recentRuns.length > 0 ? (
               model.recentRuns.map((run) => (
                 <button key={run.id} className="compact-run" type="button" onClick={() => openRun(run.id)}>
                   <div>
