@@ -1092,7 +1092,16 @@ export async function createServer(opts: {
     onFirstActivation: () => maybeShowActivationNotice(),
   });
   jobRunner.recoverStaleRuns();
-  const notifier = new Notifier(opts.db, serverUrl);
+  // Local canonry serve runs on the operator's machine, where pointing a
+  // webhook at localhost (Discord test container, Pipedream-mock dev server,
+  // etc.) is a legitimate workflow. Default to allowing it for the local
+  // installer; cloud deployments (apps/api) never set `allowLoopbackWebhooks`
+  // and keep the secure default of `false`. Override with
+  // CANONRY_ALLOW_LOOPBACK_WEBHOOKS=0. Scheduled delivery (the Notifier) reads
+  // the same value as webhook create/test (api-routes), so a hook that was
+  // accepted is not refused later when an event fires.
+  const allowLoopbackWebhooks = process.env.CANONRY_ALLOW_LOOPBACK_WEBHOOKS !== "0";
+  const notifier = new Notifier(opts.db, serverUrl, { allowLoopbackWebhooks });
   const intelligenceService = new IntelligenceService(opts.db);
   // Build the Aero ApiClient from the in-memory server config rather than
   // loadConfig() so tests that set CANONRY_CONFIG_DIR after spawning the
@@ -3016,12 +3025,7 @@ export async function createServer(opts: {
     getAgentPluginState: opts.getAgentPluginState,
     // Powers the `canonry.version.current` doctor check. Non-blocking.
     getUpdateStatus: () => getServerUpdateStatus(),
-    // Local canonry serve runs on the operator's machine, where pointing a
-    // webhook at localhost (Discord test container, Pipedream-mock dev server,
-    // etc.) is a legitimate workflow. Default to allowing it for the local
-    // installer; cloud deployments inherit the secure default of `false` by
-    // not passing this option. Override with CANONRY_ALLOW_LOOPBACK_WEBHOOKS=0.
-    allowLoopbackWebhooks: process.env.CANONRY_ALLOW_LOOPBACK_WEBHOOKS !== "0",
+    allowLoopbackWebhooks,
     // Wall-clock budget for one incremental Vercel drain. This is the only lever
     // that decides whether a source catches up or falls further behind, and it
     // was previously reachable only from tests, so a source losing ground could

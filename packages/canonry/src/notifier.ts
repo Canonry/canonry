@@ -68,12 +68,18 @@ type AnyWebhookPayload = WebhookPayload | InsightWebhookPayload | ReviewWebhookP
 export class Notifier {
   private db: DatabaseClient
   private serverUrl: string
+  /**
+   * The server's `allowLoopbackWebhooks`, so delivery admits exactly the
+   * destinations that creating and testing a webhook admitted.
+   */
+  private allowLoopbackWebhooks: boolean
   /** Projects with a review dispatch in progress; see {@link dispatchReviewAlerts}. */
   private reviewDispatchInFlight = new Set<string>()
 
-  constructor(db: DatabaseClient, serverUrl: string) {
+  constructor(db: DatabaseClient, serverUrl: string, opts: { allowLoopbackWebhooks?: boolean } = {}) {
     this.db = db
     this.serverUrl = serverUrl
+    this.allowLoopbackWebhooks = opts.allowLoopbackWebhooks === true
   }
 
   /** Called after a run completes (success, partial, or failed). */
@@ -910,7 +916,7 @@ export class Notifier {
     const body = destination.render ? destination.render(toAlertView(payload as never)) : payload
     const signingSecret = destination.signed ? webhookSecret : null
     const targetLabel = redactNotificationUrl(url).urlDisplay
-    const targetCheck = await resolveWebhookTarget(url)
+    const targetCheck = await resolveWebhookTarget(url, { allowLoopback: this.allowLoopbackWebhooks })
     if (!targetCheck.ok) {
       log.error('webhook.ssrf-blocked', { url: targetLabel, reason: targetCheck.message })
       this.logDelivery(projectId, notificationId, payload.event, 'failed', `SSRF: ${targetCheck.message}`)
