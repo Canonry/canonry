@@ -19,7 +19,7 @@ const { version: PKG_VERSION } = _require("../package.json") as {
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { SetHeadersResponse } from "@fastify/static";
-import { anyUsersExist, apiRoutes, createProjectPassQueue, previewCompetitorAutoAliases, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS } from "@ainyc/canonry-api-routes";
+import { anyUsersExist, apiRoutes, createProjectPassQueue, hashApiKey, previewCompetitorAutoAliases, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS } from "@ainyc/canonry-api-routes";
 import {
   apiKeys,
   auditLog,
@@ -432,10 +432,6 @@ function summarizeProviderConfig(config: ProviderConfigEntry | undefined) {
   };
 }
 
-function hashApiKey(key: string): string {
-  return crypto.createHash("sha256").update(key).digest("hex");
-}
-
 // Dashboard password storage uses scrypt (salted, slow KDF) — not plain
 // SHA-256. The bearer-token path above still hashes with SHA-256 because
 // those are 128-bit random `cnry_…` tokens (no brute-force exposure on a
@@ -512,28 +508,6 @@ function verifyDashboardPassword(
   }
 
   return { ok: false, needsRehash: false };
-}
-
-function parseCookies(header: string | undefined): Record<string, string> {
-  if (!header) return {};
-
-  return header
-    .split(";")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .reduce<Record<string, string>>((cookies, part) => {
-      const eqIdx = part.indexOf("=");
-      if (eqIdx <= 0) return cookies;
-      const name = part.slice(0, eqIdx).trim();
-      const value = part.slice(eqIdx + 1).trim();
-      if (!name) return cookies;
-      try {
-        cookies[name] = decodeURIComponent(value);
-      } catch {
-        cookies[name] = value;
-      }
-      return cookies;
-    }, {});
 }
 
 function serializeSessionCookie(opts: {
@@ -2460,7 +2434,7 @@ export async function createServer(opts: {
     if (!dashboardRequirePassword) {
       return reply.send({ authenticated: true, setupRequired: false });
     }
-    const sessionId = parseCookies(request.headers.cookie)[SESSION_COOKIE_NAME];
+    const sessionId = parseCookieHeader(request.headers.cookie)[SESSION_COOKIE_NAME];
     return reply.send({
       authenticated: Boolean(sessionId && resolveSessionApiKeyId(sessionId)),
       setupRequired: !opts.config.dashboardPasswordHash,
@@ -2604,7 +2578,7 @@ export async function createServer(opts: {
   });
 
   app.delete(apiPrefix + "/session", async (request, reply) => {
-    const sessionId = parseCookies(request.headers.cookie)[SESSION_COOKIE_NAME];
+    const sessionId = parseCookieHeader(request.headers.cookie)[SESSION_COOKIE_NAME];
     clearSession(sessionId);
     reply.header(
       "set-cookie",
