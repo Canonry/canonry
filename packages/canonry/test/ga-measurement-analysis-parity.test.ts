@@ -40,6 +40,12 @@ const ANALYSIS: GaMeasurementAnalysisDto = {
     hostAndPathFiltersApplied: true,
     periods: [],
     channels: [],
+    aiEngines: {
+      leadRateAvailable: false,
+      leadRateUnavailableReason: 'no-data',
+      organic: { periods: [], engines: [], unattributed: { sources: [], periods: [] } },
+      paid: { periods: [], engines: [], unattributed: { sources: [], periods: [] } },
+    },
   },
   engagement: {
     status: 'ready',
@@ -156,6 +162,199 @@ describe('GA measurement analysis operator parity', () => {
     expect(rendered).toMatch(/9 (reported )?non-brand/i)
     expect(rendered).toMatch(/3 unreported/i)
     expect(rendered).toMatch(/60 unreported impressions/i)
+  })
+
+  it('renders organic leads by AI engine as one row per engine plus the total, per cohort, and paid clicks apart', async () => {
+    const previous = { label: 'previous' as const, startDate: '2026-05-25', endDate: '2026-06-23' }
+    const latest = { label: 'latest' as const, startDate: '2026-06-24', endDate: '2026-07-23' }
+    const zero = { eventCount: 0, sessions: 0, leadRate: null }
+    const noUnattributed = { sources: [], periods: [{ ...previous, ...zero }, { ...latest, ...zero }] }
+    const aiEngines: GaMeasurementAnalysisDto['leads']['aiEngines'] = {
+      leadRateAvailable: true,
+      leadRateUnavailableReason: null,
+      organic: {
+        periods: [
+          { ...previous, eventCount: 1, sessions: 25, leadRate: 0.04 },
+          { ...latest, eventCount: 7, sessions: 100, leadRate: 0.07 },
+        ],
+        engines: [
+          {
+            engine: 'chatgpt',
+            label: 'ChatGPT',
+            sources: ['chatgpt.com'],
+            periods: [
+              { ...previous, eventCount: 1, sessions: 25, leadRate: 0.04 },
+              { ...latest, eventCount: 5, sessions: 50, leadRate: 0.1 },
+            ],
+          },
+          {
+            engine: 'gemini',
+            label: 'Gemini',
+            sources: ['gemini.google.com'],
+            periods: [
+              { ...previous, ...zero },
+              { ...latest, eventCount: 2, sessions: 50, leadRate: 0.04 },
+            ],
+          },
+        ],
+        unattributed: noUnattributed,
+      },
+      paid: {
+        periods: [{ ...previous, ...zero }, { ...latest, ...zero }],
+        engines: [],
+        unattributed: noUnattributed,
+      },
+    }
+    gaMeasurementAnalysisMock.mockResolvedValue({
+      ...ANALYSIS,
+      window: '60d',
+      leads: { ...ANALYSIS.leads, aiEngines },
+    } satisfies GaMeasurementAnalysisDto)
+    const output = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const { gaMeasurementAnalysis } = await import('../src/commands/ga.js')
+
+    await gaMeasurementAnalysis('acme')
+
+    const lines = output.mock.calls.map(call => String(call[0]))
+    const rowFor = (label: string) => lines.find(line => line.trim().startsWith(label))
+    expect(lines).toContain('  Leads by AI engine, organic (lead events / AI sessions, lead rate)')
+    expect(rowFor('ENGINE')).toMatch(/ENGINE\s+PREVIOUS\s+LATEST$/)
+    expect(rowFor('ChatGPT')).toMatch(/ChatGPT\s+1 \/ 25 {2}4\.0%\s+5 \/ 50 {2}10\.0%$/)
+    // A cohort with no sessions has no rate, never a 0%.
+    expect(rowFor('Gemini')).toMatch(/Gemini\s+0 \/ 0 {2}\S+\s+2 \/ 50 {2}4\.0%$/)
+    expect(rowFor('Gemini')).not.toMatch(/0 \/ 0 {2}0%/)
+    expect(rowFor('All AI')).toMatch(/All AI\s+1 \/ 25 {2}4\.0%\s+7 \/ 100 {2}7\.0%$/)
+    // No paid AI rows and no unattributed AI channel rows: neither is printed.
+    expect(lines.some(line => line.includes('paid clicks'))).toBe(false)
+    expect(lines.some(line => line.includes('Other AI Assistant'))).toBe(false)
+    expect(lines.some(line => line.includes('Note:'))).toBe(false)
+
+    output.mockClear()
+    gaMeasurementAnalysisMock.mockResolvedValue({
+      ...ANALYSIS,
+      leads: {
+        ...ANALYSIS.leads,
+        attributionScope: 'channel',
+        hostAndPathFiltersApplied: false,
+        aiEngines: {
+          leadRateAvailable: false,
+          leadRateUnavailableReason: 'channel-leads-unfiltered',
+          organic: {
+            periods: [{ ...latest, eventCount: 6, sessions: 70, leadRate: null }],
+            engines: [{
+              engine: 'chatgpt',
+              label: 'ChatGPT',
+              sources: ['chatgpt.com'],
+              periods: [{ ...latest, eventCount: 4, sessions: 50, leadRate: null }],
+            }],
+            unattributed: {
+              sources: ['assistant.example.com'],
+              periods: [{ ...latest, eventCount: 2, sessions: 20, leadRate: null }],
+            },
+          },
+          paid: {
+            periods: [{ ...latest, eventCount: 30, sessions: 200, leadRate: null }],
+            engines: [{
+              engine: 'chatgpt',
+              label: 'ChatGPT',
+              sources: ['chatgpt'],
+              periods: [{ ...latest, eventCount: 30, sessions: 200, leadRate: null }],
+            }],
+            unattributed: { sources: [], periods: [{ ...latest, ...zero }] },
+          },
+        },
+      },
+    } satisfies GaMeasurementAnalysisDto)
+
+    await gaMeasurementAnalysis('acme')
+
+    const channelLines = output.mock.calls.map(call => String(call[0]))
+    const organicAt = channelLines.indexOf('  Leads by AI engine, organic (lead events / AI sessions, lead rate)')
+    const paidAt = channelLines.indexOf('  Leads by AI engine, paid clicks (lead events / AI sessions, lead rate)')
+    expect(organicAt).toBeGreaterThanOrEqual(0)
+    expect(paidAt).toBeGreaterThan(organicAt)
+    const organicLines = channelLines.slice(organicAt, paidAt)
+    expect(organicLines.find(line => line.trim().startsWith('ChatGPT'))).toMatch(/4 \/ 50/)
+    expect(organicLines.find(line => line.trim().startsWith('Other AI Assistant'))).toMatch(/2 \/ 20/)
+    expect(channelLines.slice(paidAt).find(line => line.trim().startsWith('ChatGPT'))).toMatch(/30 \/ 200/)
+    expect(channelLines.some(line => /channel-level.*--host-scope all/.test(line))).toBe(true)
+
+    output.mockClear()
+    gaMeasurementAnalysisMock.mockResolvedValue({
+      ...ANALYSIS,
+      leads: {
+        ...ANALYSIS.leads,
+        aiEngines: {
+          ...aiEngines,
+          leadRateAvailable: false,
+          leadRateUnavailableReason: 'sessions-behind-leads',
+        },
+      },
+    } satisfies GaMeasurementAnalysisDto)
+
+    await gaMeasurementAnalysis('acme')
+
+    const staleLines = output.mock.calls.map(call => String(call[0]))
+    expect(staleLines.some(line => /Note: stored lead events run past the last stored session date/.test(line))).toBe(true)
+
+    output.mockClear()
+    gaMeasurementAnalysisMock.mockResolvedValue({
+      ...ANALYSIS,
+      leads: {
+        ...ANALYSIS.leads,
+        aiEngines: {
+          ...aiEngines,
+          leadRateAvailable: false,
+          leadRateUnavailableReason: 'sessions-missing-on-lead-days',
+        },
+      },
+    } satisfies GaMeasurementAnalysisDto)
+
+    await gaMeasurementAnalysis('acme')
+
+    const gapLines = output.mock.calls.map(call => String(call[0]))
+    expect(gapLines.some(line => /Note: some days in this window have stored lead events but no stored sessions/.test(line))).toBe(true)
+
+    output.mockClear()
+    gaMeasurementAnalysisMock.mockResolvedValue({
+      ...ANALYSIS,
+      leads: {
+        ...ANALYSIS.leads,
+        attributionScope: 'channel',
+        hostAndPathFiltersApplied: false,
+        aiEngines: {
+          ...aiEngines,
+          leadRateAvailable: false,
+          leadRateUnavailableReason: 'paid-split-needs-landing-page',
+        },
+      },
+    } satisfies GaMeasurementAnalysisDto)
+
+    await gaMeasurementAnalysis('acme')
+
+    const paidSplitLines = output.mock.calls.map(call => String(call[0]))
+    expect(paidSplitLines.some(line => /Note: .*cannot read landing-page utm tags.*paid utm_medium such as cpc/.test(line))).toBe(true)
+  })
+
+  it('prints the rest of the analysis when an older server sends no leads.aiEngines', async () => {
+    // A server from before the AI engine breakdown: the leads block has no aiEngines key.
+    const { aiEngines: _aiEngines, ...legacyLeads } = ANALYSIS.leads
+    gaMeasurementAnalysisMock.mockResolvedValue({
+      ...ANALYSIS,
+      leads: {
+        ...legacyLeads,
+        periods: [{ label: 'latest', startDate: '2026-06-24', endDate: '2026-07-23', eventCount: 4 }],
+      },
+    })
+    const output = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const { gaMeasurementAnalysis } = await import('../src/commands/ga.js')
+
+    await expect(gaMeasurementAnalysis('acme')).resolves.toBeUndefined()
+
+    const lines = output.mock.calls.map(call => String(call[0]))
+    expect(lines.some(line => /latest\s+4 leads/.test(line))).toBe(true)
+    expect(lines.some(line => line.startsWith('  Search demand: ready'))).toBe(true)
+    expect(lines.some(line => line.includes('Leads by AI engine'))).toBe(false)
   })
 
   it('exposes the analysis as a read-only GA MCP tool with identical filters', async () => {

@@ -4755,6 +4755,78 @@ export type Ga4MeasurementAnalysisDto = {
                 eventCount: number;
             }>;
         }>;
+        aiEngines: {
+            leadRateAvailable: boolean;
+            leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days';
+            organic: {
+                periods: Array<{
+                    label: 'earliest' | 'middle' | 'previous' | 'latest';
+                    startDate: string;
+                    endDate: string;
+                    eventCount: number;
+                    sessions: number;
+                    leadRate: number | null;
+                }>;
+                engines: Array<{
+                    engine: 'chatgpt' | 'perplexity' | 'gemini' | 'claude' | 'copilot' | 'grok' | 'deepseek' | 'meta-ai' | 'phind' | 'you-com';
+                    label: string;
+                    sources: Array<string>;
+                    periods: Array<{
+                        label: 'earliest' | 'middle' | 'previous' | 'latest';
+                        startDate: string;
+                        endDate: string;
+                        eventCount: number;
+                        sessions: number;
+                        leadRate: number | null;
+                    }>;
+                }>;
+                unattributed: {
+                    sources: Array<string>;
+                    periods: Array<{
+                        label: 'earliest' | 'middle' | 'previous' | 'latest';
+                        startDate: string;
+                        endDate: string;
+                        eventCount: number;
+                        sessions: number;
+                        leadRate: number | null;
+                    }>;
+                };
+            };
+            paid: {
+                periods: Array<{
+                    label: 'earliest' | 'middle' | 'previous' | 'latest';
+                    startDate: string;
+                    endDate: string;
+                    eventCount: number;
+                    sessions: number;
+                    leadRate: number | null;
+                }>;
+                engines: Array<{
+                    engine: 'chatgpt' | 'perplexity' | 'gemini' | 'claude' | 'copilot' | 'grok' | 'deepseek' | 'meta-ai' | 'phind' | 'you-com';
+                    label: string;
+                    sources: Array<string>;
+                    periods: Array<{
+                        label: 'earliest' | 'middle' | 'previous' | 'latest';
+                        startDate: string;
+                        endDate: string;
+                        eventCount: number;
+                        sessions: number;
+                        leadRate: number | null;
+                    }>;
+                }>;
+                unattributed: {
+                    sources: Array<string>;
+                    periods: Array<{
+                        label: 'earliest' | 'middle' | 'previous' | 'latest';
+                        startDate: string;
+                        endDate: string;
+                        eventCount: number;
+                        sessions: number;
+                        leadRate: number | null;
+                    }>;
+                };
+            };
+        };
     };
     engagement: {
         status: 'ready' | 'unavailable';
@@ -10954,6 +11026,78 @@ export type OrganicEvidenceDto = {
                     eventCount: number;
                 }>;
             }>;
+            aiEngines: {
+                leadRateAvailable: boolean;
+                leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days';
+                organic: {
+                    periods: Array<{
+                        label: 'earliest' | 'middle' | 'previous' | 'latest';
+                        startDate: string;
+                        endDate: string;
+                        eventCount: number;
+                        sessions: number;
+                        leadRate: number | null;
+                    }>;
+                    engines: Array<{
+                        engine: 'chatgpt' | 'perplexity' | 'gemini' | 'claude' | 'copilot' | 'grok' | 'deepseek' | 'meta-ai' | 'phind' | 'you-com';
+                        label: string;
+                        sources: Array<string>;
+                        periods: Array<{
+                            label: 'earliest' | 'middle' | 'previous' | 'latest';
+                            startDate: string;
+                            endDate: string;
+                            eventCount: number;
+                            sessions: number;
+                            leadRate: number | null;
+                        }>;
+                    }>;
+                    unattributed: {
+                        sources: Array<string>;
+                        periods: Array<{
+                            label: 'earliest' | 'middle' | 'previous' | 'latest';
+                            startDate: string;
+                            endDate: string;
+                            eventCount: number;
+                            sessions: number;
+                            leadRate: number | null;
+                        }>;
+                    };
+                };
+                paid: {
+                    periods: Array<{
+                        label: 'earliest' | 'middle' | 'previous' | 'latest';
+                        startDate: string;
+                        endDate: string;
+                        eventCount: number;
+                        sessions: number;
+                        leadRate: number | null;
+                    }>;
+                    engines: Array<{
+                        engine: 'chatgpt' | 'perplexity' | 'gemini' | 'claude' | 'copilot' | 'grok' | 'deepseek' | 'meta-ai' | 'phind' | 'you-com';
+                        label: string;
+                        sources: Array<string>;
+                        periods: Array<{
+                            label: 'earliest' | 'middle' | 'previous' | 'latest';
+                            startDate: string;
+                            endDate: string;
+                            eventCount: number;
+                            sessions: number;
+                            leadRate: number | null;
+                        }>;
+                    }>;
+                    unattributed: {
+                        sources: Array<string>;
+                        periods: Array<{
+                            label: 'earliest' | 'middle' | 'previous' | 'latest';
+                            startDate: string;
+                            endDate: string;
+                            eventCount: number;
+                            sessions: number;
+                            leadRate: number | null;
+                        }>;
+                    };
+                };
+            };
         };
         engagement: {
             status: 'ready' | 'unavailable';
