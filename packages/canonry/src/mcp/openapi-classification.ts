@@ -136,6 +136,11 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/organic-evidence': 'included',
   'GET /api/v1/projects/{name}/runs': 'included',
   'GET /api/v1/projects/{name}/runs/latest': 'included',
+  // The dashboard's run-admission notice, without the latest run's answers.
+  // Agents read scheduled `admission` and default full-sweep
+  // `manualAdmission` from canonry_runs_latest and canonry_project_overview,
+  // so a third tool would only repeat those decisions.
+  'GET /api/v1/projects/{name}/run-admission': 'deferred',
   'GET /api/v1/runs': 'deferred',
   'POST /api/v1/runs': 'deferred',
   'GET /api/v1/runs/{id}': 'included',

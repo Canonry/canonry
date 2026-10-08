@@ -213,8 +213,14 @@ describe('project-scoped API keys', () => {
 
   // --- global aggregation endpoints (NOT under the /projects/:name URL gate) ---
 
-  it('GET /runs returns ONLY the scoped project\'s runs', async () => {
-    const res = await authed('GET', '/api/v1/runs', SCOPED_KEY)
+  it.each([
+    '/api/v1/runs',
+    '/api/v1/runs?excludeKind=bing-inspect',
+    '/api/v1/projects/project-a/runs?excludeKind=bing-inspect',
+    '/api/v1/runs?excludeKinds=bing-inspect&excludeKinds=traffic-sync',
+    '/api/v1/projects/project-a/runs?excludeKinds=bing-inspect,traffic-sync',
+  ])('%s returns ONLY the scoped project\'s runs', async (route) => {
+    const res = await authed('GET', route, SCOPED_KEY)
     expect(res.statusCode).toBe(200)
     const pids = new Set((res.json() as Array<{ projectId: string }>).map(r => r.projectId))
     expect(pids).toEqual(new Set([projectAId]))

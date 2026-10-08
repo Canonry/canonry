@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from 'node:util'
 
 import { eq } from 'drizzle-orm'
 import { getBootstrapEnv } from '@ainyc/canonry-config'
-import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
+import { createClient, migrate, apiKeys, dashboardSessions } from '@ainyc/canonry-db'
 
 import { configExists, getConfigDir, getConfigPath, loadConfig, loadConfigRaw, saveConfig } from '../config.js'
 import type { CliFormat } from '../cli-error.js'
@@ -100,6 +100,9 @@ export async function bootstrapCommand(opts?: { format?: CliFormat }): Promise<v
         || existingDefault.projectId !== null
         || existingDefault.revokedAt !== null
       if (needsUpdate) {
+        if (rotating || existingDefault.revokedAt !== null) {
+          tx.delete(dashboardSessions).where(eq(dashboardSessions.apiKeyId, existingDefault.id)).run()
+        }
         tx.update(apiKeys).set({
           keyHash,
           keyPrefix,
@@ -112,6 +115,7 @@ export async function bootstrapCommand(opts?: { format?: CliFormat }): Promise<v
       }
       for (const duplicate of existingDefaults) {
         if (duplicate.id === existingDefault.id) continue
+        tx.delete(dashboardSessions).where(eq(dashboardSessions.apiKeyId, duplicate.id)).run()
         if (duplicate.revokedAt === null) {
           tx.update(apiKeys).set({ revokedAt: rotatedAt })
             .where(eq(apiKeys.id, duplicate.id)).run()

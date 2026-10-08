@@ -1,15 +1,17 @@
 import { useCallback, useMemo } from 'react'
 import { useQuery, useQueries } from '@tanstack/react-query'
+import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import {
   fetchProjectOverview,
   heyClient,
+  isEmbed,
 } from '../api.js'
 import {
   getApiV1ProjectsOptions,
   getApiV1RunsOptions,
   getApiV1SettingsOptions,
 } from '@ainyc/canonry-api-client/react-query'
-import { buildDashboard } from '../build-dashboard.js'
+import { buildDashboard, toRunListItem } from '../build-dashboard.js'
 import type { ProjectData } from '../build-dashboard.js'
 import type { DashboardVm } from '../view-models.js'
 import { PROJECTS_REFRESH_IDLE_MS, PROJECTS_REFRESH_MS, RUNS_STALE_MS, STATIC_VISIBILITY_STALE_MS } from './query-client.js'
@@ -40,6 +42,7 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
   const includeOverviews = options.includeOverviews ?? true
   const pauseProjectPolling = options.pauseProjectPolling ?? false
   const { isAdmin } = useAccount()
+  const loadActivity = !effectiveInitial && includeOverviews && !isEmbed()
 
   // Scope to answer-visibility so integration syncs don't fill the 500-row
   // server cap and starve the dashboard of sweep runs (see PR #590).
@@ -52,6 +55,17 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
       const hasActive = runs?.some(r => r.status === 'running' || r.status === 'queued')
       return hasActive ? 3000 : RUNS_STALE_MS
     },
+  })
+
+  // Exclude per-URL inspections and routine traffic pulls before the five-job cap.
+  // Keep the sweep history above independent for measurement reads.
+  // Embeds deliberately permit only answer sweeps in run lists and details.
+  const activityQuery = useQuery({
+    ...getApiV1RunsOptions({ client: heyClient, query: { excludeKinds: [RunKinds['bing-inspect'], RunKinds['traffic-sync']], limit: 5 } }),
+    enabled: loadActivity,
+    staleTime: RUNS_STALE_MS,
+    refetchInterval: (query) => query.state.data?.some(run =>
+      run.status === RunStatuses.running || run.status === RunStatuses.queued) ? 3000 : RUNS_STALE_MS,
   })
 
   const projectsQuery = useQuery({
@@ -127,17 +141,20 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
     if (effectiveInitial) return effectiveInitial
     if (!projectsQuery.data || !runsQuery.data) return null
     if (projects.length > 0 && !allProjectOverviewsLoaded) return null
+    const projectsById = new Map(projects.map(project => [project.id, project]))
 
     const projectDataList: ProjectData[] = includeOverviews
       ? projectOverviewQueries
         .map((q) => {
           if (!q.data) return null
-          // Re-project runs through the fresh allRuns array so in-progress
-          // sweeps (queued / running, started after the overview was cached)
-          // surface in the run badges. Same pattern as `useDashboard`.
+          const project = projectsById.get(q.data.project.id)
+          if (!project) return null
+          // Cached summaries outlive metadata edits and newly-started sweeps.
+          // Use the current lists for project fields and run badges.
           return {
             ...q.data,
-            runs: allRuns.filter((r) => r.projectId === q.data!.project.id),
+            project,
+            runs: allRuns.filter((r) => r.projectId === project.id),
           }
         })
         .filter((d): d is ProjectData => d != null)
@@ -158,8 +175,17 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
         }
       })
 
-    return buildDashboard(projectDataList, settingsQuery.data ?? null)
-  }, [effectiveInitial, projectsQuery.data, runsQuery.data, settingsQuery.data, includeOverviews, allProjectOverviewsLoaded, projectOverviewQueries, projects, allRuns])
+    const built = buildDashboard(projectDataList, settingsQuery.data ?? null)
+    if (loadActivity) {
+      built.portfolioOverview.recentRuns = (activityQuery.data ?? [])
+        .filter(run => run.trigger !== RunTriggers.probe && projectsById.has(run.projectId))
+        .map(run => {
+          const project = projectsById.get(run.projectId)!
+          return toRunListItem(run, project.displayName || project.name)
+        })
+    }
+    return built
+  }, [effectiveInitial, projectsQuery.data, runsQuery.data, settingsQuery.data, includeOverviews, allProjectOverviewsLoaded, projectOverviewQueries, projects, allRuns, loadActivity, activityQuery.data])
 
   const isError = !effectiveInitial && (projectsQuery.isError || runsQuery.isError)
   const isLoading = !effectiveInitial && !dashboard && !isError
@@ -168,15 +194,19 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
     const queries: Array<Promise<unknown>> = [
       projectsQuery.refetch(),
       runsQuery.refetch(),
+      ...(loadActivity ? [activityQuery.refetch()] : []),
       ...(includeOverviews ? projectOverviewQueries.map(query => query.refetch()) : []),
     ]
-    if (includeSettings) {
+    if (includeSettings && isAdmin) {
       queries.push(settingsQuery.refetch())
     }
     await Promise.all(queries)
   }, [
     includeSettings,
+    isAdmin,
     includeOverviews,
+    loadActivity,
+    activityQuery.refetch,
     projectOverviewQueries,
     projectsQuery.refetch,
     runsQuery.refetch,
@@ -187,6 +217,8 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
     dashboard,
     isLoading,
     isError,
+    activityLoading: loadActivity && activityQuery.isPending,
+    activityError: loadActivity && activityQuery.isError,
     refetch,
   }
 }

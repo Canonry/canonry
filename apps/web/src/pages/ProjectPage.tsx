@@ -54,6 +54,7 @@ import { AdvancedMeasurementSection } from '../components/project/advanced-measu
 import { AdvancedMeasurementLanding } from '../components/project/advanced-measurement/AdvancedMeasurementLanding.js'
 import {
   advancedMeasurementSetupActionLabel,
+  advancedProjectTagDetail,
   resolveAdvancedMeasurementMode,
 } from '../components/project/advanced-measurement/model.js'
 import { adaptVersionOneMeasurementReport } from '../components/project/advanced-measurement/v1-report-adapter.js'
@@ -69,6 +70,8 @@ import { asyncHandler } from '../lib/async-handler.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
 import { ProjectEngineSettingsSection, SiteHealthScanSettingsSection } from '../components/project/ProjectEngineSettingsSection.js'
 import { ManagedSweepStatus, managedSweepDate } from '../components/project/ManagedSweepStatus.js'
+import { RunAdmissionNoticeView, useRunAdmission } from '../components/project/RunAdmissionNotice.js'
+import { providerDisplayName } from '../lib/visibility-trend-helpers.js'
 import { ScheduleSection } from '../components/project/ScheduleSection.js'
 import { NotificationsSection } from '../components/project/NotificationsSection.js'
 import {
@@ -93,6 +96,7 @@ import {
   getViewerResearchConfig,
   isEmbed,
   isDashboardManagedSweeps,
+  isPublicDemo,
   type ApiBingConnection,
   type ApiBingSite,
   type ApiBingInspection,
@@ -118,10 +122,8 @@ import {
   getApiV1ProjectsByNameTechnicalAeoRunsOptions,
   getApiV1ProjectsByNameMeasurementReportOptions,
   getApiV1ProjectsByNameMeasurementSetupOptions,
-  getApiV1ProjectsByNameMeasurementSetupQueryKey,
   getApiV1ProjectsByNameQueriesOptions,
   getApiV1ProjectsByNameQueryTrackingOptions,
-  getApiV1ProjectsQueryKey,
   getApiV1ProjectsByNameQueryKey,
 } from '@ainyc/canonry-api-client/react-query'
 import { useAppendQueries, useTriggerRun } from '../queries/mutations.js'
@@ -143,20 +145,27 @@ import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
 export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'queries' | 'discovery' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
 
-export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onConfirm, onClosed, disabled }: {
+export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onConfirm, onClosed, disabled, leftOut = [] }: {
   open: boolean
   projectLabel: string
   onOpenChange: (open: boolean) => void
   onConfirm: () => void
   onClosed?: () => void
   disabled: boolean
+  /** Providers this sweep will not call because each keeps failing on its account. */
+  leftOut?: readonly string[]
 }) {
   if (isEmbed() || isDashboardManagedSweeps()) return null
   return <Sheet open={open} onOpenChange={onOpenChange}>
     <SheetContent onCloseAutoFocus={event => { if (onClosed) { event.preventDefault(); onClosed() } }}>
       <SheetHeader>
         <SheetTitle>Run AI sweep for the whole project?</SheetTitle>
-        <SheetDescription>Runs all tracked queries for {projectLabel}. View filters do not limit the sweep. Provider charges apply.</SheetDescription>
+        <SheetDescription>
+          Runs all tracked queries for {projectLabel}. View filters do not limit the sweep. Provider charges apply.
+          {leftOut.length > 0
+            ? ` ${leftOut.map(providerDisplayName).join(' and ')} ${leftOut.length === 1 ? 'is' : 'are'} left out: ${leftOut.length === 1 ? 'it keeps failing on its account' : 'they keep failing on their accounts'}.`
+            : null}
+        </SheetDescription>
       </SheetHeader>
       <div className="mt-6 flex flex-wrap gap-3">
         <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -1631,7 +1640,7 @@ function ProjectPageContent({
 }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const { account, canWrite } = useAccount()
+  const { account, canWrite, isAdmin } = useAccount()
   const [sweepConfirmationProject, setSweepConfirmationProject] = useState<string | null>(null)
   const sweepOpener = useRef<HTMLButtonElement | null>(null)
   const initialDashboard = useInitialDashboard()
@@ -1794,9 +1803,11 @@ function ProjectPageContent({
   })
   const activeMeasurementPlanQuery = useQuery({
     ...getApiV1ProjectsByNameMeasurementPlanOptions({ client: heyClient, path: { name: projectName } }),
+    // The public demo reads it on every tab: its context row tags an advanced
+    // project wherever it renders, including a deep link.
     enabled: !isEmbed()
       && Boolean(projectName)
-      && (canWrite || tab === 'portfolio' || tab === 'overview' || tab === 'settings'),
+      && (canWrite || isPublicDemo() || tab === 'portfolio' || tab === 'overview' || tab === 'settings'),
     staleTime: 0,
     refetchOnMount: 'always',
   })
@@ -1909,6 +1920,10 @@ function ProjectPageContent({
     hasDraft: measurementSetupQuery.data?.draft !== null && measurementSetupQuery.data?.draft !== undefined,
   })
   const isSimpleOverview = advancedMeasurementMode.surface === 'simple-overview'
+  // Demo only: it tells a visitor switching projects why this one looks different.
+  const advancedProjectTag = isPublicDemo() && activeMeasurementPlan?.plan.schemaVersion === 2
+    ? advancedProjectTagDetail(activeMeasurementPlan.plan)
+    : null
   /**
    * Which overview to show is not known until one of the two plan reads lands.
    * Until then the expression above is `undefined ?? null`, and `null` is what
@@ -2169,6 +2184,13 @@ function ProjectPageContent({
   const hasActiveVisibilitySweep = (model?.recentRuns ?? []).some(
     r => r.kind === RunKinds['answer-visibility'] && (r.status === RunStatuses.running || r.status === RunStatuses.queued),
   )
+  // Manual launches use the project roster; schedules may select other providers.
+  const runAdmission = useRunAdmission(projectName, !isEmbed() && !isDashboardManagedSweeps(), 'manual').data
+  const scheduledRunAdmission = useRunAdmission(projectName, !isEmbed(), 'scheduled').data
+  const admissionScopesDiffer = runAdmission && scheduledRunAdmission
+    && JSON.stringify(runAdmission) !== JSON.stringify(scheduledRunAdmission)
+  const sweepsOnHold = runAdmission?.refused === true
+  const sweepLeavesOut = runAdmission && !runAdmission.refused ? Object.keys(runAdmission.providers) : []
   // `queryCounts` is derived from the authoritative latest completed/partial
   // visibility-run snapshot group. `recentRuns` is only a five-row
   // presentation slice and can contain five newer failures while a valid
@@ -2340,7 +2362,7 @@ function ProjectPageContent({
   // resolved but neither matched the URL's identifier).
 
   async function handleTriggerRun() {
-    if (sweepConfirmationProject !== projectName || !canWrite || isEmbed() || isDashboardManagedSweeps() || triggerRunMutation.isPending || hasActiveVisibilitySweep || !sweepPrerequisitesReady) return
+    if (sweepConfirmationProject !== projectName || !canWrite || isEmbed() || isDashboardManagedSweeps() || triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepsOnHold || !sweepPrerequisitesReady) return
     try {
       await triggerRunMutation.mutateAsync({
         projectName,
@@ -2348,7 +2370,6 @@ function ProjectPageContent({
         sourceAction: 'project-run',
       })
       setSweepConfirmationProject(null)
-      void refetch()
     } catch {
       // Mutation hook surfaces the toast and error state.
     }
@@ -2382,8 +2403,7 @@ function ProjectPageContent({
         dedupeKey: `project:delete:${projectName}`,
         dedupeMode: 'drop',
       })
-      void navigate({ to: '/' })
-      void refetch()
+      await navigate({ to: '/' })
     } catch (err) {
       console.error('Failed to delete project:', err)
     } finally {
@@ -2397,7 +2417,6 @@ function ProjectPageContent({
     setQuerySaving(true)
     try {
       await apiAppendQueries(projectName, queries)
-      void refetch()
       setNewQueryText('')
     } finally {
       setQuerySaving(false)
@@ -2408,7 +2427,6 @@ function ProjectPageContent({
     setRemovingQuery(query)
     try {
       await apiRemoveQueries(projectName, [query])
-      void refetch()
     } catch (err) {
       addToast({
         title: 'Could not remove query',
@@ -2427,18 +2445,6 @@ function ProjectPageContent({
     if (!domain) return false
     try {
       await apiAppendCompetitors(projectName, [domain])
-      // No `['analytics-metrics', projectName]` invalidation — same mechanism
-      // as the answer-visibility case in `queries/run-invalidations.ts`. The
-      // trend key's `metricsFrameKey` segment is `competitorFrameKey(...)` of
-      // `model.competitors`, i.e. the exact DB list the server builds the
-      // mention-share denominator from. `refetch()` reloads that list, the
-      // frame key rotates, and the chart mounts a new key — one fetch.
-      // Invalidating first refetched the outgoing key too: a second
-      // full-history analytics scan whose result is unreachable once the
-      // frame key moves. If `refetch()` fails, the project detail query polls
-      // every PROJECT_DETAIL_REFRESH_MS, so the rotation still lands.
-      void refetch()
-      // The refreshed pin set changes the landscape revision above.
       return true
     } catch (err) {
       addToast({
@@ -2467,9 +2473,6 @@ function ProjectPageContent({
 
     try {
       await apiRemoveCompetitorById(projectName, competitor.id)
-      // See handleAddCompetitor: the frame key rotation is the refetch.
-      void refetch()
-      // The refreshed pin set changes the landscape revision above.
       return true
     } catch (err) {
       addToast({
@@ -2533,31 +2536,9 @@ function ProjectPageContent({
 
   async function handleUpdateProject(pName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; aliases?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null; providers?: string[]; providerModels?: Record<string, string>; siteAuditMaxPages?: number | null }) {
     const updated = await apiUpdateProject(pName, updates)
-    // Invalidate the whole 'projects' branch (prefix match) so every consumer
-    // — sidebar, project page, per-project detail queries — refetches the new
-    // displayName before the user sees the next render. `refetch()` alone only
-    // covers the top-level lists; detail queries were keyed on run IDs and
-    // would silently hold the stale project object.
-    // Project rename / metadata edit — refresh the top-level projects list
-    // so sidebar/dashboard pick up the new displayName. Use the exact key
-    // (not a prefix) so we don't churn every Bing/GSC/GA cache under the
-    // project's sub-tree.
-    await queryClient.invalidateQueries({ queryKey: getApiV1ProjectsQueryKey({ client: heyClient }) })
     queryClient.setQueryData(getApiV1ProjectsByNameQueryKey({ client: heyClient, path: { name: pName } }), updated)
     // Scoped to the edited project's own cache entries — see the helper.
     patchProjectDashboardCache(queryClient, updated)
-    if (updates.providers !== undefined) {
-      // Provider readiness is computed by the server from the project's exact
-      // allowlist. Refresh that authority before the save completes so the
-      // page-header sweep action cannot keep the previous allowlist's state.
-      await queryClient.invalidateQueries({
-        queryKey: getApiV1ProjectsByNameMeasurementSetupQueryKey({
-          client: heyClient,
-          path: { name: pName },
-        }),
-        exact: true,
-      })
-    }
     return updated
   }
 
@@ -2796,6 +2777,12 @@ function ProjectPageContent({
           <h1 className="project-context-title md:sr-only">{model.project.displayName || model.project.name}</h1>
           {scopeSlotContent !== null ? <div className="project-context-scope">{scopeSlotContent}</div> : null}
           {model.project.canonicalDomain ? <span className="project-context-domain">{model.project.canonicalDomain}</span> : null}
+          {advancedProjectTag !== null ? (
+            <span className="project-mode-tag">
+              <span className="project-mode-tag-label">Advanced</span>
+              <span className="project-mode-tag-detail">{advancedProjectTag}</span>
+            </span>
+          ) : null}
           <div className="project-context-actions" data-project-actions>
             {isDashboardManagedSweeps() ? (
               <ManagedSweepStatus projectName={projectName} running={hasActiveVisibilitySweep} portfolio={!isSimpleOverview} />
@@ -2819,7 +2806,7 @@ function ProjectPageContent({
                 <WriteButton
                   type="button"
                   variant="outline"
-                  disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepReadinessPending}
+                  disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepReadinessPending || (sweepsOnHold && !providerReadinessFailed && !sweepSetupRequired)}
                   onClick={providerReadinessFailed
                     ? () => { void Promise.all([measurementSetupQuery.refetch(), ...(needsHeaderQueries ? [headerQueriesQuery.refetch()] : [])]) }
                     : sweepSetupRequired
@@ -2836,7 +2823,9 @@ function ProjectPageContent({
                           ? 'Retry AI readiness'
                         : sweepSetupRequired
                           ? 'Set up AI Visibility'
-                          : 'Run AI sweep'}
+                          : sweepsOnHold
+                            ? 'AI sweeps on hold'
+                            : 'Run AI sweep'}
                 </WriteButton>
               </>
             )}
@@ -2850,7 +2839,8 @@ function ProjectPageContent({
         onOpenChange={open => setSweepConfirmationProject(open ? projectName : null)}
         onConfirm={asyncHandler(handleTriggerRun)}
         onClosed={() => sweepOpener.current?.focus()}
-        disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || !sweepPrerequisitesReady}
+        disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepsOnHold || !sweepPrerequisitesReady}
+        leftOut={sweepLeavesOut}
       />}
       <ProjectSubnav
         items={projectTabItems}
@@ -2903,7 +2893,13 @@ function ProjectPageContent({
           }}
         />
       ) : tab === 'overview' ? (
-        isMeasurementModeUnresolved || (isSimpleOverview && !hasInitialProjectDashboard && (!overviewRequested || overviewLoading)) ? (
+        <>
+        {/* Above both overviews and their loading state: a refused or partial sweep is the project's state, whichever portfolio it is. */}
+        {!isEmbed() ? <>
+          {scheduledRunAdmission ? <RunAdmissionNoticeView admission={scheduledRunAdmission} canFix={canWrite && isAdmin} selection={admissionScopesDiffer || !runAdmission ? 'scheduled' : undefined} /> : null}
+          {runAdmission && (admissionScopesDiffer || !scheduledRunAdmission) ? <RunAdmissionNoticeView admission={runAdmission} canFix={canWrite && isAdmin} selection="manual" /> : null}
+        </> : null}
+        {isMeasurementModeUnresolved || (isSimpleOverview && !hasInitialProjectDashboard && (!overviewRequested || overviewLoading)) ? (
           <div role="status" aria-live="polite">
             <span className="sr-only">Loading project overview</span>
             <div className="h-32 animate-pulse rounded-md bg-surface-subtle" aria-hidden="true" />
@@ -3124,10 +3120,11 @@ function ProjectPageContent({
             </details>
           ) : null}
         </>
-        )
+        )}
+        </>
       ) : tab === 'settings' ? (
         <>
-          <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={async (name, updates) => { await handleUpdateProject(name, updates) }} onRefresh={() => void refetch()} />
+          <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={async (name, updates) => { await handleUpdateProject(name, updates) }} />
           <ProjectEngineSettingsSection project={model.project} onSave={async next => { await handleUpdateProject(model.project.name, next) }} />
           <SiteHealthScanSettingsSection key={model.project.id} project={model.project} onSave={async siteAuditMaxPages => { await handleUpdateProject(model.project.name, { siteAuditMaxPages }) }} />
           {canWrite && !isEmbed() ? (

@@ -365,7 +365,7 @@ const scheduleExpectedUpdatedAtQueryParameter: OpenApiParameter = {
   schema: { type: 'string', format: 'date-time' },
 }
 
-// Both list filters take their enum from the contracts schema the route
+// List filters take their enum from the contracts schema the route
 // validates against, so the spec (and the generated SDK) cannot drift from
 // what the server accepts.
 const runsListKindQueryParameter: OpenApiParameter = {
@@ -373,6 +373,22 @@ const runsListKindQueryParameter: OpenApiParameter = {
   in: 'query',
   description: 'Restrict results to a single run kind. Without this filter, integration syncs (bing-inspect, gsc-sync, ga-sync) can fill the default 500-row cap within minutes on busy projects and push answer-visibility runs out of the response. Unknown values are rejected with 400.',
   schema: { type: 'string', enum: [...runKindSchema.options] },
+}
+
+const runsListExcludeKindQueryParameter: OpenApiParameter = {
+  name: 'excludeKind',
+  in: 'query',
+  description: 'Exclude one run kind before applying the row limit. Combines with kind and status filters. Unknown values are rejected with 400.',
+  schema: { type: 'string', enum: [...runKindSchema.options] },
+}
+
+const runsListExcludeKindsQueryParameter: OpenApiParameter = {
+  name: 'excludeKinds',
+  in: 'query',
+  description: 'Exclude multiple run kinds before applying the row limit. Accepts repeated or comma-separated values. Combines with excludeKind, kind, and status; unknown values are rejected with 400.',
+  style: 'form',
+  explode: true,
+  schema: { type: 'array', items: { type: 'string', enum: [...runKindSchema.options] }, maxItems: runKindSchema.options.length },
 }
 
 const runsListStatusQueryParameter: OpenApiParameter = {
@@ -2388,7 +2404,8 @@ const routeCatalog: OpenApiOperation[] = [
               dispatchMode: dispatchModeRequestSchema,
               force: {
                 type: 'boolean',
-                description: 'Queue the run even when it would be refused with PROVIDERS_FAILING. Admission only; never stored.',
+                description: 'Call every provider: queue the run even when it would be refused with PROVIDERS_FAILING, and skip no provider '
+                  + 'that keeps failing on its account. Admission only; never stored.',
               },
             },
           },
@@ -2396,7 +2413,11 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      201: jsonResponse('Run queued.', 'RunDto'),
+      201: jsonResponse(
+        'Run queued. `skippedProviders` names each provider it will not call because that provider failed on its account '
+        + `in each of its last ${PROVIDER_ACCOUNT_FAILURE_STREAK} runs (until its \`retryAfter\`); the run calls the rest and ends partial.`,
+        'RunDto',
+      ),
       400: errorResponse(
         'Invalid request: an untracked query, a measurement scope naming a group/target/question the published plan does not contain, '
         + 'a scope combined with a query list, a per-run location on a plan project, a provider roster the plan was not published for, '
@@ -2406,8 +2427,9 @@ const routeCatalog: OpenApiOperation[] = [
         'NO_QUERIES: the project has no tracked queries. PROVIDERS_FAILING: every provider the run would call failed on its '
         + `account (rejected key, denied access, no credit) in each of its last ${PROVIDER_ACCOUNT_FAILURE_STREAK} runs. `
         + '`details.providers` names each provider\'s code and `details.retryAfter` when one run is let through again '
-        + `(${PROVIDER_ACCOUNT_RETRY_HOURS}h after the newest failure). Saving a new key, model or endpoint in a provider's settings `
-        + 'lets the next run through at once, a probe is never refused, and `force: true` overrides.',
+        + `(${PROVIDER_ACCOUNT_RETRY_HOURS}h after a provider's newest failure; the run then calls only the providers due a retry). `
+        + 'Saving a new key, model or endpoint in a provider\'s settings lets the next run through at once, a probe is never '
+        + 'refused, and `force: true` overrides. When only some providers keep failing, the run is queued without them instead.',
       ),
       409: errorResponse('Run already in progress.'),
       503: errorResponse('No runnable answer provider is configured.'),
@@ -2418,7 +2440,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/runs',
     summary: 'List project runs',
     tags: ['runs'],
-    parameters: [nameParameter, limitQueryParameter, runsListKindQueryParameter, runsListStatusQueryParameter],
+    parameters: [nameParameter, limitQueryParameter, runsListKindQueryParameter, runsListExcludeKindQueryParameter, runsListExcludeKindsQueryParameter, runsListStatusQueryParameter],
     responses: {
       200: jsonArrayResponse('Runs returned.', 'RunDto'),
     },
@@ -2427,10 +2449,37 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/runs/latest',
     summary: 'Get the latest project run',
+    description: 'The newest non-probe run, the run count, and `admission`: whether the next full sweep would be refused '
+      + '(PROVIDERS_FAILING) and which providers it would skip because each keeps failing on its account, with their codes '
+      + 'and `retryAfter`. `admission` uses the scheduled roster; `manualAdmission` describes an unfiltered manual launch. '
+      + 'A scheduled sweep that is refused leaves no run, so read `admission`, not the latest run, to tell.',
     tags: ['runs'],
     parameters: [nameParameter],
     responses: {
       200: jsonResponse('Latest run returned.', 'LatestProjectRunDto'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/run-admission',
+    summary: 'Get whether the next sweep would be admitted',
+    description: 'The `admission` or `manualAdmission` of `/projects/{name}/runs/latest` without the latest run: whether the next full sweep would '
+      + 'be refused (PROVIDERS_FAILING) and which providers it would skip because each failed on its account in each of its '
+      + `last ${PROVIDER_ACCOUNT_FAILURE_STREAK} runs, with each provider's code and \`retryAfter\`.`,
+    tags: ['runs'],
+    parameters: [
+      nameParameter,
+      {
+        name: 'selection',
+        in: 'query',
+        description: 'Read-selection identity: scheduled (default) uses the enabled schedule\'s providers; manual uses the '
+          + 'unfiltered manual launch\'s project or instance providers. Both use an Advanced revision\'s frozen engines.',
+        schema: { type: 'string', enum: ['manual', 'scheduled'], default: 'scheduled' },
+      },
+    ],
+    responses: {
+      200: jsonResponse('Run admission returned.', 'RunAdmissionDto'),
+      400: errorResponse('Invalid admission selection.'),
     },
   },
   {
@@ -2443,6 +2492,8 @@ const routeCatalog: OpenApiOperation[] = [
       runsListSinceQueryParameter,
       runsListIncludeProbeQueryParameter,
       runsListKindQueryParameter,
+      runsListExcludeKindQueryParameter,
+      runsListExcludeKindsQueryParameter,
       runsListStatusQueryParameter,
     ],
     responses: {
@@ -2465,7 +2516,8 @@ const routeCatalog: OpenApiOperation[] = [
               dispatchMode: dispatchModeRequestSchema,
               force: {
                 type: 'boolean',
-                description: 'Queue projects that would be refused with PROVIDERS_FAILING. Admission only; never stored.',
+                description: 'Call every provider: queue projects that would be refused with PROVIDERS_FAILING, and skip no '
+                  + 'provider that keeps failing on its account. Admission only; never stored.',
               },
             },
           },
@@ -4246,6 +4298,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('List of discovered locations and selection summary returned.', 'GbpLocationListResponse'),
       400: errorResponse('Invalid discover request, unknown account, account-switch not opted into, or scope/API problem.'),
+      403: errorResponse('The Google connection was rejected; reconnect Google Business Profile.'),
       404: errorResponse('Project not found.'),
       429: errorResponse('GBP API quota exceeded (access form may not be approved).'),
     },
@@ -4259,6 +4312,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Accounts the OAuth user manages or owns.', 'GbpAccountListResponse'),
       400: errorResponse('No GBP connection or scope/API problem.'),
+      403: errorResponse('The Google connection was rejected; reconnect Google Business Profile.'),
       404: errorResponse('Project not found.'),
       429: errorResponse('GBP API quota exceeded (access form may not be approved).'),
     },

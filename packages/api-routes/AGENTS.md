@@ -53,30 +53,56 @@ fan-out remains one atomic admission; a second visibility sweep is refused until
 all its active siblings finish. `RUN_IN_PROGRESS` includes the kind and blocking
 run ID. Keep existing per-kind deduplication and shared provider limits.
 
-Both admission points also refuse a visibility run with `PROVIDERS_FAILING`
-(422) through one function, `providerAccountRefusal` (`src/run-queue.ts`):
-every provider the new run would call (`providersARunWouldCall`: its roster
-less what this host cannot run) has a stored `code` of `PROVIDER_AUTH` /
-`PROVIDER_BILLING` in each of its last `PROVIDER_ACCOUNT_FAILURE_STREAK` runs.
+Both admission points (the queue helper and the all-locations fan-out) decide
+a visibility run's providers through one function, `providerAccountAdmission`
+(`src/run-queue.ts`), over `heldProviderAccounts`: a provider the new run would
+call (`providersARunWouldCall`: its roster less what this host cannot run) is
+held back when it has a stored `code` of `PROVIDER_AUTH` / `PROVIDER_BILLING` in
+each of its last `PROVIDER_ACCOUNT_FAILURE_STREAK` runs that called it. When
+every provider is held, the run is refused with `PROVIDERS_FAILING` (422).
+Otherwise the held ones are skipped: frozen on the run as `skipped_providers`
+(`RunDto.skippedProviders`, each with its streak), never dispatched by the job
+runner, and stored in its error with `skipped: true` and their account code, so
+the run ends partial. The frozen simple definition and the plan manifest still
+list them, so their slots read as missing and no series breaks.
+
 Streaks are per provider over the project's newest runs (probes included,
 ordered `createdAt, id`): a run that lists the provider with another code, or
 in which it answered (a snapshot exists), ends its streak; a run that does not
-list it and in which it did not answer did not call it and is skipped. It is a
-backoff, not a block: `PROVIDER_ACCOUNT_RETRY_HOURS` after the newest of those
-failures finished (`finishedAt`, else `createdAt`) one run is let through, so
-out-of-band fixes (console top-ups, config.yaml edits) recover on their own. A
-`provider.created` audit row, or a `provider.updated` one whose diff shows a
-new key (`apiKeyRotated`), model, endpoint or configured state, after the
-oldest run of that provider's streak lets the next run through at once; a
-quota-only edit does not. Probes are never refused. `force: true` skips the check; it is admission only, never
-identity, never stored. The dashboard deliberately has no force control: it
-shows the refusal, and the retry interval or a settings change recovers. The
-queue helper returns `{ refused }` after the schedule claim, so a refused
+list it and in which it did not answer did not call it and is skipped. A
+`skipped: true` entry is not a call either, but its run's `skipped_providers`
+streak vouches for the streak then, so the walk stops there instead of paging
+back through every skipped run (a fill that later calls the provider replaces
+that entry with its real outcome). It is a backoff, not a block:
+`PROVIDER_ACCOUNT_RETRY_HOURS` after a provider's newest failure finished
+(`finishedAt`, else `createdAt`) it is called again, so out-of-band fixes
+(console top-ups, config.yaml edits) recover on their own; a refusal's
+`retryAfter` is the earliest provider's. A `provider.created` audit row, or a
+`provider.updated` one whose diff shows a new key (`apiKeyRotated`), model,
+endpoint or configured state, after the oldest run of that provider's streak
+releases it at once; a quota-only edit does not. Probes are never held back.
+`force: true` skips the check and calls every provider; it is admission only,
+never identity, never stored. The dashboard deliberately has no force control:
+it shows the refusal, and the retry interval or a settings change recovers.
+
+The queue helper returns `{ refused }` after the schedule claim, so a refused
 calendar slot is spent, not retried every tick; `POST /runs` turns it into that
-project's error row. An all-locations fan-out counts each location as a run.
-Codes come from `buildProviderRunError`, which classifies the raw provider
-message: never re-classify a stored `message`, which has lost markers such as
-Gemini's `RESOURCE_EXHAUSTED`. Tests: `test/run-provider-account-guard.test.ts`.
+project's error row. With `auditRefusal` (the scheduler passes it) the first
+refused slot after the newest failure writes one `run.refused` audit row and
+returns `refusalRecorded`; later slots of the same refusal write nothing. An
+all-locations fan-out counts each location as a run and freezes one decision on
+every sibling. `runAdmissionState` is the read side, from the same streaks for
+a sweep as the scheduler starts it: `admission` on `GET /projects/:name/runs/latest`
+and on the overview's `latestRun`, and alone on `GET /projects/:name/run-admission`
+(the dashboard notice). Those reads default to the scheduled roster;
+`manualAdmission` beside `admission` on latest-run/overview reads and
+`run-admission?selection=manual` describe an unfiltered manual launch using
+the project's providers instead of a schedule override. `selection` is
+read-selection identity, not tuning. Both selections use the active v2 plan's
+frozen providers. Codes come from `buildProviderRunError`, which
+classifies the raw provider message: never re-classify a stored `message`,
+which has lost markers such as Gemini's `RESOURCE_EXHAUSTED`. Tests:
+`test/run-provider-account-guard.test.ts`.
 
 Fill expiry belongs to native HTTP completeness/admission tests for both
 portfolio kinds. Control the real Date clock, including the exact 24-hour edge,
@@ -84,6 +110,14 @@ batch finish-time anchor and fallback; do not add a test-only now parameter.
 Queue timestamps and real batch-gap fills must use that same clock.
 
 ### Batch dispatch (queue time)
+
+After account holds remove providers, an explicit batch request still needs
+at least one called provider that can batch. `dispatchAfterProviderAdmission`
+checks this in the queue and the bulk pre-pass, so a held sole batch provider
+cannot silently turn an explicit batch request into an entirely synchronous
+run. `details.skippedProviders` explains those holds alongside
+`details.ineligible`; a fully held roster keeps its `PROVIDERS_FAILING`
+refusal. The bulk pre-pass passes `force` and the queue timestamp too.
 
 `queueRunIfProjectIdle` freezes which providers batch into `runs.provider_dispatch_modes` inside the queue transaction, after the stamp. The rules are `resolveRunDispatchModes` in contracts; do not re-derive them. A scheduled run reads the project's `providerDispatchModes`. A manual or API run batches only on `dispatchMode: 'batch'`, and a batch request no provider can honour is a 400 whose `details.ineligible` names each reason. `POST /runs` runs the same check in its pre-pass, so one project's refusal is its own error row. `dispatchMode` is TUNING, not identity: it stays out of `measurementExecutionIdentity`, and the trigger routes never reuse an in-flight run. `providerDispatchModes` on project writes follows `providerModels` (key validation, pruning), except that `pruneProviderDispatchModes` also keeps the engines an Advanced project's active v2 revision measures (`activeRevisionProviders`): its runs measure those whatever `providers` lists, so simple and custom portfolios both keep a preference for every engine their runs measure. An omitted value leaves the stored preference untouched on PUT and apply. Fill age counts from `finishedAt` for a run with any `provider_batches` row (`runFillAgeAnchor`). The run detail's `usage` comes from `summarizeRunUsage`. `DELETE /projects/:name` awaits `cancelRunProviderBatches` for each run with a `submitted`/`ended` batch FIRST, before `onProjectDeleting` and its transaction, because the cascade removes the only rows holding the provider's batch id. It is best effort and never blocks the delete. Those awaits are the handler's only suspension point, so it re-reads the project by id after them: when a concurrent DELETE committed meanwhile, it answers the missing-project 404 without calling `onProjectDeleting`, writing an audit row or running a rollback (test: `test/project-delete-provider-batches.test.ts`). Keep every other side effect after that re-read, with no await before the commit. See `docs/batch-mode.md`.
 
@@ -351,6 +385,7 @@ Every read-time competitor reader scores stored answers with the names the proje
 #### Auth plugin gates (`src/auth.ts`)
 
 - The auth plugin does API key and session validation. It exports `hashApiKey()` (sha256 of a raw `cnry_…` token → `api_keys.key_hash`) and `requireScope()`; both are reused by `keys.ts`.
+- Every path that renews a named-account session must reissue its browser cookie in the same response, including public session reads and native OAuth consent. A renewed database row alone leaves the browser dropping the cookie at its prior expiry. Use the host's cookie path and `cookieIsSecure` request/proxy fallback; preserve the existing idle and absolute lifetimes.
 - The `onRequest` hook also enforces the **global read-only gate**: a read-only key (`isReadOnlyKey(scopes)` from contracts — has `read`, no `*`/`*.write`) is rejected on every mutating HTTP method (POST/PUT/PATCH/DELETE) with `403`; GET/HEAD/OPTIONS pass. Method-based, so a new write route is read-only-protected automatically — see "Deployment posture and key authority" above (the read-only keys bullet in "Operational guidance").
 - It also exports `requirePaidReadScope()`, the gate for GETs that SPEND (they call a provider live on the caller's behalf rather than returning stored data): an ALLOW list of `*` / `ads.write` / `ads.approve` / `ads.activate`, so a read-only key, a key scoped to something unrelated, and an empty scope list are all refused. Pair it with `requireAdminSession()` — the scope gate returns early for a signed-in person, so alone it would let a viewer spend.
 - `requireInstanceAdministrator()` gates an ADMINISTRATOR SURFACE, and asks two questions where the others ask one: the caller must not be a signed-in viewer, AND must not be a credential narrower than the install (one confined to a project, or carrying anything less than the wildcard). `requireAdminSession()` alone answers only the first, because it reads a role and an API key carries none, so every key passes it. Use this wherever a narrow key reaching the route would be wrong rather than merely unusual: every `/projects/:name/agent/*` route carries it, since Aero's tools execute with the install root key and its transcript is the operator's own conversation. `isInstanceAdministrator()` is the non-throwing form, for a read that stays available but discloses less (the `config.agent-providers` doctor check consults it).
@@ -363,7 +398,7 @@ API key management:
 - `GET /keys` (ungated list, SAFE metadata only: id/name/prefix/scopes/timestamps + `projectId`/`projectName` + derived `readOnly`, never the hash or plaintext).
 - `GET /keys/self` (introspect the CURRENT request's key — ungated read, returns the same SAFE DTO incl. `readOnly`; powers `canonry key whoami` + the MCP read-only auto-detection).
 - `POST /keys` (mint a `cnry_…` token, returns the plaintext ONCE; gated by the `KEYS_WRITE_SCOPE` = `keys.write`).
-- `POST /keys/:id/revoke` (sets `revokedAt`, idempotent, refuses to revoke the currently-authenticating key; gated by `keys.write`).
+- `POST /keys/:id/revoke` (sets `revokedAt` and deletes bound `dashboardSessions` in the same transaction, idempotent, refuses to revoke the currently-authenticating key; gated by `keys.write`). Key rotation and revocation writers must delete those sessions so restoring a key cannot revive old browser cookies.
 - The derived `readOnly` flag comes from `isReadOnlyKey(scopes)` in `toApiKeyDto`.
 - Audit-logs `api-key.created` / `api-key.revoked` (prefix + scopes only, never key material).
 
@@ -501,6 +536,7 @@ The dimensioned search-data table is valid for RANKING and invalid for TOTALS. R
 `src/google.ts` (GBP):
 
 - OAuth connect/callback (shares the Google OAuth client; `gbp` connectionType).
+- Upstream Google 401 errors return `FORBIDDEN` (403) with `reason: gbp-reconnect` and `upstreamStatus: 401`; reconnect the Google connection without ending the caller's Canonry session. Canonry 401 is reserved for its own authentication failures.
 - `GET /gbp/accounts` (accounts the OAuth user can access — account selection is **per project**).
 - `POST /gbp/locations/discover` (resolves the account: explicit `accountName` > the account the project already tracks > first visible; re-pointing a project at a different account is destructive and requires `switchAccount: true`, which clears the old account's footprint via the shared `clearGbpProjectData` helper) + select/deselect.
 - `POST /gbp/sync` (creates the `gbp-sync` run, fires `onGbpSyncRequested`).

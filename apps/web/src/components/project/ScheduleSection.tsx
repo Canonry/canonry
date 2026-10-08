@@ -356,7 +356,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
 
       {canManageSchedule && editing && (
         <div className="rounded-lg border border-base bg-bg-elevated/40 p-4 space-y-3">
-          {scheduleChangedElsewhere && (
+          {scheduleChangedElsewhere && !saving && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-caution bg-caution-soft px-3 py-2 text-sm text-caution" role="alert">
               <p>This schedule changed elsewhere. Load the latest version before saving.</p>
               <Button type="button" variant="outline" size="sm" onClick={loadLatestSchedule}>

@@ -49,7 +49,7 @@ export interface OAuthRoutesOptions {
    * endpoint reuses the product's existing sign-in rather than introducing a
    * second identity system.
    */
-  resolveUser: (request: FastifyRequest) => { id: string; name: string } | null
+  resolveUser: (request: FastifyRequest, reply: FastifyReply) => { id: string; name: string } | null
   /**
    * Establish a session for a person who signed in on the consent page, and
    * return the cookie header to set.
@@ -401,7 +401,7 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
       return badRequest(reply, 'invalid_scope', `Supported scopes: ${SUPPORTED_SCOPES.join(', ')}.`)
     }
 
-    const user = opts.resolveUser(request)
+    const user = opts.resolveUser(request, reply)
     if (!user) {
       // Sign in HERE rather than redirecting somewhere else. The obvious move,
       // a bounce to the product's sign-in with a `next` parameter, dead-ends:
@@ -437,7 +437,7 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
     assertCookieWriteOrigin(request)
     const q = request.query as Record<string, string | undefined>
     const body = (request.body ?? {}) as Record<string, string | undefined>
-    const user = opts.resolveUser(request)
+    const user = opts.resolveUser(request, reply)
     if (!user) return badRequest(reply, 'access_denied', 'Not signed in.')
 
     const clientId = q.client_id

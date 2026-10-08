@@ -21,7 +21,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-import { CitationStates, embedProjectTabsError, formatRunErrorOneLine } from '@ainyc/canonry-contracts'
+import { CitationStates, RunKinds, RunStatuses, embedProjectTabsError, formatRunErrorOneLine } from '@ainyc/canonry-contracts'
 
 import { asyncHandler } from './lib/async-handler.js'
 import { formatErrorLog } from './lib/format-helpers.js'
@@ -1036,12 +1036,12 @@ export function RootLayout() {
                   </div>
                 )}
               </div>
-            ) : runDetail && runDetail.status === 'running' ? (
+            ) : runDetail && runDetail.status === RunStatuses.running ? (
               <div className="flex items-center gap-2 p-3 text-sm text-muted">
                 <span className="inline-block h-2 w-2 rounded-full bg-caution-500 animate-pulse" />
-                Waiting for first query result...
+                {runDetail.kind === RunKinds['answer-visibility'] ? 'Waiting for first query result...' : 'Run is in progress...'}
               </div>
-            ) : runDetail && runDetail.status === 'queued' ? (
+            ) : runDetail && runDetail.status === RunStatuses.queued ? (
               <div className="flex items-center gap-2 p-3 text-sm text-muted">
                 <span className="inline-block h-2 w-2 rounded-full bg-mono-500 animate-pulse" />
                 Run queued, waiting for execution slot...
@@ -1051,6 +1051,14 @@ export function RootLayout() {
                 <p className="text-sm font-medium text-negative mb-2">Run failed</p>
                 <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-negative">{formatErrorLog(runDetail.error)}</pre>
               </div>
+            ) : selectedRun.kind !== RunKinds['answer-visibility'] ? (
+              <p className="text-sm text-secondary">
+                {selectedRun.status === RunStatuses.completed ? 'Run completed.'
+                  : selectedRun.status === RunStatuses.partial ? 'Run completed with partial results.'
+                  : selectedRun.status === RunStatuses.cancelled ? 'Run cancelled.'
+                  : selectedRun.status === RunStatuses.failed ? 'Run failed.'
+                  : 'No run details available.'}
+              </p>
             ) : (
               <p className="text-sm text-muted">No snapshot data available.</p>
             )}

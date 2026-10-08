@@ -37,14 +37,17 @@ import {
   type MeasurementRunScopeRequest,
   type MeasurementV2ExecutionNode,
   type AppError,
+  type ProviderAccountStreak,
   type ProviderDispatchMode,
   type ProviderErrorCode,
+  type RunAdmissionDto,
   type RunDispatchResolution,
   compareText,
   sortedUnique,
 } from '@ainyc/canonry-contracts'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { auditLog, measurementPlans, measurementPlanVersions, projects, querySnapshots, runs, schedules } from '@ainyc/canonry-db'
+import { auditLog, measurementPlans, measurementPlanVersions, parseJsonColumn, projects, querySnapshots, runs, schedules } from '@ainyc/canonry-db'
+import { writeAuditLog } from './helpers.js'
 import { buildMeasurementRunManifest } from './measurement-report-adapter.js'
 import { ensureCurrentQueryBasketRevision } from './query-basket.js'
 
@@ -86,11 +89,16 @@ export interface QueueRunParams {
    */
   batchEligibleProviders?: readonly string[] | null
   /**
-   * Queue even when every provider this run would call keeps failing on its
-   * account (see `providerAccountRefusal`). Only an operator asks for this;
-   * the scheduler never does.
+   * Call every provider, and queue even when every one this run would call
+   * keeps failing on its account (see `providerAccountAdmission`). Only an
+   * operator asks for this; the scheduler never does.
    */
   force?: boolean
+  /**
+   * Record a refusal in the audit log (`run.refused`), once per refusal. The
+   * scheduler passes it; an API caller hears the refusal as a 422 instead.
+   */
+  auditRefusal?: { actor: string; entityType: string; entityId: string }
   /** Atomically advance one due calendar occurrence while queueing this run. */
   scheduleClaim?: {
     scheduleId: string
@@ -635,7 +643,11 @@ function sliceFor(plan: MeasurementPlan, params: QueueRunParams) {
  */
 export function assertMeasurementRunStampable(db: DatabaseClient, params: QueueRunParams): void {
   const stamp = measurementStamp(db, params)
-  resolveQueueDispatch(db, params, stamp)
+  const dispatch = resolveQueueDispatch(db, params, stamp)
+  if (params.dispatchMode === ProviderDispatchModes.batch) {
+    const admission = queueProviderAdmission(db, params, stamp, params.createdAt ?? new Date().toISOString())
+    dispatchAfterProviderAdmission(params, dispatch, admission)
+  }
 }
 
 /**
@@ -671,17 +683,58 @@ function resolveQueueDispatch(tx: DatabaseClient, params: QueueRunParams, stamp:
   return resolution
 }
 
-/** Why a run was refused: the streak it would have extended. */
+/** An explicit batch request still needs a called provider that can batch after account holds. */
+function dispatchAfterProviderAdmission(
+  params: QueueRunParams,
+  dispatch: RunDispatchResolution,
+  admission: ProviderAccountAdmission,
+): RunDispatchResolution {
+  // A completely held roster is refused with PROVIDERS_FAILING instead.
+  if (admission.refused) return dispatch
+  const skippedProviders = admission.skipped
+  const modes = Object.fromEntries(Object.entries(dispatch.modes).filter(([provider]) => !(provider in skippedProviders)))
+  if (params.dispatchMode === ProviderDispatchModes.batch && Object.keys(modes).length === 0) {
+    throw validationError(
+      `${batchDispatchRefusalMessage(dispatch.ineligible)} Held back after repeated account failures: ${Object.keys(skippedProviders).join(', ')}. `
+        + 'Pass force to call those providers now.',
+      { ineligible: dispatch.ineligible, skippedProviders },
+    )
+  }
+  return { ...dispatch, modes }
+}
+
+/** The queue and its bulk pre-pass judge account holds against the same frozen roster. */
+function queueProviderAdmission(
+  db: DatabaseClient,
+  params: QueueRunParams,
+  stamp: MeasurementStamp | null,
+  now: string,
+): ProviderAccountAdmission {
+  return (params.kind ?? RunKinds['answer-visibility']) === RunKinds['answer-visibility']
+    ? providerAccountAdmission(db, {
+        projectId: params.projectId,
+        trigger: stamp?.scope ? RunTriggers.probe : params.trigger ?? RunTriggers.manual,
+        force: params.force ?? false,
+        now,
+        providers: () => providersARunWouldCall(
+          stamp?.identity.providers ?? providerRoster(db, params),
+          params.runnableProviders,
+        ),
+      })
+    : { skipped: {} }
+}
+
+/** Why a run was refused: the streaks it would have extended. */
 export interface ProviderAccountFailures {
-  /** How many runs in a row failed this way (the threshold). */
+  /** How many runs in a row each provider failed this way (the threshold). */
   consecutiveRuns: number
-  /** The newest of them. */
+  /** The newest run any of them failed in. */
   latestRunId: string
-  /** When the oldest of them was created. */
+  /** When the oldest run of any of their streaks was created. */
   since: string
-  /** When a run is next let through without `force`: the retry interval after the newest. */
+  /** When a run is next let through without `force`: the earliest provider's retry. */
   retryAfter: string
-  /** Each provider this run would call, and how it failed in the newest run. */
+  /** Each provider this run would call, and how it failed in its newest failure. */
   providers: Record<string, ProviderErrorCode>
 }
 
@@ -727,46 +780,50 @@ function providerSettingsChangeCouldFix(action: string, diff: string | null): bo
 }
 
 /**
- * Whether to refuse a new answer-visibility run because it could only fail
- * the way the project's runs have been failing: every provider it would call
- * failed on its account (a rejected key, denied access, or no credit) in each
- * of the last `PROVIDER_ACCOUNT_FAILURE_STREAK` runs that called it.
+ * The providers among `providers()` that are held back because they keep
+ * failing on their accounts (a rejected key, denied access, or no credit):
+ * each failed that way in every one of its last
+ * `PROVIDER_ACCOUNT_FAILURE_STREAK` runs that called it.
  *
  * Each provider's streak is its own. Walking the project's newest runs (probes
  * included), a run that lists the provider with an account code extends its
  * streak; one that lists it with any other code, or in which it answered, ends
  * it; any other run did not call it and is skipped. So a narrower run
  * (`--provider openai`, a probe) neither resets nor fakes another provider's
- * streak, and a provider this host cannot run is never among those the run
- * would call.
+ * streak. A run that skipped the provider did not call it either, but it
+ * vouches for the streak that held it back then (`skippedProviders`), so the
+ * walk stops there instead of reading back through every run since.
  *
- * One install ran 7,000 runs over four months against dead keys. The rule backs
- * off rather than stopping for good: `PROVIDER_ACCOUNT_RETRY_HOURS` after the
- * newest of those failures finished, one run is let through, so a fix made
- * anywhere (a top-up in the provider console, an edited config.yaml, an env
- * var) is picked up within a day, and a project still broken costs one visible
- * failed run a day instead of one per schedule tick. Saving a provider's
- * settings with a new key, model or endpoint lets the next run through at once.
- * A probe is never refused, and one that succeeds ends every streak.
+ * One install ran 7,000 runs over four months against dead keys. The hold
+ * backs off rather than stopping for good: `PROVIDER_ACCOUNT_RETRY_HOURS`
+ * after the provider's newest failure finished it is called again, so a fix
+ * made anywhere (a top-up in the provider console, an edited config.yaml, an
+ * env var) is picked up within a day, and a provider still broken costs one
+ * failed call a day instead of one per schedule tick. Saving its settings with
+ * a new key, model or endpoint releases it at once. A probe that succeeds ends
+ * its streak.
  *
  * An error stored without a `code` (written before per-provider codes) ends
- * the streak, so old history never refuses anything.
+ * the streak, so old history never holds anything back.
  */
-export function providerAccountRefusal(
+export function heldProviderAccounts(
   db: Pick<DatabaseClient, 'select'>,
   params: {
     projectId: string
-    trigger: string
-    force: boolean
-    /** The new run's creation time, which the retry interval is measured to. */
+    /** The time the hold is judged at: a new run's creation time, or now for a read. */
     now: string
     /** Resolved only once a streak is possible, so an ordinary queue reads one page of the runs index. */
     providers: () => readonly string[]
   },
-): ProviderAccountFailures | null {
-  if (params.force || params.trigger === RunTriggers.probe) return null
+): Map<string, ProviderAccountStreak> {
+  const held = new Map<string, ProviderAccountStreak>()
   const recent = db.select({
-    id: runs.id, status: runs.status, error: runs.error, createdAt: runs.createdAt, finishedAt: runs.finishedAt,
+    id: runs.id,
+    status: runs.status,
+    error: runs.error,
+    createdAt: runs.createdAt,
+    finishedAt: runs.finishedAt,
+    skippedProviders: runs.skippedProviders,
   })
     .from(runs)
     .where(and(
@@ -780,67 +837,192 @@ export function providerAccountRefusal(
     .limit(PROVIDER_ACCOUNT_LOOKBACK)
     .all()
     .map(run => ({ ...run, providers: parseRunError(run.error)?.providers ?? {} }))
-  // No provider can have a streak without that many runs carrying an account failure.
+  // No provider can be held without that many runs carrying an account
+  // failure, or a run that skipped it vouching for its streak.
+  const entries = recent.flatMap(run => Object.values(run.providers))
   const withAccountFailure = recent.filter(run =>
-    Object.values(run.providers).some(entry => isProviderAccountFailure(entry.code)))
-  if (withAccountFailure.length < PROVIDER_ACCOUNT_FAILURE_STREAK) return null
+    Object.values(run.providers).some(entry => !entry.skipped && isProviderAccountFailure(entry.code)))
+  if (withAccountFailure.length < PROVIDER_ACCOUNT_FAILURE_STREAK && !entries.some(entry => entry.skipped)) return held
 
   const calling = normalizeProviders(params.providers())
-  if (calling.length === 0) return null
+  if (calling.length === 0) return held
 
+  type RecentRun = typeof recent[number]
   const answered = (runId: string, provider: string) => db.select({ id: querySnapshots.id }).from(querySnapshots)
     .where(and(eq(querySnapshots.runId, runId), eq(querySnapshots.provider, provider)))
     .limit(1)
     .get() !== undefined
-  const streaks = new Map<string, { newest: typeof recent[number]; oldest: typeof recent[number]; code: ProviderErrorCode }>()
+  const finished = (run: RecentRun) => Date.parse(run.finishedAt ?? run.createdAt)
+  const now = Date.parse(params.now)
+
   for (const provider of calling) {
     let count = 0
-    let newest: typeof recent[number] | null = null
-    let oldest: typeof recent[number] | null = null
+    let newest: RecentRun | null = null
+    let oldest: RecentRun | null = null
     let code: ProviderErrorCode | null = null
+    let vouched: ProviderAccountStreak | null = null
+    let ended = false
     for (const run of recent) {
       const entry = run.providers[provider]
       if (!entry) {
         // A failed run lists every provider it called. A completed, partial or
         // cancelled one lists only failures (or nothing), so this provider
         // either answered, which ends its streak, or was not called.
-        if (run.status !== RunStatuses.failed && answered(run.id, provider)) return null
+        if (run.status !== RunStatuses.failed && answered(run.id, provider)) {
+          ended = true
+          break
+        }
         continue
       }
-      if (!isProviderAccountFailure(entry.code)) return null
+      if (entry.skipped) {
+        // Not called. The streak that held it back then is on the run; an
+        // entry without one (never written so) is a run that did not call it.
+        vouched = run.skippedProviders?.[provider] ?? null
+        if (vouched) break
+        continue
+      }
+      if (!isProviderAccountFailure(entry.code)) {
+        ended = true
+        break
+      }
       newest ??= run
       code ??= entry.code!
       oldest = run
       count += 1
       if (count === PROVIDER_ACCOUNT_FAILURE_STREAK) break
     }
-    if (count < PROVIDER_ACCOUNT_FAILURE_STREAK) return null
-    streaks.set(provider, { newest: newest!, oldest: oldest!, code: code! })
+    if (ended) continue
+    if (count < PROVIDER_ACCOUNT_FAILURE_STREAK && !vouched) continue
+
+    // From its newest real failure; a provider skipped ever since keeps the
+    // retry time of the streak that skipped it.
+    const retryAfterMs = newest
+      ? finished(newest) + PROVIDER_ACCOUNT_RETRY_HOURS * 3_600_000
+      : Date.parse(vouched!.retryAfter)
+    if (!(now < retryAfterMs)) continue
+    held.set(provider, {
+      code: code ?? vouched!.code,
+      consecutiveRuns: PROVIDER_ACCOUNT_FAILURE_STREAK,
+      // A vouched streak began before the runs read here.
+      since: vouched ? vouched.since : oldest!.createdAt,
+      latestRunId: newest?.id ?? vouched!.latestRunId,
+      retryAfter: new Date(retryAfterMs).toISOString(),
+    })
   }
+  if (held.size === 0) return held
 
-  const finished = (run: typeof recent[number]) => Date.parse(run.finishedAt ?? run.createdAt)
-  const newest = [...streaks.values()].map(streak => streak.newest).sort((a, b) => finished(b) - finished(a))[0]!
-  const retryAfterMs = finished(newest) + PROVIDER_ACCOUNT_RETRY_HOURS * 3_600_000
-  if (Date.parse(params.now) >= retryAfterMs) return null
-
-  const since = [...streaks.values()].map(streak => streak.oldest.createdAt).sort()[0]!
+  const since = [...held.values()].map(streak => streak.since).sort()[0]!
   const settingsChanges = db.select({ entityId: auditLog.entityId, action: auditLog.action, diff: auditLog.diff, createdAt: auditLog.createdAt })
     .from(auditLog)
-    .where(and(eq(auditLog.entityType, 'provider'), inArray(auditLog.entityId, calling), gt(auditLog.createdAt, since)))
+    .where(and(eq(auditLog.entityType, 'provider'), inArray(auditLog.entityId, [...held.keys()]), gt(auditLog.createdAt, since)))
     .all()
-  const fixedSince = settingsChanges.some(change => {
-    const streak = streaks.get(change.entityId ?? '')
-    return streak !== undefined && change.createdAt > streak.oldest.createdAt
-      && providerSettingsChangeCouldFix(change.action, change.diff)
-  })
-  if (fixedSince) return null
+  for (const change of settingsChanges) {
+    const streak = held.get(change.entityId ?? '')
+    if (streak && change.createdAt > streak.since && providerSettingsChangeCouldFix(change.action, change.diff)) {
+      held.delete(change.entityId!)
+    }
+  }
+  return held
+}
 
+/** The refusal of a run whose providers are all held back. */
+function providerAccountFailures(held: ReadonlyMap<string, ProviderAccountStreak>): ProviderAccountFailures {
+  const streaks = [...held.values()]
+  const newest = [...streaks].sort((a, b) => b.retryAfter.localeCompare(a.retryAfter))[0]!
   return {
     consecutiveRuns: PROVIDER_ACCOUNT_FAILURE_STREAK,
-    latestRunId: newest.id,
-    since,
-    retryAfter: new Date(retryAfterMs).toISOString(),
-    providers: Object.fromEntries(calling.map(provider => [provider, streaks.get(provider)!.code])),
+    latestRunId: newest.latestRunId,
+    since: streaks.map(streak => streak.since).sort()[0]!,
+    // The first provider called again lets a run through.
+    retryAfter: streaks.map(streak => streak.retryAfter).sort()[0]!,
+    providers: Object.fromEntries([...held].map(([provider, streak]) => [provider, streak.code])),
+  }
+}
+
+/** What admission does about a new run's providers that keep failing on their accounts. */
+export type ProviderAccountAdmission =
+  | { refused: ProviderAccountFailures; skipped?: undefined }
+  | { refused?: undefined; skipped: Record<string, ProviderAccountStreak> }
+
+/**
+ * Admission for a new answer-visibility run against its providers' account
+ * failures (`heldProviderAccounts`). When every provider it would call is
+ * held back, it is refused: it could only fail the way the project's runs
+ * have been failing. Otherwise the held ones are skipped: the run calls the
+ * rest, and stores each skip on the run and, once it finishes, in its error.
+ *
+ * A probe is never held back (it is how an operator checks a fix), and
+ * neither is a `force` run.
+ */
+export function providerAccountAdmission(
+  db: Pick<DatabaseClient, 'select'>,
+  params: {
+    projectId: string
+    trigger: string
+    force: boolean
+    /** The new run's creation time, which the retry interval is measured to. */
+    now: string
+    providers: () => readonly string[]
+  },
+): ProviderAccountAdmission {
+  if (params.force || params.trigger === RunTriggers.probe) return { skipped: {} }
+  let calling: string[] | null = null
+  const providers = () => (calling ??= normalizeProviders(params.providers()))
+  const held = heldProviderAccounts(db, { projectId: params.projectId, now: params.now, providers })
+  if (held.size === 0) return { skipped: {} }
+  if (providers().every(provider => held.has(provider))) return { refused: providerAccountFailures(held) }
+  return { skipped: Object.fromEntries(held) }
+}
+
+/**
+ * The providers a full sweep of this project calls, as the scheduler starts
+ * one: a v2 plan's frozen engines, else the schedule's providers when it names
+ * some, else the project's own list, else everything this host can run, less
+ * what this host cannot run.
+ */
+function sweepProviders(
+  db: Pick<DatabaseClient, 'select'>,
+  projectId: string,
+  runnable: readonly string[] | null | undefined,
+  selection: typeof RunTriggers.manual | typeof RunTriggers.scheduled,
+): string[] {
+  const planProviders = activeRevisionProviders(db, projectId)
+  if (planProviders.length > 0) return providersARunWouldCall(planProviders, runnable)
+  const schedule = db.select({ providers: schedules.providers, enabled: schedules.enabled }).from(schedules)
+    .where(and(eq(schedules.projectId, projectId), eq(schedules.kind, RunKinds['answer-visibility'])))
+    .get()
+  const project = db.select({ providers: projects.providers }).from(projects).where(eq(projects.id, projectId)).get()
+  return providersARunWouldCall(resolveRunProviderSelection({
+    requestedProviders: selection === RunTriggers.scheduled && schedule?.enabled ? schedule.providers : null,
+    projectProviders: project?.providers ?? [],
+    runnableProviders: runnable,
+  }), runnable)
+}
+
+/**
+ * Whether the project's next full sweep would be admitted, and which of its
+ * providers it would skip (`RunAdmissionDto`). The read side of
+ * `providerAccountAdmission`, from the same streaks, so what a status read
+ * says is what the next scheduled or manual sweep meets.
+ */
+export function runAdmissionState(
+  db: Pick<DatabaseClient, 'select'>,
+  params: {
+    projectId: string
+    now: string
+    runnableProviders?: readonly string[] | null
+    /** Scheduling remains the default; a manual preview uses the unfiltered manual launch's roster. */
+    selection?: typeof RunTriggers.manual | typeof RunTriggers.scheduled
+  },
+): RunAdmissionDto {
+  let calling: string[] | null = null
+  const providers = () => (calling ??= sweepProviders(db, params.projectId, params.runnableProviders, params.selection ?? RunTriggers.scheduled))
+  const held = heldProviderAccounts(db, { projectId: params.projectId, now: params.now, providers })
+  const refused = held.size > 0 && providers().every(provider => held.has(provider))
+  return {
+    refused,
+    retryAfter: refused ? providerAccountFailures(held).retryAfter : null,
+    providers: Object.fromEntries(held),
   }
 }
 
@@ -857,9 +1039,46 @@ export function providersFailingError(projectName: string, failures: ProviderAcc
   )
 }
 
+/** Audit action of a scheduled sweep skipped because every provider keeps failing on its account. */
+const RUN_REFUSED_AUDIT_ACTION = 'run.refused'
+
+/**
+ * Record a refused run in the audit log, once per refusal: the first refused
+ * slot after the newest failure (`latestRunId`) writes it, and later slots
+ * until a run is let through would repeat it word for word. Returns whether it
+ * wrote one.
+ */
+function recordRunRefusal(
+  db: DatabaseClient,
+  projectId: string,
+  failures: ProviderAccountFailures,
+  audit: NonNullable<QueueRunParams['auditRefusal']>,
+): boolean {
+  const last = db.select({ diff: auditLog.diff }).from(auditLog)
+    .where(and(eq(auditLog.projectId, projectId), eq(auditLog.action, RUN_REFUSED_AUDIT_ACTION)))
+    .orderBy(desc(auditLog.createdAt), desc(auditLog.id))
+    .limit(1)
+    .get()
+  if (last && parseJsonColumn<{ latestRunId?: unknown }>(last.diff, {}).latestRunId === failures.latestRunId) return false
+  writeAuditLog(db, {
+    projectId,
+    actor: audit.actor,
+    action: RUN_REFUSED_AUDIT_ACTION,
+    entityType: audit.entityType,
+    entityId: audit.entityId,
+    diff: { code: 'PROVIDERS_FAILING', ...failures },
+  })
+  return true
+}
+
 export type QueueRunResult =
   | { conflict: true; activeRunId: string; scheduleClaimed?: false }
-  | { conflict: false; refused: ProviderAccountFailures }
+  | {
+      conflict: false
+      refused: ProviderAccountFailures
+      /** Whether this refusal wrote the `run.refused` audit row (`auditRefusal`); false when an earlier slot of it did. */
+      refusalRecorded: boolean
+    }
   | {
       conflict: false
       refused?: undefined
@@ -869,6 +1088,8 @@ export type QueueRunResult =
        * run sync instead (a scheduled run logs these; nothing refuses them).
        */
       dispatch: RunDispatchResolution
+      /** Providers the run does not call because each keeps failing on its account. */
+      skippedProviders: Record<string, ProviderAccountStreak>
     }
 
 /** Queue only when this project has no active run of the requested kind. */
@@ -930,19 +1151,17 @@ export function queueRunIfProjectIdle(db: DatabaseClient, params: QueueRunParams
 
     // After the schedule claim on purpose: a refused calendar slot is spent,
     // not retried every tick while the keys stay broken.
-    const refused = kind === RunKinds['answer-visibility']
-      ? providerAccountRefusal(tx, {
-          projectId: params.projectId,
-          trigger: stamp?.scope ? RunTriggers.probe : trigger,
-          force: params.force ?? false,
-          now: createdAt,
-          providers: () => providersARunWouldCall(
-            stamp?.identity.providers ?? providerRoster(tx as unknown as DatabaseClient, params),
-            params.runnableProviders,
-          ),
-        })
-      : null
-    if (refused) return { conflict: false, refused } as const
+    const admission = queueProviderAdmission(tx as unknown as DatabaseClient, params, stamp, createdAt)
+    if (admission.refused) {
+      const refusalRecorded = params.auditRefusal
+        ? recordRunRefusal(tx as unknown as DatabaseClient, params.projectId, admission.refused, params.auditRefusal)
+        : false
+      return { conflict: false, refused: admission.refused, refusalRecorded } as const
+    }
+    const skippedProviders = admission.skipped
+    // A provider the run skips is not dispatched in any mode.
+    const admittedDispatch = dispatchAfterProviderAdmission(params, dispatch, admission)
+    const dispatchModes = admittedDispatch.modes
 
     // Stamp the query set this run is about to measure, so analytics can compare
     // like-for-like later without inferring membership from row timestamps.
@@ -979,10 +1198,11 @@ export function queueRunIfProjectIdle(db: DatabaseClient, params: QueueRunParams
       measurementManifest: stamp?.manifest ?? null,
       measurementScope: stamp?.scope ?? null,
       measurementExecutionIdentity: stamp?.identity ?? null,
-      providerDispatchModes: Object.keys(dispatch.modes).length > 0 ? dispatch.modes : null,
+      providerDispatchModes: Object.keys(dispatchModes).length > 0 ? dispatchModes : null,
+      skippedProviders: Object.keys(skippedProviders).length > 0 ? skippedProviders : null,
       createdAt,
     }).run()
 
-    return { conflict: false, runId, dispatch } as const
+    return { conflict: false, runId, dispatch: admittedDispatch, skippedProviders } as const
   })
 }

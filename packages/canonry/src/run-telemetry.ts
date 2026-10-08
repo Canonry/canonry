@@ -186,8 +186,12 @@ export function buildSiteAuditCompletedProps(input: {
   return props
 }
 
-/** `ok`, or why that provider failed this run. */
-export type ProviderOutcome = 'ok' | ProviderErrorCode
+/**
+ * `ok`, why that provider failed this run, or `skipped` when the run did not
+ * call it because it keeps failing on its account (the run's `errorCode`
+ * carries that account code).
+ */
+export type ProviderOutcome = 'ok' | 'skipped' | ProviderErrorCode
 
 /** The collector caps a nested property object at 12 keys. */
 const MAX_NESTED_KEYS = 12
@@ -204,12 +208,18 @@ const MAX_NESTED_KEYS = 12
 export function buildProviderOutcomeProps(
   providers: readonly string[],
   providerErrors: ReadonlyMap<string, string>,
+  skippedProviders: readonly string[] = [],
 ): Pick<RunTelemetryProps, 'providerOutcomes' | 'providerHttpStatus'> {
-  if (providerErrors.size === 0) return {}
-  const names = [...new Set([...providers, ...providerErrors.keys()])].slice(0, MAX_NESTED_KEYS)
+  if (providerErrors.size === 0 && skippedProviders.length === 0) return {}
+  const skipped = new Set(skippedProviders)
+  const names = [...new Set([...providers, ...providerErrors.keys(), ...skipped])].slice(0, MAX_NESTED_KEYS)
   const providerOutcomes: Record<string, ProviderOutcome> = {}
   const providerHttpStatus: Record<string, number> = {}
   for (const name of names) {
+    if (skipped.has(name)) {
+      providerOutcomes[name] = 'skipped'
+      continue
+    }
     const message = providerErrors.get(name)
     if (message === undefined) {
       providerOutcomes[name] = 'ok'
@@ -222,6 +232,46 @@ export function buildProviderOutcomeProps(
   return Object.keys(providerHttpStatus).length > 0
     ? { providerOutcomes, providerHttpStatus }
     : { providerOutcomes }
+}
+
+export interface RunRefusedProps {
+  [key: string]: unknown
+  reason: 'providers_failing'
+  providerCount: number
+  providers: string[]
+  /** How each provider failed in its newest failure: `PROVIDER_AUTH` or `PROVIDER_BILLING`. */
+  providerOutcomes: Record<string, ProviderOutcome>
+  trigger: string
+  domainHash?: string
+  location?: string
+}
+
+/**
+ * The `run.aborted` event of a sweep refused because every provider it would
+ * call keeps failing on its account (`errorCode: PROVIDERS_FAILING`). The
+ * scheduler sends it once per refusal, with the `run.refused` audit row, not
+ * once per skipped slot: a minute-by-minute schedule would otherwise send one
+ * a minute while nothing changes. A manual refusal is already counted as the
+ * CLI command's or API request's error.
+ */
+export function buildRunRefusedProps(input: {
+  providers: Readonly<Record<string, ProviderErrorCode>>
+  trigger: string
+  canonicalDomain?: string | null
+  location?: string | null
+}): RunRefusedProps {
+  const outcomes = Object.entries(input.providers).slice(0, MAX_NESTED_KEYS)
+  const props: RunRefusedProps = {
+    reason: 'providers_failing',
+    providerCount: Object.keys(input.providers).length,
+    providers: Object.keys(input.providers),
+    providerOutcomes: Object.fromEntries(outcomes),
+    trigger: input.trigger,
+  }
+  const domainHash = hashDomain(input.canonicalDomain ?? null)
+  if (domainHash) props.domainHash = domainHash
+  if (input.location) props.location = input.location
+  return props
 }
 
 /** Where in a run an unexpected exception escaped: before any provider was

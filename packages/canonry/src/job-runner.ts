@@ -6,9 +6,9 @@ import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { recordSentimentCompletion, parseJsonColumn, providerBatches, providerBatchRequests, runFills, runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
-import type { PricingTier, ProviderBatchRequestOutcome, ProviderBatchResultLine, ProviderBatchStatus, ProviderBatchSubmitResult, ProviderDispatchMode, ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RawQueryResult, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto, RunStatus, TrackedQueryRequest } from '@ainyc/canonry-contracts'
+import type { PricingTier, ProviderAccountStreak, ProviderBatchRequestOutcome, ProviderBatchResultLine, ProviderBatchStatus, ProviderBatchSubmitResult, ProviderDispatchMode, ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RawQueryResult, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto, RunStatus, TrackedQueryRequest } from '@ainyc/canonry-contracts'
 import { PricingTiers, ProviderBatchRequestOutcomes, ProviderBatchStatuses, ProviderBatchSubmitError, ProviderDispatchModes, RUN_FILL_PROVIDER_BREAKER, buildSnapshotUsage, formatRunErrorOneLine, parseRunError, resolveProviderModel } from '@ainyc/canonry-contracts'
-import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, competitorIdentityAliases, competitorLabelFromDomain, computeCompetitorOverlap, extractRecommendedCompetitors, type CompetitorIdentityInput, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildProviderRunError, buildRunErrorFromMessages, determineAnswerMentioned, isSearchLocationIgnored, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
+import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, competitorIdentityAliases, competitorLabelFromDomain, computeCompetitorOverlap, extractRecommendedCompetitors, type CompetitorIdentityInput, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessage, mostActionableProviderErrorCode, withSkippedProviders, buildProviderRunError, buildRunErrorFromMessages, determineAnswerMentioned, isSearchLocationIgnored, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
 import { answerIdentityChanged, answerIdentityFrom, backfillProjectAnswerMentions, captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep, readAnswerIdentity, readMarketCompetitorNames, type AnswerIdentityFingerprint, type RunCompetitors } from '@ainyc/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
@@ -305,17 +305,36 @@ export type ProviderBatchIngestResult =
 
 type FinalRunStatus = Extract<RunStatus, 'completed' | 'partial' | 'failed'>
 
+/** Skipped providers a run's queue froze: none on most runs. */
+type SkippedProviders = Readonly<Record<string, ProviderAccountStreak>>
+
+/**
+ * The errors of the providers a run called. A provider it skipped was never
+ * called, so any reason recorded for its missing answers (a restart, a gap
+ * count) is not a failure of its own; its skip says why instead.
+ */
+function calledProviderErrors(providerErrors: ReadonlyMap<ProviderName, string>, skipped: SkippedProviders): Map<ProviderName, string> {
+  return new Map([...providerErrors].filter(([provider]) => !(provider in skipped)))
+}
+
 /**
  * A run's terminal status and stored error from what it recorded and what
  * went wrong. Shared by both finalizers, so a batch run and a sync run that
- * end the same way are stored the same way.
+ * end the same way are stored the same way. A skipped provider leaves the run
+ * partial, like one that failed, and its entry says it was not called.
  */
-function runOutcome(inserted: number, providerErrors: ReadonlyMap<ProviderName, string>, planShortfall: number): { status: FinalRunStatus; error: string | null } {
-  const someFailed = providerErrors.size > 0 || planShortfall > 0
+function runOutcome(
+  inserted: number,
+  providerErrors: ReadonlyMap<ProviderName, string>,
+  planShortfall: number,
+  skipped: SkippedProviders,
+): { status: FinalRunStatus; error: string | null } {
+  const errors = calledProviderErrors(providerErrors, skipped)
+  const someFailed = errors.size > 0 || planShortfall > 0 || Object.keys(skipped).length > 0
   const allFailed = inserted === 0 && someFailed
   return {
     status: allFailed ? RunStatuses.failed : someFailed ? RunStatuses.partial : RunStatuses.completed,
-    error: someFailed ? serializeRunError(buildProviderRunError(providerErrors)) : null,
+    error: someFailed ? serializeRunError(withSkippedProviders(buildProviderRunError(errors), skipped)) : null,
   }
 }
 
@@ -370,6 +389,8 @@ interface RunState {
   providerDispatchModes: Record<string, 'batch'> | null
   /** Non-null once the sweep handed the run to the batch poller. */
   pendingProviderErrors: Record<string, string> | null
+  /** Frozen at queue time: providers this run does not call because each keeps failing on its account. */
+  skippedProviders: Record<string, ProviderAccountStreak> | null
 }
 
 /**
@@ -447,6 +468,8 @@ export interface RunFinalization {
   providerErrors: ReadonlyMap<ProviderName, string>
   /** Expected plan slots left without an answer; 0 for a planless run. */
   planShortfall: number
+  /** Providers the run did not call because each keeps failing on its account. Omitted: none. */
+  skippedProviders?: SkippedProviders
   executionContext: RunExecutionContext
   startTime: number
   phases: RunPhaseTimings | undefined
@@ -484,16 +507,23 @@ const FAILURE_STREAK_LOOKBACK = 50
 
 /**
  * The most actionable provider error code of a run, for `run.completed`
- * telemetry. The same classifier stamps each provider's `code` on the stored
- * run error, which run admission reads (`providerAccountRefusal`), so a
- * change to its patterns changes which runs are refused, not only a histogram.
+ * telemetry, or undefined when no provider failed or was skipped. The same
+ * classifier stamps each provider's `code` on the stored run error, which run
+ * admission reads (`providerAccountAdmission`), so a change to its patterns
+ * changes which providers are skipped and which runs are refused, not only a
+ * histogram. A skipped provider counts with the account code that skipped it.
  */
 function classifyProviderErrors(
   errors: ReadonlyMap<ProviderName, string>,
-): ProviderErrorCode {
+  skipped: SkippedProviders,
+): ProviderErrorCode | undefined {
   // Shared with the query-generation route so the two never drift on what a
   // rate limit or an auth failure looks like.
-  return classifyProviderErrorMessages(errors.values())
+  const codes = [
+    ...[...errors.values()].map(classifyProviderErrorMessage),
+    ...Object.values(skipped).map(streak => streak.code),
+  ]
+  return codes.length > 0 ? mostActionableProviderErrorCode(codes) : undefined
 }
 
 export class JobRunner {
@@ -844,7 +874,19 @@ export class JobRunner {
         throw new Error('No providers configured. Add at least one provider API key.')
       }
 
-      log.info('run.dispatch', { runId, providerCount: activeProviders.length, providers: activeProviders.map(p => p.adapter.name) })
+      // Providers that keep failing on their accounts, decided when the run
+      // was queued: they stay in the run's roster (its frozen definition and
+      // telemetry), but nothing is dispatched to them and each is recorded as
+      // skipped. A probe or a forced run skips none.
+      const skipped: SkippedProviders = existingRun.skippedProviders ?? {}
+      const calledProviders = activeProviders.filter(provider => !(provider.adapter.name in skipped))
+
+      log.info('run.dispatch', {
+        runId,
+        providerCount: calledProviders.length,
+        providers: calledProviders.map(p => p.adapter.name),
+        ...(Object.keys(skipped).length > 0 ? { skippedProviders: Object.keys(skipped) } : {}),
+      })
 
       // Fetch competitors for the project
       const projectCompetitors = this.db
@@ -884,7 +926,7 @@ export class JobRunner {
       const queriesPerProvider = planExecution?.maxUnitsPerProvider ?? projectQueries.length
       const todayPeriod = getCurrentUsageDay()
 
-      for (const p of activeProviders) {
+      for (const p of calledProviders) {
         const providerScope = `${projectId}:${p.adapter.name}`
         const limit = p.config.quotaPolicy.maxRequestsPerDay
         const quota = reserveDailyQueryQuota(this.db, { scope: providerScope, period: todayPeriod, count: queriesPerProvider, limit })
@@ -905,7 +947,7 @@ export class JobRunner {
       // its own independent budget against that key, silently multiplying
       // the configured limit by the number of concurrent runs.
       const executionGates = new Map<ProviderName, ProviderExecutionGate>()
-      for (const provider of activeProviders) {
+      for (const provider of calledProviders) {
         executionGates.set(
           provider.adapter.name,
           getSharedProviderExecutionGate(
@@ -921,8 +963,8 @@ export class JobRunner {
       let totalSnapshotsInserted = 0
 
       // Split providers: API providers fan out in parallel, browser providers run sequentially
-      const apiProviders = activeProviders.filter(p => !isBrowserProvider(p.adapter.name))
-      const browserProviders = activeProviders.filter(p => isBrowserProvider(p.adapter.name))
+      const apiProviders = calledProviders.filter(p => !isBrowserProvider(p.adapter.name))
+      const browserProviders = calledProviders.filter(p => isBrowserProvider(p.adapter.name))
 
       const processQueryForProvider = async (
         registeredProvider: RegisteredProvider,
@@ -1240,7 +1282,8 @@ export class JobRunner {
         for (const [provider, units] of planExecution.unitsByProvider) {
           const providerName = provider as ProviderName
           const dispatched = providerDispatchCounts.get(providerName) ?? 0
-          if (dispatched >= units.length || providerErrors.has(providerName)) continue
+          // A skipped provider's slots stay missing on purpose; its skip says why.
+          if (dispatched >= units.length || providerErrors.has(providerName) || providerName in skipped) continue
           providerErrors.set(
             providerName,
             `No ${provider} provider was available to this worker, so ${units.length - dispatched} expected measurement(s) did not run.`,
@@ -1272,6 +1315,7 @@ export class JobRunner {
         inserted: totalSnapshotsInserted,
         providerErrors,
         planShortfall,
+        skippedProviders: skipped,
         executionContext,
         startTime,
         phases: buildPhases({ startTime, providerCallStart, providerCallEnd }),
@@ -1408,7 +1452,7 @@ export class JobRunner {
    */
   finalizeRun(input: RunFinalization): boolean {
     const { runId, providerErrors } = input
-    const outcome = runOutcome(input.inserted, providerErrors, input.planShortfall)
+    const outcome = runOutcome(input.inserted, providerErrors, input.planShortfall, input.skippedProviders ?? {})
     const finishedAt = new Date().toISOString()
     // The sentiment completion receipt commits with the winning status write,
     // so a completed sweep gets exactly one and a losing attempt none.
@@ -1445,14 +1489,14 @@ export class JobRunner {
    * post-run pipeline.
    */
   private reportFinalizedRun(input: Omit<RunFinalization, 'planShortfall' | 'quota'>, finalStatus: FinalRunStatus): void {
-    const { runId, projectId, providerErrors, executionContext } = input
+    const { runId, projectId, executionContext } = input
+    const skippedProviders = input.skippedProviders ?? {}
+    const providerErrors = calledProviderErrors(input.providerErrors, skippedProviders)
     // Track run completion telemetry. When providers actually ran but some
     // failed, emit an `errorCode` so dashboards can break down real failures
     // by category (auth, rate-limit, network, parse, …) instead of lumping
-    // them all into "failed."
-    const failureCode = providerErrors.size > 0
-      ? classifyProviderErrors(providerErrors)
-      : undefined
+    // them all into "failed." A skipped provider counts with its account code.
+    const failureCode = classifyProviderErrors(providerErrors, skippedProviders)
     const sampling = failureStreakSampling(finalStatus, this.priorFailureStreak(projectId, runId), runId)
     if (sampling.report) {
       trackEvent(
@@ -1469,7 +1513,7 @@ export class JobRunner {
             phases: input.phases,
             location: executionContext.location,
           }),
-          ...buildProviderOutcomeProps(executionContext.providers, providerErrors),
+          ...buildProviderOutcomeProps(executionContext.providers, providerErrors, Object.keys(skippedProviders)),
           ...sampling.props,
         },
         failureCode ? { errorCode: failureCode } : undefined,
@@ -1567,7 +1611,12 @@ export class JobRunner {
     const finishedAt = new Date().toISOString()
     const decided = this.db.transaction((tx) => {
       const txDb = tx as unknown as DatabaseClient
-      const run = txDb.select({ kind: runs.kind, status: runs.status, pendingProviderErrors: runs.pendingProviderErrors })
+      const run = txDb.select({
+        kind: runs.kind,
+        status: runs.status,
+        pendingProviderErrors: runs.pendingProviderErrors,
+        skippedProviders: runs.skippedProviders,
+      })
         .from(runs).where(and(eq(runs.id, runId), eq(runs.projectId, projectId))).get()
       if (!run || run.status !== RunStatuses.running || run.pendingProviderErrors === null) return null
       const holding = txDb.select({ id: providerBatches.id }).from(providerBatches)
@@ -1578,9 +1627,10 @@ export class JobRunner {
       const state = measurementRunSlotState(txDb, runId)
       const inserted = txDb.select({ value: count() }).from(querySnapshots).where(eq(querySnapshots.runId, runId)).get()?.value ?? 0
       const providerErrors = this.batchRunProviderErrors(txDb, runId, run.pendingProviderErrors, state.missing)
+      const skippedProviders: SkippedProviders = run.skippedProviders ?? {}
       // An unreadable manifest cannot vouch for a single slot.
       const shortfall = state.missing.length + (state.readable ? 0 : 1)
-      const outcome = runOutcome(inserted, providerErrors, shortfall)
+      const outcome = runOutcome(inserted, providerErrors, shortfall, skippedProviders)
       const won = txDb.update(runs)
         .set({
           status: outcome.status,
@@ -1593,7 +1643,7 @@ export class JobRunner {
         .changes === 1
       if (!won) return null
       recordSentimentCompletion(tx, { projectId, runId, completionKey: 'initial', completedAt: finishedAt })
-      return { kind: run.kind, inserted, providerErrors, status: outcome.status }
+      return { kind: run.kind, inserted, providerErrors, skippedProviders, status: outcome.status }
     })
     if (!decided) return false
 
@@ -1605,6 +1655,7 @@ export class JobRunner {
       kind: decided.kind,
       inserted: decided.inserted,
       providerErrors: decided.providerErrors,
+      skippedProviders: decided.skippedProviders,
       executionContext: telemetry.executionContext,
       startTime: telemetry.startTime,
       // The sweep's phase split does not survive the wait (or a restart);
@@ -2948,6 +2999,7 @@ export class JobRunner {
         measurementManifest: runs.measurementManifest,
         providerDispatchModes: runs.providerDispatchModes,
         pendingProviderErrors: runs.pendingProviderErrors,
+        skippedProviders: runs.skippedProviders,
       })
       .from(runs)
       .where(eq(runs.id, runId))

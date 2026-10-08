@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { CompetitorAutoAlias as StoredCompetitorAutoAlias, CompetitorAutoAliasMode, ConfigSource, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, SnapshotUsage } from '@ainyc/canonry-contracts'
+import type { CompetitorAutoAlias as StoredCompetitorAutoAlias, CompetitorAutoAliasMode, ConfigSource, ProviderAccountStreak, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, SnapshotUsage } from '@ainyc/canonry-contracts'
 import type { CalendarRecurrence, AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, GbpReviewAlertState, GbpReviewOrigin, GbpReviewsAccess, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@ainyc/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
@@ -379,6 +379,12 @@ export const runs = sqliteTable('runs', {
    * lose them; folded into `error` and cleared when the run finalizes.
    */
   pendingProviderErrors: text('pending_provider_errors', { mode: 'json' }).$type<Record<string, string>>(),
+  /**
+   * Providers this run does not call because each keeps failing on its
+   * account, with the failure streak that decided it, frozen at queue time
+   * (`providerAccountAdmission`). Null when it skips none.
+   */
+  skippedProviders: text('skipped_providers', { mode: 'json' }).$type<Record<string, ProviderAccountStreak>>(),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_runs_project').on(table.projectId),
@@ -769,6 +775,20 @@ export const userSessions = sqliteTable('user_sessions', {
 }, (table) => [
   index('idx_user_sessions_user').on(table.userId),
   index('idx_user_sessions_expires').on(table.expiresAt),
+])
+
+/** Shared-password/API-key dashboard sessions survive restarts; only token digests are stored. */
+export const dashboardSessions = sqliteTable('dashboard_sessions', {
+  tokenHash: text('token_hash').primaryKey(),
+  apiKeyId: text('api_key_id').notNull().references(() => apiKeys.id, { onDelete: 'cascade' }),
+  apiKeyHash: text('api_key_hash').notNull().default(''),
+  /** Null for API-key sign-ins; password sign-ins bind the configured password hash's digest. */
+  passwordFingerprint: text('password_fingerprint'),
+  createdAt: text('created_at').notNull(),
+  expiresAt: text('expires_at').notNull(),
+}, (table) => [
+  index('idx_dashboard_sessions_key').on(table.apiKeyId),
+  index('idx_dashboard_sessions_expires').on(table.expiresAt),
 ])
 
 /**

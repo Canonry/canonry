@@ -33,6 +33,7 @@ subtle borders, no visual noise.
 | `src/components/project/SiteGraphSigma.tsx` / `site-graph-sigma.ts` | Site Health WebGL map and its Graphology adapter; consumes server-published coordinates only. The map defaults to content links and hides nav/header/footer links; the toggle changes only which edges are DRAWN, never the positions, which the server laid out without them. When `isTemplateDetectionApplied(templateDetection)` is false the toggle is disabled with plain-word copy and nothing is hidden, because the per-link flag proves nothing then. The header strip is ONE line of numbers (`site-map-link-counts`, built by `siteMapLinkCountsLabel`); why the split is worth having, which rule produced it, and any stale-layout warning live in an `InfoTooltip` beside it (`siteMapLinkRuleHelp`), always, in every state, because `applied` means the weaker ubiquity rule that cannot see an editorial link whose wording matches the menu. CUSTOMER-FACING COPY SAYS "links in your page text" and "menu and footer links", never "content link", "template link", "nav", or "chrome": those are our words, and the reader's distinction is WHERE the link was written. The wire vocabulary is unchanged and must stay (`linkKind=content|template|all`, `isTemplate`, `templateDetection`); this split is copy only. Short visible label, detail in a tooltip is the rule across this surface: an InfoTooltip is placed as a SIBLING of a heading, never a child, or its help text joins the heading's accessible name and any `aria-labelledby` landmark that points at it. Site Health tests assert complete independent help literals through mounted controls and real SDK reads. Keep copy and count helpers private unless another production caller needs them; retain compiled style contracts through the shared test-only Tailwind producer. |
 | `src/components/project/PageAuditEvidence.tsx` | Site Health "Findings and fixes": the per-factor technical checks. Every check starts COLLAPSED so the page opens scannable; the `<summary>` row carries factor name, score, and pass/partial/fail, which is everything needed to decide what to open. Native `<details>` is the disclosure primitive here, so the toggle is a real button with browser-managed expanded state and closed content stays out of the tab order. Critical defects render in their OWN always-visible section above the checks, so collapsing hides nothing that demands attention. |
 | `src/components/project/SiteHealthSection.tsx` | Site Health scan controls and results. Ordinary default selection uses the API scan history's `preferredRunId`, labelled "Most complete scan from latest day"; explicit historical and onboarding active-run selections remain pinned, and a scan started from the header is shown once it finishes (completed or partial) until the operator picks another. Technical factor badges use the API's worst-page `status`, separately from the displayed mean score. The page-budget picker's first choice sends no `maxPages`, so the server applies the project's saved `siteAuditMaxPages`, else the full site; never fill in a number client-side, which would bypass the saved budget. When the project saved a smaller budget, a one-off "Full site" choice sends the 50,000 hard limit explicitly (`oneOffFullSiteChoice`). Project Settings edits the saved budget in `SiteHealthScanSettingsSection` (`ProjectEngineSettingsSection.tsx`): admins only when `isDashboardManagedRunKind('site-audit')`, read-only in embeds and the public demo. `updateProject` sends `siteAuditMaxPages` only when the caller sets it, so every other save keeps the stored value. Budget wording comes from `formatSiteAuditPageBudget` / `formatPageCount` in contracts, shared with the CLI. |
+| `src/components/project/RunAdmissionNotice.tsx` | The AI Visibility notice for a sweep that is refused, or leaves out providers that keep failing on their accounts, from `GET /projects/:name/run-admission` (`useRunAdmission`, read once by `ProjectPage` above both overviews and their loading state). While refused, the header sweep button reads "AI sweeps on hold" and is disabled, because the API would refuse it; the confirm sheet names the providers a sweep leaves out. Copy states when the hold lifts, never that a sweep will run (a project may have no schedule). The settings action appears only for a rejected key and deep-links to `/settings#provider-<name>`; credit is added in the provider's console. Saving a provider invalidates every project's admission (`invalidateProjectQueryDomain(…, 'runAdmission')`). |
 | `src/queries/` | TanStack Query hooks for data fetching |
 | `src/view-models.ts` | Data transformation from API DTOs to display format |
 
@@ -297,6 +298,16 @@ function useProject(name: string) {
 - Auth-expiry (401/403) flows through the `heyClient` response interceptor.
 - Generated types come from the spec; consumer types stay in sync.
 
+`createQueryClient` installs successful-write refresh handling on `heyClient`.
+It starts background refreshes of affected generated/composite reads and global
+lists, marks inactive reads stale, and never holds a successful write open for
+refetches. Cancel only active reads; imperative initial loads must retain their
+promises. Run launches refresh run state; completion refreshes results, without
+rescanning analytics or live integration reads on launch. Direct SDK calls and API wrappers share
+this path; don't add a second ordinary success refetch. Job completion and local
+imperative state still use their own refresh flows. New composite query keys
+must declare their project identity position in `queries/query-invalidation.ts`.
+
 **2. Typed wrappers in `src/api.ts` (for composites + imperative reads)** —
 each wrapper is a thin shim over a generated SDK call that handles `ApiError`
 mapping + 204 No Content + base-path resolution. Use them when you need
@@ -421,6 +432,14 @@ ship with a registered Zod schema.
 Base path comes from `window.__CANONRY_CONFIG__.basePath`. Never hardcode `/api/v1`.
 
 ### Managed run kinds
+
+`ProjectPage` reads run admission with `selection=manual` for its sweep button
+and skipped-provider confirmation, and `selection=scheduled` for the schedule
+notice. When those admissions differ, notices name their scope. Held admissions
+refresh at the earliest provider retry deadline and stop polling once clear;
+deadline refreshes never invalidate saved sweep results.
+Provider-settings recovery requires both write access and instance administrator
+authority; project-scoped writers receive the administrator recovery instruction.
 
 `isDashboardManagedRunKind(kind)` reads the optional deployment list, with
 `managedSweeps: true` as the legacy answer-visibility-only fallback.
@@ -719,4 +738,3 @@ cannot silently send into a different conversation.
 - **A read or write whose failure status is a normal outcome** (the code handles it as "none yet" or a conflict) adds its method, template and statuses to `EXPECTED_STATUSES`, so it is not reported as a UI error.
 - **A new shared filter** either writes a URL search param listed in `FILTER_BY_SEARCH_KEY` (picked up at the router) or calls `trackUiFilterChange(dimension)` when its value changes; a new table search uses `DataTableSearch`, which already reports `search.submit`. Never pass the value or the text.
 - **An OAuth start is `integration.connect_started`**; record `integration.connect` only where the connection is confirmed.
-

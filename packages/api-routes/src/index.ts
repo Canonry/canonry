@@ -661,7 +661,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(citationRoutes)
     await api.register(visibilityStatsRoutes)
     await api.register(resultsExportRoutes)
-    await api.register(compositeRoutes, { sentiment: opts.sentiment })
+    await api.register(compositeRoutes, { sentiment: opts.sentiment, getRunnableProviderNames: opts.getRunnableProviderNames })
     await api.register(contentRoutes, {
       explainContentRecommendation: opts.explainContentRecommendation,
       briefContentRecommendation: opts.briefContentRecommendation,
@@ -845,7 +845,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
 export type { DatabaseClient } from '@ainyc/canonry-db'
 // Whether this install has named accounts. The host needs the same answer the
 // auth layer uses, so it is exported rather than reimplemented.
-export { anyUsersExist, createCredentialChecker, createUserSession, parseCookieHeader, resolveUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME, USER_SESSION_TTL_MS } from './user-session.js'
+export { anyUsersExist, cookieIsSecure, createCredentialChecker, createUserSession, hashSessionToken, parseCookieHeader, resolveUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME, USER_SESSION_TTL_MS } from './user-session.js'
 export type { UserSessionCookieOptions } from './user-session.js'
 export { requireAdminSession, requireBroadInstanceKey, requireInstanceAdministrator, isInstanceAdministrator, requirePaidReadScope, requireResearchGrant } from './auth.js'
 export { assertSameOriginWrite, assertCookieWriteOrigin, FOREIGN_ORIGIN_MESSAGE } from './same-origin.js'
