@@ -7,7 +7,7 @@
  * prevents a read from mutating or re-fetching evidence.
  */
 
-import { answerProseForMentions, normalizeMeasurementHost, rateOverChecked, compareText, sortedUnique } from '@ainyc/canonry-contracts'
+import { answerProseForMentions, normalizeIdentityText, normalizeMeasurementHost, rateOverChecked, compareText, sortedUnique } from '@ainyc/canonry-contracts'
 
 export type MeasurementAttributionClass =
   | 'assigned'
@@ -569,8 +569,7 @@ export function classifyCitedUrl(
 
 export function normalizeMeasurementLocation(value: string | null): string | null {
   if (value === null) return null
-  const normalized = value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en')
-  return normalized || null
+  return normalizeIdentityText(value) || null
 }
 
 function words(value: string): string[] {

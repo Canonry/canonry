@@ -26,8 +26,14 @@ describe('normalizeQueryText', () => {
 })
 
 describe('normalizeIdentityText', () => {
-  it('trims, collapses internal whitespace and case-folds', () => {
+  it('trims, collapses internal whitespace and lowercases', () => {
     expect(normalizeIdentityText('  Best   Dentist\tNYC \n')).toBe('best dentist nyc')
+  })
+
+  it('lowercases without Unicode case folding', () => {
+    // Full case folding would map ß to ss; lowercasing keeps the two apart.
+    expect(normalizeIdentityText('Straße')).toBe('straße')
+    expect(normalizeIdentityText('STRASSE')).toBe('strasse')
   })
 
   it('applies NFKC, so compatibility forms share one identity', () => {
