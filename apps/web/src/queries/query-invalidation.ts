@@ -25,6 +25,7 @@ export const PROJECT_QUERY_DOMAINS = {
   queryTracking: 'getApiV1ProjectsByNameQueryTracking',
   technicalAeo: 'getApiV1ProjectsByNameTechnicalAeo',
   runs: 'getApiV1ProjectsByNameRuns',
+  runAdmission: 'getApiV1ProjectsByNameRunAdmission',
 } as const
 
 export type ProjectQueryDomain = keyof typeof PROJECT_QUERY_DOMAINS

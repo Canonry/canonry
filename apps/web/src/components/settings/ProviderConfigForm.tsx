@@ -1,9 +1,11 @@
 import { useState, type ReactNode } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 
 import { Button } from '../ui/button.js'
 import { updateProviderConfig } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
+import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
 
 export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = false, leadingField, secondaryActions, onSaved }: {
   providerName: string
@@ -17,6 +19,7 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = 
   secondaryActions?: ReactNode
   onSaved: () => void
 }) {
+  const queryClient = useQueryClient()
   const isLocal = providerName.toLowerCase() === 'local'
   const showGeminiFreeTier = compact && providerName.toLowerCase() === 'gemini' && !!keyUrl
   const [apiKey, setApiKey] = useState('')
@@ -61,6 +64,9 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = 
       setMaxPerMinute('')
       setMaxPerDay('')
       setSuccess(true)
+      // A new key, model or endpoint lifts that provider's hold on every
+      // project, so their notices and sweep buttons must not wait for staleness.
+      void invalidateProjectQueryDomain(queryClient, 'runAdmission')
       addToast({
         title: 'Provider updated',
         detail: `${providerName} configuration saved.`,

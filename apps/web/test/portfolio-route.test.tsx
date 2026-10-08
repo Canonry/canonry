@@ -36,6 +36,7 @@ import {
   getApiV1ProjectsByNameSchedulesQueryKey,
   getApiV1ProjectsByNameScheduleQueryKey,
   getApiV1ProjectsByNameQueryKey,
+  getApiV1ProjectsByNameRunAdmissionQueryKey,
   getApiV1ProjectsByNameVisibilityReportQueryKey,
 } from '@ainyc/canonry-api-client/react-query'
 
@@ -111,6 +112,8 @@ async function renderAt(
     analyticsMetrics?: unknown
     /** GET /citations/visibility, so the By engine card renders in one pass. */
     citationVisibility?: unknown
+    /** GET /run-admission: whether the next sweep would be refused, or leave providers out. */
+    runAdmission?: unknown
   } = {},
 ): Promise<string> {
   if (embed) window.__CANONRY_CONFIG__ = { embed }
@@ -149,6 +152,11 @@ async function renderAt(
       getApiV1ProjectsByNameSchedulesQueryKey({ client: heyClient, path: { name: projectName } }),
       [options.schedule],
     )
+  }
+  if (options.runAdmission !== undefined) {
+    for (const selection of ['manual', 'scheduled'] as const) {
+      queryClient.setQueryData(getApiV1ProjectsByNameRunAdmissionQueryKey({ client: heyClient, path: { name: projectName }, query: { selection } }), options.runAdmission)
+    }
   }
   if (options.scanSchedule !== undefined) {
     queryClient.setQueryData(
@@ -2159,11 +2167,116 @@ test('a project-scoped writer reads sweep readiness without instance settings ac
     },
     settleReadiness: true,
     readiness: true,
+    runAdmission: {
+      refused: false, retryAfter: null,
+      providers: {
+        openai: { code: 'PROVIDER_AUTH', consecutiveRuns: 10, since: '2026-10-01T00:00:00.000Z', latestRunId: 'run-9', retryAfter: '2026-10-09T12:30:00.000Z' },
+      },
+    },
   })
 
   expect(html).toContain('Run AI sweep')
   expect(html).not.toContain('Checking AI readiness')
   expect(html).not.toContain('Retry AI readiness')
+  const container = renderedPage(html)
+  expect(container.querySelector('a[href="/settings#provider-openai"]')).toBeNull()
+  expect(container.textContent).toContain('Ask an administrator to fix OpenAI.')
+})
+
+test.each([
+  { name: 'Simple', measurement: { plan: { active: null } as MeasurementPlanResponse, setup: simpleMeasurementSetupResponse() } },
+  { name: 'Advanced', measurement: { plan: measurementPlanV2Response(4), visibilityReport: visibilityReportResponse({ mode: 'advanced' }) } },
+])('a $name project whose sweeps are on hold says so and holds its sweep button', async ({ measurement }) => {
+  const streak = { code: 'PROVIDER_AUTH', consecutiveRuns: 10, since: '2026-10-01T00:00:00.000Z', latestRunId: 'run-9', retryAfter: '2026-10-08T12:30:00.000Z' }
+  const page = (runAdmission: unknown) => renderAt('/projects/project_citypoint', undefined, measurement, {
+    settleReadiness: true,
+    readiness: true,
+    queries: [{ id: 'query-ready', query: 'emergency dentist brooklyn', createdAt: '2026-09-01T12:00:00.000Z' }],
+    // No sweep in flight: that state would label the button first.
+    configureFixture(dashboard) {
+      dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!.recentRuns = []
+      dashboard.runs = []
+    },
+    runAdmission,
+  })
+
+  const held = await page({ refused: true, retryAfter: streak.retryAfter, providers: { openai: streak } })
+  expect(held).toContain('Sweeps are on hold')
+  expect(held).toContain('AI sweeps on hold')
+  expect(held).not.toContain('>Run AI sweep<')
+
+  const skipped = await page({ refused: false, retryAfter: null, providers: { openai: streak } })
+  expect(skipped).toContain('OpenAI is left out of sweeps')
+  expect(skipped).toContain('Run AI sweep')
+  expect(skipped).not.toContain('AI sweeps on hold')
+
+  const clear = await page({ refused: false, retryAfter: null, providers: {} })
+  expect(clear).not.toContain('left out of sweeps')
+  expect(clear).not.toContain('on hold')
+})
+
+test('simple manual sweep admission is independent of the scheduled roster', async () => {
+  const fixture = createDashboardFixture({})
+  const project = fixture.dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+  project.recentRuns = []
+  fixture.dashboard.runs = []
+  const streak = { code: 'PROVIDER_AUTH', consecutiveRuns: 10, since: '2026-10-01T00:00:00.000Z', latestRunId: 'run-9', retryAfter: '2026-10-09T12:30:00.000Z' }
+  const plan = { active: null }
+  const selectionReads: Array<string | null> = []
+  const writes: string[] = []
+  let manualRefused = false
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const request = input instanceof Request ? input : new Request(String(input))
+    const url = new URL(request.url, window.location.origin)
+    const path = decodeURIComponent(url.pathname)
+    if (request.method === 'POST') writes.push(path)
+    if (path.endsWith('/run-admission')) {
+      const selection = url.searchParams.get('selection')
+      selectionReads.push(selection)
+      return jsonResponse(selection === 'manual'
+        ? { refused: manualRefused, retryAfter: manualRefused ? streak.retryAfter : null, providers: { openai: streak } }
+        : manualRefused
+          ? { refused: false, retryAfter: null, providers: {} }
+          : { refused: true, retryAfter: streak.retryAfter, providers: { openai: streak } })
+    }
+    if (path.endsWith('/measurement-setup')) return jsonResponse(simpleMeasurementSetupResponse())
+    if (path.endsWith('/measurement-plan')) return jsonResponse(plan)
+    if (path.endsWith('/visibility-report')) return jsonResponse(visibilityReportResponse({ mode: 'simple' }))
+    if (path.endsWith('/schedules') || path.endsWith('/runs')) return jsonResponse([])
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  queryClient.setQueryData(getApiV1ProjectsByNameMeasurementPlanQueryKey({ client: heyClient, path: { name: project.project.name } }), plan)
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint'] })
+  await router.load()
+  const page = render(<QueryClientProvider client={queryClient}><DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}><RouterProvider router={router} /></DashboardProvider></QueryClientProvider>)
+
+  const launch = await page.findByRole('button', { name: 'Run AI sweep' })
+  expect(launch.hasAttribute('disabled')).toBe(false)
+  expect(selectionReads).toContain('manual')
+  expect(selectionReads).toContain('scheduled')
+  expect(await page.findByRole('region', { name: 'Scheduled sweeps are on hold' })).toBeTruthy()
+  expect(await page.findByRole('region', { name: 'OpenAI is left out of manual sweeps' })).toBeTruthy()
+  fireEvent.click(launch)
+  const confirm = await page.findByRole('button', { name: 'Run project-wide sweep' })
+  expect(confirm.hasAttribute('disabled')).toBe(false)
+  expect(page.getByRole('dialog').textContent).toContain('OpenAI is left out')
+
+  // The manual roster can become fully held even while the schedule is healthy.
+  manualRefused = true
+  await act(async () => {
+    await queryClient.refetchQueries({ predicate: query => (query.queryKey[0] as { _id?: string })._id === 'getApiV1ProjectsByNameRunAdmission' })
+  })
+  await waitFor(() => expect(confirm.hasAttribute('disabled')).toBe(true))
+  fireEvent.click(confirm)
+  expect(writes).toEqual([])
+  fireEvent.click(page.getByRole('button', { name: 'Cancel' }))
+  const held = await page.findByRole('button', { name: 'AI sweeps on hold' })
+  expect(held.hasAttribute('disabled')).toBe(true)
+  expect(await page.findByRole('region', { name: 'Manual sweeps are on hold' })).toBeTruthy()
+  expect(page.queryByRole('region', { name: 'Scheduled sweeps are on hold' })).toBeNull()
 })
 
 test('a project-scoped writer can retry when the project readiness read fails', async () => {

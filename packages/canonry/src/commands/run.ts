@@ -8,10 +8,13 @@ import {
   formatMicros,
   formatRunErrorOneLine,
   resolveProviderInput,
+  type ProviderAccountStreak,
   type ProviderBatchSummaryDto,
   type ProviderDispatchMode,
+  type RunAdmissionDto,
   type RunCompletenessDto,
   type RunDetailDto,
+  type RunDto,
   type RunErrorDto,
   type RunUsageSummaryRow,
 } from '@ainyc/canonry-contracts'
@@ -23,6 +26,74 @@ function getClient() {
 }
 
 const TERMINAL_STATUSES = new Set(['completed', 'partial', 'failed', 'cancelled'])
+
+/** A project name as a shell argument the operator can paste, quoted when it has a space. */
+function shellArg(value: string): string {
+  return /^[\w.-]+$/.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`
+}
+
+/** One provider held back because it keeps failing on its account, as the CLI prints it. */
+export function providerAccountStreakLine(provider: string, streak: ProviderAccountStreak): string {
+  return `${provider} (${streak.code}): failed on its account in each of its last ${streak.consecutiveRuns} runs; `
+    + `called again after ${streak.retryAfter}`
+}
+
+function providersThatKeepFailing(count: number): string {
+  return count === 1
+    ? 'a provider that keeps failing on its account'
+    : `${count} providers that keep failing on their accounts`
+}
+
+/** What to do about held-back providers, for a project the operator can name. */
+function providerAccountFixLine(project: string): string {
+  return 'Fix the key, access or billing in the provider\'s console. Saving a new key, model or endpoint '
+    + `(canonry settings provider <name>) retries at once; canonry run ${shellArg(project)} --force calls every provider now.`
+}
+
+/**
+ * Compare decisions without depending on provider-map or field insertion order.
+ */
+function admissionDecisionKey(admission: RunAdmissionDto): string {
+  return JSON.stringify([
+    admission.refused,
+    admission.retryAfter,
+    Object.entries(admission.providers).sort(([left], [right]) => left.localeCompare(right))
+      .map(([provider, streak]) => [provider, streak.code, streak.consecutiveRuns, streak.since, streak.latestRunId, streak.retryAfter]),
+  ])
+}
+
+function admissionScopeLines(admission: RunAdmissionDto, label: string, showAllowed: boolean): string[] {
+  const held = Object.entries(admission.providers)
+  if (held.length === 0) return showAllowed ? [`${label}: no providers held back.`] : []
+  const retry = label === 'Manual sweep'
+    ? `it can retry after ${admission.retryAfter}`
+    : `scheduled sweeps skip their slots until ${admission.retryAfter}`
+  return [
+    admission.refused
+      ? `${label}: refused (PROVIDERS_FAILING). Every provider it would call keeps failing on its account; ${retry}.`
+      : `${label}: skips ${providersThatKeepFailing(held.length)}; the rest run.`,
+    ...held.map(([provider, streak]) => `  ${providerAccountStreakLine(provider, streak)}`),
+  ]
+}
+
+/** Keep one next-sweep decision unless scheduled and manual provider scopes differ. */
+export function runAdmissionLines(project: string, admission: RunAdmissionDto | undefined, manualAdmission?: RunAdmissionDto): string[] {
+  if (!admission) return []
+  const differs = manualAdmission !== undefined && admissionDecisionKey(admission) !== admissionDecisionKey(manualAdmission)
+  const lines = differs
+    ? [...admissionScopeLines(admission, 'Scheduled sweep', true), ...admissionScopeLines(manualAdmission, 'Manual sweep', true)]
+    : admissionScopeLines(admission, 'Next sweep', false)
+  return lines.length > 0 ? [...lines, providerAccountFixLine(project)] : []
+}
+
+/** The providers a queued run will not call, as the trigger output prints them. */
+function printSkippedProviders(project: string, skipped: RunDto['skippedProviders']): void {
+  const held = Object.entries(skipped ?? {})
+  if (held.length === 0) return
+  console.log(`\nNot calling ${providersThatKeepFailing(held.length)}:`)
+  for (const [provider, streak] of held) console.log(`  ${providerAccountStreakLine(provider, streak)}`)
+  console.log(providerAccountFixLine(project))
+}
 
 /** A run `--wait` reported on, with what the exit error needs to name it. */
 type WaitedRun = { runId: string; status: string; project?: string; location?: string | null; error?: RunErrorDto | null }
@@ -101,7 +172,7 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
 
   // allLocations returns HTTP 207 with an array of per-location run objects
   if (Array.isArray(response)) {
-    const locationRuns = response as Array<{ id: string; status: string; kind: string; location?: string; error?: string }>
+    const locationRuns = response as Array<{ id: string; status: string; kind: string; location?: string; error?: string; skippedProviders?: RunDto['skippedProviders'] }>
     if (isMachineFormat(opts?.format)) {
       if (opts?.wait) {
         const finals = await Promise.all(
@@ -126,6 +197,8 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
       const id = (r.id ?? '(conflict)').padEnd(36)
       console.log(`  ${loc}  ${id}  ${r.status}`)
     }
+    // One admission decision covers the whole fan-out.
+    printSkippedProviders(project, locationRuns.find(r => r.skippedProviders)?.skippedProviders)
 
     if (opts?.wait) {
       const pending = locationRuns.filter(r => r.id && r.status !== 'conflict' && !TERMINAL_STATUSES.has(r.status))
@@ -161,7 +234,7 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
     return
   }
 
-  const run = response as { id: string; status: string; kind: string }
+  const run = response
 
   if (opts?.wait && run.id && !TERMINAL_STATUSES.has(run.status)) {
     const showProgress = !isMachineFormat(opts?.format)
@@ -202,6 +275,7 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
   if (opts?.provider) {
     console.log(`  Provider: ${opts.provider}`)
   }
+  printSkippedProviders(project, run.skippedProviders)
 }
 
 export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; format?: string; allLocations?: boolean; noLocation?: boolean; dispatchMode?: ProviderDispatchMode; force?: boolean }): Promise<void> {
@@ -494,10 +568,14 @@ export function printRunDetail(run: RunDetailDto): void {
   if (run.startedAt) console.log(`  Started:  ${run.startedAt}`)
   if (run.finishedAt) console.log(`  Finished: ${run.finishedAt}`)
   if (run.createdAt) console.log(`  Created:  ${run.createdAt}`)
+  const skipped = Object.entries(run.skippedProviders ?? {})
+  for (const [provider, streak] of skipped) console.log(`  Skipped:  ${providerAccountStreakLine(provider, streak)}`)
   if (run.error) {
     if (run.error.message) console.log(`  Error:    ${run.error.message}`)
     if (run.error.providers) {
       for (const [provider, detail] of Object.entries(run.error.providers)) {
+        // Its Skipped line above already says why it has no answers.
+        if (detail.skipped && run.skippedProviders?.[provider]) continue
         console.log(`  Error (${provider}): ${detail.message}`)
       }
     }

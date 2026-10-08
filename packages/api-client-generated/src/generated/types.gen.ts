@@ -6952,12 +6952,22 @@ export type LatestProjectRunDto = {
                     message: string;
                     raw?: unknown;
                     code?: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                    skipped?: boolean;
                 };
             };
         } | null;
         queryBasketRevision?: number | null;
         dispatchModes?: {
             [key: string]: 'batch';
+        };
+        skippedProviders?: {
+            [key: string]: {
+                code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                consecutiveRuns: number;
+                since: string;
+                latestRunId: string;
+                retryAfter: string;
+            };
         };
         createdAt: string;
         snapshots?: Array<{
@@ -7056,6 +7066,46 @@ export type LatestProjectRunDto = {
             unpricedAnswers: number;
         }>;
     } | null;
+    admission?: {
+        refused: boolean;
+        retryAfter: string | null;
+        providers: {
+            [key: string]: {
+                code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                consecutiveRuns: number;
+                since: string;
+                latestRunId: string;
+                retryAfter: string;
+            };
+        };
+    };
+    manualAdmission?: {
+        refused: boolean;
+        retryAfter: string | null;
+        providers: {
+            [key: string]: {
+                code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                consecutiveRuns: number;
+                since: string;
+                latestRunId: string;
+                retryAfter: string;
+            };
+        };
+    };
+};
+
+export type RunAdmissionDto = {
+    refused: boolean;
+    retryAfter: string | null;
+    providers: {
+        [key: string]: {
+            code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+            consecutiveRuns: number;
+            since: string;
+            latestRunId: string;
+            retryAfter: string;
+        };
+    };
 };
 
 export type LocationContext = {
@@ -11568,12 +11618,22 @@ export type ProjectOverviewDto = {
                         message: string;
                         raw?: unknown;
                         code?: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                        skipped?: boolean;
                     };
                 };
             } | null;
             queryBasketRevision?: number | null;
             dispatchModes?: {
                 [key: string]: 'batch';
+            };
+            skippedProviders?: {
+                [key: string]: {
+                    code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                    consecutiveRuns: number;
+                    since: string;
+                    latestRunId: string;
+                    retryAfter: string;
+                };
             };
             createdAt: string;
             snapshots?: Array<{
@@ -11672,6 +11732,32 @@ export type ProjectOverviewDto = {
                 unpricedAnswers: number;
             }>;
         } | null;
+        admission?: {
+            refused: boolean;
+            retryAfter: string | null;
+            providers: {
+                [key: string]: {
+                    code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                    consecutiveRuns: number;
+                    since: string;
+                    latestRunId: string;
+                    retryAfter: string;
+                };
+            };
+        };
+        manualAdmission?: {
+            refused: boolean;
+            retryAfter: string | null;
+            providers: {
+                [key: string]: {
+                    code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                    consecutiveRuns: number;
+                    since: string;
+                    latestRunId: string;
+                    retryAfter: string;
+                };
+            };
+        };
     };
     health: {
         id: string;
@@ -12306,12 +12392,22 @@ export type RunDetailDto = {
                 message: string;
                 raw?: unknown;
                 code?: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                skipped?: boolean;
             };
         };
     } | null;
     queryBasketRevision?: number | null;
     dispatchModes?: {
         [key: string]: 'batch';
+    };
+    skippedProviders?: {
+        [key: string]: {
+            code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+            consecutiveRuns: number;
+            since: string;
+            latestRunId: string;
+            retryAfter: string;
+        };
     };
     createdAt: string;
     snapshots?: Array<{
@@ -12494,12 +12590,22 @@ export type RunDto = {
                 message: string;
                 raw?: unknown;
                 code?: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                skipped?: boolean;
             };
         };
     } | null;
     queryBasketRevision?: number | null;
     dispatchModes?: {
         [key: string]: 'batch';
+    };
+    skippedProviders?: {
+        [key: string]: {
+            code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+            consecutiveRuns: number;
+            since: string;
+            latestRunId: string;
+            retryAfter: string;
+        };
     };
     createdAt: string;
 };
@@ -20055,7 +20161,7 @@ export type PostApiV1ProjectsByNameRunsData = {
          */
         dispatchMode?: 'sync' | 'batch';
         /**
-         * Queue the run even when it would be refused with PROVIDERS_FAILING. Admission only; never stored.
+         * Call every provider: queue the run even when it would be refused with PROVIDERS_FAILING, and skip no provider that keeps failing on its account. Admission only; never stored.
          */
         force?: boolean;
     };
@@ -20079,7 +20185,7 @@ export type PostApiV1ProjectsByNameRunsErrors = {
      */
     409: ErrorEnvelope;
     /**
-     * NO_QUERIES: the project has no tracked queries. PROVIDERS_FAILING: every provider the run would call failed on its account (rejected key, denied access, no credit) in each of its last 10 runs. `details.providers` names each provider's code and `details.retryAfter` when one run is let through again (24h after the newest failure). Saving a new key, model or endpoint in a provider's settings lets the next run through at once, a probe is never refused, and `force: true` overrides.
+     * NO_QUERIES: the project has no tracked queries. PROVIDERS_FAILING: every provider the run would call failed on its account (rejected key, denied access, no credit) in each of its last 10 runs. `details.providers` names each provider's code and `details.retryAfter` when one run is let through again (24h after a provider's newest failure; the run then calls only the providers due a retry). Saving a new key, model or endpoint in a provider's settings lets the next run through at once, a probe is never refused, and `force: true` overrides. When only some providers keep failing, the run is queued without them instead.
      */
     422: ErrorEnvelope;
     /**
@@ -20092,7 +20198,7 @@ export type PostApiV1ProjectsByNameRunsError = PostApiV1ProjectsByNameRunsErrors
 
 export type PostApiV1ProjectsByNameRunsResponses = {
     /**
-     * Run queued.
+     * Run queued. `skippedProviders` names each provider it will not call because that provider failed on its account in each of its last 10 runs (until its `retryAfter`); the run calls the rest and ends partial.
      */
     201: RunDto;
 };
@@ -20119,6 +20225,41 @@ export type GetApiV1ProjectsByNameRunsLatestResponses = {
 };
 
 export type GetApiV1ProjectsByNameRunsLatestResponse = GetApiV1ProjectsByNameRunsLatestResponses[keyof GetApiV1ProjectsByNameRunsLatestResponses];
+
+export type GetApiV1ProjectsByNameRunAdmissionData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Read-selection identity: scheduled (default) uses the enabled schedule's providers; manual uses the unfiltered manual launch's project or instance providers. Both use an Advanced revision's frozen engines.
+         */
+        selection?: 'manual' | 'scheduled';
+    };
+    url: '/api/v1/projects/{name}/run-admission';
+};
+
+export type GetApiV1ProjectsByNameRunAdmissionErrors = {
+    /**
+     * Invalid admission selection.
+     */
+    400: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameRunAdmissionError = GetApiV1ProjectsByNameRunAdmissionErrors[keyof GetApiV1ProjectsByNameRunAdmissionErrors];
+
+export type GetApiV1ProjectsByNameRunAdmissionResponses = {
+    /**
+     * Run admission returned.
+     */
+    200: RunAdmissionDto;
+};
+
+export type GetApiV1ProjectsByNameRunAdmissionResponse = GetApiV1ProjectsByNameRunAdmissionResponses[keyof GetApiV1ProjectsByNameRunAdmissionResponses];
 
 export type GetApiV1RunsData = {
     body?: never;
@@ -20174,7 +20315,7 @@ export type PostApiV1RunsData = {
          */
         dispatchMode?: 'sync' | 'batch';
         /**
-         * Queue projects that would be refused with PROVIDERS_FAILING. Admission only; never stored.
+         * Call every provider: queue projects that would be refused with PROVIDERS_FAILING, and skip no provider that keeps failing on its account. Admission only; never stored.
          */
         force?: boolean;
     };

@@ -70,6 +70,8 @@ import { asyncHandler } from '../lib/async-handler.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
 import { ProjectEngineSettingsSection, SiteHealthScanSettingsSection } from '../components/project/ProjectEngineSettingsSection.js'
 import { ManagedSweepStatus, managedSweepDate } from '../components/project/ManagedSweepStatus.js'
+import { RunAdmissionNoticeView, useRunAdmission } from '../components/project/RunAdmissionNotice.js'
+import { providerDisplayName } from '../lib/visibility-trend-helpers.js'
 import { ScheduleSection } from '../components/project/ScheduleSection.js'
 import { NotificationsSection } from '../components/project/NotificationsSection.js'
 import {
@@ -143,20 +145,27 @@ import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
 export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'queries' | 'discovery' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
 
-export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onConfirm, onClosed, disabled }: {
+export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onConfirm, onClosed, disabled, leftOut = [] }: {
   open: boolean
   projectLabel: string
   onOpenChange: (open: boolean) => void
   onConfirm: () => void
   onClosed?: () => void
   disabled: boolean
+  /** Providers this sweep will not call because each keeps failing on its account. */
+  leftOut?: readonly string[]
 }) {
   if (isEmbed() || isDashboardManagedSweeps()) return null
   return <Sheet open={open} onOpenChange={onOpenChange}>
     <SheetContent onCloseAutoFocus={event => { if (onClosed) { event.preventDefault(); onClosed() } }}>
       <SheetHeader>
         <SheetTitle>Run AI sweep for the whole project?</SheetTitle>
-        <SheetDescription>Runs all tracked queries for {projectLabel}. View filters do not limit the sweep. Provider charges apply.</SheetDescription>
+        <SheetDescription>
+          Runs all tracked queries for {projectLabel}. View filters do not limit the sweep. Provider charges apply.
+          {leftOut.length > 0
+            ? ` ${leftOut.map(providerDisplayName).join(' and ')} ${leftOut.length === 1 ? 'is' : 'are'} left out: ${leftOut.length === 1 ? 'it keeps failing on its account' : 'they keep failing on their accounts'}.`
+            : null}
+        </SheetDescription>
       </SheetHeader>
       <div className="mt-6 flex flex-wrap gap-3">
         <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -1631,7 +1640,7 @@ function ProjectPageContent({
 }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const { account, canWrite } = useAccount()
+  const { account, canWrite, isAdmin } = useAccount()
   const [sweepConfirmationProject, setSweepConfirmationProject] = useState<string | null>(null)
   const sweepOpener = useRef<HTMLButtonElement | null>(null)
   const initialDashboard = useInitialDashboard()
@@ -2175,6 +2184,13 @@ function ProjectPageContent({
   const hasActiveVisibilitySweep = (model?.recentRuns ?? []).some(
     r => r.kind === RunKinds['answer-visibility'] && (r.status === RunStatuses.running || r.status === RunStatuses.queued),
   )
+  // Manual launches use the project roster; schedules may select other providers.
+  const runAdmission = useRunAdmission(projectName, !isEmbed() && !isDashboardManagedSweeps(), 'manual').data
+  const scheduledRunAdmission = useRunAdmission(projectName, !isEmbed(), 'scheduled').data
+  const admissionScopesDiffer = runAdmission && scheduledRunAdmission
+    && JSON.stringify(runAdmission) !== JSON.stringify(scheduledRunAdmission)
+  const sweepsOnHold = runAdmission?.refused === true
+  const sweepLeavesOut = runAdmission && !runAdmission.refused ? Object.keys(runAdmission.providers) : []
   // `queryCounts` is derived from the authoritative latest completed/partial
   // visibility-run snapshot group. `recentRuns` is only a five-row
   // presentation slice and can contain five newer failures while a valid
@@ -2346,7 +2362,7 @@ function ProjectPageContent({
   // resolved but neither matched the URL's identifier).
 
   async function handleTriggerRun() {
-    if (sweepConfirmationProject !== projectName || !canWrite || isEmbed() || isDashboardManagedSweeps() || triggerRunMutation.isPending || hasActiveVisibilitySweep || !sweepPrerequisitesReady) return
+    if (sweepConfirmationProject !== projectName || !canWrite || isEmbed() || isDashboardManagedSweeps() || triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepsOnHold || !sweepPrerequisitesReady) return
     try {
       await triggerRunMutation.mutateAsync({
         projectName,
@@ -2790,7 +2806,7 @@ function ProjectPageContent({
                 <WriteButton
                   type="button"
                   variant="outline"
-                  disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepReadinessPending}
+                  disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepReadinessPending || (sweepsOnHold && !providerReadinessFailed && !sweepSetupRequired)}
                   onClick={providerReadinessFailed
                     ? () => { void Promise.all([measurementSetupQuery.refetch(), ...(needsHeaderQueries ? [headerQueriesQuery.refetch()] : [])]) }
                     : sweepSetupRequired
@@ -2807,7 +2823,9 @@ function ProjectPageContent({
                           ? 'Retry AI readiness'
                         : sweepSetupRequired
                           ? 'Set up AI Visibility'
-                          : 'Run AI sweep'}
+                          : sweepsOnHold
+                            ? 'AI sweeps on hold'
+                            : 'Run AI sweep'}
                 </WriteButton>
               </>
             )}
@@ -2821,7 +2839,8 @@ function ProjectPageContent({
         onOpenChange={open => setSweepConfirmationProject(open ? projectName : null)}
         onConfirm={asyncHandler(handleTriggerRun)}
         onClosed={() => sweepOpener.current?.focus()}
-        disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || !sweepPrerequisitesReady}
+        disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepsOnHold || !sweepPrerequisitesReady}
+        leftOut={sweepLeavesOut}
       />}
       <ProjectSubnav
         items={projectTabItems}
@@ -2874,7 +2893,13 @@ function ProjectPageContent({
           }}
         />
       ) : tab === 'overview' ? (
-        isMeasurementModeUnresolved || (isSimpleOverview && !hasInitialProjectDashboard && (!overviewRequested || overviewLoading)) ? (
+        <>
+        {/* Above both overviews and their loading state: a refused or partial sweep is the project's state, whichever portfolio it is. */}
+        {!isEmbed() ? <>
+          {scheduledRunAdmission ? <RunAdmissionNoticeView admission={scheduledRunAdmission} canFix={canWrite && isAdmin} selection={admissionScopesDiffer || !runAdmission ? 'scheduled' : undefined} /> : null}
+          {runAdmission && (admissionScopesDiffer || !scheduledRunAdmission) ? <RunAdmissionNoticeView admission={runAdmission} canFix={canWrite && isAdmin} selection="manual" /> : null}
+        </> : null}
+        {isMeasurementModeUnresolved || (isSimpleOverview && !hasInitialProjectDashboard && (!overviewRequested || overviewLoading)) ? (
           <div role="status" aria-live="polite">
             <span className="sr-only">Loading project overview</span>
             <div className="h-32 animate-pulse rounded-md bg-surface-subtle" aria-hidden="true" />
@@ -3095,7 +3120,8 @@ function ProjectPageContent({
             </details>
           ) : null}
         </>
-        )
+        )}
+        </>
       ) : tab === 'settings' ? (
         <>
           <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={async (name, updates) => { await handleUpdateProject(name, updates) }} />

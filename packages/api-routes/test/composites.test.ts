@@ -545,7 +545,12 @@ describe('GET /api/v1/projects/:name/overview', () => {
     // does not runtime-validate outgoing payloads, so this is the only guard
     // against schema drift on the null branches.
     expect(() => projectOverviewDtoSchema.parse(body)).not.toThrow()
-    expect(body.latestRun).toEqual({ totalRuns: 0, run: null })
+    // A project with no runs has no provider streak to hold anything back.
+    expect(body.latestRun).toEqual({
+      totalRuns: 0, run: null,
+      admission: { refused: false, retryAfter: null, providers: {} },
+      manualAdmission: { refused: false, retryAfter: null, providers: {} },
+    })
     expect(body.health).toBeNull()
     expect(body.topInsights).toEqual([])
     expect(body.queryCounts).toEqual({ totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0, mentionedQueries: 0, notMentionedQueries: 0, mentionRate: 0 })

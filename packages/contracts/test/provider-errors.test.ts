@@ -3,6 +3,7 @@ import {
   classifyProviderErrorMessage,
   classifyProviderErrorMessages,
   extractProviderHttpStatus,
+  mostActionableProviderErrorCode,
 } from '../src/provider-errors.js'
 
 describe('extractProviderHttpStatus', () => {
@@ -68,6 +69,17 @@ describe('classifyProviderErrorMessage', () => {
     expect(classifyProviderErrorMessage(`[provider-gemini] ${geminiRateLimit}`)).toBe('RATE_LIMITED')
   })
 
+  it("buckets the SDKs' bare connection failure as NETWORK, not UNKNOWN", () => {
+    // OpenAI-compatible SDK (a `local` provider) pointed at a closed port: the
+    // ECONNREFUSED is only on the error's cause, never in its message.
+    expect(classifyProviderErrorMessage('[provider-local] Connection error.')).toBe('NETWORK')
+    expect(classifyProviderErrorMessage('[provider-claude] APIConnectionError: Connection error.')).toBe('NETWORK')
+    expect(classifyProviderErrorMessage('[provider-openai] connect EHOSTUNREACH 10.0.0.5:443')).toBe('NETWORK')
+    // The SDKs' timeout subclass keeps its own bucket.
+    expect(classifyProviderErrorMessage('[provider-openai] Request timed out.')).toBe('TIMEOUT')
+    expect(classifyProviderErrorMessages(['[provider-local] Connection error.', 'weird'])).toBe('NETWORK')
+  })
+
   it('still prefers auth and rate limits', () => {
     expect(classifyProviderErrorMessage('[provider-openai] 401 Incorrect API key provided')).toBe('PROVIDER_AUTH')
     expect(classifyProviderErrorMessage('[provider-openai] 429 Too Many Requests')).toBe('RATE_LIMITED')
@@ -75,5 +87,14 @@ describe('classifyProviderErrorMessage', () => {
     expect(classifyProviderErrorMessages(['402 Payment Required', '401 Unauthorized'])).toBe('PROVIDER_AUTH')
     expect(classifyProviderErrorMessages(['429 Too Many Requests', '402 Payment Required'])).toBe('PROVIDER_BILLING')
     expect(classifyProviderErrorMessages(['503 Service Unavailable', 'weird'])).toBe('PROVIDER_UNAVAILABLE')
+  })
+})
+
+describe('mostActionableProviderErrorCode', () => {
+  it('ranks account failures first and falls back to UNKNOWN', () => {
+    expect(mostActionableProviderErrorCode(['NETWORK', 'PROVIDER_BILLING', 'RATE_LIMITED'])).toBe('PROVIDER_BILLING')
+    expect(mostActionableProviderErrorCode(['PROVIDER_BILLING', 'PROVIDER_AUTH'])).toBe('PROVIDER_AUTH')
+    expect(mostActionableProviderErrorCode(['TIMEOUT', 'NETWORK'])).toBe('TIMEOUT')
+    expect(mostActionableProviderErrorCode([])).toBe('UNKNOWN')
   })
 })

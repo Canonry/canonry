@@ -661,7 +661,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(citationRoutes)
     await api.register(visibilityStatsRoutes)
     await api.register(resultsExportRoutes)
-    await api.register(compositeRoutes, { sentiment: opts.sentiment })
+    await api.register(compositeRoutes, { sentiment: opts.sentiment, getRunnableProviderNames: opts.getRunnableProviderNames })
     await api.register(contentRoutes, {
       explainContentRecommendation: opts.explainContentRecommendation,
       briefContentRecommendation: opts.briefContentRecommendation,
