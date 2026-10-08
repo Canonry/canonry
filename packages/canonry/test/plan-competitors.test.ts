@@ -15,8 +15,8 @@ import {
   type ProviderAdapter,
   type RawQueryResult,
 } from '@ainyc/canonry-contracts'
-import { createRunCompetitorResolver, measurementPlanCompetitorDomains, measurementPlanCompetitors, queueRunIfProjectIdle } from '@ainyc/canonry-api-routes'
-import { createClient, measurementPlans, measurementPlanVersions, migrate, projects, queries, querySnapshots, type DatabaseClient } from '@ainyc/canonry-db'
+import { createRunCompetitorResolver, measurementPlanCompetitorDomains, measurementPlanCompetitors, queueRunIfProjectIdle, readMarketCompetitorNames } from '@ainyc/canonry-api-routes'
+import { competitors, createClient, marketCompetitorNames, measurementPlans, measurementPlanVersions, migrate, projects, queries, querySnapshots, type DatabaseClient } from '@ainyc/canonry-db'
 import { backfillProjectAnswerMentions } from '../src/commands/backfill.js'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
@@ -283,5 +283,51 @@ describe('second review: scope and normalization', () => {
     const resolve = createRunCompetitorResolver(db, ['hosta', 'hostb'])
     expect(resolve(versionId, 'exec-b').domains.sort()).toEqual(['hosta', 'hostb', 'rivalb'])
     expect(resolve(null, 'exec-b').domains).toEqual(['hosta', 'hostb'])
+  })
+})
+
+describe('names learned for a competitor only a market pins', () => {
+  const learned = (name: string) => ({
+    name, directPairs: 3, cooccurrences: 3, namingAnswers: 3, precision: 1, lift: 8, nameCasedAnswers: 3, runs: 3,
+    firstSeen: NOW, lastSeen: NOW, addedAt: NOW,
+  })
+
+  it('score only the answers of the markets that pin it, and never a project competitor', () => {
+    const { db, projectId } = seed()
+    const versionId = publishTwoMarkets(db, projectId)
+    const names = new Map([['rivala.example', ['Rival Living']], ['qvx.example', ['Quiet Vox']]])
+    const resolve = createRunCompetitorResolver(db, [{ domain: 'qvx.example', aliases: ['QVX'] }], names)
+    expect(resolve(versionId, 'exec-a').aliases.get('rivala.example')).toEqual(['Rival A', 'Rival Living'])
+    // Market B and a planless answer never measure it.
+    expect(resolve(versionId, 'exec-b').domains).not.toContain('rivala.example')
+    expect(resolve(null, null).domains).toEqual(['qvx.example'])
+    // A project competitor answers to its own names only.
+    expect(resolve(versionId, 'exec-a').aliases.get('qvx.example')).toEqual(['QVX'])
+  })
+
+  it('reach a sweep\'s stored competitor fields, minus a name curated identity now claims', async () => {
+    const { db, projectId } = seed()
+    db.insert(marketCompetitorNames).values({
+      id: 'market-rival', projectId, domain: 'rivalhomes.example', autoAliases: [learned('Rival Living'), learned('Harbor Rentals')], createdAt: NOW, updatedAt: NOW,
+    }).run()
+    // A project competitor curated "Harbor Rentals" after detection learned it.
+    db.insert(competitors).values({ id: 'harbor', projectId, domain: 'harborrentals.example', aliases: ['Harbor Rentals'], createdAt: NOW }).run()
+    expect(readMarketCompetitorNames(db, projectId)).toEqual(new Map([['rivalhomes.example', ['Rival Living']]]))
+
+    const queued = queueRunIfProjectIdle(db, { projectId })
+    if (queued.conflict) throw new Error('conflict')
+    const registry = new ProviderRegistry()
+    registry.register({
+      ...adapter,
+      normalizeResult: (): NormalizedQueryResult => ({
+        provider: 'openai', answerText: 'Top picks:\n\n1. **Rival Living** - newer buildings\n2. **Harbor Rentals** - near the water',
+        citedDomains: [], groundingSources: [], searchQueries: [], retrievalStatus: 'used',
+      }),
+    }, { provider: 'openai', apiKey: 'k', quotaPolicy: { maxConcurrency: 1, maxRequestsPerMinute: 600, maxRequestsPerDay: 1000 } })
+    await new JobRunner(db, registry).executeRun(queued.runId, projectId)
+
+    const row = db.select().from(querySnapshots).where(eq(querySnapshots.runId, queued.runId)).get()!
+    expect(row.competitorOverlap).toEqual(['harborrentals.example', 'rivalhomes.example'])
+    expect(row.recommendedCompetitors).toEqual(['Rival Living', 'Harbor Rentals'])
   })
 })

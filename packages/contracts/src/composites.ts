@@ -186,6 +186,12 @@ export interface ProjectOverviewCompetitorDto {
   domain: string
   /** Operator-curated answer-text names for this competitor (display only). */
   aliases?: string[]
+  /**
+   * Names detected from the project's stored answers, minus blocked ones
+   * (display only; matched like curated aliases). Names only: the evidence
+   * behind each is on `CompetitorDto.autoAliases`.
+   */
+  autoAliasNames?: string[]
   citationCount: number
   totalQueries: number
   pressureLabel: 'None' | 'Low' | 'Moderate' | 'High'
@@ -504,6 +510,7 @@ export const projectOverviewDtoSchema = z.object({
     id: z.string(),
     domain: z.string(),
     aliases: z.array(z.string()).optional(),
+    autoAliasNames: z.array(z.string()).optional(),
     citationCount: z.number().int().nonnegative(),
     totalQueries: z.number().int().nonnegative(),
     pressureLabel: z.enum(['None', 'Low', 'Moderate', 'High']),

@@ -98,7 +98,12 @@ describe('competitor CLI against a server that predates aliases', () => {
   it('reads a competitor\'s aliases as none, with JSON equal to the server\'s row', async () => {
     const text = await invokeCli(['competitor', 'aliases', 'rotorwise', 'rival-one.example'])
     expect(text.exitCode, text.stderr).toBeUndefined()
-    expect(text.stdout).toBe('Aliases for rival-one.example: (none)')
+    // Auto-detected and blocked names are newer fields too, read as none.
+    expect(text.stdout).toBe([
+      'Aliases for rival-one.example: (none)',
+      'Auto-detected from stored answers: (none)',
+      'Blocked from auto-detection: (none)',
+    ].join('\n'))
 
     const json = await invokeCli(['competitor', 'aliases', 'rotorwise', 'rival-one.example', '--format', 'json'])
     expect(json.exitCode, json.stderr).toBeUndefined()

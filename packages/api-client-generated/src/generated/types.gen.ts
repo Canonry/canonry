@@ -3517,6 +3517,13 @@ export type CitationVisibilityResponse = {
     reason?: 'no-runs-yet' | 'no-queries';
 };
 
+export type CompetitorAliasBlockRequest = {
+    /**
+     * Names to block from (or release back to) answer-derived auto-detection for this competitor. Compared by brand key, so case, spacing and punctuation variants are one name.
+     */
+    aliases: Array<string>;
+};
+
 export type CompetitorAliasesRequest = {
     /**
      * Operator-curated names this competitor goes by in answer text (at most 10, each 80 characters or fewer, at least 3 letters or digits).
@@ -3534,10 +3541,96 @@ export type CompetitorAppendRequest = {
     }>;
 };
 
+export type CompetitorAutoAliasDetectionDto = {
+    project: string;
+    applied: boolean;
+    changed: boolean;
+    scan: {
+        runs: number;
+        snapshots: number;
+        answers: number;
+        maxRuns: number;
+        maxSnapshots: number;
+        providerCitations: boolean;
+    };
+    thresholds: {
+        minDirectPairs: number;
+        minRuns: number;
+        minNamingAnswers: number;
+        minPrecision: number;
+        minLift: number;
+        minNameCasedShare: number;
+        minKeyLength: number;
+        dominanceMultiple: number;
+        removeBelowPrecision: number;
+        removeBelowLift: number;
+        removeBelowNameCasedShare: number;
+    };
+    competitors: Array<{
+        domain: string;
+        marketKeys?: Array<string>;
+        aliases: Array<string>;
+        autoAliases: Array<{
+            name: string;
+            directPairs: number;
+            cooccurrences: number;
+            namingAnswers: number;
+            precision: number;
+            lift?: number | null;
+            nameCasedAnswers?: number;
+            runs: number;
+            firstSeen: string;
+            lastSeen: string;
+            addedAt: string;
+        }>;
+        blockedAliases: Array<string>;
+        added: Array<string>;
+        removed: Array<{
+            name: string;
+            reason: 'name-shape' | 'too-few-pairs' | 'too-few-runs' | 'too-few-naming-answers' | 'low-precision' | 'low-lift' | 'lowercase-usage' | 'other-competitor-dominates' | 'no-label-affinity' | 'needs-approval' | 'subsumed' | 'too-long' | 'too-short' | 'blocked' | 'already-matched' | 'project-brand' | 'other-competitor' | 'over-limit';
+            conflictsWith?: string;
+        }>;
+        candidates: Array<{
+            name: string;
+            status: 'added' | 'kept' | 'removed' | 'review' | 'rejected';
+            reason?: 'name-shape' | 'too-few-pairs' | 'too-few-runs' | 'too-few-naming-answers' | 'low-precision' | 'low-lift' | 'lowercase-usage' | 'other-competitor-dominates' | 'no-label-affinity' | 'needs-approval' | 'subsumed' | 'too-long' | 'too-short' | 'blocked' | 'already-matched' | 'project-brand' | 'other-competitor' | 'over-limit';
+            conflictsWith?: string;
+            directPairs: number;
+            runs: number;
+            cooccurrences: number;
+            namingAnswers: number;
+            citingAnswers: number;
+            nameCasedAnswers: number;
+            precision: number | null;
+            lift: number | null;
+            otherCompetitorPairs: number;
+            labelAffinity: boolean;
+            via: Array<'openai-annotation' | 'claude-citation' | 'gemini-support' | 'perplexity-marker' | 'answer-link' | 'answer-host'>;
+            firstSeen: string;
+            lastSeen: string;
+        }>;
+    }>;
+};
+
 export type CompetitorDto = {
     id: string;
     domain: string;
     aliases: Array<string>;
+    autoAliases?: Array<{
+        name: string;
+        directPairs: number;
+        cooccurrences: number;
+        namingAnswers: number;
+        precision: number;
+        lift?: number | null;
+        nameCasedAnswers?: number;
+        runs: number;
+        firstSeen: string;
+        lastSeen: string;
+        addedAt: string;
+    }>;
+    blockedAliases?: Array<string>;
+    marketKeys?: Array<string>;
     createdAt: string;
 };
 
@@ -11792,6 +11885,7 @@ export type ProjectOverviewDto = {
         id: string;
         domain: string;
         aliases?: Array<string>;
+        autoAliasNames?: Array<string>;
         citationCount: number;
         totalQueries: number;
         pressureLabel: 'None' | 'Low' | 'Moderate' | 'High';
@@ -19620,6 +19714,142 @@ export type PutApiV1ProjectsByNameCompetitorsByDomainAliasesResponses = {
 };
 
 export type PutApiV1ProjectsByNameCompetitorsByDomainAliasesResponse = PutApiV1ProjectsByNameCompetitorsByDomainAliasesResponses[keyof PutApiV1ProjectsByNameCompetitorsByDomainAliasesResponses];
+
+export type GetApiV1ProjectsByNameCompetitorAutoAliasesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/competitor-auto-aliases';
+};
+
+export type GetApiV1ProjectsByNameCompetitorAutoAliasesErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameCompetitorAutoAliasesError = GetApiV1ProjectsByNameCompetitorAutoAliasesErrors[keyof GetApiV1ProjectsByNameCompetitorAutoAliasesErrors];
+
+export type GetApiV1ProjectsByNameCompetitorAutoAliasesResponses = {
+    /**
+     * What detection would store, per competitor, with evidence.
+     */
+    200: CompetitorAutoAliasDetectionDto;
+};
+
+export type GetApiV1ProjectsByNameCompetitorAutoAliasesResponse = GetApiV1ProjectsByNameCompetitorAutoAliasesResponses[keyof GetApiV1ProjectsByNameCompetitorAutoAliasesResponses];
+
+export type PostApiV1ProjectsByNameCompetitorAutoAliasesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/competitor-auto-aliases';
+};
+
+export type PostApiV1ProjectsByNameCompetitorAutoAliasesErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameCompetitorAutoAliasesError = PostApiV1ProjectsByNameCompetitorAutoAliasesErrors[keyof PostApiV1ProjectsByNameCompetitorAutoAliasesErrors];
+
+export type PostApiV1ProjectsByNameCompetitorAutoAliasesResponses = {
+    /**
+     * What detection stored, per competitor, with evidence.
+     */
+    200: CompetitorAutoAliasDetectionDto;
+};
+
+export type PostApiV1ProjectsByNameCompetitorAutoAliasesResponse = PostApiV1ProjectsByNameCompetitorAutoAliasesResponses[keyof PostApiV1ProjectsByNameCompetitorAutoAliasesResponses];
+
+export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesBlockData = {
+    body: CompetitorAliasBlockRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Tracked competitor domain (any spelling of it; it is reduced to the stored registrable domain, and a row stored as a subdomain is found too). A competitor stored as two rows is refused (400) rather than one picked.
+         */
+        domain: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/competitors/{domain}/aliases/block';
+};
+
+export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesBlockErrors = {
+    /**
+     * Invalid names, or a name is a curated alias.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or competitor not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesBlockError = PostApiV1ProjectsByNameCompetitorsByDomainAliasesBlockErrors[keyof PostApiV1ProjectsByNameCompetitorsByDomainAliasesBlockErrors];
+
+export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesBlockResponses = {
+    /**
+     * Competitor with its updated blocked and auto-detected names returned.
+     */
+    200: CompetitorDto;
+};
+
+export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesBlockResponse = PostApiV1ProjectsByNameCompetitorsByDomainAliasesBlockResponses[keyof PostApiV1ProjectsByNameCompetitorsByDomainAliasesBlockResponses];
+
+export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesUnblockData = {
+    body: CompetitorAliasBlockRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Tracked competitor domain (any spelling of it; it is reduced to the stored registrable domain, and a row stored as a subdomain is found too). A competitor stored as two rows is refused (400) rather than one picked.
+         */
+        domain: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/competitors/{domain}/aliases/unblock';
+};
+
+export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesUnblockErrors = {
+    /**
+     * Invalid names.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or competitor not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesUnblockError = PostApiV1ProjectsByNameCompetitorsByDomainAliasesUnblockErrors[keyof PostApiV1ProjectsByNameCompetitorsByDomainAliasesUnblockErrors];
+
+export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesUnblockResponses = {
+    /**
+     * Competitor with its updated blocked names returned.
+     */
+    200: CompetitorDto;
+};
+
+export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesUnblockResponse = PostApiV1ProjectsByNameCompetitorsByDomainAliasesUnblockResponses[keyof PostApiV1ProjectsByNameCompetitorsByDomainAliasesUnblockResponses];
 
 export type DeleteApiV1ProjectsByNameCompetitorsByIdData = {
     body?: never;

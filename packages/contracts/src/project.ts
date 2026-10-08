@@ -9,6 +9,7 @@ import { gbpNegativeReviewMaxStarsSchema } from './gbp.js'
 import { siteAuditPageBudgetSchema } from './technical-aeo.js'
 import { MIN_DOMAIN_BRAND_KEY_LENGTH } from './answer-visibility.js'
 import { competitorEntrySchema, type CompetitorAliasProjectIdentity } from './competitor-aliases.js'
+import { competitorAutoAliasSchema } from './competitor-auto-aliases.js'
 
 export const configSourceSchema = z.enum(['cli', 'api', 'config-file'])
 export type ConfigSource = z.infer<typeof configSourceSchema>
@@ -263,6 +264,21 @@ export const competitorDtoSchema = z.object({
    * `[]` means the domain label alone identifies it.
    */
   aliases: z.array(z.string()),
+  /**
+   * Names detected automatically from the project's own stored answers, each
+   * with the evidence that applied it. Matched exactly like curated aliases
+   * (curated wins a conflict). Absent from servers before auto-detection.
+   */
+  autoAliases: z.array(competitorAutoAliasSchema).optional(),
+  /** Names the operator blocked from auto-detection; never applied again until unblocked. */
+  blockedAliases: z.array(z.string()).optional(),
+  /**
+   * Present only on a block or unblock of a competitor an Advanced market pins
+   * without tracking it project-wide: the active plan's markets (group keys)
+   * that pin it. Its `aliases` are then its plan label and aliases, and `id`
+   * names its stored market names, not a project competitor.
+   */
+  marketKeys: z.array(z.string()).optional(),
   createdAt: z.string(),
 })
 

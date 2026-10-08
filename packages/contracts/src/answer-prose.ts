@@ -103,8 +103,14 @@ function isSourceAddress(value: string): boolean {
   return pathStart !== -1 || host === host.toLowerCase()
 }
 
-/** True when a link label points at a source rather than naming something. */
-function isCitationLabel(label: string): boolean {
+/**
+ * True when a markdown link label points at a source rather than naming
+ * something: a URL, an address with a path, a lowercase host, or a citation
+ * token. `[Bayside Flats](https://...)` names Bayside Flats; `[bayside.example](https://...)`
+ * cites a source. Competitor auto-alias detection reads a named link as the
+ * answer pairing that name with the link's site.
+ */
+export function isCitationLabel(label: string): boolean {
   const core = label.replace(LABEL_DECORATION_START, '').replace(LABEL_DECORATION_END, '')
   if (core === '') return true
   if (CITATION_WORD.test(core)) return true

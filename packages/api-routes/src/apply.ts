@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { projects, schedules, notifications, readNegativeReviewMaxStars, writeNegativeReviewMaxStars } from '@ainyc/canonry-db'
 import { competitorAliasProjectIdentity, forbidden, nextScheduleUpdatedAt, normalizeProjectAliases, projectConfigSchema, resolveConfigSpecQueries, resolveProjectQualifiedAliases, SchedulableRunKinds, validationError, describeError } from '@ainyc/canonry-contracts'
-import { competitorAliasAuditFields, competitorNames, competitorWritesFromEntries, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
+import { competitorAliasAuditFields, competitorIdentityChanged, competitorNames, competitorWritesFromEntries, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
 import type { ProviderAdapterInfo } from './settings.js'
 import { pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
 import { writeAuditLog } from './helpers.js'
@@ -23,6 +23,8 @@ export interface ApplyRoutesOptions {
   onAliasesChanged?: (projectId: string, projectName: string) => void
   /** See `CompetitorRoutesOptions.onCompetitorAliasesChanged`. */
   onCompetitorAliasesChanged?: (projectId: string, projectName: string) => void
+  /** See `CompetitorRoutesOptions.onCompetitorAutoAliasRescan`; fired when apply adds a competitor. */
+  onCompetitorAutoAliasRescan?: (projectId: string, projectName: string) => void
   onGoogleConnectionPropertyUpdated?: (domain: string, connectionType: 'gsc' | 'ga4', propertyId: string) => void
   /** Full descriptors from registered adapters — used to reject unknown providers and invalid model overrides. */
   providerAdapters?: ProviderAdapterInfo[]
@@ -187,7 +189,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
 
     // All validation done — wrap all writes in a single transaction
     let projectId: string
-    const lifecycle = { projectCreated: false, competitorAliasesChanged: false }
+    const lifecycle = { projectCreated: false, competitorAliasesChanged: false, competitorsAdded: false }
     let scheduleAction: 'upsert' | 'delete' | null = null
     let aliasesChanged = false
 
@@ -315,7 +317,8 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         project: specAliasIdentity,
         now,
       })
-      lifecycle.competitorAliasesChanged = !lifecycle.projectCreated && competitorPlan.aliasChanges.length > 0
+      lifecycle.competitorAliasesChanged = !lifecycle.projectCreated && competitorIdentityChanged(competitorPlan)
+      lifecycle.competitorsAdded = !lifecycle.projectCreated && competitorPlan.added.length > 0
 
       writeAuditLog(tx, {
         projectId,
@@ -436,6 +439,9 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       opts?.onAliasesChanged?.(projectId!, config.metadata.name)
     } else if (lifecycle.competitorAliasesChanged) {
       opts?.onCompetitorAliasesChanged?.(projectId!, config.metadata.name)
+    }
+    if (lifecycle.competitorsAdded) {
+      opts?.onCompetitorAutoAliasRescan?.(projectId!, config.metadata.name)
     }
     if ('google' in rawSpec && config.spec.google?.gsc?.propertyUrl) {
       opts?.onGoogleConnectionPropertyUpdated?.(config.spec.canonicalDomain, 'gsc', config.spec.google.gsc.propertyUrl)

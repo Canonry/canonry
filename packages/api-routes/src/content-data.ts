@@ -51,6 +51,7 @@ import {
   type DiscoveryCompetitorType,
 } from '@ainyc/canonry-contracts'
 import { notProbeRun } from './helpers.js'
+import { competitorIdentityColumns } from './competitor-writes.js'
 
 const RECENT_RUNS_WINDOW = 5
 
@@ -244,9 +245,10 @@ function listQueries(db: DatabaseClient, projectId: string): string[] {
 
 function listCompetitors(db: DatabaseClient, projectId: string): CompetitorIdentityInput[] {
   return db
-    .select({ domain: competitorsTable.domain, aliases: competitorsTable.aliases })
+    .select(competitorIdentityColumns)
     .from(competitorsTable)
     .where(eq(competitorsTable.projectId, projectId))
+    .orderBy(competitorsTable.domain)
     .all()
 }
 

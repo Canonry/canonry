@@ -21,6 +21,7 @@ import { SentimentService, type SentimentServiceOptions } from './sentiment-serv
 import { buildMentionShareInputs } from './mention-share-inputs.js'
 import {
   CitationStates,
+  competitorAutoAliasNames,
   formatPercent,
   PROJECT_OVERVIEW_QUERY_CLASS_SCOPE,
   parseRunError,
@@ -220,6 +221,7 @@ export async function compositeRoutes(app: FastifyInstance, options: { sentiment
       .select()
       .from(competitors)
       .where(eq(competitors.projectId, project.id))
+      .orderBy(competitors.domain)
       .all()
     const queryLookup = { byId: new Map(projectQueries.map(q => [q.id, q.query])) }
     for (const snapshots of snapshotsByRun.values()) {
@@ -306,7 +308,7 @@ export async function compositeRoutes(app: FastifyInstance, options: { sentiment
     })
     const overviewCompetitors: ProjectOverviewCompetitorDto[] = buildOverviewCompetitors(
       trackedLatest,
-      competitorRows.map(c => ({ id: c.id, domain: c.domain, aliases: c.aliases })),
+      competitorRows.map(c => ({ id: c.id, domain: c.domain, aliases: c.aliases, autoAliasNames: competitorAutoAliasNames(c) })),
       queryLookup,
     )
     const attentionItems = buildAttentionItems(insightRows, allRuns)

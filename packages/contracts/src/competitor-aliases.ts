@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { MIN_BRAND_ALIAS_KEY_LENGTH, MIN_DOMAIN_BRAND_KEY_LENGTH, usableBrandAliases } from './answer-visibility.js'
-import { brandKeyFromText, textContainsBrandAlias } from './brand-matching.js'
+import { brandKeyFromText, textContainsAnyBrandAlias, textContainsBrandAlias } from './brand-matching.js'
 import { validationError } from './errors.js'
 import { brandLabelFromDomain, hostMatchesDomain, hostOf, normalizeCompetitorDomain } from './url-normalize.js'
 
@@ -29,7 +29,16 @@ export const COMPETITOR_ALIAS_MAX_LENGTH = 80
 /** A stored competitor as the matchers read it. */
 export interface CompetitorIdentityInput {
   domain: string
+  /** Operator-curated aliases (`competitors.aliases`). */
   aliases?: readonly string[] | null
+  /**
+   * Names detected from the project's own stored answers
+   * (`competitors.auto_aliases`, see `competitor-auto-aliases.ts`). Read by
+   * name only; the evidence fields ride along unread.
+   */
+  autoAliases?: readonly { name: unknown }[] | null
+  /** Names the operator blocked from auto-detection (`competitors.blocked_aliases`). */
+  blockedAliases?: readonly string[] | null
 }
 
 /**
@@ -54,15 +63,46 @@ export function normalizeCompetitorAliases(aliases: readonly string[] | null | u
 }
 
 /**
- * The names a competitor goes by in answer prose: its curated aliases (alias
- * floor) plus its domain label when that label passes the domain floor. Used by
- * matchers that check the written host separately.
+ * Every alias a competitor answers to besides its domain: its curated aliases,
+ * then its auto-detected names, minus any name the operator blocked (compared
+ * by brand key). Curated spellings win a case-insensitive tie. This is the one
+ * list every reader matches and every frozen identity records, so curated and
+ * auto names count the same way on every surface.
+ */
+export function competitorIdentityAliases(competitor: CompetitorIdentityInput): string[] {
+  const curated = normalizeCompetitorAliases(competitor.aliases)
+  const auto = (competitor.autoAliases ?? [])
+    .map(entry => entry.name)
+    // Stored JSON: a malformed entry is skipped, never matched.
+    .filter((name): name is string => typeof name === 'string')
+  if (auto.length === 0) return curated
+  const blocked = new Set(normalizeCompetitorAliases(competitor.blockedAliases).map(brandKeyFromText))
+  return normalizeCompetitorAliases([
+    ...curated,
+    ...auto.filter(name => !blocked.has(brandKeyFromText(name))),
+  ])
+}
+
+/**
+ * The auto-detected names a competitor answers to: `competitorIdentityAliases`
+ * minus its curated aliases. For display ("auto" next to curated names).
+ */
+export function competitorAutoAliasNames(competitor: CompetitorIdentityInput): string[] {
+  const curated = new Set(normalizeCompetitorAliases(competitor.aliases).map(alias => alias.toLowerCase()))
+  return competitorIdentityAliases(competitor).filter(name => !curated.has(name.toLowerCase()))
+}
+
+/**
+ * The names a competitor goes by in answer prose: its aliases
+ * (`competitorIdentityAliases`, alias floor) plus its domain label when that
+ * label passes the domain floor. Used by matchers that check the written host
+ * separately.
  */
 export function competitorNameAliases(competitor: CompetitorIdentityInput): string[] {
   const label = brandLabelFromDomain(competitor.domain)
   return usableBrandAliases([
     ...(brandKeyFromText(label).length >= MIN_DOMAIN_BRAND_KEY_LENGTH ? [label] : []),
-    ...normalizeCompetitorAliases(competitor.aliases),
+    ...competitorIdentityAliases(competitor),
   ])
 }
 
@@ -670,6 +710,236 @@ export function requireCompetitorAliasPlan(
     maxLength: COMPETITOR_ALIAS_MAX_LENGTH,
     minKeyLength: MIN_BRAND_ALIAS_KEY_LENGTH,
   })
+}
+
+export type CompetitorAutoAliasDropReason =
+  | 'too-long'
+  | 'too-short'
+  | 'blocked'
+  | 'already-matched'
+  | 'subsumed'
+  | 'project-brand'
+  | 'other-competitor'
+  | 'over-limit'
+
+export interface CompetitorAutoAliasPlanEntry {
+  domain: string
+  /** The competitor's curated aliases as they will be stored. */
+  aliases: readonly string[]
+  /** Auto names stored now, in stored order. */
+  autoAliases: readonly string[]
+  /** Newly detected names, strongest evidence first. */
+  candidates?: readonly string[]
+  /** Names the operator blocked from auto-detection. */
+  blockedAliases?: readonly string[] | null
+}
+
+export interface CompetitorAutoAliasDrop {
+  domain: string
+  alias: string
+  reason: CompetitorAutoAliasDropReason
+  /** True for a stored auto name that no longer qualifies; false for a new candidate. */
+  stored: boolean
+  /** The other competitor involved ('other-competitor'). */
+  conflictsWith?: string
+  /** The name the alias overlaps, when it is a different name. */
+  conflictingName?: string
+}
+
+export interface CompetitorAutoAliasPlan {
+  /** Every entry's auto names after the plan: kept stored names first, then accepted candidates. */
+  competitors: { domain: string; autoAliases: string[] }[]
+  dropped: CompetitorAutoAliasDrop[]
+}
+
+/**
+ * Plan every competitor's AUTO-DETECTED names together, after the curated
+ * plan. Auto names follow the same identity rules as curated aliases
+ * (`planCompetitorAliases`), but they never fail a write: a name that does not
+ * qualify is dropped and reported. Precedence is fixed, so the outcome for
+ * new names never depends on the order of the competitors (one competitor's
+ * candidates are taken in the order given, and a later one that contains an
+ * accepted one is subsumed, so callers pass the shortest first):
+ *
+ * 1. Curated identity wins. An auto name is dropped when its brand key is
+ *    shorter than the domain-label floor (`MIN_DOMAIN_BRAND_KEY_LENGTH`: a
+ *    derived name, like a derived domain label, needs an operator's approval
+ *    to count at 3 letters), when its brand key is blocked for that
+ *    competitor, when the competitor's own identity already matches it as
+ *    complete words (its domain label at the domain floor, a curated alias,
+ *    or a kept auto name it contains: 'already-matched'; a new candidate
+ *    that contains an earlier accepted candidate of the same competitor:
+ *    'subsumed'), when it overlaps a project name or host ('project-brand'),
+ *    or when it overlaps another competitor's domain identity or curated
+ *    alias, or any name of a market pin of another registrable domain
+ *    (`marketPins`, the pins the curated rules take: its label, curated
+ *    aliases, domain label and host; 'other-competitor', `conflictsWith` the
+ *    pin). A competitor's own pins never drop its own names: outside their
+ *    markets they name nothing. A blocked name is dropped before it can
+ *    subsume anything, so blocking a short name frees the longer ones. An
+ *    operator never has to remove an auto name to write a curated one, and
+ *    adding a competitor never fails because another competitor carries an
+ *    auto name its domain claims.
+ * 2. Stored auto names beat new candidates. A stored name that overlaps
+ *    another competitor's earlier stored auto name is dropped (only possible
+ *    after an identity change), and a new candidate that overlaps any other
+ *    competitor's kept auto name is dropped.
+ * 3. New candidates of two competitors that overlap each other are BOTH
+ *    dropped: neither answer-derived claim is safe to count.
+ *
+ * At most `COMPETITOR_ALIAS_LIMIT` auto names per competitor, stored first.
+ */
+export function planCompetitorAutoAliases(
+  entries: readonly CompetitorAutoAliasPlanEntry[],
+  project: CompetitorAliasProjectIdentity,
+  /** The competitors the project's Advanced markets pin (`readMarketCompetitorPins` in api-routes). */
+  marketPins: readonly CompetitorAliasMarketPin[] = [],
+): CompetitorAutoAliasPlan {
+  const projectNames = [
+    ...project.brandNames,
+    ...project.domains.map(domain => hostOf(domain) ?? domain.trim().toLowerCase()),
+  ].map(identityName).filter(name => name.key)
+  const prepared = entries.map(entry => ({
+    domain: entry.domain,
+    competitorKey: normalizeCompetitorDomain(entry.domain),
+    domainNames: competitorBrandAliases({ domain: entry.domain }).map(identityName),
+    curatedNames: usableBrandAliases(normalizeCompetitorAliases(entry.aliases)).map(identityName),
+    ownNames: competitorNameAliases({ domain: entry.domain, aliases: entry.aliases }),
+    blocked: new Set(normalizeCompetitorAliases(entry.blockedAliases).map(brandKeyFromText)),
+    stored: normalizeCompetitorAliases(entry.autoAliases),
+    candidates: normalizeCompetitorAliases(entry.candidates ?? []),
+  }))
+  const pins = marketPins.map(pin => ({
+    domain: pin.domain,
+    competitorKey: normalizeCompetitorDomain(pin.domain),
+    names: marketPinNames(pin),
+  }))
+  const dropped: CompetitorAutoAliasDrop[] = []
+
+  /** Rules that need no other auto name: shape, block, own identity, project, other competitors' curated identity and market pins. */
+  const baseRejection = (index: number, alias: string, stored: boolean): CompetitorAutoAliasDrop | null => {
+    const entry = prepared[index]!
+    const name = identityName(alias)
+    const drop = (reason: CompetitorAutoAliasDropReason, extra: Partial<CompetitorAutoAliasDrop> = {}): CompetitorAutoAliasDrop =>
+      ({ domain: entry.domain, alias, reason, stored, ...extra })
+    if (alias.length > COMPETITOR_ALIAS_MAX_LENGTH) return drop('too-long')
+    if (name.key.length < MIN_DOMAIN_BRAND_KEY_LENGTH) return drop('too-short')
+    if (entry.blocked.has(name.key)) return drop('blocked')
+    if (textContainsAnyBrandAlias(alias, entry.ownNames)) return drop('already-matched')
+    const claim = overlappingName(name, projectNames)
+    if (claim) return drop('project-brand', conflictingNameField(name, claim))
+    for (let other = 0; other < prepared.length; other++) {
+      const otherEntry = prepared[other]!
+      if (other === index || otherEntry.competitorKey === entry.competitorKey) continue
+      const overlap = overlappingName(name, otherEntry.domainNames) ?? overlappingName(name, otherEntry.curatedNames)
+      if (overlap) return drop('other-competitor', { conflictsWith: otherEntry.domain, ...conflictingNameField(name, overlap) })
+    }
+    for (const pin of pins) {
+      if (pin.competitorKey === entry.competitorKey) continue
+      const overlap = overlappingName(name, pin.names)
+      if (overlap) return drop('other-competitor', { conflictsWith: pin.domain, ...conflictingNameField(name, overlap) })
+    }
+    return null
+  }
+
+  /** The first auto name of another competitor in `names` that `alias` overlaps. */
+  const otherAutoOverlap = (
+    index: number,
+    alias: IdentityName,
+    names: readonly { index: number; name: IdentityName }[],
+  ): { index: number; name: IdentityName } | undefined => names.find(entry =>
+    entry.index !== index
+    && prepared[entry.index]!.competitorKey !== prepared[index]!.competitorKey
+    && namesOverlap(alias, entry.name))
+
+  // Stored names first, in entry order (callers pass competitors sorted by
+  // domain, so the competitor whose domain sorts first keeps an overlapping
+  // stored name).
+  const kept: { index: number; name: IdentityName }[] = []
+  const keptByEntry = prepared.map(() => [] as string[])
+  prepared.forEach((entry, index) => {
+    for (const alias of entry.stored) {
+      const name = identityName(alias)
+      const rejection = baseRejection(index, alias, true)
+      if (rejection) { dropped.push(rejection); continue }
+      const conflict = otherAutoOverlap(index, name, kept)
+      if (conflict) {
+        dropped.push({
+          domain: entry.domain,
+          alias,
+          reason: 'other-competitor',
+          stored: true,
+          conflictsWith: prepared[conflict.index]!.domain,
+          ...conflictingNameField(name, conflict.name),
+        })
+        continue
+      }
+      kept.push({ index, name })
+      keptByEntry[index]!.push(alias)
+    }
+  })
+
+  // New candidates, in entry order (the caller passes the shortest first, so
+  // a passing short name subsumes the longer ones built on it): checked
+  // against every kept name, then against each other.
+  const fresh: { index: number; name: IdentityName }[] = []
+  prepared.forEach((entry, index) => {
+    const storedKeys = new Set(keptByEntry[index]!.map(brandKeyFromText))
+    const acceptedHere: string[] = []
+    for (const alias of entry.candidates) {
+      const name = identityName(alias)
+      if (storedKeys.has(name.key)) continue
+      const rejection = baseRejection(index, alias, false)
+      if (rejection) { dropped.push(rejection); continue }
+      if (textContainsAnyBrandAlias(alias, keptByEntry[index]!)) {
+        dropped.push({ domain: entry.domain, alias, reason: 'already-matched', stored: false })
+        continue
+      }
+      if (textContainsAnyBrandAlias(alias, acceptedHere)) {
+        dropped.push({ domain: entry.domain, alias, reason: 'subsumed', stored: false })
+        continue
+      }
+      const conflict = otherAutoOverlap(index, name, kept)
+      if (conflict) {
+        dropped.push({
+          domain: entry.domain,
+          alias,
+          reason: 'other-competitor',
+          stored: false,
+          conflictsWith: prepared[conflict.index]!.domain,
+          ...conflictingNameField(name, conflict.name),
+        })
+        continue
+      }
+      fresh.push({ index, name })
+      acceptedHere.push(alias)
+    }
+  })
+  const accepted = fresh.filter((candidate) => {
+    const conflict = otherAutoOverlap(candidate.index, candidate.name, fresh)
+    if (!conflict) return true
+    dropped.push({
+      domain: prepared[candidate.index]!.domain,
+      alias: candidate.name.name,
+      reason: 'other-competitor',
+      stored: false,
+      conflictsWith: prepared[conflict.index]!.domain,
+      ...conflictingNameField(candidate.name, conflict.name),
+    })
+    return false
+  })
+
+  const competitors = prepared.map((entry, index) => {
+    const names = [
+      ...keptByEntry[index]!,
+      ...accepted.filter(candidate => candidate.index === index).map(candidate => candidate.name.name),
+    ]
+    for (const alias of names.slice(COMPETITOR_ALIAS_LIMIT)) {
+      dropped.push({ domain: entry.domain, alias, reason: 'over-limit', stored: keptByEntry[index]!.includes(alias) })
+    }
+    return { domain: entry.domain, autoAliases: names.slice(0, COMPETITOR_ALIAS_LIMIT) }
+  })
+  return { competitors, dropped }
 }
 
 const competitorAliasListSchema = z.array(z.string())

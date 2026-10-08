@@ -2213,7 +2213,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'put',
     path: '/api/v1/projects/{name}/competitors/{domain}/aliases',
     summary: 'Set competitor aliases',
-    description: 'Sets one tracked competitor\'s operator-curated aliases exactly (`[]` clears): the names it goes by in answer text when they differ from its domain. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) layers them onto the domain label at read time; stored per-snapshot competitor columns are recomputed (after the response on local serve, inside the request on Cloud), and frozen Simple run definitions and Advanced plan revisions keep the identity they were measured with. Aliases are trimmed and deduplicated case-insensitively; at most 10, each 80 characters or fewer with at least 3 letters or digits, and no brand key (letters and digits, case and punctuation folded) that contains, or sits inside, one of the project\'s own names or hosts or a name another tracked competitor answers to (its aliases, domain label or written host), because answers may split or join the words: "Tune" cannot belong to one competitor while another answers to "Tune Spoke", "TuneSpoke" or `tunespoke.example`, and joined-word lookalikes ("Tune" and "Tuner") are refused too. A competitor an Advanced market pins (active revision, pending draft, or a superseded revision the project\'s runs were measured under, named in `supersededRevision`, since those runs are still scored with it) counts as another competitor: an overlap with its label, aliases, domain label or host is rejected with reason `market-competitor` and the pinning group keys in `markets`, and another competitor\'s stored alias that already overlaps one is dropped and audited. Idempotent: an unchanged list writes nothing.',
+    description: 'Sets one tracked competitor\'s operator-curated aliases exactly (`[]` clears): the names it goes by in answer text when they differ from its domain. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) layers them onto the domain label at read time; stored per-snapshot competitor columns are recomputed (after the response on local serve, inside the request on Cloud), and frozen Simple run definitions and Advanced plan revisions keep the identity they were measured with. Names detected automatically from the project\'s stored answers (`autoAliases`) are matched the same way; a curated alias always wins, so an auto name the new list overlaps is dropped, never the write. Aliases are trimmed and deduplicated case-insensitively; at most 10, each 80 characters or fewer with at least 3 letters or digits, and no brand key (letters and digits, case and punctuation folded) that contains, or sits inside, one of the project\'s own names or hosts or a name another tracked competitor answers to (its aliases, domain label or written host), because answers may split or join the words: "Tune" cannot belong to one competitor while another answers to "Tune Spoke", "TuneSpoke" or `tunespoke.example`, and joined-word lookalikes ("Tune" and "Tuner") are refused too. A competitor an Advanced market pins (active revision, pending draft, or a superseded revision the project\'s runs were measured under, named in `supersededRevision`, since those runs are still scored with it) counts as another competitor: an overlap with its label, aliases, domain label or host is rejected with reason `market-competitor` and the pinning group keys in `markets`, and another competitor\'s stored alias that already overlaps one is dropped and audited. Idempotent: an unchanged list writes nothing.',
     tags: ['competitors'],
     parameters: [nameParameter, competitorDomainParameter],
     requestBody: {
@@ -2231,10 +2231,76 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/projects/{name}/competitor-auto-aliases',
+    summary: 'Preview answer-derived competitor aliases',
+    description: 'Dry run of automatic competitor alias detection. Reads only the project\'s stored answers (the newest 60 completed or partial answer-visibility runs and at most 6000 snapshots, stopping inside a run when the cap falls there; probe runs excluded): never a provider, never a competitor\'s website. A name is paired with a competitor when the answer ties it to that competitor\'s site (a provider citation anchoring the name to a page on the domain, a named link `[Name](https://competitor.example/...)`, or `Name (competitor.example)`). It is applied when it is paired in at least 2 answers from at least 2 sweeps (runs started together, one multi-location sweep, count once), at least 3 answers name it, at least 10% of those answers cite the competitor (precision), the competitor is cited at least 3 times as often in answers naming it as in answers that do not (lift, which is what rejects a generic phrase a much-cited competitor sits next to), at least 75% of those answers write it capitalized as a name, it reads as a business name, its brand key has at least 4 letters or digits, this competitor holds at least twice the pairings of any other tracked competitor, and the name visibly belongs to the domain (label affinity). Candidates that pass everything but label affinity (`no-label-affinity`) or the 4-character floor (`needs-approval`) are listed as `review` only, for an operator to verify and add as curated aliases. Applied names pass the same identity rules as curated aliases; curated aliases and blocked names always win. Concurrent dry runs of one project share one scan. Writes nothing.',
+    tags: ['competitors'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('What detection would store, per competitor, with evidence.', 'CompetitorAutoAliasDetectionDto'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/competitor-auto-aliases',
+    summary: 'Detect and apply answer-derived competitor aliases',
+    description: 'Runs the detection `GET /projects/{name}/competitor-auto-aliases` previews and stores the result, as the server does after every completed answer-visibility run and whenever a competitor is added, through the same per-project queue, so it never runs beside one of those passes and returns the result of a pass that started after the request. Stored names are sticky: one is removed only when blocked, claimed by curated identity or another competitor, or clearly contradicted by the scanned answers (named in at least 3, and cited in under 5% of them, a lift under 1.5, or written as a name in under half). Idempotent: unchanged answers write nothing. A change to the names is audited (`competitors.auto-aliases-updated`, actor `system`) and recomputes the stored per-snapshot competitor columns in the background. Competitor names do not break comparison with the previous sweep: the Simple definition identity that gates it leaves them out.',
+    tags: ['competitors'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('What detection stored, per competitor, with evidence.', 'CompetitorAutoAliasDetectionDto'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/competitors/{domain}/aliases/block',
+    summary: 'Block competitor auto-aliases',
+    description: 'Blocks names from answer-derived auto-detection for one tracked competitor: a blocked name is never auto-applied again until unblocked, and a stored auto name among them is removed now (the stored competitor columns are then recomputed in the background). Names compare by brand key, so case, spacing and punctuation variants are one name. A curated alias cannot be blocked (400); remove it with `PUT /projects/{name}/competitors/{domain}/aliases`. At most 50 blocked names per competitor. Idempotent.',
+    tags: ['competitors'],
+    parameters: [nameParameter, competitorDomainParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/CompetitorAliasBlockRequest' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Competitor with its updated blocked and auto-detected names returned.', 'CompetitorDto'),
+      400: errorResponse('Invalid names, or a name is a curated alias.'),
+      404: errorResponse('Project or competitor not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/competitors/{domain}/aliases/unblock',
+    summary: 'Unblock competitor auto-aliases',
+    description: 'Releases blocked names back to answer-derived auto-detection for one tracked competitor. Nothing is applied by the unblock itself; a detection pass is requested and applies a name only if the stored answers still support it. Idempotent.',
+    tags: ['competitors'],
+    parameters: [nameParameter, competitorDomainParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/CompetitorAliasBlockRequest' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Competitor with its updated blocked names returned.', 'CompetitorDto'),
+      400: errorResponse('Invalid names.'),
+      404: errorResponse('Project or competitor not found.'),
+    },
+  },
+  {
     method: 'delete',
     path: '/api/v1/projects/{name}/competitors',
     summary: 'Delete specific competitors',
-    description: 'Removes every stored row that is one of the listed competitors in any spelling (`www.`, a subdomain, or a row stored as a subdomain), and records their curated aliases on the audit row.',
+    description: 'Removes every stored row that is one of the listed competitors in any spelling (`www.`, a subdomain, or a row stored as a subdomain), and records their curated, auto-detected and blocked names on the audit row.',
     tags: ['competitors'],
     parameters: [nameParameter],
     requestBody: {

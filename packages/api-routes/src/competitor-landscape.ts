@@ -12,6 +12,7 @@ import {
 } from '@ainyc/canonry-db'
 import {
   brandLabelFromDomain,
+  competitorIdentityAliases,
   competitorLandscapeQuerySchema,
   COMPETITOR_LANDSCAPE_COUNT_UNITS,
   COMPETITOR_LANDSCAPE_MODEL_GROUP_LIMIT,
@@ -25,6 +26,7 @@ import {
   RunKinds,
   RunStatuses,
   measurementDraftEtag,
+  normalizeCompetitorDomain,
   surfaceClassFromCompetitorType,
   validationError,
   windowCutoff,
@@ -41,6 +43,8 @@ import { latestMeasurementRun, measurementPlanV2ReportTargets, measurementSnapsh
 import { measurementRunCompleteness } from './measurement-run-completeness.js'
 import { classifyModelEvidence } from './model-evidence.js'
 import { createTargetMentionReader } from './measurement-report.js'
+import { competitorIdentityColumns } from './competitor-writes.js'
+import { readMarketCompetitorNames } from './market-competitor-names.js'
 
 type RawQuery = {
   window?: string
@@ -270,19 +274,28 @@ export function readCompetitorLandscape(
       classifications.set(domain, surfaceClass)
     }
 
-    // Curated aliases reinterpret stored history at read time, like the pin
-    // itself; the generated domain label stays the display label.
-    const projectPins = app.db.select({ domain: competitors.domain, aliases: competitors.aliases })
+    // Curated and auto-detected aliases reinterpret stored history at read
+    // time, like the pin itself; the generated domain label stays the display label.
+    const projectPins = app.db.select(competitorIdentityColumns)
       .from(competitors)
       .where(eq(competitors.projectId, project.id))
+      .orderBy(competitors.domain)
       .all()
       .map(row => ({
         domain: row.domain,
         label: brandLabelFromDomain(row.domain) || row.domain,
         labelSource: 'domain' as const,
-        aliases: row.aliases,
+        aliases: competitorIdentityAliases(row),
       }))
-    const pinned = mergePins(advanced?.pendingPins ?? [], advanced?.activePinned ?? [], projectPins)
+    const marketPinned = mergePins(advanced?.pendingPins ?? [], advanced?.activePinned ?? [], projectPins)
+    // Names learned for a competitor only a market pins reinterpret history
+    // like a project pin's auto names do, and only on that pin: never a new
+    // pin, never a project competitor's.
+    const marketNames = advanced ? readMarketCompetitorNames(app.db, project.id) : new Map<string, string[]>()
+    const pinned = marketNames.size === 0 ? marketPinned : mergePins(marketPinned, marketPinned.flatMap((pin) => {
+      const learned = marketNames.get(normalizeCompetitorDomain(pin.domain))
+      return learned ? [{ domain: pin.domain, label: pin.label, labelSource: 'domain' as const, aliases: learned }] : []
+    }))
     const buildHistory = (selectedSnapshots: typeof snapshots) => {
       const inputs = buildMentionShareInputs({ project, competitors: [], snapshots: selectedSnapshots, queryTextById })
       // Sorted by answer count, so the cap keeps the most-named. On a large

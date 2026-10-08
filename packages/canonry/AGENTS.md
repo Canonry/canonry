@@ -93,7 +93,7 @@ Rules for `canonry-mcp`, hosted MCP catalogs, guidance generation, MCP parity, a
 File-level rules for the MCP pieces in this package:
 
 - `src/mcp/server.ts` — `createCanonryMcpServer` registers all API tools, then disables non-core tiers unless `--eager`.
-- `src/mcp/tool-registry.ts` — all 246 API tools, including Site Health semantic graph and page-audit evidence reads, sitemap Target discovery, and revision-pinned measurement reports, each tagged with a `tier` (`core` or one of the toolkit names).
+- `src/mcp/tool-registry.ts` — all 250 API tools, including Site Health semantic graph and page-audit evidence reads, sitemap Target discovery, and revision-pinned measurement reports, each tagged with a `tier` (`core` or one of the toolkit names).
 - `src/mcp/cli.ts` — `canonry-mcp` stdio entrypoint; parses `--read-only`, `--eager`, `--scope`, plus `CANONRY_MCP_*` env. `resolveEffectiveScope()` best-effort probes `GET /keys/self` at startup and forces `read-only` when the configured key is read-only (auto-restricts the catalog to read tools; falls back to the flag scope on any probe failure).
 - `src/mcp/operations-guide.ts` — compact intent routing filtered against the connection's loaded tools; generated source is `docs/agent-operations/v1.md`. No provider calls or permission grants.
 - `src/commands/mcp.ts` — MCP client install helpers: `mcp install`, `mcp config` (writes to client config files only — separate from the `canonry-mcp` stdio bin). `src/mcp-clients.ts` is the registry of supported MCP clients (Claude Desktop, Cursor, Codex) — config-path resolvers and format hints used by `mcp install`/`mcp config`.
@@ -217,14 +217,30 @@ This capture does not reconstruct historical definitions.
 
 Simple and Advanced snapshots use `isSearchLocationIgnored` to clear a search-tool location when retrieval is `not-used`. Preserve the requested location in `requestedContext` and record `supportedContext.status: 'ignored'` for these answers.
 
-A curated competitor alias saved while a sweep, fill or batch ingest is
-recording is applied once by `onCompetitorAliasesChanged`; each writer then
-calls `reconcileRunCompetitorFields` after its last write (success, cancel or
-failure) and rescores its own run against the current competitor names when
-they changed after it read them. `test/job-runner-competitor-alias-edits.test.ts`
+An identity change (a curated competitor alias saved, a detection pass that
+changes auto-detected or market names, a market pin write that claims or
+releases one, or a project alias edit) while a
+sweep, fill or batch ingest is recording is applied once by
+`onCompetitorAliasesChanged` or `onAliasesChanged`; each writer then calls
+`reconcileRunAnswerFields` after its last write (success, cancel or failure)
+and rescores its own run when the identity it read (`answerIdentityFrom`,
+api-routes `src/answer-identity.ts`: project names and domains, every
+competitor's curated plus auto names minus blocked, learned market names) is
+no longer current: the competitor fields only, or `answer_mentioned` too when
+the project's own identity moved. `test/job-runner-competitor-alias-edits.test.ts`
 covers each writer, including a fill a newer sweep stops and one that fails.
 
+Both repairs live in memory, a known trade-off: the recompute queue holds its
+pending passes in the process, and a writer reconciles only when it reaches
+its last write. A process that exits after an identity change but before its
+queued pass ran, or before a recording writer reconciled, leaves the answers
+stored meanwhile scored with the older identity. Boot recovery does not
+rescore them; the project's next recompute of the same fields, or
+`canonry backfill answer-mentions`, does.
+
 When a sweep finishes, the flow is: `JobRunner` → `RunCoordinator.onRunCompleted()` → `IntelligenceService.analyzeAndPersist()` then `Notifier.onRunCompleted()`. The coordinator runs intelligence first (synchronous) so insights are persisted before webhooks fire. Each subscriber is wrapped in an independent try/catch — one failing must not block the others.
+
+Answer-derived competitor aliases: `RunCoordinator.onAnswersRecorded` fires for every non-probe answer-visibility run that ends `completed` or `partial` (before the incomplete-plan gate: those answers are evidence, not a conclusion). `server.ts` wires it to `createCompetitorAutoAliasRunner` (`src/competitor-auto-alias-runner.ts`), which schedules `applyCompetitorAutoAliases` (api-routes) off the completion path through `createProjectPassQueue` (one pass per project at a time; a burst shares one follow-up pass), logs failures, and on a names change runs the same competitor-fields recompute as a curated alias edit. The same runner serves `onCompetitorAutoAliasRescan` (a competitor added on any surface, a name unblocked) and `POST /competitor-auto-aliases` (`runCompetitorAutoAliasPass`, so an apply-now never races a post-run pass). Every identity-change recompute of the stored answer fields goes through ONE per-project queue (`createAnswerFieldRecomputeQueue`, `src/answer-field-recompute.ts`): a project alias change (full: `answer_mentioned` too) and a competitor names change on any surface or by detection (competitor fields only). Passes run in chunks of 50 snapshots that yield to the event loop (`backfillProjectAnswerMentionsInChunks`, api-routes `src/snapshot-competitor-refresh.ts`), never interleave for one project, and re-read the identity (`readAnswerIdentity`, api-routes) before every chunk, starting over when it changed, so no chunk is ever written from an identity a newer change replaced. A run still recording when the identity changes rescores itself (`reconcileRunAnswerFields`, above), so the queue never needs to know about runs. The CLI backfill keeps the one-pass `backfillProjectAnswerMentions`. Provider citation structures are read through `src/stored-answer-anchors.ts` (`extractStoredAnswerAnchors`, dispatched to each provider package's `extractAnchoredSpans`), injected into api-routes as `competitorAnswerAnchors`. Stored data only: nothing resolves a URL or reads a competitor site.
 
 Notifier sibling and citation-history reads exclude probes with `notProbeRun()`
 before limiting history. The coordinator's probe callback guard cannot protect a
@@ -450,7 +466,7 @@ It writes retrieval fields in exactly one case: OpenAI rows labelled `native-aut
 
 The command lives in `src/commands/backfill.ts` (historical recomputation for answer visibility fields and insights).
 
-The snapshot rescore behind `canonry backfill answer-mentions`, the alias hooks and `reconcileRunCompetitorFields`, `backfillProjectAnswerMentions`, lives in `@ainyc/canonry-api-routes` (`src/snapshot-competitor-refresh.ts`) so Cloud can run it too; `src/commands/backfill.ts` re-exports it. `src/citation-utils.ts` keeps only the citation helpers; the competitor matchers `computeCompetitorOverlap` and `extractRecommendedCompetitors` are in contracts (`competitor-matching.ts`).
+The snapshot rescore behind `canonry backfill answer-mentions`, the alias hooks and `reconcileRunAnswerFields`, `backfillProjectAnswerMentions` (and its chunked form `backfillProjectAnswerMentionsInChunks`), lives in `@ainyc/canonry-api-routes` (`src/snapshot-competitor-refresh.ts`) so Cloud can run it too; `src/commands/backfill.ts` re-exports it. `src/citation-utils.ts` keeps only the citation helpers; the competitor matchers `computeCompetitorOverlap` and `extractRecommendedCompetitors` are in contracts (`competitor-matching.ts`).
 
 ### Server and SPA serving
 
@@ -767,6 +783,7 @@ attribution and no provider calls or sync.
   endpoints/flags never expose the research-start tool.
 
 - `competitor aliases <project> <domain>` reads or edits one competitor's curated answer-text names: `--set`/`--clear` write the exact list (`PUT .../aliases`); `--add` alone appends server-side in one call (`POST /competitors` with `{ domain, aliases }`), so concurrent adds never overwrite each other; `--remove` reads, edits and writes the list back, so an edit another client makes between that read and write is lost (documented in the CLI reference). `competitor add --alias` (one domain only) adds names on create; its JSON carries the aliased competitor as `competitor` (a `CompetitorDto`). `aliases` JSON output is the API's `CompetitorDto`. MCP twins: `canonry_competitors_aliases_set`, and `canonry_competitors_add` with `{ domain, aliases }` entries.
+- Answer-derived auto aliases: the read form of `competitor aliases <project> <domain>` prints curated names, auto-detected names with their evidence, and blocked names; `--block <name>` / `--unblock <name>` (repeatable, never combined with curated edits) call `POST .../aliases/block` / `.../unblock`. `competitor aliases detect <project> [--apply]` is the stored-evidence dry run (`GET /competitor-auto-aliases`) or the apply-now pass (`POST`); `jsonl` streams one competitor per line with `project` and `applied`. `detect` is a reserved first positional (longest path wins), so a project literally named "detect" reads its names through `competitor list`. MCP twins: `canonry_competitors_auto_aliases_detect` (read), `canonry_competitors_auto_aliases_apply`, `canonry_competitors_aliases_block`, `canonry_competitors_aliases_unblock`.
 - `competitor landscape --by-model` reads stored requested-model groups.
   Keep served identity separate. A model filter requires a provider.
   JSONL preserves the complete response as one compact document.

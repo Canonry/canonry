@@ -1,5 +1,5 @@
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
-import { backfillProjectAnswerMentions, createRunCompetitorResolver } from '@ainyc/canonry-api-routes'
+import { backfillProjectAnswerMentions, competitorIdentityColumns, createRunCompetitorResolver, readMarketCompetitorNames } from '@ainyc/canonry-api-routes'
 import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from 'drizzle-orm'
 import type { GroundingSource, NormalizedQueryResult, NormalizedTrafficRequest, RetrievalContract, RetrievalStatus } from '@ainyc/canonry-contracts'
 import { aiUserFetchEventsHourly, auditLog, crawlerEventsHourly, createClient, gaAiReferrals, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, rawEventSamples, runs } from '@ainyc/canonry-db'
@@ -11,13 +11,18 @@ import { reparseStoredResult as reparseGeminiStoredResult } from '@ainyc/canonry
 import { reparseStoredResult as reparsePerplexityStoredResult } from '@ainyc/canonry-provider-perplexity'
 import { reparseStoredResult as reparseMuseStoredResult } from '@ainyc/canonry-provider-muse'
 import { loadConfig } from '../config.js'
+import { resolveStoredApiResponse } from '../stored-answer-anchors.js'
 import type { CliFormat } from '../cli-error.js'
 import { isMachineFormat } from '../cli-error.js'
 import { determineCitationState } from '../citation-utils.js'
 
 // The snapshot rescore lives in api-routes so Cloud can run it after an alias
 // write; existing imports from this module keep working.
-export { backfillProjectAnswerMentions, type ProjectAnswerMentionsBackfillResult } from '@ainyc/canonry-api-routes'
+export {
+  backfillProjectAnswerMentions,
+  backfillProjectAnswerMentionsInChunks,
+  type ProjectAnswerMentionsBackfillResult,
+} from '@ainyc/canonry-api-routes'
 
 const SNAPSHOT_BATCH_SIZE = 500
 // Short pages keep each write transaction brief while a server shares the database.
@@ -71,13 +76,14 @@ export async function backfillAnswerVisibilityCommand(opts?: {
     }
 
     for (const project of scopedProjects) {
-      // Curated competitor aliases score the recomputed overlap and named
-      // competitors the same way a new sweep does.
+      // Curated and auto-detected competitor aliases score the recomputed
+      // overlap and named competitors the same way a new sweep does.
       const competitorsForRun = createRunCompetitorResolver(db, db
-        .select({ domain: competitors.domain, aliases: competitors.aliases })
+        .select(competitorIdentityColumns)
         .from(competitors)
         .where(eq(competitors.projectId, project.id))
-        .all())
+        .orderBy(competitors.domain)
+        .all(), readMarketCompetitorNames(db, project.id))
       const runIds = runIdsByProject.get(project.id) ?? []
       if (runIds.length === 0) continue
 
@@ -1028,28 +1034,6 @@ function reparseProviderSnapshot(
     default:
       return null
   }
-}
-
-function resolveStoredApiResponse(
-  parsed: Record<string, unknown>,
-): Record<string, unknown> | null {
-  const nested = parsed.apiResponse
-  if (nested !== null && typeof nested === 'object' && !Array.isArray(nested)) {
-    return nested as Record<string, unknown>
-  }
-
-  if (looksLikeProviderApiResponse(parsed)) {
-    return parsed
-  }
-
-  return null
-}
-
-function looksLikeProviderApiResponse(value: Record<string, unknown>): boolean {
-  return Array.isArray(value.output)
-    || Array.isArray(value.content)
-    || Array.isArray(value.candidates)
-    || Array.isArray(value.choices)
 }
 
 function stringifyStoredSnapshotEnvelope(

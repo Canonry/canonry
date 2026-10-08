@@ -377,10 +377,15 @@ function stableSimpleDefinitionId(definition: SimpleMeasurementDefinition): stri
       .sort((left, right) => left.queryId.localeCompare(right.queryId, 'en')),
     // `undefined` deliberately differs from `[]`: historical sidecars did
     // not freeze a competitor set, whereas a newly captured empty list did.
+    // A competitor's names (curated aliases, and the auto aliases detection
+    // adds after sweeps on its own) are left out: the continuity this id
+    // gates covers the project's own mention and citation coverage, which no
+    // competitor name changes, and each run still reads its competitors
+    // through the names it froze.
     competitors: definition.competitors === undefined
       ? null
       : [...definition.competitors]
-        .map(competitor => ({ domain: competitor.domain, label: competitor.label, aliases: [...competitor.aliases].sort() }))
+        .map(competitor => ({ domain: competitor.domain, label: competitor.label }))
         .sort((left, right) => left.domain.localeCompare(right.domain, 'en')),
   }
   return `simple:${createHash('sha256').update(JSON.stringify(source)).digest('hex')}`

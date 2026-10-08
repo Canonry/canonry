@@ -62,8 +62,9 @@ interface CompetitorIdentity {
  * Exact written domains are always strong identities. A bare label derived
  * from a domain uses the same specificity floor as project answer mentions,
  * so `ai.com` is recognized when written but the generic word "AI" is not.
- * Operator-curated aliases (`{ domain, aliases }` entries) are names too, at
- * the alias floor, so "TuneSpoke" marks `spoketuneworks.example` mentioned.
+ * Curated and auto-detected aliases (`{ domain, aliases, autoAliases,
+ * blockedAliases }` entries, merged by `competitorIdentityAliases`) are names
+ * too, at the alias floor, so "TuneSpoke" marks `spoketuneworks.example` mentioned.
  * A bare string entry is a domain with no curated alias.
  */
 export function compileCompetitiveSignalResolver(
@@ -77,7 +78,7 @@ export function compileCompetitiveSignalResolver(
     const domain = hostOf(input.domain)
     if (!domain || seen.has(domain)) continue
     seen.add(domain)
-    const names = competitorNameAliases({ domain, aliases: input.aliases })
+    const names = competitorNameAliases({ ...input, domain })
     identities.push({ domain, names: names.map(name => ({ name, key: brandKeyFromText(name) })) })
   }
 

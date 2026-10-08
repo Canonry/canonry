@@ -158,6 +158,7 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
       .select({ domain: competitors.domain })
       .from(competitors)
       .where(eq(competitors.projectId, opts.projectId))
+      .orderBy(competitors.domain)
       .all()
       .map(r => r.domain.toLowerCase())
 

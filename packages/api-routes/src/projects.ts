@@ -23,10 +23,10 @@ import {
   PROJECTS_WRITE_SCOPE,
   SchedulableRunKinds,
 } from '@ainyc/canonry-contracts'
-import type { CompetitorAliasRejection, LocationContext, MeasurementConfig, ProjectCreateRequest, ProviderDispatchModesMap, ProviderModels } from '@ainyc/canonry-contracts'
+import type { CompetitorAliasRejection, CompetitorAutoAliasDrop, LocationContext, MeasurementConfig, ProjectCreateRequest, ProviderDispatchModesMap, ProviderModels } from '@ainyc/canonry-contracts'
 import { requireAdminSession, requireScope } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
-import { competitorNames, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
+import { competitorIdentityChanged, competitorIdentityColumns, competitorNames, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
 import { readMarketCompetitorPins } from './plan-competitors.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
 import type { ProviderAdapterInfo } from './settings.js'
@@ -339,6 +339,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       const prevAliases = existing.aliases
       const aliasesChanged = !aliasArraysEqual(prevAliases, nextAliases)
       let droppedCompetitorAliases: CompetitorAliasRejection[] = []
+      let droppedAutoAliases: CompetitorAutoAliasDrop[] = []
 
       app.db.transaction((tx) => {
         tx.update(projects).set({
@@ -364,12 +365,14 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           updatedAt: now,
         }).where(eq(projects.id, existing.id)).run()
         writeNegativeReviewMaxStars(tx, existing.id, nextNegativeReviewMaxStars, now)
-        if (competitorAliasPrune?.aliasChanges.length) {
-          droppedCompetitorAliases = syncCompetitorSet(tx, existing.id, [], {
+        if (competitorAliasPrune && competitorIdentityChanged(competitorAliasPrune)) {
+          const pruned = syncCompetitorSet(tx, existing.id, [], {
             replace: false,
             project: nextAliasIdentity,
             now,
-          }).droppedAliases
+          })
+          droppedCompetitorAliases = pruned.droppedAliases
+          droppedAutoAliases = pruned.autoAliasChanges.length ? pruned.droppedAutoAliases : []
         }
 
         writeAuditLog(tx, {
@@ -378,13 +381,18 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           action: 'project.updated',
           entityType: 'project',
           entityId: existing.id,
-          ...(droppedCompetitorAliases.length ? { diff: { droppedCompetitorAliases } } : {}),
+          ...(droppedCompetitorAliases.length || droppedAutoAliases.length
+            ? { diff: {
+                ...(droppedCompetitorAliases.length ? { droppedCompetitorAliases } : {}),
+                ...(droppedAutoAliases.length ? { droppedAutoAliases } : {}),
+              } }
+            : {}),
         })
       })
 
       opts.onProjectUpserted?.(existing.id, name)
       if (aliasesChanged) opts.onAliasesChanged?.(existing.id, name)
-      else if (droppedCompetitorAliases.length) opts.onCompetitorAliasesChanged?.(existing.id, name)
+      else if (droppedCompetitorAliases.length || droppedAutoAliases.length) opts.onCompetitorAliasesChanged?.(existing.id, name)
 
       const updated = app.db.select().from(projects).where(eq(projects.id, existing.id)).get()!
       return reply.status(200).send(formatProject(updated, nextNegativeReviewMaxStars))
@@ -675,7 +683,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     const negativeReviewMaxStars = readNegativeReviewMaxStars(app.db, project.id)
 
     const qs = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
-    const comps = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
+    const comps = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).orderBy(competitors.domain).all()
     const schedule = app.db.select().from(schedules).where(and(
       eq(schedules.projectId, project.id),
       eq(schedules.kind, SchedulableRunKinds['answer-visibility']),
@@ -806,8 +814,8 @@ export function requireQualifiedAliases(
  * competitor's brand label plus its curated aliases.
  */
 export function liveCompetitorNames(db: Pick<DatabaseClient, 'select'>, projectId: string): string[] {
-  return competitorNames(db.select({ domain: competitors.domain, aliases: competitors.aliases }).from(competitors)
-    .where(eq(competitors.projectId, projectId)).all())
+  return competitorNames(db.select(competitorIdentityColumns).from(competitors)
+    .where(eq(competitors.projectId, projectId)).orderBy(competitors.domain).all())
 }
 
 /**

@@ -53,6 +53,10 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/projects/{name}/competitors': 'included',
   'DELETE /api/v1/projects/{name}/competitors': 'included',
   'PUT /api/v1/projects/{name}/competitors/{domain}/aliases': 'included',
+  'GET /api/v1/projects/{name}/competitor-auto-aliases': 'included',
+  'POST /api/v1/projects/{name}/competitor-auto-aliases': 'included',
+  'POST /api/v1/projects/{name}/competitors/{domain}/aliases/block': 'included',
+  'POST /api/v1/projects/{name}/competitors/{domain}/aliases/unblock': 'included',
   // By-id delete is useful for UI clients that render competitor row ids.
   // Agents work with competitor domains, so the domain-based remove tool above
   // covers the MCP workflow without forcing agents to look up ids first.

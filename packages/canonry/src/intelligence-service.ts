@@ -6,11 +6,12 @@ import type { RunData, Snapshot, AnalysisResult, Insight, GbpLocationSignals, Gb
 import { extractPlaceAmenities, type PlaceDetails } from '@ainyc/canonry-integration-google-places'
 import {
   buildGbpSummary,
+  competitorIdentityColumns,
   mergeGscQueryTotalsWithFallback,
   readGscQueryDailyRows,
   readLatestGscDataDate,
 } from '@ainyc/canonry-api-routes'
-import { CitationStates, RunKinds, RunStatuses, RunTriggers, effectiveDomains } from '@ainyc/canonry-contracts'
+import { CitationStates, RunKinds, RunStatuses, RunTriggers, effectiveDomains, type CompetitorIdentityInput } from '@ainyc/canonry-contracts'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
 import { pickProjectCitedDomain } from './citation-utils.js'
@@ -195,6 +196,7 @@ export class IntelligenceService {
       .all()
 
     const trackedCompetitors = this.loadTrackedCompetitors(projectId)
+    const trackedCompetitorDomains = trackedCompetitors.map(competitor => competitor.domain)
 
     // 3. Build RunData for the current run
     const currentRun = this.buildRunData(
@@ -241,7 +243,7 @@ export class IntelligenceService {
 
     // 5. Run analysis — skip transition detection on first run (no baseline to compare)
     if (!previousRun) {
-      const result = analyzeRuns(currentRun, currentRun, { trackedCompetitors, history })
+      const result = analyzeRuns(currentRun, currentRun, { trackedCompetitors: trackedCompetitorDomains, history })
       log.info('intelligence.analyzed', {
         runId,
         regressions: 0,
@@ -254,7 +256,7 @@ export class IntelligenceService {
       return result
     }
 
-    const result = analyzeRuns(currentRun, previousRun, { trackedCompetitors, history })
+    const result = analyzeRuns(currentRun, previousRun, { trackedCompetitors: trackedCompetitorDomains, history })
 
     log.info('intelligence.analyzed', {
       runId,
@@ -538,6 +540,7 @@ export class IntelligenceService {
     opts?: { dryRun?: boolean },
   ): AnalysisResult | null {
     const trackedCompetitors = this.loadTrackedCompetitors(runRecord.projectId)
+    const trackedCompetitorDomains = trackedCompetitors.map(competitor => competitor.domain)
     const currentRun = this.buildRunData(
       runRecord.id,
       runRecord.projectId,
@@ -573,13 +576,13 @@ export class IntelligenceService {
 
     // Skip transition detection on first run (no baseline to compare)
     if (!previousRun) {
-      const result = analyzeRuns(currentRun, currentRun, { trackedCompetitors, history })
+      const result = analyzeRuns(currentRun, currentRun, { trackedCompetitors: trackedCompetitorDomains, history })
       const emptyResult = this.emptyAnalysisResult(result)
       if (!opts?.dryRun) this.persistResult(emptyResult, runRecord.id, runRecord.projectId)
       return result
     }
 
-    const result = analyzeRuns(currentRun, previousRun, { trackedCompetitors, history })
+    const result = analyzeRuns(currentRun, previousRun, { trackedCompetitors: trackedCompetitorDomains, history })
 
     const tieredResult = this.tierResult(result, runRecord.id, runRecord.projectId)
     if (!opts?.dryRun) this.persistResult(tieredResult, runRecord.id, runRecord.projectId)
@@ -755,13 +758,18 @@ export class IntelligenceService {
     return { processed, skipped, totalInsights }
   }
 
-  private loadTrackedCompetitors(projectId: string): string[] {
+  /**
+   * The project's tracked competitors with every name they answer to
+   * (curated and auto-detected aliases, minus blocked), so competitive
+   * signals match the same identities the dashboard and reports do.
+   */
+  private loadTrackedCompetitors(projectId: string): CompetitorIdentityInput[] {
     return this.db
-      .select({ domain: competitors.domain })
+      .select(competitorIdentityColumns)
       .from(competitors)
       .where(eq(competitors.projectId, projectId))
+      .orderBy(competitors.domain)
       .all()
-      .map(r => r.domain)
   }
 
   /**
@@ -1067,7 +1075,7 @@ export class IntelligenceService {
     projectId: string,
     completedAt: string,
     location: string | null = null,
-    trackedCompetitors: readonly string[] = [],
+    trackedCompetitors: readonly (string | CompetitorIdentityInput)[] = [],
   ): RunData {
     // Project-owned domains, used to label a citation gain/regression with the
     // project's OWN cited URL rather than `citedDomains[0]` (which is often a

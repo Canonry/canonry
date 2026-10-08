@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, SnapshotUsage } from '@ainyc/canonry-contracts'
+import type { CompetitorAutoAlias as StoredCompetitorAutoAlias, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, SnapshotUsage } from '@ainyc/canonry-contracts'
 import type { CalendarRecurrence, AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, GbpReviewAlertState, GbpReviewOrigin, GbpReviewsAccess, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@ainyc/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
@@ -69,10 +69,43 @@ export const competitors = sqliteTable('competitors', {
    * `normalizeCompetitorAliases`; never auto-populated from the domain label.
    */
   aliases: text('aliases', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  /**
+   * Names detected automatically from the project's own stored answers, each
+   * with its evidence (`CompetitorAutoAlias` in contracts). Matched exactly
+   * like curated aliases; curated wins a conflict. Written only by
+   * `api-routes/src/competitor-auto-aliases.ts` (and pruned by the shared
+   * competitor writer).
+   */
+  autoAliases: text('auto_aliases', { mode: 'json' }).$type<StoredCompetitorAutoAlias[]>().notNull().default([]),
+  /** Names the operator blocked from auto-detection, never auto-applied again until unblocked. */
+  blockedAliases: text('blocked_aliases', { mode: 'json' }).$type<string[]>().notNull().default([]),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_competitors_project').on(table.projectId),
   uniqueIndex('idx_competitors_project_domain').on(table.projectId, table.domain),
+])
+
+/**
+ * Answer-derived names of a competitor an Advanced market pins without
+ * tracking it project-wide (no `competitors` row), keyed by its registrable
+ * domain. Published plan revisions are immutable, so the names live here and
+ * every reader that scores a market answer against its live identity layers
+ * them onto the pin (`readMarketCompetitorNames` in api-routes). Written only
+ * by `api-routes/src/competitor-auto-aliases.ts` and the block/unblock routes.
+ */
+export const marketCompetitorNames = sqliteTable('market_competitor_names', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  /** `normalizeCompetitorDomain` (registrable) form. */
+  domain: text('domain').notNull(),
+  /** Detected names with their evidence (`CompetitorAutoAlias` in contracts), as on `competitors.auto_aliases`. */
+  autoAliases: text('auto_aliases', { mode: 'json' }).$type<StoredCompetitorAutoAlias[]>().notNull().default([]),
+  /** Names the operator blocked from auto-detection for this competitor. */
+  blockedAliases: text('blocked_aliases', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_market_competitor_names_project_domain').on(table.projectId, table.domain),
 ])
 
 // Canonical plan payloads are immutable revisions. The surrogate id gives

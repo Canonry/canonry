@@ -26,6 +26,7 @@ import {
   adsOperationReconcileRequestSchema,
   adsPauseRequestSchema,
   adsUnresolvedOperationListQuerySchema,
+  competitorAliasBlockRequestSchema,
   competitorAliasesRequestSchema,
   competitorAppendRequestSchema,
   competitorBatchRequestSchema,
@@ -814,9 +815,14 @@ const competitorsAddInputSchema = z.object({
   project: projectNameSchema,
   request: competitorAppendRequestSchema,
 })
+const competitorDomainInputSchema = z.string().trim().min(1).describe('Tracked competitor domain (any spelling; it resolves to the stored registrable domain).')
 const competitorAliasesInputSchema = competitorAliasesRequestSchema.safeExtend({
   project: projectNameSchema,
-  domain: z.string().trim().min(1).describe('Tracked competitor domain (any spelling; it resolves to the stored registrable domain).'),
+  domain: competitorDomainInputSchema,
+})
+const competitorAliasBlockInputSchema = competitorAliasBlockRequestSchema.safeExtend({
+  project: projectNameSchema,
+  domain: competitorDomainInputSchema,
 })
 const latestSweepRunIdDescription = 'A run id, or latest for the latest sweep (the run the measurement reads display). With queryClass branded or non-brand and neither runId nor window, this tool reads latest; pass window to pool every sweep in it.'
 const competitorLandscapeInputSchema = competitorLandscapeQuerySchema.safeExtend({
@@ -1908,7 +1914,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_competitors_list',
     title: 'List competitors',
-    description: 'List tracked competitors for a Canonry project, each with its operator-curated `aliases` (the names it goes by in answer text; `[]` means the domain label alone identifies it).',
+    description: 'List tracked competitors for a Canonry project, each with its operator-curated `aliases` (the names it goes by in answer text; `[]` means the domain label alone identifies it), its `autoAliases` (names detected automatically from the project\'s stored answers, each with its evidence) and its `blockedAliases` (names the operator blocked from auto-detection).',
     access: 'read',
     tier: 'setup',
     inputSchema: projectInputSchema,
@@ -3173,13 +3179,57 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_competitors_aliases_set',
     title: 'Set competitor aliases',
-    description: 'Set one tracked competitor\'s operator-curated aliases exactly (`[]` clears): the brand names it goes by in answer text when they differ from its domain, e.g. "TuneSpoke" for spoketuneworks.example or a 3-letter brand the domain label floor drops. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) uses them on stored answers at read time. Rejected: aliases under 3 letters or digits, over 80 characters, more than 10, or whose brand key contains, or sits inside, one of the project\'s own names or hosts or a name another tracked competitor answers to (its aliases, domain label or written host), because answers may split or join the words: "Tune" cannot belong to one competitor while another answers to "Tune Spoke", "TuneSpoke" or tunespoke.example, and joined-word lookalikes ("Tune" and "Tuner") are refused too. A competitor an Advanced market pins (active revision, pending draft, or a superseded revision the project\'s runs were measured under) counts as another competitor. Idempotent; returns the competitor.',
+    description: 'Set one tracked competitor\'s operator-curated aliases exactly (`[]` clears): the brand names it goes by in answer text when they differ from its domain, e.g. "TuneSpoke" for spoketuneworks.example or a 3-letter brand the domain label floor drops. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) uses them on stored answers at read time. Rejected: aliases under 3 letters or digits, over 80 characters, more than 10, or whose brand key contains, or sits inside, one of the project\'s own names or hosts or a name another tracked competitor answers to (its aliases, domain label or written host), because answers may split or join the words: "Tune" cannot belong to one competitor while another answers to "Tune Spoke", "TuneSpoke" or tunespoke.example, and joined-word lookalikes ("Tune" and "Tuner") are refused too. A competitor an Advanced market pins (active revision, pending draft, or a superseded revision the project\'s runs were measured under) counts as another competitor. Names detected automatically from stored answers (`autoAliases`) are matched the same way; a curated alias always wins, so an auto name the new list overlaps is dropped. Idempotent; returns the competitor.',
     access: 'write',
     tier: 'setup',
     inputSchema: competitorAliasesInputSchema,
     annotations: writeAnnotations({ idempotentHint: true }),
     openApiOperations: ['PUT /api/v1/projects/{name}/competitors/{domain}/aliases'],
     handler: (client, input) => client.setCompetitorAliases(input.project, input.domain, input.aliases),
+  }),
+  defineTool({
+    name: 'canonry_competitors_auto_aliases_detect',
+    title: 'Preview competitor auto-aliases',
+    description: 'Dry run of automatic competitor alias detection from the project\'s stored answers only (never a provider, never a competitor\'s website). Per competitor: the names the answers pair with its site (provider citations anchoring the name to a page on the domain, named links, `Name (domain)`), with evidence (direct pairs, sweeps, co-occurrences, answers naming it, precision = share of those that cite the site, lift = how much more often the site is cited when the name appears, answers writing it as a name), and each name\'s status: added, kept, removed, review (no visible tie to the domain, or a 3-letter name; never auto-applied, verify it refers to that competitor before adding it as a curated alias) or rejected with a reason. Writes nothing; the server applies detection after every completed sweep.',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/competitor-auto-aliases'],
+    handler: (client, input) => client.previewCompetitorAutoAliases(input.project),
+  }),
+  defineTool({
+    name: 'canonry_competitors_auto_aliases_apply',
+    title: 'Apply competitor auto-aliases',
+    description: 'Run automatic competitor alias detection now from the project\'s stored answers and store the result (the same pass the server runs after every completed sweep and when a competitor is added). Idempotent: unchanged answers write nothing. Curated aliases and blocked names always win. Returns what was stored, per competitor, with evidence.',
+    access: 'write',
+    tier: 'setup',
+    inputSchema: projectInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/competitor-auto-aliases'],
+    handler: (client, input) => client.applyCompetitorAutoAliases(input.project),
+  }),
+  defineTool({
+    name: 'canonry_competitors_aliases_block',
+    title: 'Block competitor auto-aliases',
+    description: 'Block names from automatic, answer-derived alias detection for one tracked competitor: a blocked name is never auto-applied again until unblocked, and a stored auto name among them is removed now. Names compare by brand key (case, spacing and punctuation variants are one name). A curated alias cannot be blocked; remove it with canonry_competitors_aliases_set. Idempotent; returns the competitor.',
+    access: 'write',
+    tier: 'setup',
+    inputSchema: competitorAliasBlockInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/competitors/{domain}/aliases/block'],
+    handler: (client, input) => client.blockCompetitorAliases(input.project, input.domain, input.aliases),
+  }),
+  defineTool({
+    name: 'canonry_competitors_aliases_unblock',
+    title: 'Unblock competitor auto-aliases',
+    description: 'Release blocked names back to automatic, answer-derived alias detection for one tracked competitor. Nothing is applied by the unblock itself; a detection pass is requested and applies a name only if the stored answers still support it. Idempotent; returns the competitor.',
+    access: 'write',
+    tier: 'setup',
+    inputSchema: competitorAliasBlockInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/competitors/{domain}/aliases/unblock'],
+    handler: (client, input) => client.unblockCompetitorAliases(input.project, input.domain, input.aliases),
   }),
   defineTool({
     name: 'canonry_competitors_remove',

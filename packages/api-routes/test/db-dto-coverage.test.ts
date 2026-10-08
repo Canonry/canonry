@@ -193,6 +193,14 @@ const COVERAGE: Record<string, CoverageEntry> = {
       provenance: 'Discovery provenance tag; internal bookkeeping.',
     },
   },
+  marketCompetitorNames: {
+    kind: 'dto',
+    dto: competitorDtoSchema,
+    internal: {
+      projectId: 'Implied by the route scope (/projects/:name/competitors/:domain/aliases/block).',
+      updatedAt: 'Write bookkeeping; the block routes return the names, not when they last changed.',
+    },
+  },
   runs: {
     kind: 'dto',
     dto: runDtoSchema,

@@ -188,6 +188,10 @@ const expectedToolNames = [
   'canonry_keywords_remove',
   'canonry_competitors_add',
   'canonry_competitors_aliases_set',
+  'canonry_competitors_auto_aliases_detect',
+  'canonry_competitors_auto_aliases_apply',
+  'canonry_competitors_aliases_block',
+  'canonry_competitors_aliases_unblock',
   'canonry_competitors_remove',
   'canonry_schedule_set',
   'canonry_schedule_delete',
@@ -721,7 +725,7 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(canonryMcpTools.filter(tool => tool.access === 'read')).toHaveLength(163)
+    expect(canonryMcpTools.filter(tool => tool.access === 'read')).toHaveLength(164)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -759,7 +763,7 @@ describe('MCP tool registry', () => {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
     expect(counts.get('monitoring')).toBe(61)
-    expect(counts.get('setup')).toBe(61)
+    expect(counts.get('setup')).toBe(65)
     expect(counts.get('gsc')).toBe(11)
     expect(counts.get('ga')).toBe(11)
     expect(counts.get('gbp')).toBe(14)
@@ -1073,6 +1077,9 @@ describe('MCP tool registry', () => {
     expect(annotations.canonry_competitors_add).toMatchObject({ idempotentHint: true, destructiveHint: false })
     expect(annotations.canonry_competitors_remove).toMatchObject({ idempotentHint: true, destructiveHint: true })
     expect(annotations.canonry_competitors_aliases_set).toMatchObject({ readOnlyHint: false, idempotentHint: true, destructiveHint: false })
+    expect(annotations.canonry_competitors_auto_aliases_apply).toMatchObject({ readOnlyHint: false, idempotentHint: true, destructiveHint: false })
+    expect(annotations.canonry_competitors_aliases_block).toMatchObject({ readOnlyHint: false, idempotentHint: true, destructiveHint: false })
+    expect(annotations.canonry_competitors_aliases_unblock).toMatchObject({ readOnlyHint: false, idempotentHint: true, destructiveHint: false })
     expect(annotations.canonry_schedule_set).toMatchObject({ idempotentHint: true, destructiveHint: false })
     expect(annotations.canonry_schedule_delete).toMatchObject({ idempotentHint: false, destructiveHint: true })
     expect(annotations.canonry_insight_dismiss).toMatchObject({ idempotentHint: true, destructiveHint: false })

@@ -30,6 +30,7 @@ import { projectQueryClassifier, shareOfVoiceFromLandscape, mentionShareCompetit
 import { computeVisibilityCompare, type VisibilityCompareSnapshotInput } from './visibility-compare.js'
 import { readVisibilityComparisonRuns } from './visibility-report.js'
 import { normalizeText, visibilityComparisonPopulation, VisibilityReportScopeError, type VisibilityReportReaderSelection } from './visibility-report-reader.js'
+import { competitorIdentityColumns } from './competitor-writes.js'
 
 /** Snapshot fields the aggregation reads. Tri-state `answerMentioned` is read RAW. */
 export interface VisibilityStatsSnapshotInput {
@@ -468,9 +469,10 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
     .all()
 
   const competitorRows = db
-    .select({ domain: competitors.domain, aliases: competitors.aliases })
+    .select(competitorIdentityColumns)
     .from(competitors)
     .where(eq(competitors.projectId, project.id))
+    .orderBy(competitors.domain)
     .all()
   const competitorInputs = mentionShareCompetitors(competitorRows)
 

@@ -122,6 +122,19 @@ test('extractRecommendedCompetitors never recommends a rival named only in a cit
   expect(extractRecommendedCompetitors(prose, ['harborview.com'], ['rivalhomes.example', 'harborview.com'], [], ['Harborview Living'])).toEqual(['Rival Homes'])
 })
 
+test('extractRecommendedCompetitors keeps possessive names and names identified only by a parenthetical site', () => {
+  // The stored values keep the laid-out form: a possessive is part of the
+  // brand, and a parenthetical host is what ties a generic label to the site.
+  const answer = [
+    'Shops riders mention:',
+    "- **Joe's Spokes**: tune-ups while you wait.",
+    "- **Ana's**: wheel truing.",
+    '- **Bike Repair Co (gearloft.example)** - mobile service.',
+  ].join('\n')
+  expect(extractRecommendedCompetitors(answer, ['rotorwise.example'], ['joesspokes.example', 'anas.example', 'gearloft.example'], [], ['Rotorwise']))
+    .toEqual(["Joe's Spokes", "Ana's", 'Bike Repair Co (gearloft.example)'])
+})
+
 test('extractRecommendedCompetitors still recommends a marketplace the operator tracks as a competitor', () => {
   const answer = '1. **Zillow** - search every listing in one place\n2. **Other Pick** - an alternative'
   expect(extractRecommendedCompetitors(answer, ['brand.example'], ['zillow.com'], ['zillow.com'], ['Brand'])).toEqual(['Zillow'])

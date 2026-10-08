@@ -25,6 +25,8 @@ All provider packages follow the same 4-file structure and implement the same `P
 - **`normalizeResult(raw)`** — convert provider-specific response to standard `NormalizedQueryResult`
 - **`generateText(config, prompt)`** — general-purpose text generation
 
+- **Answer anchors for competitor auto-aliases.** `extractAnchoredSpans` (in `src/normalize.ts`, next to the parsers it reuses) pairs each `[N]` marker group with the text before it on the same line: Agent responses resolve N to the `search_results` entry with `id` N (ids run on across items), Sonar history to `citations[N - 1]`. Stored data only.
+
 ## Rules
 
 - **The Agent API is strict.** Any unknown request field, top-level or nested, is a 400. Send only fields in `PerplexityAgentRequest` (`src/types.ts`).

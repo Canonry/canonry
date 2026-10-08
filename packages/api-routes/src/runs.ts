@@ -39,6 +39,7 @@ import { gte } from 'drizzle-orm'
 import { assertMeasurementRunStampable, hasActiveMeasurementPlan, providerAccountRefusal, providersARunWouldCall, providersFailingError, queueRunIfProjectIdle, resolveRunnableProviderSelection } from './run-queue.js'
 import { queueRunFill, readRunCompleteness } from './run-fill.js'
 import { readRunProviderBatches } from './provider-batches.js'
+import { competitorIdentityColumns } from './competitor-writes.js'
 
 export interface RunRoutesOptions {
   onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: LocationContext | null) => void
@@ -917,9 +918,10 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
     .where(eq(projects.id, run.projectId))
     .get()
   const competitiveSignalResolver = compileCompetitiveSignalResolver(app.db
-    .select({ domain: competitors.domain, aliases: competitors.aliases })
+    .select(competitorIdentityColumns)
     .from(competitors)
     .where(eq(competitors.projectId, run.projectId))
+    .orderBy(competitors.domain)
     .all())
 
   const snapshots = app.db

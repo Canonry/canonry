@@ -28,6 +28,8 @@ Retrieval contract: every tracked query runs `search-required-v1` (`OPENAI_RETRI
 
 Note: The OpenAI `web_search` API returns fewer/different results than the ChatGPT UI search. That gap is structural (the API does not carry logged-in user context, conversation history, or personalization) and is addressed separately by a planned browser provider (drive the ChatGPT UI itself), not by switching API tool flavors.
 
+- **Answer anchors for competitor auto-aliases.** `extractAnchoredSpans` (`src/anchored-spans.ts`) reads a stored response's `url_citation` annotations. The annotation span is the citation chip itself, so the window is the text before it on the same line (from the previous annotation's end at most); offsets are UTF-16, which `String.slice` counts. Stored data only; it never resolves a URL.
+
 ## Common Mistakes
 
 - **Not normalizing grounding sources to standard `CitedSource` format** — each provider returns different shapes.

@@ -104,7 +104,7 @@ export function captureSimpleMeasurementDefinition(db: DatabaseClient, input: {
     }
     if (definition.competitors !== undefined) {
       const liveCompetitorDomains = new Set(tx.select({ domain: competitors.domain }).from(competitors)
-        .where(eq(competitors.projectId, input.projectId)).all()
+        .where(eq(competitors.projectId, input.projectId)).orderBy(competitors.domain).all()
         .map(competitor => competitor.domain))
       const capturedDomains = new Set(definition.competitors.map(competitor => competitor.domain))
       if (liveCompetitorDomains.size !== capturedDomains.size
