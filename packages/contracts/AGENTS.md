@@ -91,6 +91,7 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 | Locale-independent string order | `packages/contracts/src/text-order.ts` (`compareText`, a UTF-16 code-unit comparator; `sortedUnique`, the distinct values in that order) |
 | Tracked-query text normalization | `packages/contracts/src/query-normalize.ts` (`normalizeQueryText` — trim + lowercase for dedup / FK-null text matching) |
 | Error factories, and rendering a caught `unknown` | `packages/contracts/src/errors.ts` (`describeError` — the one way to turn a `catch` binding into text; never hand-write `err instanceof Error ? err.message : String(err)`, whose `String()` branch prints `[object Object]` for a thrown object) |
+| RegExp metacharacter escaping | `packages/contracts/src/regexp.ts` (`escapeRegExp`, for building a literal-match `RegExp` from a value such as a secret) |
 | SQL `LIKE` wildcard escaping | `packages/contracts/src/sql-like.ts` (`escapeLikePattern` — caller adds `ESCAPE '\\'`) |
 | Retry / exponential backoff | `packages/contracts/src/retry.ts` (`withRetry`, `backoffDelayMs`, `isRetryableHttpError`) |
 | Answer usage and cost estimates | `packages/contracts/src/sweep-pricing.ts` (`estimateAnswerCostMicros`, `buildSnapshotUsage`, `usageCount`) |

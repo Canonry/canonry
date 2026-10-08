@@ -18,7 +18,7 @@ import type {
   WordpressSeoStateDto,
   WordpressSiteStatusDto,
 } from '@ainyc/canonry-contracts'
-import { wordpressEnvSchema, describeError } from '@ainyc/canonry-contracts'
+import { wordpressEnvSchema, describeError, escapeRegExp } from '@ainyc/canonry-contracts'
 import type { WordpressConnectionRecord, WordpressRestPage, WordpressSiteContext } from './types.js'
 import { WordpressApiError } from './types.js'
 import type { SchemaPageEntry, SchemaProfileFile } from './schema-templates.js'
@@ -829,10 +829,6 @@ export function stripCanonrySchema(content: string): string {
     'g',
   )
   return content.replace(regex, '').replace(/\n{3,}/g, '\n\n').trim()
-}
-
-function escapeRegExp(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 export function injectCanonrySchema(content: string, schemas: Record<string, unknown>[]): string {

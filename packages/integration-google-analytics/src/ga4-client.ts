@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { AI_ENGINE_DOMAINS, classifyAiReferralTrafficClass, compactDateToIso, parseBoundedRate, withRetry } from '@ainyc/canonry-contracts'
+import { AI_ENGINE_DOMAINS, classifyAiReferralTrafficClass, compactDateToIso, parseBoundedRate, withRetry, escapeRegExp } from '@ainyc/canonry-contracts'
 import {
   GA4_ADMIN_API_BASE,
   GA4_DATA_API_BASE,
@@ -142,10 +142,6 @@ export async function getAccessToken(clientEmail: string, privateKey: string): P
 
   const data = (await res.json()) as { access_token: string; expires_in: number }
   return data.access_token
-}
-
-function escapeRegExp(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 // --- Concurrency limiter ------------------------------------------------------
