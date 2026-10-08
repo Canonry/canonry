@@ -24,6 +24,7 @@ import {
   type MeasurementDraftWarning,
   describeError,
   compareText,
+  sortedUnique,
 } from '@ainyc/canonry-contracts'
 import {
   measurementDiscoveryConfigs,
@@ -181,7 +182,7 @@ export function proposeMeasurementDiscoveryBindings(
       slug: candidate.slug,
       label: candidate.label,
       discoveredUrl: candidate.primaryUrl,
-      urlMatchers: [...new Set([candidate.primaryUrl, ...candidate.aliasCoverageUrls])].sort(compareText),
+      urlMatchers: sortedUnique([candidate.primaryUrl, ...candidate.aliasCoverageUrls]),
       kind: candidates.length === 1 ? 'rebind' : candidates.length === 0 ? 'new-target' : 'ambiguous',
       ...(candidates.length === 1 ? { rebindTargetKey: candidates[0]!.targetKey } : {}),
       candidates,
@@ -265,7 +266,7 @@ export function measurementDiscoveryInputChecksum(input: {
     compilerVersion: MEASUREMENT_DISCOVERY_COMPILER_VERSION,
     sitemapUrl: input.sitemapUrl,
     rule: input.rule,
-    exclusions: [...new Set(input.exclusions.map(value => value.trim().toLowerCase()))].sort(compareText),
+    exclusions: sortedUnique(input.exclusions.map(value => value.trim().toLowerCase())),
     bytesChecksum: input.bytesChecksum,
   }))
 }
@@ -516,7 +517,7 @@ export async function measurementDiscoveryV2Routes(app: FastifyInstance) {
     if (!parsed.success) {
       throw validationError('Invalid sitemap import request', { issues: parsed.error.issues })
     }
-    const exclusions = [...new Set((parsed.data.exclusions ?? []).map(value => value.trim().toLowerCase()))].sort(compareText)
+    const exclusions = sortedUnique((parsed.data.exclusions ?? []).map(value => value.trim().toLowerCase()))
 
     const idempotencyKey = requireIdempotencyKey(request, 'import-sitemap')
     const requestChecksum = sha256(canonicalJson({ ...parsed.data, exclusions }))
@@ -695,7 +696,7 @@ export async function measurementDiscoveryV2Routes(app: FastifyInstance) {
       const rebound: MeasurementDraftTarget = {
         ...existing,
         ...relabelled,
-        urlMatchers: [...new Set([...existing.urlMatchers, ...proposal.urlMatchers])].sort(compareText),
+        urlMatchers: sortedUnique([...existing.urlMatchers, ...proposal.urlMatchers]),
         discoveredUrl: proposal.discoveredUrl,
         discoveryIdentity: proposal.discoveryIdentity,
       }

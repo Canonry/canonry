@@ -533,7 +533,7 @@ export interface MeasurementExecutionIdentityInput {
 }
 
 function normalizeExecutionIdentity(input: MeasurementExecutionIdentityInput): MeasurementExecutionIdentityInput {
-  const providers = [...new Set(input.providers.map(value => value.trim().toLocaleLowerCase('en')).filter(Boolean))].sort(compareText)
+  const providers = canonicalStrings(input.providers.map(value => value.trim().toLocaleLowerCase('en')).filter(Boolean))
   const models: Record<string, string> = {}
   for (const provider of providers) {
     const model = input.models[provider]
