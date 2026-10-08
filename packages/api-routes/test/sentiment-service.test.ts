@@ -77,6 +77,113 @@ async function overviewSentiment() {
 }
 
 describe('sentiment service reads', () => {
+  it('refuses sentiment self-comparison before returning a no-change verdict', () => {
+    simple('current', ['Acme reviews'])
+    expect(() => service.compare('p', sentimentSelectionSchema.parse({}), 'current', 'current')).toThrow('two distinct runs')
+  })
+
+  it('resolves the previous rated run within the selected class', () => {
+    service.configure('p', { enabled: true })
+    for (const runId of ['older', 'unrated', 'probe', 'current']) simple(runId, ['Acme reviews', 'best services'])
+    for (const runId of ['older', 'probe', 'current']) admit(runId)
+    finish()
+    for (const [runId, createdAt] of [['older', '2026-01-01'], ['unrated', '2026-01-02'], ['probe', '2026-01-03'], ['current', '2026-01-04']]) db.$client.prepare('UPDATE runs SET created_at = ? WHERE id = ?').run(createdAt, runId)
+    db.$client.prepare("UPDATE runs SET trigger = 'probe' WHERE id = 'probe'").run()
+    const selection = sentimentSelectionSchema.parse({})
+    expect(service.compare('p', selection, 'previous-rated', 'current').from.selection.runId).toBe('older')
+    expect(() => service.compare('p', sentimentSelectionSchema.parse({ queryClass: 'non-brand' }), 'previous-rated', 'current')).toThrow('No previous rated run')
+  })
+
+  it('skips unrated history before reconstructing previous-rated source populations', () => {
+    service.configure('p', { enabled: true })
+    simple('rated', ['Acme reviews']); admit('rated'); finish()
+    db.update(runs).set({ createdAt: '2025-12-01' }).where(eq(runs.id, 'rated')).run()
+    for (let index = 0; index < 40; index++) {
+      const id = `unrated-${index}`
+      simple(id, ['Acme reviews'])
+      db.update(runs).set({ createdAt: new Date(Date.UTC(2026, 0, index + 1)).toISOString() }).where(eq(runs.id, id)).run()
+    }
+    simple('current', ['Acme reviews']); admit('current'); finish()
+    selections.count = 0
+    expect(service.compare('p', sentimentSelectionSchema.parse({}), 'previous-rated', 'current')).toMatchObject({ from: { selection: { runId: 'rated' } }, verdict: 'no-clear-change' })
+    expect(selections.count).toBeLessThanOrEqual(4)
+  })
+
+  it('distinguishes incompatible rated history and an incomplete comparison target', () => {
+    service.configure('p', { enabled: true })
+    simple('older', ['Acme reviews']); admit('older'); finish()
+    db.update(runs).set({ createdAt: '2026-01-01' }).where(eq(runs.id, 'older')).run()
+    simple('current', ['Acme reviews', 'Acme pricing']); admit('current'); finish()
+    const selection = sentimentSelectionSchema.parse({})
+    expect(() => service.compare('p', selection, 'previous-rated', 'current')).toThrowError(expect.objectContaining({ details: expect.objectContaining({ reason: 'previous-rated-population-changed', newestRatedRunId: 'older' }) }))
+    db.update(runs).set({ status: 'running' }).where(eq(runs.id, 'current')).run()
+    expect(() => service.compare('p', selection, 'previous-rated', 'current')).toThrowError(expect.objectContaining({ details: expect.objectContaining({ reason: 'target-incomplete' }) }))
+  })
+
+  it('bounds rated predecessor search without claiming older ratings do not exist', () => {
+    service.configure('p', { enabled: true })
+    simple('matching', ['Acme reviews']); admit('matching'); finish()
+    db.update(runs).set({ createdAt: '2025-01-01' }).where(eq(runs.id, 'matching')).run()
+    for (let index = 0; index < 55; index++) {
+      const id = `different-${index}`
+      simple(id, ['Acme pricing']); admit(id); finish()
+      db.update(runs).set({ createdAt: new Date(Date.UTC(2026, 0, index + 1)).toISOString() }).where(eq(runs.id, id)).run()
+    }
+    simple('current', ['Acme reviews']); admit('current'); finish()
+    selections.count = 0
+    expect(() => service.compare('p', sentimentSelectionSchema.parse({}), 'previous-rated', 'current')).toThrowError(expect.objectContaining({ details: expect.objectContaining({ reason: 'previous-rated-search-limit', candidateLimit: 50 }) }))
+    expect(selections.count).toBeLessThanOrEqual(51)
+    expect(service.compare('p', sentimentSelectionSchema.parse({}), 'matching', 'current').verdict).toBe('no-clear-change')
+  })
+
+  it.each([
+    { change: 'location', labels: ['Acme reviews'], location: 'Bayside', providers: ['openai'], identity: {} },
+    { change: 'query text', labels: ['Acme support'], location: 'Harbor', providers: ['openai'], identity: {} },
+    { change: 'provider', labels: ['Acme reviews'], location: 'Harbor', providers: ['gemini'], identity: {} },
+    { change: 'subject identity', labels: ['Acme reviews'], location: 'Harbor', providers: ['openai'], identity: { aliases: ['Acme Services'] } },
+    { change: 'query population', labels: ['Acme reviews', 'Acme support'], location: 'Harbor', providers: ['openai'], identity: {} },
+  ])('skips a newer rated run with a different $change when resolving previous-rated', ({ labels, location, providers, identity }) => {
+    service.configure('p', { enabled: true })
+    simple('matching', ['Acme reviews'], 'Harbor')
+    simple('different', labels, location, providers, identity)
+    simple('current', ['Acme reviews'], 'Harbor')
+    for (const runId of ['matching', 'different', 'current']) admit(runId)
+    finish()
+    for (const [runId, date] of [['matching', '2026-01-01'], ['different', '2026-01-02'], ['current', '2026-01-03']]) db.update(runs).set({ createdAt: date }).where(eq(runs.id, runId!)).run()
+    const comparison = service.compare('p', sentimentSelectionSchema.parse({}), 'previous-rated', 'current')
+    expect(comparison).toMatchObject({ from: { selection: { runId: 'matching' } }, commonUnits: 1, changedScope: false, refusalReasons: [], verdict: 'no-clear-change' })
+  })
+
+  it('matches the target source population before target sentiment admission', () => {
+    service.configure('p', { enabled: true })
+    simple('matching', ['Acme reviews'], 'Harbor'); admit('matching')
+    simple('different', ['Acme reviews'], 'Bayside'); admit('different')
+    simple('current', ['Acme reviews'], 'Harbor')
+    finish()
+    for (const [runId, date] of [['matching', '2026-01-01'], ['different', '2026-01-02'], ['current', '2026-01-03']]) db.update(runs).set({ createdAt: date }).where(eq(runs.id, runId!)).run()
+    const comparison = service.compare('p', sentimentSelectionSchema.parse({}), 'previous-rated', 'current')
+    expect(comparison.from.selection.runId).toBe('matching')
+    expect(comparison.verdict).toBeNull()
+    expect(comparison.refusalReasons).toContain('classification-coverage-gap')
+  })
+
+  it('labels compatibility sentiment as pooled and leads the overview with the branded population', async () => {
+    service.configure('p', { enabled: true })
+    simple('rated', ['Acme reviews', 'best services'])
+    admit('rated'); admit('rated', 'non-brand'); finish()
+    const result = await overviewSentiment()
+    expect(result).toMatchObject({ headlineQueryClass: 'branded', branded: { selection: { queryClass: 'branded' } }, nonBrand: { selection: { queryClass: 'non-brand' } }, pooledOverall: { queryClass: 'all', pooled: true }, overall: { queryClass: 'all', pooled: true } })
+    expect(result.pooledOverall).toEqual(result.overall)
+  })
+
+  it('distinguishes classified absent subjects from unrated source answers', () => {
+    service.configure('p', { enabled: true })
+    simple('non-brand', ['best services', 'local services', 'nearby services'])
+    admit('non-brand', 'non-brand')
+    finish(snapshotId => ({ outcome: snapshotId.endsWith('0') ? 'favorable' : 'subject-not-mentioned' }))
+    expect(service.summary('p', sentimentSelectionSchema.parse({ runId: 'non-brand', queryClass: 'non-brand' })).coverage).toMatchObject({ eligibleAnswers: 3, ratedAnswers: 1, ratedAnswerRate: 0.33333333, subjectNotMentioned: 2, unadmittedAssessments: 0 })
+  })
+
   it('answers the overview of an unconfigured or switched-off project without selecting any source', async () => {
     simple('harbor', ['Acme reviews'], 'Harbor'); simple('bayside', ['Acme reviews'], 'Bayside')
     const off = { configured: false, branded: { state: 'disabled', runIds: [], coverage: { selected: 0, eligibleAssessments: 0, eligibleAnswers: 0, ratedAnswers: 0, ratedAnswerRate: null }, score: { favorableRate: null } }, nonBrand: { state: 'disabled', runIds: [] }, overall: { queryClass: 'all', state: 'disabled', runIds: [], coverage: { selected: 0, judged: 0, eligibleAnswers: 0, ratedAnswers: 0, ratedAnswerRate: null }, score: { favorableRate: null } } }
@@ -349,7 +456,7 @@ describe('sentiment service reads', () => {
   })
 
   it('withholds verdicts, quotations and completed-outcome counts once sentiment is disabled', () => {
-    service.configure('p', { enabled: true }); simple('r', ['Acme reviews', 'Acme complaints']); simple('queued', ['Acme reviews'])
+    service.configure('p', { enabled: true }); simple('r', ['Acme reviews', 'Acme complaints']); simple('previous', ['Acme reviews', 'Acme complaints']); admit('previous'); finish(); simple('queued', ['Acme reviews'])
     const job = admit('r'); finish(snapshotId => ({ outcome: snapshotId === 'r-q-1' ? 'unfavorable' : 'favorable' }))
     const pending = admit('queued')
     const selection = sentimentSelectionSchema.parse({ runId: 'r' })
@@ -363,7 +470,10 @@ describe('sentiment service reads', () => {
       }
       expect(service.job('p', pending.id)).toMatchObject({ selected: 1, counts: { canceled: 1 } })
       expect(service.summary('p', selection)).toMatchObject({ state: 'disabled', coverage: { selected: 2, judged: 0, counts: { favorable: 0, unfavorable: 0 } }, score: { favorableRate: null, interval: null } })
-      expect(service.compare('p', selection, 'r', 'r')).toMatchObject({ verdict: null, refusalReasons: ['sentiment-disabled'], from: { coverage: { judged: 0, counts: { favorable: 0 } } } })
+      expect(() => service.compare('p', selection, 'r', 'r')).toThrow('two distinct runs')
+      const comparison = service.compare('p', selection, 'previous', 'r')
+      expect(comparison).toMatchObject({ verdict: null, from: { coverage: { judged: 0, counts: { favorable: 0, unfavorable: 0 } } }, to: { coverage: { judged: 0, counts: { favorable: 0, unfavorable: 0 } } } })
+      expect(comparison.refusalReasons).toContain('sentiment-disabled')
     }
   })
 
@@ -672,6 +782,14 @@ describe('most criticized Properties on the branded summary', () => {
       return { outcome: index === null ? 'unfavorable' : PROPERTIES.find(property => property.key === subjectId)!.outcomes[index]! }
     })
   }
+
+  it('resolves previous-rated within an explicit Advanced revision and Property scope', () => {
+    service.configure('p', { enabled: true })
+    sweep('matching', 1); sweep('different-revision', 2); sweep('current', 1)
+    for (const [runId, date] of [['matching', '2026-01-01'], ['different-revision', '2026-01-02'], ['current', '2026-01-03']]) db.update(runs).set({ createdAt: date }).where(eq(runs.id, runId!)).run()
+    const comparison = service.compare('p', sentimentSelectionSchema.parse({ revision: 1, scope: 'property', scopeKey: 'mostly-unfavorable' }), 'previous-rated', 'current')
+    expect(comparison).toMatchObject({ from: { selection: { runId: 'matching', revision: 1, scope: 'property', scopeKey: 'mostly-unfavorable' } }, commonUnits: 6, changedScope: false, refusalReasons: [] })
+  })
 
   it('ranks a branded multi-Property read by criticism count and ties every listed Property to its answers', async () => {
     service.configure('p', { enabled: true }); sweep('advanced', 1)

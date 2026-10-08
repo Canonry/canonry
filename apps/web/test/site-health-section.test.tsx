@@ -1060,7 +1060,25 @@ test('keeps every detail read pinned to the selected historical run', async () =
   expect(reads.every(read => read.query.runId === 'run_old')).toBe(true)
 })
 
-test('defaults to the newest terminal run when that scan is partial', () => {
+test('uses the API preferred scan by default and preserves an explicitly selected same-day partial scan', async () => {
+  const queryClient = makeClient()
+  queryClient.setQueryData(scanHistoryKey(), { ...scanHistory(scan('run_partial', 'partial'), scan('run_1')), preferredRunId: 'run_1' })
+  seedRun(queryClient, 'run_partial', summary('run_partial', 18, false))
+  renderSection(queryClient)
+  expect(screen.getByText('42')).not.toBeNull()
+  expect(screen.queryByText('Partial scan')).toBeNull()
+  fireEvent.click(screen.getByRole('tab', { name: 'Page health' }))
+  expect(screen.getByText('Page health for run_1')).not.toBeNull()
+  fireEvent.change(screen.getByRole('combobox', { name: 'View a Site Health scan' }), { target: { value: 'run_partial' } })
+  expect(await screen.findByText('Page health for run_partial')).not.toBeNull()
+  expect(screen.getByText('Partial scan')).not.toBeNull()
+  fireEvent.click(screen.getByRole('tab', { name: 'Map' }))
+  expect(screen.getByText('18')).not.toBeNull()
+  fireEvent.click(screen.getByRole('tab', { name: 'Page health' }))
+  expect(screen.getByText('Page health for run_partial')).not.toBeNull()
+})
+
+test('falls back to the newest terminal run when scan history omits preferred selection', () => {
   const queryClient = makeClient()
   queryClient.setQueryData(scanHistoryKey(), scanHistory(scan('run_partial', 'partial'), scan('run_1')))
   seedRun(queryClient, 'run_partial', summary('run_partial', 18, false))

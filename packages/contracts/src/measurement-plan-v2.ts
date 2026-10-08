@@ -584,6 +584,8 @@ export const measurementOverviewQuerySchema = z.object({
   sort: measurementOverviewSortSchema.optional(),
   cursor: z.string().trim().min(1).optional(),
   limit: z.number().int().positive().max(MEASUREMENT_PAGE_MAX_LIMIT).optional(),
+  /** Bounded agent projection; whole rows are cursor-paged under the tool character budget. */
+  compact: z.boolean().optional(),
 }).strict()
 export type MeasurementOverviewQuery = z.output<typeof measurementOverviewQuerySchema>
 
@@ -720,6 +722,8 @@ export const measurementOverviewResponseSchema = z.object({
   outcomes: measurementOutcomeCountsSchema,
   flags: z.object({ total: z.number().int().nonnegative() }).strict(),
   namedShareOfVoice: measurementNamedShareOfVoiceSchema.optional(),
+  /** Fields omitted from the compact projection; omission never means an empty result. */
+  detailsOmitted: z.array(z.string()).optional(),
 }).strict()
 export type MeasurementOverviewResponse = z.output<typeof measurementOverviewResponseSchema>
 

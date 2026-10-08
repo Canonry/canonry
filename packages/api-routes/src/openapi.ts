@@ -1286,6 +1286,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
+      { name: 'compact', in: 'query', description: 'Byte-bounded whole-row page; omits optional heavy detail with explicit metadata. Default false for compatibility.', schema: { type: 'boolean' } },
       { name: 'scope', in: 'query', required: true, description: 'Reporting scope.', schema: { type: 'string', enum: ['all', 'group', 'property'] } },
       { name: 'groupKey', in: 'query', description: 'Group stable key, required when scope is "group".', schema: stringSchema },
       { name: 'targetKey', in: 'query', description: 'Target stable key, required when scope is "property".', schema: stringSchema },
@@ -1333,7 +1334,7 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get', path: '/api/v1/projects/{name}/sentiment/compare', summary: 'Compare compatible stored sentiment periods', tags: ['sentiment'],
-    parameters: [nameParameter, ...sentimentSelectionParameters, ...['fromRunId', 'toRunId'].map(name => ({ name, in: 'query' as const, required: true, description: 'Exact source run for this period.', schema: stringSchema }))],
+    parameters: [nameParameter, ...sentimentSelectionParameters, ...['fromRunId', 'toRunId'].map(name => ({ name, in: 'query' as const, required: true, description: name === 'fromRunId' ? 'Exact source run or previous-rated to resolve the preceding rated run in this scope. Identical run IDs are refused.' : 'Exact target run for this period.', schema: stringSchema }))],
     responses: { 200: jsonResponse('Matched units, exclusions, and conservative comparison or refusal reasons.', 'SentimentComparison'), 400: errorResponse('Invalid comparison selection.'), 404: errorResponse('Project or selected source not found.') },
   },
   {
@@ -1410,16 +1411,20 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-portfolio-summary',
     summary: 'Get the weakest measured Properties',
-    description: 'Returns a compact, revision-pinned portfolio ranking from stored results, plus a worst-first market roll-up. It defaults to non-brand queries, ranks measured mention coverage before citation coverage, and keeps unavailable rows separate from measured weakness. Every Property row carries its metro, submarkets and query count; weakest rows also carry namedInsteadInAnswerText (names written in the answer text of answers that neither named nor cited the Property, counted by answer) and citedDomains (domains cited by the Property\'s answers, counted by answer, every engine included). tiedAtWeakest reports Properties sharing the weakest rates; over the whole tie, not just the returned rows, byMetro counts the tied Properties per metro label (a Property in two metros counts in both) and namedInstead ranks the names written in the answer text of the tie\'s answers that neither named nor cited the Property (distinct answers, never citations). weakestAnswerSources ranks the domains cited across the weakest and tied Properties, each answer once. markets holds one level by default (every top-level market, or every direct child of the selected group), worst-first and never capped by limit; includeNestedMarkets returns every level. Every market is scoped to the displayed run, so a market row matches that market read with groupKey; markets may share Properties and never sum to the portfolio totals. It never starts provider work.',
+    description: 'Returns a compact, revision-pinned portfolio ranking from stored results, plus a worst-first market roll-up. It defaults to non-brand queries, ranks measured mention coverage before citation coverage, and keeps unavailable rows separate from measured weakness. Every Property row carries its metro, submarkets and query count; weakest rows also carry namedInsteadInAnswerText (names written in the answer text of answers that neither named nor cited the Property, counted by answer) and citedDomains (domains cited by the Property\'s answers, counted by answer, every engine included). tiedAtWeakest reports Properties sharing the weakest rates; over the whole tie, not just the returned rows, byMetro counts the tied Properties per metro label (a Property in two metros counts in both) and namedInstead ranks the names written in the answer text of the tie\'s answers that neither named nor cited the Property (distinct answers, never citations). weakestAnswerSources ranks the domains cited across the weakest and tied Properties, each answer once. markets holds one level by default (top-level markets, or direct children of the selected group), worst-first; raw reads return all markets and compact reads return bounded summaries or list=markets pages. includeNestedMarkets selects every level. propertiesNeverMentioned counts zero mentions even if a Property was cited. tiedAtWeakest requires both zero mentions and zero citations. Compact nextCursor advances only pageList, default weakest-properties. Other default first-page lists are bounded summaries and later pages omit their row bodies. list selects one complete ranking, market or evidence list without repeating sibling rows; totals stay complete. List, filters, revision, run and evidence are bound to the cursor; limit may change. Every market is scoped to the displayed run, so a market row matches that market read with groupKey; markets may share Properties and never sum to the portfolio totals. It never starts provider work.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
+      { name: 'compact', in: 'query', description: 'Byte-bounded whole-row page of pageList, default weakest-properties. Other initial lists are bounded summaries. Default false for compatibility.', schema: { type: 'boolean' } },
+      { name: 'cursor', in: 'query', description: 'nextCursor from the preceding compact page; keep every selection unchanged.', schema: stringSchema },
+      { name: 'list', in: 'query', description: 'Compact page selection identity; enumerate this list only and omit sibling row lists. observed-names and cited-domains require answers=not-mentioned. Keep unchanged across cursors.', schema: { type: 'string', enum: ['weakest-properties', 'strongest-mentions', 'weakest-mentions', 'excluded-mentions', 'markets', 'observed-names', 'cited-domains'] } },
+      { name: 'answers', in: 'query', description: 'Competitor evidence population. not-mentioned excludes every answer naming any targeted Property.', schema: { type: 'string', enum: ['all', 'not-mentioned'] } },
       { name: 'groupKey', in: 'query', description: 'Optional reporting group stable key.', schema: stringSchema },
       { name: 'queryClass', in: 'query', description: 'Question class. Defaults to non-brand.', schema: { type: 'string', enum: ['all', 'branded', 'non-brand'], default: 'non-brand' } },
       { name: 'provider', in: 'query', description: 'Restrict to one answer provider.', schema: stringSchema },
       { name: 'location', in: 'query', description: 'Restrict to one execution location label.', schema: stringSchema },
       { name: 'runId', in: 'query', description: 'Read this completed or partial active-revision run, including a named spot check.', schema: stringSchema },
-      { name: 'limit', in: 'query', description: 'Caps the Property lists only: weakest Properties and both mention rankings. Markets are never capped. Defaults to 4, maximum 50.', schema: { type: 'integer', minimum: 1, maximum: 50 } },
+      { name: 'limit', in: 'query', description: 'Compact selected-list page size: auto-sized up to 50 by default; the byte budget may return fewer whole rows. Raw reads default to 4 Property rows and never cap markets.', schema: { type: 'integer', minimum: 1, maximum: 50 } },
       { name: 'includeNestedMarkets', in: 'query', description: 'Return every market in scope at every level. Defaults to false: one level (every top-level market, or every direct child of the selected group).', schema: { type: 'boolean' } },
     ],
     responses: {
@@ -2270,6 +2275,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['analytics', 'competitors'],
     parameters: [
       nameParameter,
+      { name: 'answers', in: 'query', description: 'not-mentioned selects only answers where none of their targeted subjects was named. all or omitted keeps the full population; answerSelection reports population and selected counts.', schema: { type: 'string', enum: ['all', 'not-mentioned'] } },
       analyticsWindowParameter,
       competitorLandscapeGroupKeyParameter,
       competitorLandscapeScopeParameter,
@@ -7137,7 +7143,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/technical-aeo',
     summary: 'Get the Technical AEO scorecard for a project',
     description:
-      'Returns the latest completed/partial site-audit, or the historical audit selected by `runId`: aggregate 0–100 score, page counts, the full per-factor scorecard (site-level averages with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the audit immediately before it. When the project has never been audited, `hasData` is false and the numeric fields are zeroed — render an onboarding state.',
+      'runSelection selects a complete run on the latest UTC scan date, otherwise the largest page sample, then newest; it flags same-date candidates. Factor pagesFailing and pagesPartial are separate; a factor with failing pages is fail. Returns the latest completed/partial site-audit, or the historical audit selected by `runId`: aggregate 0–100 score, page counts, the full per-factor scorecard (site-level averages with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the audit immediately before it. When the project has never been audited, `hasData` is false and the numeric fields are zeroed — render an onboarding state.',
     tags: ['technical-aeo'],
     parameters: [
       nameParameter,
@@ -7187,13 +7193,15 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/technical-aeo/crawl',
     summary: 'Get persisted Technical AEO crawl metadata',
-    description: 'Returns the newest non-probe site-audit crawl, or the selected historical run. The default is the newest scan that published a crawl, whether it finished (`completed`) or stopped at its page, edge, depth, or duration budget (`partial`); `complete` and `termination` say which. Every crawl-scoped read without a `runId` resolves this same scan. `hasCrawlData=false` never synthesizes a graph from legacy scorecard rows; `legacyAuditAvailable` says that the old score/pages/trend data can still be read separately.',
+    description: 'Returns a non-probe site-audit crawl on the requested UTC date, the selected run, or the latest scan date. Prefer complete scans, then the largest page sample, then the latest scan on that date. runSelection records same-date ambiguity; inventorySummary reports exact whole-snapshot eligibility and disjoint excluded reasons. `complete` and `termination` qualify budget-limited evidence. `hasCrawlData=false` never synthesizes a graph from legacy scorecard rows; dated no-data reads expose bounded `availableScanDates` with full distinct-date totals and matching month/day candidates to resolve an omitted year; `legacyAuditAvailable` says that the old score/pages/trend data can still be read separately.',
     tags: ['technical-aeo'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
+      { name: 'date', in: 'query', description: 'UTC scan date YYYY-MM-DD, mutually exclusive with runId. Prefer complete, then largest, then latest scans on that exact date; missing data never falls back to another date.', schema: { type: 'string', format: 'date' } },
     ],
     responses: {
+      400: errorResponse('Invalid date, conflicting runId/date, or invalid cursor identity.'),
       200: jsonResponse('Persisted crawl summary returned.', 'SiteCrawlSummaryDto'),
       404: errorResponse('Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.'),
     },
@@ -7300,11 +7308,12 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/technical-aeo/crawl/pages',
     summary: 'List persisted Technical AEO crawl pages',
-    description: 'Cursor-paged canonical crawl nodes for the latest or selected crawl. `inventoryEligible` is Canonry technical-inventory eligibility, not a statement about actual Google index state.',
+    description: 'Cursor-paged canonical crawl nodes for the requested UTC date, latest scan date, or selected crawl. inventorySummary gives whole-snapshot eligibility and excluded reasons independent of paging and filters; healthReasonCounts sums the filtered list before paging. Dated no-data reads expose `availableScanDates` for an explicit retry on a known date, never an automatic fallback. Unknown indexability never means canonical-away. `inventoryEligible` is Canonry technical-inventory eligibility, not a statement about actual Google index state.',
     tags: ['technical-aeo'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
+      { name: 'date', in: 'query', description: 'UTC scan date YYYY-MM-DD, mutually exclusive with runId. Prefer complete, then largest, then latest scans on that exact date; missing data never falls back to another date.', schema: { type: 'string', format: 'date' } },
       { name: 'inventoryEligible', in: 'query', description: 'Filter Canonry technical inventory eligibility (`true` or `false`).', schema: booleanSchema },
       { name: 'fetchState', in: 'query', description: 'Filter by persisted fetch state.', schema: stringSchema },
       { name: 'indexabilityState', in: 'query', description: 'Filter by crawler-derived indexability state; this is not Google index coverage.', schema: stringSchema },
@@ -7316,6 +7325,7 @@ const routeCatalog: OpenApiOperation[] = [
       crawlLimitParameter,
     ],
     responses: {
+      400: errorResponse('Invalid date, conflicting runId/date, or invalid cursor identity.'),
       200: jsonResponse('Crawl pages returned.', 'SiteCrawlPagesResponseDto'),
       404: errorResponse('Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.'),
     },
@@ -7400,7 +7410,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/technical-aeo/runs',
     summary: 'List Site Health scan history',
-    description: 'Returns every non-probe `site-audit` run for the project, newest first, including runs still queued or running and runs that failed. `hasCrawlData` says whether that scan published a page and internal-link crawl: a legacy score-only scan is listed with `hasCrawlData=false` rather than hidden, and the crawl-scoped reads answer it with their no-crawl state instead of a 404.',
+    description: 'Returns every non-probe `site-audit` run for the project, newest first, including runs still queued or running and runs that failed. `hasCrawlData` says whether that scan published a page and internal-link crawl: a legacy score-only scan is listed with `hasCrawlData=false` rather than hidden, and the crawl-scoped reads answer it with their no-crawl state instead of a 404. `preferredRunId` identifies the default persisted scan shared by score/crawl reads, independently of the history page limit; an explicit selected run stays authoritative.',
     tags: ['technical-aeo'],
     parameters: [
       nameParameter,

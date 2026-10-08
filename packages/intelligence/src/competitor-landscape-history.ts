@@ -72,6 +72,8 @@ export interface CompetitorLandscapeHistoryOptions {
    * competitive figure.
    */
   shareOfVoiceEligible: boolean
+  /** Preserve counts while explaining why this answer selection has no competitive ratio. */
+  shareOfVoiceUnavailableReason?: ShareOfVoiceContext['reason']
   /** Capped evidence samples keep the response bounded. */
   sampleUrlLimit?: number
 }
@@ -331,6 +333,7 @@ export function buildCompetitorLandscapeHistory(
   const frame = buildShareOfVoiceFrame({
     tracked: pinned.size > 0,
     classSelected: options.shareOfVoiceEligible,
+    unavailableReason: options.shareOfVoiceUnavailableReason,
     projectMentions: projectRow.mentionCount,
     answeredResults,
     competitors: competitiveRows.map(row => ({ domain: row.identity.domain, mentions: row.mentionCount })),

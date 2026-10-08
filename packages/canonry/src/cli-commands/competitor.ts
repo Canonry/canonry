@@ -1,3 +1,4 @@
+import { competitorLandscapeQuerySchema } from '@ainyc/canonry-contracts'
 import { addCompetitors, competitorAliases, listCompetitors, removeCompetitors, showCompetitorLandscape } from '../commands/competitor.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, getStringArray, multiStringOption, requirePositional, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
@@ -6,7 +7,7 @@ import { usageError } from '../cli-error.js'
 const ADD_USAGE = 'canonry competitor add <project> <domain...> [--alias <name>]... [--format json]'
 const ALIASES_USAGE = 'canonry competitor aliases <project> <domain> [--set <name>]... [--add <name>]... [--remove <name>]... [--clear] [--format json]'
 
-const LANDSCAPE_USAGE = 'canonry competitor landscape <project> [--window 7d|30d|90d|all] [--group-key <key>|--scope all-markets] [--by-model] [--provider <provider> [--model <id>]] [--query-class all|branded|non-brand] [--location <label>] [--run-id <id>] [--format json|jsonl]'
+const LANDSCAPE_USAGE = 'canonry competitor landscape <project> [--window 7d|30d|90d|all] [--group-key <key>|--scope all-markets] [--by-model] [--provider <provider> [--model <id>]] [--query-class all|branded|non-brand] [--answers all|not-mentioned] [--location <label>] [--run-id <id>] [--format json|jsonl]'
 
 function parseLandscapeScope(value: string | undefined): 'all-markets' | undefined {
   if (value === undefined || value === '') return undefined
@@ -133,6 +134,7 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'query-class': stringOption(),
       location: stringOption(),
       'run-id': stringOption(),
+      answers: stringOption(),
     },
     run: async (input) => {
       const project = requireProject(input, 'competitor.landscape', LANDSCAPE_USAGE)
@@ -152,7 +154,10 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
           details: { command: 'competitor.landscape', usage: LANDSCAPE_USAGE },
         })
       }
+      const parsedAnswers = competitorLandscapeQuerySchema.safeParse({ answers: getString(input.values, 'answers') })
+      if (!parsedAnswers.success) throw usageError('--answers must be all or not-mentioned')
       await showCompetitorLandscape(project, {
+        answers: parsedAnswers.data.answers,
         window: getString(input.values, 'window') as '7d' | '30d' | '90d' | 'all' | undefined,
         groupKey,
         scope,

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { calendarDateSchema } from './google-ads.js'
 import { fraction, percent } from './ratio-unit.js'
 import { runStatusSchema } from './run.js'
 
@@ -37,6 +38,16 @@ export function factorStatusFromScore(score: number): SiteAuditFactorStatus {
   return SiteAuditFactorStatuses.fail
 }
 
+/** A site summary must retain its worst observed page band, regardless of the mean. */
+export function factorStatusFromDistribution(input: {
+  pagesFailing: number
+  pagesPartial: number
+}): SiteAuditFactorStatus {
+  if (input.pagesFailing > 0) return SiteAuditFactorStatuses.fail
+  if (input.pagesPartial > 0) return SiteAuditFactorStatuses.partial
+  return SiteAuditFactorStatuses.pass
+}
+
 /** Direction of the latest score relative to the previous site-audit run. */
 export const siteAuditTrendDirectionSchema = z.enum(['up', 'down', 'flat'])
 export type SiteAuditTrendDirection = z.infer<typeof siteAuditTrendDirectionSchema>
@@ -69,7 +80,7 @@ export const siteAuditFactorSummarySchema = z.object({
    */
   sharePct: percent(z.number().min(0).max(100)).nullable().default(null),
   avgScore: z.number(),
-  /** Canonry's own pass/partial/fail banding of `avgScore` (aeo-audit v3 is gradeless). */
+  /** Worst observed page band: any failing page makes the factor fail, then partial, then pass. */
   status: siteAuditFactorStatusSchema,
   pagesPassing: z.number().int().nonnegative(),
   pagesPartial: z.number().int().nonnegative(),
@@ -99,14 +110,32 @@ export const siteAuditCrossCuttingIssueSchema = z.object({
 })
 export type SiteAuditCrossCuttingIssueDto = z.infer<typeof siteAuditCrossCuttingIssueSchema>
 
+/** Default reads stay on the latest UTC scan date, preferring complete, then largest scans. */
+export const siteAuditRunSelectionSchema = z.object({
+  reason: z.enum(['explicit-run', 'latest-date-complete', 'latest-date-most-pages', 'requested-date-complete', 'requested-date-most-pages']),
+  date: z.string(),
+  /** All surfaceable scans on the selected UTC date; probes never count. */
+  sameDateRunCount: z.number().int().nonnegative(),
+  ambiguousDate: z.boolean(),
+  candidates: z.array(z.object({
+    runId: z.string(),
+    createdAt: z.string(),
+    complete: z.boolean(),
+    pages: z.number().int().nonnegative(),
+  })).max(10),
+  /** Candidate rows are bounded; sameDateRunCount always describes the full date. */
+  candidatesTruncated: z.boolean(),
+})
+export type SiteAuditRunSelectionDto = z.infer<typeof siteAuditRunSelectionSchema>
+
 /**
- * The Technical AEO scorecard for a project — the latest completed/partial
- * `site-audit` run, with the delta vs the prior run computed server-side.
+ * The Technical AEO scorecard for the selected scan. Default reads use the
+ * preferred persisted crawl, or the preferred legacy score-only audit when
+ * no crawl exists. The delta vs the chronological prior audit is server-side.
  *
- * When the project has never been audited, `hasData` is `false`, `runId` /
- * `auditedAt` are `null`, the numeric fields are `0`, and the arrays are empty
- * — consumers should branch on `hasData` and render an onboarding state rather
- * than treating the zeros as a real score.
+ * `hasData: false` means no scored audit is available for the selected scan.
+ * Its crawl identity can still be present. The empty score is not a measured
+ * zero and does not establish that the project has never been audited.
  */
 export const siteAuditScoreSchema = z.object({
   project: z.string(),
@@ -125,7 +154,26 @@ export const siteAuditScoreSchema = z.object({
   trend: z.union([siteAuditTrendDirectionSchema, z.null()]),
   previousScore: z.number().nullable(),
   previousAuditedAt: z.string().nullable(),
+  runSelection: siteAuditRunSelectionSchema.optional(),
   factors: z.array(siteAuditFactorSummarySchema).default([]),
+  /**
+   * Audited-page breadth, independent of severity, average score and weight.
+   * Rows use recorded failing + partial counts, largest first, then factor ID;
+   * zero rows stay visible. Factor populations overlap and must not be summed.
+   * Missing counts are unavailable, not zero. Absent when no scored audit exists.
+   */
+  affectedPageRanking: z.object({
+    basis: z.literal('pages-below-pass'),
+    scope: z.literal('audited-pages'),
+    pagesAudited: z.number().int().nonnegative(),
+    items: z.array(z.object({
+      factorId: z.string(),
+      pagesBelowPass: z.number().int().nonnegative(),
+      pagesFailing: z.number().int().nonnegative(),
+      pagesPartial: z.number().int().nonnegative(),
+    })),
+    unavailableFactorIds: z.array(z.string()),
+  }).optional(),
   crossCuttingIssues: z.array(siteAuditCrossCuttingIssueSchema).default([]),
   prioritizedFixes: z.array(z.string()).default([]),
 })
@@ -169,6 +217,7 @@ export const siteAuditPagesResponseSchema = z.object({
   project: z.string(),
   runId: z.string().nullable(),
   auditedAt: z.string().nullable(),
+  runSelection: siteAuditRunSelectionSchema.optional(),
   /** Total pages in the latest run matching the filter (before `limit`/`offset`). */
   total: z.number().int().nonnegative(),
   pages: z.array(siteAuditPageSchema).default([]),
@@ -194,6 +243,51 @@ export type SiteAuditTrendResponseDto = z.infer<typeof siteAuditTrendResponseSch
 export const siteCrawlDeadLinkStateSchema = z.enum(['disabled', 'complete', 'partial', 'unavailable'])
 export type SiteCrawlDeadLinkState = z.infer<typeof siteCrawlDeadLinkStateSchema>
 export const SiteCrawlDeadLinkStates = siteCrawlDeadLinkStateSchema.enum
+
+export const siteHealthReasonSchema = z.enum([
+  'indexable',
+  'redirect-terminal',
+  'canonical-to-other',
+  'robots-disallow',
+  'noindex',
+  'non-html',
+  'fetch-error',
+  'not-fetched',
+  'unknown',
+])
+export type SiteHealthReason = z.infer<typeof siteHealthReasonSchema>
+export const SiteHealthReasons = siteHealthReasonSchema.enum
+
+/** Exact counts with one deterministic example, never inferred from a returned page sample. */
+export const siteCrawlHealthReasonCountSchema = z.object({
+  healthReason: siteHealthReasonSchema,
+  pages: z.number().int().nonnegative(),
+  exampleUrl: z.string(),
+})
+export type SiteCrawlHealthReasonCountDto = z.infer<typeof siteCrawlHealthReasonCountSchema>
+
+/** Whole selected snapshot; request filters and pagination do not change these counts. */
+export const siteCrawlInventorySummarySchema = z.object({
+  scope: z.literal('selected-snapshot'),
+  total: z.number().int().nonnegative(),
+  eligible: z.number().int().nonnegative(),
+  excluded: z.number().int().nonnegative(),
+  /** Disjoint primary reasons: their page counts sum to excluded. */
+  excludedReasons: z.array(siteCrawlHealthReasonCountSchema).max(siteHealthReasonSchema.options.length),
+})
+export type SiteCrawlInventorySummaryDto = z.infer<typeof siteCrawlInventorySummarySchema>
+
+/** Candidate dates only; the caller must select one explicitly rather than silently changing the requested date. */
+export const siteCrawlAvailableScanDatesSchema = z.object({
+  /** Most recent distinct visible crawl dates, newest first. Fewer rows than totalDates means the list is bounded. */
+  recentDates: z.array(calendarDateSchema).max(10),
+  /** Full distinct-date count, excluding probe and non-surfaceable runs. */
+  totalDates: z.number().int().nonnegative(),
+  /** Same month/day as requestedDate, across years, newest first. Fewer rows than matchingMonthDayTotal means the list is bounded. */
+  matchingMonthDayDates: z.array(calendarDateSchema).max(10),
+  matchingMonthDayTotal: z.number().int().nonnegative(),
+})
+export type SiteCrawlAvailableScanDatesDto = z.infer<typeof siteCrawlAvailableScanDatesSchema>
 
 export const siteCrawlCountsSchema = z.object({
   pagesDiscovered: z.number().int().nonnegative(),
@@ -229,6 +323,13 @@ export const siteCrawlSummarySchema = z.object({
   hasCrawlData: z.boolean(),
   legacyAuditAvailable: z.boolean(),
   runId: z.string().nullable(),
+  runSelection: siteAuditRunSelectionSchema.optional(),
+  /** Explicit UTC date requested by the caller, including when no scan matches it. */
+  requestedDate: calendarDateSchema.optional(),
+  /** On dated no-data reads, discover available dates without guessing a year or changing requestedDate. */
+  availableScanDates: siteCrawlAvailableScanDatesSchema.optional(),
+  /** Null when retained detail rows are unavailable. */
+  inventorySummary: siteCrawlInventorySummarySchema.nullable().optional(),
   runStatus: nullableRunStatusSchema,
   /** Root URL originally requested by the operator; null for legacy snapshots. */
   requestedRootUrl: z.string().nullable(),
@@ -376,6 +477,27 @@ function pointsToOtherCanonical(input: SiteHealthStateInput): boolean {
       && input.canonicalNodeKey !== null
       && input.canonicalNodeKey !== undefined
       && input.canonicalNodeKey !== input.nodeKey)
+}
+
+/** A redirect's unknown indexability says nothing about its canonical target. */
+export function deriveSiteHealthReason(input: SiteHealthStateInput): SiteHealthReason {
+  switch (input.fetchState) {
+    case SiteCrawlFetchStates.redirect: return SiteHealthReasons['redirect-terminal']
+    case SiteCrawlFetchStates.nonHtml: return SiteHealthReasons['non-html']
+    case SiteCrawlFetchStates.fetchError: return SiteHealthReasons['fetch-error']
+    case SiteCrawlFetchStates.discovered: return SiteHealthReasons['not-fetched']
+    case SiteCrawlFetchStates.robotsBlocked: return SiteHealthReasons['robots-disallow']
+    case SiteCrawlFetchStates.html: break
+    default: return SiteHealthReasons.unknown
+  }
+  if (input.indexabilityState === SiteCrawlIndexabilityStates.noindex) return SiteHealthReasons.noindex
+  if (input.indexabilityState === SiteCrawlIndexabilityStates.blocked) return SiteHealthReasons['robots-disallow']
+  if (pointsToOtherCanonical(input)) return SiteHealthReasons['canonical-to-other']
+  switch (input.indexabilityState) {
+    case SiteCrawlIndexabilityStates.indexable: return SiteHealthReasons.indexable
+    case SiteCrawlIndexabilityStates.unknown:
+    default: return SiteHealthReasons.unknown
+  }
 }
 
 export function deriveSiteHealthState(input: SiteHealthStateInput): SiteHealthState {
@@ -1076,6 +1198,8 @@ export const siteCrawlPageSchema = z.object({
   /** Internal-link importance, 0..100 against the crawl's top page (the audit engine's `linkScore`). */
   linkScoreNormalized: percent().nullable(),
   healthState: siteHealthStateSchema,
+  /** Concrete fetch/indexability reason; unknown never implies a canonical points elsewhere. */
+  healthReason: siteHealthReasonSchema.optional(),
 })
 export type SiteCrawlPageDto = z.infer<typeof siteCrawlPageSchema>
 
@@ -1120,6 +1244,7 @@ const siteCrawlPageAuditProvenanceSchema = z.object({
   runId: z.string(),
   complete: z.boolean(),
   termination: z.string().nullable(),
+  runSelection: siteAuditRunSelectionSchema.optional(),
 })
 const siteCrawlPageAuditIdentitySchema = z.object({
   nodeKey: z.string(),
@@ -1174,6 +1299,7 @@ export type SiteCrawlPagesFilterState = z.infer<typeof siteCrawlPagesFilterState
 const siteCrawlCompletenessShape = {
   complete: z.boolean(),
   termination: z.string().nullable(),
+  runSelection: siteAuditRunSelectionSchema.optional(),
 }
 
 export const siteCrawlPagesResponseSchema = z.object({
@@ -1181,6 +1307,13 @@ export const siteCrawlPagesResponseSchema = z.object({
   hasCrawlData: z.boolean(),
   runId: z.string().nullable(),
   ...siteCrawlCompletenessShape,
+  requestedDate: calendarDateSchema.optional(),
+  /** On dated no-data reads only; both candidate lists are bounded, with full distinct-date totals. */
+  availableScanDates: siteCrawlAvailableScanDatesSchema.optional(),
+  /** Whole selected inventory, independent of page filters and pagination; null without detail rows. */
+  inventorySummary: siteCrawlInventorySummarySchema.nullable().optional(),
+  /** Filtered counts before paging; sum to total. Null when details or the requested filter are unavailable. */
+  healthReasonCounts: z.array(siteCrawlHealthReasonCountSchema).max(siteHealthReasonSchema.options.length).nullable().optional(),
   total: z.number().int().nonnegative(),
   nextCursor: z.string().nullable(),
   /** Null when no `healthState` filter was requested. */
@@ -1266,6 +1399,7 @@ export const siteCrawlGraphNodeSchema = z.object({
   /** Internal-link importance, 0..100 against the crawl's top page. It sets the node's size. */
   linkScoreNormalized: percent().nullable(),
   healthState: siteHealthStateSchema,
+  healthReason: siteHealthReasonSchema.optional(),
   /** Publish-time ForceAtlas2 coordinate. Reads never run layout physics. */
   x: z.number(),
   /** Publish-time ForceAtlas2 coordinate. Reads never run layout physics. */
@@ -1396,6 +1530,7 @@ export const siteHealthSubgraphResponseSchema = z.object({
   /** Selected snapshot provenance. Historical partial crawls stay explicit. */
   complete: z.boolean(),
   termination: z.string().nullable(),
+  runSelection: siteAuditRunSelectionSchema.optional(),
   state: z.enum(['no-crawl', 'details-unavailable', 'ready']),
   focusNodeKey: z.string().nullable(),
   focusUrl: z.string().nullable(),
@@ -1431,6 +1566,7 @@ export const siteHealthPathResponseSchema = z.object({
   /** Selected snapshot provenance. `unreachable` on a partial crawl is not a site-wide claim. */
   complete: z.boolean(),
   termination: z.string().nullable(),
+  runSelection: siteAuditRunSelectionSchema.optional(),
   state: z.enum(['no-crawl', 'details-unavailable', 'found', 'unreachable', 'truncated']),
   from: siteHealthNodeReferenceSchema.nullable(),
   to: siteHealthNodeReferenceSchema.nullable(),
@@ -1585,16 +1721,18 @@ export type SiteCrawlDeadLinkDto = z.infer<typeof siteCrawlDeadLinkSchema>
  * timeout is not evidence of one.
  */
 export const siteCrawlDeadLinksResponseSchema = z.discriminatedUnion('state', [
-  z.object({ project: z.string(), runId: z.string().nullable(), state: z.literal('unavailable'), legacyAuditAvailable: z.boolean() }),
-  z.object({ project: z.string(), runId: z.string(), state: z.literal('disabled'), checkDeadLinks: z.literal(false) }),
+  z.object({ project: z.string(), runId: z.string().nullable(), state: z.literal('unavailable'), legacyAuditAvailable: z.boolean(), runSelection: siteAuditRunSelectionSchema.optional() }),
+  z.object({ project: z.string(), runId: z.string(), state: z.literal('disabled'), checkDeadLinks: z.literal(false), runSelection: siteAuditRunSelectionSchema.optional() }),
   z.object({
     project: z.string(), runId: z.string(), state: z.literal('complete'), checkDeadLinks: z.literal(true),
+    runSelection: siteAuditRunSelectionSchema.optional(),
     checked: z.number().int().nonnegative(), found: z.number().int().nonnegative(), unverified: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
     nextCursor: z.string().nullable(), deadLinks: z.array(siteCrawlDeadLinkSchema).default([]),
   }),
   z.object({
     project: z.string(), runId: z.string(), state: z.literal('partial'), checkDeadLinks: z.literal(true),
+    runSelection: siteAuditRunSelectionSchema.optional(),
     checked: z.number().int().nonnegative(), found: z.number().int().nonnegative(), unverified: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
     nextCursor: z.string().nullable(), deadLinks: z.array(siteCrawlDeadLinkSchema).default([]),
@@ -1738,6 +1876,8 @@ export type SiteHealthScanDto = z.infer<typeof siteHealthScanSchema>
 /** Non-probe site-audit runs for one project, newest first. */
 export const siteHealthScansResponseSchema = z.object({
   project: z.string(),
+  /** Default persisted scan selected by score/crawl reads, independent of the history page limit. */
+  preferredRunId: z.string().nullable().optional(),
   scans: z.array(siteHealthScanSchema).default([]),
 })
 export type SiteHealthScansResponseDto = z.infer<typeof siteHealthScansResponseSchema>

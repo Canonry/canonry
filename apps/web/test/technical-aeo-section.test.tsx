@@ -244,6 +244,19 @@ test('loads the scorecard and pages for a selected historical audit', async () =
   expect(fetchedUrls.filter((url) => url.includes('runId=audit_old'))).toHaveLength(2)
 })
 
+test.each([
+  { avgScore: 88, status: 'fail', pagesPassing: 49, pagesPartial: 0, pagesFailing: 1, label: 'Fail' },
+  { avgScore: 74, status: 'partial', pagesPassing: 49, pagesPartial: 1, pagesFailing: 0, label: 'Partial' },
+])('labels a factor by its API status $status instead of its $avgScore average', ({ label, ...factor }) => {
+  const queryClient = makeClient()
+  queryClient.setQueryData(auditRunsKey, [])
+  queryClient.setQueryData(scoreKey, { ...score('audit_old'), factors: [{ id: 'ai-crawler-access', name: 'AI Crawler Access', weight: 20, ...factor }] })
+  render(<QueryClientProvider client={queryClient}><TechnicalAeoSection projectName={projectName} projectId={projectId} /></QueryClientProvider>)
+  const row = screen.getByRole('row', { name: /AI Crawler Access/ })
+  expect(within(row).getByText(String(factor.avgScore))).not.toBeNull()
+  expect(within(row).getByText(label)).not.toBeNull()
+})
+
 test('shows a cross-cutting issue share as the API sent it, through formatPercent', () => {
   const queryClient = makeClient()
   // 1 of 3 audited pages is 33.333333% on the wire.

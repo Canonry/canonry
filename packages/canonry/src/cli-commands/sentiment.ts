@@ -70,8 +70,8 @@ export const SENTIMENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     }), input.format),
   },
   {
-    path: ['sentiment', 'compare'], usage: 'canonry sentiment compare <project> --from-run-id <id> --to-run-id <id> [selection options] [--format json]',
-    help: `${selectionHelp} Complete matched coverage and compatible evaluators are required for a directional verdict.`,
+    path: ['sentiment', 'compare'], usage: 'canonry sentiment compare <project> --from-run-id <id|previous-rated> --to-run-id <id> [selection options] [--format json]',
+    help: `${selectionHelp} Use --from-run-id previous-rated to resolve the preceding rated run in the selected scope. Self-comparisons are refused. Complete matched coverage and compatible evaluators are required for a directional verdict.`,
     options: { ...selectionOptions, 'from-run-id': stringOption(), 'to-run-id': stringOption() },
     run: input => compareSentiment(project(input, 'compare'), parse(sentimentCompareRequestSchema, {
       ...selection(input), fromRunId: getString(input.values, 'from-run-id'), toRunId: getString(input.values, 'to-run-id'),

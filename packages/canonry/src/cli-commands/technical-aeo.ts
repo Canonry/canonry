@@ -149,12 +149,12 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
   },
   {
     path: ['technical-aeo', 'crawl'],
-    usage: 'canonry technical-aeo crawl <project> [--run-id <id>] [--format json]',
-    options: { 'run-id': stringOption() },
+    usage: 'canonry technical-aeo crawl <project> [--run-id <id> | --date YYYY-MM-DD] [--format json]',
+    options: { 'run-id': stringOption(), date: stringOption() },
     run: async (input) => {
-      const usage = 'canonry technical-aeo crawl <project> [--run-id <id>] [--format json]'
+      const usage = 'canonry technical-aeo crawl <project> [--run-id <id> | --date YYYY-MM-DD] [--format json]'
       const project = requireProject(input, 'technical-aeo.crawl', usage)
-      await technicalAeoCrawl(project, { runId: getString(input.values, 'run-id'), format: input.format })
+      await technicalAeoCrawl(project, { runId: getString(input.values, 'run-id'), date: getString(input.values, 'date'), format: input.format })
     },
   },
   {
@@ -264,9 +264,9 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
   },
   {
     path: ['technical-aeo', 'crawl-pages'],
-    usage: 'canonry technical-aeo crawl-pages <project> [--run-id <id>] [--inventory-eligible true|false] [--fetch-state <state>] [--indexability-state <state>] [--audit-state <state>] [--sort url|path|score-asc|score-desc] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]',
+    usage: 'canonry technical-aeo crawl-pages <project> [--run-id <id> | --date YYYY-MM-DD] [--inventory-eligible true|false] [--fetch-state <state>] [--indexability-state <state>] [--audit-state <state>] [--sort url|path|score-asc|score-desc] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]',
     options: {
-      'run-id': stringOption(),
+      'run-id': stringOption(), date: stringOption(),
       'inventory-eligible': stringOption(),
       'fetch-state': stringOption(),
       'indexability-state': stringOption(),
@@ -276,7 +276,7 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
       limit: stringOption(),
     },
     run: async (input) => {
-      const usage = 'canonry technical-aeo crawl-pages <project> [--run-id <id>] [--inventory-eligible true|false] [--fetch-state <state>] [--indexability-state <state>] [--audit-state <state>] [--sort url|path|score-asc|score-desc] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]'
+      const usage = 'canonry technical-aeo crawl-pages <project> [--run-id <id> | --date YYYY-MM-DD] [--inventory-eligible true|false] [--fetch-state <state>] [--indexability-state <state>] [--audit-state <state>] [--sort url|path|score-asc|score-desc] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]'
       const project = requireProject(input, 'technical-aeo.crawl-pages', usage)
       const sort = getString(input.values, 'sort')
       if (sort !== undefined && !['url', 'path', 'score-asc', 'score-desc'].includes(sort)) {
@@ -286,7 +286,7 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
         })
       }
       await technicalAeoCrawlPages(project, {
-        runId: getString(input.values, 'run-id'),
+        runId: getString(input.values, 'run-id'), date: getString(input.values, 'date'),
         inventoryEligible: parseOptionalBoolean(input, 'inventory-eligible', { command: 'technical-aeo.crawl-pages', usage }),
         fetchState: getString(input.values, 'fetch-state'),
         indexabilityState: getString(input.values, 'indexability-state'),

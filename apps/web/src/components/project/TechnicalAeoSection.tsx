@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExt
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, ChevronDown, ChevronRight, LoaderCircle, Play, RefreshCw, ScanSearch } from 'lucide-react'
 import type { MetricTone } from '../../view-models.js'
-import { formatPercent, RatioUnits, RunKinds, type SiteAuditFactorSummaryDto, type SiteAuditPageDto } from '@ainyc/canonry-contracts'
+import { formatPercent, RatioUnits, RunKinds, SiteAuditFactorStatuses, type SiteAuditFactorSummaryDto, type SiteAuditPageDto } from '@ainyc/canonry-contracts'
 
 import { heyClient, isDashboardManagedRunKind, isEmbed } from '../../api.js'
 import {
@@ -70,8 +70,15 @@ function scoreTextClass(score: number): string {
 }
 
 function factorTone(status: SiteAuditFactorSummaryDto['status']): MetricTone {
-  return status === 'pass' ? 'positive' : status === 'partial' ? 'caution' : 'negative'
+  return status === SiteAuditFactorStatuses.pass ? 'positive' : status === SiteAuditFactorStatuses.partial ? 'caution' : 'negative'
 }
+
+const FACTOR_STATUS_LABELS: Record<SiteAuditFactorSummaryDto['status'], string> = {
+  [SiteAuditFactorStatuses.pass]: 'Pass',
+  [SiteAuditFactorStatuses.partial]: 'Partial',
+  [SiteAuditFactorStatuses.fail]: 'Fail',
+}
+const FACTOR_STATUS_HELP = 'Score is the average across audited pages. Status reflects the worst page: fail if any page scores below 40, partial if any page scores 40–69, otherwise pass. Share is how much of the site score the factor controls; the shares add up to 100%, and a dash means the scan did not record them.'
 
 // aeo-audit v3 is gradeless; canonry bands the 0–100 score into pass/partial/fail.
 function statusLabel(score: number): string {
@@ -577,9 +584,12 @@ export function TechnicalAeoSection({
       <section className={integrated ? 'pt-5' : 'page-section-divider'}>
         {integrated ? (
           <div>
-            <h3 className="text-base font-semibold text-heading">
-              {compactCopy ? 'Checks' : 'Technical findings'}
-            </h3>
+            <div className="flex items-center gap-1.5">
+              <h3 className="text-base font-semibold text-heading">
+                {compactCopy ? 'Checks' : 'Technical findings'}
+              </h3>
+              <InfoTooltip text={FACTOR_STATUS_HELP} />
+            </div>
             <p className="mt-1 max-w-2xl text-sm text-secondary">
               {compactCopy
                 ? hasAnyRecommendations
@@ -599,7 +609,7 @@ export function TechnicalAeoSection({
             <p className="eyebrow eyebrow-soft">Scorecard</p>
             <h2 className="inline-flex items-center gap-1.5">
               Ranking factors
-              <InfoTooltip text="Each factor is scored 0–100 per page (via the aeo-audit engine), then averaged across all successfully-audited pages. Share is how much of the site score the factor controls; the shares add up to 100%, and a dash means the scan did not record them. Pass ≥70, partial 40–69, fail <40. Expand a row to see which pages fall short and how to fix it." />
+              <InfoTooltip text={FACTOR_STATUS_HELP} />
             </h2>
           </div>
         )}
@@ -653,7 +663,7 @@ export function TechnicalAeoSection({
                       <td className="text-right font-mono tabular-nums text-strong">
                         {f.avgScore}{integrated ? <span className="text-muted">/100</span> : null}
                       </td>
-                      <td><ToneBadge tone={factorTone(f.status)}>{statusLabel(f.avgScore)}</ToneBadge></td>
+                      <td><ToneBadge tone={factorTone(f.status)}>{FACTOR_STATUS_LABELS[f.status]}</ToneBadge></td>
                       {integrated ? (
                         <td className={`tabular-nums ${belowPassTotal > 0 ? 'text-strong' : 'text-muted'}`}>
                           {belowPassTotal} of {auditedFactorPages}

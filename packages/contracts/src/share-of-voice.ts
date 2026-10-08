@@ -5,7 +5,7 @@ import { RatioUnits } from './ratio-unit.js'
 export const shareOfVoiceContextSchema = z.object({
   basis: z.enum(['tracked', 'observed']).nullable(),
   availability: z.enum(['measured', 'not-measured', 'unavailable']),
-  reason: z.enum(['select-query-class', 'no-competitors', 'insufficient-observed', 'no-answers', 'no-mentions', 'unavailable']).nullable(),
+  reason: z.enum(['select-query-class', 'answer-selection', 'no-competitors', 'insufficient-observed', 'no-answers', 'no-mentions', 'unavailable']).nullable(),
 })
 export type ShareOfVoiceContext = z.infer<typeof shareOfVoiceContextSchema>
 
@@ -16,6 +16,7 @@ export const shareOfVoiceContextFields = shareOfVoiceContextSchema.partial().sha
 export function shareOfVoiceReason(reason: ShareOfVoiceContext['reason']): string {
   switch (reason) {
     case 'select-query-class': return 'Select a query class.'
+    case 'answer-selection': return 'Share of voice requires all answers in the selected query class.'
     case 'no-competitors': return 'No competitors configured.'
     case 'insufficient-observed': return 'Requires 3 observed competitors mentioned in at least 3 answers each.'
     case 'no-answers': return 'No answer text in scope.'

@@ -228,6 +228,12 @@ function historicalEvidence(rawResponse: string | null): { urls: string[]; compl
   }
 }
 
+/** The canonical stored source population, including pre-capture raw grounding recovery. */
+export function measurementSnapshotSources(snapshot: Pick<typeof querySnapshots.$inferSelect, 'citedUrls' | 'captureStatus' | 'rawResponse'>): { urls: string[]; complete: boolean; historical: boolean } {
+  if (snapshot.citedUrls !== null) return { urls: snapshot.citedUrls, complete: snapshot.captureStatus === 'complete', historical: false }
+  return { ...historicalEvidence(snapshot.rawResponse), historical: true }
+}
+
 function slotLocation(slot: MeasurementRunManifestV1['expectedSlots'][number]): string | null {
   return slot.context?.label ?? null
 }
@@ -295,7 +301,7 @@ function observationInputs(
       if (!supportsRequestedContext(snapshot, slot)) return []
       validateSupportedLocation(snapshot, slot)
     }
-    const directCitations = snapshot.citedUrls
+    const sources = measurementSnapshotSources(snapshot)
     return [{
       id: snapshot.id,
       executionId: snapshot.measurementExecutionId,
@@ -303,12 +309,9 @@ function observationInputs(
       provider: snapshot.provider.trim().toLocaleLowerCase('en'),
       location: snapshot.location,
       answerText: snapshot.answerText,
-      citedUrls: directCitations,
-      citedUrlsComplete: directCitations !== null && snapshot.captureStatus === 'complete',
-      ...(directCitations === null ? (() => {
-        const historical = historicalEvidence(snapshot.rawResponse)
-        return { historicalCitedUrls: historical.urls, historicalCitedUrlsComplete: historical.complete }
-      })() : {}),
+      citedUrls: sources.historical ? null : sources.urls,
+      citedUrlsComplete: !sources.historical && sources.complete,
+      ...(sources.historical ? { historicalCitedUrls: sources.urls, historicalCitedUrlsComplete: sources.complete } : {}),
     }]
   })
 }
@@ -366,6 +369,17 @@ export interface MeasurementPlanV2ReportInput {
   edgeQueryClass: ReadonlyMap<string, MeasurementQueryClass>
 }
 
+/** Frozen Property identity conversion shared by aggregates and landscape filtering. */
+export function measurementPlanV2ReportTargets(plan: MeasurementPlanV2): MeasurementReportInput['targets'] {
+  return plan.targets.map(target => ({
+    id: target.stableKey,
+    label: target.label,
+    aliases: target.mentionNotApplicable ? [] : target.aliases,
+    ...(target.identityAliases === undefined ? {} : { identityAliases: target.identityAliases }),
+    urls: target.urlMatchers.map((matcher, index) => matcherInput(target.stableKey, matcher, index)),
+  }))
+}
+
 /**
  * Turns one frozen v2 revision and one run's snapshots into report-kernel input.
  * Every identity, alias, competitor and question comes from the revision, never
@@ -394,15 +408,7 @@ export function buildMeasurementPlanV2ReportInput(
       ownedHosts: plan.identities.projectBrand.ownedHosts,
       projectBrandNames: plan.identities.projectBrand.names,
       projectDomain: plan.identities.projectBrand.canonicalHost,
-      targets: plan.targets.map(target => ({
-        id: target.stableKey,
-        label: target.label,
-        // The revision already decided this Property cannot be mentioned. Feeding
-        // its aliases in anyway would turn "not applicable" into a 0% reading.
-        aliases: target.mentionNotApplicable ? [] : target.aliases,
-        ...(target.identityAliases === undefined ? {} : { identityAliases: target.identityAliases }),
-        urls: target.urlMatchers.map((matcher, index) => matcherInput(target.stableKey, matcher, index)),
-      })),
+      targets: measurementPlanV2ReportTargets(plan),
       groups: plan.groups.map(group => ({
         id: group.stableKey,
         label: group.label,

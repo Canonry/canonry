@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   competitors,
@@ -37,9 +37,10 @@ import { notProbeRun, resolveProject } from './helpers.js'
 import { buildMentionShareInputs, observedCompetitorNames, projectQueryClassifier } from './mention-share-inputs.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
 import { draftRow, parseStoredAuthoring } from './measurement-draft-repo.js'
-import { latestMeasurementRun } from './measurement-report-adapter.js'
+import { latestMeasurementRun, measurementPlanV2ReportTargets, measurementSnapshotSources } from './measurement-report-adapter.js'
 import { measurementRunCompleteness } from './measurement-run-completeness.js'
 import { classifyModelEvidence } from './model-evidence.js'
+import { createTargetMentionReader } from './measurement-report.js'
 
 type RawQuery = {
   window?: string
@@ -51,6 +52,7 @@ type RawQuery = {
   queryClass?: string
   location?: string
   runId?: string
+  answers?: string
 }
 
 interface LandscapePin extends CompetitorLandscapeIdentity {
@@ -61,6 +63,7 @@ interface FrozenPlanScope {
   executionNodeKeys: Set<string>
   queryClassesByExecution: Map<string, Set<'branded' | 'non-brand'>>
   competitors: LandscapePin[]
+  mentioned: (answerText: string | null, executionId: string | null, citedUrls: readonly string[]) => boolean | null
 }
 
 interface AdvancedScope {
@@ -148,7 +151,7 @@ export function readCompetitorLandscape(
     // read would report a different non-brand base than every plan surface.
     // An explicit `scope` or `groupKey` still wins.
     const classSplitByDefault = filters.scope === undefined && filters.groupKey === undefined
-      && filters.queryClass !== undefined && filters.queryClass !== 'all'
+      && ((filters.queryClass !== undefined && filters.queryClass !== 'all') || filters.answers === 'not-mentioned')
     if ((selection?.autoAdvanced || classSplitByDefault)
       && activeMeasurementPlan(app.db, project.id)?.plan.schemaVersion === 2) filters.scope = 'all-markets'
     const window = parseWindow(filters.window)
@@ -204,6 +207,9 @@ export function readCompetitorLandscape(
         citedDomains: querySnapshots.citedDomains,
         citedUrls: querySnapshots.citedUrls,
         captureStatus: querySnapshots.captureStatus,
+        rawResponse: advanced && filters.answers === 'not-mentioned'
+          ? sql<string | null>`case when ${querySnapshots.citedUrls} is null then ${querySnapshots.rawResponse} else null end`
+          : sql<string | null>`null`,
         location: querySnapshots.location,
         measurementExecutionId: querySnapshots.measurementExecutionId,
         createdAt: querySnapshots.createdAt,
@@ -227,7 +233,18 @@ export function readCompetitorLandscape(
       return run !== undefined && run.trigger !== 'probe'
         && run.status !== RunStatuses.completed && run.status !== RunStatuses.partial
     }).length
-    const snapshots = inScope.filter(snapshot => eligibleRuns.has(snapshot.runId))
+    const eligibleSnapshots = inScope.filter(snapshot => eligibleRuns.has(snapshot.runId))
+    let unknownMentionAnswers = 0
+    const simpleMentionInputs = !advanced && filters.answers === 'not-mentioned'
+      ? buildMentionShareInputs({ project, competitors: [], snapshots: eligibleSnapshots, queryTextById })
+      : undefined
+    const snapshots = filters.answers !== 'not-mentioned' ? eligibleSnapshots : eligibleSnapshots.filter((snapshot, index) => {
+      const mentioned = advanced
+        ? advanced.runScopes.get(snapshot.runId)?.mentioned(snapshot.answerText, snapshot.measurementExecutionId, measurementSnapshotSources(snapshot).urls) ?? null
+        : snapshot.answerText === null || !simpleMentionInputs!.classified ? null : simpleMentionInputs!.snapshots[index]!.projectMentioned
+      if (mentioned === null) unknownMentionAnswers++
+      return mentioned === false
+    })
     // The runs whose answers are counted, not every run the window touched: a
     // run with no answer in scope pools nothing.
     const countedRunIds = new Set(snapshots.map(snapshot => snapshot.runId))
@@ -285,6 +302,7 @@ export function readCompetitorLandscape(
           // Share of voice needs one query class behind it. `all` pools branded
           // and non-brand, so withhold the ratio and publish the counts instead.
           shareOfVoiceEligible: filters.queryClass !== undefined && filters.queryClass !== 'all',
+          ...(filters.answers === 'not-mentioned' ? { shareOfVoiceUnavailableReason: 'answer-selection' as const } : {}),
           snapshots: selectedSnapshots.map((snapshot, i) => ({
             id: snapshot.id,
             createdAt: snapshot.createdAt,
@@ -398,11 +416,15 @@ export function readCompetitorLandscape(
         queryClass: filters.queryClass ?? 'all',
         location: filters.location ?? null,
         runId: filters.runId ?? null,
+        ...(filters.answers === undefined ? {} : { answers: filters.answers }),
       },
       truncated,
       runCount: countedRuns.length,
       runIds: pooledRunIds(countedRuns),
       countUnits: COMPETITOR_LANDSCAPE_COUNT_UNITS,
+      ...(filters.answers !== 'not-mentioned' ? {} : {
+        answerSelection: { answers: filters.answers, populationSize: eligibleSnapshots.length, answerCount: snapshots.length, unknownMentionAnswers },
+      }),
       ...(modelComparison ? { modelComparison } : {}),
     }
     return response
@@ -536,9 +558,24 @@ function scopeForFrozenPlan(
     classes.add(assignment.queryClass)
     queryClassesByExecution.set(assignment.executionNodeKey, classes)
   }
+  const targets = measurementPlanV2ReportTargets(plan)
+  const readMention = createTargetMentionReader(targets, plan.identities.projectBrand.ownedHosts)
+  const targetIdsByExecution = new Map<string, Set<string>>()
+  // Every target of the answer participates, even when the selected group
+  // contains only one of them. Group membership never turns a named sibling
+  // into evidence that nobody was named.
+  for (const edge of plan.usageEdges) {
+    const ids = targetIdsByExecution.get(edge.executionNodeKey) ?? new Set<string>()
+    ids.add(edge.targetKey)
+    targetIdsByExecution.set(edge.executionNodeKey, ids)
+  }
   return {
     executionNodeKeys,
     queryClassesByExecution,
+    mentioned: (answerText, executionId, citedUrls) => {
+      const ids = executionId === null ? [] : [...targetIdsByExecution.get(executionId) ?? []]
+      return readMention(answerText, ids, citedUrls)
+    },
     competitors: mergePins(groups.flatMap(group => group.competitors.map(competitor => ({
       domain: competitor.domain,
       label: competitor.label,

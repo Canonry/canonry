@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 
 const PROVIDER_URL = 'https://api.typesafe.ai/v1/systemone'
 
-export function installSentimentSmokeGuard({ providerUrl, receiptPath, live = false, maxAttempts = 6, maxAssessments = 3, maxInputTokens = 150_000, transport = globalThis.fetch }) {
+export function installSentimentSmokeGuard({ providerUrl, receiptPath, live = false, maxAttempts = live ? 12 : 6, maxAssessments = 3, maxInputTokens = 150_000, transport = globalThis.fetch }) {
   if (providerUrl !== undefined) {
     const target = new URL(providerUrl)
     if (target.protocol !== 'http:' || !['127.0.0.1', '[::1]', 'localhost'].includes(target.hostname)) throw new Error('Smoke stub must use a loopback HTTP URL')

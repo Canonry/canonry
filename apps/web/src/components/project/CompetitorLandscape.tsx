@@ -53,6 +53,7 @@ const CLASS_NOTE: Record<QueryClassFilter, string> = {
  */
 const MENTION_SHARE_REASON: Record<NonNullable<ShareOfVoiceContext['reason']>, string> = {
   'select-query-class': 'no query type selected',
+  'answer-selection': 'answers selected by the brands they named',
   'no-competitors': 'no competitors configured',
   'insufficient-observed': 'needs 3 observed competitors, each named in 3 or more answers',
   'no-answers': 'no answer text',

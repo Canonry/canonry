@@ -53,21 +53,29 @@ const measurementDemoRecommendedNameSchema = z.string().trim().min(1)
 
 /**
  * Rows every portfolio-summary Property list returns when `limit` is omitted.
- * An agent reads this response through a 20,000-character tool-result cap.
- * Each weakest row carries its own answer evidence (about 2,300 indented
- * characters with the deprecated `recommendedInstead` copy), so ten of them
- * alone overran it. Four keeps the whole default response, every metro, both
- * rankings and the tie roll-ups included, near 19,700 characters of compact
- * JSON on a 200-Property, 20-metro portfolio (about 31,500 indented).
+ * Legacy reads retain detailed rows, bounded evidence and complete market
+ * rollups. Agent clients request `compact=true` for formatted byte-budgeted
+ * pages with a resumable cursor over every list.
  */
 export const MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT = 4
 /** Names and cited domains returned per weakest Property row. */
 export const MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT = 5
+/** Default legacy projection leaves room for whole-portfolio metrics and market totals. Explicit limits retain the detailed row cap. */
+export const MEASUREMENT_PORTFOLIO_DEFAULT_ROW_EVIDENCE_LIMIT = 2
 /** Domains returned in the response-level `weakestAnswerSources`. */
 export const MEASUREMENT_PORTFOLIO_ANSWER_SOURCES_LIMIT = 10
+/** Actual top-level market rollups highlighted in a compact summary. */
+export const MEASUREMENT_PORTFOLIO_WEAKEST_MARKET_LIMIT = 5
 /** Names returned in `tiedAtWeakest.namedInstead`, counted across the whole tie. */
 export const MEASUREMENT_PORTFOLIO_TIE_NAMED_INSTEAD_LIMIT = 10
-export const MEASUREMENT_PORTFOLIO_TIE_NOTE = 'tied Properties are ordered by name, not ranked'
+export const MEASUREMENT_PORTFOLIO_TIE_NOTE = 'tied Properties have both zero mentions and zero citations; ordered by name, not ranked'
+
+/** One complete list selected for compact cursor pagination. */
+export const measurementPortfolioListSchema = z.enum([
+  'weakest-properties', 'strongest-mentions', 'weakest-mentions', 'excluded-mentions',
+  'markets', 'observed-names', 'cited-domains',
+])
+export const MeasurementPortfolioLists = measurementPortfolioListSchema.enum
 
 /** The portfolio demo defaults to the non-brand basket so its weakest rows remain actionable. */
 export const measurementPortfolioSummaryQuerySchema = z.object({
@@ -76,7 +84,7 @@ export const measurementPortfolioSummaryQuerySchema = z.object({
   queryClass: measurementQueryClassFilterSchema.default('non-brand'),
   provider: measurementDemoFilterQueryShape.provider,
   location: measurementDemoFilterQueryShape.location,
-  /** Caps the Property lists (Property rows and both mention rankings). Defaults to 4. Markets are never capped. */
+  /** Raw reads cap Property rankings at 4 by default, without capping markets. Compact reads auto-size their selected list up to 50; an explicit limit lowers that page size. */
   limit: z.number().int().positive().max(50).optional(),
   /**
    * Off by default: `markets` holds one level only, every top-level market (or
@@ -84,6 +92,13 @@ export const measurementPortfolioSummaryQuerySchema = z.object({
    * market in scope at every level, as the roll-up did before it was levelled.
    */
   includeNestedMarkets: z.boolean().optional(),
+  /** Bounded agent projection: nextCursor walks weakest-properties unless list selects another list. Other first-page lists are bounded summaries. */
+  compact: z.boolean().optional(),
+  /** Compact page selection identity. Other row lists are omitted; totals remain complete. observed-names and cited-domains require answers=not-mentioned. */
+  list: measurementPortfolioListSchema.optional(),
+  cursor: measurementDemoIdSchema.optional(),
+  /** Select evidence from answers where none of their frozen target Properties was mentioned. */
+  answers: z.enum(['all', 'not-mentioned']).optional(),
 }).strict()
 export type MeasurementPortfolioSummaryQuery = z.output<typeof measurementPortfolioSummaryQuerySchema>
 
@@ -143,44 +158,44 @@ export const measurementPortfolioWeakestPropertySchema = measurementDemoProperty
    * Supersedes the deprecated `recommendedInstead`, whose name read as a
    * citation.
    */
-  namedInsteadInAnswerText: z.array(measurementPortfolioCountedNameSchema).max(MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT),
+  namedInsteadInAnswerText: z.array(measurementPortfolioCountedNameSchema).max(MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT).optional(),
   /** Distinct names across those answers; more than returned means the list was cut. */
-  namedInsteadInAnswerTextTotal: measurementDemoCountSchema,
+  namedInsteadInAnswerTextTotal: measurementDemoCountSchema.optional(),
   /**
    * Domains cited by this Property's stored answers in this run and class,
    * every engine included: each answer's stored domains plus the hosts of its
    * captured source URLs, and answers whose text was not captured count too.
    */
-  citedDomains: z.array(measurementPortfolioCountedDomainSchema).max(MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT),
+  citedDomains: z.array(measurementPortfolioCountedDomainSchema).max(MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT).optional(),
   /** Distinct cited domains; more than returned means the list was cut. */
-  citedDomainsTotal: measurementDemoCountSchema,
+  citedDomainsTotal: measurementDemoCountSchema.optional(),
   /**
    * Deprecated: read `namedInsteadInAnswerText`. The same names in the same
    * order, kept for existing consumers. `occurrences` counts answers, one per
    * answer however it spells the name, exactly as `answers` does there.
    */
-  recommendedInstead: z.array(measurementPortfolioRecommendedInsteadSchema).max(MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT)
+  recommendedInstead: z.array(measurementPortfolioRecommendedInsteadSchema).max(MEASUREMENT_PORTFOLIO_ROW_EVIDENCE_LIMIT).optional()
     .meta({ deprecated: true, description: 'Deprecated: read namedInsteadInAnswerText, which carries the same names in the same order. occurrences counts answers, exactly as answers does there.' }),
   /** Deprecated: read `namedInsteadInAnswerTextTotal`, which it always equals. */
-  recommendedInsteadTotal: measurementDemoCountSchema
+  recommendedInsteadTotal: measurementDemoCountSchema.optional()
     .meta({ deprecated: true, description: 'Deprecated: read namedInsteadInAnswerTextTotal, which it always equals.' }),
   /** Deprecated: true when `namedInsteadInAnswerTextTotal` exceeds the names returned. */
-  recommendedInsteadTruncated: z.boolean()
+  recommendedInsteadTruncated: z.boolean().optional()
     .meta({ deprecated: true, description: 'Deprecated: true when namedInsteadInAnswerTextTotal exceeds the names returned in namedInsteadInAnswerText.' }),
 }).strict().superRefine((row, ctx) => {
-  if (row.namedInsteadInAnswerText.length > row.namedInsteadInAnswerTextTotal) {
+  if (row.namedInsteadInAnswerText !== undefined && (row.namedInsteadInAnswerTextTotal === undefined || row.namedInsteadInAnswerText.length > row.namedInsteadInAnswerTextTotal)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['namedInsteadInAnswerTextTotal'], message: 'Total cannot be smaller than the returned names' })
   }
-  if (row.citedDomains.length > row.citedDomainsTotal) {
+  if (row.citedDomains !== undefined && (row.citedDomainsTotal === undefined || row.citedDomains.length > row.citedDomainsTotal)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['citedDomainsTotal'], message: 'Total cannot be smaller than the returned domains' })
   }
   if (row.recommendedInsteadTotal !== row.namedInsteadInAnswerTextTotal) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['recommendedInsteadTotal'], message: 'The deprecated total must equal namedInsteadInAnswerTextTotal' })
   }
-  if (row.recommendedInstead.length > row.recommendedInsteadTotal) {
+  if (row.recommendedInstead !== undefined && (row.recommendedInsteadTotal === undefined || row.recommendedInstead.length > row.recommendedInsteadTotal)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['recommendedInsteadTotal'], message: 'Total cannot be smaller than the returned replacements' })
   }
-  if (row.recommendedInsteadTruncated !== (row.recommendedInstead.length < row.recommendedInsteadTotal)) {
+  if (row.recommendedInstead !== undefined && row.recommendedInsteadTotal !== undefined && row.recommendedInsteadTruncated !== (row.recommendedInstead.length < row.recommendedInsteadTotal)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['recommendedInsteadTruncated'], message: 'Truncation must agree with the replacement total' })
   }
 })
@@ -209,7 +224,7 @@ export const measurementPortfolioWeakestTieSchema = z.object({
   count: z.number().int().min(2),
   mentionRate: fraction(),
   citationRate: fraction(),
-  note: z.literal(MEASUREMENT_PORTFOLIO_TIE_NOTE),
+  note: z.enum([MEASUREMENT_PORTFOLIO_TIE_NOTE, 'tied Properties are ordered by name, not ranked']),
   /**
    * Tied Properties per top-level market, most first, then by label. A
    * Property in several top-level markets counts in each, so the counts can
@@ -240,6 +255,8 @@ export type MeasurementPortfolioWeakestTie = z.output<typeof measurementPortfoli
  * source capture does not depend on answer text.
  */
 export const measurementPortfolioAnswerSourcesSchema = z.object({
+  /** Compact cursors retain the initial weakest selection and complete zero-signal tie, independent of later page size. */
+  basis: z.literal('initial-weakest-selection-and-zero-signal-tie').optional(),
   properties: measurementDemoCountSchema,
   answers: measurementDemoCountSchema,
   domains: z.array(measurementPortfolioCountedDomainSchema).max(MEASUREMENT_PORTFOLIO_ANSWER_SOURCES_LIMIT),
@@ -288,10 +305,29 @@ export const measurementPortfolioMarketSchema = z.object({
   childMarketCount: measurementDemoCountSchema,
   propertyCount: measurementDemoCountSchema,
   propertiesMentioned: measurementCountMetricValueSchema,
+  /** Properties with no verified mention; unavailable when missing or ambiguous evidence prevents an exact count. */
+  propertiesNeverMentioned: measurementCountMetricValueSchema.optional(),
   mentionCoverage: measurementMetricValueSchema,
   citationCoverage: measurementMetricValueSchema,
 }).strict()
 export type MeasurementPortfolioMarket = z.output<typeof measurementPortfolioMarketSchema>
+
+/** Full metro aggregate rates, independent of the zero-signal Property cohort in tiedAtWeakest.byMetro. */
+const measurementPortfolioWeakestMarketsSchema = z.object({
+  population: z.literal('top-level-markets'),
+  queryClass: measurementQueryClassFilterSchema,
+  totalMarkets: measurementDemoCountSchema,
+  eligibleMarketCount: measurementDemoCountSchema,
+  excludedMarketCount: measurementDemoCountSchema,
+  items: z.array(z.object({
+    groupKey: measurementV2StableKeySchema,
+    label: measurementDemoLabelSchema,
+    propertyCount: measurementDemoCountSchema,
+    mentionCoverage: measurementMetricValueSchema.options[0],
+    citationCoverage: measurementMetricValueSchema.options[0],
+  }).strict()).max(MEASUREMENT_PORTFOLIO_WEAKEST_MARKET_LIMIT),
+}).strict()
+export type MeasurementPortfolioWeakestMarkets = z.output<typeof measurementPortfolioWeakestMarketsSchema>
 
 const measurementPortfolioRankedPropertySchema = measurementDemoPropertySchema.extend({
   ...measurementPortfolioPropertyContextShape,
@@ -310,6 +346,7 @@ export const measurementPortfolioMentionRankingSchema = z.object({
   }).strict()),
   /** Each ranked list is limited; tied rates use stable label/key order. */
   truncated: z.boolean(),
+  excludedTotal: measurementDemoCountSchema.optional(),
 }).strict()
 export type MeasurementPortfolioMentionRanking = z.output<typeof measurementPortfolioMentionRankingSchema>
 
@@ -326,21 +363,25 @@ export const measurementPortfolioSummaryResponseSchema = z.object({
   engines: z.array(providerNameSchema),
   metrics: z.object({
     propertiesMentioned: measurementCountMetricValueSchema,
+    propertiesNeverMentioned: measurementCountMetricValueSchema.optional(),
     mentionCoverage: measurementMetricValueSchema,
     citationCoverage: measurementMetricValueSchema,
   }).strict(),
+  /** Compact unscoped reads rank actual FULL top-level metro rates before pagination; unavailable metros are excluded. Property ties do not supply these rates. */
+  weakestMarkets: measurementPortfolioWeakestMarketsSchema.optional().describe('Compact unscoped ranking from actual full top-level metro aggregates before pagination. Each rate uses the complete selected run/filter/class market population; tiedAtWeakest.byMetro counts only zero-signal Properties and never supplies these rates.'),
   weakestProperties: z.array(measurementPortfolioWeakestPropertySchema),
   /** Set when two or more Properties share the weakest row's rates; null otherwise. */
   tiedAtWeakest: measurementPortfolioWeakestTieSchema.nullable(),
   /** Null before a run completes. */
-  weakestAnswerSources: measurementPortfolioAnswerSourcesSchema.nullable(),
+  weakestAnswerSources: measurementPortfolioAnswerSourcesSchema.nullable().optional(),
   /** Descriptive mention ranking, using the response queryClass and scope; aggregate unavailability does not invalidate it. */
   mentionRanking: measurementPortfolioMentionRankingSchema,
   /**
    * Markets worst-first. By default one level: every top-level market, or
    * every direct child of the selected group when `groupKey` is set (empty
-   * when it has none). `limit` never caps it. `includeNestedMarkets` returns
-   * every market in scope at every level. Empty when the plan defines no groups.
+   * when it has none). Raw reads return every market; compact reads return a
+   * bounded first-page summary or page this list with list=markets.
+   * includeNestedMarkets selects every level. Empty when no groups exist.
    */
   markets: z.array(measurementPortfolioMarketSchema),
   /** Markets at the returned level; more than returned means the list was cut. */
@@ -348,7 +389,37 @@ export const measurementPortfolioSummaryResponseSchema = z.object({
   marketsTruncated: z.boolean(),
   totalProperties: measurementDemoCountSchema,
   truncated: z.boolean(),
+  /** The only list advanced by nextCursor. Other compact row lists are first-page summaries or explicitly omitted. */
+  pageList: measurementPortfolioListSchema.optional(),
+  /** Compact pages resume pageList; list selection, run, revision and evidence are fixed across pages. */
+  nextCursor: measurementDemoIdSchema.nullable().optional(),
+  detailsOmitted: z.array(z.string()).optional(),
+  /** Complete selected answer population, independent of Property/market pagination. */
+  answerEvidence: z.object({
+    answers: z.literal('not-mentioned'),
+    /** Distinct expected answer slots before the mention filter. */
+    populationSize: measurementDemoCountSchema,
+    answerCount: measurementDemoCountSchema,
+    unknownMentionAnswers: measurementDemoCountSchema,
+    observedNames: z.array(z.object({ name: measurementDemoRecommendedNameSchema, answerCount: measurementDemoCountSchema }).strict()),
+    observedNamesTotal: measurementDemoCountSchema,
+    citedDomains: z.array(measurementPortfolioCountedDomainSchema),
+    citedDomainsTotal: measurementDemoCountSchema,
+  }).strict().optional(),
 }).strict().superRefine((response, ctx) => {
+  const evidenceOmitted = response.detailsOmitted?.includes('weakestProperties.answerEvidence') ?? false
+  const evidenceFields = ['namedInsteadInAnswerText', 'namedInsteadInAnswerTextTotal', 'citedDomains', 'citedDomainsTotal',
+    'recommendedInstead', 'recommendedInsteadTotal', 'recommendedInsteadTruncated'] as const
+  if (!evidenceOmitted) {
+    response.weakestProperties.forEach((row, index) => {
+      for (const field of evidenceFields) {
+        if (row[field] === undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['weakestProperties', index, field], message: 'Detailed evidence is required unless explicitly omitted by the compact projection' })
+      }
+    })
+  }
+  if (response.weakestAnswerSources === undefined && !response.detailsOmitted?.includes('weakestAnswerSources')) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['weakestAnswerSources'], message: 'Source evidence is required unless explicitly omitted by the compact projection' })
+  }
   if (response.marketsTruncated !== (response.markets.length < response.totalMarkets)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['marketsTruncated'], message: 'Market truncation must agree with the market total' })
   }

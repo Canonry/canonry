@@ -149,10 +149,9 @@ describe('sentiment stored-result and authorization boundaries', () => {
     simple('factual-later', ['q-one', 'q-two']); complete('factual-later', 'factual')
     const comparison = sentimentComparisonSchema.parse(await get('/compare', { fromRunId: 'factual', toRunId: 'factual-later' }))
     expect(comparison).toMatchObject({ verdict: null, favorableRateDelta: null, refusalReasons: ['insufficient-judgments'] })
-    // A run cannot be compared with itself: that always reads "no change".
-    const sameRun = await app.inject({ method: 'GET', url: '/api/v1/projects/p/sentiment/compare?fromRunId=factual&toRunId=factual', headers })
-    expect(sameRun.statusCode).toBe(400)
-    expect(sameRun.json().error.message).toBe('Invalid sentiment request: Comparison requires two different runs; one rated run has no trend yet.')
+    const response = await app.inject({ method: 'GET', url: '/api/v1/projects/p/sentiment/compare?fromRunId=factual&toRunId=factual', headers: { authorization: 'Bearer cnry_boundary-root' } })
+    expect(response.statusCode).toBe(400)
+    expect(response.json().error.message).toContain('two distinct runs')
   })
 
   it.each(['session', 'delegated'] as const)('rechecks a demoted administrator before %s backfill receipt replay', async transport => {

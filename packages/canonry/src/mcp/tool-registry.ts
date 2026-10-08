@@ -81,10 +81,10 @@ import {
   measurementPropertyQuestionsQuerySchema,
   measurementQuestionResultQuerySchema,
   measurementPropertyCompetitorsQuerySchema,
+  calendarDateSchema,
   measurementChangesQuerySchema,
   measurementDataQualityQuerySchema,
   measurementQueryClassFilterSchema,
-  type MeasurementPortfolioSummaryResponse,
   type MeasurementQueryClassFilter,
   LATEST_RUN_ID,
   measurementPropertyEvidenceQuerySchema,
@@ -197,6 +197,7 @@ const measurementOverviewInputSchema = z.object({
   sort: measurementOverviewQuerySchema.shape.sort,
   cursor: measurementOverviewQuerySchema.shape.cursor,
   limit: measurementOverviewQuerySchema.shape.limit,
+  compact: z.boolean().default(true).describe('Defaults to true: bounded whole rows omit repeated per-Property engine detail with explicit detailsOmitted. Use compact=false for that detail; preserve all filters when following nextCursor.'),
 }).strict().superRefine((input, context) => {
   if (input.scope === 'group' && !input.groupKey) {
     context.addIssue({ code: 'custom', path: ['groupKey'], message: 'Group scope requires groupKey.' })
@@ -234,44 +235,14 @@ const measurementPropertyEvidenceInputSchema = measurementPropertyEvidenceQueryS
     'What one row is. Omit for sources (one row per cited URL). answers gives one row per measured answer with its cited URLs nested, including the answers that cited nothing.',
   ),
 }).strict()
-/**
- * Most Property rows one portfolio summary returns to an agent, with or
- * without groupKey. Measured as compact JSON on a 200-Property, 20-metro
- * portfolio with every metro listed and the deprecated recommendedInstead copy
- * stripped: 4 rows are about 18,300 characters and 5 pass the 20,000-character
- * tool-result cap. A groupKey read lists every submarket of its metro, uncapped,
- * so a metro with a couple dozen submarkets passes the cap at 5 rows as well.
- */
-const PORTFOLIO_SUMMARY_AGENT_ROWS = 4
-/**
- * The largest limit the agent schema accepts: the route's earlier agent
- * maximum. A request above PORTFOLIO_SUMMARY_AGENT_ROWS is lowered with a
- * leading limitNote rather than refused.
- */
-const PORTFOLIO_SUMMARY_AGENT_LIMIT_MAX = 10
-/**
- * The summary as an agent reads it: without the deprecated recommendedInstead
- * copy of every row's namedInsteadInAnswerText (about 350 characters a row),
- * and with a leading note when the requested limit was lowered.
- */
-function portfolioSummaryForAgents(summary: MeasurementPortfolioSummaryResponse, limitNote: string | undefined): unknown {
-  const rows: unknown = summary.weakestProperties
-  return {
-    ...(limitNote === undefined ? {} : { limitNote }),
-    ...summary,
-    ...(Array.isArray(rows)
-      ? { weakestProperties: summary.weakestProperties.map(({ recommendedInstead: _names, recommendedInsteadTotal: _total, recommendedInsteadTruncated: _cut, ...row }) => row) }
-      : {}),
-  }
-}
 const measurementPortfolioSummaryInputSchema = measurementPortfolioSummaryQuerySchema.extend({
   project: projectNameSchema,
   groupKey: measurementPortfolioSummaryQuerySchema.shape.groupKey
     .describe('A market stable key (a row\'s metro.groupKey or a markets row\'s groupKey). Scopes rows to that market and lists its direct submarkets.'),
-  limit: z.number().int().positive().max(PORTFOLIO_SUMMARY_AGENT_LIMIT_MAX).optional()
-    .describe(`Rows per Property list. Default ${PORTFOLIO_SUMMARY_AGENT_ROWS}, which is also the most returned (a larger value is lowered and limitNote says so). For other rows pass groupKey (one metro's weakest), or page canonry_measurement_overview.`),
-  includeNestedMarkets: measurementPortfolioSummaryQuerySchema.shape.includeNestedMarkets
-    .describe('Every market at every level, uncapped. Off by default and rarely needed: markets already lists every metro, and groupKey lists one metro\'s submarkets. Large portfolios exceed the tool-result cap with it on.'),
+  list: measurementPortfolioSummaryQuerySchema.shape.list.describe('Select one complete compact list. Default cursor walks weakest-properties; other first-page lists are bounded summaries. observed-names and cited-domains require answers=not-mentioned. Keep list unchanged across cursors.'),
+  limit: measurementPortfolioSummaryQuerySchema.shape.limit.describe('Maximum selected-list rows; omitted auto-sizes up to 50 under the byte budget. nextCursor advances only pageList; use list to enumerate another ranking, market or evidence list.'),
+  compact: z.boolean().default(true).describe('Defaults to true. Omits detailed evidence with explicit detailsOmitted and returns bounded cursor pages.'),
+  includeNestedMarkets: measurementPortfolioSummaryQuerySchema.shape.includeNestedMarkets.describe('Include every market level; compact pages preserve market totals and page the rows.'),
 }).strict()
 const measurementPropertyQuestionsInputSchema = measurementPropertyQuestionsQuerySchema.extend({
   project: projectNameSchema,
@@ -1122,6 +1093,7 @@ const crawlRunIdSchema = runIdSchema.optional().describe(
 const technicalAeoCrawlInputSchema = z.object({
   project: projectNameSchema,
   runId: crawlRunIdSchema,
+  date: calendarDateSchema.optional().describe('Exact UTC scan date YYYY-MM-DD, mutually exclusive with runId. A dated no-data result may include availableScanDates. When the user omitted the year, resolve it from matchingMonthDayDates and request that exact returned date before concluding the scan is missing. Never silently select another date.'),
 })
 
 const siteHealthPageAuditInputSchema = z.object({
@@ -1185,6 +1157,7 @@ const siteHealthChangesInputSchema = z.object({
 const technicalAeoCrawlPagesInputSchema = z.object({
   project: projectNameSchema,
   runId: runIdSchema.optional(),
+  date: calendarDateSchema.optional().describe('Exact UTC scan date YYYY-MM-DD, mutually exclusive with runId. A dated no-data result may include availableScanDates. When the user omitted the year, resolve it from matchingMonthDayDates and request that exact returned date before concluding the scan is missing. Missing data never falls back to another date.'),
   inventoryEligible: z.boolean().optional().describe('Filter Canonry technical-inventory eligibility. This is not actual Google index coverage.'),
   fetchState: z.string().min(1).optional().describe('Filter crawler fetch state, for example html, redirect, non-html, or fetch-error.'),
   indexabilityState: z.string().min(1).optional().describe('Filter crawler-derived indexability state. This is not Google index coverage.'),
@@ -1307,7 +1280,7 @@ export const canonryMcpTools = [
   }),
   defineTool({
     name: 'canonry_sentiment', title: 'Read sentiment and per-query scores',
-    description: 'Read stored model-classified language about frozen Simple identities or Advanced Properties. Returns headline and per-query favorable/mixed/unfavorable rates, judged and selected assessment counts, rated and eligible answers with their share (ratedAnswerRate: answers with a favorable, mixed or unfavorable rating over every eligible answer, admitted or not; each answer counts once), exclusions, intervals and method limitations. Favorable % is favorable / (favorable + mixed + unfavorable); factual and unjudged answers do not enter that denominator. Select branded or non-brand explicitly and keep their metrics separate; the default is branded. Optional queryId selects one frozen query. Query rows are compact and paged: queryLimit (default 25) rows per page, then pass queryPage.nextCursor as queryCursor. Per-engine assessment verdicts and per-location scores are opt-in with include=["assessments","locations"], or come by default when queryId names one query. Advanced rows are per executionNodeKey; pass it to narrow evidence to that node. Optional runIds selects the exact grouped location runs instead of runId. A known subject absent from a non-brand answer is not unfavorable. Branded reads carry criticizedProperties: total Properties with a mixed or unfavorable rating, and keys, the first five property breakdown keys, most criticized first ({total: 0, keys: []} with fewer than two Properties in view; absent for non-brand, disabled or unavailable reads); read their answers on canonry_sentiment_evidence with scope property, that scopeKey and outcome ["mixed","unfavorable"]. Partial values are provisional. Never starts a classifier. Preserve the resolved evaluationDefinitionId and complete selection for later evidence reads.',
+    description: 'Read stored model-classified language about frozen Simple identities or Advanced Properties. Returns headline and per-query favorable/mixed/unfavorable rates, judged and selected assessment counts, rated and eligible answers with their share (ratedAnswerRate: answers with a favorable, mixed or unfavorable rating over every eligible answer, admitted or not; each answer counts once), exclusions, intervals and method limitations. Favorable % is favorable / (favorable + mixed + unfavorable); factual and unjudged answers do not enter that denominator. Select branded or non-brand explicitly and keep their metrics separate; the default is branded. Optional queryId selects one frozen query. Query rows are compact and paged: queryLimit (default 25) rows per page, then pass queryPage.nextCursor as queryCursor. Per-engine assessment verdicts and per-location scores are opt-in with include=["assessments","locations"], or come by default when queryId names one query. Advanced rows are per executionNodeKey; pass it to narrow evidence to that node. Optional runIds selects the exact grouped location runs instead of runId. coverage.subjectNotMentioned counts distinct answers where every assessed subject is absent; this is expected for non-brand queries and is not missing data. A known subject absent from a non-brand answer is not unfavorable. Branded reads carry criticizedProperties: total Properties with a mixed or unfavorable rating, and keys, the first five property breakdown keys, most criticized first ({total: 0, keys: []} with fewer than two Properties in view; absent for non-brand, disabled or unavailable reads); read their answers on canonry_sentiment_evidence with scope property, that scopeKey and outcome ["mixed","unfavorable"]. Partial values are provisional. Never starts a classifier. Preserve the resolved evaluationDefinitionId and complete selection for later evidence reads.',
     access: 'read', tier: 'monitoring', inputSchema: sentimentInputSchema, outputSchema: sentimentSummaryReadSchema, annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/sentiment'],
     handler: (client, input) => { const { project, ...query } = input; return client.getSentiment(project, query) },
@@ -1321,7 +1294,7 @@ export const canonryMcpTools = [
   }),
   defineTool({
     name: 'canonry_sentiment_compare', title: 'Compare matched sentiment periods',
-    description: 'Compare stored periods under compatible frozen scope, answer-engine identity and evaluator, with complete classification coverage. Returns matched/excluded units, each denominator, all refusal reasons, a nullable direction, and both period summaries with compact query rows (per-engine detail is on canonry_sentiment). Overlapping Wilson intervals mean no clear change detected; they do not establish equivalence. No provider calls.',
+    description: 'fromRunId accepts previous-rated to select the preceding rated run in the same scope within 50 rated candidates; identical run IDs are refused. Population changes, incomplete targets and search-limit refusals are distinct; search-limit asks for an explicit older run. Compare stored periods under compatible frozen scope, answer-engine identity and evaluator, with complete classification coverage. Returns matched/excluded units, each denominator, all refusal reasons, a nullable direction, and both period summaries with compact query rows (per-engine detail is on canonry_sentiment). Overlapping Wilson intervals mean no clear change detected; they do not establish equivalence. No provider calls.',
     access: 'read', tier: 'monitoring', inputSchema: sentimentCompareInputSchema, outputSchema: sentimentComparisonReadSchema, annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/sentiment/compare'],
     handler: (client, input) => { const { project, ...query } = input; return client.compareSentiment(project, query) },
@@ -1447,7 +1420,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_project_overview',
     title: 'Get project overview (composite)',
-    description: 'One-call summary for "how is project X doing?". Returns independent mention and citation coverage, separate query-level movement for each signal, query-basket comparability with added/removed counts, latest run and health, insights, provider/model breakdowns, competitors, attention items, and recent history. Movement excludes queries not shared by both sweeps. Filterable by location and time window. Prefer this over fanning out to separate read tools for the same question. queryClassScope says which figures pool branded and non-brand: the coverage, scores (except scores.mentionShare) and movement count queries across both classes, so never report them as one class or as answers. The latest run\'s status and health are not a completeness check: for expected, executed and missing answers read canonry_measurement_data_quality or, for a plan run, canonry_run_completeness. canonry_doctor checks configuration and integrations, not sweeps. SCOPE LIMIT: this returns nothing about Advanced Measurement: no plan, Targets, Properties, groups, or segments. Its silence is not evidence that a project lacks them. When the system prompt has no Project shape line, call canonry_measurement_plan_get before stating that a project has no Properties, no Advanced plan, or cannot break out per-Property performance; use canonry_measurement_portfolio_summary to rank Properties.',
+    description: 'Sentiment headline is sentiment.branded; nonBrand is a separate exception population. pooledOverall and deprecated overall are explicitly pooled compatibility figures and must never be reported as a class-specific headline. One-call summary for "how is project X doing?". Returns independent mention and citation coverage, separate query-level movement for each signal, query-basket comparability with added/removed counts, latest run and health, insights, provider/model breakdowns, competitors, attention items, and recent history. Movement excludes queries not shared by both sweeps. Filterable by location and time window. Prefer this over fanning out to separate read tools for the same question. queryClassScope says which figures pool branded and non-brand: the coverage, scores (except scores.mentionShare) and movement count queries across both classes, so never report them as one class or as answers. The latest run\'s status and health are not a completeness check: for expected, executed and missing answers read canonry_measurement_data_quality or, for a plan run, canonry_run_completeness. canonry_doctor checks configuration and integrations, not sweeps. SCOPE LIMIT: this returns nothing about Advanced Measurement: no plan, Targets, Properties, groups, or segments. Its silence is not evidence that a project lacks them. When the system prompt has no Project shape line, call canonry_measurement_plan_get before stating that a project has no Properties, no Advanced plan, or cannot break out per-Property performance; use canonry_measurement_portfolio_summary to rank Properties.',
     access: 'read',
     tier: 'core',
     inputSchema: z.object({
@@ -1522,7 +1495,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_competitor_landscape',
     title: 'Get historical competitor landscape',
-    description: 'Returns pinned competitors first, then observed direct competitors and other cited sources from stored answer/source evidence only. Mention share is percentage points (0..100) from answer text; citations are independent. The response carries basis (tracked or observed), availability, and reason. Pins exclusively define the comparison set when present. Otherwise at least 3 stored direct competitors must each be mentioned in 3 answers in the selected scope; raw names and platforms never enter that denominator. Without a comparison set the ratio is null, never 100%. The full comparison array is uncapped. Share of voice needs ONE query class: `queryClass=all`, and omitting it, pool branded and non-brand, so every `shareOfVoice` comes back null and only the counts are published. Pass `queryClass=non-brand` (or `branded`) for a ratio, exactly as visibility-stats does. A project with no brand name or alias cannot be split by class, so a class-scoped read on one is refused rather than answered empty. Optional groupBy: model adds provider/requested-model groups with separate served-model evidence and sample counts. Optional model filters one exact requested model ID and requires provider. Unknown historical models remain explicit. Groups are not a matched-query or equal-weight comparison. Advanced reads support one market group or explicit scope: all-markets. On a project with an active v2 measurement plan, queryClass=branded or non-brand with no scope or groupKey defaults to scope=all-markets, so classes come from the plan; pass scope=project to force the text classifier. No provider, discovery, or classifier work runs. Ranked lists are capped at 100 observed/other-source rows per group; pins remain complete. `observedNames` are names written in answer text, not cited sources, capped at the top 50 by answer count; `observedNamesTotal` counts distinct names, never answers (`countUnits` says what each count counts). Model groups are capped at 50 and disclose truncation. For which names answers give instead across a portfolio, read this with queryClass and runId latest: per-Property named-instead lists are samples of weak Properties. With queryClass branded or non-brand and neither runId nor window, this tool reads the latest sweep; pass window to pool sweeps. `runCount` and `runIds` name the runs counted; above 1 the counts pool several runs.',
+    description: 'answers=not-mentioned selects only answers where none of their targeted subjects was named, with answerSelection reporting population and selected counts. Returns pinned competitors first, then observed direct competitors and other cited sources from stored answer/source evidence only. Mention share is percentage points (0..100) from answer text; citations are independent. The response carries basis (tracked or observed), availability, and reason. Pins exclusively define the comparison set when present. Otherwise at least 3 stored direct competitors must each be mentioned in 3 answers in the selected scope; raw names and platforms never enter that denominator. Without a comparison set the ratio is null, never 100%. The full comparison array is uncapped. Share of voice needs ONE query class: `queryClass=all`, and omitting it, pool branded and non-brand, so every `shareOfVoice` comes back null and only the counts are published. Pass `queryClass=non-brand` (or `branded`) for a ratio, exactly as visibility-stats does. A project with no brand name or alias cannot be split by class, so a class-scoped read on one is refused rather than answered empty. Optional groupBy: model adds provider/requested-model groups with separate served-model evidence and sample counts. Optional model filters one exact requested model ID and requires provider. Unknown historical models remain explicit. Groups are not a matched-query or equal-weight comparison. Advanced reads support one market group or explicit scope: all-markets. On a project with an active v2 measurement plan, queryClass=branded or non-brand with no scope or groupKey defaults to scope=all-markets, so classes come from the plan; pass scope=project to force the text classifier. No provider, discovery, or classifier work runs. Ranked lists are capped at 100 observed/other-source rows per group; pins remain complete. `observedNames` are names written in answer text, not cited sources, capped at the top 50 by answer count; `observedNamesTotal` counts distinct names, never answers (`countUnits` says what each count counts). Model groups are capped at 50 and disclose truncation. For which names answers give instead across a portfolio, read this with queryClass and runId latest: per-Property named-instead lists are samples of weak Properties. With queryClass branded or non-brand and neither runId nor window, this tool reads the latest sweep; pass window to pool sweeps. answers=not-mentioned publishes names and mention/citation counts only; all competitive shares are null with reason answer-selection because the population is selected by the measured mention outcome. `runCount` and `runIds` name the runs counted; above 1 the counts pool several runs.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: competitorLandscapeInputSchema,
@@ -2806,7 +2779,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_measurement_overview',
     title: 'Get Advanced Measurement overview',
-    description: 'For best/worst Property mention rankings, prefer canonry_measurement_portfolio_summary and its mentionRanking. An unavailable aggregate does not invalidate available Property metrics. Return stored, revision-pinned Advanced Measurement metrics and a bounded page of Property rows for all Properties, one reporting group, or one Property. Filter by query class, provider, location, date window, run, or Property search; search filters rows without changing metric denominators. On a schema-v2 plan each Property row carries its metro (and otherMetros when it is in several). It ranks one run snapshot only and never infers a trend or compares across revisions. Choose label-asc (default), label-desc, citationCoverage-asc/desc, or mentionCoverage-asc/desc. For a coverage sort, unavailable rows form the first bucket in either direction; available rows then follow the requested numeric direction. The cursor is sort-aware, pins pagination to the active revision, displayed run, evidence snapshot, and filters even if a newer run completes, and must be reused unchanged with the same sort and filters. Legacy label cursors work only when sort is omitted, while any explicit sort needs a new sort-bound cursor. It never starts provider work or incurs provider cost; page size is at most 100, and it refuses invalid scope keys, cursor combinations, appended evidence, or a run pinned to another revision.',
+    description: 'Compact pages are byte-bounded whole rows by default; use nextCursor with unchanged filters. For best/worst Property mention rankings, prefer canonry_measurement_portfolio_summary and its mentionRanking. An unavailable aggregate does not invalidate available Property metrics. Return stored, revision-pinned Advanced Measurement metrics and a bounded page of Property rows for all Properties, one reporting group, or one Property. Filter by query class, provider, location, date window, run, or Property search; search filters rows without changing metric denominators. On a schema-v2 plan each Property row carries its metro (and otherMetros when it is in several). It ranks one run snapshot only and never infers a trend or compares across revisions. Choose label-asc (default), label-desc, citationCoverage-asc/desc, or mentionCoverage-asc/desc. For a coverage sort, unavailable rows form the first bucket in either direction; available rows then follow the requested numeric direction. The cursor is sort-aware, pins pagination to the active revision, displayed run, evidence snapshot, and filters even if a newer run completes, and must be reused unchanged with the same sort and filters. Legacy label cursors work only when sort is omitted, while any explicit sort needs a new sort-bound cursor. It never starts provider work or incurs provider cost; page size is at most 100, and it refuses invalid scope keys, cursor combinations, appended evidence, or a run pinned to another revision.',
     access: 'read',
     tier: 'setup',
     inputSchema: measurementOverviewInputSchema,
@@ -2814,7 +2787,7 @@ export const canonryMcpTools = [
     openApiOperations: ['GET /api/v1/projects/{name}/measurement-overview'],
     handler: (client, input) => {
       const { project, ...query } = input
-      return client.getMeasurementOverview(project, query)
+      return client.getMeasurementOverview(project, { ...query, compact: query.compact ?? true })
     },
   }),
   defineTool({
@@ -2834,7 +2807,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_measurement_portfolio_summary',
     title: 'Summarize measured Properties',
-    description: 'Start here for best and worst Properties. One call returns the weakest Properties, the names answers wrote instead of them, and the domains engines cited for them. Defaults to non-brand queries; state the returned queryClass and never pool branded with non-brand. Returns at most 4 Property rows per list, the most that fit one result; a larger limit is lowered and limitNote says so. For other rows pass groupKey (one metro\'s weakest), or page canonry_measurement_overview. Mention (answer text names the Property) and citation (a source URL on its page) are separate: report each as numerator/denominator, with any unattributed count beside mention and any unchecked count beside citation (saved answers whose source capture was incomplete; they are in neither side). Denominators count answers, one per query per engine (queries x engines = answers, less any unattributed or unchecked). Group Properties only by each row\'s metro and submarkets, never by label. namedInsteadInAnswerText lists names written in the answer text of answers that neither named nor cited the Property, counted by answer: they are not citations, and namedInsteadInAnswerTextTotal counts distinct names, not answers. citedDomains and weakestAnswerSources count answers citing each domain, every engine included; weakestAnswerSources pools the weakest rows plus every tied Property, each answer once, and its domainTotal counts distinct domains, not citations. weakestAnswerSources.ownDomainAnswers counts those answers that cite any of your own domains. A Property\'s citationCoverage counts only answers citing that Property\'s own page, so 0% citation does not mean your domain went uncited; use ownDomainAnswers for that. When tiedAtWeakest is set, tiedAtWeakest.count Properties share the weakest rates and the rows are the first of them by name, not a rank: report the count, tiedAtWeakest.byMetro (tied Properties per metro over the whole tie; a Property in two metros counts in both) and tiedAtWeakest.namedInstead (names written instead across the whole tie, counted by distinct answer; namedInsteadTotal is distinct names), and call the rows examples. mentionRanking.strongest/.weakest rank every Property with an available mention rate; .excluded lists the rest with reasons. markets lists every market at one level, worst-first (every metro, or a groupKey\'s submarkets), whatever the limit. Markets may share Properties and never sum to portfolio totals. Reads stored data only; never starts provider work.',
+    description: 'Read revision-pinned Property rankings and market rollups from stored answers. Start here for portfolio headlines: metrics.propertiesMentioned, propertiesNeverMentioned, mentionCoverage and citationCoverage. Defaults to non-brand; report branded separately. A never-mentioned Property may still be cited. Compact weakestMarkets ranks actual full top-level market rates; use it for weakest metros. tiedAtWeakest requires both zero mentions and zero citations; its byMetro rows describe only that Property cohort, not full metro rates, and its count is not the never-mentioned count. Compact pages are byte-bounded whole rows by default. nextCursor advances only pageList, default weakest-properties. Other lists are bounded first-page summaries, then omitted; totals remain complete. To enumerate another list, set list to strongest-mentions, weakest-mentions, excluded-mentions, markets, observed-names or cited-domains. Selected-list mode omits sibling row bodies; without limit, pages auto-size up to 50 rows. Follow nextCursor as cursor with unchanged list and filters; detailsOmitted names evidence available on drill-down tools. Mention and citation denominators are independent; preserve unattributed and unchecked counts. answers=not-mentioned returns answerEvidence names and registrable cited domains only from answers naming none of their targeted Properties, with populationSize, answerCount and unknownMentionAnswers. Counts for names and domains count distinct answers. Markets can overlap and must not be summed. Group rows by returned metro/submarkets rather than label. No provider calls.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: measurementPortfolioSummaryInputSchema,
@@ -2842,13 +2815,7 @@ export const canonryMcpTools = [
     openApiOperations: ['GET /api/v1/projects/{name}/measurement-portfolio-summary'],
     handler: async (client, input) => {
       const { project, ...query } = input
-      const most = PORTFOLIO_SUMMARY_AGENT_ROWS
-      const lowered = query.limit !== undefined && query.limit > most
-      const summary = await client.getMeasurementPortfolioSummary(project, lowered ? { ...query, limit: most } : query)
-      const more = query.groupKey === undefined
-        ? 'For other rows pass groupKey (one metro\'s weakest), or page canonry_measurement_overview.'
-        : 'For more rows page canonry_measurement_overview with scope group.'
-      return portfolioSummaryForAgents(summary, lowered ? `limit ${query.limit} was lowered to ${most}, the most rows that fit one result. ${more}` : undefined)
+      return client.getMeasurementPortfolioSummary(project, { ...query, compact: query.compact ?? true })
     },
   }),
   defineTool({
@@ -3517,13 +3484,13 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_site_health_overview',
     title: 'Get Site Health overview',
-    description: 'Start a Site Health investigation with the latest or selected scan summary: root URL, completeness, crawl and link counts, budgets, versions, termination, and dead-link check state. Follow with a focused Site Health subgraph, shortest path, or scan changes; never request the interactive graph projection through MCP.',
+    description: 'For a requested scan date pass date=YYYY-MM-DD. If the year was omitted and that date has no data, use availableScanDates.matchingMonthDayDates to resolve the year and request the exact returned date before concluding the historical scan is missing. recentDates and matchingMonthDayDates are bounded; totalDates and matchingMonthDayTotal report their full counts. No automatic date fallback. inventorySummary provides complete eligibility counts and disjoint excluded reasons, including terminal redirects. Start a Site Health investigation with the latest or selected scan summary: root URL, completeness, crawl and link counts, budgets, versions, termination, and dead-link check state. Follow with a focused Site Health subgraph, shortest path, or scan changes; never request the interactive graph projection through MCP.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoCrawlInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/crawl'],
-    handler: (client, input) => client.getTechnicalAeoCrawl(input.project, { runId: input.runId }),
+    handler: (client, input) => client.getTechnicalAeoCrawl(input.project, { runId: input.runId, date: input.date }),
   }),
   defineTool({
     name: 'canonry_site_health_page_audit',
@@ -3598,7 +3565,7 @@ export const canonryMcpTools = [
     name: 'canonry_technical_aeo_score',
     title: 'Get Technical AEO score',
     description:
-      'Get the Technical AEO scorecard for a project: the latest site-audit aggregate 0–100 score, per-factor site-level averages (with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the previous audit. A factor\'s share of the site score is `sharePct` (0–100, the shares add up to 100; null for a scan that did not record it); its `weight` is relative and never a percentage. When `hasData` is false the project has never been audited — call canonry_technical_aeo_run first.',
+      'pagesFailing and pagesPartial are independent counts; their sum is the number of audited pages below pass for that factor. Any failing page makes a factor fail, independently of its average score or affected-page count. These counts use the audited-page population; crawl eligibility is a separate inventory population. affectedPageRanking orders recorded per-factor below-pass counts from largest to smallest; this is affected-page breadth, not a prediction of mention or citation lift. Factor cohorts overlap, so do not add their counts together. runSelection flags same-date ambiguity and prefers a complete run on the latest scan date, otherwise the largest page sample. Get the Technical AEO scorecard for a project: the latest site-audit aggregate 0–100 score, per-factor site-level averages (with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the previous audit. A factor\'s share of the site score is `sharePct` (0–100, the shares add up to 100; null for a scan that did not record it); its `weight` is relative and never a percentage. When `hasData` is false, no scored audit is available for the selected scan; a stored crawl may still exist. Inspect the stored crawl before proposing a new audit.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoScoreInputSchema,
@@ -3638,18 +3605,18 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_technical_aeo_crawl',
     title: 'Get persisted Technical AEO crawl',
-    description: 'Read persisted full-crawl metadata for the latest or selected Technical AEO site-audit run: root URL, crawl/indexability/link-score versions, effective budgets, completeness, counts, and explicit dead-link check state. This does not fabricate a graph from older scorecard-only audits.',
+    description: 'For a historical question pass its exact UTC date (YYYY-MM-DD). If the year was omitted and that date has no data, use availableScanDates.matchingMonthDayDates to resolve the year and request the exact returned date before concluding the historical scan is missing. recentDates and matchingMonthDayDates are bounded; totalDates and matchingMonthDayTotal report their full counts. No automatic date fallback. inventorySummary gives whole-snapshot eligibility and disjoint excluded reasons; unknown is not canonical-away. Read persisted full-crawl metadata for the latest or selected Technical AEO site-audit run: root URL, crawl/indexability/link-score versions, effective budgets, completeness, counts, and explicit dead-link check state. This does not fabricate a graph from older scorecard-only audits.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoCrawlInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/crawl'],
-    handler: (client, input) => client.getTechnicalAeoCrawl(input.project, { runId: input.runId }),
+    handler: (client, input) => client.getTechnicalAeoCrawl(input.project, { runId: input.runId, date: input.date }),
   }),
   defineTool({
     name: 'canonry_technical_aeo_crawl_pages',
     title: 'List Technical AEO crawl pages',
-    description: 'Read one bounded, cursor-paged list of canonical crawl nodes. Filter crawler-derived indexability and audit state, then follow nextCursor; this is technical inventory eligibility, not a claim about Google index coverage. `complete: false` means the crawl stopped at the budget named by `termination`, so a missing page or link is not proof it does not exist.',
+    description: 'For a requested scan date pass date=YYYY-MM-DD. If the year was omitted and that date has no data, use availableScanDates.matchingMonthDayDates to resolve the year and request the exact returned date before concluding the historical scan is missing. recentDates and matchingMonthDayDates are bounded; totalDates and matchingMonthDayTotal report their full counts. No automatic date fallback. inventorySummary gives whole-snapshot eligible/excluded counts and disjoint excluded reasons; healthReasonCounts covers the filtered list before paging. Use these exact counts, never infer canonical-away from unknown indexability. healthReason distinguishes terminal redirects from canonical-to-other pages. Default runSelection reports same-date ambiguity and selects complete or most-pages evidence on the latest scan date. Read one bounded, cursor-paged list of canonical crawl nodes. Filter crawler-derived indexability and audit state, then follow nextCursor; this is technical inventory eligibility, not a claim about Google index coverage. `complete: false` means the crawl stopped at the budget named by `termination`, so a missing page or link is not proof it does not exist.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoCrawlPagesInputSchema,
@@ -3657,6 +3624,7 @@ export const canonryMcpTools = [
     openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/crawl/pages'],
     handler: (client, input) => client.getTechnicalAeoCrawlPages(input.project, {
       runId: input.runId,
+      date: input.date,
       inventoryEligible: input.inventoryEligible,
       fetchState: input.fetchState,
       indexabilityState: input.indexabilityState,
