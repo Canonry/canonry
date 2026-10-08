@@ -108,12 +108,14 @@ function advancedPlan() {
 
 async function renderAt(pathname: string, options: {
   embed?: boolean
+  demo?: boolean
   configureFixture?: (dashboard: Dashboard) => void
   plan?: ReturnType<typeof advancedPlan>
   schedule?: ReturnType<typeof visibilitySchedule>
   seedProjectList?: boolean
 } = {}) {
   if (options.embed) window.__CANONRY_CONFIG__ = { embed: { enabled: true } }
+  else if (options.demo) window.__CANONRY_CONFIG__ = { demo: { enabled: true, readOnly: true, sampleData: true } }
   else delete window.__CANONRY_CONFIG__
 
   const fixture = createDashboardFixture({})
@@ -275,6 +277,33 @@ test.each([
   })
   expect(doc.querySelector('.project-context-row')).not.toBeNull()
   expect(doc.querySelector('.project-context-domain')?.textContent ?? null).toBe(shown)
+})
+
+// ── Advanced tag (public demo only) ──
+
+function modeTag(doc: Document): string | null {
+  const tag = doc.querySelector('.project-context-row .project-mode-tag')
+  return tag ? [...tag.children].map(part => part.textContent).join('|') : null
+}
+
+test.each(PROJECT_PAGE_TABS)('the public demo tags an advanced project on the %s tab', async tab => {
+  const path = tab === 'overview' ? '/projects/project_citypoint' : `/projects/project_citypoint/${tab}`
+  const { doc } = await renderAt(path, { demo: true, plan: advancedPlan() })
+  expect(modeTag(doc)).toBe('Advanced|1 property · 1 market')
+})
+
+test('the public demo renders no tag for a project without an advanced setup', async () => {
+  const overview = await renderAt('/projects/project_citypoint', { demo: true })
+  expect(modeTag(overview.doc)).toBeNull()
+  const activity = await renderAt('/projects/project_citypoint/activity', { demo: true })
+  expect(modeTag(activity.doc)).toBeNull()
+})
+
+test('outside the public demo an advanced project renders no tag', async () => {
+  for (const path of ['/projects/project_citypoint', '/projects/project_citypoint/activity']) {
+    const { doc } = await renderAt(path, { plan: advancedPlan() })
+    expect(modeTag(doc)).toBeNull()
+  }
 })
 
 // ── Embed ──
