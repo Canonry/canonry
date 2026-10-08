@@ -10,6 +10,7 @@ import {
   notFound,
   validationError,
   projectConfigSchema,
+  projectConfigExportSchema,
   resolveConfigSpecQueries,
   resolveSnapshotRequestQueries,
   snapshotRequestSchema,
@@ -434,6 +435,33 @@ test('projectConfigSchema rejects duplicate location labels', () => {
       ],
     },
   })).toThrow(/Duplicate location labels/)
+})
+
+test('projectConfigExportSchema keeps the cross-field checks POST /apply runs', () => {
+  const nyc = { label: 'nyc', city: 'New York', region: 'NY', country: 'US' }
+  const exported = {
+    apiVersion: 'canonry/v1',
+    kind: 'Project',
+    metadata: { name: 'my-project', labels: {} },
+    spec: {
+      displayName: 'My Project', canonicalDomain: 'example.com', ownedDomains: [], aliases: [],
+      country: 'US', language: 'en', queries: ['answer visibility tools'], competitors: [], providers: [],
+      locations: [nyc],
+      measurement: { marketingHosts: [], brandTerms: [], leadEventNames: ['generate_lead'] },
+      notifications: [],
+      schedule: { preset: 'daily', timezone: 'UTC', providers: [], enabled: true },
+    },
+  }
+  expect(projectConfigExportSchema.parse(exported)).toEqual(exported)
+
+  for (const [spec, message] of [
+    [{ keywords: ['legacy phrase'] }, /legacy alias/],
+    [{ locations: [nyc, { ...nyc, city: 'Brooklyn' }] }, /Duplicate location labels/],
+    [{ defaultLocation: 'sf' }, /defaultLocation/],
+    [{ schedule: { ...exported.spec.schedule, cron: '0 6 * * *' } }, /Exactly one of/],
+  ] as const) {
+    expect(() => projectConfigExportSchema.parse({ ...exported, spec: { ...exported.spec, ...spec } })).toThrow(message)
+  }
 })
 
 test('citationStateSchema accepts only raw observation values', () => {

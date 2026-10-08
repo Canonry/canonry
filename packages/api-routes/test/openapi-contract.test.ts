@@ -191,10 +191,10 @@ describe('openapi contract', () => {
     expect(exported.required).toEqual(['apiVersion', 'kind', 'metadata', 'spec'])
     expect(exported.properties.metadata!.required).toEqual(['name', 'labels'])
     expect(spec.required).toEqual([
-      'displayName', 'canonicalDomain', 'ownedDomains', 'aliases', 'country', 'language',
+      'displayName', 'canonicalDomain', 'ownedDomains', 'aliases', 'country', 'language', 'queries',
       'competitors', 'providers', 'locations', 'measurement', 'notifications',
     ])
-    expect(spec.properties.schedule!.required).toEqual(['timezone', 'providers'])
+    expect(spec.properties.schedule!.required).toEqual(['timezone', 'providers', 'enabled'])
     // Export leaves these two out at their defaults (an empty map, false).
     expect(Object.keys(spec.properties)).toEqual(expect.arrayContaining(['providerModels', 'autoExtractBacklinks']))
 
@@ -217,9 +217,12 @@ describe('openapi contract', () => {
     const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/exportable/export' })
     expect(res.statusCode).toBe(200)
     const body = res.json() as { metadata: Record<string, unknown>; spec: Record<string, unknown> & { schedule: Record<string, unknown> } }
-    expect(Object.keys(body.metadata)).toEqual(expect.arrayContaining(exported.properties.metadata!.required!))
-    expect(Object.keys(body.spec)).toEqual(expect.arrayContaining(spec.required!))
-    expect(Object.keys(body.spec.schedule)).toEqual(expect.arrayContaining(spec.properties.schedule!.required!))
+    // Both directions: this minimal project's export writes exactly the required
+    // fields, plus the schedule it was given and that schedule's one timing field.
+    const sorted = (keys: string[]) => [...keys].sort()
+    expect(sorted(Object.keys(body.metadata))).toEqual(sorted(exported.properties.metadata!.required!))
+    expect(sorted(Object.keys(body.spec))).toEqual(sorted([...spec.required!, 'schedule']))
+    expect(sorted(Object.keys(body.spec.schedule))).toEqual(sorted([...spec.properties.schedule!.required!, 'preset']))
     expect(body.spec).not.toHaveProperty('providerModels')
     expect(body.spec).not.toHaveProperty('autoExtractBacklinks')
     // Parsing fills no default and drops no key, so the schema describes the body exactly.

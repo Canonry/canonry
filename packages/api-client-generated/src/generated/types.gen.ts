@@ -11292,7 +11292,7 @@ export type ProjectConfigExport = {
         qualifiedAliases?: Array<string>;
         country: string;
         language: string;
-        queries?: Array<string>;
+        queries: Array<string>;
         keywords?: Array<string>;
         competitors: Array<string | {
             domain: string;
@@ -11331,7 +11331,7 @@ export type ProjectConfigExport = {
             };
             timezone: string;
             providers: Array<string>;
-            enabled?: boolean;
+            enabled: boolean;
         };
         notifications: Array<{
             channel: 'webhook';

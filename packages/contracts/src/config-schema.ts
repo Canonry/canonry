@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { calendarRecurrenceSchema } from './schedule.js'
-import { providerModelsSchema, providerNameSchema, locationContextSchema } from './provider.js'
+import { providerModelsSchema, providerNameSchema, locationContextSchema, type LocationContext } from './provider.js'
 import { notificationEventSchema } from './notification.js'
 import {
   competitorAutoAliasModeInputSchema,
@@ -22,7 +22,7 @@ export const configMetadataSchema = z.object({
   labels: z.record(z.string(), z.string()).optional().default({}),
 })
 
-export const configScheduleSchema = z.object({
+const configScheduleObjectSchema = z.object({
   preset: z.string().min(1).optional(),
   cron: z.string().min(1).optional(),
   recurrence: calendarRecurrenceSchema.optional(),
@@ -36,10 +36,17 @@ export const configScheduleSchema = z.object({
    * to enabled.
    */
   enabled: z.boolean().optional(),
-}).refine(
-  (data) => [data.preset, data.cron, data.recurrence].filter(value => value !== undefined).length === 1,
-  { message: 'Exactly one of "preset", "cron", or "recurrence" must be provided' },
-).optional()
+})
+
+function hasOneScheduleTiming(schedule: { preset?: string; cron?: string; recurrence?: unknown }): boolean {
+  return [schedule.preset, schedule.cron, schedule.recurrence].filter(value => value !== undefined).length === 1
+}
+
+const oneScheduleTimingMessage = { message: 'Exactly one of "preset", "cron", or "recurrence" must be provided' }
+
+export const configScheduleSchema = configScheduleObjectSchema
+  .refine(hasOneScheduleTiming, oneScheduleTimingMessage)
+  .optional()
 
 export const configNotificationSchema = z.object({
   channel: z.literal('webhook'),
@@ -59,7 +66,7 @@ export const configGoogleSchema = z.object({
 
 const configQueryListSchema = z.array(z.string().min(1))
 
-export const configSpecSchema = z.object({
+const configSpecShape = {
   displayName: z.string().min(1),
   canonicalDomain: z.string().min(1),
   ownedDomains: z.array(z.string().min(1)).optional().default([]),
@@ -104,7 +111,13 @@ export const configSpecSchema = z.object({
    * `preview`.
    */
   competitorAutoAliases: competitorAutoAliasModeInputSchema,
-}).superRefine((spec, ctx) => {
+}
+
+/** The cross-field rules every config spec must meet, shared by the apply and export forms. */
+function checkConfigSpec(
+  spec: { queries?: string[]; keywords?: string[]; locations: LocationContext[]; defaultLocation?: string },
+  ctx: z.RefinementCtx,
+): void {
   if (spec.queries !== undefined && spec.keywords !== undefined) {
     ctx.addIssue({
       code: 'custom',
@@ -129,7 +142,9 @@ export const configSpecSchema = z.object({
       path: ['defaultLocation'],
     })
   }
-})
+}
+
+export const configSpecSchema = z.object(configSpecShape).superRefine(checkConfigSpec)
 
 export const projectConfigSchema = z.object({
   apiVersion: z.literal('canonry/v1'),
@@ -143,14 +158,22 @@ export const projectConfigSchema = z.object({
  * {@link projectConfigSchema}, with every defaulted field written out, except
  * that export leaves `spec.providerModels` out while it is empty and
  * `spec.autoExtractBacklinks` out while it is false. `POST /apply` fills both
- * defaults back in when it reads the document.
+ * defaults back in when it reads the document. Export always writes
+ * `spec.queries` (never the legacy `keywords`) and a schedule's `enabled`,
+ * which apply reads as optional, so both are required here. The spec keeps
+ * apply's cross-field checks.
  */
 export const projectConfigExportSchema = projectConfigSchema.extend({
   spec: z.object({
-    ...configSpecSchema.shape,
+    ...configSpecShape,
+    queries: configQueryListSchema,
     providerModels: providerModelsSchema.optional(),
+    schedule: configScheduleObjectSchema
+      .extend({ enabled: z.boolean() })
+      .refine(hasOneScheduleTiming, oneScheduleTimingMessage)
+      .optional(),
     autoExtractBacklinks: z.boolean().optional(),
-  }),
+  }).superRefine(checkConfigSpec),
 })
 
 export function resolveConfigSpecQueries(spec: { queries?: string[]; keywords?: string[] }): string[] {
