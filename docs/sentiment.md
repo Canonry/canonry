@@ -92,12 +92,13 @@ See [sentiment smoke validation](sentiment-validation.md) for reproducible built
 
 Comparison requires distinct run IDs. Set `fromRunId=previous-rated` (CLI
 `--from-run-id previous-rated`) to select the preceding run with stored ratings
-in the same query class and scope; probes and unrated runs are skipped. No
-predecessor returns an explicit refusal. The search checks at most 50 rated candidates,
-ignoring unrated history before loading answers. A bounded-search refusal asks for
-an explicit older run; population changes and incomplete target runs have separate
-reasons. Partially rated predecessors remain eligible and comparison compatibility
-checks still apply.
+in the same query class and scope; probes and unrated runs are skipped. Runs rated
+only outside the selection (another Property, group, market, engine, model, location
+or query) are skipped before any answer loads, so a selection that was never rated
+returns `previous-rated-run-unavailable`. The search checks at most 50 rated
+candidates. A bounded-search refusal asks for an explicit older run; population
+changes and incomplete target runs have separate reasons. Partially rated
+predecessors remain eligible and comparison compatibility checks still apply.
 
 `coverage.subjectNotMentioned` counts distinct admitted answers where every
 assessed subject is absent. These answers are expected in a non-brand basket,

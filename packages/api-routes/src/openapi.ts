@@ -2220,7 +2220,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'put',
     path: '/api/v1/projects/{name}/competitors/{domain}/aliases',
     summary: 'Set competitor aliases',
-    description: 'Sets one tracked competitor\'s operator-curated aliases exactly (`[]` clears): the names it goes by in answer text when they differ from its domain. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) layers them onto the domain label at read time; stored per-snapshot competitor columns are recomputed (after the response on local serve, inside the request on Cloud), and frozen Simple run definitions and Advanced plan revisions keep the identity they were measured with. Aliases are trimmed and deduplicated case-insensitively; at most 10, each 80 characters or fewer with at least 3 letters or digits, and no brand key (letters and digits, case and punctuation folded) that contains, or sits inside, one of the project\'s own names or hosts or a name another tracked competitor answers to (its aliases, domain label or written host), because answers may split or join the words: "Tune" cannot belong to one competitor while another answers to "Tune Spoke", "TuneSpoke" or `tunespoke.example`, and joined-word lookalikes ("Tune" and "Tuner") are refused too. A competitor an Advanced market pins (active revision, pending draft, or a superseded revision the project\'s runs were measured under, named in `supersededRevision`, since those runs are still scored with it) counts as another competitor: an overlap with its label, aliases, domain label or host is rejected with reason `market-competitor` and the pinning group keys in `markets`, and another competitor\'s stored alias that already overlaps one is dropped and audited. Idempotent: an unchanged list writes nothing.',
+    description: 'Sets one tracked competitor\'s operator-curated aliases exactly (`[]` clears): the names it goes by in answer text when they differ from its domain. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) layers them onto the domain label at read time; stored per-snapshot competitor columns are recomputed (after the response on local serve, inside the request on Cloud), and frozen Simple run definitions and Advanced plan revisions keep the identity they were measured with. Names detected automatically from the project\'s stored answers (`autoAliases`) are matched the same way; a curated alias always wins, so an auto name the new list overlaps is dropped, never the write. Aliases are trimmed and deduplicated case-insensitively; at most 10, each 80 characters or fewer with at least 3 letters or digits, and no brand key (letters and digits, case and punctuation folded) that contains, or sits inside, one of the project\'s own names or hosts or a name another tracked competitor answers to (its aliases, domain label or written host), because answers may split or join the words: "Tune" cannot belong to one competitor while another answers to "Tune Spoke", "TuneSpoke" or `tunespoke.example`, and joined-word lookalikes ("Tune" and "Tuner") are refused too. A competitor an Advanced market pins (active revision, pending draft, or a superseded revision the project\'s runs were measured under, named in `supersededRevision`, since those runs are still scored with it) counts as another competitor: an overlap with its label, aliases, domain label or host is rejected with reason `market-competitor` and the pinning group keys in `markets`, and another competitor\'s stored alias that already overlaps one is dropped and audited. Idempotent: an unchanged list writes nothing.',
     tags: ['competitors'],
     parameters: [nameParameter, competitorDomainParameter],
     requestBody: {
@@ -2238,10 +2238,76 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/projects/{name}/competitor-auto-aliases',
+    summary: 'Preview answer-derived competitor aliases',
+    description: 'Dry run of automatic competitor alias detection. Reads only the project\'s stored answers (the newest 60 completed or partial answer-visibility runs and at most 6000 snapshots, stopping inside a run when the cap falls there; probe runs excluded): never a provider, never a competitor\'s website. A name is paired with a competitor when the answer ties it to that competitor\'s site (a provider citation anchoring the name to a page on the domain, a named link `[Name](https://competitor.example/...)`, or `Name (competitor.example)`). An answer names a candidate only where it writes it outside the competitor\'s longer names (its domain label, a curated alias, a longer stored name, and for a competitor only an Advanced market pins its plan label and aliases), so a truncation of the brand never borrows the brand\'s evidence. A name is applied when it is paired in at least 2 answers from at least 2 sweeps (runs started together, one multi-location sweep, count once), at least 3 answers name it, at least 10% of those answers cite the competitor (precision), the competitor is cited at least 3 times as often in answers naming it as in answers that do not (lift, which is what rejects a generic phrase a much-cited competitor sits next to), at least 75% of those answers write it capitalized as a name, it reads as a business name and not as a place ("Larkfield, CO", "Larkfield, Colorado", "Oakvale County", "Metro Larkfield", "West LA"), its brand key has at least 4 letters or digits, this competitor holds at least twice the pairings of any other tracked competitor, and the name visibly belongs to the domain (label affinity: consecutive whole words of it spell the domain label; a name of two or more words opens the label whole, at its start or right after a lead word such as "my" or "get", and covers at least half of it; two or more of its words sit back to back in the label from that opening and cover at least half of it, one of them 4 or more letters long and inside fewer than two tracked identity labels, the project\'s and every competitor\'s; or a name of two or more words is an in-order abbreviation of the label that opens like it, with the same first 4 letters or a first word of 3 or more letters the label starts with. One shared word is never affinity unless it is the whole label). New names fill the cap of 10 per competitor strongest evidence first; a name the competitor\'s domain label, curated aliases, kept auto names or its own active or draft market pin already cover is not learned (`already-matched`), and a name built on an accepted shorter one is `subsumed`. Candidates that pass everything but label affinity (`no-label-affinity`) or the 4-character floor (`needs-approval`) are listed as `review` only, for an operator to verify and add as curated aliases. Review names are checked at the 3-character floor against the project\'s names and hosts, other competitors\' domain labels, hosts and curated aliases, market pins of another domain, blocks, and the competitor\'s own names and planned auto names; unlike applied names, they are not checked against other competitors\' auto-detected names. Applied names pass the same identity rules as curated aliases; curated aliases and blocked names always win. Stored names are re-checked against the scanned answers on every pass (see the POST). Concurrent dry runs of one project share one scan. Writes nothing, in every `competitorAutoAliases` mode.',
+    tags: ['competitors'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('What detection would store, per competitor, with evidence.', 'CompetitorAutoAliasDetectionDto'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/competitor-auto-aliases',
+    summary: 'Detect and apply answer-derived competitor aliases',
+    description: 'Runs the detection `GET /projects/{name}/competitor-auto-aliases` previews and stores the result, in every `competitorAutoAliases` mode: a one-off apply. The server\'s own unattended pass (queued after every completed or partial non-probe answer-visibility run, a competitor add, an unblock and a market pin write that changes the pins; never after a curated alias edit, a removal, a block or a project edit) stores names only for a project in `apply` mode; in `preview` (every project\'s default) it logs what it would add or remove and stores nothing, and in `off` it does not run. A storing pass and this request share one per-project queue, so they never run side by side, and this returns the result of a pass that started after the request. Stored names are sticky: one is removed only when blocked; claimed by identity (the competitor\'s own curated aliases or domain label already cover it; it overlaps the project\'s names or hosts, `project-brand`; or it overlaps another competitor\'s domain label, host or curated alias, a market pin of another domain, or, after an identity change, another competitor\'s stored auto name that resolves first (tracked competitors before market-only ones, each in domain order), `other-competitor`); replaced by an accepted shorter name it is built on (`subsumed`); or contradicted by the scanned answers: named in at least 3, and cited in under 5% of them, a lift under 1.5, or written as a name in under half; another tracked competitor now pairing it in at least 2 answers and at least twice as often (`other-competitor-dominates`); or no label affinity left, judged on the stored spelling (`no-label-affinity`). A tracked competitor\'s own market pin never removes a stored name; a market-only competitor\'s active pin names are its curated names and do (`already-matched`). Idempotent: unchanged answers write nothing. A change to the names is audited twice: the pass as `competitors.auto-aliases-updated` (actor `system`) and this request as `competitors.auto-aliases-apply-requested` with the caller\'s principal. It recomputes the stored per-snapshot competitor columns in the background and restates every period\'s competitor counts and, for a tracked competitor, share of voice: `competitorIdentityChangedAt` on the competitor landscape, project-frame `visibility-compare` and the analytics metrics marks when. Competitor names do not break comparison with the previous sweep: the Simple definition identity that gates it leaves them out.',
+    tags: ['competitors'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('What detection stored, per competitor, with evidence.', 'CompetitorAutoAliasDetectionDto'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/competitors/{domain}/aliases/block',
+    summary: 'Block competitor auto-aliases',
+    description: 'Blocks names from answer-derived auto-detection for one competitor: a tracked competitor, else a competitor the active Advanced plan pins without tracking it, else a domain with stored `market_competitor_names` (names learned for a pin a later revision dropped, or the blocked names a removed competitor left). A blocked name is never auto-applied again until unblocked, and a stored auto name among them is removed now (the stored competitor columns are then recomputed in the background). Blocks survive removing the competitor: a later add of the same domain, or promotion of a market-only pin, starts with them. Names compare by brand key, so case, spacing and punctuation variants are one name. A curated alias cannot be blocked (400); remove it with `PUT /projects/{name}/competitors/{domain}/aliases`. A name the measurement plan\'s own pin of that competitor carries (active revision or pending draft) cannot be blocked either (400, details `{ domain, pinned, marketKeys }`): the pin keeps counting it, so change the pin\'s names in a measurement draft. At most 50 blocked names per competitor. Idempotent.',
+    tags: ['competitors'],
+    parameters: [nameParameter, competitorDomainParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/CompetitorAliasBlockRequest' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Competitor with its updated blocked and auto-detected names returned.', 'CompetitorDto'),
+      400: errorResponse('Invalid names, more than 50 blocked names, or a name is a curated alias or a name of the plan\'s own pin of this competitor.'),
+      404: errorResponse('Project not found, or the domain is not a tracked competitor, an active market pin, or a domain with stored market competitor names.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/competitors/{domain}/aliases/unblock',
+    summary: 'Unblock competitor auto-aliases',
+    description: 'Releases blocked names back to answer-derived auto-detection for one competitor (the same targets as the block). The unblock stores nothing new: a detection pass is requested, and it stores a name only for a project in `apply` mode and only if the stored answers still support it (in `preview` it logs, in `off` it does not run; `POST /projects/{name}/competitor-auto-aliases` stores now). A learned name still stored for a market-only competitor counts again at once. Idempotent.',
+    tags: ['competitors'],
+    parameters: [nameParameter, competitorDomainParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/CompetitorAliasBlockRequest' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Competitor with its updated blocked names returned.', 'CompetitorDto'),
+      400: errorResponse('Invalid names.'),
+      404: errorResponse('Project not found, or the domain is not a tracked competitor, an active market pin, or a domain with stored market competitor names.'),
+    },
+  },
+  {
     method: 'delete',
     path: '/api/v1/projects/{name}/competitors',
     summary: 'Delete specific competitors',
-    description: 'Removes every stored row that is one of the listed competitors in any spelling (`www.`, a subdomain, or a row stored as a subdomain), and records their curated aliases on the audit row.',
+    description: 'Removes every stored row that is one of the listed competitors in any spelling (`www.`, a subdomain, or a row stored as a subdomain), and records their curated, auto-detected and blocked names on the audit row.',
     tags: ['competitors'],
     parameters: [nameParameter],
     requestBody: {
@@ -2647,7 +2713,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/visibility-compare',
     summary: 'Compare AEO visibility month over month',
     description:
-      'Statistically honest month-over-month AEO comparison in one call. PRIMARY metric is share of voice (brand vs competitor mentions in the same answers), which is less exposed to broad model-wide naming propensity than an absolute rate but never bypasses model continuity. Rates are pooled per-snapshot over each month (invariant to sweep count), restricted to query/provider pairs present in BOTH months, and then restricted again to providers with exactly one known, identical configured model id in both months. `continuity` reports every provider and its model evidence; changed, mixed mid-month, or legacy-unknown models are excluded. When no provider remains, metrics return a continuity-blocked verdict rather than a directional call. `from` must be a month strictly before `to`. Adds separate branded/non-brand mention and cited rates with classification-unavailable rather than pooled fallback. Advanced class metrics read frozen Property/market/execution assignments and reuse each answer once per class. Without a scope or marketKey the four original metrics keep the project frame (provider/location narrow it the same way for Simple and Advanced) and Advanced class metrics carry their own `classComparison` cohort. A scope or marketKey answers entirely from the frozen frame and is refused when either month holds runs whose plan cannot be reconstructed (schema v1). On frozen frames, answers with incomplete source capture leave every citation figure and are counted in `excludedUnknown`. A silent upstream version bump under an unchanged configured id remains undetectable.',
+      'Statistically honest month-over-month AEO comparison in one call. PRIMARY metric is share of voice (brand vs competitor mentions in the same answers), which is less exposed to broad model-wide naming propensity than an absolute rate but never bypasses model continuity. Rates are pooled per-snapshot over each month (invariant to sweep count), restricted to query/provider pairs present in BOTH months, and then restricted again to providers with exactly one known, identical configured model id in both months. `continuity` reports every provider and its model evidence; changed, mixed mid-month, or legacy-unknown models are excluded. When no provider remains, metrics return a continuity-blocked verdict rather than a directional call. `from` must be a month strictly before `to`. Adds separate branded/non-brand mention and cited rates with classification-unavailable rather than pooled fallback. Advanced class metrics read frozen Property/market/execution assignments and reuse each answer once per class. Without a scope or marketKey the four original metrics keep the project frame (provider/location narrow it the same way for Simple and Advanced) and Advanced class metrics carry their own `classComparison` cohort. A scope or marketKey answers entirely from the frozen frame and is refused when either month holds runs whose plan cannot be reconstructed (schema v1). On frozen frames, answers with incomplete source capture leave every citation figure and are counted in `excludedUnknown`. A silent upstream version bump under an unchanged configured id remains undetectable. competitorIdentityChangedAt is when the project\'s competitor names last changed (a tracked competitor\'s curated or stored auto-detected names (a block counts only when it removes a stored name), a detection pass or a write that moved a market-only competitor\'s learned names, or a published revision that renames a market pin). Share of voice reads both months with the tracked competitors\' current names only, so a comparison quoted before a change to those names was restated; a market pin or learned-name change moves the time without changing share of voice. A scoped comparison (a group, market or property scope, or a marketKey) reads frozen plan history and carries no competitorIdentityChangedAt.',
     tags: ['analytics'],
     parameters: [
       nameParameter, compareFromQueryParameter, compareToQueryParameter,
@@ -7151,7 +7217,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/technical-aeo',
     summary: 'Get the Technical AEO scorecard for a project',
     description:
-      'runSelection selects a complete run on the latest UTC scan date, otherwise the largest page sample, then newest; it flags same-date candidates. Factor pagesFailing and pagesPartial are separate; a factor with failing pages is fail. Returns the latest completed/partial site-audit, or the historical audit selected by `runId`: aggregate 0–100 score, page counts, the full per-factor scorecard (site-level averages with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the audit immediately before it. When the project has never been audited, `hasData` is false and the numeric fields are zeroed — render an onboarding state.',
+      'runSelection selects a complete run on the latest UTC scan date, otherwise the largest page sample, then newest; it flags same-date candidates. Factor pagesFailing and pagesPartial are separate; a factor with failing pages is fail. Returns the latest completed/partial site-audit, or the historical audit selected by `runId`: aggregate 0–100 score, page counts, the full per-factor scorecard (site-level averages with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the scan a default read returned just before this one was recorded. A default read whose preferred crawl audited no page falls back to the preferred scored crawl. When the project has never been audited, `hasData` is false and the numeric fields are zeroed — render an onboarding state.',
     tags: ['technical-aeo'],
     parameters: [
       nameParameter,

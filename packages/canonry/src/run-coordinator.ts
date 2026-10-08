@@ -3,6 +3,7 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 import { discoverySessions, runs } from '@ainyc/canonry-db'
 import {
   RunKinds,
+  RunStatuses,
   RunTriggers,
   type DiscoveryCompetitorMapEntry,
   type RunCompletionOrigin,
@@ -61,6 +62,14 @@ export type AeroEventContext =
 export class RunCoordinator {
   /** Host wakeup only; durable completion receipts remain the delivery authority. */
   onSentimentCompleted?: (runId: string, projectId: string) => Promise<void>
+  /**
+   * Host hook after a non-probe answer-visibility run finishes `completed` or
+   * `partial`: the run stored new answers, so answer-derived competitor
+   * aliases may have new evidence. The local server schedules a detection pass
+   * off the completion path (`createCompetitorAutoAliasRunner`). Failures are
+   * logged and never reach the other subscribers.
+   */
+  onAnswersRecorded?: (runId: string, projectId: string) => void | Promise<void>
   constructor(
     private db: DatabaseClient,
     private notifier: Notifier,
@@ -82,6 +91,18 @@ export class RunCoordinator {
     if (runRow?.trigger === RunTriggers.probe) {
       log.info('probe.skip-side-effects', { runId, projectId, kind })
       return
+    }
+
+    // Answer evidence, not a conclusion about the run: a partial run or an
+    // incomplete plan run still stored real answers, so this runs before the
+    // completeness gate below.
+    if (
+      kind === RunKinds['answer-visibility']
+      && (runRow?.status === RunStatuses.completed || runRow?.status === RunStatuses.partial)
+      && this.onAnswersRecorded
+    ) {
+      try { await this.onAnswersRecorded(runId, projectId) }
+      catch (err) { log.error('answers-recorded.failed', { runId, projectId, error: describeError(err) }) }
     }
 
     // A plan run that did not fill every slot its manifest promised has not

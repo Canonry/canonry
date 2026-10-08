@@ -58,11 +58,13 @@ import { pruneQualifiedAliasesForCompetitors } from '../projects.js'
 import {
   claimedCompetitorAdds,
   competitorAliasAuditFields,
+  competitorIdentityChanged,
   readStoredCompetitors,
   syncCompetitorSet,
   type StoredCompetitor,
 } from '../competitor-writes.js'
 import { readMarketCompetitorPins } from '../plan-competitors.js'
+import { beginMarketNameWrite, marketNameAuditFields } from '../market-competitor-names.js'
 
 /**
  * Fired after a `discovery_sessions` row + matching `runs` row are inserted
@@ -131,6 +133,8 @@ export interface DiscoveryRoutesOptions {
   embedQueries?: EmbedQueries
   /** See `CompetitorRoutesOptions.onCompetitorAliasesChanged`; fired when a promote changes stored aliases. */
   onCompetitorAliasesChanged?: (projectId: string, projectName: string) => void
+  /** See `CompetitorRoutesOptions.onCompetitorAutoAliasRescan`; fired when a promote adds a competitor. */
+  onCompetitorAutoAliasRescan?: (projectId: string, projectName: string) => void
 }
 
 /**
@@ -665,9 +669,10 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
     const provenance = `discovery:${session.id}`
     const now = new Date().toISOString()
 
-    let competitorAliasesChanged = false
+    let competitorAliasesChanged = { identityChanged: false, added: false }
     if (promotedQueries.length > 0 || promotedCompetitors.length > 0) {
       competitorAliasesChanged = app.db.transaction((tx) => {
+        const marketNames = beginMarketNameWrite(tx, project.id)
         for (const query of promotedQueries) {
           tx.insert(queries).values({
             id: crypto.randomUUID(),
@@ -691,6 +696,9 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
         const droppedQualifiedAliases = promotedCompetitors.length
           ? pruneQualifiedAliasesForCompetitors(tx, project.id, now)
           : []
+        // A promoted domain's label can claim a name learned for a competitor
+        // only a market pins, and promoting that competitor drops its own.
+        const marketNamesChanged = marketNames.finish()
         writeAuditLog(tx, {
           projectId: project.id,
           actor: 'api',
@@ -702,13 +710,18 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
             competitors: promotedCompetitors,
             ...(heldCompetitors.length ? { skippedCompetitors: heldCompetitors } : {}),
             ...(competitorPlan ? competitorAliasAuditFields(competitorPlan) : {}),
+            ...marketNameAuditFields(marketNamesChanged),
             ...(droppedQualifiedAliases.length ? { droppedQualifiedAliases } : {}),
           },
         })
-        return (competitorPlan?.aliasChanges.length ?? 0) > 0
+        return {
+          identityChanged: (competitorPlan ? competitorIdentityChanged(competitorPlan) : false) || marketNamesChanged.length > 0,
+          added: (competitorPlan?.added.length ?? 0) > 0,
+        }
       })
     }
-    if (competitorAliasesChanged) opts.onCompetitorAliasesChanged?.(project.id, project.name)
+    if (competitorAliasesChanged.identityChanged) opts.onCompetitorAliasesChanged?.(project.id, project.name)
+    if (competitorAliasesChanged.added) opts.onCompetitorAutoAliasRescan?.(project.id, project.name)
 
     const result: DiscoveryPromoteResult = {
       sessionId: session.id,

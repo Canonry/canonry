@@ -19,7 +19,7 @@ import type {
 } from '@ainyc/canonry-contracts'
 import { buildMentionShare, type MentionShareCompetitor } from '@ainyc/canonry-intelligence'
 import { mentionShareCompetitors as mentionShareCompetitorsFor, projectQueryClassifier } from './mention-share-inputs.js'
-import { latestSweepRuns, planQueryClassesByRun, pooledRunIds } from './competitor-landscape.js'
+import { latestSweepRuns, planQueryClassesByRun, pooledRunIds, readCompetitorIdentityChangedAt } from './competitor-landscape.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned } from './helpers.js'
 import { buildModelAttribution, buildServedModelAttribution } from './analytics-model-attribution.js'
@@ -27,6 +27,7 @@ import {
   classifyModelEvidence, classifyServedModelEvidence, modelEvidenceMismatched, type ModelEvidenceValue,
 } from './model-evidence.js'
 import { measurementRunCompleteness } from './measurement-run-completeness.js'
+import { competitorIdentityColumns } from './competitor-writes.js'
 
 // A plan run that did not fill every slot its manifest promised has not
 // measured the plan. Folding its rows into a rate or a "latest sweep"
@@ -84,6 +85,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         servedModelAttribution: {},
         modelServiceMismatch: {},
         modelPointerChanges: {},
+        competitorIdentityChangedAt: readCompetitorIdentityChangedAt(app.db, project.id),
       } satisfies BrandMetricsDto)
     }
 
@@ -170,9 +172,10 @@ export async function analyticsRoutes(app: FastifyInstance) {
     }))
     const mentionShareCompetitors = mentionShareCompetitorsFor(
       app.db
-        .select({ domain: competitors.domain, aliases: competitors.aliases })
+        .select(competitorIdentityColumns)
         .from(competitors)
         .where(eq(competitors.projectId, project.id))
+        .orderBy(competitors.domain)
         .all(),
     )
 
@@ -481,7 +484,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       previousExecutionChecksum = identity.checksum
     }
 
-    return reply.send({ window, mentionShareScope, buckets, overall, byProvider, trend, mentionTrend, windowChange, queryChanges, basketChanges, executionIdentityChanges, referenceBasketRevision: latestBasket?.revision ?? null, modelAttribution, servedModelAttribution, modelServiceMismatch, modelPointerChanges } satisfies BrandMetricsDto)
+    return reply.send({ window, mentionShareScope, buckets, overall, byProvider, trend, mentionTrend, windowChange, queryChanges, basketChanges, executionIdentityChanges, referenceBasketRevision: latestBasket?.revision ?? null, modelAttribution, servedModelAttribution, modelServiceMismatch, modelPointerChanges, competitorIdentityChangedAt: readCompetitorIdentityChangedAt(app.db, project.id) } satisfies BrandMetricsDto)
   })
 
   // GET /projects/:name/analytics/gaps — brand gap analysis
@@ -533,9 +536,10 @@ export async function analyticsRoutes(app: FastifyInstance) {
     // Tracked competitors, resolved once, plus one compiled alias matcher each:
     // the alias set is fixed and the answer corpus is not.
     const competitorRows = app.db
-      .select({ domain: competitors.domain, aliases: competitors.aliases })
+      .select(competitorIdentityColumns)
       .from(competitors)
       .where(eq(competitors.projectId, project.id))
+      .orderBy(competitors.domain)
       .all()
     const competitorDomains = competitorRows.map(c => c.domain)
     const competitorMatchers = new Map(
@@ -775,6 +779,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         .select({ domain: competitors.domain })
         .from(competitors)
         .where(eq(competitors.projectId, project.id))
+        .orderBy(competitors.domain)
         .all()
         .map(r => r.domain),
     }

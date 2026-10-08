@@ -555,3 +555,40 @@ describe('RunCoordinator', () => {
     expect(captured!.probeCount).toBe(10)
   })
 })
+
+describe('answer evidence hook', () => {
+  it('fires for completed and partial answer-visibility runs only, never for probes, failures or other kinds', async () => {
+    const { db } = createTempDb('coord-answers-')
+    const { projectId, runId } = seedFixture(db)
+    const seen: string[] = []
+    const coordinator = new RunCoordinator(db, createMockNotifier() as Notifier, new IntelligenceService(db))
+    coordinator.onAnswersRecorded = (id) => { seen.push(id) }
+
+    const runOf = (status: string, extra: Partial<typeof runs.$inferInsert> = {}) => {
+      const id = crypto.randomUUID()
+      db.insert(runs).values({ id, projectId, status, createdAt: new Date().toISOString(), ...extra }).run()
+      return id
+    }
+    const partial = runOf('partial')
+    const failed = runOf('failed')
+    const probe = runOf('completed', { trigger: 'probe' })
+    const gbp = runOf('completed', { kind: 'gbp-sync' })
+
+    for (const id of [runId, partial, failed, probe, gbp]) await coordinator.onRunCompleted(id, projectId)
+
+    expect(seen).toEqual([runId, partial])
+  })
+
+  it('keeps intelligence and notifications running when the hook throws', async () => {
+    const { db } = createTempDb('coord-answers-throw-')
+    const { projectId, runId } = seedFixture(db)
+    const notifier = createMockNotifier()
+    const coordinator = new RunCoordinator(db, notifier as Notifier, new IntelligenceService(db))
+    coordinator.onAnswersRecorded = () => { throw new Error('detection exploded') }
+
+    await expect(coordinator.onRunCompleted(runId, projectId)).resolves.toBeUndefined()
+
+    expect(db.select().from(healthSnapshots).all()).toHaveLength(1)
+    expect(notifier.onRunCompleted).toHaveBeenCalledWith(runId, projectId)
+  })
+})

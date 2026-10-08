@@ -623,19 +623,33 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       matchingMonthDayDates: readDates(matchingDates), matchingMonthDayTotal: countDates(matchingDates) }
   }
 
-  /** Latest UTC scan date, then complete scans, then the largest observed page sample. */
-  const resolveCrawl = (projectId: string, runId?: string, requestedDate?: string) => {
+  /**
+   * Latest UTC scan date, then complete scans, then the largest observed page
+   * sample. `recordedBefore` replays that choice as it stood before an instant;
+   * `scoredOnly` applies it to the crawls that also stored a scorecard, while
+   * `runSelection` still counts and lists every crawl on the selected date.
+   */
+  const resolveCrawl = (
+    projectId: string,
+    runId?: string,
+    requestedDate?: string,
+    scope: { recordedBefore?: string; scoredOnly?: boolean } = {},
+  ) => {
     const filters = visibleCrawlFilters(projectId)
+    if (scope.recordedBefore) filters.push(lt(siteCrawlSnapshots.createdAt, scope.recordedBefore))
     if (requestedDate) {
       const nextDate = new Date(`${requestedDate}T00:00:00.000Z`)
       nextDate.setUTCDate(nextDate.getUTCDate() + 1)
       filters.push(gte(siteCrawlSnapshots.createdAt, requestedDate), lt(siteCrawlSnapshots.createdAt, nextDate.toISOString()))
     }
+    const selectionFilters = scope.scoredOnly
+      ? [...filters, sql`exists (select 1 from ${siteAuditSnapshots} where ${siteAuditSnapshots.projectId} = ${siteCrawlSnapshots.projectId} and ${siteAuditSnapshots.runId} = ${siteCrawlSnapshots.runId})`]
+      : filters
     const selected = app.db
       .select({ snapshot: siteCrawlSnapshots, runStatus: runs.status })
       .from(siteCrawlSnapshots)
       .innerJoin(runs, eq(siteCrawlSnapshots.runId, runs.id))
-      .where(and(...filters, runId ? eq(siteCrawlSnapshots.runId, runId) : undefined))
+      .where(and(...selectionFilters, runId ? eq(siteCrawlSnapshots.runId, runId) : undefined))
       .orderBy(
         desc(sql`substr(${siteCrawlSnapshots.createdAt}, 1, 10)`),
         desc(siteCrawlSnapshots.complete),
@@ -663,8 +677,9 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
         desc(siteCrawlSnapshots.createdAt), desc(siteCrawlSnapshots.runId)).limit(10).all()
     const runSelection: SiteAuditRunSelectionDto = {
       reason: runId ? 'explicit-run'
-        : requestedDate ? selected.snapshot.complete ? 'requested-date-complete' : 'requested-date-most-pages'
-          : selected.snapshot.complete ? 'latest-date-complete' : 'latest-date-most-pages',
+        : scope.scoredOnly ? 'latest-scored-scan'
+          : requestedDate ? selected.snapshot.complete ? 'requested-date-complete' : 'requested-date-most-pages'
+            : selected.snapshot.complete ? 'latest-date-complete' : 'latest-date-most-pages',
       date,
       sameDateRunCount,
       ambiguousDate: sameDateRunCount > 1,
@@ -674,25 +689,43 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     return { ...selected, runSelection }
   }
 
-  const resolveAudit = (projectId: string, runId?: string) => {
-    const crawl = resolveCrawl(projectId, runId)
-    const selectedRunId = runId ?? crawl?.snapshot.runId
+  /**
+   * The scorecard of the preferred crawl; on a default read where that crawl
+   * stored none, of the preferred scored crawl; and with no scored crawl, of
+   * the preferred legacy score-only audit. `recordedBefore` replays the
+   * default choice as it stood before an instant.
+   */
+  const resolveAudit = (projectId: string, runId?: string, recordedBefore?: string) => {
     const filters = [
       eq(siteAuditSnapshots.projectId, projectId),
       eq(runs.projectId, projectId),
       eq(runs.kind, RunKinds['site-audit']),
       inArray(runs.status, SURFACEABLE_STATUSES),
       notProbeRun(),
+      ...(recordedBefore ? [lt(siteAuditSnapshots.createdAt, recordedBefore)] : []),
     ]
     const complete = sql<boolean>`case when ${runs.status} = ${RunStatuses.completed} then 1 else 0 end`
-    const selected = app.db.select({ snap: siteAuditSnapshots, runStatus: runs.status })
+    const selectAudit = (pinnedRunId?: string) => app.db.select({ snap: siteAuditSnapshots, runStatus: runs.status })
       .from(siteAuditSnapshots).innerJoin(runs, eq(siteAuditSnapshots.runId, runs.id))
-      .where(and(...filters, selectedRunId ? eq(siteAuditSnapshots.runId, selectedRunId) : undefined))
+      .where(and(...filters, pinnedRunId ? eq(siteAuditSnapshots.runId, pinnedRunId) : undefined))
       .orderBy(desc(sql`substr(${siteAuditSnapshots.createdAt}, 1, 10)`), desc(complete),
         desc(siteAuditSnapshots.pagesAudited), desc(siteAuditSnapshots.createdAt), desc(siteAuditSnapshots.runId))
       .limit(1).get()
+    const auditOfCrawl = (target: ReturnType<typeof resolveCrawl>) => {
+      const selected = target ? selectAudit(target.snapshot.runId) : undefined
+      return target && selected ? { ...selected, runSelection: target.runSelection } : undefined
+    }
+    const crawl = resolveCrawl(projectId, runId, undefined, { recordedBefore })
+    if (crawl) {
+      // A partial crawl that audited no page stores no scorecard. A default
+      // read then takes the preferred scored crawl by the same policy rather
+      // than reporting that no audit exists; an explicit run stays pinned.
+      const scored = auditOfCrawl(crawl)
+        ?? (runId ? undefined : auditOfCrawl(resolveCrawl(projectId, undefined, undefined, { recordedBefore, scoredOnly: true })))
+      if (scored || runId) return scored
+    }
+    const selected = selectAudit(runId)
     if (!selected) return undefined
-    if (crawl) return { ...selected, runSelection: crawl.runSelection }
     const date = selected.snap.createdAt.slice(0, 10)
     const nextDate = new Date(`${date}T00:00:00.000Z`)
     nextDate.setUTCDate(nextDate.getUTCDate() + 1)
@@ -708,7 +741,9 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
         desc(siteAuditSnapshots.createdAt), desc(siteAuditSnapshots.runId)).limit(10).all()
       .map(candidate => ({ ...candidate, complete: Boolean(candidate.complete) }))
     const runSelection: SiteAuditRunSelectionDto = {
-      reason: runId ? 'explicit-run' : selected.runStatus === RunStatuses.completed ? 'latest-date-complete' : 'latest-date-most-pages',
+      // A crawl exists here only when none stored a scorecard: this score is a fallback.
+      reason: runId ? 'explicit-run' : crawl ? 'latest-scored-scan'
+        : selected.runStatus === RunStatuses.completed ? 'latest-date-complete' : 'latest-date-most-pages',
       date,
       sameDateRunCount,
       ambiguousDate: sameDateRunCount > 1,
@@ -884,13 +919,6 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     Querystring: { runId?: string }
   }>('/projects/:name/technical-aeo', async (request): Promise<SiteAuditScoreDto> => {
     const project = resolveProject(app.db, request.params.name)
-    const baseFilters = [
-      eq(siteAuditSnapshots.projectId, project.id),
-      eq(runs.projectId, project.id),
-      eq(runs.kind, RunKinds['site-audit']),
-      inArray(runs.status, SURFACEABLE_STATUSES),
-      notProbeRun(),
-    ]
     const latest = resolveAudit(project.id, request.query.runId)
 
     if (!latest) {
@@ -903,14 +931,17 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     }
 
     const snap = latest.snap
-    const previous = app.db
-      .select({ snap: siteAuditSnapshots })
-      .from(siteAuditSnapshots)
-      .innerJoin(runs, eq(siteAuditSnapshots.runId, runs.id))
-      .where(and(...baseFilters, lt(siteAuditSnapshots.createdAt, snap.createdAt)))
-      .orderBy(desc(siteAuditSnapshots.createdAt))
-      .limit(1)
-      .get()?.snap ?? null
+    // The scorecard a default read returned just before this one was recorded.
+    // Replaying the selection keeps a scan it passed over (a partial beside a
+    // complete scan from the same day) from becoming the baseline. A partial
+    // recorded earlier that same day is passed over by this complete scan
+    // too, so the baseline is then the default from before that date.
+    const replayed = resolveAudit(project.id, undefined, snap.createdAt)
+    const date = snap.createdAt.slice(0, 10)
+    const previous = replayed && latest.runStatus === RunStatuses.completed
+      && replayed.runStatus !== RunStatuses.completed && replayed.snap.createdAt.startsWith(date)
+      ? resolveAudit(project.id, undefined, `${date}T00:00:00.000Z`)?.snap ?? null
+      : replayed?.snap ?? null
     const deltaScore = previous ? snap.aggregateScore - previous.aggregateScore : null
     const trend = deltaScore == null
       ? null

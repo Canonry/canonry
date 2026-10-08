@@ -16,10 +16,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import Fastify, { type FastifyInstance } from 'fastify'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT,
   MEASUREMENT_PORTFOLIO_DEFAULT_ROW_EVIDENCE_LIMIT,
+  MEASUREMENT_PORTFOLIO_TIE_NOTE,
   buildMeasurementExecutionIdentity,
   canonicalMeasurementPlanV2Json,
   measurementPlanV2Schema,
@@ -39,6 +40,23 @@ import {
 import { apiRoutes } from '../src/index.js'
 import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
 import { HARBOR_CONTEXT } from './measurement-plan-v2-fixture.js'
+
+/**
+ * Counts cited-source parses. Resolving every source again for each answer
+ * that cited it cost about half a second per portfolio page at this scale,
+ * and a paged walk reads the whole portfolio once per page.
+ */
+const hostParses = vi.hoisted(() => ({ count: 0 }))
+vi.mock('@ainyc/canonry-contracts', async importOriginal => {
+  const actual = await importOriginal<typeof import('@ainyc/canonry-contracts')>()
+  return {
+    ...actual,
+    hostOf: (value: string | null | undefined) => {
+      hostParses.count++
+      return actual.hostOf(value)
+    },
+  }
+})
 
 /** What the agent runtime keeps of one tool result. */
 const TOOL_RESULT_CAP = 20_000
@@ -267,6 +285,8 @@ describe('portfolio summary size at portfolio scale', () => {
       expect(status).toBe(200)
       expect(JSON.stringify(body, null, 2).length).toBeLessThanOrEqual(18_000)
       expect(body.pageList).toBe('weakest-properties')
+      // The whole tie is summarized on every page; where it sits and what it names are left to the full read.
+      expect(body.tiedAtWeakest).toEqual({ count: TIED_AT_ZERO, mentionRate: 0, citationRate: 0, note: MEASUREMENT_PORTFOLIO_TIE_NOTE })
       for (const row of body.weakestProperties) {
         expect(seen.has(row.targetKey)).toBe(false)
         seen.add(row.targetKey)
@@ -417,5 +437,18 @@ describe('portfolio summary size at portfolio scale', () => {
     expect(status).toBe(200)
     expect(body.markets).toHaveLength(150)
     expect(body).toMatchObject({ totalMarkets: 150, marketsTruncated: false })
+  })
+
+  it('parses each cited source once per source list, not once per answer citing it', async () => {
+    const stored = db.select({ citedDomains: querySnapshots.citedDomains, citedUrls: querySnapshots.citedUrls }).from(querySnapshots).all()
+    const sources = new Set(stored.flatMap(row => [...row.citedDomains, ...(row.citedUrls ?? [])]))
+    hostParses.count = 0
+    const { status, body } = await summary('compact=true&answers=not-mentioned')
+    expect(status).toBe(200)
+    expect(body.weakestAnswerSources).toMatchObject({ properties: TIED_AT_ZERO, domainTotal: SOURCE_DOMAINS.length })
+    expect(body.answerEvidence?.citedDomainsTotal).toBe(SOURCE_DOMAINS.length)
+    // Two source lists: the weakest Properties' answers and the not-mentioned
+    // answers. Parsing per answer citing a source took over 70,000 parses here.
+    expect(hostParses.count).toBeLessThanOrEqual(2 * sources.size)
   })
 })

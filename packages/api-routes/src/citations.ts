@@ -95,6 +95,7 @@ export async function citationRoutes(app: FastifyInstance) {
       .select({ domain: competitors.domain })
       .from(competitors)
       .where(eq(competitors.projectId, project.id))
+      .orderBy(competitors.domain)
       .all()
       .map(c => hostOf(c.domain) ?? '')
       .filter(d => d.length > 0)

@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { and, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm'
 import { rankCriticizedProperties,
   aggregateSentiment, AppError, canonicalSentimentJson, createSentimentEvaluationDefinition, hasCurrentSentimentTemplate,
   emptySentimentCounts, notFound, SENTIMENT_ATTEMPT_PAGE_DEFAULT, SENTIMENT_INTERVAL_LIMITATION, SENTIMENT_MODEL, SENTIMENT_QUERY_PAGE_DEFAULT, SentimentOutcomes,
@@ -54,8 +54,8 @@ const FULL_ROWS: RowDetail = { include: new Set(['assessments', 'locations']), l
 const COMPACT_ROWS: RowDetail = { include: new Set(), limit: null, after: null }
 /** Operational states stay readable while sentiment is off; every classified or abstained outcome is withheld. */
 const OPERATIONAL_OUTCOMES: ReadonlySet<SentimentOutcome> = new Set([SentimentOutcomes.pending, SentimentOutcomes.running, SentimentOutcomes['waiting-to-retry'], SentimentOutcomes.failed, SentimentOutcomes.canceled])
-/** The outcomes that rate an answer for the Rated share. */
 const PREVIOUS_RATED_CANDIDATE_LIMIT = 50
+/** The outcomes that rate an answer for the Rated share. */
 const RATED_OUTCOMES: ReadonlySet<SentimentOutcome> = new Set([SentimentOutcomes.favorable, SentimentOutcomes.mixed, SentimentOutcomes.unfavorable])
 
 export class SentimentService {
@@ -218,7 +218,8 @@ export class SentimentService {
     if (disabled) for (const tally of tallies.values()) tally.counts = withheldCounts(tally.counts)
     return tallies
   }
-  private resolve(projectId: string, selection: SentimentSelection): Resolved {
+  /** `selected` reuses a source selection already made for this exact selection and run. */
+  private resolve(projectId: string, selection: SentimentSelection, selected?: SentimentSourceSelection): Resolved {
     if (selection.runId && selection.runIds) throw validationError('Choose runId or runIds, not both.')
     if (selection.scope !== 'project' && !selection.scopeKey) throw validationError('A scopeKey is required for property, group, and market sentiment selections.')
     if (selection.evaluationDefinitionId && this.repository.getSettings(projectId)?.evaluationDefinitionId !== selection.evaluationDefinitionId) {
@@ -238,7 +239,7 @@ export class SentimentService {
     const run = selection.runId ? this.db.select().from(runs).where(and(eq(runs.id, selection.runId), eq(runs.projectId, projectId))).get() : this.db.select().from(runs).where(and(...conditions)).orderBy(desc(runs.createdAt)).get()
     if (selection.runId && !run) throw notFound('Run', selection.runId)
     // One frozen source selection per run serves evaluator resolution, stored items and every aggregate.
-    const source = run ? selectSentimentSources(this.db, projectId, { ...sourceFilter(selection), runId: run.id }) : emptySource()
+    const source = run ? selected ?? selectSentimentSources(this.db, projectId, { ...sourceFilter(selection), runId: run.id }) : emptySource()
     const allowedSubjects = new Set(source.assessments.map(item => `${item.snapshotId}:${item.subject.key}`))
     const latest = run && !selection.evaluationDefinitionId ? this.db.select({ definitionId: sentimentWorkItems.evaluationDefinitionId, snapshotId: sentimentWorkItems.snapshotId, subjectId: sql<string | null>`json_extract(${sentimentWorkItems.input}, '$.subject.id')` }).from(sentimentWorkItems)
       .innerJoin(sentimentJobItems, eq(sentimentJobItems.workItemId, sentimentWorkItems.id)).innerJoin(sentimentJobs, eq(sentimentJobs.id, sentimentJobItems.jobId))
@@ -436,11 +437,24 @@ export class SentimentService {
     const filter = sourceFilter(query)
     // Match the eligible frozen population even before target admission. Model/evaluator
     // changes and partial ratings remain explicit comparison refusals after selection.
-    const population = (source: SentimentSourceSelection) => new Set(source.assessments.map(member => comparisonUnit(sentimentClassifierIdentity({ ...member, edges: member.edges.filter(edge => matchesSentimentEdge(edge, filter)) }))))
-    const targetUnits = population(selected.source)
+    const unit = (member: SentimentSourceAssessment) => comparisonUnit(sentimentClassifierIdentity({ ...member, edges: member.edges.filter(edge => matchesSentimentEdge(edge, filter)) }))
+    const targetUnits = new Set(selected.source.assessments.map(unit))
+    // Units are deduplicated answers, so fewer answers than target units, or any unit
+    // outside the target, settles a mismatch without keying the rest of the run.
+    const matchesTarget = (source: SentimentSourceSelection) => {
+      if (source.assessments.length < targetUnits.size) return false
+      const units = new Set<string>()
+      for (const member of source.assessments) {
+        const key = unit(member)
+        if (!targetUnits.has(key)) return false
+        units.add(key)
+      }
+      return units.size === targetUnits.size
+    }
     const requestedVersion = query.revision === undefined ? undefined : this.db.select({ id: measurementPlanVersions.id }).from(measurementPlanVersions).where(and(eq(measurementPlanVersions.projectId, projectId), eq(measurementPlanVersions.revision, query.revision))).get()?.id ?? '__missing-revision__'
-    // Unrated history never loads answer text. Bound rated candidates as well: a
-    // changed basket must not rebuild a year's snapshots on the synchronous DB path.
+    // Unrated history never loads answer text, and neither does history rated only outside
+    // the selected class and scope. Bound rated candidates as well: a changed basket must
+    // not rebuild a year's snapshots on the synchronous DB path.
     const candidates = this.db.selectDistinct({ id: runs.id, createdAt: runs.createdAt }).from(runs)
       .innerJoin(sentimentWorkItems, and(eq(sentimentWorkItems.runId, runs.id), eq(sentimentWorkItems.projectId, projectId)))
       .innerJoin(sentimentResults, eq(sentimentResults.workItemId, sentimentWorkItems.id))
@@ -448,20 +462,22 @@ export class SentimentService {
         eq(runs.projectId, projectId), eq(runs.kind, target.kind), notProbeRun(),
         inArray(sentimentResults.outcome, [...RATED_OUTCOMES]),
         query.evaluationDefinitionId ? eq(sentimentWorkItems.evaluationDefinitionId, query.evaluationDefinitionId) : undefined,
-        query.queryClass ? sql`exists (select 1 from json_each(${sentimentWorkItems.edges}) as edge where json_extract(edge.value, '$.queryClass') = ${query.queryClass})` : undefined,
+        storedEdgeMatches(filter),
         requestedVersion ? eq(runs.measurementPlanVersionId, requestedVersion) : undefined,
         or(lt(runs.createdAt, target.createdAt), and(eq(runs.createdAt, target.createdAt), lt(runs.id, target.id))),
         target.measurementPlanVersionId ? isNotNull(runs.measurementPlanVersionId) : isNull(runs.measurementPlanVersionId),
       )).orderBy(desc(runs.createdAt), desc(runs.id)).limit(PREVIOUS_RATED_CANDIDATE_LIMIT + 1).all()
     let newestRatedRunId: string | undefined
     for (const candidate of candidates.slice(0, PREVIOUS_RATED_CANDIDATE_LIMIT)) {
-      const read = this.resolve(projectId, { ...query, runId: candidate.id })
-      if (!read.source.assessments.length) continue
-      const candidateUnits = population(read.source)
-      if (candidateUnits.size !== targetUnits.size || [...targetUnits].some(key => !candidateUnits.has(key))) {
+      // Population first: the evaluator lookup and stored items load only for a matching run.
+      const selection = { ...query, runId: candidate.id }
+      const source = selectSentimentSources(this.db, projectId, sourceFilter(selection))
+      if (!source.assessments.length) continue
+      if (!matchesTarget(source)) {
         newestRatedRunId ??= candidate.id
         continue
       }
+      const read = this.resolve(projectId, selection, source)
       if (this.items(projectId, read.selection, read.source).some(item => RATED_OUTCOMES.has(item.outcome))) return candidate.id
     }
     if (candidates.length > PREVIOUS_RATED_CANDIDATE_LIMIT) throw validationError('No compatible rated predecessor was found within the bounded search; select an older run explicitly.', { reason: 'previous-rated-search-limit', candidateLimit: PREVIOUS_RATED_CANDIDATE_LIMIT, ...(newestRatedRunId ? { newestRatedRunId } : {}) })
@@ -609,6 +625,25 @@ function jobReceipt(row: typeof sentimentJobs.$inferSelect, tally: JobTally, att
 function sourceFilter(selection: Partial<SentimentBackfillSelection> | SentimentResolvedSelection): SentimentSourceFilter {
   const extra = selection as Partial<SentimentBackfillSelection>
   return { mode: selection.mode, runId: selection.runId ?? undefined, runIds: selection.runId ? undefined : extra.runIds, since: extra.from, until: extra.to, revision: selection.revision ?? undefined, queryClass: selection.queryClass, queryId: selection.queryId, executionNodeKey: selection.executionNodeKey, scope: selection.scope, scopeKey: selection.scopeKey, marketKey: selection.marketKey, provider: selection.provider, sourceModel: selection.model, location: selection.location }
+}
+/**
+ * SQL form of matchesSentimentEdge over a work item's stored frozen edges: true when one edge
+ * is in the selected class and scope. It must never be stricter than the in-memory match.
+ */
+function storedEdgeMatches(filter: SentimentSourceFilter): SQL {
+  const field = (path: string) => sql`json_extract(edge.value, ${path})`
+  const contains = (path: string, key: string) => sql`exists (select 1 from json_each(edge.value, ${path}) as member where member.value = ${key})`
+  const conditions = [sql`${field('$.queryClass')} = ${filter.queryClass ?? 'branded'}`]
+  if (filter.queryId) conditions.push(sql`${field('$.queryKey')} = ${filter.queryId}`)
+  if (filter.executionNodeKey) conditions.push(sql`${field('$.executionNodeKey')} = ${filter.executionNodeKey}`)
+  if (filter.provider) conditions.push(sql`${field('$.provider')} = ${filter.provider}`)
+  if (filter.sourceModel) conditions.push(sql`${field('$.servedModel')} = ${filter.sourceModel}`)
+  if (filter.location) conditions.push(filter.location === 'none' ? sql`${field('$.context')} is null` : sql`${field('$.context.label')} = ${filter.location}`)
+  if (filter.marketKey) conditions.push(contains('$.marketKeys', filter.marketKey))
+  if (filter.scopeKey && filter.scope === 'property') conditions.push(sql`${field('$.propertyKey')} = ${filter.scopeKey}`)
+  if (filter.scopeKey && filter.scope === 'group') conditions.push(contains('$.groupKeys', filter.scopeKey))
+  if (filter.scopeKey && filter.scope === 'market') conditions.push(contains('$.marketKeys', filter.scopeKey))
+  return sql`exists (select 1 from json_each(${sentimentWorkItems.edges}) as edge where ${sql.join(conditions, sql` and `)})`
 }
 function outcome(status: string, result?: string) { return sentimentOutcomeSchema.parse(status === 'completed' ? result ?? 'failed' : status) }
 function parse<T>(schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false; error: { issues: unknown } } }, value: unknown): T {

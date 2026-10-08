@@ -523,6 +523,20 @@ test('shows a pinned competitor\'s curated aliases beside its domain, and only o
   expect(within(grid).queryByText(/Ignored/)).toBeNull()
 })
 
+test('labels a pinned competitor\'s answer-derived names "auto" after its curated aliases', () => {
+  renderLandscape({
+    landscape: landscape({
+      pinned: [row({ domain: 'spoketuneworks.example', label: 'spoketuneworks', pinned: true })],
+    }),
+    competitorAliases: { 'spoketuneworks.example': ['TuneSpoke'] },
+    competitorAutoAliases: { 'spoketuneworks.example': ['Spoke Tune Works Co'] },
+  })
+  const grid = screen.getByRole('table', { name: 'Competitors over time' })
+  const pinnedRow = within(grid).getByRole('rowheader', { name: /spoketuneworks\.example/ })
+  expect(pinnedRow.textContent).toBe('spoketuneworks.exampleAlso named TuneSpoke, Spoke Tune Works Co (auto)')
+  expect(within(pinnedRow).getByTitle("Detected automatically from this project's stored answers").textContent).toBe(' (auto)')
+})
+
 test('renders a pinned competitor without aliases exactly as before', () => {
   renderLandscape({
     landscape: landscape({ pinned: [row({ domain: 'qvx.example', label: 'qvx', pinned: true })] }),

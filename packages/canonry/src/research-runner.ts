@@ -1,6 +1,8 @@
 import { and, eq, inArray, sql } from 'drizzle-orm'
+import { competitorIdentityColumns } from '@ainyc/canonry-api-routes'
 import { competitors, projects, researchRunQueries, researchRuns, type DatabaseClient } from '@ainyc/canonry-db'
 import {
+  competitorIdentityAliases,
   determineAnswerMentioned,
   effectiveBrandNames,
   effectiveDomains,
@@ -57,10 +59,13 @@ export async function executeResearchRun(db: DatabaseClient, registry: ProviderR
     reserved = run.totalQueries
     reservation = { scope, period }
     const rows = db.select().from(researchRunQueries).where(eq(researchRunQueries.researchRunId, runId)).orderBy(researchRunQueries.position).all()
-    const competitorRows = db.select({ domain: competitors.domain, aliases: competitors.aliases }).from(competitors).where(eq(competitors.projectId, projectId)).all()
+    const competitorRows = db.select(competitorIdentityColumns).from(competitors).where(eq(competitors.projectId, projectId)).orderBy(competitors.domain).all()
     const competitorDomains = competitorRows.map(row => row.domain)
-    // Curated names identify a competitor in the answer the same way a sweep does.
-    const competitorAliases = new Map(competitorRows.filter(row => row.aliases.length > 0).map(row => [row.domain, row.aliases]))
+    // Curated and auto-detected names identify a competitor in the answer the
+    // same way a sweep does.
+    const competitorAliases = new Map(competitorRows
+      .map(row => [row.domain, competitorIdentityAliases(row)] as const)
+      .filter(([, aliases]) => aliases.length > 0))
     const domains = effectiveDomains(project)
     const brands = effectiveBrandNames(project)
     const config = { ...provider.config, model: run.resolvedModel }

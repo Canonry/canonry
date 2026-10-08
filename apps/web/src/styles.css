@@ -1508,6 +1508,12 @@
     @apply ml-px text-[13px] tabular-nums text-muted;
   }
 
+  /* "(auto)" after a competitor name detected from stored answers, quieter
+     than the curated names beside it. */
+  .av-alias-auto {
+    @apply text-xs italic text-muted;
+  }
+
   /* A status word wraps on a phone rather than push the grid past the card. */
   .av-status {
     @apply text-[13px] font-medium sm:whitespace-nowrap;

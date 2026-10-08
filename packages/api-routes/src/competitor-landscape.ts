@@ -1,6 +1,7 @@
-import { and, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNull, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
+  auditLog,
   competitors,
   domainClassifications,
   groupRunsByCreatedAt,
@@ -11,7 +12,9 @@ import {
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import {
+  brandKeyFromText,
   brandLabelFromDomain,
+  competitorIdentityAliases,
   competitorLandscapeQuerySchema,
   COMPETITOR_LANDSCAPE_COUNT_UNITS,
   COMPETITOR_LANDSCAPE_MODEL_GROUP_LIMIT,
@@ -25,6 +28,7 @@ import {
   RunKinds,
   RunStatuses,
   measurementDraftEtag,
+  normalizeCompetitorDomain,
   surfaceClassFromCompetitorType,
   validationError,
   windowCutoff,
@@ -41,6 +45,9 @@ import { latestMeasurementRun, measurementPlanV2ReportTargets, measurementSnapsh
 import { measurementRunCompleteness } from './measurement-run-completeness.js'
 import { classifyModelEvidence } from './model-evidence.js'
 import { createTargetMentionReader } from './measurement-report.js'
+import { competitorIdentityColumns } from './competitor-writes.js'
+import { readMarketCompetitorNames } from './market-competitor-names.js'
+import { marketPinsFromGroups, storedPlanPinGroups } from './plan-competitors.js'
 
 type RawQuery = {
   window?: string
@@ -120,6 +127,139 @@ export function latestSweepRuns(db: DatabaseClient, projectId: string): Array<ty
     if (whole.length > 0) return whole
   }
   return []
+}
+
+/**
+ * Audit actions written only when they change the names a competitor matcher
+ * reads: a curated alias set (`competitors.aliases-updated`) and an
+ * answer-derived names change (`competitors.auto-aliases-updated`, project
+ * competitors and market-only pins alike).
+ */
+const COMPETITOR_NAME_CHANGE_ACTIONS = ['competitors.aliases-updated', 'competitors.auto-aliases-updated']
+
+/**
+ * Each published revision's market pin names, by database and version id:
+ * for every market (group key) and pinned registrable domain, the sorted
+ * brand keys of the pin's label and aliases. A published revision never
+ * changes, so one parse serves every later read; bounded so a long-lived
+ * server holds only the revisions it reads.
+ */
+const revisionPinNameCaches = new WeakMap<Pick<DatabaseClient, 'select'>, Map<string, Map<string, string>>>()
+const REVISION_PIN_NAME_CACHE_LIMIT = 256
+
+function revisionPinNames(db: Pick<DatabaseClient, 'select'>, versionId: string): Map<string, string> {
+  let cache = revisionPinNameCaches.get(db)
+  if (!cache) revisionPinNameCaches.set(db, cache = new Map<string, Map<string, string>>())
+  const cached = cache.get(versionId)
+  if (cached) return cached
+  const row = db.select({ canonicalJson: measurementPlanVersions.canonicalJson })
+    .from(measurementPlanVersions)
+    .where(eq(measurementPlanVersions.id, versionId))
+    .get()
+  const names = new Map<string, string>()
+  for (const group of row ? storedPlanPinGroups(row.canonicalJson) : []) {
+    for (const pin of marketPinsFromGroups([group])) {
+      names.set(JSON.stringify([group.stableKey, pin.domain]), JSON.stringify([...new Set(pin.names.map(brandKeyFromText))].sort()))
+    }
+  }
+  if (row) cache.set(versionId, names)
+  while (cache.size > REVISION_PIN_NAME_CACHE_LIMIT) cache.delete(cache.keys().next().value!)
+  return names
+}
+
+/**
+ * When a published revision last renamed a market pin, or null: the publish
+ * time of the newest v2 revision that pins a domain in a market the v2
+ * revision before it pinned the same domain in, under a label or aliases with
+ * other brand keys. The active revision's pins reinterpret every stored
+ * answer of their market (the Advanced landscape), so that publish restated
+ * the market's history. A pin new to a market, or dropped from one, is a
+ * competitor added or removed, not renamed; a pending draft's pins are not
+ * read here. Read from the immutable revisions themselves, so every
+ * publisher (draft publish, the legacy v1 PUT, a query-tracking publish) is
+ * covered. Revisions with one compiled checksum pin the same names and are
+ * not parsed.
+ */
+function readMarketPinRenamedAt(db: Pick<DatabaseClient, 'select'>, projectId: string): string | null {
+  const versions = db.select({
+    id: measurementPlanVersions.id,
+    createdAt: measurementPlanVersions.createdAt,
+    compiledChecksum: measurementPlanVersions.compiledChecksum,
+  })
+    .from(measurementPlanVersions)
+    .where(and(eq(measurementPlanVersions.projectId, projectId), eq(measurementPlanVersions.schemaVersion, 2)))
+    .orderBy(desc(measurementPlanVersions.revision))
+    .all()
+  for (let index = 0; index + 1 < versions.length; index++) {
+    const next = versions[index]!
+    const previous = versions[index + 1]!
+    if (next.compiledChecksum !== null && next.compiledChecksum === previous.compiledChecksum) continue
+    const before = revisionPinNames(db, previous.id)
+    for (const [key, names] of revisionPinNames(db, next.id)) {
+      const was = before.get(key)
+      if (was !== undefined && was !== names) return next.createdAt
+    }
+  }
+  return null
+}
+
+/**
+ * WHEN THE PROJECT'S COMPETITOR NAMES LAST CHANGED, or null when they never did.
+ *
+ * The read-time competitor readers score stored answers with the names the
+ * project has NOW, so a change to them restates every period read before it,
+ * months already reported included. The landscape reads every kind of name
+ * below; project-frame share of voice in `visibility-compare` and the
+ * analytics mention share read tracked competitors only (curated plus
+ * auto-detected, minus blocked), so a market pin or learned-name change moves
+ * this time without changing those figures. Frozen readers (a Simple
+ * definition's names, each Advanced revision's own names) are not restated.
+ * This is the newest of:
+ * - an audit row that changed a competitor's curated, auto-detected or
+ *   blocked names: the two actions above, any write whose diff carries the
+ *   shared alias-change fields (`aliasChanges` / `autoAliasChanges` from
+ *   `competitorAliasAuditFields` and `marketPinWriteAuditFields`: a
+ *   competitor set write, an apply, a discovery promote, a market pin
+ *   write), a block that removed an auto name (`removedAutoAliases`), and a
+ *   project update whose new identity dropped a competitor name;
+ * - an audit row whose write claimed, released or dropped a name learned for
+ *   a competitor only an Advanced market pins (`marketNameChanges`, from
+ *   `marketNameChanges` in `src/market-competitor-names.ts`): a project
+ *   update, an apply, every competitor route that writes (set, add, alias
+ *   set, block, unblock, both deletes), a discovery promote and every market
+ *   pin write;
+ * - a published revision that renamed an Advanced market pin
+ *   (`readMarketPinRenamedAt`).
+ * Both are written in the transaction that commits the change, so this is
+ * never later than the first read that used the new names. Adding or
+ * removing a competitor or a pin that moves no stored or learned name, and a block or
+ * unblock that changed no stored or learned name, are not names changes.
+ */
+export function readCompetitorIdentityChangedAt(db: Pick<DatabaseClient, 'select'>, projectId: string): string | null {
+  const diff = auditLog.diff
+  const row = db.select({ at: sql<string | null>`max(${auditLog.createdAt})` })
+    .from(auditLog)
+    .where(and(
+      eq(auditLog.projectId, projectId),
+      or(
+        inArray(auditLog.action, COMPETITOR_NAME_CHANGE_ACTIONS),
+        sql`(json_valid(${diff}) AND (
+          json_type(${diff}, '$.aliasChanges') = 'array'
+          OR json_type(${diff}, '$.autoAliasChanges') = 'array'
+          OR json_type(${diff}, '$.removedAutoAliases') = 'array'
+          OR json_type(${diff}, '$.marketNameChanges') = 'array'
+          OR (${auditLog.action} = 'project.updated' AND (
+            json_type(${diff}, '$.droppedCompetitorAliases') = 'array'
+            OR json_type(${diff}, '$.droppedAutoAliases') = 'array'
+          ))
+        ))`,
+      ),
+    ))
+    .get()
+  const audited = row?.at ?? null
+  const renamed = readMarketPinRenamedAt(db, projectId)
+  if (audited === null) return renamed
+  return renamed !== null && renamed > audited ? renamed : audited
 }
 
 /** Run ids newest first (id DESC within one timestamp), capped for the response. */
@@ -270,19 +410,28 @@ export function readCompetitorLandscape(
       classifications.set(domain, surfaceClass)
     }
 
-    // Curated aliases reinterpret stored history at read time, like the pin
-    // itself; the generated domain label stays the display label.
-    const projectPins = app.db.select({ domain: competitors.domain, aliases: competitors.aliases })
+    // Curated and auto-detected aliases reinterpret stored history at read
+    // time, like the pin itself; the generated domain label stays the display label.
+    const projectPins = app.db.select(competitorIdentityColumns)
       .from(competitors)
       .where(eq(competitors.projectId, project.id))
+      .orderBy(competitors.domain)
       .all()
       .map(row => ({
         domain: row.domain,
         label: brandLabelFromDomain(row.domain) || row.domain,
         labelSource: 'domain' as const,
-        aliases: row.aliases,
+        aliases: competitorIdentityAliases(row),
       }))
-    const pinned = mergePins(advanced?.pendingPins ?? [], advanced?.activePinned ?? [], projectPins)
+    const marketPinned = mergePins(advanced?.pendingPins ?? [], advanced?.activePinned ?? [], projectPins)
+    // Names learned for a competitor only a market pins reinterpret history
+    // like a project pin's auto names do, and only on that pin: never a new
+    // pin, never a project competitor's.
+    const marketNames = advanced ? readMarketCompetitorNames(app.db, project.id) : new Map<string, string[]>()
+    const pinned = marketNames.size === 0 ? marketPinned : mergePins(marketPinned, marketPinned.flatMap((pin) => {
+      const learned = marketNames.get(normalizeCompetitorDomain(pin.domain))
+      return learned ? [{ domain: pin.domain, label: pin.label, labelSource: 'domain' as const, aliases: learned }] : []
+    }))
     const buildHistory = (selectedSnapshots: typeof snapshots) => {
       const inputs = buildMentionShareInputs({ project, competitors: [], snapshots: selectedSnapshots, queryTextById })
       // Sorted by answer count, so the cap keeps the most-named. On a large
@@ -422,6 +571,7 @@ export function readCompetitorLandscape(
       runCount: countedRuns.length,
       runIds: pooledRunIds(countedRuns),
       countUnits: COMPETITOR_LANDSCAPE_COUNT_UNITS,
+      competitorIdentityChangedAt: readCompetitorIdentityChangedAt(app.db, project.id),
       ...(filters.answers !== 'not-mentioned' ? {} : {
         answerSelection: { answers: filters.answers, populationSize: eligibleSnapshots.length, answerCount: snapshots.length, unknownMentionAnswers },
       }),

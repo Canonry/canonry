@@ -1,6 +1,7 @@
 import { shareOfVoiceContextFields } from './share-of-voice.js'
 import { z } from 'zod'
 import { fraction, percent } from './ratio-unit.js'
+import { competitorIdentityChangedAtSchema } from './analytics.js'
 
 /**
  * Aggregated answer-visibility stats — per-query mention / citation counts
@@ -419,6 +420,17 @@ export const visibilityCompareDtoSchema = z.object({
     from: z.array(visibilityStatsShareCompetitorSchema),
     to: z.array(visibilityStatsShareCompetitorSchema),
   }),
+  /**
+   * When the project's competitor names last changed (`competitorIdentityChangedAtSchema`).
+   * Project-frame share of voice reads both months with the tracked
+   * competitors' current names (curated plus auto-detected, minus blocked),
+   * so a comparison quoted before a change to those names was restated at
+   * that time; a market pin or learned-name change moves this time without
+   * changing share of voice. Absent from a scoped comparison (a `scope` of
+   * group, market or property, or a `marketKey`), which reads the frozen
+   * plan frame only.
+   */
+  competitorIdentityChangedAt: competitorIdentityChangedAtSchema.optional(),
 })
 export type VisibilityCompareDto = z.infer<typeof visibilityCompareDtoSchema>
 

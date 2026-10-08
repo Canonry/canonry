@@ -1,8 +1,8 @@
-import { stripCitationChips } from './answer-prose.js'
-import { brandKeyFromText, textContainsAnyBrandAlias, textContainsBrandAlias } from './brand-matching.js'
+import { brandKeyFromText, compileBrandAliases, matcherMatchesText, prepareBrandMatchText } from './brand-matching.js'
+import { extractLaidOutBusinessNames } from './business-name-candidates.js'
 import type { NormalizedQueryResult } from './provider.js'
 import { isListingMarketplace } from './source-categories.js'
-import { brandLabelFromDomain, hostMatchesDomain, registrableDomain, textContainsDomain } from './url-normalize.js'
+import { brandLabelFromDomain, extractDomainsFromText, hostMatchesDomain, registrableDomain } from './url-normalize.js'
 
 /**
  * Per-snapshot competitor matching: the stored `competitorOverlap` and
@@ -36,8 +36,13 @@ export function computeCompetitorOverlap(
   }
 
   if (normalized.answerText) {
+    // The answer is read once (written hosts, normalized words) and checked
+    // against every competitor: a recompute runs this over every stored
+    // answer of a project, once per tracked competitor.
+    const writtenHosts = extractDomainsFromText(normalized.answerText)
+    const prepared = prepareBrandMatchText(normalized.answerText)
     for (const cd of competitorDomains) {
-      if (textContainsDomain(normalized.answerText, cd)) {
+      if (writtenHosts.some(host => hostMatchesDomain(host, cd))) {
         overlapSet.add(cd)
       }
       // Use the registrable domain's brand label (eTLD+1's leftmost label) so
@@ -45,13 +50,13 @@ export function computeCompetitorOverlap(
       // brand `quotebird`, not the subdomain `offers` — otherwise the literal
       // word "offers" in the answer prose would falsely flag the competitor.
       const brand = brandLabelFromDomain(cd)
-      if (brandKeyFromText(brand).length >= 4 && textContainsBrandAlias(normalized.answerText, brand)) {
+      if (brandKeyFromText(brand).length >= 4 && matcherMatchesText(compileBrandAliases([brand]), prepared)) {
         overlapSet.add(cd)
       }
       // A competitor's own names ("QRA" for qravelhomes.example) are operator-approved, so
       // they match even when the domain's label would not.
       const named = competitorAliases.get(cd)
-      if (named?.length && textContainsAnyBrandAlias(normalized.answerText, named)) {
+      if (named?.length && matcherMatchesText(compileBrandAliases(named), prepared)) {
         overlapSet.add(cd)
       }
     }
@@ -99,74 +104,23 @@ export function extractRecommendedCompetitors(
 
   if (knownCompetitorAliases.size === 0) return []
 
-  const candidatePatterns = [
-    /^\s*(?:[-*]|\d+\.)\s+(?:\*\*)?([A-Z0-9][A-Za-z0-9][\w\s.&',/()-]{1,50}?)(?:\*\*)?\s*[:\u2014\u2013-]/gm,
-    /\*\*([A-Z0-9][A-Za-z0-9][\w\s.&',/()-]{1,50})\*\*/g,
-    /^#{1,4}\s+(?:\d+\.\s+)?(?:\*\*)?([A-Z0-9][A-Za-z0-9][\w\s.&',/()-]{1,50}?)(?:\*\*)?$/gm,
-    /\[([A-Z0-9][A-Za-z0-9][\w\s.&',/()-]{1,50})\]\(https?:\/\/[^\s)]+\)/g,
-  ]
-  const genericKeys = new Set([
-    'additional',
-    'best',
-    'benefits',
-    'bottomline',
-    'comparison',
-    'conclusion',
-    'directorylisting',
-    'example',
-    'expertise',
-    'features',
-    'finalthoughts',
-    'howitworks',
-    'important',
-    'keybenefits',
-    'keyfeatures',
-    'major',
-    'note',
-    'notable',
-    'option',
-    'other',
-    'overview',
-    'pricing',
-    'pros',
-    'reviews',
-    'step',
-    'summary',
-    'top',
-    'verdict',
-    'whattolookfor',
-    'whyitmatters',
-    'whyitstandsout',
-    'whywechoseit',
-  ])
-
-  // A name that appears only in a citation chip (`([Rival](https://...))`) is
-  // a citation, not a recommendation. Links written in prose stay as markdown
-  // for the `[Name](url)` pattern.
-  const scanText = stripCitationChips(answerText)
+  // The shared layout stage (layouts, layout words, chips removed), names
+  // kept whole (`Quillan's`, `Name (site.example)`); this extractor keeps only
+  // names that line up with a known identity.
+  // Each alias set compiles once; a candidate matches the set when it
+  // matches any one alias in it.
+  const ownMatcher = compileBrandAliases([...ownBrandAliases])
+  const knownMatcher = compileBrandAliases([...knownCompetitorAliases])
   const seen = new Map<string, string>()
-  for (const pattern of candidatePatterns) {
-    let match: RegExpExecArray | null
-    while ((match = pattern.exec(scanText)) !== null) {
-      const candidate = cleanCandidateName(match[1])
-      const candidateKey = brandKeyFromText(candidate)
-      if (!candidateKey) continue
-      if (genericKeys.has(candidateKey)) continue
-      if (candidate.split(/\s+/).length > 6) continue
-      if (matchesBrandAlias(candidate, ownBrandAliases)) continue
-      if (!matchesBrandAlias(candidate, knownCompetitorAliases)) continue
-      if (!seen.has(candidateKey)) seen.set(candidateKey, candidate)
-    }
+  for (const candidate of extractLaidOutBusinessNames(answerText)) {
+    const candidateKey = brandKeyFromText(candidate)
+    const prepared = prepareBrandMatchText(candidate)
+    if (matcherMatchesText(ownMatcher, prepared)) continue
+    if (!matcherMatchesText(knownMatcher, prepared)) continue
+    if (!seen.has(candidateKey)) seen.set(candidateKey, candidate)
   }
 
   return [...seen.values()].slice(0, 10)
-}
-
-function cleanCandidateName(candidate: string): string {
-  return candidate
-    .replace(/^[\s"'`]+|[\s"'`.,:;!?]+$/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
 }
 
 function collectBrandAliasesFromDomain(domain: string): string[] {
@@ -181,8 +135,4 @@ function collectBrandAliasesFromDomain(domain: string): string[] {
   const brand = brandLabelFromDomain(reg)
   if (brandKeyFromText(brand).length >= 4) aliases.add(brand)
   return [...aliases]
-}
-
-function matchesBrandAlias(candidate: string, aliases: ReadonlySet<string>): boolean {
-  return [...aliases].some(alias => textContainsBrandAlias(candidate, alias))
 }

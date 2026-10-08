@@ -344,7 +344,15 @@ describe('readMarketCompetitorPins', () => {
       { domain: 'alpha.example', names: ['Alpha'], markets: ['regional'] },
     ])
     setDraftJson(draftJson)
-    db.update(measurementPlanVersions).set({ canonicalJson: '{not json' }).where(eq(measurementPlanVersions.id, 'plan_v1')).run()
+    // A published revision never changes (its parse is cached), so the
+    // unreadable one is a new active revision. Revision 1's run loses its
+    // answer, so revision 1 no longer counts as a superseded revision.
+    db.delete(querySnapshots).where(eq(querySnapshots.runId, 'market_run')).run()
+    db.insert(measurementPlanVersions).values({
+      id: 'plan_unreadable', projectId, revision: 2, canonicalJson: '{not json', checksum: '9'.repeat(64),
+      schemaVersion: 2, compiledChecksum: 'b'.repeat(64), createdAt: NOW,
+    }).run()
+    db.update(measurementPlans).set({ activeVersionId: 'plan_unreadable' }).where(eq(measurementPlans.projectId, projectId)).run()
     expect(readMarketCompetitorPins(db, projectId)).toEqual([
       { domain: 'boltline.example', names: ['Boltline'], markets: ['regional'] },
       { domain: 'alpha.example', names: ['Alpha'], markets: ['regional'] },
@@ -352,6 +360,28 @@ describe('readMarketCompetitorPins', () => {
     ])
     setDraftJson('{not json')
     expect(readMarketCompetitorPins(db, projectId)).toEqual([])
+  })
+})
+
+describe('readMarketCompetitorPins parses each published revision once', () => {
+  it('reuses a revision\'s parse on every later read, and re-reads a draft only when its text changes', async () => {
+    seedMarket(marketPlan([BOLTLINE_PIN]), 'Rotorwise.')
+    const boltline = { domain: 'boltline.example', names: ['Boltline'], markets: ['regional'] }
+    expect(readMarketCompetitorPins(db, projectId)).toEqual([boltline])
+
+    const pin = await draftAction('pin-competitor', { expectedActiveRevision: 1, groupKey: 'regional', domain: 'zephyrblade.example', label: 'Zephyr Blade' })
+    expect(pin.statusCode, pin.body).toBe(200)
+    expect(readMarketCompetitorPins(db, projectId)).toEqual([boltline, { domain: 'zephyrblade.example', names: ['Zephyr Blade'], markets: ['regional'] }])
+    // The draft changes in place: new text is parsed again.
+    const draftJson = storedDraft()!.authoringJson
+    db.update(measurementPlanDrafts).set({ authoringJson: draftJson.replaceAll('Zephyr Blade', 'Zephyr Blades') }).where(eq(measurementPlanDrafts.projectId, projectId)).run()
+    const renamed = [boltline, { domain: 'zephyrblade.example', names: ['Zephyr Blades'], markets: ['regional'] }]
+    expect(readMarketCompetitorPins(db, projectId)).toEqual(renamed)
+
+    // A published revision never changes: were it parsed again, this text
+    // would pin nothing. The parse from the first read is used instead.
+    db.update(measurementPlanVersions).set({ canonicalJson: '{not json' }).where(eq(measurementPlanVersions.id, 'plan_v1')).run()
+    expect(readMarketCompetitorPins(db, projectId)).toEqual(renamed)
   })
 })
 

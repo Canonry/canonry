@@ -8,8 +8,8 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 import { recordSentimentCompletion, parseJsonColumn, providerBatches, providerBatchRequests, runFills, runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
 import type { PricingTier, ProviderBatchRequestOutcome, ProviderBatchResultLine, ProviderBatchStatus, ProviderBatchSubmitResult, ProviderDispatchMode, ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RawQueryResult, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto, RunStatus, TrackedQueryRequest } from '@ainyc/canonry-contracts'
 import { PricingTiers, ProviderBatchRequestOutcomes, ProviderBatchStatuses, ProviderBatchSubmitError, ProviderDispatchModes, RUN_FILL_PROVIDER_BREAKER, buildSnapshotUsage, formatRunErrorOneLine, parseRunError, resolveProviderModel } from '@ainyc/canonry-contracts'
-import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, competitorLabelFromDomain, computeCompetitorOverlap, extractRecommendedCompetitors, normalizeCompetitorAliases, type CompetitorIdentityInput, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildProviderRunError, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isSearchLocationIgnored, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
-import { backfillProjectAnswerMentions, captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep, type RunCompetitors } from '@ainyc/canonry-api-routes'
+import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, competitorIdentityAliases, competitorLabelFromDomain, computeCompetitorOverlap, extractRecommendedCompetitors, type CompetitorIdentityInput, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildProviderRunError, buildRunErrorFromMessages, determineAnswerMentioned, isSearchLocationIgnored, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
+import { answerIdentityChanged, answerIdentityFrom, backfillProjectAnswerMentions, captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep, readAnswerIdentity, readMarketCompetitorNames, type AnswerIdentityFingerprint, type RunCompetitors } from '@ainyc/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
 import { buildProviderOutcomeProps, buildRunCompletedProps, buildSiteAuditCompletedProps, describeRunFailure, failureStreakSampling, hashDomain, runFailureSite, type RunPhaseTimings } from './run-telemetry.js'
@@ -76,6 +76,12 @@ interface PlanExecutionUnit {
  */
 interface RunRecordingContext {
   runId: string
+  /**
+   * What this context scores with (`answerIdentityFrom`), so its writer can
+   * tell whether the identity changed after it read it
+   * (`JobRunner.reconcileRunAnswerFields`).
+   */
+  identity: AnswerIdentityFingerprint
   allDomains: string[]
   /**
    * The competitors one answer is scored against: the project list plus the
@@ -83,8 +89,6 @@ interface RunRecordingContext {
    */
   competitorsFor: (executionId: string | null) => RunCompetitors
   allBrandNames: string[]
-  /** The project competitors this context read, as `competitorIdentityKey` spells them. */
-  competitorIdentity: string
 }
 
 /** What `recordSlot` needs: the run's identity and where a recorded answer is reported. */
@@ -316,16 +320,6 @@ function runOutcome(inserted: number, providerErrors: ReadonlyMap<ProviderName, 
 }
 
 /**
- * The project competitors and their curated aliases as one comparable value,
- * so a writer can tell whether the names it scored with are still current.
- */
-function competitorIdentityKey(rows: readonly CompetitorIdentityInput[]): string {
-  return JSON.stringify(rows
-    .map(row => ({ domain: row.domain, aliases: normalizeCompetitorAliases(row.aliases) }))
-    .sort((left, right) => left.domain.localeCompare(right.domain)))
-}
-
-/**
  * Build the identity one run's answers are scored against from rows already
  * read. The sweep calls it with its own reads; a path that joins the run later
  * goes through `JobRunner.buildRunRecordingContext`, which reads them the same
@@ -339,15 +333,18 @@ function runRecordingContext(
     project: Pick<typeof projects.$inferSelect, 'canonicalDomain' | 'ownedDomains' | 'displayName' | 'aliases'>
     /** Stored project competitors with their curated aliases. */
     competitors: readonly CompetitorIdentityInput[]
+    /** Names learned for competitors only a market pins (`readMarketCompetitorNames`). */
+    marketNames: ReadonlyMap<string, readonly string[]>
   },
 ): RunRecordingContext {
-  const resolveCompetitors = createRunCompetitorResolver(db, input.competitors)
+  const identity = answerIdentityFrom(input.project, input.competitors, input.marketNames)
+  const resolveCompetitors = createRunCompetitorResolver(db, identity.competitors, identity.marketNames)
   return {
     runId: input.runId,
-    allDomains: effectiveDomains({ canonicalDomain: input.project.canonicalDomain, ownedDomains: input.project.ownedDomains }),
+    identity: identity.fingerprint,
+    allDomains: identity.projectDomains,
     competitorsFor: executionId => resolveCompetitors(input.measurementPlanVersionId, executionId),
-    allBrandNames: effectiveBrandNames({ displayName: input.project.displayName, aliases: input.project.aliases }),
-    competitorIdentity: competitorIdentityKey(input.competitors),
+    allBrandNames: identity.projectBrandNames,
   }
 }
 
@@ -854,6 +851,7 @@ export class JobRunner {
         .select()
         .from(competitors)
         .where(eq(competitors.projectId, projectId))
+        .orderBy(competitors.domain)
         .all()
 
       const competitorDomains = projectCompetitors.map(c => c.domain)
@@ -866,6 +864,7 @@ export class JobRunner {
         measurementPlanVersionId: existingRun.measurementPlanVersionId,
         project,
         competitors: projectCompetitors,
+        marketNames: readMarketCompetitorNames(this.db, projectId),
       })
       const { allDomains, allBrandNames } = recording
       // The project list's curated names, for the planless path below.
@@ -1139,15 +1138,18 @@ export class JobRunner {
             requestedModel: config.model ?? null,
           })),
           // Freeze the exact identity we actually dispatched with (domain label
-          // plus curated aliases) so later reporting never borrows renamed or
-          // newly added competitors, or later alias edits, from live project
-          // state. A competitor with no curated alias freezes exactly as it did
-          // before aliases existed, so its definition checksum is unchanged.
+          // plus curated and auto-detected aliases, minus blocked names) so
+          // later reporting never borrows renamed or newly added competitors,
+          // or later alias edits or detections, from live project state. A
+          // competitor with no alias of either kind freezes exactly as it did
+          // before aliases existed, so its definition checksum is unchanged;
+          // an auto-detected name moves the checksum only for runs dispatched
+          // after it was applied.
           competitors: projectCompetitors.map(competitor => {
             const label = competitorLabelFromDomain(competitor.domain)
-            const curated = normalizeCompetitorAliases(competitor.aliases)
+            const named = competitorIdentityAliases(competitor)
               .filter(alias => alias.toLowerCase() !== label.toLowerCase())
-            return { domain: competitor.domain, label, aliases: [label, ...curated] }
+            return { domain: competitor.domain, label, aliases: [label, ...named] }
           }),
           queries: projectQueries.map(query => ({
             queryId: query.id,
@@ -1225,8 +1227,8 @@ export class JobRunner {
       }
       providerCallEnd = Date.now()
       // Every sync answer is stored. Before the run is finalized or handed to
-      // the batch poller, bring its competitor columns to the names saved last.
-      this.reconcileRunCompetitorFields(recording, projectId)
+      // the batch poller, bring its answer fields to the identity saved last.
+      this.reconcileRunAnswerFields(recording, projectId)
 
       this.throwIfRunCancelled(runId)
 
@@ -1281,7 +1283,7 @@ export class JobRunner {
       if (!finalized && this.isRunCancelled(runId)) throw new RunCancelledError(runId)
     } catch (err: unknown) {
       // A cancelled or failed sweep keeps the answers it stored.
-      if (recording) this.reconcileRunCompetitorFields(recording, projectId)
+      if (recording) this.reconcileRunAnswerFields(recording, projectId)
       const executionContext: RunExecutionContext = {
         providerCount: activeProviders.length,
         providers: activeProviders.map(provider => provider.adapter.name),
@@ -2112,7 +2114,7 @@ export class JobRunner {
       return { kind: 'cancelled' }
     } finally {
       // After the last chunk this ingest commits, and before it can finalize the run.
-      this.reconcileRunCompetitorFields(ctx, batch.projectId)
+      this.reconcileRunAnswerFields(ctx, batch.projectId)
     }
     return this.completeBatchIngest(batch)
   }
@@ -2471,8 +2473,8 @@ export class JobRunner {
       log.error('fill.failed', { fillId, runId, error: fatal })
     } finally {
       // After the last write, success, cancel or failure alike: answers stored
-      // after a mid-fill alias edit are rescored against the current names.
-      if (recording) this.reconcileRunCompetitorFields(recording, projectId)
+      // after a mid-fill identity change are rescored against the current one.
+      if (recording) this.reconcileRunAnswerFields(recording, projectId)
       this.flushProviderUsage(providerDispatchCounts, providerReservations)
     }
 
@@ -2811,39 +2813,39 @@ export class JobRunner {
     if (!run) throw new Error(`Run ${runId} not found`)
     const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
     if (!project) throw new Error(`Project ${projectId} not found`)
-    const projectCompetitors = this.db.select().from(competitors).where(eq(competitors.projectId, projectId)).all()
+    const projectCompetitors = this.db.select().from(competitors).where(eq(competitors.projectId, projectId)).orderBy(competitors.domain).all()
     return runRecordingContext(this.db, {
       runId,
       measurementPlanVersionId: run.measurementPlanVersionId,
       project,
       competitors: projectCompetitors,
+      marketNames: readMarketCompetitorNames(this.db, projectId),
     })
   }
 
   /**
-   * Rescore a run's stored competitor columns when the project's competitors
-   * changed after `recording` read them.
+   * Rescore a run's stored answer fields when the identity they are scored
+   * against changed after `recording` read it (`answerIdentityChanged`).
    *
-   * Saving a competitor alias rescores the stored answers once
-   * (`onCompetitorAliasesChanged`). A writer that read the names before the
-   * edit keeps scoring with them, so an answer it stores afterwards would
-   * disagree with an identical one the edit rescored. Each writer calls this
-   * after its last write: when its names are no longer current, the whole run
-   * gets the same competitor-only pass the edit ran. A failure is logged and
-   * never fails the writer.
+   * Saving a competitor alias, a detection pass that changes a competitor's
+   * auto-detected names, or a project alias edit rescores the stored answers
+   * once (`onCompetitorAliasesChanged`, `onAliasesChanged`). A writer that read
+   * the identity before the edit keeps scoring with it, so an answer it stores
+   * afterwards would disagree with an identical one the edit rescored. Each
+   * writer calls this after its last write: when its identity is no longer
+   * current, the whole run gets the pass the edit ran, the competitor fields
+   * only, or `answer_mentioned` too when the project's own identity moved. A
+   * failure is logged and never fails the writer.
    */
-  private reconcileRunCompetitorFields(recording: RunRecordingContext, projectId: string): void {
+  private reconcileRunAnswerFields(recording: RunRecordingContext, projectId: string): void {
     try {
-      const current = this.db
-        .select({ domain: competitors.domain, aliases: competitors.aliases })
-        .from(competitors)
-        .where(eq(competitors.projectId, projectId))
-        .all()
-      if (competitorIdentityKey(current) === recording.competitorIdentity) return
-      const result = backfillProjectAnswerMentions(this.db, projectId, { competitorFieldsOnly: true, runId: recording.runId })
-      log.info('run.competitor-fields-rescored', { runId: recording.runId, projectId, ...result })
+      const current = readAnswerIdentity(this.db, projectId)
+      if (!current || !answerIdentityChanged(recording.identity, current.fingerprint)) return
+      const full = recording.identity.project !== current.fingerprint.project
+      const result = backfillProjectAnswerMentions(this.db, projectId, { competitorFieldsOnly: !full, runId: recording.runId })
+      log.info('run.answer-fields-rescored', { runId: recording.runId, projectId, full, ...result })
     } catch (err: unknown) {
-      log.error('run.competitor-fields-rescore-failed', { runId: recording.runId, projectId, error: describeError(err) })
+      log.error('run.answer-fields-rescore-failed', { runId: recording.runId, projectId, error: describeError(err) })
     }
   }
 

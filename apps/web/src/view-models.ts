@@ -196,6 +196,8 @@ export interface CompetitorVm {
   domain: string
   /** Operator-curated names this competitor goes by in answer text. */
   aliases?: string[]
+  /** Names detected automatically from the project's stored answers (labelled "auto"). */
+  autoAliases?: string[]
   citationCount: number
   totalQueries: number
   pressureLabel: string

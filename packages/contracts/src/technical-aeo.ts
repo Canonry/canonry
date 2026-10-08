@@ -110,9 +110,16 @@ export const siteAuditCrossCuttingIssueSchema = z.object({
 })
 export type SiteAuditCrossCuttingIssueDto = z.infer<typeof siteAuditCrossCuttingIssueSchema>
 
-/** Default reads stay on the latest UTC scan date, preferring complete, then largest scans. */
+/**
+ * Default reads stay on the latest UTC scan date, preferring complete, then
+ * largest scans. `latest-scored-scan` marks a scorecard read whose default scan
+ * stored no scorecard (a partial crawl that audited no page): the score is from
+ * the preferred scan that did, by the same rule, so `date` can be older than
+ * the latest scan date. Its count and candidates still cover every scan on
+ * `date`, including ones without a scorecard.
+ */
 export const siteAuditRunSelectionSchema = z.object({
-  reason: z.enum(['explicit-run', 'latest-date-complete', 'latest-date-most-pages', 'requested-date-complete', 'requested-date-most-pages']),
+  reason: z.enum(['explicit-run', 'latest-date-complete', 'latest-date-most-pages', 'latest-scored-scan', 'requested-date-complete', 'requested-date-most-pages']),
   date: z.string(),
   /** All surfaceable scans on the selected UTC date; probes never count. */
   sameDateRunCount: z.number().int().nonnegative(),
@@ -131,7 +138,10 @@ export type SiteAuditRunSelectionDto = z.infer<typeof siteAuditRunSelectionSchem
 /**
  * The Technical AEO scorecard for the selected scan. Default reads use the
  * preferred persisted crawl, or the preferred legacy score-only audit when
- * no crawl exists. The delta vs the chronological prior audit is server-side.
+ * no crawl exists. When the preferred crawl audited no page (a partial crawl
+ * stores no scorecard then), default reads use the preferred scored crawl
+ * instead, with `runSelection.reason` `latest-scored-scan`, so `runId` can
+ * differ from the default crawl reads.
  *
  * `hasData: false` means no scored audit is available for the selected scan.
  * Its crawl identity can still be present. The empty score is not a measured
@@ -152,6 +162,14 @@ export const siteAuditScoreSchema = z.object({
   /** `aggregateScore - previousScore`, or `null` when there is no prior run. */
   deltaScore: z.number().nullable(),
   trend: z.union([siteAuditTrendDirectionSchema, z.null()]),
+  /**
+   * The score a default read returned just before this scan was recorded: the
+   * same date-first selection, applied to the scans recorded before it. A
+   * complete scan is never compared with a partial scan from the same date,
+   * which that selection ranks below it; it is compared with the default from
+   * before that date instead. Two complete scans from one date compare with
+   * each other.
+   */
   previousScore: z.number().nullable(),
   previousAuditedAt: z.string().nullable(),
   runSelection: siteAuditRunSelectionSchema.optional(),

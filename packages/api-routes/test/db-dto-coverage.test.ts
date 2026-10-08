@@ -175,6 +175,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
     dto: projectDtoSchema,
     internal: {
       icpDescription: 'Aero analyst context; not exposed on the public project DTO.',
+      answerFieldsRecompute: 'Local-server bookkeeping: a stored-answer-field recompute owed after an identity change, requeued on boot.',
     },
   },
   queries: {
@@ -191,6 +192,14 @@ const COVERAGE: Record<string, CoverageEntry> = {
     internal: {
       projectId: 'Implied by the route scope (/projects/:name/competitors).',
       provenance: 'Discovery provenance tag; internal bookkeeping.',
+    },
+  },
+  marketCompetitorNames: {
+    kind: 'dto',
+    dto: competitorDtoSchema,
+    internal: {
+      projectId: 'Implied by the route scope (/projects/:name/competitors/:domain/aliases/block).',
+      updatedAt: 'Write bookkeeping; the block routes return the names, not when they last changed.',
     },
   },
   runs: {

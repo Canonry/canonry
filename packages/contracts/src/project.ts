@@ -9,6 +9,7 @@ import { gbpNegativeReviewMaxStarsSchema } from './gbp.js'
 import { siteAuditPageBudgetSchema } from './technical-aeo.js'
 import { MIN_DOMAIN_BRAND_KEY_LENGTH } from './answer-visibility.js'
 import { competitorEntrySchema, type CompetitorAliasProjectIdentity } from './competitor-aliases.js'
+import { competitorAutoAliasSchema } from './competitor-auto-aliases.js'
 
 export const configSourceSchema = z.enum(['cli', 'api', 'config-file'])
 export type ConfigSource = z.infer<typeof configSourceSchema>
@@ -91,6 +92,37 @@ export function resolveLocations(
   return resolved
 }
 
+/**
+ * What answer-derived competitor alias detection does for a project
+ * (`projects.competitor_auto_aliases`) in the unattended passes the local
+ * server queues after a completed or partial sweep (probes excluded), a
+ * competitor add (REST, apply, discovery promote), an unblock, and a market
+ * pin write that changes the pins. A curated alias edit, a competitor
+ * removal, a block and a project edit queue none.
+ * - `off`: no unattended pass runs;
+ * - `preview` (the default for every project): the pass scores the stored
+ *   answers and logs what it would add or remove, and the dry run
+ *   (`GET /competitor-auto-aliases`) shows the evidence, but no name is
+ *   stored;
+ * - `apply`: the pass stores the names that qualify and removes the stored
+ *   names it no longer keeps; the read-time competitor matchers then use
+ *   them (and history is restated).
+ * An explicit apply (`POST /competitor-auto-aliases`, `canonry competitor
+ * aliases detect --apply`) runs one pass and stores its result in every mode.
+ * Short of removing the competitor, a stored name leaves only through a
+ * block, a write whose identity claims it, or a storing pass (an
+ * `apply`-mode pass or an explicit apply) that drops it; switching to `off`
+ * or `preview` never deletes one.
+ */
+export const competitorAutoAliasModeSchema = z.enum(['off', 'preview', 'apply'])
+export type CompetitorAutoAliasMode = z.infer<typeof competitorAutoAliasModeSchema>
+export const COMPETITOR_AUTO_ALIAS_MODES = competitorAutoAliasModeSchema.options
+export const DEFAULT_COMPETITOR_AUTO_ALIAS_MODE: CompetitorAutoAliasMode = 'preview'
+
+/** The request and config-spec field: optional, omitted keeps the stored mode. */
+export const competitorAutoAliasModeInputSchema = competitorAutoAliasModeSchema.optional()
+  .describe('Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period\'s competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.')
+
 /** Bounds for `qualifiedAliases` on project writes (see `resolveProjectQualifiedAliases`). */
 export const PROJECT_QUALIFIED_ALIAS_LIMIT = 20
 export const PROJECT_QUALIFIED_ALIAS_MAX_LENGTH = 200
@@ -133,6 +165,12 @@ export const projectUpsertRequestSchema = z.object({
    * 50,000). Omit to keep the stored value; null means the full site.
    */
   siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
+  /**
+   * Answer-derived competitor alias detection: `off`, `preview` (log only) or
+   * `apply` (`competitorAutoAliasModeSchema`). Omit to keep the stored mode; a
+   * new project starts in `preview`.
+   */
+  competitorAutoAliases: competitorAutoAliasModeInputSchema,
   configSource: configSourceSchema.optional(),
 })
 
@@ -202,6 +240,12 @@ export const projectDtoSchema = z.object({
   negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.nullable().optional(),
   /** Site Health page budget for scans that set none; null means the full site (up to 50,000 pages). */
   siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
+  /**
+   * Answer-derived competitor alias detection mode (`competitorAutoAliasModeSchema`).
+   * Absent only from a server that predates the setting.
+   */
+  competitorAutoAliases: competitorAutoAliasModeSchema.optional()
+    .describe('Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins. `preview` (every project\'s default): the pass scores the stored answers and logs what it would add or remove, storing nothing. `apply`: the pass stores the detected names and removes stored ones it no longer keeps; the read-time competitor matchers then use them, restating every period\'s competitor counts (see competitorIdentityChangedAt). `off`: no pass runs. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode; switching to preview or off keeps names already stored. Absent only from a server that predates the setting.'),
   configSource: configSourceSchema.default('cli'),
   configRevision: z.number().int().positive().default(1),
   createdAt: z.string().optional(),
@@ -263,6 +307,21 @@ export const competitorDtoSchema = z.object({
    * `[]` means the domain label alone identifies it.
    */
   aliases: z.array(z.string()),
+  /**
+   * Names detected automatically from the project's own stored answers, each
+   * with the evidence that applied it. Matched exactly like curated aliases
+   * (curated wins a conflict). Absent from servers before auto-detection.
+   */
+  autoAliases: z.array(competitorAutoAliasSchema).optional(),
+  /** Names the operator blocked from auto-detection; never applied again until unblocked. */
+  blockedAliases: z.array(z.string()).optional(),
+  /**
+   * Present only on a block or unblock of a competitor an Advanced market pins
+   * without tracking it project-wide: the active plan's markets (group keys)
+   * that pin it. Its `aliases` are then its plan label and aliases, and `id`
+   * names its stored market names, not a project competitor.
+   */
+  marketKeys: z.array(z.string()).optional(),
   createdAt: z.string(),
 })
 

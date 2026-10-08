@@ -131,7 +131,13 @@ describe('sentiment service reads', () => {
     }
     simple('current', ['Acme reviews']); admit('current'); finish()
     selections.count = 0
-    expect(() => service.compare('p', sentimentSelectionSchema.parse({}), 'previous-rated', 'current')).toThrowError(expect.objectContaining({ details: expect.objectContaining({ reason: 'previous-rated-search-limit', candidateLimit: 50 }) }))
+    // A candidate whose population differs is judged from its frozen source alone: only the
+    // target resolves its evaluator and stored work.
+    const resolve = vi.spyOn(SentimentService.prototype as unknown as { resolve: () => unknown }, 'resolve')
+    try {
+      expect(() => service.compare('p', sentimentSelectionSchema.parse({}), 'previous-rated', 'current')).toThrowError(expect.objectContaining({ details: expect.objectContaining({ reason: 'previous-rated-search-limit', candidateLimit: 50 }) }))
+      expect(resolve).toHaveBeenCalledTimes(1)
+    } finally { resolve.mockRestore() }
     expect(selections.count).toBeLessThanOrEqual(51)
     expect(service.compare('p', sentimentSelectionSchema.parse({}), 'matching', 'current').verdict).toBe('no-clear-change')
   })
@@ -901,5 +907,82 @@ describe('most criticized Properties on the branded summary', () => {
       expect(response.json()).toMatchObject({ state: 'unsupported', reason: 'measurement-revision-changed' })
       expect(response.json()).not.toHaveProperty('criticizedProperties')
     } finally { await app.close() }
+  })
+})
+
+describe('previous-rated within a scope rated only elsewhere', () => {
+  const PROVIDERS = ['openai', 'gemini']
+  const nearby = (targetKey: string) => ({ executionNodeKey: 'exec-nearby', targetKey, queryId: 'q-nearby' })
+  /** Harbor and Bayside share the non-brand node; the extra group and one market hold Bayside alone. Revision 2 adds a Bayside non-brand edge. */
+  function plan(revision: number): MeasurementPlanV2 {
+    const base = measurementPlanV2Fixture()
+    const added = { executionNodeKey: 'exec-brand', targetKey: 'bayside', queryId: 'q-brand' }
+    return measurementPlanV2Fixture({
+      groups: [...base.groups, { stableKey: 'bayside-only', label: 'Bayside only', targetKeys: ['bayside'], competitors: [] }],
+      reportingScopes: [
+        { stableKey: 'harbor-market', label: 'Harbor market', kind: 'market', usageEdges: [nearby('harbor')] },
+        { stableKey: 'bayside-market', label: 'Bayside market', kind: 'market', usageEdges: [nearby('bayside')] },
+      ],
+      ...(revision === 2 ? { assignments: [...base.assignments, { ...added, queryClass: 'non-brand' as const }], usageEdges: [...base.usageEdges, added] } : {}),
+    })
+  }
+  /** One completed non-brand sweep. Only Harbor's ChatGPT answers are rated; every other assessment abstains. */
+  function sweep(runId: string, createdAt: string, revision = 1) {
+    const frozen = plan(revision)
+    const versionId = `plan-${revision}`
+    if (!db.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.id, versionId)).get()) {
+      db.insert(measurementPlanVersions).values({ id: versionId, projectId: 'p', revision, canonicalJson: canonicalMeasurementPlanV2Json(frozen), checksum: versionId, schemaVersion: 2, compiledChecksum: frozen.compiledChecksum, createdAt: NOW }).run()
+    }
+    db.insert(runs).values({ id: runId, projectId: 'p', kind: 'answer-visibility', status: 'completed', trigger: 'manual', measurementPlanVersionId: versionId, measurementManifest: buildMeasurementPlanV2Manifest(frozen), measurementExecutionIdentity: { schemaVersion: 1, language: 'en', providers: PROVIDERS, models: {}, checksum: `${runId}-identity` }, createdAt }).run()
+    for (const node of frozen.executionNodes) for (const provider of PROVIDERS) {
+      db.insert(querySnapshots).values({ id: `${runId}-${node.stableKey}-${provider}`, runId, measurementExecutionId: node.stableKey, queryText: node.queryText, provider, model: `${provider}-requested`, servedModel: `${provider}-served`, answerText: 'Harbor Homes is great.', citationState: 'cited', createdAt }).run()
+    }
+    admit(runId, 'non-brand')
+    finish((snapshotId, subjectId) => ({ outcome: subjectId === 'harbor' && snapshotId.endsWith('-openai') ? 'favorable' : 'subject-not-mentioned' }))
+  }
+  const day = (index: number) => new Date(Date.UTC(2026, 0, index + 1)).toISOString()
+  const unavailable = expect.objectContaining({ details: { reason: 'previous-rated-run-unavailable' } })
+
+  it.each([
+    { name: 'Property', selection: { scope: 'property', scopeKey: 'bayside' } },
+    { name: 'group', selection: { scope: 'group', scopeKey: 'bayside-only' } },
+    { name: 'market scope', selection: { scope: 'market', scopeKey: 'bayside-market' } },
+    { name: 'market filter', selection: { marketKey: 'bayside-market' } },
+    { name: 'engine', selection: { provider: 'gemini' } },
+    { name: 'engine within a rated Property', selection: { scope: 'property', scopeKey: 'harbor', provider: 'gemini' } },
+  ])('reports no previous rated run for a never-rated $name past the candidate limit', ({ selection }) => {
+    service.configure('p', { enabled: true })
+    for (let index = 0; index < 55; index++) sweep(`history-${index}`, day(index))
+    sweep('current', NOW)
+    const query = sentimentSelectionSchema.parse({ queryClass: 'non-brand', ...selection })
+    selections.count = 0
+    expect(() => service.compare('p', query, 'previous-rated', 'current')).toThrowError(unavailable)
+    // Runs rated only outside the selection never reach source reconstruction: only the target is selected.
+    expect(selections.count).toBe(1)
+    expect(service.compare('p', sentimentSelectionSchema.parse({ queryClass: 'non-brand', scope: 'property', scopeKey: 'harbor', provider: 'openai' }), 'previous-rated', 'current').from.selection.runId).toBe('history-54')
+  })
+
+  it.each([
+    { name: 'Property and engine', selection: { scope: 'property', scopeKey: 'harbor', provider: 'openai' } },
+    { name: 'group', selection: { scope: 'group', scopeKey: 'regional' } },
+    { name: 'market scope', selection: { scope: 'market', scopeKey: 'harbor-market' } },
+    { name: 'market filter', selection: { marketKey: 'harbor-market' } },
+    { name: 'query', selection: { queryId: 'q-nearby' } },
+    { name: 'execution node', selection: { executionNodeKey: 'exec-nearby' } },
+    { name: 'served model', selection: { model: 'openai-served' } },
+    { name: 'location', selection: { location: 'Harbor' } },
+  ])('still finds the newest run rated within a $name selection', ({ selection }) => {
+    service.configure('p', { enabled: true })
+    for (let index = 0; index < 3; index++) sweep(`history-${index}`, day(index))
+    sweep('current', NOW)
+    expect(service.compare('p', sentimentSelectionSchema.parse({ queryClass: 'non-brand', ...selection }), 'previous-rated', 'current').from.selection.runId).toBe('history-2')
+  })
+
+  it('does not report a population change from runs rated only for another Property', () => {
+    service.configure('p', { enabled: true })
+    for (let index = 0; index < 5; index++) sweep(`history-${index}`, day(index))
+    sweep('current', NOW, 2)
+    expect(() => service.compare('p', sentimentSelectionSchema.parse({ queryClass: 'non-brand', scope: 'property', scopeKey: 'bayside' }), 'previous-rated', 'current')).toThrowError(unavailable)
+    expect(service.compare('p', sentimentSelectionSchema.parse({ queryClass: 'non-brand', scope: 'property', scopeKey: 'harbor' }), 'previous-rated', 'current').from.selection.runId).toBe('history-4')
   })
 })

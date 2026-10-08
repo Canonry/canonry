@@ -1957,7 +1957,7 @@ describe('legacy score-only runs stay honest instead of 404ing', () => {
 })
 
 describe('same-date site audit selection', () => {
-  function seedScan(createdAt: string, pages: number, complete: boolean, trigger = 'manual', auditedPages = pages): string {
+  function seedScan(createdAt: string, pages: number, complete: boolean, trigger = 'manual', auditedPages = pages, aggregateScore = 60): string {
     const runId = crypto.randomUUID()
     ctx.db.insert(runs).values({
       id: runId, projectId: ctx.projectId, kind: 'site-audit',
@@ -1975,9 +1975,16 @@ describe('same-date site audit selection', () => {
     ctx.db.insert(siteAuditSnapshots).values({
       id: crypto.randomUUID(), projectId: ctx.projectId, runId,
       sitemapUrl: 'https://example.com/sitemap.xml', auditedAt: createdAt,
-      aggregateScore: 60, pagesDiscovered: pages, pagesAudited: auditedPages,
+      aggregateScore, pagesDiscovered: pages, pagesAudited: auditedPages,
       pagesSkipped: 0, pagesErrored: 0, factorAverages: [], crossCuttingIssues: [], prioritizedFixes: [], createdAt,
     }).run()
+    return runId
+  }
+
+  /** What a partial crawl that audited no page persists: a crawl snapshot and no scorecard. */
+  function seedCrawlOnlyScan(createdAt: string, pages: number): string {
+    const runId = seedScan(createdAt, pages, false, 'manual', 0)
+    ctx.db.delete(siteAuditSnapshots).where(eq(siteAuditSnapshots.runId, runId)).run()
     return runId
   }
 
@@ -2013,19 +2020,148 @@ describe('same-date site audit selection', () => {
     expect(pinned.body).toMatchObject({ runId: later, complete: false, runSelection: { reason: 'explicit-run' } })
   })
 
-  it('keeps the preferred crawl selected when no page was audited, with legacy scores available by run id', async () => {
-    const preferred = seedScan('2030-04-12T09:00:00.000Z', 4, false, 'manual', 0)
-    ctx.db.delete(siteAuditSnapshots).where(eq(siteAuditSnapshots.runId, preferred)).run()
+  it('scores default reads from the preferred scored crawl when the preferred crawl audited no page', async () => {
+    const crawlOnly = seedCrawlOnlyScan('2030-04-12T09:00:00.000Z', 30)
+    const today = (await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${ctx.runB}`)).body.runSelection!.date
     const score = (await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body
-    expect(score).toMatchObject({ hasData: false, runId: preferred, runStatus: 'partial', runSelection: { reason: 'latest-date-most-pages' } })
+    // The reason says this is a fallback, and the date is the scored scan's own.
+    expect(score).toMatchObject({
+      hasData: true, runId: ctx.runB, runStatus: 'completed', aggregateScore: 72,
+      runSelection: { reason: 'latest-scored-scan', date: today, sameDateRunCount: 1, candidates: [{ runId: ctx.runB }] },
+    })
     const pages = (await get<SiteAuditPagesResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/pages')).body
-    expect(pages).toMatchObject({ runId: preferred, total: 0, pages: [] })
-    expect((await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${preferred}`)).body).toMatchObject({ hasData: false, runId: preferred, runSelection: { reason: 'explicit-run' } })
+    expect(pages).toMatchObject({ runId: ctx.runB, total: 3 })
+    // Crawl reads and the dashboard default keep the newer crawl itself.
+    expect((await get<SiteCrawlSummaryDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl')).body.runId).toBe(crawlOnly)
+    expect((await get<SiteHealthScansResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/runs')).body.preferredRunId).toBe(crawlOnly)
+    // An explicit run stays pinned and says it has no scorecard.
+    expect((await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${crawlOnly}`)).body).toMatchObject({
+      hasData: false, runId: crawlOnly, runStatus: 'partial', runSelection: { reason: 'explicit-run' },
+    })
+    expect((await get<SiteAuditPagesResponseDto>(`/api/v1/projects/tech-aeo/technical-aeo/pages?runId=${crawlOnly}`)).body)
+      .toMatchObject({ runId: crawlOnly, total: 0, pages: [] })
     expect((await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${ctx.runA}`)).body).toMatchObject({ hasData: true, runId: ctx.runA })
-    expect((await get<SiteHealthScansResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/runs')).body.preferredRunId).toBe(preferred)
+    // With no scored crawl left, legacy score-only audits still answer, still as a fallback.
+    ctx.db.delete(siteAuditSnapshots).where(eq(siteAuditSnapshots.runId, ctx.runB)).run()
+    expect((await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body).toMatchObject({
+      hasData: true, runId: ctx.runA, runSelection: { reason: 'latest-scored-scan', date: today },
+    })
+    // With no crawl at all, the legacy audit is the default itself.
     ctx.db.delete(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.projectId, ctx.projectId)).run()
-    expect((await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body).toMatchObject({ hasData: true, runId: ctx.runB })
-    expect((await get<SiteHealthScansResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/runs')).body.preferredRunId).toBe(ctx.runB)
+    expect((await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body).toMatchObject({
+      hasData: true, runId: ctx.runA, runSelection: { reason: 'latest-date-complete', date: today },
+    })
+    expect((await get<SiteHealthScansResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/runs')).body.preferredRunId).toBe(ctx.runA)
+  })
+
+  it('answers no scorecard only when no scored scan exists at all', async () => {
+    ctx.db.delete(siteAuditSnapshots).where(eq(siteAuditSnapshots.projectId, ctx.projectId)).run()
+    const crawlOnly = seedCrawlOnlyScan('2030-04-12T09:00:00.000Z', 30)
+    expect((await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body).toMatchObject({
+      hasData: false, runId: crawlOnly, runStatus: 'partial', runSelection: { reason: 'latest-date-most-pages' },
+    })
+  })
+
+  it('falls back within the same date by the crawl ranking before reaching an older date', async () => {
+    const date = '2030-04-12'
+    seedScan('2030-04-11T09:00:00.000Z', 900, true, 'manual', 900, 90)
+    // The crawl ranking prefers more fetched pages even with fewer audited.
+    const mostFetched = seedScan(`${date}T08:00:00.000Z`, 600, false, 'manual', 200, 55)
+    const mostAudited = seedScan(`${date}T10:00:00.000Z`, 450, false, 'manual', 420, 65)
+    const crawlOnly = seedCrawlOnlyScan(`${date}T12:00:00.000Z`, 700)
+    expect((await get<SiteCrawlSummaryDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl')).body.runId).toBe(crawlOnly)
+    const score = (await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body
+    // The count and candidates describe the whole date, including the scan with no scorecard.
+    expect(score).toMatchObject({
+      hasData: true, runId: mostFetched, aggregateScore: 55,
+      runSelection: {
+        reason: 'latest-scored-scan', date, sameDateRunCount: 3, ambiguousDate: true, candidatesTruncated: false,
+        candidates: [
+          { runId: crawlOnly, createdAt: `${date}T12:00:00.000Z`, complete: false, pages: 700 },
+          { runId: mostFetched, createdAt: `${date}T08:00:00.000Z`, complete: false, pages: 600 },
+          { runId: mostAudited, createdAt: `${date}T10:00:00.000Z`, complete: false, pages: 450 },
+        ],
+      },
+    })
+    expect((await get<SiteCrawlSummaryDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl')).body.runSelection)
+      .toMatchObject({ reason: 'latest-date-most-pages', date, sameDateRunCount: 3 })
+    expect((await get<SiteAuditPagesResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/pages')).body.runId).toBe(mostFetched)
+  })
+
+  it('compares the score with what a default read returned just before the scan was recorded', async () => {
+    const dayD = '2030-04-12'
+    const complete = seedScan(`${dayD}T08:00:00.000Z`, 100, true, 'manual', 100, 70)
+    const partial = seedScan(`${dayD}T14:00:00.000Z`, 80, false, 'manual', 80, 78)
+    expect((await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body).toMatchObject({ runId: complete, aggregateScore: 70 })
+    expect((await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${partial}`)).body).toMatchObject({
+      runId: partial, previousScore: 70, deltaScore: 8, trend: 'up', previousAuditedAt: `${dayD}T08:00:00.000Z`,
+    })
+
+    const nextDay = seedScan('2030-04-13T08:00:00.000Z', 100, true, 'manual', 100, 72)
+    // Day D's default showed the complete scan (70), never the rejected partial (78).
+    expect((await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body).toMatchObject({
+      runId: nextDay, aggregateScore: 72, previousScore: 70, deltaScore: 2, trend: 'up', previousAuditedAt: `${dayD}T08:00:00.000Z`,
+    })
+    // The same rule applies when a crawl-only scan was the default crawl.
+    const crawlOnly = seedCrawlOnlyScan('2030-04-14T08:00:00.000Z', 30)
+    const later = seedScan('2030-04-15T08:00:00.000Z', 100, true, 'manual', 100, 75)
+    expect((await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body).toMatchObject({
+      runId: later, previousScore: 72, deltaScore: 3, previousAuditedAt: '2030-04-13T08:00:00.000Z',
+    })
+    expect((await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${crawlOnly}`)).body)
+      .toMatchObject({ hasData: false, deltaScore: null, previousScore: null })
+  })
+
+  it.each([
+    { shape: 'crawl', crawls: true },
+    { shape: 'legacy score-only', crawls: false },
+  ])('never compares a complete $shape scan with a partial scan recorded earlier that date', async ({ crawls }) => {
+    const date = '2030-04-12'
+    seedScan('2030-04-11T08:00:00.000Z', 100, true, 'manual', 100, 68)
+    // A scheduled scan hit its budget, then a manual rescan completed the same day.
+    const scheduled = seedScan(`${date}T02:00:00.000Z`, 80, false, 'scheduled', 80, 50)
+    const rescan = seedScan(`${date}T10:00:00.000Z`, 100, true, 'manual', 100, 70)
+    if (!crawls) ctx.db.delete(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.projectId, ctx.projectId)).run()
+    const expected = {
+      runId: rescan, aggregateScore: 70, previousScore: 68, deltaScore: 2, trend: 'up', previousAuditedAt: '2030-04-11T08:00:00.000Z',
+    }
+    const score = (await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body
+    expect(score).toMatchObject({ ...expected, runSelection: { date, sameDateRunCount: 2 } })
+    expect(score.runSelection!.candidates.map(candidate => candidate.runId)).toEqual([rescan, scheduled])
+    // The dashboard pins the preferred scan by run id and must show the same delta.
+    expect((await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${rescan}`)).body).toMatchObject(expected)
+    // The partial scan itself still compares with what the default showed before it.
+    expect((await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${scheduled}`)).body).toMatchObject({
+      runId: scheduled, previousScore: 68, deltaScore: -18, trend: 'down', previousAuditedAt: '2030-04-11T08:00:00.000Z',
+    })
+  })
+
+  it('skips a same-date partial baseline for a scored fallback too', async () => {
+    const date = '2030-04-12'
+    seedScan('2030-04-11T08:00:00.000Z', 100, true, 'manual', 100, 68)
+    seedScan(`${date}T02:00:00.000Z`, 80, false, 'scheduled', 80, 50)
+    const rescan = seedScan(`${date}T10:00:00.000Z`, 100, true, 'manual', 100, 70)
+    seedCrawlOnlyScan('2030-04-13T08:00:00.000Z', 30)
+    expect((await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body).toMatchObject({
+      runId: rescan, previousScore: 68, deltaScore: 2, previousAuditedAt: '2030-04-11T08:00:00.000Z',
+      runSelection: { reason: 'latest-scored-scan', date, sameDateRunCount: 2 },
+    })
+  })
+
+  it.each([
+    { rescanPages: 498, preferred: 'scheduled' },
+    { rescanPages: 502, preferred: 'rescan' },
+  ])('compares a complete same-date rescan with the complete scan before it ($preferred preferred)', async ({ rescanPages, preferred }) => {
+    const date = '2030-04-12'
+    seedScan('2030-04-11T08:00:00.000Z', 500, true, 'manual', 500, 68)
+    const scheduled = seedScan(`${date}T08:00:00.000Z`, 500, true, 'manual', 500, 60)
+    const rescan = seedScan(`${date}T14:00:00.000Z`, rescanPages, true, 'manual', rescanPages, 75)
+    // Two complete scans of the same site compare with each other whichever one the default prefers.
+    expect((await get<SiteHealthScansResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/runs')).body.preferredRunId)
+      .toBe(preferred === 'rescan' ? rescan : scheduled)
+    expect((await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${rescan}`)).body).toMatchObject({
+      runId: rescan, previousScore: 60, deltaScore: 15, trend: 'up', previousAuditedAt: `${date}T08:00:00.000Z`,
+    })
   })
 
   it('bounds same-date candidates while preserving the total and deterministic ties', async () => {

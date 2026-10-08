@@ -4,7 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { isIP } from "node:net";
 import { fileURLToPath } from "node:url";
-import { and, eq } from "drizzle-orm";
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds, sentimentInstallReadiness } from "@ainyc/canonry-config";
 import { CliError } from "./cli-error.js";
 import { createTypeSafeClassifier, buildJevSentimentRequest } from "@ainyc/canonry-integration-typesafe";
@@ -18,7 +19,7 @@ const { version: PKG_VERSION } = _require("../package.json") as {
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { SetHeadersResponse } from "@fastify/static";
-import { anyUsersExist, apiRoutes, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS } from "@ainyc/canonry-api-routes";
+import { anyUsersExist, apiRoutes, createProjectPassQueue, previewCompetitorAutoAliases, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS } from "@ainyc/canonry-api-routes";
 import {
   apiKeys,
   auditLog,
@@ -223,7 +224,9 @@ import { executeReleaseSync } from "./commoncrawl-sync.js";
 import { executeBacklinkExtract } from "./backlink-extract.js";
 import { executeDiscoveryRun } from "./discovery-run.js";
 import { executeSiteAudit } from "./execute-site-audit.js";
-import { backfillProjectAnswerMentions } from "@ainyc/canonry-api-routes";
+import { createAnswerFieldRecomputeQueue, type AnswerFieldRecomputeRequest } from "./answer-field-recompute.js";
+import { createCompetitorAutoAliasRunner } from "./competitor-auto-alias-runner.js";
+import { extractStoredAnswerAnchors } from "./stored-answer-anchors.js";
 import { getBundledSkillSnapshots } from "./commands/skills.js";
 import {
   DUCKDB_SPEC,
@@ -2680,6 +2683,152 @@ export async function createServer(opts: {
   const pollSentiment = sentimentPoller.poll;
   let sentimentTimer: ReturnType<typeof setInterval> | undefined;
   runCoordinator.onSentimentCompleted = async () => { pollSentiment(); };
+
+  // Every recompute of the stored per-snapshot answer fields after an
+  // identity change goes through one per-project queue
+  // (`createAnswerFieldRecomputeQueue`): a project alias change
+  // (`answer_mentioned` and the competitor fields) and a competitor names
+  // change, curated or auto-detected (`competitor_overlap`,
+  // `recommended_competitors` only; a competitor's names say nothing about
+  // the project's own mention). Passes run in chunks that yield to the event
+  // loop, never interleave for one project, and re-read the identity between
+  // chunks, so an older pass never overwrites a newer one. A sweep, fill or
+  // batch ingest still recording with an older identity rescores its own run
+  // when it finishes (`reconcileRunAnswerFields`).
+  const answerFieldRecomputes = createAnswerFieldRecomputeQueue({ db: opts.db });
+  // The queue lives in memory, so every request also marks the project
+  // (`projects.answer_fields_recompute`: `full` or `competitors`, the wider
+  // scope winning). Only the pass that served the project's LATEST request
+  // clears the mark, and only once no full recompute is still owed (a failed
+  // full pass is not paid by a later competitors-only one). A restart that
+  // kills a pass, or the queue before it, leaves the mark, and boot requeues
+  // the project (`resumeAnswerFieldRecomputes`), so the stored competitor
+  // columns are never left split between two identities.
+  const recomputeDebts = new Map<string, { latest: number; latestFull: number }>();
+  let recomputeSequence = 0;
+  const markAnswerFieldRecompute = (projectId: string, full: boolean): void => {
+    opts.db.update(projects)
+      .set({ answerFieldsRecompute: full ? "full" : sql`CASE WHEN ${projects.answerFieldsRecompute} = 'full' THEN 'full' ELSE 'competitors' END` })
+      .where(eq(projects.id, projectId))
+      .run();
+  };
+  const requestAnswerFieldRecompute = (
+    projectId: string,
+    projectName: string,
+    scope: AnswerFieldRecomputeRequest,
+    reason: string,
+  ): void => {
+    const sequence = ++recomputeSequence;
+    const debt = recomputeDebts.get(projectId) ?? { latest: 0, latestFull: 0 };
+    debt.latest = sequence;
+    if (scope.full) debt.latestFull = sequence;
+    recomputeDebts.set(projectId, debt);
+    try { markAnswerFieldRecompute(projectId, scope.full === true); }
+    catch (err) { app.log.error({ err, projectId }, "could not mark the owed answer field recompute"); }
+    answerFieldRecomputes.request(projectId, scope).then(
+      (pass) => {
+        // A full pass recomputes everything, so it pays every full request
+        // made before this one (a later one may still be queued).
+        if (pass.full && debt.latestFull <= sequence) debt.latestFull = 0;
+        try {
+          if (debt.latest === sequence && debt.latestFull === 0) {
+            opts.db.update(projects).set({ answerFieldsRecompute: null }).where(eq(projects.id, projectId)).run();
+            if (recomputeDebts.get(projectId) === debt) recomputeDebts.delete(projectId);
+          } else if (debt.latestFull === 0) {
+            opts.db.update(projects).set({ answerFieldsRecompute: "competitors" })
+              .where(and(eq(projects.id, projectId), eq(projects.answerFieldsRecompute, "full")))
+              .run();
+          }
+        } catch (err) {
+          app.log.error({ err, projectId }, "could not clear the owed answer field recompute");
+        }
+        app.log.info(
+          { projectId, projectName, reason, full: pass.full, ...pass.result },
+          "identity changed: recomputed stored answer fields on historical snapshots",
+        );
+      },
+      (err: unknown) => {
+        app.log.error(
+          { err, projectId, projectName, reason },
+          "identity-triggered answer field recompute failed",
+        );
+      },
+    );
+  };
+  const resumeAnswerFieldRecomputes = (): void => {
+    const owed = opts.db.select({ id: projects.id, name: projects.name, scope: projects.answerFieldsRecompute })
+      .from(projects)
+      .where(isNotNull(projects.answerFieldsRecompute))
+      .all();
+    for (const project of owed) {
+      requestAnswerFieldRecompute(project.id, project.name, { full: project.scope === "full" }, "resume-after-restart");
+    }
+  };
+  const recomputeCompetitorFields = (projectId: string, projectName: string): void => {
+    requestAnswerFieldRecompute(projectId, projectName, {}, "competitor-names");
+  };
+  // Answer-derived competitor aliases: detected from stored answers only
+  // (never a competitor's website). The unattended passes (after every
+  // completed or partial non-probe sweep, a competitor add, an unblock, a
+  // market pin write that changes the pins) follow the project's
+  // `competitorAutoAliases` mode, read when the pass starts: `off` runs none,
+  // `preview` (every project's default) scores the stored answers and logs
+  // what it would add or remove without storing anything, `apply` stores the
+  // names. An explicit apply-now
+  // (`POST /competitor-auto-aliases`, `canonry competitor aliases detect
+  // --apply`) goes straight to the runner and stores in every mode.
+  const competitorAutoAliases = createCompetitorAutoAliasRunner({
+    db: opts.db,
+    readAnchors: extractStoredAnswerAnchors,
+    onNamesChanged: recomputeCompetitorFields,
+  });
+  const competitorAutoAliasReasons = new Map<string, string[]>();
+  const competitorAutoAliasPasses = createProjectPassQueue(async (projectId: string): Promise<void> => {
+    // Never on the caller's tick: the completion path and the route return first.
+    await yieldToEventLoop();
+    const reason = (competitorAutoAliasReasons.get(projectId) ?? []).join(",");
+    competitorAutoAliasReasons.delete(projectId);
+    const project = opts.db.select().from(projects).where(eq(projects.id, projectId)).get();
+    if (!project || project.competitorAutoAliases === "off") return;
+    if (project.competitorAutoAliases === "apply") {
+      // The runner logs its own failures.
+      await competitorAutoAliases.request(projectId, reason).catch(() => undefined);
+      return;
+    }
+    const detection = await previewCompetitorAutoAliases(opts.db, project, { readAnchors: extractStoredAnswerAnchors });
+    const wouldAdd = detection.competitors.flatMap((competitor) => competitor.added.map((name) => `${competitor.domain}: ${name}`));
+    const wouldRemove = detection.competitors.flatMap((competitor) => competitor.removed.map((entry) => `${competitor.domain}: ${entry.name}`));
+    app.log.info(
+      {
+        projectId,
+        projectName: project.name,
+        reason,
+        mode: "preview",
+        runs: detection.scan.runs,
+        snapshots: detection.scan.snapshots,
+        wouldAdd: wouldAdd.slice(0, 20),
+        wouldAddCount: wouldAdd.length,
+        wouldRemove: wouldRemove.slice(0, 20),
+        wouldRemoveCount: wouldRemove.length,
+      },
+      "competitor auto aliases (preview): stored nothing; set the project to apply, or run detect --apply, to store them",
+    );
+  });
+  const scheduleCompetitorAutoAliases = (projectId: string, reason: string): void => {
+    competitorAutoAliasReasons.set(projectId, [...(competitorAutoAliasReasons.get(projectId) ?? []), reason]);
+    competitorAutoAliasPasses.request(projectId).catch((err: unknown) => {
+      app.log.error({ err, projectId, reason }, "competitor auto alias pass failed");
+    });
+  };
+  runCoordinator.onAnswersRecorded = (runId: string, projectId: string) => {
+    scheduleCompetitorAutoAliases(projectId, `run:${runId}`);
+  };
+  app.addHook("onClose", async () => {
+    await competitorAutoAliasPasses.settled();
+    await competitorAutoAliases.settled();
+    await answerFieldRecomputes.settled();
+  });
+  app.addHook("onReady", async () => { resumeAnswerFieldRecomputes(); });
   app.addHook("onReady", async () => { sentimentTimer = setInterval(pollSentiment, 5_000); sentimentTimer.unref(); pollSentiment(); });
   app.addHook("onClose", async () => { clearInterval(sentimentTimer); sentimentPoller.stop(); await sentimentPoller.settled(); });
 
@@ -3386,46 +3535,16 @@ export async function createServer(opts: {
       // Aliases feed `extractAnswerMentions` at run-time, but the resulting
       // boolean is frozen on `query_snapshots.answer_mentioned`. Rewrite
       // historical rows so the report + landscape dashboards line up with
-      // the new alias set on next refresh. Deferred to setImmediate so the
-      // PUT response goes out first; better-sqlite3 is sync so the actual
-      // backfill blocks the event loop for the duration of the rebuild.
-      setImmediate(() => {
-        try {
-          const result = backfillProjectAnswerMentions(opts.db, projectId);
-          app.log.info(
-            { projectId, projectName, ...result },
-            "aliases changed — recomputed mention fields on historical snapshots",
-          );
-        } catch (err) {
-          app.log.error(
-            { err, projectId, projectName },
-            "alias-triggered backfill failed",
-          );
-        }
-      });
+      // the new alias set on next refresh, through the same queue as every
+      // other recompute so it never interleaves with a competitor names pass.
+      requestAnswerFieldRecompute(projectId, projectName, { full: true }, "project-aliases");
     },
-    onCompetitorAliasesChanged: (projectId: string, projectName: string) => {
-      // Read-time competitor matchers pick curated aliases up on their own;
-      // this refreshes the stored per-snapshot columns (`competitor_overlap`,
-      // `recommended_competitors`) only. A competitor's names say nothing
-      // about the project's own `answer_mentioned`, so that column is left alone.
-      // A sweep, fill or batch ingest still recording with the old names
-      // rescores its own run when it finishes (`reconcileRunCompetitorFields`).
-      setImmediate(() => {
-        try {
-          const result = backfillProjectAnswerMentions(opts.db, projectId, { competitorFieldsOnly: true });
-          app.log.info(
-            { projectId, projectName, ...result },
-            "competitor aliases changed: recomputed competitor fields on historical snapshots",
-          );
-        } catch (err) {
-          app.log.error(
-            { err, projectId, projectName },
-            "competitor-alias-triggered backfill failed",
-          );
-        }
-      });
+    onCompetitorAliasesChanged: recomputeCompetitorFields,
+    onCompetitorAutoAliasRescan: (projectId: string) => {
+      scheduleCompetitorAutoAliases(projectId, "rescan");
     },
+    competitorAnswerAnchors: extractStoredAnswerAnchors,
+    runCompetitorAutoAliasPass: (projectId: string) => competitorAutoAliases.request(projectId, "api"),
     operatorApiKeyIds,
     listOperationalLogs: (query) => operationalLogs.list(query),
     getTelemetryStatus,

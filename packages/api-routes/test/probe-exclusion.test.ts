@@ -320,6 +320,12 @@ describe('probe runs are excluded from dashboard / analytics aggregates', () => 
     ])
   })
 
+  it('competitor auto-alias detection scans the real run only', async () => {
+    const { status, body } = await get<{ scan: { runs: number; snapshots: number; answers: number } }>('/api/v1/projects/probe-excl/competitor-auto-aliases')
+    expect(status).toBe(200)
+    expect(body.scan).toMatchObject({ runs: 1, snapshots: 1, answers: 1 })
+  })
+
   it('content/targets pulls recent answer-visibility runs without the probe', async () => {
     const poisonQuery = 'best probe-only AEO platforms'
     const poisonQueryId = crypto.randomUUID()
