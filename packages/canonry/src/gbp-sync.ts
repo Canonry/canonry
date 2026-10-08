@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { eq, and, desc, inArray, lt } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { runs, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpPlaceDetails, gbpAttributesSnapshots, readNegativeReviewMaxStars } from '@ainyc/canonry-db'
-import { buildRunErrorFromMessages, serializeRunError, describeError, resolveNegativeReviewMaxStars } from '@ainyc/canonry-contracts'
+import { buildRunErrorFromMessages, serializeRunError, describeError, GBP_NO_SELECTED_LOCATIONS_ERROR, resolveNegativeReviewMaxStars } from '@ainyc/canonry-contracts'
 import { refreshAccessToken } from '@ainyc/canonry-integration-google'
 import {
   listLocations,
@@ -136,7 +136,7 @@ export async function executeGbpSync(
     }
 
     if (locationRows.length === 0) {
-      throw new Error('No selected GBP locations to sync. Discover and select locations first.')
+      throw new Error(GBP_NO_SELECTED_LOCATIONS_ERROR)
     }
     locationRows = await refreshSelectedLocationProfiles(db, projectId, accessToken, locationRows)
 

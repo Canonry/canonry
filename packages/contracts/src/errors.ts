@@ -449,3 +449,17 @@ export function describeFetchError(err: unknown, requestUrl?: string | URL): str
   const parts = [cause.code, host ? `${verb} ${host}` : null, address ? `at ${address}` : null]
   return `${message} (${parts.filter((part): part is string => part !== null).join(' ')})`
 }
+
+/**
+ * Whether a request got no answer at all, so the caller learned nothing about
+ * what it asked. Node's fetch (undici) rejects every transport failure (DNS,
+ * connect, reset, TLS) as `TypeError: fetch failed`, and a request cut off by
+ * its timeout rejects as a `TimeoutError` (`AbortSignal.timeout`) or an
+ * `AbortError` (an `AbortController` aborted on a timer). An error built from
+ * a response the server sent, or thrown before any request, returns false.
+ */
+export function isFetchTransportError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  if (err.name === 'TimeoutError' || err.name === 'AbortError') return true
+  return err instanceof TypeError && err.message === 'fetch failed'
+}

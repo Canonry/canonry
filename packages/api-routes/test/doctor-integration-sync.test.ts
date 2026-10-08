@@ -1,16 +1,23 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createClient, gbpLocations, migrate, projects, runs } from '@ainyc/canonry-db'
-import { serializeRunError } from '@ainyc/canonry-contracts'
+import { CheckCategories, GBP_NO_SELECTED_LOCATIONS_ERROR, serializeRunError } from '@ainyc/canonry-contracts'
 import { INTEGRATION_SYNC_CHECKS } from '../src/doctor/checks/integration-sync.js'
 import type { GoogleMarketingDoctorInput } from '../src/doctor/checks/google-marketing.js'
 import { ALL_CHECKS, scheduledHealthCheckIds } from '../src/doctor/registry.js'
 import { runChecks } from '../src/doctor/runner.js'
 import type { CheckDefinition, DoctorContext, ProjectInfo } from '../src/doctor/types.js'
 import type { GoogleConnectionStore } from '../src/google.js'
+
+// The Search Console auth checks refresh the token live; nothing here may reach Google.
+const refreshAccessTokenMock = vi.fn()
+vi.mock('@ainyc/canonry-integration-google', async () => {
+  const actual = await vi.importActual<typeof import('@ainyc/canonry-integration-google')>('@ainyc/canonry-integration-google')
+  return { ...actual, refreshAccessToken: (...args: unknown[]) => refreshAccessTokenMock(...args) }
+})
 
 // A queued sync answers its endpoint before any provider call, so a sync that
 // fails every day leaves only failed run rows behind. These pin when that
@@ -29,12 +36,11 @@ const gaCheck = byId('ga.sync.recent-failures')
 // The run error each executor writes: Google Ads and GBP store a serialized
 // `RunErrorDto`, the GSC and GA4 syncs the plain message.
 const ADS_NETWORK_ERROR = 'Google Ads API request failed: fetch failed (ECONNREFUSED connecting to googleads.googleapis.com at 0.0.0.0:443)'
-const GBP_NO_LOCATIONS_ERROR = 'No selected GBP locations to sync. Discover and select locations first.'
 const GA_NO_CREDENTIALS_ERROR = 'No GA4 credentials found. Run "canonry ga connect <project> --key-file <path>" or "canonry google connect <project> --type ga4" to authenticate.'
 const DAY_MS = 24 * 60 * 60 * 1000
 const daysAgo = (days: number) => new Date(Date.now() - days * DAY_MS).toISOString()
 
-type StoredConnection = { createdAt?: string }
+type StoredConnection = { createdAt?: string; refreshToken?: string; propertyId?: string; scopes?: string[] }
 function store(connected: Partial<Record<'gsc' | 'gbp' | 'ga4', StoredConnection>>): GoogleConnectionStore {
   return {
     getConnection: (_domain: string, type: 'gsc' | 'gbp' | 'ga4') => {
@@ -72,8 +78,16 @@ describe('integration sync failure checks', () => {
     }).run()
   }
   const adsFailure = (createdAt: string) => run('google-ads-sync', 'failed', createdAt, serializeRunError({ message: ADS_NETWORK_ERROR }))
+  // Stored exactly as the GBP sync stores it (`packages/canonry/src/gbp-sync.ts`).
+  const gbpNothingToSync = (createdAt: string) => run('gbp-sync', 'failed', createdAt, serializeRunError({ message: GBP_NO_SELECTED_LOCATIONS_ERROR }))
+  const selectGbpLocation = () => db.insert(gbpLocations).values({
+    id: 'selected', projectId: project.id, accountName: 'accounts/123', locationName: 'locations/selected', displayName: 'selected',
+    selected: true, createdAt: daysAgo(30), updatedAt: daysAgo(30),
+  }).run()
 
   beforeEach(() => {
+    refreshAccessTokenMock.mockReset()
+    refreshAccessTokenMock.mockRejectedValue(new Error('unexpected token refresh'))
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-integration-sync-'))
     db = createClient(path.join(tmp, 'test.db'))
     migrate(db)
@@ -155,10 +169,10 @@ describe('integration sync failure checks', () => {
     expect(result.remediation).toContain('canonry google sync client')
   })
 
-  it('skips a GBP connection until the project selects a location, then grades only gbp-sync runs', async () => {
+  it('skips a GBP connection until the project selects a location, then grades only gbp-sync runs that had work', async () => {
     // Every project on the domain shares the GBP connection, so the data
     // refresh syncs projects that never selected a location, and each sync fails.
-    for (const days of [3, 2, 1]) run('gbp-sync', 'failed', daysAgo(days), serializeRunError({ message: GBP_NO_LOCATIONS_ERROR }))
+    for (const days of [3, 2, 1]) gbpNothingToSync(daysAgo(days))
     const connected = ctx({ googleConnectionStore: store({ gbp: {} }) })
     expect(await gbpCheck.run(connected)).toMatchObject({ status: 'skipped', code: 'gbp.sync.no-selected-locations' })
     expect(await gbpCheck.run(ctx({ googleConnectionStore: store({ gsc: {} }) }))).toMatchObject({ status: 'skipped', code: 'gbp.sync.not-connected' })
@@ -171,11 +185,17 @@ describe('integration sync failure checks', () => {
     location('deselected', false)
     expect(await gbpCheck.run(connected)).toMatchObject({ status: 'skipped', code: 'gbp.sync.no-selected-locations' })
 
+    // Those failures had nothing to sync, so selecting a location starts
+    // the grading fresh rather than paging on them at once.
     location('selected', true)
-    expect(await gbpCheck.run(connected)).toMatchObject({
-      status: 'fail', code: 'gbp.sync.repeated-failures', details: { runKind: 'gbp-sync', consecutiveFailures: 3, latestError: GBP_NO_LOCATIONS_ERROR },
+    expect(await gbpCheck.run(connected)).toMatchObject({ status: 'skipped', code: 'gbp.sync.no-runs' })
+
+    for (const days of [0.9, 0.8, 0.7]) run('gbp-sync', 'failed', daysAgo(days), serializeRunError({ message: 'GBP API error (503): unavailable' }))
+    const result = await gbpCheck.run(connected)
+    expect(result).toMatchObject({
+      status: 'fail', code: 'gbp.sync.repeated-failures', details: { runKind: 'gbp-sync', consecutiveFailures: 3, latestError: 'GBP API error (503): unavailable' },
     })
-    expect((await gbpCheck.run(connected)).remediation).toContain('canonry gbp sync client')
+    expect(result.remediation).toContain('canonry gbp sync client')
 
     // A Search Console failure streak is not a GBP one.
     db.delete(runs).run()
@@ -209,6 +229,70 @@ describe('integration sync failure checks', () => {
     expect(await gaCheck.run(ctx({ ga4CredentialStore }))).toMatchObject({ status: 'ok', code: 'ga.sync.ok', details: { consecutiveFailures: 1 } })
   })
 
+  it('counts a GBP streak only from runs that had a location to sync, through weeks of by-design failures', async () => {
+    const connected = ctx({ googleConnectionStore: store({ gbp: {} }) })
+    // A success while a location was selected, then weeks with none selected:
+    // every daily sync in between failed with nothing to sync.
+    const successStarted = daysAgo(40)
+    run('gbp-sync', 'completed', successStarted)
+    for (let days = 30; days >= 3; days--) gbpNothingToSync(daysAgo(days))
+    selectGbpLocation()
+
+    const GBP_DNS_ERROR = 'fetch failed (ENOTFOUND resolving mybusinessbusinessinformation.googleapis.com)'
+    const gbpFailure = (days: number) => run('gbp-sync', 'failed', daysAgo(days), serializeRunError({ message: GBP_DNS_ERROR }))
+    gbpFailure(2)
+    gbpFailure(1)
+    expect(await gbpCheck.run(connected)).toMatchObject({
+      status: 'ok', code: 'gbp.sync.ok', details: { consecutiveFailures: 2, latestError: GBP_DNS_ERROR },
+    })
+
+    gbpFailure(0.5)
+    const lastSuccessAt = new Date(Date.parse(successStarted) + 60_000).toISOString()
+    const result = await gbpCheck.run(connected)
+    // Without the exclusion, the 28 by-design failures would also count.
+    expect(result).toMatchObject({
+      status: 'fail', code: 'gbp.sync.repeated-failures', details: { consecutiveFailures: 3, lastSuccessAt, latestError: GBP_DNS_ERROR },
+    })
+    expect(result.summary).toBe(`The last 3 Google Business Profile syncs failed (last success: ${lastSuccessAt}). Latest error: ${GBP_DNS_ERROR}`)
+  })
+
+  it('counts the GA4 streak and the last success over the same runs, from the current connection', async () => {
+    const connectedAt = daysAgo(5)
+    const oauth = ctx({ googleConnectionStore: store({ ga4: { createdAt: connectedAt } }) })
+    // A success under an earlier connection, then failures before this one.
+    run('ga-sync', 'completed', daysAgo(8))
+    for (const days of [7, 6]) run('ga-sync', 'failed', daysAgo(days), GA_NO_CREDENTIALS_ERROR)
+    for (const days of [3, 2, 1]) run('ga-sync', 'failed', daysAgo(days), 'GA4 API error (503): unavailable')
+
+    const result = await gaCheck.run(oauth)
+
+    // Not "3 failed, last success 8 days ago": 5 failed since then. Both
+    // fields describe this connection's runs, and say so.
+    expect(result).toMatchObject({
+      status: 'fail', code: 'ga.sync.repeated-failures',
+      details: { consecutiveFailures: 3, lastSuccessAt: null, gradedSince: connectedAt },
+    })
+    expect(result.summary).toBe(`The last 3 GA4 syncs failed (last success: none since connecting at ${connectedAt}). Latest error: GA4 API error (503): unavailable`)
+
+    // A success under this connection is its last success.
+    const successStarted = daysAgo(4)
+    run('ga-sync', 'completed', successStarted)
+    expect(await gaCheck.run(oauth)).toMatchObject({
+      status: 'fail', details: { consecutiveFailures: 3, lastSuccessAt: new Date(Date.parse(successStarted) + 60_000).toISOString() },
+    })
+  })
+
+  it('is superseded by each integration\'s auth checks, which are registered auth checks', () => {
+    for (const check of INTEGRATION_SYNC_CHECKS) {
+      expect(check.supersededBy?.length, check.id).toBeGreaterThan(0)
+      for (const causeId of check.supersededBy ?? []) {
+        const cause = ALL_CHECKS.find(candidate => candidate.id === causeId)
+        expect(cause, `${check.id} -> ${causeId}`).toMatchObject({ category: CheckCategories.auth, scope: check.scope })
+        expect(scheduledHealthCheckIds()).toContain(causeId)
+      }
+    }
+  })
+
   it('skips every integration without a project context', async () => {
     for (const check of INTEGRATION_SYNC_CHECKS) {
       const prefix = check.id.replace('.sync.recent-failures', '')
@@ -224,6 +308,68 @@ describe('integration sync failure checks', () => {
 
     expect(report.checks.find(check => check.id === 'google-ads.sync.recent-failures')).toMatchObject({
       status: 'fail', code: 'google-ads.sync.repeated-failures',
+    })
+  })
+
+  it('stands aside in the scheduled health pass while a Google Ads auth check fails', async () => {
+    connectGoogleAds()
+    marketing = { ...marketing, googleAds: { ...marketing.googleAds!, grantedScopes: [] } }
+    for (const days of [3, 2, 1]) adsFailure(daysAgo(days))
+
+    const report = await runChecks(ctx(), ALL_CHECKS, { checkIds: scheduledHealthCheckIds() })
+
+    expect(report.checks.find(check => check.id === 'google-ads.auth.scopes')).toMatchObject({ status: 'fail', code: 'google-ads.auth.required-scope-missing' })
+    expect(report.checks.find(check => check.id === 'google-ads.sync.recent-failures')).toMatchObject({
+      status: 'skipped',
+      code: 'google-ads.sync.recent-failures.superseded',
+      details: { supersededBy: ['google-ads.auth.scopes'], supersededCode: 'google-ads.sync.repeated-failures', consecutiveFailures: 3 },
+    })
+  })
+  // Search Console as a scheduled pass sees it: a connection with a refresh
+  // token and the scopes it needs, and the last three syncs failing on DNS.
+  const GSC_DNS_ERROR = 'fetch failed (ENOTFOUND resolving www.googleapis.com)'
+  const gscWithFailingSyncs = (): DoctorContext => {
+    for (const days of [3, 2, 1]) run('gsc-sync', 'failed', daysAgo(days), GSC_DNS_ERROR)
+    return ctx({
+      getGoogleAuthConfig: () => ({ clientId: 'client-id', clientSecret: 'client-secret' }),
+      googleConnectionStore: store({
+        gsc: {
+          refreshToken: 'refresh-token', propertyId: 'sc-domain:client.example',
+          scopes: ['https://www.googleapis.com/auth/webmasters', 'https://www.googleapis.com/auth/indexing'],
+        },
+      }),
+    })
+  }
+
+  it('keeps a network sync failure leading while the auth check cannot reach Google either', async () => {
+    // What Node's fetch rejects with when the resolver refuses the token host.
+    refreshAccessTokenMock.mockRejectedValue(new TypeError('fetch failed', {
+      cause: Object.assign(new Error('getaddrinfo ENOTFOUND oauth2.googleapis.com'), {
+        code: 'ENOTFOUND', syscall: 'getaddrinfo', hostname: 'oauth2.googleapis.com',
+      }),
+    }))
+
+    const report = await runChecks(gscWithFailingSyncs(), ALL_CHECKS, { checkIds: scheduledHealthCheckIds() })
+
+    // The auth check tested no grant, so it says Google was unreachable rather
+    // than that the token was rejected, and names no cause for the syncs.
+    const auth = report.checks.find(check => check.id === 'google.auth.connection')
+    expect(auth).toMatchObject({ status: 'fail', code: 'google.auth.refresh-unreachable' })
+    expect(auth?.summary).toContain('ENOTFOUND resolving oauth2.googleapis.com')
+    const sync = report.checks.find(check => check.id === 'gsc.sync.recent-failures')
+    expect(sync).toMatchObject({ status: 'fail', code: 'gsc.sync.repeated-failures', details: { latestError: GSC_DNS_ERROR } })
+    expect(sync?.summary).toContain(GSC_DNS_ERROR)
+  })
+
+  it('stands aside while Google rejects the Search Console grant', async () => {
+    const { GoogleAuthError } = await vi.importActual<typeof import('@ainyc/canonry-integration-google')>('@ainyc/canonry-integration-google')
+    refreshAccessTokenMock.mockRejectedValue(new GoogleAuthError('Token refresh failed (400): invalid_grant'))
+
+    const report = await runChecks(gscWithFailingSyncs(), ALL_CHECKS, { checkIds: scheduledHealthCheckIds() })
+
+    expect(report.checks.find(check => check.id === 'google.auth.connection')).toMatchObject({ status: 'fail', code: 'google.auth.refresh-failed' })
+    expect(report.checks.find(check => check.id === 'gsc.sync.recent-failures')).toMatchObject({
+      status: 'skipped', code: 'gsc.sync.recent-failures.superseded', details: { supersededBy: ['google.auth.connection'], latestError: GSC_DNS_ERROR },
     })
   })
 })

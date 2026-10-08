@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { AppError, describeError, describeFetchError, notFound, queryTrackingPreviewStale, researchDailyLimitExceeded, validationError } from '../src/errors.js'
+import { AppError, describeError, describeFetchError, isFetchTransportError, notFound, queryTrackingPreviewStale, researchDailyLimitExceeded, validationError } from '../src/errors.js'
 
 describe('describeError', () => {
   it('returns the message of an Error', () => {
@@ -166,6 +166,25 @@ describe('describeFetchError', () => {
     const hostile = new TypeError('fetch failed')
     Object.defineProperty(hostile, 'cause', { get() { throw new Error('nope') } })
     expect(describeFetchError(hostile, 'https://api.example.com/')).toBe('fetch failed')
+  })
+})
+
+describe('isFetchTransportError', () => {
+  it('recognizes a request that got no answer', () => {
+    expect(isFetchTransportError(fetchFailed(Object.assign(new Error('getaddrinfo ENOTFOUND api.example.com'), { code: 'ENOTFOUND' })))).toBe(true)
+    expect(isFetchTransportError(new TypeError('fetch failed'))).toBe(true)
+    expect(isFetchTransportError(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))).toBe(true)
+    expect(isFetchTransportError(new DOMException('This operation was aborted', 'AbortError'))).toBe(true)
+  })
+
+  it('rejects an error built from a response, or thrown before any request', () => {
+    class ProviderAuthError extends Error {}
+    expect(isFetchTransportError(new ProviderAuthError('Token refresh failed (400): invalid_grant'))).toBe(false)
+    expect(isFetchTransportError(new Error('invalid_grant'))).toBe(false)
+    expect(isFetchTransportError(new TypeError('Failed to parse URL from not a url'))).toBe(false)
+    expect(isFetchTransportError(Object.assign(new Error('unsupported key'), { code: 'ERR_OSSL_UNSUPPORTED' }))).toBe(false)
+    expect(isFetchTransportError('fetch failed')).toBe(false)
+    expect(isFetchTransportError(null)).toBe(false)
   })
 })
 

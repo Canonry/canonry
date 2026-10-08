@@ -229,7 +229,9 @@ cnry doctor --project my-site --check 'gtm.*' --format json
 Doctor reports credential metadata, OAuth scopes, selected resources, snapshot
 age, and repeated sync failures from stored run rows (the latest run error and
 the last successful sync). Doctor does not call Google or prove browser tag
-firing.
+firing. While a credential, scope, or selection check fails, the sync-failure
+check is reported as superseded, so the health alert names that fix rather
+than the syncs it breaks.
 
 Then review each integrity assessment. Inspect every `fail` or `unknown`
 finding and its evidence IDs.

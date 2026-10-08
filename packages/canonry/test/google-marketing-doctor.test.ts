@@ -2,21 +2,23 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import {
   createClient,
   googleAdsConnections,
   gtmConnections,
   migrate,
+  notifications,
   runs,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
-import { serializeRunError } from '@ainyc/canonry-contracts'
+import { serializeRunError, type HealthWebhookPayload } from '@ainyc/canonry-contracts'
 import type { CanonryConfig } from '../src/config.js'
+import { Notifier } from '../src/notifier.js'
 import { createServer } from '../src/server.js'
 
 interface DoctorReport {
-  checks: Array<{ id: string; status: string; code: string; summary: string; details?: Record<string, unknown> }>
+  checks: Array<{ id: string; category: string; status: string; code: string; summary: string; remediation: string | null; details?: Record<string, unknown> }>
 }
 
 /** A server with one project, `example`; `run` gets its id and a doctor reader. */
@@ -153,4 +155,64 @@ it('fails Google Ads sync health once the last three syncs of a connected projec
       details: { consecutiveFailures: 3, latestError: error, lastSuccessAt: now },
     })
   })
+})
+
+// The health alert headlines the worst failing check, and an integrations check
+// outranks an auth check at the same severity. A revoked grant fails the auth
+// check and then every sync, so these pin which one the operator is told about.
+async function healthAlertForGoogleAdsSyncFailures(grantedScopes: string[]): Promise<{ event: string | null; payload: HealthWebhookPayload | undefined; report: DoctorReport }> {
+  let outcome: { event: string | null; payload: HealthWebhookPayload | undefined; report: DoctorReport } | undefined
+  await withExampleProject(async ({ db, config, projectId, doctor }) => {
+    const now = '2026-09-21T06:00:00.000Z'
+    db.insert(googleAdsConnections).values({
+      id: 'connected-ads', projectId, selectedCustomerId: '1234567890', scopes: grantedScopes, createdAt: now, updatedAt: now,
+    }).run()
+    config.googleAds = {
+      connections: [{ projectId, projectName: 'example', accessToken: 'access-token-value', createdAt: now, updatedAt: now }],
+    }
+    for (const day of ['2026-10-01', '2026-10-02', '2026-10-03']) {
+      db.insert(runs).values({
+        id: `ads-failed-${day}`, projectId, kind: 'google-ads-sync', status: 'failed', trigger: 'scheduled',
+        createdAt: `${day}T06:00:00.000Z`, finishedAt: `${day}T06:00:05.000Z`,
+        error: serializeRunError({ message: 'Google Ads API request failed: fetch failed (ENOTFOUND resolving googleads.googleapis.com)' }),
+      }).run()
+    }
+    db.insert(notifications).values({
+      id: 'health-hook', projectId, channel: 'webhook',
+      config: { url: 'https://hooks.example/health', events: ['health.degraded'] },
+      enabled: true, createdAt: now, updatedAt: now,
+    } as never).run()
+
+    const report = await doctor('google-ads.*')
+    const notifier = new Notifier(db, 'https://canonry.test')
+    const sent: HealthWebhookPayload[] = []
+    // Capture the alert instead of delivering it.
+    const delivery = notifier as unknown as { sendWebhook: (url: string, payload: unknown) => Promise<boolean> }
+    vi.spyOn(delivery, 'sendWebhook').mockImplementation(async (_url, payload) => {
+      sent.push(payload as HealthWebhookPayload)
+      return true
+    })
+    const event = await notifier.onHealthChecked(projectId, { checks: report.checks, checkedAt: '2026-10-03T12:00:00.000Z' })
+    outcome = { event, payload: sent[0], report }
+  })
+  return outcome!
+}
+
+it('headlines the failing Google Ads auth check, not the sync failures it causes', async () => {
+  const { event, payload, report } = await healthAlertForGoogleAdsSyncFailures([])
+
+  expect(event).toBe('health.degraded')
+  expect(payload?.health).toMatchObject({ status: 'fail', code: 'google-ads.auth.required-scope-missing' })
+  expect(payload?.health.failing.map(check => check.id)).not.toContain('google-ads.sync.recent-failures')
+  expect(report.checks.find(check => check.id === 'google-ads.sync.recent-failures')).toMatchObject({
+    status: 'skipped', code: 'google-ads.sync.recent-failures.superseded', details: { supersededBy: ['google-ads.auth.scopes'] },
+  })
+})
+
+it('headlines the Google Ads sync failures when the credentials are fine', async () => {
+  const { event, payload } = await healthAlertForGoogleAdsSyncFailures(['https://www.googleapis.com/auth/adwords'])
+
+  expect(event).toBe('health.degraded')
+  expect(payload?.health).toMatchObject({ status: 'fail', code: 'google-ads.sync.repeated-failures' })
+  expect(payload?.health.summary).toContain('ENOTFOUND resolving googleads.googleapis.com')
 })

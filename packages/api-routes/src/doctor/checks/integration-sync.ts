@@ -1,12 +1,14 @@
-import { and, count, desc, eq, gt, gte, inArray } from 'drizzle-orm'
+import { and, count, desc, eq, gt, gte, inArray, isNull, notInArray, or } from 'drizzle-orm'
 import {
   CheckCategories,
   CheckScopes,
   CheckStatuses,
+  GBP_NO_SELECTED_LOCATIONS_ERROR,
   RunKinds,
   RunStatuses,
   formatRunErrorOneLine,
   parseRunError,
+  serializeRunError,
   truncateUtf16,
   type RunKind,
 } from '@ainyc/canonry-contracts'
@@ -27,7 +29,15 @@ import { gaConnected } from './data-freshness.js'
  * Grades the newest finished runs (`completed`, `partial`, `failed`; queued,
  * running and cancelled runs prove nothing either way). A `partial` run stored
  * data, so it breaks a failure streak and counts as the last success. When the
- * connection records when it was made, only runs from then on are graded.
+ * connection records when it was made, only runs from then on are graded, and
+ * the streak and the last success are both counted within that window. A run
+ * that failed because it had nothing to sync (GBP with no selected location)
+ * is left out entirely.
+ *
+ * Each check is superseded by its integration's auth checks: a revoked grant
+ * fails those and every sync, and the auth check names the fix. An auth check
+ * that got no answer from Google (`-unreachable`) supersedes nothing, so a DNS
+ * block keeps this check, and the error it names, in the alert.
  */
 export const SYNC_FAILURE_WINDOW = 3
 const SUMMARY_ERROR_LIMIT = 300
@@ -55,6 +65,10 @@ interface SyncFailureSpec {
   kind: RunKind
   connection: (ctx: DoctorContext, project: ProjectInfo) => Connection
   syncCommand: (projectName: string) => string
+  /** The integration's auth checks. A failing one names why every sync fails, so it supersedes this check. */
+  causeCheckIds: readonly string[]
+  /** Stored `runs.error` values of a run that had nothing to sync: neither a failure nor a success. */
+  nothingToSyncErrors?: readonly string[]
 }
 
 /**
@@ -115,6 +129,7 @@ const SPECS: readonly SyncFailureSpec[] = [
     kind: RunKinds['google-ads-sync'],
     connection: googleMarketingConnection('googleAds'),
     syncCommand: name => `canonry google-ads sync ${name}`,
+    causeCheckIds: ['google-ads.auth.connection', 'google-ads.auth.scopes', 'google-ads.account.context'],
   },
   {
     prefix: 'gtm',
@@ -122,6 +137,7 @@ const SPECS: readonly SyncFailureSpec[] = [
     kind: RunKinds['gtm-sync'],
     connection: googleMarketingConnection('gtm'),
     syncCommand: name => `canonry gtm sync ${name}`,
+    causeCheckIds: ['gtm.auth.connection', 'gtm.auth.scopes', 'gtm.container.context'],
   },
   {
     prefix: 'gbp',
@@ -129,6 +145,10 @@ const SPECS: readonly SyncFailureSpec[] = [
     kind: RunKinds['gbp-sync'],
     connection: gbpConnection,
     syncCommand: name => `canonry gbp sync ${name}`,
+    causeCheckIds: ['gbp.auth.connection', 'gbp.auth.scopes', 'gbp.account.access'],
+    // `gbp_locations` does not record when a location was selected, so the
+    // runs from before the selection are recognized by the error they stored.
+    nothingToSyncErrors: [serializeRunError({ message: GBP_NO_SELECTED_LOCATIONS_ERROR })],
   },
   {
     prefix: 'ga',
@@ -136,6 +156,7 @@ const SPECS: readonly SyncFailureSpec[] = [
     kind: RunKinds['ga-sync'],
     connection: gaConnection,
     syncCommand: name => `canonry ga sync ${name}`,
+    causeCheckIds: ['ga.auth.connection'],
   },
   {
     prefix: 'gsc',
@@ -143,6 +164,7 @@ const SPECS: readonly SyncFailureSpec[] = [
     kind: RunKinds['gsc-sync'],
     connection: gscConnection,
     syncCommand: name => `canonry google sync ${name}`,
+    causeCheckIds: ['google.auth.connection', 'google.auth.property-access', 'google.auth.scopes'],
   },
 ]
 
@@ -171,7 +193,12 @@ function gradeSyncFailures(ctx: DoctorContext, spec: SyncFailureSpec): CheckOutp
     return skipped(code('no-selected-locations'), `No ${spec.label} locations are selected for this project.`)
   }
 
-  const scope = and(eq(runs.projectId, project.id), eq(runs.kind, spec.kind))
+  const nothingToSync = spec.nothingToSyncErrors ?? []
+  const scope = and(
+    eq(runs.projectId, project.id),
+    eq(runs.kind, spec.kind),
+    ...(nothingToSync.length > 0 ? [or(isNull(runs.error), notInArray(runs.error, [...nothingToSync]))] : []),
+  )
   // Runs from before the current connection say nothing about it.
   const graded = connection.since ? and(scope, gte(runs.createdAt, connection.since)) : scope
   const recent = ctx.db
@@ -185,10 +212,12 @@ function gradeSyncFailures(ctx: DoctorContext, spec: SyncFailureSpec): CheckOutp
     return skipped(code('no-runs'), `${spec.label} is connected but no sync has finished yet.`)
   }
 
+  // Bounded like the streak, so the two describe the same runs: a success
+  // under an earlier connection is not this connection's last success.
   const lastSuccess = ctx.db
     .select({ createdAt: runs.createdAt, finishedAt: runs.finishedAt })
     .from(runs)
-    .where(and(scope, inArray(runs.status, SUCCESS_STATUSES)))
+    .where(and(graded, inArray(runs.status, SUCCESS_STATUSES)))
     .orderBy(desc(runs.createdAt))
     .limit(1)
     .get()
@@ -213,16 +242,19 @@ function gradeSyncFailures(ctx: DoctorContext, spec: SyncFailureSpec): CheckOutp
     latestRunAt: latest.createdAt,
     latestError,
     lastSuccessAt,
+    // Where the graded runs start (the current connection); null grades every run.
+    gradedSince: connection.since,
   }
 
   const repeatedFailure = recent.length >= SYNC_FAILURE_WINDOW && recent.every(run => run.status === RunStatuses.failed)
   if (repeatedFailure) {
     const errorText = latestErrorText(latest.error)
     const shownError = errorText.length > SUMMARY_ERROR_LIMIT ? `${truncateUtf16(errorText, SUMMARY_ERROR_LIMIT)}...` : errorText
+    const lastSuccessText = lastSuccessAt ?? (connection.since ? `none since connecting at ${connection.since}` : 'never')
     return {
       status: CheckStatuses.fail,
       code: code('repeated-failures'),
-      summary: `The last ${failuresSinceSuccess} ${spec.label} syncs failed (last success: ${lastSuccessAt ?? 'never'}). Latest error: ${shownError}`,
+      summary: `The last ${failuresSinceSuccess} ${spec.label} syncs failed (last success: ${lastSuccessText}). Latest error: ${shownError}`,
       remediation: `Fix the cause the latest error names (DNS or network filtering of the API host, credentials, or account access), then run \`${spec.syncCommand(project.name)}\`.`,
       details,
     }
@@ -243,5 +275,6 @@ export const INTEGRATION_SYNC_CHECKS: readonly CheckDefinition[] = SPECS.map(spe
   category: CheckCategories.integrations,
   scope: CheckScopes.project,
   title: `${spec.label} sync failures`,
+  supersededBy: spec.causeCheckIds,
   run: ctx => gradeSyncFailures(ctx, spec),
 }))
