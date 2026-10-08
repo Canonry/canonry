@@ -514,7 +514,7 @@ function buildNextSteps(): string[] {
     '',
     '   Map your public site and capture a persisted Page Health baseline.',
     '   AI Visibility is optional and can be configured after Page Health.',
-    '   For remote/exposed hosts, complete dashboard password setup from loopback first.',
+    '   On a remote or proxied host, dashboard password setup asks for the root API key (apiKey in config.yaml).',
     '',
     'Prefer the terminal? The same flow as CLI commands:',
     '',

@@ -1014,6 +1014,9 @@ describe('canonry', () => {
       expect(payload.nextSteps!.some(s => s.includes('canonry project create'))).toBe(true)
       expect(payload.nextSteps!.some(s => s.includes('canonry technical-aeo run'))).toBe(true)
       expect(payload.nextSteps!.some(s => s.includes('AI Visibility is optional'))).toBe(true)
+      // Off loopback or behind a proxy, setup from this machine needs the root
+      // key too, so the guidance names the key rather than a place to stand.
+      expect(payload.nextSteps!.some(s => s.includes('root API key (apiKey in config.yaml)'))).toBe(true)
     } finally {
       console.log = originalLog
       fs.rmSync(tmpDir, { recursive: true, force: true })
