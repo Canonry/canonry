@@ -25,6 +25,7 @@ import {
 } from '@ainyc/canonry-db'
 import { apiRoutes } from '@ainyc/canonry-api-routes'
 import { seedDemoSignals } from '../src/demo/seed-signals.js'
+import { demoReadOptions } from '../src/demo/stores.js'
 import { createDemoSeedContext } from '../src/demo/types.js'
 
 let tmpDir: string
@@ -84,6 +85,9 @@ describe('seedDemoSignals', () => {
       db,
       skipAuth: true,
       googleStateSecret: 'test-only-google-state-secret-32b',
+      // The demo server's GA4 connection: the Search Console landing-page read
+      // presents only a snapshot of the property the project resolves to.
+      ga4CredentialStore: demoReadOptions(db, context).ga4CredentialStore,
       assessConversionTrackingIntegrity: async ({ contract }) => ({ contract, status: 'statically-consistent', findings: [], evaluatedAt: context.now.toISOString() }),
     })
     await app.ready()
@@ -92,6 +96,16 @@ describe('seedDemoSignals', () => {
       expect(gsc.statusCode).toBe(200)
       expect(JSON.parse(gsc.payload)).toMatchObject({ totals: { days: 7 } })
       expect(JSON.parse(gsc.payload).totals.clicks).toBeGreaterThan(0)
+
+      // GA4's Search Console landing-page report: the Total is GA4's own figure,
+      // never the sum of the two sample rows.
+      const searchLanding = await app.inject({ method: 'GET', url: `/api/v1/projects/${context.simple.name}/ga/search-landing-pages` })
+      expect(searchLanding.statusCode).toBe(200)
+      const searchLandingBody = JSON.parse(searchLanding.payload)
+      expect(searchLandingBody).toMatchObject({ status: 'ready', window: '28d', windowStart: '2026-08-12', windowEnd: '2026-09-08', windowDays: 28, totalRows: 2, reportRowCount: 24, rowsCapped: true })
+      expect(searchLandingBody.total.organicGoogleSearchClicks).toBe(560)
+      expect(searchLandingBody.rows.map((row: { landingPage: string }) => row.landingPage)).toEqual(['/', '/services/'])
+      expect(searchLandingBody.rows.reduce((sum: number, row: { organicGoogleSearchClicks: number }) => sum + row.organicGoogleSearchClicks, 0)).toBe(426)
 
       const crawl = await app.inject({ method: 'GET', url: `/api/v1/projects/${context.simple.name}/technical-aeo/crawl` })
       expect(crawl.statusCode).toBe(200)

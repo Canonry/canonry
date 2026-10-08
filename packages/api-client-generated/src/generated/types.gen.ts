@@ -4875,6 +4875,17 @@ export type Ga4SyncResponseDto = {
             attributionScope?: 'landing-page' | 'channel';
             error?: string;
         };
+        searchLandingPages?: {
+            status: 'ready' | 'unavailable' | 'error';
+            windows: Array<{
+                window: '7d' | '28d' | '90d';
+                rowCount: number;
+                reportRowCount: number;
+                rowsCapped: boolean;
+            }>;
+            rowCount: number;
+            error?: string;
+        };
     };
     syncedComponents?: Array<string>;
 };
@@ -4936,6 +4947,41 @@ export type GaAttributionTrendResponse = {
         changePct: number | null;
         changeBasis: 'new' | 'small-base' | 'percent';
     } | null;
+};
+
+export type GaSearchLandingPagesResponse = {
+    source: 'ga4-search-console-link';
+    status: 'never-synced' | 'ready' | 'unavailable' | 'error';
+    error: string | null;
+    syncedAt: string | null;
+    attemptedAt: string | null;
+    window: '7d' | '28d' | '90d';
+    windowStart: string | null;
+    windowEnd: string | null;
+    windowDays: number | null;
+    timeZone: string | null;
+    subjectToThresholding: boolean;
+    dataLossFromOtherRow: boolean;
+    total: {
+        organicGoogleSearchClicks: number;
+        organicGoogleSearchImpressions: number;
+        organicGoogleSearchClickThroughRate: number | null;
+        organicGoogleSearchAveragePosition: number | null;
+        activeUsers: number;
+    } | null;
+    reportRowCount: number | null;
+    rowsCapped: boolean;
+    totalRows: number;
+    limit: number;
+    offset: number;
+    rows: Array<{
+        organicGoogleSearchClicks: number;
+        organicGoogleSearchImpressions: number;
+        organicGoogleSearchClickThroughRate: number | null;
+        organicGoogleSearchAveragePosition: number | null;
+        activeUsers: number;
+        landingPage: string;
+    }>;
 };
 
 export type GaSocialReferralTrendResponse = {
@@ -27628,12 +27674,63 @@ export type GetApiV1ProjectsByNameGaMeasurementAnalysisResponses = {
 
 export type GetApiV1ProjectsByNameGaMeasurementAnalysisResponse = GetApiV1ProjectsByNameGaMeasurementAnalysisResponses[keyof GetApiV1ProjectsByNameGaMeasurementAnalysisResponses];
 
+export type GetApiV1ProjectsByNameGaSearchLandingPagesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Stored window, ending yesterday in the GA4 property time zone. 28d matches GA4's default "Last 28 days".
+         */
+        window?: '7d' | '28d' | '90d';
+        /**
+         * Landing-page rows per page, ordered by clicks then impressions (descending), then landing page.
+         */
+        limit?: number;
+        /**
+         * Rows to skip before the page starts.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/ga/search-landing-pages';
+};
+
+export type GetApiV1ProjectsByNameGaSearchLandingPagesErrors = {
+    /**
+     * Invalid window, limit or offset.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGaSearchLandingPagesError = GetApiV1ProjectsByNameGaSearchLandingPagesErrors[keyof GetApiV1ProjectsByNameGaSearchLandingPagesErrors];
+
+export type GetApiV1ProjectsByNameGaSearchLandingPagesResponses = {
+    /**
+     * GA4 Search Console landing pages returned.
+     */
+    200: GaSearchLandingPagesResponse;
+};
+
+export type GetApiV1ProjectsByNameGaSearchLandingPagesResponse = GetApiV1ProjectsByNameGaSearchLandingPagesResponses[keyof GetApiV1ProjectsByNameGaSearchLandingPagesResponses];
+
 export type PostApiV1ProjectsByNameGaSyncData = {
     body?: {
         /**
          * Days of history to sync. Clamped to 1-90; check `clamped` in the response to detect truncation. Defaults to 30.
          */
         days?: number;
+        /**
+         * Refresh the foundation (traffic snapshots and summaries) plus at most one slice: traffic (foundation only), ai, social or search-landing (the GA4 Search Console landing-page snapshot). Omit for every slice.
+         */
+        only?: 'traffic' | 'ai' | 'social' | 'search-landing';
     };
     path: {
         /**

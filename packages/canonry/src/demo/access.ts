@@ -58,6 +58,7 @@ const DEMO_READ_ROUTES: ReadonlySet<string> = new Set([
   '/api/v1/projects/:name/ga/attribution-trend',
   '/api/v1/projects/:name/ga/coverage',
   '/api/v1/projects/:name/ga/measurement-analysis',
+  '/api/v1/projects/:name/ga/search-landing-pages',
   '/api/v1/projects/:name/ga/session-history',
   '/api/v1/projects/:name/ga/social-referral-history',
   '/api/v1/projects/:name/ga/social-referral-trend',

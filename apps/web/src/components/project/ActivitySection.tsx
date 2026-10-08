@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, Unplug, Upload } from 'lucide-react'
 import {
   Area,
@@ -32,7 +32,18 @@ import { AiTrafficHistoryPanel } from './AiTrafficHistoryPanel.js'
 import { MetricsWindowPicker } from '../shared/MetricsWindowPicker.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
-import { formatPercent, type MetricsWindow } from '@ainyc/canonry-contracts'
+import {
+  GA_SEARCH_LANDING_DEFAULT_WINDOW,
+  GA_SEARCH_LANDING_MAX_LIMIT,
+  GA_SEARCH_LANDING_WINDOWS,
+  formatDate,
+  formatPercent,
+  gaSearchLandingHasSearchData,
+  type GaSearchLandingPageRow,
+  type GaSearchLandingPagesResponse,
+  type GaSearchLandingWindow,
+  type MetricsWindow,
+} from '@ainyc/canonry-contracts'
 import type { MetricTone } from '../../view-models.js'
 import {
   toneFromTrafficSourceStatus,
@@ -48,6 +59,7 @@ import {
 } from '../../api.js'
 import {
   getApiV1ProjectsByNameGaAiReferralDailyOptions,
+  getApiV1ProjectsByNameGaSearchLandingPagesOptions,
   getApiV1ProjectsByNameGaSessionHistoryOptions,
   getApiV1ProjectsByNameGaSocialReferralHistoryOptions,
   getApiV1ProjectsByNameGaStatusOptions,
@@ -1268,6 +1280,10 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
         </>
       )}
 
+      {/* GA4's Search Console landing-page report: its own window picker,
+          because GA4 stores it for 7, 28 and 90 days ending yesterday. */}
+      <GoogleOrganicSearchPagesPanel projectName={projectName} />
+
       {/* Footer */}
       <div className="mt-6 flex items-center justify-between text-xs text-muted">
         <span>
@@ -1277,6 +1293,304 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
         </span>
         <span>{traffic ? `${traffic.topPages.length} pages · ${traffic.aiReferrals.length} AI rows · ${traffic.socialReferrals.length} social rows` : ''}</span>
       </div>
+    </>
+  )
+}
+
+type SearchLandingSortKey = 'landingPage' | 'clicks' | 'impressions' | 'ctr' | 'position' | 'activeUsers'
+
+const SEARCH_LANDING_PAGE_SIZE = 25
+/** How a ratio with no impressions reads: undefined, never 0. */
+const SEARCH_LANDING_NOT_AVAILABLE = 'n/a'
+
+export const SEARCH_LANDING_COPY = {
+  heading: 'Google organic search traffic',
+  tooltip: 'GA4\'s "Google organic search traffic: Landing page + query string" report, from the property\'s Search Console link. Each window ends yesterday in the property time zone, as GA4\'s own date ranges do. The Total row is GA4\'s own total for all pages, not a sum of the rows, and it does not change with the filter. Search Console data arrives about two days late.',
+  windowLabel: 'Google organic search time period',
+  loading: 'Loading Google organic search pages…',
+  loadError: 'Could not load Google organic search pages.',
+  neverSynced: 'No Google organic search data has been synced yet.',
+  neverSyncedAction: 'Sync GA4 to load the Search Console landing-page report.',
+  unavailable: 'GA4 did not return Search Console data for this property.',
+  unavailableAction: 'Link Search Console to this GA4 property (Admin, Product links, Search Console links), then sync GA4 again.',
+  refreshFailed: 'The last refresh failed.',
+  /** The window's Total has 0 clicks and 0 impressions, whether or not pages are listed. */
+  noSearchTraffic: 'No landing pages had Google organic search traffic in this window.',
+  noSearchTrafficAction: 'If this property should have some, check its Search Console link in GA4 (Admin, Product links, Search Console links).',
+  thresholded: 'GA4 applied thresholding to this report, so it may withhold some rows.',
+  retry: 'Retry',
+  refreshFailedBadge: 'Last refresh failed',
+  unavailableBadge: 'Search Console unavailable',
+  thresholdedBadge: 'Thresholded',
+  previousSnapshot: 'Showing the last good snapshot, synced',
+  totalLabel: 'Total',
+  totalScope: 'all pages',
+  noFilterMatch: 'No landing pages match this filter',
+  /** The filter and sorts see only the rows loaded, the top ones by clicks. */
+  noFilterMatchInLoaded: (loaded: number) => `No landing pages in the top ${loaded.toLocaleString()} by clicks match this filter. The filter searches only the pages loaded here.`,
+} as const
+
+function searchLandingSortValue(row: GaSearchLandingPageRow, key: SearchLandingSortKey): string | number | null {
+  switch (key) {
+    case 'landingPage': return row.landingPage
+    case 'clicks': return row.organicGoogleSearchClicks
+    case 'impressions': return row.organicGoogleSearchImpressions
+    case 'ctr': return row.organicGoogleSearchClickThroughRate
+    case 'position': return row.organicGoogleSearchAveragePosition
+    case 'activeUsers': return row.activeUsers
+  }
+}
+
+function formatSearchLandingPosition(value: number | null): string {
+  return value === null ? SEARCH_LANDING_NOT_AVAILABLE : value.toFixed(1)
+}
+
+function formatSearchLandingCtr(value: number | null): string {
+  return value === null ? SEARCH_LANDING_NOT_AVAILABLE : formatPercent(value)
+}
+
+/**
+ * GA4's "Google organic search traffic: Landing page + query string" report as
+ * the last GA sync stored it. Every figure is the API's: the Total row is GA4's
+ * own Total, pinned above the rows and untouched by the filter, because a
+ * filtered subset's Total cannot be rebuilt from its rows.
+ */
+export function GoogleOrganicSearchPagesPanel({ projectName }: { projectName: string }) {
+  const [searchWindow, setSearchWindow] = useState<GaSearchLandingWindow>(GA_SEARCH_LANDING_DEFAULT_WINDOW)
+  const [sortKey, setSortKey] = useState<SearchLandingSortKey>('clicks')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const query = useQuery({
+    ...getApiV1ProjectsByNameGaSearchLandingPagesOptions({
+      client: heyClient,
+      path: { name: projectName },
+      query: { window: searchWindow, limit: GA_SEARCH_LANDING_MAX_LIMIT },
+    }),
+    staleTime: TRAFFIC_STALE_MS,
+  })
+  const data: GaSearchLandingPagesResponse | undefined = query.data
+
+  const sortedRows = useMemo(() => {
+    const rows = data?.rows ?? []
+    return [...rows].sort((a, b) => {
+      const av = searchLandingSortValue(a, sortKey)
+      const bv = searchLandingSortValue(b, sortKey)
+      // Rows with no reading stay last in either direction.
+      if (av === null || bv === null) return av === bv ? 0 : av === null ? 1 : -1
+      if (typeof av === 'string' && typeof bv === 'string') {
+        return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
+      }
+      return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number)
+    })
+  }, [data?.rows, sortKey, sortDir])
+
+  const table = useClientTable({
+    rows: sortedRows,
+    getSearchText: (row) => urlSearchText(row.landingPage),
+    pageSize: SEARCH_LANDING_PAGE_SIZE,
+  })
+
+  function handleSort(key: SearchLandingSortKey) {
+    table.setPage(1)
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))
+    } else {
+      setSortKey(key)
+      setSortDir(key === 'landingPage' ? 'asc' : 'desc')
+    }
+  }
+
+  const total = data?.total ?? null
+  const canSync = !isEmbed() && !isPublicDemo()
+
+  return (
+    <>
+      <div className="page-section-divider" />
+
+      <section aria-labelledby="ga-search-landing-heading">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-1">Search Console link</p>
+            {/* The tooltip is the heading's SIBLING: the section and the table
+                take their accessible name from this heading. */}
+            <div className="flex items-center gap-1.5">
+              <h2 id="ga-search-landing-heading" className="text-base font-semibold text-primary">
+                {SEARCH_LANDING_COPY.heading}
+              </h2>
+              <InfoTooltip text={SEARCH_LANDING_COPY.tooltip} />
+            </div>
+            {data?.windowStart && data.windowEnd && (
+              <p className="text-sm text-secondary mt-1">
+                {formatDate(data.windowStart)} to {formatDate(data.windowEnd)}
+                {data.timeZone ? ` (${data.timeZone})` : ''}
+              </p>
+            )}
+          </div>
+          <MetricsWindowPicker
+            windows={GA_SEARCH_LANDING_WINDOWS}
+            value={searchWindow}
+            onChange={(next) => {
+              table.setPage(1)
+              setSearchWindow(next)
+            }}
+            label={SEARCH_LANDING_COPY.windowLabel}
+          />
+        </div>
+
+        {query.isPending ? (
+          <p className="text-sm text-secondary py-6 text-center">{SEARCH_LANDING_COPY.loading}</p>
+        ) : query.isError || !data ? (
+          <div role="alert" className="flex flex-wrap items-center gap-3 px-4 py-2 rounded-lg bg-negative-900/20 border border-negative-800/60 text-sm text-negative">
+            <span>{SEARCH_LANDING_COPY.loadError}</span>
+            <Button variant="outline" size="sm" onClick={() => { void query.refetch() }}>
+              {SEARCH_LANDING_COPY.retry}
+            </Button>
+          </div>
+        ) : (
+          <>
+            {(data.status === 'error' || data.status === 'unavailable' || data.subjectToThresholding) && (
+              <div className="mb-3 flex flex-wrap items-center gap-2" data-testid="ga-search-landing-status">
+                {data.status === 'error' && (
+                  <span className="inline-flex items-center gap-1">
+                    <ToneBadge tone="negative">{SEARCH_LANDING_COPY.refreshFailedBadge}</ToneBadge>
+                    {data.error && <InfoTooltip text={data.error} />}
+                  </span>
+                )}
+                {data.status === 'unavailable' && (
+                  <span className="inline-flex items-center gap-1">
+                    <ToneBadge tone="caution">{SEARCH_LANDING_COPY.unavailableBadge}</ToneBadge>
+                    {data.error && <InfoTooltip text={data.error} />}
+                  </span>
+                )}
+                {data.subjectToThresholding && (
+                  <span className="inline-flex items-center gap-1">
+                    <ToneBadge tone="caution">{SEARCH_LANDING_COPY.thresholdedBadge}</ToneBadge>
+                    <InfoTooltip text={SEARCH_LANDING_COPY.thresholded} />
+                  </span>
+                )}
+                {/* A failed or refused refresh keeps the last good snapshot;
+                    say so, or the old numbers read as current. */}
+                {data.status !== 'ready' && total && data.syncedAt && (
+                  <span className="text-sm text-secondary">
+                    {SEARCH_LANDING_COPY.previousSnapshot} {relativeTime(data.syncedAt)}.
+                  </span>
+                )}
+                {/* Same fix as the no-snapshot card and the CLI give. */}
+                {data.status === 'unavailable' && total && (
+                  <p className="w-full text-sm text-secondary">{SEARCH_LANDING_COPY.unavailableAction}</p>
+                )}
+              </div>
+            )}
+
+            {!total ? (
+              <Card className="p-5">
+                {data.status === 'unavailable' ? (
+                  <div className="text-sm text-secondary space-y-1">
+                    <p className="text-neutral">{SEARCH_LANDING_COPY.unavailable}</p>
+                    <p>{SEARCH_LANDING_COPY.unavailableAction}</p>
+                  </div>
+                ) : data.status === 'error' ? (
+                  <div className="text-sm text-secondary space-y-1">
+                    <p className="text-neutral">{SEARCH_LANDING_COPY.refreshFailed}</p>
+                    {data.error && <p>{data.error}</p>}
+                  </div>
+                ) : (
+                  <div className="text-sm text-secondary space-y-1">
+                    <p className="text-neutral">{SEARCH_LANDING_COPY.neverSynced}</p>
+                    {canSync && <p>{SEARCH_LANDING_COPY.neverSyncedAction}</p>}
+                  </div>
+                )}
+              </Card>
+            ) : (
+              <>
+                <DataTableSearch
+                  value={table.query}
+                  onChange={table.setQuery}
+                  label="Filter Google organic search landing pages"
+                  placeholder="Filter landing pages"
+                  className="mb-4 max-w-md"
+                />
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm" aria-labelledby="ga-search-landing-heading">
+                    <thead>
+                      <tr className="text-[10px] uppercase tracking-wider text-muted">
+                        <SortHeader label="Landing page" sortKey="landingPage" current={sortKey} dir={sortDir} onSort={handleSort} align="left" />
+                        <SortHeader label="Clicks" sortKey="clicks" current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+                        <SortHeader label="Impressions" sortKey="impressions" current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+                        <SortHeader label="CTR" sortKey="ctr" current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+                        <SortHeader label="Avg. position" sortKey="position" current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+                        <SortHeader label="Active users" sortKey="activeUsers" current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-t border-subtle font-semibold" data-testid="ga-search-landing-total">
+                        <td className="py-1.5 text-primary">
+                          {SEARCH_LANDING_COPY.totalLabel} <span className="font-normal text-secondary">{SEARCH_LANDING_COPY.totalScope}</span>
+                        </td>
+                        <td className="py-1.5 text-right text-primary tabular-nums">{total.organicGoogleSearchClicks.toLocaleString()}</td>
+                        <td className="py-1.5 text-right text-primary tabular-nums">{total.organicGoogleSearchImpressions.toLocaleString()}</td>
+                        <td className="py-1.5 text-right text-primary tabular-nums">{formatSearchLandingCtr(total.organicGoogleSearchClickThroughRate)}</td>
+                        <td className="py-1.5 text-right text-primary tabular-nums">{formatSearchLandingPosition(total.organicGoogleSearchAveragePosition)}</td>
+                        <td className="py-1.5 text-right text-primary tabular-nums">{total.activeUsers.toLocaleString()}</td>
+                      </tr>
+                      {table.rows.map((row) => (
+                        <tr key={row.landingPage} className="border-t border-subtle">
+                          <td className="py-1.5 text-neutral max-w-[400px] truncate" title={row.landingPage}>{row.landingPage}</td>
+                          <td className="py-1.5 text-right text-strong tabular-nums">{row.organicGoogleSearchClicks.toLocaleString()}</td>
+                          <td className="py-1.5 text-right text-secondary tabular-nums">{row.organicGoogleSearchImpressions.toLocaleString()}</td>
+                          <td className="py-1.5 text-right text-secondary tabular-nums">{formatSearchLandingCtr(row.organicGoogleSearchClickThroughRate)}</td>
+                          <td className="py-1.5 text-right text-secondary tabular-nums">{formatSearchLandingPosition(row.organicGoogleSearchAveragePosition)}</td>
+                          <td className="py-1.5 text-right text-secondary tabular-nums">{row.activeUsers.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* GA4's Total, not the row count: pages with active users
+                    and no clicks or impressions are still listed. */}
+                {!gaSearchLandingHasSearchData(total) && (
+                  <div className="text-sm text-secondary mt-3 space-y-1">
+                    <p>{SEARCH_LANDING_COPY.noSearchTraffic}</p>
+                    <p>{SEARCH_LANDING_COPY.noSearchTrafficAction}</p>
+                  </div>
+                )}
+                {table.totalRows === 0 && table.hasQuery && (
+                  <p className="text-sm text-secondary mt-3">
+                    {data.totalRows > data.rows.length
+                      ? SEARCH_LANDING_COPY.noFilterMatchInLoaded(data.rows.length)
+                      : SEARCH_LANDING_COPY.noFilterMatch}
+                  </p>
+                )}
+
+                <DataTablePagination
+                  page={table.page}
+                  pageSize={table.pageSize}
+                  visibleRows={table.rows.length}
+                  totalRows={table.totalRows}
+                  onPageChange={table.setPage}
+                  itemLabel={table.hasQuery ? 'matches' : 'pages'}
+                />
+
+                {(data.totalRows > data.rows.length || data.rowsCapped) && (
+                  <p className="text-sm text-secondary mt-3">
+                    {data.totalRows > data.rows.length
+                      ? `Showing the top ${data.rows.length.toLocaleString()} of ${data.totalRows.toLocaleString()} stored pages by clicks.`
+                      : ''}
+                    {data.totalRows > data.rows.length && data.rowsCapped ? ' ' : ''}
+                    {data.rowsCapped && data.reportRowCount !== null
+                      ? `GA4 reported ${data.reportRowCount.toLocaleString()} pages; the ${data.totalRows.toLocaleString()} with the most clicks are stored.`
+                      : ''}
+                  </p>
+                )}
+                {data.syncedAt && (
+                  <p className="mt-2 text-xs text-muted">Synced {relativeTime(data.syncedAt)}</p>
+                )}
+              </>
+            )}
+          </>
+        )}
+      </section>
     </>
   )
 }

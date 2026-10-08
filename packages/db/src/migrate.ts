@@ -4592,6 +4592,65 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE runs ADD COLUMN skipped_providers TEXT`,
     ],
   },
+  {
+    // GA4's "Google organic search traffic: Landing page + query string"
+    // report (Search Console link): one GA4-computed snapshot per window
+    // (7d / 28d / 90d), its Total in the window table, never a row sum. The
+    // sync-state columns are defaulted, so every existing row reads
+    // `never-synced` and an older writer that omits them still upserts.
+    // `property_id` ties the snapshot to the GA4 property it came from, so a
+    // failed sync against another property never keeps it as its own.
+    version: 176,
+    name: 'ga-search-landing-pages',
+    statements: [
+      `ALTER TABLE ga_measurement_sync_state ADD COLUMN search_landing_status TEXT NOT NULL DEFAULT 'never-synced' CHECK (search_landing_status IN ('never-synced', 'ready', 'unavailable', 'error'))`,
+      `ALTER TABLE ga_measurement_sync_state ADD COLUMN search_landing_error TEXT`,
+      `ALTER TABLE ga_measurement_sync_state ADD COLUMN search_landing_synced_at TEXT`,
+      `ALTER TABLE ga_measurement_sync_state ADD COLUMN search_landing_attempted_at TEXT`,
+      `CREATE TABLE IF NOT EXISTS ga_search_landing_windows (
+        id                        TEXT PRIMARY KEY,
+        project_id                TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        property_id               TEXT NOT NULL,
+        window_key                TEXT NOT NULL CHECK (window_key IN ('7d', '28d', '90d')),
+        period_start              TEXT NOT NULL,
+        period_end                TEXT NOT NULL,
+        time_zone                 TEXT,
+        total_clicks              INTEGER NOT NULL DEFAULT 0,
+        total_impressions         INTEGER NOT NULL DEFAULT 0,
+        total_ctr                 REAL CHECK (total_ctr IS NULL OR (total_ctr >= 0 AND total_ctr <= 1)),
+        total_average_position    REAL,
+        total_active_users        INTEGER NOT NULL DEFAULT 0,
+        report_row_count          INTEGER NOT NULL DEFAULT 0,
+        rows_capped               INTEGER NOT NULL DEFAULT 0,
+        subject_to_thresholding   INTEGER NOT NULL DEFAULT 0,
+        data_loss_from_other_row  INTEGER NOT NULL DEFAULT 0,
+        synced_at                 TEXT NOT NULL,
+        sync_run_id               TEXT REFERENCES runs(id) ON DELETE CASCADE,
+        created_at                TEXT NOT NULL,
+        CHECK (total_clicks >= 0 AND total_impressions >= 0 AND total_active_users >= 0 AND report_row_count >= 0)
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_search_landing_windows_project_window ON ga_search_landing_windows(project_id, window_key)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_search_landing_windows_run ON ga_search_landing_windows(sync_run_id)`,
+      `CREATE TABLE IF NOT EXISTS ga_search_landing_pages (
+        id                TEXT PRIMARY KEY,
+        project_id        TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        window_key        TEXT NOT NULL CHECK (window_key IN ('7d', '28d', '90d')),
+        landing_page      TEXT NOT NULL,
+        clicks            INTEGER NOT NULL DEFAULT 0,
+        impressions       INTEGER NOT NULL DEFAULT 0,
+        ctr               REAL CHECK (ctr IS NULL OR (ctr >= 0 AND ctr <= 1)),
+        average_position  REAL,
+        active_users      INTEGER NOT NULL DEFAULT 0,
+        synced_at         TEXT NOT NULL,
+        sync_run_id       TEXT REFERENCES runs(id) ON DELETE CASCADE,
+        created_at        TEXT NOT NULL,
+        CHECK (clicks >= 0 AND impressions >= 0 AND active_users >= 0)
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_search_landing_pages_grain ON ga_search_landing_pages(project_id, window_key, landing_page)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_search_landing_pages_order ON ga_search_landing_pages(project_id, window_key, clicks)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_search_landing_pages_run ON ga_search_landing_pages(sync_run_id)`,
+    ],
+  },
 ]
 
 /**

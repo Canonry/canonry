@@ -46,7 +46,7 @@ vi.mock('recharts', () => {
   }
 })
 
-import { ActivitySection, ClickThroughActivity } from '../src/components/project/ActivitySection.js'
+import { ActivitySection, ClickThroughActivity, SEARCH_LANDING_COPY } from '../src/components/project/ActivitySection.js'
 import { AiTrafficHistoryPanel } from '../src/components/project/AiTrafficHistoryPanel.js'
 
 function renderActivitySection() {
@@ -147,6 +147,14 @@ test('loads connected GA4 data without changing hook order and keeps it above AI
     if (urlPath.endsWith('/projects/test-project/ga/social-referral-history')) {
       return jsonResponse([])
     }
+    if (urlPath.endsWith('/projects/test-project/ga/search-landing-pages')) {
+      return jsonResponse({
+        source: 'ga4-search-console-link', status: 'never-synced', error: null, syncedAt: null, attemptedAt: null,
+        window: '28d', windowStart: null, windowEnd: null, windowDays: null, timeZone: null,
+        subjectToThresholding: false, dataLossFromOtherRow: false, total: null, reportRowCount: null, rowsCapped: false,
+        totalRows: 0, limit: 1000, offset: 0, rows: [],
+      })
+    }
     if (urlPath.endsWith('/projects/test-project/traffic/sources')) {
       return jsonResponse({ sources: [] })
     }
@@ -204,6 +212,13 @@ test('loads connected GA4 data without changing hook order and keeps it above AI
   expect(siteTraffic.compareDocumentPosition(visitorTraffic) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
 
   expect(screen.getByText(/Top AI referrer:/)).toBeTruthy()
+
+  // GA4's Search Console landing-page report sits directly after the GA4
+  // Top Landing Pages table, with its own state.
+  const organicSearch = await screen.findByRole('heading', { name: SEARCH_LANDING_COPY.heading })
+  expect(screen.getByText('Top Landing Pages').compareDocumentPosition(organicSearch) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+  expect(await screen.findByText(SEARCH_LANDING_COPY.neverSynced)).toBeTruthy()
+
   expect(
     consoleErrorSpy.mock.calls.flat().some((arg) =>
       String(arg).includes('change in the order of Hooks')

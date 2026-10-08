@@ -69,6 +69,8 @@ erDiagram
   projects ||--o{ ga_traffic_summaries : has
   projects ||--o{ ga_ai_referrals : has
   projects ||--o{ ga_social_referrals : has
+  projects ||--o{ ga_search_landing_windows : has
+  projects ||--o{ ga_search_landing_pages : has
 
   projects ||--o{ gbp_locations : has
   projects ||--o{ gbp_daily_metrics : has
@@ -312,7 +314,9 @@ configuration value into an observation. Treat NULL as unknown.
 | **ga_social_referrals** | Social media referral tracking. Unique: `(projectId, date, source, medium, channelGroup)` |
 | **ga_acquisition_daily** | GA4 session acquisition rows at `(project, date, channel group, source, medium, host, landing page)` grain. `landing_page_normalized` supports page rollups; sessions are non-negative. |
 | **ga_lead_events_daily** | GA4 configured lead-event counts at acquisition dimensions plus `event_name` and `attribution_scope`. Scope is `landing-page` or `channel`; counts are non-negative, and the full grain is unique. |
-| **ga_measurement_sync_state** | One per-project status row for acquisition and lead components. Each component is `never-synced`, `ready`, or `error`, with its error/timestamp; lead scope is nullable until a lead sync establishes `landing-page` or `channel`. |
+| **ga_measurement_sync_state** | One per-project status row for the acquisition, lead and Search Console landing-page components. Acquisition and leads are `never-synced`, `ready`, or `error`, with their error/timestamp; lead scope is nullable until a lead sync establishes `landing-page` or `channel`. The landing-page component (v176, defaulted columns `search_landing_status` / `_error` / `_synced_at` / `_attempted_at`) adds `unavailable` (GA4 refused the Search Console metrics); `synced_at` is when the stored snapshot was written and `attempted_at` the last try, so a failed try keeps the old snapshot and its time. |
+| **ga_search_landing_windows** | GA4's "Google organic search traffic: Landing page + query string" report (Search Console link), one row per project and `window_key` (`7d` / `28d` / `90d`, each ending yesterday in the property time zone). Holds the GA4 `property_id` it was read from (a failed sync against another property drops the snapshot rather than keep it), the window dates and `time_zone`, GA4's own TOTAL row (`total_clicks`, `total_impressions`, `total_ctr` 0..1, `total_average_position`, `total_active_users`; the ratios are null with no impressions), `report_row_count`, `rows_capped`, and GA4's thresholding / `(other)` row flags. The Total is never a sum of `ga_search_landing_pages`: users are distinct per grain and CTR and position are ratios. A sync deletes and rewrites every window and page row together. Unique: `(project_id, window_key)` |
+| **ga_search_landing_pages** | One landing page of one window of that report: GA4's raw `landingPagePlusQueryString` in `landing_page` (never normalized), `clicks`, `impressions`, `ctr` (0..1) and `average_position` (both null with no impressions), `active_users` (GA4's plain `activeUsers`). At most 10,000 rows per window, the most clicks, then impressions, first. Unique: `(project_id, window_key, landing_page)` |
 
 ### Integrations — Google Business Profile
 

@@ -101,3 +101,59 @@ describe('canonry ga sync — clamped window reporting', () => {
     expect(mockGaSync).toHaveBeenCalledWith('acme-air', { days: 500 })
   })
 })
+
+describe('canonry ga sync: Search Console landing pages line', () => {
+  beforeEach(() => {
+    mockGaSync.mockReset()
+  })
+
+  it('prints a failed slice with its status, row count and error, and leaves it out of Components', async () => {
+    mockGaSync.mockResolvedValue(syncResponse({
+      measurement: {
+        ...syncResponse().measurement,
+        searchLandingPages: { status: 'error', windows: [], rowCount: 0, error: 'GA4 API error (500): backend error' },
+      },
+      syncedComponents: ['traffic', 'summary'],
+    }))
+
+    const cap = captureStreams(() => gaSync('acme-air', { only: 'search-landing' }))
+    await cap.run
+
+    const lines = cap.stdout().split('\n')
+    expect(lines).toContain('  Components:  traffic, summary')
+    expect(lines).toContain('  Search Console landing pages: error (0 rows)')
+    expect(lines).toContain('    Error: GA4 API error (500): backend error')
+    // The slice line sits inside the summary, before the sync time.
+    expect(lines.indexOf('    Error: GA4 API error (500): backend error')).toBe(lines.findIndex(line => line.startsWith('  Synced at:')) - 1)
+    expect(mockGaSync).toHaveBeenCalledWith('acme-air', { only: 'search-landing' })
+  })
+
+  it('prints a stored slice without an error line, and no line when the slice was not attempted', async () => {
+    mockGaSync.mockResolvedValue(syncResponse({
+      measurement: {
+        ...syncResponse().measurement,
+        searchLandingPages: {
+          status: 'ready',
+          windows: [
+            { window: '7d', rowCount: 4, reportRowCount: 4, rowsCapped: false },
+            { window: '28d', rowCount: 7, reportRowCount: 7, rowsCapped: false },
+            { window: '90d', rowCount: 10, reportRowCount: 10, rowsCapped: false },
+          ],
+          rowCount: 21,
+        },
+      },
+    }))
+
+    const ready = captureStreams(() => gaSync('acme-air'))
+    await ready.run
+
+    expect(ready.stdout().split('\n')).toContain('  Search Console landing pages: ready (21 rows)')
+    expect(ready.stdout()).not.toMatch(/Error:/)
+
+    mockGaSync.mockResolvedValue(syncResponse({ syncedComponents: ['traffic', 'summary', 'social'] }))
+    const other = captureStreams(() => gaSync('acme-air', { only: 'social' }))
+    await other.run
+
+    expect(other.stdout()).not.toMatch(/Search Console landing pages/)
+  })
+})
