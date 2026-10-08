@@ -27,6 +27,11 @@ site and shares only the Application-Password auth pattern.
   Password (the same scheme used by `packages/integration-wordpress/`). This
   package base64-encodes them for HTTP Basic auth. Credentials are caller-supplied
   per request — they live in `~/.canonry/config.yaml` under `wordpressTraffic.connections`.
+- **Egress through the caller's fetch.** Every page request goes through
+  `options.fetchImpl`, falling back to global `fetch`. `api-routes` passes
+  `createGuardedFetch`, which checks the address of each request and redirect
+  hop and dials only that address, so the Basic-auth header cannot be steered
+  to an internal host by DNS rebinding or a redirect.
 - **Pull-only, cursor-paginated.** `listWordpressTrafficEvents` accepts an opaque
   `cursor` string returned from the previous page (`next_cursor`). No push,
   no SaaS relay.

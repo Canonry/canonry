@@ -1,7 +1,6 @@
 import crypto from 'node:crypto'
 import { isIP } from 'node:net'
 import { isDeepStrictEqual } from 'node:util'
-import { Agent as UndiciAgent } from 'undici'
 import { countableReferralCondition, referralLandedCondition } from './ai-referral-status.js'
 import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core'
@@ -125,6 +124,7 @@ import {
   authRequired,
 } from '@ainyc/canonry-contracts'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
+import { createGuardedFetch } from './guarded-fetch.js'
 import { resolveWebhookTarget } from './webhooks.js'
 import {
   DIRECT_PUSH_RECEIPT_TTL_MS,
@@ -1547,59 +1547,25 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
 
   /**
    * SSRF guard for the operator-supplied WordPress `baseUrl`. Every pull-side
-   * call into `pullWordpressEvents` attaches Basic-auth credentials, so we
-   * resolve the host before each fetch and refuse private / link-local /
-   * metadata addresses. Loopback is opt-in via `allowLoopbackWebhooks` to
-   * preserve the local dev experience without ever shipping that capability
-   * to cloud.
-   *
-   * Returns an undici `Dispatcher` whose `connect.lookup` is pinned to the
-   * IP we just validated, so the subsequent `fetch` cannot be coerced into
-   * a different address via DNS rebinding between validation and request.
-   * The dispatcher is passed straight to `listWordpressTrafficEvents`, which
-   * forwards it to `fetch(url, { dispatcher })`. Re-validating on every
-   * sync (not just at connect time) closes the DNS-flip window where a
-   * public-IP domain becomes a private-IP one between syncs.
+   * call into `pullWordpressEvents` attaches Basic-auth credentials, so the
+   * host is resolved and private / link-local / metadata addresses refused
+   * before any pull, as a 400 that names the URL. Loopback is opt-in via
+   * `allowLoopbackWebhooks` to preserve the local dev experience without ever
+   * shipping that capability to cloud. Re-checked on every sync, not just at
+   * connect, so a public name that later resolves to private space is refused.
    */
-  async function assertWordpressTargetAllowed(baseUrl: string): Promise<UndiciAgent> {
+  async function assertWordpressTargetAllowed(baseUrl: string): Promise<void> {
     const check = await resolveWebhookTarget(baseUrl, { allowLoopback })
     if (!check.ok) {
       throw validationError(`WordPress baseUrl rejected: ${check.message}`)
     }
-    const { address, family } = check.target
-    return new UndiciAgent({
-      connect: {
-        lookup: (_hostname, options, cb) => {
-          // Always resolve to the pre-validated public IP, regardless of
-          // what the OS resolver would return now. Closes the rebinding
-          // TOCTOU between `resolveWebhookTarget` above and the fetch
-          // performed inside the WordPress integration package.
-          //
-          // undici v7 passes `{ hints: 32, all: true }`; Node.js expects
-          // an array of `{ address, family }` objects when `all` is set.
-          if (options?.all) {
-            cb(null, [{ address, family: family === 6 ? 6 : 4 }])
-          } else {
-            cb(null, address, family === 6 ? 6 : 4)
-          }
-        },
-      },
-    })
   }
-  // Keep the live pinned dispatchers around so they can be `close()`d after
-  // the request finishes — undici pools sockets internally, so dropping the
-  // reference without closing leaks the agent.
-  async function withPinnedWordpressDispatcher<T>(
-    baseUrl: string,
-    fn: (dispatcher: UndiciAgent) => Promise<T>,
-  ): Promise<T> {
-    const dispatcher = await assertWordpressTargetAllowed(baseUrl)
-    try {
-      return await fn(dispatcher)
-    } finally {
-      await dispatcher.close().catch(() => {})
-    }
-  }
+  // Every pull goes through this fetch, which checks each request and each
+  // redirect hop again and dials only the address it checked. The check above
+  // alone would leave the window between it and the request open to DNS
+  // rebinding, and a redirect (to an IP literal, which skips any pinned
+  // lookup, or to a name) never passes through it.
+  const wordpressTrafficFetch = createGuardedFetch({ allowLoopback })
   const vercelMaxPages = opts.defaultVercelMaxPages ?? DEFAULT_VERCEL_MAX_PAGES
   const vercelSyncDeadlineMs = opts.vercelSyncDeadlineMs ?? DEFAULT_VERCEL_SYNC_DEADLINE_MS
   const syncWindowMinutes = opts.defaultSyncWindowMinutes ?? DEFAULT_SYNC_WINDOW_MINUTES
@@ -1829,33 +1795,29 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     // fetch goes out. Without this check an API-key holder can target the
     // host's metadata service (169.254.169.254, metadata.google.internal),
     // RFC1918 ranges, or sidecar admin endpoints — and the error body
-    // bubbles back through providerError below.
-    //
-    // The returned dispatcher pins DNS to the validated IP, so the probe's
-    // fetch can't be steered to a different address by DNS rebinding in the
-    // window between validation and request.
-    await withPinnedWordpressDispatcher(baseUrl, async (dispatcher) => {
-      // Probe the plugin endpoint up-front so the caller learns about a bad
-      // URL / wrong credential before we touch any persistent state.
-      try {
-        await pullWordpressEvents({
-          baseUrl,
-          username,
-          applicationPassword,
-          pageSize: 1,
-          maxPages: 1,
-          dispatcher,
-        })
-      } catch (e) {
-        if (e instanceof WordpressTrafficApiError) {
-          throw providerError(
-            `WordPress traffic probe failed (HTTP ${e.status}): ${e.message}${e.body ? ` — ${e.body}` : ''}`,
-          )
-        }
-        const msg = describeError(e)
-        throw providerError(`WordPress traffic probe failed: ${msg}`)
+    // bubbles back through providerError below. The probe itself goes through
+    // the guarded fetch, so DNS rebinding and redirects are checked as well.
+    await assertWordpressTargetAllowed(baseUrl)
+    // Probe the plugin endpoint up-front so the caller learns about a bad
+    // URL / wrong credential before we touch any persistent state.
+    try {
+      await pullWordpressEvents({
+        baseUrl,
+        username,
+        applicationPassword,
+        pageSize: 1,
+        maxPages: 1,
+        fetchImpl: wordpressTrafficFetch,
+      })
+    } catch (e) {
+      if (e instanceof WordpressTrafficApiError) {
+        throw providerError(
+          `WordPress traffic probe failed (HTTP ${e.status}): ${e.message}${e.body ? ` — ${e.body}` : ''}`,
+        )
       }
-    })
+      const msg = describeError(e)
+      throw providerError(`WordPress traffic probe failed: ${msg}`)
+    }
 
     const now = new Date().toISOString()
     const existing = credentialStore.getConnection(project.name)
@@ -3219,18 +3181,15 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       const wpPageSize = opts.defaultWordpressPageSize ?? DEFAULT_WP_PAGE_SIZE
       const wpMaxPages = opts.defaultWordpressMaxPages ?? DEFAULT_WP_MAX_PAGES
 
-      // Re-validate the persisted baseUrl on every sync AND pin the resolved
-      // IP for the duration of this sync's fetches. The pinned dispatcher
-      // closes the DNS-flip window two ways: (a) `assertWordpressTargetAllowed`
-      // refuses to issue a dispatcher if the host now resolves to a private
-      // address, and (b) every subsequent fetch through the dispatcher uses
-      // the validated IP, so DNS rebinding between validation and any of the
-      // per-page fetches below can't redirect Basic-auth creds to a metadata
-      // or RFC1918 host.
-      let pinnedDispatcher: UndiciAgent
+      // Re-validate the persisted baseUrl on every sync, so a host that now
+      // resolves to a private address fails the sync before any pull. Each
+      // per-page fetch below goes through the guarded fetch, which checks the
+      // address again and dials only that address, so DNS rebinding between
+      // pages, or a redirect, can't carry Basic-auth creds to a metadata or
+      // RFC1918 host.
       try {
         renewWordpressLease()
-        pinnedDispatcher = await assertWordpressTargetAllowed(credential.baseUrl)
+        await assertWordpressTargetAllowed(credential.baseUrl)
       } catch (e) {
         const msg = describeError(e)
         markFailed(msg, 'PROVIDER_PULL')
@@ -3251,7 +3210,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
             maxPages: 1,
             since: windowStartIso,
             until: windowEndIso,
-            dispatcher: pinnedDispatcher,
+            fetchImpl: wordpressTrafficFetch,
           })
           collected.push(...pageResult.events)
           const previousCursor = cursor
@@ -3276,8 +3235,6 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         const msg = describeError(e)
         markFailed(msg, 'PROVIDER_PULL')
         throw providerError(`WordPress pull failed: ${msg}`)
-      } finally {
-        await pinnedDispatcher.close().catch(() => {})
       }
     } else {
       // Vercel `request-logs` adapter. Pulls the full `[windowStart,

@@ -5,6 +5,7 @@ import {
   describeError,
 } from '@ainyc/canonry-contracts'
 import { verifyWordpressConnection, WordpressApiError } from '@ainyc/canonry-integration-wordpress'
+import { createGuardedFetch } from '../../guarded-fetch.js'
 import type { CheckDefinition } from '../types.js'
 
 export const WORDPRESS_PUBLISH_CHECKS: readonly CheckDefinition[] = [
@@ -47,7 +48,12 @@ export const WORDPRESS_PUBLISH_CHECKS: readonly CheckDefinition[] = [
       }
 
       try {
-        const status = await verifyWordpressConnection(connection)
+        // The same egress guard the WordPress routes use: the stored URL is
+        // checked again, and so is every redirect hop.
+        const status = await verifyWordpressConnection({
+          ...connection,
+          fetchImpl: createGuardedFetch({ allowLoopback: ctx.allowLoopbackWebhooks === true }),
+        })
         return {
           status: CheckStatuses.ok,
           code: 'wordpress.publish.connected',

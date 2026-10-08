@@ -1,0 +1,177 @@
+import { afterEach, describe, expect, test } from 'vitest'
+import { createGuardedFetch, EgressRefusedError, GUARDED_FETCH_MAX_REDIRECTS } from '../src/guarded-fetch.js'
+import { resolveWebhookTarget, type ResolveWebhookTargetResult } from '../src/webhooks.js'
+import { startRecordingSite, type RecordingSite } from './recording-site-fixture.js'
+
+/**
+ * Every test talks to a real socket. `site.example.test` never resolves in
+ * real DNS, so a request that reaches the fixture under that name proves the
+ * connection went to the address the policy checked.
+ */
+const PUBLIC_SITE = 'site.example.test'
+
+/**
+ * Treats the fixture as the public site `site.example.test` and judges every
+ * other hop by the real policy, with loopback refused as on a cloud deployment.
+ */
+async function publicFixturePolicy(url: string): Promise<ResolveWebhookTargetResult> {
+  const parsed = new URL(url)
+  if (parsed.hostname === PUBLIC_SITE) return { ok: true, target: { url: parsed, address: '127.0.0.1', family: 4 } }
+  return resolveWebhookTarget(url)
+}
+
+let site: RecordingSite | undefined
+let otherSite: RecordingSite | undefined
+
+afterEach(async () => {
+  await site?.close()
+  await otherSite?.close()
+  site = undefined
+  otherSite = undefined
+})
+
+describe('createGuardedFetch', () => {
+  test('dials the checked address and follows a same-origin redirect with its credentials', async () => {
+    site = await startRecordingSite((request, response) => {
+      if (request.path === '/wp-json') {
+        response.writeHead(301, { Location: '/wp-json/' }).end()
+        return
+      }
+      response.writeHead(200, { 'Content-Type': 'text/plain' }).end('routes')
+    })
+    const guardedFetch = createGuardedFetch({ resolveTarget: publicFixturePolicy })
+
+    const response = await guardedFetch(`http://${PUBLIC_SITE}:${site.port}/wp-json`, {
+      headers: { Authorization: 'Basic d3A6cGFzcw==' },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe('routes')
+    expect(site.requests.map(({ path, headers }) => ({ path, host: headers.host, authorization: headers.authorization }))).toEqual([
+      { path: '/wp-json', host: `${PUBLIC_SITE}:${site.port}`, authorization: 'Basic d3A6cGFzcw==' },
+      { path: '/wp-json/', host: `${PUBLIC_SITE}:${site.port}`, authorization: 'Basic d3A6cGFzcw==' },
+    ])
+  })
+
+  test('refuses a first hop the policy refuses without dialing it', async () => {
+    site = await startRecordingSite((_request, response) => response.writeHead(200).end('internal'))
+
+    await expect(createGuardedFetch()(`http://127.0.0.1:${site.port}/`))
+      .rejects.toThrow(new EgressRefusedError(`Refused to connect to 127.0.0.1:${site.port}: must not resolve to a private or loopback address`))
+    expect(site.requests).toEqual([])
+  })
+
+  test.each([
+    ['an IPv4 loopback literal', (port: number) => `http://127.0.0.1:${port}/internal`, 'must not resolve to a private or loopback address'],
+    ['an IPv6 loopback literal', (port: number) => `http://[::1]:${port}/internal`, 'must not resolve to a private or loopback address'],
+    ['the unspecified address, which reaches this host', (port: number) => `http://0.0.0.0:${port}/internal`, 'must not resolve to a private or loopback address'],
+    ['the metadata address', () => 'http://169.254.169.254/latest/meta-data/', 'must not resolve to a private or loopback address'],
+    ['a file URL', () => 'file:///etc/passwd', 'must use http or https scheme'],
+  ])('refuses a redirect to %s without dialing it', async (_name, location, reason) => {
+    site = await startRecordingSite((request, response, port) => {
+      if (request.path === '/start') {
+        response.writeHead(302, { Location: location(port) }).end()
+        return
+      }
+      response.writeHead(200).end('internal')
+    })
+    const guardedFetch = createGuardedFetch({ resolveTarget: publicFixturePolicy })
+
+    const refused = guardedFetch(`http://${PUBLIC_SITE}:${site.port}/start`)
+
+    await expect(refused).rejects.toBeInstanceOf(EgressRefusedError)
+    await expect(refused).rejects.toThrow(reason)
+    expect(site.requests.map(({ path }) => path)).toEqual(['/start'])
+  })
+
+  test('checks the name again on every request, so a name that rebinds to private space is refused', async () => {
+    site = await startRecordingSite((_request, response) => response.writeHead(200).end('ok'))
+    const answers = [{ address: '127.0.0.1', family: 4 as const }, { address: '10.0.0.5', family: 4 as const }]
+    const guardedFetch = createGuardedFetch({
+      resolveTarget: (url) => resolveWebhookTarget(url, { allowLoopback: true, resolveAddresses: async () => [answers.shift()!] }),
+    })
+
+    expect((await guardedFetch(`http://${PUBLIC_SITE}:${site.port}/a`)).status).toBe(200)
+    await expect(guardedFetch(`http://${PUBLIC_SITE}:${site.port}/b`))
+      .rejects.toThrow(new EgressRefusedError(`Refused to connect to ${PUBLIC_SITE}:${site.port}: must not resolve to a private or loopback address`))
+    expect(site.requests.map(({ path }) => path)).toEqual(['/a'])
+  })
+
+  test('drops credentials on a cross-origin redirect and keeps the method and body of a 307', async () => {
+    otherSite = await startRecordingSite((_request, response) => response.writeHead(200).end('landed'))
+    const landing = `http://127.0.0.1:${otherSite.port}/landing`
+    site = await startRecordingSite((_request, response) => response.writeHead(307, { Location: landing }).end())
+    const guardedFetch = createGuardedFetch({ allowLoopback: true })
+
+    const response = await guardedFetch(`http://127.0.0.1:${site.port}/start`, {
+      method: 'POST',
+      headers: {
+        Authorization: 'Basic d3A6cGFzcw==',
+        Cookie: 'session=1',
+        'Proxy-Authorization': 'Basic cHJveHk=',
+        'Content-Type': 'application/json',
+      },
+      body: '{"a":1}',
+    })
+
+    expect(await response.text()).toBe('landed')
+    expect(site.requests[0]!.headers.authorization).toBe('Basic d3A6cGFzcw==')
+    const [landed] = otherSite.requests
+    expect({
+      method: landed!.method,
+      body: landed!.body,
+      contentType: landed!.headers['content-type'],
+      authorization: landed!.headers.authorization,
+      cookie: landed!.headers.cookie,
+      proxyAuthorization: landed!.headers['proxy-authorization'],
+    }).toEqual({
+      method: 'POST',
+      body: '{"a":1}',
+      contentType: 'application/json',
+      authorization: undefined,
+      cookie: undefined,
+      proxyAuthorization: undefined,
+    })
+  })
+
+  test.each([
+    [301, 'POST', 'GET', ''],
+    [302, 'POST', 'GET', ''],
+    [303, 'PUT', 'GET', ''],
+    [302, 'PUT', 'PUT', '{"a":1}'],
+    [308, 'PUT', 'PUT', '{"a":1}'],
+  ])('follows a %i after a %s as a %s', async (status, method, followedMethod, followedBody) => {
+    site = await startRecordingSite((request, response) => {
+      if (request.path === '/start') {
+        response.writeHead(status, { Location: '/next' }).end()
+        return
+      }
+      response.writeHead(200).end('ok')
+    })
+    const guardedFetch = createGuardedFetch({ allowLoopback: true })
+
+    await guardedFetch(`http://127.0.0.1:${site.port}/start`, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"a":1}',
+    })
+
+    const followed = site.requests[1]!
+    expect({ method: followed.method, body: followed.body, contentType: followed.headers['content-type'] }).toEqual({
+      method: followedMethod,
+      body: followedBody,
+      contentType: followedBody ? 'application/json' : undefined,
+    })
+  })
+
+  test(`stops after ${GUARDED_FETCH_MAX_REDIRECTS} redirects`, async () => {
+    site = await startRecordingSite((_request, response) => {
+      response.writeHead(302, { Location: `/hop-${site!.requests.length}` }).end()
+    })
+    const guardedFetch = createGuardedFetch({ allowLoopback: true })
+
+    await expect(guardedFetch(`http://127.0.0.1:${site.port}/hop-0`))
+      .rejects.toThrow(new EgressRefusedError(`127.0.0.1:${site.port} redirected more than ${GUARDED_FETCH_MAX_REDIRECTS} times`))
+    expect(site.requests).toHaveLength(GUARDED_FETCH_MAX_REDIRECTS + 1)
+  })
+})

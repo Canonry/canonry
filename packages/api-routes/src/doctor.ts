@@ -19,6 +19,8 @@ export interface DoctorRoutesOptions {
   googleConnectionStore?: GoogleConnectionStore
   bingConnectionStore?: BingConnectionStore
   wordpressConnectionStore?: WordpressConnectionStore
+  /** See `DoctorContext.allowLoopbackWebhooks`. */
+  allowLoopbackWebhooks?: boolean
   ga4CredentialStore?: Ga4CredentialStore
   adsCredentialStore?: AdsCredentialStore
   getGoogleAuthConfig?: () => { clientId?: string; clientSecret?: string }
@@ -85,6 +87,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       googleConnectionStore: opts.googleConnectionStore,
       bingConnectionStore: opts.bingConnectionStore,
       wordpressConnectionStore: opts.wordpressConnectionStore,
+      allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
       ga4CredentialStore: opts.ga4CredentialStore,
       adsCredentialStore: opts.adsCredentialStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
@@ -123,6 +126,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       googleConnectionStore: opts.googleConnectionStore,
       bingConnectionStore: opts.bingConnectionStore,
       wordpressConnectionStore: opts.wordpressConnectionStore,
+      allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
       ga4CredentialStore: opts.ga4CredentialStore,
       adsCredentialStore: opts.adsCredentialStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,

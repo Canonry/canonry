@@ -94,6 +94,7 @@ import {
   listWordpressTrafficEvents,
   WordpressTrafficApiError,
 } from '@ainyc/canonry-integration-wordpress-traffic'
+import { createGuardedFetch } from './guarded-fetch.js'
 import {
   listVercelTrafficEvents,
   VercelLogsApiError,
@@ -819,6 +820,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       googleConnectionStore: opts.googleConnectionStore,
       bingConnectionStore: opts.bingConnectionStore,
       wordpressConnectionStore: opts.wordpressConnectionStore,
+      allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
       ga4CredentialStore: opts.ga4CredentialStore,
       adsCredentialStore: opts.adsCredentialStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
@@ -905,6 +907,10 @@ export { resolveMeasurementSitemapTarget as resolvePublicHttpTarget } from './me
 // The address policy both preflights apply, for a caller that checks an
 // address it dials itself (a pinned connection, a redirect hop).
 export { blockedAddressReason, isLoopbackAddress } from './egress-policy.js'
+// A fetch that applies that policy to every request and redirect hop and dials
+// only the address it checked, for a URL this instance did not choose.
+export { createGuardedFetch, EgressRefusedError } from './guarded-fetch.js'
+export type { GuardedFetch, GuardedFetchOptions } from './guarded-fetch.js'
 export { redactNotificationDiff, redactNotificationUrl } from './notification-redaction.js'
 export type { ResolveWebhookTargetOptions, ResolveWebhookTargetResult, SafeWebhookTarget } from './webhooks.js'
 export type { RunRoutesOptions } from './runs.js'
@@ -1003,6 +1009,7 @@ function buildTrafficSourceValidators(opts: ApiRoutesOptions): Record<string, Tr
   if (opts.wordpressTrafficCredentialStore) {
     const store = opts.wordpressTrafficCredentialStore
     const pullEvents = opts.pullWordpressTrafficEvents ?? listWordpressTrafficEvents
+    const wordpressTrafficFetch = createGuardedFetch({ allowLoopback: opts.allowLoopbackWebhooks === true })
     validators[TrafficSourceTypes.wordpress] = {
       validateCredentials: async (source: TrafficSourceProbe): Promise<CheckOutput> => {
         const record = store.getConnection(source.projectName)
@@ -1021,6 +1028,9 @@ function buildTrafficSourceValidators(opts: ApiRoutesOptions): Record<string, Tr
             applicationPassword: record.applicationPassword,
             pageSize: 1,
             maxPages: 1,
+            // The probe carries Basic-auth credentials: check the stored URL
+            // and every redirect hop as the sync route does.
+            fetchImpl: wordpressTrafficFetch,
           })
           return {
             status: CheckStatuses.ok,

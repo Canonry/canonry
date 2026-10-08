@@ -52,6 +52,9 @@ export interface WordpressTrafficEventsResponseBody {
   }
 }
 
+/** The fetch shape `listWordpressTrafficEvents` calls. */
+export type WordpressTrafficFetch = (url: URL, init: RequestInit) => Promise<Response>
+
 export interface ListWordpressTrafficEventsOptions {
   /** Absolute base URL of the WP site, e.g. `https://example.com`. The plugin path is appended automatically. */
   baseUrl: string
@@ -65,13 +68,13 @@ export interface ListWordpressTrafficEventsOptions {
   maxPages?: number
   timeoutMs?: number
   /**
-   * Optional undici `Dispatcher` (typed as `unknown` to avoid an undici dep
-   * on this package — the caller imports `undici` and constructs one). Used
-   * to pin DNS to a pre-validated IP so the fetch can't be rebound to a
-   * private / metadata address between SSRF validation and request time.
-   * Forwarded verbatim to `fetch(url, { dispatcher })`; ignored when undefined.
+   * The fetch every page request goes through. Defaults to global `fetch`.
+   * The api-routes caller passes its egress-guarded fetch, which checks the
+   * address of each request and of every redirect hop and dials only that
+   * address, so neither DNS rebinding nor a redirect (to an IP literal or to
+   * a name) can carry the Basic-auth credentials to an internal host.
    */
-  dispatcher?: unknown
+  fetchImpl?: WordpressTrafficFetch
   /**
    * Optional INCLUSIVE lower bound on `observed_at` — ISO 8601. When set,
    * the plugin returns only events with `observed_at >= since`. Used by the

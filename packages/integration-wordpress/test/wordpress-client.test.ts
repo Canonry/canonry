@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { WordpressConnectionRecord } from '../src/index.js'
+import type { WordpressConnectionRecord, WordpressFetch } from '../src/index.js'
 import {
   WordpressApiError,
   deploySchemaFromProfile,
   diffPageAcrossEnvironments,
+  getLlmsTxt,
   getPageDetail,
   runAudit,
   setSeoMeta,
@@ -646,6 +647,43 @@ describe('wordpress client', () => {
       message: 'Authentication failed — the username or application password is incorrect. Verify the app password belongs to the user specified with --user.',
     } satisfies Partial<WordpressApiError>)
     expect(requestedUrls).toEqual(['https://example.com/wp-json/wp/v2/users/me?_fields=id,slug'])
+  })
+
+  it('sends every request through the injected fetch, rendered pages and llms.txt included', async () => {
+    // A host's egress guard sees only what goes through `fetchImpl`, so a
+    // request that falls back to global fetch skips the guard.
+    globalThis.fetch = async () => {
+      throw new Error('global fetch must not be called when fetchImpl is set')
+    }
+    const requests: Array<{ url: string; authorization: string | null }> = []
+    const fetchImpl: WordpressFetch = async (url, init) => {
+      requests.push({ url, authorization: new Headers(init.headers).get('authorization') })
+      if (url.includes('/wp-json/wp/v2/users/me?')) return jsonResponse({ id: 1, slug: 'admin' })
+      if (url.includes('/wp-json/wp/v2/pages?per_page=1&')) return jsonResponse([], { headers: { 'x-wp-total': '3' } })
+      if (url.includes('/wp-json/wp/v2/plugins?')) return jsonResponse([])
+      if (url.includes('/wp-json/wp/v2/pages?slug=about')) {
+        return jsonResponse([{ id: 7, slug: 'about', status: 'publish', link: 'https://cdn.example.net/about/', content: { raw: 'About' } }])
+      }
+      if (url === 'https://cdn.example.net/about/') return new Response('<title>About Us</title>')
+      if (url === 'https://example.com') return new Response('<meta name="generator" content="WordPress 6.8.1">')
+      if (url === 'https://example.com/llms.txt') return new Response('# Example')
+      throw new Error(`Unhandled URL: ${url}`)
+    }
+    const connection = { ...createConnection(), fetchImpl }
+    const basic = `Basic ${Buffer.from('admin:app-pass').toString('base64')}`
+
+    expect((await verifyWordpressConnection(connection)).version).toBe('6.8.1')
+    expect((await getPageDetail(connection, 'about', 'live', [])).seo.title).toBe('About Us')
+    expect((await getLlmsTxt(connection, 'live')).content).toBe('# Example')
+
+    expect(requests).toEqual([
+      { url: 'https://example.com/wp-json/wp/v2/users/me?_fields=id,slug', authorization: basic },
+      { url: 'https://example.com/wp-json/wp/v2/pages?per_page=1&_fields=id%2Cstatus&context=view', authorization: basic },
+      { url: 'https://example.com', authorization: null },
+      { url: 'https://example.com/wp-json/wp/v2/pages?slug=about&per_page=100&context=edit&_fields=id,slug,status,link,modified,modified_gmt,title,content,meta', authorization: basic },
+      { url: 'https://cdn.example.net/about/', authorization: null },
+      { url: 'https://example.com/llms.txt', authorization: null },
+    ])
   })
 
   it('sanitizes the application password and username from the error details on failure', async () => {
