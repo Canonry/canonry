@@ -4757,7 +4757,7 @@ export type Ga4MeasurementAnalysisDto = {
         }>;
         aiEngines: {
             leadRateAvailable: boolean;
-            leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'sessions-behind-leads';
+            leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days';
             organic: {
                 periods: Array<{
                     label: 'earliest' | 'middle' | 'previous' | 'latest';
@@ -11028,7 +11028,7 @@ export type OrganicEvidenceDto = {
             }>;
             aiEngines: {
                 leadRateAvailable: boolean;
-                leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'sessions-behind-leads';
+                leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days';
                 organic: {
                     periods: Array<{
                         label: 'earliest' | 'middle' | 'previous' | 'latest';

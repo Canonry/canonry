@@ -296,6 +296,65 @@ describe('GA measurement analysis operator parity', () => {
 
     const staleLines = output.mock.calls.map(call => String(call[0]))
     expect(staleLines.some(line => /Note: stored lead events run past the last stored session date/.test(line))).toBe(true)
+
+    output.mockClear()
+    gaMeasurementAnalysisMock.mockResolvedValue({
+      ...ANALYSIS,
+      leads: {
+        ...ANALYSIS.leads,
+        aiEngines: {
+          ...aiEngines,
+          leadRateAvailable: false,
+          leadRateUnavailableReason: 'sessions-missing-on-lead-days',
+        },
+      },
+    } satisfies GaMeasurementAnalysisDto)
+
+    await gaMeasurementAnalysis('acme')
+
+    const gapLines = output.mock.calls.map(call => String(call[0]))
+    expect(gapLines.some(line => /Note: some days in this window have stored lead events but no stored sessions/.test(line))).toBe(true)
+
+    output.mockClear()
+    gaMeasurementAnalysisMock.mockResolvedValue({
+      ...ANALYSIS,
+      leads: {
+        ...ANALYSIS.leads,
+        attributionScope: 'channel',
+        hostAndPathFiltersApplied: false,
+        aiEngines: {
+          ...aiEngines,
+          leadRateAvailable: false,
+          leadRateUnavailableReason: 'paid-split-needs-landing-page',
+        },
+      },
+    } satisfies GaMeasurementAnalysisDto)
+
+    await gaMeasurementAnalysis('acme')
+
+    const paidSplitLines = output.mock.calls.map(call => String(call[0]))
+    expect(paidSplitLines.some(line => /Note: .*cannot read landing-page utm tags.*paid utm_medium such as cpc/.test(line))).toBe(true)
+  })
+
+  it('prints the rest of the analysis when an older server sends no leads.aiEngines', async () => {
+    // A server from before the AI engine breakdown: the leads block has no aiEngines key.
+    const { aiEngines: _aiEngines, ...legacyLeads } = ANALYSIS.leads
+    gaMeasurementAnalysisMock.mockResolvedValue({
+      ...ANALYSIS,
+      leads: {
+        ...legacyLeads,
+        periods: [{ label: 'latest', startDate: '2026-06-24', endDate: '2026-07-23', eventCount: 4 }],
+      },
+    })
+    const output = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const { gaMeasurementAnalysis } = await import('../src/commands/ga.js')
+
+    await expect(gaMeasurementAnalysis('acme')).resolves.toBeUndefined()
+
+    const lines = output.mock.calls.map(call => String(call[0]))
+    expect(lines.some(line => /latest\s+4 leads/.test(line))).toBe(true)
+    expect(lines.some(line => line.startsWith('  Search demand: ready'))).toBe(true)
+    expect(lines.some(line => line.includes('Leads by AI engine'))).toBe(false)
   })
 
   it('exposes the analysis as a read-only GA MCP tool with identical filters', async () => {

@@ -223,22 +223,22 @@ function buildAiEngineLeadClass(input: {
 }
 
 /**
- * Lead events and sessions per AI engine, in the same buckets as the channel
- * breakdown, split into organic and paid. Both sides are attributed through
- * `aiEngineForReferralSource` on GA4 `sessionSource` and classified through
- * `classifyAiReferralTrafficClass`, and both arrive here already host/path
- * filtered the way the channel breakdown filters them, so a rate divides like
- * by like unless the caller gives a reason it cannot. A row whose source
- * matches no engine is kept, as unattributed, only when GA4 put it in its own
- * AI channel group.
+ * Attribute lead and session rows to an AI engine and a traffic class. Both
+ * sides go through `aiEngineForReferralSource` on GA4 `sessionSource` and
+ * `classifyAiReferralTrafficClass`, on the same evidence: when the lead rows
+ * are channel-scoped they carry no landing page, so `landingPageEvidence` is
+ * false and neither side reads one. A row whose source matches no engine is
+ * kept, as unattributed, only when GA4 put it in its own AI channel group.
+ *
+ * `paidOnlyByLandingPage` is true when some attributed row is paid with its
+ * landing page and organic without it: dropping the landing page moved it to
+ * organic, so the paid/organic split (and every rate on it) is not honest.
  */
-function buildAiEngineLeads(input: {
-  periods: Period[]
+function attributeAiEngineRows(input: {
   leads: Array<AiSourceRow & { eventCount: number }>
   sessions: Array<AiSourceRow & { sessions: number }>
-  leadRateUnavailableReason: AiEngineLeadRateUnavailableReason | null
-}) {
-  const leadRateAvailable = input.leadRateUnavailableReason === null
+  landingPageEvidence: boolean
+}): { leads: AttributedAiRow[]; sessions: AttributedAiRow[]; paidOnlyByLandingPage: boolean } {
   const engineBySource = new Map<string, AiReferralEngine | null>()
   const engineOf = (source: string) => {
     let engine = engineBySource.get(source)
@@ -248,32 +248,51 @@ function buildAiEngineLeads(input: {
     }
     return engine
   }
+  let paidOnlyByLandingPage = false
   const attribute = <T extends AiSourceRow>(
     rows: T[],
     valueOf: (row: T) => number,
   ): AttributedAiRow[] => rows.flatMap((row) => {
     const engine = engineOf(row.source)
     if (engine === null && !isGa4AiAssistantChannel(row.channelGroup)) return []
+    const evidence = { source: row.source, medium: row.medium, channelGroup: row.channelGroup }
+    // The raw landing page keeps the utm parameters the classifier reads.
+    const withLandingPage = classifyAiReferralTrafficClass({ ...evidence, landingPage: row.landingPage })
+    const trafficClass = input.landingPageEvidence
+      ? withLandingPage
+      : classifyAiReferralTrafficClass({ ...evidence, landingPage: null })
+    if (trafficClass !== withLandingPage) paidOnlyByLandingPage = true
     return [{
       date: row.date,
       source: row.source,
       key: engine ?? UNATTRIBUTED_AI,
-      // The raw landing page keeps the utm parameters the classifier reads.
-      trafficClass: classifyAiReferralTrafficClass({
-        source: row.source,
-        medium: row.medium,
-        channelGroup: row.channelGroup,
-        landingPage: row.landingPage,
-      }),
+      trafficClass,
       value: valueOf(row),
     }]
   })
   const leads = attribute(input.leads, row => row.eventCount)
   const sessions = attribute(input.sessions, row => row.sessions)
+  return { leads, sessions, paidOnlyByLandingPage }
+}
+
+/**
+ * Lead events and sessions per AI engine, in the same buckets as the channel
+ * breakdown, split into organic and paid. Both sides arrive here attributed
+ * on the same evidence and already host/path filtered the way the channel
+ * breakdown filters them, so a rate divides like by like unless the caller
+ * gives a reason it cannot.
+ */
+function buildAiEngineLeads(input: {
+  periods: Period[]
+  leads: AttributedAiRow[]
+  sessions: AttributedAiRow[]
+  leadRateUnavailableReason: AiEngineLeadRateUnavailableReason | null
+}) {
+  const leadRateAvailable = input.leadRateUnavailableReason === null
   const classBlock = (trafficClass: AiReferralTrafficClass) => buildAiEngineLeadClass({
     periods: input.periods,
-    leads: leads.filter(row => row.trafficClass === trafficClass),
-    sessions: sessions.filter(row => row.trafficClass === trafficClass),
+    leads: input.leads.filter(row => row.trafficClass === trafficClass),
+    sessions: input.sessions.filter(row => row.trafficClass === trafficClass),
     leadRateAvailable,
   })
 
@@ -293,11 +312,20 @@ function latestDate(rows: Array<{ date: string }>): string | null {
   return latest
 }
 
+/** True when some day with a stored lead row has no stored acquisition row at all. */
+function hasLeadDayWithoutSessions(
+  acquisitionRows: Array<{ date: string }>,
+  leadRows: Array<{ date: string }>,
+): boolean {
+  const acquisitionDates = new Set(acquisitionRows.map(row => row.date))
+  return leadRows.some(row => !acquisitionDates.has(row.date))
+}
+
 /**
  * Why a lead rate would divide unlike data, or null when it is honest. The
- * coverage check reads the unfiltered rows of the window: acquisition and
- * leads are separate sync components, and when acquisition stops landing
- * while leads keep landing, the latest bucket holds leads for days with no
+ * coverage checks read the unfiltered rows of the window: acquisition and
+ * leads are separate sync components, and when acquisition stops landing (or
+ * skips days) while leads keep landing, a bucket holds leads for days with no
  * stored sessions.
  */
 function aiEngineLeadRateUnavailableReason(input: {
@@ -305,20 +333,24 @@ function aiEngineLeadRateUnavailableReason(input: {
   acquisitionStatus: GaMeasurementComponentStatus | undefined
   leadStatus: GaMeasurementComponentStatus | undefined
   channelLeadsUnfiltered: boolean
+  paidOnlyByLandingPage: boolean
   latestAcquisitionDate: string | null
   latestLeadDate: string | null
+  leadDayWithoutSessions: boolean
 }): AiEngineLeadRateUnavailableReason | null {
   if (!input.hasData) return AiEngineLeadRateUnavailableReasons['no-data']
   if (input.acquisitionStatus !== 'ready' || input.leadStatus !== 'ready') {
     return AiEngineLeadRateUnavailableReasons['sync-not-ready']
   }
   if (input.channelLeadsUnfiltered) return AiEngineLeadRateUnavailableReasons['channel-leads-unfiltered']
+  if (input.paidOnlyByLandingPage) return AiEngineLeadRateUnavailableReasons['paid-split-needs-landing-page']
   if (
     input.latestLeadDate !== null
     && (input.latestAcquisitionDate === null || input.latestAcquisitionDate < input.latestLeadDate)
   ) {
     return AiEngineLeadRateUnavailableReasons['sessions-behind-leads']
   }
+  if (input.leadDayWithoutSessions) return AiEngineLeadRateUnavailableReasons['sessions-missing-on-lead-days']
   return null
 }
 
@@ -615,17 +647,27 @@ export function buildGaMeasurementAnalysis(
   // Without a lead timeline there is nothing to divide, so the block stays
   // empty even when AI sessions exist.
   const hasAiEngineLeadData = gaAnchor !== null && hasLeadTimeline
-  const aiEngineLeads = buildAiEngineLeads({
-    periods: hasAiEngineLeadData ? gaPeriods : [],
+  // Channel-scoped lead rows carry no landing page either, so the sessions
+  // are classified without theirs: otherwise one session's lead and the
+  // session itself could land in different traffic classes.
+  const aiEngineRows = attributeAiEngineRows({
     leads: hasAiEngineLeadData ? leads : [],
     sessions: hasAiEngineLeadData ? acquisition : [],
+    landingPageEvidence: attributionScope !== 'channel',
+  })
+  const aiEngineLeads = buildAiEngineLeads({
+    periods: hasAiEngineLeadData ? gaPeriods : [],
+    leads: aiEngineRows.leads,
+    sessions: aiEngineRows.sessions,
     leadRateUnavailableReason: aiEngineLeadRateUnavailableReason({
       hasData: hasAiEngineLeadData,
       acquisitionStatus: state?.acquisitionStatus,
       leadStatus: state?.leadStatus,
       channelLeadsUnfiltered: attributionScope === 'channel' && filtersNarrowSessions,
+      paidOnlyByLandingPage: aiEngineRows.paidOnlyByLandingPage,
       latestAcquisitionDate: latestDate(acquisitionRows),
       latestLeadDate: latestDate(leadRows),
+      leadDayWithoutSessions: hasLeadDayWithoutSessions(acquisitionRows, leadRows),
     }),
   })
 

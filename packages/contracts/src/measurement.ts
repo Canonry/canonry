@@ -140,15 +140,25 @@ const analysisAiEngineLeadPeriodSchema = analysisPeriodSchema.extend({
  * - `channel-leads-unfiltered`: lead events are channel-scoped (GA4 could not
  *   attribute them to a landing page, so host and path filters cannot narrow
  *   them) while those filters narrow the sessions.
+ * - `paid-split-needs-landing-page`: lead events are channel-scoped, so both
+ *   sides are classified without the landing page, and some AI rows were paid
+ *   only by the landing page's utm parameters. Those rows count as organic
+ *   here, so the organic rate would include paid clicks and the paid rate
+ *   would miss them.
  * - `sessions-behind-leads`: stored lead events run past the last stored
  *   acquisition date, so the latest bucket holds leads for days with no
  *   sessions.
+ * - `sessions-missing-on-lead-days`: a day inside the window has stored lead
+ *   events but no stored acquisition rows at all (a gap in the acquisition
+ *   sync), so that bucket holds leads with no sessions to divide by.
  */
 export const aiEngineLeadRateUnavailableReasonSchema = z.enum([
   'no-data',
   'sync-not-ready',
   'channel-leads-unfiltered',
+  'paid-split-needs-landing-page',
   'sessions-behind-leads',
+  'sessions-missing-on-lead-days',
 ])
 export type AiEngineLeadRateUnavailableReason = z.infer<typeof aiEngineLeadRateUnavailableReasonSchema>
 export const AiEngineLeadRateUnavailableReasons = aiEngineLeadRateUnavailableReasonSchema.enum
@@ -156,7 +166,9 @@ export const AiEngineLeadRateUnavailableReasons = aiEngineLeadRateUnavailableRea
 /**
  * One traffic class (`classifyAiReferralTrafficClass` on each row's source,
  * medium, channel group and landing page) of the AI engine breakdown. Paid
- * and organic never share a row or a rate.
+ * and organic never share a row or a rate. When lead events are
+ * channel-scoped they carry no landing page, so the sessions are classified
+ * without theirs too and both sides use the same evidence.
  */
 const analysisAiEngineLeadClassSchema = z.object({
   /**

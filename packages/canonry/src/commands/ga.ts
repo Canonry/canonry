@@ -315,7 +315,9 @@ const AI_ENGINE_LEAD_RATE_NOTES: Record<AiEngineLeadRateUnavailableReason, strin
   'no-data': null,
   'sync-not-ready': 'the latest acquisition or lead sync failed, so sessions and lead events may cover different days; rerun the GA sync for lead rates.',
   'channel-leads-unfiltered': 'lead events are channel-level here, so host and path filters narrow sessions but not leads; rerun with --host-scope all and no --path-prefix for lead rates.',
+  'paid-split-needs-landing-page': 'lead events are channel-level here, so the paid/organic split cannot read landing-page utm tags, and some AI sessions were paid only by those tags (counted as organic above); tag paid AI links with a paid utm_medium such as cpc for lead rates.',
   'sessions-behind-leads': 'stored lead events run past the last stored session date, so recent leads have no sessions to divide by; rerun the GA sync for lead rates.',
+  'sessions-missing-on-lead-days': 'some days in this window have stored lead events but no stored sessions, so those leads have no sessions to divide by; rerun the GA sync with --days covering the window for lead rates.',
 }
 
 function hasAiEngineLeadRows(block: AiEngineLeadClass): boolean {
@@ -347,8 +349,12 @@ function printAiEngineLeadClass(heading: string, block: AiEngineLeadClass): void
   for (const row of rows) console.log(line(row.label, row.cells))
 }
 
-/** Organic AI leads by engine, then paid AI clicks only when there are any, then why rates are blank. */
-function printAiEngineLeads(aiEngines: AiEngineLeads): void {
+/**
+ * Organic AI leads by engine, then paid AI clicks only when there are any, then why rates are blank.
+ * A server older than `leads.aiEngines` omits the block, so there is nothing to print.
+ */
+function printAiEngineLeads(aiEngines: AiEngineLeads | undefined): void {
+  if (!aiEngines) return
   if (aiEngines.organic.periods.length === 0) return
   if (!hasAiEngineLeadRows(aiEngines.organic) && !hasAiEngineLeadRows(aiEngines.paid)) {
     console.log('  Leads by AI engine: no AI engine sessions or lead events in this window')

@@ -703,6 +703,9 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
         { daysAgo: 4, hostName: MARKETING, landingPage: '/pricing', source: 'copilot.microsoft.com', sessions: 5 },
         { daysAgo: 0, hostName: PREVIEW, landingPage: '/pricing', source: 'chatgpt.com', sessions: 500 },
         { daysAgo: 0, hostName: MARKETING, landingPage: '/pricing', source: 'google', sessions: 100, channelGroup: 'Organic Search' },
+        // Every day with a stored lead row has stored sessions too, as a complete
+        // sync gives; the day-5 Gemini lead's own engine still has none.
+        { daysAgo: 5, hostName: MARKETING, landingPage: '/pricing', source: 'google', sessions: 60, channelGroup: 'Organic Search' },
         // Previous cohort (days 30..59 ago).
         { daysAgo: 40, hostName: MARKETING, landingPage: '/pricing', source: 'chatgpt.com', sessions: 25 },
       ]
@@ -992,6 +995,143 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
       expect(aiEngines.organic.periods).toEqual([
         { ...latest, eventCount: 5, sessions: 40, leadRate: null },
       ])
+    })
+
+    it('withholds the rate when a day inside the window has lead events but no stored sessions', async () => {
+      insertAcquisition(ctx, { daysAgo: 0, channelGroup: 'Referral', hostName: MARKETING, landingPage: '/pricing', source: 'chatgpt.com', sessions: 40 })
+      insertAcquisition(ctx, { daysAgo: 20, channelGroup: 'Referral', hostName: MARKETING, landingPage: '/pricing', source: 'chatgpt.com', sessions: 30 })
+      insertLead(ctx, { daysAgo: 0, channelGroup: 'Referral', hostName: MARKETING, landingPage: '/pricing', source: 'chatgpt.com', eventCount: 3 })
+      // Acquisition skipped day 10 while leads kept syncing; the latest dates still match.
+      insertLead(ctx, { daysAgo: 10, channelGroup: 'Referral', hostName: MARKETING, landingPage: '/pricing', source: 'chatgpt.com', eventCount: 2 })
+      markLeadsSynced('landing-page')
+
+      const gap = (await analysis('window=30d')).leads.aiEngines
+      expect(gap.leadRateAvailable).toBe(false)
+      expect(gap.leadRateUnavailableReason).toBe('sessions-missing-on-lead-days')
+      // Counts stay; the rate that would read 5 / 70 is withheld.
+      expect(gap.organic.periods).toEqual([{ ...latest, eventCount: 5, sessions: 70, leadRate: null }])
+
+      // Any stored session that day closes the gap, even one the filters leave
+      // out (another host, a non-AI source): coverage reads the unfiltered rows.
+      insertAcquisition(ctx, { daysAgo: 10, channelGroup: 'Organic Search', hostName: PREVIEW, landingPage: '/pricing', source: 'google', sessions: 15 })
+      const covered = (await analysis('window=30d')).leads.aiEngines
+      expect(covered.leadRateAvailable).toBe(true)
+      expect(covered.leadRateUnavailableReason).toBeNull()
+      expect(covered.organic.periods).toEqual([{ ...latest, eventCount: 5, sessions: 70, leadRate: 0.07142857 }])
+    })
+
+    it('classifies sessions without their landing page when leads are channel-scoped, and withholds the rate when only the landing page said paid', async () => {
+      // GA4 has no paid medium or channel for these clicks; only utm_campaign on the landing page says paid.
+      insertAcquisition(ctx, {
+        daysAgo: 0,
+        channelGroup: 'Unassigned',
+        hostName: MARKETING,
+        landingPage: '/pricing?utm_source=chatgpt&utm_campaign=spring_ads',
+        source: 'chatgpt',
+        medium: '(not set)',
+        sessions: 200,
+      })
+      insertAcquisition(ctx, { daysAgo: 0, channelGroup: 'Referral', hostName: MARKETING, landingPage: '/pricing', source: 'chatgpt.com', medium: 'referral', sessions: 100 })
+      insertLead(ctx, {
+        daysAgo: 0,
+        channelGroup: 'Unassigned',
+        hostName: '(not available)',
+        landingPage: '(not available)',
+        source: 'chatgpt',
+        medium: '(not set)',
+        eventCount: 30,
+        attributionScope: 'channel',
+      })
+      insertLead(ctx, {
+        daysAgo: 0,
+        channelGroup: 'Referral',
+        hostName: '(not available)',
+        landingPage: '(not available)',
+        source: 'chatgpt.com',
+        medium: 'referral',
+        eventCount: 2,
+        attributionScope: 'channel',
+      })
+      markLeadsSynced('channel')
+
+      const { aiEngines } = (await analysis('window=30d&hostScope=all')).leads
+
+      // The 30 lead events and the 200 sessions they came from read the same
+      // evidence, so they share a class: 32 / 300 organic, never 32 / 100
+      // organic beside 0 / 200 paid.
+      const chatgpt = {
+        engine: 'chatgpt',
+        label: 'ChatGPT',
+        sources: ['chatgpt', 'chatgpt.com'],
+        periods: [{ ...latest, eventCount: 32, sessions: 300, leadRate: null }],
+      }
+      expect(aiEngines.organic).toEqual({
+        periods: [{ ...latest, eventCount: 32, sessions: 300, leadRate: null }],
+        engines: [chatgpt],
+        unattributed: noUnattributed([latest]),
+      })
+      expect(aiEngines.paid).toEqual({
+        periods: [empty(latest)],
+        engines: [],
+        unattributed: noUnattributed([latest]),
+      })
+      // Dropping the landing page moved paid clicks into organic, so no rate is honest.
+      expect(aiEngines.leadRateAvailable).toBe(false)
+      expect(aiEngines.leadRateUnavailableReason).toBe('paid-split-needs-landing-page')
+    })
+
+    it('keeps the rate for channel-scoped leads when the paid evidence does not depend on the landing page', async () => {
+      // Tagged with a paid medium: GA4 reports cpc / Paid Other with or without the landing page.
+      insertAcquisition(ctx, {
+        daysAgo: 0,
+        channelGroup: 'Paid Other',
+        hostName: MARKETING,
+        landingPage: '/pricing?utm_source=chatgpt&utm_medium=cpc&utm_campaign=spring_ads',
+        source: 'chatgpt',
+        medium: 'cpc',
+        sessions: 200,
+      })
+      insertAcquisition(ctx, { daysAgo: 0, channelGroup: 'Referral', hostName: MARKETING, landingPage: '/pricing', source: 'chatgpt.com', medium: 'referral', sessions: 100 })
+      insertLead(ctx, {
+        daysAgo: 0,
+        channelGroup: 'Paid Other',
+        hostName: '(not available)',
+        landingPage: '(not available)',
+        source: 'chatgpt',
+        medium: 'cpc',
+        eventCount: 30,
+        attributionScope: 'channel',
+      })
+      insertLead(ctx, {
+        daysAgo: 0,
+        channelGroup: 'Referral',
+        hostName: '(not available)',
+        landingPage: '(not available)',
+        source: 'chatgpt.com',
+        medium: 'referral',
+        eventCount: 2,
+        attributionScope: 'channel',
+      })
+      markLeadsSynced('channel')
+
+      const { aiEngines } = (await analysis('window=30d&hostScope=all')).leads
+
+      expect(aiEngines.leadRateAvailable).toBe(true)
+      expect(aiEngines.leadRateUnavailableReason).toBeNull()
+      expect(aiEngines.organic.engines).toEqual([{
+        engine: 'chatgpt',
+        label: 'ChatGPT',
+        sources: ['chatgpt.com'],
+        periods: [{ ...latest, eventCount: 2, sessions: 100, leadRate: 0.02 }],
+      }])
+      expect(aiEngines.paid.engines).toEqual([{
+        engine: 'chatgpt',
+        label: 'ChatGPT',
+        sources: ['chatgpt'],
+        periods: [{ ...latest, eventCount: 30, sessions: 200, leadRate: 0.15 }],
+      }])
+      expect(aiEngines.organic.periods).toEqual([{ ...latest, eventCount: 2, sessions: 100, leadRate: 0.02 }])
+      expect(aiEngines.paid.periods).toEqual([{ ...latest, eventCount: 30, sessions: 200, leadRate: 0.15 }])
     })
 
     it('withholds the rate while the latest acquisition or lead sync is in error', async () => {
