@@ -2712,17 +2712,7 @@ export async function createServer(opts: {
         .where(eq(apiKeys.id, key.id))
         .run();
 
-      const sessionId = createSession(key);
-      reply.header(
-        "set-cookie",
-        serializeSessionCookie({
-          name: SESSION_COOKIE_NAME,
-          value: sessionId,
-          path: sessionCookiePath,
-          secure: sessionCookieSecure,
-          ttlMs: SESSION_TTL_MS,
-        }),
-      );
+      setSessionCookie(reply, createSession(key));
       return reply.send({ authenticated: true });
     }
 
