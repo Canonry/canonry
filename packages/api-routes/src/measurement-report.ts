@@ -7,7 +7,7 @@
  * prevents a read from mutating or re-fetching evidence.
  */
 
-import { answerProseForMentions, normalizeIdentityText, normalizeMeasurementHost, rateOverChecked, compareText, sortedUnique } from '@ainyc/canonry-contracts'
+import { answerProseForMentions, escapeRegExp, normalizeIdentityText, normalizeMeasurementHost, rateOverChecked, compareText, sortedUnique } from '@ainyc/canonry-contracts'
 
 export type MeasurementAttributionClass =
   | 'assigned'
@@ -651,7 +651,7 @@ function mentionedTargetsForAliases(
 /** Only explicit identity uncertainty is inferred for old revisions: no guessed geography. */
 function identityAmbiguityPatterns(aliases: readonly string[]) {
   const patterns = aliases.flatMap(alias => {
-    const name = words(alias).join(' ').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const name = escapeRegExp(words(alias).join(' '))
     if (!name) return []
     // The input is normalized tokens joined by spaces. Space/end boundaries
     // also support names whose final token is not an ASCII word character.

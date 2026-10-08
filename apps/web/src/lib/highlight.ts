@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import React from 'react'
-import { brandKeyFromText, brandLabelFromDomain } from '@ainyc/canonry-contracts'
+import { brandKeyFromText, brandLabelFromDomain, escapeRegExp } from '@ainyc/canonry-contracts'
 
 export interface HighlightTermGroup {
   terms: string[]
@@ -39,7 +39,7 @@ const SEPARATOR_CHARS = /[\s\-_]+/
 function termToRegexSource(term: string): string | null {
   const parts = term.split(SEPARATOR_CHARS).filter(Boolean)
   if (parts.length === 0) return null
-  return parts.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s\\-_]*')
+  return parts.map(escapeRegExp).join('[\\s\\-_]*')
 }
 
 /**

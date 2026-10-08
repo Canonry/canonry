@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { escapeRegExp } from '@ainyc/canonry-contracts'
 import { DemoNotice } from '../src/components/layout/DemoNotice.js'
 
 afterEach(() => { cleanup(); delete window.__CANONRY_CONFIG__ })
@@ -39,13 +40,13 @@ const FEATURE_LINKS: readonly [string, string][] = [
 const css = readFileSync(resolve(import.meta.dirname, '../src/styles.css'), 'utf8')
 
 function mediaBlock(query: string) {
-  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const escaped = escapeRegExp(query)
   return css.match(new RegExp(`@media ${escaped} \\{\\n\\s*\\.demo-banner \\{[\\s\\S]*?\\n\\}`))?.[0] ?? ''
 }
 
 /** Declarations of a one-line rule: top level by default, or inside a media block. */
 function declarations(selector: string, block?: string) {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const escaped = escapeRegExp(selector)
   return (block ?? css).match(new RegExp(`\\n${block ? '  ' : ''}${escaped} \\{([^}]*)\\}`))?.[1] ?? ''
 }
 
