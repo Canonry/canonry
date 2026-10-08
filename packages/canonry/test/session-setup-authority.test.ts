@@ -209,18 +209,26 @@ describe('first-run POST /session/setup authority', () => {
       expect(await sessionKey(signIn, LAN)).toMatchObject({ id: DEFAULT_KEY_ID })
     })
 
-    it('refuses a revoked root key and every other key, writing nothing', async () => {
+    // No key can pass while the root key has no live row, so a caller who
+    // presents one, such as the revoked key still in config.yaml, is told to
+    // rerun bootstrap rather than that the key is wrong.
+    it.each(['revoked', 'deleted'] as const)('refuses every key with the bootstrap error when the root key is %s, writing nothing', async (state) => {
       const { config, rootKey } = await buildServer('0.0.0.0')
       const other = await mintKey(rootKey, { name: 'ci' })
-      const revoke = await app!.inject({
-        method: 'POST', url: `/api/v1/keys/${DEFAULT_KEY_ID}/revoke`, headers: { ...LAN, authorization: `Bearer ${other.key}` },
-      })
-      expect(revoke.statusCode).toBe(200)
+      if (state === 'revoked') {
+        const revoke = await app!.inject({
+          method: 'POST', url: `/api/v1/keys/${DEFAULT_KEY_ID}/revoke`, headers: { ...LAN, authorization: `Bearer ${other.key}` },
+        })
+        expect(revoke.statusCode).toBe(200)
+      } else {
+        db!.delete(apiKeys).where(eq(apiKeys.id, DEFAULT_KEY_ID)).run()
+      }
 
       for (const key of [rootKey, other.key]) {
         const refused = await setup({ ...LAN, authorization: `Bearer ${key}` })
-        expectRefusedWithoutWrites(refused, config, ROOT_KEY_REQUIRED)
+        expectRefusedWithoutWrites(refused, config, SERVER_KEY_MISSING)
       }
+      expectRefusedWithoutWrites(await setup(LAN), config, ROOT_KEY_REQUIRED)
     })
   })
 

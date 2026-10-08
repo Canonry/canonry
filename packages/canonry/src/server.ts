@@ -2571,9 +2571,14 @@ export async function createServer(opts: {
     const defaultKey = found && !found.revokedAt ? found : undefined;
     const presentedRootKey = defaultKey !== undefined && requestPresentsKey(request, defaultKey);
     if (!presentedRootKey && !(keylessLocalSetup && isDirectLocalRequest(request))) {
-      const err = authRequired(
-        "Setting the dashboard password requires the root API key (apiKey in config.yaml), unless the request comes directly from this machine to a loopback-bound server that has no external URL or trusted proxy configured.",
-      );
+      // With no live root key, no key can pass. A caller who sent one (often
+      // the revoked key still in config.yaml) is told to rerun bootstrap
+      // rather than that the key is wrong.
+      const err = !defaultKey && request.headers.authorization !== undefined
+        ? serverApiKeyMissing()
+        : authRequired(
+          "Setting the dashboard password requires the root API key (apiKey in config.yaml), unless the request comes directly from this machine to a loopback-bound server that has no external URL or trusted proxy configured.",
+        );
       return reply.status(err.statusCode).send(err.toJSON());
     }
 
