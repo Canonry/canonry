@@ -141,7 +141,8 @@ function adaptRemoteTool(client: RemoteMcpClient, tool: RemoteToolDescriptor): A
       }
     }
     return {
-      content: [{ type: 'text', text: truncateToolResult(shown) }],
+      // A fetched document can be one row larger than the cap; show it in part rather than not at all.
+      content: [{ type: 'text', text: truncateToolResult(shown, { partialRows: true }) }],
       details: result,
       isError: isRemoteToolError(result),
     }

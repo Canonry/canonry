@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { siteAuditPagesResponseSchema, snapshotListResponseSchema } from '@ainyc/canonry-contracts'
 import { truncateToolResult } from '../src/agent/mcp-to-agent-tool.js'
 
 const CAP = 20_000
@@ -168,6 +169,84 @@ describe('truncateToolResult (OSS-C)', () => {
     expect(parsed.__truncation.slicedKeys[path]).toEqual({ keptChars: prefix.length, totalChars: giant.length })
     expect(parsed.__truncation.projection).toContain('partial string prefixes')
     if (shape === 'field') expect(parsed.id).toBe('document-1')
+  })
+
+  describe('partialRows (remote results)', () => {
+    const document = 'Setup heading. ' + 'synthetic setup step. '.repeat(1_200) + 'END OF DOCUMENT'
+    const guide = { title: 'Example setup guide', url: 'https://docs.example.com/setup', markdown: document }
+    const note = (i: number) => ({ title: `Short note ${i}`, url: `https://docs.example.com/note-${i}`, markdown: 'One line.' })
+
+    it('shows a first row too large for the cap in part, with the tool notes first', () => {
+      const page = { results: [guide], total: 3, nextCursor: 'after-1' }
+
+      // Native rows stay whole, so the row is dropped and named.
+      const native = JSON.parse(truncateToolResult(page))
+      expect(native.results).toEqual([])
+      expect(native.__truncation.droppedKeys).toEqual(['results'])
+
+      const out = truncateToolResult(page, { partialRows: true })
+      const parsed = JSON.parse(out)
+      const [row] = parsed.results
+      expect(out.length).toBeLessThanOrEqual(CAP)
+      expect(Object.keys(parsed).slice(0, 2)).toEqual(['__partialLists', '__pagination'])
+      expect(parsed.__partialLists).toEqual({ results: '1 of 3' })
+      expect(parsed.__pagination).toEqual({ results: 'showing 1 of 3; incomplete page: re-request the original cursor with a smaller limit; the next cursor skips omitted rows' })
+      expect(parsed.results).toHaveLength(1)
+      expect(row.title).toBe('Example setup guide')
+      expect(row.url).toBe('https://docs.example.com/setup')
+      expect(row.markdown).toBe(document.slice(0, row.markdown.length))
+      expect(row.markdown.length).toBeGreaterThan(10_000)
+      expect(row.markdown).not.toContain('END OF DOCUMENT')
+      expect(parsed.total).toBe(3)
+      expect(parsed.nextCursor).toBe('after-1')
+      expect(parsed.__truncated).toBe(true)
+      expect(parsed.__truncation.slicedKeys).toEqual({ 'results[0].markdown': { keptChars: row.markdown.length, totalChars: document.length } })
+      expect(parsed.__truncation.droppedKeys).toEqual([])
+    })
+
+    it('keeps the tool total in the partial-list note when the document crowds out the rows after it', () => {
+      const page = { total: 57, results: [guide, ...Array.from({ length: 9 }, (_, i) => note(i))] }
+      expect(JSON.parse(truncateToolResult(page)).__partialLists).toEqual({ results: '0 of 57' })
+
+      const parsed = JSON.parse(truncateToolResult(page, { partialRows: true }))
+      expect(Object.keys(parsed)[0]).toBe('__partialLists')
+      expect(parsed.__partialLists).toEqual({ results: '1 of 57' })
+      expect(parsed.__truncation.keptItems).toEqual({ results: '1 of 10' })
+      expect(parsed.results[0].title).toBe('Example setup guide')
+      expect(parsed.total).toBe(57)
+    })
+
+    it('shows a document over the cap after the whole rows before it', () => {
+      const mixed = { results: [note(0), guide] }
+      expect(JSON.parse(truncateToolResult(mixed)).results).toEqual([note(0)])
+
+      const parsed = JSON.parse(truncateToolResult(mixed, { partialRows: true }))
+      const [first, second] = parsed.results
+      expect(parsed.results).toHaveLength(2)
+      expect(first).toEqual(note(0))
+      expect(second.title).toBe('Example setup guide')
+      expect(second.markdown).toBe(document.slice(0, second.markdown.length))
+      expect(second.markdown).not.toContain('END OF DOCUMENT')
+      expect(parsed.__truncation.slicedKeys).toEqual({ 'results[1].markdown': { keptChars: second.markdown.length, totalChars: document.length } })
+      expect(parsed.__truncation.keptItems).toEqual({})
+    })
+
+    it('marks a nested page cut by the document as incomplete', () => {
+      const page = { data: { results: [guide, note(0), note(1)], total: 40, nextCursor: 'after-3' } }
+      const parsed = JSON.parse(truncateToolResult(page, { partialRows: true }))
+      expect(parsed.__partialLists).toEqual({ 'data.results': '1 of 40' })
+      expect(parsed.__pagination).toEqual({ 'data.results': 'showing 1 of 40; incomplete page: re-request the original cursor with a smaller limit; the next cursor skips omitted rows' })
+      expect(parsed.__truncation.cursors).toEqual({ 'data.nextCursor': 'incomplete page: skips the 2 rows cut from data.results; re-request the original cursor with limit <= 1' })
+      expect(parsed.data.__truncated).toBe(true)
+      expect(parsed.data.results[0].url).toBe('https://docs.example.com/setup')
+    })
+
+    it('leaves a cut with no row over the cap unchanged', () => {
+      const rows = (prefix: string) => Array.from({ length: 100 }, (_, i) => ({ id: `${prefix}-${i}`, text: 'y'.repeat(1_000) }))
+      for (const value of [{ rows: rows('a'), total: 100 }, { rows: rows('a'), other: rows('b') }, rows('a'), { id: 'doc', markdown: 'q'.repeat(40_000) }]) {
+        expect(truncateToolResult(value, { partialRows: true })).toBe(truncateToolResult(value))
+      }
+    })
   })
 
   // Both structured paths re-serialize the enclosing document per step, so the
@@ -683,6 +762,58 @@ describe('truncateToolResult keeps rollups and says what is partial', () => {
     expect(JSON.parse(truncateToolResult({ engines: ['openai', 'gemini'], weakestProperties: [propertyRow(0)], totalProperties: 40, truncated: true })).__partialLists).toEqual({
       weakestProperties: '1 of 40',
     })
+  })
+
+  it('pairs the root total of an offset-paged read with its page, before and after the cap cuts it', () => {
+    // Exactly what GET /technical-aeo/pages and GET /snapshots return: a root `total` beside one page, no cursor.
+    const pagesRead = (count: number) => siteAuditPagesResponseSchema.parse({
+      project: 'example-site',
+      runId: 'audit-run-2',
+      auditedAt: '2030-04-12T08:00:00.000Z',
+      runSelection: {
+        reason: 'latest-date-complete', date: '2030-04-12', sameDateRunCount: 2, ambiguousDate: true,
+        candidates: [
+          { runId: 'audit-run-2', createdAt: '2030-04-12T08:00:00.000Z', complete: true, pages: 400 },
+          { runId: 'audit-run-3', createdAt: '2030-04-12T14:00:00.000Z', complete: false, pages: 120 },
+        ],
+        candidatesTruncated: false,
+      },
+      total: 400,
+      pages: Array.from({ length: count }, (_, i) => ({
+        url: `https://example.com/guides/page-${i}`,
+        overallScore: 40 + (i % 50),
+        status: 'success',
+        error: null,
+        factors: [
+          { id: 'structured-data', name: 'Structured data', weight: 12, score: 35, sharePct: 10.8 },
+          { id: 'content-depth', name: 'Content depth', weight: 9, score: 70, sharePct: 8.1 },
+        ],
+      })),
+    })
+    const snapshotsRead = snapshotListResponseSchema.parse({
+      snapshots: Array.from({ length: 20 }, (_, i) => ({
+        id: `snapshot-${i}`, runId: 'sweep-9', queryId: `query-${i}`, query: `best harbor apartments ${i}`,
+        provider: 'openai', citationState: 'not-cited', answerMentioned: false, answerText: 'Example Residences is a common pick.',
+        createdAt: '2030-04-12T08:00:00.000Z',
+      })),
+      total: 900,
+    })
+
+    const page = pagesRead(50)
+    expect(truncateToolResult(page)).toBe(JSON.stringify({ __partialLists: { pages: '50 of 400' }, ...page }))
+    expect(truncateToolResult(snapshotsRead)).toBe(JSON.stringify({ __partialLists: { snapshots: '20 of 900' }, ...snapshotsRead }))
+    // A complete page needs no note.
+    const lastPage = { ...snapshotsRead, total: 20 }
+    expect(truncateToolResult(lastPage)).toBe(JSON.stringify(lastPage))
+
+    const cut = JSON.parse(truncateToolResult(pagesRead(200)))
+    const kept = cut.pages.length
+    expect(kept).toBeGreaterThan(0)
+    expect(kept).toBeLessThan(200)
+    expect(Object.keys(cut)[0]).toBe('__partialLists')
+    expect(cut.__partialLists).toEqual({ pages: `${kept} of 400` })
+    expect(cut.__truncation.keptItems).toEqual({ pages: `${kept} of 200` })
+    expect(cut.total).toBe(400)
   })
 
   it('counts rows the cap cut in the partial-list note', () => {

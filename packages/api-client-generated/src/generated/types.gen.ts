@@ -12473,7 +12473,7 @@ export type SiteAuditPagesResponseDto = {
     runId: string | null;
     auditedAt: string | null;
     runSelection?: {
-        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
         date: string;
         sameDateRunCount: number;
         ambiguousDate: boolean;
@@ -12550,7 +12550,7 @@ export type SiteAuditScoreDto = {
     previousScore: number | null;
     previousAuditedAt: string | null;
     runSelection?: {
-        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
         date: string;
         sameDateRunCount: number;
         ambiguousDate: boolean;
@@ -12613,7 +12613,7 @@ export type SiteCrawlDeadLinksResponseDto = {
     state: 'unavailable';
     legacyAuditAvailable: boolean;
     runSelection?: {
-        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
         date: string;
         sameDateRunCount: number;
         ambiguousDate: boolean;
@@ -12631,7 +12631,7 @@ export type SiteCrawlDeadLinksResponseDto = {
     state: 'disabled';
     checkDeadLinks: false;
     runSelection?: {
-        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
         date: string;
         sameDateRunCount: number;
         ambiguousDate: boolean;
@@ -12649,7 +12649,7 @@ export type SiteCrawlDeadLinksResponseDto = {
     state: 'complete';
     checkDeadLinks: true;
     runSelection?: {
-        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
         date: string;
         sameDateRunCount: number;
         ambiguousDate: boolean;
@@ -12683,7 +12683,7 @@ export type SiteCrawlDeadLinksResponseDto = {
     state: 'partial';
     checkDeadLinks: true;
     runSelection?: {
-        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
         date: string;
         sameDateRunCount: number;
         ambiguousDate: boolean;
@@ -12721,7 +12721,7 @@ export type SiteCrawlGraphResponseDto = {
     complete: boolean;
     termination: string | null;
     runSelection?: {
-        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
         date: string;
         sameDateRunCount: number;
         ambiguousDate: boolean;
@@ -12787,7 +12787,7 @@ export type SiteCrawlInternalLinksResponseDto = {
     complete: boolean;
     termination: string | null;
     runSelection?: {
-        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
         date: string;
         sameDateRunCount: number;
         ambiguousDate: boolean;
@@ -12834,7 +12834,7 @@ export type SiteCrawlNeighborsResponseDto = {
     complete: boolean;
     termination: string | null;
     runSelection?: {
-        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
         date: string;
         sameDateRunCount: number;
         ambiguousDate: boolean;
@@ -12908,7 +12908,7 @@ export type SiteCrawlPageAuditDto = {
     complete: boolean;
     termination: string | null;
     runSelection?: {
-        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
         date: string;
         sameDateRunCount: number;
         ambiguousDate: boolean;
@@ -12927,7 +12927,7 @@ export type SiteCrawlPageAuditDto = {
     complete: boolean;
     termination: string | null;
     runSelection?: {
-        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
         date: string;
         sameDateRunCount: number;
         ambiguousDate: boolean;
@@ -12946,7 +12946,7 @@ export type SiteCrawlPageAuditDto = {
     complete: boolean;
     termination: string | null;
     runSelection?: {
-        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
         date: string;
         sameDateRunCount: number;
         ambiguousDate: boolean;
@@ -12990,7 +12990,7 @@ export type SiteCrawlPageAuditDto = {
     complete: boolean;
     termination: string | null;
     runSelection?: {
-        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
         date: string;
         sameDateRunCount: number;
         ambiguousDate: boolean;
@@ -13038,7 +13038,7 @@ export type SiteCrawlPagesResponseDto = {
     complete: boolean;
     termination: string | null;
     runSelection?: {
-        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
         date: string;
         sameDateRunCount: number;
         ambiguousDate: boolean;
@@ -13110,7 +13110,7 @@ export type SiteCrawlStructureResponseDto = {
     complete: boolean;
     termination: string | null;
     runSelection?: {
-        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
         date: string;
         sameDateRunCount: number;
         ambiguousDate: boolean;
@@ -13140,7 +13140,7 @@ export type SiteCrawlSummaryDto = {
     legacyAuditAvailable: boolean;
     runId: string | null;
     runSelection?: {
-        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
         date: string;
         sameDateRunCount: number;
         ambiguousDate: boolean;
@@ -13364,7 +13364,7 @@ export type SiteHealthPathResponseDto = {
     complete: boolean;
     termination: string | null;
     runSelection?: {
-        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
         date: string;
         sameDateRunCount: number;
         ambiguousDate: boolean;
@@ -13458,7 +13458,7 @@ export type SiteHealthSubgraphResponseDto = {
     complete: boolean;
     termination: string | null;
     runSelection?: {
-        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'requested-date-complete' | 'requested-date-most-pages';
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
         date: string;
         sameDateRunCount: number;
         ambiguousDate: boolean;

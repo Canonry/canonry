@@ -7809,7 +7809,7 @@ export const getApiV1ProjectsByNameTechnicalAeoQueryKey = (options: Options<GetA
 /**
  * Get the Technical AEO scorecard for a project
  *
- * runSelection selects a complete run on the latest UTC scan date, otherwise the largest page sample, then newest; it flags same-date candidates. Factor pagesFailing and pagesPartial are separate; a factor with failing pages is fail. Returns the latest completed/partial site-audit, or the historical audit selected by `runId`: aggregate 0–100 score, page counts, the full per-factor scorecard (site-level averages with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the audit immediately before it. When the project has never been audited, `hasData` is false and the numeric fields are zeroed — render an onboarding state.
+ * runSelection selects a complete run on the latest UTC scan date, otherwise the largest page sample, then newest; it flags same-date candidates. Factor pagesFailing and pagesPartial are separate; a factor with failing pages is fail. Returns the latest completed/partial site-audit, or the historical audit selected by `runId`: aggregate 0–100 score, page counts, the full per-factor scorecard (site-level averages with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the scan a default read returned just before this one was recorded. A default read whose preferred crawl audited no page falls back to the preferred scored crawl. When the project has never been audited, `hasData` is false and the numeric fields are zeroed — render an onboarding state.
  */
 export const getApiV1ProjectsByNameTechnicalAeoOptions = (options: Options<GetApiV1ProjectsByNameTechnicalAeoData>) => {
     return queryOptions({

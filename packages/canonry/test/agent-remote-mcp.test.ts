@@ -139,6 +139,96 @@ describe('loadExternalMcpTools', () => {
     expect(result.details).toBe(envelope)
   })
 
+  // Fetch-style tools return each document as one row, which can alone exceed the cap.
+  it.each([
+    { shape: 'nested structured rows', rowPath: 'data.results[0]', listPath: 'data.results', rows: 1, partialLists: undefined },
+    { shape: 'single JSON text block', rowPath: 'results[0]', listPath: 'results', rows: 1, partialLists: { results: '1 of 12' } },
+    { shape: 'top-level array text block', rowPath: 'items[0]', listPath: 'items', rows: 1, partialLists: undefined },
+    { shape: 'two oversized structured rows', rowPath: 'results[0]', listPath: 'results', rows: 2, partialLists: { results: '1 of 2' } },
+  ])('shows a marked part of an oversized first row from $shape', async ({ shape, rowPath, listPath, rows, partialLists }) => {
+    const document = 'DOCUMENT_HEADER ' + 'synthetic setup step. '.repeat(1_200) + 'DOCUMENT_END'
+    const docs = Array.from({ length: rows }, (_, index) => ({ title: `Example setup guide ${index}`, url: `https://docs.example.com/setup-${index}`, markdown: document }))
+    const envelope = shape === 'nested structured rows' ? { structuredContent: { data: { results: docs } }, content: [{ type: 'text', text: 'Fallback' }] }
+      : shape === 'single JSON text block' ? { content: [{ type: 'text', text: JSON.stringify({ results: docs, total: 12 }) }] }
+        : shape === 'top-level array text block' ? { content: [{ type: 'text', text: JSON.stringify(docs) }] }
+          : { structuredContent: { results: docs, total: rows }, content: [{ type: 'text', text: 'Fallback' }] }
+    const [tool] = await loadExternalMcpTools([SERVER], { connect: async () => stubClient(envelope) })
+    const result = await tool!.execute('remote-oversized-row', {})
+    const text = (result.content.find(block => block.type === 'text') as { text: string }).text
+    const shown = JSON.parse(text)
+    const list = listPath.split('.').reduce((owner, key) => owner[key], shown) as Array<{ title: string; url: string; markdown: string }>
+
+    expect(text.length).toBeLessThanOrEqual(20_000)
+    expect(list).toHaveLength(1)
+    expect(list[0]!.title).toBe(docs[0]!.title)
+    expect(list[0]!.url).toBe(docs[0]!.url)
+    expect(list[0]!.markdown.startsWith('DOCUMENT_HEADER synthetic setup step.')).toBe(true)
+    expect(list[0]!.markdown).toBe(document.slice(0, list[0]!.markdown.length))
+    expect(list[0]!.markdown).not.toContain('DOCUMENT_END')
+    expect(shown.__truncated).toBe(true)
+    expect(shown.__truncation.slicedKeys).toEqual({ [`${rowPath}.markdown`]: { keptChars: list[0]!.markdown.length, totalChars: document.length } })
+    expect(shown.__truncation.keptItems).toEqual(rows > 1 ? { [listPath]: `1 of ${rows}` } : {})
+    expect(shown.__truncation.droppedKeys).toEqual([])
+    expect(shown.__truncation.projection).toContain('Array rows are complete unless slicedKeys or droppedKeys name a field inside one')
+    expect(shown.__partialLists).toEqual(partialLists)
+    if (partialLists) expect(Object.keys(shown)[0]).toBe('__partialLists')
+    expect(result.details).toBe(envelope)
+  })
+
+  // Search and fetch tools return the scraped page beside images, follow-up questions or warnings.
+  it.each([
+    {
+      shape: 'follow-up questions beside the page',
+      siblings: { query: 'example setup', follow_up_questions: ['What is a setup step?', 'How long does setup take?'], images: [] },
+      structured: false,
+    },
+    { shape: 'an image list beside the page', siblings: { query: 'example setup', images: ['https://img.example/1.png'] }, structured: false },
+    { shape: 'structured warnings after the page', siblings: { warnings: ['robots.txt slow'] }, structured: true },
+  ])('shows a marked part of an oversized page beside $shape', async ({ siblings, structured }) => {
+    const rawContent = 'RAW_HEADER ' + 'synthetic page text. '.repeat(1_250) + 'RAW_END'
+    const page = { title: 'Example setup guide', url: 'https://docs.example.com/setup', content: 'Short summary of the setup guide.', raw_content: rawContent }
+    const body = structured ? { results: [page], ...siblings } : { ...siblings, results: [page] }
+    const envelope = structured ? { structuredContent: body, content: [{ type: 'text', text: 'Fallback' }] } : { content: [{ type: 'text', text: JSON.stringify(body) }] }
+    const [tool] = await loadExternalMcpTools([SERVER], { connect: async () => stubClient(envelope) })
+    const result = await tool!.execute('remote-page-with-siblings', {})
+    const text = (result.content.find(block => block.type === 'text') as { text: string }).text
+    const shown = JSON.parse(text)
+    const [row] = shown.results
+
+    expect(text.length).toBeLessThanOrEqual(20_000)
+    expect(shown.results).toHaveLength(1)
+    expect(row.title).toBe(page.title)
+    expect(row.url).toBe(page.url)
+    expect(row.content).toBe(page.content)
+    expect(row.raw_content.startsWith('RAW_HEADER synthetic page text.')).toBe(true)
+    expect(row.raw_content).toBe(rawContent.slice(0, row.raw_content.length))
+    expect(row.raw_content).not.toContain('RAW_END')
+    expect(shown.__truncation.slicedKeys).toEqual({ 'results[0].raw_content': { keptChars: row.raw_content.length, totalChars: rawContent.length } })
+    expect(shown.__truncation.droppedKeys).toEqual([])
+    expect(shown.__truncation.keptItems).toEqual({})
+    for (const [key, value] of Object.entries(siblings)) expect(shown[key]).toEqual(value)
+    expect(result.details).toBe(envelope)
+  })
+
+  it('shows an oversized page in part after the whole rows before it', async () => {
+    const rawContent = 'RAW_HEADER ' + 'synthetic page text. '.repeat(1_250) + 'RAW_END'
+    const small = { title: 'Example quick note', url: 'https://docs.example.com/note', content: 'One line.' }
+    const page = { title: 'Example setup guide', url: 'https://docs.example.com/setup', content: 'Short summary.', raw_content: rawContent }
+    const envelope = { structuredContent: { results: [small, page] }, content: [{ type: 'text', text: 'Fallback' }] }
+    const [tool] = await loadExternalMcpTools([SERVER], { connect: async () => stubClient(envelope) })
+    const result = await tool!.execute('remote-small-then-page', {})
+    const shown = JSON.parse((result.content.find(block => block.type === 'text') as { text: string }).text)
+    const [first, second] = shown.results
+
+    expect(shown.results).toHaveLength(2)
+    expect(first).toEqual(small)
+    expect(second.title).toBe(page.title)
+    expect(second.url).toBe(page.url)
+    expect(second.raw_content).toBe(rawContent.slice(0, second.raw_content.length))
+    expect(second.raw_content.length).toBeGreaterThan(10_000)
+    expect(shown.__truncation.slicedKeys).toEqual({ 'results[1].raw_content': { keptChars: second.raw_content.length, totalChars: rawContent.length } })
+  })
+
   it('filters OUT the write tool (not read-only)', async () => {
     const tools = await loadExternalMcpTools([SERVER], {
       connect: makeInMemoryServerClient,
