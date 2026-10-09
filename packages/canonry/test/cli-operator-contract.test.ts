@@ -1006,8 +1006,10 @@ describe('operator CLI contract', () => {
         changed: boolean
         providers: string[]
         configPath: string
+        nextSteps: string[]
       }
       expect(bootstrapParsed.bootstrapped).toBe(true)
+      expect(bootstrapParsed.nextSteps).toEqual([])
       expect(bootstrapParsed.status).toBe('created')
       expect(bootstrapParsed.changed).toBe(true)
       expect(bootstrapParsed.providers).toContain('gemini')

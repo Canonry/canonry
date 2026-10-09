@@ -222,6 +222,31 @@ describe('CLI command lifecycle telemetry', () => {
     expect(mocks.getOrCreateAnonymousId).not.toHaveBeenCalled()
   })
 
+  it('hands a provider-less Page Health result to AI Visibility on stderr, even for JSON and with telemetry off', async () => {
+    mocks.isTelemetryEnabled.mockReturnValue(false)
+    mocks.dispatch.mockResolvedValueOnce(true)
+    mocks.buildSetupState.mockReturnValue(beforeState)
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const stdout = vi.spyOn(process.stdout, 'write')
+
+    await expect(runCli(['technical-aeo', 'score', 'demo', '--format', 'json'])).resolves.toBe(0)
+
+    const notices = stderr.mock.calls.map(([chunk]) => String(chunk)).filter(chunk => chunk.includes('"notice"'))
+    expect(notices).toHaveLength(1)
+    expect(JSON.parse(notices[0]!)).toMatchObject({ notice: { code: 'NO_PROVIDER' } })
+    expect(stdout).not.toHaveBeenCalled()
+    expect(mocks.trackFinished).not.toHaveBeenCalled()
+  })
+
+  it('reads no setup state for a non-handoff command in a machine format with telemetry off', async () => {
+    mocks.isTelemetryEnabled.mockReturnValue(false)
+    mocks.dispatch.mockResolvedValueOnce(true)
+
+    await expect(runCli(['technical-aeo', 'progress', 'demo', '--run-id', 'r1', '--format', 'json'])).resolves.toBe(0)
+
+    expect(mocks.buildSetupState).not.toHaveBeenCalled()
+  })
+
   it('waits until init has persisted its install identity before lifecycle telemetry', async () => {
     mocks.isFirstRun.mockReturnValue(true)
     mocks.dispatch.mockResolvedValueOnce(true)

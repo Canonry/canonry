@@ -21,7 +21,6 @@ import { checkLatestVersionForCli, formatUpdateNotice, notePrintedUpdateAvailabl
 import { buildSetupNudgeLine } from './setup-nudge.js'
 import { consumePendingServeHandoff } from './commands/init.js'
 import { serveCommand } from './commands/serve.js'
-import { isMachineFormat } from './cli-error.js'
 
 const USAGE = `
 cnry — Page Health and AI visibility CLI   ('canonry' also works)
@@ -257,11 +256,11 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
       }
       // The stalled-setup line. Independent of telemetry consent (it is user
       // guidance, not measurement), but LAZY about reading state: control
-      // commands and non-interactive runs must not touch config or the
-      // database, and the nudge's own gates guarantee that.
+      // commands and non-interactive runs outside the Page Health handoff must
+      // not touch config or the database, and the nudge's own gates guarantee that.
       const nudge = buildSetupNudgeLine({
         command: resolvedCommand,
-        machineFormat: isMachineFormat(format),
+        format,
         stderrIsTTY: Boolean(process.stderr.isTTY),
         getSetupState: buildSetupState,
       })
