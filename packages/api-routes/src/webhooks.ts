@@ -103,10 +103,18 @@ export async function deliverWebhook(
   }
 
   return await new Promise((resolve) => {
-    const requestOptions: https.RequestOptions = {
-      family: target.family,
+    // `autoSelectFamily` is a socket option: http.request hands it to net.connect.
+    const requestOptions: https.RequestOptions & Pick<net.TcpNetConnectOpts, 'autoSelectFamily'> = {
+      // A connection of its own: a shared agent pools by hostname, so it could
+      // hand this request a socket some other caller dialed unchecked.
+      agent: false,
+      // Dial the checked addresses, falling back from one to the next, so a
+      // receiver that listens on only one of them (`localhost` checks as
+      // 127.0.0.1 and ::1) still gets the delivery.
+      autoSelectFamily: true,
+      lookup: pinnedLookup(checkedAddresses(target)),
       headers,
-      hostname: target.address,
+      hostname: stripIpv6Brackets(target.url.hostname),
       method: 'POST',
       path,
       port,
@@ -134,6 +142,26 @@ export async function deliverWebhook(
 
     request.end(body)
   })
+}
+
+/** Every address the target's check admitted, in the order to try them. */
+export function checkedAddresses(target: SafeWebhookTarget): ReadonlyArray<{ address: string; family: 4 | 6 }> {
+  return target.addresses ?? [{ address: target.address, family: target.family }]
+}
+
+/**
+ * A `lookup` that answers with the checked addresses whatever the resolver
+ * says now, so a connection dials only what the policy admitted. Node does not
+ * call it for an IP-literal host, which is safe: a literal is checked as
+ * itself, so it is the checked address.
+ */
+export function pinnedLookup(addresses: ReadonlyArray<{ address: string; family: 4 | 6 }>): net.LookupFunction {
+  return (_hostname, options, callback) => {
+    // With `autoSelectFamily` Node asks with `{ all: true }` and expects an
+    // array of `{ address, family }` rather than one address.
+    if (options.all) callback(null, addresses.map(({ address, family }) => ({ address, family })))
+    else callback(null, addresses[0]!.address, addresses[0]!.family)
+  }
 }
 
 const LOCALHOST_ADDRESSES = [{ address: '127.0.0.1', family: 4 }, { address: '::1', family: 6 }] as const

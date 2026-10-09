@@ -1,9 +1,14 @@
 import dns from 'node:dns/promises'
 import { afterEach, test, expect, vi } from 'vitest'
-import { resolveWebhookTarget } from '../src/webhooks.js'
+import { deliverWebhook, resolveWebhookTarget } from '../src/webhooks.js'
+import { startRecordingSite, type RecordingSite } from './recording-site-fixture.js'
 
-afterEach(() => {
+let receiver: RecordingSite | undefined
+
+afterEach(async () => {
   vi.restoreAllMocks()
+  await receiver?.close()
+  receiver = undefined
 })
 
 test('resolveWebhookTarget rejects private and unspecified literal addresses', async () => {
@@ -71,4 +76,23 @@ test.each([
     .toEqual({ ok: false, message: '"url" must not resolve to a private or loopback address' })
   expect(resolve4).not.toHaveBeenCalled()
   expect(resolve6).not.toHaveBeenCalled()
+})
+
+// `localhost` checks as 127.0.0.1 and ::1, and a dev receiver started with
+// `listen(port, 'localhost')` binds only one of them (::1 on macOS), so a
+// delivery that dials only the first address never arrives.
+test('deliverWebhook falls back to the next checked address when the first refuses the connection', async () => {
+  // The receiver listens on 127.0.0.1 only, so the first address (::1)
+  // refuses the connection, or is unreachable on a host without IPv6.
+  receiver = await startRecordingSite((_request, response) => response.writeHead(204).end())
+  const check = await resolveWebhookTarget(`http://hooks.example.test:${receiver.port}/hook`, {
+    allowLoopback: true,
+    resolveAddresses: async () => [{ address: '::1', family: 6 }, { address: '127.0.0.1', family: 4 }],
+  })
+  if (!check.ok) throw new Error(check.message)
+
+  expect(await deliverWebhook(check.target, { event: 'run.completed' }, null)).toEqual({ status: 204, error: null })
+  expect(receiver.requests.map(({ method, path, headers, body }) => ({ method, path, host: headers.host, body }))).toEqual([
+    { method: 'POST', path: '/hook', host: `hooks.example.test:${receiver.port}`, body: '{"event":"run.completed"}' },
+  ])
 })

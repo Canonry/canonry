@@ -1,7 +1,13 @@
 import { isLocationRedirectStatus } from '@ainyc/canonry-contracts'
 import { Agent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from 'undici'
 import { isLoopbackAddress } from './egress-policy.js'
-import { resolveWebhookTarget, type ResolveWebhookTargetResult, type SafeWebhookTarget } from './webhooks.js'
+import {
+  checkedAddresses,
+  pinnedLookup,
+  resolveWebhookTarget,
+  type ResolveWebhookTargetResult,
+  type SafeWebhookTarget,
+} from './webhooks.js'
 
 /**
  * A `fetch` for URLs this instance did not choose: an operator's WordPress
@@ -207,11 +213,7 @@ async function requestPinned(
   return response as unknown as Response
 }
 
-/**
- * An agent whose every connection dials the checked addresses, whatever the
- * resolver says now. Node does not call `lookup` for an IP-literal host, which
- * is safe: a literal is checked as itself, so it is the checked address.
- */
+/** An agent whose every connection dials the checked addresses, whatever the resolver says now. */
 function pinnedAgent(addresses: ReadonlyArray<{ address: string; family: 4 | 6 }>): Agent {
   return new Agent({
     // Try the next checked address when one does not answer, so a dual-stack
@@ -219,17 +221,6 @@ function pinnedAgent(addresses: ReadonlyArray<{ address: string; family: 4 | 6 }
     // record) still loads, as it does through global `fetch`. Every address
     // passed the policy, so falling back reaches nothing it refused.
     autoSelectFamily: true,
-    connect: {
-      lookup: (_hostname, options, callback) => {
-        // With `autoSelectFamily` Node asks with `{ all: true }` and expects
-        // an array of `{ address, family }` rather than one address.
-        if (options.all) callback(null, addresses.map(({ address, family }) => ({ address, family })))
-        else callback(null, addresses[0]!.address, addresses[0]!.family)
-      },
-    },
+    connect: { lookup: pinnedLookup(addresses) },
   })
-}
-
-function checkedAddresses(target: SafeWebhookTarget): ReadonlyArray<{ address: string; family: 4 | 6 }> {
-  return target.addresses ?? [{ address: target.address, family: target.family }]
 }
