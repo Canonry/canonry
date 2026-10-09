@@ -9,7 +9,7 @@ import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { heyClient } from '../src/api.js'
 import { EVIDENCE_LABELS, OTHER_QUERIES_COPY } from '../src/pages/MeasurementPropertyPage.js'
-import { PROPERTY_NAMES_COPY } from '../src/components/project/advanced-measurement/PropertyNamesEditor.js'
+import { PROPERTY_NAMES_COPY, PropertyNamesSection } from '../src/components/project/advanced-measurement/PropertyNamesEditor.js'
 import { AccountProvider, type SignedInAccount } from '../src/contexts/account-context.js'
 import { answerProseForMentions, measurementTargetNameIssueMessage, MeasurementTargetNameIssueCodes } from '@ainyc/canonry-contracts'
 import { createQueryClient } from '../src/queries/query-client.js'
@@ -1589,6 +1589,37 @@ describe('Names that count as this Property', () => {
       target: { ...draftTarget(), aliases: ['Locations Harbor House', 'HH'], identityAliases: ['Locations Harbor House Bayfront'] },
     })
     expect(server.writes.some(write => write.path.includes('publish'))).toBe(false)
+  })
+
+  it('drops unsaved names when it moves to another Property, so a save never writes them there', async () => {
+    // Two Properties with no names look identical to the save check, so an
+    // editor that kept the first one's text would write it onto the second.
+    const server = draftServer(null)
+    const restoreFetch = mockFetch((url, init) => server.handler(url, init))
+    onTestFinished(restoreFetch)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const editor = (targetKey: string) => (
+      <QueryClientProvider client={queryClient}>
+        <AccountProvider account={ADMIN}>
+          <PropertyNamesSection projectName="Citypoint Dental NYC" targetKey={targetKey} published={{ aliases: [] }} activeRevision={7} publishedBrandNames={['Locations']} />
+        </AccountProvider>
+      </QueryClientProvider>
+    )
+    const { rerender } = render(editor('harbor-house'))
+
+    const first = await namesSection()
+    await openNamesEditor(first)
+    fireEvent.change(namesBox(first), { target: { value: 'Locations Harbor House' } })
+
+    rerender(editor('bayfront-suites'))
+    const second = await namesSection()
+    expect(within(second).queryByRole('textbox', { name: PROPERTY_NAMES_COPY.names })).toBeNull()
+    await openNamesEditor(second)
+    expect(namesBox(second).value).toBe('')
+    saveNames(second)
+
+    expect(await within(second).findByText(PROPERTY_NAMES_COPY.noChanges)).toBeTruthy()
+    expect(server.writes).toEqual([])
   })
 
   it('starts no draft when a save changes nothing', async () => {

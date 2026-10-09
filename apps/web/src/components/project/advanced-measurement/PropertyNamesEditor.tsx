@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react'
+import { useId, useMemo, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
@@ -163,6 +163,24 @@ export function PropertyNamesSection({
   // so a change made elsewhere while the editor was open is never overwritten.
   const [base, setBase] = useState<TargetNames>(published)
   const [notice, setNotice] = useState<{ tone: 'positive' | 'negative'; text: string; review: boolean } | null>(null)
+  // The editor holds one Property's unsaved text. The page reuses this
+  // component when it moves to another Property or project, so drop that
+  // text then: otherwise a save would write the last Property's names onto
+  // this one (two Properties with no names look identical to the save check).
+  const openFor = `${projectName}\u0000${targetKey}`
+  const [editorFor, setEditorFor] = useState(openFor)
+  if (editorFor !== openFor) {
+    setEditorFor(openFor)
+    setEditing(false)
+    setNamesText('')
+    setQualifiedText('')
+    setBase(published)
+    setNotice(null)
+  }
+  // A save started on another Property still finishes for that Property, but
+  // its result must not land in this one's section.
+  const openForRef = useRef(openFor)
+  openForRef.current = openFor
 
   const names = useMemo(() => linesOf(namesText), [namesText])
   const qualified = useMemo(() => linesOf(qualifiedText), [qualifiedText])
@@ -197,7 +215,7 @@ export function PropertyNamesSection({
   }
 
   const save = useMutation({
-    mutationFn: async (input: { names: { aliases: string[]; identityAliases: string[] }; base: TargetNames }): Promise<SaveResult> => {
+    mutationFn: async (input: { names: { aliases: string[]; identityAliases: string[] }; base: TargetNames; openFor: string }): Promise<SaveResult> => {
       let current = await service.loadDraft(projectName)
       if (!current.draft) {
         // With no draft the published names are in force. Compare first: an
@@ -223,7 +241,8 @@ export function PropertyNamesSection({
     },
     // The inline notice is the error message; a toast would repeat it.
     meta: { skipGlobalErrorToast: true },
-    onSuccess: result => {
+    onSuccess: (result, input) => {
+      if (input.openFor !== openForRef.current) return
       switch (result.outcome) {
         case 'saved':
           setEditing(false)
@@ -245,7 +264,8 @@ export function PropertyNamesSection({
           return
       }
     },
-    onError: error => {
+    onError: (error, input) => {
+      if (input.openFor !== openForRef.current) return
       if (isDraftConflict(error)) {
         showConflict(null)
         void draftQuery.refetch().then(result => {
@@ -297,7 +317,7 @@ export function PropertyNamesSection({
           onSubmit={event => {
             event.preventDefault()
             if (save.isPending) return
-            save.mutate({ names: { aliases: names, identityAliases: qualified }, base })
+            save.mutate({ names: { aliases: names, identityAliases: qualified }, base, openFor })
           }}
         >
           <div>
