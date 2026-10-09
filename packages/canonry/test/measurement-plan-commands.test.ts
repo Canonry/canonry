@@ -929,4 +929,47 @@ describe('measurement-plan CLI commands', () => {
     expect(output).toContain('No answers matched this Property in the displayed run.')
     expect(output).not.toContain('No source evidence matched')
   })
+
+  it('lists citations from other Properties\' queries apart from the rates, with who each query was asked for', async () => {
+    const otherQueries = {
+      property: PROPERTY_EVIDENCE.property,
+      queryClass: 'non-brand',
+      measurement: { state: 'complete', displayedRunId: 'run-1' },
+      otherQueries: {
+        items: [{
+          observationId: 'obs-9', expectedSlotId: 'slot-9', executionId: 'exec-9', provider: 'gemini',
+          queryText: 'quiet hotels by the marina', location: null, queryClass: 'non-brand',
+          assignedTargetKeys: ['marina-point'],
+          sources: [{ sourceUrl: 'https://acme.example/harbor-view', normalizedUrl: 'https://acme.example/harbor-view', matchedUrlIds: ['harbor-view:url:0'] }],
+          sourceCount: 1, sourcesTruncated: false, evidenceComplete: true,
+        }],
+        nextCursor: null,
+        totalEstimate: 1,
+      },
+    }
+    getMeasurementPropertyEvidence.mockResolvedValueOnce(otherQueries).mockResolvedValueOnce(otherQueries)
+    const logged: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation(line => { logged.push(String(line)) })
+    await command('measurement-plan property-evidence').run({
+      positionals: ['acme'], values: { 'target-key': 'harbor-view', shape: 'other-queries' }, format: 'text', dryRun: false,
+    })
+    log.mockRestore()
+    expect(getMeasurementPropertyEvidence).toHaveBeenCalledWith('acme', { targetKey: 'harbor-view', shape: 'other-queries' })
+    const lines = logged.join('\n').split('\n')
+    expect(lines).toContain('1 of 1 answers')
+    expect(lines).toContain('Cited on queries not assigned to this Property; not counted in its rates.')
+    expect(lines.at(-1)).toBe(
+      `${'gemini'.padEnd(12)}${'quiet hotels by the marina'.padEnd(40)}${'non-brand'.padEnd(11)}${'marina-point'.padEnd(24)}https://acme.example/harbor-view`,
+    )
+
+    const written: string[] = []
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(chunk => { written.push(String(chunk)); return true })
+    await command('measurement-plan property-evidence').run({
+      positionals: ['acme'], values: { 'target-key': 'harbor-view', shape: 'other-queries' }, format: 'jsonl', dryRun: false,
+    })
+    write.mockRestore()
+    const rows = written.join('').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
+    expect(rows[0]).toMatchObject({ kind: 'measurement-property-evidence-header', shape: 'other-queries', totalEstimate: 1 })
+    expect(rows.slice(1)).toEqual(otherQueries.otherQueries.items)
+  })
 })

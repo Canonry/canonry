@@ -328,7 +328,47 @@ export function groupVisibilityQueryRows(rows: readonly VisibilityReportQueryRow
   return result.sort((left, right) => left.marketLabel!.localeCompare(right.marketLabel!) || left.query.localeCompare(right.query))
 }
 
-function QueryResultRate({ value, signal, singleAnswer }: { value: VisibilityReportRate; signal: CoverageSignal; singleAnswer: boolean }) {
+/**
+ * Partly saved source lists, in the words a reader of one engine row needs: the
+ * answer is out of Cited, and what its saved links still cite. The counts and
+ * the cited Properties are the server's `uncheckedSources`; nothing is derived.
+ */
+export const UNCHECKED_SOURCES_COPY = {
+  help: 'Only part of the source list for this answer was saved, so its sources could not all be checked. It is left out of Cited, counted neither as cited nor as not cited. The links that were saved still show what it cited. A property that no fully checked answer cites shows as Not measured.',
+  partlySaved: (answers: number) => answers === 1 ? 'Sources partly saved' : `${answers} answers with sources partly saved`,
+  savedCite: (citedAnswers: number, answers: number, names: string) => answers === 1
+    ? `Saved links cite ${names}`
+    : `Saved links in ${citedAnswers} of ${answers} answers cite ${names}`,
+  savedCiteNone: (name: string | null) => name === null ? 'No saved link cites an assigned property' : `No saved link cites ${name}`,
+  outcomes: (count: number) => `${count} not measured only because an answer's sources were partly saved. Query results shows which answer.`,
+} as const
+
+function UncheckedSourcesLines({ row, targetLabels, showCount }: {
+  row: VisibilityReportQueryRow
+  targetLabels: Map<string, string>
+  /** False when the rate's own left-out line already counts these answers. */
+  showCount: boolean
+}) {
+  const unchecked = row.uncheckedSources
+  if (!unchecked) return null
+  const label = (key: string) => targetLabels.get(key) ?? key
+  const cited = unchecked.citedAnswers > 0
+    ? UNCHECKED_SOURCES_COPY.savedCite(unchecked.citedAnswers, unchecked.answers, unchecked.citedTargetKeys.map(label).join(', '))
+    : UNCHECKED_SOURCES_COPY.savedCiteNone(row.targetKeys.length === 1 ? label(row.targetKeys[0]!) : null)
+  return <>
+    {showCount ? <span className="text-sm text-secondary">{UNCHECKED_SOURCES_COPY.partlySaved(unchecked.answers)}</span> : null}
+    <span className="text-sm text-secondary">{cited}</span>
+  </>
+}
+
+function QueryResultRate({ value, signal, singleAnswer, row, targetLabels }: {
+  value: VisibilityReportRate
+  signal: CoverageSignal
+  singleAnswer: boolean
+  /** The engine row, for the cited side's partly saved sources. */
+  row?: VisibilityReportQueryRow
+  targetLabels?: Map<string, string>
+}) {
   // A Yes/No reading only when the one answer is the whole population; a rate
   // that left an answer out keeps its count and its left-out line.
   if (singleAnswer && value.denominator === 1 && value.unattributed === undefined && value.unchecked === undefined && (value.rate === 0 || value.rate === 1)) {
@@ -337,7 +377,16 @@ function QueryResultRate({ value, signal, singleAnswer }: { value: VisibilityRep
       {found ? <Check size={16} aria-hidden="true" /> : <Minus size={16} aria-hidden="true" />}{found ? 'Yes' : 'No'}
     </span>
   }
-  return <span className="inline-flex items-center gap-1"><ReportRate value={value} signal={signal} />{value.reason === 'evidence-incomplete' ? <InfoTooltip text="The saved evidence is incomplete, so this result cannot be measured. It does not mean the answer had no citation." /> : null}</span>
+  const unchecked = signal === 'cited' && row?.uncheckedSources ? row : undefined
+  return <span className="inline-flex items-start gap-1">
+    <span className="inline-flex flex-col gap-1">
+      <ReportRate value={value} signal={signal} />
+      {unchecked ? <UncheckedSourcesLines row={unchecked} targetLabels={targetLabels ?? new Map()} showCount={value.rate === null} /> : null}
+    </span>
+    {unchecked
+      ? <InfoTooltip text={UNCHECKED_SOURCES_COPY.help} />
+      : value.reason === 'evidence-incomplete' ? <InfoTooltip text="The saved evidence is incomplete, so this result cannot be measured. It does not mean the answer had no citation." /> : null}
+  </span>
 }
 
 function QueryProperties({ targetKeys, labels }: { targetKeys: string[]; labels: Map<string, string> }) {
@@ -380,7 +429,7 @@ function QueryResultGroup({ group, queryClass, advanced, targetLabels, marketHea
         <SentimentAnswerOutcome showLabel showSubjects={advanced} queryId={row.queryId} sourceSnapshotIds={row.sourceSnapshotIds ?? []} queryClass={queryClass === 'unknown' ? null : queryClass} provider={row.provider} model={row.model} location={row.location} />
       </td>
       <td><span className="measurement-result-mobile-label" aria-hidden="true">Mentioned</span><QueryResultRate value={row.mentionCoverage} signal="mentioned" singleAnswer={row.answerCount === 1} /></td>
-      <td><span className="measurement-result-mobile-label" aria-hidden="true">Cited</span><QueryResultRate value={row.citationCoverage} signal="cited" singleAnswer={row.answerCount === 1} /></td>
+      <td><span className="measurement-result-mobile-label" aria-hidden="true">Cited</span><QueryResultRate value={row.citationCoverage} signal="cited" singleAnswer={row.answerCount === 1} row={row} targetLabels={targetLabels} /></td>
       <td className="measurement-result-action"><Button variant="ghost" className="min-h-11" aria-label={`View answers for ${row.query} · ${row.provider}`} onClick={event => onViewAnswers(row, event.currentTarget)}>{row.answerCount === 1 ? 'View answer' : 'View answers'}<ChevronRight size={16} aria-hidden="true" /></Button></td>
     </tr>)}
   </tbody>
@@ -735,7 +784,10 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
       {aggregateScope && (population.breakdown.groups.length > 0 || population.breakdown.properties.length > 0) ? <ReportScopeBreakdown key={`${selection.scope.kind}:${selection.scope.id}`} population={population} scope={selection.scope} scopeOptions={report.scopeOptions} marketKey={selection.market?.id} onSelectionChange={onSelectionChange} /> : null}
       {selection.mode === 'advanced' ? <details className="visibility-disclosure" aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} property outcomes`}><summary className="visibility-disclosure-summary"><span className="visibility-disclosure-label">Property outcomes</span><span className="visibility-disclosure-meta">{population.summary.outcomes.total} {population.summary.outcomes.total === 1 ? 'property' : 'properties'}</span></summary><div className="visibility-disclosure-panel flex flex-wrap items-start justify-between gap-3">
         {/* The explanation sits here, not in the summary: a button inside a summary toggles the disclosure and joins its accessible name. */}
-        <div className="flex flex-wrap gap-x-8 gap-y-3">{([['bothSignals', 'mentioned and cited'], ['mentionedOnly', 'mentioned only'], ['citedOnly', 'cited only'], ['neither', 'neither signal'], ['notMeasured', 'not measured']] as const).map(([key, label]) => <div key={key}><strong className="block tabular-nums text-heading">{population.summary.outcomes[key]}</strong><span className="text-sm text-secondary">{label}</span></div>)}</div>
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-x-8 gap-y-3">{([['bothSignals', 'mentioned and cited'], ['mentionedOnly', 'mentioned only'], ['citedOnly', 'cited only'], ['neither', 'neither signal'], ['notMeasured', 'not measured']] as const).map(([key, label]) => <div key={key}><strong className="block tabular-nums text-heading">{population.summary.outcomes[key]}</strong><span className="text-sm text-secondary">{label}</span></div>)}</div>
+          {population.summary.notMeasuredUnchecked ? <p className="text-sm text-secondary">{UNCHECKED_SOURCES_COPY.outcomes(population.summary.notMeasuredUnchecked)}</p> : null}
+        </div>
         <InfoTooltip text={REPORT_OUTCOMES_HELP} />
       </div></details> : null}
       <details className="visibility-disclosure" data-query-results={population.queryClass} aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} query results`}>

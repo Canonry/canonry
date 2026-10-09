@@ -93,6 +93,8 @@ export const UI_ACTIONS = [
   'notification.save',
   'notification.test',
   'measurement_plan.publish',
+  /** A Property's names or qualified names were saved into the measurement draft. */
+  'property_names.save',
   'discovery.run',
   'api_key.create',
   'api_key.revoke',

@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  ADVANCED_PROPERTIES_SIGNAL_HELP,
   AdvancedMeasurementOverview,
   type AdvancedMeasurementMetric,
   type AdvancedMeasurementOverviewProps,
@@ -167,6 +168,13 @@ describe('AdvancedMeasurementOverview', () => {
     expect(screen.queryByText('75.0%')).toBeNull()
     expect(screen.queryByText('25%')).toBeNull()
     expect(screen.queryByText('75%')).toBeNull()
+  })
+
+  it('defines Cited in the Properties table as the property\u2019s own pages, not the site-wide domain flag', () => {
+    renderOverview()
+    const heading = screen.getByRole('heading', { name: /^Properties/ })
+    expect(within(heading).getByRole('button', { name: ADVANCED_PROPERTIES_SIGNAL_HELP })).toBeTruthy()
+    expect(ADVANCED_PROPERTIES_SIGNAL_HELP).toBe('Mentioned = the property\u2019s name in the answer. Cited = one of the property\u2019s own pages in the sources. Neither implies the other.')
   })
 
   it('keeps unavailable measurements unavailable instead of rendering zero or repeating their reason', () => {

@@ -783,6 +783,16 @@ describe('visibility report citation coverage with incomplete source capture', (
       ['gemini', EVIDENCE_INCOMPLETE],
       ['openai', { numerator: 1, denominator: 1, rate: 1 }],
     ])
+    // The gemini row still says what its saved link cited, beside the rate it
+    // stays out of; the fully saved rows carry nothing.
+    expect(nonBrand.queries.items.map(row => [row.provider, row.uncheckedSources])).toEqual([
+      ['claude', undefined],
+      ['gemini', { answers: 1, citedAnswers: 1, citedTargetKeys: ['harbor'] }],
+      ['openai', undefined],
+    ])
+    // Bayside's mention was measured; its citation is unknown only because of
+    // that answer, so the summary says why it reads not measured.
+    expect(nonBrand.summary.notMeasuredUnchecked).toBe(1)
     expect(nonBrand.competitors).toEqual([{
       domain: 'challenger.example',
       answerCount: 3,
@@ -795,6 +805,10 @@ describe('visibility report citation coverage with incomplete source capture', (
     const baysideChecked = { numerator: 0, denominator: 2, rate: 0, unchecked: 1 }
     expect(market.summary.citationCoverage).toEqual(baysideChecked)
     expect(market.breakdown.properties.map(row => [row.id, row.citationCoverage])).toEqual([['bayside', baysideChecked]])
+    // In the market only Bayside is assigned, so the saved Harbor link credits
+    // none of this row's Properties.
+    expect(market.queries.items.find(row => row.provider === 'gemini')!.uncheckedSources)
+      .toEqual({ answers: 1, citedAnswers: 0, citedTargetKeys: [] })
   })
 
   it('reports the same checked rate on the Advanced overview, portfolio and changes reads', async () => {

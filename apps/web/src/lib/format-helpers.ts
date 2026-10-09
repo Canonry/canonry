@@ -1,4 +1,5 @@
-import { formatRunErrorOneLine, unattributedAnswersLabel, uncheckedSourcesLabel, type RunErrorDto } from '@ainyc/canonry-contracts'
+import { formatRunErrorOneLine, normalizeProjectDomain, unattributedAnswersLabel, uncheckedSourcesLabel, type RunErrorDto } from '@ainyc/canonry-contracts'
+import type { CitationState } from '../view-models.js'
 
 /** Common search-analytics metrics shared across GSC, Bing, etc. */
 export enum SearchMetric {
@@ -50,6 +51,23 @@ export function excludedAnswersLabel(
   signal: CoverageSignal,
 ): string | null {
   return signal === 'cited' ? uncheckedSourcesLabel(value) : unattributedAnswersLabel(value)
+}
+
+/**
+ * The older site-wide cited flag (`citationState`: any page on the project's
+ * domain in the sources), named for what it reads. Advanced views put it beside
+ * per-property numbers, which credit only a property's own pages, so a bare
+ * "Cited" there reads as a property result it never was.
+ */
+export function siteCitationLabel(domain: string, state: CitationState): string {
+  const site = normalizeProjectDomain(domain)
+  switch (state) {
+    case 'cited': return `${site} cited (any page)`
+    case 'emerging': return `${site} newly cited (any page)`
+    case 'lost': return `${site} citation lost (any page)`
+    case 'not-cited': return `${site} not cited (any page)`
+    case 'pending': return 'Pending'
+  }
 }
 
 export function formatErrorLog(error: RunErrorDto): string {

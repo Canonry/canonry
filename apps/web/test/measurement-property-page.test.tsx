@@ -8,7 +8,12 @@ import { createAppRouter } from '../src/router/router.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { heyClient } from '../src/api.js'
-import { EVIDENCE_LABELS } from '../src/pages/MeasurementPropertyPage.js'
+import { EVIDENCE_LABELS, OTHER_QUERIES_COPY } from '../src/pages/MeasurementPropertyPage.js'
+import { PROPERTY_NAMES_COPY, PropertyNamesSection } from '../src/components/project/advanced-measurement/PropertyNamesEditor.js'
+import { AccountProvider, type SignedInAccount } from '../src/contexts/account-context.js'
+import { answerProseForMentions, measurementTargetNameIssueMessage, MeasurementTargetNameIssueCodes } from '@ainyc/canonry-contracts'
+import { createQueryClient } from '../src/queries/query-client.js'
+import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { ANSWER_SOURCES_LABEL } from '../src/components/shared/AnswerMarkdown.js'
 import {
   getApiV1ProjectsByNameMeasurementOverviewQueryKey,
@@ -233,6 +238,30 @@ function evidenceResponse(
   }
 }
 
+type OtherQueryRow = {
+  observationId: string
+  expectedSlotId: string
+  executionId: string
+  provider: string
+  queryText: string
+  location: string | null
+  queryClass: 'branded' | 'non-brand'
+  assignedTargetKeys: string[]
+  sources: Array<{ sourceUrl: string; normalizedUrl: string | null; matchedUrlIds: string[] }>
+  sourceCount: number
+  sourcesTruncated: boolean
+  evidenceComplete: boolean
+}
+
+function otherQueriesResponse(items: OtherQueryRow[], queryClass: 'branded' | 'non-brand' = 'non-brand') {
+  return {
+    property: { targetKey: TARGET_KEY, label: 'Harbor House' },
+    queryClass,
+    measurement: { state: 'complete' as const, displayedRunId: RUN_ID },
+    otherQueries: { items, nextCursor: null as string | null, totalEstimate: items.length },
+  }
+}
+
 /** The panel's own table, addressed by the caption every test shares. */
 function answersTable() {
   return screen.findByRole('table', { name: 'Answers measured for this Property' })
@@ -299,25 +328,52 @@ async function renderPropertyPage(options: {
   )
 }
 
-async function renderPropertyPageFromApi(handler: (url: string) => Response | Promise<Response>) {
+async function renderPropertyPageFromApi(
+  handler: (url: string, init?: RequestInit) => Response | Promise<Response>,
+  options: { account?: SignedInAccount | null; search?: string; queryClient?: QueryClient } = {},
+) {
   const fixture = createDashboardFixture({})
   const projectName = fixture.dashboard.projects.find(project => project.project.id === 'project_citypoint')!.project.name
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const restoreFetch = mockFetch(url => handler(url))
+  const queryClient = options.queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const restoreFetch = mockFetch((url, init) => handler(url, init))
   onTestFinished(restoreFetch)
   const router = createAppRouter(queryClient, {
-    initialEntries: [`/projects/${projectName}/properties/${TARGET_KEY}`],
+    initialEntries: [`/projects/${projectName}/properties/${TARGET_KEY}${options.search ?? ''}`],
   })
   await router.load()
 
   render(
     <QueryClientProvider client={queryClient}>
-      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
-        <RouterProvider router={router} />
-      </DashboardProvider>
+      <AccountProvider account={options.account ?? null}>
+        <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+          <RouterProvider router={router} />
+        </DashboardProvider>
+      </AccountProvider>
     </QueryClientProvider>,
   )
   return { projectName, queryClient }
+}
+
+/** `GET /projects/{name}`: the project's own record, nothing below it. */
+const PROJECT_READ = /\/projects\/[^/?]+$/
+
+/**
+ * The project as the server reads it now. Its brand names are what the draft
+ * API checks Property names against; by default they match the published
+ * plan's `Locations`.
+ */
+function projectRead(overrides: { displayName?: string; canonicalDomain?: string } = {}) {
+  return {
+    id: 'project_citypoint',
+    name: 'Citypoint Dental NYC',
+    displayName: overrides.displayName ?? 'Locations',
+    canonicalDomain: overrides.canonicalDomain ?? 'locations.example',
+    ownedDomains: [],
+    aliases: [],
+    qualifiedAliases: [],
+    country: 'US',
+    language: 'en',
+  }
 }
 
 function propertyPageResponses({
@@ -332,6 +388,11 @@ function propertyPageResponses({
   return (url: string) => {
     const path = pathOf(url)
     if (path.endsWith('/measurement-plan')) return jsonResponse(planResponse())
+    if (path.endsWith('/measurement-plan/draft')) return jsonResponse({ draft: null, etag: null })
+    if (PROJECT_READ.test(path)) return jsonResponse(projectRead())
+    if (path.includes('/measurement-property-evidence') && new URL(url).searchParams.get('shape') === 'other-queries') {
+      return jsonResponse(otherQueriesResponse([]))
+    }
     if (path.includes('/measurement-overview')) {
       return new URL(url).searchParams.get('queryClass') === 'branded'
         ? jsonResponse(branded)
@@ -1345,4 +1406,477 @@ it('formats the lazily loaded property answer', async () => {
   expect(await screen.findByRole('heading', { name: NEARBY_QUESTION, level: 4 })).toBeTruthy()
   expect(document.querySelector('.answer-markdown strong')?.textContent).toBe(TARGET_KEY)
   expect(document.querySelector('.answer-markdown li')?.textContent).toBe(OWN_URL)
+})
+
+const ADMIN: SignedInAccount = { name: 'ops', role: 'admin' }
+const VIEWER: SignedInAccount = { name: 'reader', role: 'viewer' }
+
+/** The draft target the server seeds from the published Harbor House target. */
+function draftTarget(overrides: { aliases?: string[]; identityAliases?: string[] } = {}) {
+  return {
+    stableKey: TARGET_KEY,
+    label: 'Harbor House',
+    status: 'included' as const,
+    aliases: overrides.aliases ?? ['Harbor House'],
+    ...(overrides.identityAliases ? { identityAliases: overrides.identityAliases } : {}),
+    urlMatchers: ['https://locations.example/harbor-house/*'],
+    source: 'sitemap' as const,
+    discoveryIdentity: 'sitemap:harbor-house',
+  }
+}
+
+function draftResponse(target: ReturnType<typeof draftTarget>, options: { etag?: string; baseActiveRevision?: number } = {}) {
+  const actor = { kind: 'user' as const, id: 'user-ops', label: 'ops' }
+  return {
+    draft: {
+      id: 'draft-1',
+      projectId: 'project_citypoint',
+      schemaVersion: 2 as const,
+      baseActiveVersionId: 'version-7',
+      baseActiveRevision: options.baseActiveRevision ?? 7,
+      authoring: { defaultContext: { providers: ['openai'], locations: [] }, targets: [target], assignments: [], groups: [] },
+      createdBy: actor,
+      updatedBy: actor,
+      createdAt: '2026-08-03T12:00:00.000Z',
+      updatedAt: '2026-08-03T12:00:00.000Z',
+    },
+    etag: options.etag ?? '"mpd_1"',
+  }
+}
+
+const MUTATION_OK = { changed: true, warnings: [], counts: { targets: 1, includedTargets: 1, assignments: 0, unclassifiedAssignments: 0, groups: 0, competitors: 0 } }
+
+interface RecordedWrite { path: string; headers: Record<string, string>; body: unknown }
+
+type DraftAction = 'create' | 'upsert-target'
+
+/**
+ * A draft server in miniature: no draft until `create`, then one whose target
+ * `upsert-target` replaces. Every write is recorded so a test can prove what
+ * was sent, and that nothing was published. `replace` is another session's
+ * write; `fail` answers one action with an API error instead.
+ */
+function draftServer(
+  initial: ReturnType<typeof draftResponse> | null,
+  options: { fail?: { action: DraftAction; status: number }; project?: ReturnType<typeof projectRead> } = {},
+) {
+  let current = initial
+  const writes: RecordedWrite[] = []
+  const handler = (url: string, init?: RequestInit) => {
+    const path = pathOf(url)
+    if (init?.method === 'POST') {
+      const body = typeof init.body === 'string' ? JSON.parse(init.body) as unknown : undefined
+      writes.push({ path, headers: (init.headers ?? {}) as Record<string, string>, body })
+      if (options.fail && path.endsWith(`/draft/actions/${options.fail.action}`)) {
+        return jsonResponse({ error: { code: 'SYNTHETIC_FAILURE', message: `Synthetic ${options.fail.status} from ${options.fail.action}` } }, options.fail.status)
+      }
+      if (path.endsWith('/draft/actions/create')) {
+        current = draftResponse(draftTarget())
+        return jsonResponse({ ...MUTATION_OK, etag: '"mpd_1"' })
+      }
+      if (path.endsWith('/draft/actions/upsert-target')) {
+        const target = (body as { target: ReturnType<typeof draftTarget> }).target
+        current = draftResponse(target, { etag: '"mpd_2"' })
+        return jsonResponse({ ...MUTATION_OK, etag: '"mpd_2"' })
+      }
+      throw new Error(`Unexpected write: ${path}`)
+    }
+    if (path.endsWith('/measurement-plan/draft')) return jsonResponse(current ?? { draft: null, etag: null })
+    if (options.project && PROJECT_READ.test(path)) return jsonResponse(options.project)
+    return propertyPageResponses()(url)
+  }
+  const replace = (next: ReturnType<typeof draftResponse> | null) => { current = next }
+  return { handler, writes, replace }
+}
+
+/** The app's own query client, so a failed save reaches the global error toast if it is not suppressed. */
+function appQueryClient(): QueryClient {
+  const client = createQueryClient()
+  client.setDefaultOptions({ ...client.getDefaultOptions(), queries: { ...client.getDefaultOptions().queries, retry: false } })
+  return client
+}
+
+async function namesSection(): Promise<HTMLElement> {
+  return screen.findByRole('region', { name: PROPERTY_NAMES_COPY.heading })
+}
+
+/** Edit opens only once the draft and project reads have settled. */
+async function openNamesEditor(section: HTMLElement) {
+  const edit = within(section).getByRole('button', { name: PROPERTY_NAMES_COPY.edit }) as HTMLButtonElement
+  await waitFor(() => expect(edit.disabled).toBe(false))
+  fireEvent.click(edit)
+}
+
+function namesBox(section: HTMLElement): HTMLTextAreaElement {
+  return within(section).getByRole('textbox', { name: PROPERTY_NAMES_COPY.names }) as HTMLTextAreaElement
+}
+
+function qualifiedBox(section: HTMLElement): HTMLTextAreaElement {
+  return within(section).getByRole('textbox', { name: PROPERTY_NAMES_COPY.qualifiedNames }) as HTMLTextAreaElement
+}
+
+function saveNames(section: HTMLElement) {
+  fireEvent.click(within(section).getByRole('button', { name: PROPERTY_NAMES_COPY.save }))
+}
+
+const withoutBrand = (index: number, value: string) => measurementTargetNameIssueMessage({ code: MeasurementTargetNameIssueCodes.withoutBrand, field: 'aliases', index, value })
+
+describe('Names that count as this Property', () => {
+  it('lists the published names read-only for a viewer and never reads the draft', async () => {
+    const plan = planResponse()
+    plan.active.plan.targets[0] = { ...plan.active.plan.targets[0]!, identityAliases: ['Harbor House Bayfront'] } as typeof plan.active.plan.targets[0]
+    const paths: string[] = []
+    await renderPropertyPageFromApi((url) => {
+      paths.push(pathOf(url))
+      return pathOf(url).endsWith('/measurement-plan') ? jsonResponse(plan) : propertyPageResponses()(url)
+    }, { account: VIEWER })
+
+    const section = await namesSection()
+    expect(within(section).getByRole('heading', { name: PROPERTY_NAMES_COPY.names })).toBeTruthy()
+    expect(within(section).getByText('Harbor House')).toBeTruthy()
+    expect(within(section).getByText('Harbor House Bayfront')).toBeTruthy()
+    expect(within(section).getByText('2 names')).toBeTruthy()
+    expect(within(section).queryByRole('button', { name: PROPERTY_NAMES_COPY.edit })).toBeNull()
+    expect(paths.some(path => path.endsWith('/measurement-plan/draft'))).toBe(false)
+  })
+
+  it('explains what counts the way the mention matcher reads an answer', async () => {
+    await renderPropertyPageFromApi(propertyPageResponses(), { account: VIEWER })
+
+    const section = await namesSection()
+    expect(within(section).getByRole('button', { name: PROPERTY_NAMES_COPY.help })).toBeTruthy()
+    expect(PROPERTY_NAMES_COPY.help).toContain('Source titles and source links never count, but a link in the answer whose text is one of these names does.')
+    // A link written into the sentence keeps its text as prose; a source link
+    // in parentheses is dropped whatever its text says.
+    expect(answerProseForMentions('Try [Harbor House](https://locations.example/harbor-house) today.')).toContain('Harbor House')
+    expect(answerProseForMentions('Try it ([Harbor House](https://locations.example/harbor-house)).')).not.toContain('Harbor House')
+  })
+
+  it('warns inline as an admin types, then saves into a new draft without publishing', async () => {
+    const server = draftServer(null)
+    const { projectName } = await renderPropertyPageFromApi(server.handler, { account: ADMIN })
+
+    const section = await namesSection()
+    await openNamesEditor(section)
+    const names = namesBox(section)
+    const qualified = qualifiedBox(section)
+    expect(names.value).toBe('Harbor House')
+    expect(qualified.value).toBe('')
+    // The project's brand name is "Locations", which "Harbor House" lacks.
+    const brandless = withoutBrand(0, 'Harbor House')
+    expect(within(section).getByText(brandless)).toBeTruthy()
+
+    fireEvent.change(names, { target: { value: 'Locations Harbor House\nHH\n' } })
+    fireEvent.change(qualified, { target: { value: 'Harbor District' } })
+    expect(within(section).queryByText(brandless)).toBeNull()
+    expect(within(section).getByText(measurementTargetNameIssueMessage({ code: MeasurementTargetNameIssueCodes.short, field: 'aliases', index: 1, value: 'HH' }))).toBeTruthy()
+    expect(within(section).getByText(measurementTargetNameIssueMessage({ code: MeasurementTargetNameIssueCodes.qualifiedWithoutName, field: 'identityAliases', index: 0, value: 'Harbor District' }))).toBeTruthy()
+    expect(within(section).getByText(PROPERTY_NAMES_COPY.qualifiedNote)).toBeTruthy()
+    expect(within(section).getByText(PROPERTY_NAMES_COPY.draftOnly)).toBeTruthy()
+
+    fireEvent.change(qualified, { target: { value: 'Locations Harbor House Bayfront' } })
+    saveNames(section)
+
+    expect(await within(section).findByText(PROPERTY_NAMES_COPY.saved, { exact: false })).toBeTruthy()
+    expect(within(section).getByRole('link', { name: PROPERTY_NAMES_COPY.review }).getAttribute('href'))
+      .toBe(`/projects/${encodeURIComponent(projectName)}/portfolio`)
+    // Create a draft against the published revision, then replace this
+    // Property's names in it under the draft's ETag. Nothing else is written.
+    expect(server.writes.map(write => write.path.split('/').at(-1))).toEqual(['create', 'upsert-target'])
+    expect(server.writes[0]!.body).toEqual({ expectedActiveRevision: 7 })
+    expect(server.writes[1]!.headers['if-match']).toBe('"mpd_1"')
+    expect(server.writes[1]!.body).toEqual({
+      target: { ...draftTarget(), aliases: ['Locations Harbor House', 'HH'], identityAliases: ['Locations Harbor House Bayfront'] },
+    })
+    expect(server.writes.some(write => write.path.includes('publish'))).toBe(false)
+  })
+
+  it('drops unsaved names when it moves to another Property, so a save never writes them there', async () => {
+    // Two Properties with no names look identical to the save check, so an
+    // editor that kept the first one's text would write it onto the second.
+    const server = draftServer(null)
+    const restoreFetch = mockFetch((url, init) => server.handler(url, init))
+    onTestFinished(restoreFetch)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const editor = (targetKey: string) => (
+      <QueryClientProvider client={queryClient}>
+        <AccountProvider account={ADMIN}>
+          <PropertyNamesSection projectName="Citypoint Dental NYC" targetKey={targetKey} published={{ aliases: [] }} activeRevision={7} publishedBrandNames={['Locations']} />
+        </AccountProvider>
+      </QueryClientProvider>
+    )
+    const { rerender } = render(editor('harbor-house'))
+
+    const first = await namesSection()
+    await openNamesEditor(first)
+    fireEvent.change(namesBox(first), { target: { value: 'Locations Harbor House' } })
+
+    rerender(editor('bayfront-suites'))
+    const second = await namesSection()
+    expect(within(second).queryByRole('textbox', { name: PROPERTY_NAMES_COPY.names })).toBeNull()
+    await openNamesEditor(second)
+    expect(namesBox(second).value).toBe('')
+    saveNames(second)
+
+    expect(await within(second).findByText(PROPERTY_NAMES_COPY.noChanges)).toBeTruthy()
+    expect(server.writes).toEqual([])
+  })
+
+  it('starts no draft when a save changes nothing', async () => {
+    // An open draft moves every Property's next step to finishing setup, so a
+    // save with nothing to change must leave the project with no draft.
+    const server = draftServer(null)
+    await renderPropertyPageFromApi(server.handler, { account: ADMIN })
+
+    const section = await namesSection()
+    await openNamesEditor(section)
+    saveNames(section)
+
+    expect(await within(section).findByText(PROPERTY_NAMES_COPY.noChanges)).toBeTruthy()
+    expect(server.writes).toEqual([])
+    expect(within(section).queryByText(PROPERTY_NAMES_COPY.pending, { exact: false })).toBeNull()
+  })
+
+  it('flags names saved in the draft but not published, and edits from the draft', async () => {
+    const pending = draftTarget({ aliases: ['Locations Harbor House'], identityAliases: ['Locations Harbor House Bayfront'] })
+    const server = draftServer(draftResponse(pending))
+    await renderPropertyPageFromApi(server.handler, { account: ADMIN })
+
+    const section = await namesSection()
+    expect(await within(section).findByText(PROPERTY_NAMES_COPY.pending, { exact: false })).toBeTruthy()
+    // The list still shows what is published, because that is what is measured.
+    expect(within(section).getByText('Harbor House')).toBeTruthy()
+    await openNamesEditor(section)
+    expect(namesBox(section).value).toBe('Locations Harbor House')
+    expect(qualifiedBox(section).value).toBe('Locations Harbor House Bayfront')
+
+    // Saving what the draft already holds writes nothing.
+    saveNames(section)
+    expect(await within(section).findByText(PROPERTY_NAMES_COPY.noChanges)).toBeTruthy()
+    expect(server.writes).toEqual([])
+
+    // Clearing every qualified name drops the field rather than storing an empty list.
+    await openNamesEditor(section)
+    fireEvent.change(qualifiedBox(section), { target: { value: '\n' } })
+    saveNames(section)
+    expect(await within(section).findByText(PROPERTY_NAMES_COPY.saved, { exact: false })).toBeTruthy()
+    expect(server.writes.map(write => write.body)).toEqual([{ target: draftTarget({ aliases: ['Locations Harbor House'] }) }])
+    expect(server.writes[0]!.body).not.toHaveProperty('target.identityAliases')
+  })
+
+  it('waits for the draft read before opening, so it never edits from the published names under a pending draft', async () => {
+    let releaseDraft!: () => void
+    const draftRead = new Promise<void>(resolve => { releaseDraft = resolve })
+    const server = draftServer(draftResponse(draftTarget({ aliases: ['Locations Harbor House'] })))
+    await renderPropertyPageFromApi(async (url, init) => {
+      if (init?.method !== 'POST' && pathOf(url).endsWith('/measurement-plan/draft')) await draftRead
+      return server.handler(url, init)
+    }, { account: ADMIN })
+
+    const section = await namesSection()
+    const edit = within(section).getByRole('button', { name: PROPERTY_NAMES_COPY.edit }) as HTMLButtonElement
+    expect(edit.disabled).toBe(true)
+    fireEvent.click(edit)
+    expect(within(section).queryByRole('textbox', { name: PROPERTY_NAMES_COPY.names })).toBeNull()
+
+    releaseDraft()
+    await openNamesEditor(section)
+    expect(namesBox(section).value).toBe('Locations Harbor House')
+  })
+
+  it('keeps names another session saved while the editor was open', async () => {
+    resetToasts()
+    const server = draftServer(draftResponse(draftTarget({ aliases: ['Locations Harbor House'] })))
+    await renderPropertyPageFromApi(server.handler, { account: ADMIN, queryClient: appQueryClient() })
+
+    const section = await namesSection()
+    await openNamesEditor(section)
+    expect(namesBox(section).value).toBe('Locations Harbor House')
+
+    // Another admin, or an agent through the draft API, adds a name meanwhile.
+    server.replace(draftResponse(draftTarget({ aliases: ['Locations Harbor House', 'Locations Harbor Tower'] }), { etag: '"mpd_3"' }))
+    fireEvent.change(namesBox(section), { target: { value: 'Locations Harbor House\nLocations Harbor House Larkfield' } })
+    saveNames(section)
+
+    expect((await within(section).findByRole('alert')).textContent).toContain(PROPERTY_NAMES_COPY.conflict)
+    expect(server.writes).toEqual([])
+    expect(namesBox(section).value).toBe('Locations Harbor House\nLocations Harbor Tower')
+    expect(getToasts()).toEqual([])
+
+    // Saving again builds on the names now in the draft, under its current ETag.
+    fireEvent.change(namesBox(section), { target: { value: 'Locations Harbor House\nLocations Harbor Tower\nLocations Harbor House Larkfield' } })
+    saveNames(section)
+    expect(await within(section).findByText(PROPERTY_NAMES_COPY.saved, { exact: false })).toBeTruthy()
+    expect(server.writes).toHaveLength(1)
+    expect(server.writes[0]!.headers['if-match']).toBe('"mpd_3"')
+    expect(server.writes[0]!.body).toEqual({
+      target: draftTarget({ aliases: ['Locations Harbor House', 'Locations Harbor Tower', 'Locations Harbor House Larkfield'] }),
+    })
+  })
+
+  it('shows a refused save once, inline, with no toast', async () => {
+    resetToasts()
+    const server = draftServer(draftResponse(draftTarget({ aliases: ['Locations Harbor House'] })), { fail: { action: 'upsert-target', status: 412 } })
+    await renderPropertyPageFromApi(server.handler, { account: ADMIN, queryClient: appQueryClient() })
+
+    const section = await namesSection()
+    await openNamesEditor(section)
+    fireEvent.change(namesBox(section), { target: { value: 'Locations Harbor House\nLocations Harbor House Larkfield' } })
+    saveNames(section)
+
+    expect((await within(section).findByRole('alert')).textContent).toContain(PROPERTY_NAMES_COPY.conflict)
+    await waitFor(() => expect(namesBox(section).value).toBe('Locations Harbor House'))
+    expect(within(section).getAllByRole('alert')).toHaveLength(1)
+    expect(getToasts()).toEqual([])
+  })
+
+  it('shows a failed save once, inline, with no toast', async () => {
+    resetToasts()
+    const server = draftServer(null, { fail: { action: 'create', status: 500 } })
+    await renderPropertyPageFromApi(server.handler, { account: ADMIN, queryClient: appQueryClient() })
+
+    const section = await namesSection()
+    await openNamesEditor(section)
+    fireEvent.change(namesBox(section), { target: { value: 'Locations Harbor House' } })
+    saveNames(section)
+
+    expect((await within(section).findByRole('alert')).textContent).toBe(PROPERTY_NAMES_COPY.failed)
+    expect(server.writes.map(write => write.path.split('/').at(-1))).toEqual(['create'])
+    expect(getToasts()).toEqual([])
+  })
+
+  it('checks names against the project brand names the draft API uses, not the published ones', async () => {
+    // The project was renamed after the last publish: the plan still says
+    // "Locations", while the draft API and the next publish read "Newco".
+    const server = draftServer(null, { project: projectRead({ displayName: 'Newco', canonicalDomain: 'newco.example' }) })
+    await renderPropertyPageFromApi(server.handler, { account: ADMIN })
+
+    const section = await namesSection()
+    await openNamesEditor(section)
+    fireEvent.change(namesBox(section), { target: { value: 'Newco Harbor House\nLocations Harbor House' } })
+
+    expect(within(section).queryByText(withoutBrand(0, 'Newco Harbor House'))).toBeNull()
+    expect(within(section).getByText(withoutBrand(1, 'Locations Harbor House'))).toBeTruthy()
+  })
+
+  it('refuses to write into a draft started from an older published setup', async () => {
+    const server = draftServer(draftResponse(draftTarget(), { baseActiveRevision: 6 }))
+    await renderPropertyPageFromApi(server.handler, { account: ADMIN })
+
+    const section = await namesSection()
+    await openNamesEditor(section)
+    fireEvent.change(namesBox(section), { target: { value: 'Locations Harbor House' } })
+    saveNames(section)
+
+    expect((await within(section).findByRole('alert')).textContent).toContain(PROPERTY_NAMES_COPY.staleDraft)
+    expect(server.writes).toEqual([])
+  })
+})
+
+describe('Cited on other queries', () => {
+  const OTHER_KEY = 'marina-point'
+
+  function otherRow(overrides: Partial<OtherQueryRow> & { queryText: string }): OtherQueryRow {
+    return {
+      observationId: `obs-${overrides.queryText}`,
+      expectedSlotId: `slot-${overrides.queryText}`,
+      executionId: `exec-${overrides.queryText}`,
+      provider: 'gemini',
+      location: null,
+      queryClass: 'non-brand',
+      assignedTargetKeys: [OTHER_KEY],
+      sources: [{ sourceUrl: `${OWN_URL}/amenities`, normalizedUrl: `${OWN_URL}/amenities`, matchedUrlIds: [`${TARGET_KEY}:url:0`] }],
+      sourceCount: 1,
+      sourcesTruncated: false,
+      evidenceComplete: true,
+      ...overrides,
+    }
+  }
+
+  function planWithMarina() {
+    const plan = planResponse()
+    plan.active.plan.targets.push({
+      stableKey: OTHER_KEY,
+      label: 'Marina Point',
+      aliases: ['Marina Point'],
+      urlMatchers: [{ kind: 'prefix' as const, host: 'locations.example', pathPrefix: '/marina-point', pathCase: 'insensitive' as const }],
+      mentionNotApplicable: false,
+      discoveryIdentity: 'sitemap:marina-point',
+    })
+    return plan
+  }
+
+  it('lists citations of this Property’s pages from queries assigned elsewhere, apart from its rates', async () => {
+    const requests: URL[] = []
+    const rows = [
+      otherRow({ queryText: 'quiet stays by the marina' }),
+      otherRow({ queryText: 'family hotels near the pier', provider: 'openai', evidenceComplete: false }),
+    ]
+    const { projectName } = await renderPropertyPageFromApi(url => {
+      const request = new URL(url)
+      const path = pathOf(url)
+      if (path.endsWith('/measurement-plan')) return jsonResponse(planWithMarina())
+      if (path.includes('/measurement-property-evidence') && request.searchParams.get('shape') === 'other-queries') {
+        requests.push(request)
+        return jsonResponse(otherQueriesResponse(rows))
+      }
+      if (path.includes('/measurement-question-result')) {
+        requests.push(request)
+        return jsonResponse({
+          property: { targetKey: OTHER_KEY, label: 'Marina Point' },
+          measurement: { state: 'complete', displayedRunId: RUN_ID, planRevision: 7, completedAt: '2026-08-02T12:05:00.000Z' },
+          question: {
+            resultId: 'obs-quiet stays by the marina', queryId: 'query-marina', text: 'quiet stays by the marina', class: 'non-brand',
+            provider: 'gemini', requestedModel: null, servedModel: null, location: null, status: 'answered',
+          },
+          mentioned: true, cited: false, recommendedInstead: [],
+          answer: 'Marina Point is quiet, and Harbor House next door has a pool.',
+          sources: [], captureStatus: 'complete', retrievalStatus: 'used', retrievalContract: 'native-auto-v1',
+        })
+      }
+      return propertyPageResponses()(url)
+    })
+
+    const section = await screen.findByRole('region', { name: OTHER_QUERIES_COPY.heading })
+    expect(await within(section).findByText(`2 answers · non-brand queries · ${OTHER_QUERIES_COPY.notCounted}`)).toBeTruthy()
+    const evidence = requests.find(request => request.pathname.includes('/measurement-property-evidence'))!
+    expect(Object.fromEntries(evidence.searchParams)).toMatchObject({ targetKey: TARGET_KEY, queryClass: 'non-brand', shape: 'other-queries', runId: RUN_ID })
+
+    const table = within(section).getByRole('table')
+    const quiet = within(table).getByText('quiet stays by the marina').closest('tr')!
+    // Who the query was asked for links to that Property's own page, on the same class.
+    expect(within(quiet).getByRole('link', { name: 'Marina Point' }).getAttribute('href'))
+      .toBe(`/projects/${encodeURIComponent(projectName)}/properties/${OTHER_KEY}?queryClass=non-brand`)
+    expect(within(quiet).getByText(`${OWN_URL}/amenities`, { exact: false })).toBeTruthy()
+    expect(within(quiet).queryByText(OTHER_QUERIES_COPY.partlySaved)).toBeNull()
+    const pier = within(table).getByText('family hotels near the pier').closest('tr')!
+    expect(within(pier).getByText(OTHER_QUERIES_COPY.partlySaved)).toBeTruthy()
+
+    // The answer belongs to the Property it was asked for, so it is read through that one.
+    fireEvent.click(within(quiet).getByRole('button', { name: 'Read the answer for quiet stays by the marina' }))
+    expect(await within(section).findByText(/Harbor House next door has a pool/)).toBeTruthy()
+    const answer = requests.find(request => request.pathname.includes('/measurement-question-result'))!
+    expect(Object.fromEntries(answer.searchParams)).toEqual({ targetKey: OTHER_KEY, resultId: 'obs-quiet stays by the marina' })
+
+    // The rates above still read only this Property's own queries.
+    const contrast = screen.getByRole('table', { name: 'Mention and citation coverage for this Property, split by query class' })
+    expect(within(within(contrast).getByText('When they don\'t').closest('tr')!).getByText('50.0%')).toBeTruthy()
+  })
+
+  it('reads the class the page shows, and says so when nothing was cited elsewhere', async () => {
+    const classes: (string | null)[] = []
+    await renderPropertyPageFromApi(url => {
+      const request = new URL(url)
+      if (pathOf(url).includes('/measurement-property-evidence') && request.searchParams.get('shape') === 'other-queries') {
+        classes.push(request.searchParams.get('queryClass'))
+        return jsonResponse(otherQueriesResponse([], 'branded'))
+      }
+      return propertyPageResponses()(url)
+    }, { search: '?queryClass=branded' })
+
+    const section = await screen.findByRole('region', { name: OTHER_QUERIES_COPY.heading })
+    expect(await within(section).findByText(OTHER_QUERIES_COPY.empty)).toBeTruthy()
+    expect(within(section).getByText(`0 answers · branded queries · ${OTHER_QUERIES_COPY.notCounted}`)).toBeTruthy()
+    expect(classes).toEqual(['branded'])
+  })
 })

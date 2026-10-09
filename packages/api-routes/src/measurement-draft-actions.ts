@@ -20,6 +20,8 @@ import {
   measurementDraftUpsertMarketRequestSchema,
   measurementV2UsageEdgeKey,
   measurementDraftUpsertTargetRequestSchema,
+  measurementTargetNameIssueMessage,
+  measurementTargetNameIssues,
   notFound,
   validationError,
   type MeasurementDraftAssignment,
@@ -267,13 +269,23 @@ function withRequestedContext(
   return { ...withoutFrozenContexts, contextOverride }
 }
 
-function upsertTarget(authoring: MeasurementDraftAuthoring, body: unknown): DraftActionResult {
+/**
+ * Name advice rides on the response rather than refusing the write: a short or
+ * brand-less name is sometimes the operator's deliberate choice, and the publish
+ * review still refuses a qualified name with no stored name inside it.
+ */
+function upsertTarget(authoring: MeasurementDraftAuthoring, body: unknown, context: DraftActionContext): DraftActionResult {
   const { target } = parseBody(measurementDraftUpsertTargetRequestSchema, body, 'upsert-target')
   const index = authoring.targets.findIndex(candidate => candidate.stableKey === target.stableKey)
   const targets = [...authoring.targets]
   if (index === -1) targets.push(target)
   else targets[index] = target
-  return { authoring: { ...authoring, targets }, warnings: [] }
+  const warnings = measurementTargetNameIssues({
+    aliases: target.aliases,
+    ...(target.identityAliases === undefined ? {} : { identityAliases: target.identityAliases }),
+    brandNames: context.brandNames,
+  }).map(issue => warn(issue.code, measurementTargetNameIssueMessage(issue), ['target', issue.field, issue.index]))
+  return { authoring: { ...authoring, targets }, warnings }
 }
 
 function renameTarget(authoring: MeasurementDraftAuthoring, body: unknown): DraftActionResult {
@@ -719,7 +731,7 @@ export function applyDraftAction(
 ): DraftActionResult {
   const result = (() => {
     switch (action) {
-      case 'upsert-target': return upsertTarget(authoring, body)
+      case 'upsert-target': return upsertTarget(authoring, body, context)
       case 'rename-target': return renameTarget(authoring, body)
       case 'merge-targets': return mergeTargets(authoring, body)
       case 'exclude-target': return excludeTarget(authoring, body)

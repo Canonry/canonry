@@ -703,8 +703,8 @@ const measurementOverviewCursorParameter: OpenApiParameter = {
 const measurementPropertyEvidenceShapeParameter: OpenApiParameter = {
   name: 'shape',
   in: 'query',
-  description: 'What one row is. sources (the default) returns one row per cited URL under evidence, which is what a caller written before this parameter existed reads. answers returns one row per measured answer under answers, with the cited URLs nested inside it, so the answers that cited nothing at all are present rather than missing. Exactly one of the two keys is returned; the other is absent, not empty.',
-  schema: { type: 'string', enum: ['sources', 'answers'], default: 'sources' },
+  description: 'What one row is. sources (the default) returns one row per cited URL under evidence, which is what a caller written before this parameter existed reads. answers returns one row per measured answer under answers, with the cited URLs nested inside it, so the answers that cited nothing at all are present rather than missing. other-queries returns, under otherQueries, one row per answer to a query NOT assigned to this Property that cited one of its own pages, per assignment class; those answers are outside its rates. Exactly one of the keys is returned; the others are absent, not empty.',
+  schema: { type: 'string', enum: ['sources', 'answers', 'other-queries'], default: 'sources' },
 }
 
 const measurementPropertyEvidenceCursorParameter: OpenApiParameter = {
@@ -1414,7 +1414,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-property-evidence',
     summary: 'Page one Property\'s evidence',
-    description: 'Returns the evidence rows for exactly one Property out of one revision-pinned run, optionally narrowed to a question class, provider, or location. shape chooses what a row is: sources (the default) is one row per cited URL, answers is one row per measured answer with its cited URLs nested inside. Prefer answers to explain a gap — an answer that mentioned the Property without linking it, or that named nobody, has no URL to hang a source row on and is invisible in the default shape. Run selection matches the overview: the most recent completed run pinned to the active revision unless runId names another. Use this rather than GET /measurement-report when you want one Property — the report reconstructs every group and Target for a revision and does not paginate. Not available for a schema v1 revision, which records no question class to scope by. An empty page under measurement.state = not_measured means the Property has not been measured, which is not the same statement as a measured Property with no evidence.',
+    description: 'Returns the evidence rows for exactly one Property out of one revision-pinned run, optionally narrowed to a question class, provider, or location. shape chooses what a row is: sources (the default) is one row per cited URL, answers is one row per measured answer with its cited URLs nested inside, other-queries is one row per answer to a query not assigned to this Property that cited its pages (outside its rates). Prefer answers to explain a gap — an answer that mentioned the Property without linking it, or that named nobody, has no URL to hang a source row on and is invisible in the default shape. Run selection matches the overview: the most recent completed run pinned to the active revision unless runId names another. Use this rather than GET /measurement-report when you want one Property — the report reconstructs every group and Target for a revision and does not paginate. Not available for a schema v1 revision, which records no question class to scope by. An empty page under measurement.state = not_measured means the Property has not been measured, which is not the same statement as a measured Property with no evidence.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,

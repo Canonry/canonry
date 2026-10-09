@@ -19,6 +19,7 @@ import {
   type VisibilityReportCompetitorAvailability,
   type VisibilityReportPopulationClass,
   type VisibilityReportProvenance,
+  type VisibilityReportQueryRow,
   type VisibilityReportRate,
   type VisibilityReportRateChange,
   type VisibilityReportResponse,
@@ -522,11 +523,18 @@ function targetPresence(
   const anyKnown = (signals: readonly (boolean | null)[]): boolean | null => (
     signals.includes(true) ? true : signals.length === 0 || signals.includes(null) ? null : false
   )
+  const mention = anyKnown(values.map(value => value.mention))
+  const citation = anyKnown(citations)
   return {
     targetKey,
-    mention: anyKnown(values.map(value => value.mention)),
-    citation: anyKnown(citations),
+    mention,
+    citation,
     identityAmbiguous: values.some(value => value.mentionUnavailableReason === 'identity-ambiguous'),
+    // Every answer was saved, so an unknown citation can only come from an
+    // answer whose source list was partly saved. With the mention measured,
+    // that is the one reason this Property reads not measured.
+    uncheckedOnly: mention !== null && citation === null && scoped.length > 0
+      && scoped.every(candidate => candidate.observation !== null),
   }
 }
 
@@ -546,6 +554,26 @@ function outcomeCounts(rows: readonly ReturnType<typeof targetPresence>[]) {
     }
   }
   return counts
+}
+
+/**
+ * The answers in one query row whose source list was only partly saved, and
+ * what their saved links still cite among the row's own Properties. The rate
+ * leaves them out (`citationRate`); this keeps the captured citation visible
+ * beside it. Undefined when every answer's sources were fully saved.
+ */
+function uncheckedSourceEvidence(rows: readonly Candidate[]): VisibilityReportQueryRow['uncheckedSources'] {
+  const unchecked = rows.filter(candidate => candidate.observation !== null && !candidate.observation.citationComplete)
+  if (unchecked.length === 0) return undefined
+  const cited = unchecked.map(candidate => {
+    const edgeTargets = new Set(candidate.edges.map(edge => edge.targetKey))
+    return candidate.observation!.citedTargetKeys.filter(key => edgeTargets.has(key))
+  })
+  return {
+    answers: unchecked.length,
+    citedAnswers: cited.filter(keys => keys.length > 0).length,
+    citedTargetKeys: sortedUnique(cited.flat()),
+  }
 }
 
 function coverageSummary(
@@ -580,6 +608,7 @@ function summary(
     eligibleTargets.length,
     eligibleTargets.some(row => row.mention === null && row.identityAmbiguous) ? 'identity-ambiguous' : 'evidence-incomplete',
   )
+  const notMeasuredUnchecked = targetRows.filter(row => row.uncheckedOnly).length
   return {
     queryCount: base.queryCount,
     answerCount: base.answerCount,
@@ -587,6 +616,7 @@ function summary(
     citationCoverage: base.citationCoverage,
     propertyReach,
     outcomes: outcomeCounts(targetRows),
+    ...(notMeasuredUnchecked > 0 ? { notMeasuredUnchecked } : {}),
   }
 }
 
@@ -608,6 +638,7 @@ function queryRows(candidates: readonly Candidate[], definition: VisibilityRepor
   return [...groups.values()].map(rows => {
     const first = rows[0]!
     const value = coverageSummary(rows, definition, targets)
+    const uncheckedSources = uncheckedSourceEvidence(value.rows)
     return {
       sourceSnapshotIds: sortedUnique(rows.flatMap(row => row.observation ? [row.observation.answerId] : [])),
       queryKey: first.slot.queryKey,
@@ -624,6 +655,7 @@ function queryRows(candidates: readonly Candidate[], definition: VisibilityRepor
       answerCount: value.answerCount,
       mentionCoverage: value.mentionCoverage,
       citationCoverage: value.citationCoverage,
+      ...(uncheckedSources === undefined ? {} : { uncheckedSources }),
     }
   }).sort((left, right) => (
     (selection.scope === 'property' && selection.marketKey === undefined

@@ -703,10 +703,11 @@ describe('MCP tool registry', () => {
     // The DECLARED schema is what an MCP client validates a call against, so a
     // parameter absent from it is unreachable however the handler behaves.
     expect(tool!.inputSchema.safeParse({ project: 'acme', targetKey: 'harbor-view', shape: 'answers' }).success).toBe(true)
+    expect(tool!.inputSchema.safeParse({ project: 'acme', targetKey: 'harbor-view', shape: 'other-queries' }).success).toBe(true)
     expect(tool!.inputSchema.safeParse({ project: 'acme', targetKey: 'harbor-view' }).success).toBe(true)
     expect(tool!.inputSchema.safeParse({ project: 'acme', targetKey: 'harbor-view', shape: 'urls' }).success).toBe(false)
     expect(schemaProperty(inputSchemaFor('canonry_measurement_property_evidence'), 'shape')).toMatchObject({
-      enum: ['sources', 'answers'],
+      enum: ['sources', 'answers', 'other-queries'],
     })
 
     // The answer shape is a parameter, never a second operation: adding a tool

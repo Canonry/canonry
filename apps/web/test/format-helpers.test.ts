@@ -7,8 +7,23 @@ import {
   scheduleLabel,
   formatTimeZoneLabel,
   localTimeZoneLabel,
+  siteCitationLabel,
   splitPercentSign,
 } from '../src/lib/format-helpers.js'
+
+describe('siteCitationLabel', () => {
+  it('names the domain and "any page" for every state of the site-wide flag', () => {
+    expect(siteCitationLabel('example.com', 'cited')).toBe('example.com cited (any page)')
+    expect(siteCitationLabel('example.com', 'emerging')).toBe('example.com newly cited (any page)')
+    expect(siteCitationLabel('example.com', 'lost')).toBe('example.com citation lost (any page)')
+    expect(siteCitationLabel('example.com', 'not-cited')).toBe('example.com not cited (any page)')
+    expect(siteCitationLabel('example.com', 'pending')).toBe('Pending')
+  })
+
+  it('reads the domain as stored: a full URL, mixed case and www all name the same host', () => {
+    expect(siteCitationLabel('https://WWW.Example.com/', 'cited')).toBe('example.com cited (any page)')
+  })
+})
 
 describe('splitPercentSign', () => {
   it('sets the sign of a formatted percent apart without reformatting the figure', () => {

@@ -7,7 +7,7 @@
  * prevents a read from mutating or re-fetching evidence.
  */
 
-import { answerProseForMentions, escapeRegExp, normalizeIdentityText, normalizeMeasurementHost, rateOverChecked, compareText, sortedUnique } from '@ainyc/canonry-contracts'
+import { answerProseForMentions, escapeRegExp, measurementNameKey, measurementNameWords, normalizeIdentityText, normalizeMeasurementHost, rateOverChecked, compareText, sortedUnique } from '@ainyc/canonry-contracts'
 
 export type MeasurementAttributionClass =
   | 'assigned'
@@ -572,15 +572,12 @@ export function normalizeMeasurementLocation(value: string | null): string | nul
   return normalizeIdentityText(value) || null
 }
 
-function words(value: string): string[] {
-  // Unicode's default lowercasing is locale-independent and matches the en
-  // mapping used here; avoid invoking locale resolution for every answer.
-  return value.normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
-}
+/** Shared with the Property name editor, so its warnings read the words this matcher reads. */
+const words = measurementNameWords
 
 /** The exact token identity used when deciding whether two Target aliases are ambiguous. */
 export function measurementMentionAliasKey(value: string): string {
-  return words(value).join('\u0000')
+  return measurementNameKey(value)
 }
 
 function aliasMatchesAt(textWords: readonly string[], aliasWords: readonly string[], start: number): boolean {
