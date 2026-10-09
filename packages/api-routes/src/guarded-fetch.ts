@@ -32,6 +32,13 @@ export type GuardedFetch = (input: string | URL, init?: RequestInit) => Promise<
 
 export const GUARDED_FETCH_MAX_REDIRECTS = 5
 
+/**
+ * Pinned agents one guarded fetch keeps, the least recently used closed
+ * first: enough for a WordPress site, its staging site and the hosts their
+ * pages and sitemaps link to.
+ */
+const MAX_POOLED_AGENTS = 16
+
 export interface GuardedFetchOptions {
   /**
    * Admit loopback targets, as `allowLoopbackWebhooks` does: the URL the caller
@@ -83,6 +90,27 @@ const BODY_HEADERS = ['content-encoding', 'content-language', 'content-length', 
 export function createGuardedFetch(options: GuardedFetchOptions = {}): GuardedFetch {
   const resolveTarget = options.resolveTarget
     ?? ((url: string) => resolveWebhookTarget(url, { allowLoopback: options.allowLoopback }))
+  // One pinned agent per origin and checked address set, so the requests of an
+  // audit or a sync reuse keep-alive connections instead of paying a new TCP
+  // and TLS handshake each. Every request is still checked first, and reuses
+  // only an agent pinned to exactly the addresses its own check returned, so a
+  // pooled connection never reaches an address that check did not admit.
+  const agents = new Map<string, Agent>()
+  function agentFor(target: SafeWebhookTarget): Agent {
+    const addresses = checkedAddresses(target)
+    const key = `${target.url.origin} ${addresses.map(({ address }) => address).sort().join(' ')}`
+    const agent = agents.get(key) ?? pinnedAgent(addresses)
+    // Map order is use order, so the first entry is the least recently used.
+    agents.delete(key)
+    agents.set(key, agent)
+    if (agents.size > MAX_POOLED_AGENTS) {
+      const [oldestKey, oldest] = agents.entries().next().value!
+      agents.delete(oldestKey)
+      // A graceful close: requests still in flight on it finish first.
+      oldest.close().catch(() => {})
+    }
+    return agent
+  }
 
   return async (input, init = {}) => {
     // The policy parses the URL, so a malformed one is a refusal like any other.
@@ -113,7 +141,7 @@ export function createGuardedFetch(options: GuardedFetchOptions = {}): GuardedFe
         throw new EgressRefusedError(`Refused to connect to ${url.host}: a redirect from a site that is not on loopback must not lead to loopback`, true)
       }
       mayRedirectToLoopback = !onLoopback.includes(false)
-      const response = await requestPinned(check.target, { method, headers, body, signal })
+      const response = await requestPinned(check.target, agentFor(check.target), { method, headers, body, signal })
       const location = isLocationRedirectStatus(response.status) ? response.headers.get('location') : null
       if (location === null) return response
 
@@ -164,24 +192,19 @@ async function untilAborted<T>(operation: Promise<T>, signal: AbortSignal | unde
 
 async function requestPinned(
   target: SafeWebhookTarget,
+  dispatcher: Agent,
   init: { method: string; headers: Headers; body: BodyInit | null; signal: AbortSignal | undefined },
 ): Promise<Response> {
-  const dispatcher = pinnedAgent(target)
-  try {
-    const response = await undiciFetch(target.url, {
-      method: init.method,
-      headers: [...init.headers],
-      body: init.body as UndiciRequestInit['body'],
-      signal: init.signal,
-      redirect: 'manual',
-      dispatcher,
-    })
-    // The same Fetch API Response; only undici's type declarations differ from the DOM lib's.
-    return response as unknown as Response
-  } finally {
-    // A graceful close: the agent finishes once the caller has read the body.
-    dispatcher.close().catch(() => {})
-  }
+  const response = await undiciFetch(target.url, {
+    method: init.method,
+    headers: [...init.headers],
+    body: init.body as UndiciRequestInit['body'],
+    signal: init.signal,
+    redirect: 'manual',
+    dispatcher,
+  })
+  // The same Fetch API Response; only undici's type declarations differ from the DOM lib's.
+  return response as unknown as Response
 }
 
 /**
@@ -189,8 +212,7 @@ async function requestPinned(
  * resolver says now. Node does not call `lookup` for an IP-literal host, which
  * is safe: a literal is checked as itself, so it is the checked address.
  */
-function pinnedAgent(target: SafeWebhookTarget): Agent {
-  const addresses = checkedAddresses(target)
+function pinnedAgent(addresses: ReadonlyArray<{ address: string; family: 4 | 6 }>): Agent {
   return new Agent({
     // Try the next checked address when one does not answer, so a dual-stack
     // site whose first address is unreachable (an IPv6-only network, a dead A

@@ -178,6 +178,39 @@ describe('createGuardedFetch', () => {
     ])
   })
 
+  test('reuses keep-alive connections while the name resolves to the same checked addresses', async () => {
+    site = await startRecordingSite((_request, response) => response.writeHead(200).end('ok'))
+    const guardedFetch = createGuardedFetch({ resolveTarget: publicFixturePolicy() })
+
+    for (const page of [1, 2, 3, 4, 5, 6]) {
+      await (await guardedFetch(`http://${PUBLIC_SITE}:${site.port}/page-${page}`)).text()
+    }
+
+    expect(site.requests).toHaveLength(6)
+    // undici may open a second connection while it releases the first, but no
+    // longer one per request.
+    expect(new Set(site.requests.map(({ connection }) => connection)).size).toBeLessThanOrEqual(2)
+  })
+
+  test('never sends a request over a connection pooled for other checked addresses', async () => {
+    site = await startRecordingSite((_request, response) => response.writeHead(200).end('ok'))
+    // Both addresses reach the fixture, so only the connections tell them apart.
+    const guardedFetch = createGuardedFetch({
+      resolveTarget: async (url) => {
+        const parsed = new URL(url)
+        return { ok: true, target: { url: parsed, address: parsed.pathname.startsWith('/a') ? '127.0.0.1' : '0.0.0.0', family: 4 } }
+      },
+    })
+
+    for (const path of ['/a1', '/a2', '/a3', '/b1', '/b2', '/b3']) {
+      await (await guardedFetch(`http://${PUBLIC_SITE}:${site.port}${path}`)).text()
+    }
+
+    const servedOn = (prefix: string) => new Set(site!.requests.filter(({ path }) => path.startsWith(prefix)).map(({ connection }) => connection))
+    const checkedAsA = servedOn('/a')
+    expect([...servedOn('/b')].filter((connection) => checkedAsA.has(connection))).toEqual([])
+  })
+
   test('drops credentials on a cross-origin redirect and keeps the method and body of a 307', async () => {
     otherSite = await startRecordingSite((_request, response) => response.writeHead(200).end('landed'))
     const landing = `http://127.0.0.1:${otherSite.port}/landing`

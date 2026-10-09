@@ -1,10 +1,13 @@
 import http from 'node:http'
+import type net from 'node:net'
 
 export interface RecordedRequest {
   method: string
   path: string
   headers: http.IncomingHttpHeaders
   body: string
+  /** Which TCP connection, numbered from 1 in the order clients opened them, carried the request. */
+  connection: number
 }
 
 export interface RecordingSite {
@@ -24,6 +27,8 @@ export async function startRecordingSite(
   respond: (request: RecordedRequest, response: http.ServerResponse, port: number) => void,
 ): Promise<RecordingSite> {
   const requests: RecordedRequest[] = []
+  const connections = new WeakMap<net.Socket, number>()
+  let opened = 0
   const server = http.createServer((req, res) => {
     const chunks: Buffer[] = []
     req.on('data', (chunk: Buffer) => chunks.push(chunk))
@@ -33,10 +38,15 @@ export async function startRecordingSite(
         path: req.url ?? '',
         headers: req.headers,
         body: Buffer.concat(chunks).toString('utf8'),
+        connection: connections.get(req.socket)!,
       }
       requests.push(request)
       respond(request, res, port)
     })
+  })
+  server.on('connection', (socket) => {
+    opened += 1
+    connections.set(socket, opened)
   })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
