@@ -57,10 +57,11 @@ password. Every password sign-in uses the install's root API key (`apiKey` in
   address (`--host 0.0.0.0`, Docker), and to any request that comes through a
   reverse proxy or Tailscale Serve, also when Canonry binds loopback. When
   `publicUrl` or `apiUrl` names a host other than `localhost` or a loopback
-  address, or `CANONRY_TRUST_PROXY` is set, it applies to every request, also
-  on this machine. The dashboard sends the key with that one setup request and
-  does not store it. Other API keys, including full-access keys from
-  `canonry key create`, are refused.
+  address, a base path is set (`basePath`, `--base-path`, or
+  `CANONRY_BASE_PATH`), or `CANONRY_TRUST_PROXY` is set, it applies to every
+  request, also on this machine. The dashboard sends the key with that one
+  setup request and does not store it. Other API keys, including full-access
+  keys from `canonry key create`, are refused.
 
 > **Create the password before you forward the port.** Without the root API
 > key, Canonry accepts the setup from any process that can connect to its
@@ -279,7 +280,8 @@ Canonry refuses a first-run password setup without the root API key in these
 cases:
 
 - `publicUrl` or `apiUrl` names a host other than `localhost` or a loopback
-  address, or `CANONRY_TRUST_PROXY` is set. This applies to every request.
+  address, a base path is set, or `CANONRY_TRUST_PROXY` is set. This applies
+  to every request.
 - The request has a `Forwarded`, `X-Forwarded-*`, `X-Real-IP`, `Via`,
   `CF-Connecting-IP`, or `True-Client-IP` header.
 - The request has a `Host` that is not `localhost` or a loopback address.
@@ -296,10 +298,10 @@ examples below do.
 > HTTP/1.1 and no forwarding header, for example nginx with
 > `proxy_http_version 1.1;` and no `X-Forwarded-For`, or HAProxy without
 > `option forwardfor`. Through such a proxy, a visitor who sends
-> `Host: localhost` looks local to Canonry. If `publicUrl` is not set, that
-> visitor can create the password without the root API key. Create the
-> password before you open the proxy, or configure the proxy to send
-> `X-Forwarded-For`.
+> `Host: localhost` looks local to Canonry. If neither `publicUrl` nor a base
+> path is set, that visitor can create the password without the root API key.
+> Create the password before you open the proxy, or configure the proxy to
+> send `X-Forwarded-For`.
 
 ### Root path (`/`)
 

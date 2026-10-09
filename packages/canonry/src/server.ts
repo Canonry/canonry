@@ -660,15 +660,17 @@ function isDirectLocalRequest(request: FastifyRequest): boolean {
 
 /**
  * Whether config declares a way to reach this server other than a direct local
- * connection: a trusted proxy (`CANONRY_TRUST_PROXY`), or an `apiUrl` or
- * `publicUrl` whose hostname is not loopback. A URL that does not parse
- * counts as external, so a typo cannot turn keyless setup back on.
+ * connection: a trusted proxy (`CANONRY_TRUST_PROXY`), a base path (a prefix
+ * that a reverse proxy forwards), or an `apiUrl` or `publicUrl` whose hostname
+ * is not loopback. A URL that does not parse counts as external, so a typo
+ * cannot turn keyless setup back on.
  */
 function configuresExternalAccess(
   trustProxy: boolean | number | string[],
+  basePath: string | undefined,
   ...configuredUrls: (string | undefined)[]
 ): boolean {
-  if (trustProxy !== false) return true;
+  if (trustProxy !== false || basePath !== undefined) return true;
   return configuredUrls.some((configuredUrl) => {
     const value = configuredUrl?.trim();
     if (!value) return false;
@@ -2489,11 +2491,12 @@ export async function createServer(opts: {
   // Whether a direct local request (see `isDirectLocalRequest`) may set the
   // first dashboard password without the root key. Only on a loopback bind,
   // and only while config names no other way in: once an operator sets a
-  // non-loopback `apiUrl` / `publicUrl` or trusts a proxy, remote visitors
-  // reach this server over loopback, and a client-chosen `Host: localhost`
-  // through a proxy that adds no forwarding header looks local.
+  // non-loopback `apiUrl` / `publicUrl`, a base path, or trusts a proxy,
+  // remote visitors reach this server over loopback, and a client-chosen
+  // `Host: localhost` through a proxy that adds no forwarding header looks
+  // local.
   const keylessLocalSetup = isLoopbackBindHost(opts.host)
-    && !configuresExternalAccess(trustProxy, opts.config.apiUrl, opts.config.publicUrl);
+    && !configuresExternalAccess(trustProxy, basePath, opts.config.apiUrl, opts.config.publicUrl);
 
   // The dashboard password is a standing credential for the install's DEFAULT
   // key: every password sign-in binds to it (`createPasswordSession`), and it
@@ -2573,7 +2576,7 @@ export async function createServer(opts: {
       const err = presentsConfiguredKey
         ? serverApiKeyMissing()
         : authRequired(
-          "Setting the dashboard password requires the root API key (apiKey in config.yaml), unless the request comes directly from this machine to a loopback-bound server that has no external URL or trusted proxy configured.",
+          "Setting the dashboard password requires the root API key (apiKey in config.yaml), unless the request comes directly from this machine to a loopback-bound server that has no external URL, base path, or trusted proxy configured.",
         );
       return reply.status(err.statusCode).send(err.toJSON());
     }

@@ -26,7 +26,7 @@ const LAN = { host: '192.168.1.10:4100' }
 const LOCAL_LOOKING = { host: 'localhost:4100' }
 const ROOT_KEY_REQUIRED = {
   code: 'AUTH_REQUIRED',
-  message: 'Setting the dashboard password requires the root API key (apiKey in config.yaml), unless the request comes directly from this machine to a loopback-bound server that has no external URL or trusted proxy configured.',
+  message: 'Setting the dashboard password requires the root API key (apiKey in config.yaml), unless the request comes directly from this machine to a loopback-bound server that has no external URL, base path, or trusted proxy configured.',
 }
 const SERVER_KEY_MISSING = {
   code: 'AUTH_INVALID',
@@ -82,9 +82,9 @@ describe('first-run POST /session/setup authority', () => {
     return { app: server, config, rootKey }
   }
 
-  function setup(headers: InjectHeaders, remoteAddress?: string) {
+  function setup(headers: InjectHeaders, remoteAddress?: string, url = SETUP_URL) {
     return app!.inject({
-      method: 'POST', url: SETUP_URL, headers, payload: { password: PASSWORD },
+      method: 'POST', url, headers, payload: { password: PASSWORD },
       ...(remoteAddress ? { remoteAddress } : {}),
     })
   }
@@ -385,6 +385,25 @@ describe('first-run POST /session/setup authority', () => {
       const accepted = await setup({ ...LOCAL_LOOKING, authorization: `Bearer ${rootKey}` })
       expect(accepted.statusCode).toBe(200)
       expect(await sessionKey(accepted, LOCAL_LOOKING)).toMatchObject({ id: DEFAULT_KEY_ID })
+    })
+
+    // A base path serves Canonry under a prefix for a reverse proxy to
+    // forward, so it names another way in, like an external publicUrl.
+    it.each<ConfiguredAccessCase & { basePathEnv?: string }>([
+      { name: 'basePath', configPatch: { basePath: '/canonry/' } },
+      { name: 'CANONRY_BASE_PATH', basePathEnv: 'canonry' },
+    ])('requires the root key for a local-looking request when $name sets a sub-path', async ({ configPatch, basePathEnv }) => {
+      if (basePathEnv) vi.stubEnv('CANONRY_BASE_PATH', basePathEnv)
+      const { config, rootKey } = await buildServer('127.0.0.1', configPatch)
+      const url = `/canonry${SETUP_URL}`
+
+      for (const headers of [LOCAL_LOOKING, { host: '127.0.0.1:4100' }]) {
+        expectRefusedWithoutWrites(await setup(headers, undefined, url), config, ROOT_KEY_REQUIRED)
+      }
+
+      const accepted = await setup({ ...LOCAL_LOOKING, authorization: `Bearer ${rootKey}` }, undefined, url)
+      expect(accepted.statusCode).toBe(200)
+      expect(accepted.json()).toEqual({ authenticated: true })
     })
 
     it.each<SetupRequestCase & ConfiguredAccessCase>([
