@@ -44,7 +44,9 @@ import {
   type QueryTrackingEdit,
   type QueryTrackingMode,
   type QueryTrackingMutation,
+  type QueryTrackingPlacement,
   type QueryTrackingProvenance,
+  type QueryTrackingQueryChange,
   type QueryTrackingTrackedRow,
   type QueryTrackingWorkload,
   type QueryTrackingWorkspaceResponse,
@@ -156,6 +158,7 @@ interface Candidate {
   reusedQueryIds: Set<string>
   mutatedQueryIds: Set<string>
   diff: QueryTrackingDiff
+  changes: QueryTrackingQueryChange[]
   workload: QueryTrackingWorkload
 }
 
@@ -1212,6 +1215,44 @@ function changeRows(
   }).sort((left, right) => compareText(left.queryText, right.queryText) || compareText(left.queryId, right.queryId))
 }
 
+/** Each query's Properties and reporting markets in one plan. A null plan places nothing. */
+function placementIndex(plan: MeasurementPlanV2 | null): (queryId: string) => QueryTrackingPlacement {
+  const targets = new Map<string, Set<string>>()
+  const markets = new Map<string, Set<string>>()
+  const add = (index: Map<string, Set<string>>, queryId: string, key: string) => {
+    const keys = index.get(queryId)
+    if (keys) keys.add(key)
+    else index.set(queryId, new Set([key]))
+  }
+  for (const assignment of plan?.assignments ?? []) add(targets, assignment.queryId, assignment.targetKey)
+  for (const scope of plan?.reportingScopes ?? []) {
+    for (const edge of scope.usageEdges) add(markets, edge.queryId, scope.stableKey)
+  }
+  const sorted = (keys: Set<string> | undefined) => [...(keys ?? [])].sort(compareText)
+  return queryId => ({ targetKeys: sorted(targets.get(queryId)), marketKeys: sorted(markets.get(queryId)) })
+}
+
+/**
+ * One row per added, reused or removed query: active placement before, the
+ * candidate's after. A scoped removal shows what remains. A no-op has none.
+ */
+function queryChanges(
+  before: MeasurementPlanV2 | null,
+  after: MeasurementPlanV2 | null,
+  diff: QueryTrackingDiff,
+): QueryTrackingQueryChange[] {
+  if (diff.noOp) return []
+  const placedBefore = placementIndex(before)
+  const placedAfter = placementIndex(after)
+  return (['added', 'reused', 'removed'] as const).flatMap(change => diff[change].map(row => ({
+    queryId: row.queryId,
+    queryText: row.queryText,
+    change,
+    before: placedBefore(row.queryId),
+    after: placedAfter(row.queryId),
+  })))
+}
+
 type CandidateQueryRow = { id: string; query: string; provenance: string | null }
 
 function planSnapshot(plan: MeasurementPlanV2 | null, queryId: string) {
@@ -1649,6 +1690,7 @@ function buildSimpleCandidate(
     reusedQueryIds,
     mutatedQueryIds,
     diff,
+    changes: queryChanges(null, null, diff),
     workload: workloadDiff(beforeWork, nextWork),
   }
 }
@@ -1933,6 +1975,7 @@ function buildAdvancedCandidate(
     reusedQueryIds,
     mutatedQueryIds,
     diff,
+    changes: queryChanges(active.plan, plan, diff),
     workload: workloadDiff(advancedWorkload(active.plan), advancedWorkload(plan)),
   }
 }
@@ -2067,6 +2110,7 @@ export async function queryTrackingRoutes(app: FastifyInstance, opts: QueryTrack
       active: activeDto(state.active),
       tracked: trackedRows(app.db, state, candidate.queryRows, candidate.plan, opts),
       diff: candidate.diff,
+      changes: candidate.changes,
       workload: candidate.workload,
     })
   })
