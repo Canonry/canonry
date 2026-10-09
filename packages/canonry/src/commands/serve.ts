@@ -2,7 +2,7 @@ import { and, asc, eq, ne } from 'drizzle-orm'
 
 import { loadConfig } from '../config.js'
 import { createClient, migrate, projects, runs } from '@ainyc/canonry-db'
-import { createServer, isLoopbackBindHost, waitForServerRuntimeStartup } from '../server.js'
+import { allowsKeylessFirstRunSetup, createServer, isLoopbackBindHost, waitForServerRuntimeStartup } from '../server.js'
 import { closeWithIdleSweep } from '../server-shutdown.js'
 import { trackEvent, setTelemetrySource } from '../telemetry.js'
 import { cliRuntimeContext } from '../runtime-context.js'
@@ -14,11 +14,6 @@ import { detectCanonryAgentPlugin } from '../agent-plugin.js'
 import { describeError, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import { operatorHttpUrl } from '../operator-url.js'
 import { resolveServePort } from '../serve-endpoint.js'
-
-/** First-run password setup needs the root API key on every non-loopback bind. */
-function shouldWarnAboutRemoteSetup(host: string | undefined): boolean {
-  return !isLoopbackBindHost(host)
-}
 
 /** Read persisted scan state for the startup guidance. */
 function readServeOpenState(db: ReturnType<typeof createClient>): {
@@ -170,8 +165,12 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     if (!isMachineFormat(format)) {
       console.log(`\nCanonry server running at ${url}`)
       console.log(buildServeOpenLine({ url, ...readServeOpenState(db) }))
-      if (shouldWarnAboutRemoteSetup(host)) {
-        console.log('This server is not bound to loopback, so first-run dashboard password setup requires the root API key (apiKey in config.yaml).')
+      // First-run password setup needs the root API key on every non-loopback
+      // bind, and on a loopback bind whose config names another way in.
+      if (!allowsKeylessFirstRunSetup(app)) {
+        console.log(isLoopbackBindHost(host)
+          ? 'This server is configured to be reached through a proxy or external URL (publicUrl, apiUrl, basePath, or CANONRY_TRUST_PROXY), so first-run dashboard password setup requires the root API key (apiKey in config.yaml).'
+          : 'This server is not bound to loopback, so first-run dashboard password setup requires the root API key (apiKey in config.yaml).')
       }
       console.log('Press Ctrl+C to stop.\n')
       const nudge = getMissingUserSkillsNudge(process.env.HOME, getAgentPluginState())

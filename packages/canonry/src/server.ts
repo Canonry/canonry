@@ -292,6 +292,17 @@ export function waitForServerRuntimeStartup(app: FastifyInstance): Promise<void>
   return startup ?? Promise.reject(new Error("Server runtime startup was not registered"));
 }
 
+const keylessFirstRunSetupByServer = new WeakMap<FastifyInstance, boolean>();
+
+/**
+ * Whether a direct local request may set the first dashboard password on this
+ * server without the root API key (see `/session/setup`). `canonry serve`
+ * reads it to tell the operator when setup will ask for the key.
+ */
+export function allowsKeylessFirstRunSetup(app: FastifyInstance): boolean {
+  return keylessFirstRunSetupByServer.get(app) ?? false;
+}
+
 const DEFAULT_QUOTA = {
   maxConcurrency: 2,
   maxRequestsPerMinute: 10,
@@ -2497,6 +2508,7 @@ export async function createServer(opts: {
   // local.
   const keylessLocalSetup = isLoopbackBindHost(opts.host)
     && !configuresExternalAccess(trustProxy, basePath, opts.config.apiUrl, opts.config.publicUrl);
+  keylessFirstRunSetupByServer.set(app, keylessLocalSetup);
 
   // The dashboard password is a standing credential for the install's DEFAULT
   // key: every password sign-in binds to it (`createPasswordSession`), and it
