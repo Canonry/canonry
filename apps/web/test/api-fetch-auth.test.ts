@@ -5,7 +5,7 @@ import { fetchAeroTranscript, fetchAgentProviders, resetAeroTranscript, promptAe
 
 function mockFetch(status: number, body?: unknown) {
   const realFetch = globalThis.fetch
-  const fetchMock = vi.fn(async () =>
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
     new Response(body != null ? JSON.stringify(body) : null, {
       status,
       headers: body != null ? { 'content-type': 'application/json' } : {},
@@ -81,6 +81,16 @@ describe('apiFetch auth expiry', () => {
 
     await expect(setupDashboardPassword('password123')).rejects.toThrow()
     expect(handler).not.toHaveBeenCalled()
+  })
+
+  test('setupDashboardPassword sends a root API key as the bearer of that request only', async () => {
+    const fetchMock = mockFetch(200, { authenticated: true })
+
+    await setupDashboardPassword('password123', 'cnry_root_key')
+    await setupDashboardPassword('password123')
+
+    const authorizations = fetchMock.mock.calls.map(([, init]) => new Headers(init?.headers).get('authorization'))
+    expect(authorizations).toEqual(['Bearer cnry_root_key', null])
   })
 
   test('does nothing when no handler is registered (401)', async () => {

@@ -13,6 +13,7 @@ import {
   type MeasurementDraftAuthoring,
   type MeasurementDraftCounts,
   type MeasurementPlanDraft,
+  compareText,
 } from '@ainyc/canonry-contracts'
 import {
   measurementOperationReceipts,
@@ -34,10 +35,6 @@ type DbLike = Pick<DatabaseClient, 'select' | 'insert' | 'update' | 'delete'>
  * table stays small between sweeps.
  */
 export const MEASUREMENT_RECEIPT_TTL_MS = 24 * 60 * 60 * 1000
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
-}
 
 /**
  * Key-order-independent JSON. The draft service compares and hashes structures

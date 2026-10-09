@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { and, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm'
 import { rankCriticizedProperties,
-  aggregateSentiment, AppError, canonicalSentimentJson, createSentimentEvaluationDefinition, hasCurrentSentimentTemplate,
+  aggregateSentiment, AppError, compareText, canonicalSentimentJson, createSentimentEvaluationDefinition, hasCurrentSentimentTemplate,
   emptySentimentCounts, notFound, SENTIMENT_ATTEMPT_PAGE_DEFAULT, SENTIMENT_INTERVAL_LIMITATION, SENTIMENT_MODEL, SENTIMENT_QUERY_PAGE_DEFAULT, SentimentOutcomes,
   sentimentBackfillSelectionSchema, storedSentimentClassifierInputSchema, storedSentimentClassifierOutputSchema,
   storedSentimentEvaluationDefinitionSchema, sentimentJobSchema, sentimentOutcomeSchema, sentimentSettingsUpdateSchema,
@@ -584,8 +584,7 @@ function withoutNodeKeys({ summary, queries }: Aggregate): SentimentSummary {
 }
 function rowKey(row: RowKey): RowKey { return { queryText: row.queryText, queryId: row.queryId, executionNodeKey: row.executionNodeKey } }
 function compareRows(left: RowKey, right: RowKey): number {
-  const order = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0
-  return left.queryText.localeCompare(right.queryText, 'en') || order(left.queryText, right.queryText) || order(left.queryId, right.queryId) || order(left.executionNodeKey ?? '', right.executionNodeKey ?? '')
+  return left.queryText.localeCompare(right.queryText, 'en') || compareText(left.queryText, right.queryText) || compareText(left.queryId, right.queryId) || compareText(left.executionNodeKey ?? '', right.executionNodeKey ?? '')
 }
 function withheldCounts(counts: SentimentCounts): SentimentCounts {
   return Object.fromEntries(Object.entries(counts).map(([key, value]) => [key, OPERATIONAL_OUTCOMES.has(key as SentimentOutcome) ? value : 0])) as SentimentCounts

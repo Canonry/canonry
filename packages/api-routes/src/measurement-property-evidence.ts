@@ -35,6 +35,7 @@ import {
   type MeasurementPropertyEvidenceQuery,
   type MeasurementPropertyEvidenceResponse,
   type MeasurementQueryClassFilter,
+  normalizeIdentityText as normalizedText,
 } from '@ainyc/canonry-contracts'
 import {
   measurementPlanVersions,
@@ -75,10 +76,6 @@ function parseEvidenceQuery(raw: Record<string, unknown>): MeasurementPropertyEv
     throw validationError('Invalid measurement property evidence query', { issues: parsed.error.issues })
   }
   return parsed.data
-}
-
-function normalizedText(value: string): string {
-  return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en')
 }
 
 function filterFingerprint(query: MeasurementPropertyEvidenceQuery): string {

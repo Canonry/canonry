@@ -8,6 +8,7 @@ import {
   type SnapshotUsage,
 } from './provider-batch.js'
 import { RunTriggers, type RunDispatchModes, type RunTrigger, type RunUsageSummaryRow } from './run.js'
+import { compareText } from './text-order.js'
 
 /**
  * How one run's providers are dispatched, decided once at queue time (#1201).
@@ -189,10 +190,6 @@ export interface RunUsageSource {
 }
 
 const PRICING_TIER_ORDER: readonly PricingTier[] = [PricingTiers.standard, PricingTiers.batch]
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
-}
 
 /**
  * Sum a run's stored usage per provider and price tier: the one computation

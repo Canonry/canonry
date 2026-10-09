@@ -145,6 +145,7 @@ import {
   healthSnapshotDtoSchema,
   indexingRequestResponseDtoSchema,
   keywordDtoSchema,
+  keywordGenerateResponseSchema,
   latestProjectRunDtoSchema,
   runAdmissionDtoSchema,
   locationContextSchema,
@@ -221,13 +222,16 @@ import {
   organicEvidenceDtoSchema,
   projectCreateRequestSchema,
   projectDtoSchema,
+  projectDefaultLocationResponseSchema,
   projectUpsertRequestSchema,
   projectConfigSchema,
+  projectConfigExportSchema,
   projectOverviewDtoSchema,
   trafficAnalyticsResponseSchema,
   projectSearchResponseSchema,
   resultsExportDtoSchema,
   queryDtoSchema,
+  queryGenerateResponseSchema,
   runDetailDtoSchema,
   runCompletenessDtoSchema,
   runFillResponseDtoSchema,
@@ -306,7 +310,7 @@ import {
   wordpressManualAssistDtoSchema,
   wordpressOnboardResultDtoSchema,
   wordpressPageDetailDtoSchema,
-  wordpressPageSummaryDtoSchema,
+  wordpressPageListDtoSchema,
   wordpressSchemaBlockDtoSchema,
   wordpressSchemaDeployResultDtoSchema,
   wordpressSchemaStatusResultDtoSchema,
@@ -472,6 +476,7 @@ const SCHEMA_TABLE = {
   IndexingRequestResponseDto: indexingRequestResponseDtoSchema,
   IntegrationSettingsSummaryDto: integrationSettingsSummaryDtoSchema,
   KeywordDto: keywordDtoSchema,
+  KeywordGenerateResponse: keywordGenerateResponseSchema,
   LatestProjectRunDto: latestProjectRunDtoSchema,
   RunAdmissionDto: runAdmissionDtoSchema,
   LocationContext: locationContextSchema,
@@ -548,13 +553,16 @@ const SCHEMA_TABLE = {
   OrganicEvidenceDto: organicEvidenceDtoSchema,
   ProjectCreateRequest: projectCreateRequestSchema,
   ProjectDto: projectDtoSchema,
+  ProjectDefaultLocationResponse: projectDefaultLocationResponseSchema,
   ProjectUpsertRequest: projectUpsertRequestSchema,
   ProjectConfig: projectConfigSchema,
+  ProjectConfigExport: projectConfigExportSchema,
   ProjectOverviewDto: projectOverviewDtoSchema,
   TrafficAnalyticsResponse: trafficAnalyticsResponseSchema,
   ProjectSearchResponseDto: projectSearchResponseSchema,
   ProviderSummaryEntryDto: providerSummaryEntryDtoSchema,
   QueryDto: queryDtoSchema,
+  QueryGenerateResponse: queryGenerateResponseSchema,
   ReferralAssessment: referralAssessmentSchema,
   ResultsExportDto: resultsExportDtoSchema,
   RunCompletenessDto: runCompletenessDtoSchema,
@@ -617,7 +625,7 @@ const SCHEMA_TABLE = {
   WordpressManualAssistDto: wordpressManualAssistDtoSchema,
   WordpressOnboardResultDto: wordpressOnboardResultDtoSchema,
   WordpressPageDetailDto: wordpressPageDetailDtoSchema,
-  WordpressPageSummaryDto: wordpressPageSummaryDtoSchema,
+  WordpressPageListDto: wordpressPageListDtoSchema,
   WordpressSchemaBlockDto: wordpressSchemaBlockDtoSchema,
   WordpressSchemaDeployResultDto: wordpressSchemaDeployResultDtoSchema,
   WordpressSchemaStatusResultDto: wordpressSchemaStatusResultDtoSchema,
@@ -657,13 +665,48 @@ const SHARED_ENUM_REFS: ReadonlyArray<{ schema: RegisteredSchemaName; property: 
 ]
 
 /**
+ * OpenAPI 3.0.3 admits `null` into an `enum` only when `null` is one of the
+ * listed values; `nullable: true` beside the `enum` does not widen it. Zod's
+ * `toJSONSchema` emits `z.enum([...]).nullable()` as `{ type, enum,
+ * nullable: true }`, so codegen dropped the `| null` (e.g.
+ * `Ga4StatusDto.authMethod`). Append `null` to every such `enum` so the
+ * generated types keep it. A nullable `$ref` is left alone: its enum lives in
+ * the shared component, which is not nullable everywhere.
+ */
+function addNullToNullableEnums(node: unknown): void {
+  if (Array.isArray(node)) {
+    for (const item of node) addNullToNullableEnums(item)
+    return
+  }
+  if (node === null || typeof node !== 'object') return
+  const record = node as Record<string, unknown>
+  if (record.nullable === true && Array.isArray(record.enum)) {
+    const values: unknown[] = record.enum
+    if (!values.includes(null)) record.enum = [...values, null]
+  }
+  for (const value of Object.values(record)) addNullToNullableEnums(value)
+}
+
+/**
+ * Schemas documented in their input form. `ProjectConfig` is the `POST /apply`
+ * body, which may leave any defaulted field out: apply fills the defaults when
+ * it parses the document. The output form would mark every defaulted field
+ * (`providerModels`, `autoExtractBacklinks`, ...) required. `GET /export`
+ * writes most of them, so it has its own `ProjectConfigExport`.
+ */
+const INPUT_FORM_SCHEMAS: ReadonlySet<string> = new Set<RegisteredSchemaName>(['ProjectConfig'])
+
+/**
  * Convert every registered schema to its OpenAPI 3.0 JSON Schema. Called once
  * during spec build, embedded as `components.schemas` in the OpenAPI doc.
  */
 export function buildComponentSchemas(): Record<string, Record<string, unknown>> {
   const out: Record<string, Record<string, unknown>> = {}
   for (const [name, schema] of Object.entries(SCHEMA_TABLE) as [string, ZodType][]) {
-    out[name] = z.toJSONSchema(schema, { target: 'openapi-3.0' }) as Record<string, unknown>
+    const io = INPUT_FORM_SCHEMAS.has(name) ? 'input' : 'output'
+    const json = z.toJSONSchema(schema, { target: 'openapi-3.0', io }) as Record<string, unknown>
+    addNullToNullableEnums(json)
+    out[name] = json
   }
   for (const { schema, property, component } of SHARED_ENUM_REFS) {
     const properties = out[schema]?.properties as Record<string, unknown> | undefined

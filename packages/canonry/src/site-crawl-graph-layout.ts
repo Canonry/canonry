@@ -16,6 +16,7 @@ import {
   SITE_CRAWL_GRAPH_MAX_EDGES,
   SITE_CRAWL_GRAPH_MAX_NODES,
   TEMPLATE_LINK_RATIO_THRESHOLD,
+  compareText,
 } from '@ainyc/canonry-contracts'
 
 export const SITE_CRAWL_GRAPH_LAYOUT_TIMEOUT_MS = 15_000
@@ -525,7 +526,7 @@ export function siteCrawlGraphComponents(
     else members.set(root, [key])
   }
   return [...members.values()].sort((left, right) => (
-    right.length - left.length || (left[0]! < right[0]! ? -1 : left[0]! > right[0]! ? 1 : 0)
+    right.length - left.length || compareText(left[0]!, right[0]!)
   ))
 }
 
@@ -592,7 +593,7 @@ export function packSiteCrawlGraphComponents(
   // the whole frame that hundreds of orphans then sit in.
   const ordered = [...rest].sort((left, right) => (
     right.radius - left.radius
-    || (left.nodeKeys[0]! < right.nodeKeys[0]! ? -1 : left.nodeKeys[0]! > right.nodeKeys[0]! ? 1 : 0)
+    || compareText(left.nodeKeys[0]!, right.nodeKeys[0]!)
   ))
 
   const moved = new Map<string, ComputedPosition>()

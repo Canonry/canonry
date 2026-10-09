@@ -51,6 +51,24 @@ export function hasForwardedHeaders(request: FastifyRequest): boolean {
 }
 
 /**
+ * Headers that a proxy, tunnel, or CDN adds besides the client-address headers
+ * above: any `X-Forwarded-*` header (the original host, scheme, port, prefix,
+ * or URI), a `Via` hop, or a CDN's client address. A proxy that sends only one
+ * of these still put itself in the path. None of them names the caller Fastify
+ * resolves, so `resolveCallerKey` does not read them.
+ */
+const PROXY_PATH_HEADERS = ['via', 'cf-connecting-ip', 'true-client-ip'] as const
+const FORWARDED_HEADER_PREFIX = 'x-forwarded-'
+
+/** Whether any header a proxy, tunnel, or CDN adds is present. */
+export function hasProxyHeaders(request: FastifyRequest): boolean {
+  return hasForwardedHeaders(request)
+    || PROXY_PATH_HEADERS.some(header => request.headers[header] !== undefined)
+    // Node lowercases incoming header names.
+    || Object.keys(request.headers).some(header => header.startsWith(FORWARDED_HEADER_PREFIX))
+}
+
+/**
  * A stable key for "this caller", or null when there is no honest answer.
  *
  * The rule turns on ONE question the server must be told rather than guess:

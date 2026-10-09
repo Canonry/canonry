@@ -42,6 +42,8 @@ import {
   type ProviderErrorCode,
   type RunAdmissionDto,
   type RunDispatchResolution,
+  compareText,
+  sortedUnique,
 } from '@ainyc/canonry-contracts'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { auditLog, measurementPlans, measurementPlanVersions, parseJsonColumn, projects, querySnapshots, runs, schedules } from '@ainyc/canonry-db'
@@ -254,10 +256,6 @@ function expectedSlotsFor(
   })))
 }
 
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
-}
-
 /**
  * A place, reduced to the identity two execution nodes are compared on. Label
  * casing and stray whitespace are authoring noise; the same city asked about
@@ -410,10 +408,6 @@ function sliceForV2(plan: MeasurementPlanV2, params: QueueRunParams): {
 
 function quotedList(values: readonly string[]): string {
   return values.map(value => `"${value}"`).join(', ')
-}
-
-function sortedUnique(values: readonly string[]): string[] {
-  return [...new Set(values)].sort(compareText)
 }
 
 function resolveV2RunScope(plan: MeasurementPlanV2, scope: MeasurementRunScopeRequest) {

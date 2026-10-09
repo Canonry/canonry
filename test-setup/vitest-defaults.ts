@@ -14,6 +14,13 @@
  *   3. Replaces `globalThis.fetch` with a guard that throws on any
  *      non-localhost request, so a test that forgets to mock fetch
  *      can't silently hit the real internet.
+ *   4. Replaces the `resolve4` / `resolve6` DNS queries of `node:dns/promises`
+ *      with a guard that rejects every name but `localhost` and
+ *      `*.localhost`. The egress gates resolve names with these queries, and
+ *      the guarded fetch (`createGuardedFetch` in api-routes) dials what they
+ *      return through its own undici agent, which the fetch guard never
+ *      sees. A test that needs a name answered stubs it with
+ *      `vi.spyOn(dns, 'resolve4')`; restoring the spy puts this guard back.
  *
  * The fetch guard is compatible with the standard save-and-restore
  * pattern (`const orig = globalThis.fetch; globalThis.fetch = mockFn; ...; globalThis.fetch = orig`)
@@ -21,6 +28,7 @@
  * the guard back on cleanup. The guard stays in effect between tests.
  */
 
+import dns from 'node:dns/promises'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -95,3 +103,18 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   }
   return realFetch(input as Parameters<typeof realFetch>[0], init)
 }) as typeof globalThis.fetch
+
+for (const query of ['resolve4', 'resolve6'] as const) {
+  const realQuery = dns[query].bind(dns) as (hostname: string, ...options: unknown[]) => Promise<unknown>
+  Object.assign(dns, {
+    [query]: async (hostname: string, ...options: unknown[]) => {
+      if (!isLocalHost(hostname)) {
+        throw new Error(
+          `[test] Blocked external DNS lookup (${query}) of ${hostname}. ` +
+          `Tests must not hit external services. Stub it with vi.spyOn(dns, '${query}').`,
+        )
+      }
+      return await realQuery(hostname, ...options)
+    },
+  })
+}

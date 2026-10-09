@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import dns from 'node:dns/promises'
 import fs from 'node:fs'
+import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -10,15 +11,53 @@ import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 import { invokeCli, parseJsonOutput } from './cli-test-utils.js'
 
-function jsonResponse(body: unknown, init?: ResponseInit): Response {
-  return new Response(JSON.stringify(body), {
-    status: 200,
-    headers: {
-      'content-type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-    ...init,
+interface WordpressSiteRequest {
+  method: string
+  path: string
+  body: string
+}
+
+/**
+ * The WordPress site, as a real server on 127.0.0.1. The server reaches
+ * WordPress only through its egress guard, which dials the address it checked
+ * and never calls `globalThis.fetch`, and `canonry serve` admits loopback.
+ */
+async function startWordpressSite(
+  respond: (request: WordpressSiteRequest, response: http.ServerResponse) => void,
+): Promise<{ url: string; requests: WordpressSiteRequest[]; close: () => Promise<void> }> {
+  const requests: WordpressSiteRequest[] = []
+  const server = http.createServer((req, res) => {
+    const chunks: Buffer[] = []
+    req.on('data', (chunk: Buffer) => chunks.push(chunk))
+    req.on('end', () => {
+      const request = { method: req.method ?? '', path: req.url ?? '', body: Buffer.concat(chunks).toString('utf8') }
+      requests.push(request)
+      respond(request, res)
+    })
   })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  const port = typeof address === 'object' && address ? address.port : 0
+  return {
+    url: `http://127.0.0.1:${port}`,
+    requests,
+    close: () => new Promise<void>((resolve) => {
+      server.closeAllConnections()
+      server.close(() => resolve())
+    }),
+  }
+}
+
+function sendJson(response: http.ServerResponse, body: unknown, headers: Record<string, string> = {}): void {
+  response.writeHead(200, { 'content-type': 'application/json', ...headers }).end(JSON.stringify(body))
+}
+
+function sendNotLoggedIn(response: http.ServerResponse): void {
+  response.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify({
+    code: 'rest_not_logged_in',
+    message: 'You are not currently logged in.',
+    data: { status: 401 },
+  }))
 }
 
 async function startHarness(opts?: {
@@ -99,8 +138,8 @@ async function startHarness(opts?: {
 
 describe('wordpress CLI commands', () => {
   let originalConfigDir: string | undefined
-  let originalFetch: typeof globalThis.fetch
   let closeHarness: (() => Promise<void>) | null = null
+  let closeSite: (() => Promise<void>) | null = null
 
   beforeEach(() => {
     // Keep the URL safety guard real without resolving external fixture hosts.
@@ -114,10 +153,13 @@ describe('wordpress CLI commands', () => {
     const dnsHosts = [...vi.mocked(dns.resolve4).mock.calls, ...vi.mocked(dns.resolve6).mock.calls]
       .map(([hostname]) => hostname)
     vi.restoreAllMocks()
-    globalThis.fetch = originalFetch
     if (closeHarness) {
       await closeHarness()
       closeHarness = null
+    }
+    if (closeSite) {
+      await closeSite()
+      closeSite = null
     }
     if (originalConfigDir === undefined) {
       delete process.env.CANONRY_CONFIG_DIR
@@ -130,7 +172,6 @@ describe('wordpress CLI commands', () => {
 
   it('errors when wordpress connect omits --app-password', async () => {
     originalConfigDir = process.env.CANONRY_CONFIG_DIR
-    originalFetch = globalThis.fetch
 
     const harness = await startHarness()
     closeHarness = harness.close
@@ -156,41 +197,23 @@ describe('wordpress CLI commands', () => {
 
   it('shows an actionable error when wordpress connect fails with invalid credentials', async () => {
     originalConfigDir = process.env.CANONRY_CONFIG_DIR
-    originalFetch = globalThis.fetch
 
     const harness = await startHarness()
     closeHarness = harness.close
     process.env.CANONRY_CONFIG_DIR = harness.tmpDir
 
-    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      if (url.startsWith(harness.serverUrl)) {
-        return originalFetch(input, init)
-      }
-      if (url.includes('/wp-json/wp/v2/users/me?')) {
-        return new Response(
-          JSON.stringify({
-            code: 'rest_not_logged_in',
-            message: 'You are not currently logged in.',
-            data: { status: 401 },
-          }),
-          {
-            status: 401,
-            headers: {
-              'content-type': 'application/json',
-            },
-          },
-        )
-      }
-      throw new Error(`Unhandled URL: ${url}`)
-    }
+    const site = await startWordpressSite((request, response) => {
+      if (request.path.startsWith('/wp-json/wp/v2/users/me?')) return sendNotLoggedIn(response)
+      response.writeHead(404).end()
+    })
+    closeSite = site.close
 
     const result = await invokeCli([
       'wordpress',
       'connect',
       'test-proj',
       '--url',
-      'https://example.com',
+      site.url,
       '--user',
       'admin',
       '--app-password',
@@ -200,6 +223,7 @@ describe('wordpress CLI commands', () => {
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain('Authentication failed')
     expect(result.stderr).toContain('application password is incorrect')
+    expect(site.requests.map(({ path }) => path)).toEqual(['/wp-json/wp/v2/users/me?_fields=id,slug'])
 
     const stored = parse(fs.readFileSync(harness.configPath, 'utf-8')) as {
       wordpress?: { connections?: Array<{ projectName: string }> }
@@ -209,7 +233,23 @@ describe('wordpress CLI commands', () => {
 
   it('routes wordpress pages to the staging environment when --staging is provided', async () => {
     originalConfigDir = process.env.CANONRY_CONFIG_DIR
-    originalFetch = globalThis.fetch
+
+    const staging = await startWordpressSite((request, response) => {
+      if (request.path.startsWith('/wp-json/wp/v2/pages?per_page=100&page=1')) {
+        return sendJson(response, [
+          {
+            id: 1,
+            slug: 'about',
+            status: 'publish',
+            link: `${staging.url}/about/`,
+            modified: '2026-03-27T12:00:00Z',
+            title: { rendered: 'About' },
+          },
+        ], { 'x-wp-totalpages': '1' })
+      }
+      response.writeHead(404).end()
+    })
+    closeSite = staging.close
 
     const now = new Date().toISOString()
     const harness = await startHarness({
@@ -217,8 +257,9 @@ describe('wordpress CLI commands', () => {
         connections: [
           {
             projectName: 'test-proj',
+            // Never dialed: the request names the staging environment.
             url: 'https://example.com',
-            stagingUrl: 'https://staging.example.com',
+            stagingUrl: staging.url,
             username: 'admin',
             appPassword: 'app-pass',
             defaultEnv: 'live',
@@ -230,30 +271,6 @@ describe('wordpress CLI commands', () => {
     })
     closeHarness = harness.close
     process.env.CANONRY_CONFIG_DIR = harness.tmpDir
-
-    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      if (url.startsWith(harness.serverUrl)) {
-        return originalFetch(input, init)
-      }
-      if (url.includes('https://staging.example.com/wp-json/wp/v2/pages?per_page=100&page=1')) {
-        return jsonResponse([
-          {
-            id: 1,
-            slug: 'about',
-            status: 'publish',
-            link: 'https://staging.example.com/about/',
-            modified: '2026-03-27T12:00:00Z',
-            title: { rendered: 'About' },
-          },
-        ], {
-          headers: {
-            'x-wp-totalpages': '1',
-          },
-        })
-      }
-      throw new Error(`Unhandled URL: ${url}`)
-    }
 
     const result = await invokeCli([
       'wordpress',
@@ -272,11 +289,31 @@ describe('wordpress CLI commands', () => {
       env: 'staging',
       pages: [{ slug: 'about', title: 'About', status: 'publish' }],
     })
+    expect(staging.requests).toHaveLength(1)
   })
 
   it('reads create-page content from --content-file', async () => {
     originalConfigDir = process.env.CANONRY_CONFIG_DIR
-    originalFetch = globalThis.fetch
+
+    const site = await startWordpressSite((request, response) => {
+      const page = {
+        id: 5,
+        slug: 'about',
+        status: 'draft',
+        link: `${site.url}/about/`,
+        modified: '2026-03-27T12:00:00Z',
+        title: { rendered: 'About' },
+        content: { raw: '<p>From file</p>' },
+        meta: {},
+      }
+      if (request.path === '/wp-json/wp/v2/pages' && request.method === 'POST') return sendJson(response, page)
+      if (request.path.startsWith('/wp-json/wp/v2/pages?slug=about')) return sendJson(response, [page])
+      if (request.path === '/about/') {
+        return response.writeHead(200).end('<html><head><title>About</title></head><body>From file</body></html>')
+      }
+      response.writeHead(404).end('Not found')
+    })
+    closeSite = site.close
 
     const now = new Date().toISOString()
     const harness = await startHarness({
@@ -284,7 +321,7 @@ describe('wordpress CLI commands', () => {
         connections: [
           {
             projectName: 'test-proj',
-            url: 'https://example.com',
+            url: site.url,
             username: 'admin',
             appPassword: 'app-pass',
             defaultEnv: 'live',
@@ -299,53 +336,6 @@ describe('wordpress CLI commands', () => {
 
     const contentPath = path.join(harness.tmpDir, 'page.html')
     fs.writeFileSync(contentPath, '<p>From file</p>', 'utf-8')
-
-    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      if (url.startsWith(harness.serverUrl)) {
-        return originalFetch(input, init)
-      }
-      if (url.includes('/wp-json/wp/v2/pages') && init?.method === 'POST') {
-        const body = JSON.parse(String(init.body)) as { title: string; slug: string; content: string; status: string }
-        expect(body).toMatchObject({
-          title: 'About',
-          slug: 'about',
-          content: '<p>From file</p>',
-          status: 'draft',
-        })
-        return jsonResponse({
-          id: 5,
-          slug: 'about',
-          status: 'draft',
-          link: 'https://example.com/about/',
-          modified: '2026-03-27T12:00:00Z',
-          title: { rendered: 'About' },
-          content: { raw: '<p>From file</p>' },
-          meta: {},
-        })
-      }
-      if (url.includes('/wp-json/wp/v2/plugins')) {
-        return new Response('Not found', { status: 404 })
-      }
-      if (url.includes('/wp-json/wp/v2/pages?slug=about')) {
-        return jsonResponse([
-          {
-            id: 5,
-            slug: 'about',
-            status: 'draft',
-            link: 'https://example.com/about/',
-            modified: '2026-03-27T12:00:00Z',
-            title: { rendered: 'About' },
-            content: { raw: '<p>From file</p>' },
-            meta: {},
-          },
-        ])
-      }
-      if (url === 'https://example.com/about/') {
-        return new Response('<html><head><title>About</title></head><body>From file</body></html>', { status: 200 })
-      }
-      throw new Error(`Unhandled URL: ${url}`)
-    }
 
     const result = await invokeCli([
       'wordpress',
@@ -364,38 +354,21 @@ describe('wordpress CLI commands', () => {
     const body = parseJsonOutput(result.stdout) as { slug: string; content: string }
     expect(body.slug).toBe('about')
     expect(body.content).toBe('<p>From file</p>')
+    const created = site.requests.find((request) => request.method === 'POST')
+    expect(JSON.parse(created!.body)).toEqual({
+      title: 'About',
+      slug: 'about',
+      content: '<p>From file</p>',
+      status: 'draft',
+    })
   })
 
   it('returns manual schema instructions instead of applying schema remotely', async () => {
     originalConfigDir = process.env.CANONRY_CONFIG_DIR
-    originalFetch = globalThis.fetch
 
-    const now = new Date().toISOString()
-    const harness = await startHarness({
-      wordpress: {
-        connections: [
-          {
-            projectName: 'test-proj',
-            url: 'https://example.com',
-            username: 'admin',
-            appPassword: 'app-pass',
-            defaultEnv: 'live',
-            createdAt: now,
-            updatedAt: now,
-          },
-        ],
-      },
-    })
-    closeHarness = harness.close
-    process.env.CANONRY_CONFIG_DIR = harness.tmpDir
-
-    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      if (url.startsWith(harness.serverUrl)) {
-        return originalFetch(input, init)
-      }
-      if (url.includes('/wp-json/wp/v2/pages?slug=about')) {
-        return jsonResponse([
+    const site = await startWordpressSite((request, response) => {
+      if (request.path.startsWith('/wp-json/wp/v2/pages?slug=about')) {
+        return sendJson(response, [
           {
             id: 5,
             slug: 'about',
@@ -408,8 +381,28 @@ describe('wordpress CLI commands', () => {
           },
         ])
       }
-      throw new Error(`Unhandled URL: ${url}`)
-    }
+      response.writeHead(404).end()
+    })
+    closeSite = site.close
+
+    const now = new Date().toISOString()
+    const harness = await startHarness({
+      wordpress: {
+        connections: [
+          {
+            projectName: 'test-proj',
+            url: site.url,
+            username: 'admin',
+            appPassword: 'app-pass',
+            defaultEnv: 'live',
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      },
+    })
+    closeHarness = harness.close
+    process.env.CANONRY_CONFIG_DIR = harness.tmpDir
 
     const result = await invokeCli([
       'wordpress',
@@ -431,8 +424,9 @@ describe('wordpress CLI commands', () => {
       content: string
     }
     expect(body.manualRequired).toBe(true)
+    // The page's own link, and the admin URL of the connected site.
     expect(body.targetUrl).toBe('https://example.com/about/')
-    expect(body.adminUrl).toBe('https://example.com/wp-admin/')
+    expect(body.adminUrl).toBe(`${site.url}/wp-admin/`)
     expect(body.content).toBe('{"@type":"FAQPage"}')
   })
 
@@ -486,7 +480,14 @@ describe('wordpress CLI commands', () => {
 
   it('schema status outputs JSON with empty pages when no pages are published', async () => {
     originalConfigDir = process.env.CANONRY_CONFIG_DIR
-    originalFetch = globalThis.fetch
+
+    const site = await startWordpressSite((request, response) => {
+      if (request.path.startsWith('/wp-json/wp/v2/pages?per_page=100&page=1')) {
+        return sendJson(response, [], { 'x-wp-total': '0', 'x-wp-totalpages': '1' })
+      }
+      response.writeHead(404).end()
+    })
+    closeSite = site.close
 
     const now = new Date().toISOString()
     const harness = await startHarness({
@@ -494,7 +495,7 @@ describe('wordpress CLI commands', () => {
         connections: [
           {
             projectName: 'test-proj',
-            url: 'https://example.com',
+            url: site.url,
             username: 'admin',
             appPassword: 'app-pass',
             defaultEnv: 'live',
@@ -506,22 +507,6 @@ describe('wordpress CLI commands', () => {
     })
     closeHarness = harness.close
     process.env.CANONRY_CONFIG_DIR = harness.tmpDir
-
-    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      if (url.startsWith(harness.serverUrl)) {
-        return originalFetch(input, init)
-      }
-      if (url.includes('/wp-json/wp/v2/pages?per_page=100&page=1')) {
-        return jsonResponse([], {
-          headers: {
-            'x-wp-total': '0',
-            'x-wp-totalpages': '1',
-          },
-        })
-      }
-      throw new Error(`Unhandled URL: ${url}`)
-    }
 
     const result = await invokeCli([
       'wordpress', 'schema', 'status', 'test-proj', '--format', 'json',
@@ -534,33 +519,20 @@ describe('wordpress CLI commands', () => {
 
   it('onboard returns a failed connect step when WordPress credentials are invalid', async () => {
     originalConfigDir = process.env.CANONRY_CONFIG_DIR
-    originalFetch = globalThis.fetch
 
     const harness = await startHarness()
     closeHarness = harness.close
     process.env.CANONRY_CONFIG_DIR = harness.tmpDir
 
-    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      if (url.startsWith(harness.serverUrl)) {
-        return originalFetch(input, init)
-      }
-      if (url.includes('/wp-json/wp/v2/users/me?')) {
-        return new Response(
-          JSON.stringify({
-            code: 'rest_not_logged_in',
-            message: 'You are not currently logged in.',
-            data: { status: 401 },
-          }),
-          { status: 401, headers: { 'content-type': 'application/json' } },
-        )
-      }
-      throw new Error(`Unhandled URL: ${url}`)
-    }
+    const site = await startWordpressSite((request, response) => {
+      if (request.path.startsWith('/wp-json/wp/v2/users/me?')) return sendNotLoggedIn(response)
+      response.writeHead(404).end()
+    })
+    closeSite = site.close
 
     const result = await invokeCli([
       'wordpress', 'onboard', 'test-proj',
-      '--url', 'https://example.com',
+      '--url', site.url,
       '--user', 'admin',
       '--app-password', 'wrong-pass',
       '--skip-schema',
@@ -568,13 +540,32 @@ describe('wordpress CLI commands', () => {
       '--format', 'json',
     ])
 
-    const body = parseJsonOutput(result.stdout) as { steps: Array<{ name: string; status: string }> }
+    const body = parseJsonOutput(result.stdout) as { steps: Array<{ name: string; status: string; error?: string }> }
     expect(body.steps[0]).toMatchObject({ name: 'connect', status: 'failed' })
+    expect(body.steps[0]!.error).toContain('Authentication failed')
   })
 
   it('renders actionable errors when SEO meta writes are unsupported', async () => {
     originalConfigDir = process.env.CANONRY_CONFIG_DIR
-    originalFetch = globalThis.fetch
+
+    const site = await startWordpressSite((request, response) => {
+      if (request.path.startsWith('/wp-json/wp/v2/pages?slug=about')) {
+        return sendJson(response, [
+          {
+            id: 5,
+            slug: 'about',
+            status: 'publish',
+            link: `${site.url}/about/`,
+            modified: '2026-03-27T12:00:00Z',
+            title: { rendered: 'About' },
+            content: { raw: '<p>About</p>' },
+            meta: {},
+          },
+        ])
+      }
+      response.writeHead(404).end('Not found')
+    })
+    closeSite = site.close
 
     const now = new Date().toISOString()
     const harness = await startHarness({
@@ -582,7 +573,7 @@ describe('wordpress CLI commands', () => {
         connections: [
           {
             projectName: 'test-proj',
-            url: 'https://example.com',
+            url: site.url,
             username: 'admin',
             appPassword: 'app-pass',
             defaultEnv: 'live',
@@ -594,31 +585,6 @@ describe('wordpress CLI commands', () => {
     })
     closeHarness = harness.close
     process.env.CANONRY_CONFIG_DIR = harness.tmpDir
-
-    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      if (url.startsWith(harness.serverUrl)) {
-        return originalFetch(input, init)
-      }
-      if (url.includes('/wp-json/wp/v2/plugins')) {
-        return new Response('Not found', { status: 404 })
-      }
-      if (url.includes('/wp-json/wp/v2/pages?slug=about')) {
-        return jsonResponse([
-          {
-            id: 5,
-            slug: 'about',
-            status: 'publish',
-            link: 'https://example.com/about/',
-            modified: '2026-03-27T12:00:00Z',
-            title: { rendered: 'About' },
-            content: { raw: '<p>About</p>' },
-            meta: {},
-          },
-        ])
-      }
-      throw new Error(`Unhandled URL: ${url}`)
-    }
 
     const result = await invokeCli([
       'wordpress',

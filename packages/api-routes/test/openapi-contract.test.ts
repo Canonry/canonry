@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { createClient, migrate } from '@ainyc/canonry-db'
+import { projectConfigExportSchema } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
 import { buildOpenApiDocument, canonryLocalRouteCatalog } from '../src/openapi.js'
@@ -137,6 +138,118 @@ describe('openapi contract', () => {
     expect(body.paths['/api/v1/openapi.json']?.get?.security).toEqual([])
     expect(body.paths['/api/v1/google/callback']?.get?.security).toEqual([])
     expect(body.paths['/api/v1/projects/{name}/google/callback']?.get?.security).toEqual([])
+  })
+
+  it('documents the bodies the pages, query-generation and default-location routes send', () => {
+    // Each handler's own test pins the body and parses it with the schema named here.
+    const doc = buildOpenApiDocument()
+    const paths = doc.paths as Record<string, Record<string, {
+      responses: Record<string, { content?: Record<string, { schema?: { $ref?: string } }> }>
+    }>>
+    const okRef = (path: string, method: string) =>
+      paths[path]?.[method]?.responses['200']?.content?.['application/json']?.schema?.$ref
+
+    expect(okRef('/api/v1/projects/{name}/wordpress/pages', 'get')).toBe('#/components/schemas/WordpressPageListDto')
+    expect(okRef('/api/v1/projects/{name}/queries/generate', 'post')).toBe('#/components/schemas/QueryGenerateResponse')
+    expect(okRef('/api/v1/projects/{name}/locations/default', 'put')).toBe('#/components/schemas/ProjectDefaultLocationResponse')
+    // The legacy alias sends the same suggestions under `keywords`.
+    expect(okRef('/api/v1/projects/{name}/keywords/generate', 'post')).toBe('#/components/schemas/KeywordGenerateResponse')
+    const schemas = doc.components?.schemas as Record<string, { required?: string[] }>
+    expect(schemas.KeywordGenerateResponse?.required).toEqual(['keywords', 'provider'])
+  })
+
+  it('documents the POST /apply config document in its input form', () => {
+    // Apply fills a defaulted field when the document leaves it out, so none
+    // of them may be documented as required on the request body.
+    const doc = buildOpenApiDocument()
+    const apply = (doc.paths as Record<string, Record<string, {
+      requestBody?: { content: Record<string, { schema?: { $ref?: string } }> }
+    }>>)['/api/v1/apply']?.post
+    expect(apply?.requestBody?.content['application/json']?.schema?.$ref).toBe('#/components/schemas/ProjectConfig')
+
+    const schemas = doc.components?.schemas as Record<string, {
+      required?: string[]
+      properties: Record<string, { required?: string[] }>
+    }>
+    const config = schemas.ProjectConfig!
+    expect(config.required).toEqual(['apiVersion', 'kind', 'metadata', 'spec'])
+    expect(config.properties.spec!.required).toEqual(['displayName', 'canonicalDomain', 'country', 'language'])
+    expect(config.properties.metadata!.required).toEqual(['name'])
+  })
+
+  it('documents GET /export with every field it always writes required', async () => {
+    const doc = buildOpenApiDocument()
+    const exportOperation = (doc.paths as Record<string, Record<string, {
+      responses: Record<string, { content?: Record<string, { schema?: { $ref?: string } }> }>
+    }>>)['/api/v1/projects/{name}/export']?.get
+    expect(exportOperation?.responses['200']?.content?.['application/json']?.schema?.$ref)
+      .toBe('#/components/schemas/ProjectConfigExport')
+
+    type ObjectSchema = { required?: string[]; properties: Record<string, ObjectSchema> }
+    const exported = (doc.components?.schemas as Record<string, ObjectSchema>).ProjectConfigExport!
+    const spec = exported.properties.spec!
+    expect(exported.required).toEqual(['apiVersion', 'kind', 'metadata', 'spec'])
+    expect(exported.properties.metadata!.required).toEqual(['name', 'labels'])
+    expect(spec.required).toEqual([
+      'displayName', 'canonicalDomain', 'ownedDomains', 'aliases', 'country', 'language', 'queries',
+      'competitors', 'providers', 'locations', 'measurement', 'notifications',
+    ])
+    expect(spec.properties.schedule!.required).toEqual(['timezone', 'providers', 'enabled'])
+    // Export leaves these two out at their defaults (an empty map, false).
+    expect(Object.keys(spec.properties)).toEqual(expect.arrayContaining(['providerModels', 'autoExtractBacklinks']))
+
+    const ctx = buildObservedApp()
+    contexts.push(ctx)
+    await ctx.app.ready()
+    const project = await ctx.app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/exportable',
+      payload: { displayName: 'Exportable', canonicalDomain: 'example.com', country: 'US', language: 'en' },
+    })
+    expect(project.statusCode).toBe(201)
+    const schedule = await ctx.app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/exportable/schedule',
+      payload: { preset: 'daily', timezone: 'UTC', providers: ['gemini'] },
+    })
+    expect(schedule.statusCode).toBe(201)
+
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/exportable/export' })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { metadata: Record<string, unknown>; spec: Record<string, unknown> & { schedule: Record<string, unknown> } }
+    // Both directions: this minimal project's export writes exactly the required
+    // fields, plus the schedule it was given and that schedule's one timing field.
+    const sorted = (keys: string[]) => [...keys].sort()
+    expect(sorted(Object.keys(body.metadata))).toEqual(sorted(exported.properties.metadata!.required!))
+    expect(sorted(Object.keys(body.spec))).toEqual(sorted([...spec.required!, 'schedule']))
+    expect(sorted(Object.keys(body.spec.schedule))).toEqual(sorted([...spec.properties.schedule!.required!, 'preset']))
+    expect(body.spec).not.toHaveProperty('providerModels')
+    expect(body.spec).not.toHaveProperty('autoExtractBacklinks')
+    // Parsing fills no default and drops no key, so the schema describes the body exactly.
+    expect(projectConfigExportSchema.parse(body)).toEqual(body)
+  })
+
+  it('lists null in every nullable enum, so generated clients keep the null', () => {
+    const doc = buildOpenApiDocument()
+    // OpenAPI 3.0.3 admits null into an enum only when null is listed;
+    // `nullable: true` beside the enum does not widen it.
+    const offenders: string[] = []
+    const visit = (node: unknown, at: string): void => {
+      if (Array.isArray(node)) {
+        node.forEach((item, index) => visit(item, `${at}[${index}]`))
+        return
+      }
+      if (node === null || typeof node !== 'object') return
+      const record = node as Record<string, unknown>
+      if (record.nullable === true && Array.isArray(record.enum) && !record.enum.includes(null)) offenders.push(at)
+      for (const [key, value] of Object.entries(record)) visit(value, `${at}.${key}`)
+    }
+    visit(doc, '$')
+    expect(offenders).toEqual([])
+
+    // GA status answers `authMethod: null` while the project is disconnected.
+    const gaStatus = (doc.components?.schemas as Record<string, { properties: Record<string, unknown> }>).GA4StatusDto
+    expect(gaStatus?.properties.authMethod).toMatchObject({ enum: ['service-account', 'oauth', null], nullable: true })
   })
 
   it('documents all schedulable kinds (incl. backlinks-sync) via a single SchedulableRunKind component', async () => {

@@ -280,6 +280,30 @@ describe('listWordpressTrafficEvents', () => {
     expect(result.nextCursor).toBeUndefined()
   })
 
+  it('sends every page through the injected fetch instead of global fetch', async () => {
+    // The caller's egress guard sees only what goes through `fetchImpl`.
+    const cursors: Array<string | null> = []
+    const fetchImpl = vi.fn(async (url: URL, init: RequestInit) => {
+      cursors.push(url.searchParams.get('cursor'))
+      expect(new Headers(init.headers).get('authorization')).toBe(`Basic ${Buffer.from('u:p', 'utf8').toString('base64')}`)
+      return new Response(JSON.stringify(cursors.length === 1
+        ? { events: [], next_cursor: 'next', has_more: true }
+        : { events: [], next_cursor: null, has_more: false }), { status: 200 })
+    })
+
+    const result = await listWordpressTrafficEvents({
+      baseUrl: 'https://example.com',
+      username: 'u',
+      applicationPassword: 'p',
+      maxPages: 5,
+      fetchImpl,
+    })
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(cursors).toEqual([null, 'next'])
+    expect(result.hasMore).toBe(false)
+  })
+
   it('stops paginating once maxPages is reached and surfaces the next cursor', async () => {
     fetchSpy.mockImplementation(async () => (
       new Response(JSON.stringify({

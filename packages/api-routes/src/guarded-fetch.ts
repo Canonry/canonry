@@ -1,0 +1,226 @@
+import { isLocationRedirectStatus } from '@ainyc/canonry-contracts'
+import { Agent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from 'undici'
+import { isLoopbackAddress } from './egress-policy.js'
+import {
+  checkedAddresses,
+  pinnedLookup,
+  resolveWebhookTarget,
+  type ResolveWebhookTargetResult,
+  type SafeWebhookTarget,
+} from './webhooks.js'
+
+/**
+ * A `fetch` for URLs this instance did not choose: an operator's WordPress
+ * site, a sitemap, a traffic plugin endpoint. Checking the URL once and then
+ * calling global `fetch` protects nothing, because `fetch` looks the name up
+ * again (a rebinding name answers differently the second time) and follows
+ * redirects on its own (a `302` to an internal address is never checked).
+ *
+ * So for the first URL and for every redirect hop this:
+ *  - resolves and checks the target with `resolveWebhookTarget`, the shared
+ *    egress policy;
+ *  - dials only the address that was checked. The URL keeps its hostname, so
+ *    the Host header, TLS SNI and the certificate check still use it;
+ *  - refuses a redirect to loopback unless the hop it came from was on
+ *    loopback too, so a remote site cannot steer a request, with its body,
+ *    into a service that listens only on this host;
+ *  - follows the redirect itself, under the fetch rules: Authorization, Cookie
+ *    and Proxy-Authorization are dropped when the origin changes; 301 and 302
+ *    turn a POST into a GET, 303 turns anything but GET or HEAD into a GET, and
+ *    307 and 308 send the same method and body again.
+ *
+ * The caller's `redirect` mode is not read: redirects are always followed,
+ * checked, up to {@link GUARDED_FETCH_MAX_REDIRECTS}. Use only `http:` and
+ * `https:` URLs; the policy refuses every other scheme. The caller's `signal`
+ * also bounds the name lookups, so a slow resolver cannot outlast its timeout.
+ */
+export type GuardedFetch = (input: string | URL, init?: RequestInit) => Promise<Response>
+
+export const GUARDED_FETCH_MAX_REDIRECTS = 5
+
+/**
+ * Pinned agents one guarded fetch keeps, the least recently used closed
+ * first: enough for a WordPress site, its staging site and the hosts their
+ * pages and sitemaps link to.
+ */
+const MAX_POOLED_AGENTS = 16
+
+export interface GuardedFetchOptions {
+  /**
+   * Admit loopback targets, as `allowLoopbackWebhooks` does: the URL the caller
+   * asked for, and a redirect from a hop on loopback. Every other refused range
+   * stays refused.
+   */
+  allowLoopback?: boolean
+  /**
+   * The per-hop decision. Defaults to `resolveWebhookTarget` with
+   * `allowLoopback`. Injected in tests, so a fixture on loopback can stand in
+   * for a public site while every later hop meets the real policy.
+   */
+  resolveTarget?: (url: string) => Promise<ResolveWebhookTargetResult>
+}
+
+/** The request, or one of its redirect hops, was not sent: its target failed the egress policy. */
+export class EgressRefusedError extends Error {
+  /**
+   * True when the refused target is a redirect the site chose rather than the
+   * URL the caller asked for. Refusing the caller's URL is a verdict on the
+   * caller's input; refusing a redirect is the site's failure.
+   */
+  readonly redirected: boolean
+
+  constructor(message: string, redirected: boolean) {
+    super(message)
+    this.name = 'EgressRefusedError'
+    this.redirected = redirected
+  }
+}
+
+/**
+ * The request, or one of its redirect hops, could not be made for a reason
+ * the policy did not decide: the name has no address, or the site redirected
+ * too often or to a Location that is not a URL. Like a network error from
+ * `fetch`, it is the site's or the network's failure, not bad input.
+ */
+export class EgressFailedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'EgressFailedError'
+  }
+}
+
+const CROSS_ORIGIN_DROPPED_HEADERS = ['authorization', 'cookie', 'proxy-authorization'] as const
+/** The headers that describe a body. They go with the body when a redirect turns the request into a GET. */
+const BODY_HEADERS = ['content-encoding', 'content-language', 'content-length', 'content-location', 'content-type'] as const
+
+export function createGuardedFetch(options: GuardedFetchOptions = {}): GuardedFetch {
+  const resolveTarget = options.resolveTarget
+    ?? ((url: string) => resolveWebhookTarget(url, { allowLoopback: options.allowLoopback }))
+  // One pinned agent per origin and checked address set, so the requests of an
+  // audit or a sync reuse keep-alive connections instead of paying a new TCP
+  // and TLS handshake each. Every request is still checked first, and reuses
+  // only an agent pinned to exactly the addresses its own check returned, so a
+  // pooled connection never reaches an address that check did not admit.
+  const agents = new Map<string, Agent>()
+  function agentFor(target: SafeWebhookTarget): Agent {
+    const addresses = checkedAddresses(target)
+    const key = `${target.url.origin} ${addresses.map(({ address }) => address).sort().join(' ')}`
+    const agent = agents.get(key) ?? pinnedAgent(addresses)
+    // Map order is use order, so the first entry is the least recently used.
+    agents.delete(key)
+    agents.set(key, agent)
+    if (agents.size > MAX_POOLED_AGENTS) {
+      const [oldestKey, oldest] = agents.entries().next().value!
+      agents.delete(oldestKey)
+      // A graceful close: requests still in flight on it finish first.
+      oldest.close().catch(() => {})
+    }
+    return agent
+  }
+
+  return async (input, init = {}) => {
+    // The policy parses the URL, so a malformed one is a refusal like any other.
+    let href = String(input)
+    let method = (init.method ?? 'GET').toUpperCase()
+    let body = init.body ?? null
+    const headers = new Headers(init.headers)
+    const signal = init.signal ?? undefined
+    // The URL the caller asked for may be on loopback where `allowLoopback`
+    // admits it: that is the operator's own local site. A redirect may lead to
+    // loopback only from a hop whose every address is loopback (a local
+    // WordPress moving from 127.0.0.1 to localhost), never from a remote site.
+    let mayRedirectToLoopback = true
+
+    for (let redirects = 0; ; redirects += 1) {
+      // undici honors the signal while it connects and reads, but not while
+      // the policy resolves the name, so the lookup races it here.
+      signal?.throwIfAborted()
+      const check = await untilAborted(resolveTarget(href), signal)
+      if (!check.ok) {
+        const parsed = URL.canParse(href) ? new URL(href) : null
+        if (check.unresolved) throw new EgressFailedError(`Could not resolve ${parsed?.hostname || href}`)
+        throw new EgressRefusedError(`Refused to connect to ${parsed?.host || href}: ${check.message.replace(/^"url" /, '')}`, redirects > 0)
+      }
+      const url = check.target.url
+      const onLoopback = checkedAddresses(check.target).map(({ address }) => isLoopbackAddress(address))
+      if (!mayRedirectToLoopback && onLoopback.includes(true)) {
+        throw new EgressRefusedError(`Refused to connect to ${url.host}: a redirect from a site that is not on loopback must not lead to loopback`, true)
+      }
+      mayRedirectToLoopback = !onLoopback.includes(false)
+      const response = await requestPinned(check.target, agentFor(check.target), { method, headers, body, signal })
+      const location = isLocationRedirectStatus(response.status) ? response.headers.get('location') : null
+      if (location === null) return response
+
+      // The redirect's own body is never read, so release its connection now.
+      await response.body?.cancel()
+      if (redirects >= GUARDED_FETCH_MAX_REDIRECTS) {
+        throw new EgressFailedError(`${url.host} redirected more than ${GUARDED_FETCH_MAX_REDIRECTS} times`)
+      }
+      let next: URL
+      try {
+        next = new URL(location, url)
+      } catch {
+        throw new EgressFailedError(`${url.host} redirected to an invalid Location`)
+      }
+
+      const status = response.status
+      if ((status === 303 && method !== 'GET' && method !== 'HEAD') || ((status === 301 || status === 302) && method === 'POST')) {
+        method = 'GET'
+        body = null
+        for (const name of BODY_HEADERS) headers.delete(name)
+      }
+      if (next.origin !== url.origin) {
+        for (const name of CROSS_ORIGIN_DROPPED_HEADERS) headers.delete(name)
+      }
+      href = next.href
+    }
+  }
+}
+
+/** Settles with `operation`, or rejects with the signal's reason as soon as it aborts. */
+async function untilAborted<T>(operation: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return await operation
+  let onAbort: (() => void) | undefined
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_resolve, reject) => {
+        // A signal's reason is an Error (AbortError, TimeoutError) unless a
+        // caller aborted with something else.
+        onAbort = () => reject(signal.reason instanceof Error ? signal.reason : new DOMException('This operation was aborted', 'AbortError'))
+        signal.addEventListener('abort', onAbort, { once: true })
+      }),
+    ])
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort)
+  }
+}
+
+async function requestPinned(
+  target: SafeWebhookTarget,
+  dispatcher: Agent,
+  init: { method: string; headers: Headers; body: BodyInit | null; signal: AbortSignal | undefined },
+): Promise<Response> {
+  const response = await undiciFetch(target.url, {
+    method: init.method,
+    headers: [...init.headers],
+    body: init.body as UndiciRequestInit['body'],
+    signal: init.signal,
+    redirect: 'manual',
+    dispatcher,
+  })
+  // The same Fetch API Response; only undici's type declarations differ from the DOM lib's.
+  return response as unknown as Response
+}
+
+/** An agent whose every connection dials the checked addresses, whatever the resolver says now. */
+function pinnedAgent(addresses: ReadonlyArray<{ address: string; family: 4 | 6 }>): Agent {
+  return new Agent({
+    // Try the next checked address when one does not answer, so a dual-stack
+    // site whose first address is unreachable (an IPv6-only network, a dead A
+    // record) still loads, as it does through global `fetch`. Every address
+    // passed the policy, so falling back reaches nothing it refused.
+    autoSelectFamily: true,
+    connect: { lookup: pinnedLookup(addresses) },
+  })
+}

@@ -49,6 +49,8 @@ import {
   type QueryTrackingWorkload,
   type QueryTrackingWorkspaceResponse,
   type SimpleMeasurementDefinition,
+  compareText,
+  normalizeIdentityText as normalizeText,
 } from '@ainyc/canonry-contracts'
 import {
   discoveryProbes,
@@ -155,16 +157,6 @@ interface Candidate {
   mutatedQueryIds: Set<string>
   diff: QueryTrackingDiff
   workload: QueryTrackingWorkload
-}
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
-}
-
-function normalizeText(value: string): string {
-  // Query-control identity matches the measurement readers: compatible
-  // Unicode, collapsed internal whitespace, and a stable case fold.
-  return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en')
 }
 
 function unique<T>(values: readonly T[]): T[] {

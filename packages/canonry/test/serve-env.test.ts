@@ -54,7 +54,8 @@ const ENV_KEYS = [
   'CANONRY_DASHBOARD_MANAGED_RUN_KINDS', 'CANONRY_ONBOARDING_MODE',
   'CANONRY_RESEARCH_ALLOW_VIEWERS', 'CANONRY_RESEARCH_VIEWER_DAILY_RUN_LIMIT',
 ] as const
-const WARN = 'First-run dashboard password setup is unauthenticated only on loopback; complete setup from this machine first or use a bearer cnry_... key.'
+const WARN = 'This server is not bound to loopback, so first-run dashboard password setup requires the root API key (apiKey in config.yaml).'
+const CONFIG_WARN = 'This server is configured to be reached through a proxy or external URL (publicUrl, apiUrl, basePath, or CANONRY_TRUST_PROXY), so first-run dashboard password setup requires the root API key (apiKey in config.yaml).'
 const OFF = { enabled: false }
 const ON = { enabled: true, projectTabs: ['overview'] }
 const LIMITED = { enabled: true, views: ['overview', 'project'], projectTabs: ['overview'] }
@@ -116,6 +117,15 @@ const WARNS = [
   { id: 'loopback-ipv4', host: '127.0.0.1', url: 'http://127.0.0.1:4100', warn: false },
   { id: 'loopback-ipv6', host: '::1', url: 'http://[::1]:4100', warn: false },
   { id: 'localhost', host: 'localhost', url: 'http://localhost:4100', warn: false },
+]
+// A loopback bind still needs the root key once config names another way in.
+const CONFIGURED_WARNS: Array<{ id: string; args?: string[]; env?: Record<string, string>; config?: Partial<CanonryConfig>; notice?: string }> = [
+  { id: 'external-public-url', config: { publicUrl: 'https://canonry.example.com' }, notice: CONFIG_WARN },
+  { id: 'external-api-url', config: { apiUrl: 'https://canonry.example.com' }, notice: CONFIG_WARN },
+  { id: 'trusted-proxy', env: { CANONRY_TRUST_PROXY: '1' }, notice: CONFIG_WARN },
+  { id: 'loopback-public-url', config: { publicUrl: 'http://localhost:4100' } },
+  // The bind is the first reason, and the only one printed.
+  { id: 'wildcard-bind-external-public-url', args: ['--host', '0.0.0.0'], config: { publicUrl: 'https://canonry.example.com' }, notice: WARN },
 ]
 
 async function startNative(input: {
@@ -243,6 +253,16 @@ it.each(WARNS)('CLI serve reports bind setup guidance: $id', async row => {
     `\nCanonry server running at ${row.url}`,
     `Open ${row.url}/setup to map your site and run your first Page Health scan.`,
     ...(row.warn ? [WARN] : []),
+    'Press Ctrl+C to stop.\n',
+  ])
+}, 20_000)
+
+it.each(CONFIGURED_WARNS)('CLI serve reports configured setup guidance: $id', async row => {
+  const { lines } = await startNative({ args: row.args, env: row.env, config: row.config })
+  expect(lines).toEqual([
+    '\nCanonry server running at http://127.0.0.1:4100',
+    'Open http://127.0.0.1:4100/setup to map your site and run your first Page Health scan.',
+    ...(row.notice ? [row.notice] : []),
     'Press Ctrl+C to stop.\n',
   ])
 }, 20_000)

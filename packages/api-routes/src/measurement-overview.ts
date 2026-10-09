@@ -39,6 +39,8 @@ import {
   type NamedShareOfVoice,
   type RunStatus,
   type StoredMeasurementPlan,
+  compareText as compareGroupText,
+  normalizeIdentityText as normalizedText,
 } from '@ainyc/canonry-contracts'
 import {
   measurementPlanDrafts,
@@ -246,10 +248,6 @@ function countMetric(rate: MeasurementRate): MetricValue {
   return { state: 'available', value: rate.numerator, numerator: rate.numerator, denominator: rate.denominator }
 }
 
-function normalizedText(value: string): string {
-  return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en')
-}
-
 function overviewFilterFingerprint(query: MeasurementOverviewQuery): string {
   const filters = {
     scope: query.scope,
@@ -289,7 +287,7 @@ function compareLabels(left: PropertyLabel, right: PropertyLabel): number {
   const leftLabel = normalizedText(left.label)
   const rightLabel = normalizedText(right.label)
   if (leftLabel !== rightLabel) return leftLabel < rightLabel ? -1 : 1
-  return left.targetKey < right.targetKey ? -1 : left.targetKey > right.targetKey ? 1 : 0
+  return compareGroupText(left.targetKey, right.targetKey)
 }
 
 function compareLabelSort(left: PropertyLabel, right: PropertyLabel, descending: boolean): number {
@@ -299,7 +297,7 @@ function compareLabelSort(left: PropertyLabel, right: PropertyLabel, descending:
     const compared = leftLabel < rightLabel ? -1 : 1
     return descending ? -compared : compared
   }
-  return left.targetKey < right.targetKey ? -1 : left.targetKey > right.targetKey ? 1 : 0
+  return compareGroupText(left.targetKey, right.targetKey)
 }
 
 function metricForSort(row: MeasurementPropertyRow, sort: MeasurementOverviewSort): MetricValue | null {
@@ -705,10 +703,6 @@ export interface PropertyLocation {
   metro: MeasurementPropertyMetro | null
   otherMetros?: MeasurementPropertyMetro[]
   submarkets: string[]
-}
-
-function compareGroupText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }
 
 /**

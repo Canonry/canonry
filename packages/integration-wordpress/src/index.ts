@@ -1,4 +1,10 @@
-export type { WordpressConnectionRecord, WordpressRestPage, WordpressSiteContext } from './types.js'
+export type {
+  WordpressClientConnection,
+  WordpressConnectionRecord,
+  WordpressFetch,
+  WordpressRestPage,
+  WordpressSiteContext,
+} from './types.js'
 export { WordpressApiError } from './types.js'
 export type { BulkMetaEntry, SeoWriteStrategy } from './wordpress-client.js'
 export type {

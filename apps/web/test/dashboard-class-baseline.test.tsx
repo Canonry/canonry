@@ -8,7 +8,7 @@ import { RouterProvider } from '@tanstack/react-router'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { compile } from 'tailwindcss'
 import ts from 'typescript'
-import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
+import { escapeRegExp, visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
 
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { createDashboardFixture } from '../src/mock-data.js'
@@ -312,10 +312,6 @@ function staticClassNames() {
     visit(ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, kind))
   }
   return [...classes]
-}
-
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function cssClassSelector(token: string) {

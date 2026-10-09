@@ -24,7 +24,8 @@ import {
   verifyWordpressConnection,
   WordpressApiError,
 } from '@ainyc/canonry-integration-wordpress'
-import type { SchemaProfileFile, WordpressConnectionRecord } from '@ainyc/canonry-integration-wordpress'
+import type { SchemaProfileFile, WordpressClientConnection, WordpressConnectionRecord } from '@ainyc/canonry-integration-wordpress'
+import { createGuardedFetch, EgressFailedError, EgressRefusedError } from './guarded-fetch.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { resolveWebhookTarget } from './webhooks.js'
 
@@ -91,6 +92,13 @@ async function withWordpressErrorHandling<T>(handler: () => Promise<T>): Promise
     return await handler()
   } catch (error) {
     if (error instanceof WordpressApiError) throw toAppError(error)
+    // The stored site URL now resolves to a refused address: the same refusal
+    // connect gives for such a URL.
+    if (error instanceof EgressRefusedError && !error.redirected) throw validationError(error.message)
+    // The site redirected to a refused address, its name stopped resolving, or
+    // it redirected too often: the site or the network failed, not the
+    // caller's input, as the traffic routes report it too.
+    if (error instanceof EgressRefusedError || error instanceof EgressFailedError) throw providerError(error.message)
     throw error
   }
 }
@@ -103,12 +111,20 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
     throw validationError('WordPress connection storage is not configured for this deployment')
   }
 
-  // Reject a WordPress site URL that resolves to a private / loopback /
-  // link-local / cloud-metadata address before any authenticated REST call is
-  // made to it. The publish client attaches Basic-auth credentials and follows
-  // redirects, so an unguarded URL is a credential-bearing SSRF (e.g.
-  // `http://169.254.169.254/...`). Mirrors the WordPress *traffic* path's
-  // `assertWordpressTargetAllowed` guard in `traffic.ts`.
+  // Every request the WordPress client makes goes through this fetch: it
+  // checks the address of each request and of every redirect hop and dials
+  // only that address. The client attaches Basic-auth credentials, so a stored
+  // URL that later resolves to an internal address, or a site that redirects
+  // there (`http://169.254.169.254/...`), would otherwise be a
+  // credential-bearing SSRF. Checking the URL once at connect is not enough.
+  const egressFetch = createGuardedFetch({ allowLoopback })
+  function guarded(connection: WordpressConnectionRecord): WordpressClientConnection {
+    return { ...connection, fetchImpl: egressFetch }
+  }
+
+  // Refuse such a URL at connect too, with a 400 that names the field, before
+  // any credentialed call is attempted. Mirrors the WordPress *traffic*
+  // path's `assertWordpressTargetAllowed` guard in `traffic.ts`.
   async function assertWordpressUrlAllowed(rawUrl: string, field: string): Promise<void> {
     const check = await resolveWebhookTarget(rawUrl, { allowLoopback })
     if (!check.ok) {
@@ -116,12 +132,12 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
     }
   }
 
-  function requireConnection(store: WordpressConnectionStore, projectName: string): WordpressConnectionRecord {
+  function requireConnection(store: WordpressConnectionStore, projectName: string): WordpressClientConnection {
     const connection = store.getConnection(projectName)
     if (!connection) {
       throw validationError(`No WordPress connection found for project "${projectName}". Run "canonry wordpress connect ${projectName}" first.`)
     }
-    return connection
+    return guarded(connection)
   }
 
   app.post<{
@@ -167,8 +183,8 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
         updatedAt: now,
       }
 
-      await verifyWordpressConnection(nextConnection)
-      const connection = store.upsertConnection(nextConnection)
+      await verifyWordpressConnection(guarded(nextConnection))
+      const connection = guarded(store.upsertConnection(nextConnection))
       const live = await getSiteStatus(connection, 'live')
       const staging = connection.stagingUrl ? await getSiteStatus(connection, 'staging') : null
 
@@ -213,8 +229,8 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
 
   app.get<{ Params: { name: string } }>('/projects/:name/wordpress/status', async (request) => {
     const project = resolveProject(app.db, request.params.name)
-    const connection = opts.wordpressConnectionStore?.getConnection(project.name)
-    if (!connection) {
+    const stored = opts.wordpressConnectionStore?.getConnection(project.name)
+    if (!stored) {
       return {
         connected: false,
         projectName: project.name,
@@ -225,6 +241,7 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
       }
     }
 
+    const connection = guarded(stored)
     const live = await getSiteStatus(connection, 'live')
     const staging = connection.stagingUrl ? await getSiteStatus(connection, 'staging') : null
     return {
@@ -577,7 +594,7 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
 
     type StepResult = { name: string; status: 'completed' | 'skipped' | 'failed'; summary?: string; error?: string }
     const steps: StepResult[] = []
-    let connection: WordpressConnectionRecord | null = null
+    let connection: WordpressClientConnection | null = null
     let pageUrls: string[] = []
 
     // Step 1: Connect
@@ -594,8 +611,8 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
       }
-      await verifyWordpressConnection(nextConnection)
-      connection = store.upsertConnection(nextConnection)
+      await verifyWordpressConnection(guarded(nextConnection))
+      connection = guarded(store.upsertConnection(nextConnection))
       writeAuditLog(app.db, {
         projectId: project.id,
         actor: 'api',

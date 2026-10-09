@@ -2,7 +2,7 @@ import { and, asc, eq, ne } from 'drizzle-orm'
 
 import { loadConfig } from '../config.js'
 import { createClient, migrate, projects, runs } from '@ainyc/canonry-db'
-import { createServer, isLoopbackBindHost, waitForServerRuntimeStartup } from '../server.js'
+import { allowsKeylessFirstRunSetup, createServer, isLoopbackBindHost, waitForServerRuntimeStartup } from '../server.js'
 import { closeWithIdleSweep } from '../server-shutdown.js'
 import { trackEvent, setTelemetrySource } from '../telemetry.js'
 import { cliRuntimeContext } from '../runtime-context.js'
@@ -14,11 +14,6 @@ import { detectCanonryAgentPlugin } from '../agent-plugin.js'
 import { describeError, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import { operatorHttpUrl } from '../operator-url.js'
 import { resolveServePort } from '../serve-endpoint.js'
-
-/** First-run password setup is loopback-only for every non-loopback bind. */
-function shouldWarnAboutRemoteSetup(host: string | undefined): boolean {
-  return !isLoopbackBindHost(host)
-}
 
 /** Read persisted scan state for the startup guidance. */
 function readServeOpenState(db: ReturnType<typeof createClient>): {
@@ -127,8 +122,8 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     process.stderr.write(`warning: ai-referral-paths backfill skipped: ${msg}\n`)
   }
 
-  // Create and start server. Pass the bind host so the server can gate the
-  // unauthenticated first-run dashboard password setup when exposed off-box.
+  // Create and start server. Pass the bind host so the server can require the
+  // root API key for first-run dashboard password setup when exposed off-box.
   // User-global only. Project-local client settings belong to the invoking
   // coding-agent process, not to this long-running API daemon. Keep this as a
   // closure so doctor reflects plugin installs/removals without a server restart.
@@ -170,8 +165,12 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     if (!isMachineFormat(format)) {
       console.log(`\nCanonry server running at ${url}`)
       console.log(buildServeOpenLine({ url, ...readServeOpenState(db) }))
-      if (shouldWarnAboutRemoteSetup(host)) {
-        console.log('First-run dashboard password setup is unauthenticated only on loopback; complete setup from this machine first or use a bearer cnry_... key.')
+      // First-run password setup needs the root API key on every non-loopback
+      // bind, and on a loopback bind whose config names another way in.
+      if (!allowsKeylessFirstRunSetup(app)) {
+        console.log(isLoopbackBindHost(host)
+          ? 'This server is configured to be reached through a proxy or external URL (publicUrl, apiUrl, basePath, or CANONRY_TRUST_PROXY), so first-run dashboard password setup requires the root API key (apiKey in config.yaml).'
+          : 'This server is not bound to loopback, so first-run dashboard password setup requires the root API key (apiKey in config.yaml).')
       }
       console.log('Press Ctrl+C to stop.\n')
       const nudge = getMissingUserSkillsNudge(process.env.HOME, getAgentPluginState())

@@ -1,5 +1,5 @@
 import { MultiDirectedGraph } from 'graphology'
-import { deriveSiteHealthState, type SiteHealthState } from '@ainyc/canonry-contracts'
+import { deriveSiteHealthState, type SiteHealthState, compareText as lexical } from '@ainyc/canonry-contracts'
 
 export type SiteGraphVisualState = SiteHealthState
 
@@ -209,10 +209,6 @@ export function siteGraphLabelBudget(cameraRatio: number): number {
     if (cameraRatio <= tier.maxRatio) return tier.budget
   }
   return SITE_GRAPH_OVERVIEW_LABEL_BUDGET
-}
-
-function lexical(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }
 
 /** The link score as a 0 to 1 share of the crawl's top page, which scores 100. */

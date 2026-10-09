@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
+import { escapeRegExp } from '@ainyc/canonry-contracts'
 import { compileAppStyles } from './compiled-app-css.js'
 import { expect, test } from 'vitest'
 
@@ -9,11 +10,6 @@ const mainPath = resolve(import.meta.dirname, '../src/main.tsx')
 const appPath = resolve(import.meta.dirname, '../src/App.tsx')
 const embedPath = resolve(import.meta.dirname, '../src/embed.ts')
 const viteConfigPath = resolve(import.meta.dirname, '../vite.config.ts')
-
-
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
 
 // Return the body of the compiled rule whose selector list contains `selector`.
 // Matches `selector` only as a standalone member of a selector prelude, so it

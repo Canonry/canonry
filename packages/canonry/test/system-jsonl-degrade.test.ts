@@ -159,6 +159,7 @@ vi.mock('@ainyc/canonry-db', () => ({
   migrate: vi.fn(),
 }))
 vi.mock('../src/server.js', () => ({
+  allowsKeylessFirstRunSetup: () => true,
   createServer: () => mockCreateServer(),
   isLoopbackBindHost: (host: string | undefined) => host == null || host === '' || host === 'localhost' || host === '127.0.0.1' || host === '::1',
   waitForServerRuntimeStartup: () => mockWaitForServerRuntimeStartup(),

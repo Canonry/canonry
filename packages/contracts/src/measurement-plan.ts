@@ -7,6 +7,7 @@ import {
 import { resolveProviderModel } from './models.js'
 import { locationContextSchema, type LocationContext } from './provider.js'
 import { brandLabelFromDomain, hostOf } from './url-normalize.js'
+import { compareText, sortedUnique as canonicalStrings } from './text-order.js'
 
 /**
  * v1 is intentionally frozen. A future shape gets a new version and an
@@ -197,10 +198,6 @@ export const measurementTargetQuerySelectionSchema = z.object({
 }).strict()
 export type MeasurementTargetQuerySelection = z.output<typeof measurementTargetQuerySelectionSchema>
 
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
-}
-
 function duplicateValues(values: readonly string[], normalize = (value: string) => value): Set<string> {
   const seen = new Set<string>()
   const duplicates = new Set<string>()
@@ -275,10 +272,6 @@ function canonicalAliases(values: readonly string[]): string[] {
     seen.add(key)
     return true
   })
-}
-
-function canonicalStrings(values: readonly string[]): string[] {
-  return [...new Set(values)].sort(compareText)
 }
 
 function canonicalMatchers(values: readonly MeasurementTargetUrlMatcher[]): MeasurementTargetUrlMatcher[] {
@@ -540,7 +533,7 @@ export interface MeasurementExecutionIdentityInput {
 }
 
 function normalizeExecutionIdentity(input: MeasurementExecutionIdentityInput): MeasurementExecutionIdentityInput {
-  const providers = [...new Set(input.providers.map(value => value.trim().toLocaleLowerCase('en')).filter(Boolean))].sort(compareText)
+  const providers = canonicalStrings(input.providers.map(value => value.trim().toLocaleLowerCase('en')).filter(Boolean))
   const models: Record<string, string> = {}
   for (const provider of providers) {
     const model = input.models[provider]

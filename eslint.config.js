@@ -470,11 +470,11 @@ export default tseslint.config(
       'packages/canonry/src/client.ts',
       // External HTTP — not the canonry API:
       // - daemon.ts probes localhost `/health` for serve-readiness
-      // - sitemap-parser.ts fetches the user's own sitemap.xml URL
       // - telemetry.ts POSTs to the public telemetry collector
       // - update-check.ts polls npm dist-tags
+      // A URL the operator supplies (a sitemap, a site) is not one of these:
+      // it goes through `createGuardedFetch` from api-routes, never raw fetch.
       'packages/canonry/src/commands/daemon.ts',
-      'packages/canonry/src/sitemap-parser.ts',
       'packages/canonry/src/telemetry.ts',
       'packages/canonry/src/update-check.ts',
     ],

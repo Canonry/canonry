@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { fraction } from './ratio-unit.js'
 import { runStatusSchema } from './run.js'
+import { compareText as compareAdsActivationEntityIds } from './text-order.js'
 
 /** Provider review values that gate any live-spend transition. Unknown values remain strings on reads and fail closed. */
 export const AdsReviewStatuses = {
@@ -592,12 +593,6 @@ const adsActivationAdGroupSchema = adsActivationEntityRefSchema.extend({
 const adsActivationCampaignSchema = adsActivationEntityRefSchema.extend({
   adGroups: z.array(adsActivationAdGroupSchema).min(1).max(ADS_ACTIVATION_ABSOLUTE_MAX_ENTITIES - 1),
 }).strict()
-
-function compareAdsActivationEntityIds(left: string, right: string): number {
-  if (left < right) return -1
-  if (left > right) return 1
-  return 0
-}
 
 function addCanonicalEntityOrderIssue(
   items: readonly { id: string }[],

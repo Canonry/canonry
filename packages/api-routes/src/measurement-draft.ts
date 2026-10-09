@@ -48,6 +48,7 @@ import {
   type StoredMeasurementPlan,
   hostOf,
   normalizeCompetitorAliases,
+  compareText,
 } from '@ainyc/canonry-contracts'
 import {
   measurementPlanDrafts,
@@ -120,10 +121,6 @@ const MEASUREMENT_GROUP_MEMBERSHIP_BODY_LIMIT = MEASUREMENT_GROUP_MEMBERSHIP_CSV
 export interface MeasurementDraftRoutesOptions extends MarketPinWriteHooks {
   /** Current provider registry membership, used when a project means "all configured". */
   getRunnableProviderNames?: () => readonly string[]
-}
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }
 
 /** Key-order-independent identity, so "did this action change anything" never turns on serialization order. */

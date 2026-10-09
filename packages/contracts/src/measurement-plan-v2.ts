@@ -3,6 +3,7 @@ import { fraction } from './ratio-unit.js'
 import { locationContextSchema, providerNameSchema } from './provider.js'
 import { queryClassFilterSchema, queryClassSchema } from './query-class.js'
 import { hostOf } from './url-normalize.js'
+import { compareText } from './text-order.js'
 
 /**
  * Schema v2 adds Branded/Non-brand assignments, frozen group competitors and a
@@ -349,10 +350,6 @@ export const measurementPlanV2Schema = z.object({
   }
 })
 export type MeasurementPlanV2 = z.output<typeof measurementPlanV2Schema>
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
-}
 
 /** Private copy of the v1 canonicalizer: this module must not import back into `measurement-plan.ts`. */
 function canonicalJsonValue(value: unknown): unknown {

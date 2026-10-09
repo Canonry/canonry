@@ -7,7 +7,7 @@
  * prevents a read from mutating or re-fetching evidence.
  */
 
-import { answerProseForMentions, normalizeMeasurementHost, rateOverChecked } from '@ainyc/canonry-contracts'
+import { answerProseForMentions, escapeRegExp, normalizeIdentityText, normalizeMeasurementHost, rateOverChecked, compareText, sortedUnique } from '@ainyc/canonry-contracts'
 
 export type MeasurementAttributionClass =
   | 'assigned'
@@ -395,12 +395,6 @@ interface PreparedReport {
   diagnostics: MeasurementReport['diagnostics']
 }
 
-const compareText = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0
-
-function sortedUnique(values: readonly string[]): string[] {
-  return [...new Set(values)].sort(compareText)
-}
-
 function normalizedHost(value: string): string {
   try {
     return normalizeMeasurementHost(value)
@@ -575,8 +569,7 @@ export function classifyCitedUrl(
 
 export function normalizeMeasurementLocation(value: string | null): string | null {
   if (value === null) return null
-  const normalized = value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en')
-  return normalized || null
+  return normalizeIdentityText(value) || null
 }
 
 function words(value: string): string[] {
@@ -658,7 +651,7 @@ function mentionedTargetsForAliases(
 /** Only explicit identity uncertainty is inferred for old revisions: no guessed geography. */
 function identityAmbiguityPatterns(aliases: readonly string[]) {
   const patterns = aliases.flatMap(alias => {
-    const name = words(alias).join(' ').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const name = escapeRegExp(words(alias).join(' '))
     if (!name) return []
     // The input is normalized tokens joined by spaces. Space/end boundaries
     // also support names whose final token is not an ASCII word character.

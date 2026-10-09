@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { competitors, projects, type DatabaseClient } from '@ainyc/canonry-db'
 import {
+  compareText,
   competitorIdentityAliases,
   effectiveBrandNames,
   effectiveDomains,
@@ -67,10 +68,10 @@ export function answerIdentityFrom(
   const projectBrandNames = effectiveBrandNames({ displayName: project.displayName, aliases: project.aliases })
   const names = competitorRows
     .map(row => [row.domain, competitorIdentityAliases(row)] as const)
-    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .sort(([left], [right]) => compareText(left, right))
   const market = [...marketNames]
     .map(([domain, learned]): [string, string[]] => [domain, [...learned]])
-    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .sort(([left], [right]) => compareText(left, right))
   return {
     projectDomains,
     projectBrandNames,

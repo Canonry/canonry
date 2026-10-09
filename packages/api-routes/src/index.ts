@@ -96,6 +96,7 @@ import {
   listWordpressTrafficEvents,
   WordpressTrafficApiError,
 } from '@ainyc/canonry-integration-wordpress-traffic'
+import { createGuardedFetch } from './guarded-fetch.js'
 import {
   listVercelTrafficEvents,
   VercelLogsApiError,
@@ -825,6 +826,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       googleConnectionStore: opts.googleConnectionStore,
       bingConnectionStore: opts.bingConnectionStore,
       wordpressConnectionStore: opts.wordpressConnectionStore,
+      allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
       ga4CredentialStore: opts.ga4CredentialStore,
       adsCredentialStore: opts.adsCredentialStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
@@ -856,7 +858,7 @@ export type { UserSessionCookieOptions } from './user-session.js'
 export { requireAdminSession, requireBroadInstanceKey, requireInstanceAdministrator, isInstanceAdministrator, requirePaidReadScope, requireResearchGrant } from './auth.js'
 export { assertSameOriginWrite, assertCookieWriteOrigin, FOREIGN_ORIGIN_MESSAGE } from './same-origin.js'
 // How a host decides which proxy hops may be believed about who is calling.
-export { resolveTrustProxy, resolveCallerKey, hasForwardedHeaders } from './trust-proxy.js'
+export { resolveTrustProxy, resolveCallerKey, hasForwardedHeaders, hasProxyHeaders } from './trust-proxy.js'
 // Password storage, exported so a host can seed an account without
 // reimplementing the derivation that `auth` verifies against.
 export { hashUserPassword, verifyUserPassword } from './user-password.js'
@@ -903,10 +905,15 @@ export type {
   OnDiscoveryRunRequested,
 } from './discovery/index.js'
 export { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
-export { notProbeRun } from './helpers.js'
+// Audit rows written by a host route, so they carry the same request context.
+export { auditFromRequest, notProbeRun, writeAuditLog } from './helpers.js'
 // Shared public-egress preflight: validates every resolved address class and
 // returns the exact address callers must dial to prevent DNS rebinding.
 export { resolveMeasurementSitemapTarget as resolvePublicHttpTarget } from './measurement-sitemap-fetch.js'
+// A fetch that applies the shared egress policy to every request and redirect
+// hop and dials only the addresses it checked, for a URL this instance did not
+// choose (the canonry sitemap parser).
+export { createGuardedFetch, EgressFailedError, EgressRefusedError } from './guarded-fetch.js'
 export { redactNotificationDiff, redactNotificationUrl } from './notification-redaction.js'
 export type { SafeWebhookTarget } from './webhooks.js'
 export type { RunRoutesOptions } from './runs.js'
@@ -1005,6 +1012,7 @@ function buildTrafficSourceValidators(opts: ApiRoutesOptions): Record<string, Tr
   if (opts.wordpressTrafficCredentialStore) {
     const store = opts.wordpressTrafficCredentialStore
     const pullEvents = opts.pullWordpressTrafficEvents ?? listWordpressTrafficEvents
+    const wordpressTrafficFetch = createGuardedFetch({ allowLoopback: opts.allowLoopbackWebhooks === true })
     validators[TrafficSourceTypes.wordpress] = {
       validateCredentials: async (source: TrafficSourceProbe): Promise<CheckOutput> => {
         const record = store.getConnection(source.projectName)
@@ -1023,6 +1031,9 @@ function buildTrafficSourceValidators(opts: ApiRoutesOptions): Record<string, Tr
             applicationPassword: record.applicationPassword,
             pageSize: 1,
             maxPages: 1,
+            // The probe carries Basic-auth credentials: check the stored URL
+            // and every redirect hop as the sync route does.
+            fetchImpl: wordpressTrafficFetch,
           })
           return {
             status: CheckStatuses.ok,

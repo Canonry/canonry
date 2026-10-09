@@ -17,6 +17,7 @@ WordPress integration — REST API client for managing WordPress sites, generati
 
 - **REST API auth**: Uses WordPress application passwords or API keys stored in `~/.canonry/config.yaml`.
 - **Schema generation**: `schema-templates.ts` owns LocalBusiness, Organization, FAQPage, Service, and WebPage JSON-LD. Pin complete independent template output in its tests; use the real profile deployment and persisted refetch to cover string/object/FAQ parsing.
+- **Egress**: every request (REST calls, the home page, rendered page `link`s, `llms.txt`) goes through `connection.fetchImpl` (`WordpressClientConnection`), falling back to global `fetch`. `api-routes` passes `createGuardedFetch` on every call so each address and redirect hop is checked. Never call `fetch` directly here, and never persist `fetchImpl`: the store takes the plain `WordpressConnectionRecord`.
 - **Error handling**: Uses `WordpressApiError` for API-specific errors. Native tests capture one diagnostic from one request and preserve status/code/credential redaction.
 - **Native coverage**: Assert complete page/SEO DTOs, exact audit arithmetic and thresholds, independent raw-content hashes, decoded hostile JSON-LD values, and every plugin identity across pagination.
 

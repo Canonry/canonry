@@ -67,6 +67,12 @@ export interface DoctorContext {
   googleConnectionStore?: GoogleConnectionStore
   bingConnectionStore?: BingConnectionStore
   wordpressConnectionStore?: WordpressConnectionStore
+  /**
+   * The host's `allowLoopbackWebhooks`, so a check that dials an
+   * operator-configured site admits loopback exactly where the routes do.
+   * Undefined refuses loopback.
+   */
+  allowLoopbackWebhooks?: boolean
   ga4CredentialStore?: Ga4CredentialStore
   /** Website probe seam for `site.reachability`. Defaults to the SSRF-guarded live probe. */
   probeSiteReachability?: (url: string) => Promise<import('../site-reachability.js').SiteReachabilityResult>

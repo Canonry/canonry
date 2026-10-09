@@ -1842,7 +1842,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: jsonResponse('Default location updated.', 'ProjectDto'),
+      200: jsonResponse('Default location updated.', 'ProjectDefaultLocationResponse'),
       400: errorResponse('Invalid location.'),
       404: errorResponse('Project not found.'),
     },
@@ -1854,7 +1854,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['projects'],
     parameters: [nameParameter],
     responses: {
-      200: jsonResponse('Project configuration returned.', 'ProjectConfig'),
+      200: jsonResponse('Project configuration returned.', 'ProjectConfigExport'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -2058,7 +2058,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: rawJsonResponse('Query suggestions returned.', { type: 'object', properties: { suggestions: { type: 'array', items: { type: 'string' } } } }),
+      200: jsonResponse('Query suggestions returned.', 'QueryGenerateResponse'),
       501: errorResponse('Query generation is not available.'),
     },
   },
@@ -2167,8 +2167,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      // TODO: Add `KeywordGenerateResponse` Zod schema (`{ suggestions: string[] }`) in contracts.
-      200: rawJsonResponse('Legacy keyword suggestions returned.', looseObjectSchema),
+      200: jsonResponse('Legacy keyword suggestions returned.', 'KeywordGenerateResponse'),
       501: errorResponse('Legacy keyword generation is not available.'),
     },
   },
@@ -5542,7 +5541,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['wordpress'],
     parameters: [nameParameter, wordpressEnvQueryParameter],
     responses: {
-      200: jsonArrayResponse('WordPress pages returned.', 'WordpressPageSummaryDto'),
+      200: jsonResponse('WordPress pages returned.', 'WordpressPageListDto'),
       400: errorResponse('Invalid environment or missing connection.'),
       404: errorResponse('Project not found.'),
     },

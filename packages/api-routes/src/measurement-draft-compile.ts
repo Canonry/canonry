@@ -23,6 +23,8 @@ import {
   type MeasurementV2Target,
   type MeasurementV2UrlMatcher,
   type MeasurementV2UsageEdge,
+  compareText,
+  sortedUnique as canonicalStrings,
 } from '@ainyc/canonry-contracts'
 import { canonicalJson, canonicalJsonValue, sha256Hex } from './measurement-draft-repo.js'
 import { measurementMentionAliasKey } from './measurement-report.js'
@@ -61,14 +63,6 @@ export interface MeasurementDraftCompileContext {
 export type MeasurementDraftCompileResult =
   | { ok: true; plan: MeasurementPlanV2; checks: MeasurementDraftCompileCheck[] }
   | { ok: false; checks: MeasurementDraftCompileCheck[] }
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
-}
-
-function canonicalStrings(values: readonly string[]): string[] {
-  return [...new Set(values)].sort(compareText)
-}
 
 /**
  * The deterministic classification proposal of spec §7.3.

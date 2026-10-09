@@ -6,6 +6,7 @@ import {
   classifyAiReferralTrafficClass,
   compactDateToIso,
   describeError,
+  escapeRegExp,
   isoDateDaysBeforeInTimeZone,
   parseBoundedRate,
   withRetry,
@@ -160,10 +161,6 @@ export async function getAccessToken(clientEmail: string, privateKey: string): P
 
   const data = (await res.json()) as { access_token: string; expires_in: number }
   return data.access_token
-}
-
-function escapeRegExp(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 // --- Concurrency limiter ------------------------------------------------------

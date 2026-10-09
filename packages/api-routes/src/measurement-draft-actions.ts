@@ -30,6 +30,7 @@ import {
   type MeasurementDraftResolvedAudienceGroup,
   type MeasurementDraftTarget,
   type MeasurementDraftWarning,
+  compareText,
 } from '@ainyc/canonry-contracts'
 import { proposeQueryClassForTarget } from './measurement-draft-compile.js'
 import type { ZodType } from 'zod'
@@ -110,10 +111,6 @@ function requireGroup(authoring: MeasurementDraftAuthoring, groupKey: string): M
 
 function unique(values: readonly string[]): string[] {
   return [...new Set(values)]
-}
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }
 
 function knownQueryIds(queryIds: readonly string[], context: DraftActionContext): string[] {

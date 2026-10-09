@@ -24,7 +24,7 @@ import {
   PROJECTS_WRITE_SCOPE,
   SchedulableRunKinds,
 } from '@ainyc/canonry-contracts'
-import type { CompetitorAliasRejection, CompetitorAutoAliasDrop, CompetitorAutoAliasMode, LocationContext, MeasurementConfig, ProjectCreateRequest, ProviderDispatchModesMap, ProviderModels } from '@ainyc/canonry-contracts'
+import type { CompetitorAliasRejection, CompetitorAutoAliasDrop, CompetitorAutoAliasMode, ConfigNotification, LocationContext, MeasurementConfig, ProjectConfigExport, ProjectCreateRequest, ProviderDispatchModesMap, ProviderModels } from '@ainyc/canonry-contracts'
 import { requireAdminSession, requireScope } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { competitorIdentityChanged, competitorIdentityColumns, competitorNames, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
@@ -718,7 +718,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       competitorNames(comps),
     ).value
 
-    const config = {
+    const config: ProjectConfigExport = {
       apiVersion: 'canonry/v1',
       kind: 'Project',
       metadata: {
@@ -751,10 +751,12 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         ...(project.competitorAutoAliases !== DEFAULT_COMPETITOR_AUTO_ALIAS_MODE ? { competitorAutoAliases: project.competitorAutoAliases } : {}),
         notifications: notificationRows.map((row) => {
           const cfg = row.config
+          // Text and JSON columns; both write paths validate them against
+          // configNotificationSchema's channel and events.
           return {
-            channel: row.channel,
+            channel: row.channel as ConfigNotification['channel'],
             url: cfg.url,
-            events: cfg.events,
+            events: cfg.events as ConfigNotification['events'],
           }
         }),
         ...(schedule ? {
@@ -911,7 +913,7 @@ export function formatProject(row: InferSelectModel<typeof projects>, negativeRe
 // stable order). Two sets that differ only in casing match the same answer
 // text and produce the same persisted `answerMentioned` / overlap fields, so
 // the compare is case-insensitive — a casing rename doesn't need a backfill.
-function aliasArraysEqual(a: readonly string[], b: readonly string[]): boolean {
+export function aliasArraysEqual(a: readonly string[], b: readonly string[]): boolean {
   if (a.length !== b.length) return false
   for (let i = 0; i < a.length; i++) {
     if (a[i]!.toLowerCase() !== b[i]!.toLowerCase()) return false

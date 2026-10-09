@@ -11,6 +11,8 @@ import {
   type MeasurementDraftGroupMembershipRowReason,
   type MeasurementDraftPreviewGroupMembershipResponse,
   type MeasurementDraftSegmentDescriptor,
+  compareText,
+  sortedUnique,
 } from '@ainyc/canonry-contracts'
 
 /** Errors are data-only so route wiring can map the status to the host's error envelope. */
@@ -119,10 +121,6 @@ interface ResolutionArtifacts {
   readonly groupChanges: MeasurementDraftGroupMembershipChange[]
   readonly counts: MeasurementDraftGroupMembershipImportCounts
   readonly identities: readonly GroupIdentity[]
-}
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }
 
 function sha256Hex(value: string): string {
@@ -595,7 +593,7 @@ function groupChangesFromRows(
   return [...byGroupKey.values()]
     .sort((left, right) => compareText(left.identity.normalizedGroupLabel, right.identity.normalizedGroupLabel))
     .map(({ identity, rows: matchedRows }) => {
-      const targetKeys = [...new Set(matchedRows.map(row => row.targetKey))].sort(compareText)
+      const targetKeys = sortedUnique(matchedRows.map(row => row.targetKey))
       const addedTargetKeys = targetKeys.filter(targetKey => !identity.existingTargetKeys.has(targetKey))
       const unchangedTargetKeys = targetKeys.filter(targetKey => identity.existingTargetKeys.has(targetKey))
       return {

@@ -13,6 +13,8 @@ import { runFillInProgress,
   RunKinds,
   validationError,
   visibilityStateFromAnswerMentioned,
+  type CitationState,
+  type SnapshotDiffRow,
 } from '@ainyc/canonry-contracts'
 import { requireAdminSession, requireScope } from './auth.js'
 import { writeAuditLog, notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState } from './helpers.js'
@@ -504,7 +506,8 @@ export async function historyRoutes(app: FastifyInstance) {
     // Build a query-level lookup across providers. Citation and answer mention
     // are aggregated independently: a query may be cited by one engine and
     // mentioned by another, and neither signal may erase the other.
-    const map1 = new Map<string | null, (typeof snaps1[number]) & {
+    const map1 = new Map<string | null, Omit<typeof snaps1[number], 'citationState'> & {
+      citationState: CitationState
       resolvedAnswerMentioned: boolean
     }>()
     for (const s of snaps1) {
@@ -518,7 +521,8 @@ export async function historyRoutes(app: FastifyInstance) {
         resolvedAnswerMentioned: (existing?.resolvedAnswerMentioned ?? false) || resolveSnapshotAnswerMentioned(s, project),
       })
     }
-    const map2 = new Map<string | null, (typeof snaps2[number]) & {
+    const map2 = new Map<string | null, Omit<typeof snaps2[number], 'citationState'> & {
+      citationState: CitationState
       resolvedAnswerMentioned: boolean
     }>()
     for (const s of snaps2) {
@@ -535,7 +539,7 @@ export async function historyRoutes(app: FastifyInstance) {
 
     // Compute diff for all queries present in either run
     const allQueryIds = new Set([...map1.keys(), ...map2.keys()])
-    const diff = [...allQueryIds].map(qId => {
+    const diff: SnapshotDiffRow[] = [...allQueryIds].map(qId => {
       const s1 = map1.get(qId)
       const s2 = map2.get(qId)
       return {

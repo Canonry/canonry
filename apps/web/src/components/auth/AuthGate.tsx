@@ -28,6 +28,22 @@ import { Card, CardContent, CardDescription, CardHeader } from '../ui/card.js'
 const SESSION_RECHECK_MS = 60_000
 
 /**
+ * The setup card's description. The password signs in from any browser that
+ * reaches the server, also when setup ran from another machine with the root
+ * key, so the copy ties it to no machine.
+ */
+export const SETUP_DESCRIPTION = 'Anyone with this password can sign in to this dashboard.'
+
+/** Shown when the server refuses a keyless first-run setup from this address. */
+export const SETUP_ROOT_KEY_COPY = {
+  label: 'Root API key',
+  help: 'To create the password from here, enter the root API key (apiKey in config.yaml). It is used once and not saved.',
+  missing: 'Enter the root API key.',
+  rejected: 'That is not the root API key for this install.',
+  show: 'Show passwords and key',
+} as const
+
+/**
  * `account-login` is the named-account sign-in. `setup` and `login` are the
  * older shared-password screens, which apply only to an install that has no
  * accounts at all — and which the server refuses once any account exists.
@@ -49,6 +65,10 @@ export function AuthGate() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [sharedLoginMethod, setSharedLoginMethod] = useState<SharedLoginMethod>('password')
+  // A proxied or network-reachable server refuses a keyless first-run setup.
+  // The root key then rides that setup request only; it is never stored.
+  const [setupNeedsRootKey, setSetupNeedsRootKey] = useState(false)
+  const [setupRootKey, setSetupRootKey] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [sessionExpired, setSessionExpired] = useState(false)
@@ -255,11 +275,16 @@ export function AuthGate() {
       setError('Passwords do not match')
       return
     }
+    const rootKey = setupRootKey.trim()
+    if (setupNeedsRootKey && !rootKey) {
+      setError(SETUP_ROOT_KEY_COPY.missing)
+      return
+    }
 
     setSubmitting(true)
     setError(null)
     try {
-      const session = await setupDashboardPassword(password.trim())
+      const session = await setupDashboardPassword(password.trim(), setupNeedsRootKey ? rootKey : undefined)
       if (!session.authenticated) {
         setError('Setup failed')
         return
@@ -268,6 +293,8 @@ export function AuthGate() {
       // access read, and never offer the one-time setup mutation as its retry.
       setPassword('')
       setConfirmPassword('')
+      setSetupRootKey('')
+      setSetupNeedsRootKey(false)
       setShowPassword(false)
       setSessionExpired(false)
       setApiKey(null)
@@ -285,6 +312,13 @@ export function AuthGate() {
         setAuthState('api-key-error')
       }
     } catch (err) {
+      if (err instanceof ApiError && err.statusCode === 401 && err.code === 'AUTH_REQUIRED') {
+        // The server will not take a keyless setup from this address. Ask for
+        // the root key; a refusal with a key means it is not the root key.
+        setError(setupNeedsRootKey ? SETUP_ROOT_KEY_COPY.rejected : null)
+        setSetupNeedsRootKey(true)
+        return
+      }
       setError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Setup failed')
     } finally {
       setSubmitting(false)
@@ -293,6 +327,11 @@ export function AuthGate() {
 
   const updatePassword = (value: string) => {
     setPassword(value)
+    setError(null)
+  }
+
+  const updateSetupRootKey = (value: string) => {
+    setSetupRootKey(value)
     setError(null)
   }
 
@@ -378,6 +417,7 @@ export function AuthGate() {
   const setupPasswordIsShort = password.length > 0 && trimmedPassword.length < 8
   const setupConfirmationMismatch = confirmPassword.length > 0 && password !== confirmPassword
   const setupFormIsValid = trimmedPassword.length >= 8 && password === confirmPassword
+    && (!setupNeedsRootKey || setupRootKey.trim().length > 0)
 
   return (
     <div className="min-h-screen bg-bg px-4 py-8">
@@ -470,9 +510,7 @@ export function AuthGate() {
               <CardHeader>
                 <p className="eyebrow eyebrow-soft">First-time setup</p>
                 <h1 className="font-medium tracking-tight text-primary">Create a dashboard password</h1>
-                <CardDescription>
-                  This password protects the dashboard on this computer.
-                </CardDescription>
+                <CardDescription>{SETUP_DESCRIPTION}</CardDescription>
               </CardHeader>
               <CardContent>
                 <form className="space-y-4" onSubmit={asyncHandler(handleSetup)}>
@@ -527,6 +565,30 @@ export function AuthGate() {
                       {setupConfirmationMismatch ? 'Passwords do not match.' : 'Enter the same password again.'}
                     </span>
                   </div>
+                  {setupNeedsRootKey ? (
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-medium text-secondary" htmlFor="dashboard-setup-root-key">
+                        {SETUP_ROOT_KEY_COPY.label}
+                      </label>
+                      <input
+                        autoFocus
+                        id="dashboard-setup-root-key"
+                        className="w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-heading outline-none transition focus:border-mono-600"
+                        type={showPassword ? 'text' : 'password'}
+                        name="apiKey"
+                        autoComplete="off"
+                        spellCheck={false}
+                        required
+                        value={setupRootKey}
+                        onChange={(event) => updateSetupRootKey(event.target.value)}
+                        aria-invalid={error === SETUP_ROOT_KEY_COPY.rejected}
+                        aria-describedby="dashboard-setup-root-key-help"
+                      />
+                      <span id="dashboard-setup-root-key-help" aria-live="polite" className="block text-sm text-secondary">
+                        {SETUP_ROOT_KEY_COPY.help}
+                      </span>
+                    </div>
+                  ) : null}
                   <label className="flex min-h-10 cursor-pointer items-center gap-2 text-sm text-secondary" htmlFor="dashboard-password-show">
                     <input
                       id="dashboard-password-show"
@@ -534,7 +596,7 @@ export function AuthGate() {
                       checked={showPassword}
                       onChange={(event) => setShowPassword(event.target.checked)}
                     />
-                    Show passwords
+                    {setupNeedsRootKey ? SETUP_ROOT_KEY_COPY.show : 'Show passwords'}
                   </label>
                   {error ? <p id="dashboard-password-setup-error" role="alert" className="text-sm text-negative-400">{error}</p> : null}
                   <Button type="submit" disabled={submitting || !setupFormIsValid}>

@@ -5,6 +5,7 @@ import {
   mapWithConcurrency,
   retryAfterDelayMs,
   withRetry,
+  escapeRegExp,
 } from '@ainyc/canonry-contracts'
 import {
   GOOGLE_ADS_API_BASE,
@@ -82,10 +83,6 @@ interface CustomerDetailAttempt {
   customer?: GoogleAdsCustomer
   failure?: GoogleAdsCustomerDetailFailure
   metadata?: GoogleAdsRequestMetadata
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function sanitizeText(value: string, secrets: readonly string[]): string {

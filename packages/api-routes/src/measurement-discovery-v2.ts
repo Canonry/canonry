@@ -20,10 +20,11 @@ import {
   validationError,
   type MeasurementDiscoveryRule,
   type MeasurementDraftAuthoring,
-  type MeasurementDraftCounts,
   type MeasurementDraftTarget,
   type MeasurementDraftWarning,
   describeError,
+  compareText,
+  sortedUnique,
 } from '@ainyc/canonry-contracts'
 import {
   measurementDiscoveryConfigs,
@@ -38,6 +39,7 @@ import {
   MeasurementDiscoveryConfigurationError,
   type MeasurementDiscoveryCandidate,
 } from './measurement-discovery.js'
+import { draftCounts } from './measurement-draft-repo.js'
 import { MEASUREMENT_PLAN_WRITE_SCOPE } from './measurement-plan.js'
 import { fetchMeasurementSitemap, type MeasurementSitemapDocument } from './measurement-sitemap-fetch.js'
 
@@ -180,7 +182,7 @@ export function proposeMeasurementDiscoveryBindings(
       slug: candidate.slug,
       label: candidate.label,
       discoveredUrl: candidate.primaryUrl,
-      urlMatchers: [...new Set([candidate.primaryUrl, ...candidate.aliasCoverageUrls])].sort(compareText),
+      urlMatchers: sortedUnique([candidate.primaryUrl, ...candidate.aliasCoverageUrls]),
       kind: candidates.length === 1 ? 'rebind' : candidates.length === 0 ? 'new-target' : 'ambiguous',
       ...(candidates.length === 1 ? { rebindTargetKey: candidates[0]!.targetKey } : {}),
       candidates,
@@ -227,10 +229,6 @@ function hostOfUrl(value: string): string {
   return normalizeMeasurementHost(new URL(value).hostname)
 }
 
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
-}
-
 function canonicalJson(value: unknown): string {
   const canonical = (input: unknown): unknown => {
     if (Array.isArray(input)) return input.map(canonical)
@@ -268,20 +266,9 @@ export function measurementDiscoveryInputChecksum(input: {
     compilerVersion: MEASUREMENT_DISCOVERY_COMPILER_VERSION,
     sitemapUrl: input.sitemapUrl,
     rule: input.rule,
-    exclusions: [...new Set(input.exclusions.map(value => value.trim().toLowerCase()))].sort(compareText),
+    exclusions: sortedUnique(input.exclusions.map(value => value.trim().toLowerCase())),
     bytesChecksum: input.bytesChecksum,
   }))
-}
-
-function draftCounts(authoring: MeasurementDraftAuthoring): MeasurementDraftCounts {
-  return {
-    targets: authoring.targets.length,
-    includedTargets: authoring.targets.filter(target => target.status === 'included').length,
-    assignments: authoring.assignments.length,
-    unclassifiedAssignments: authoring.assignments.filter(assignment => assignment.queryClass === 'unclassified').length,
-    groups: authoring.groups.length,
-    competitors: authoring.groups.reduce((total, group) => total + group.competitors.length, 0),
-  }
 }
 
 interface LoadedDraft {
@@ -530,7 +517,7 @@ export async function measurementDiscoveryV2Routes(app: FastifyInstance) {
     if (!parsed.success) {
       throw validationError('Invalid sitemap import request', { issues: parsed.error.issues })
     }
-    const exclusions = [...new Set((parsed.data.exclusions ?? []).map(value => value.trim().toLowerCase()))].sort(compareText)
+    const exclusions = sortedUnique((parsed.data.exclusions ?? []).map(value => value.trim().toLowerCase()))
 
     const idempotencyKey = requireIdempotencyKey(request, 'import-sitemap')
     const requestChecksum = sha256(canonicalJson({ ...parsed.data, exclusions }))
@@ -709,7 +696,7 @@ export async function measurementDiscoveryV2Routes(app: FastifyInstance) {
       const rebound: MeasurementDraftTarget = {
         ...existing,
         ...relabelled,
-        urlMatchers: [...new Set([...existing.urlMatchers, ...proposal.urlMatchers])].sort(compareText),
+        urlMatchers: sortedUnique([...existing.urlMatchers, ...proposal.urlMatchers]),
         discoveredUrl: proposal.discoveredUrl,
         discoveryIdentity: proposal.discoveryIdentity,
       }

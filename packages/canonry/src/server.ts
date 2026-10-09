@@ -19,7 +19,7 @@ const { version: PKG_VERSION } = _require("../package.json") as {
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { SetHeadersResponse } from "@fastify/static";
-import { anyUsersExist, apiRoutes, createProjectPassQueue, previewCompetitorAutoAliases, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS } from "@ainyc/canonry-api-routes";
+import { anyUsersExist, apiRoutes, auditFromRequest, createProjectPassQueue, hashApiKey, hasProxyHeaders, previewCompetitorAutoAliases, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS, writeAuditLog } from "@ainyc/canonry-api-routes";
 import {
   apiKeys,
   dashboardSessions,
@@ -48,6 +48,7 @@ import { cdpChatgptAdapter } from "@ainyc/canonry-provider-cdp";
 import { perplexityAdapter } from "@ainyc/canonry-provider-perplexity";
 import { museAdapter } from "@ainyc/canonry-provider-muse";
 import {
+  AppError,
   authInvalid,
   authRequired,
   forbidden,
@@ -291,6 +292,17 @@ export function waitForServerRuntimeStartup(app: FastifyInstance): Promise<void>
   return startup ?? Promise.reject(new Error("Server runtime startup was not registered"));
 }
 
+const keylessFirstRunSetupByServer = new WeakMap<FastifyInstance, boolean>();
+
+/**
+ * Whether a direct local request may set the first dashboard password on this
+ * server without the root API key (see `/session/setup`). `canonry serve`
+ * reads it to tell the operator when setup will ask for the key.
+ */
+export function allowsKeylessFirstRunSetup(app: FastifyInstance): boolean {
+  return keylessFirstRunSetupByServer.get(app) ?? false;
+}
+
 const DEFAULT_QUOTA = {
   maxConcurrency: 2,
   maxRequestsPerMinute: 10,
@@ -428,16 +440,12 @@ function summarizeProviderConfig(config: ProviderConfigEntry | undefined) {
   };
 }
 
-function hashApiKey(key: string): string {
-  return crypto.createHash("sha256").update(key).digest("hex");
-}
-
 // Dashboard password storage uses scrypt (salted, slow KDF) — not plain
-// SHA-256. The bearer-token path above still hashes with SHA-256 because
-// those are 128-bit random `cnry_…` tokens (no brute-force exposure on a
-// 64-hex hash). Dashboard passwords are user-chosen and may be reused from
-// elsewhere, so a leaked `config.yaml` must not be trivially cracked
-// against a wordlist.
+// SHA-256. Bearer tokens still hash with SHA-256 (`hashApiKey` from
+// `@ainyc/canonry-api-routes`) because those are 128-bit random `cnry_…`
+// tokens (no brute-force exposure on a 64-hex hash). Dashboard passwords are
+// user-chosen and may be reused from elsewhere, so a leaked `config.yaml`
+// must not be trivially cracked against a wordlist.
 //
 // Stored format: `scrypt$1$<base64-salt>$<base64-hash>`. The version field
 // (`1`) lets future code rotate to a stronger KDF without breaking existing
@@ -508,28 +516,6 @@ function verifyDashboardPassword(
   }
 
   return { ok: false, needsRehash: false };
-}
-
-function parseCookies(header: string | undefined): Record<string, string> {
-  if (!header) return {};
-
-  return header
-    .split(";")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .reduce<Record<string, string>>((cookies, part) => {
-      const eqIdx = part.indexOf("=");
-      if (eqIdx <= 0) return cookies;
-      const name = part.slice(0, eqIdx).trim();
-      const value = part.slice(eqIdx + 1).trim();
-      if (!name) return cookies;
-      try {
-        cookies[name] = decodeURIComponent(value);
-      } catch {
-        cookies[name] = value;
-      }
-      return cookies;
-    }, {});
 }
 
 function serializeSessionCookie(opts: {
@@ -636,6 +622,78 @@ export function isLoopbackBindHost(host: string | undefined): boolean {
   if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(normalized)) return true;
   return false;
 }
+
+/**
+ * Whether a connection's peer address is loopback. Unlike a bind host, a
+ * missing address or a name is never loopback here: this reads what the
+ * kernel reported for an accepted socket.
+ */
+function isLoopbackPeerAddress(address: string | undefined): boolean {
+  if (!address) return false;
+  const normalized = address
+    .toLowerCase()
+    .replace(/^::ffff:(?=\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$)/, "");
+  return isIP(normalized) !== 0 && isLoopbackBindHost(normalized);
+}
+
+/**
+ * Whether a request looks like it came straight from a process on this
+ * machine: it speaks HTTP/1.1, the socket peer is loopback, no proxy header is
+ * present, and Host names this machine (`localhost` or a loopback literal).
+ * Reads the raw socket and raw headers, never `request.ip` or
+ * `request.hostname`, which a configured `trustProxy` rewrites from headers.
+ *
+ * nginx talks HTTP/1.0 to its upstream unless `proxy_http_version` says
+ * otherwise, and a bare `proxy_pass http://127.0.0.1:4100;` also sets Host to
+ * that upstream and adds no forwarding header. Browsers, curl, and Node's
+ * fetch speak HTTP/1.1 to a plain-HTTP server, so only HTTP/1.1 counts.
+ *
+ * The client chooses Host, so this proves nothing about a proxy or TCP
+ * forwarder on the same host that speaks HTTP/1.1 and adds no forwarding
+ * header: it hands a remote visitor's `Host: localhost` over loopback. Callers
+ * also require a loopback bind whose config names no other way in
+ * (`configuresExternalAccess`).
+ */
+function isDirectLocalRequest(request: FastifyRequest): boolean {
+  if (request.raw.httpVersion !== "1.1") return false;
+  if (!isLoopbackPeerAddress(request.raw.socket.remoteAddress)) return false;
+  if (hasProxyHeaders(request)) return false;
+  const host = request.headers.host;
+  if (!host) return false;
+  let hostname: string;
+  try {
+    hostname = new URL(`http://${host}`).hostname;
+  } catch {
+    return false;
+  }
+  return hostname !== "" && isLoopbackBindHost(hostname);
+}
+
+/**
+ * Whether config declares a way to reach this server other than a direct local
+ * connection: a trusted proxy (`CANONRY_TRUST_PROXY`), a base path (a prefix
+ * that a reverse proxy forwards), or an `apiUrl` or `publicUrl` whose hostname
+ * is not loopback. A URL that does not parse counts as external, so a typo
+ * cannot turn keyless setup back on.
+ */
+function configuresExternalAccess(
+  trustProxy: boolean | number | string[],
+  basePath: string | undefined,
+  ...configuredUrls: (string | undefined)[]
+): boolean {
+  if (trustProxy !== false || basePath !== undefined) return true;
+  return configuredUrls.some((configuredUrl) => {
+    const value = configuredUrl?.trim();
+    if (!value) return false;
+    try {
+      const { hostname } = new URL(value);
+      return hostname === "" || !isLoopbackBindHost(hostname);
+    } catch {
+      return true;
+    }
+  });
+}
+
 /**
  * Whether a request Host header value is expected for this server.
  * IP literals cannot be DNS-rebound. DNS names must be explicitly configured.
@@ -862,11 +920,13 @@ export async function createServer(opts: {
   logger?: boolean;
   /**
    * The network interface the server will bind to (from `canonry serve`).
-   * Used to gate the unauthenticated first-run dashboard password setup: on a
-   * loopback bind only local processes can reach `/session/setup`, so claiming
-   * the initial password without the API key is safe. On a non-loopback bind
-   * (`0.0.0.0`, a LAN IP) the setup endpoint additionally requires a valid
-   * bearer key so a remote first-visitor cannot mint a full-access session.
+   * Used to gate the first-run dashboard password setup: only on a loopback
+   * bind, and only while config names no other way in
+   * (`configuresExternalAccess`), can a direct local request (see
+   * `isDirectLocalRequest`) claim the initial password without the root API
+   * key. On a non-loopback bind (`0.0.0.0`, a LAN IP) every setup request must
+   * present the root key, so a remote first visitor cannot mint a standing
+   * full-access credential.
    * Defaults to loopback when unset (programmatic/test callers).
    */
   host?: string;
@@ -1032,7 +1092,16 @@ export async function createServer(opts: {
     onFirstActivation: () => maybeShowActivationNotice(),
   });
   jobRunner.recoverStaleRuns();
-  const notifier = new Notifier(opts.db, serverUrl);
+  // Local canonry serve runs on the operator's machine, where pointing a
+  // webhook at localhost (Discord test container, Pipedream-mock dev server,
+  // etc.) is a legitimate workflow. Default to allowing it for the local
+  // installer; cloud deployments (apps/api) never set `allowLoopbackWebhooks`
+  // and keep the secure default of `false`. Override with
+  // CANONRY_ALLOW_LOOPBACK_WEBHOOKS=0. Scheduled delivery (the Notifier) reads
+  // the same value as webhook create/test (api-routes), so a hook that was
+  // accepted is not refused later when an event fires.
+  const allowLoopbackWebhooks = process.env.CANONRY_ALLOW_LOOPBACK_WEBHOOKS !== "0";
+  const notifier = new Notifier(opts.db, serverUrl, { allowLoopbackWebhooks });
   const intelligenceService = new IntelligenceService(opts.db);
   // Build the Aero ApiClient from the in-memory server config rather than
   // loadConfig() so tests that set CANONRY_CONFIG_DIR after spawning the
@@ -2359,11 +2428,15 @@ export async function createServer(opts: {
     ),
   )).run();
 
-  const createSession = (key: Pick<typeof apiKeys.$inferSelect, "id" | "keyHash">, passwordBased = false) => {
+  const createSession = (
+    key: Pick<typeof apiKeys.$inferSelect, "id" | "keyHash">,
+    passwordBased = false,
+    db: Pick<DatabaseClient, "delete" | "insert"> = opts.db,
+  ) => {
     const now = new Date();
-    opts.db.delete(dashboardSessions).where(lte(dashboardSessions.expiresAt, now.toISOString())).run();
+    db.delete(dashboardSessions).where(lte(dashboardSessions.expiresAt, now.toISOString())).run();
     const sessionId = crypto.randomBytes(32).toString("hex");
-    opts.db.insert(dashboardSessions).values({
+    db.insert(dashboardSessions).values({
       tokenHash: hashSessionToken(sessionId),
       apiKeyId: key.id,
       apiKeyHash: key.keyHash,
@@ -2414,11 +2487,7 @@ export async function createServer(opts: {
       .get();
   };
 
-  const createPasswordSession = (reply: FastifyReply) => {
-    const key = getDefaultApiKey();
-    if (!key || key.revokedAt) return false;
-
-    const sessionId = createSession(key, true);
+  const setSessionCookie = (reply: FastifyReply, sessionId: string) => {
     reply.header(
       "set-cookie",
       serializeSessionCookie({
@@ -2429,30 +2498,46 @@ export async function createServer(opts: {
         ttlMs: SESSION_TTL_MS,
       }),
     );
+  };
+
+  const createPasswordSession = (reply: FastifyReply) => {
+    const key = getDefaultApiKey();
+    if (!key || key.revokedAt) return false;
+
+    setSessionCookie(reply, createSession(key, true));
     return true;
   };
 
-  // Whether the server is bound to a loopback interface. On loopback only
-  // local processes can connect, so the first-run password bootstrap is safe
-  // to leave unauthenticated. On a non-loopback bind the server is reachable
-  // off-box and the bootstrap must be gated (see `/session/setup`).
-  const boundToLoopback = isLoopbackBindHost(opts.host);
+  // Whether a direct local request (see `isDirectLocalRequest`) may set the
+  // first dashboard password without the root key. Only on a loopback bind,
+  // and only while config names no other way in: once an operator sets a
+  // non-loopback `apiUrl` / `publicUrl`, a base path, or trusts a proxy,
+  // remote visitors reach this server over loopback, and a client-chosen
+  // `Host: localhost` through a proxy that adds no forwarding header looks
+  // local.
+  const keylessLocalSetup = isLoopbackBindHost(opts.host)
+    && !configuresExternalAccess(trustProxy, basePath, opts.config.apiUrl, opts.config.publicUrl);
+  keylessFirstRunSetupByServer.set(app, keylessLocalSetup);
 
-  // Resolve a non-revoked API key from a `Bearer cnry_…` header, if present.
-  // Used to gate the first-run password setup on an exposed server — the
-  // `/session/setup` route is in the auth skip-list, so it must do its own
-  // bearer check rather than rely on `request.apiKey`.
-  const requestHasValidApiKey = (request: FastifyRequest): boolean => {
+  // The dashboard password is a standing credential for the install's DEFAULT
+  // key: every password sign-in binds to it (`createPasswordSession`), and it
+  // holds `*` on every project. Setting the password hands out that authority,
+  // so a caller must prove it already holds it by presenting that exact key.
+  // Any other key, however valid, is narrower or a different credential, and
+  // a password planted with it would outlive that key's revocation.
+  // `/session/setup` is in the auth skip-list, so this parses the bearer by
+  // authPlugin's rule and compares SHA-256 digests in constant time.
+  const requestPresentsKey = (
+    request: FastifyRequest,
+    key: Pick<typeof apiKeys.$inferSelect, "keyHash">,
+  ): boolean => {
     const header = request.headers.authorization;
     if (!header) return false;
     const parts = header.split(" ");
-    if (parts.length !== 2 || parts[0] !== "Bearer") return false;
-    const key = opts.db
-      .select()
-      .from(apiKeys)
-      .where(eq(apiKeys.keyHash, hashApiKey(parts[1]!)))
-      .get();
-    return Boolean(key && !key.revokedAt);
+    if (parts.length !== 2 || parts[0] !== "Bearer" || !parts[1]) return false;
+    const presented = Buffer.from(hashApiKey(parts[1]), "hex");
+    const expected = Buffer.from(key.keyHash, "hex");
+    return presented.length === expected.length && crypto.timingSafeEqual(presented, expected);
   };
 
   // Once this install has named accounts, the single shared dashboard password
@@ -2463,6 +2548,10 @@ export async function createServer(opts: {
   const namedAccountsInUse = () => anyUsersExist(opts.db);
   const NAMED_ACCOUNTS_MESSAGE =
     "This install uses named accounts. Sign in with your name and password.";
+  // Both password routes answer this when the key a password session binds to
+  // (`apiKey` in config.yaml) has no live row.
+  const serverApiKeyMissing = () =>
+    new AppError("AUTH_INVALID", "Server API key not found — run canonry bootstrap", 401);
 
   app.get(apiPrefix + "/session", async (request, reply) => {
     if (namedAccountsInUse()) {
@@ -2471,7 +2560,7 @@ export async function createServer(opts: {
     if (!dashboardRequirePassword) {
       return reply.send({ authenticated: true, setupRequired: false });
     }
-    const sessionId = parseCookies(request.headers.cookie)[SESSION_COOKIE_NAME];
+    const sessionId = parseCookieHeader(request.headers.cookie)[SESSION_COOKIE_NAME];
     return reply.send({
       authenticated: Boolean(sessionId && resolveSessionApiKeyId(sessionId)),
       setupRequired: !opts.config.dashboardPasswordHash,
@@ -2489,15 +2578,27 @@ export async function createServer(opts: {
     if (!dashboardRequirePassword) {
       return reply.send({ authenticated: true, setupRequired: false });
     }
-    // First-run dashboard password setup mints a session bound to the install's
-    // default `*` API key — full read/write on every project. That is safe on a
-    // loopback bind (only local processes can reach it) but a pre-auth privilege
-    // escalation on a network-reachable server, where any unauthenticated
-    // first-visitor could claim it. When bound off-box, require the bearer key.
-    if (!boundToLoopback && !requestHasValidApiKey(request)) {
-      const err = authRequired(
-        "This server is network-reachable; setting the dashboard password requires a valid API key.",
-      );
+    // The first dashboard password is a standing credential for the default
+    // `*` key (see `requestPresentsKey`). Only a request made directly on this
+    // machine may set it without that key; anything that reached the server
+    // over the network or through a proxy must present the root key itself.
+    const found = getDefaultApiKey();
+    const defaultKey = found && !found.revokedAt ? found : undefined;
+    // Whether the caller holds `apiKey` from config.yaml, live row or not.
+    const presentsConfiguredKey = opts.config.apiKey
+      ? requestPresentsKey(request, { keyHash: hashApiKey(opts.config.apiKey) })
+      : false;
+    const presentedRootKey = defaultKey !== undefined && presentsConfiguredKey;
+    if (!presentedRootKey && !(keylessLocalSetup && isDirectLocalRequest(request))) {
+      // With no live root key, no key can pass. Only the caller who holds the
+      // configured key (often revoked but still in config.yaml) is told to
+      // rerun bootstrap; telling anyone else would reveal the key's state
+      // before authentication.
+      const err = presentsConfiguredKey
+        ? serverApiKeyMissing()
+        : authRequired(
+          "Setting the dashboard password requires the root API key (apiKey in config.yaml), unless the request comes directly from this machine to a loopback-bound server that has no external URL, base path, or trusted proxy configured.",
+        );
       return reply.status(err.statusCode).send(err.toJSON());
     }
 
@@ -2512,13 +2613,42 @@ export async function createServer(opts: {
       return reply.status(err.statusCode).send(err.toJSON());
     }
 
-    opts.config.dashboardPasswordHash = hashDashboardPassword(password);
-    saveConfigPatch(opts.config);
-
-    if (!createPasswordSession(reply)) {
-      const err = authInvalid();
+    // Refuse before writing anything: a password saved ahead of this check
+    // would stay on disk behind the failed response.
+    if (!defaultKey) {
+      const err = serverApiKeyMissing();
       return reply.status(err.statusCode).send(err.toJSON());
     }
+
+    // The session binds a digest of the configured password hash, so set it
+    // first, and take it back if any write below fails.
+    opts.config.dashboardPasswordHash = hashDashboardPassword(password);
+    let sessionId: string;
+    try {
+      sessionId = opts.db.transaction((tx) => {
+        // Audit which key the password now signs in to and how the caller was
+        // allowed to set it. Never the password, in any form.
+        writeAuditLog(tx, auditFromRequest(request, {
+          actor: `api-key:${defaultKey.id}`,
+          credentialId: presentedRootKey ? defaultKey.id : null,
+          requestId: request.id,
+          action: "dashboard-password.created",
+          entityType: "dashboard-password",
+          diff: { authorizedBy: presentedRootKey ? "root-api-key" : "local-request" },
+        }));
+        const created = createSession(defaultKey, true, tx);
+        // config.yaml goes last, inside the transaction: a failed write rolls
+        // back the audit row and the session, while `saveConfigPatch` can never
+        // take a saved password back off disk if a later step failed.
+        saveConfigPatch(opts.config);
+        return created;
+      });
+    } catch (err) {
+      opts.config.dashboardPasswordHash = undefined;
+      throw err;
+    }
+
+    setSessionCookie(reply, sessionId);
     return reply.send({ authenticated: true });
   });
 
@@ -2568,12 +2698,8 @@ export async function createServer(opts: {
         opts.config.dashboardPasswordHash = migratedHash;
       }
       if (!createPasswordSession(reply)) {
-        return reply.status(401).send({
-          error: {
-            code: "AUTH_INVALID",
-            message: "Server API key not found — run canonry bootstrap",
-          },
-        });
+        const err = serverApiKeyMissing();
+        return reply.status(err.statusCode).send(err.toJSON());
       }
       return reply.send({ authenticated: true });
     }
@@ -2596,17 +2722,7 @@ export async function createServer(opts: {
         .where(eq(apiKeys.id, key.id))
         .run();
 
-      const sessionId = createSession(key);
-      reply.header(
-        "set-cookie",
-        serializeSessionCookie({
-          name: SESSION_COOKIE_NAME,
-          value: sessionId,
-          path: sessionCookiePath,
-          secure: sessionCookieSecure,
-          ttlMs: SESSION_TTL_MS,
-        }),
-      );
+      setSessionCookie(reply, createSession(key));
       return reply.send({ authenticated: true });
     }
 
@@ -2615,7 +2731,7 @@ export async function createServer(opts: {
   });
 
   app.delete(apiPrefix + "/session", async (request, reply) => {
-    const sessionId = parseCookies(request.headers.cookie)[SESSION_COOKIE_NAME];
+    const sessionId = parseCookieHeader(request.headers.cookie)[SESSION_COOKIE_NAME];
     clearSession(sessionId);
     reply.header(
       "set-cookie",
@@ -2909,12 +3025,7 @@ export async function createServer(opts: {
     getAgentPluginState: opts.getAgentPluginState,
     // Powers the `canonry.version.current` doctor check. Non-blocking.
     getUpdateStatus: () => getServerUpdateStatus(),
-    // Local canonry serve runs on the operator's machine, where pointing a
-    // webhook at localhost (Discord test container, Pipedream-mock dev server,
-    // etc.) is a legitimate workflow. Default to allowing it for the local
-    // installer; cloud deployments inherit the secure default of `false` by
-    // not passing this option. Override with CANONRY_ALLOW_LOOPBACK_WEBHOOKS=0.
-    allowLoopbackWebhooks: process.env.CANONRY_ALLOW_LOOPBACK_WEBHOOKS !== "0",
+    allowLoopbackWebhooks,
     // Wall-clock budget for one incremental Vercel drain. This is the only lever
     // that decides whether a source catches up or falls further behind, and it
     // was previously reachable only from tests, so a source losing ground could

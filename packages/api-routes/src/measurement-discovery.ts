@@ -3,7 +3,7 @@
  * accepts only literal path templates: caller input is never compiled as regex.
  */
 
-import { measurementStableKeySchema, normalizeMeasurementHost } from '@ainyc/canonry-contracts'
+import { measurementStableKeySchema, normalizeMeasurementHost, compareText, sortedUnique } from '@ainyc/canonry-contracts'
 
 export type MeasurementDiscoveryClassification = 'proposed' | 'alias' | 'shared' | 'unmatched' | 'excluded'
 
@@ -129,14 +129,6 @@ interface PrimaryMatch {
 interface AliasMatch {
   slug: string
   url: string
-}
-
-function compareText(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0
-}
-
-function sortedUnique(values: readonly string[]): string[] {
-  return [...new Set(values)].sort(compareText)
 }
 
 function normalizeDeclaredHost(value: string, label: string): string {

@@ -11,6 +11,22 @@ export interface WordpressConnectionRecord {
   updatedAt: string
 }
 
+/**
+ * The fetch every request the client makes goes through, the site's REST API,
+ * its rendered pages and its llms.txt alike. Defaults to global `fetch`. A host
+ * that must not let a site steer it to internal addresses passes one that
+ * checks every address it dials and every redirect hop.
+ */
+export type WordpressFetch = (url: string, init: RequestInit) => Promise<Response>
+
+/**
+ * A stored connection plus how to reach it. `fetchImpl` is a runtime value:
+ * hand the client this shape, and the store only the record without it.
+ */
+export interface WordpressClientConnection extends WordpressConnectionRecord {
+  fetchImpl?: WordpressFetch
+}
+
 export interface WordpressSiteContext {
   env: WordpressEnv
   siteUrl: string

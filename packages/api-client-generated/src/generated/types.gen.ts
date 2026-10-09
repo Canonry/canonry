@@ -986,7 +986,7 @@ export type SentimentComparison = {
             nextCursor: string | null;
         };
     };
-    verdict: 'improved' | 'declined' | 'no-clear-change';
+    verdict: 'improved' | 'declined' | 'no-clear-change' | null;
     favorableRateDelta: number | null;
     refusalReasons: Array<string>;
     commonUnits: number;
@@ -1587,7 +1587,7 @@ export type QueryTrackingWorkspaceResponse = {
             targetKey: string;
             groupKeys: Array<string>;
             marketKeys: Array<string>;
-            queryClass: 'branded' | 'non-brand';
+            queryClass: 'branded' | 'non-brand' | null;
             classificationSource: 'frozen' | 'server' | 'operator';
             contexts: Array<{
                 providers: Array<string>;
@@ -1706,7 +1706,7 @@ export type QueryTrackingPreviewResponse = {
             targetKey: string;
             groupKeys: Array<string>;
             marketKeys: Array<string>;
-            queryClass: 'branded' | 'non-brand';
+            queryClass: 'branded' | 'non-brand' | null;
             classificationSource: 'frozen' | 'server' | 'operator';
             contexts: Array<{
                 providers: Array<string>;
@@ -1942,9 +1942,9 @@ export type AgentProvidersResponseDto = {
         label: string;
         defaultModel: string;
         configured: boolean;
-        keySource: 'config' | 'env';
+        keySource: 'config' | 'env' | null;
     }>;
-    defaultProvider: 'claude' | 'openai' | 'gemini' | 'zai';
+    defaultProvider: 'claude' | 'openai' | 'gemini' | 'zai' | null;
 };
 
 export type AdsAccountDto = {
@@ -3442,7 +3442,7 @@ export type CcAvailableRelease = {
 
 export type CcCachedRelease = {
     release: string;
-    syncStatus: 'queued' | 'downloading' | 'querying' | 'ready' | 'failed';
+    syncStatus: 'queued' | 'downloading' | 'querying' | 'ready' | 'failed' | null;
     bytes: number;
     lastUsedAt: string | null;
 };
@@ -3639,9 +3639,9 @@ export type CompetitorDto = {
 };
 
 export type CompetitorLandscapeResponse = {
-    basis?: 'tracked' | 'observed';
+    basis?: 'tracked' | 'observed' | null;
     availability?: 'measured' | 'not-measured' | 'unavailable';
-    reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable';
+    reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable' | null;
     comparison?: Array<{
         domain: string;
         mentions: number;
@@ -3730,9 +3730,9 @@ export type CompetitorLandscapeResponse = {
     modelComparison?: {
         basis: 'requested-model';
         groups: Array<{
-            basis?: 'tracked' | 'observed';
+            basis?: 'tracked' | 'observed' | null;
             availability?: 'measured' | 'not-measured' | 'unavailable';
-            reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable';
+            reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable' | null;
             comparison?: Array<{
                 domain: string;
                 mentions: number;
@@ -4275,7 +4275,7 @@ export type DiscoverySessionDetailDto = {
         sessionId: string;
         projectId: string;
         query: string;
-        bucket: 'cited' | 'aspirational' | 'wasted-surface';
+        bucket: 'cited' | 'aspirational' | 'wasted-surface' | null;
         citationState: 'cited' | 'not-cited';
         citedDomains: Array<string>;
         answerMentioned: boolean | null;
@@ -4398,7 +4398,7 @@ export type ResearchBatchDto = {
             kind: 'api-key' | 'user';
             id: string;
             name: string;
-            role: 'admin' | 'viewer';
+            role: 'admin' | 'viewer' | null;
             limited?: boolean;
         } | null;
         startedAt: string | null;
@@ -4408,7 +4408,7 @@ export type ResearchBatchDto = {
             id: string;
             position: number;
             query: string;
-            queryClass?: 'branded' | 'non-brand';
+            queryClass?: 'branded' | 'non-brand' | null;
             status: 'queued' | 'running' | 'completed' | 'failed';
             requestedModel: string | null;
             resolvedModel: string;
@@ -4423,7 +4423,7 @@ export type ResearchBatchDto = {
             namedCompetitors: Array<string>;
             citedCompetitorDomains: Array<string>;
             answerMentioned: boolean | null;
-            citationState: 'cited' | 'not-cited';
+            citationState: 'cited' | 'not-cited' | null;
             error: string | null;
             startedAt: string | null;
             finishedAt: string | null;
@@ -4499,7 +4499,7 @@ export type ResearchRunDetailDto = {
         kind: 'api-key' | 'user';
         id: string;
         name: string;
-        role: 'admin' | 'viewer';
+        role: 'admin' | 'viewer' | null;
         limited?: boolean;
     } | null;
     startedAt: string | null;
@@ -4509,7 +4509,7 @@ export type ResearchRunDetailDto = {
         id: string;
         position: number;
         query: string;
-        queryClass?: 'branded' | 'non-brand';
+        queryClass?: 'branded' | 'non-brand' | null;
         status: 'queued' | 'running' | 'completed' | 'failed';
         requestedModel: string | null;
         resolvedModel: string;
@@ -4524,7 +4524,7 @@ export type ResearchRunDetailDto = {
         namedCompetitors: Array<string>;
         citedCompetitorDomains: Array<string>;
         answerMentioned: boolean | null;
-        citationState: 'cited' | 'not-cited';
+        citationState: 'cited' | 'not-cited' | null;
         error: string | null;
         startedAt: string | null;
         finishedAt: string | null;
@@ -4570,7 +4570,7 @@ export type ResearchRunListDto = {
             kind: 'api-key' | 'user';
             id: string;
             name: string;
-            role: 'admin' | 'viewer';
+            role: 'admin' | 'viewer' | null;
             limited?: boolean;
         } | null;
         startedAt: string | null;
@@ -4738,7 +4738,7 @@ export type Ga4MeasurementAnalysisDto = {
         status: 'never-synced' | 'ready' | 'error';
         error: string | null;
         syncedAt: string | null;
-        attributionScope: 'landing-page' | 'channel';
+        attributionScope: 'landing-page' | 'channel' | null;
         hostAndPathFiltersApplied: boolean;
         periods: Array<{
             label: 'earliest' | 'middle' | 'previous' | 'latest';
@@ -4757,7 +4757,7 @@ export type Ga4MeasurementAnalysisDto = {
         }>;
         aiEngines: {
             leadRateAvailable: boolean;
-            leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days';
+            leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days' | null;
             organic: {
                 periods: Array<{
                     label: 'earliest' | 'middle' | 'previous' | 'latest';
@@ -4918,7 +4918,7 @@ export type Ga4StatusDto = {
     connected: boolean;
     propertyId: string | null;
     clientEmail: string | null;
-    authMethod: 'service-account' | 'oauth';
+    authMethod: 'service-account' | 'oauth' | null;
     lastSyncedAt: string | null;
     createdAt?: string | null;
     updatedAt?: string | null;
@@ -5334,12 +5334,12 @@ export type GbpReviewListResponse = {
     locations: Array<{
         locationName: string;
         displayName: string;
-        reviewsAccess: 'ok' | 'unavailable' | 'error';
+        reviewsAccess: 'ok' | 'unavailable' | 'error' | null;
         reviewsAccessReason: string | null;
         reviewsCheckedAt: string | null;
         rating: number | null;
         reviewCount: number | null;
-        ratingOrigin: 'gbp' | 'places';
+        ratingOrigin: 'gbp' | 'places' | null;
         ratingObservedAt: string | null;
     }>;
     reviews: Array<{
@@ -5637,7 +5637,7 @@ export type GoogleAdsPerformanceDto = {
             conversionRate: number | null;
         };
     } | null;
-    comparisonUnavailableReason: 'insufficient-history' | 'no-snapshot';
+    comparisonUnavailableReason: 'insufficient-history' | 'no-snapshot' | null;
     source: {
         snapshotId: string;
         capturedAt: string;
@@ -7030,6 +7030,11 @@ export type KeywordDto = {
     id: string;
     keyword: string;
     createdAt: string;
+};
+
+export type KeywordGenerateResponse = {
+    keywords: Array<string>;
+    provider: string;
 };
 
 export type LatestProjectRunDto = {
@@ -11055,7 +11060,7 @@ export type OrganicEvidenceDto = {
             status: 'never-synced' | 'ready' | 'error';
             error: string | null;
             syncedAt: string | null;
-            attributionScope: 'landing-page' | 'channel';
+            attributionScope: 'landing-page' | 'channel' | null;
             hostAndPathFiltersApplied: boolean;
             periods: Array<{
                 label: 'earliest' | 'middle' | 'previous' | 'latest';
@@ -11074,7 +11079,7 @@ export type OrganicEvidenceDto = {
             }>;
             aiEngines: {
                 leadRateAvailable: boolean;
-                leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days';
+                leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days' | null;
                 organic: {
                     periods: Array<{
                         label: 'earliest' | 'middle' | 'previous' | 'latest';
@@ -11332,6 +11337,10 @@ export type ProjectDto = {
     updatedAt?: string;
 };
 
+export type ProjectDefaultLocationResponse = {
+    defaultLocation: string;
+};
+
 export type ProjectUpsertRequest = {
     displayName: string;
     canonicalDomain: string;
@@ -11379,6 +11388,88 @@ export type ProjectConfig = {
     kind: 'Project';
     metadata: {
         name: string;
+        labels?: {
+            [key: string]: string;
+        };
+    };
+    spec: {
+        displayName: string;
+        canonicalDomain: string;
+        ownedDomains?: Array<string>;
+        aliases?: Array<string>;
+        qualifiedAliases?: Array<string>;
+        country: string;
+        language: string;
+        queries?: Array<string>;
+        keywords?: Array<string>;
+        competitors?: Array<string | {
+            domain: string;
+            /**
+             * Operator-curated names this competitor goes by in answer text (at most 10, each 80 characters or fewer, at least 3 letters or digits).
+             */
+            aliases?: Array<string>;
+        }>;
+        providers?: Array<string>;
+        providerModels?: {
+            [key: string]: string;
+        };
+        providerDispatchModes?: {
+            [key: string]: 'sync' | 'batch';
+        };
+        locations?: Array<{
+            label: string;
+            city: string;
+            region: string;
+            country: string;
+            timezone?: string;
+        }>;
+        defaultLocation?: string;
+        measurement?: {
+            marketingHosts: Array<string>;
+            brandTerms: Array<string>;
+            leadEventNames: Array<string>;
+        };
+        schedule?: {
+            preset?: string;
+            cron?: string;
+            recurrence?: {
+                everyDays: number;
+                startDate: string;
+                time: string;
+            };
+            timezone?: string;
+            providers?: Array<string>;
+            enabled?: boolean;
+        };
+        notifications?: Array<{
+            channel: 'webhook';
+            url: string;
+            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'review.negative' | 'review.rating-dropped'>;
+        }>;
+        google?: {
+            gsc?: {
+                propertyUrl: string;
+            };
+            syncSchedule?: {
+                preset?: string;
+                cron?: string;
+            };
+        };
+        autoExtractBacklinks?: boolean;
+        negativeReviewMaxStars?: number;
+        siteAuditMaxPages?: number | null;
+        /**
+         * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
+         */
+        competitorAutoAliases?: 'off' | 'preview' | 'apply';
+    };
+};
+
+export type ProjectConfigExport = {
+    apiVersion: 'canonry/v1';
+    kind: 'Project';
+    metadata: {
+        name: string;
         labels: {
             [key: string]: string;
         };
@@ -11391,7 +11482,7 @@ export type ProjectConfig = {
         qualifiedAliases?: Array<string>;
         country: string;
         language: string;
-        queries?: Array<string>;
+        queries: Array<string>;
         keywords?: Array<string>;
         competitors: Array<string | {
             domain: string;
@@ -11401,7 +11492,7 @@ export type ProjectConfig = {
             aliases?: Array<string>;
         }>;
         providers: Array<string>;
-        providerModels: {
+        providerModels?: {
             [key: string]: string;
         };
         providerDispatchModes?: {
@@ -11430,7 +11521,7 @@ export type ProjectConfig = {
             };
             timezone: string;
             providers: Array<string>;
-            enabled?: boolean;
+            enabled: boolean;
         };
         notifications: Array<{
             channel: 'webhook';
@@ -11446,7 +11537,7 @@ export type ProjectConfig = {
                 cron?: string;
             };
         };
-        autoExtractBacklinks: boolean;
+        autoExtractBacklinks?: boolean;
         negativeReviewMaxStars?: number;
         siteAuditMaxPages?: number | null;
         /**
@@ -12370,6 +12461,11 @@ export type QueryDto = {
     id: string;
     query: string;
     createdAt: string;
+};
+
+export type QueryGenerateResponse = {
+    queries: Array<string>;
+    provider: string;
 };
 
 export type ReferralAssessment = {
@@ -13955,14 +14051,14 @@ export type SnapshotDiffResponse = {
     diff: Array<{
         queryId: string | null;
         query: string | null;
-        run1State: 'cited' | 'not-cited';
-        run2State: 'cited' | 'not-cited';
+        run1State: 'cited' | 'not-cited' | null;
+        run2State: 'cited' | 'not-cited' | null;
         run1AnswerMentioned: boolean | null;
         run2AnswerMentioned: boolean | null;
-        run1VisibilityState: 'visible' | 'not-visible';
-        run2VisibilityState: 'visible' | 'not-visible';
-        run1MentionState?: 'mentioned' | 'not-mentioned';
-        run2MentionState?: 'mentioned' | 'not-mentioned';
+        run1VisibilityState: 'visible' | 'not-visible' | null;
+        run2VisibilityState: 'visible' | 'not-visible' | null;
+        run1MentionState?: 'mentioned' | 'not-mentioned' | null;
+        run2MentionState?: 'mentioned' | 'not-mentioned' | null;
         changed: boolean;
         visibilityChanged: boolean;
     }>;
@@ -14891,9 +14987,9 @@ export type VisibilityStatsDto = {
         }>;
     }>;
     shareOfVoice?: {
-        basis?: 'tracked' | 'observed';
+        basis?: 'tracked' | 'observed' | null;
         availability?: 'measured' | 'not-measured' | 'unavailable';
-        reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable';
+        reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable' | null;
         measurementScope?: 'project' | 'all-markets';
         queryClass: 'branded' | 'non-brand' | 'pooled';
         percent: number | null;
@@ -15052,13 +15148,16 @@ export type WordpressPageDetailDto = {
     }>;
 };
 
-export type WordpressPageSummaryDto = {
-    id: number;
-    slug: string;
-    title: string;
-    status: string;
-    modifiedAt?: string | null;
-    link?: string | null;
+export type WordpressPageListDto = {
+    env: 'live' | 'staging';
+    pages: Array<{
+        id: number;
+        slug: string;
+        title: string;
+        status: string;
+        modifiedAt?: string | null;
+        link?: string | null;
+    }>;
 };
 
 export type WordpressSchemaBlockDto = {
@@ -19477,7 +19576,7 @@ export type PutApiV1ProjectsByNameLocationsDefaultResponses = {
     /**
      * Default location updated.
      */
-    200: ProjectDto;
+    200: ProjectDefaultLocationResponse;
 };
 
 export type PutApiV1ProjectsByNameLocationsDefaultResponse = PutApiV1ProjectsByNameLocationsDefaultResponses[keyof PutApiV1ProjectsByNameLocationsDefaultResponses];
@@ -19507,7 +19606,7 @@ export type GetApiV1ProjectsByNameExportResponses = {
     /**
      * Project configuration returned.
      */
-    200: ProjectConfig;
+    200: ProjectConfigExport;
 };
 
 export type GetApiV1ProjectsByNameExportResponse = GetApiV1ProjectsByNameExportResponses[keyof GetApiV1ProjectsByNameExportResponses];
@@ -19758,9 +19857,7 @@ export type PostApiV1ProjectsByNameQueriesGenerateResponses = {
     /**
      * Query suggestions returned.
      */
-    200: {
-        suggestions?: Array<string>;
-    };
+    200: QueryGenerateResponse;
 };
 
 export type PostApiV1ProjectsByNameQueriesGenerateResponse = PostApiV1ProjectsByNameQueriesGenerateResponses[keyof PostApiV1ProjectsByNameQueriesGenerateResponses];
@@ -19892,9 +19989,7 @@ export type PostApiV1ProjectsByNameKeywordsGenerateResponses = {
     /**
      * Legacy keyword suggestions returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: KeywordGenerateResponse;
 };
 
 export type PostApiV1ProjectsByNameKeywordsGenerateResponse = PostApiV1ProjectsByNameKeywordsGenerateResponses[keyof PostApiV1ProjectsByNameKeywordsGenerateResponses];
@@ -26989,7 +27084,7 @@ export type GetApiV1ProjectsByNameWordpressPagesResponses = {
     /**
      * WordPress pages returned.
      */
-    200: Array<WordpressPageSummaryDto>;
+    200: WordpressPageListDto;
 };
 
 export type GetApiV1ProjectsByNameWordpressPagesResponse = GetApiV1ProjectsByNameWordpressPagesResponses[keyof GetApiV1ProjectsByNameWordpressPagesResponses];

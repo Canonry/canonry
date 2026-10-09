@@ -1,4 +1,4 @@
-import { withRetry, isRetryableHttpError, retryAfterDelayMs } from '@ainyc/canonry-contracts'
+import { withRetry, isRetryableHttpError, retryAfterDelayMs, escapeRegExp } from '@ainyc/canonry-contracts'
 import crypto from 'node:crypto'
 import { BING_WMT_API_BASE, BING_SUBMIT_URL_BATCH_LIMIT, BING_SUBMIT_URL_DAILY_LIMIT, BING_REQUEST_TIMEOUT_MS, BING_MAX_RETRIES, BING_RETRY_BASE_DELAY_MS, BING_RETRY_MAX_DELAY_MS, BING_THROTTLE_COOLDOWN_MS } from './constants.js'
 import type {
@@ -67,10 +67,6 @@ function bingClientLog(level: 'info' | 'warn' | 'error', action: string, ctx?: R
 
   const stream = level === 'error' ? process.stderr : process.stdout
   stream.write(JSON.stringify(entry) + '\n')
-}
-
-function escapeRegExp(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 /**

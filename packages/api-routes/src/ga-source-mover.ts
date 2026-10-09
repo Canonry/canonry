@@ -1,4 +1,4 @@
-import { GaMoverChangeBases, MIN_PCT_BASE, deltaPercent } from '@ainyc/canonry-contracts'
+import { GaMoverChangeBases, MIN_PCT_BASE, compareText, deltaPercent } from '@ainyc/canonry-contracts'
 import type { GaMoverChangeBasis, GaSourceMover } from '@ainyc/canonry-contracts'
 
 /**
@@ -65,7 +65,7 @@ export function findBiggestMover(
   for (const row of prior) entry(row.source).prior += row.sessions ?? 0
 
   let mover: GaSourceMover | null = null
-  const sources = [...bySource.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+  const sources = [...bySource.keys()].sort(compareText)
   for (const source of sources) {
     const sessions = bySource.get(source)!
     const size = Math.abs(sessions.current - sessions.prior)

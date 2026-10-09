@@ -14,6 +14,7 @@ import {
 import {
   brandKeyFromText,
   brandLabelFromDomain,
+  compareText as compareStoredIds,
   competitorIdentityAliases,
   competitorLandscapeQuerySchema,
   COMPETITOR_LANDSCAPE_COUNT_UNITS,
@@ -803,10 +804,6 @@ function snapshotMatchesFilters(input: {
 
 function requestedModel(model: string | null): string | null {
   return model?.trim() || null
-}
-
-function compareStoredIds(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }
 
 function normalizedDomain(value: string): string | null {

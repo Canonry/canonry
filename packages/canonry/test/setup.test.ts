@@ -1,3 +1,4 @@
+import dns from 'node:dns/promises'
 import { describe, it, expect } from 'vitest'
 
 /**
@@ -26,6 +27,13 @@ describe('test setup hardening', () => {
     await expect(globalThis.fetch(new URL('https://api.openai.com/v1/responses'))).rejects.toThrow(
       /Blocked external network request/,
     )
+  })
+
+  // The egress-guarded fetch resolves names with these queries and dials the
+  // answer through its own undici agent, which the fetch guard above never sees.
+  it('blocks DNS queries for external hostnames', async () => {
+    await expect(dns.resolve4('example.com')).rejects.toThrow(/Blocked external DNS lookup \(resolve4\) of example\.com/)
+    await expect(dns.resolve6('wp.example.test')).rejects.toThrow(/Blocked external DNS lookup \(resolve6\) of wp\.example\.test/)
   })
 
   it('allows fetch to localhost and 127.0.0.1 (real Fastify integration tests still work)', async () => {

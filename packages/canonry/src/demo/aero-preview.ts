@@ -11,6 +11,7 @@
 import { and, asc, desc, eq } from 'drizzle-orm'
 import {
   aeroPreviewResponseSchema,
+  compareText,
   formatPercent,
   parseStoredMeasurementPlanAnyVersion,
   wilsonInterval,
@@ -118,7 +119,7 @@ function engineOrder(left: string, right: string): number {
     const index = ENGINE_ORDER.indexOf(provider)
     return index === -1 ? ENGINE_ORDER.length : index
   }
-  return rank(left) - rank(right) || (left < right ? -1 : left > right ? 1 : 0)
+  return rank(left) - rank(right) || compareText(left, right)
 }
 
 function tally(answers: readonly Answer[]): Tally {

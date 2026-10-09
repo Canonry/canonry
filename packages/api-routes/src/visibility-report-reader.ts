@@ -25,6 +25,9 @@ import {
   type VisibilityReportScopeErrorDetails,
   type VisibilityReportScopeKind,
   type VisibilityReportScopeOption,
+  compareText,
+  normalizeIdentityText as normalizeText,
+  sortedUnique,
 } from '@ainyc/canonry-contracts'
 
 export interface VisibilityReportTargetInput {
@@ -216,15 +219,6 @@ interface CursorEnvelope {
 
 const ALL_CLASSES: readonly VisibilityReportPopulationClass[] = ['branded', 'non-brand', 'unknown']
 
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
-}
-
-/** Selection text identity (provider, location, model): compatibility-normalized, trimmed, space-collapsed, case-folded. */
-export function normalizeText(value: string): string {
-  return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en')
-}
-
 function locationMatches(location: string | null, selected: VisibilityReportLocationSelection): boolean {
   if (selected.kind === 'all') return true
   if (selected.kind === 'none') return location === null
@@ -307,9 +301,9 @@ function scopeTargetKeys(
   selection: VisibilityReportReaderSelection,
 ): string[] {
   const resolution = scopeResolution(definition, selection)
-  if (resolution.market !== undefined) return [...new Set(definition.edges
+  if (resolution.market !== undefined) return sortedUnique(definition.edges
     .filter(edge => resolution.edgeIds.has(edge.id))
-    .map(edge => edge.targetKey))].sort(compareText)
+    .map(edge => edge.targetKey))
   if (selection.scope === 'project') return definition.targets.map(target => target.id).sort(compareText)
   if (selection.scope === 'property') return [resolution.option.id]
   if (selection.scope === 'group') {
@@ -317,9 +311,9 @@ function scopeTargetKeys(
     if (!group) throw new VisibilityReportScopeError(`Group "${resolution.option.id}" is not in this frozen definition.`, { reason: VisibilityReportScopeErrorReasons['retired-scope'], kind: 'group', key: resolution.option.id })
     return [...group.targetKeys].sort(compareText)
   }
-  return [...new Set(definition.edges
+  return sortedUnique(definition.edges
     .filter(edge => resolution.edgeIds.has(edge.id))
-    .map(edge => edge.targetKey))].sort(compareText)
+    .map(edge => edge.targetKey))
 }
 
 function observationIndex(run: VisibilityReportRunInput): Map<string, VisibilityReportObservationInput> {
@@ -496,7 +490,7 @@ function candidateKey(candidate: Candidate): string {
 }
 
 function selectedTargetKeys(candidates: readonly Candidate[]): string[] {
-  return [...new Set(candidates.flatMap(candidate => candidate.edges.map(edge => edge.targetKey)))].sort(compareText)
+  return sortedUnique(candidates.flatMap(candidate => candidate.edges.map(edge => edge.targetKey)))
 }
 
 function targetMetrics(
@@ -615,7 +609,7 @@ function queryRows(candidates: readonly Candidate[], definition: VisibilityRepor
     const first = rows[0]!
     const value = coverageSummary(rows, definition, targets)
     return {
-      sourceSnapshotIds: [...new Set(rows.flatMap(row => row.observation ? [row.observation.answerId] : []))].sort(compareText),
+      sourceSnapshotIds: sortedUnique(rows.flatMap(row => row.observation ? [row.observation.answerId] : [])),
       queryKey: first.slot.queryKey,
       queryId: first.slot.queryId,
       query: first.slot.query,
@@ -624,7 +618,7 @@ function queryRows(candidates: readonly Candidate[], definition: VisibilityRepor
       location: first.slot.location,
       targetKeys: selectedTargetKeys(rows),
       ...(() => {
-        const marketKeys = [...new Set(rows.flatMap(row => row.edges.flatMap(edge => edge.marketKeys)))].sort(compareText)
+        const marketKeys = sortedUnique(rows.flatMap(row => row.edges.flatMap(edge => edge.marketKeys)))
         return marketKeys.length === 0 ? {} : { marketKeys }
       })(),
       answerCount: value.answerCount,
@@ -680,7 +674,7 @@ function evidenceRows(candidates: readonly Candidate[], definition: VisibilityRe
 }
 
 function competitorRows(candidates: readonly Candidate[]) {
-  const domains = [...new Set(candidates.flatMap(candidate => candidate.edges.flatMap(edge => edge.competitorDomains)))].sort(compareText)
+  const domains = sortedUnique(candidates.flatMap(candidate => candidate.edges.flatMap(edge => edge.competitorDomains)))
   return domains.map(domain => {
     // A competitor is eligible only on the frozen edges that explicitly
     // carried its identity. A union of domains across a scope must not make a
@@ -862,7 +856,7 @@ function filterOptions(definition: VisibilityReportDefinitionInput, selection: V
   const resolution = scopeResolution(definition, selection)
   const slots = definition.slots.filter(slot => definition.edges.some(edge => edge.executionId === slot.executionId && resolution.edgeIds.has(edge.id)))
   const observations = run ? observationIndex(run) : new Map<string, VisibilityReportObservationInput>()
-  const providers = [...new Set(slots.map(slot => slot.provider))].sort(compareText)
+  const providers = sortedUnique(slots.map(slot => slot.provider))
   const models = [...new Map(slots.flatMap(slot => {
     const observation = observations.get(slot.id)
     return observation?.model === null || observation === undefined
