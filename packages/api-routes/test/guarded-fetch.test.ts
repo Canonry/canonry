@@ -84,7 +84,7 @@ describe('createGuardedFetch', () => {
     site = await startRecordingSite((_request, response) => response.writeHead(200).end('internal'))
 
     await expect(createGuardedFetch()(`http://127.0.0.1:${site.port}/`))
-      .rejects.toThrow(new EgressRefusedError(`Refused to connect to 127.0.0.1:${site.port}: must not resolve to a private or loopback address`))
+      .rejects.toThrow(new EgressRefusedError(`Refused to connect to 127.0.0.1:${site.port}: must not resolve to a private or loopback address`, false))
     expect(site.requests).toEqual([])
   })
 
@@ -108,6 +108,8 @@ describe('createGuardedFetch', () => {
 
     await expect(refused).rejects.toBeInstanceOf(EgressRefusedError)
     await expect(refused).rejects.toThrow(reason)
+    // The site chose this target, so a caller reports it as the site's failure.
+    await expect(refused).rejects.toMatchObject({ redirected: true })
     expect(site.requests.map(({ path }) => path)).toEqual(['/start'])
   })
 
@@ -127,6 +129,7 @@ describe('createGuardedFetch', () => {
 
     await expect(refused).rejects.toThrow(new EgressRefusedError(
       `Refused to connect to 127.0.0.1:${otherSite.port}: a redirect from a site that is not on loopback must not lead to loopback`,
+      true,
     ))
     expect(site.requests.map(({ path }) => path)).toEqual(['/wp-json/wp/v2/pages/7'])
     expect(otherSite.requests).toEqual([])
@@ -152,7 +155,7 @@ describe('createGuardedFetch', () => {
 
     expect((await guardedFetch(`http://${PUBLIC_SITE}:${site.port}/a`)).status).toBe(200)
     await expect(guardedFetch(`http://${PUBLIC_SITE}:${site.port}/b`))
-      .rejects.toThrow(new EgressRefusedError(`Refused to connect to ${PUBLIC_SITE}:${site.port}: must not resolve to a private or loopback address`))
+      .rejects.toThrow(new EgressRefusedError(`Refused to connect to ${PUBLIC_SITE}:${site.port}: must not resolve to a private or loopback address`, false))
     expect(site.requests.map(({ path }) => path)).toEqual(['/a'])
   })
 

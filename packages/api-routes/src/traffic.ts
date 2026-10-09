@@ -124,7 +124,7 @@ import {
   authRequired,
 } from '@ainyc/canonry-contracts'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
-import { createGuardedFetch } from './guarded-fetch.js'
+import { createGuardedFetch, EgressRefusedError } from './guarded-fetch.js'
 import { resolveWebhookTarget } from './webhooks.js'
 import {
   DIRECT_PUSH_RECEIPT_TTL_MS,
@@ -1815,6 +1815,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           `WordPress traffic probe failed (HTTP ${e.status}): ${e.message}${e.body ? ` — ${e.body}` : ''}`,
         )
       }
+      // The name answered differently for the probe than for the check above.
+      if (e instanceof EgressRefusedError && !e.redirected) throw validationError(`WordPress baseUrl rejected: ${e.message}`)
       const msg = describeError(e)
       throw providerError(`WordPress traffic probe failed: ${msg}`)
     }
@@ -3234,6 +3236,9 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       } catch (e) {
         const msg = describeError(e)
         markFailed(msg, 'PROVIDER_PULL')
+        // The stored URL now resolves to a refused address: the same 400 the
+        // check above gives. A refused redirect is the site's failure.
+        if (e instanceof EgressRefusedError && !e.redirected) throw validationError(`WordPress baseUrl rejected: ${msg}`)
         throw providerError(`WordPress pull failed: ${msg}`)
       }
     } else {

@@ -49,9 +49,17 @@ export interface GuardedFetchOptions {
 
 /** The request, or one of its redirect hops, was not sent: its target failed the egress policy. */
 export class EgressRefusedError extends Error {
-  constructor(message: string) {
+  /**
+   * True when the refused target is a redirect the site chose rather than the
+   * URL the caller asked for. Refusing the caller's URL is a verdict on the
+   * caller's input; refusing a redirect is the site's failure.
+   */
+  readonly redirected: boolean
+
+  constructor(message: string, redirected: boolean) {
     super(message)
     this.name = 'EgressRefusedError'
+    this.redirected = redirected
   }
 }
 
@@ -97,12 +105,12 @@ export function createGuardedFetch(options: GuardedFetchOptions = {}): GuardedFe
       if (!check.ok) {
         const parsed = URL.canParse(href) ? new URL(href) : null
         if (check.unresolved) throw new EgressFailedError(`Could not resolve ${parsed?.hostname || href}`)
-        throw new EgressRefusedError(`Refused to connect to ${parsed?.host || href}: ${check.message.replace(/^"url" /, '')}`)
+        throw new EgressRefusedError(`Refused to connect to ${parsed?.host || href}: ${check.message.replace(/^"url" /, '')}`, redirects > 0)
       }
       const url = check.target.url
       const onLoopback = checkedAddresses(check.target).map(({ address }) => isLoopbackAddress(address))
       if (!mayRedirectToLoopback && onLoopback.includes(true)) {
-        throw new EgressRefusedError(`Refused to connect to ${url.host}: a redirect from a site that is not on loopback must not lead to loopback`)
+        throw new EgressRefusedError(`Refused to connect to ${url.host}: a redirect from a site that is not on loopback must not lead to loopback`, true)
       }
       mayRedirectToLoopback = !onLoopback.includes(false)
       const response = await requestPinned(check.target, { method, headers, body, signal })

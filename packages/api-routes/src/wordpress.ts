@@ -92,12 +92,13 @@ async function withWordpressErrorHandling<T>(handler: () => Promise<T>): Promise
     return await handler()
   } catch (error) {
     if (error instanceof WordpressApiError) throw toAppError(error)
-    // The stored site URL now resolves to a refused address, or the site
-    // redirected there: the same refusal connect gives for such a URL.
-    if (error instanceof EgressRefusedError) throw validationError(error.message)
-    // The site's name stopped resolving, or it redirected too often: the site
-    // or the network failed, so the caller may retry, as for any upstream error.
-    if (error instanceof EgressFailedError) throw providerError(error.message)
+    // The stored site URL now resolves to a refused address: the same refusal
+    // connect gives for such a URL.
+    if (error instanceof EgressRefusedError && !error.redirected) throw validationError(error.message)
+    // The site redirected to a refused address, its name stopped resolving, or
+    // it redirected too often: the site or the network failed, not the
+    // caller's input, as the traffic routes report it too.
+    if (error instanceof EgressRefusedError || error instanceof EgressFailedError) throw providerError(error.message)
     throw error
   }
 }

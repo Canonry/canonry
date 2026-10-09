@@ -129,10 +129,12 @@ describe('WordPress publishing routes', () => {
 
     const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-project/wordpress/pages' })
 
-    expect(res.statusCode).toBe(400)
+    // The stored URL is fine; the site chose the refused address. That is an
+    // upstream failure, as on the traffic routes, not bad input.
+    expect(res.statusCode).toBe(502)
     expect(res.json()).toEqual({
       error: {
-        code: 'VALIDATION_ERROR',
+        code: 'PROVIDER_ERROR',
         message: `Refused to connect to 0.0.0.0:${site.port}: must not resolve to a private or loopback address`,
       },
     })
@@ -249,6 +251,59 @@ describe('WordPress traffic pulls', () => {
     expect(res.statusCode).toBe(502)
     expect(res.json().error.message)
       .toBe(`WordPress traffic probe failed: Refused to connect to 0.0.0.0:${site.port}: must not resolve to a private or loopback address`)
+    expect(servedPaths()).toEqual(['/wp-json/canonry/v1/events'])
+  })
+
+  it('refuses a site whose name turns private after the connect check with the same 400 as that check', async () => {
+    const { app, siteUrl } = await buildApp()
+    respond = (_request, response) => json(response, emptyPage)
+    // The first lookup is the route's own check; every later one, the probe's.
+    let lookups = 0
+    vi.mocked(dns.resolve4).mockImplementation(async () => (lookups++ === 0 ? ['127.0.0.1'] : ['10.0.0.5']))
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/wordpress',
+      payload: connectBody(siteUrl),
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toEqual({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: `WordPress baseUrl rejected: Refused to connect to ${SITE_HOST}:${site.port}: must not resolve to a private or loopback address`,
+      },
+    })
+    expect(servedPaths()).toEqual([])
+  })
+
+  it('refuses a sync whose site name turns private after the sync check with the same 400 as that check', async () => {
+    const { app, siteUrl } = await buildApp()
+    respond = (_request, response) => json(response, emptyPage)
+    const connect = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/wordpress',
+      payload: connectBody(siteUrl),
+    })
+    expect(connect.statusCode).toBe(200)
+    // The first lookup is the sync's own check; every later one, the pull's.
+    let lookups = 0
+    vi.mocked(dns.resolve4).mockImplementation(async () => (lookups++ === 0 ? ['127.0.0.1'] : ['10.0.0.5']))
+
+    const sync = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/test-project/traffic/sources/${connect.json().id as string}/sync`,
+      payload: {},
+    })
+
+    expect(sync.statusCode).toBe(400)
+    expect(sync.json()).toEqual({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: `WordPress baseUrl rejected: Refused to connect to ${SITE_HOST}:${site.port}: must not resolve to a private or loopback address`,
+      },
+    })
+    // Only the connect probe reached the site.
     expect(servedPaths()).toEqual(['/wp-json/canonry/v1/events'])
   })
 
