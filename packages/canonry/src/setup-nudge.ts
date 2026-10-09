@@ -80,6 +80,12 @@ export function buildSetupNudgeLine(input: {
   const setupState = input.getSetupState()
   if (!setupState) return null
   if (setupState.provider_count > 0) return null
+  // A CLI pointed at a remote server reads an empty local config and
+  // database: zero local projects while its commands succeed against the
+  // server's. Its providers live on that server, so a local count of zero
+  // says nothing about them. Telemetry shows such installs reading sweeps
+  // and running `technical-aeo score` for months with provider_count 0.
+  if (setupState.project_count === 0) return null
   if (machineFormat) {
     return `${JSON.stringify({
       notice: {

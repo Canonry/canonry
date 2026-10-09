@@ -146,6 +146,14 @@ describe('the Page Health handoff to AI Visibility', () => {
     expect(buildSetupNudgeLine({ ...handoff, stderrIsTTY: false, getSetupState: configured })).toBeNull()
   })
 
+  it('stays quiet for a CLI pointed at a remote server, whose providers it cannot see', () => {
+    // No local projects while a project command succeeded: the server is elsewhere.
+    const remote = () => ({ ...unconfigured, project_count: 0 })
+    expect(buildSetupNudgeLine({ ...handoff, getSetupState: remote })).toBeNull()
+    expect(buildSetupNudgeLine({ ...handoff, format: 'json', stderrIsTTY: false, getSetupState: remote })).toBeNull()
+    expect(buildSetupNudgeLine({ ...base, getSetupState: remote })).toBeNull()
+  })
+
   it('stays quiet pre-init in every mode', () => {
     expect(buildSetupNudgeLine({ ...handoff, format: 'json', getSetupState: () => undefined })).toBeNull()
   })

@@ -225,7 +225,8 @@ describe('CLI command lifecycle telemetry', () => {
   it('hands a provider-less Page Health result to AI Visibility on stderr, even for JSON and with telemetry off', async () => {
     mocks.isTelemetryEnabled.mockReturnValue(false)
     mocks.dispatch.mockResolvedValueOnce(true)
-    mocks.buildSetupState.mockReturnValue(beforeState)
+    // A local install: its own database has the project, and no provider.
+    mocks.buildSetupState.mockReturnValue({ ...beforeState, project_count: 1 })
     const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
     const stdout = vi.spyOn(process.stdout, 'write')
 
