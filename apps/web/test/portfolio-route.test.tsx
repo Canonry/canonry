@@ -23,6 +23,7 @@ import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.j
 import { AINYC_LATEST_RUN, ainycCitationVisibility, ainycComparison, ainycEvidence, ainycLandscape, ainycMentionShare, ainycMetrics, ainycProviderScores, ainycRuns } from './ainyc-visibility-fixture.js'
 import { toRunListItem } from '../src/build-dashboard.js'
 import { mapInsightDtosToVms } from '../src/mappers/insight-mapper.js'
+import { AdvancedMeasurementSection } from '../src/components/project/advanced-measurement/AdvancedMeasurementSection.js'
 import {
   getApiV1CdpStatusQueryKey,
   getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey,
@@ -42,6 +43,13 @@ import {
 } from '@ainyc/canonry-api-client/react-query'
 
 type EmbedBlock = Pick<EmbedClientConfig, 'enabled' | 'views' | 'projectTabs'>
+
+// Pass-through spy: the setup's Publish step sits behind a multi-step draft
+// flow, so the route test reads the props ProjectPage hands the section.
+vi.mock('../src/components/project/advanced-measurement/AdvancedMeasurementSection.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../src/components/project/advanced-measurement/AdvancedMeasurementSection.js')>()
+  return { ...actual, AdvancedMeasurementSection: vi.fn(actual.AdvancedMeasurementSection) }
+})
 
 /** The Simple overview opens on the trend chart: no Visibility card or table above it. */
 function expectTrendChartFirst(html: string) {
@@ -1369,6 +1377,80 @@ test('the Queries route reads the workspace and keeps scoped removal active afte
   expect(page.getByRole('heading', { name: 'Remove query' })).toBeTruthy()
   expect(page.queryByRole('heading', { name: 'Edit query' })).toBeNull()
   expect(page.getByText('Only assignments in North · Group will be removed. Earlier results stay unchanged.')).toBeTruthy()
+})
+
+// The fixture's Citypoint project has a queued AI sweep; dropping it leaves only the completed one.
+function dashboardFixture(sweepActive: boolean) {
+  const fixture = createDashboardFixture({})
+  const project = fixture.dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+  if (!sweepActive) project.recentRuns = project.recentRuns.filter(run => run.status !== 'queued' && run.status !== 'running')
+  expect(project.recentRuns.some(run => run.kind === 'answer-visibility' && run.status === 'queued')).toBe(sweepActive)
+  return fixture
+}
+
+test.each([true, false])('the Queries route pauses Confirm while a sweep is queued (queued: %s)', async sweepActive => {
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const raw = input instanceof Request ? input.url : String(input)
+    const url = new URL(raw, window.location.origin)
+    if (url.pathname.endsWith('/runs')) return jsonResponse([])
+    if (url.pathname.endsWith('/measurement-plan')) return jsonResponse({ active: null })
+    if (url.pathname.endsWith('/measurement-setup')) return jsonResponse({ state: 'unconfigured', nextAction: 'configure', mode: 'none', activeRevision: null, activeSchemaVersion: null, draft: null })
+    if (url.pathname.endsWith('/query-tracking')) return jsonResponse(queryTrackingWorkspaceResponse())
+    if (url.pathname.endsWith('/query-tracking/preview')) {
+      const { workspaceVersion, active } = queryTrackingWorkspaceResponse()
+      return jsonResponse({
+        mode: 'advanced', workspaceVersion, previewToken: `qtp_${'c'.repeat(64)}`, reviewedAt: '2026-09-04T12:15:00.000Z', active, tracked: [],
+        diff: { added: [], removed: [{ queryId: 'query-citypoint', queryText: 'Citypoint dentist', assignmentCount: 1 }], reused: [], unchanged: [], noOp: false },
+        workload: { existingNodes: 1, existingProviderCalls: 1, nextSweepNodes: 0, nextSweepProviderCalls: 0, addedNodes: 0, addedProviderCalls: 0, removedNodes: 1, removedProviderCalls: 1 },
+      })
+    }
+    if (url.pathname.endsWith('/measurement-query-templates')) return jsonResponse({ templates: [] })
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const fixture = dashboardFixture(sweepActive)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/queries'] })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  fireEvent.click(await page.findByRole('button', { name: 'Remove Citypoint dentist' }))
+  fireEvent.click(page.getByRole('button', { name: 'Review changes' }))
+  const confirm = await page.findByRole('button', { name: 'Confirm changes' }) as HTMLButtonElement
+  expect(confirm.disabled).toBe(sweepActive)
+  const message = page.queryByText('A sweep is queued or running. Publish after it finishes.')
+  expect(message?.getAttribute('role') ?? null).toBe(sweepActive ? 'status' : null)
+})
+
+test.each([true, false])('the Portfolio route passes a queued sweep to setup Publish (queued: %s)', async sweepActive => {
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async () => jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+  const section = vi.mocked(AdvancedMeasurementSection)
+  section.mockClear()
+
+  const fixture = dashboardFixture(sweepActive)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/portfolio'] })
+  await router.load()
+  render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  await waitFor(() => expect(section).toHaveBeenCalled())
+  expect(section.mock.lastCall![0].sweepActive).toBe(sweepActive)
 })
 
 test('the legacy Discovery route opens the separate research workspace without tracking reads', async () => {

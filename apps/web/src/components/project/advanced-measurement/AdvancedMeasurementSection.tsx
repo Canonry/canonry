@@ -59,6 +59,8 @@ export interface AdvancedMeasurementSectionProps {
   onRetryQueries?: () => void
   publishedPlan?: MeasurementPlanResponse['active']
   canEdit?: boolean
+  /** A queued or running sweep is pinned to the current plan, so Publish waits for it. */
+  sweepActive?: boolean
   /** Adds tracked queries to the project from inside setup. */
   /** Returns the project's queries AFTER the write, so a pairing can resolve text -> id. */
   onCreateQueries?: (texts: readonly string[]) => Promise<readonly { id: string; query: string }[]>
@@ -796,6 +798,7 @@ export function AdvancedMeasurementSection({
   onRetryQueries,
   publishedPlan,
   canEdit = true,
+  sweepActive = false,
   onCreateQueries,
   onManageProjectQueries,
   onPublished,
@@ -1700,7 +1703,8 @@ export function AdvancedMeasurementSection({
             canReviewChanges: assignmentCount > 0 && !busyAction,
             onReviewChanges: reviewSetupChanges,
             onBack: () => setStep('queries'),
-            canPublish: reviewed !== null && !busyAction,
+            canPublish: reviewed !== null && !busyAction && !sweepActive,
+            sweepActive,
             isPublishing: busyAction === 'publish',
             onPublish: publishSetup,
           }}

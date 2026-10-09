@@ -74,6 +74,13 @@ export interface QueriesSectionProps {
   onSelectionChange?: (patch: Record<string, unknown>) => void
   trackingQueryId?: string
   onTrackingQueryIdChange?: (queryId: string | undefined) => void
+  /** Read-only state that pauses Confirm; the server does not refuse these commits yet. */
+  publishGuard?: TrackingPublishGuard
+}
+
+export type TrackingPublishGuard = {
+  /** A queued run is pinned to the current tracking, so a publish now would not be measured by it. */
+  sweepActive: boolean
 }
 
 export function QueriesSection({
@@ -86,6 +93,7 @@ export function QueriesSection({
   onSelectionChange,
   trackingQueryId,
   onTrackingQueryIdChange,
+  publishGuard,
 }: QueriesSectionProps) {
   const { account } = useAccount()
   const [uncontrolledWorkspace, setUncontrolledWorkspace] = useState<QueryWorkspace>('tracked')
@@ -137,6 +145,7 @@ export function QueriesSection({
             onTrackingQueryIdChange={onTrackingQueryIdChange}
             pendingTrackingSource={pendingTrackingSource}
             onPendingTrackingSourceHandled={() => setPendingTrackingSource(null)}
+            publishGuard={publishGuard}
           />
         ) : (
           <QueryResearchWorkspace
@@ -291,6 +300,7 @@ function TrackedQueriesWorkspace({
   isCommitting,
   onPreview,
   onCommit,
+  publishGuard,
 }: {
   workspace: QueryTrackingWorkspaceResponse
   selection: NonNullable<QueriesSectionProps['selection']>
@@ -305,6 +315,7 @@ function TrackedQueriesWorkspace({
   isCommitting: boolean
   onPreview: (mutation: QueryTrackingMutation) => void
   onCommit: (request: QueryTrackingCommitRequest) => void
+  publishGuard?: TrackingPublishGuard
 }) {
   const [action, setAction] = useState<TrackingAction | null>(null)
   const [draft, setDraft] = useState<TrackingDraft>(() => defaultTrackingDraft(selection))
@@ -497,6 +508,7 @@ function TrackedQueriesWorkspace({
           preview={preview}
           workspace={workspace}
           isCommitting={isCommitting}
+          sweepActive={publishGuard?.sweepActive ?? false}
           onConfirm={() => {
             onCommit({
               ...reviewedMutation,
@@ -1255,11 +1267,13 @@ function TrackingPreview({
   preview,
   workspace,
   isCommitting,
+  sweepActive,
   onConfirm,
 }: {
   preview: QueryTrackingPreviewResponse
   workspace: QueryTrackingWorkspaceResponse
   isCommitting: boolean
+  sweepActive: boolean
   onConfirm: () => void
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
@@ -1270,6 +1284,13 @@ function TrackingPreview({
     heading.focus({ preventScroll: true })
   }, [preview])
   const hasChanges = !preview.diff.noOp
+  // An advanced commit writes a new revision with no continuity link, so
+  // location and competitor reads blank while AI Visibility falls back.
+  const subcopy = !hasChanges
+    ? 'This request leaves tracking unchanged.'
+    : preview.mode === 'advanced'
+      ? 'After you publish, AI Visibility keeps showing the last sweep until the next sweep. Location pages and competitor results show no numbers until then. Past answers are kept.'
+      : 'Changes apply to future sweeps. Earlier results stay unchanged.'
   const changed = [
     { label: 'Added', rows: preview.diff.added },
     { label: 'Removed', rows: preview.diff.removed },
@@ -1280,7 +1301,8 @@ function TrackingPreview({
       <div className="section-head section-head-inline gap-4">
         <div>
           <h3 ref={headingRef} tabIndex={-1}>{hasChanges ? 'Confirm tracked query changes' : 'No tracking changes'}</h3>
-          <p className="mt-1 text-sm leading-6 text-secondary">{hasChanges ? 'Changes apply to future sweeps. Earlier results stay unchanged.' : 'This request leaves tracking unchanged.'}</p>
+          <p className="mt-1 text-sm font-medium text-strong">{previewWorkloadLine(preview)}</p>
+          <p className="mt-1 text-sm leading-6 text-secondary">{subcopy}</p>
         </div>
         <ToneBadge tone={hasChanges ? 'caution' : 'neutral'}>{hasChanges ? 'Ready to confirm' : 'No-op'}</ToneBadge>
       </div>
@@ -1291,19 +1313,31 @@ function TrackingPreview({
         <summary className="min-h-11 cursor-pointer py-3">{preview.diff.unchanged.length} unchanged {preview.diff.unchanged.length === 1 ? 'query' : 'queries'}</summary>
         <PreviewChangeList label="Unchanged" rows={preview.diff.unchanged} workspace={workspace} tracked={preview.tracked} />
       </details> : null}
-      <details className="mt-4 border-t border-default text-sm text-secondary">
-        <summary className="min-h-11 cursor-pointer py-3">Next sweep workload</summary>
-        <p className="leading-6">
-          Next sweep: {preview.workload.nextSweepProviderCalls} provider requests (+{preview.workload.addedProviderCalls}, −{preview.workload.removedProviderCalls}).
-        </p>
-      </details>
       <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-default pt-4">
-        <WriteButton type="button" size="sm" disabled={!hasChanges || isCommitting} onClick={onConfirm}>
+        <WriteButton type="button" size="sm" disabled={!hasChanges || isCommitting || sweepActive} onClick={onConfirm}>
           {isCommitting ? 'Confirming…' : 'Confirm changes'}
         </WriteButton>
+        {hasChanges && sweepActive ? <p role="status" className="text-sm leading-5 text-caution">A sweep is queued or running. Publish after it finishes.</p> : null}
       </div>
     </Card>
   )
+}
+
+/** One provider call is one answer; added and removed answers stay separate. */
+function previewWorkloadLine(preview: QueryTrackingPreviewResponse): string {
+  const { added } = preview.diff
+  // A scoped removal lists a query that stays tracked elsewhere; only rows gone
+  // from the post-change `tracked` leave tracking. Answers still count the rest.
+  const stillTracked = new Set(preview.tracked.map(row => row.queryId))
+  const removed = preview.diff.removed.filter(row => !stillTracked.has(row.queryId))
+  const { addedProviderCalls, removedProviderCalls, nextSweepProviderCalls } = preview.workload
+  const count = (value: number) => value.toLocaleString('en-US')
+  return [
+    added.length > 0 ? `+${count(added.length)} ${added.length === 1 ? 'query' : 'queries'}` : null,
+    removed.length > 0 ? `−${count(removed.length)} ${removed.length === 1 ? 'query' : 'queries'}` : null,
+    `+${count(addedProviderCalls)} / −${count(removedProviderCalls)} answers per sweep`,
+    `next sweep asks ${count(nextSweepProviderCalls)}`,
+  ].filter((part): part is string => part !== null).join(' · ')
 }
 
 function PreviewChangeList({
@@ -1374,7 +1408,8 @@ function TrackedQueriesSection({
   onTrackingQueryIdChange,
   pendingTrackingSource,
   onPendingTrackingSourceHandled,
-}: Pick<QueriesSectionProps, 'projectName' | 'selection' | 'onSelectionChange' | 'trackingQueryId' | 'onTrackingQueryIdChange'> & {
+  publishGuard,
+}: Pick<QueriesSectionProps, 'projectName' | 'selection' | 'onSelectionChange' | 'trackingQueryId' | 'onTrackingQueryIdChange' | 'publishGuard'> & {
   pendingTrackingSource: PendingTrackingSource | null
   onPendingTrackingSourceHandled: () => void
 }) {
@@ -1411,7 +1446,7 @@ function TrackedQueriesSection({
       await invalidateQueryTrackingPublication(queryClient, projectName)
       addToast({
         title: result.committed ? 'Tracked queries updated' : 'No tracked-query change',
-        detail: result.active ? `Measurement revision ${result.active.revision}.` : 'No measurement revision is published yet.',
+        detail: result.committed && result.mode === 'advanced' ? 'New numbers after the next sweep.' : undefined,
         tone: result.committed ? 'positive' : 'neutral',
         dedupeKey: `query-tracking:commit:${projectName}`,
         dedupeMode: 'replace',
@@ -1452,6 +1487,7 @@ function TrackedQueriesSection({
       onTrackingQueryIdChange={onTrackingQueryIdChange}
       pendingTrackingSource={pendingTrackingSource}
       onPendingTrackingSourceHandled={onPendingTrackingSourceHandled}
+      publishGuard={publishGuard}
       templates={templatesQuery.data?.templates ?? []}
       preview={preview}
       isPreviewing={previewMutation.isPending}
