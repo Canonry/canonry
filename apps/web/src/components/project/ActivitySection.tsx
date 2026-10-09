@@ -39,6 +39,7 @@ import {
   formatDate,
   formatPercent,
   gaSearchLandingHasSearchData,
+  gaSearchLandingPageLabel,
   type GaSearchLandingPageRow,
   type GaSearchLandingPagesResponse,
   type GaSearchLandingWindow,
@@ -1385,7 +1386,7 @@ export function GoogleOrganicSearchPagesPanel({ projectName }: { projectName: st
 
   const table = useClientTable({
     rows: sortedRows,
-    getSearchText: (row) => urlSearchText(row.landingPage),
+    getSearchText: (row) => urlSearchText(gaSearchLandingPageLabel(row.landingPage)),
     pageSize: SEARCH_LANDING_PAGE_SIZE,
   })
 
@@ -1535,7 +1536,7 @@ export function GoogleOrganicSearchPagesPanel({ projectName }: { projectName: st
                       </tr>
                       {table.rows.map((row) => (
                         <tr key={row.landingPage} className="border-t border-subtle">
-                          <td className="py-1.5 text-neutral max-w-[400px] truncate" title={row.landingPage}>{row.landingPage}</td>
+                          <td className="py-1.5 text-neutral max-w-[400px] truncate" title={gaSearchLandingPageLabel(row.landingPage)}>{gaSearchLandingPageLabel(row.landingPage)}</td>
                           <td className="py-1.5 text-right text-strong tabular-nums">{row.organicGoogleSearchClicks.toLocaleString()}</td>
                           <td className="py-1.5 text-right text-secondary tabular-nums">{row.organicGoogleSearchImpressions.toLocaleString()}</td>
                           <td className="py-1.5 text-right text-secondary tabular-nums">{formatSearchLandingCtr(row.organicGoogleSearchClickThroughRate)}</td>

@@ -294,6 +294,14 @@ export const GA_SEARCH_LANDING_WINDOW_DAYS: Readonly<Record<GaSearchLandingWindo
 }
 export const GA_SEARCH_LANDING_DEFAULT_WINDOW: GaSearchLandingWindow = '28d'
 export const GA_SEARCH_LANDING_DEFAULT_LIMIT = 50
+
+/** How surfaces show the empty landing page GA4 can report beside `(not set)`; stored rows keep GA4's raw ''. */
+export const GA_SEARCH_LANDING_EMPTY_PAGE_LABEL = '(empty)'
+
+/** The display text for a stored `landingPagePlusQueryString`: GA4's value, or the empty-page label for ''. */
+export function gaSearchLandingPageLabel(landingPage: string): string {
+  return landingPage === '' ? GA_SEARCH_LANDING_EMPTY_PAGE_LABEL : landingPage
+}
 export const GA_SEARCH_LANDING_MAX_LIMIT = 1000
 
 /**

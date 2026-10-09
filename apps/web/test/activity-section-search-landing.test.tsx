@@ -129,6 +129,24 @@ test('prints GA4\'s Total first and the API rows as served, never a sum of them'
   expect(screen.queryByText(SEARCH_LANDING_COPY.noSearchTraffic)).toBeNull()
 })
 
+test('shows GA4\'s empty landing page as (empty), apart from (not set)', async () => {
+  serve(() => jsonResponse(readyWindow({
+    totalRows: 2,
+    rows: [
+      { landingPage: '(not set)', organicGoogleSearchClicks: 0, organicGoogleSearchImpressions: 0, organicGoogleSearchClickThroughRate: null, organicGoogleSearchAveragePosition: null, activeUsers: 5 },
+      { landingPage: '', organicGoogleSearchClicks: 0, organicGoogleSearchImpressions: 0, organicGoogleSearchClickThroughRate: null, organicGoogleSearchAveragePosition: null, activeUsers: 2 },
+    ],
+  })))
+
+  renderPanel()
+
+  await screen.findByRole('table', { name: SEARCH_LANDING_COPY.heading })
+  expect(bodyRows().slice(1)).toEqual([
+    ['(not set)', '0', '0', 'n/a', 'n/a', '5'],
+    ['(empty)', '0', '0', 'n/a', 'n/a', '2'],
+  ])
+})
+
 test('keeps the Total fixed while the filter narrows the rows', async () => {
   serve(() => jsonResponse(readyWindow()))
   renderPanel()

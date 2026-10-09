@@ -1469,7 +1469,10 @@ async function fetchSearchLandingWindow(
   const seen = new Set<string>()
   const rows: GA4SearchLandingPageRow[] = []
   for (const row of rawRows) {
-    const landingPage = row.dimensionValues[0]?.value || NOT_SET_LANDING_PAGE
+    // `??`, not `||`: GA4 can return an empty landing page next to a real
+    // `(not set)` row. Folding '' into `(not set)` made the two collide and
+    // the dedup below dropped one of them. Only a missing value is `(not set)`.
+    const landingPage = row.dimensionValues[0]?.value ?? NOT_SET_LANDING_PAGE
     // GA4 data can move between two page requests; keep one row per page so a
     // shifted row is not stored twice.
     if (seen.has(landingPage)) continue
