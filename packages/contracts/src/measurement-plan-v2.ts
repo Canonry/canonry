@@ -752,8 +752,13 @@ export type MeasurementOverviewResponse = z.output<typeof measurementOverviewRes
  * `answers` is one row per answer the Property was measured on, with the cited
  * URLs nested inside it, so the answers that explain a gap are present rather
  * than missing.
+ *
+ * `other-queries` is one row per answer to a query NOT assigned to the Property
+ * that still cited one of its own pages. The Property was never measured on
+ * those queries, so these rows sit outside every rate; they are listed so a
+ * citation the engine gave is not invisible just because no assignment asked.
  */
-export const measurementEvidenceShapeSchema = z.enum(['sources', 'answers'])
+export const measurementEvidenceShapeSchema = z.enum(['sources', 'answers', 'other-queries'])
 export type MeasurementEvidenceShape = z.output<typeof measurementEvidenceShapeSchema>
 export const MeasurementEvidenceShapes = measurementEvidenceShapeSchema.enum
 export const MEASUREMENT_EVIDENCE_DEFAULT_SHAPE: MeasurementEvidenceShape = MeasurementEvidenceShapes.sources

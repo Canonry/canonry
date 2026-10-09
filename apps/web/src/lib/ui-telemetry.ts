@@ -303,6 +303,8 @@ const ACTION_BY_ROUTE: ReadonlyArray<ActionRow> = [
   ['POST', '/api/v1/projects/{name}/notifications', 'notification.save'],
   ['POST', '/api/v1/projects/{name}/notifications/{id}/test', 'notification.test'],
   ['POST', '/api/v1/projects/{name}/measurement-plan/draft/actions/publish', 'measurement_plan.publish'],
+  // Only the Property page's name editor writes this action from the dashboard.
+  ['POST', '/api/v1/projects/{name}/measurement-plan/draft/actions/upsert-target', 'property_names.save'],
   ['POST', '/api/v1/projects/{name}/discover/run', 'discovery.run'],
   ['POST', '/api/v1/keys', 'api_key.create'],
   ['POST', '/api/v1/keys/{id}/revoke', 'api_key.revoke'],

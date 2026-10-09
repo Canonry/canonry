@@ -10,6 +10,13 @@ import { ToneBadge } from '../../shared/ToneBadge.js'
 import { Button } from '../../ui/button.js'
 
 /**
+ * What the two signals mean in a Property row. Cited here credits only the
+ * property's own pages; the older site-wide "domain in the sources" reading
+ * would contradict the counts beside it.
+ */
+export const ADVANCED_PROPERTIES_SIGNAL_HELP = 'Mentioned = the property\u2019s name in the answer. Cited = one of the property\u2019s own pages in the sources. Neither implies the other.'
+
+/**
  * `all` is what the API has always accepted and the dashboard never offered, so
  * the only way to see both lanes at once was to read one and add the other.
  */
@@ -840,7 +847,7 @@ export function AdvancedMeasurementOverview({
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 id="advanced-measurement-properties-title" className="text-base font-semibold text-heading">
             Properties
-            <InfoTooltip text="Mentioned = brand in the answer. Cited = domain in the sources. Neither implies the other." />
+            <InfoTooltip text={ADVANCED_PROPERTIES_SIGNAL_HELP} />
           </h2>
           <span className="text-sm text-secondary">{report.currentView?.propertyTotal ?? filteredProperties.length} {(report.currentView?.propertyTotal ?? filteredProperties.length) === 1 ? 'property' : 'properties'}</span>
         </div>

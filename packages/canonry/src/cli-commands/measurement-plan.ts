@@ -29,7 +29,7 @@ import {
 import { usageError } from '../cli-error.js'
 
 const QUERY_CLASSES: readonly MeasurementQueryClassFilter[] = ['all', 'branded', 'non-brand']
-const EVIDENCE_SHAPES: readonly MeasurementEvidenceShape[] = ['sources', 'answers']
+const EVIDENCE_SHAPES: readonly MeasurementEvidenceShape[] = ['sources', 'answers', 'other-queries']
 
 function queryClassOption(input: CliCommandInput): MeasurementQueryClassFilter | undefined {
   const value = getString(input.values, 'query-class')
@@ -254,7 +254,7 @@ export const MEASUREMENT_PLAN_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['measurement-plan', 'property-evidence'],
-    usage: 'canonry measurement-plan property-evidence <project> --target-key <key> [--query-class all|branded|non-brand] [--provider <p>] [--location <l>] [--run-id <id>] [--shape sources|answers] [--cursor <c>] [--limit N] [--format json|jsonl]',
+    usage: 'canonry measurement-plan property-evidence <project> --target-key <key> [--query-class all|branded|non-brand] [--provider <p>] [--location <l>] [--run-id <id>] [--shape sources|answers|other-queries] [--cursor <c>] [--limit N] [--format json|jsonl]',
     options: { ...PROPERTY_SCOPE_OPTIONS, shape: stringOption(), cursor: stringOption(), limit: stringOption() },
     run: input => {
       const usage = 'canonry measurement-plan property-evidence <project> --target-key <key>'

@@ -259,6 +259,37 @@ describe('measurement draft lifecycle', () => {
   })
 })
 
+describe('measurement draft Property names', () => {
+  it('saves the names an operator gives and returns advice on the risky ones without refusing them', async () => {
+    const etag = await createDraft()
+    const target = {
+      ...WIDGETS_TARGET,
+      aliases: ['Northwind Widgets', 'Elm Court', 'NW'],
+      identityAliases: ['Northwind Widgets Larkfield', 'Larkfield Commons'],
+    }
+    const response = await action('upsert-target', { payload: { target }, ifMatch: etag })
+    expect(response.statusCode, response.body).toBe(200)
+    // The project's brand is "Northwind": "Elm Court" lacks it, "NW" is under
+    // the name floor, and "Larkfield Commons" contains no stored name.
+    expect(response.json()).toMatchObject({
+      changed: true,
+      warnings: [
+        { code: 'target-name-without-brand', path: ['target', 'aliases', 1], message: '"Elm Court" does not include your brand name, so answers about other places with this name can count for this property.' },
+        { code: 'target-name-short', path: ['target', 'aliases', 2], message: '"NW" is too short to match safely. A name needs at least 4 letters or numbers, or it can match unrelated words in an answer.' },
+        { code: 'target-qualified-name-without-name', path: ['target', 'identityAliases', 1], message: '"Larkfield Commons" must include one of this property\'s names plus more words, such as a street or city. Publishing is refused until it does.' },
+      ],
+    })
+    const authoring = JSON.parse(db.select().from(measurementPlanDrafts).get()!.authoringJson)
+    expect(authoring.targets[0]).toMatchObject({ aliases: target.aliases, identityAliases: target.identityAliases })
+  })
+
+  it('returns no advice for names that carry the brand', async () => {
+    const etag = await createDraft()
+    const response = await action('upsert-target', { payload: { target: WIDGETS_TARGET }, ifMatch: etag })
+    expect(response.json()).toMatchObject({ changed: true, warnings: [] })
+  })
+})
+
 describe('measurement draft preconditions', () => {
   it('refuses a mutation with no If-Match and one with a stale If-Match, writing nothing either way', async () => {
     const etag = await createDraft()

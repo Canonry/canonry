@@ -31,11 +31,13 @@ import {
   type MeasurementAnswerEvidence,
   type MeasurementAttributionEvidence,
   type MeasurementEvidenceShape,
+  type MeasurementOtherQueryCitation,
   type MeasurementPlanV2,
   type MeasurementPropertyEvidenceQuery,
   type MeasurementPropertyEvidenceResponse,
   type MeasurementQueryClassFilter,
   normalizeIdentityText as normalizedText,
+  sortedUnique,
 } from '@ainyc/canonry-contracts'
 import {
   measurementPlanVersions,
@@ -50,7 +52,7 @@ import {
   runRevisionMismatch,
   type ActiveMeasurementPlan,
 } from './measurement-overview.js'
-import { buildMeasurementEvidence, normalizeMeasurementLocation } from './measurement-report.js'
+import { buildMeasurementEvidence, normalizeMeasurementLocation, type MeasurementUsageEdgeInput } from './measurement-report.js'
 import { snapshotEvidenceFingerprint } from './snapshot-evidence-fingerprint.js'
 import {
   buildMeasurementPlanV2ReportInput,
@@ -120,6 +122,11 @@ function answerRowKey(row: MeasurementAnswerEvidence): string {
   return [row.expectedSlotId, row.usageEdgeId].join('\u0000')
 }
 
+/** One answer appears once per class it was asked under, so the class completes the identity. */
+function otherQueryRowKey(row: MeasurementOtherQueryCitation): string {
+  return [row.expectedSlotId, row.queryClass].join('\u0000')
+}
+
 /**
  * The default shape omits the field, so a cursor over the published per-URL rows
  * is byte-identical to one minted before this parameter existed and a caller
@@ -146,7 +153,9 @@ function parseCursor(value: string): EvidenceCursor | null {
     // A cursor carrying no shape is one this route minted before the parameter
     // existed, and could only ever have named the default.
     const shape = cursor.shape === undefined ? MEASUREMENT_EVIDENCE_DEFAULT_SHAPE : cursor.shape
-    if (shape !== MeasurementEvidenceShapes.sources && shape !== MeasurementEvidenceShapes.answers) return null
+    if (shape !== MeasurementEvidenceShapes.sources
+      && shape !== MeasurementEvidenceShapes.answers
+      && shape !== MeasurementEvidenceShapes['other-queries']) return null
     return {
       v: 1,
       key: cursor.key as string,
@@ -204,6 +213,7 @@ function propertyEvidenceRows(
 ): {
   sources: MeasurementAttributionEvidence[]
   answers: MeasurementAnswerEvidence[]
+  otherQueries: MeasurementOtherQueryCitation[]
   evidenceFingerprint: string
 } {
   const snapshots = db.select().from(querySnapshots).where(eq(querySnapshots.runId, run.id)).all()
@@ -227,11 +237,84 @@ function propertyEvidenceRows(
   )
 
   const built = buildMeasurementEvidence(input)
+  const narrowed = (row: { provider: string; location: string | null }): boolean => (
+    (provider === undefined || row.provider === provider)
+    && (location === undefined || normalizeMeasurementLocation(row.location) === location)
+  )
   return {
     sources: built.evidence.filter(owned),
     answers: built.answers.filter(owned),
+    otherQueries: otherQueryCitations(input.usageEdges, built.answers, query.targetKey, queryClass)
+      .filter(narrowed),
     evidenceFingerprint: snapshotEvidenceFingerprint(snapshots),
   }
+}
+
+/**
+ * Answers to queries this Property is not assigned that cited one of its pages.
+ *
+ * The kernel already decided which Property each link belongs to: a link the
+ * most specific URL rule gives to this Property alone, on an answer none of
+ * whose usage edges is this Property's, reads `sibling` there. Ambiguous links
+ * are left out, since they belong to no single Property. One row per answer and
+ * class: the class comes from the assignments the query does have, and a query
+ * asked under both classes for different Properties lists under each.
+ */
+function otherQueryCitations(
+  usageEdges: readonly MeasurementUsageEdgeInput[],
+  answers: readonly MeasurementAnswerEvidence[],
+  targetKey: string,
+  queryClass: MeasurementQueryClassFilter,
+): MeasurementOtherQueryCitation[] {
+  // Every target edge counts as an assignment, class or not; only a recorded
+  // class can place a row, so an unclassified edge lists nowhere.
+  const edgesByExecution = new Map<string, { targetId: string; queryClass: 'branded' | 'non-brand' | null }[]>()
+  for (const edge of usageEdges) {
+    if (edge.type !== 'target') continue
+    const edges = edgesByExecution.get(edge.executionId) ?? []
+    edges.push({ targetId: edge.targetId, queryClass: edge.queryClass ?? null })
+    edgesByExecution.set(edge.executionId, edges)
+  }
+  const rows: MeasurementOtherQueryCitation[] = []
+  const seen = new Set<string>()
+  // Kernel order is (slot, usage edge), and every edge of a slot carries the
+  // same edge-independent link attribution, so the first row per slot is enough.
+  for (const answer of answers) {
+    if (seen.has(answer.expectedSlotId)) continue
+    seen.add(answer.expectedSlotId)
+    const edges = edgesByExecution.get(answer.executionId) ?? []
+    if (edges.some(edge => edge.targetId === targetKey)) continue
+    const own = answer.sources.filter(source => (
+      source.classification === 'sibling'
+      && source.matchedTargetIds.length === 1
+      && source.matchedTargetIds[0] === targetKey
+    ))
+    if (own.length === 0) continue
+    const sources = own.map(source => ({
+      sourceUrl: source.sourceUrl,
+      normalizedUrl: source.normalizedUrl,
+      matchedUrlIds: source.matchedUrlIds,
+    }))
+    const classes = sortedUnique(edges.flatMap(edge => edge.queryClass === null ? [] : [edge.queryClass]))
+    for (const edgeClass of classes) {
+      if (queryClass !== 'all' && edgeClass !== queryClass) continue
+      rows.push({
+        observationId: answer.observationId,
+        expectedSlotId: answer.expectedSlotId,
+        executionId: answer.executionId,
+        provider: answer.provider,
+        queryText: answer.queryText,
+        location: answer.location,
+        queryClass: edgeClass as 'branded' | 'non-brand',
+        assignedTargetKeys: sortedUnique(edges.filter(edge => edge.queryClass === edgeClass).map(edge => edge.targetId)),
+        sources: sources.slice(0, MAX_SOURCES_PER_ANSWER),
+        sourceCount: sources.length,
+        sourcesTruncated: sources.length > MAX_SOURCES_PER_ANSWER,
+        evidenceComplete: answer.evidenceComplete,
+      })
+    }
+  }
+  return rows
 }
 
 interface CursorPage<Row> {
@@ -345,11 +428,13 @@ export async function measurementPropertyEvidenceRoutes(app: FastifyInstance) {
           // The page still arrives under the key the caller's shape names. An
           // unmeasured Property has no rows in EITHER reading, and swapping the
           // key here would read as "that shape is unavailable" instead.
-          ...(shape === MeasurementEvidenceShapes.answers ? { answers: empty } : { evidence: empty }),
+          ...(shape === MeasurementEvidenceShapes.answers
+            ? { answers: empty }
+            : shape === MeasurementEvidenceShapes['other-queries'] ? { otherQueries: empty } : { evidence: empty }),
         } satisfies MeasurementPropertyEvidenceResponse)
       }
 
-      const { sources, answers, evidenceFingerprint } =
+      const { sources, answers, otherQueries, evidenceFingerprint } =
         propertyEvidenceRows(app.db, plan, active, displayed, query, queryClass)
       const pageArgs = [shape, query, displayed.id, active.version.id, evidenceFingerprint] as const
       return measurementPropertyEvidenceResponseSchema.parse({
@@ -362,7 +447,9 @@ export async function measurementPropertyEvidenceRoutes(app: FastifyInstance) {
         },
         ...(shape === MeasurementEvidenceShapes.answers
           ? { answers: pageOf(answers.map(capSources), answerRowKey, ...pageArgs) }
-          : { evidence: pageOf(sources, sourceRowKey, ...pageArgs) }),
+          : shape === MeasurementEvidenceShapes['other-queries']
+            ? { otherQueries: pageOf(otherQueries, otherQueryRowKey, ...pageArgs) }
+            : { evidence: pageOf(sources, sourceRowKey, ...pageArgs) }),
       } satisfies MeasurementPropertyEvidenceResponse)
     },
   )

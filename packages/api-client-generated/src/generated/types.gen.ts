@@ -1283,6 +1283,7 @@ export type VisibilityReportResponse = {
                 notMeasured: number;
                 total: number;
             };
+            notMeasuredUnchecked?: number;
         };
         trend: Array<{
             runId: string;
@@ -1412,6 +1413,11 @@ export type VisibilityReportResponse = {
                     reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                     unattributed?: number;
                     unchecked?: number;
+                };
+                uncheckedSources?: {
+                    answers: number;
+                    citedAnswers: number;
+                    citedTargetKeys: Array<string>;
                 };
             }>;
             nextCursor: string | null;
@@ -10443,6 +10449,28 @@ export type MeasurementPropertyEvidenceResponse = {
         nextCursor: string | null;
         totalEstimate?: number;
     };
+    otherQueries?: {
+        items: Array<{
+            observationId: string;
+            expectedSlotId: string;
+            executionId: string;
+            provider: string;
+            queryText: string;
+            location: string | null;
+            queryClass: 'branded' | 'non-brand';
+            assignedTargetKeys: Array<string>;
+            sources: Array<{
+                sourceUrl: string;
+                normalizedUrl: string | null;
+                matchedUrlIds: Array<string>;
+            }>;
+            sourceCount: number;
+            sourcesTruncated: boolean;
+            evidenceComplete: boolean;
+        }>;
+        nextCursor: string | null;
+        totalEstimate?: number;
+    };
 };
 
 export type MeasurementPropertyQuestionsResponse = {
@@ -10893,7 +10921,7 @@ export type UiTelemetryEvent = {
     uiSessionId: string;
     page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.action';
-    action: 'sweep.launch' | 'sweep.cancel' | 'site_audit.launch' | 'project.create' | 'project.update' | 'project.delete' | 'query.add' | 'query.delete' | 'query.generate' | 'competitor.save' | 'competitor.delete' | 'schedule.save' | 'schedule.delete' | 'provider.save' | 'settings.save' | 'integration.connect_started' | 'integration.connect' | 'integration.disconnect' | 'traffic.sync' | 'notification.save' | 'notification.test' | 'measurement_plan.publish' | 'discovery.run' | 'api_key.create' | 'api_key.revoke' | 'export.download' | 'report.download' | 'aero.open' | 'aero.send' | 'filter.change' | 'search.submit';
+    action: 'sweep.launch' | 'sweep.cancel' | 'site_audit.launch' | 'project.create' | 'project.update' | 'project.delete' | 'query.add' | 'query.delete' | 'query.generate' | 'competitor.save' | 'competitor.delete' | 'schedule.save' | 'schedule.delete' | 'provider.save' | 'settings.save' | 'integration.connect_started' | 'integration.connect' | 'integration.disconnect' | 'traffic.sync' | 'notification.save' | 'notification.test' | 'measurement_plan.publish' | 'property_names.save' | 'discovery.run' | 'api_key.create' | 'api_key.revoke' | 'export.download' | 'report.download' | 'aero.open' | 'aero.send' | 'filter.change' | 'search.submit';
     tab?: 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
     integration?: 'google' | 'gsc' | 'ga' | 'bing' | 'gbp' | 'wordpress' | 'openai_ads' | 'google_ads' | 'gtm' | 'traffic_cloudflare' | 'traffic_vercel' | 'traffic_cloud_run' | 'traffic_wordpress';
     format?: 'csv' | 'json' | 'html';
@@ -18366,9 +18394,9 @@ export type GetApiV1ProjectsByNameMeasurementPropertyEvidenceData = {
          */
         runId?: string;
         /**
-         * What one row is. sources (the default) returns one row per cited URL under evidence, which is what a caller written before this parameter existed reads. answers returns one row per measured answer under answers, with the cited URLs nested inside it, so the answers that cited nothing at all are present rather than missing. Exactly one of the two keys is returned; the other is absent, not empty.
+         * What one row is. sources (the default) returns one row per cited URL under evidence, which is what a caller written before this parameter existed reads. answers returns one row per measured answer under answers, with the cited URLs nested inside it, so the answers that cited nothing at all are present rather than missing. other-queries returns, under otherQueries, one row per answer to a query NOT assigned to this Property that cited one of its own pages, per assignment class; those answers are outside its rates. Exactly one of the keys is returned; the others are absent, not empty.
          */
-        shape?: 'sources' | 'answers';
+        shape?: 'sources' | 'answers' | 'other-queries';
         /**
          * Opaque cursor from the previous page. It pins pagination to the active revision, displayed run, evidence snapshot, same filters, and the shape it was issued for; a mismatch or newly appended evidence is rejected rather than silently paged across. An answer page is keyed on the slot, so a boundary never falls between one answer and its own cited URLs.
          */

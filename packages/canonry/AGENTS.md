@@ -576,7 +576,8 @@ Every field after `version` is optional and is omitted rather than nulled, so co
 - `measurement-plan property <project> --target-key <key>` (one Property out of `GET /measurement-overview?scope=property`, rendering mention/citation coverage and the per-answer-engine split; non-brand unless `--query-class` names another, and the heading says when `all` pooled both classes)
 - `measurement-plan property-evidence <project> --target-key <key>` (cursor-paged `GET /measurement-property-evidence`):
   - `--shape answers` switches a row from one cited URL to one measured ANSWER with its cited URLs nested and both signals on the row — the only shape that shows the answers a Property was not cited in
-  - `--format jsonl` streams one row per line in either shape, under a header line carrying the shape, the measurement state and the cursor, and an unknown mention prints `not measured` rather than `no`
+  - `--shape other-queries` lists answers to queries NOT assigned to the Property that cited its own pages, one row per answer and assignment class (`assignedTargetKeys` names who the query was asked for). They are outside the Property's rates and must never be added to them
+  - `--format jsonl` streams one row per line in any shape, under a header line carrying the shape, the measurement state and the cursor, and an unknown mention prints `not measured` rather than `no`
 - The per-Property reads share `--query-class` / `--provider` / `--location` / `--run-id`, and both render an unavailable metric as `not measured (<reason>)` — never a percentage, so an unmeasured class can't read as a measured zero. `--format json` is the endpoint response verbatim.
 - `measurement-plan advanced <project> <operation> [<json|->]` is the compact typed-JSON bridge for the remaining v2 reads/writes; its paged/list reads stream a metadata header and records with `--format jsonl`.
 
