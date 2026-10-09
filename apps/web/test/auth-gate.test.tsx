@@ -185,7 +185,7 @@ describe('AuthGate', () => {
       expect(screen.queryByRole('button', { name: 'Create password and continue' })).toBeNull()
       expect(screen.queryByLabelText('Password')).toBeNull()
       expect(screen.queryByLabelText('Confirm password')).toBeNull()
-      expect(screen.queryByRole('heading', { name: 'Portfolio' })).toBeNull()
+      expect(screen.queryByRole('heading', { name: 'All projects' })).toBeNull()
       expect(setupRequests).toBe(1)
       expect(metadataReads).toBe(1)
 
@@ -194,7 +194,7 @@ describe('AuthGate', () => {
       cleanup()
       metadataUnavailable = false
       render(<AuthGate />)
-      expect(await screen.findByRole('heading', { name: 'Portfolio' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'All projects' })).toBeTruthy()
       expect(setupRequests).toBe(1)
       expect(metadataReads).toBe(2)
     })
@@ -255,7 +255,7 @@ describe('AuthGate', () => {
       fireEvent.change(rootKey, { target: { value: ` ${ROOT_KEY} ` } })
       await act(async () => { fireEvent.click(submit) })
 
-      expect(await screen.findByRole('heading', { name: 'Portfolio' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'All projects' })).toBeTruthy()
       expect(setupAuthorizations).toEqual([null, 'Bearer cnry_not_the_root_key', `Bearer ${ROOT_KEY}`])
       // Every other request, before and after setup, rides the cookie only.
       expect(otherAuthorizations.length).toBeGreaterThan(0)
@@ -338,9 +338,9 @@ describe('AuthGate', () => {
 
       expect(screen.getByText('Connecting to Canonry…')).toBeTruthy()
       expect(screen.queryByLabelText('Password')).toBeNull()
-      expect(screen.queryByRole('heading', { name: 'Portfolio' })).toBeNull()
+      expect(screen.queryByRole('heading', { name: 'All projects' })).toBeNull()
       await act(async () => { resolveMetadata(dashboardFallback('/api/v1/keys/self')) })
-      expect(await screen.findByRole('heading', { name: 'Portfolio' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'All projects' })).toBeTruthy()
     })
 
     test('gives the shared-password login browser metadata and an accessible error', async () => {
@@ -444,7 +444,7 @@ describe('AuthGate', () => {
         fireEvent.submit(screen.getByRole('button', { name: 'Open dashboard' }))
       })
 
-      expect(await screen.findByRole('heading', { name: 'Portfolio' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'All projects' })).toBeTruthy()
       expect(screen.queryByText('Settings')).toBeNull()
       expect(requested.some(url => url.includes('/api/v1/settings'))).toBe(false)
     })
@@ -457,7 +457,7 @@ describe('AuthGate', () => {
       })
 
       render(<AuthGate />)
-      expect(await screen.findByRole('heading', { name: 'Portfolio' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'All projects' })).toBeTruthy()
     })
 
     test('keeps a restored session locked when its API-key access cannot be verified', async () => {
@@ -476,7 +476,7 @@ describe('AuthGate', () => {
 
       expect(await screen.findByRole('heading', { name: 'Could not verify API key access' })).toBeTruthy()
       expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy()
-      expect(screen.queryByRole('heading', { name: 'Portfolio' })).toBeNull()
+      expect(screen.queryByRole('heading', { name: 'All projects' })).toBeNull()
     })
 
     test('clears a restored session whose bound API key is no longer valid', async () => {
@@ -502,7 +502,7 @@ describe('AuthGate', () => {
       expect(await screen.findByRole('heading', { name: 'Sign in to Canonry' })).toBeTruthy()
       expect(screen.getByText(/Your session expired/i)).toBeTruthy()
       expect(screen.queryByRole('heading', { name: 'Could not verify API key access' })).toBeNull()
-      expect(screen.queryByRole('heading', { name: 'Portfolio' })).toBeNull()
+      expect(screen.queryByRole('heading', { name: 'All projects' })).toBeNull()
       expect(sessionMethods).toContain('DELETE')
     })
 
@@ -535,7 +535,7 @@ describe('AuthGate', () => {
       })
 
       render(<AuthGate />)
-      expect(await screen.findByRole('heading', { name: 'Portfolio' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'All projects' })).toBeTruthy()
 
       await act(async () => {
         handleAuthExpired()
@@ -552,7 +552,7 @@ describe('AuthGate', () => {
       })
 
       render(<AuthGate />)
-      expect(await screen.findByRole('heading', { name: 'Portfolio' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'All projects' })).toBeTruthy()
 
       await act(async () => {
         handleAuthExpired()
@@ -576,7 +576,7 @@ describe('AuthGate', () => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
 
       render(<AuthGate />)
-      expect(await screen.findByRole('heading', { name: 'Portfolio' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'All projects' })).toBeTruthy()
 
       // Change the session state to unauthenticated
       sessionState.authenticated = false
@@ -611,7 +611,7 @@ describe('AuthGate', () => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
 
       render(<AuthGate />)
-      expect(await screen.findByRole('heading', { name: 'Portfolio' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'All projects' })).toBeTruthy()
 
       shouldThrow = true
 
@@ -621,7 +621,7 @@ describe('AuthGate', () => {
 
       // User is still on the dashboard, not kicked to login
       expect(screen.queryByText('Sign in to Canonry')).toBeNull()
-      expect(screen.getAllByText('Portfolio').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('All projects').length).toBeGreaterThan(0)
 
       vi.useRealTimers()
     })

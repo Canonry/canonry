@@ -111,7 +111,7 @@ export function OverviewPage() {
       <div className="page-container">
         <div className="page-header">
           <div className="page-header-left">
-            <h1 className="page-title">Portfolio unavailable</h1>
+            <h1 className="page-title">All projects unavailable</h1>
             <p className="page-subtitle">Canonry could not load the project list.</p>
           </div>
         </div>
@@ -119,7 +119,7 @@ export function OverviewPage() {
           <p className="text-sm font-medium text-heading">Your projects have not been changed.</p>
           <p className="mt-1 text-sm text-secondary">Check the connection or sign in again, then retry.</p>
           <Button type="button" variant="secondary" className="mt-4" onClick={() => { void refetch() }}>
-            Retry loading portfolio
+            Retry loading projects
           </Button>
         </div>
       </div>
@@ -164,7 +164,7 @@ export function OverviewPage() {
     <div className="page-container">
       <div className="page-header">
         <div className="page-header-left">
-          <h1 className="page-title">Portfolio</h1>
+          <h1 className="page-title">All projects</h1>
           <p className="page-subtitle">Visibility across all projects.</p>
         </div>
       </div>

@@ -1,7 +1,7 @@
 import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, onTestFinished, test, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 vi.mock('recharts', () => {
   const passthrough = ({ children }: { children?: React.ReactNode }) => <div>{children}</div>
@@ -55,7 +55,7 @@ describe('project settings tab', () => {
     ],
     defaultLocation: 'nyc',
   }
-  const changeControls = [/^Edit settings$/, /^\+ Add location$/, /^Set sf as default location$/, /^Remove location nyc$/, /^\+ Set schedule$/, /^\+ Add webhook$/]
+  const changeControls = [/^Edit settings$/, /^\+ Add search location$/, /^Set sf as default search location$/, /^Remove search location nyc$/, /^\+ Set schedule$/, /^\+ Add webhook$/]
 
   function renderSettingsTab() {
     const methods = trackReads((path) => {
@@ -76,6 +76,7 @@ describe('project settings tab', () => {
     const methods = renderSettingsTab()
     await waitFor(() => expect(screen.getByText(/No schedule configured/)).toBeTruthy())
     await waitFor(() => expect(screen.getByText(/No webhooks configured/)).toBeTruthy())
+    expect(screen.getByText('Search Locations')).toBeTruthy()
     expect(screen.getByText('San Francisco')).toBeTruthy()
     for (const name of changeControls) expect(screen.queryByRole('button', { name }), String(name)).toBeNull()
     expect(methods.every((method) => method === 'GET')).toBe(true)
@@ -86,6 +87,14 @@ describe('project settings tab', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: '+ Set schedule' })).toBeTruthy())
     await waitFor(() => expect(screen.getByRole('button', { name: '+ Add webhook' })).toBeTruthy())
     for (const name of changeControls) expect(screen.getByRole('button', { name }), String(name)).toBeTruthy()
+  })
+
+  test('a project without search locations offers to add one', () => {
+    render(<ProjectSettingsSection project={{ ...project, locations: [], defaultLocation: null }} onUpdateProject={vi.fn()} />)
+    expect(screen.getByText('No search locations configured')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '+ Add search location' }))
+    expect(screen.getByText('Add search location', { selector: 'p' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Add search location' })).toBeTruthy()
   })
 })
 

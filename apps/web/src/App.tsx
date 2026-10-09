@@ -499,7 +499,7 @@ export function RootLayout() {
   // Derive breadcrumb label from current location
   const breadcrumbLabel = (() => {
     const path = location.pathname
-    if (path === '/') return 'Portfolio'
+    if (path === '/') return 'All projects'
     if (path === '/projects') return 'Projects'
     if (path === '/runs') return 'Runs'
     if (path === '/history') return 'History'
@@ -579,7 +579,7 @@ export function RootLayout() {
             activeOptions={{ exact: true }}
           >
             <LayoutDashboard className="sidebar-icon" />
-            <span>Portfolio</span>
+            <span>All projects</span>
           </Link>
           <Link
             to="/projects"
@@ -810,7 +810,7 @@ export function RootLayout() {
             <span className="sr-only">Close navigation</span>
           </Button>
           <Link to="/" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
-            Portfolio
+            All projects
           </Link>
           <Link to="/projects" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: false }}>
             Projects
