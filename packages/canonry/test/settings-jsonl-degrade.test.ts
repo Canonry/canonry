@@ -3,6 +3,7 @@ import { describe, expect, it, beforeEach, vi } from 'vitest'
 const mockGetSettings = vi.fn()
 const mockUpdateProvider = vi.fn()
 const mockUpdateGoogleSettings = vi.fn()
+const mockReloadProviders = vi.fn()
 const mockSaveConfigPatch = vi.fn()
 
 vi.mock('../src/client.js', () => ({
@@ -10,6 +11,7 @@ vi.mock('../src/client.js', () => ({
     getSettings: mockGetSettings,
     updateProvider: mockUpdateProvider,
     updateGoogleSettings: mockUpdateGoogleSettings,
+    reloadProviders: mockReloadProviders,
   }),
 }))
 
@@ -31,7 +33,7 @@ function captureLog(fn: () => Promise<void> | void): Promise<string> {
     .then(() => logs.join('\n'))
 }
 
-const { showSettings, setGoogleAuth, setProvider } = await import('../src/commands/settings.js')
+const { showSettings, setGoogleAuth, setProvider, reloadProviders } = await import('../src/commands/settings.js')
 
 const settings = {
   providers: [
@@ -42,6 +44,16 @@ const settings = {
   google: { configured: false },
   bing: { configured: true },
 }
+
+describe('reloadProviders output', () => {
+  it.each(['json', 'jsonl'])('preserves the server receipt in %s output', async (format) => {
+    const receipt = { reloaded: true, providers: [{ name: 'gemini', configured: true, vertexConfigured: true }] }
+    mockReloadProviders.mockResolvedValue(receipt)
+    const out = await captureLog(() => reloadProviders(format))
+    expect(JSON.parse(out)).toEqual(receipt)
+    expect(mockSaveConfigPatch).not.toHaveBeenCalled()
+  })
+})
 
 describe('showSettings — jsonl degrades to the json document', () => {
   beforeEach(() => {

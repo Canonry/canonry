@@ -58,6 +58,12 @@ Canonry then reuses the checked web output. Keep this dependency when changing b
 
 ### ApiClient usage (Critical)
 
+`settings reload-providers` calls `ApiClient.reloadProviders` (`POST /settings/providers/reload`)
+to activate the connected host's saved provider configuration without restarting it.
+JSON and JSONL preserve the response DTO. It requires install administrator authority
+and `settings.write`; the MCP counterpart is `canonry_providers_reload`, excluded from
+native Aero. Unsupported hosts return `NOT_IMPLEMENTED`.
+
 **Always use `createApiClient()`** — never instantiate `ApiClient` directly:
 
 ```typescript
@@ -93,7 +99,7 @@ Rules for `canonry-mcp`, hosted MCP catalogs, guidance generation, MCP parity, a
 File-level rules for the MCP pieces in this package:
 
 - `src/mcp/server.ts` — `createCanonryMcpServer` registers all API tools, then disables non-core tiers unless `--eager`.
-- `src/mcp/tool-registry.ts` — all 251 API tools, including Site Health semantic graph and page-audit evidence reads, sitemap Target discovery, and revision-pinned measurement reports, each tagged with a `tier` (`core` or one of the toolkit names).
+- `src/mcp/tool-registry.ts` — all 252 API tools, including Site Health semantic graph and page-audit evidence reads, sitemap Target discovery, and revision-pinned measurement reports, each tagged with a `tier` (`core` or one of the toolkit names).
 - `src/mcp/cli.ts` — `canonry-mcp` stdio entrypoint; parses `--read-only`, `--eager`, `--scope`, plus `CANONRY_MCP_*` env. `resolveEffectiveScope()` best-effort probes `GET /keys/self` at startup and forces `read-only` when the configured key is read-only (auto-restricts the catalog to read tools; falls back to the flag scope on any probe failure).
 - `src/mcp/operations-guide.ts` — compact intent routing filtered against the connection's loaded tools; generated source is `docs/agent-operations/v1.md`. No provider calls or permission grants.
 - `src/commands/mcp.ts` — MCP client install helpers: `mcp install`, `mcp config` (writes to client config files only — separate from the `canonry-mcp` stdio bin). `src/mcp-clients.ts` is the registry of supported MCP clients (Claude Desktop, Cursor, Codex) — config-path resolvers and format hints used by `mcp install`/`mcp config`.
@@ -486,7 +492,9 @@ The snapshot rescore behind `canonry backfill answer-mentions`, the alias hooks 
 
 ### Provider registration
 
-Providers are registered at server startup in `server.ts`. Each provider adapter (from `packages/provider-*`) is imported and added to the `ProviderRegistry`. Projects reference providers by name.
+`src/provider-reload-batch-guard.ts` refuses changes other than quota while a batch still needs its registration. It checks pending database batches and `JobRunner.getExecutingBatchRegistrations()`, which retains captured base registrations before submission starts and until both the sweep and late submissions settle. Cancellation loops capture every registration before their first await.
+
+`src/provider-runtime-config.ts` builds the complete API and CDP registration set for startup and explicit provider reloads, using the shared eligibility rules in `src/provider-registration.ts`. `server.ts` captures its config path and database identity at startup; reload identity arguments must match them. It validates the saved config before atomically replacing registrations. Invalid reloads preserve the running registry. Only provider and CDP settings reload; listener, authentication, sessions and database settings keep their startup values. Existing runs retain captured provider configs. `ProviderRegistry` updates shared execution gates without resetting active slots or dispatch history. Projects reference providers by name.
 
 `src/provider-batch-config.ts` owns batch dispatch configuration (`docs/batch-mode.md`). `loadConfig` validates `providers.<name>.batch` / `.pricing` with the contracts schemas and refuses a malformed block. `providerConfigFromEntry` builds every registered `ProviderConfig`, carrying both blocks, and is used by boot and the provider-update path, so a dashboard key rotation keeps them. `batchEligibleProviderNames` (adapter capability AND `batch.enabled`) is the one rule behind `getBatchEligibleProviderNames`. `server.ts` passes it to the API routes and the scheduler. Boot logs `provider.batch.unsupported` once per provider whose config enables batch but whose adapter has none. Log a provider name as `provider`: it is the key the durable log store keeps as `context.provider`. `canonry run --dispatch-mode` and `canonry project create|update --dispatch-mode provider=sync|batch` / `--clear-dispatch-mode` are the CLI surfaces. `run show` prints batch state lines and the usage table from the run detail, and `--format json` prints the response verbatim.
 

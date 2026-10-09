@@ -19,11 +19,10 @@ const { version: PKG_VERSION } = _require("../package.json") as {
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { SetHeadersResponse } from "@fastify/static";
-import { anyUsersExist, apiRoutes, auditFromRequest, createProjectPassQueue, hashApiKey, hasProxyHeaders, previewCompetitorAutoAliases, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS, writeAuditLog } from "@ainyc/canonry-api-routes";
+import { anyUsersExist, apiRoutes, auditFromRequest, createProjectPassQueue, hashApiKey, hasProxyHeaders, previewCompetitorAutoAliases, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS, writeAuditLog, type ApiRoutesOptions } from "@ainyc/canonry-api-routes";
 import {
   apiKeys,
   dashboardSessions,
-  auditLog,
   googleAdsConnections,
   gtmConnections,
   projects,
@@ -64,6 +63,7 @@ import {
   type SchedulableRunKind,
   RunStatuses,
   RunTriggers,
+  ProviderNames,
   ResearchRunStatuses,
   DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT,
   adsAccountDtoSchema,
@@ -74,17 +74,17 @@ import {
   type AdsCampaignBiddingType,
   type AdsAdGroupBillingEventType,
   type ProviderAdapter,
+  type ProviderSummaryEntryDto,
   type AgentPluginState,
   describeError,
 } from "@ainyc/canonry-contracts";
 import type {
   CanonryConfig,
   CloudflareTrafficConnectionConfigEntry,
-  ProviderConfigEntry,
 } from "./config.js";
 import { resolveEmbedConfig, SERVER_ENFORCED_EMBED_PROJECT_TABS, unsupportedEmbedProjectTabs } from "./embed.js";
 import { resolveAgentAllowViewers, resolveAgentEnabled, resolveAgentProactiveEnabled } from "./agent-config.js";
-import { saveConfig, saveConfigPatch, loadConfigRaw, getConfigPath } from "./config.js";
+import { saveConfig, saveConfigPatch, loadConfig, loadConfigRaw, getConfigPath } from "./config.js";
 import { getPlacesConfig } from "./places-config.js";
 import {
   getGoogleAuthConfig,
@@ -243,9 +243,11 @@ import {
 import {
   ccReleaseSyncs as ccReleaseSyncsTable,
 } from "@ainyc/canonry-db";
-import { ProviderRegistry } from "./provider-registry.js";
+import { ProviderRegistry, type RegisteredProvider } from "./provider-registry.js";
 import { batchEligibleProviderNames, providerConfigFromEntry, providersWithUnsupportedBatch } from "./provider-batch-config.js";
-import { isApiProviderRegistrable, isCdpProviderRegistrable, registeredProviderNames } from "./provider-registration.js";
+import { registeredProviderNames } from "./provider-registration.js";
+import { configuredProviderEntries, DEFAULT_CDP_QUOTA, DEFAULT_PROVIDER_QUOTA, validateProviderReloadConfig } from "./provider-runtime-config.js";
+import { assertProviderReloadKeepsPendingBatches } from "./provider-reload-batch-guard.js";
 import { createProviderModelCatalog } from "./provider-model-catalog.js";
 import { Scheduler, ensureDefaultHealthSchedule } from "./scheduler.js";
 import { startSiteLivenessLoop } from "./site-liveness-loop.js";
@@ -304,11 +306,7 @@ export function allowsKeylessFirstRunSetup(app: FastifyInstance): boolean {
   return keylessFirstRunSetupByServer.get(app) ?? false;
 }
 
-const DEFAULT_QUOTA = {
-  maxConcurrency: 2,
-  maxRequestsPerMinute: 10,
-  maxRequestsPerDay: 1000,
-};
+const DEFAULT_QUOTA = DEFAULT_PROVIDER_QUOTA;
 
 const SESSION_COOKIE_NAME = "canonry_session";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -427,18 +425,42 @@ const adapterMap = Object.fromEntries(
   API_ADAPTERS.map((a) => [a.name, a]),
 ) as Record<string, ProviderAdapter>;
 
-function summarizeProviderConfig(config: ProviderConfigEntry | undefined) {
+function summarizeProviderConfig(provider: RegisteredProvider | undefined) {
+  const config = provider?.config;
   return {
-    configured: Boolean(config?.apiKey || config?.baseUrl),
+    configured: Boolean(config?.apiKey || config?.baseUrl || config?.vertexProject || config?.cdpEndpoint),
     model: config?.model ?? null,
     // baseUrl is surfaced for ALL providers, not just local — gemini/openai now
     // honor a custom endpoint, so repointing one must show in the settings
     // summary AND produce an audit diff. Omitting it for API providers would let
     // an endpoint redirect (a credential-exfiltration vector on a box where the
     // provider key is the carrier) happen with no audit trail.
-    baseUrl: config?.baseUrl ?? null,
-    quota: { ...(config?.quota ?? DEFAULT_QUOTA) },
+    baseUrl: config?.baseUrl ?? config?.cdpEndpoint ?? null,
+    quota: { ...(config?.quotaPolicy ?? DEFAULT_QUOTA) },
+    vertexProject: config?.vertexProject ?? null,
+    vertexRegion: config?.vertexRegion ?? null,
+    batch: config?.batch ?? null,
+    pricing: config?.pricing ?? null,
   };
+}
+
+function providerSummaries(registry: ProviderRegistry, config: CanonryConfig, includeBrowser = false): ProviderSummaryEntryDto[] {
+  return [...API_ADAPTERS, ...(includeBrowser ? BROWSER_ADAPTERS : [])].map((adapter) => ({
+    name: adapter.name,
+    displayName: adapter.displayName,
+    keyUrl: adapter.keyUrl,
+    modelHint: `e.g. ${adapter.modelRegistry.defaultModel}`,
+    model: registry.get(adapter.name)?.config.model ?? undefined,
+    defaultModel: adapter.modelRegistry.defaultModel,
+    configured: Boolean(registry.get(adapter.name)),
+    quota: registry.get(adapter.name)?.config.quotaPolicy,
+    vertexConfigured: adapter.name === ProviderNames.gemini ? Boolean(config.providers?.gemini?.vertexProject) : undefined,
+  }));
+}
+
+function runtimePathIdentity(runtimePath: string): string {
+  if (runtimePath === ':memory:') return runtimePath;
+  try { return fs.realpathSync(runtimePath); } catch { return path.resolve(runtimePath); }
 }
 
 // Dashboard password storage uses scrypt (salted, slow KDF) — not plain
@@ -941,6 +963,10 @@ export async function createServer(opts: {
   /** Live user-global native Canonry plugin state for agent-skills doctor checks. */
   getAgentPluginState?: () => AgentPluginState;
 }): Promise<FastifyInstance> {
+  const runtimeConfigPath = path.resolve(getConfigPath());
+  const runtimeConfigIdentity = runtimePathIdentity(runtimeConfigPath);
+  const runtimeDatabasePath = opts.config.database;
+  const runtimeDatabaseIdentity = runtimePathIdentity(runtimeDatabasePath);
   const embed = resolveEmbedConfig(process.env, opts.config);
   const operatorApiKeyIds = resolveOperatorApiKeyIds(process.env);
   const dashboardManagedRunKinds = resolveDashboardManagedRunKinds(process.env, opts.config);
@@ -1019,6 +1045,7 @@ export async function createServer(opts: {
       quota: opts.config.geminiQuota,
     };
   }
+  opts.config.providers = providers;
 
   // One-time upgrade for pre-1.45.1 installs. Order is load-bearing: extract
   // into memory, persist to config.yaml, and only then drop the legacy columns.
@@ -1039,14 +1066,7 @@ export async function createServer(opts: {
     providers: registeredProviderNames({ providers, cdp: opts.config.cdp }),
   });
 
-  // Register API providers from config
-  for (const adapter of API_ADAPTERS) {
-    const entry = providers[adapter.name];
-    if (!entry) continue;
-    if (isApiProviderRegistrable(adapter.name, entry)) {
-      registry.register(adapter, providerConfigFromEntry(adapter.name, entry, entry.quota ?? DEFAULT_QUOTA));
-    }
-  }
+  registry.replace(configuredProviderEntries(opts.config, API_ADAPTERS, cdpChatgptAdapter));
 
   // Batch is opt-in per provider and only real where the adapter has a batch
   // API. Say so once at boot rather than silently running sync forever.
@@ -1054,22 +1074,6 @@ export async function createServer(opts: {
     log.warn("provider.batch.unsupported", {
       provider: name,
       message: `providers.${name}.batch.enabled is true, but the ${name} adapter has no batch API; its sweeps run sync.`,
-    });
-  }
-
-  // CDP browser provider — connects to user's Chrome via CDP
-  const cdpConfig = opts.config.cdp;
-  if (cdpConfig && isCdpProviderRegistrable(cdpConfig)) {
-    const CDP_DEFAULT_QUOTA = {
-      maxConcurrency: 1,
-      maxRequestsPerMinute: 4,
-      maxRequestsPerDay: 200,
-    };
-    const cdpEndpoint = `ws://${cdpConfig.host ?? "localhost"}:${cdpConfig.port ?? 9222}`;
-    registry.register(cdpChatgptAdapter, {
-      provider: "cdp:chatgpt",
-      cdpEndpoint,
-      quotaPolicy: cdpConfig.quota ?? CDP_DEFAULT_QUOTA,
     });
   }
 
@@ -1987,20 +1991,7 @@ export async function createServer(opts: {
   });
 
   // Build provider summary for API routes (dynamic from adapter list)
-  const providerSummary = API_ADAPTERS.map((adapter) => ({
-    name: adapter.name,
-    displayName: adapter.displayName,
-    keyUrl: adapter.keyUrl,
-    modelHint: `e.g. ${adapter.modelRegistry.defaultModel}`,
-    model: registry.get(adapter.name)?.config.model,
-    defaultModel: adapter.modelRegistry.defaultModel,
-    configured: !!registry.get(adapter.name),
-    quota: registry.get(adapter.name)?.config.quotaPolicy,
-    vertexConfigured:
-      adapter.name === "gemini"
-        ? !!opts.config.providers?.gemini?.vertexProject
-        : undefined,
-  }));
+  const providerSummary = providerSummaries(registry, opts.config);
   const googleSettingsSummary = {
     configured: Boolean(
       opts.config.google?.clientId && opts.config.google?.clientSecret,
@@ -2951,6 +2942,41 @@ export async function createServer(opts: {
   app.addHook("onClose", async () => { clearInterval(sentimentTimer); sentimentPoller.stop(); await sentimentPoller.settled(); });
 
   const providerModelCatalog = createProviderModelCatalog(registry);
+  const recordProviderChange = (
+    name: string,
+    before: RegisteredProvider | undefined,
+    after: RegisteredProvider | undefined,
+    auditContext: Parameters<NonNullable<ApiRoutesOptions['onProviderUpdate']>>[5],
+  ): void => {
+    const beforeConfig = summarizeProviderConfig(before);
+    const afterConfig = summarizeProviderConfig(after);
+    const apiKeyRotated = Boolean(before) && Boolean(after?.config.apiKey)
+      && before?.config.apiKey !== after?.config.apiKey;
+    const credentialsChanged = before?.config.vertexCredentials !== after?.config.vertexCredentials;
+    if (!apiKeyRotated && !credentialsChanged && JSON.stringify(beforeConfig) === JSON.stringify(afterConfig)) return;
+    const affectedProjects = opts.db.select({ id: projects.id, providers: projects.providers }).from(projects).all()
+      .filter(project => project.providers.length === 0 || project.providers.includes(name));
+    const projectIds = affectedProjects.length ? affectedProjects.map(project => project.id) : [null];
+    for (const projectId of projectIds) {
+      writeAuditLog(opts.db, {
+        projectId,
+        actor: auditContext?.actor ?? 'api',
+        userAgent: auditContext?.userAgent,
+        actorSession: auditContext?.actorSession,
+        credentialId: auditContext?.credentialId,
+        requestId: auditContext?.requestId,
+        action: after ? (before ? 'provider.updated' : 'provider.created') : 'provider.removed',
+        entityType: 'provider',
+        entityId: name,
+        diff: {
+          before: before ? beforeConfig : null,
+          after: afterConfig,
+          ...(apiKeyRotated ? { apiKeyRotated: true } : {}),
+          ...(credentialsChanged ? { credentialsChanged: true } : {}),
+        },
+      });
+    }
+  };
   await app.register(apiRoutes, {
     db: opts.db,
     sentiment: {
@@ -2995,13 +3021,10 @@ export async function createServer(opts: {
     // and would have thrown if the file were missing; tests that construct
     // `createServer` directly (bypassing `loadConfig`) won't have written
     // a config and shouldn't get 503s from a stub-missing file.
-    runtimeStatePaths: (() => {
-      const configPath = getConfigPath();
-      return {
-        databasePath: opts.config.database,
-        configPath: fs.existsSync(configPath) ? configPath : null,
-      };
-    })(),
+    runtimeStatePaths: {
+      databasePath: runtimeDatabasePath,
+      configPath: fs.existsSync(runtimeConfigPath) ? runtimeConfigPath : null,
+    },
     // Snapshot the bundled skill trees (version + file hashes) so the
     // `agent.skills.current` doctor check can flag a `~/.claude/skills/` install
     // that has drifted behind this build. Best-effort: if the bundled assets
@@ -3476,6 +3499,39 @@ export async function createServer(opts: {
       registry.getAll().map((provider) => provider.adapter.name),
     getEffectiveProviderModels: () => effectiveProviderModels(registry),
     getBatchEligibleProviderNames: () => batchEligibleProviderNames(registry),
+    onProviderReload: (input, auditContext) => {
+      if (input.configPath !== undefined && (
+        runtimePathIdentity(input.configPath) !== runtimeConfigIdentity
+        || runtimePathIdentity(input.databasePath!) !== runtimeDatabaseIdentity
+      )) {
+        throw validationError('Provider reload identity does not match this running server.');
+      }
+      let loaded: CanonryConfig;
+      try {
+        loaded = loadConfig(runtimeConfigPath);
+        validateProviderReloadConfig(loaded);
+      } catch {
+        // YAML parser errors can include the secret-bearing source line.
+        throw validationError('Provider configuration could not be loaded; repair config.yaml and retry.');
+      }
+      const next = configuredProviderEntries(loaded, API_ADAPTERS, cdpChatgptAdapter);
+      assertProviderReloadKeepsPendingBatches(opts.db, registry.getAll(), next, jobRunner.getExecutingBatchRegistrations());
+      const nextByName = new Map(next.map(provider => [provider.adapter.name, provider]));
+      const names = new Set([...registry.getAll().map(provider => provider.adapter.name), ...nextByName.keys()]);
+      opts.db.transaction(() => {
+        for (const name of names) recordProviderChange(name, registry.get(name), nextByName.get(name), auditContext);
+      });
+      registry.replace(next);
+      // Provider settings alone are reloadable. Listener/auth/database/session
+      // configuration remains the startup snapshot until an explicit restart.
+      opts.config.providers = loaded.providers ?? {};
+      opts.config.cdp = loaded.cdp;
+      opts.config.geminiApiKey = loaded.geminiApiKey;
+      opts.config.geminiModel = loaded.geminiModel;
+      opts.config.geminiQuota = loaded.geminiQuota;
+      providerSummary.splice(0, providerSummary.length, ...providerSummaries(registry, opts.config));
+      return providerSummaries(registry, opts.config, true);
+    },
     onProviderUpdate: (
       providerName: string,
       apiKey: string,
@@ -3492,7 +3548,10 @@ export async function createServer(opts: {
       // Update config and persist
       if (!opts.config.providers) opts.config.providers = {};
       const existing = opts.config.providers[name];
-      const beforeConfig = summarizeProviderConfig(existing);
+      const previousProvider = registry.get(name) ?? (existing ? {
+        adapter: adapterMap[name]!,
+        config: providerConfigFromEntry(name, existing, existing.quota ?? DEFAULT_QUOTA),
+      } : undefined);
       const mergedQuota = incomingQuota
         ? { ...(existing?.quota ?? DEFAULT_QUOTA), ...incomingQuota }
         : existing?.quota;
@@ -3513,7 +3572,9 @@ export async function createServer(opts: {
       };
 
       try {
-        saveConfigPatch(opts.config);
+        saveConfigPatch(fs.existsSync(runtimeConfigPath)
+          ? { providers: { [name]: opts.config.providers[name]! } }
+          : opts.config);
       } catch (err) {
         app.log.error({ err }, "Failed to save config");
         return null;
@@ -3523,66 +3584,9 @@ export async function createServer(opts: {
       const quota = opts.config.providers[name]!.quota ?? DEFAULT_QUOTA;
       registry.register(adapterMap[name]!, providerConfigFromEntry(name, opts.config.providers[name]!, quota));
 
-      // Update the providerSummary array in-place
-      const entry = providerSummary.find((p) => p.name === name);
-      if (entry) {
-        entry.configured = true;
-        entry.model = registry.get(name)?.config.model;
-        entry.quota = quota;
-        if (name === "gemini") {
-          entry.vertexConfigured =
-            !!opts.config.providers?.[name]?.vertexProject;
-        }
-      }
-
-      const afterConfig = summarizeProviderConfig(opts.config.providers[name]);
-      // The summary leaves the key out, so a rotation alone would leave no
-      // trace. It is recorded (never the key itself): it is worth auditing,
-      // and run admission reads it to give a replaced key its next run. A key
-      // saved over one that came from an env var counts too.
-      const apiKeyRotated = Boolean(existing) && Boolean(apiKey) && apiKey !== existing?.apiKey;
-      if (apiKeyRotated || JSON.stringify(beforeConfig) !== JSON.stringify(afterConfig)) {
-        const diff = JSON.stringify({
-          before: existing ? beforeConfig : null,
-          after: afterConfig,
-          ...(apiKeyRotated ? { apiKeyRotated: true } : {}),
-        });
-        const affectedProjectIds = opts.db
-          .select({ id: projects.id, providers: projects.providers })
-          .from(projects)
-          .all()
-          .filter((project) => {
-            const configuredProviders = project.providers;
-            return (
-              configuredProviders.length === 0 ||
-              configuredProviders.includes(name)
-            );
-          })
-          .map((project) => project.id);
-        const targetProjectIds =
-          affectedProjectIds.length > 0 ? affectedProjectIds : [null];
-        const createdAt = new Date().toISOString();
-
-        opts.db
-          .insert(auditLog)
-          .values(
-            targetProjectIds.map((projectId) => ({
-              id: crypto.randomUUID(),
-              projectId,
-              actor: auditContext?.actor ?? "api",
-              userAgent: auditContext?.userAgent ?? null,
-              actorSession: auditContext?.actorSession ?? null,
-              credentialId: auditContext?.credentialId ?? null,
-              requestId: auditContext?.requestId ?? null,
-              action: existing ? "provider.updated" : "provider.created",
-              entityType: "provider",
-              entityId: name,
-              diff,
-              createdAt,
-            })),
-          )
-          .run();
-      }
+      providerSummary.splice(0, providerSummary.length, ...providerSummaries(registry, opts.config));
+      const entry = providerSummary.find((provider) => provider.name === name);
+      opts.db.transaction(() => recordProviderChange(name, previousProvider, registry.get(name), auditContext));
 
       return {
         name,
@@ -3684,15 +3688,10 @@ export async function createServer(opts: {
         throw err;
       }
       // Re-register CDP adapter with the new endpoint
-      const CDP_DEFAULT_QUOTA = {
-        maxConcurrency: 1,
-        maxRequestsPerMinute: 4,
-        maxRequestsPerDay: 200,
-      };
       registry.register(cdpChatgptAdapter, {
         provider: "cdp:chatgpt",
         cdpEndpoint: `ws://${host}:${port}`,
-        quotaPolicy: opts.config.cdp.quota ?? CDP_DEFAULT_QUOTA,
+        quotaPolicy: opts.config.cdp.quota ?? DEFAULT_CDP_QUOTA,
       });
     },
     getCdpStatus: async () => {

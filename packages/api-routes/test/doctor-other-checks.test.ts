@@ -309,8 +309,6 @@ describe('config.providers', () => {
     expect(result.code).toBe('providers.none-configured')
     expect(result.summary).toContain('Page Health remains available')
     expect(result.remediation).toContain('canonry bootstrap')
-    // A bootstrapped key reaches a running server only after a restart.
-    expect(result.remediation).toContain('`canonry stop`, then `canonry start`')
     expect(result.remediation).toContain('canonry settings provider <name> --api-key <key>')
   })
 

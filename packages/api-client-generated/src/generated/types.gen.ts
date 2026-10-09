@@ -12442,6 +12442,30 @@ export type ProjectSearchResponseDto = {
     }>;
 };
 
+export type ProviderReloadRequest = {
+    configPath?: string;
+    databasePath?: string;
+};
+
+export type ProviderReloadResponseDto = {
+    reloaded: true;
+    providers: Array<{
+        name: string;
+        displayName?: string;
+        keyUrl?: string;
+        modelHint?: string;
+        model?: string;
+        defaultModel?: string;
+        configured: boolean;
+        quota?: {
+            maxConcurrency: number;
+            maxRequestsPerMinute: number;
+            maxRequestsPerDay: number;
+        };
+        vertexConfigured?: boolean;
+    }>;
+};
+
 export type ProviderSummaryEntryDto = {
     name: string;
     displayName?: string;
@@ -21316,6 +21340,43 @@ export type PutApiV1SettingsProvidersByNameResponses = {
 };
 
 export type PutApiV1SettingsProvidersByNameResponse = PutApiV1SettingsProvidersByNameResponses[keyof PutApiV1SettingsProvidersByNameResponses];
+
+export type PostApiV1SettingsProvidersReloadData = {
+    body?: ProviderReloadRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/settings/providers/reload';
+};
+
+export type PostApiV1SettingsProvidersReloadErrors = {
+    /**
+     * Invalid reload request or install identity mismatch.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Install administrator authority is required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Outstanding provider batch work requires the current registration. Quota-only changes remain available.
+     */
+    409: ErrorEnvelope;
+    /**
+     * Provider reload is not supported.
+     */
+    501: ErrorEnvelope;
+};
+
+export type PostApiV1SettingsProvidersReloadError = PostApiV1SettingsProvidersReloadErrors[keyof PostApiV1SettingsProvidersReloadErrors];
+
+export type PostApiV1SettingsProvidersReloadResponses = {
+    /**
+     * Saved provider configuration is active.
+     */
+    200: ProviderReloadResponseDto;
+};
+
+export type PostApiV1SettingsProvidersReloadResponse = PostApiV1SettingsProvidersReloadResponses[keyof PostApiV1SettingsProvidersReloadResponses];
 
 export type PutApiV1SettingsGoogleData = {
     body: {

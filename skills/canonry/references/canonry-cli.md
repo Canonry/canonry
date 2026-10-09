@@ -22,11 +22,16 @@ one, and `technical-aeo run|score|crawl` / `site-health overview` print a
 `NO_PROVIDER` notice on stderr (one `{"notice":{...}}` line for JSON): AI
 Visibility is the next step after Page Health. The operator adds the key in the
 dashboard or in their own terminal; never ask for it in chat. `cnry settings
-provider` registers a provider on the running server immediately; a key added by
-setting its env var and rerunning `cnry bootstrap` reaches an already-running
-server only after `cnry stop`, then `cnry start`. `cnry init` is the optional interactive path when provider/OAuth setup is
+provider` registers a provider on the running server immediately. `cnry init` is the optional interactive path when provider/OAuth setup is
 wanted at the same time. An agent must ask the operator to run either
 secret-bearing command in a private terminal without pasting the output back.
+
+Rerunning `cnry bootstrap` saves provider settings and reloads a running local
+server when its config and database match. `serverReload` reports `reloaded`
+with the active provider names, `unavailable` when startup is needed, or
+`not-local` for a remote API URL. A rejected reload reports `failed` and exits
+nonzero; the saved config remains available. Bootstrap never reloads a remote
+server automatically.
 
 ### Read-only embed mode (#716)
 
@@ -550,6 +555,7 @@ Available events: `citation.lost`, `citation.gained`, `run.completed`, `run.fail
 ```bash
 cnry settings                                  # show config: providers, apiUrl, db path
 cnry settings --format json
+cnry settings reload-providers --format json   # apply the server's saved provider config
 cnry settings provider gemini --api-key <KEY> --model gemini-flash-latest
 cnry settings provider openai --max-per-day 1000 --max-per-minute 20
 cnry settings provider perplexity --api-key <KEY> --model fast
@@ -559,6 +565,15 @@ cnry settings provider muse --api-key <KEY> --model muse-spark-1.3
 Perplexity runs on its Agent API. `--model` takes a preset (`fast` default, `low`, `medium`, `high`, `xhigh`) or a `vendor/model` slug such as `perplexity/sonar`. Retired Sonar names still work and run as their replacement (`sonar` → `fast`, `sonar-pro` → `low`).
 
 Quota flags: `--max-concurrent`, `--max-per-minute`, `--max-per-day`
+
+`reload-providers` rereads the connected server's config file: provider keys,
+models, Vertex AI settings, batch settings, pricing, quotas, and CDP. It returns
+active provider summaries without credentials. It requires install administrator
+authority and `settings.write`. Current requests keep their provider settings;
+quota changes preserve active requests and the rolling request history. Ports,
+database paths, authentication, and other server settings still need a restart.
+Changing or removing a provider with an outstanding batch is refused until the
+batch settles; quota-only updates remain available.
 
 Available providers: `gemini`, `openai`, `claude`, `perplexity`, `muse`, `local`, `cdp`
 

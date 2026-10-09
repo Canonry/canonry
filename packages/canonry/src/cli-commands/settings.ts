@@ -1,4 +1,4 @@
-import { setGoogleAuth, setProvider, showSettings } from '../commands/settings.js'
+import { reloadProviders, setGoogleAuth, setProvider, showSettings } from '../commands/settings.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
   getString,
@@ -10,6 +10,11 @@ import {
 import { usageError } from '../cli-error.js'
 
 export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
+  {
+    path: ['settings', 'reload-providers'],
+    usage: 'canonry settings reload-providers [--format json]',
+    run: async input => reloadProviders(input.format),
+  },
   {
     path: ['settings', 'provider'],
     usage: 'canonry settings provider <name> [--api-key <key>] [--base-url <url>] [--model <model>] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--format json]',
@@ -141,7 +146,7 @@ export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['settings'],
-    usage: 'canonry settings [provider|google] [args]',
+    usage: 'canonry settings [provider|reload-providers|google] [args]',
     run: async (input) => {
       const subcommand = input.positionals[0]
       if (!subcommand) {
@@ -151,8 +156,8 @@ export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
 
       unknownSubcommand(subcommand, {
         command: 'settings',
-        usage: 'canonry settings [provider|google] [args]',
-        available: ['provider', 'google'],
+        usage: 'canonry settings [provider|reload-providers|google] [args]',
+        available: ['provider', 'reload-providers', 'google'],
       })
     },
   },

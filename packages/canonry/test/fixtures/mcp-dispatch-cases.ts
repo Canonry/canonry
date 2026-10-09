@@ -3,6 +3,17 @@ import type { NativeDispatchCase } from '../mcp-dispatch-fixture.js'
 // Independent literal wire vectors; the live registry/SDK does not derive expected requests or receipts.
 // Pass-through receipts prove forwarding only; strict outputs and special handlers use literal valid DTOs.
 export const registryDispatchCases: readonly NativeDispatchCase[] = [
+  {
+    caseId: 'provider-reload-with-install-identity', tool: 'canonry_providers_reload', channel: 'mcp',
+    input: { configPath: '/srv/canonry/config.yaml', databasePath: '/srv/canonry/data.db' },
+    requests: [{
+      method: 'POST', path: '/native-mcp/api/v1/settings/providers/reload', query: [],
+      body: { configPath: '/srv/canonry/config.yaml', databasePath: '/srv/canonry/data.db' },
+      status: 200, response: { reloaded: true, providers: [{ name: 'gemini', configured: true, vertexConfigured: true }] },
+    }],
+    expectedText: { reloaded: true, providers: [{ name: 'gemini', configured: true, vertexConfigured: true }] },
+    expectedStructured: { reloaded: true, providers: [{ name: 'gemini', configured: true, vertexConfigured: true }] },
+  },
   {"caseId":"original-001","tool":"canonry_snapshot","channel":"mcp","input":{"companyName":"Acme","domain":"acme.example.com","providers":["gemini"],"providerMode":"api"},"requests":[{"method":"POST","path":"/native-mcp/api/v1/snapshot","query":[],"body":{"companyName":"Acme","domain":"acme.example.com","providers":["gemini"],"providerMode":"api"},"status":200,"response":{"receipt":"original-001","resource":"canonry_snapshot","payload":{"saved":true,"sequence":7}}}],"expectedText":{"receipt":"original-001","resource":"canonry_snapshot","payload":{"saved":true,"sequence":7}},"expectedStructured":{"receipt":"original-001","resource":"canonry_snapshot","payload":{"saved":true,"sequence":7}}},
   {"caseId":"original-002","tool":"canonry_projects_list","channel":"mcp","input":{},"requests":[{"method":"GET","path":"/native-mcp/api/v1/projects","query":[],"body":null,"status":200,"response":{"receipt":"original-002","resource":"canonry_projects_list","payload":{"saved":true,"sequence":7}}}],"expectedText":{"receipt":"original-002","resource":"canonry_projects_list","payload":{"saved":true,"sequence":7}},"expectedStructured":{"receipt":"original-002","resource":"canonry_projects_list","payload":{"saved":true,"sequence":7}}},
   {"caseId":"original-003","tool":"canonry_project_get","channel":"mcp","input":{"project":"acme"},"requests":[{"method":"GET","path":"/native-mcp/api/v1/projects/acme","query":[],"body":null,"status":200,"response":{"receipt":"original-003","resource":"canonry_project_get","payload":{"saved":true,"sequence":7}}}],"expectedText":{"receipt":"original-003","resource":"canonry_project_get","payload":{"saved":true,"sequence":7}},"expectedStructured":{"receipt":"original-003","resource":"canonry_project_get","payload":{"saved":true,"sequence":7}}},

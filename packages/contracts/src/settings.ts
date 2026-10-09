@@ -28,6 +28,22 @@ export const providerSummaryEntryDtoSchema = z.object({
 })
 export type ProviderSummaryEntryDto = z.infer<typeof providerSummaryEntryDtoSchema>
 
+/** Optional local-install identity pins; they select the install, never a file to read. */
+export const providerReloadRequestSchema = z.object({
+  configPath: z.string().min(1).max(4096).optional(),
+  databasePath: z.string().min(1).max(4096).optional(),
+}).strict().refine(
+  input => (input.configPath === undefined) === (input.databasePath === undefined),
+  'configPath and databasePath must be supplied together',
+)
+export type ProviderReloadRequest = z.infer<typeof providerReloadRequestSchema>
+
+export const providerReloadResponseDtoSchema = z.object({
+  reloaded: z.literal(true),
+  providers: z.array(providerSummaryEntryDtoSchema),
+})
+export type ProviderReloadResponseDto = z.infer<typeof providerReloadResponseDtoSchema>
+
 /** Credential-free adapter metadata used for project-scoped model controls. */
 export const providerCatalogEntryDtoSchema = z.object({
   name: z.string(),

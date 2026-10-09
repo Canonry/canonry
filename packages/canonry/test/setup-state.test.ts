@@ -92,6 +92,19 @@ describe('buildSetupState', () => {
     expect(buildSetupState()?.is_first_run).toBe(false)
   })
 
+  it.each([
+    { name: 'legacy Gemini', geminiApiKey: 'legacy-key', expected: 1 },
+    { name: 'modern and legacy Gemini together', providers: { gemini: { apiKey: 'modern-key' } }, geminiApiKey: 'legacy-key', expected: 1 },
+  ])('counts configured $name providers exactly once', ({ name: _name, expected, ...configuration }) => {
+    saveConfig({
+      apiUrl: 'http://localhost:4100',
+      database: path.join(tmpDir, 'unused.db'),
+      apiKey: 'cnry_test',
+      ...configuration,
+    })
+    expect(buildSetupState()?.provider_count).toBe(expected)
+  })
+
   it('reports project_count and has_keywords from the live DB', () => {
     const dbPath = path.join(tmpDir, `${crypto.randomUUID()}.db`)
     fs.mkdirSync(path.dirname(dbPath), { recursive: true })

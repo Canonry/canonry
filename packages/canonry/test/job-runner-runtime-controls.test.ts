@@ -18,12 +18,7 @@ import { ProviderRegistry } from '../src/provider-registry.js'
 import { resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'
 import { getCurrentUsageDay, reserveDailyQueryQuota } from '../src/usage-quota.js'
 
-// The provider execution gate is now a process-wide singleton per provider
-// name (see NEW-3 in provider-execution-gate.ts) — that is the fix, not a
-// bug. But several tests below register the same provider name ('gemini')
-// with DIFFERENT quota policies to exercise different limits, and without a
-// reset the first test to run would freeze that budget for every later one
-// in this file.
+// Keep shared active-call and rolling-minute history isolated between cases.
 beforeEach(() => {
   resetSharedProviderExecutionGates()
 })

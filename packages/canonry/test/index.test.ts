@@ -356,8 +356,6 @@ describe('canonry', () => {
       expect(nextSteps.join(' ')).toContain('GEMINI_API_KEY')
       expect(nextSteps.join(' ')).toContain('canonry settings provider gemini --api-key <key>')
       expect(nextSteps.join(' ')).toContain('never ask for it in chat')
-      // A running server builds its registry at startup: the env route needs a restart.
-      expect(nextSteps.join(' ')).toContain('`canonry stop`, then `canonry start`')
       expect(loadConfig()).toMatchObject({
         database: databasePath,
         apiUrl: 'http://127.0.0.1:4999',

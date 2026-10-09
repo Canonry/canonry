@@ -212,6 +212,8 @@ export interface ApiRoutesOptions {
   getCachedProviderModels?: ResearchRoutesOptions['getCachedProviderModels']
   /** Callback when a provider config is updated via API */
   onProviderUpdate?: SettingsRoutesOptions['onProviderUpdate']
+  /** Reload the execution host's provider configuration without restarting it. */
+  onProviderReload?: SettingsRoutesOptions['onProviderReload']
   /** Google OAuth configuration summary + update callback */
   googleSettingsSummary?: SettingsRoutesOptions['google']
   onGoogleSettingsUpdate?: SettingsRoutesOptions['onGoogleUpdate']
@@ -675,6 +677,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       providerSummary: opts.providerSummary,
       providerAdapters: opts.providerAdapters,
       onProviderUpdate: opts.onProviderUpdate,
+      onProviderReload: opts.onProviderReload,
       google: opts.googleSettingsSummary,
       onGoogleUpdate: opts.onGoogleSettingsUpdate,
       bing: opts.bingSettingsSummary,
@@ -814,7 +817,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getCachedProviderModels: opts.getCachedProviderModels,
       getEffectiveProviderModels: opts.getEffectiveProviderModels,
       providerAdapters: opts.providerAdapters,
-      configuredProviderNames: opts.providerSummary?.filter(provider => provider.configured).map(provider => provider.name),
+      getConfiguredProviderNames: () => opts.getRunnableProviderNames?.()
+        ?? opts.providerSummary?.filter(provider => provider.configured).map(provider => provider.name)
+        ?? [],
       onResearchRunRequested: opts.onResearchRunRequested,
       allowViewers: opts.researchAllowViewers,
       viewerDailyRunLimit: opts.researchViewerDailyRunLimit,

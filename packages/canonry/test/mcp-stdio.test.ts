@@ -141,6 +141,10 @@ describe('canonry-mcp stdio', () => {
     const setupLoad = await client.callTool({ name: 'canonry_load_toolkit', arguments: { name: 'setup' } })
     expect(setupLoad.isError).not.toBe(true)
 
+    const reload = await client.callTool({ name: 'canonry_providers_reload', arguments: {} })
+    expect(reload.isError).not.toBe(true)
+    expect(jsonText(reload)).toEqual({ reloaded: true, providers: [{ name: 'gemini', configured: true }] })
+
     const addQueries = await client.callTool({
       name: 'canonry_queries_add',
       arguments: { project: 'acme', request: { queries: ['alpha', 'alpha'] } },
@@ -437,6 +441,11 @@ async function startStubApi(onRunRequest?: (body: unknown) => void): Promise<{ o
 
 function handleRequest(request: IncomingMessage, response: ServerResponse, onRunRequest?: (body: unknown) => void): void {
   const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+  if (request.method === 'POST' && url.pathname === '/api/v1/settings/providers/reload') {
+    request.resume()
+    send(response, { reloaded: true, providers: [{ name: 'gemini', configured: true }] })
+    return
+  }
   if (request.method === 'POST' && url.pathname === '/api/v1/projects/acme/runs') {
     const chunks: Buffer[] = []
     request.on('data', (chunk: Buffer) => chunks.push(chunk))

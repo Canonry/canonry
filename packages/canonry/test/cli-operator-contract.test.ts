@@ -993,8 +993,10 @@ describe('operator CLI contract', () => {
     fs.mkdirSync(isolatedConfigDir, { recursive: true })
     const originalConfigDir = process.env.CANONRY_CONFIG_DIR
     const originalGeminiApiKey = process.env.GEMINI_API_KEY
+    const originalApiUrl = process.env.CANONRY_API_URL
     process.env.CANONRY_CONFIG_DIR = isolatedConfigDir
     process.env.GEMINI_API_KEY = 'test-gemini-key'
+    process.env.CANONRY_API_URL = 'http://127.0.0.1:1'
 
     try {
       const bootstrapResult = await invokeCli(['bootstrap', '--format', 'json'])
@@ -1009,7 +1011,7 @@ describe('operator CLI contract', () => {
         nextSteps: string[]
       }
       expect(bootstrapParsed.bootstrapped).toBe(true)
-      expect(bootstrapParsed.nextSteps).toEqual([])
+      expect(bootstrapParsed.nextSteps).toEqual(['Start `canonry serve` to use the saved configuration.'])
       expect(bootstrapParsed.status).toBe('created')
       expect(bootstrapParsed.changed).toBe(true)
       expect(bootstrapParsed.providers).toContain('gemini')
@@ -1051,6 +1053,11 @@ describe('operator CLI contract', () => {
         delete process.env.GEMINI_API_KEY
       } else {
         process.env.GEMINI_API_KEY = originalGeminiApiKey
+      }
+      if (originalApiUrl === undefined) {
+        delete process.env.CANONRY_API_URL
+      } else {
+        process.env.CANONRY_API_URL = originalApiUrl
       }
       fs.rmSync(isolatedConfigDir, { recursive: true, force: true })
     }

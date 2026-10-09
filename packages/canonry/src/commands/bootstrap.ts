@@ -7,8 +7,10 @@ import { getBootstrapEnv } from '@ainyc/canonry-config'
 import { createClient, migrate, apiKeys, dashboardSessions } from '@ainyc/canonry-db'
 
 import { configExists, getConfigDir, getConfigPath, loadConfig, loadConfigRaw, saveConfig } from '../config.js'
+import { CliError, isMachineFormat, systemError, type CliFormat } from '../cli-error.js'
+import { createApiClient } from '../client.js'
+import { isLoopbackBindHost } from '../server.js'
 import { registeredProviderNames } from '../provider-registration.js'
-import { isMachineFormat, type CliFormat } from '../cli-error.js'
 
 function persistedValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(persistedValue)
@@ -26,28 +28,33 @@ function persistedValue(value: unknown): unknown {
  * What an agent reading `--format json` should do about a provider-less
  * install. Bootstrap is the provider-free path, so these are the only steps
  * it names: the same remedy `doctor`'s `providers.none-configured` gives,
- * with the credential kept out of the agent's hands. A running server builds
- * its provider registry once, at startup, so the env-var route needs a
- * restart; the settings command registers the provider live.
+ * with the credential kept out of the agent's hands. Bootstrap reloads the
+ * matching local server after saving; the settings command registers live.
  */
 const PROVIDER_FREE_NEXT_STEPS: readonly string[] = [
   'AI Visibility needs an answer-engine provider. Page Health does not.',
   'With the server running, the operator runs `canonry settings provider gemini --api-key <key>` '
     + '(free key at https://aistudio.google.com/apikey). It takes effect immediately.',
-  'Or the operator sets GEMINI_API_KEY and reruns `canonry bootstrap`. A server that is already running '
-    + 'loads it only after a restart: `canonry stop`, then `canonry start`.',
+  'Or the operator sets GEMINI_API_KEY and reruns `canonry bootstrap`. It reloads the matching running local server '
+    + 'and confirms active providers; an offline server uses the saved settings at startup.',
   'A provider key is the operator\'s credential: never ask for it in chat.',
 ]
 
 export async function bootstrapCommand(opts?: { format?: CliFormat }): Promise<void> {
   const format = opts?.format ?? 'text'
-  const env = getBootstrapEnv(process.env)
-  const providers = env.providers
-
   const configDir = getConfigDir()
   const existing = configExists()
   const existingConfig = existing ? loadConfig() : undefined
   const existingRaw = existing ? loadConfigRaw() : null
+  const env = getBootstrapEnv(process.env, {
+    GEMINI_MODEL: process.env.GEMINI_MODEL ?? existingConfig?.providers?.gemini?.model,
+    OPENAI_MODEL: process.env.OPENAI_MODEL ?? existingConfig?.providers?.openai?.model,
+    ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL ?? existingConfig?.providers?.claude?.model,
+    PERPLEXITY_MODEL: process.env.PERPLEXITY_MODEL ?? existingConfig?.providers?.perplexity?.model,
+    MUSE_MODEL: process.env.MUSE_MODEL ?? existingConfig?.providers?.muse?.model,
+    LOCAL_MODEL: process.env.LOCAL_MODEL ?? existingConfig?.providers?.local?.model,
+  })
+  const providers = env.providers
   const databasePath = env.databasePath || existingRaw?.database || path.join(configDir, 'data.db')
 
   // Resolve API key: env var > existing config > generate new
@@ -65,12 +72,14 @@ export async function bootstrapCommand(opts?: { format?: CliFormat }): Promise<v
   // Merge providers: env vars override, but preserve dashboard-configured
   // providers that don't have a corresponding env var set
   const mergedProviders = { ...existingConfig?.providers }
-  if (providers.gemini) mergedProviders.gemini = providers.gemini
-  if (providers.openai) mergedProviders.openai = providers.openai
-  if (providers.claude) mergedProviders.claude = providers.claude
-  if (providers.perplexity) mergedProviders.perplexity = providers.perplexity
-  if (providers.muse) mergedProviders.muse = providers.muse
-  if (providers.local) mergedProviders.local = providers.local
+  for (const [name, provider] of Object.entries(providers)) {
+    const stored = mergedProviders[name]
+    mergedProviders[name] = {
+      ...stored,
+      ...Object.fromEntries(Object.entries(provider).filter(([, value]) => value !== undefined)),
+      quota: stored?.quota ?? provider.quota,
+    }
+  }
 
   if ((env.googleClientId && !env.googleClientSecret) || (!env.googleClientId && env.googleClientSecret)) {
     console.warn('Warning: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must both be set to configure Google OAuth. Skipping Google auth config.')
@@ -178,10 +187,35 @@ export async function bootstrapCommand(opts?: { format?: CliFormat }): Promise<v
   if (configChanged) saveConfig(nextConfig)
 
   const status = !existing ? 'created' : configChanged || keyChanged ? 'updated' : 'unchanged'
-  // Whether the server would register any provider from what was just
-  // saved, not whether the providers map has keys: a key-less entry
-  // registers nothing, and a Vertex Gemini or a CDP browser does.
   const providerFree = registeredProviderNames(nextConfig).length === 0
+  let serverReload: {
+    status: 'reloaded' | 'unavailable' | 'not-local' | 'failed'
+    providers?: string[]
+    code?: string
+  } = { status: 'not-local' }
+  let reloadFailure: CliError | undefined
+  if (isLoopbackBindHost(new URL(loadConfig().apiUrl).hostname)) {
+    const signal = AbortSignal.timeout(4000)
+    try {
+      const receipt = await createApiClient().reloadProviders({ configPath: getConfigPath(), databasePath }, signal)
+      serverReload = {
+        status: 'reloaded',
+        providers: receipt.providers.filter(provider => provider.configured).map(provider => provider.name),
+      }
+    } catch (err) {
+      if (err instanceof CliError && err.code === 'CONNECTION_ERROR' && err.details?.connectionUnavailable === true && !signal.aborted) {
+        serverReload = { status: 'unavailable' }
+      } else {
+        reloadFailure = err instanceof CliError ? err : systemError('Provider configuration was saved, but server reload failed.')
+        serverReload = { status: 'failed', code: reloadFailure.code }
+      }
+    }
+  }
+  const nextSteps = [
+    ...(providerFree ? PROVIDER_FREE_NEXT_STEPS : []),
+    ...(serverReload.status === 'unavailable' ? ['Start `canonry serve` to use the saved configuration.'] : []),
+    ...(serverReload.status === 'failed' ? ['Resolve the server reload error, then run `canonry settings reload-providers`.'] : []),
+  ]
 
   if (isMachineFormat(format)) {
     console.log(JSON.stringify({
@@ -194,18 +228,27 @@ export async function bootstrapCommand(opts?: { format?: CliFormat }): Promise<v
       providers: Object.keys(mergedProviders),
       googleConfigured: !!mergedGoogle,
       generatedApiKey,
-      nextSteps: providerFree ? PROVIDER_FREE_NEXT_STEPS : [],
+      serverReload,
+      nextSteps,
     }, null, 2))
+    if (reloadFailure) throw reloadFailure
     return
   }
 
   console.log(`Bootstrap ${status}. Config: ${getConfigPath()}`)
   console.log(`SQLite database path: ${databasePath}`)
+  if (serverReload.status === 'reloaded') {
+    console.log(`Providers active on the running server: ${serverReload.providers?.join(', ') || 'none'}.`)
+  } else if (serverReload.status === 'unavailable') {
+    console.log('Start `canonry serve` to use the saved configuration.')
+  } else if (serverReload.status === 'not-local') {
+    console.log('Configuration saved locally. The configured remote server was not reloaded.')
+  }
   if (providerFree) {
     console.log('Providers: none (Page Health works now; add one later to enable AI Visibility).')
     console.log('  To add one with the server running: canonry settings provider gemini --api-key <key>')
     console.log('  (free key at aistudio.google.com). Or set GEMINI_API_KEY and rerun `canonry bootstrap`;')
-    console.log('  a server that is already running loads it only after `canonry stop`, then `canonry start`.')
+    console.log('  bootstrap reloads the matching running local server and confirms active providers.')
   }
   if (generatedApiKey) {
     // Say what it is for. This is the only place the key appears, and without
@@ -213,4 +256,5 @@ export async function bootstrapCommand(opts?: { format?: CliFormat }): Promise<v
     // password the operator is about to be asked for.
     console.log(`API key (for the CLI, MCP, and agents): ${generatedApiKey}`)
   }
+  if (reloadFailure) throw reloadFailure
 }
