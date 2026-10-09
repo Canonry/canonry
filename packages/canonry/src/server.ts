@@ -64,6 +64,7 @@ import {
   RunStatuses,
   RunTriggers,
   ProviderNames,
+  ProviderReloadErrorReasons,
   ResearchRunStatuses,
   DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT,
   adsAccountDtoSchema,
@@ -246,7 +247,7 @@ import {
 import { ProviderRegistry, type RegisteredProvider } from "./provider-registry.js";
 import { batchEligibleProviderNames, providerConfigFromEntry, providersWithUnsupportedBatch } from "./provider-batch-config.js";
 import { registeredProviderNames } from "./provider-registration.js";
-import { configuredProviderEntries, DEFAULT_CDP_QUOTA, DEFAULT_PROVIDER_QUOTA, validateProviderReloadConfig } from "./provider-runtime-config.js";
+import { configuredProviderEntries, DEFAULT_CDP_QUOTA, DEFAULT_PROVIDER_QUOTA, resolveProviderQuotaPolicy } from "./provider-runtime-config.js";
 import { assertProviderReloadKeepsPendingBatches } from "./provider-reload-batch-guard.js";
 import { createProviderModelCatalog } from "./provider-model-catalog.js";
 import { Scheduler, ensureDefaultHealthSchedule } from "./scheduler.js";
@@ -458,9 +459,18 @@ function providerSummaries(registry: ProviderRegistry, config: CanonryConfig, in
   }));
 }
 
+/**
+ * An install file's identity for the provider reload check: its resolved
+ * directory plus its file name. The file itself is not resolved, because the
+ * atomic config write replaces a symlinked config.yaml with a regular file and
+ * the same install must still match afterwards.
+ */
 function runtimePathIdentity(runtimePath: string): string {
   if (runtimePath === ':memory:') return runtimePath;
-  try { return fs.realpathSync(runtimePath); } catch { return path.resolve(runtimePath); }
+  const resolved = path.resolve(runtimePath);
+  let directory = path.dirname(resolved);
+  try { directory = fs.realpathSync(directory); } catch { /* a missing directory keeps its lexical path */ }
+  return path.join(directory, path.basename(resolved));
 }
 
 // Dashboard password storage uses scrypt (salted, slow KDF) — not plain
@@ -3504,12 +3514,15 @@ export async function createServer(opts: {
         runtimePathIdentity(input.configPath) !== runtimeConfigIdentity
         || runtimePathIdentity(input.databasePath!) !== runtimeDatabaseIdentity
       )) {
-        throw validationError('Provider reload identity does not match this running server.');
+        throw validationError('Provider reload identity does not match this running server.', {
+          reason: ProviderReloadErrorReasons["install-identity-mismatch"],
+        });
       }
+      // The same loader and registration path as startup: a config this
+      // server boots with also reloads, and one startup refuses is refused.
       let loaded: CanonryConfig;
       try {
         loaded = loadConfig(runtimeConfigPath);
-        validateProviderReloadConfig(loaded);
       } catch {
         // YAML parser errors can include the secret-bearing source line.
         throw validationError('Provider configuration could not be loaded; repair config.yaml and retry.');
@@ -3550,7 +3563,7 @@ export async function createServer(opts: {
       const existing = opts.config.providers[name];
       const previousProvider = registry.get(name) ?? (existing ? {
         adapter: adapterMap[name]!,
-        config: providerConfigFromEntry(name, existing, existing.quota ?? DEFAULT_QUOTA),
+        config: providerConfigFromEntry(name, existing, resolveProviderQuotaPolicy(existing.quota, DEFAULT_QUOTA)),
       } : undefined);
       const mergedQuota = incomingQuota
         ? { ...(existing?.quota ?? DEFAULT_QUOTA), ...incomingQuota }
@@ -3581,7 +3594,7 @@ export async function createServer(opts: {
       }
 
       // Re-register in the live registry (use preserved model if none was passed)
-      const quota = opts.config.providers[name]!.quota ?? DEFAULT_QUOTA;
+      const quota = resolveProviderQuotaPolicy(opts.config.providers[name]!.quota, DEFAULT_QUOTA);
       registry.register(adapterMap[name]!, providerConfigFromEntry(name, opts.config.providers[name]!, quota));
 
       providerSummary.splice(0, providerSummary.length, ...providerSummaries(registry, opts.config));
@@ -3691,7 +3704,7 @@ export async function createServer(opts: {
       registry.register(cdpChatgptAdapter, {
         provider: "cdp:chatgpt",
         cdpEndpoint: `ws://${host}:${port}`,
-        quotaPolicy: opts.config.cdp.quota ?? DEFAULT_CDP_QUOTA,
+        quotaPolicy: resolveProviderQuotaPolicy(opts.config.cdp.quota, DEFAULT_CDP_QUOTA),
       });
     },
     getCdpStatus: async () => {

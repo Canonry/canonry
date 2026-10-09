@@ -21378,7 +21378,7 @@ export type PostApiV1SettingsProvidersReloadData = {
 
 export type PostApiV1SettingsProvidersReloadErrors = {
     /**
-     * Invalid reload request or install identity mismatch.
+     * Invalid reload request, unloadable config, or install identity mismatch (error.details.reason install-identity-mismatch).
      */
     400: ErrorEnvelope;
     /**

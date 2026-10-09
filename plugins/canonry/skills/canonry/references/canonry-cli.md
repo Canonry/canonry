@@ -26,12 +26,20 @@ provider` registers a provider on the running server immediately. `cnry init` is
 wanted at the same time. An agent must ask the operator to run either
 secret-bearing command in a private terminal without pasting the output back.
 
-Rerunning `cnry bootstrap` saves provider settings and reloads a running local
-server when its config and database match. `serverReload` reports `reloaded`
-with the active provider names, `unavailable` when startup is needed, or
-`not-local` for a remote API URL. A rejected reload reports `failed` and exits
-nonzero; the saved config remains available. Bootstrap never reloads a remote
-server automatically.
+Rerunning `cnry bootstrap` saves provider settings and, when they changed,
+reloads a running local server whose config and database match. A provider key
+from the environment replaces that provider's saved credentials as a unit
+(`GEMINI_API_KEY` drops a saved Vertex project, and `GEMINI_VERTEX_PROJECT`
+drops a saved key); saved models, quotas, and batch settings stay unless their
+environment variables are set. `serverReload` reports `reloaded` with the active
+provider names, `unchanged` when the saved providers did not change (no request
+is sent), `unavailable` when startup is needed, `not-local` for a remote API
+URL, or `not-matching` when the server on that URL belongs to another install
+(`reason: other-install`) or cannot reload (`reason: reload-unsupported`).
+`not-matching` exits 0: run `cnry settings reload-providers` against this
+install's server, or restart it, to apply the saved providers. Any other
+rejected reload reports `failed` and exits nonzero; the saved config remains
+available. Bootstrap never reloads a remote server automatically.
 
 ### Read-only embed mode (#716)
 
@@ -567,7 +575,9 @@ Perplexity runs on its Agent API. `--model` takes a preset (`fast` default, `low
 Quota flags: `--max-concurrent`, `--max-per-minute`, `--max-per-day`
 
 `reload-providers` rereads the connected server's config file: provider keys,
-models, Vertex AI settings, batch settings, pricing, quotas, and CDP. It returns
+models, Vertex AI settings, batch settings, pricing, quotas, and CDP. Any config
+the server starts with also reloads, with the same result: a partial `quota:`
+block keeps its saved limits and takes the defaults for the rest. It returns
 active provider summaries without credentials. It requires install administrator
 authority and `settings.write`. Current requests keep their provider settings;
 quota changes preserve active requests and the rolling request history. Ports,

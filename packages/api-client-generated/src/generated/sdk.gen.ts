@@ -2609,7 +2609,7 @@ export const putApiV1SettingsProvidersByName = <ThrowOnError extends boolean = f
 /**
  * Reload saved provider configuration
  *
- * Requires settings.write and install administrator authority. Reloads only the execution host's own saved provider configuration, including credentials, models, quotas and batch settings. Returns credential-free provider status. Optional configPath and databasePath are an identity pair: supply both or neither. They must match the host's captured paths and never select an arbitrary file. No provider calls are made. Unsupported hosts return NOT_IMPLEMENTED.
+ * Requires settings.write and install administrator authority. Reloads only the execution host's own saved provider configuration, including credentials, models, quotas and batch settings. Returns credential-free provider status. Optional configPath and databasePath are an identity pair: supply both or neither. They must match the host's captured paths and never select an arbitrary file; a pair naming another install returns VALIDATION_ERROR with error.details.reason install-identity-mismatch. A config the host boots with also reloads, with the same registrations. No provider calls are made. Unsupported hosts return NOT_IMPLEMENTED.
  */
 export const postApiV1SettingsProvidersReload = <ThrowOnError extends boolean = false>(options?: Options<PostApiV1SettingsProvidersReloadData, ThrowOnError>) => {
     return (options?.client ?? client).post<PostApiV1SettingsProvidersReloadResponses, PostApiV1SettingsProvidersReloadErrors, ThrowOnError>({

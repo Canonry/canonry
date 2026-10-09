@@ -16,6 +16,7 @@ rewriting the dashboard block. The list uses `schedulableRunKindSchema`.
 ## Patterns
 
 - **Config source priority**: Environment variables override `config.yaml` values.
+- **`getBootstrapEnv()`**: never injects a default. An unset model stays undefined and quotas are never read, so a bootstrap rerun keeps saved values. `withBootstrapProviderDefaults()` fills only a new entry's gaps (`BOOTSTRAP_PROVIDER_DEFAULT_MODELS`, `BOOTSTRAP_PROVIDER_DEFAULT_QUOTA`).
 - **`loadConfig()`**: Loads config for CLI commands (via `createApiClient()`) and the server. Preserve legacy dashboard fields and their key order; never replace the block with schema parse output. An invalid managed boolean or run-kind list raises a path-qualified `CliError` (exit 1). Missing or blank values leave the opt-in unset.
 - **`saveConfigPatch()`**: Merges partial updates into `~/.canonry/config.yaml`.
 - **Base path**: `CANONRY_BASE_PATH` env var and `basePath` in config.yaml are merged into `apiUrl`.

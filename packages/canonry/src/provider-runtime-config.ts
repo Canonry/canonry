@@ -1,11 +1,4 @@
-import { z } from 'zod'
-import {
-  providerQuotaPolicySchema,
-  providerBatchConfigSchema,
-  providerPricingSchema,
-  validationError,
-  type ProviderAdapter,
-} from '@ainyc/canonry-contracts'
+import type { ProviderAdapter, ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
 import type { CanonryConfig } from './config.js'
 import { providerConfigFromEntry } from './provider-batch-config.js'
 import { isApiProviderRegistrable, isCdpProviderRegistrable } from './provider-registration.js'
@@ -23,35 +16,30 @@ export const DEFAULT_CDP_QUOTA = {
   maxRequestsPerDay: 200,
 }
 
-const providerEntrySchema = z.object({
-  apiKey: z.string().nullish(),
-  baseUrl: z.string().nullish(),
-  model: z.string().nullish(),
-  quota: providerQuotaPolicySchema.nullish(),
-  batch: providerBatchConfigSchema.nullish(),
-  pricing: providerPricingSchema.nullish(),
-  vertexProject: z.string().nullish(),
-  vertexRegion: z.string().nullish(),
-  vertexCredentials: z.string().nullish(),
-}).passthrough()
-
-const reloadConfigSchema = z.object({
-  providers: z.record(z.string(), providerEntrySchema.nullish()).nullish(),
-  cdp: z.object({
-    host: z.string().nullish(),
-    port: z.number().int().min(1).max(65535).nullish(),
-    quota: providerQuotaPolicySchema.nullish(),
-  }).passthrough().nullish(),
-}).passthrough()
-
-/** Refuse malformed credentials/limits before touching any live registration. */
-export function validateProviderReloadConfig(config: CanonryConfig): void {
-  if (!reloadConfigSchema.safeParse(config).success) {
-    throw validationError('Provider configuration is invalid; repair config.yaml and retry.')
+/**
+ * The limits a registration runs with, for every path that registers a
+ * provider (startup, reload, settings writes). Each saved limit wins; one the
+ * config leaves out (a partial `quota:` block, a blank YAML value, or no block)
+ * takes the default. A partial block used to register with missing limits:
+ * no per-minute cap and a daily check that refused every run after the first.
+ */
+export function resolveProviderQuotaPolicy(
+  quota: Partial<ProviderQuotaPolicy> | null | undefined,
+  defaults: ProviderQuotaPolicy,
+): ProviderQuotaPolicy {
+  const saved: Partial<ProviderQuotaPolicy> = quota && typeof quota === 'object' && !Array.isArray(quota) ? quota : {}
+  return {
+    maxConcurrency: saved.maxConcurrency ?? defaults.maxConcurrency,
+    maxRequestsPerMinute: saved.maxRequestsPerMinute ?? defaults.maxRequestsPerMinute,
+    maxRequestsPerDay: saved.maxRequestsPerDay ?? defaults.maxRequestsPerDay,
   }
 }
 
-/** The same complete provider registration set for startup and explicit reload. */
+/**
+ * The complete registration set for one config, shared by startup and
+ * explicit reload: a config the server boots with reloads to the same
+ * registrations. Reload refuses only what loading the config refuses.
+ */
 export function configuredProviderEntries(
   config: CanonryConfig,
   apiAdapters: readonly ProviderAdapter[],
@@ -62,14 +50,16 @@ export function configuredProviderEntries(
     const entry = config.providers?.[adapter.name]
     if (!entry) continue
     if (isApiProviderRegistrable(adapter.name, entry)) {
-      registered.push(resolveRegistration(adapter, providerConfigFromEntry(adapter.name, entry, entry.quota ?? DEFAULT_PROVIDER_QUOTA)))
+      registered.push(resolveRegistration(adapter, providerConfigFromEntry(
+        adapter.name, entry, resolveProviderQuotaPolicy(entry.quota, DEFAULT_PROVIDER_QUOTA),
+      )))
     }
   }
   if (isCdpProviderRegistrable(config.cdp)) {
     registered.push(resolveRegistration(cdpAdapter, {
       provider: cdpAdapter.name,
       cdpEndpoint: `ws://${config.cdp?.host ?? 'localhost'}:${config.cdp?.port ?? 9222}`,
-      quotaPolicy: config.cdp?.quota ?? DEFAULT_CDP_QUOTA,
+      quotaPolicy: resolveProviderQuotaPolicy(config.cdp?.quota, DEFAULT_CDP_QUOTA),
     }))
   }
   return registered

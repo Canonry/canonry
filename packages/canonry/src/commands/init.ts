@@ -2,7 +2,13 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import readline from 'node:readline'
 import path from 'node:path'
-import { getBootstrapEnv } from '@ainyc/canonry-config'
+import {
+  getBootstrapEnv,
+  withBootstrapProviderDefaults,
+  type BootstrapProviderEnvConfig,
+  type BootstrapProviderName,
+  type LocalBootstrapProviderConfig,
+} from '@ainyc/canonry-config'
 import { getConfigDir, getConfigPath, configExists, saveConfig } from '../config.js'
 import type { CanonryConfig } from '../config.js'
 import { trackEvent, showFirstRunNotice, isTelemetryEnabled } from '../telemetry.js'
@@ -199,8 +205,11 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
   }
 
   if (nonInteractive) {
-    // Non-interactive mode — providers fully resolved by getBootstrapEnv
-    Object.assign(providers, envProviders)
+    // Non-interactive mode: every entry is new, so each takes the setup
+    // defaults for any model or quota the environment does not set.
+    for (const [name, entry] of Object.entries(envProviders) as [BootstrapProviderName, BootstrapProviderEnvConfig | LocalBootstrapProviderConfig | undefined][]) {
+      if (entry) providers[name] = withBootstrapProviderDefaults(name, entry)
+    }
     if (envGoogleConfigured) {
       google = {
         clientId: bootstrapEnv.googleClientId,

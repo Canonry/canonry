@@ -367,7 +367,7 @@ Every read-time competitor reader scores stored answers with the names the proje
 - `google_connections` and `bing_connections` are uniquely keyed on `(domain, connectionType)`, not on `(project_id, connectionType)`. Two projects on the same instance that track the same `canonicalDomain` share an OAuth connection by design — operators sharing infra get this for free, malicious tenants do not.
 - `GET /api/v1/projects` returns every project on the instance.
 - `PUT /api/v1/settings/providers/:name` and the other `/settings/*` routes rewrite the instance's global provider keys + OAuth client credentials. Default API keys have `scopes: ['*']` and there is no `admin` scope yet.
-- `POST /settings/providers/reload` requires `settings.write` and `requireInstanceAdministrator`: project, narrow, read-only and viewer credentials cannot reload the install. The host hook reloads only its captured provider configuration and returns credential-free summaries; an unsupported host returns `NOT_IMPLEMENTED`. Optional `configPath` + `databasePath` are a paired install identity check, never paths to read or execution tuning.
+- `POST /settings/providers/reload` requires `settings.write` and `requireInstanceAdministrator`: project, narrow, read-only and viewer credentials cannot reload the install. The host hook reloads only its captured provider configuration and returns credential-free summaries; an unsupported host returns `NOT_IMPLEMENTED`. Optional `configPath` + `databasePath` are a paired install identity check, never paths to read or execution tuning. A pair naming another install is `VALIDATION_ERROR` with `details.reason: install-identity-mismatch` (`ProviderReloadErrorReasons`), which callers branch on instead of the message.
 
 #### Operational guidance
 

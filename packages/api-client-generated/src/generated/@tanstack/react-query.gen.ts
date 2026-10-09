@@ -3122,7 +3122,7 @@ export const putApiV1SettingsProvidersByNameMutation = (options?: Partial<Option
 /**
  * Reload saved provider configuration
  *
- * Requires settings.write and install administrator authority. Reloads only the execution host's own saved provider configuration, including credentials, models, quotas and batch settings. Returns credential-free provider status. Optional configPath and databasePath are an identity pair: supply both or neither. They must match the host's captured paths and never select an arbitrary file. No provider calls are made. Unsupported hosts return NOT_IMPLEMENTED.
+ * Requires settings.write and install administrator authority. Reloads only the execution host's own saved provider configuration, including credentials, models, quotas and batch settings. Returns credential-free provider status. Optional configPath and databasePath are an identity pair: supply both or neither. They must match the host's captured paths and never select an arbitrary file; a pair naming another install returns VALIDATION_ERROR with error.details.reason install-identity-mismatch. A config the host boots with also reloads, with the same registrations. No provider calls are made. Unsupported hosts return NOT_IMPLEMENTED.
  */
 export const postApiV1SettingsProvidersReloadMutation = (options?: Partial<Options<PostApiV1SettingsProvidersReloadData>>): UseMutationOptions<PostApiV1SettingsProvidersReloadResponse, PostApiV1SettingsProvidersReloadError, Options<PostApiV1SettingsProvidersReloadData>> => {
     const mutationOptions: UseMutationOptions<PostApiV1SettingsProvidersReloadResponse, PostApiV1SettingsProvidersReloadError, Options<PostApiV1SettingsProvidersReloadData>> = {

@@ -936,6 +936,7 @@ describe('canonry', () => {
       expect(config.providers?.gemini?.model).toBe('gemini-flash-latest')
       expect(config.providers?.openai?.apiKey).toBe('test-openai-key')
       expect(config.providers?.openai?.model).toBe('gpt-5.4')
+      expect(config.providers?.openai?.quota).toEqual({ maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 500 })
       expect(config.providers?.claude).toBeUndefined()
       expect(config.apiKey).toMatch(/^cnry_/)
     } finally {

@@ -38,6 +38,16 @@ export const providerReloadRequestSchema = z.object({
 )
 export type ProviderReloadRequest = z.infer<typeof providerReloadRequestSchema>
 
+/**
+ * `error.details.reason` on a reload `VALIDATION_ERROR`. `install-identity-mismatch`:
+ * the `configPath` + `databasePath` pair names a different install than the
+ * one this server runs, so nothing was reloaded. Callers branch on this value,
+ * never on the message.
+ */
+export const providerReloadErrorReasonSchema = z.enum(['install-identity-mismatch'])
+export type ProviderReloadErrorReason = z.infer<typeof providerReloadErrorReasonSchema>
+export const ProviderReloadErrorReasons = providerReloadErrorReasonSchema.enum
+
 export const providerReloadResponseDtoSchema = z.object({
   reloaded: z.literal(true),
   providers: z.array(providerSummaryEntryDtoSchema),

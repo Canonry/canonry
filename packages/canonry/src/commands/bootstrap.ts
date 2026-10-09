@@ -3,11 +3,12 @@ import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 
 import { eq } from 'drizzle-orm'
-import { getBootstrapEnv } from '@ainyc/canonry-config'
+import { getBootstrapEnv, withBootstrapProviderDefaults, type BootstrapProviderName } from '@ainyc/canonry-config'
+import { ProviderNames, ProviderReloadErrorReasons } from '@ainyc/canonry-contracts'
 import { createClient, migrate, apiKeys, dashboardSessions } from '@ainyc/canonry-db'
 
-import { configExists, getConfigDir, getConfigPath, loadConfig, loadConfigRaw, saveConfig } from '../config.js'
-import { CliError, isMachineFormat, systemError, type CliFormat } from '../cli-error.js'
+import { configExists, getConfigDir, getConfigPath, loadConfig, loadConfigRaw, saveConfig, type ProviderConfigEntry } from '../config.js'
+import { CliError, isEndpointMissing, isMachineFormat, systemError, type CliFormat } from '../cli-error.js'
 import { createApiClient } from '../client.js'
 import { isLoopbackBindHost } from '../server.js'
 import { registeredProviderNames } from '../provider-registration.js'
@@ -40,21 +41,100 @@ const PROVIDER_FREE_NEXT_STEPS: readonly string[] = [
   'A provider key is the operator\'s credential: never ask for it in chat.',
 ]
 
+/**
+ * The fields that select and authenticate a provider's account. An env entry
+ * replaces them as one unit, so switching auth modes through the env never
+ * leaves the old mode behind (a saved Vertex project would otherwise win over
+ * a new GEMINI_API_KEY). Every other saved field (model, quota, endpoint,
+ * batch, pricing) stays unless the env sets it.
+ */
+const PROVIDER_CREDENTIAL_FIELDS: Partial<Record<BootstrapProviderName, readonly string[]>> = {
+  [ProviderNames.gemini]: ['apiKey', 'vertexProject', 'vertexRegion', 'vertexCredentials'],
+  // A local key belongs to the server at its base URL.
+  [ProviderNames.local]: ['baseUrl', 'apiKey'],
+}
+const API_KEY_CREDENTIAL_FIELDS: readonly string[] = ['apiKey']
+
+/** One provider's saved entry with the env's settings applied; a new entry takes the setup defaults. */
+function mergeEnvProvider(name: BootstrapProviderName, saved: ProviderConfigEntry | null | undefined, fromEnv: object): ProviderConfigEntry {
+  const credentialFields = PROVIDER_CREDENTIAL_FIELDS[name] ?? API_KEY_CREDENTIAL_FIELDS
+  const envFields = Object.entries(fromEnv)
+  const envValues = new Map(envFields)
+  const merged: Record<string, unknown> = {}
+  // Saved fields keep their order; env values win, and a credential the env
+  // did not set is dropped with the rest of the saved credential set.
+  for (const [field, value] of Object.entries(saved ?? {})) {
+    if (envValues.get(field) !== undefined) merged[field] = envValues.get(field)
+    else if (!credentialFields.includes(field)) merged[field] = value
+  }
+  // Fields the saved entry lacks follow in the reader's order. An unset one
+  // only holds its place: YAML and the change check both ignore undefined.
+  for (const [field, value] of envFields) {
+    if (!(field in merged)) merged[field] = value
+  }
+  return withBootstrapProviderDefaults(name, merged as ProviderConfigEntry)
+}
+
+/** `serverReload.status` in the JSON output. */
+const ServerReloadStatuses = {
+  reloaded: 'reloaded',
+  unchanged: 'unchanged',
+  unavailable: 'unavailable',
+  'not-local': 'not-local',
+  'not-matching': 'not-matching',
+  failed: 'failed',
+} as const
+
+/** `serverReload.reason` when a reachable local server did not take the reload. */
+const NotMatchingReasons = {
+  'other-install': 'other-install',
+  'reload-unsupported': 'reload-unsupported',
+} as const
+type NotMatchingReason = typeof NotMatchingReasons[keyof typeof NotMatchingReasons]
+
+type ServerReload =
+  | { status: typeof ServerReloadStatuses.reloaded; providers: string[] }
+  | { status: typeof ServerReloadStatuses.unchanged | typeof ServerReloadStatuses.unavailable | typeof ServerReloadStatuses['not-local'] }
+  | { status: typeof ServerReloadStatuses['not-matching']; reason: NotMatchingReason; code: string }
+  | { status: typeof ServerReloadStatuses.failed; code: string }
+
+/**
+ * Answers that mean the server on this URL is not this install's (it refused
+ * this install's key, or runs another config or database), or that it cannot
+ * reload at all (no reload route, or a host without reload support). Neither
+ * is a failure of this install: its providers were saved.
+ */
+function notMatchingReason(err: CliError): NotMatchingReason | undefined {
+  const status = err.details?.httpStatus
+  if (status === 401 || status === 403) return NotMatchingReasons['other-install']
+  if (err.details?.reason === ProviderReloadErrorReasons['install-identity-mismatch']) return NotMatchingReasons['other-install']
+  if (isEndpointMissing(err) || status === 501) return NotMatchingReasons['reload-unsupported']
+  return undefined
+}
+
+/** What happened to the reload and how to apply the saved providers, one line each. */
+function notMatchingLines(reason: NotMatchingReason, serverUrl: string): [string, string] {
+  switch (reason) {
+    case NotMatchingReasons['other-install']:
+      return [
+        `The server at ${serverUrl} is not this install's server, so it was not reloaded.`,
+        'To apply the saved providers, run `canonry settings reload-providers` against this install\'s server, or restart that server.',
+      ]
+    case NotMatchingReasons['reload-unsupported']:
+      return [
+        `The server at ${serverUrl} cannot reload providers: it is too old or does not support reload.`,
+        'Restart this install\'s server to apply the saved providers.',
+      ]
+  }
+}
+
 export async function bootstrapCommand(opts?: { format?: CliFormat }): Promise<void> {
   const format = opts?.format ?? 'text'
   const configDir = getConfigDir()
   const existing = configExists()
   const existingConfig = existing ? loadConfig() : undefined
   const existingRaw = existing ? loadConfigRaw() : null
-  const env = getBootstrapEnv(process.env, {
-    GEMINI_MODEL: process.env.GEMINI_MODEL ?? existingConfig?.providers?.gemini?.model,
-    OPENAI_MODEL: process.env.OPENAI_MODEL ?? existingConfig?.providers?.openai?.model,
-    ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL ?? existingConfig?.providers?.claude?.model,
-    PERPLEXITY_MODEL: process.env.PERPLEXITY_MODEL ?? existingConfig?.providers?.perplexity?.model,
-    MUSE_MODEL: process.env.MUSE_MODEL ?? existingConfig?.providers?.muse?.model,
-    LOCAL_MODEL: process.env.LOCAL_MODEL ?? existingConfig?.providers?.local?.model,
-  })
-  const providers = env.providers
+  const env = getBootstrapEnv(process.env)
   const databasePath = env.databasePath || existingRaw?.database || path.join(configDir, 'data.db')
 
   // Resolve API key: env var > existing config > generate new
@@ -69,16 +149,11 @@ export async function bootstrapCommand(opts?: { format?: CliFormat }): Promise<v
     rawApiKey = generatedApiKey
   }
 
-  // Merge providers: env vars override, but preserve dashboard-configured
-  // providers that don't have a corresponding env var set
-  const mergedProviders = { ...existingConfig?.providers }
-  for (const [name, provider] of Object.entries(providers)) {
-    const stored = mergedProviders[name]
-    mergedProviders[name] = {
-      ...stored,
-      ...Object.fromEntries(Object.entries(provider).filter(([, value]) => value !== undefined)),
-      quota: stored?.quota ?? provider.quota,
-    }
+  // Merge providers: an env entry replaces that provider's credentials and any
+  // field the env sets; providers the env does not name stay as configured.
+  const mergedProviders: Record<string, ProviderConfigEntry> = { ...existingConfig?.providers }
+  for (const [name, fromEnv] of Object.entries(env.providers) as [BootstrapProviderName, object | undefined][]) {
+    if (fromEnv) mergedProviders[name] = mergeEnvProvider(name, mergedProviders[name], fromEnv)
   }
 
   if ((env.googleClientId && !env.googleClientSecret) || (!env.googleClientId && env.googleClientSecret)) {
@@ -178,44 +253,60 @@ export async function bootstrapCommand(opts?: { format?: CliFormat }): Promise<v
     providers: mergedProviders,
     google: mergedGoogle,
   }
+  const providersChanged = !isDeepStrictEqual(persistedValue(existingRaw?.providers ?? {}), persistedValue(mergedProviders))
   const configChanged = !existingRaw
     || existingRaw.apiUrl !== apiUrl
     || existingRaw.database !== databasePath
     || existingRaw.apiKey !== rawApiKey
-    || !isDeepStrictEqual(persistedValue(existingRaw.providers ?? {}), persistedValue(mergedProviders))
+    || providersChanged
     || !isDeepStrictEqual(persistedValue(existingRaw.google), persistedValue(mergedGoogle))
   if (configChanged) saveConfig(nextConfig)
 
   const status = !existing ? 'created' : configChanged || keyChanged ? 'updated' : 'unchanged'
   const providerFree = registeredProviderNames(nextConfig).length === 0
-  let serverReload: {
-    status: 'reloaded' | 'unavailable' | 'not-local' | 'failed'
-    providers?: string[]
-    code?: string
-  } = { status: 'not-local' }
+  const serverUrl = loadConfig().apiUrl
+  let serverReload: ServerReload
   let reloadFailure: CliError | undefined
-  if (isLoopbackBindHost(new URL(loadConfig().apiUrl).hostname)) {
+  if (!isLoopbackBindHost(new URL(serverUrl).hostname)) {
+    serverReload = { status: ServerReloadStatuses['not-local'] }
+  } else if (!providersChanged) {
+    // The saved providers are what they were, so a rerun asks nothing of the server.
+    serverReload = { status: ServerReloadStatuses.unchanged }
+  } else {
     const signal = AbortSignal.timeout(4000)
     try {
       const receipt = await createApiClient().reloadProviders({ configPath: getConfigPath(), databasePath }, signal)
       serverReload = {
-        status: 'reloaded',
+        status: ServerReloadStatuses.reloaded,
         providers: receipt.providers.filter(provider => provider.configured).map(provider => provider.name),
       }
     } catch (err) {
+      const reason = err instanceof CliError ? notMatchingReason(err) : undefined
       if (err instanceof CliError && err.code === 'CONNECTION_ERROR' && err.details?.connectionUnavailable === true && !signal.aborted) {
-        serverReload = { status: 'unavailable' }
+        serverReload = { status: ServerReloadStatuses.unavailable }
+      } else if (err instanceof CliError && reason) {
+        serverReload = { status: ServerReloadStatuses['not-matching'], reason, code: err.code }
       } else {
         reloadFailure = err instanceof CliError ? err : systemError('Provider configuration was saved, but server reload failed.')
-        serverReload = { status: 'failed', code: reloadFailure.code }
+        serverReload = { status: ServerReloadStatuses.failed, code: reloadFailure.code }
       }
     }
   }
-  const nextSteps = [
-    ...(providerFree ? PROVIDER_FREE_NEXT_STEPS : []),
-    ...(serverReload.status === 'unavailable' ? ['Start `canonry serve` to use the saved configuration.'] : []),
-    ...(serverReload.status === 'failed' ? ['Resolve the server reload error, then run `canonry settings reload-providers`.'] : []),
-  ]
+  const reloadSteps = (() => {
+    switch (serverReload.status) {
+      case ServerReloadStatuses.unavailable:
+        return ['Start `canonry serve` to use the saved configuration.']
+      case ServerReloadStatuses.failed:
+        return ['Resolve the server reload error, then run `canonry settings reload-providers`.']
+      case ServerReloadStatuses['not-matching']:
+        return [notMatchingLines(serverReload.reason, serverUrl).join(' ')]
+      case ServerReloadStatuses.reloaded:
+      case ServerReloadStatuses.unchanged:
+      case ServerReloadStatuses['not-local']:
+        return []
+    }
+  })()
+  const nextSteps = [...(providerFree ? PROVIDER_FREE_NEXT_STEPS : []), ...reloadSteps]
 
   if (isMachineFormat(format)) {
     console.log(JSON.stringify({
@@ -237,12 +328,26 @@ export async function bootstrapCommand(opts?: { format?: CliFormat }): Promise<v
 
   console.log(`Bootstrap ${status}. Config: ${getConfigPath()}`)
   console.log(`SQLite database path: ${databasePath}`)
-  if (serverReload.status === 'reloaded') {
-    console.log(`Providers active on the running server: ${serverReload.providers?.join(', ') || 'none'}.`)
-  } else if (serverReload.status === 'unavailable') {
-    console.log('Start `canonry serve` to use the saved configuration.')
-  } else if (serverReload.status === 'not-local') {
-    console.log('Configuration saved locally. The configured remote server was not reloaded.')
+  switch (serverReload.status) {
+    case ServerReloadStatuses.reloaded:
+      console.log(`Providers active on the running server: ${serverReload.providers.join(', ') || 'none'}.`)
+      break
+    case ServerReloadStatuses.unavailable:
+      console.log('Start `canonry serve` to use the saved configuration.')
+      break
+    case ServerReloadStatuses['not-local']:
+      console.log('Configuration saved locally. The configured remote server was not reloaded.')
+      break
+    case ServerReloadStatuses['not-matching']:
+      for (const line of notMatchingLines(serverReload.reason, serverUrl)) console.log(line)
+      break
+    case ServerReloadStatuses.unchanged:
+      // A first run has no earlier settings to compare, so it says nothing here.
+      if (existing) console.log('Provider settings unchanged, so the server was not reloaded.')
+      break
+    case ServerReloadStatuses.failed:
+      // The thrown reload error below is the report.
+      break
   }
   if (providerFree) {
     console.log('Providers: none (Page Health works now; add one later to enable AI Visibility).')

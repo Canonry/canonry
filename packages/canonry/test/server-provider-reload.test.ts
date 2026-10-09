@@ -5,10 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parse, stringify } from 'yaml'
 import { auditLog, createClient, migrate, type DatabaseClient } from '@ainyc/canonry-db'
 import { geminiAdapter } from '@ainyc/canonry-provider-gemini'
+import { openaiAdapter } from '@ainyc/canonry-provider-openai'
 import { cdpChatgptAdapter } from '@ainyc/canonry-provider-cdp'
-import type { ProviderConfig, SettingsDto } from '@ainyc/canonry-contracts'
+import type { ProviderConfig, ProviderQuotaPolicy, SettingsDto } from '@ainyc/canonry-contracts'
 import { createServer } from '../src/server.js'
-import type { CanonryConfig } from '../src/config.js'
+import { loadConfig, type CanonryConfig } from '../src/config.js'
 
 let directory: string
 let config: CanonryConfig
@@ -147,14 +148,52 @@ describe('local server provider reload', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  it('reloads every config it boots with, registering the same normalized limits as startup', async () => {
+    // Partial quota blocks boot today: each saved limit wins, the rest default.
+    config.providers = {
+      openai: { apiKey: 'fixture-openai-key', quota: { maxConcurrency: 4 } as ProviderQuotaPolicy },
+      gemini: { apiKey: 'fixture-gemini-key', model: 'gemini-2.5-flash', quota: { maxRequestsPerDay: 50 } as ProviderQuotaPolicy },
+    }
+    config.cdp = { host: '127.0.0.1', port: 9333, quota: { maxRequestsPerDay: 20 } as ProviderQuotaPolicy }
+    save({})
+    vi.spyOn(openaiAdapter, 'listModels').mockResolvedValue([])
+    const browserHealth = vi.spyOn(cdpChatgptAdapter, 'healthcheck').mockResolvedValue({ ok: true, provider: 'cdp:chatgpt', message: 'fixture-browser' })
+    app = await createServer({ config, db, logger: false })
+    const registration = async () => {
+      const settings = (await request('GET', '/api/v1/settings')).json<SettingsDto>()
+      await request('GET', '/api/v1/cdp/status')
+      return { providers: settings.providers, cdpQuota: browserHealth.mock.lastCall?.[0].quotaPolicy }
+    }
+
+    const atStartup = await registration()
+    expect(atStartup.providers.find(provider => provider.name === 'openai')?.quota)
+      .toEqual({ maxConcurrency: 4, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 })
+    expect(atStartup.providers.find(provider => provider.name === 'gemini')?.quota)
+      .toEqual({ maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 50 })
+    expect(atStartup.cdpQuota).toEqual({ maxConcurrency: 1, maxRequestsPerMinute: 4, maxRequestsPerDay: 20 })
+
+    const reload = await request('POST', '/api/v1/settings/providers/reload', {
+      configPath: path.join(directory, 'config.yaml'), databasePath: config.database,
+    })
+    expect(reload.statusCode).toBe(200)
+    expect(await registration()).toEqual(atStartup)
+
+    // A settings write re-registers the provider with the same limits too.
+    const update = await request('PUT', '/api/v1/settings/providers/openai', { model: 'gpt-5.4' })
+    expect(update.statusCode).toBe(200)
+    expect(update.json().quota).toEqual({ maxConcurrency: 4, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it.each([
     'providers:\n  gemini:\n    apiKey: next-private-key\n    batch:\n      enabled: nope\n',
-    'providers:\n  gemini:\n    apiKey: [wrong, type]\n',
-  ])('refuses malformed provider configuration without changing the live registry: %s', async malformed => {
+    'providers:\n  gemini:\n    apiKey: next-private-key\n  - not yaml\n',
+  ])('refuses configuration that startup also refuses, without changing the live registry: %s', async malformed => {
     config.providers = { gemini: { apiKey: 'original-private-key', model: 'gemini-2.5-pro' } }
     save({})
     app = await createServer({ config, db, logger: false })
     fs.writeFileSync(path.join(directory, 'config.yaml'), stringify({ apiUrl: config.apiUrl, apiKey: config.apiKey, database: config.database }) + malformed)
+    expect(() => loadConfig(path.join(directory, 'config.yaml'))).toThrow()
     const response = await request('POST', '/api/v1/settings/providers/reload', {})
     expect(response.statusCode).toBe(400)
     const settings = await request('GET', '/api/v1/settings')
@@ -174,7 +213,10 @@ describe('local server provider reload', () => {
       { configPath: path.join(otherDirectory, 'config.yaml'), databasePath: config.database },
       { configPath: path.join(directory, 'config.yaml'), databasePath: path.join(directory, 'other.db') },
     ]) {
-      expect((await request('POST', '/api/v1/settings/providers/reload', identity)).statusCode).toBe(400)
+      const rejected = await request('POST', '/api/v1/settings/providers/reload', identity)
+      expect(rejected.statusCode).toBe(400)
+      // Callers branch on this stable reason, never on the message.
+      expect(rejected.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR', details: { reason: 'install-identity-mismatch' } } })
       expect(config.providers).toEqual({})
     }
     const response = await request('POST', '/api/v1/settings/providers/reload', {})

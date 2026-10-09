@@ -84,7 +84,9 @@ credentials, models, quotas and batch settings without restarting the server.
 It accepts no credentials and requires install administrator authority plus
 `settings.write`; project, narrow, viewer and read-only credentials are refused.
 Optional `configPath` and `databasePath` must be supplied together and match the
-host's captured install. They never choose an arbitrary file. The response is
+host's captured install. They never choose an arbitrary file. A pair naming
+another install returns `VALIDATION_ERROR` with
+`details.reason: install-identity-mismatch`. The response is
 credential-free provider status, and unsupported hosts return `NOT_IMPLEMENTED`.
 Removing or changing a provider with a submitting, submitted or ended batch,
 or an executing sweep that can still submit or cancel one, returns

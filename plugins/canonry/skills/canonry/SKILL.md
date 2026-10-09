@@ -65,13 +65,14 @@ After a Page Health result on an install with no provider (a `NO_PROVIDER`
 notice, or doctor's `providers.none-configured`), propose AI Visibility setup
 as the next step. The operator adds the provider key in the dashboard or in
 their own terminal; never ask for it in chat.
-Rerunning `canonry bootstrap` reloads saved provider settings on a matching
-running local server and reports whether they became active. If the server is
-offline, start it to apply the saved settings. For an explicit reload of the
-connected server's own config, use `canonry settings reload-providers` or
-`canonry_providers_reload` with install administrator authority. Remote servers
-are never reloaded automatically by bootstrap. Ports and database settings
-still need a restart.
+Rerunning `canonry bootstrap` after a provider change reloads saved provider
+settings on a matching running local server and reports whether they became
+active. If the server is offline, start it to apply the saved settings. For an
+explicit reload of the connected server's own config, use
+`canonry settings reload-providers` or `canonry_providers_reload` with install
+administrator authority. Remote servers are never reloaded automatically by
+bootstrap, and a local server that belongs to another install is left alone.
+Ports and database settings still need a restart.
 
 **Diagnose:** inspect stored history and comparable evidence. Explain what
 changed separately from why it might have changed. A hypothesis is not a
