@@ -49,9 +49,8 @@ password. Every password sign-in uses the install's root API key (`apiKey` in
 `config.yaml`), so setting the password gives full access to every project.
 
 - **On this machine:** with the default loopback bind, open
-  `http://127.0.0.1:4100` or `http://localhost:4100` and create the password.
-  No API key is needed, unless the configuration names another way in (see
-  the next item).
+  `http://127.0.0.1:4100` and create the password. No API key is needed,
+  unless the configuration names another way in (see the next item).
 - **From another machine or through a proxy:** the dashboard also asks for the
   root API key. This applies to every request when Canonry binds a non-loopback
   address (`--host 0.0.0.0`, Docker), and to any request that comes through a
