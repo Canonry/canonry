@@ -116,6 +116,34 @@ notices active.
 For container deployments, set `CANONRY_DASHBOARD_SHOW_RESOURCE_LINKS=0` or
 `CANONRY_DASHBOARD_SHOW_UPDATE_NOTIFICATION=0`.
 
+### Reset a forgotten dashboard password
+
+An operator with access to the server's config file can reset the shared
+dashboard password. The old password cannot be recovered. This procedure does
+not reset named-account passwords; installs with named accounts keep using
+their account sign-in screen.
+
+1. Stop Canonry and any TCP port forwarders to it. For a foreground
+   `canonry serve`, press Ctrl+C. For a daemon, container, or managed service,
+   stop it through the tool that started it.
+2. Locate the server's `config.yaml`: `~/.canonry/config.yaml` by default, or
+   `config.yaml` in its `CANONRY_CONFIG_DIR`. For a container, edit the file in
+   its persistent config volume.
+3. Keep a private backup, then remove only the top-level
+   `dashboardPasswordHash` entry and save the file. Keep the rest of the config,
+   including `apiKey`, and the database intact. The config and its backup
+   contain credentials; do not share them.
+4. Restart Canonry with the same config directory. Open the dashboard and
+   create a new password. Setup through a proxy, on a network bind, or with an
+   external URL or base path still requires the root API key, as described in
+   [First-run dashboard password](#first-run-dashboard-password).
+5. Re-enable any TCP port forwarders only after the new password is set.
+
+The restart is required: the running server holds the configured password hash
+in memory. Removing the hash and restarting ends password-derived sessions;
+API-key sign-ins remain independent. Do not disable `dashboard.requirePassword`
+to recover access.
+
 ### Managed run kinds
 
 Use `dashboard.managedRunKinds` for a deployment where your team runs work for

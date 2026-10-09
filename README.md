@@ -76,6 +76,9 @@ Connect the [Agent Plugin](docs/plugins.md) or [MCP adapter](docs/mcp.md) to you
 
 The crawl saves a Page Health baseline. AI Visibility is optional and has a separate setup.
 
+Forgot your dashboard password? Follow the
+[password reset steps](docs/deployment.md#reset-a-forgotten-dashboard-password).
+
 <details>
 <summary>Scan and read results from the terminal</summary>
 
