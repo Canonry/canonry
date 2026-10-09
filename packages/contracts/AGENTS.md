@@ -180,7 +180,7 @@ function kindLabel(kind: string): string {
 5. **Tune the base delay to the service.** The 1s default is for one-off blips. A service that throttles a burst needs a base above the window it throttles over — Bing uses 2s doubling to a 30s ceiling.
 6. **Test both directions.** A retry test that only proves "transient failure eventually succeeds" is half a test. Also assert that auth and validation failures are *not* retried — retrying a permanent failure multiplies load for nothing.
 
-`packages/contracts/test/integration-retry-coverage.test.ts` enforces this: a new HTTP-calling integration without `withRetry` fails CI. A call through an injected fetch (`fetchImpl(`, `(options.fetchImpl ?? fetch)(`) counts as an HTTP call. Packages that predate the rule are listed there explicitly, and the list may only shrink.
+`packages/contracts/test/integration-retry-coverage.test.ts` enforces this: a new HTTP-calling integration without `withRetry` fails CI. A call through an injected fetch (`fetchImpl(`, `(options.fetchImpl ?? fetch)(`) counts as an HTTP call. Packages that predate the rule are listed there explicitly, and the list may only shrink. The one exception is a detector change that finds packages which already predated the rule (as matching `fetchImpl(` did): list them in the same commit and say so there.
 
 ### Ratio units
 

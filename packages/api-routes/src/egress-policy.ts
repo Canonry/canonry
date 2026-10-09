@@ -12,6 +12,13 @@ import net from 'node:net'
  * The documentation ranges (the IPv4 TEST-NETs, 2001:db8::/32, 3fff::/20) are
  * deliberately dialable: nothing routes them, so refusing them protects
  * nothing, and fixtures use them as stand-ins for public addresses.
+ *
+ * Both gates refuse a name when any one of its addresses is refused, not just
+ * the one they would dial: a name that answers with public and internal
+ * addresses together is how DNS rebinding starts. The cost is deliberate: a
+ * public site that also publishes a stale 6to4 or Teredo AAAA record, or that
+ * a DNS64 network translates into the local-use prefix 64:ff9b:1::/48, is
+ * refused whole.
  */
 
 /**
