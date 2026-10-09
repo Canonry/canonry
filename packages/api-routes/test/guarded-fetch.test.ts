@@ -2,7 +2,7 @@ import type { AddressInfo } from 'node:net'
 import tls from 'node:tls'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { createGuardedFetch, EgressFailedError, EgressRefusedError, GUARDED_FETCH_MAX_REDIRECTS } from '../src/guarded-fetch.js'
-import { resolveWebhookTarget, type ResolveWebhookTargetResult } from '../src/webhooks.js'
+import { resolveWebhookTarget, type ResolveWebhookTargetOptions, type ResolveWebhookTargetResult } from '../src/webhooks.js'
 import { startRecordingSite, type RecordingSite } from './recording-site-fixture.js'
 
 /**
@@ -13,13 +13,17 @@ import { startRecordingSite, type RecordingSite } from './recording-site-fixture
 const PUBLIC_SITE = 'site.example.test'
 
 /**
- * Treats the fixture as the public site `site.example.test` and judges every
- * other hop by the real policy, with loopback refused as on a cloud deployment.
+ * Treats the fixture as the public site `site.example.test`. It is dialed at
+ * 0.0.0.0, which reaches the fixture's socket but, unlike 127.0.0.1, is not a
+ * loopback address. Every other hop meets the real policy with `options`, so
+ * by default loopback is refused, as on a cloud deployment.
  */
-async function publicFixturePolicy(url: string): Promise<ResolveWebhookTargetResult> {
-  const parsed = new URL(url)
-  if (parsed.hostname === PUBLIC_SITE) return { ok: true, target: { url: parsed, address: '127.0.0.1', family: 4 } }
-  return resolveWebhookTarget(url)
+function publicFixturePolicy(options: ResolveWebhookTargetOptions = {}) {
+  return async (url: string): Promise<ResolveWebhookTargetResult> => {
+    const parsed = new URL(url)
+    if (parsed.hostname === PUBLIC_SITE) return { ok: true, target: { url: parsed, address: '0.0.0.0', family: 4 } }
+    return resolveWebhookTarget(url, options)
+  }
 }
 
 let site: RecordingSite | undefined
@@ -41,7 +45,7 @@ describe('createGuardedFetch', () => {
       }
       response.writeHead(200, { 'Content-Type': 'text/plain' }).end('routes')
     })
-    const guardedFetch = createGuardedFetch({ resolveTarget: publicFixturePolicy })
+    const guardedFetch = createGuardedFetch({ resolveTarget: publicFixturePolicy() })
 
     const response = await guardedFetch(`http://${PUBLIC_SITE}:${site.port}/wp-json`, {
       headers: { Authorization: 'Basic d3A6cGFzcw==' },
@@ -69,7 +73,7 @@ describe('createGuardedFetch', () => {
     const { port } = server.address() as AddressInfo
 
     try {
-      await expect(createGuardedFetch({ resolveTarget: publicFixturePolicy })(`https://${PUBLIC_SITE}:${port}/`)).rejects.toThrow()
+      await expect(createGuardedFetch({ resolveTarget: publicFixturePolicy() })(`https://${PUBLIC_SITE}:${port}/`)).rejects.toThrow()
       expect(offered).toEqual([PUBLIC_SITE])
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()))
@@ -98,13 +102,34 @@ describe('createGuardedFetch', () => {
       }
       response.writeHead(200).end('internal')
     })
-    const guardedFetch = createGuardedFetch({ resolveTarget: publicFixturePolicy })
+    const guardedFetch = createGuardedFetch({ resolveTarget: publicFixturePolicy() })
 
     const refused = guardedFetch(`http://${PUBLIC_SITE}:${site.port}/start`)
 
     await expect(refused).rejects.toBeInstanceOf(EgressRefusedError)
     await expect(refused).rejects.toThrow(reason)
     expect(site.requests.map(({ path }) => path)).toEqual(['/start'])
+  })
+
+  test('refuses a redirect from a public site to loopback even where loopback is admitted', async () => {
+    // A service that listens only on loopback, such as an admin port.
+    otherSite = await startRecordingSite((_request, response) => response.writeHead(200).end('loopback-only secret'))
+    const loopbackService = `http://127.0.0.1:${otherSite.port}/admin`
+    site = await startRecordingSite((_request, response) => response.writeHead(307, { Location: loopbackService }).end())
+    // Loopback is admitted, as on `canonry serve`, so only the hop it came from can refuse it.
+    const guardedFetch = createGuardedFetch({ resolveTarget: publicFixturePolicy({ allowLoopback: true }) })
+
+    const refused = guardedFetch(`http://${PUBLIC_SITE}:${site.port}/wp-json/wp/v2/pages/7`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"content":"draft"}',
+    })
+
+    await expect(refused).rejects.toThrow(new EgressRefusedError(
+      `Refused to connect to 127.0.0.1:${otherSite.port}: a redirect from a site that is not on loopback must not lead to loopback`,
+    ))
+    expect(site.requests.map(({ path }) => path)).toEqual(['/wp-json/wp/v2/pages/7'])
+    expect(otherSite.requests).toEqual([])
   })
 
   test('reports a name with no address as a failure to reach the site, not a refusal', async () => {
@@ -236,7 +261,7 @@ describe('createGuardedFetch', () => {
 
   test('looks nothing up for a signal that has already aborted', async () => {
     const reason = new Error('caller gave up')
-    const resolveTarget = vi.fn(publicFixturePolicy)
+    const resolveTarget = vi.fn(publicFixturePolicy())
 
     await expect(createGuardedFetch({ resolveTarget })(`http://${PUBLIC_SITE}/`, { signal: AbortSignal.abort(reason) }))
       .rejects.toBe(reason)

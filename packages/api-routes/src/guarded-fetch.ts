@@ -1,5 +1,6 @@
 import { isLocationRedirectStatus } from '@ainyc/canonry-contracts'
 import { Agent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from 'undici'
+import { isLoopbackAddress } from './egress-policy.js'
 import { resolveWebhookTarget, type ResolveWebhookTargetResult, type SafeWebhookTarget } from './webhooks.js'
 
 /**
@@ -14,6 +15,9 @@ import { resolveWebhookTarget, type ResolveWebhookTargetResult, type SafeWebhook
  *    egress policy;
  *  - dials only the address that was checked. The URL keeps its hostname, so
  *    the Host header, TLS SNI and the certificate check still use it;
+ *  - refuses a redirect to loopback unless the hop it came from was on
+ *    loopback too, so a remote site cannot steer a request, with its body,
+ *    into a service that listens only on this host;
  *  - follows the redirect itself, under the fetch rules: Authorization, Cookie
  *    and Proxy-Authorization are dropped when the origin changes; 301 and 302
  *    turn a POST into a GET, 303 turns anything but GET or HEAD into a GET, and
@@ -29,7 +33,11 @@ export type GuardedFetch = (input: string | URL, init?: RequestInit) => Promise<
 export const GUARDED_FETCH_MAX_REDIRECTS = 5
 
 export interface GuardedFetchOptions {
-  /** Admit loopback targets, as `allowLoopbackWebhooks` does. Every other refused range stays refused. */
+  /**
+   * Admit loopback targets, as `allowLoopbackWebhooks` does: the URL the caller
+   * asked for, and a redirect from a hop on loopback. Every other refused range
+   * stays refused.
+   */
   allowLoopback?: boolean
   /**
    * The per-hop decision. Defaults to `resolveWebhookTarget` with
@@ -75,6 +83,11 @@ export function createGuardedFetch(options: GuardedFetchOptions = {}): GuardedFe
     let body = init.body ?? null
     const headers = new Headers(init.headers)
     const signal = init.signal ?? undefined
+    // The URL the caller asked for may be on loopback where `allowLoopback`
+    // admits it: that is the operator's own local site. A redirect may lead to
+    // loopback only from a hop whose every address is loopback (a local
+    // WordPress moving from 127.0.0.1 to localhost), never from a remote site.
+    let mayRedirectToLoopback = true
 
     for (let redirects = 0; ; redirects += 1) {
       // undici honors the signal while it connects and reads, but not while
@@ -87,6 +100,11 @@ export function createGuardedFetch(options: GuardedFetchOptions = {}): GuardedFe
         throw new EgressRefusedError(`Refused to connect to ${parsed?.host || href}: ${check.message.replace(/^"url" /, '')}`)
       }
       const url = check.target.url
+      const onLoopback = checkedAddresses(check.target).map(({ address }) => isLoopbackAddress(address))
+      if (!mayRedirectToLoopback && onLoopback.includes(true)) {
+        throw new EgressRefusedError(`Refused to connect to ${url.host}: a redirect from a site that is not on loopback must not lead to loopback`)
+      }
+      mayRedirectToLoopback = !onLoopback.includes(false)
       const response = await requestPinned(check.target, { method, headers, body, signal })
       const location = isLocationRedirectStatus(response.status) ? response.headers.get('location') : null
       if (location === null) return response
@@ -164,7 +182,7 @@ async function requestPinned(
  * is safe: a literal is checked as itself, so it is the checked address.
  */
 function pinnedAgent(target: SafeWebhookTarget): Agent {
-  const addresses = target.addresses ?? [{ address: target.address, family: target.family }]
+  const addresses = checkedAddresses(target)
   return new Agent({
     // Try the next checked address when one does not answer, so a dual-stack
     // site whose first address is unreachable (an IPv6-only network, a dead A
@@ -180,4 +198,8 @@ function pinnedAgent(target: SafeWebhookTarget): Agent {
       },
     },
   })
+}
+
+function checkedAddresses(target: SafeWebhookTarget): ReadonlyArray<{ address: string; family: 4 | 6 }> {
+  return target.addresses ?? [{ address: target.address, family: target.family }]
 }
