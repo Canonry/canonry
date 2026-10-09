@@ -173,6 +173,9 @@ Preview input contains `expectedWorkspaceVersion`, `additions`, and `removals`, 
 Each edit contains `queryId`, an optional audience, and resolved `text` or `queryClass`.
 An omitted `queryClass` preserves classification. A `null` value requests automatic classification.
 The server retains the exact execution contexts. An edit cannot replace those contexts.
+Preview output adds `changes`, one row per added, reused, or removed query.
+Each row lists the query's locations (`targetKeys`) and markets (`marketKeys`) `before` in the active plan and `after` in the reviewed change.
+A scoped removal or move keeps its remaining placement in `after`. Simple projects list no locations or markets, and a no-op returns an empty `changes`.
 Commit input adds the returned `previewToken` and `reviewedAt` to that exact request.
 The server binds the review time to the token and refuses expired reviews.
 The API returns the actual active revision after publication.

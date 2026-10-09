@@ -23,7 +23,7 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 | `src/snapshot.ts` | Snapshot DTOs and diff types |
 | `src/research.ts` | Research DTOs and shared helpers for exact-text deduplication and declared template bindings/expansion. |
 | `src/scopes.ts` | Shared read-only classification (`read` or named `*.read`, unless explicitly write-granted), restricted write grants (`research.run` and Ads), and delegated-consent intersection. Adding an action grant must keep API gates and MCP catalogs aligned. |
-| `src/query-tracking.ts` | Shared workspace, assignment preview, and commit DTOs. Tokens bind the exact mutation and workspace. Workload counts belong to the API. |
+| `src/query-tracking.ts` | Shared workspace, assignment preview (with per-query placement before and after), and commit DTOs. Tokens bind the exact mutation and workspace. Workload counts belong to the API. |
 | `src/visibility-report.ts` | Frozen result selection, independent query-class populations, rates, trends, paginated answers, and competitor provenance. Plain request schema supports MCP JSON Schema. `populations[].comparison`: change since the previous eligible whole-project sweep, with the delta invariant enforced in the response refine. `visibilityReportScopeErrorDetailsSchema` / `parseVisibilityReportScopeErrorDetails`: typed retired-scope details; `retired-market` always pairs with kind `market`. |
 | `src/config-schema.ts` | Config file Zod validation |
 | `src/models.ts` | Shared model types |

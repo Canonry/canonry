@@ -1752,6 +1752,19 @@ export type QueryTrackingPreviewResponse = {
         }>;
         noOp: boolean;
     };
+    changes?: Array<{
+        queryId: string;
+        queryText: string;
+        change: 'added' | 'reused' | 'removed';
+        before: {
+            targetKeys: Array<string>;
+            marketKeys: Array<string>;
+        };
+        after: {
+            targetKeys: Array<string>;
+            marketKeys: Array<string>;
+        };
+    }>;
     workload: {
         existingNodes: number;
         existingProviderCalls: number;
