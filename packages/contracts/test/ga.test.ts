@@ -3,6 +3,7 @@ import {
   ga4AiReferralHistoryEntrySchema,
   ga4TrafficSummaryDtoSchema,
   gaSearchLandingHasSearchData,
+  gaSearchLandingPageLabel,
 } from '../src/ga.js'
 import type { GaSearchLandingMetrics } from '../src/ga.js'
 
@@ -111,5 +112,14 @@ describe('GA contracts', () => {
     // Impressions alone are search data: the pages showed in Google results.
     expect(gaSearchLandingHasSearchData(total(0, 380, 0))).toBe(true)
     expect(gaSearchLandingHasSearchData(total(12, 380, 9))).toBe(true)
+  })
+})
+
+describe('gaSearchLandingPageLabel', () => {
+  it('labels only the empty landing page and passes every GA4 value through', () => {
+    expect(gaSearchLandingPageLabel('')).toBe('(empty)')
+    expect(gaSearchLandingPageLabel('(not set)')).toBe('(not set)')
+    expect(gaSearchLandingPageLabel('/')).toBe('/')
+    expect(gaSearchLandingPageLabel('/pricing?ref=a')).toBe('/pricing?ref=a')
   })
 })

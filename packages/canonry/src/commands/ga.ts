@@ -2,7 +2,7 @@ import type { AiEngineLeadRateUnavailableReason, GaConnectResponse, GA4Propertie
 import { createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
-import { GA_SEARCH_LANDING_WINDOW_DAYS, GaMoverChangeBases, describeError, formatPercent, gaSearchLandingHasSearchData } from '@ainyc/canonry-contracts'
+import { GA_SEARCH_LANDING_WINDOW_DAYS, GaMoverChangeBases, describeError, formatPercent, gaSearchLandingHasSearchData, gaSearchLandingPageLabel } from '@ainyc/canonry-contracts'
 
 function getClient() {
   return createApiClient()
@@ -287,7 +287,7 @@ export async function gaSearchLandingPages(project: string, opts?: {
   const headers = ['LANDING PAGE', 'CLICKS', 'IMPRESSIONS', 'CTR', 'AVG POSITION', 'ACTIVE USERS']
   const table = [
     ['Total', ...searchLandingCells(result.total)],
-    ...result.rows.map(row => [row.landingPage, ...searchLandingCells(row)]),
+    ...result.rows.map(row => [gaSearchLandingPageLabel(row.landingPage), ...searchLandingCells(row)]),
   ]
   const pageWidth = Math.min(60, Math.max(headers[0]!.length, ...table.map(row => row[0]!.length)))
   const widths = headers.map((header, index) => index === 0

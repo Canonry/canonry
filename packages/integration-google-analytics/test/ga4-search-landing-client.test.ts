@@ -248,6 +248,33 @@ describe('fetchSearchLandingPages', () => {
     expect(window.total).toEqual({ clicks: 0, impressions: 0, ctr: null, averagePosition: null, activeUsers: 4 })
   })
 
+  it('keeps an empty landing page and a real (not set) row apart', async () => {
+    fetchSpy.mockImplementation(async () => jsonResponse({
+      ...FIXTURE.response,
+      rows: [
+        metricRow('/', ['9', '120', '0.075', '5.5', '8']),
+        metricRow('(not set)', ['0', '0', '0', '0', '5']),
+        metricRow('', ['0', '0', '0', '0', '2']),
+      ],
+      rowCount: 3,
+      totals: [metricRow('RESERVED_TOTAL', ['9', '120', '0.075', '5.5', '15'])],
+    }))
+
+    const report = await fetchSearchLandingPages('fake-token', '123456')
+
+    expect(report.status).toBe('ready')
+    if (report.status !== 'ready') return
+    const window = report.windows[0]!
+    // Before the fix '' folded into (not set) and the dedup dropped it.
+    expect(window.rows.map((row) => [row.landingPage, row.activeUsers])).toEqual([
+      ['/', 8],
+      ['(not set)', 5],
+      ['', 2],
+    ])
+    expect(window.reportRowCount).toBe(3)
+    expect(window.rowsCapped).toBe(false)
+  })
+
   it('labels the window in the property time zone, not UTC', async () => {
     // 20:00 on 2026-10-07 in Los Angeles; already 2026-10-08 in UTC.
     vi.setSystemTime(new Date('2026-10-08T03:00:00.000Z'))
