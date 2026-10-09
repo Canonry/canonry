@@ -1004,6 +1004,14 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Per-window aggregate totals consumed by the GA traffic composite endpoints, not a direct DTO.',
   },
+  gaSearchLandingWindows: {
+    kind: 'internal-only',
+    reason: 'GA4 Search Console landing-page window header (GA4 Total, dates, flags), composed into GaSearchLandingPagesResponse with the page rows and sync state, not a direct DTO.',
+  },
+  gaSearchLandingPages: {
+    kind: 'internal-only',
+    reason: 'GA4 Search Console landing-page rows, renamed to GA4 metric names and paged by GaSearchLandingPagesResponse, not a direct DTO.',
+  },
   crawlerEventsHourly: {
     kind: 'internal-only',
     reason: 'Hourly rollup consumed via /traffic/events composite, not directly mapped to a DTO.',

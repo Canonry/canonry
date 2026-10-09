@@ -10,6 +10,7 @@ import {
   gaSocialReferralHistory,
   gaSocialReferralSummary,
   gaProperties,
+  gaSearchLandingPages,
   gaStatus,
   gaSync,
   gaTraffic,
@@ -87,13 +88,13 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['ga', 'sync'],
-    usage: 'canonry ga sync <project> [--days 30] [--only traffic|ai|social] [--format json]',
+    usage: 'canonry ga sync <project> [--days 30] [--only traffic|ai|social|search-landing] [--format json]',
     options: {
       days: stringOption(),
       only: stringOption(),
     },
     run: async (input) => {
-      const project = requireProject(input, 'ga.sync', 'canonry ga sync <project> [--days 30] [--only traffic|ai|social] [--format json]')
+      const project = requireProject(input, 'ga.sync', 'canonry ga sync <project> [--days 30] [--only traffic|ai|social|search-landing] [--format json]')
       const daysStr = getString(input.values, 'days')
       const days = daysStr ? parseInt(daysStr, 10) : undefined
       const only = getString(input.values, 'only')
@@ -121,6 +122,25 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
         hostScope: getString(input.values, 'host-scope'),
         pathPrefix: getString(input.values, 'path-prefix'),
         limit: limitValue ? parseInt(limitValue, 10) : undefined,
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['ga', 'search-landing-pages'],
+    usage: 'canonry ga search-landing-pages <project> [--window 7d|28d|90d] [--limit 50] [--offset 0] [--format json|jsonl]',
+    options: {
+      window: stringOption(),
+      limit: stringOption(),
+      offset: stringOption(),
+    },
+    run: async (input) => {
+      const project = requireProject(input, 'ga.search-landing-pages', 'canonry ga search-landing-pages <project> [--window 7d|28d|90d] [--limit 50] [--offset 0] [--format json|jsonl]')
+      // Forwarded verbatim: the server is the one place that validates them.
+      await gaSearchLandingPages(project, {
+        window: getString(input.values, 'window'),
+        limit: getString(input.values, 'limit'),
+        offset: getString(input.values, 'offset'),
         format: input.format,
       })
     },
@@ -234,7 +254,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
       unknownSubcommand(input.positionals[0], {
         command: 'ga',
         usage: 'canonry ga <subcommand> <project> [args]',
-        available: ['connect', 'disconnect', 'status', 'properties', 'sync', 'measurement-analysis', 'traffic', 'coverage', 'ai-referral-history', 'ai-referral-daily', 'social-referral-history', 'session-history', 'social-referral-summary', 'attribution'],
+        available: ['connect', 'disconnect', 'status', 'properties', 'sync', 'measurement-analysis', 'search-landing-pages', 'traffic', 'coverage', 'ai-referral-history', 'ai-referral-daily', 'social-referral-history', 'session-history', 'social-referral-summary', 'attribution'],
       })
     },
   },

@@ -2,7 +2,7 @@ import { and, eq } from 'drizzle-orm'
 import { assessConversionTrackingIntegrity } from '@ainyc/canonry-intelligence'
 import { bingConnections, googleConnections, type DatabaseClient } from '@ainyc/canonry-db'
 import type { ApiRoutesOptions } from '@ainyc/canonry-api-routes'
-import type { DemoSeedContext } from './types.js'
+import { DEMO_GA4_PROPERTY_ID, type DemoSeedContext } from './types.js'
 
 function refuseMutation(): never { throw new Error('The public demo stores are view only.') }
 
@@ -36,7 +36,7 @@ export function demoReadOptions(db: DatabaseClient, context: DemoSeedContext): P
     ga4CredentialStore: {
       getConnection: projectName => {
         const project = [context.simple, context.portfolio].find(item => item.name === projectName)
-        return project ? { projectName, propertyId: 'demo-property', clientEmail: 'sample@analytics.example', privateKey: '', createdAt: context.now.toISOString(), updatedAt: context.now.toISOString() } : undefined
+        return project ? { projectName, propertyId: DEMO_GA4_PROPERTY_ID, clientEmail: 'sample@analytics.example', privateKey: '', createdAt: context.now.toISOString(), updatedAt: context.now.toISOString() } : undefined
       },
       upsertConnection: refuseMutation, deleteConnection: refuseMutation,
     },

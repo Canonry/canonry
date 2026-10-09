@@ -70,7 +70,7 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
   {
     name: 'ga',
     title: 'Google Analytics 4',
-    description: 'Read GA traffic, AI/social referral history, attribution trend, and session history.',
+    description: 'Read GA traffic, AI/social referral history, attribution trend, session history, and GA4\'s Search Console landing-page report (Google organic clicks, impressions, CTR, position and active users per landing page).',
     whenToLoad: 'Load when you need traffic, referral, or attribution data from Google Analytics 4.',
   },
   {

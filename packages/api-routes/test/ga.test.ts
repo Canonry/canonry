@@ -259,6 +259,8 @@ describe('GA4 routes', () => {
     const fetchSocialReferralsSpy = vi.spyOn(gaModule, 'fetchSocialReferrals').mockResolvedValue([
       { date: '2026-03-20', source: 'facebook.com', medium: 'social', sessions: 8, users: 6, channelGroup: 'Organic Social' },
     ])
+    // Its own component (ga-search-landing-pages.test.ts); stubbed so no request leaves the test.
+    const fetchSearchLandingSpy = vi.spyOn(gaModule, 'fetchSearchLandingPages').mockResolvedValue({ status: 'ready', windows: [] })
 
     const res = await app.inject({
       method: 'POST',
@@ -350,6 +352,7 @@ describe('GA4 routes', () => {
     fetchDailyTotalsSpy.mockRestore()
     fetchAiReferralsSpy.mockRestore()
     fetchSocialReferralsSpy.mockRestore()
+    fetchSearchLandingSpy.mockRestore()
     credentials.delete('test-project')
     // Clean up synced data so it doesn't interfere with later tests
     db.delete(gaTrafficSnapshots)
@@ -420,6 +423,8 @@ describe('GA4 routes', () => {
     const fetchDailyTotalsSpy = vi.spyOn(gaModule, 'fetchDailyTotals').mockResolvedValue([])
     const fetchAiReferralsSpy = vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([])
     const fetchSocialReferralsSpy = vi.spyOn(gaModule, 'fetchSocialReferrals').mockResolvedValue([])
+    // Its own component (ga-search-landing-pages.test.ts); stubbed so no request leaves the test.
+    const fetchSearchLandingSpy = vi.spyOn(gaModule, 'fetchSearchLandingPages').mockResolvedValue({ status: 'ready', windows: [] })
 
     const res = await app.inject({
       method: 'POST',
@@ -438,6 +443,7 @@ describe('GA4 routes', () => {
     fetchDailyTotalsSpy.mockRestore()
     fetchAiReferralsSpy.mockRestore()
     fetchSocialReferralsSpy.mockRestore()
+    fetchSearchLandingSpy.mockRestore()
     credentials.delete('test-project')
     db.delete(gaTrafficSummaries)
       .where(eq(gaTrafficSummaries.projectId, projectId))
@@ -3105,6 +3111,7 @@ describe('GA4 routes', () => {
         vi.spyOn(gaModule, 'fetchDailyTotals').mockResolvedValue([]),
         vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([]),
         vi.spyOn(gaModule, 'fetchSocialReferrals').mockResolvedValue([]),
+        vi.spyOn(gaModule, 'fetchSearchLandingPages').mockResolvedValue({ status: 'ready', windows: [] }),
       ]
       // fetchDailyTotals is the fetch that writes `ga_daily_totals` — the
       // table whose 90 rows exposed the bug. Its args are snapshotted BEFORE

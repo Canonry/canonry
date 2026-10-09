@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 import type { CompetitorAutoAlias as StoredCompetitorAutoAlias, CompetitorAutoAliasMode, ProviderAccountStreak, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, SnapshotUsage } from '@ainyc/canonry-contracts'
-import type { CalendarRecurrence, AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, GbpReviewAlertState, GbpReviewOrigin, GbpReviewsAccess, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@ainyc/canonry-contracts'
+import type { CalendarRecurrence, AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GaSearchLandingStatus, GaSearchLandingWindow, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, GbpReviewAlertState, GbpReviewOrigin, GbpReviewsAccess, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@ainyc/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -1909,6 +1909,14 @@ export const gaMeasurementSyncStates = sqliteTable('ga_measurement_sync_state', 
   leadError: text('lead_error'),
   leadSyncedAt: text('lead_synced_at'),
   leadAttributionScope: text('lead_attribution_scope').$type<GaLeadAttributionScope>(),
+  /** GA4 Search Console landing-page snapshot state (v176). */
+  searchLandingStatus: text('search_landing_status').$type<GaSearchLandingStatus>()
+    .notNull().default('never-synced'),
+  searchLandingError: text('search_landing_error'),
+  /** When the stored snapshot was written; unchanged by a failed attempt. */
+  searchLandingSyncedAt: text('search_landing_synced_at'),
+  /** When a sync last tried to refresh the snapshot, successful or not. */
+  searchLandingAttemptedAt: text('search_landing_attempted_at'),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
   check(
@@ -1922,6 +1930,10 @@ export const gaMeasurementSyncStates = sqliteTable('ga_measurement_sync_state', 
   check(
     'chk_ga_measurement_sync_lead_scope',
     sql`${table.leadAttributionScope} IS NULL OR ${table.leadAttributionScope} IN ('landing-page', 'channel')`,
+  ),
+  check(
+    'chk_ga_measurement_sync_search_landing_status',
+    sql`${table.searchLandingStatus} IN ('never-synced', 'ready', 'unavailable', 'error')`,
   ),
 ])
 
@@ -2009,6 +2021,72 @@ export const gaTrafficWindowSummaries = sqliteTable('ga_traffic_window_summaries
 }, (table) => [
   uniqueIndex('idx_ga_window_summary_unique').on(table.projectId, table.windowKey),
   index('idx_ga_window_summary_run').on(table.syncRunId),
+])
+
+// GA4's "Google organic search traffic: Landing page + query string" report
+// (Search Console link), one snapshot per window (v176). Every figure is
+// GA4-computed for the window: the Total lives here and is never a sum of
+// ga_search_landing_pages rows (users are distinct per grain; CTR and position
+// are ratios). A sync replaces all windows together or none.
+export const gaSearchLandingWindows = sqliteTable('ga_search_landing_windows', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  /**
+   * GA4 property the snapshot was read from. A failed sync against a
+   * different property drops the snapshot instead of keeping it as that
+   * property's last good one.
+   */
+  propertyId: text('property_id').notNull(),
+  windowKey: text('window_key').$type<GaSearchLandingWindow>().notNull(),
+  periodStart: text('period_start').notNull(),
+  periodEnd: text('period_end').notNull(),
+  /** GA4 property reporting time zone the period dates are in. */
+  timeZone: text('time_zone'),
+  totalClicks: integer('total_clicks').notNull().default(0),
+  totalImpressions: integer('total_impressions').notNull().default(0),
+  /** GA4's CTR for the window (0..1); null when there were no impressions. */
+  totalCtr: real('total_ctr'),
+  totalAveragePosition: real('total_average_position'),
+  totalActiveUsers: integer('total_active_users').notNull().default(0),
+  /** Rows GA4 reported for the window; more than were stored when `rowsCapped`. */
+  reportRowCount: integer('report_row_count').notNull().default(0),
+  rowsCapped: integer('rows_capped', { mode: 'boolean' }).notNull().default(false),
+  subjectToThresholding: integer('subject_to_thresholding', { mode: 'boolean' }).notNull().default(false),
+  dataLossFromOtherRow: integer('data_loss_from_other_row', { mode: 'boolean' }).notNull().default(false),
+  syncedAt: text('synced_at').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_ga_search_landing_windows_project_window').on(table.projectId, table.windowKey),
+  index('idx_ga_search_landing_windows_run').on(table.syncRunId),
+  check('chk_ga_search_landing_windows_window', sql`${table.windowKey} IN ('7d', '28d', '90d')`),
+  check('chk_ga_search_landing_windows_counts', sql`${table.totalClicks} >= 0 AND ${table.totalImpressions} >= 0 AND ${table.totalActiveUsers} >= 0 AND ${table.reportRowCount} >= 0`),
+  check('chk_ga_search_landing_windows_ctr', sql`${table.totalCtr} IS NULL OR (${table.totalCtr} >= 0 AND ${table.totalCtr} <= 1)`),
+])
+
+// One landing page (GA4's raw `landingPagePlusQueryString`, never normalized:
+// merging rows would change GA4's numbers) of one window of the report above.
+export const gaSearchLandingPages = sqliteTable('ga_search_landing_pages', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  windowKey: text('window_key').$type<GaSearchLandingWindow>().notNull(),
+  landingPage: text('landing_page').notNull(),
+  clicks: integer('clicks').notNull().default(0),
+  impressions: integer('impressions').notNull().default(0),
+  /** GA4's CTR for the page (0..1); null when there were no impressions. */
+  ctr: real('ctr'),
+  averagePosition: real('average_position'),
+  activeUsers: integer('active_users').notNull().default(0),
+  syncedAt: text('synced_at').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_ga_search_landing_pages_grain').on(table.projectId, table.windowKey, table.landingPage),
+  index('idx_ga_search_landing_pages_order').on(table.projectId, table.windowKey, table.clicks),
+  index('idx_ga_search_landing_pages_run').on(table.syncRunId),
+  check('chk_ga_search_landing_pages_window', sql`${table.windowKey} IN ('7d', '28d', '90d')`),
+  check('chk_ga_search_landing_pages_counts', sql`${table.clicks} >= 0 AND ${table.impressions} >= 0 AND ${table.activeUsers} >= 0`),
+  check('chk_ga_search_landing_pages_ctr', sql`${table.ctr} IS NULL OR (${table.ctr} >= 0 AND ${table.ctr} <= 1)`),
 ])
 
 export const usageCounters = sqliteTable('usage_counters', {

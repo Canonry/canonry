@@ -94,4 +94,34 @@ export const GA4_METRICS = {
    * reconstruct one.
    */
   newUsers: 'newUsers',
+  /**
+   * GA4's "Active users". In the Search Console landing-page report it is the
+   * plain metric from the same request as the Search Console metrics: that
+   * reproduced GA4's own report exactly, while filtering it to google / organic
+   * sessions did not (captured live, 2026-10-08).
+   */
+  activeUsers: 'activeUsers',
+  /**
+   * Search Console metrics a GA4 property exposes once it is linked to Search
+   * Console. Compatible only with the landing page, device and country
+   * dimensions: `date`, `sessionSource`, `sessionMedium` and
+   * `sessionDefaultChannelGroup` are INCOMPATIBLE (checkCompatibility, captured
+   * live), so the report is one request per window with no daily rows and no
+   * source filter.
+   */
+  organicGoogleSearchClicks: 'organicGoogleSearchClicks',
+  organicGoogleSearchImpressions: 'organicGoogleSearchImpressions',
+  organicGoogleSearchClickThroughRate: 'organicGoogleSearchClickThroughRate',
+  organicGoogleSearchAveragePosition: 'organicGoogleSearchAveragePosition',
 } as const
+
+/**
+ * Most landing-page rows stored per window of the Search Console landing-page
+ * report. Rows are requested by clicks, then impressions (both descending), so
+ * a capped window keeps the pages with the most search traffic, and the stored
+ * window says it was capped.
+ */
+export const GA4_SEARCH_LANDING_MAX_ROWS = 10_000
+
+/** Rows requested per page of the Search Console landing-page report. */
+export const GA4_SEARCH_LANDING_PAGE_SIZE = 10_000

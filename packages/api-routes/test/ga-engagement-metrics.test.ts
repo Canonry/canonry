@@ -141,6 +141,7 @@ describe('GA4 engagement metrics', () => {
     vi.spyOn(gaModule, 'fetchTrafficByLandingPage').mockResolvedValue([])
     vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([])
     vi.spyOn(gaModule, 'fetchSocialReferrals').mockResolvedValue([])
+    vi.spyOn(gaModule, 'fetchSearchLandingPages').mockResolvedValue({ status: 'ready', windows: [] })
     vi.spyOn(gaModule, 'fetchAcquisitionByChannel').mockResolvedValue({
       startDate: '2026-06-22', endDate: ANCHOR, rows: [],
     })

@@ -9,6 +9,7 @@ export {
   fetchDailyTotals,
   fetchAiReferrals,
   fetchSocialReferrals,
+  fetchSearchLandingPages,
   verifyConnection,
   verifyConnectionWithToken,
   listProperties,

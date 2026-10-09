@@ -22,6 +22,8 @@ import {
   gaDailyTotals,
   gaLeadEventsDaily,
   gaMeasurementSyncStates,
+  gaSearchLandingPages,
+  gaSearchLandingWindows,
   gaTrafficSnapshots,
   gaTrafficSummaries,
   gaTrafficWindowSummaries,
@@ -42,7 +44,7 @@ import {
   runs,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
-import type { DemoSeedContext, DemoSeedProject } from './types.js'
+import { DEMO_GA4_PROPERTY_ID, type DemoSeedContext, type DemoSeedProject } from './types.js'
 import { seedSiteCrawl } from './seed-site-crawl.js'
 import { harborResortsInventory } from './site-inventories/harbor-resorts.js'
 import { summitRoofingInventory } from './site-inventories/summit-roofing.js'
@@ -58,6 +60,64 @@ const at = (date: string): string => `${date}T12:00:00.000Z`
 export async function seedDemoSignals(db: DatabaseClient, context: DemoSeedContext): Promise<void> {
   for (const [index, project] of [context.simple, context.portfolio].entries()) {
     await seedProjectSignals(db, project, context.now, index)
+  }
+}
+
+/**
+ * GA4's Search Console landing-page report for the three stored windows. Each
+ * Total is GA4's own figure, so it deliberately differs from the sum of the two
+ * sample rows: GA4 reports 24 pages and the sample stores two, which the
+ * window records as capped, so no surface presents the two as the whole report.
+ */
+function seedSearchLandingPages(
+  db: DatabaseClient,
+  input: { projectId: string; prefix: string; syncRunId: string; nowIso: string; now: Date; variant: number },
+): void {
+  const windows = [['7d', 7, 1], ['28d', 28, 4], ['90d', 90, 12]] as const
+  for (const [windowKey, days, scale] of windows) {
+    const clicks = (140 + input.variant * 25) * scale
+    const impressions = (5200 + input.variant * 640) * scale
+    db.insert(gaSearchLandingWindows).values({
+      id: `${input.prefix}-ga-search-window-${windowKey}`,
+      projectId: input.projectId,
+      propertyId: DEMO_GA4_PROPERTY_ID,
+      windowKey,
+      periodStart: day(input.now, -days),
+      periodEnd: day(input.now, -1),
+      timeZone: 'UTC',
+      totalClicks: clicks,
+      totalImpressions: impressions,
+      totalCtr: clicks / impressions,
+      totalAveragePosition: 7.4 - input.variant * 0.6,
+      totalActiveUsers: (170 + input.variant * 30) * scale,
+      reportRowCount: 24,
+      rowsCapped: true,
+      syncedAt: input.nowIso,
+      syncRunId: input.syncRunId,
+      createdAt: input.nowIso,
+    }).run()
+    const pages = [
+      ['/', 0.55, 0.32, 5.1],
+      ['/services/', 0.21, 0.27, 7.8],
+    ] as const
+    for (const [landingPage, clickShare, impressionShare, position] of pages) {
+      const pageClicks = Math.round(clicks * clickShare)
+      const pageImpressions = Math.round(impressions * impressionShare)
+      db.insert(gaSearchLandingPages).values({
+        id: `${input.prefix}-ga-search-page-${windowKey}-${landingPage}`,
+        projectId: input.projectId,
+        windowKey,
+        landingPage,
+        clicks: pageClicks,
+        impressions: pageImpressions,
+        ctr: pageClicks / pageImpressions,
+        averagePosition: position,
+        activeUsers: Math.round(pageClicks * 1.2),
+        syncedAt: input.nowIso,
+        syncRunId: input.syncRunId,
+        createdAt: input.nowIso,
+      }).run()
+    }
   }
 }
 
@@ -110,7 +170,8 @@ async function seedProjectSignals(db: DatabaseClient, project: DemoSeedProject, 
   db.insert(gscUrlInspections).values({ id: `${prefix}-gsc-inspection`, projectId: project.id, syncRunId, url: `${root}services/`, indexingState: 'INDEXING_ALLOWED', verdict: 'PASS', coverageState: 'Submitted and indexed', pageFetchState: 'SUCCESSFUL', robotsTxtState: 'ALLOWED', crawlTime: nowIso, lastCrawlResult: 'SUCCESSFUL', isMobileFriendly: true, richResults: ['Sample FAQ'], referringUrls: [root], inspectedAt: nowIso, createdAt: nowIso }).run()
   db.insert(bingKeywordStats).values(searchTerms.map((query, i) => ({ id: `${prefix}-bing-keyword-${i}`, projectId: project.id, query, impressions: 310 - i * 70, clicks: 22 - i * 4, ctr: '0.071', averagePosition: String(6 + i), syncedAt: nowIso, createdAt: nowIso }))).run()
   db.insert(bingUrlInspections).values({ id: `${prefix}-bing-inspection`, projectId: project.id, url: root, httpCode: 200, inIndex: true, lastCrawledDate: dates.at(-2)!, inIndexDate: dates.at(-8)!, inspectedAt: nowIso, syncRunId, createdAt: nowIso, documentSize: 24120, anchorCount: 18, discoveryDate: dates[0]! }).run()
-  db.insert(gaMeasurementSyncStates).values({ projectId: project.id, acquisitionStatus: 'ready', acquisitionSyncedAt: nowIso, leadStatus: 'ready', leadSyncedAt: nowIso, leadAttributionScope: 'landing-page', updatedAt: nowIso }).run()
+  db.insert(gaMeasurementSyncStates).values({ projectId: project.id, acquisitionStatus: 'ready', acquisitionSyncedAt: nowIso, leadStatus: 'ready', leadSyncedAt: nowIso, leadAttributionScope: 'landing-page', searchLandingStatus: 'ready', searchLandingSyncedAt: nowIso, searchLandingAttemptedAt: nowIso, updatedAt: nowIso }).run()
+  seedSearchLandingPages(db, { projectId: project.id, prefix, syncRunId, nowIso, now, variant })
   db.insert(gaTrafficSummaries).values({ id: `${prefix}-ga-summary`, projectId: project.id, periodStart: dates[0]!, periodEnd: dates.at(-1)!, totalSessions: 1610, totalOrganicSessions: 980, totalUsers: 1214, syncedAt: nowIso, syncRunId }).run()
   db.insert(gaTrafficWindowSummaries).values({ id: `${prefix}-ga-window`, projectId: project.id, windowKey: '30d', periodStart: dates[0]!, periodEnd: dates.at(-1)!, totalSessions: 1610, totalOrganicSessions: 980, totalDirectSessions: 284, totalUsers: 1214, syncedAt: nowIso, syncRunId }).run()
 
