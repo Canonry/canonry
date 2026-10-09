@@ -250,6 +250,7 @@ describe('measurement report route', () => {
 
     expect(body).toEqual({
       revision: 1,
+      queryClass: null,
       run: { id: 'run-measurement-1', status: 'completed', createdAt: CREATED_AT, startedAt: CREATED_AT, finishedAt: CREATED_AT },
       groups: [{
         id: 'regional', label: 'Regional comparison', targetIds: ['harbor'], completeness,
@@ -303,6 +304,16 @@ describe('measurement report route', () => {
       READ_KEY,
     )).statusCode).toBe(404)
     expect((await request('GET', '/api/v1/projects/northstar/measurement-report?revision=2', READ_KEY)).statusCode).toBe(404)
+    // This v1 revision records no class: every answer is read, and a request
+    // for one class is refused rather than answered with unclassified answers.
+    const pooled = await request('GET', '/api/v1/projects/northstar/measurement-report?revision=1&queryClass=all', READ_KEY)
+    expect(pooled.statusCode).toBe(200)
+    expect(measurementReportResponseSchema.parse(pooled.json()).queryClass).toBeNull()
+    for (const queryClass of ['branded', 'non-brand', 'brand']) {
+      const refused = await request('GET', `/api/v1/projects/northstar/measurement-report?revision=1&queryClass=${queryClass}`, READ_KEY)
+      expect(refused.statusCode, queryClass).toBe(400)
+      expect(refused.json(), queryClass).toMatchObject({ error: { code: 'VALIDATION_ERROR' } })
+    }
   })
 
   it('bridges a real pre-plan run through the HTTP report adapter', async () => {

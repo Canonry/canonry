@@ -486,7 +486,7 @@ cnry measurement-plan show <project>                    # active immutable revis
 cnry measurement-plan show <project> --revision 2       # one historical revision
 cnry measurement-plan versions <project>
 cnry measurement-plan publish <project> plan.yaml       # legacy schema v1 only; refuses over an active v2 plan (use: measurement-plan advanced <project> draft-action)
-cnry measurement-plan report <project> --revision 2     # stored evidence only; never starts provider work
+cnry measurement-plan report <project> --revision 2     # stored evidence only; never starts provider work; a schema v2 revision reads non-brand unless --query-class branded|all; a schema v1 revision reads every answer and refuses --query-class non-brand or branded
 cnry measurement-plan retire <project> <stable-key>
 ```
 

@@ -206,6 +206,14 @@ const measurementReportRunParameter: OpenApiParameter = {
   schema: stringSchema,
 }
 
+const measurementReportQueryClassParameter: OpenApiParameter = {
+  name: 'queryClass',
+  in: 'query',
+  required: false,
+  description: 'Query class every group, Target and evidence row is taken over. Defaults to non-brand; branded is a separate read. all pools branded and non-brand into one rate and is served only when asked for. A schema v1 revision records no class: omit this (or pass all) to read every answer, and the response echoes queryClass null.',
+  schema: { type: 'string', enum: ['non-brand', 'branded', 'all'], default: 'non-brand' },
+}
+
 const runIdParameter: OpenApiParameter = {
   name: 'id',
   in: 'path',
@@ -1028,12 +1036,12 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-report',
     summary: 'Get a revision-pinned measurement report',
-    description: 'Builds the Target, group, and evidence report from the immutable plan revision and either its latest eligible stored run or the exact eligible runId supplied by the caller. Missing run population remains explicit and never triggers live provider execution.',
+    description: 'Builds the Target, group, and evidence report from the immutable plan revision and either its latest eligible stored run or the exact eligible runId supplied by the caller. On a schema v2 revision every rate is taken over one query class, non-brand unless queryClass names another; the response echoes the class it served. Missing run population remains explicit and never triggers live provider execution.',
     tags: ['measurement-plans'],
-    parameters: [nameParameter, measurementReportRevisionParameter, measurementReportRunParameter],
+    parameters: [nameParameter, measurementReportRevisionParameter, measurementReportRunParameter, measurementReportQueryClassParameter],
     responses: {
       200: jsonResponse('Revision-pinned measurement report returned.', 'MeasurementReportResponse'),
-      400: errorResponse('The revision query parameter is invalid.'),
+      400: errorResponse('The revision or queryClass parameter is invalid, or a class was requested for a schema v1 revision.'),
       404: errorResponse('Project, measurement-plan revision, or requested run not found.'),
     },
   },
@@ -1300,15 +1308,16 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-overview',
     summary: 'Get the scoped measurement overview',
-    description: 'Aggregates one revision-pinned run snapshot for All Properties, a group, or a single Property. This is snapshot ranking only: it never infers a trend or compares evidence across revisions. Without runId the most recent completed run pinned to the active revision is used; once paging begins, the cursor pins that revision, displayed run, evidence snapshot, and result filters. A run pinned to another revision is refused rather than joined, and appended evidence on a mutable named run invalidates its cursor. On a schema v2 plan every Property row carries its metro (the top-level group holding it, or null) and, when it sits in several top-level groups, otherMetros. Metrics are computed before search is applied, and a metric with no evidence is unavailable rather than zero. For coverage sorts, unavailable rows form the first bucket in either direction before available numeric rates follow the requested direction.',
+    description: 'Aggregates one revision-pinned run snapshot for All Properties, a group, a market, or a single Property. A group reads every query its Properties are assigned; a market reads only its own frozen queries, the population the dashboard\'s market view reads, and the response scope names which kind was read. Rates are taken over one query class, non-brand unless queryClass names another; all pools branded with non-brand and is served only when asked for. This is snapshot ranking only: it never infers a trend or compares evidence across revisions. Without runId the most recent completed run pinned to the active revision is used; once paging begins, the cursor pins that revision, displayed run, evidence snapshot, and result filters. A run pinned to another revision is refused rather than joined, and appended evidence on a mutable named run invalidates its cursor. On a schema v2 plan every Property row carries its metro (the top-level group holding it, or null) and, when it sits in several top-level groups, otherMetros. Metrics are computed before search is applied, and a metric with no evidence is unavailable rather than zero. For coverage sorts, unavailable rows form the first bucket in either direction before available numeric rates follow the requested direction.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
       { name: 'compact', in: 'query', description: 'Byte-bounded whole-row page; omits optional heavy detail with explicit metadata. Default false for compatibility.', schema: { type: 'boolean' } },
-      { name: 'scope', in: 'query', required: true, description: 'Reporting scope.', schema: { type: 'string', enum: ['all', 'group', 'property'] } },
+      { name: 'scope', in: 'query', required: true, description: 'Reporting scope. group is every query of the group\'s Properties; market is only the market\'s own queries.', schema: { type: 'string', enum: ['all', 'group', 'market', 'property'] } },
       { name: 'groupKey', in: 'query', description: 'Group stable key, required when scope is "group".', schema: stringSchema },
+      { name: 'marketKey', in: 'query', description: 'Market stable key (a frozen reporting scope), required when scope is "market" and refused (400) with any other scope.', schema: stringSchema },
       { name: 'targetKey', in: 'query', description: 'Target stable key, required when scope is "property".', schema: stringSchema },
-      { name: 'queryClass', in: 'query', description: 'Restrict to one question class. Never pooled across classes.', schema: { type: 'string', enum: ['all', 'branded', 'non-brand'] } },
+      { name: 'queryClass', in: 'query', description: 'Query class the rates are taken over. Defaults to non-brand; read branded as a separate request. all pools branded and non-brand into one rate.', schema: { type: 'string', enum: ['non-brand', 'branded', 'all'], default: 'non-brand' } },
       { name: 'provider', in: 'query', description: 'Restrict to one answer provider.', schema: stringSchema },
       { name: 'location', in: 'query', description: 'Restrict to one execution location label.', schema: stringSchema },
       { name: 'from', in: 'query', description: 'Inclusive start of the window (YYYY-MM-DD).', schema: stringSchema },
@@ -1519,14 +1528,14 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-changes',
     summary: 'Compare the latest two comparable measurements',
-    description: 'Compares stored runs only when plan revision, execution identity, and full-or-spot-check scope agree. Deltas are current minus previous; it never crosses a revision or silently joins an engine/model change. changedProperties is ordered by the size of each move unless sort=label, and each row carries signed answer-count deltas, denominatorChanged (a metric was taken over a different number of answers, so its delta is not like for like) and withinNoise (every move is at most 2 answers). A move is the rate change times the larger of the two answer counts, the answer-count delta whenever the denominator held, so a falling rate never reads as a gain and a collapse never reads as noise. distribution buckets every Property in scope, not just the returned rows. With queryClass all, metricsByClass reports branded and non-brand beside the pooled metrics.',
+    description: 'Compares stored runs only when plan revision, execution identity, and full-or-spot-check scope agree. Deltas are current minus previous; it never crosses a revision or silently joins an engine/model change. changedProperties is ordered by the size of each move unless sort=label, and each row carries signed answer-count deltas, denominatorChanged (a metric was taken over a different number of answers, so its delta is not like for like) and withinNoise (every move is at most 2 answers). A move is the rate change times the larger of the two answer counts, the answer-count delta whenever the denominator held, so a falling rate never reads as a gain and a collapse never reads as noise. distribution buckets every Property in scope, not just the returned rows. Rates are taken over non-brand queries unless queryClass names another class. With queryClass all, the metrics, rows and distribution pool branded with non-brand, and metricsByClass reports each class beside them.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
       { name: 'scope', in: 'query', description: 'Reporting scope. Defaults to all.', schema: { type: 'string', enum: ['all', 'group', 'property'], default: 'all' } },
       { name: 'groupKey', in: 'query', description: 'Required for group scope.', schema: stringSchema },
       { name: 'targetKey', in: 'query', description: 'Required for Property scope.', schema: stringSchema },
-      { name: 'queryClass', in: 'query', description: 'Question class. Defaults to all.', schema: { type: 'string', enum: ['all', 'branded', 'non-brand'], default: 'all' } },
+      { name: 'queryClass', in: 'query', description: 'Query class. Defaults to non-brand; read branded as a separate request. all pools both classes.', schema: { type: 'string', enum: ['non-brand', 'branded', 'all'], default: 'non-brand' } },
       { name: 'provider', in: 'query', description: 'Restrict both runs to one answer provider.', schema: stringSchema },
       { name: 'location', in: 'query', description: 'Restrict both runs to one execution location label.', schema: stringSchema },
       { name: 'runId', in: 'query', description: 'Use this completed or partial run as the current side.', schema: stringSchema },

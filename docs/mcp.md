@@ -258,9 +258,19 @@ only `pageList`. `weakestMarkets` supplies the bounded full-rate weakest metro
 headline; compact rows omit per-Property answer evidence and tie-cohort details,
 available on drill-down tools or a raw `compact: false` read.
 `canonry_measurement_changes` defaults `queryClass` to `non-brand` and caps
-`limit` at 20. `canonry_measurement_property_competitors` and
+`limit` at 20. `canonry_measurement_overview`,
+`canonry_measurement_property_competitors` and
 `canonry_measurement_property_evidence` read `non-brand` when `queryClass` is
-omitted. `canonry_analytics_sources` and `canonry_competitor_landscape` read the
+omitted; read branded as a separate call, and treat `all` as both classes
+pooled into one rate. The overview and changes HTTP routes default to
+`non-brand` too. `canonry_measurement_report` sends a class only when one is
+named: a schema v2 revision then reads `non-brand`, and a schema v1 revision,
+which records no class, reads every answer and echoes `queryClass: null`.
+`canonry_measurement_overview` reads a market with `scope: market` and
+`marketKey` (a market's id from `canonry_visibility_report` `scopeOptions`):
+only that market's queries, as the dashboard counts it. `scope: group` reads
+every query of the group's Properties, so a group figure is never a market's
+figure even when the two share a name. `canonry_analytics_sources` and `canonry_competitor_landscape` read the
 latest sweep (`runId=latest`) when `queryClass` is `branded` or `non-brand` and
 neither `runId` nor `window` is given.
 Competitor reads with `answers: not-mentioned` preserve evidence counts but

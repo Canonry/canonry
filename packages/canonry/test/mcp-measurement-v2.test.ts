@@ -248,7 +248,7 @@ const readToolCases = [
     operation: 'GET /api/v1/projects/{name}/measurement-overview',
     input: { project, scope: 'all', search: 'Target', limit: 25, sort: 'citationCoverage-asc' },
     method: 'getMeasurementOverview',
-    args: [project, { scope: 'all', search: 'Target', limit: 25, sort: 'citationCoverage-asc', compact: true }],
+    args: [project, { scope: 'all', search: 'Target', limit: 25, sort: 'citationCoverage-asc', queryClass: 'non-brand', compact: true }],
   },
   {
     name: 'canonry_measurement_draft_get',
@@ -370,6 +370,7 @@ function makeClient() {
   return {
     getMeasurementSetup: vi.fn().mockResolvedValue({}),
     getMeasurementOverview: vi.fn().mockResolvedValue({}),
+    getMeasurementReport: vi.fn().mockResolvedValue({}),
     getMeasurementPlanDraft: vi.fn().mockResolvedValue({}),
     getMeasurementDraftTargets: vi.fn().mockResolvedValue({}),
     getMeasurementDraftAssignments: vi.fn().mockResolvedValue({}),
@@ -472,8 +473,38 @@ describe('Advanced Measurement v2 MCP tools', () => {
     expect(client.getMeasurementOverview).toHaveBeenCalledWith(project, {
       scope: 'all',
       sort: 'mentionCoverage-desc',
+      queryClass: 'non-brand',
       compact: true,
     })
+  })
+
+  it('reads one class through the overview tool, non-brand unless the agent names another, and reaches a market by its key', async () => {
+    const tool = toolFor('canonry_measurement_overview')
+    const call = async (input: Record<string, unknown>) => {
+      const client = makeClient()
+      await tool.handler(client as unknown as ApiClient, tool.inputSchema.parse({ project, ...input }))
+      return client.getMeasurementOverview.mock.calls[0]![1] as Record<string, unknown>
+    }
+
+    // Aero validates against the JSON schema without zod defaults, so the
+    // handler itself must send the class.
+    expect((await call({ scope: 'all' })).queryClass).toBe('non-brand')
+    expect((await call({ scope: 'all', queryClass: 'branded' })).queryClass).toBe('branded')
+    expect((await call({ scope: 'all', queryClass: 'all' })).queryClass).toBe('all')
+    expect(await call({ scope: 'market', marketKey: 'downtown' })).toMatchObject({ scope: 'market', marketKey: 'downtown', queryClass: 'non-brand' })
+    expect(tool.inputSchema.safeParse({ project, scope: 'market' }).success).toBe(false)
+    expect(tool.inputSchema.safeParse({ project, scope: 'group', groupKey: 'downtown', marketKey: 'downtown' }).success).toBe(false)
+  })
+
+  it('sends a report class only when the agent names one, so a schema v1 revision is never refused by default', async () => {
+    const tool = toolFor('canonry_measurement_report')
+    const client = makeClient()
+    await tool.handler(client as unknown as ApiClient, tool.inputSchema.parse({ project, revision: 2 }))
+    await tool.handler(client as unknown as ApiClient, tool.inputSchema.parse({ project, revision: 2, queryClass: 'branded' }))
+    expect(client.getMeasurementReport.mock.calls).toEqual([
+      [project, 2, undefined, undefined],
+      [project, 2, undefined, 'branded'],
+    ])
   })
 
   it('keeps draft action headers action-specific', () => {

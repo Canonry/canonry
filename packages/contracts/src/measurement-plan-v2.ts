@@ -530,11 +530,24 @@ export const measurementCountMetricValueSchema = z.discriminatedUnion('state', [
 ])
 export type CountMetricValue = z.output<typeof measurementCountMetricValueSchema>
 
-export const measurementOverviewScopeKindSchema = z.enum(['all', 'group', 'property'])
+/**
+ * A group is every query its Properties are assigned. A market is a frozen
+ * reporting scope: only its own queries, the population the dashboard's market
+ * view reads. A group and a market can share a label and still hold different
+ * queries, so the two are separate kinds and a response names the one it read.
+ */
+export const measurementOverviewScopeKindSchema = z.enum(['all', 'group', 'market', 'property'])
 export type MeasurementOverviewScopeKind = z.output<typeof measurementOverviewScopeKindSchema>
 
 export const measurementQueryClassFilterSchema = queryClassFilterSchema
 export type MeasurementQueryClassFilter = z.output<typeof measurementQueryClassFilterSchema>
+
+/**
+ * The class an Advanced Measurement read serves when the caller names none.
+ * Branded and non-brand never share a denominator by default; `all` pools them
+ * and is served only when asked for.
+ */
+export const MEASUREMENT_DEFAULT_QUERY_CLASS = 'non-brand' satisfies MeasurementQueryClassFilter
 
 /** A single HTTP-friendly sort token keeps cursors bound to the exact ordering. */
 export const measurementOverviewSortSchema = z.enum([
@@ -568,7 +581,10 @@ export type MeasurementNextActionKind = z.output<typeof measurementNextActionKin
 export const measurementOverviewQuerySchema = z.object({
   scope: measurementOverviewScopeKindSchema,
   groupKey: measurementV2StableKeySchema.optional(),
+  /** Required for market scope: a frozen reporting scope's stable key. */
+  marketKey: measurementV2StableKeySchema.optional(),
   targetKey: measurementV2StableKeySchema.optional(),
+  /** Omit for non-brand. `all` pools branded and non-brand into one rate. */
   queryClass: measurementQueryClassFilterSchema.optional(),
   provider: providerNameSchema.optional(),
   location: z.string().trim().min(1).optional(),

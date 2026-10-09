@@ -120,6 +120,14 @@ describe('aeroProjectShapePrompt', () => {
     expect(route('Weakest or strongest Properties')).toContain('detailsOmitted')
     expect(route('Weakest or strongest Properties')).toContain('list=strongest-mentions')
     expect(route('Which metros')).toContain('list=markets')
+    // The overview is read one class at a time, and a market through its own
+    // scope, so a pooled or group figure never answers for a market.
+    expect(route('Weakest or strongest Properties')).toContain('canonry_measurement_overview with queryClass "non-brand"')
+    expect(route('Rates for one Property, group or market')).toContain('canonry_measurement_overview with queryClass "non-brand"')
+    expect(route('Rates for one Property, group or market')).toContain('Branded is a separate call')
+    expect(route('Rates for one Property, group or market')).toContain('never quote queryClass "all"')
+    expect(route('Rates for one Property, group or market')).toContain('scope "market" with its marketKey')
+    expect(route('Rates for one Property, group or market')).toContain('never quote a group figure under a market\'s name')
     // Sweep-over-sweep noise and partial results are hard rules, not hints.
     expect(prompt).toContain('a Property that moved 2 answers or fewer is within noise (withinNoise)')
     expect(prompt).toContain('never call those rows the biggest, all, or the full picture')

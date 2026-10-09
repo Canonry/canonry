@@ -311,6 +311,20 @@ describe('measurement report adapter', () => {
       .toEqual({ numerator: null, denominator: null, rate: null, reason: 'no-population' })
   })
 
+  it('reads every answer of a schema v1 revision, which records no class, and refuses a request for one class', () => {
+    seedVersion()
+    const unclassified = buildStoredMeasurementReport(db, projectId, 7)
+    if (unclassified.kind === 'no-plan') throw new Error('Expected a report envelope')
+    expect(unclassified.report.queryClass).toBeNull()
+    const pooled = buildStoredMeasurementReport(db, projectId, 7, undefined, 'all')
+    if (pooled.kind === 'no-plan') throw new Error('Expected a report envelope')
+    expect(pooled.report.queryClass).toBeNull()
+    for (const queryClass of ['non-brand', 'branded'] as const) {
+      expect(() => buildStoredMeasurementReport(db, projectId, 7, undefined, queryClass))
+        .toThrow('Revision 7 is a schema v1 plan, which records no query class. Omit queryClass to read every answer.')
+    }
+  })
+
   it('selects the requested immutable revision rather than a newer plan or current project identity', () => {
     const versionSeven = seedVersion(plan, 7)
     const runId = seedRun(versionSeven)
@@ -491,8 +505,32 @@ describe('measurement report adapter, schema v2', () => {
     expect(result.report.run?.id).toBe(runId)
     expect(result.report.targets.map(target => target.id)).toEqual(['bayside', 'harbor'])
     expect(result.report.groups[0]).toMatchObject({ id: 'regional', targetIds: ['bayside', 'harbor'] })
-    expect(result.report.targets.find(target => target.id === 'harbor')?.citationCoverage)
-      .toEqual({ numerator: 2, denominator: 4, rate: 0.5 })
+  })
+
+  it('reads one query class, non-brand unless another is named, and pools only on request', () => {
+    const versionId = seedVersionV2()
+    const runId = seedRunV2(versionId)
+    // Harbor's page is cited on both non-brand answers; the branded answers
+    // cite only a review site.
+    for (const provider of ['openai', 'gemini']) {
+      seedV2Snapshot(runId, 'exec-nearby', provider, {
+        citedUrls: ['https://northstar.example/locations/harbor/details'],
+      })
+      seedV2Snapshot(runId, 'exec-brand', provider, { citedUrls: ['https://reviews.example/northstar'] })
+    }
+    const harbor = (queryClass?: 'non-brand' | 'branded' | 'all') => {
+      const result = buildStoredMeasurementReport(db, projectId, 11, undefined, queryClass)
+      if (result.kind !== 'report') throw new Error('Expected report')
+      return {
+        queryClass: result.report.queryClass,
+        citation: result.report.targets.find(target => target.id === 'harbor')?.citationCoverage,
+        evidenceEdges: new Set(result.report.evidence.map(row => row.executionId)),
+      }
+    }
+
+    expect(harbor()).toEqual({ queryClass: 'non-brand', citation: { numerator: 2, denominator: 2, rate: 1 }, evidenceEdges: new Set(['exec-nearby']) })
+    expect(harbor('branded')).toEqual({ queryClass: 'branded', citation: { numerator: 0, denominator: 2, rate: 0 }, evidenceEdges: new Set(['exec-brand']) })
+    expect(harbor('all')).toEqual({ queryClass: 'all', citation: { numerator: 2, denominator: 4, rate: 0.5 }, evidenceEdges: new Set(['exec-nearby', 'exec-brand']) })
   })
 
   it('never displays a scoped spot check as the revision default', () => {

@@ -14,6 +14,7 @@ import {
   deriveCitedUrlCandidates,
   filterCapturedCitedUrls,
   isVertexGroundingRedirect,
+  MEASUREMENT_DEFAULT_QUERY_CLASS,
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
   parseMeasurementRunManifestV1,
   parseStoredMeasurementPlanAnyVersion,
@@ -24,6 +25,7 @@ import {
   type MeasurementPlan,
   type MeasurementPlanV2,
   type MeasurementQueryClass,
+  type MeasurementQueryClassFilter,
   type MeasurementReportResponse,
   type MeasurementRunManifestV1,
   type MeasurementTargetUrlMatcher,
@@ -31,6 +33,7 @@ import {
   type RunStatus,
   type StoredMeasurementPlan,
   compareText,
+  validationError,
 } from '@ainyc/canonry-contracts'
 import {
   measurementPlanVersions,
@@ -351,7 +354,8 @@ function reportInput(
   }
 }
 
-function v2UsageEdgeId(edge: MeasurementPlanV2['usageEdges'][number]): string {
+/** The report kernel's id for one frozen v2 usage edge. */
+export function v2UsageEdgeId(edge: MeasurementPlanV2['usageEdges'][number]): string {
   return `target:${edge.targetKey}:${edge.queryId}:${edge.executionNodeKey}`
 }
 
@@ -443,9 +447,11 @@ function responseFromReport(
   revision: number,
   report: ReturnType<typeof buildMeasurementReport>,
   run: MeasurementReportResponse['run'],
+  queryClass: MeasurementQueryClassFilter | null,
 ): MeasurementReportResponse {
   return {
     revision,
+    queryClass,
     run,
     groups: report.groups,
     targets: report.targets,
@@ -587,7 +593,8 @@ function storedMeasurementPlanV2Report(
   projectId: string,
   version: typeof measurementPlanVersions.$inferSelect,
   plan: MeasurementPlanV2,
-  runId?: string,
+  runId: string | undefined,
+  queryClass: MeasurementQueryClassFilter,
 ): StoredMeasurementReport {
   const run = runId
     ? pinnedMeasurementRun(db, projectId, version.id, runId, { exactVersion: true })
@@ -597,29 +604,49 @@ function storedMeasurementPlanV2Report(
     return {
       kind: 'no-population',
       reason: 'no-run',
-      report: responseFromReport(version.revision, buildMeasurementReport(empty.input), null),
+      report: responseFromReport(version.revision, buildMeasurementReport(classInput(empty, queryClass)), null, queryClass),
     }
   }
   const manifest = measurementRunExpectedSlots(run, plan)
   const snapshots = db.select().from(querySnapshots).where(eq(querySnapshots.runId, run.id)).all()
-  const { input } = buildMeasurementPlanV2ReportInput(version.revision, plan, manifest, snapshots)
+  const materialized = buildMeasurementPlanV2ReportInput(version.revision, plan, manifest, snapshots)
   return {
     kind: 'report',
-    report: responseFromReport(version.revision, buildMeasurementReport(input), {
+    report: responseFromReport(version.revision, buildMeasurementReport(classInput(materialized, queryClass)), {
       id: run.id,
       status: run.status === RunStatuses.completed ? RunStatuses.completed : RunStatuses.partial,
       createdAt: run.createdAt,
       startedAt: run.startedAt,
       finishedAt: run.finishedAt,
-    }),
+    }, queryClass),
   }
 }
 
+/**
+ * One question class's report input. The class belongs to the assignment
+ * behind each usage edge, so the filter selects edges, never questions; `all`
+ * keeps every edge and pools both classes.
+ */
+function classInput(materialized: MeasurementPlanV2ReportInput, queryClass: MeasurementQueryClassFilter): MeasurementReportInput {
+  if (queryClass === 'all') return materialized.input
+  return {
+    ...materialized.input,
+    usageEdges: materialized.input.usageEdges.filter(edge => materialized.edgeQueryClass.get(edge.id) === queryClass),
+  }
+}
+
+/**
+ * `queryClass` narrows a schema v2 report to one class; omitted, it reads
+ * non-brand, and `all` pools both. A schema v1 revision records no class, so
+ * its report covers every answer, echoes `queryClass: null`, and refuses a
+ * request for one class rather than presenting unclassified answers as it.
+ */
 export function buildStoredMeasurementReport(
   db: DatabaseClient,
   projectId: string,
   revision: number,
   runId?: string,
+  queryClass?: MeasurementQueryClassFilter,
 ): StoredMeasurementReport {
   const version = db.select().from(measurementPlanVersions).where(and(
     eq(measurementPlanVersions.projectId, projectId),
@@ -629,7 +656,12 @@ export function buildStoredMeasurementReport(
 
   const stored = parseStoredMeasurementPlanAnyVersion(version.canonicalJson)
   if (stored.schemaVersion === MEASUREMENT_PLAN_V2_SCHEMA_VERSION) {
-    return storedMeasurementPlanV2Report(db, projectId, version, stored, runId)
+    return storedMeasurementPlanV2Report(db, projectId, version, stored, runId, queryClass ?? MEASUREMENT_DEFAULT_QUERY_CLASS)
+  }
+  if (queryClass !== undefined && queryClass !== 'all') {
+    throw validationError(
+      `Revision ${revision} is a schema v1 plan, which records no query class. Omit queryClass to read every answer.`,
+    )
   }
   const plan = stored
 
@@ -662,7 +694,7 @@ export function buildStoredMeasurementReport(
     )).orderBy(desc(runs.createdAt), desc(runs.id)).get()
     if (!selectedRun) {
       const report = buildMeasurementReport(reportInput(version.revision, plan, { schemaVersion: 1, expectedSlots: [] }, [], false))
-      return { kind: 'no-population', reason: 'no-run', report: responseFromReport(version.revision, report, null) }
+      return { kind: 'no-population', reason: 'no-run', report: responseFromReport(version.revision, report, null, null) }
     }
     const legacySnapshots = db.select().from(querySnapshots).where(eq(querySnapshots.runId, selectedRun.id)).all()
     const providers = [...new Set(legacySnapshots.map(snapshot => snapshot.provider.trim().toLocaleLowerCase('en')).filter(Boolean))]
@@ -670,12 +702,12 @@ export function buildStoredMeasurementReport(
       manifest = buildMeasurementRunManifest(plan, providers)
     } catch {
       const report = buildMeasurementReport(reportInput(version.revision, plan, { schemaVersion: 1, expectedSlots: [] }, [], false))
-      return { kind: 'no-population', reason: 'no-run', report: responseFromReport(version.revision, report, null) }
+      return { kind: 'no-population', reason: 'no-run', report: responseFromReport(version.revision, report, null, null) }
     }
     legacy = true
   } else {
     const report = buildMeasurementReport(reportInput(version.revision, plan, { schemaVersion: 1, expectedSlots: [] }, [], false))
-    return { kind: 'no-population', reason: 'no-run', report: responseFromReport(version.revision, report, null) }
+    return { kind: 'no-population', reason: 'no-run', report: responseFromReport(version.revision, report, null, null) }
   }
   const snapshots = db.select().from(querySnapshots).where(eq(querySnapshots.runId, selectedRun.id)).all()
   const report = buildMeasurementReport(reportInput(version.revision, plan, manifest, snapshots, legacy))
@@ -687,6 +719,6 @@ export function buildStoredMeasurementReport(
       createdAt: selectedRun.createdAt,
       startedAt: selectedRun.startedAt,
       finishedAt: selectedRun.finishedAt,
-    }),
+    }, null),
   }
 }

@@ -132,7 +132,8 @@ async function walkAnswers(query: string, limit: number): Promise<MeasurementAns
 async function unpagedSources(): Promise<MeasurementAttributionEvidence[]> {
   const response = await app.inject({
     method: 'GET',
-    url: `/api/v1/projects/northstar/measurement-report?revision=1&runId=${RUN_ID}`,
+    // Every class, as the paged route reads by default.
+    url: `/api/v1/projects/northstar/measurement-report?revision=1&runId=${RUN_ID}&queryClass=all`,
   })
   const report = response.json() as MeasurementReportResponse
   return report.evidence.filter(row => row.usageEdgeId.startsWith(PILOT_EDGE_PREFIX))

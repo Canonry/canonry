@@ -425,6 +425,13 @@ export type MeasurementReportRun = z.infer<typeof measurementReportRunSchema>
 /** Adapter response: a revision-pinned kernel report with optional run metadata. */
 export const measurementReportResponseSchema = z.object({
   revision: z.number().int().positive(),
+  /**
+   * The query class every group, Target and evidence row below is taken over:
+   * non-brand unless the request named another, and `all` pools branded with
+   * non-brand. Null for a schema v1 revision, which records no class. Absent on
+   * servers that predate it.
+   */
+  queryClass: measurementQueryClassFilterSchema.nullable().optional(),
   run: measurementReportRunSchema.nullable(),
   groups: z.array(measurementGroupReportSchema),
   targets: z.array(measurementTargetReportSchema),

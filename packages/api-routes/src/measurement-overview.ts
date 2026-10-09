@@ -13,6 +13,7 @@ import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   AppError,
+  MEASUREMENT_DEFAULT_QUERY_CLASS,
   MEASUREMENT_PAGE_DEFAULT_LIMIT,
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
   MEASUREMENT_OVERVIEW_DEFAULT_SORT,
@@ -40,6 +41,7 @@ import {
   type RunStatus,
   type StoredMeasurementPlan,
   compareText as compareGroupText,
+  measurementV2UsageEdgeKey,
   normalizeIdentityText as normalizedText,
 } from '@ainyc/canonry-contracts'
 import {
@@ -64,6 +66,7 @@ import {
   latestMeasurementRun,
   measurementRunExpectedSlots,
   runVersionServesActiveVersion,
+  v2UsageEdgeId,
 } from './measurement-report-adapter.js'
 import { measurementRunCompleteness } from './measurement-run-completeness.js'
 import { snapshotEvidenceFingerprint } from './snapshot-evidence-fingerprint.js'
@@ -89,6 +92,17 @@ interface ScopeSelection {
   targetKeys: string[]
   /** Set only for a v2 group scope: the one place Named Share of Voice may exist. */
   group: MeasurementPlanV2['groups'][number] | null
+  /**
+   * Set only for a market scope: the report-kernel ids of the market's frozen
+   * usage edges. Every metric is taken over these edges alone, so a Property
+   * in the market contributes only the market's queries.
+   */
+  edgeIds?: ReadonlySet<string>
+}
+
+/** The class a read serves. Omitted means non-brand; `all` is served only when asked for. */
+function servedQueryClass(query: MeasurementOverviewQuery): MeasurementQueryClassFilter {
+  return query.queryClass ?? MEASUREMENT_DEFAULT_QUERY_CLASS
 }
 
 interface NamedIdentity {
@@ -183,6 +197,11 @@ function parseOverviewQuery(raw: Record<string, unknown>): MeasurementOverviewQu
   }
   const parsed = measurementOverviewQuerySchema.safeParse(candidate)
   if (!parsed.success) throw validationError('Invalid measurement overview query', { issues: parsed.error.issues })
+  // A market key narrows only a market read. Ignoring it on another scope would
+  // answer for more queries than the caller named, so it is refused instead.
+  if (parsed.data.marketKey !== undefined && parsed.data.scope !== 'market') {
+    throw validationError(`"marketKey" is accepted only when scope is "market"; scope "${parsed.data.scope}" does not narrow to a market.`)
+  }
   return parsed.data
 }
 
@@ -252,8 +271,9 @@ function overviewFilterFingerprint(query: MeasurementOverviewQuery): string {
   const filters = {
     scope: query.scope,
     groupKey: query.groupKey ?? null,
+    marketKey: query.marketKey ?? null,
     targetKey: query.targetKey ?? null,
-    queryClass: query.queryClass ?? 'all',
+    queryClass: servedQueryClass(query),
     provider: query.provider === undefined ? null : normalizedText(query.provider),
     location: query.location === undefined ? null : normalizedText(query.location),
     from: query.from ?? null,
@@ -273,8 +293,9 @@ function overviewAggregateFingerprint(query: MeasurementOverviewQuery): string {
   const filters = {
     scope: query.scope,
     groupKey: query.groupKey ?? null,
+    marketKey: query.marketKey ?? null,
     targetKey: query.targetKey ?? null,
-    queryClass: query.queryClass ?? 'all',
+    queryClass: servedQueryClass(query),
     provider: query.provider === undefined ? null : normalizedText(query.provider),
     location: query.location === undefined ? null : normalizedText(query.location),
     from: query.from ?? null,
@@ -627,6 +648,7 @@ function resolveScope(plan: StoredMeasurementPlan, query: MeasurementOverviewQue
       group: v2GroupOf(plan, groupKey),
     }
   }
+  if (query.scope === 'market') return resolveMarketScope(plan, query.marketKey)
   if (query.scope === 'property') {
     if (query.targetKey === undefined) throw validationError('"targetKey" is required when scope is "property".')
     const target = plan.targets.find(candidate => candidate.stableKey === query.targetKey)
@@ -634,6 +656,31 @@ function resolveScope(plan: StoredMeasurementPlan, query: MeasurementOverviewQue
     return { kind: 'property', key: target.stableKey, label: target.label, targetKeys: [target.stableKey], group: null }
   }
   return { kind: 'all', label: 'All Properties', targetKeys: plan.targets.map(target => target.stableKey), group: null }
+}
+
+/**
+ * A market reads only its frozen usage edges, exactly as the visibility report's
+ * market scope does. A group with the same label can hold more queries, so the
+ * market is never read through a group.
+ */
+function resolveMarketScope(plan: StoredMeasurementPlan, marketKey: string | undefined): ScopeSelection {
+  if (marketKey === undefined) throw validationError('"marketKey" is required when scope is "market".')
+  const notInRevision = () => validationError(`Measurement market "${marketKey}" is not in the active revision.`)
+  // A schema v1 plan defines no markets.
+  if (plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) throw notInRevision()
+  const market = plan.reportingScopes?.find(candidate => candidate.stableKey === marketKey)
+  if (!market) throw notInRevision()
+  const members = new Set(market.usageEdges.map(measurementV2UsageEdgeKey))
+  const edges = plan.usageEdges.filter(edge => members.has(measurementV2UsageEdgeKey(edge)))
+  const targetKeys = new Set(edges.map(edge => edge.targetKey))
+  return {
+    kind: 'market',
+    key: market.stableKey,
+    label: market.label,
+    targetKeys: plan.targets.map(target => target.stableKey).filter(targetKey => targetKeys.has(targetKey)),
+    group: null,
+    edgeIds: new Set(edges.map(v2UsageEdgeId)),
+  }
 }
 
 /**
@@ -814,7 +861,7 @@ function planV1Overview(
   return {
     mode: 'active-v1',
     scope: scopeDto(scope),
-    queryClass: query.queryClass ?? 'all',
+    queryClass: servedQueryClass(query),
     measurement: {
       state: displayed ? displayedState(displayed.status) : 'not_measured',
       ...(displayed ? { currentRunId: displayed.id, displayedRunId: displayed.id } : {}),
@@ -844,7 +891,7 @@ function planV2Overview(
   scope: ScopeSelection,
   cache: MeasurementOverviewCache,
 ): MeasurementOverviewResponse {
-  const queryClass = query.queryClass ?? 'all'
+  const queryClass = servedQueryClass(query)
   const displayed = selectDisplayedRun(db, projectId, active, query)
   const current = latestMeasurementRun(db, projectId, active.version.id, CURRENT_RUN_STATUSES)
   const currentDto = current ? { currentRunId: current.id } : {}
@@ -904,16 +951,17 @@ function planV2Overview(
     const manifest = measurementRunExpectedSlots(displayed, plan)
     const { input, edgeQueryClass } = buildMeasurementPlanV2ReportInput(active.version.revision, plan, manifest, snapshots)
 
-    // Provider, location and question class narrow the population every metric is
-    // taken over, so they are applied before a single aggregate is computed.
-    // `search` never is.
+    // Provider, location, question class and a market's own edges narrow the
+    // population every metric is taken over, so they are applied before a
+    // single aggregate is computed. `search` never is.
     const expectedSlots = input.expectedSlots.filter(slot => (
       (query.provider === undefined || slot.provider === normalizedText(query.provider))
       && (query.location === undefined || normalizedText(slot.location ?? '') === normalizedText(query.location))
     ))
-    const usageEdges: readonly MeasurementUsageEdgeInput[] = queryClass === 'all'
-      ? input.usageEdges
-      : input.usageEdges.filter(edge => edgeQueryClass.get(edge.id) === queryClass)
+    const usageEdges: readonly MeasurementUsageEdgeInput[] = input.usageEdges.filter(edge => (
+      (queryClass === 'all' || edgeQueryClass.get(edge.id) === queryClass)
+      && (scope.edgeIds === undefined || scope.edgeIds.has(edge.id))
+    ))
 
     return buildMeasurementOverview({
       ...input,

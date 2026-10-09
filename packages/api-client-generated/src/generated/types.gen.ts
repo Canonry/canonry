@@ -8683,7 +8683,7 @@ export type MeasurementDraftUpsertTargetRequest = {
 export type MeasurementOverviewResponse = {
     mode: 'active-v1' | 'active-v2';
     scope: {
-        kind: 'all' | 'group' | 'property';
+        kind: 'all' | 'group' | 'market' | 'property';
         key?: string;
         label: string;
     };
@@ -10613,6 +10613,7 @@ export type MeasurementQueryTemplateUpsertRequest = {
 
 export type MeasurementReportResponse = {
     revision: number;
+    queryClass?: 'all' | 'branded' | 'non-brand' | null;
     run: {
         id: string;
         status: 'completed' | 'partial';
@@ -15731,13 +15732,17 @@ export type GetApiV1ProjectsByNameMeasurementReportData = {
          * Eligible full measurement run to reconstruct. Omit to use the latest run for the revision.
          */
         runId?: string;
+        /**
+         * Query class every group, Target and evidence row is taken over. Defaults to non-brand; branded is a separate read. all pools branded and non-brand into one rate and is served only when asked for. A schema v1 revision records no class: omit this (or pass all) to read every answer, and the response echoes queryClass null.
+         */
+        queryClass?: 'non-brand' | 'branded' | 'all';
     };
     url: '/api/v1/projects/{name}/measurement-report';
 };
 
 export type GetApiV1ProjectsByNameMeasurementReportErrors = {
     /**
-     * The revision query parameter is invalid.
+     * The revision or queryClass parameter is invalid, or a class was requested for a schema v1 revision.
      */
     400: ErrorEnvelope;
     /**
@@ -17528,21 +17533,25 @@ export type GetApiV1ProjectsByNameMeasurementOverviewData = {
          */
         compact?: boolean;
         /**
-         * Reporting scope.
+         * Reporting scope. group is every query of the group's Properties; market is only the market's own queries.
          */
-        scope: 'all' | 'group' | 'property';
+        scope: 'all' | 'group' | 'market' | 'property';
         /**
          * Group stable key, required when scope is "group".
          */
         groupKey?: string;
         /**
+         * Market stable key (a frozen reporting scope), required when scope is "market" and refused (400) with any other scope.
+         */
+        marketKey?: string;
+        /**
          * Target stable key, required when scope is "property".
          */
         targetKey?: string;
         /**
-         * Restrict to one question class. Never pooled across classes.
+         * Query class the rates are taken over. Defaults to non-brand; read branded as a separate request. all pools branded and non-brand into one rate.
          */
-        queryClass?: 'all' | 'branded' | 'non-brand';
+        queryClass?: 'non-brand' | 'branded' | 'all';
         /**
          * Restrict to one answer provider.
          */
@@ -18656,9 +18665,9 @@ export type GetApiV1ProjectsByNameMeasurementChangesData = {
          */
         targetKey?: string;
         /**
-         * Question class. Defaults to all.
+         * Query class. Defaults to non-brand; read branded as a separate request. all pools both classes.
          */
-        queryClass?: 'all' | 'branded' | 'non-brand';
+        queryClass?: 'non-brand' | 'branded' | 'all';
         /**
          * Restrict both runs to one answer provider.
          */
