@@ -151,6 +151,7 @@ The update notice is the one piece of chrome that reaches agents as well as peop
 Chrome helpers:
 
 - `src/setup-nudge.ts` — the stalled-setup stderr line: human-mode + TTY only, lazy state read, exempt roots; the Page Health handoff commands print it in every output mode
+- `src/provider-registration.ts`: the one rule for which providers the server registers from config (`local` by base URL, Gemini by API key or Vertex project, others by API key, CDP by host or port, plus the legacy top-level Gemini key). Boot registration, `buildSetupState`, `serve.started`, and bootstrap's provider-free check all use it; never count providers by `apiKey || baseUrl`
 - `src/activation-notice.ts` — once-ever first-activation notice; marker written before printing, TTY-gated
 
 ### Telemetry helpers

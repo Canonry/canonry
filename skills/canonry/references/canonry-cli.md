@@ -21,7 +21,10 @@ once. With no provider, its `--format json` output lists `nextSteps` for adding
 one, and `technical-aeo run|score|crawl` / `site-health overview` print a
 `NO_PROVIDER` notice on stderr (one `{"notice":{...}}` line for JSON): AI
 Visibility is the next step after Page Health. The operator adds the key in the
-dashboard or in their own terminal; never ask for it in chat. `cnry init` is the optional interactive path when provider/OAuth setup is
+dashboard or in their own terminal; never ask for it in chat. `cnry settings
+provider` registers a provider on the running server immediately; a key added by
+setting its env var and rerunning `cnry bootstrap` reaches an already-running
+server only after `cnry stop`, then `cnry start`. `cnry init` is the optional interactive path when provider/OAuth setup is
 wanted at the same time. An agent must ask the operator to run either
 secret-bearing command in a private terminal without pasting the output back.
 

@@ -245,6 +245,7 @@ import {
 } from "@ainyc/canonry-db";
 import { ProviderRegistry } from "./provider-registry.js";
 import { batchEligibleProviderNames, providerConfigFromEntry, providersWithUnsupportedBatch } from "./provider-batch-config.js";
+import { isApiProviderRegistrable, isCdpProviderRegistrable, registeredProviderNames } from "./provider-registration.js";
 import { createProviderModelCatalog } from "./provider-model-catalog.js";
 import { Scheduler, ensureDefaultHealthSchedule } from "./scheduler.js";
 import { startSiteLivenessLoop } from "./site-liveness-loop.js";
@@ -1035,24 +1036,14 @@ export async function createServer(opts: {
   }
 
   log.info("providers.configured", {
-    providers: Object.keys(providers).filter((k) => {
-      const p = providers[k];
-      return p?.apiKey || p?.baseUrl || p?.vertexProject;
-    }),
+    providers: registeredProviderNames({ providers, cdp: opts.config.cdp }),
   });
 
   // Register API providers from config
   for (const adapter of API_ADAPTERS) {
     const entry = providers[adapter.name];
     if (!entry) continue;
-    // Local provider requires baseUrl; Gemini can use apiKey OR vertexProject; others require apiKey
-    const isConfigured =
-      adapter.name === "local"
-        ? !!entry.baseUrl
-        : adapter.name === "gemini"
-          ? !!(entry.apiKey || entry.vertexProject)
-          : !!entry.apiKey;
-    if (isConfigured) {
+    if (isApiProviderRegistrable(adapter.name, entry)) {
       registry.register(adapter, providerConfigFromEntry(adapter.name, entry, entry.quota ?? DEFAULT_QUOTA));
     }
   }
@@ -1068,7 +1059,7 @@ export async function createServer(opts: {
 
   // CDP browser provider — connects to user's Chrome via CDP
   const cdpConfig = opts.config.cdp;
-  if (cdpConfig?.host || cdpConfig?.port) {
+  if (cdpConfig && isCdpProviderRegistrable(cdpConfig)) {
     const CDP_DEFAULT_QUOTA = {
       maxConcurrency: 1,
       maxRequestsPerMinute: 4,

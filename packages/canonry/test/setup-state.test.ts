@@ -66,6 +66,21 @@ describe('buildSetupState', () => {
     expect(state?.provider_count).toBe(3)
   })
 
+  it('counts what the server registers: a Vertex Gemini and a CDP browser, not an endpoint-only API provider', () => {
+    const dbPath = path.join(tmpDir, `${crypto.randomUUID()}.db`)
+    saveConfig({
+      apiUrl: 'http://localhost:4100',
+      database: dbPath,
+      apiKey: 'cnry_test',
+      providers: {
+        gemini: { vertexProject: 'my-gcp-project' },
+        openai: { baseUrl: 'https://proxy.example' },
+      },
+      cdp: { host: 'localhost', port: 9222 },
+    })
+    expect(buildSetupState()?.provider_count).toBe(2)
+  })
+
   it('flips is_first_run to false once anonymousId is set', () => {
     const dbPath = path.join(tmpDir, `${crypto.randomUUID()}.db`)
     saveConfig({

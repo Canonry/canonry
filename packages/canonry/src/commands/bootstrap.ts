@@ -7,6 +7,7 @@ import { getBootstrapEnv } from '@ainyc/canonry-config'
 import { createClient, migrate, apiKeys, dashboardSessions } from '@ainyc/canonry-db'
 
 import { configExists, getConfigDir, getConfigPath, loadConfig, loadConfigRaw, saveConfig } from '../config.js'
+import { registeredProviderNames } from '../provider-registration.js'
 import { isMachineFormat, type CliFormat } from '../cli-error.js'
 
 function persistedValue(value: unknown): unknown {
@@ -25,13 +26,17 @@ function persistedValue(value: unknown): unknown {
  * What an agent reading `--format json` should do about a provider-less
  * install. Bootstrap is the provider-free path, so these are the only steps
  * it names: the same remedy `doctor`'s `providers.none-configured` gives,
- * with the credential kept out of the agent's hands.
+ * with the credential kept out of the agent's hands. A running server builds
+ * its provider registry once, at startup, so the env-var route needs a
+ * restart; the settings command registers the provider live.
  */
 const PROVIDER_FREE_NEXT_STEPS: readonly string[] = [
   'AI Visibility needs an answer-engine provider. Page Health does not.',
-  'To add one, the operator sets GEMINI_API_KEY (free key at https://aistudio.google.com/apikey) and reruns `canonry bootstrap`, '
-    + 'or runs `canonry settings provider gemini --api-key <key>` while the server is running. '
-    + 'A provider key is the operator\'s credential: never ask for it in chat.',
+  'With the server running, the operator runs `canonry settings provider gemini --api-key <key>` '
+    + '(free key at https://aistudio.google.com/apikey). It takes effect immediately.',
+  'Or the operator sets GEMINI_API_KEY and reruns `canonry bootstrap`. A server that is already running '
+    + 'loads it only after a restart: `canonry stop`, then `canonry start`.',
+  'A provider key is the operator\'s credential: never ask for it in chat.',
 ]
 
 export async function bootstrapCommand(opts?: { format?: CliFormat }): Promise<void> {
@@ -173,7 +178,10 @@ export async function bootstrapCommand(opts?: { format?: CliFormat }): Promise<v
   if (configChanged) saveConfig(nextConfig)
 
   const status = !existing ? 'created' : configChanged || keyChanged ? 'updated' : 'unchanged'
-  const providerFree = Object.keys(mergedProviders).length === 0
+  // Whether the server would register any provider from what was just
+  // saved, not whether the providers map has keys: a key-less entry
+  // registers nothing, and a Vertex Gemini or a CDP browser does.
+  const providerFree = registeredProviderNames(nextConfig).length === 0
 
   if (isMachineFormat(format)) {
     console.log(JSON.stringify({
@@ -195,8 +203,9 @@ export async function bootstrapCommand(opts?: { format?: CliFormat }): Promise<v
   console.log(`SQLite database path: ${databasePath}`)
   if (providerFree) {
     console.log('Providers: none (Page Health works now; add one later to enable AI Visibility).')
-    console.log('  To add one, set GEMINI_API_KEY (free key at aistudio.google.com) and rerun `canonry bootstrap`,')
-    console.log('  or run `canonry settings provider gemini --api-key <key>` while the server is running.')
+    console.log('  To add one with the server running: canonry settings provider gemini --api-key <key>')
+    console.log('  (free key at aistudio.google.com). Or set GEMINI_API_KEY and rerun `canonry bootstrap`;')
+    console.log('  a server that is already running loads it only after `canonry stop`, then `canonry start`.')
   }
   if (generatedApiKey) {
     // Say what it is for. This is the only place the key appears, and without

@@ -14,6 +14,7 @@ import { detectCanonryAgentPlugin } from '../agent-plugin.js'
 import { describeError, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import { operatorHttpUrl } from '../operator-url.js'
 import { resolveServePort } from '../serve-endpoint.js'
+import { registeredProviderNames } from '../provider-registration.js'
 
 /** Read persisted scan state for the startup guidance. */
 function readServeOpenState(db: ReturnType<typeof createClient>): {
@@ -197,9 +198,7 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     // CLI events.
     setTelemetrySource('cli-server')
 
-    const providerNames = Object.keys(config.providers ?? {}).filter(
-      k => config.providers?.[k as keyof typeof config.providers]?.apiKey || config.providers?.[k as keyof typeof config.providers]?.baseUrl,
-    )
+    const providerNames = registeredProviderNames(config)
     trackEvent('serve.started', {
       providerCount: providerNames.length,
       providers: providerNames,
