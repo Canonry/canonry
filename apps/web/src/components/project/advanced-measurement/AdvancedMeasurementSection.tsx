@@ -700,7 +700,7 @@ function assignmentInputFor(
     return { groupKeys: uniqueSorted(audience.groupIds), queryIds: uniqueSorted(queryIds) }
   }
   return {
-    targetKeys: uniqueSorted(audience.kind === 'all' ? allTargetKeys : audience.propertyIds),
+    targetKeys: uniqueSorted(audience.kind === 'all' ? allTargetKeys : audience.kind === 'specific' ? audience.propertyIds : []),
     queryIds: uniqueSorted(queryIds),
   }
 }
@@ -814,7 +814,7 @@ export function AdvancedMeasurementSection({
   const [maxVisibleProperties, setMaxVisibleProperties] = useState(DEFAULT_VISIBLE_PROPERTIES)
   const [includedPropertyIds, setIncludedPropertyIds] = useState<string[]>([])
   const [selectedQueryIds, setSelectedQueryIds] = useState<string[]>([])
-  const [audience, setAudience] = useState<AdvancedMeasurementAudience>({ kind: 'all' })
+  const [audience, setAudience] = useState<AdvancedMeasurementAudience>({ kind: 'none' })
   const [assignmentPreview, setAssignmentPreview] = useState<MeasurementAudienceAssignmentPreview | null>(null)
   const [assignmentPreviewSelectionKey, setAssignmentPreviewSelectionKey] = useState<string | null>(null)
   const [isPreviewingAssignment, setIsPreviewingAssignment] = useState(false)
@@ -1125,7 +1125,7 @@ export function AdvancedMeasurementSection({
     try {
       if (!selectionChanged) {
         setIncludedPropertyIds([...selected])
-        setAudience({ kind: 'all' })
+        setAudience({ kind: 'none' })
         setStep('groups')
         return
       }
@@ -1133,7 +1133,7 @@ export function AdvancedMeasurementSection({
       const next = await refreshDraft()
       const included = includedPropertyIdsFor(next.draft)
       setIncludedPropertyIds(included)
-      setAudience({ kind: 'all' })
+      setAudience({ kind: 'none' })
       setStep('groups')
     } catch (error) {
       if (isDraftConflict(error)) await recoverConflict('This setup changed in another session. The latest Properties are loaded.')
@@ -1322,7 +1322,7 @@ export function AdvancedMeasurementSection({
     const next = await mutate('remove-group', currentEtag => service.removeGroup(projectName, currentEtag, groupId), 'Could not remove this group.')
     if (next) {
       setAudience(current => current.kind === 'groups' && current.groupIds.includes(groupId)
-        ? { kind: 'all' }
+        ? { kind: 'none' }
         : current)
       if (editingGroupId === groupId) {
         setEditingGroupId(null)
@@ -1482,7 +1482,7 @@ export function AdvancedMeasurementSection({
       setPropertiesSearch('')
       setIncludedPropertyIds([])
       setSelectedQueryIds([])
-      setAudience({ kind: 'all' })
+      setAudience({ kind: 'none' })
       setAssignmentPreview(null)
       setAssignmentPreviewError(null)
       setAssignmentNotice(null)

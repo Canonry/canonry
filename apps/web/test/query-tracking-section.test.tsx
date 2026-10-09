@@ -221,7 +221,7 @@ function installScrollSpy() {
   return scrollIntoView
 }
 
-test('leaves no audience after the last property is unchecked and requires an explicit whole-site choice', async () => {
+test('leaves no audience after the last property is unchecked and requires an explicit Every location choice', async () => {
   const requests: unknown[] = []
   installWorkspaceApi((path, body) => {
     if (path.endsWith('/query-tracking/preview')) {
@@ -239,21 +239,115 @@ test('leaves no audience after the last property is unchecked and requires an ex
   expect(review.hasAttribute('disabled')).toBe(false)
   fireEvent.click(screen.getByRole('button', { name: 'Change tracking destination' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
-  expect((screen.getByRole('checkbox', { name: 'Whole site' }) as HTMLInputElement).checked).toBe(false)
-  expect(screen.getByText('Choose Whole site or at least one property, group, or market.')).toBeTruthy()
+  expect((screen.getByRole('checkbox', { name: 'Every location (1)' }) as HTMLInputElement).checked).toBe(false)
+  expect(screen.getByText('Choose at least one location, group, or market.')).toBeTruthy()
   expect(review.hasAttribute('disabled')).toBe(true)
   fireEvent.click(review)
   expect(requests).toEqual([])
 
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Whole site' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Every location (1)' }))
   expect(review.hasAttribute('disabled')).toBe(false)
   fireEvent.click(review)
   await screen.findByRole('heading', { name: 'Confirm tracked query changes' })
   expect(requests).toEqual([{
     expectedWorkspaceVersion: workspaceVersion,
-    additions: [{ input: { source: 'manual', text: 'How does Acme compare?' }, contexts: [selectedContext] }],
+    additions: [{ input: { source: 'manual', text: 'How does Acme compare?' }, audience: { targetKeys: ['acme'] }, contexts: [selectedContext] }],
     removals: [],
   }])
+})
+
+test('starts a project-scope Add with no destination chosen and Review disabled', async () => {
+  const requests: unknown[] = []
+  installWorkspaceApi((path, body) => {
+    requests.push({ path, body })
+    throw new Error(`Unexpected fetch: ${path}`)
+  })
+  renderWorkspace()
+  await screen.findByText('Acme pricing')
+  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'How does Acme compare?' } })
+  chooseContext()
+
+  const applyTo = screen.getByRole('group', { name: 'Apply to' })
+  expect(within(applyTo).getAllByRole('checkbox')).toHaveLength(4)
+  for (const name of ['Every location (1)', 'Acme, Property', 'North East, Group', 'New York, Market']) {
+    expect(within(applyTo).getByRole('checkbox', { name })).toHaveProperty('checked', false)
+  }
+  expect(within(applyTo).getByText('Choose at least one location, group, or market.')).toBeTruthy()
+  const review = screen.getByRole('button', { name: 'Review changes' })
+  expect(review.hasAttribute('disabled')).toBe(true)
+  fireEvent.click(review)
+  expect(requests).toEqual([])
+})
+
+test('sends Every location as the explicit list of every location key', async () => {
+  const data = workspace()
+  data.targets.push({ stableKey: 'beta', label: 'Beta' }, { stableKey: 'gamma', label: 'Gamma' })
+  let previewBody: unknown
+  installWorkspaceApi((path, body) => {
+    if (path === '/api/v1/projects/demo/query-tracking/preview') {
+      previewBody = body
+      return jsonResponse(preview())
+    }
+    throw new Error(`Unexpected fetch: ${path}`)
+  }, [], data)
+  renderWorkspace()
+  await screen.findByText('Acme pricing')
+  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Which platform fits our team?' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Every location (3)' }))
+  chooseContext()
+  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+
+  await screen.findByRole('heading', { name: 'Confirm tracked query changes' })
+  expect(previewBody).toEqual({
+    expectedWorkspaceVersion: workspaceVersion,
+    additions: [{
+      input: { source: 'manual', text: 'Which platform fits our team?' },
+      audience: { targetKeys: ['acme', 'beta', 'gamma'] },
+      contexts: [selectedContext],
+    }],
+    removals: [],
+  })
+})
+
+test.each([
+  ['property', 'acme', 'Acme, Property', { targetKeys: ['acme'] }],
+  ['group', 'north-east', 'North East, Group', { groupKeys: ['north-east'] }],
+  ['market', 'new-york', 'New York, Market', { marketKeys: ['new-york'] }],
+] as const)('pre-ticks only the selected %s when Add opens from its view', async (scope, key, checkbox, audience) => {
+  let previewBody: unknown
+  installWorkspaceApi((path, body) => {
+    if (path === '/api/v1/projects/demo/query-tracking/preview') {
+      previewBody = body
+      return jsonResponse(preview())
+    }
+    throw new Error(`Unexpected fetch: ${path}`)
+  })
+  renderWorkspace({ selection: { measurementScope: scope, measurementScopeKey: key, queryClass: 'all' } })
+  await screen.findByText('Acme pricing')
+  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Which platform fits our team?' } })
+  const change = screen.queryByRole('button', { name: 'Change tracking destination' })
+  if (change) fireEvent.click(change)
+
+  const applyTo = screen.getByRole('group', { name: 'Apply to' })
+  for (const name of ['Every location (1)', 'Acme, Property', 'North East, Group', 'New York, Market']) {
+    expect(within(applyTo).getByRole('checkbox', { name })).toHaveProperty('checked', name === checkbox)
+  }
+  if (scope !== 'market') chooseContext()
+  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+
+  await screen.findByRole('heading', { name: 'Confirm tracked query changes' })
+  expect(previewBody).toEqual({
+    expectedWorkspaceVersion: workspaceVersion,
+    additions: [{
+      input: { source: 'manual', text: 'Which platform fits our team?' },
+      audience,
+      ...(scope === 'market' ? {} : { contexts: [selectedContext] }),
+    }],
+    removals: [],
+  })
 })
 
 test('starts with the question, preserves written text, and keeps required measurement controls outside optional options', async () => {
@@ -274,6 +368,7 @@ test('starts with the question, preserves written text, and keeps required measu
   expect(options.open).toBe(false)
   expect(screen.getByText('Measurement options', { selector: 'summary' })).toBeTruthy()
   expect(screen.getByLabelText('Location and engines').closest('details')).toBeNull()
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
   chooseContext()
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(false)
 })
@@ -390,6 +485,7 @@ test('clears the previous confirmation while a changed draft awaits a new previe
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
   fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'New question' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
   chooseContext()
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
   await screen.findByRole('heading', { name: 'Confirm tracked query changes' })
@@ -534,6 +630,7 @@ test('requires a selected context for an advanced addition, then uses the server
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
   fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Acme pricing' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
   chooseContext()
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
@@ -547,7 +644,7 @@ test('requires a selected context for an advanced addition, then uses the server
     path: '/api/v1/projects/demo/query-tracking/preview',
     body: {
       expectedWorkspaceVersion: workspaceVersion,
-      additions: [{ input: { source: 'manual', text: 'Acme pricing' }, contexts: [selectedContext] }],
+      additions: [{ input: { source: 'manual', text: 'Acme pricing' }, audience: { targetKeys: ['acme'] }, contexts: [selectedContext] }],
       removals: [],
     },
   })
@@ -868,6 +965,7 @@ test('promotes a saved research query as source provenance, never an answer or a
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
   fireEvent.change(screen.getByLabelText('Query source'), { target: { value: 'research' } })
   fireEvent.change(screen.getByLabelText('Saved research query'), { target: { value: 'research-query-1' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
   chooseContext()
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
 
@@ -875,7 +973,7 @@ test('promotes a saved research query as source provenance, never an answer or a
   expect(screen.getByText('Only the saved query is added.')).toBeTruthy()
   expect(previewBody).toEqual({
     expectedWorkspaceVersion: workspaceVersion,
-    additions: [{ input: { source: 'research', researchRunQueryId: 'research-query-1' }, contexts: [selectedContext] }],
+    additions: [{ input: { source: 'research', researchRunQueryId: 'research-query-1' }, audience: { targetKeys: ['acme'] }, contexts: [selectedContext] }],
     removals: [],
   })
 })
@@ -960,8 +1058,11 @@ test.each(['research', 'discovery'] as const)('tracks a selected saved %s result
     expect(screen.queryByLabelText('Location and engines')).toBeNull()
     expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(false)
   } else {
+    expect(onSelectionChange).not.toHaveBeenCalled()
+    expect(screen.getByRole('checkbox', { name: 'Acme, Property' })).toHaveProperty('checked', false)
     expect((screen.getByLabelText('Location and engines') as HTMLSelectElement).value).toBe('')
     expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
     chooseContext()
   }
   expect(writes).toEqual([])
@@ -1028,13 +1129,14 @@ test('sends an explicit class only when the operator overrides server classifica
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
   fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Enterprise AEO platform' } })
   fireEvent.change(screen.getByLabelText('Classification'), { target: { value: 'non-brand' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
   chooseContext()
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
 
   await screen.findByText('Confirm tracked query changes')
   expect(previewBody).toEqual({
     expectedWorkspaceVersion: workspaceVersion,
-    additions: [{ input: { source: 'manual', text: 'Enterprise AEO platform' }, contexts: [selectedContext], queryClass: 'non-brand' }],
+    additions: [{ input: { source: 'manual', text: 'Enterprise AEO platform' }, audience: { targetKeys: ['acme'] }, contexts: [selectedContext], queryClass: 'non-brand' }],
     removals: [],
   })
 })
@@ -1072,6 +1174,7 @@ test('requires a market for a saved market template before sending its identity 
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
   fireEvent.change(screen.getByLabelText('Query source'), { target: { value: 'template' } })
   fireEvent.change(screen.getByLabelText('Saved template'), { target: { value: 'template-market' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
   chooseContext()
   const review = screen.getByRole('button', { name: 'Review changes' })
   expect(review.hasAttribute('disabled')).toBe(true)
@@ -1085,7 +1188,6 @@ test('requires a market for a saved market template before sending its identity 
   fireEvent.change(screen.getByLabelText('Query source'), { target: { value: 'template' } })
   expect(review.hasAttribute('disabled')).toBe(true)
 
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'New York, Market' }))
   expect(review.hasAttribute('disabled')).toBe(false)
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
@@ -1119,7 +1221,7 @@ test.each(['non-brand', 'branded'] as const)('keeps all Simple tracked rows visi
   expect(screen.queryByText('Unknown')).toBeNull()
 })
 
-test('keeps simple measurements classifier-only and never submits an operator override', async () => {
+test('keeps simple measurements classifier-only with no Apply to box and never submits an operator override', async () => {
   let previewBody: Record<string, unknown> | undefined
   installWorkspaceApi((path, body) => {
     if (path === '/api/v1/projects/demo/query-tracking/preview') {
@@ -1134,6 +1236,8 @@ test('keeps simple measurements classifier-only and never submits an operator ov
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
   expect(screen.queryByLabelText('Classification')).toBeNull()
   expect(screen.queryByLabelText('Location and engines')).toBeNull()
+  expect(screen.queryByRole('group', { name: 'Apply to' })).toBeNull()
+  expect(screen.queryByRole('checkbox')).toBeNull()
   expect(screen.getByText('Automatic')).toBeTruthy()
   fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'How does Acme compare?' } })
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
@@ -1144,6 +1248,24 @@ test('keeps simple measurements classifier-only and never submits an operator ov
     additions: [{ input: { source: 'manual', text: 'How does Acme compare?' } }],
     removals: [],
   })
+})
+
+test('tells a simple project that a market template cannot be used, without naming Apply to', async () => {
+  const template = {
+    id: 'template-market', projectId: 'project-demo', name: 'Market comparison', description: null,
+    pattern: 'Best {property} provider in {market}', variables: ['property', 'market'],
+    createdAt: '2026-09-01T12:00:00.000Z', updatedAt: '2026-09-04T12:00:00.000Z',
+  }
+  installWorkspaceApi(undefined, [template], { ...workspace(), mode: 'simple', groups: [], markets: [] })
+  renderWorkspace()
+
+  await screen.findByText('Acme pricing')
+  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  fireEvent.change(screen.getByLabelText('Query source'), { target: { value: 'template' } })
+  fireEvent.change(screen.getByLabelText('Saved template'), { target: { value: 'template-market' } })
+  expect(screen.getByText('This template needs a market, and this project has no markets. Write a question instead.')).toBeTruthy()
+  expect(screen.queryByText(/Apply to/)).toBeNull()
+  expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
 })
 
 
