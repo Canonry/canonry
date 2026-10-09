@@ -116,6 +116,8 @@ async function mockLegacyGa() {
   ])
   vi.spyOn(ga, 'fetchAiReferrals').mockResolvedValue([])
   vi.spyOn(ga, 'fetchSocialReferrals').mockResolvedValue([])
+  // Its own component, covered in ga-search-landing-pages.test.ts.
+  vi.spyOn(ga, 'fetchSearchLandingPages').mockResolvedValue({ status: 'ready', windows: [] })
   return ga
 }
 

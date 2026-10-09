@@ -144,6 +144,7 @@ import type {
   GaTrafficResponse,
   GaCoverageResponse,
   GaMeasurementAnalysisDto,
+  GaSearchLandingPagesResponse,
   GaSocialReferralTrendResponse,
   GaAttributionTrendResponse,
   GA4AiReferralDailyDto,
@@ -515,6 +516,7 @@ import {
   getApiV1ProjectsByNameGaProperties,
   getApiV1ProjectsByNameGaStatus,
   getApiV1ProjectsByNameGaMeasurementAnalysis,
+  getApiV1ProjectsByNameGaSearchLandingPages,
   postApiV1ProjectsByNameGaSync,
   getApiV1ProjectsByNameGaTraffic,
   getApiV1ProjectsByNameGaCoverage,
@@ -3715,12 +3717,31 @@ export class ApiClient {
     )
   }
 
+  /**
+   * One stored window of GA4's Search Console landing-page report
+   * (`window`, `limit`, `offset`). Its `total` is GA4's own Total row.
+   */
+  async gaSearchLandingPages(
+    project: string,
+    params?: Record<string, string>,
+  ): Promise<GaSearchLandingPagesResponse> {
+    return this.invoke<GaSearchLandingPagesResponse>(() =>
+      getApiV1ProjectsByNameGaSearchLandingPages({
+        client: this.heyClient,
+        path: { name: project },
+        query: params as never,
+      }),
+    )
+  }
+
   async gaSync(project: string, body?: { days?: number; only?: string }): Promise<GaSyncResponse> {
     return this.invoke<GaSyncResponse>(() =>
       postApiV1ProjectsByNameGaSync({
         client: this.heyClient,
         path: { name: project },
-        body: body ?? {},
+        // `--only` is forwarded verbatim: the server validates it against
+        // `gaSyncOnlySchema` and names the accepted values in its 400.
+        body: (body ?? {}) as never,
       }),
     )
   }

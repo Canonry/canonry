@@ -278,9 +278,153 @@ export const ga4PropertiesDtoSchema = z.object({
 export type GA4PropertiesDto = z.infer<typeof ga4PropertiesDtoSchema>
 
 /**
+ * The windows GA4's "Google organic search traffic: Landing page + query
+ * string" report (Search Console collection) is stored for. Each one is a
+ * GA4-computed snapshot ending YESTERDAY in the property's reporting time
+ * zone, exactly as GA4's own "Last N days" ranges are, so `28d` is the window
+ * GA4's report opens on. Not the rolling `7d | 30d | 90d` of `/ga/traffic`.
+ */
+export const gaSearchLandingWindowSchema = z.enum(['7d', '28d', '90d'])
+export type GaSearchLandingWindow = z.infer<typeof gaSearchLandingWindowSchema>
+export const GA_SEARCH_LANDING_WINDOWS: readonly GaSearchLandingWindow[] = gaSearchLandingWindowSchema.options
+export const GA_SEARCH_LANDING_WINDOW_DAYS: Readonly<Record<GaSearchLandingWindow, number>> = {
+  '7d': 7,
+  '28d': 28,
+  '90d': 90,
+}
+export const GA_SEARCH_LANDING_DEFAULT_WINDOW: GaSearchLandingWindow = '28d'
+export const GA_SEARCH_LANDING_DEFAULT_LIMIT = 50
+
+/** How surfaces show the empty landing page GA4 can report beside `(not set)`; stored rows keep GA4's raw ''. */
+export const GA_SEARCH_LANDING_EMPTY_PAGE_LABEL = '(empty)'
+
+/** The display text for a stored `landingPagePlusQueryString`: GA4's value, or the empty-page label for ''. */
+export function gaSearchLandingPageLabel(landingPage: string): string {
+  return landingPage === '' ? GA_SEARCH_LANDING_EMPTY_PAGE_LABEL : landingPage
+}
+export const GA_SEARCH_LANDING_MAX_LIMIT = 1000
+
+/**
+ * State of the stored Search Console landing-page snapshot.
+ *
+ * - `never-synced`: no GA sync has attempted it yet for the GA4 property the
+ *   project resolves to now. A stored snapshot of another property reads this
+ *   way too, with no Total and no rows, until the next sync replaces it.
+ * - `ready`: the last attempt stored a snapshot.
+ * - `unavailable`: GA4 refused the Search Console metrics, which is what a
+ *   property without a Search Console link is expected to do. The previous
+ *   snapshot, if any, is kept and still returned.
+ * - `error`: the last attempt failed for another reason (auth, quota, network).
+ *   The previous snapshot, if any, is kept and still returned.
+ */
+export const gaSearchLandingStatusSchema = z.enum(['never-synced', 'ready', 'unavailable', 'error'])
+export type GaSearchLandingStatus = z.infer<typeof gaSearchLandingStatusSchema>
+
+/**
+ * One row of the report, or its Total. Field names are GA4's own metric names,
+ * so they cannot be mistaken for Canonry's Search Console sync (`clicks`,
+ * `ctr`, `position`): these figures come from GA4's Search Console link.
+ */
+export const gaSearchLandingMetricsSchema = z.object({
+  organicGoogleSearchClicks: z.number().int().nonnegative(),
+  organicGoogleSearchImpressions: z.number().int().nonnegative(),
+  /** GA4's own click-through rate (0..1). Null when there were no impressions. */
+  organicGoogleSearchClickThroughRate: fraction(z.number().min(0).max(1)).nullable(),
+  /** GA4's own average position. Null when there were no impressions. */
+  organicGoogleSearchAveragePosition: z.number().nonnegative().nullable(),
+  /**
+   * GA4's plain `activeUsers` from the same request, which is what GA4's own
+   * report shows in this column (verified against the GA4 UI). Not limited to
+   * Google organic sessions.
+   */
+  activeUsers: z.number().int().nonnegative(),
+})
+export type GaSearchLandingMetrics = z.infer<typeof gaSearchLandingMetricsSchema>
+
+export const gaSearchLandingPageRowSchema = gaSearchLandingMetricsSchema.extend({
+  /** GA4's `landingPagePlusQueryString`, exactly as reported (never normalized). */
+  landingPage: z.string(),
+})
+export type GaSearchLandingPageRow = z.infer<typeof gaSearchLandingPageRowSchema>
+
+/**
+ * Response of `GET /projects/:name/ga/search-landing-pages`: one stored
+ * window of GA4's Search Console landing-page report.
+ */
+export const gaSearchLandingPagesResponseSchema = z.object({
+  source: z.literal('ga4-search-console-link'),
+  status: gaSearchLandingStatusSchema,
+  /** The last failed attempt's message (Google's own text for `unavailable`). */
+  error: z.string().nullable(),
+  /** When the stored snapshot was written. Null when none exists. */
+  syncedAt: z.string().datetime().nullable(),
+  /** When a sync last tried to refresh the snapshot, successful or not. */
+  attemptedAt: z.string().datetime().nullable(),
+  window: gaSearchLandingWindowSchema,
+  /** Inclusive first day of the stored window, in the property's time zone. */
+  windowStart: z.iso.date().nullable(),
+  /** Inclusive last day of the stored window (yesterday at sync time). */
+  windowEnd: z.iso.date().nullable(),
+  windowDays: z.number().int().positive().nullable(),
+  /** GA4 property reporting time zone the window dates are in. */
+  timeZone: z.string().nullable(),
+  subjectToThresholding: z.boolean(),
+  dataLossFromOtherRow: z.boolean(),
+  /** GA4's own TOTAL row for the window. Never a sum of `rows`. Null when no snapshot exists. */
+  total: gaSearchLandingMetricsSchema.nullable(),
+  /** Rows GA4 reported for the window. Can exceed `totalRows` when `rowsCapped`. */
+  reportRowCount: z.number().int().nonnegative().nullable(),
+  /** True when GA4 reported more rows than were stored (the per-window row cap). */
+  rowsCapped: z.boolean(),
+  /** Stored rows for the window, the population `limit` / `offset` page over. */
+  totalRows: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  offset: z.number().int().nonnegative(),
+  /** Ordered by clicks, then impressions (both descending), then landing page. */
+  rows: z.array(gaSearchLandingPageRowSchema),
+})
+export type GaSearchLandingPagesResponse = z.infer<typeof gaSearchLandingPagesResponseSchema>
+
+/**
+ * Whether a window's GA4 Total carries any Google organic search data (a click
+ * or an impression). A window can list pages and still have none: GA4 reports
+ * pages with active users and 0 clicks and 0 impressions. The dashboard and
+ * the CLI read this, never the row count, to say the window had no Google
+ * organic search traffic.
+ */
+export function gaSearchLandingHasSearchData(total: GaSearchLandingMetrics): boolean {
+  return total.organicGoogleSearchClicks > 0 || total.organicGoogleSearchImpressions > 0
+}
+
+/** Outcome of the Search Console landing-page component of one GA sync. */
+export const gaSearchLandingSyncResultSchema = z.object({
+  status: z.enum(['ready', 'unavailable', 'error']),
+  /** Windows written by this sync, empty unless `ready`. */
+  windows: z.array(z.object({
+    window: gaSearchLandingWindowSchema,
+    rowCount: z.number().int().nonnegative(),
+    reportRowCount: z.number().int().nonnegative(),
+    rowsCapped: z.boolean(),
+  })),
+  /** Landing-page rows written across every window. */
+  rowCount: z.number().int().nonnegative(),
+  error: z.string().optional(),
+})
+export type GaSearchLandingSyncResult = z.infer<typeof gaSearchLandingSyncResultSchema>
+
+/**
+ * The `only` values `POST /projects/:name/ga/sync` accepts. Each one keeps the
+ * foundation (traffic snapshots and summaries) and adds one slice:
+ * `traffic` adds none, `ai` the AI referrals, `social` the social referrals,
+ * `search-landing` the Search Console landing-page snapshot.
+ */
+export const gaSyncOnlySchema = z.enum(['traffic', 'ai', 'social', 'search-landing'])
+export type GaSyncOnly = z.infer<typeof gaSyncOnlySchema>
+
+/**
  * Response shape for `POST /projects/:name/ga/sync`. `syncedComponents`
  * is present only when the request specified an `only` filter (`'traffic' |
- * 'ai' | 'social'`).
+ * 'ai' | 'social' | 'search-landing'`).
  */
 export const ga4SyncResponseDtoSchema = z.object({
   synced: z.boolean(),
@@ -305,11 +449,20 @@ export const ga4SyncResponseDtoSchema = z.object({
   measurement: z.object({
     acquisition: z.object({ days: z.number().int().nonnegative(), status: z.enum(['ready', 'error']), rowCount: z.number().int().nonnegative(), error: z.string().optional() }),
     leads: z.object({ days: z.number().int().nonnegative(), status: z.enum(['ready', 'error', 'not-configured']), rowCount: z.number().int().nonnegative(), attributionScope: z.enum(['landing-page', 'channel']).optional(), error: z.string().optional() }),
+    /**
+     * GA4's Search Console landing-page snapshot. Absent when `only` names
+     * another slice, since this sync did not attempt it. Its failure never
+     * fails the sync: the previous snapshot is kept.
+     */
+    searchLandingPages: gaSearchLandingSyncResultSchema.optional(),
   }),
   /**
    * Components that were written this run. Present when `only` is set.
    * Always includes `traffic` and `summary` (the share denominator) plus
-   * the requested channel breakdown — `ai` and/or `social`.
+   * the requested slice: `ai`, `social` or `search-landing`. `search-landing`
+   * fails soft, so it is listed only when its snapshot was stored; a failed
+   * or `unavailable` attempt is left out and reported in
+   * `measurement.searchLandingPages`.
    */
   syncedComponents: z.array(z.string()).optional(),
 })

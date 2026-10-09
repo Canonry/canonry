@@ -3,13 +3,14 @@ import { eq, desc, and, sql } from 'drizzle-orm'
 import type { SQL, SQLWrapper } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, runs } from '@ainyc/canonry-db'
-import { breakdownShares, classifyAiReferralTrafficClass, deltaPercent, formatPercent, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, RunKinds, RunStatuses, RunTriggers, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount } from '@ainyc/canonry-contracts'
-import type { GA4ChannelBreakdownDto, GaAttributionTrendResponse, GaSocialReferralTrendResponse, ResolvedDateRange } from '@ainyc/canonry-contracts'
+import { breakdownShares, classifyAiReferralTrafficClass, deltaPercent, formatPercent, gaSyncOnlySchema, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, RunKinds, RunStatuses, RunTriggers, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount } from '@ainyc/canonry-contracts'
+import type { GA4ChannelBreakdownDto, GaAttributionTrendResponse, GaSearchLandingSyncResult, GaSocialReferralTrendResponse, ResolvedDateRange } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { assertNotProjectScoped } from './auth.js'
 import { buildSessionHistory } from './ga-session-history.js'
 import { findBiggestMover } from './ga-source-mover.js'
 import { buildAiReferralDailySeries, normalizeAiTrafficClass, pickWinningAttributionDimension, summarizeAiReferralCounts } from './ga-ai-referral-aggregation.js'
+import { clearSearchLandingSnapshot, clearSearchLandingSnapshotOnPropertyChange, persistSearchLandingFailure, persistSearchLandingSnapshot, resolveCurrentGa4PropertyId } from './ga-search-landing-pages.js'
 import {
   getAccessToken,
   fetchTrafficByLandingPage,
@@ -20,6 +21,7 @@ import {
   fetchSocialReferrals,
   fetchAcquisitionByChannel,
   fetchLeadEvents,
+  fetchSearchLandingPages,
   verifyConnection,
   verifyConnectionWithToken,
   resolveGa4SyncDays,
@@ -524,6 +526,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
 
       const now = new Date().toISOString()
       const existing = opts.ga4CredentialStore.getConnection(project.name)
+      const previousPropertyId = resolveCurrentGa4PropertyId(opts, project.name, project.canonicalDomain)
       opts.ga4CredentialStore.upsertConnection({
         projectName: project.name,
         propertyId,
@@ -532,6 +535,12 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
       })
+      // The Search Console landing-page snapshot belongs to one property, so a
+      // connect that points the project at another one drops it.
+      clearSearchLandingSnapshotOnPropertyChange(app.db, project.id, {
+        previousPropertyId,
+        propertyId: resolveCurrentGa4PropertyId(opts, project.name, project.canonicalDomain),
+      }, now)
 
       writeAuditLog(app.db, {
         projectId: project.id,
@@ -580,10 +589,19 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     }
 
     // Store the property ID on the OAuth connection record
+    const previousPropertyId = resolveCurrentGa4PropertyId(opts, project.name, project.canonicalDomain)
+    const connectedAt = new Date().toISOString()
     googleStore.updateConnection(project.canonicalDomain, 'ga4', {
       propertyId,
-      updatedAt: new Date().toISOString(),
+      updatedAt: connectedAt,
     })
+    // Same rule as the service-account path. A service-account connection
+    // still wins over OAuth, so this clears only when the property the
+    // project resolves to actually changed.
+    clearSearchLandingSnapshotOnPropertyChange(app.db, project.id, {
+      previousPropertyId,
+      propertyId: resolveCurrentGa4PropertyId(opts, project.name, project.canonicalDomain),
+    }, connectedAt)
 
     writeAuditLog(app.db, {
       projectId: project.id,
@@ -623,6 +641,9 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     app.db.delete(gaSocialReferrals)
       .where(eq(gaSocialReferrals.projectId, project.id))
       .run()
+    // The Search Console landing-page snapshot belongs to the disconnected
+    // property, so it goes with it, and its state reads `never-synced` again.
+    clearSearchLandingSnapshot(app.db, project.id, new Date().toISOString())
 
     const propertyId = saConn?.propertyId ?? oauthConn?.propertyId ?? null
     opts.ga4CredentialStore?.deleteConnection(project.name)
@@ -722,7 +743,8 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
   // window. See `share denominator` discussion below.
   //
   // Valid `only` values: "traffic" (foundation only), "ai" (foundation + AI),
-  // "social" (foundation + social). Omit for the full set.
+  // "social" (foundation + social), "search-landing" (foundation + the GA4
+  // Search Console landing-page snapshot). Omit for the full set.
   app.post<{
     Params: { name: string }
     Body: { days?: number; only?: string }
@@ -736,9 +758,8 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     const { requestedDays, effectiveDays: days, clamped } = resolveGa4SyncDays(request.body?.days)
     const only = request.body?.only
 
-    const validOnlyValues = ['traffic', 'ai', 'social'] as const
-    if (only !== undefined && !validOnlyValues.includes(only as typeof validOnlyValues[number])) {
-      throw validationError(`Invalid "only" value "${only}". Must be one of: ${validOnlyValues.join(', ')}`)
+    if (only !== undefined && !gaSyncOnlySchema.safeParse(only).success) {
+      throw validationError(`Invalid "only" value "${only}". Must be one of: ${gaSyncOnlySchema.options.join(', ')}`)
     }
 
     // Foundation (traffic snapshots + aggregate summary) always syncs — share
@@ -749,6 +770,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     const syncSummary = true
     const syncAi = !only || only === 'ai'
     const syncSocial = !only || only === 'social'
+    const syncSearchLanding = !only || only === 'search-landing'
 
     const measurementState = app.db.select().from(gaMeasurementSyncStates)
       .where(eq(gaMeasurementSyncStates.projectId, project.id)).get()
@@ -798,6 +820,10 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         fetchAcquisitionByChannel(accessToken, propertyId, acquisitionDays),
         leadEventNames.length > 0
           ? fetchLeadEvents(accessToken, propertyId, leadEventNames, leadDays)
+          : Promise.resolve(null),
+        // Fails soft like the components above: its own state, never the run.
+        syncSearchLanding
+          ? fetchSearchLandingPages(accessToken, propertyId)
           : Promise.resolve(null),
       ])
 
@@ -982,7 +1008,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         }
       })
 
-      const [acquisitionSettled, leadsSettled] = await measurementFetch
+      const [acquisitionSettled, leadsSettled, searchLandingSettled] = await measurementFetch
       const measurementNow = new Date().toISOString()
 
       const recordMeasurementFailure = (
@@ -1056,6 +1082,55 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         }
       })()
 
+      // A failed or unavailable attempt records its state and KEEPS the last
+      // good snapshot of this property (one stored for another property is
+      // dropped). The `unavailable` branch (a property without a Search
+      // Console link) has not been captured live; see fetchSearchLandingPages.
+      const recordSearchLandingFailure = (
+        status: 'unavailable' | 'error',
+        reason: unknown,
+      ): GaSearchLandingSyncResult => {
+        const message = describeError(reason)
+        gaLog('warn', 'search-landing.component-failed', {
+          projectId: project.id,
+          runId,
+          status,
+          error: message,
+        })
+        try {
+          persistSearchLandingFailure(app.db, project.id, propertyId, status, message, measurementNow)
+        } catch (stateError) {
+          gaLog('error', 'search-landing.state-write-failed', {
+            projectId: project.id,
+            runId,
+            error: describeError(stateError),
+          })
+        }
+        return { status, windows: [], rowCount: 0, error: message }
+      }
+
+      const searchLandingResult = ((): GaSearchLandingSyncResult | undefined => {
+        if (searchLandingSettled.status === 'rejected') {
+          return recordSearchLandingFailure('error', searchLandingSettled.reason)
+        }
+        const report = searchLandingSettled.value
+        if (report === null) return undefined
+        if (report.status === 'unavailable') {
+          return recordSearchLandingFailure('unavailable', report.reason)
+        }
+        try {
+          return persistSearchLandingSnapshot(app.db, {
+            projectId: project.id,
+            propertyId,
+            runId,
+            syncedAt: measurementNow,
+            windows: report.windows,
+          })
+        } catch (error) {
+          return recordSearchLandingFailure('error', error)
+        }
+      })()
+
       app.db.update(runs)
         .set({ status: RunStatuses.completed, finishedAt: measurementNow })
         .where(eq(runs.id, runId))
@@ -1063,13 +1138,16 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
 
       // List every component that was actually written this run. Foundation
       // (traffic + summary) always syncs, so it always appears when `only`
-      // is set; the requested channel breakdown is appended.
+      // is set; the requested channel breakdown is appended. The Search
+      // Console snapshot fails soft, so it is listed only when it was stored;
+      // `measurement.searchLandingPages` carries a failed or refused attempt.
       const syncedComponents = only
         ? [
             ...(syncTraffic ? ['traffic'] : []),
             ...(syncSummary ? ['summary'] : []),
             ...(syncAi ? ['ai'] : []),
             ...(syncSocial ? ['social'] : []),
+            ...(searchLandingResult?.status === 'ready' ? ['search-landing'] : []),
           ]
         : undefined
 
@@ -1097,6 +1175,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         measurement: {
           acquisition: acquisitionResult,
           leads: leadResult,
+          ...(searchLandingResult ? { searchLandingPages: searchLandingResult } : {}),
         },
         ...(syncedComponents ? { syncedComponents } : {}),
       }

@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   ga4AiReferralHistoryEntrySchema,
   ga4TrafficSummaryDtoSchema,
+  gaSearchLandingHasSearchData,
+  gaSearchLandingPageLabel,
 } from '../src/ga.js'
+import type { GaSearchLandingMetrics } from '../src/ga.js'
 
 describe('GA contracts', () => {
   it('includes known-AI referral landing-page rows in the traffic summary contract', () => {
@@ -91,5 +94,32 @@ describe('GA contracts', () => {
     })
 
     expect(parsed.landingPage).toBe('/guide')
+  })
+
+  it('reads Google organic search data from the Total\'s clicks and impressions, never from rows or users', () => {
+    const total = (clicks: number, impressions: number, activeUsers: number): GaSearchLandingMetrics => ({
+      organicGoogleSearchClicks: clicks,
+      organicGoogleSearchImpressions: impressions,
+      organicGoogleSearchClickThroughRate: impressions > 0 ? clicks / impressions : null,
+      organicGoogleSearchAveragePosition: impressions > 0 ? 6.5 : null,
+      activeUsers,
+    })
+
+    // 0 clicks and 0 impressions is no search data, even with active users
+    // (GA4 lists such pages as rows).
+    expect(gaSearchLandingHasSearchData(total(0, 0, 0))).toBe(false)
+    expect(gaSearchLandingHasSearchData(total(0, 0, 41))).toBe(false)
+    // Impressions alone are search data: the pages showed in Google results.
+    expect(gaSearchLandingHasSearchData(total(0, 380, 0))).toBe(true)
+    expect(gaSearchLandingHasSearchData(total(12, 380, 9))).toBe(true)
+  })
+})
+
+describe('gaSearchLandingPageLabel', () => {
+  it('labels only the empty landing page and passes every GA4 value through', () => {
+    expect(gaSearchLandingPageLabel('')).toBe('(empty)')
+    expect(gaSearchLandingPageLabel('(not set)')).toBe('(not set)')
+    expect(gaSearchLandingPageLabel('/')).toBe('/')
+    expect(gaSearchLandingPageLabel('/pricing?ref=a')).toBe('/pricing?ref=a')
   })
 })

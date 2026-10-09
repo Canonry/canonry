@@ -45,6 +45,8 @@ import {
   keywordGenerateRequestSchema,
   gaMeasurementAnalysisWindowSchema,
   gaMeasurementHostScopeSchema,
+  gaSearchLandingWindowSchema,
+  GA_SEARCH_LANDING_MAX_LIMIT,
   queryGenerateRequestSchema,
   queryBatchRequestSchema,
   notificationCreateRequestSchema,
@@ -577,6 +579,13 @@ const gaMeasurementAnalysisInputSchema = z.object({
   hostScope: gaMeasurementHostScopeSchema.optional(),
   pathPrefix: z.string().min(1).optional(),
   limit: z.number().int().positive().max(100).optional(),
+})
+
+const gaSearchLandingPagesInputSchema = z.object({
+  project: projectNameSchema,
+  window: gaSearchLandingWindowSchema.optional(),
+  limit: z.number().int().positive().max(GA_SEARCH_LANDING_MAX_LIMIT).optional(),
+  offset: z.number().int().nonnegative().optional(),
 })
 
 const queriesInputSchema = z.object({
@@ -2234,7 +2243,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_ga_measurement_analysis',
     title: 'Analyze GA acquisition and search demand',
-    description: 'Compare native GA4 channels and lead events with branded/non-brand Search Console demand over fixed 30-day cohorts.',
+    description: 'Compare native GA4 channels and lead events (also split by AI engine, with each engine\'s sessions and lead rate) with branded/non-brand Search Console demand over fixed 30-day cohorts.',
     access: 'read',
     tier: 'ga',
     inputSchema: gaMeasurementAnalysisInputSchema,
@@ -2243,6 +2252,20 @@ export const canonryMcpTools = [
     handler: (client, input) => client.gaMeasurementAnalysis(
       input.project,
       compactStringParams(input, ['window', 'hostScope', 'pathPrefix', 'limit']),
+    ),
+  }),
+  defineTool({
+    name: 'canonry_ga_search_landing_pages',
+    title: 'Get GA4 Google organic search landing pages',
+    description: 'Read GA4\'s "Google organic search traffic: Landing page + query string" report (Search Console link) as the last GA sync stored it: clicks, impressions, CTR, average position and active users per landing page for the 7, 28 (default) or 90 days ending yesterday in the property time zone. `total` is GA4\'s own Total row; never sum `rows`. Status `unavailable` means GA4 refused the Search Console metrics (link Search Console in GA4); the previous snapshot is still returned. Stored data only.',
+    access: 'read',
+    tier: 'ga',
+    inputSchema: gaSearchLandingPagesInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/ga/search-landing-pages'],
+    handler: (client, input) => client.gaSearchLandingPages(
+      input.project,
+      compactStringParams(input, ['window', 'limit', 'offset']),
     ),
   }),
   defineTool({

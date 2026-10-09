@@ -1,5 +1,6 @@
 import {
   describeError,
+  describeFetchError,
   isRetryableHttpError,
   mapWithConcurrency,
   retryAfterDelayMs,
@@ -536,15 +537,18 @@ export class GoogleAdsClient {
       headers['login-customer-id'] = this.#loginCustomerId
     }
 
+    const url = `${GOOGLE_ADS_API_BASE}${path}`
     let response: Response
     try {
-      response = await this.#fetch(`${GOOGLE_ADS_API_BASE}${path}`, {
+      response = await this.#fetch(url, {
         ...init,
         headers,
         signal: AbortSignal.timeout(this.#requestTimeoutMs),
       })
     } catch (error) {
-      const detail = describeError(error)
+      // A bare "fetch failed" hides whether DNS, the connection, or TLS broke;
+      // the cause code and host tell an operator which.
+      const detail = describeFetchError(error, url)
       throw new GoogleAdsApiError(
         `Google Ads API request failed: ${sanitizeText(detail, this.#secrets())}`,
       )

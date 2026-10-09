@@ -28,6 +28,7 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/gsc-period-comparison.ts` / `src/gbp-summary.ts` | Pure calculations behind the GSC performance tiles and `/gbp/summary` |
 | `src/ga.ts` | Google Analytics 4 routes |
 | `src/ga-source-mover.ts` | Pure biggest-mover calculation behind `/ga/social-referral-trend` and `/ga/attribution-trend` (see "GA4 trend movers") |
+| `src/ga-search-landing-pages.ts` | GA4's Search Console landing-page snapshot: the sync's persist / failure writers, the connect / disconnect clears, `resolveCurrentGa4PropertyId` and `GET /ga/search-landing-pages` (see "GA4 Search Console landing pages") |
 | `src/ads.ts` / `src/ads-live-delivery.ts` | OpenAI ads (ChatGPT ads) routes; pure live-vs-stored comparison engine |
 | `src/traffic.ts` / `src/ai-referral-status.ts` | Server-side traffic ingestion routes; shared `ai_referral_events_hourly` read conditions |
 | `src/traffic-analytics.ts` | Full-window stored crawler, user-fetch and referral aggregates, exposed through `/traffic/analytics`; detail-row caps do not limit totals, operator/path/product breakdowns or history. `period` is read-selection identity, not execution tuning. |
@@ -566,6 +567,16 @@ The dimensioned search-data table is valid for RANKING and invalid for TOTALS. R
 - The latest sync summary may supply deduplicated users only when its dates cover every retained detail row; otherwise `totalUsers` is null. Never use that summary to narrow `all`.
 - Any new figure added to `/ga/traffic`, and any new route whose numbers are read beside it, must use the same resolved range.
 - Row shares are computed here, never in a surface: each `aiReferrals` / `socialReferrals` row's `share` comes from `breakdownShares`, so a table adds up to 1 (AI rows over their own sum, which can sit below `aiSessionsDeduped` because that total picks the winning lens per day), and each top page's `organicShare` from `shareOf`.
+
+### GA4 Search Console landing pages
+
+`src/ga-search-landing-pages.ts`: GA4's "Google organic search traffic: Landing page + query string" report, stored by `POST /ga/sync` (or `only: 'search-landing'`) and read by `GET /ga/search-landing-pages`.
+
+- **Window snapshots, GA4 totals only.** One stored snapshot per `7d` / `28d` / `90d` window, each ending yesterday in the property time zone, as GA4's own ranges do. `total` is the window row's GA4 TOTAL, never a sum of the page rows (users are distinct per grain; CTR and position are ratios). There is no `--start` / `--end`: a custom range could not be answered exactly.
+- **One request per window** (`fetchSearchLandingPages` in the GA4 integration). The Search Console metrics reject `date`, `sessionSource`, `sessionMedium` and `sessionDefaultChannelGroup`, so there are no daily rows and no source filter; Active users is GA4's plain `activeUsers` from the same request, which reproduced GA4's report (a google / organic filter did not).
+- **Fail-soft, keep the last good snapshot.** `ready` replaces every window and page row in one transaction. `unavailable` (GA4 refused the Search Console metrics, inferred for an unlinked property and not yet observed live) and `error` write only the `search_landing_*` state; the stored snapshot of the same property and its `syncedAt` stay, and the read returns them beside the status. The run still completes, and `syncedComponents` lists `search-landing` only when the snapshot was stored.
+- **The snapshot belongs to one property.** Window rows carry the GA4 `property_id` they were read from. A failed attempt against a different property (the project was pointed at a new one) drops the old snapshot in the same transaction, so another property's figures are never shown as the last good snapshot. `POST /ga/connect` (both paths) drops the snapshot and resets the state when the property the project resolves to changes, or the stored snapshot names another property; a reconnect to the same property keeps it.
+- **Stored data only, current property only.** The read makes no Google call, so a project that never synced reads `never-synced` with a null `total`. It resolves the project's current property from the stored connection records (`resolveCurrentGa4PropertyId`: service account, then the domain's OAuth `ga4` connection, the sync's order and the property `ga status` reports) and reads a window stored for any other property, or with no connection at all, as `never-synced` with no Total and no rows. A GET never deletes it; the next sync replaces it or drops it. Disconnect deletes the snapshot and resets the state.
 
 ### GA4 trend movers
 

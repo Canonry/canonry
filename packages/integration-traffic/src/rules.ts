@@ -2,12 +2,6 @@ import { AI_ENGINE_DOMAINS } from '@ainyc/canonry-contracts'
 import type { AiCrawlerRule, AiReferrerRule } from './types.js'
 
 /**
- * Legacy ChatGPT consumer hostname (redirects to `chatgpt.com` today). Kept
- * separate because referrer headers from older clients still carry it.
- */
-const LEGACY_CHATGPT_DOMAIN = 'chat.openai.com'
-
-/**
  * User-agents belonging to Canonry's own tooling. These hit client sites as a
  * side effect of running an AEO audit / sweep (e.g. `aeo-audit --sitemap`
  * crawls sitemap.xml, robots.txt, llms.txt, and inner pages) and are NOT real
@@ -401,7 +395,7 @@ export const DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS = [
 
 export const DEFAULT_AI_REFERRER_RULES: AiReferrerRule[] = [
   { domain: AI_ENGINE_DOMAINS.chatgpt, operator: 'OpenAI', product: 'ChatGPT' },
-  { domain: LEGACY_CHATGPT_DOMAIN, operator: 'OpenAI', product: 'ChatGPT' },
+  { domain: AI_ENGINE_DOMAINS.chatgptLegacy, operator: 'OpenAI', product: 'ChatGPT' },
   { domain: AI_ENGINE_DOMAINS.perplexity, operator: 'Perplexity', product: 'Perplexity' },
   { domain: AI_ENGINE_DOMAINS.claude, operator: 'Anthropic', product: 'Claude' },
   { domain: AI_ENGINE_DOMAINS.gemini, operator: 'Google', product: 'Gemini' },

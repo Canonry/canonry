@@ -7,6 +7,8 @@ import {
   OPERATIONAL_LOG_FIELDS_HEADER,
   PROVIDER_ACCOUNT_FAILURE_STREAK,
   PROVIDER_ACCOUNT_RETRY_HOURS,
+  gaSearchLandingWindowSchema,
+  gaSyncOnlySchema,
   providerDispatchModeSchema,
   runKindSchema,
   runStatusSchema,
@@ -6002,6 +6004,39 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/projects/{name}/ga/search-landing-pages',
+    summary: 'Get GA4 Google organic search traffic by landing page',
+    description: 'GA4\'s "Google organic search traffic: Landing page + query string" report (Search Console link), as stored by the last GA sync for one window ending yesterday in the property time zone: clicks, impressions, CTR, average position and active users per landing page. `total` is GA4\'s own Total row, never a sum of `rows`. Stored data only: no Google call. Only a snapshot of the GA4 property the project resolves to now (service account first, then OAuth) is shown: a project that never synced, has no GA connection, or was pointed at another property since its snapshot was stored reads `never-synced` with no `total` and no rows. A failed or `unavailable` refresh keeps the previous snapshot, whose `windowStart` / `windowEnd` say what it covers. No custom date range: every figure is GA4-computed for the stored window.',
+    tags: ['ga4'],
+    parameters: [
+      nameParameter,
+      {
+        name: 'window',
+        in: 'query',
+        description: 'Stored window, ending yesterday in the GA4 property time zone. 28d matches GA4\'s default "Last 28 days".',
+        schema: { type: 'string', enum: [...gaSearchLandingWindowSchema.options], default: '28d' },
+      },
+      {
+        name: 'limit',
+        in: 'query',
+        description: 'Landing-page rows per page, ordered by clicks then impressions (descending), then landing page.',
+        schema: { type: 'integer', minimum: 1, maximum: 1000, default: 50 },
+      },
+      {
+        name: 'offset',
+        in: 'query',
+        description: 'Rows to skip before the page starts.',
+        schema: { type: 'integer', minimum: 0, default: 0 },
+      },
+    ],
+    responses: {
+      200: jsonResponse('GA4 Search Console landing pages returned.', 'GaSearchLandingPagesResponse'),
+      400: errorResponse('Invalid window, limit or offset.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
     method: 'post',
     path: '/api/v1/projects/{name}/ga/sync',
     summary: 'Sync GA4 traffic and AI referral data',
@@ -6016,6 +6051,7 @@ const routeCatalog: OpenApiOperation[] = [
             type: 'object',
             properties: {
               days: { ...integerSchema, description: 'Days of history to sync. Clamped to 1-90; check `clamped` in the response to detect truncation. Defaults to 30.' },
+              only: { type: 'string', enum: [...gaSyncOnlySchema.options], description: 'Refresh the foundation (traffic snapshots and summaries) plus at most one slice: traffic (foundation only), ai, social or search-landing (the GA4 Search Console landing-page snapshot). Omit for every slice.' },
             },
           },
         },

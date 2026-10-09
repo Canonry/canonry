@@ -1,5 +1,17 @@
 import crypto from 'node:crypto'
-import { AI_ENGINE_DOMAINS, classifyAiReferralTrafficClass, compactDateToIso, parseBoundedRate, withRetry, escapeRegExp } from '@ainyc/canonry-contracts'
+import {
+  AI_ENGINE_DOMAINS,
+  GA_SEARCH_LANDING_WINDOWS,
+  GA_SEARCH_LANDING_WINDOW_DAYS,
+  classifyAiReferralTrafficClass,
+  compactDateToIso,
+  describeError,
+  escapeRegExp,
+  isoDateDaysBeforeInTimeZone,
+  parseBoundedRate,
+  withRetry,
+} from '@ainyc/canonry-contracts'
+import type { GaSearchLandingWindow } from '@ainyc/canonry-contracts'
 import {
   GA4_ADMIN_API_BASE,
   GA4_DATA_API_BASE,
@@ -11,14 +23,21 @@ import {
   GA4_MAX_CONCURRENT_REQUESTS,
   GA4_MAX_RETRIES,
   GA4_INITIAL_RETRY_DELAY_MS,
+  GA4_SEARCH_LANDING_MAX_ROWS,
+  GA4_SEARCH_LANDING_PAGE_SIZE,
   GA4_DIMENSIONS as DIM,
   GA4_METRICS as MET,
 } from './constants.js'
 import type {
   GA4AiReferralRow,
   GA4SocialReferralRow,
+  GA4ReportRow,
   GA4RunReportRequest,
   GA4RunReportResponse,
+  GA4SearchLandingMetrics,
+  GA4SearchLandingPageRow,
+  GA4SearchLandingReport,
+  GA4SearchLandingWindowReport,
   GA4SourceDimension,
   GA4TrafficRow,
   GA4AcquisitionReport,
@@ -412,6 +431,46 @@ async function fetchPagedReport(
     }
   }
   return rows
+}
+
+/**
+ * `fetchPagedReport` for a report whose first page also carries what the rows
+ * cannot rebuild: GA4's `totals` (from `metricAggregations`), `metadata` and
+ * `rowCount`. Stops at `maxRows` instead of throwing, and says so: `capped` is
+ * true whenever fewer rows were read than GA4 reported. `maxRows` is clamped to
+ * what `GA4_MAX_PAGES` pages of `pageSize` can read, so a small page size caps
+ * the window rather than hitting the page limit.
+ */
+async function fetchPagedReportWithTotals(
+  accessToken: string,
+  propertyId: string,
+  baseRequest: Omit<GA4RunReportRequest, 'limit' | 'offset'>,
+  options: { pageSize: number; maxRows: number },
+): Promise<{ rows: GA4ReportRow[]; firstPage: GA4RunReportResponse; reportRowCount: number; capped: boolean }> {
+  const pageSize = Math.max(1, Math.trunc(options.pageSize))
+  const maxRows = Math.min(Math.max(1, Math.trunc(options.maxRows)), pageSize * GA4_MAX_PAGES)
+  const rows: GA4ReportRow[] = []
+  let firstPage: GA4RunReportResponse | undefined
+  let reportedRowCount: number | undefined
+  let offset = 0
+  for (let page = 0; page < GA4_MAX_PAGES; page++) {
+    const limit = Math.min(pageSize, maxRows - rows.length)
+    const response = await runReport(accessToken, propertyId, { ...baseRequest, limit, offset })
+    firstPage ??= response
+    if (response.rowCount !== undefined) reportedRowCount = response.rowCount
+    const pageRows = response.rows ?? []
+    rows.push(...pageRows)
+    offset += pageRows.length
+    if (pageRows.length < limit) break
+    if (reportedRowCount !== undefined && offset >= reportedRowCount) break
+    // Every page that does not break adds at least `limit` rows, so with
+    // `maxRows` clamped above this is reached by the last page at the latest.
+    if (rows.length >= maxRows) break
+  }
+  // The loop always runs at least once, so the first page is set.
+  const first = firstPage as GA4RunReportResponse
+  const reportRowCount = Math.max(reportedRowCount ?? rows.length, rows.length)
+  return { rows, firstPage: first, reportRowCount, capped: rows.length < reportRowCount }
 }
 
 export async function fetchAcquisitionByChannel(
@@ -1290,4 +1349,209 @@ export async function fetchSocialReferrals(
 
   ga4Log('info', 'fetch-social-referrals.done', { propertyId, rowCount: rows.length })
   return rows
+}
+
+// --- Search Console landing pages ---------------------------------------------
+// GA4's "Google organic search traffic: Landing page + query string" report
+// (Search Console collection). Verified live on 2026-10-08 against a property
+// linked to Search Console: ONE runReport per window, dimension
+// `landingPagePlusQueryString`, the four `organicGoogleSearch*` metrics plus
+// `activeUsers`, and `metricAggregations: ['TOTAL']`, reproduced GA4's own
+// report exactly, Total row included. `date`, `sessionSource`, `sessionMedium`
+// and `sessionDefaultChannelGroup` are incompatible with these metrics, so
+// there are no daily rows and no source filter.
+
+const SEARCH_LANDING_METRIC_NAMES = [
+  MET.organicGoogleSearchClicks,
+  MET.organicGoogleSearchImpressions,
+  MET.organicGoogleSearchClickThroughRate,
+  MET.organicGoogleSearchAveragePosition,
+  MET.activeUsers,
+] as const
+type SearchLandingMetricName = typeof SEARCH_LANDING_METRIC_NAMES[number]
+
+const RESERVED_TOTAL = 'RESERVED_TOTAL'
+const NOT_SET_LANDING_PAGE = '(not set)'
+
+/**
+ * Where each metric sits in a row. GA4 returns metric values in request order;
+ * when the response names its headers, they decide, and a header missing from
+ * the response is an error rather than a column read from the wrong place.
+ */
+function searchLandingMetricIndex(response: GA4RunReportResponse): Record<SearchLandingMetricName, number> {
+  const headers = response.metricHeaders?.map((header) => header.name)
+  const index = {} as Record<SearchLandingMetricName, number>
+  for (const [position, name] of SEARCH_LANDING_METRIC_NAMES.entries()) {
+    if (!headers) {
+      index[name] = position
+      continue
+    }
+    const found = headers.indexOf(name)
+    if (found < 0) {
+      throw new Error(`GA4 Search Console landing-page report is missing the ${name} metric`)
+    }
+    index[name] = found
+  }
+  return index
+}
+
+/** A count metric; absent or unreadable reads as 0 and a count is never negative. */
+function parseSearchLandingCount(value: string | undefined): number {
+  return Math.max(0, parseOptionalCountMetric(value) ?? 0)
+}
+
+/**
+ * GA4's metrics for one row or the Total. CTR and position are ratios over
+ * impressions, so with no impressions they are undefined and read as null,
+ * never 0, whatever GA4 sent for them.
+ */
+function parseSearchLandingMetrics(
+  row: GA4ReportRow,
+  index: Record<SearchLandingMetricName, number>,
+): GA4SearchLandingMetrics {
+  const read = (name: SearchLandingMetricName) => row.metricValues[index[name]]?.value
+  const impressions = parseSearchLandingCount(read(MET.organicGoogleSearchImpressions))
+  const position = parseOptionalMetric(read(MET.organicGoogleSearchAveragePosition))
+  return {
+    clicks: parseSearchLandingCount(read(MET.organicGoogleSearchClicks)),
+    impressions,
+    ctr: impressions > 0 ? parseBoundedRate(parseOptionalMetric(read(MET.organicGoogleSearchClickThroughRate))) : null,
+    averagePosition: impressions > 0 && position !== null && position > 0 ? position : null,
+    activeUsers: parseSearchLandingCount(read(MET.activeUsers)),
+  }
+}
+
+/**
+ * A 400 that says GA4 will not serve the Search Console metrics for this
+ * property. NOT CAPTURED LIVE: what an unlinked property returns has not been
+ * observed. This mirrors `isLandingPageDimensionIncompatibility`: GA4 reports
+ * an unusable field as a 400 naming it or calling the request incompatible.
+ * The message is kept verbatim on the stored state, so a request-shape bug
+ * that also reads this way stays visible.
+ */
+function isSearchConsoleUnavailable(error: unknown): boolean {
+  return error instanceof GA4ApiError
+    && error.status === 400
+    && (/organicGoogleSearch/i.test(error.message)
+      || /search ?console/i.test(error.message)
+      || /incompatib/i.test(error.message))
+}
+
+async function fetchSearchLandingWindow(
+  accessToken: string,
+  propertyId: string,
+  window: GaSearchLandingWindow,
+  options: { requestedAt: string; pageSize: number; maxRows: number },
+): Promise<GA4SearchLandingWindowReport & { emptyReason: string | null }> {
+  const days = GA_SEARCH_LANDING_WINDOW_DAYS[window]
+  const { rows: rawRows, firstPage, reportRowCount, capped } = await fetchPagedReportWithTotals(accessToken, propertyId, {
+    // Relative dates resolve in the property's reporting time zone, which is
+    // how GA4's own "Last N days" ranges end: yesterday, local to the property.
+    dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'yesterday' }],
+    dimensions: [{ name: DIM.landingPagePlusQueryString }],
+    metrics: SEARCH_LANDING_METRIC_NAMES.map((name) => ({ name })),
+    metricAggregations: ['TOTAL'],
+    // Most clicks, then most impressions, first: a capped window keeps the
+    // pages with search traffic before 0-click pages with no impressions. The
+    // landing page breaks ties so paging is deterministic. Same order as the
+    // stored read.
+    orderBys: [
+      { metric: { metricName: MET.organicGoogleSearchClicks }, desc: true },
+      { metric: { metricName: MET.organicGoogleSearchImpressions }, desc: true },
+      { dimension: { dimensionName: DIM.landingPagePlusQueryString } },
+    ],
+  }, options)
+
+  const index = searchLandingMetricIndex(firstPage)
+  const seen = new Set<string>()
+  const rows: GA4SearchLandingPageRow[] = []
+  for (const row of rawRows) {
+    // `??`, not `||`: GA4 can return an empty landing page next to a real
+    // `(not set)` row. Folding '' into `(not set)` made the two collide and
+    // the dedup below dropped one of them. Only a missing value is `(not set)`.
+    const landingPage = row.dimensionValues[0]?.value ?? NOT_SET_LANDING_PAGE
+    // GA4 data can move between two page requests; keep one row per page so a
+    // shifted row is not stored twice.
+    if (seen.has(landingPage)) continue
+    seen.add(landingPage)
+    rows.push({ landingPage, ...parseSearchLandingMetrics(row, index) })
+  }
+
+  const totalRow = firstPage.totals?.find((row) => row.dimensionValues[0]?.value === RESERVED_TOTAL)
+    ?? firstPage.totals?.[0]
+  if (!totalRow && rows.length > 0) {
+    // The Total is GA4's own aggregate; rows cannot rebuild it (users are
+    // distinct per grain, CTR and position are ratios), so it is never summed.
+    throw new Error(`GA4 Search Console landing-page report (${window}) returned rows without a TOTAL row`)
+  }
+  const total: GA4SearchLandingMetrics = totalRow
+    ? parseSearchLandingMetrics(totalRow, index)
+    : { clicks: 0, impressions: 0, ctr: null, averagePosition: null, activeUsers: 0 }
+
+  const timeZone = firstPage.metadata?.timeZone?.trim() || null
+  const zone = timeZone ?? 'UTC'
+  return {
+    window,
+    periodStart: isoDateDaysBeforeInTimeZone(options.requestedAt, days, zone),
+    periodEnd: isoDateDaysBeforeInTimeZone(options.requestedAt, 1, zone),
+    timeZone,
+    total,
+    rows,
+    reportRowCount,
+    rowsCapped: capped,
+    subjectToThresholding: firstPage.metadata?.subjectToThresholding === true,
+    dataLossFromOtherRow: firstPage.metadata?.dataLossFromOtherRow === true,
+    emptyReason: firstPage.metadata?.emptyReason?.trim() || null,
+  }
+}
+
+/**
+ * Fetch GA4's "Google organic search traffic: Landing page + query string"
+ * report for the 7, 28 and 90 days ending yesterday (property time zone): one
+ * request per window, paged until every row is read or
+ * `GA4_SEARCH_LANDING_MAX_ROWS` is reached.
+ *
+ * Returns `unavailable` (never throws) when GA4 refuses the Search Console
+ * metrics, or answers every window empty with an `emptyReason`. Both are how a
+ * property without a Search Console link is EXPECTED to answer; neither has
+ * been captured live. Auth, quota, network and parse failures throw.
+ */
+export async function fetchSearchLandingPages(
+  accessToken: string,
+  propertyId: string,
+  options: { now?: Date; pageSize?: number; maxRows?: number } = {},
+): Promise<GA4SearchLandingReport> {
+  validateAccessToken(accessToken)
+  validatePropertyId(propertyId)
+  const requestedAt = (options.now ?? new Date()).toISOString()
+  const pageSize = options.pageSize ?? GA4_SEARCH_LANDING_PAGE_SIZE
+  const maxRows = options.maxRows ?? GA4_SEARCH_LANDING_MAX_ROWS
+
+  ga4Log('info', 'fetch-search-landing.start', { propertyId })
+  let windows: Array<GA4SearchLandingWindowReport & { emptyReason: string | null }>
+  try {
+    windows = await Promise.all(GA_SEARCH_LANDING_WINDOWS.map((window) =>
+      fetchSearchLandingWindow(accessToken, propertyId, window, { requestedAt, pageSize, maxRows })))
+  } catch (error) {
+    if (!isSearchConsoleUnavailable(error)) throw error
+    ga4Log('info', 'fetch-search-landing.unavailable', { propertyId, httpStatus: 400 })
+    return { status: 'unavailable', reason: describeError(error) }
+  }
+
+  const emptyReason = windows.every((window) => window.rows.length === 0)
+    ? windows.map((window) => window.emptyReason).find((reason) => reason !== null) ?? null
+    : null
+  if (emptyReason) {
+    ga4Log('info', 'fetch-search-landing.unavailable', { propertyId, emptyReason })
+    return { status: 'unavailable', reason: `GA4 returned no Search Console rows (${emptyReason})` }
+  }
+
+  ga4Log('info', 'fetch-search-landing.done', {
+    propertyId,
+    rowCounts: windows.map((window) => `${window.window}:${window.rows.length}`).join(','),
+  })
+  return {
+    status: 'ready',
+    windows: windows.map(({ emptyReason: _emptyReason, ...window }) => window),
+  }
 }

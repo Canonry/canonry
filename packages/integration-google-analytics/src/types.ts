@@ -24,21 +24,81 @@ export interface GA4RunReportRequest {
       }>
     }
   }
+  /** Ask GA4 to compute aggregate rows (returned in `totals` for `TOTAL`). */
+  metricAggregations?: Array<'TOTAL' | 'MAXIMUM' | 'MINIMUM' | 'COUNT'>
+  orderBys?: Array<{
+    metric?: { metricName: string }
+    dimension?: { dimensionName: string }
+    desc?: boolean
+  }>
   limit?: number
   offset?: number
 }
 
+export interface GA4ReportRow {
+  dimensionValues: Array<{ value: string }>
+  metricValues: Array<{ value: string }>
+}
+
 export interface GA4RunReportResponse {
-  rows?: Array<{
-    dimensionValues: Array<{ value: string }>
-    metricValues: Array<{ value: string }>
-  }>
+  dimensionHeaders?: Array<{ name: string }>
+  metricHeaders?: Array<{ name: string; type?: string }>
+  rows?: GA4ReportRow[]
+  /**
+   * Rows GA4 computed for `metricAggregations`, each with its dimension values
+   * set to `RESERVED_<AGGREGATION>` (`RESERVED_TOTAL` for `TOTAL`).
+   */
+  totals?: GA4ReportRow[]
+  /** Every row the report has, not just this page's. */
   rowCount?: number
   metadata?: {
     currencyCode?: string
     timeZone?: string
+    emptyReason?: string
+    subjectToThresholding?: boolean
+    dataLossFromOtherRow?: boolean
   }
+  kind?: string
 }
+
+/** One landing page's metrics, or the report's Total, as GA4 reported them. */
+export interface GA4SearchLandingMetrics {
+  clicks: number
+  impressions: number
+  /** GA4's click-through rate (0..1); null when there were no impressions. */
+  ctr: number | null
+  /** GA4's average position; null when there were no impressions. */
+  averagePosition: number | null
+  activeUsers: number
+}
+
+export interface GA4SearchLandingPageRow extends GA4SearchLandingMetrics {
+  /** GA4's `landingPagePlusQueryString`, exactly as reported. */
+  landingPage: string
+}
+
+export interface GA4SearchLandingWindowReport {
+  window: GaSearchLandingWindow
+  /** Inclusive first day, in the property's time zone. */
+  periodStart: string
+  /** Inclusive last day (yesterday at request time, in the property's time zone). */
+  periodEnd: string
+  /** `metadata.timeZone`; null when GA4 did not report one (dates then fall back to UTC). */
+  timeZone: string | null
+  /** GA4's own TOTAL row. Never a sum of `rows`. */
+  total: GA4SearchLandingMetrics
+  rows: GA4SearchLandingPageRow[]
+  /** Rows GA4 reported for the window (`rowCount`). */
+  reportRowCount: number
+  /** True when fewer rows were read than GA4 reported. */
+  rowsCapped: boolean
+  subjectToThresholding: boolean
+  dataLossFromOtherRow: boolean
+}
+
+export type GA4SearchLandingReport =
+  | { status: 'ready'; windows: GA4SearchLandingWindowReport[] }
+  | { status: 'unavailable'; reason: string }
 
 export interface GA4TrafficRow {
   date: string
@@ -93,7 +153,7 @@ export interface GA4LeadEventReport {
 
 
 export type { AiReferralTrafficClass, GA4SourceDimension } from '@ainyc/canonry-contracts'
-import type { AiReferralTrafficClass, GA4SourceDimension } from '@ainyc/canonry-contracts'
+import type { AiReferralTrafficClass, GA4SourceDimension, GaSearchLandingWindow } from '@ainyc/canonry-contracts'
 
 export interface GA4AiReferralRow {
   date: string

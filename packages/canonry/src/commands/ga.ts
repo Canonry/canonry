@@ -1,8 +1,8 @@
-import type { GaConnectResponse, GA4PropertiesDto, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GaMeasurementAnalysisDto, GaSocialReferralTrendResponse, GaAttributionTrendResponse, GaSourceMover, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '@ainyc/canonry-contracts'
+import type { AiEngineLeadRateUnavailableReason, GaConnectResponse, GA4PropertiesDto, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GaMeasurementAnalysisDto, GaSocialReferralTrendResponse, GaAttributionTrendResponse, GaSourceMover, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, GaSearchLandingMetrics, GaSearchLandingPagesResponse } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
-import { GaMoverChangeBases, describeError, formatPercent } from '@ainyc/canonry-contracts'
+import { GA_SEARCH_LANDING_WINDOW_DAYS, GaMoverChangeBases, describeError, formatPercent, gaSearchLandingHasSearchData, gaSearchLandingPageLabel } from '@ainyc/canonry-contracts'
 
 function getClient() {
   return createApiClient()
@@ -198,7 +198,131 @@ export async function gaSync(project: string, opts?: { days?: number; only?: str
   console.log(`  AI rows:     ${result.aiReferralCount}`)
   console.log(`  Social rows: ${result.socialReferralCount}`)
   console.log(`  Period:      ${result.days} days${result.clamped ? ` (requested ${result.requestedDays})` : ''}`)
+  const searchLanding = result.measurement.searchLandingPages
+  if (searchLanding) {
+    console.log(`  Search Console landing pages: ${searchLanding.status} (${searchLanding.rowCount} rows)`)
+    if (searchLanding.error) console.log(`    Error: ${searchLanding.error}`)
+  }
   console.log(`  Synced at:   ${result.syncedAt}`)
+}
+
+/** How a nullable GA4 ratio prints: undefined with no impressions, never 0. */
+const SEARCH_LANDING_NOT_AVAILABLE = 'n/a'
+
+function searchLandingCells(metrics: GaSearchLandingMetrics): string[] {
+  return [
+    metrics.organicGoogleSearchClicks.toLocaleString('en-US'),
+    metrics.organicGoogleSearchImpressions.toLocaleString('en-US'),
+    metrics.organicGoogleSearchClickThroughRate === null
+      ? SEARCH_LANDING_NOT_AVAILABLE
+      : formatPercent(metrics.organicGoogleSearchClickThroughRate),
+    metrics.organicGoogleSearchAveragePosition === null
+      ? SEARCH_LANDING_NOT_AVAILABLE
+      : metrics.organicGoogleSearchAveragePosition.toFixed(1),
+    metrics.activeUsers.toLocaleString('en-US'),
+  ]
+}
+
+/**
+ * `ga search-landing-pages`: GA4's "Google organic search traffic: Landing
+ * page + query string" report as the last GA sync stored it. The Total row is
+ * the API's (GA4's own Total), printed first as GA4 does, never a sum of the
+ * rows shown.
+ */
+export async function gaSearchLandingPages(project: string, opts?: {
+  window?: string
+  limit?: string
+  offset?: string
+  format?: string
+}): Promise<void> {
+  const client = getClient()
+  const params: Record<string, string> = {}
+  if (opts?.window) params.window = opts.window
+  if (opts?.limit) params.limit = opts.limit
+  if (opts?.offset) params.offset = opts.offset
+  const result: GaSearchLandingPagesResponse = await client.gaSearchLandingPages(
+    project,
+    Object.keys(params).length > 0 ? params : undefined,
+  )
+
+  if (opts?.format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  } else if (opts?.format === 'jsonl') {
+    // One landing page per line, stamped with the window it belongs to. The
+    // Total is not a row: read it from `--format json`.
+    emitJsonl(result.rows.map(row => ({
+      project,
+      window: result.window,
+      windowStart: result.windowStart,
+      windowEnd: result.windowEnd,
+      ...row,
+    })))
+    return
+  }
+
+  if (result.status === 'never-synced') {
+    console.log(`No GA4 Search Console landing-page data for "${project}" yet. Run "canonry ga sync ${project}".`)
+    return
+  }
+
+  console.log(`Google organic search traffic: landing page + query string (GA4 Search Console link) for "${project}"`)
+  if (result.windowStart && result.windowEnd) {
+    console.log(`Last ${result.windowDays ?? GA_SEARCH_LANDING_WINDOW_DAYS[result.window]} days: ${result.windowStart} to ${result.windowEnd}${result.timeZone ? ` (${result.timeZone})` : ''}`)
+  }
+  if (result.status === 'unavailable') {
+    console.log(`Status: unavailable. GA4 did not return Search Console data: ${result.error ?? 'no reason given'}`)
+    console.log(`Link Search Console to this GA4 property (GA4 Admin, Product links, Search Console links), then run "canonry ga sync ${project}".`)
+  } else if (result.status === 'error') {
+    console.log(`Status: the last refresh failed${result.attemptedAt ? ` (${result.attemptedAt})` : ''}: ${result.error ?? 'unknown error'}`)
+  }
+  if (result.status !== 'ready' && result.total) {
+    console.log(`Showing the snapshot synced ${result.syncedAt ?? 'earlier'}.`)
+  }
+  if (!result.total) {
+    console.log('No stored snapshot.')
+    return
+  }
+
+  const headers = ['LANDING PAGE', 'CLICKS', 'IMPRESSIONS', 'CTR', 'AVG POSITION', 'ACTIVE USERS']
+  const table = [
+    ['Total', ...searchLandingCells(result.total)],
+    ...result.rows.map(row => [gaSearchLandingPageLabel(row.landingPage), ...searchLandingCells(row)]),
+  ]
+  const pageWidth = Math.min(60, Math.max(headers[0]!.length, ...table.map(row => row[0]!.length)))
+  const widths = headers.map((header, index) => index === 0
+    ? pageWidth
+    : Math.max(header.length, ...table.map(row => row[index]!.length)))
+  const line = (cells: string[]) => `  ${cells.map((cell, index) => index === 0
+    ? (cell.length > pageWidth ? `${cell.slice(0, pageWidth - 3)}...` : cell).padEnd(pageWidth)
+    : cell.padStart(widths[index]!)).join('  ')}`
+
+  console.log()
+  console.log(line(headers))
+  console.log(`  ${widths.map(width => '─'.repeat(width)).join('  ')}`)
+  for (const row of table) console.log(line(row))
+  console.log()
+
+  if (result.rows.length > 0) {
+    console.log(`  Showing ${result.offset + 1}-${result.offset + result.rows.length} of ${result.totalRows} pages.`)
+  } else if (result.totalRows > 0) {
+    console.log(`  No landing-page rows at offset ${result.offset} (${result.totalRows} stored).`)
+  }
+  // GA4's Total, not the row count, as the dashboard reads it: pages with
+  // active users and no clicks or impressions are still listed.
+  if (!gaSearchLandingHasSearchData(result.total)) {
+    console.log('  No landing pages had Google organic search traffic in this window.')
+    console.log('  If the property should have some, check its Search Console link in GA4 (Admin, Product links, Search Console links).')
+  }
+  if (result.rowsCapped && result.reportRowCount !== null) {
+    console.log(`  GA4 reported ${result.reportRowCount} rows; the ${result.totalRows} with the most clicks are stored.`)
+  }
+  if (result.subjectToThresholding) {
+    console.log('  GA4 applied thresholding to this report, so some rows may be withheld.')
+  }
+  if (result.status === 'ready' && result.syncedAt) {
+    console.log(`  Synced at: ${result.syncedAt}`)
+  }
 }
 
 export async function gaTraffic(project: string, opts?: GaRangeOptions & { limit?: number }): Promise<void> {
@@ -307,6 +431,69 @@ export async function gaTraffic(project: string, opts?: GaRangeOptions & { limit
   }
 }
 
+type AiEngineLeads = GaMeasurementAnalysisDto['leads']['aiEngines']
+type AiEngineLeadClass = AiEngineLeads['organic']
+
+/** Why the lead rates are blank; `no-data` prints nothing because the block is empty. */
+const AI_ENGINE_LEAD_RATE_NOTES: Record<AiEngineLeadRateUnavailableReason, string | null> = {
+  'no-data': null,
+  'sync-not-ready': 'the latest acquisition or lead sync failed, so sessions and lead events may cover different days; rerun the GA sync for lead rates.',
+  'channel-leads-unfiltered': 'lead events are channel-level here, so host and path filters narrow sessions but not leads; rerun with --host-scope all and no --path-prefix for lead rates.',
+  'paid-split-needs-landing-page': 'lead events are channel-level here, so the paid/organic split cannot read landing-page utm tags, and some AI sessions were paid only by those tags (counted as organic above); tag paid AI links with a paid utm_medium such as cpc for lead rates.',
+  'sessions-behind-leads': 'stored lead events run past the last stored session date, so recent leads have no sessions to divide by; rerun the GA sync for lead rates.',
+  'sessions-missing-on-lead-days': 'some days in this window have stored lead events but no stored sessions, so those leads have no sessions to divide by; rerun the GA sync with --days covering the window for lead rates.',
+}
+
+function hasAiEngineLeadRows(block: AiEngineLeadClass): boolean {
+  return block.engines.length > 0 || block.unattributed.sources.length > 0
+}
+
+/** One row per AI engine, the unattributed AI channel rows, and the class total; each cell is one 30-day cohort. */
+function printAiEngineLeadClass(heading: string, block: AiEngineLeadClass): void {
+  const cell = (period: AiEngineLeadClass['periods'][number]) => (
+    `${period.eventCount} / ${period.sessions}  ${formatPercent(period.leadRate)}`
+  )
+  const rows = [
+    ...block.engines.map(engine => ({ label: engine.label, cells: engine.periods.map(cell) })),
+    ...(block.unattributed.sources.length > 0
+      ? [{ label: 'Other AI Assistant', cells: block.unattributed.periods.map(cell) }]
+      : []),
+    { label: 'All AI', cells: block.periods.map(cell) },
+  ]
+  const labelWidth = Math.max('ENGINE'.length, ...rows.map(row => row.label.length))
+  const widths = block.periods.map((period, index) => Math.max(
+    period.label.length,
+    ...rows.map(row => row.cells[index]?.length ?? 0),
+  ))
+  const line = (label: string, cells: string[]) => (
+    `    ${label.padEnd(labelWidth)}  ${cells.map((value, index) => value.padEnd(widths[index] ?? 0)).join('  ')}`.trimEnd()
+  )
+  console.log(`  ${heading} (lead events / AI sessions, lead rate)`)
+  console.log(line('ENGINE', block.periods.map(period => period.label.toUpperCase())))
+  for (const row of rows) console.log(line(row.label, row.cells))
+}
+
+/**
+ * Organic AI leads by engine, then paid AI clicks only when there are any, then why rates are blank.
+ * A server older than `leads.aiEngines` omits the block, so there is nothing to print.
+ */
+function printAiEngineLeads(aiEngines: AiEngineLeads | undefined): void {
+  if (!aiEngines) return
+  if (aiEngines.organic.periods.length === 0) return
+  if (!hasAiEngineLeadRows(aiEngines.organic) && !hasAiEngineLeadRows(aiEngines.paid)) {
+    console.log('  Leads by AI engine: no AI engine sessions or lead events in this window')
+    return
+  }
+  printAiEngineLeadClass('Leads by AI engine, organic', aiEngines.organic)
+  if (hasAiEngineLeadRows(aiEngines.paid)) {
+    printAiEngineLeadClass('Leads by AI engine, paid clicks', aiEngines.paid)
+  }
+  const note = aiEngines.leadRateUnavailableReason === null
+    ? null
+    : AI_ENGINE_LEAD_RATE_NOTES[aiEngines.leadRateUnavailableReason]
+  if (note) console.log(`    Note: ${note}`)
+}
+
 export async function gaMeasurementAnalysis(project: string, opts?: {
   window?: string
   hostScope?: string
@@ -348,6 +535,7 @@ export async function gaMeasurementAnalysis(project: string, opts?: {
   for (const period of result.leads.periods) {
     console.log(`    ${period.label.padEnd(8)} ${period.eventCount} leads  ${period.startDate} to ${period.endDate}`)
   }
+  printAiEngineLeads(result.leads.aiEngines)
 
   console.log(`  Search demand: ${result.searchDemand.status}`)
   for (const period of result.searchDemand.periods) {

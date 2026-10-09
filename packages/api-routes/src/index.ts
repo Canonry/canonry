@@ -80,6 +80,8 @@ import type { CDPRoutesOptions } from './cdp.js'
 import { ga4Routes } from './ga.js'
 import type { GA4RoutesOptions, Ga4CredentialStore } from './ga.js'
 import { gaMeasurementAnalysisRoutes } from './ga-measurement-analysis.js'
+import { gaSearchLandingPagesRoutes } from './ga-search-landing-pages.js'
+import type { GaSearchLandingRoutesOptions } from './ga-search-landing-pages.js'
 import { wordpressRoutes } from './wordpress.js'
 import type { WordpressRoutesOptions } from './wordpress.js'
 import { backlinksRoutes } from './backlinks.js'
@@ -760,6 +762,10 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
     } satisfies GA4RoutesOptions)
     await api.register(gaMeasurementAnalysisRoutes)
+    await api.register(gaSearchLandingPagesRoutes, {
+      ga4CredentialStore: opts.ga4CredentialStore,
+      googleConnectionStore: opts.googleConnectionStore,
+    } satisfies GaSearchLandingRoutesOptions)
     await api.register(trafficRoutes, {
       cloudRunCredentialStore: opts.cloudRunCredentialStore,
       pullCloudRunEvents: opts.pullCloudRunEvents,
