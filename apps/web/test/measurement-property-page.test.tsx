@@ -20,6 +20,7 @@ import {
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
   getApiV1ProjectsByNameMeasurementPropertyEvidenceInfiniteQueryKey,
 } from '@ainyc/canonry-api-client/react-query'
+import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 
 const TARGET_KEY = 'harbor-house'
@@ -95,6 +96,40 @@ function planResponse() {
       },
     },
   }
+}
+
+/**
+ * AI Visibility's report for this Property after a tracking change: it restates
+ * the last sweep from revision 6 while revision 7 waits for its first sweep.
+ * `measuredRevision: null` is a Property no sweep has ever measured. `empty` is
+ * a Property that sweep asked no queries of this type, which the change gave its first.
+ */
+function lastResultsReport(measuredRevision: number | null, empty = false) {
+  const rate = { numerator: 1, denominator: 2, rate: 0.5 }
+  const missing = { numerator: null, denominator: null, rate: null, reason: 'no-population' }
+  const provenance = { kind: 'frozen-advanced', definitionRevision: 7 }
+  return visibilityReportResponseSchema.parse({
+    selection: {
+      mode: 'advanced', queryClass: 'non-brand', scope: { id: TARGET_KEY, label: 'Harbor House', kind: 'property', targetCount: 1 },
+      provider: null, model: null, location: { kind: 'all' }, time: { from: null, to: null },
+      revision: measuredRevision, run: { id: measuredRevision === null ? null : 'run-before-change', explicit: false }, provenance,
+      measurement: {
+        state: measuredRevision === null ? 'not-measured' : 'measured', activeRevision: 7, measuredRevision, awaitingSweep: true,
+        pendingAssignmentCount: 1, completedAt: measuredRevision === null ? null : '2026-07-30T12:05:00.000Z',
+      },
+      availability: { state: 'available' },
+    },
+    scopeOptions: [{ id: 'project', label: 'Whole site', kind: 'project', targetCount: 1 }, { id: TARGET_KEY, label: 'Harbor House', kind: 'property', targetCount: 1 }],
+    filterOptions: { providers: ['openai'], models: [], locations: [{ kind: 'all' }] },
+    populations: [{
+      queryClass: 'non-brand',
+      summary: empty
+        ? { queryCount: 0, answerCount: 0, mentionCoverage: missing, citationCoverage: missing, propertyReach: missing, outcomes: { bothSignals: 0, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 1, total: 1 } }
+        : { queryCount: 1, answerCount: 2, mentionCoverage: rate, citationCoverage: rate, propertyReach: rate, outcomes: { bothSignals: 1, mentionedOnly: 0, citedOnly: 0, neither: 1, notMeasured: 0, total: 2 } },
+      trend: [], queries: { items: [], total: 0, nextCursor: null }, evidence: { items: [], total: 0, nextCursor: null },
+      competitors: [], competitorAvailability: { state: 'available' }, observedCompetitors: [], breakdown: { groups: [], properties: [] },
+    }],
+  })
 }
 
 function legacyPlanResponse() {
@@ -642,6 +677,53 @@ describe('Property page', () => {
 
     const link = await screen.findByRole('link', { name: 'Go to AI Visibility' })
     await waitFor(() => expect(link.getAttribute('href')).toMatch(/\/projects\/[^/?]+\?queryClass=non-brand$/))
+  })
+
+  /** A Property this page must measure, beside AI Visibility's report for it. Settles every read before returning. */
+  async function renderNeedsMeasurement(report: ReturnType<typeof lastResultsReport>, search = '') {
+    const reports: URL[] = []
+    const blank = { mentionCoverage: unavailable('no_completed_run'), citationCoverage: unavailable('no_completed_run') }
+    const { queryClient } = await renderPropertyPageFromApi(url => {
+      if (pathOf(url).includes('/visibility-report')) {
+        reports.push(new URL(url))
+        return jsonResponse(report)
+      }
+      return propertyPageResponses({
+        branded: overviewResponse('branded', blank),
+        nonBrand: overviewResponse('non-brand', blank, { measurementState: 'not_measured', nextAction: 'run_measurement' }),
+      })(url)
+    }, { search })
+    await waitFor(() => expect(reports).toHaveLength(1))
+    await waitFor(() => expect(queryClient.isFetching()).toBe(0))
+    return reports
+  }
+
+  it.each([
+    { label: 'links to this Location\'s last results when AI Visibility still shows a sweep from before the change', measuredRevision: 6, empty: false, name: 'See the last results', scoped: true },
+    { label: 'keeps the AI Visibility link when no sweep has measured this Location', measuredRevision: null, empty: false, name: 'Go to AI Visibility', scoped: false },
+    { label: 'keeps the AI Visibility link when the last sweep asked this Location nothing of this type', measuredRevision: 6, empty: true, name: 'Go to AI Visibility', scoped: false },
+  ])('$label', async ({ measuredRevision, empty, name, scoped }) => {
+    const reports = await renderNeedsMeasurement(lastResultsReport(measuredRevision, empty))
+
+    const link = screen.getByRole('link', { name })
+    // The page asks the very report the scoped link opens.
+    expect(Object.fromEntries(reports[0]!.searchParams)).toMatchObject({ scope: 'property', scopeKey: TARGET_KEY, queryClass: 'non-brand' })
+    await waitFor(() => expect(new URL(link.getAttribute('href')!, window.location.origin).searchParams.get('queryClass')).toBe('non-brand'))
+    const search = new URL(link.getAttribute('href')!, window.location.origin).searchParams
+    expect([search.get('measurementScope'), search.get('measurementScopeKey')]).toEqual(scoped ? ['property', TARGET_KEY] : [null, null])
+    // The admin instruction says why the link names results it cannot collect.
+    const next = screen.getByRole('region', { name: 'Measurement next step' })
+    expect(next.textContent?.includes('AI Visibility still shows the last results.')).toBe(scoped)
+  })
+
+  it('opens the latest last results, not the sweep, revision or end date the page was reached with', async () => {
+    const reports = await renderNeedsMeasurement(lastResultsReport(6), '?queryClass=non-brand&measurementRunId=run-before-change&measurementRevision=6&measurementTo=2026-07-31T23%3A59%3A59.999Z')
+
+    const link = screen.getByRole('link', { name: 'See the last results' })
+    expect(['runId', 'revision', 'to'].filter(key => reports[0]!.searchParams.has(key))).toEqual([])
+    const search = new URL(link.getAttribute('href')!, window.location.origin).searchParams
+    expect(['measurementRunId', 'measurementRevision', 'measurementTo'].filter(key => search.has(key))).toEqual([])
+    expect([search.get('measurementScope'), search.get('measurementScopeKey')]).toEqual(['property', TARGET_KEY])
   })
 
   it('directs a legacy measurement plan to republish setup', async () => {

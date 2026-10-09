@@ -563,6 +563,12 @@ export const VISIBILITY_TOOLBAR_COPY = {
   dateThrough: (to: string) => `Through ${to} (UTC)`,
   resultsFrom: (date: string) => `Results from: ${date}`,
   resultsFromSelectedSweep: 'Results from: selected sweep',
+  /** A missing date reads generically, so the strip never invents one. */
+  trackingChanged: (changedOn: string | null, resultsOn: string | null, nextSweepOn: string | null) => [
+    changedOn ? `Tracking changed ${changedOn}.` : 'Tracking changed.',
+    `Showing the ${resultsOn ?? 'last'} results, from before the change.`,
+    `New numbers after the ${nextSweepOn ?? 'next'} sweep.`,
+  ].join(' '),
 } as const
 
 /** Clear filters empties exactly the panel's filters. Scope, market, class and every other param stay. */
@@ -626,13 +632,19 @@ export interface VisibilityResultsToolbarProps {
   onManageQueries?: () => void
   /** Rendered only for an Advanced Property scope. The caller owns routing and search preservation. */
   renderPropertyLink?: (property: { id: string; label: string }) => ReactNode
+  /** When the active tracking was published. Absent where the page names no change date. */
+  trackingChangedAt?: string
+  /** The next scheduled sweep's calendar date, already formatted. Absent when none is scheduled. */
+  nextSweepDate?: string
+  /** True while the previous selection's report stays on screen until this one loads. */
+  reportIsPlaceholder?: boolean
 }
 
 /**
  * Query type, run state, active filter tokens and the inline Filters panel.
  * Presentation only: every value comes from the URL selection or the report.
  */
-export function VisibilityResultsToolbar({ report, selection, onSelectionChange, onManageQueries, renderPropertyLink }: VisibilityResultsToolbarProps) {
+export function VisibilityResultsToolbar({ report, selection, onSelectionChange, onManageQueries, renderPropertyLink, trackingChangedAt, nextSweepDate, reportIsPlaceholder = false }: VisibilityResultsToolbarProps) {
   const [open, setOpen] = useState(false)
   const filtersButton = useRef<HTMLButtonElement>(null)
   const controlId = useId()
@@ -654,6 +666,11 @@ export function VisibilityResultsToolbar({ report, selection, onSelectionChange,
   const model = selection.model ?? ''
   const location = selection.location ?? ''
   const runId = selection.measurementRunId ?? ''
+  // Only the default latest view says tracking changed since the displayed sweep. A chosen
+  // sweep, revision or end date is history the viewer asked for, not numbers awaiting a sweep.
+  // A placeholder report was read for the previous selection, so it cannot speak for this one.
+  const trackingChanged = !reportIsPlaceholder && measurement.awaitingSweep && measurement.measuredRevision !== null && !served.run.explicit
+    && selection.measurementRunId === undefined && selection.revision === undefined && selection.to === undefined
   const focusFilters = () => filtersButton.current?.focus()
   const filterSelect = (label: string, key: string, value: string, choices: VisibilityFilterChoice[], help?: string) => <div className="min-w-0">
     <div className="mb-1 flex items-center gap-1"><label htmlFor={`${controlId}-${key}`} className="text-sm font-medium text-heading">{label}</label>{help ? <InfoTooltip text={help} /> : null}</div>
@@ -707,6 +724,12 @@ export function VisibilityResultsToolbar({ report, selection, onSelectionChange,
         <Button type="button" variant="ghost" className="min-h-11" disabled={tokens.length === 0} onClick={() => { onSelectionChange({ ...CLEARED_VISIBILITY_FILTERS }); focusFilters() }}>{VISIBILITY_TOOLBAR_COPY.clearFilters}</Button>
       </div>
     </div>
+    {/* Below the results header, which keeps to the displayed run and its date (DESIGN.md). */}
+    {trackingChanged ? <p role="status" className="border-b border-default py-3 text-sm text-secondary">{VISIBILITY_TOOLBAR_COPY.trackingChanged(
+      trackingChangedAt ? formatObservedInstantMonthDay(observedInstant(trackingChangedAt)) : null,
+      measurement.completedAt ? formatObservedInstantMonthDay(observedInstant(measurement.completedAt)) : null,
+      nextSweepDate ?? null,
+    )}</p> : null}
   </div>
 }
 
@@ -996,7 +1019,7 @@ export function VisibilityWorkspace({ projectName, selection, onSelectionChange,
  * through an unkeyed observer that keeps the previous report while the next one
  * loads, so it stays mounted, with its focus and open panel, across the reload.
  */
-export function VisibilityOverview({ projectName, selection, onSelectionChange, onManageQueries, renderPropertyLink, fallback, showUnmeasuredFallback = false }: VisibilityWorkspaceProps & Pick<VisibilityResultsToolbarProps, 'onManageQueries' | 'renderPropertyLink'>) {
+export function VisibilityOverview({ projectName, selection, onSelectionChange, onManageQueries, renderPropertyLink, trackingChangedAt, nextSweepDate, fallback, showUnmeasuredFallback = false }: VisibilityWorkspaceProps & Pick<VisibilityResultsToolbarProps, 'onManageQueries' | 'renderPropertyLink' | 'trackingChangedAt' | 'nextSweepDate'>) {
   const firstPage = useVisibilityReportFirstPage(projectName, selection, { enabled: true })
   // Absent before the first report, on error (the workspace alert owns
   // recovery), and wherever the page's fallback replaces the report.
@@ -1008,7 +1031,7 @@ export function VisibilityOverview({ projectName, selection, onSelectionChange, 
   const showsReport = Boolean(report && report.selection.availability.state === 'available' && !usesUnmeasuredFallback(report, showUnmeasuredFallback))
   return <>
     {showsReport
-      ? <VisibilityResultsToolbar report={report!} selection={selection} onSelectionChange={onSelectionChange} onManageQueries={onManageQueries} renderPropertyLink={renderPropertyLink} />
+      ? <VisibilityResultsToolbar report={report!} selection={selection} onSelectionChange={onSelectionChange} onManageQueries={onManageQueries} renderPropertyLink={renderPropertyLink} trackingChangedAt={trackingChangedAt} nextSweepDate={nextSweepDate} reportIsPlaceholder={firstPage.isPlaceholderData} />
       : null}
     {/* The report's Sentiment block carries Manage sentiment; without a report view it lives here. */}
     {!showsReport && (report || firstPage.error) ? <div className="mb-3 flex justify-end"><SentimentControls /></div> : null}

@@ -15,6 +15,7 @@ import {
   getApiV1ProjectsByNameMeasurementPropertyCompetitorsOptions,
   getApiV1ProjectsByNameMeasurementPropertyEvidenceInfiniteOptions,
   getApiV1ProjectsByNameMeasurementQuestionResultOptions,
+  getApiV1ProjectsByNameVisibilityReportOptions,
 } from '@ainyc/canonry-api-client/react-query'
 
 import { getEmbedConfig, heyClient, isDashboardManagedSweeps } from '../api.js'
@@ -27,7 +28,7 @@ import { AnswerMarkdown, ANSWER_SOURCES_LABEL } from '../components/shared/Answe
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { excludedAnswersLabel, splitPercentSign, type CoverageSignal } from '../lib/format-helpers.js'
 import { SourceLink } from '../components/shared/SourceLink.js'
-import { carryVisibilitySearch, parseVisibilitySelection, patchVisibilitySelection } from '../lib/measurement-view-url.js'
+import { carryVisibilitySearch, parseVisibilitySelection, patchVisibilitySelection, visibilityReportFirstPageQuery } from '../lib/measurement-view-url.js'
 import type { VisibilitySelectionState } from '../lib/measurement-view-url.js'
 import { MARKET_SCOPE_COPY } from '../components/project/VisibilityScopePicker.js'
 import { useAccount } from '../contexts/account-context.js'
@@ -1032,6 +1033,24 @@ export function MeasurementPropertyPage() {
   // Undefined while the response is unread, so a pending or failed fetch never
   // asserts this Property has never been swept.
   const measuredAt = selected === undefined ? undefined : selected.measurement.completedAt ?? null
+  const needsMeasurement = selected !== undefined && (selected.measurement.state === 'not_measured' || selected.nextAction.kind === 'run_measurement')
+  // After a tracking change this page blanks, but AI Visibility still shows this Property's last
+  // results. Ask the report the link opens, so the link names results only when there are some.
+  // The link opens the latest view, so a carried sweep, revision or end date is dropped.
+  const lastResultsSearch = (previous: Record<string, unknown>) => patchVisibilitySelection(carryVisibilitySearch(previous), {
+    measurementScope: 'property', measurementScopeKey: property, queryClass,
+    measurementRunId: undefined, measurementRevision: undefined, measurementTo: undefined,
+  })
+  const lastResultsQuery = useQuery({
+    ...getApiV1ProjectsByNameVisibilityReportOptions({ client: heyClient, path: { name: project }, query: visibilityReportFirstPageQuery(parseVisibilitySelection(lastResultsSearch(urlSearch))) }),
+    enabled: enabled && needsMeasurement,
+    retry: false,
+  })
+  // The measured revision belongs to the whole sweep. A Property that had no queries of this type
+  // before the change has an empty population in it, so nothing to show.
+  const lastResults = lastResultsQuery.data
+  const hasLastResults = lastResults !== undefined && lastResults.selection.measurement.measuredRevision !== null
+    && (lastResults.populations.find(population => population.queryClass === queryClass)?.summary.queryCount ?? 0) > 0
 
   const evidenceInput = {
     client: heyClient,
@@ -1233,16 +1252,16 @@ export function MeasurementPropertyPage() {
         }}
       />
 
-      {selected && (selected.measurement.state === 'not_measured' || selected.nextAction.kind === 'run_measurement') ? (
+      {needsMeasurement ? (
         <section className="flex flex-wrap items-center justify-between gap-3 border-y border-default py-4" aria-label="Measurement next step">
           <p className="text-sm text-secondary">
             {isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : canWrite
-              ? 'Run a measurement from the project overview to collect this Property’s coverage and source evidence.'
+              ? `Run a measurement from the project overview to collect this Property’s coverage and source evidence.${hasLastResults ? ' AI Visibility still shows the last results.' : ''}`
               : 'This Property needs a new measurement before coverage and source evidence are available.'}
           </p>
           <Button asChild type="button" className="h-11 px-4 text-sm md:h-11">
-            <Link to="/projects/$projectName" params={{ projectName: project }} search={carryVisibilitySearch}>
-              {canWrite ? 'Go to AI Visibility' : 'View AI Visibility'}
+            <Link to="/projects/$projectName" params={{ projectName: project }} search={hasLastResults ? lastResultsSearch : carryVisibilitySearch}>
+              {hasLastResults ? 'See the last results' : canWrite ? 'Go to AI Visibility' : 'View AI Visibility'}
             </Link>
           </Button>
         </section>
