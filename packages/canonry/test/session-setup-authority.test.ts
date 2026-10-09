@@ -344,6 +344,10 @@ describe('first-run POST /session/setup authority', () => {
       { name: 'X-Forwarded-Proto is present', headers: { ...LOCAL_LOOKING, 'x-forwarded-proto': 'https' } },
       { name: 'X-Forwarded-Port is present', headers: { ...LOCAL_LOOKING, 'x-forwarded-port': '443' } },
       { name: 'X-Forwarded-Server is present', headers: { ...LOCAL_LOOKING, 'x-forwarded-server': PUBLIC_HOST } },
+      // Any other X-Forwarded-* header, such as a sub-path middleware's prefix.
+      { name: 'X-Forwarded-Prefix is present', headers: { ...LOCAL_LOOKING, 'x-forwarded-prefix': '/canonry' } },
+      { name: 'X-Forwarded-Uri is present', headers: { ...LOCAL_LOOKING, 'x-forwarded-uri': SETUP_URL } },
+      { name: 'X-Forwarded-Ssl is present', headers: { ...LOCAL_LOOKING, 'x-forwarded-ssl': 'on' } },
       { name: 'X-Real-IP is present', headers: { ...LOCAL_LOOKING, 'x-real-ip': '203.0.113.9' } },
       { name: 'Via is present', headers: { ...LOCAL_LOOKING, via: '1.1 edge-proxy' } },
       { name: 'CF-Connecting-IP is present', headers: { ...LOCAL_LOOKING, 'cf-connecting-ip': '203.0.113.9' } },
