@@ -88,6 +88,7 @@ import {
   measurementChangesQuerySchema,
   measurementDataQualityQuerySchema,
   measurementQueryClassFilterSchema,
+  MEASUREMENT_DEFAULT_QUERY_CLASS,
   type MeasurementQueryClassFilter,
   LATEST_RUN_ID,
   measurementPropertyEvidenceQuerySchema,
@@ -179,6 +180,8 @@ const runTriggerInputSchema = z.object({
 const measurementPlanVersionInputSchema = z.object({ project: projectNameSchema, revision: z.number().int().positive() })
 const measurementReportInputSchema = measurementPlanVersionInputSchema.extend({
   runId: runIdSchema.optional().describe('Exact eligible full measurement run to reconstruct. Omit for the latest run in the revision.'),
+  queryClass: measurementQueryClassFilterSchema.optional()
+    .describe('Omit for non-brand on a schema v2 revision; read branded as a separate call. all pools both classes. A schema v1 revision records no class: omit it there.'),
 })
 const measurementPlanPreviewInputSchema = z.object({ project: projectNameSchema, plan: measurementPlanAuthoringSchema })
 const measurementPlanPublishInputSchema = measurementPlanPublishRequestSchema.extend({ project: projectNameSchema })
@@ -187,10 +190,11 @@ const measurementDiscoveryInputSchema = measurementDiscoveryRequestSchema.extend
 const idempotencyKeyInputSchema = z.string().trim().min(1).describe('A fresh request key. Reuse it only when retrying the identical request.')
 const measurementOverviewInputSchema = z.object({
   project: projectNameSchema,
-  scope: measurementOverviewQuerySchema.shape.scope.describe('Read all Properties, one reporting group, or one Property.'),
+  scope: measurementOverviewQuerySchema.shape.scope.describe('Read all Properties, one group (every query of its Properties), one market (only the market\'s own queries, as the dashboard\'s market view), or one Property. A group and a market can share a name and still differ; for a market, use market scope.'),
   groupKey: measurementOverviewQuerySchema.shape.groupKey.describe('Group stable key. Required only for group scope.'),
+  marketKey: measurementOverviewQuerySchema.shape.marketKey.describe('Market stable key. Required only for market scope.'),
   targetKey: measurementOverviewQuerySchema.shape.targetKey.describe('Property stable key. Required only for property scope.'),
-  queryClass: measurementOverviewQuerySchema.shape.queryClass.describe('Select non-brand for acquisition performance or branded for brand awareness. Omitted means all classes combined; always name the class in the report.'),
+  queryClass: measurementOverviewQuerySchema.shape.queryClass.describe('Omit for non-brand, the acquisition signal. Read branded (brand recall) as a separate call. all pools both classes into one rate, so never report it as one class.'),
   provider: measurementOverviewQuerySchema.shape.provider,
   location: measurementOverviewQuerySchema.shape.location,
   from: measurementOverviewQuerySchema.shape.from,
@@ -208,19 +212,27 @@ const measurementOverviewInputSchema = z.object({
   if (input.scope === 'property' && !input.targetKey) {
     context.addIssue({ code: 'custom', path: ['targetKey'], message: 'Property scope requires targetKey.' })
   }
+  if (input.scope === 'market' && !input.marketKey) {
+    context.addIssue({ code: 'custom', path: ['marketKey'], message: 'Market scope requires marketKey.' })
+  }
   if (input.scope !== 'group' && input.groupKey) {
     context.addIssue({ code: 'custom', path: ['groupKey'], message: `${input.scope} scope does not accept groupKey.` })
+  }
+  if (input.scope !== 'market' && input.marketKey) {
+    context.addIssue({ code: 'custom', path: ['marketKey'], message: `${input.scope} scope does not accept marketKey.` })
   }
   if (input.scope !== 'property' && input.targetKey) {
     context.addIssue({ code: 'custom', path: ['targetKey'], message: `${input.scope} scope does not accept targetKey.` })
   }
 })
 /**
- * One Property's reads serve one question class. The HTTP default pools both
- * classes; for an agent, an omitted class reads non-brand, the acquisition
- * signal, and the response echoes the class it served.
+ * Measurement reads serve one question class. For an agent, an omitted class
+ * reads non-brand, the acquisition signal, and the response echoes the class
+ * it served. The overview, changes and report HTTP defaults agree; the Property
+ * evidence and competitors HTTP defaults still pool both classes, so the class
+ * is always sent.
  */
-const AGENT_DEFAULT_QUERY_CLASS = 'non-brand' satisfies MeasurementQueryClassFilter
+const AGENT_DEFAULT_QUERY_CLASS = MEASUREMENT_DEFAULT_QUERY_CLASS
 const propertyQueryClassInputSchema = measurementQueryClassFilterSchema.optional()
   .describe('Omit for non-brand. branded reads brand recall; all pools both classes, so name the class you report.')
 /**
@@ -2810,7 +2822,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_measurement_overview',
     title: 'Get Advanced Measurement overview',
-    description: 'Compact pages are byte-bounded whole rows by default; use nextCursor with unchanged filters. For best/worst Property mention rankings, prefer canonry_measurement_portfolio_summary and its mentionRanking. An unavailable aggregate does not invalidate available Property metrics. Return stored, revision-pinned Advanced Measurement metrics and a bounded page of Property rows for all Properties, one reporting group, or one Property. Filter by query class, provider, location, date window, run, or Property search; search filters rows without changing metric denominators. On a schema-v2 plan each Property row carries its metro (and otherMetros when it is in several). It ranks one run snapshot only and never infers a trend or compares across revisions. Choose label-asc (default), label-desc, citationCoverage-asc/desc, or mentionCoverage-asc/desc. For a coverage sort, unavailable rows form the first bucket in either direction; available rows then follow the requested numeric direction. The cursor is sort-aware, pins pagination to the active revision, displayed run, evidence snapshot, and filters even if a newer run completes, and must be reused unchanged with the same sort and filters. Legacy label cursors work only when sort is omitted, while any explicit sort needs a new sort-bound cursor. It never starts provider work or incurs provider cost; page size is at most 100, and it refuses invalid scope keys, cursor combinations, appended evidence, or a run pinned to another revision.',
+    description: 'Compact pages are byte-bounded whole rows by default; use nextCursor with unchanged filters. For best/worst Property mention rankings, prefer canonry_measurement_portfolio_summary and its mentionRanking. An unavailable aggregate does not invalidate available Property metrics. Return stored, revision-pinned Advanced Measurement metrics and a bounded page of Property rows for all Properties, one group, one market, or one Property. Defaults to non-brand queries: read branded as a separate call, state the returned queryClass, and never report queryClass all (both classes pooled) as one class. A group is every query of its Properties; a market is only its own queries, the dashboard\'s market population. Use market scope for a market\'s figures, and quote the returned scope kind and label: a group figure is never a market\'s figure. Filter by query class, provider, location, date window, run, or Property search; search filters rows without changing metric denominators. On a schema-v2 plan each Property row carries its metro (and otherMetros when it is in several). It ranks one run snapshot only and never infers a trend or compares across revisions. Choose label-asc (default), label-desc, citationCoverage-asc/desc, or mentionCoverage-asc/desc. For a coverage sort, unavailable rows form the first bucket in either direction; available rows then follow the requested numeric direction. The cursor is sort-aware, pins pagination to the active revision, displayed run, evidence snapshot, and filters even if a newer run completes, and must be reused unchanged with the same sort and filters. Legacy label cursors work only when sort is omitted, while any explicit sort needs a new sort-bound cursor. It never starts provider work or incurs provider cost; page size is at most 100, and it refuses invalid scope keys, cursor combinations, appended evidence, or a run pinned to another revision.',
     access: 'read',
     tier: 'setup',
     inputSchema: measurementOverviewInputSchema,
@@ -2818,7 +2830,11 @@ export const canonryMcpTools = [
     openApiOperations: ['GET /api/v1/projects/{name}/measurement-overview'],
     handler: (client, input) => {
       const { project, ...query } = input
-      return client.getMeasurementOverview(project, { ...query, compact: query.compact ?? true })
+      return client.getMeasurementOverview(project, {
+        ...query,
+        queryClass: agentQueryClass(query.queryClass),
+        compact: query.compact ?? true,
+      })
     },
   }),
   defineTool({
@@ -3094,13 +3110,15 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_measurement_report',
     title: 'Get measurement report',
-    description: 'Get a revision-pinned Target and group measurement report from stored runs. Optionally pin the evidence to an exact eligible full run. Never starts live provider work.',
+    description: 'Get a revision-pinned Target and group measurement report from stored runs. Optionally pin the evidence to an exact eligible full run. On a schema v2 revision every rate is taken over non-brand queries unless queryClass names another class, and the response echoes queryClass; read branded as a separate call, and treat all as pooled. A schema v1 revision records no class and echoes queryClass null. Never starts live provider work.',
     access: 'read',
     tier: 'setup',
     inputSchema: measurementReportInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/measurement-report'],
-    handler: (client, input) => client.getMeasurementReport(input.project, input.revision, input.runId),
+    // The class is sent only when named: the server serves non-brand on a v2
+    // revision and every answer on a v1 revision, which refuses a named class.
+    handler: (client, input) => client.getMeasurementReport(input.project, input.revision, input.runId, input.queryClass),
   }),
   defineTool({
     name: 'canonry_run_trigger',

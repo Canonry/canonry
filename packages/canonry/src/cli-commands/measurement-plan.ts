@@ -230,8 +230,8 @@ export const MEASUREMENT_PLAN_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['measurement-plan', 'report'],
-    usage: 'canonry measurement-plan report <project> --revision N [--format json]',
-    options: { revision: stringOption() },
+    usage: 'canonry measurement-plan report <project> --revision N [--query-class non-brand|branded|all] [--format json] (schema v2 revision: default non-brand, all pools both classes; schema v1 revision: reads every answer, refuses non-brand and branded)',
+    options: { revision: stringOption(), 'query-class': stringOption() },
     run: input => {
       const project = requireProject(input, 'measurement-plan.report', 'canonry measurement-plan report <project> --revision N')
       const value = getString(input.values, 'revision')
@@ -239,12 +239,12 @@ export const MEASUREMENT_PLAN_CLI_COMMANDS: readonly CliCommandSpec[] = [
       if (revision === undefined || !Number.isInteger(revision) || revision <= 0) {
         throw usageError('--revision must be a positive integer')
       }
-      return showMeasurementReport(project, revision)
+      return showMeasurementReport(project, revision, queryClassOption(input))
     },
   },
   {
     path: ['measurement-plan', 'property'],
-    usage: 'canonry measurement-plan property <project> --target-key <key> [--query-class all|branded|non-brand] [--provider <p>] [--location <l>] [--run-id <id>] [--format json]',
+    usage: 'canonry measurement-plan property <project> --target-key <key> [--query-class non-brand|branded|all] [--provider <p>] [--location <l>] [--run-id <id>] [--format json] (default non-brand; all pools both classes)',
     options: PROPERTY_SCOPE_OPTIONS,
     run: input => {
       const usage = 'canonry measurement-plan property <project> --target-key <key>'

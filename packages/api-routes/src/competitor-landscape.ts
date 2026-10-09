@@ -720,12 +720,27 @@ function scopeForFrozenPlan(
     ids.add(edge.targetKey)
     targetIdsByExecution.set(edge.executionNodeKey, ids)
   }
+  // The frozen query each execution asked and the Properties it is branded
+  // for, across the whole plan like the targets above. A branded query that
+  // names its Property settles an answer that only asks which one was meant;
+  // a non-brand query containing the name uses it as a place and settles nothing.
+  const queryTextByExecution = new Map(plan.executionNodes.map(node => [node.stableKey, node.queryText]))
+  const brandedTargetIdsByExecution = new Map<string, string[]>()
+  for (const assignment of plan.assignments) {
+    if (assignment.queryClass !== 'branded') continue
+    const ids = brandedTargetIdsByExecution.get(assignment.executionNodeKey) ?? []
+    ids.push(assignment.targetKey)
+    brandedTargetIdsByExecution.set(assignment.executionNodeKey, ids)
+  }
   return {
     executionNodeKeys,
     queryClassesByExecution,
     mentioned: (answerText, executionId, citedUrls) => {
       const ids = executionId === null ? [] : [...targetIdsByExecution.get(executionId) ?? []]
-      return readMention(answerText, ids, citedUrls)
+      const queryText = executionId === null ? undefined : queryTextByExecution.get(executionId)
+      const brandedTargetIds = executionId === null ? undefined : brandedTargetIdsByExecution.get(executionId)
+      const query = queryText === undefined || brandedTargetIds === undefined ? null : { text: queryText, brandedTargetIds }
+      return readMention(answerText, ids, citedUrls, query)
     },
     competitors: mergePins(groups.flatMap(group => group.competitors.map(competitor => ({
       domain: competitor.domain,

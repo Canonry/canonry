@@ -421,8 +421,24 @@ export async function discoverMeasurementTargets(
   console.log(JSON.stringify(await createApiClient().discoverMeasurementTargets(project, request), null, 2))
 }
 
-export async function showMeasurementReport(project: string, revision: number): Promise<void> {
-  console.log(JSON.stringify(await createApiClient().getMeasurementReport(project, revision), null, 2))
+export async function showMeasurementReport(
+  project: string,
+  revision: number,
+  queryClass?: MeasurementQueryClassFilter,
+): Promise<void> {
+  console.log(JSON.stringify(await createApiClient().getMeasurementReport(project, revision, undefined, queryClass), null, 2))
+}
+
+/**
+ * The query population a figure was taken over, as a reader should see it.
+ * `all` is the explicit pooled read, so it says so.
+ */
+function queryClassText(queryClass: MeasurementQueryClassFilter): string {
+  switch (queryClass) {
+    case 'non-brand': return 'non-brand queries'
+    case 'branded': return 'branded queries'
+    case 'all': return 'branded and non-brand queries pooled'
+  }
 }
 
 /**
@@ -496,7 +512,7 @@ export async function showMeasurementProperty(project: string, opts: Measurement
 function printMeasurementProperty(response: MeasurementOverviewResponse): void {
   const row = response.properties.items.at(0)
   const lines: string[] = []
-  lines.push(`${response.scope.label} — ${response.queryClass} questions`)
+  lines.push(`${response.scope.label} · ${queryClassText(response.queryClass)}`)
   lines.push(`Measurement: ${response.measurement.state}${response.measurement.displayedRunId ? ` · run ${response.measurement.displayedRunId}` : ''}`)
   lines.push('')
   const mention = row ? row.mentionCoverage : response.metrics.mentionCoverage

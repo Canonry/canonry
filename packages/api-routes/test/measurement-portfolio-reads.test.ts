@@ -1463,7 +1463,8 @@ describe('measurement portfolio reads', () => {
       eq(querySnapshots.runId, current), eq(querySnapshots.measurementExecutionId, 'exec-brand'),
     )).run()
 
-    const { status, body } = await changes('limit=1')
+    // Pooled on request: the rows and distribution mix both classes.
+    const { status, body } = await changes('limit=1&queryClass=all')
     expect(status).toBe(200)
     expect(body.queryClass).toBe('all')
     if (body.comparison.state !== 'available') throw new Error('Expected a comparable measurement run.')
@@ -1485,7 +1486,7 @@ describe('measurement portfolio reads', () => {
       state: 'available', previous: { numerator: 0, denominator: 2 }, current: { numerator: 2, denominator: 2 }, delta: 1,
     })
 
-    const byLabel = await changes('sort=label')
+    const byLabel = await changes('sort=label&queryClass=all')
     if (byLabel.body.comparison.state !== 'available') throw new Error('Expected a comparable measurement run.')
     expect(byLabel.body.comparison.sort).toBe('label')
     expect(byLabel.body.comparison.changedProperties.map(row => [row.targetKey, row.mentionAnswersDelta, row.withinNoise]))
@@ -1498,6 +1499,9 @@ describe('measurement portfolio reads', () => {
     if (nonBrand.body.comparison.state !== 'available') throw new Error('Expected a comparable measurement run.')
     expect(nonBrand.body.comparison).not.toHaveProperty('metricsByClass')
     expect(nonBrand.body.comparison.distribution).toMatchObject({ improved: 0, withinNoise: 2, total: 2 })
+    // No class is that non-brand read, never the pooled one.
+    const omitted = await changes()
+    expect(omitted.body).toEqual(nonBrand.body)
   })
 
   it('puts a large citation-only move ahead of every mention move within noise', async () => {
@@ -1530,7 +1534,8 @@ describe('measurement portfolio reads', () => {
     db.update(querySnapshots).set({ answerText: 'Bayside Homes and Cedar Court are listed.' }).where(nearby(current, 'openai')).run()
     db.update(querySnapshots).set({ answerText: 'Bayside Homes is listed.' }).where(nearby(current, 'gemini')).run()
 
-    const { status, body } = await changes()
+    // Pooled on request, so Harbor's citation loss spans both classes.
+    const { status, body } = await changes('queryClass=all')
     expect(status).toBe(200)
     if (body.comparison.state !== 'available') throw new Error('Expected a comparable measurement run.')
     expect(body.comparison.sort).toBe('magnitude')
@@ -1545,7 +1550,7 @@ describe('measurement portfolio reads', () => {
     expect(body.comparison.distribution).toMatchObject({ declined: 1, withinNoise: 3, total: 4 })
 
     // The one row an agent reads first is the real loss, not a wobble.
-    const first = await changes('limit=1')
+    const first = await changes('limit=1&queryClass=all')
     if (first.body.comparison.state !== 'available') throw new Error('Expected a comparable measurement run.')
     expect(first.body.comparison.changedProperties.map(row => row.targetKey)).toEqual(['harbor'])
     expect(first.body.comparison).toMatchObject({ totalProperties: 4, truncated: true })
@@ -1570,7 +1575,7 @@ describe('measurement portfolio reads', () => {
     db.update(querySnapshots).set({ answerText: 'Harbor Homes and Bayside Homes are listed.' }).where(answer(current, 'exec-nearby', 'openai')).run()
     db.update(querySnapshots).set({ answerText: 'Bayside Homes is listed.' }).where(answer(current, 'exec-nearby', 'gemini')).run()
 
-    const { status, body } = await changes()
+    const { status, body } = await changes('queryClass=all')
     expect(status).toBe(200)
     if (body.comparison.state !== 'available') throw new Error('Expected a comparable measurement run.')
     const [harbor, bayside] = body.comparison.changedProperties
@@ -1613,7 +1618,7 @@ describe('measurement portfolio reads', () => {
       eq(querySnapshots.runId, current), eq(querySnapshots.measurementExecutionId, 'exec-brand'),
     )).run()
 
-    const { body } = await changes()
+    const { body } = await changes('queryClass=all')
     if (body.comparison.state !== 'available') throw new Error('Expected a comparable measurement run.')
     expect(body.comparison.changedProperties.map(row => row.targetKey)).toEqual(['harbor'])
     expect(body.comparison.distribution).toMatchObject({ withinNoise: 1, unchanged: 1, total: 2 })

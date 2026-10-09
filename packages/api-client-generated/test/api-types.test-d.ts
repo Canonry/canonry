@@ -51,7 +51,7 @@ expectTypeOf<SnapshotHit['matchedField']>().toEqualTypeOf<
 expectTypeOf<PostApiV1ProjectsByNameMeasurementDiscoveryData['body']>()
   .toEqualTypeOf<MeasurementDiscoveryRequest>()
 expectTypeOf<GetApiV1ProjectsByNameMeasurementReportData['query']>()
-  .toEqualTypeOf<{ revision: number; runId?: string }>()
+  .toEqualTypeOf<{ revision: number; runId?: string; queryClass?: 'non-brand' | 'branded' | 'all' }>()
 expectTypeOf<MeasurementDiscoveryResponse['proposed'][number]['classification']>()
   .toEqualTypeOf<'proposed'>()
 expectTypeOf<MeasurementReportResponse['groups'][number]['targetIds']>()

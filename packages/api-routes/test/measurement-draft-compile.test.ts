@@ -92,6 +92,49 @@ describe('measurement draft compiler', () => {
     expect(result.checks).toContainEqual(expect.objectContaining({ ruleId: 'execution-key-conflict', severity: 'fail' }))
   })
 
+  it.each([
+    ['https://northwind.example/apartments/harbor-point/*', 'https://northwind.example/Apartments/Harbor-Point/*'],
+    ['https://northwind.example/apartments/harbor-point/', 'https://northwind.example/APARTMENTS/harbor-point/'],
+  ])('refuses two Properties claiming rules that differ only in path case, as matching ignores it: %s and %s', (first, second) => {
+    const authoring = measurementDraftAuthoringSchema.parse({
+      defaultContext: { providers: ['openai'], locations: [] },
+      targets: [
+        { stableKey: 'harbor', label: 'Harbor Point', status: 'included', aliases: ['Harbor Point'], urlMatchers: [first], source: 'manual' },
+        { stableKey: 'harbor-east', label: 'Harbor Point East', status: 'included', aliases: ['Harbor Point East'], urlMatchers: [second], source: 'manual' },
+      ],
+      assignments: [
+        { targetKey: 'harbor', queryId: 'q-best', queryClass: 'non-brand', classificationSource: 'operator' },
+        { targetKey: 'harbor-east', queryId: 'q-best', queryClass: 'non-brand', classificationSource: 'operator' },
+      ],
+      groups: [],
+    })
+    const result = compileMeasurementDraft(authoring, {
+      canonicalDomain: 'northwind.example', ownedDomains: [], brandNames: ['Northwind'], locations: [],
+      trackedQueries: [{ id: 'q-best', query: 'best apartments downtown' }],
+    })
+    expect(result.ok).toBe(false)
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      ruleId: 'target-url-matcher-ambiguous', severity: 'fail', path: ['targets', 1, 'urlMatchers', 0],
+    }))
+  })
+
+  it('lets one Property repeat its own rule in another case', () => {
+    const authoring = measurementDraftAuthoringSchema.parse({
+      defaultContext: { providers: ['openai'], locations: [] },
+      targets: [{
+        stableKey: 'harbor', label: 'Harbor Point', status: 'included', aliases: ['Harbor Point'],
+        urlMatchers: ['https://northwind.example/apartments/harbor-point/*', 'https://northwind.example/Apartments/Harbor-Point/*'], source: 'manual',
+      }],
+      assignments: [{ targetKey: 'harbor', queryId: 'q-best', queryClass: 'non-brand', classificationSource: 'operator' }],
+      groups: [],
+    })
+    const result = compileMeasurementDraft(authoring, {
+      canonicalDomain: 'northwind.example', ownedDomains: [], brandNames: ['Northwind'], locations: [],
+      trackedQueries: [{ id: 'q-best', query: 'best apartments downtown' }],
+    })
+    expect(result.checks.filter(check => check.ruleId === 'target-url-matcher-ambiguous')).toEqual([])
+  })
+
   it('uses original Property indices for every unassigned Property', () => {
     const authoring = measurementDraftAuthoringSchema.parse({
       defaultContext: { providers: ['openai'], locations: [] },

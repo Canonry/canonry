@@ -129,11 +129,23 @@ function matcherHost(matcher: MeasurementV2UrlMatcher): string {
   return matcher.kind === 'exact' ? new URL(matcher.url).hostname : matcher.host
 }
 
+/**
+ * A matcher's path as matching compares it. An insensitive path is matched
+ * lowercased (`measurement-report.ts`), so two rules that differ only in case
+ * claim the same links and must be the same identity here too.
+ */
+function matcherPathIdentity(path: string, pathCase: 'sensitive' | 'insensitive'): string {
+  return pathCase === 'insensitive' ? path.toLocaleLowerCase('en') : path
+}
+
 /** Identity of a matcher for precedence analysis: kind, host and path decide a tie. */
 function matcherIdentity(matcher: MeasurementV2UrlMatcher): string {
   switch (matcher.kind) {
-    case 'exact': return `exact\u0000${new URL(matcher.url).hostname}\u0000${new URL(matcher.url).pathname}`
-    case 'prefix': return `prefix\u0000${matcher.host}\u0000${matcher.pathPrefix}`
+    case 'exact': {
+      const url = new URL(matcher.url)
+      return `exact\u0000${url.hostname}\u0000${matcherPathIdentity(url.pathname, matcher.pathCase)}`
+    }
+    case 'prefix': return `prefix\u0000${matcher.host}\u0000${matcherPathIdentity(matcher.pathPrefix, matcher.pathCase)}`
     case 'host': return `host\u0000${matcher.host}\u0000`
   }
 }

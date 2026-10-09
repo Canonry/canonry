@@ -564,7 +564,7 @@ Every field after `version` is optional and is omitted rather than nulled, so co
 
 `src/commands/measurement-plan.ts` — Advanced Measurement plan commands: `measurement-plan show` / `versions` / `publish` / `retire` / `discover` / `report`, plus the two per-Property reads:
 
-- `measurement-plan property <project> --target-key <key>` (one Property out of `GET /measurement-overview?scope=property`, rendering mention/citation coverage and the per-answer-engine split)
+- `measurement-plan property <project> --target-key <key>` (one Property out of `GET /measurement-overview?scope=property`, rendering mention/citation coverage and the per-answer-engine split; non-brand unless `--query-class` names another, and the heading says when `all` pooled both classes)
 - `measurement-plan property-evidence <project> --target-key <key>` (cursor-paged `GET /measurement-property-evidence`):
   - `--shape answers` switches a row from one cited URL to one measured ANSWER with its cited URLs nested and both signals on the row — the only shape that shows the answers a Property was not cited in
   - `--format jsonl` streams one row per line in either shape, under a header line carrying the shape, the measurement state and the cursor, and an unknown mention prints `not measured` rather than `no`

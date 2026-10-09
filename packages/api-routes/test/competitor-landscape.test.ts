@@ -662,6 +662,33 @@ describe('GET /projects/:name/analytics/competitors', () => {
     })
   })
 
+  it.each([
+    // The frozen branded query names the Property's alias, so the answer is
+    // about it even though the engine asked which one was meant.
+    { queryClass: 'branded' as const, unknownMentionAnswers: 0 },
+    // The same words as a non-brand query use the name as a place: the answer
+    // stays unresolved and is neither named nor selected as naming nobody.
+    { queryClass: 'non-brand' as const, unknownMentionAnswers: 1 },
+  ])('reads a clarifying answer on a $queryClass query that contains the Property\'s name before selecting answers that named nobody', async ({ queryClass, unknownMentionAnswers }) => {
+    seedVersion('clarify-plan', 1, marketPlan('clarify-node', 'plan-rival.example', 'Plan Rival', queryClass))
+    db.insert(measurementPlans).values({
+      projectId: 'project_northwind', activeVersionId: 'clarify-plan', createdAt: NOW, updatedAt: NOW,
+    }).run()
+    db.insert(runs).values({
+      id: 'clarify-run', projectId: 'project_northwind', kind: 'answer-visibility', status: 'completed', trigger: 'manual',
+      measurementPlanVersionId: 'clarify-plan', location: null, createdAt: NOW,
+    }).run()
+    db.insert(querySnapshots).values(marketSnapshot(
+      'clarify-answer', 'clarify-run', 'clarify-node', 'Which Northwind do you mean? Plan Rival is nearby.', 'plan-rival.example',
+    )).run()
+
+    const absent = await app.inject({
+      method: 'GET', url: `/api/v1/projects/northwind/analytics/competitors?queryClass=${queryClass}&runId=clarify-run&answers=not-mentioned`,
+    })
+    expect(absent.statusCode, absent.body).toBe(200)
+    expect(absent.json().answerSelection).toEqual({ answers: 'not-mentioned', populationSize: 1, answerCount: 0, unknownMentionAnswers })
+  })
+
   it('refuses a class-scoped read it cannot classify instead of reporting an empty landscape', async () => {
     const previous = db.select().from(projects).where(eq(projects.id, 'project_northwind')).get()!
     db.update(projects)
@@ -1686,7 +1713,7 @@ function seedVersion(id: string, revision: number, plan: ReturnType<typeof marke
   }).run()
 }
 
-function marketPlan(nodeKey: string, competitorDomain: string, competitorLabel: string) {
+function marketPlan(nodeKey: string, competitorDomain: string, competitorLabel: string, queryClass: 'branded' | 'non-brand' = 'non-brand') {
   return measurementPlanV2Schema.parse({
     schemaVersion: 2,
     identities: {
@@ -1711,7 +1738,7 @@ function marketPlan(nodeKey: string, competitorDomain: string, competitorLabel: 
       queryText: 'homes near northwind',
       provenance: { source: 'manual', sourceId: null, capturedAt: NOW },
     }],
-    assignments: [{ targetKey: 'market-target', queryId: 'market-query', queryClass: 'non-brand', executionNodeKey: nodeKey }],
+    assignments: [{ targetKey: 'market-target', queryId: 'market-query', queryClass, executionNodeKey: nodeKey }],
     executionNodes: [{
       stableKey: nodeKey,
       queryId: 'market-query',
