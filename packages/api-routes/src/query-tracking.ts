@@ -90,6 +90,7 @@ import {
 } from './measurement-report-adapter.js'
 import { MEASUREMENT_PLAN_WRITE_SCOPE } from './measurement-plan.js'
 import { planScopeOptions, simpleScopeOptions } from './measurement-scope-options.js'
+import { planQueryFocus } from './query-focus.js'
 import { assertNoActivePlanlessSweep, preserveSnapshotQueryText, replaceProjectQueries } from './query-replace.js'
 import { resolveRunProviderSelection } from './run-queue.js'
 import type { ProviderSummaryEntry } from './settings.js'
@@ -702,6 +703,7 @@ function trackedRows(
         state: measured.has(row.id) ? 'tracked' as const : 'awaiting-sweep' as const,
         lastMeasuredAt: measured.get(row.id) ?? null,
         assignments: [],
+        focus: { kind: 'company' as const },
       }))
       .sort((left, right) => compareText(left.normalizedText, right.normalizedText) || compareText(left.queryId, right.queryId))
   }
@@ -718,6 +720,7 @@ function trackedRows(
     }
   }
   const marketsByEdge = marketKeysByEdge(plan)
+  const focusOf = planQueryFocus(plan)
   return allIds.map(queryId => {
     const snapshot = snapshots.get(queryId)
     const row = queryRows.get(queryId)
@@ -771,6 +774,7 @@ function trackedRows(
           contexts: uniqueContexts(assignment.contexts),
         }))
         .sort((left, right) => compareText(left.targetKey, right.targetKey)),
+      focus: focusOf(queryId),
     }
   }).sort((left, right) => compareText(left.normalizedText, right.normalizedText) || compareText(left.queryId, right.queryId))
 }
