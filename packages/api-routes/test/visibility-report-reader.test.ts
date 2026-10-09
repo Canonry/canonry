@@ -66,6 +66,67 @@ describe('per-target uncertain identity and positive citation evidence', () => {
   })
 })
 
+describe('answers whose source list was partly saved', () => {
+  function partlySavedReport(selected: ReturnType<typeof brandedRun>) {
+    return buildVisibilityReport(input({
+      activeDefinition: selected.definition,
+      runs: [selected],
+      selection: { queryClass: 'branded', scope: 'project', location: { kind: 'all' }, limit: 50 },
+    })).populations[0]!
+  }
+
+  it('shows on each engine row what the saved links cite, outside the rate', () => {
+    // Three one-answer rows. Answer 0 saved a link to North; answer 1 saved none.
+    const selected = brandedRun(['mentioned', 'mentioned', 'not-mentioned'])
+    selected.observations[0]!.citationComplete = false
+    selected.observations[1]!.citationComplete = false
+    const population = partlySavedReport(selected)
+
+    expect(population.queries.items.map(row => [row.queryKey, row.citationCoverage, row.uncheckedSources])).toEqual([
+      ['brand:0', { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' }, { answers: 1, citedAnswers: 1, citedTargetKeys: ['north'] }],
+      ['brand:1', { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' }, { answers: 1, citedAnswers: 0, citedTargetKeys: [] }],
+      ['brand:2', { numerator: 0, denominator: 1, rate: 0 }, undefined],
+    ])
+    // The saved North link never enters the rate: 0 of the 1 checked answer.
+    expect(population.summary.citationCoverage).toEqual({ numerator: 0, denominator: 1, rate: 0, unchecked: 2 })
+  })
+
+  it('counts the Properties that read not measured only because of a partly saved answer', () => {
+    // North is mentioned, its one checked answer cites nothing, and its other
+    // answer's sources were partly saved. South has no branded answer at all,
+    // which is a different reason to be not measured.
+    const selected = brandedRun(['mentioned', 'not-mentioned'])
+    selected.observations[0]!.citedTargetKeys = []
+    selected.observations[1]!.citationComplete = false
+    const population = partlySavedReport(selected)
+    expect(population.summary.outcomes).toEqual({ bothSignals: 0, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 2, total: 2 })
+    expect(population.summary.notMeasuredUnchecked).toBe(1)
+  })
+
+  it('does not blame a partly saved answer when another gap also leaves the Property unmeasured', () => {
+    // An unknown mention: the answer kept no text.
+    const noText = brandedRun(['no-text'])
+    noText.observations[0]!.citedTargetKeys = []
+    noText.observations[0]!.citationComplete = false
+    expect(partlySavedReport(noText).summary).not.toHaveProperty('notMeasuredUnchecked')
+
+    // A missing answer beside the unchecked one.
+    const missing = brandedRun(['mentioned', 'mentioned'])
+    missing.observations[0]!.citedTargetKeys = []
+    missing.observations[0]!.citationComplete = false
+    missing.observations = missing.observations.slice(0, 1)
+    const population = partlySavedReport(missing)
+    expect(population.summary.outcomes.notMeasured).toBe(2)
+    expect(population.summary).not.toHaveProperty('notMeasuredUnchecked')
+  })
+
+  it('leaves both fields off when every answer was fully saved', () => {
+    const population = partlySavedReport(brandedRun(['mentioned', 'not-mentioned']))
+    expect(population.summary).not.toHaveProperty('notMeasuredUnchecked')
+    expect(population.queries.items.every(row => !('uncheckedSources' in row))).toBe(true)
+  })
+})
+
 type BrandedAnswer = 'mentioned' | 'not-mentioned' | 'unattributable' | 'no-text'
 
 /**

@@ -9,6 +9,7 @@ import {
   normalizeMeasurementExactUrl,
   normalizeMeasurementHost,
   normalizeMeasurementPathPrefix,
+  qualifiedNameIncludesName,
   type LocationContext,
   type MeasurementDraftAuthoring,
   type MeasurementDraftCompileCheck,
@@ -346,12 +347,8 @@ export function compileMeasurementDraft(
       aliasClaims.set(identity, target.stableKey)
     })
     const aliases = canonicalStrings(target.aliases)
-    const aliasKeys = aliases.map(measurementMentionAliasKey).filter(Boolean)
     target.identityAliases?.forEach((identityAlias, index) => {
-      const identityKey = measurementMentionAliasKey(identityAlias)
-      const qualifiesAlias = aliasKeys.some(aliasKey => identityKey !== aliasKey
-        && (`\u0000${identityKey}\u0000`).includes(`\u0000${aliasKey}\u0000`))
-      if (!qualifiesAlias) {
+      if (!qualifiedNameIncludesName(identityAlias, aliases)) {
         sink.fail('target-identity-alias-unqualified', 'An identity phrase must include a Property alias and additional identifying context.', ['targets', targetIndex, 'identityAliases', index])
       }
     })

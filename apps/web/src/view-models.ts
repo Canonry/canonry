@@ -172,6 +172,12 @@ export interface AffectedPhrase {
   evidenceId: string
   provider?: string
   citationState: CitationState
+  /**
+   * False when `citationState` stands for something other than the project's
+   * own site-wide citation (a competitor's or a Business Profile signal), so
+   * it must not be labelled as the project's domain being cited.
+   */
+  siteCitation?: boolean
 }
 
 /** What kind of operator action this insight calls for. Used to group the

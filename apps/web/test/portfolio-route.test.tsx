@@ -22,6 +22,7 @@ import { PROJECT_SCOPE_COPY } from '../src/lib/project-scope.js'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
 import { AINYC_LATEST_RUN, ainycCitationVisibility, ainycComparison, ainycEvidence, ainycLandscape, ainycMentionShare, ainycMetrics, ainycProviderScores, ainycRuns } from './ainyc-visibility-fixture.js'
 import { toRunListItem } from '../src/build-dashboard.js'
+import { mapInsightDtosToVms } from '../src/mappers/insight-mapper.js'
 import {
   getApiV1CdpStatusQueryKey,
   getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey,
@@ -880,6 +881,8 @@ test('a Simple project loads pinned and historical competitors from the stored-e
   expect(html).toContain('pinned.example')
   expect(html).toContain('observed.example')
   expect(html.indexOf('pinned.example')).toBeLessThan(html.indexOf('observed.example'))
+  // A Simple project has no per-property numbers, so its Cited needs no qualifier.
+  expect(html).not.toContain('cited (any page)')
 })
 
 test('project navigation ignores stale Site Health onboarding markers', async () => {
@@ -1183,6 +1186,56 @@ test('pinning a market competitor writes only a draft action and refetches that 
   ))).toBe(true))
   expect(await page.findByRole('rowheader', { name: 'Draft rival draft-rival.example' })).toBeTruthy()
   expect(calls.some(call => call.path.includes('/measurement-plan/draft/actions/publish'))).toBe(false)
+})
+
+test('Advanced project signals name the site-wide citation flag by domain and any page', async () => {
+  const insight = (id: string, type: 'regression' | 'gain' | 'competitor-gained', title: string) => ({
+    id, projectId: 'project_citypoint', runId: 'run-1', type, severity: 'high' as const, title,
+    query: 'dentist open late', provider: 'gemini', dismissed: false, createdAt: '2026-08-02T00:00:00.000Z',
+  })
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request ? input : new Request(input, init)
+    const path = decodeURIComponent(new URL(request.url, window.location.origin).pathname)
+    if (path.endsWith('/runs')) return jsonResponse([])
+    if (path.endsWith('/queries')) return jsonResponse([])
+    if (path.endsWith('/measurement-plan')) return jsonResponse(measurementPlanV2Response(4))
+    if (path.endsWith('/measurement-setup')) {
+      return jsonResponse({ state: 'operational', nextAction: 'view_measurement', mode: 'active-v2', answerVisibilityProviderReady: true, activeRevision: 4, activeSchemaVersion: 2, draft: null })
+    }
+    if (path.endsWith('/measurement-overview')) return jsonResponse(measurementOverviewResponse())
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const fixture = createDashboardFixture({})
+  // The insights as the overview read maps them, so the mapper's subject flag is exercised too.
+  fixture.dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!.insights = mapInsightDtosToVms([
+    insight('insight-lost', 'regression', 'Citation lost'),
+    insight('insight-gain', 'gain', 'Citation gained'),
+    insight('insight-rival', 'competitor-gained', 'Rival gained a citation'),
+  ])
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint'] })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  fireEvent.click(await page.findByText('Project signals', { selector: 'summary, summary > span' }))
+  const signals = await page.findByRole('region', { name: 'Latest signals' })
+  // These insights read the older flag (any page on the domain), not a
+  // property's own pages, so each badge says so instead of a bare "Lost" or
+  // "Cited" beside the per-property numbers.
+  const badgeFor = (title: string) => within(signals).getByText(title).closest('.py-3')!.querySelector('details li > div:first-child')!.textContent
+  expect(badgeFor('Citation lost')).toBe('citypointdental.com citation lost (any page)')
+  expect(badgeFor('Citation gained')).toBe('citypointdental.com newly cited (any page)')
+  // A competitor's gain borrows the "cited" state for the rival, never the project's domain.
+  expect(badgeFor('Rival gained a citation')).toBe('Cited')
 })
 
 test('a direct Portfolio URL falls back safely in embed mode', async () => {
@@ -2750,6 +2803,11 @@ test('an all-properties v2 view requests and renders the explicit all-markets la
   expect(html).toContain('all-market-pin.example')
   expect(html).toContain('all-market-rival.example')
   expect(html).toContain('All markets')
+  // Beside per-property numbers, your row's Cited is the older site-wide count,
+  // so it names the domain and "any page" under the figure.
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const you = doc.querySelector('.av-grid[aria-label="Competitors over time"] tbody tr')!
+  expect(you.querySelectorAll('td')[3]!.textContent).toBe('2 of 8citypoint.example cited (any page)')
 })
 
 test('a query class in the URL selects that class on first paint', async () => {

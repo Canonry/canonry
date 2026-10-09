@@ -2,7 +2,7 @@ import { competitorLabelFromDomain, formatPercent, RatioUnits } from '@ainyc/can
 import React, { useId, useState } from 'react'
 import type { CompetitorLandscapeResponse, CompetitorLandscapeRow as CompetitorLandscapeRowDto, ShareOfVoiceContext } from '@ainyc/canonry-contracts'
 
-import { splitPercentSign } from '../../lib/format-helpers.js'
+import { siteCitationLabel, splitPercentSign } from '../../lib/format-helpers.js'
 import { mentionShareTone, METRIC_TONE_TEXT_CLASS } from '../../lib/tone-helpers.js'
 import { Disclosure } from '../shared/Disclosure.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
@@ -345,6 +345,7 @@ export function CompetitorLandscape({
   onRetry,
   isLoading = false,
   scopeLabel,
+  advancedPortfolio = false,
 }: {
   window: CompetitorLandscapeWindow
   landscape?: CompetitorLandscapeData
@@ -365,6 +366,12 @@ export function CompetitorLandscape({
   isLoading?: boolean
   /** Names the selected Advanced Measurement market, when this is not project-wide. */
   scopeLabel?: string
+  /**
+   * An Advanced portfolio shows this beside per-property numbers, which credit
+   * only a property's own pages. Your row's Cited is the older site-wide count
+   * (any page on your domain), so it is labelled that way there.
+   */
+  advancedPortfolio?: boolean
 }) {
   const titleId = useId()
   const canManage = canWrite && !isEmbed
@@ -569,7 +576,12 @@ export function CompetitorLandscape({
                   <td className="av-brand-type text-[13px] text-secondary">Your brand</td>
                   <td><Share percent={landscape.project.shareOfVoice} state={metricState} toneClass={youTone} /></td>
                   <td><Count count={landscape.project.mentionCount} of={named} state={metricState} toneClass={youTone} /></td>
-                  <td><Count count={landscape.project.citationCount} of={cited} state={metricState} toneClass={youTone} /></td>
+                  <td>
+                    <Count count={landscape.project.citationCount} of={cited} state={metricState} toneClass={youTone} />
+                    {advancedPortfolio && metricState === 'measured'
+                      ? <span className="block text-[13px] text-secondary">{siteCitationLabel(landscape.project.domain, 'cited')}</span>
+                      : null}
+                  </td>
                   {showActions ? <td className="av-brand-actions" /> : null}
                 </tr>
               ) : null}

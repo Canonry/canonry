@@ -62,7 +62,7 @@ import {
   adaptV2MeasurementOverview,
   areV2OverviewPagesCompatible,
 } from '../components/project/advanced-measurement/v2-overview-adapter.js'
-import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric, splitPercentSign } from '../lib/format-helpers.js'
+import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric, siteCitationLabel, splitPercentSign } from '../lib/format-helpers.js'
 import { METRIC_TONE_TEXT_CLASS } from '../lib/tone-helpers.js'
 import type { QueryClassLookup } from '../lib/answer-movement.js'
 import { addToast } from '../lib/toast-store.js'
@@ -1196,7 +1196,14 @@ function OverviewSignals({
   insights,
   suggestedQueries,
   onManageQueries,
+  siteDomain,
 }: {
+  /**
+   * Set where these signals sit beside per-property numbers: their citation
+   * state is the older site-wide flag, so each badge names the domain and
+   * "any page" instead of a bare "Cited".
+   */
+  siteDomain?: string
   insights: ProjectCommandCenterVm['insights']
   suggestedQueries: ProjectCommandCenterVm['suggestedQueries']
   onManageQueries?: () => void
@@ -1225,7 +1232,7 @@ function OverviewSignals({
           <ul className="mt-2 divide-y divide-subtle border-y border-subtle">
             {insight.affectedPhrases.map((phrase, index) => (
               <li key={phrase.evidenceId || `${insight.id}-${index}`} className="flex flex-wrap items-center gap-2 py-2">
-                <CitationBadge state={phrase.citationState} />
+                <CitationBadge state={phrase.citationState} {...(siteDomain && phrase.siteCitation !== false ? { label: siteCitationLabel(siteDomain, phrase.citationState) } : {})} />
                 <span className="min-w-0 flex-1 text-sm text-strong">{phrase.query}</span>
                 {phrase.provider ? <ProviderBadge provider={phrase.provider} /> : null}
                 {!isEmbed() && phrase.evidenceId ? (
@@ -2702,6 +2709,7 @@ function ProjectPageContent({
       scopeLabel={competitorLandscapeGroupKey
         ? `${selectedCompetitorLandscapeGroup?.label ?? competitorLandscapeGroupKey} group`
         : isAdvancedAllMarkets ? 'All markets' : 'Project-wide'}
+      advancedPortfolio={!isSimpleOverview}
     />
   ) : null
 
@@ -3109,6 +3117,7 @@ function ProjectPageContent({
               <OverviewSignals
                 insights={model.insights}
                 suggestedQueries={model.suggestedQueries}
+                siteDomain={model.project.canonicalDomain || undefined}
                 onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined }) }) } : undefined}
               />
             )}

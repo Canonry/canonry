@@ -7,7 +7,7 @@ import { useState } from 'react'
 import type { SentimentSummary, VisibilityReportResponse } from '@ainyc/canonry-contracts'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
 import { parseVisibilitySelection, patchVisibilitySelection } from '../src/lib/measurement-view-url.js'
-import { REPORT_TREND_UNCHECKED_NOTE, VisibilityOverview, VisibilityReportView, VisibilityResultsToolbar, VisibilityWorkspace, VISIBILITY_ANSWERS_LABEL, VISIBILITY_CLOSE_ANSWERS_LABEL, VISIBILITY_SCOPE_RECOVERY_COPY } from '../src/components/project/VisibilityTrendSection.js'
+import { REPORT_TREND_UNCHECKED_NOTE, UNCHECKED_SOURCES_COPY, VisibilityOverview, VisibilityReportView, VisibilityResultsToolbar, VisibilityWorkspace, VISIBILITY_ANSWERS_LABEL, VISIBILITY_CLOSE_ANSWERS_LABEL, VISIBILITY_SCOPE_RECOVERY_COPY } from '../src/components/project/VisibilityTrendSection.js'
 import { formatObservedInstantLabel, observedInstant } from '../src/components/shared/ChartPrimitives.js'
 import { ANSWER_SOURCES_LABEL } from '../src/components/shared/AnswerMarkdown.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
@@ -785,6 +785,53 @@ describe('shared production visibility view', () => {
     const [, competitorMentioned, competitorCited] = [...within(competitors).getByText('rival.example').closest('tr')!.querySelectorAll('td')]
     expect(competitorMentioned!.textContent).toBe('66.7%2 of 3')
     expect(competitorCited!.textContent).toBe(`0%0 of 2${line}`)
+  })
+
+  it('shows what a partly saved answer cited on its engine row and explains why it is out of Cited', () => {
+    const report = reportFixture()
+    const population = report.populations[0]!
+    report.scopeOptions.push({ id: 'p1', label: 'Park House', kind: 'property', targetCount: 1 }, { id: 'p2', label: 'Lake House', kind: 'property', targetCount: 1 })
+    const unavailable = { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' as const }
+    const base = { ...population.queries.items[0]!, answerCount: 1, mentionCoverage: { numerator: 1, denominator: 1, rate: 1 } }
+    population.queries.items = [
+      // One answer, sources partly saved, and the saved link cites Park House.
+      { ...base, provider: 'gemini', targetKeys: ['p1', 'p2'], citationCoverage: unavailable, uncheckedSources: { answers: 1, citedAnswers: 1, citedTargetKeys: ['p1'] } },
+      // One answer, sources partly saved, nothing for Lake House among the saved links.
+      { ...base, provider: 'openai', targetKeys: ['p2'], citationCoverage: unavailable, uncheckedSources: { answers: 1, citedAnswers: 0, citedTargetKeys: [] } },
+      // Three answers, one partly saved: the rate's own line counts it, so it is not repeated.
+      { ...base, provider: 'claude', answerCount: 3, targetKeys: ['p1'], citationCoverage: { numerator: 1, denominator: 2, rate: 0.5, unchecked: 1 }, uncheckedSources: { answers: 1, citedAnswers: 1, citedTargetKeys: ['p1'] } },
+    ]
+    population.summary = { ...population.summary, notMeasuredUnchecked: 2 }
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+
+    fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
+    const table = screen.getByRole('table', { name: 'Non-brand queries engine results' })
+    const cited = (provider: string) => [...within(table).getByRole('button', { name: `View answers for apartments near transit · ${provider}` }).closest('tr')!.querySelectorAll('td')][2]!
+    expect(cited('gemini').textContent).toBe(`CitedNot measured${UNCHECKED_SOURCES_COPY.partlySaved(1)}Saved links cite Park House`)
+    expect(cited('openai').textContent).toBe(`CitedNot measured${UNCHECKED_SOURCES_COPY.partlySaved(1)}No saved link cites Lake House`)
+    expect(cited('claude').textContent).toBe('Cited50.0%1 of 21 of 3 answers had sources that could not be checkedSaved links cite Park House')
+    // "Unchecked" is explained in plain words instead of the missing-evidence note.
+    for (const provider of ['gemini', 'openai', 'claude']) {
+      expect(within(cited(provider)).getByRole('button', { name: UNCHECKED_SOURCES_COPY.help })).toBeTruthy()
+      expect(within(cited(provider)).queryByRole('button', { name: /The saved evidence is incomplete/ })).toBeNull()
+    }
+
+    // Property outcomes says why two of its properties read not measured.
+    const outcomes = screen.getByRole('group', { name: 'Non-brand queries property outcomes' })
+    expect(within(outcomes).getByText(UNCHECKED_SOURCES_COPY.outcomes(2))).toBeTruthy()
+    expect(UNCHECKED_SOURCES_COPY.outcomes(2)).toBe("2 not measured only because an answer's sources were partly saved. Query results shows which answer.")
+  })
+
+  it('keeps the missing-evidence note on a row with no partly saved answer, and adds no outcome line', () => {
+    const report = reportFixture()
+    const population = report.populations[0]!
+    population.queries.items[0] = { ...population.queries.items[0]!, answerCount: 1, citationCoverage: { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' } }
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
+    const table = screen.getByRole('table', { name: 'Non-brand queries engine results' })
+    expect(within(table).getByRole('button', { name: /The saved evidence is incomplete/ })).toBeTruthy()
+    expect(within(table).queryByText(UNCHECKED_SOURCES_COPY.partlySaved(1))).toBeNull()
+    expect(screen.queryByText(/only because an answer's sources were partly saved/)).toBeNull()
   })
 
   it('notes under the trend that Cited counts only checked answers when a plotted point left some out, and only then', () => {
