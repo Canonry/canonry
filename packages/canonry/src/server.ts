@@ -627,17 +627,24 @@ function isLoopbackPeerAddress(address: string | undefined): boolean {
 
 /**
  * Whether a request looks like it came straight from a process on this
- * machine: the socket peer is loopback, no proxy header is present, and Host
- * names this machine (`localhost` or a loopback literal). Reads the raw socket
- * and raw headers, never `request.ip` or `request.hostname`, which a
- * configured `trustProxy` rewrites from headers.
+ * machine: it speaks HTTP/1.1, the socket peer is loopback, no proxy header is
+ * present, and Host names this machine (`localhost` or a loopback literal).
+ * Reads the raw socket and raw headers, never `request.ip` or
+ * `request.hostname`, which a configured `trustProxy` rewrites from headers.
+ *
+ * nginx talks HTTP/1.0 to its upstream unless `proxy_http_version` says
+ * otherwise, and a bare `proxy_pass http://127.0.0.1:4100;` also sets Host to
+ * that upstream and adds no forwarding header. Browsers, curl, and Node's
+ * fetch speak HTTP/1.1 to a plain-HTTP server, so only HTTP/1.1 counts.
  *
  * The client chooses Host, so this proves nothing about a proxy or TCP
- * forwarder on the same host that adds no forwarding header: it hands a remote
- * visitor's `Host: localhost` over loopback. Callers also require a loopback
- * bind whose config names no other way in (`configuresExternalAccess`).
+ * forwarder on the same host that speaks HTTP/1.1 and adds no forwarding
+ * header: it hands a remote visitor's `Host: localhost` over loopback. Callers
+ * also require a loopback bind whose config names no other way in
+ * (`configuresExternalAccess`).
  */
 function isDirectLocalRequest(request: FastifyRequest): boolean {
+  if (request.raw.httpVersion !== "1.1") return false;
   if (!isLoopbackPeerAddress(request.raw.socket.remoteAddress)) return false;
   if (hasProxyHeaders(request)) return false;
   const host = request.headers.host;

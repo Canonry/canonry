@@ -283,11 +283,23 @@ cases:
 - The request has a `Forwarded`, `X-Forwarded-*`, `X-Real-IP`, `Via`,
   `CF-Connecting-IP`, or `True-Client-IP` header.
 - The request has a `Host` that is not `localhost` or a loopback address.
+- The request uses HTTP/1.0. nginx sends HTTP/1.0 to Canonry unless you set
+  `proxy_http_version`. This catches a bare `proxy_pass`, which sets `Host` to
+  the loopback upstream and adds no forwarding header.
 
 The client sets `Host`, and nginx's `$host` is the value that the client sent.
 Thus `Host` cannot show that a request is local. The forwarding headers mark a
 request as proxied, so configure the proxy to send `X-Forwarded-For`, as the
 examples below do.
+
+> **A proxy without forwarding headers leaves setup open.** Some proxies send
+> HTTP/1.1 and no forwarding header, for example nginx with
+> `proxy_http_version 1.1;` and no `X-Forwarded-For`, or HAProxy without
+> `option forwardfor`. Through such a proxy, a visitor who sends
+> `Host: localhost` looks local to Canonry. If `publicUrl` is not set, that
+> visitor can create the password without the root API key. Create the
+> password before you open the proxy, or configure the proxy to send
+> `X-Forwarded-For`.
 
 ### Root path (`/`)
 

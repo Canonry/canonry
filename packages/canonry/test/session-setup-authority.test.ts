@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
@@ -439,6 +440,47 @@ describe('first-run POST /session/setup authority', () => {
       const direct = await post({ host: `127.0.0.1:${port}` })
       expect(direct.status).toBe(200)
       expect(direct.setCookie).toEqual([expect.stringMatching(/^canonry_session=/)])
+      expect(config.dashboardPasswordHash).toMatch(/^scrypt\$1\$/)
+    })
+
+    // A bare nginx `proxy_pass http://127.0.0.1:<port>;` talks HTTP/1.0 to
+    // Canonry, sets Host to that upstream, and adds no forwarding header, so
+    // every remote visitor arrives exactly like this. `http.request` always
+    // speaks HTTP/1.1, so this writes the request by hand.
+    it('requires the root key for an HTTP/1.0 request, as nginx sends upstream by default', async () => {
+      const { config, rootKey } = await buildServer('127.0.0.1')
+      const address = await app!.listen({ port: 0, host: '127.0.0.1' })
+      const { port } = new URL(address)
+      const postHttp10 = (authorization?: string) => new Promise<{ status: number; setsCookie: boolean }>((resolve, reject) => {
+        const body = JSON.stringify({ password: PASSWORD })
+        const socket = net.connect(Number(port), '127.0.0.1')
+        let raw = ''
+        socket.setEncoding('utf8')
+        socket.on('data', (chunk: string) => { raw += chunk })
+        // Without keep-alive, the server closes an HTTP/1.0 connection after the response.
+        socket.on('end', () => resolve({
+          status: Number(raw.split(' ')[1]),
+          setsCookie: /^set-cookie:/im.test(raw.split('\r\n\r\n')[0] ?? ''),
+        }))
+        socket.on('error', reject)
+        socket.write([
+          `POST ${SETUP_URL} HTTP/1.0`,
+          `Host: 127.0.0.1:${port}`,
+          'Connection: close',
+          'Content-Type: application/json',
+          `Content-Length: ${Buffer.byteLength(body)}`,
+          ...(authorization ? [`Authorization: ${authorization}`] : []),
+          '',
+          body,
+        ].join('\r\n'))
+      })
+
+      expect(await postHttp10()).toEqual({ status: 401, setsCookie: false })
+      expect(config.dashboardPasswordHash).toBeUndefined()
+      expect(fs.existsSync(path.join(tmpDir, 'config.yaml'))).toBe(false)
+      expect(db!.select().from(dashboardSessions).all()).toEqual([])
+
+      expect(await postHttp10(`Bearer ${rootKey}`)).toEqual({ status: 200, setsCookie: true })
       expect(config.dashboardPasswordHash).toMatch(/^scrypt\$1\$/)
     })
 
