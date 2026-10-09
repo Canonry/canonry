@@ -944,6 +944,32 @@ export function saveConfigPatch(patch: Partial<CanonryConfig>): void {
   writeConfigAtomically(configPath, yaml)
 }
 
+/**
+ * Delete `dashboardPasswordHash` from the on-disk config directly, bypassing
+ * `saveConfigPatch`'s protective re-assertion of that field (`if
+ * (base.dashboardPasswordHash) merged.dashboardPasswordHash =
+ * base.dashboardPasswordHash`). That guard exists to stop an unrelated patch
+ * from accidentally clobbering the password — it is not meant to block an
+ * intentional reset, so a reset must go around it and rewrite the file
+ * itself. Returns whether a hash was actually present to clear.
+ */
+export function clearDashboardPassword(): { cleared: boolean, configPath: string } {
+  const configPath = getConfigPath()
+  if (!fs.existsSync(configPath)) {
+    return { cleared: false, configPath }
+  }
+
+  const raw = fs.readFileSync(configPath, 'utf-8')
+  const parsed = (parse(raw) as Record<string, unknown> | null) ?? {}
+  if (parsed.dashboardPasswordHash === undefined) {
+    return { cleared: false, configPath }
+  }
+
+  delete parsed.dashboardPasswordHash
+  writeConfigAtomically(configPath, stringify(parsed))
+  return { cleared: true, configPath }
+}
+
 export function configExists(): boolean {
   return fs.existsSync(getConfigPath())
 }
