@@ -1379,7 +1379,7 @@ test('the Queries route reads the workspace and keeps scoped removal active afte
   expect(router.state.location.search.measurementScopeKey).toBe('north')
   expect(page.getByRole('heading', { name: 'Remove query' })).toBeTruthy()
   expect(page.queryByRole('heading', { name: 'Edit query' })).toBeNull()
-  expect(page.getByText('Only assignments in North · Group will be removed. Earlier results stay unchanged.')).toBeTruthy()
+  expect(page.getByText('Applies to').nextElementSibling?.textContent).toBe('Only North · Group')
 })
 
 // The fixture's Citypoint project has a queued AI sweep; dropping it leaves only the completed one.
@@ -1429,8 +1429,8 @@ test.each([true, false])('the Queries route pauses publishing while a sweep is q
   fireEvent.click(page.getByRole('button', { name: 'Review changes' }))
   const publish = await page.findByRole('button', { name: 'Publish 1 change' }) as HTMLButtonElement
   expect(publish.disabled).toBe(sweepActive)
-  const message = page.queryByText('A sweep is queued or running. Publish after it finishes.')
-  expect(message?.getAttribute('role') ?? null).toBe(sweepActive ? 'status' : null)
+  const message = page.queryByRole('button', { name: 'Sweep running. A sweep is queued or running. Publish after it finishes.' })
+  expect(message?.parentElement?.parentElement?.getAttribute('role') ?? null).toBe(sweepActive ? 'status' : null)
 })
 
 test.each([true, false])('the Portfolio route passes a queued sweep to setup Publish (queued: %s)', async sweepActive => {

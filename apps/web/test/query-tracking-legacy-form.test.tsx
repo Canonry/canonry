@@ -3,8 +3,8 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-libra
 
 import { jsonResponse } from './mock-fetch.js'
 import {
-  active, chooseContext, context, installScrollSpy, installWorkspaceApi, listLocations, openLegacyAdd, preview, previewToken,
-  renderWorkspace, reviewRow, selectedContext, workspace, workspaceVersion,
+  active, chooseContext, context, expectNoSentence, installScrollSpy, installWorkspaceApi, listLocations, noteButton, openLegacyAdd, preview, previewToken,
+  renderWorkspace, reviewRow, selectedContext, sharedSearchLocation, workspace, workspaceVersion,
 } from './support/query-tracking-fixtures.js'
 
 // The Add query form of an Advanced project, reached through `openLegacyAdd` or a saved Research result.
@@ -26,14 +26,14 @@ test('leaves no audience after the last property is unchecked and requires an ex
   renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
   await screen.findByText('Acme pricing')
   openLegacyAdd()
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'How does Acme compare?' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'How does Acme compare?' } })
   chooseContext()
   const review = screen.getByRole('button', { name: 'Review changes' })
   expect(review.hasAttribute('disabled')).toBe(false)
   fireEvent.click(screen.getByRole('button', { name: 'Change tracking destination' }))
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Location' }))
   expect((screen.getByRole('checkbox', { name: 'Every location (1)' }) as HTMLInputElement).checked).toBe(false)
-  expect(screen.getByText('Choose at least one location, group, or market.')).toBeTruthy()
+  noteButton('Choose a place', 'Choose at least one location, group, or market.')
   expect(review.hasAttribute('disabled')).toBe(true)
   fireEvent.click(review)
   expect(requests).toEqual([])
@@ -58,15 +58,19 @@ test('starts a project-scope Add with no destination chosen and Review disabled'
   renderWorkspace()
   await screen.findByText('Acme pricing')
   openLegacyAdd()
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'How does Acme compare?' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'How does Acme compare?' } })
   chooseContext()
 
   const applyTo = screen.getByRole('group', { name: 'Apply to' })
   expect(within(applyTo).getAllByRole('checkbox')).toHaveLength(4)
-  for (const name of ['Every location (1)', 'Acme, Property', 'North East, Group', 'New York, Market']) {
+  for (const name of ['Every location (1)', 'Acme, Location', 'North East, Group', 'New York, Market']) {
     expect(within(applyTo).getByRole('checkbox', { name })).toHaveProperty('checked', false)
   }
-  expect(within(applyTo).getByText('Choose at least one location, group, or market.')).toBeTruthy()
+  // A short status in the box; the sentence is its help.
+  expect(noteButton('Choose a place', 'Choose at least one location, group, or market.', applyTo).closest('[role="status"]')).not.toBeNull()
+  // What a group and a market are is one help button beside the search, outside the group's name.
+  expect(within(applyTo).getByRole('button', { name: 'A group is a set of locations. A market asks its queries with its own search location and engines.' })).toBeTruthy()
+  expect(applyTo.textContent).not.toMatch(/propert|question|assign/i)
   const review = screen.getByRole('button', { name: 'Review changes' })
   expect(review.hasAttribute('disabled')).toBe(true)
   fireEvent.click(review)
@@ -87,7 +91,7 @@ test('sends Every location as the explicit list of every location key', async ()
   renderWorkspace()
   await screen.findByText('Acme pricing')
   openLegacyAdd()
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Which platform fits our team?' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Which platform fits our team?' } })
   fireEvent.click(screen.getByRole('checkbox', { name: 'Every location (3)' }))
   chooseContext()
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
@@ -105,7 +109,7 @@ test('sends Every location as the explicit list of every location key', async ()
 })
 
 test.each([
-  ['property', 'acme', 'Acme, Property', { targetKeys: ['acme'] }],
+  ['property', 'acme', 'Acme, Location', { targetKeys: ['acme'] }],
   ['group', 'north-east', 'North East, Group', { groupKeys: ['north-east'] }],
   ['market', 'new-york', 'New York, Market', { marketKeys: ['new-york'] }],
 ] as const)('pre-ticks only the selected %s when Add opens from its view', async (scope, key, checkbox, audience) => {
@@ -120,12 +124,12 @@ test.each([
   renderWorkspace({ selection: { measurementScope: scope, measurementScopeKey: key, queryClass: 'all' } })
   await screen.findByText('Acme pricing')
   openLegacyAdd()
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Which platform fits our team?' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Which platform fits our team?' } })
   const change = screen.queryByRole('button', { name: 'Change tracking destination' })
   if (change) fireEvent.click(change)
 
   const applyTo = screen.getByRole('group', { name: 'Apply to' })
-  for (const name of ['Every location (1)', 'Acme, Property', 'North East, Group', 'New York, Market']) {
+  for (const name of ['Every location (1)', 'Acme, Location', 'North East, Group', 'New York, Market']) {
     expect(within(applyTo).getByRole('checkbox', { name })).toHaveProperty('checked', name === checkbox)
   }
   if (scope !== 'market') chooseContext()
@@ -148,22 +152,47 @@ test('starts with the question, preserves written text, and keeps required measu
   renderWorkspace()
   await screen.findByText('Acme pricing')
   openLegacyAdd()
-  const text = screen.getByLabelText('Question')
+  const text = screen.getByLabelText('Query')
   const source = screen.getByLabelText('Query source')
   expect(text.compareDocumentPosition(source) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  expect(screen.getByRole('option', { name: 'Write a question' })).toBeTruthy()
+  expect(screen.getByRole('option', { name: 'Write a query' })).toBeTruthy()
   fireEvent.change(text, { target: { value: 'Which platform fits our team?' } })
   fireEvent.change(source, { target: { value: 'research' } })
   fireEvent.change(source, { target: { value: 'manual' } })
-  expect((screen.getByLabelText('Question') as HTMLTextAreaElement).value).toBe('Which platform fits our team?')
-  const options = screen.getByLabelText('Classification').closest('details')!
+  expect((screen.getByLabelText('Query') as HTMLTextAreaElement).value).toBe('Which platform fits our team?')
+  const options = screen.getByLabelText('Type').closest('details')!
   expect(options).not.toBeNull()
   expect(options.open).toBe(false)
   expect(screen.getByText('Measurement options', { selector: 'summary' })).toBeTruthy()
-  expect(screen.getByLabelText('Location and engines').closest('details')).toBeNull()
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
+  const searchLocation = screen.getByLabelText('Search location and engines')
+  expect(searchLocation.closest('details')).toBeNull()
+  // Its help is beside the label, never part of the field's name.
+  expect(within(searchLocation.parentElement!).getByRole('button', { name: 'Where this query is asked, and on which engines.' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Location' }))
   chooseContext()
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(false)
+  // The form shows labels only. Every sentence is behind a help button.
+  const form = screen.getByRole('heading', { name: 'Add query' }).closest('.surface-card') as HTMLElement
+  expect(within(form).getByText('Publish runs no sweep')).toBeTruthy()
+  expect(form.textContent).not.toMatch(/question|propert|classif|template|assign|context/i)
+  expectNoSentence(form)
+})
+
+test.each([
+  { name: 'names a search location that has no place', contexts: [{ ...context, location: null }], options: ['Choose a search location and engines', 'No search location · openai (gpt-5)'] },
+  { name: 'says so when the project has no search location and engines', contexts: [], options: ['Choose a search location and engines'] },
+])('$name', async ({ contexts, options }) => {
+  installWorkspaceApi(undefined, [], { ...workspace(), defaultContexts: contexts } as unknown as ReturnType<typeof workspace>)
+  renderWorkspace()
+  await screen.findByText('Acme pricing')
+  openLegacyAdd()
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Location' }))
+  const control = screen.getByLabelText('Search location and engines') as HTMLSelectElement
+  expect([...control.options].map(option => option.text)).toEqual(options)
+  // With none to choose, a short caution says so, and Review stays off.
+  if (contexts.length === 0) noteButton('No search location', 'No search location and engines are set up for this project.')
+  else expect(screen.queryByText('No search location')).toBeNull()
+  expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
 })
 
 test('opens Property Add with a compact destination and expands assignments only on Change', async () => {
@@ -173,14 +202,18 @@ test('opens Property Add with a compact destination and expands assignments only
   renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
   await screen.findByText('Acme pricing')
   openLegacyAdd()
-  expect(screen.getByText('Property: Acme')).toBeTruthy()
-  expect(screen.getByText('Property: Acme').closest('fieldset')?.classList.contains('self-start')).toBe(true)
-  expect(screen.queryByRole('checkbox', { name: 'Property 223, Property' })).toBeNull()
-  expect(screen.getByRole('combobox', { name: 'Location and engines' }).closest('details')).toBeNull()
+  expect(screen.getByText('Location: Acme')).toBeTruthy()
+  expect(screen.getByText('Location: Acme').closest('fieldset')?.classList.contains('self-start')).toBe(true)
+  expect(screen.queryByRole('checkbox', { name: 'Property 223, Location' })).toBeNull()
+  expect(screen.getByRole('combobox', { name: 'Search location and engines' }).closest('details')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Change tracking destination' }))
-  expect(screen.getByRole('checkbox', { name: 'Acme, Property' })).toBeTruthy()
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Filter assignments' }), { target: { value: 'Property 223' } })
-  expect(screen.getByRole('checkbox', { name: 'Property 223, Property' })).toBeTruthy()
+  expect(screen.getByRole('checkbox', { name: 'Acme, Location' })).toBeTruthy()
+  const search = screen.getByRole('searchbox', { name: 'Filter places' }) as HTMLInputElement
+  expect(search.placeholder).toBe('Search locations, groups, markets')
+  fireEvent.change(search, { target: { value: 'Property 223' } })
+  expect(screen.getByRole('checkbox', { name: 'Property 223, Location' })).toBeTruthy()
+  fireEvent.change(search, { target: { value: 'no such place' } })
+  expect(screen.getByText('No matches')).toBeTruthy()
 })
 
 test('clears the previous confirmation while a changed draft awaits a new preview', async () => {
@@ -197,13 +230,13 @@ test('clears the previous confirmation while a changed draft awaits a new previe
   renderWorkspace()
   await screen.findByText('Acme pricing')
   openLegacyAdd()
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'New question' } })
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'New question' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Location' }))
   chooseContext()
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
   await screen.findByRole('heading', { name: 'Review tracking changes' })
 
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Acme pricing' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Acme pricing' } })
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
   await waitFor(() => expect(finishPreview).toBeTypeOf('function'))
   expect(screen.queryByRole('button', { name: 'Publish changes' })).toBeNull()
@@ -224,7 +257,7 @@ test('focuses and scrolls an opened assignment editor without hijacking assignme
   const add = screen.getByRole('button', { name: 'Add queries' })
   add.focus()
   fireEvent.click(add)
-  fireEvent.click(screen.getByRole('button', { name: 'Hand-picked locations, templates or saved research' }))
+  fireEvent.click(screen.getByRole('button', { name: 'More ways to add' }))
 
   const heading = await screen.findByRole('heading', { name: 'Add query' })
   await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' }))
@@ -256,8 +289,8 @@ test('requires a selected context for an advanced addition, then uses the server
 
   await screen.findByText('Acme pricing')
   openLegacyAdd()
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Acme pricing' } })
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Acme pricing' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Location' }))
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
   chooseContext()
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
@@ -302,7 +335,7 @@ test('sends one explicitly selected context for a new advanced group assignment'
 
   await screen.findByText('Acme pricing')
   openLegacyAdd()
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'New group query' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'New group query' } })
   fireEvent.click(screen.getByRole('checkbox', { name: /^North East/ }))
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
   chooseContext('New York')
@@ -310,8 +343,10 @@ test('sends one explicitly selected context for a new advanced group assignment'
 
   await screen.findByText('Review 1 change')
   const added = reviewRow('New group query')
-  expect(added).toMatchObject({ change: 'Added', type: 'Non-brand', assignments: '1', searchLocation: 'New York · openai (gpt-5)' })
-  expect(listLocations(added.row, '1 location')).toEqual(['Acme · Non-brand · Groups: North East · New York · openai (gpt-5)'])
+  // One changed row, so where it is asked is said once above the table, with the model id as its help.
+  expect(added).toMatchObject({ change: 'Added', type: 'Non-brand', assignments: '1', searchLocation: undefined })
+  expect(sharedSearchLocation()).toEqual({ label: 'New York · OpenAI', models: 'New York · openai (gpt-5)' })
+  expect(listLocations(added.row, '1 location')).toEqual(['Acme · Non-brand · Groups: North East'])
   expect(previewBody).toEqual({
     expectedWorkspaceVersion: workspaceVersion,
     additions: [{
@@ -336,13 +371,13 @@ test('requires an explicit context when a market is combined with a group', asyn
 
   await screen.findByText('Acme pricing')
   openLegacyAdd()
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Mixed scope query' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Mixed scope query' } })
   fireEvent.click(screen.getByRole('checkbox', { name: 'New York, Market' }))
   expect(screen.queryByLabelText('Location and engines')).toBeNull()
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(false)
 
   fireEvent.click(screen.getByRole('checkbox', { name: 'North East, Group' }))
-  expect(screen.getByLabelText('Location and engines')).toBeTruthy()
+  expect(screen.getByLabelText('Search location and engines')).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
   chooseContext()
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
@@ -376,12 +411,12 @@ test('promotes a saved research query as source provenance, never an answer or a
   openLegacyAdd()
   fireEvent.change(screen.getByLabelText('Query source'), { target: { value: 'research' } })
   fireEvent.change(screen.getByLabelText('Saved research query'), { target: { value: 'research-query-1' } })
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Location' }))
   chooseContext()
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
 
   await screen.findByText('1 added')
-  expect(screen.getByText('Only the saved query is added.')).toBeTruthy()
+  noteButton('Saved query only', 'Only the saved query is added, not its saved answer.')
   expect(previewBody).toEqual({
     expectedWorkspaceVersion: workspaceVersion,
     additions: [{ input: { source: 'research', researchRunQueryId: 'research-query-1' }, audience: { targetKeys: ['acme'] }, contexts: [selectedContext] }],
@@ -470,10 +505,10 @@ test.each(['research', 'discovery'] as const)('tracks a selected saved %s result
     expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(false)
   } else {
     expect(onSelectionChange).not.toHaveBeenCalled()
-    expect(screen.getByRole('checkbox', { name: 'Acme, Property' })).toHaveProperty('checked', false)
-    expect((screen.getByLabelText('Location and engines') as HTMLSelectElement).value).toBe('')
+    expect(screen.getByRole('checkbox', { name: 'Acme, Location' })).toHaveProperty('checked', false)
+    expect((screen.getByLabelText('Search location and engines') as HTMLSelectElement).value).toBe('')
     expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Location' }))
     chooseContext()
   }
   expect(writes).toEqual([])
@@ -510,9 +545,9 @@ test.each([false, true])('keeps reused-query classifications collapsed until req
   renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
   await screen.findByText('Acme pricing')
   openLegacyAdd()
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Acme pricing' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Acme pricing' } })
   fireEvent.click(screen.getByText('Measurement options', { selector: 'summary' }))
-  fireEvent.change(screen.getByLabelText('Classification'), { target: { value: 'non-brand' } })
+  fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'non-brand' } })
   chooseContext()
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
   await screen.findByText('1 reused')
@@ -539,9 +574,9 @@ test('sends an explicit class only when the operator overrides server classifica
 
   await screen.findByText('Acme pricing')
   openLegacyAdd()
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Enterprise AEO platform' } })
-  fireEvent.change(screen.getByLabelText('Classification'), { target: { value: 'non-brand' } })
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Enterprise AEO platform' } })
+  fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'non-brand' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Location' }))
   chooseContext()
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
 
@@ -561,9 +596,10 @@ test('does not offer a template source when this portfolio has no saved template
   openLegacyAdd()
 
   const source = screen.getByLabelText('Query source') as HTMLSelectElement
-  expect([...source.options].map(option => option.textContent)).not.toContain('Saved template')
-  expect(screen.getByText('No saved templates are set up for this portfolio. Write a question, or use saved research or a discovery result.')).toBeTruthy()
-  expect(source.getAttribute('aria-describedby')).toBe('tracking-query-source-no-templates')
+  expect([...source.options].map(option => option.textContent)).toEqual(['Write a query', 'Saved research', 'Discovery result'])
+  // The select is described by a short note, with the sentence as the note's help.
+  const described = document.getElementById(source.getAttribute('aria-describedby')!)!
+  noteButton('No saved patterns', 'No saved patterns are set up for this project. Write a query, or use saved research or a discovery result.', described)
 })
 
 test('requires a market for a saved market template before sending its identity and pattern for expansion', async () => {
@@ -585,17 +621,21 @@ test('requires a market for a saved market template before sending its identity 
   await screen.findByText('Acme pricing')
   openLegacyAdd()
   fireEvent.change(screen.getByLabelText('Query source'), { target: { value: 'template' } })
-  fireEvent.change(screen.getByLabelText('Saved template'), { target: { value: 'template-market' } })
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
+  expect(screen.getByRole('option', { name: 'Saved pattern' })).toBeTruthy()
+  expect(screen.getByRole('option', { name: 'Choose a pattern' })).toBeTruthy()
+  const pattern = screen.getByLabelText('Saved pattern')
+  fireEvent.change(pattern, { target: { value: 'template-market' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Location' }))
   chooseContext()
   const review = screen.getByRole('button', { name: 'Review changes' })
   expect(review.hasAttribute('disabled')).toBe(true)
-  expect(screen.getByText('Choose a Market under Apply to for this template. A location alone does not select a market.')).toBeTruthy()
+  const needsMarket = noteButton('Needs a market', 'This pattern needs a market. Choose one under Apply to. A location alone does not select a market.')
+  expect(needsMarket.closest('[role="status"]')!.id).toBe(pattern.getAttribute('aria-describedby'))
   fireEvent.click(review)
   expect(previewBody).toBeUndefined()
 
   fireEvent.change(screen.getByLabelText('Query source'), { target: { value: 'manual' } })
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'How does Acme compare?' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'How does Acme compare?' } })
   expect(review.hasAttribute('disabled')).toBe(false)
   fireEvent.change(screen.getByLabelText('Query source'), { target: { value: 'template' } })
   expect(review.hasAttribute('disabled')).toBe(true)
