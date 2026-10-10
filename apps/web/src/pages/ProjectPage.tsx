@@ -2871,6 +2871,7 @@ function ProjectPageContent({
           isQueryError={isPortfolioQueriesError}
           onRetryQueries={() => { void portfolioQueriesQuery.refetch() }}
           publishedPlan={activeMeasurementPlan}
+          sweepActive={hasActiveVisibilitySweep}
           onCreateQueries={async texts => {
             // The shared mutation carries the write guard and invalidates both
             // the projects list and the per-project detail. Calling the raw
@@ -3219,6 +3220,7 @@ function ProjectPageContent({
           onSelectionChange={updateVisibilitySearch}
           trackingQueryId={typeof projectSearchParams.trackingQueryId === 'string' ? projectSearchParams.trackingQueryId : undefined}
           onTrackingQueryIdChange={value => updateVisibilitySearch({ trackingQueryId: value })}
+          publishGuard={{ sweepActive: hasActiveVisibilitySweep }}
         />
       ) : tab === 'technical-aeo' ? (
         <SiteHealthSection

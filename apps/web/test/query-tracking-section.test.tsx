@@ -1,6 +1,6 @@
 import React from 'react'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import {
@@ -14,6 +14,7 @@ import { heyClient } from '../src/api.js'
 import { QueriesSection } from '../src/components/project/DiscoverySection.js'
 import { RESEARCH_COPY } from '../src/components/project/ResearchQueriesSection.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
+import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 
 afterEach(() => {
@@ -449,25 +450,128 @@ test('shows only in-group properties and relationships for a shared query', asyn
   expect(within(row).queryByText(/Downtown/)).toBeNull()
 })
 
-test('focuses the preview outcome and keeps request counts in a secondary disclosure', async () => {
+const advancedResetNotice = 'After you publish, AI Visibility keeps showing the last sweep until the next sweep. Location pages and competitor results show no numbers until then. Past answers are kept.'
+const sweepActiveMessage = 'A sweep is queued or running. Publish after it finishes.'
+const removalDiff = { added: [], removed: [{ queryId: 'query-acme', queryText: 'Acme pricing', assignmentCount: 1 }], reused: [], unchanged: [], noOp: false }
+const removalWorkload = { existingNodes: 2, existingProviderCalls: 2, nextSweepNodes: 1, nextSweepProviderCalls: 1, addedNodes: 0, addedProviderCalls: 0, removedNodes: 1, removedProviderCalls: 1 }
+// The preview's `tracked` is the post-change state, so a whole-query removal drops the row.
+const trackedAfterRemoval = workspace().tracked.filter(row => row.queryId !== 'query-acme')
+
+async function reviewRemoval() {
+  await screen.findByText('Acme pricing')
+  fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+  return screen.findByRole('heading', { name: /^(Confirm tracked query changes|No tracking changes)$/ })
+}
+
+test('focuses the preview outcome and shows the sweep workload under the heading', async () => {
   const scrollIntoView = installScrollSpy()
   installWorkspaceApi(path => {
+    if (path.endsWith('/query-tracking/preview')) return jsonResponse(preview({ tracked: trackedAfterRemoval, diff: removalDiff, workload: removalWorkload }))
+    throw new Error(`Unexpected fetch: ${path}`)
+  })
+  renderWorkspace()
+  const heading = await reviewRemoval()
+  await waitFor(() => expect(document.activeElement).toBe(heading))
+  expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' })
+  // Visible under the heading, not folded into a disclosure.
+  expect(screen.getByText('−1 query · +0 / −1 answers per sweep · next sweep asks 1').closest('details')).toBeNull()
+  expect(screen.getByText(advancedResetNotice)).toBeTruthy()
+})
+
+test('keeps added and removed queries and answers separate in the workload line', async () => {
+  const added = [
+    { queryId: 'query-new-1', queryText: 'Acme hours', assignmentCount: 1 },
+    { queryId: 'query-new-2', queryText: 'Acme parking', assignmentCount: 1 },
+  ]
+  installWorkspaceApi(path => {
     if (path.endsWith('/query-tracking/preview')) return jsonResponse(preview({
-      diff: { added: [], removed: [{ queryId: 'query-acme', queryText: 'Acme pricing', assignmentCount: 1 }], reused: [], unchanged: [], noOp: false },
+      tracked: trackedAfterRemoval,
+      diff: { ...removalDiff, added },
+      workload: { existingNodes: 1228, existingProviderCalls: 1228, nextSweepNodes: 1236, nextSweepProviderCalls: 1236, addedNodes: 12, addedProviderCalls: 12, removedNodes: 4, removedProviderCalls: 4 },
     }))
     throw new Error(`Unexpected fetch: ${path}`)
   })
   renderWorkspace()
-  await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
-  const heading = await screen.findByRole('heading', { name: 'Confirm tracked query changes' })
-  await waitFor(() => expect(document.activeElement).toBe(heading))
-  expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' })
-  expect(screen.getByText('Changes apply to future sweeps. Earlier results stay unchanged.')).toBeTruthy()
-  const workload = screen.getByText('Next sweep workload', { selector: 'summary' }).closest('details')!
-  expect(workload.open).toBe(false)
-  expect(workload.textContent).toContain('3 provider requests')
+  await reviewRemoval()
+  expect(screen.getByText('+2 queries · −1 query · +12 / −4 answers per sweep · next sweep asks 1,236')).toBeTruthy()
+})
+
+test('counts a location-scoped removal as answers, not as a query leaving tracking', async () => {
+  let previewBody: unknown
+  installWorkspaceApi((path, body) => {
+    if (path.endsWith('/query-tracking/preview')) {
+      previewBody = body
+      // The server lists the query as removed while it stays tracked for its other assignments.
+      return jsonResponse(preview({ diff: removalDiff, workload: removalWorkload }))
+    }
+    throw new Error(`Unexpected fetch: ${path}`)
+  })
+  renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
+  await reviewRemoval()
+  expect(previewBody).toEqual({ expectedWorkspaceVersion: workspaceVersion, additions: [], removals: [{ queryId: 'query-acme', audience: { targetKeys: ['acme'] } }] })
+  expect(screen.getByText('+0 / −1 answers per sweep · next sweep asks 1')).toBeTruthy()
+  expect(screen.queryByText(/−1 query/)).toBeNull()
+})
+
+test.each([
+  { name: 'a simple preview', mode: 'simple', noOp: false, subcopy: 'Changes apply to future sweeps. Earlier results stay unchanged.' },
+  { name: 'an advanced no-op preview', mode: 'advanced', noOp: true, subcopy: 'This request leaves tracking unchanged.' },
+])('shows no reset notice for $name', async ({ mode, noOp, subcopy }) => {
+  installWorkspaceApi(path => {
+    if (path.endsWith('/query-tracking/preview')) return jsonResponse(preview({ mode, diff: noOp ? { ...removalDiff, removed: [], noOp } : removalDiff }))
+    throw new Error(`Unexpected fetch: ${path}`)
+  }, [], { ...workspace(), mode })
+  renderWorkspace()
+  await reviewRemoval()
+  expect(screen.getByText(subcopy)).toBeTruthy()
+  expect(screen.queryByText(advancedResetNotice)).toBeNull()
+})
+
+test.each([
+  { name: 'an advanced commit', mode: 'advanced', committed: true, title: 'Tracked queries updated', detail: 'New numbers after the next sweep.' },
+  { name: 'a simple commit', mode: 'simple', committed: true, title: 'Tracked queries updated', detail: undefined },
+  { name: 'a no-op commit', mode: 'advanced', committed: false, title: 'No tracked-query change', detail: undefined },
+])('names when new numbers arrive only after $name', async ({ mode, committed, title, detail }) => {
+  resetToasts()
+  onTestFinished(resetToasts)
+  installWorkspaceApi(path => {
+    if (path.endsWith('/query-tracking/preview')) return jsonResponse(preview({ mode, diff: removalDiff }))
+    if (path.endsWith('/query-tracking/commit')) return jsonResponse({ committed, mode, workspaceVersion, reviewedAt: '2026-09-04T12:15:00.000Z', active, diff: removalDiff, workload: removalWorkload })
+    throw new Error(`Unexpected fetch: ${path}`)
+  }, [], { ...workspace(), mode })
+  renderWorkspace()
+  await reviewRemoval()
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm changes' }))
+  await waitFor(() => expect(getToasts().map(toast => toast.title)).toEqual([title]))
+  expect(getToasts()[0]!.detail).toBe(detail)
+})
+
+test.each([true, false])('pauses Confirm while a sweep is queued or running (sweepActive=%s)', async (sweepActive) => {
+  const commits: unknown[] = []
+  installWorkspaceApi((path, body) => {
+    if (path.endsWith('/query-tracking/preview')) return jsonResponse(preview({ diff: removalDiff, workload: removalWorkload }))
+    if (path.endsWith('/query-tracking/commit')) {
+      commits.push(body)
+      return jsonResponse({ committed: true, mode: 'advanced', workspaceVersion, reviewedAt: '2026-09-04T12:15:00.000Z', active, diff: removalDiff, workload: removalWorkload })
+    }
+    throw new Error(`Unexpected fetch: ${path}`)
+  })
+  renderWorkspace({ publishGuard: { sweepActive } })
+  await reviewRemoval()
+  const confirm = screen.getByRole('button', { name: 'Confirm changes' }) as HTMLButtonElement
+  expect(confirm.disabled).toBe(sweepActive)
+  if (sweepActive) {
+    expect(screen.getByRole('status').textContent).toBe(sweepActiveMessage)
+    fireEvent.click(confirm)
+    // A commit reaches fetch only after the mutation's async onMutate, so let a task pass before asserting none went out.
+    await act(() => new Promise(resolve => setTimeout(resolve, 0)))
+    expect(commits).toEqual([])
+  } else {
+    expect(screen.queryByText(sweepActiveMessage)).toBeNull()
+    fireEvent.click(confirm)
+    await waitFor(() => expect(commits).toHaveLength(1))
+  }
 })
 
 test('clears the previous confirmation while a changed draft awaits a new preview', async () => {

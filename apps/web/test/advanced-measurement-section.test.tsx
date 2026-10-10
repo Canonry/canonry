@@ -1238,6 +1238,23 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     expect(onPublished).toHaveBeenCalledTimes(1)
   })
 
+  test.each([true, false])('pauses Publish setup while a sweep is queued or running (sweepActive=%s)', async (sweepActive) => {
+    const fake = createFakeService({
+      initialDraft: draftFixture({ targets: [property(1)], assignedQueryIds: ['q-nearby'], baseActiveRevision: 4 }),
+    })
+    renderSection(fake, { sweepActive })
+    await advanceExistingDraftToReview()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+    const publish = await screen.findByRole('button', { name: 'Publish setup' }) as HTMLButtonElement
+    expect(publish.disabled).toBe(sweepActive)
+    const message = screen.queryByText('A sweep is queued or running. Publish after it finishes.')
+    expect(message?.getAttribute('role') ?? null).toBe(sweepActive ? 'status' : null)
+    fireEvent.click(publish)
+    if (sweepActive) expect(fake.service.publish).not.toHaveBeenCalled()
+    else await waitFor(() => expect(fake.service.publish).toHaveBeenCalledTimes(1))
+  })
+
   test('groups repeated review checks into concise Property actions while retaining distinct fixes', async () => {
     const targets = Array.from({ length: 194 }, (_, index) => property(index + 1))
     const repeatedChecks: MeasurementDraftCompilePreviewResponse['checks'] = [
