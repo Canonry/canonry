@@ -15,7 +15,7 @@ An advanced project adds market and location queries in the **Add queries** shee
 6. Select **Publish N changes**, which stays at the bottom of the sheet with **Back** and the sweep pause notice.
 
 Each market line becomes one addition for that market with no contexts, so it takes the market's frozen engines, models, and search locations.
-Each location line becomes one addition for that location and every market the location already has queries in, again with no contexts. The query is asked with those markets' engines and search locations and counts in those markets' numbers, not only on the location's own page. The sheet lists the markets under the picker (**Counts in** and **Engines and search locations come from**).
+Each location line becomes one addition for that location and every market the location already has queries in, again with no contexts. The query is asked with those markets' engines and search locations and counts in those markets' numbers, not only on the location's own page. The sheet lists the markets under the picker (**Counts in**). The info button beside that line says the query is asked with those markets' engines and search locations.
 A location with no query in any market has nothing to take them from. The sheet says so and sends the location with one search location and engines: the project's only one, or the one chosen under **Search location and engines** when the project has several.
 If the server refuses a review or a publish, for example over the 1,000-query limit, the review shows the reason with **Review again**. **Back** returns to the draft, which is kept.
 The link **Hand-picked locations, templates or saved research** leads to the Add query form. That form adds one query at a time, so it opens with the first line only. **Company** is not available yet.
@@ -40,6 +40,7 @@ An advanced project's review shows the same thing for every change, from the she
 - **Queries** and **Answers per sweep**, each as the count now and the count after publishing, with **Answers added** and **Answers removed** kept separate. **Queries** counts the queries the project asks, so a query that loses its last location leaves the count.
 - One row per added, reused, and removed query: its type, its location links, and its search location and engines. A query has one link per location and search location, so the count can be higher than the number of locations. A removed row shows how many links it removes. **N locations** under the query lists each location.
 - Unchanged queries, behind **N unchanged queries**, each with its own list of locations.
+- **New numbers after the next sweep**, under the counts. Its info button says what stays on screen until then: AI Visibility keeps showing the last sweep, location pages and competitor results show no numbers, past answers are kept, and publishing does not run a sweep. A review with no changes shows no such line.
 
 Every figure comes from the preview response, the same one `canonry query preview` returns. A simple site keeps its shorter review.
 If the server refuses the review or the publish, the review shows its message and **Review again**.

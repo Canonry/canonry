@@ -3,7 +3,7 @@ import { Fragment, useId, type KeyboardEvent } from 'react'
 export interface SegmentedRadioOption<T extends string> {
   value: T
   label: string
-  /** Read after the label by assistive tech, for a choice its label alone does not explain. */
+  /** Read after the label by assistive tech, for a choice its label alone does not explain. On a disabled option it is also the hover title, so a mouse shows why. */
   description?: string
   /** Shown but not selectable; arrow keys pass over it. */
   disabled?: boolean
@@ -67,6 +67,7 @@ export function SegmentedRadioGroup<T extends string>({
               aria-checked={checked}
               aria-describedby={descriptionId}
               aria-disabled={option.disabled || undefined}
+              title={option.disabled ? option.description : undefined}
               tabIndex={checked ? 0 : -1}
               onClick={() => { if (!option.disabled) onChange(option.value) }}
               className={`segmented-option pointer-coarse:min-h-11 ${checked ? 'segmented-option-active' : ''}${option.disabled ? ' cursor-not-allowed opacity-50 hover:text-secondary' : ''}`}

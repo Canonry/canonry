@@ -42,6 +42,13 @@ describe('a disabled option', () => {
     expect(onChange).toHaveBeenCalledExactlyOnceWith('company')
   })
 
+  it('shows its description on hover, which an option that can be chosen does not', () => {
+    const { radio } = renderGroup([{ ...options[0]!, description: 'One market' }, options[1]!, options[2]!], 'market')
+    expect(radio('Location').title).toBe('Not available yet')
+    expect(document.getElementById(radio('Market').getAttribute('aria-describedby')!)!.textContent).toBe('One market')
+    expect(radio('Market').hasAttribute('title')).toBe(false)
+  })
+
   it('is skipped by the arrow keys in both directions, moving focus with the choice', () => {
     const { onChange, radio, group } = renderGroup(options, 'market')
     fireEvent.keyDown(group, { key: 'ArrowRight' })

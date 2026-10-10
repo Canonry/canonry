@@ -29,7 +29,10 @@ const tracked = [{
   state: 'tracked', lastMeasuredAt: '2026-09-04T12:10:00.000Z',
   assignments: [{ targetKey: 'acme', groupKeys: ['north-east'], marketKeys: ['new-york'], queryClass: 'branded', classificationSource: 'frozen', contexts: [context] }],
 }]
-const resetNotice = 'After you publish, AI Visibility keeps showing the last sweep until the next sweep. Location pages and competitor results show no numbers until then. Past answers are kept.'
+const publishLine = 'New numbers after the next sweep'
+const publishNotice = 'After you publish, AI Visibility keeps showing the last sweep until the next sweep. Location pages and competitor results show no numbers until then. Past answers are kept. Publishing does not run a sweep.'
+const marketsHelp = "Asked with these markets' engines and search locations."
+const queriesHelp = 'Blank and repeated lines are skipped.'
 const handPickedLink = 'Hand-picked locations, templates or saved research'
 const firstLineOnly = 'The Add query form adds one query at a time. It opens with your first line only.'
 
@@ -154,6 +157,12 @@ const reviewHeading = (sheet: Sheet) => sheet.findByRole('heading', { name: /^Re
 const sheetIsOpen = () => screen.queryByRole('dialog', { name: 'Add queries' }) !== null
 const sheetText = () => screen.getByRole('dialog', { name: 'Add queries' }).textContent
 
+/** The help button right after a short label, never inside it. Its text is the button's name and shows only once opened. */
+function helpBeside(label: HTMLElement, text: string) {
+  expect(screen.queryByText(text)).toBeNull()
+  return within(label.nextElementSibling as HTMLElement).getByRole('button', { name: text })
+}
+
 // A group row only browses; the market inside it is the choice.
 function chooseNewYorkFromGroup(sheet: Sheet) {
   fireEvent.click(sheet.getByRole('button', { name: 'Browse North East' }))
@@ -214,8 +223,20 @@ test('opens from Tracked on an advanced project and keeps Review off until a mar
   // The market list is in the sheet too, group rows and their location counts included.
   expect(sheetText()).not.toMatch(/question|propert/i)
   expect(reviewButton(sheet).disabled).toBe(true)
+  // The dialog keeps its description for assistive tech and shows none.
+  const description = document.getElementById(screen.getByRole('dialog', { name: 'Add queries' }).getAttribute('aria-describedby')!)!
+  expect(description.textContent).toBe('Each query is tracked for one market or one location.')
+  expect(description.classList.contains('sr-only')).toBe(true)
+  // The Queries hint is the placeholder and the help beside the label, with no sentence under the field.
+  expect(queriesField(sheet).placeholder).toBe('One query per line')
+  helpBeside(sheet.getByText('Queries', { selector: 'label' }), queriesHelp)
+  expect(sheet.queryByText(/^\d+ quer(y|ies)$/)).toBeNull()
+  expect(queriesField(sheet).hasAttribute('aria-describedby')).toBe(false)
+  // Review does not publish, so the form says nothing about publishing.
+  expect(sheet.queryByText('Publishing does not run a sweep.')).toBeNull()
 
   fireEvent.change(queriesField(sheet), { target: { value: 'best pizza in New York' } })
+  expect(sheet.getByText('1 query').id).toBe(queriesField(sheet).getAttribute('aria-describedby'))
   expect(reviewButton(sheet).disabled).toBe(true)
   fireEvent.click(sheet.getByText('Choose a market'))
   // The list holds groups and markets, never locations.
@@ -232,6 +253,7 @@ test('opens from Tracked on an advanced project and keeps Review off until a mar
   expect(reviewButton(sheet).disabled).toBe(false)
 
   fireEvent.change(queriesField(sheet), { target: { value: ' \n\n  ' } })
+  expect(sheet.queryByText(/^\d+ quer(y|ies)$/)).toBeNull()
   expect(reviewButton(sheet).disabled).toBe(true)
   fireEvent.click(reviewButton(sheet))
   expect(writes).toEqual([])
@@ -250,10 +272,11 @@ test('sends one addition per line for the chosen market, with no contexts, and d
     'hotels with a pool in New York',
     'hotels near Central Park',
   ].join('\n'))
-  expect(sheet.getByText(/3 queries to add\.$/)).toBeTruthy()
-  // The lines under the picker and the search location pick are for a location only, however many the project has.
+  expect(sheet.getByText('3 queries')).toBeTruthy()
+  // The line under the picker, its help and the search location pick are for a location only, however many the project has.
   expect(sheet.queryByText('This location is in no market.')).toBeNull()
-  expect(sheet.queryByText(/^(Counts in|Engines and search locations come from|Search location and engines)/)).toBeNull()
+  expect(sheet.queryByText(/^(Counts in|Search location and engines)/)).toBeNull()
+  expect(sheet.queryByRole('button', { name: marketsHelp })).toBeNull()
   expect(sheet.queryByRole('combobox')).toBeNull()
   fireEvent.click(reviewButton(sheet))
 
@@ -343,8 +366,9 @@ test('reviews inside the sheet, keeps the draft on Back, and publishes with the 
     Queries: '1 → 3', 'Answers per sweep': '3 → 9', 'Answers added': '+6', 'Answers removed': '0',
   })
   expect(sheet.getByText('2 added')).toBeTruthy()
-  expect(sheet.getByText(resetNotice)).toBeTruthy()
-  expect(sheet.getByText('Publishing does not run a sweep.')).toBeTruthy()
+  // One short line; what a publish does to the numbers, and that it runs no sweep, is the help beside it.
+  helpBeside(sheet.getByText(publishLine), publishNotice)
+  expect(sheet.queryByText('Publishing does not run a sweep.')).toBeNull()
   expect(sheet.queryByLabelText('Queries')).toBeNull()
   expect(sheetText()).not.toMatch(/question/i)
   fireEvent.click(sheet.getByRole('button', { name: 'Back' }))
@@ -598,8 +622,8 @@ test('adds a location query to every market that location is in, with no context
   fillLocation(sheet, 'Acme', 'Acme reviews\n\nAcme parking\nacme  reviews')
   expect(sheet.getByText('Acme · Location')).toBeTruthy()
   // Boston holds only Cedar Court, and Remote searches is listed once for its two Acme queries.
-  expect(sheet.getByText('Counts in: New York, Remote searches')).toBeTruthy()
-  expect(sheet.getByText('Engines and search locations come from: New York, Remote searches')).toBeTruthy()
+  helpBeside(sheet.getByText('Counts in: New York, Remote searches'), marketsHelp)
+  expect(sheet.queryByText(/^Engines and search locations come from/)).toBeNull()
   expect(sheet.queryByText('This location is in no market.')).toBeNull()
   expect(sheet.queryByText(/^Search location and engines/)).toBeNull()
   expect(sheetText()).not.toMatch(/question|propert|—/i)
@@ -638,6 +662,7 @@ test('gives a location in no market the one search location and engines the proj
   expect(sheet.getByText('Search location and engines: New York · openai (gpt-5)')).toBeTruthy()
   expect(sheet.queryByRole('combobox')).toBeNull()
   expect(sheet.queryByText(/^Counts in:/)).toBeNull()
+  expect(sheet.queryByRole('button', { name: marketsHelp })).toBeNull()
   expect(sheetText()).not.toMatch(/question|propert|—/i)
   fireEvent.click(reviewButton(sheet))
 
@@ -811,8 +836,10 @@ test('shows Company as not available yet and never selects it', async () => {
   const { sheet } = await openSheet()
   const company = sheet.getByRole('radio', { name: 'Company' })
   expect(company.getAttribute('aria-disabled')).toBe('true')
+  // The option gives its own reason, to assistive tech and on hover, with no line under the control.
   expect(document.getElementById(company.getAttribute('aria-describedby')!)!.textContent).toBe('Not available yet')
-  expect(sheet.getByText('Company is not available yet.')).toBeTruthy()
+  expect(company.title).toBe('Not available yet')
+  expect(sheet.queryByText('Company is not available yet.')).toBeNull()
   fireEvent.click(company)
   expect(company.getAttribute('aria-checked')).toBe('false')
   expect(sheet.getByRole('radio', { name: 'Market' }).getAttribute('aria-checked')).toBe('true')
@@ -874,6 +901,24 @@ test('closes the open market picker on Escape before the sheet', async () => {
   expect(sheetIsOpen()).toBe(true)
 
   fireEvent.keyDown(sheet.getByLabelText('Queries'), { key: 'Escape' })
+  expect(sheetIsOpen()).toBe(false)
+})
+
+test('closes an open help bubble on Escape before the sheet', async () => {
+  installApi()
+  renderTracked()
+  const { sheet } = await openSheet()
+  fireEvent.change(queriesField(sheet), { target: { value: 'best pizza in New York' } })
+  const help = sheet.getByRole('button', { name: queriesHelp })
+  // Focus opens the bubble, so Escape there would otherwise close the sheet and drop the draft.
+  fireEvent.focus(help)
+  expect(help.getAttribute('aria-expanded')).toBe('true')
+  fireEvent.keyDown(help, { key: 'Escape' })
+  expect(sheetIsOpen()).toBe(true)
+  expect(help.getAttribute('aria-expanded')).toBe('false')
+  expect(queriesField(sheet).value).toBe('best pizza in New York')
+
+  fireEvent.keyDown(help, { key: 'Escape' })
   expect(sheetIsOpen()).toBe(false)
 })
 
