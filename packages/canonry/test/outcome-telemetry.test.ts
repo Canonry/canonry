@@ -120,11 +120,17 @@ describe('first-success flags', () => {
       trackEvent.mockReset()
       trackFeatureCompleted({ feature: 'ga4', operation: 'sync', status: 'succeeded' })
       expect((trackEvent.mock.calls[0]![1] as { first?: boolean }).first).toBeUndefined()
+      // Another process that never saw this one's claims still cannot claim them again.
+      resetOutcomeMilestonesForTest()
+      trackEvent.mockReset()
+      trackIntegrationConnection({ integration: 'provider', provider: 'gemini', action: 'connect', status: 'succeeded' })
+      trackFeatureCompleted({ feature: 'gbp', operation: 'sync', status: 'succeeded' })
+      expect(trackEvent.mock.calls.map(c => (c[1] as { first?: boolean }).first === true)).toEqual([false, true])
       // Telemetry off: nothing is read or written.
       telemetryOn.value = false
       resetOutcomeMilestonesForTest()
-      trackFeatureCompleted({ feature: 'gbp', operation: 'sync', status: 'succeeded' })
-      expect(JSON.parse(fs.readFileSync(path.join(dir, 'telemetry-milestones.json'), 'utf8')).keys).not.toContain('feature:gbp.sync')
+      trackFeatureCompleted({ feature: 'search_console', operation: 'sync', status: 'succeeded' })
+      expect(fs.readdirSync(path.join(dir, 'telemetry-milestones'))).not.toContain('feature~3asearch_console.sync')
     } finally {
       telemetryOn.value = false
       if (saved === undefined) delete process.env.CANONRY_CONFIG_DIR

@@ -55,38 +55,33 @@ export function outcomeAttribution(attribution: OutcomeAttribution | undefined):
   return agent ? { surface, agent } : { surface }
 }
 
-const MILESTONES_FILE = 'telemetry-milestones.json'
-let milestones: Set<string> | undefined
+const MILESTONES_DIR = 'telemetry-milestones'
+const claimed = new Set<string>()
 
 /**
- * Whether this is the install's first success of a kind, recorded in a small
- * file beside the config. Lets milestone funnels survive sampling and the
- * collector's one-year retention. Never consulted when telemetry is off.
+ * Whether this is the install's first success of a kind. Each kind is one
+ * file created with an exclusive open, so the CLI and the server claiming the
+ * same first at once cannot both win, and neither can erase the other's
+ * claims. Lets milestone funnels survive sampling and the collector's
+ * one-year retention. Never consulted when telemetry is off.
  */
 function isFirstSuccess(key: string): boolean {
   try {
-    if (!isTelemetryEnabled()) return false
-    const file = path.join(getConfigDir(), MILESTONES_FILE)
-    if (!milestones) {
-      try {
-        const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as { keys?: unknown }
-        milestones = new Set(Array.isArray(parsed.keys) ? parsed.keys.filter((k): k is string => typeof k === 'string') : [])
-      } catch {
-        milestones = new Set()
-      }
-    }
-    if (milestones.has(key)) return false
-    milestones.add(key)
-    fs.writeFileSync(file, JSON.stringify({ keys: [...milestones] }))
+    if (!isTelemetryEnabled() || claimed.has(key)) return false
+    const dir = path.join(getConfigDir(), MILESTONES_DIR)
+    fs.mkdirSync(dir, { recursive: true })
+    const name = key.replace(/[^\w.-]/g, c => `~${c.charCodeAt(0).toString(16)}`)
+    claimed.add(key)
+    fs.closeSync(fs.openSync(path.join(dir, name), 'wx'))
     return true
   } catch {
     return false
   }
 }
 
-/** Forget cached milestones; tests switch config directories. */
+/** Forget what this process has claimed; tests stand in for a second process. */
 export function resetOutcomeMilestonesForTest(): void {
-  milestones = undefined
+  claimed.clear()
 }
 
 export function trackIntegrationConnection(properties: IntegrationConnectionProperties, options: { errorCode?: string } = {}): void {
