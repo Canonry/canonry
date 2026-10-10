@@ -1,4 +1,5 @@
 import { listModels } from './list-models.js'
+import { FinishReason, type GenerateContentResponse } from '@google/genai'
 import type {
   ProviderAdapter,
   ProviderConfig,
@@ -7,7 +8,9 @@ import type {
   TrackedQueryRequest,
   RawQueryResult,
   NormalizedQueryResult,
+  RetrievalStatus,
 } from '@ainyc/canonry-contracts'
+import { RetrievalStatuses } from '@ainyc/canonry-contracts'
 import {
   validateConfig as geminiValidateConfig,
   healthcheck as geminiHealthcheck,
@@ -49,16 +52,31 @@ function toRawQueryResult(raw: GeminiRawResult): RawQueryResult {
     servedModel: raw.servedModel,
     groundingSources: raw.groundingSources,
     searchQueries: raw.searchQueries,
-    // Retrieval detection is not implemented for this provider. Its candidate
-    // marker is present on 100% of stored rows, so it has never been shown to
-    // discriminate a non-retrieving answer and wiring it up would hardcode
-    // `used`. `unknown` states what we actually know. The contract is a
-    // declaration about how we build the request, so it is always knowable.
-    retrievalStatus: 'unknown' as const,
+    retrievalStatus: readRetrievalStatus(raw.rawResponse),
     retrievalContract: 'native-auto-v1' as const,
     usage: raw.usage,
     stopReason: raw.stopReason,
   }
+}
+
+function readRetrievalStatus(rawResponse: Record<string, unknown>): RetrievalStatus {
+  const response = rawResponse as Partial<GenerateContentResponse>
+  const candidate = Array.isArray(response.candidates) ? response.candidates[0] : undefined
+  if (!candidate) return RetrievalStatuses.unknown
+  const metadata = candidate.groundingMetadata
+  const queries = metadata?.webSearchQueries
+  const chunks = metadata?.groundingChunks
+  if ((Array.isArray(queries) && queries.some(query => typeof query === 'string' && query.trim().length > 0))
+    || (Array.isArray(chunks) && chunks.some(chunk => typeof chunk.web?.uri === 'string' && chunk.web.uri.trim().length > 0))) {
+    return RetrievalStatuses.used
+  }
+  // Absence is conclusive only for a completed, nonempty answer. A blocked or
+  // unfinished response does not establish that a search was never executed.
+  const parts = candidate.content?.parts
+  const hasAnswer = Array.isArray(parts) && parts.some(part => !part.thought && typeof part.text === 'string' && part.text.trim().length > 0)
+  return candidate.finishReason === FinishReason.STOP && hasAnswer
+    ? RetrievalStatuses['not-used']
+    : RetrievalStatuses.unknown
 }
 
 export const geminiAdapter: ProviderAdapter = {
@@ -140,7 +158,7 @@ export const geminiAdapter: ProviderAdapter = {
       citedDomains: normalized.citedDomains,
       groundingSources: normalized.groundingSources,
       searchQueries: normalized.searchQueries,
-      retrievalStatus: 'unknown' as const,
+      retrievalStatus: readRetrievalStatus(raw.rawResponse),
     }
   },
 
