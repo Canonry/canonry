@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import type { ComponentProps } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus } from 'lucide-react'
+import { AlertTriangle, Plus } from 'lucide-react'
 import { getApiV1ProjectsByNameQueryTrackingOptions } from '@ainyc/canonry-api-client/react-query'
 
 import { heyClient } from '../../../api.js'
 import { invalidateQueryTrackingPublication } from '../../../queries/query-invalidation.js'
 import { WriteButton } from '../../shared/AccessControls.js'
+import { StatusNote } from '../../shared/StatusNote.js'
 import { AddQueriesSheet } from '../AddQueriesSheet.js'
 import { TrackingReview, TrackingReviewActions } from '../TrackingReview.js'
 import { contextInput, contextLabel, contextLabels, uniqueContextInputs } from './tracking-contexts.js'
@@ -32,10 +33,11 @@ export function TrackingAddQueriesSheet({ workspace, sweepActive, ...sheet }: Om
  * tracking workspace is read only once the button is pressed, so loading the
  * page makes no extra request. The sheet opens only when that press's read
  * comes back holding this location. A failed read, or a workspace the page's
- * setup is behind, shows a line instead, and a later refresh of the read never
- * opens the sheet without a press. That page has no Add query form, so the
- * sheet links to none. It reads no runs either, so Publish is not paused here:
- * the server refuses a publish during a sweep and the sheet shows the reason.
+ * setup is behind, shows a note instead and the button reads Retry, and a later
+ * refresh of the read never opens the sheet without a press. That page has no
+ * Add query form, so the sheet links to none. It reads no runs either, so
+ * Publish is not paused here: the server refuses a publish during a sweep and
+ * the sheet shows the reason.
  */
 export function AddLocationQueryButton({ projectName, locationKey, className, onPublished }: {
   projectName: string
@@ -60,13 +62,15 @@ export function AddLocationQueryButton({ projectName, locationKey, className, on
     // The page's setup and this workspace disagree: the setup is read again now, the workspace on the next press.
     void invalidateQueryTrackingPublication(queryClient, projectName)
   }
+  // The same button reads again, so the retry keeps the keyboard focus the sheet returns to.
+  const retry = state === 'failed' || state === 'missing'
   return (
     <>
-      {state === 'failed' ? <p role="alert" className="text-sm text-negative">Could not load tracked queries. Try again.</p> : null}
-      {state === 'missing' ? <p role="alert" className="text-sm text-negative">This location was not found in tracked queries. Try again.</p> : null}
-      <WriteButton type="button" variant="outline" size="sm" className={className} onClick={() => { void press() }}>
-        <Plus aria-hidden="true" size={14} />
-        {state === 'opening' ? 'Opening…' : 'Add query about this location'}
+      {state === 'failed' ? <span role="alert"><StatusNote icon={AlertTriangle} tone="negative" label="Could not load" detail="Tracked queries did not load." /></span> : null}
+      {state === 'missing' ? <span role="alert"><StatusNote icon={AlertTriangle} tone="negative" label="Location not found" detail="This location was not found in tracked queries." /></span> : null}
+      <WriteButton type="button" variant="outline" size="sm" className={className} aria-label={retry ? 'Retry adding a query about this location' : undefined} onClick={() => { void press() }}>
+        {retry ? null : <Plus aria-hidden="true" size={14} />}
+        {state === 'opening' ? 'Opening…' : retry ? 'Retry' : 'Add query about this location'}
       </WriteButton>
       {state === 'open' && workspace ? <TrackingAddQueriesSheet projectName={projectName} workspace={workspace} sweepActive={false} defaultLocationKey={locationKey} onPublished={onPublished} onClose={() => setState('closed')} /> : null}
     </>
