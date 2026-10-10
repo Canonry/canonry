@@ -460,7 +460,8 @@ test('shows only in-group properties and relationships for a shared query', asyn
 const advancedResetNotice = 'After you publish, AI Visibility keeps showing the last sweep until the next sweep. Location pages and competitor results show no numbers until then. Past answers are kept.'
 const sweepActiveMessage = 'A sweep is queued or running. Publish after it finishes.'
 const removalDiff = { added: [], removed: [{ queryId: 'query-acme', queryText: 'Acme pricing', assignmentCount: 1 }], reused: [], unchanged: [], noOp: false }
-const removalWorkload = { existingNodes: 2, existingProviderCalls: 2, nextSweepNodes: 1, nextSweepProviderCalls: 1, addedNodes: 0, addedProviderCalls: 0, removedNodes: 1, removedProviderCalls: 1 }
+// One node asked on three engines is three provider calls, so an answer number read from the node counts would show.
+const removalWorkload = { existingNodes: 2, existingProviderCalls: 6, nextSweepNodes: 1, nextSweepProviderCalls: 3, addedNodes: 0, addedProviderCalls: 0, removedNodes: 1, removedProviderCalls: 3 }
 // The preview's `tracked` is the post-change state, so a whole-query removal drops the row.
 const trackedAfterRemoval = workspace().tracked.filter(row => row.queryId !== 'query-acme')
 
@@ -479,8 +480,8 @@ function reviewNumbers() {
 /** One row of an advanced review table, by its query. `row` also holds the query's closed classifications. */
 function reviewRow(queryText: string, table = 'Changes') {
   const row = within(screen.getByRole('table', { name: table })).getByText(queryText).closest('tr')!
-  const [change, , type, locations, searchLocation] = [...row.cells].map(cell => cell.textContent)
-  return { row, change, type, locations, searchLocation }
+  const [change, , type, assignments, searchLocation] = [...row.cells].map(cell => cell.textContent)
+  return { row, change, type, assignments, searchLocation }
 }
 
 test('focuses the preview outcome and shows the before and after numbers under the heading', async () => {
@@ -495,7 +496,7 @@ test('focuses the preview outcome and shows the before and after numbers under t
   expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' })
   // Visible under the heading, not folded into a disclosure.
   expect(heading.textContent).toBe('Review 1 change')
-  expect(reviewNumbers()).toEqual({ Queries: '2 → 1', 'Answers per sweep': '2 → 1', 'Answers added': '+0', 'Answers removed': '−1' })
+  expect(reviewNumbers()).toEqual({ Queries: '2 → 1', 'Answers per sweep': '6 → 3', 'Answers added': '+0', 'Answers removed': '−3' })
   expect(screen.getByText('Queries', { selector: 'dt' }).closest('details')).toBeNull()
   expect(screen.getByText(advancedResetNotice)).toBeTruthy()
   expect(within(heading.parentElement!).getByText('Publishing does not run a sweep.')).toBeTruthy()
@@ -511,7 +512,7 @@ test('keeps added and removed queries and answers separate in the review numbers
       // Post-change: the removed query is gone and the two new ones are in.
       tracked: [...trackedAfterRemoval, ...added.map(row => ({ ...trackedAfterRemoval[0]!, queryId: row.queryId, queryText: row.queryText, normalizedText: row.queryText.toLowerCase() }))],
       diff: { ...removalDiff, added },
-      workload: { existingNodes: 1228, existingProviderCalls: 1228, nextSweepNodes: 1236, nextSweepProviderCalls: 1236, addedNodes: 12, addedProviderCalls: 12, removedNodes: 4, removedProviderCalls: 4 },
+      workload: { existingNodes: 614, existingProviderCalls: 1228, nextSweepNodes: 618, nextSweepProviderCalls: 1236, addedNodes: 6, addedProviderCalls: 12, removedNodes: 2, removedProviderCalls: 4 },
     }))
     throw new Error(`Unexpected fetch: ${path}`)
   })
@@ -534,7 +535,21 @@ test('counts a location-scoped removal as answers, not as a query leaving tracki
   renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
   await reviewRemoval()
   expect(previewBody).toEqual({ expectedWorkspaceVersion: workspaceVersion, additions: [], removals: [{ queryId: 'query-acme', audience: { targetKeys: ['acme'] } }] })
-  expect(reviewNumbers()).toEqual({ Queries: '2 → 2', 'Answers per sweep': '2 → 1', 'Answers added': '+0', 'Answers removed': '−1' })
+  expect(reviewNumbers()).toEqual({ Queries: '2 → 2', 'Answers per sweep': '6 → 3', 'Answers added': '+0', 'Answers removed': '−3' })
+})
+
+test('reads the query count from the server when a scoped removal takes the last assignment of a query', async () => {
+  installWorkspaceApi(path => {
+    // The row stays, outside the plan, so the tracked rows alone would read 2 → 2.
+    if (path.endsWith('/query-tracking/preview')) return jsonResponse(preview({
+      tracked: workspace().tracked.map(row => row.queryId === 'query-acme' ? { ...row, assignments: [] } : row),
+      diff: removalDiff, workload: removalWorkload, limits: { queries: { current: 2, next: 1, max: 1_000 } },
+    }))
+    throw new Error(`Unexpected fetch: ${path}`)
+  })
+  renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
+  await reviewRemoval()
+  expect(reviewNumbers()).toMatchObject({ Queries: '2 → 1' })
 })
 
 test('lists each added, reused and removed query in one table, with unchanged queries behind a disclosure', async () => {
@@ -546,8 +561,9 @@ test('lists each added, reused and removed query in one table, with unchanged qu
   const chicago = { ...context, location: { label: 'Chicago', city: 'Chicago', region: 'IL', country: 'US' } }
   const hours = {
     ...category!, queryId: 'query-hours', queryText: 'Acme hours', normalizedText: 'acme hours',
+    // Acme is asked from two search locations and Beta from one: three assignments on two locations.
     assignments: [
-      { ...pricing!.assignments[0]!, queryClass: 'non-brand', classificationSource: 'server' },
+      { ...pricing!.assignments[0]!, queryClass: 'non-brand', classificationSource: 'server', contexts: [context, chicago] },
       { ...category!.assignments[0]!, targetKey: 'beta', contexts: [chicago] },
     ],
   }
@@ -555,8 +571,8 @@ test('lists each added, reused and removed query in one table, with unchanged qu
   installWorkspaceApi(path => {
     if (path.endsWith('/query-tracking/preview')) return jsonResponse(preview({
       tracked: [category, hours, reviews],
-      diff: { added: [row(hours, 2)], removed: [row(pricing!, 1)], reused: [row(category!, 1)], unchanged: [row(reviews, 1)], noOp: false },
-      workload: { existingNodes: 3, existingProviderCalls: 3, nextSweepNodes: 4, nextSweepProviderCalls: 4, addedNodes: 2, addedProviderCalls: 2, removedNodes: 1, removedProviderCalls: 1 },
+      diff: { added: [row(hours, 3)], removed: [row(pricing!, 1)], reused: [row(category!, 1)], unchanged: [row(reviews, 1)], noOp: false },
+      workload: { existingNodes: 3, existingProviderCalls: 6, nextSweepNodes: 4, nextSweepProviderCalls: 8, addedNodes: 2, addedProviderCalls: 4, removedNodes: 1, removedProviderCalls: 2 },
     }))
     throw new Error(`Unexpected fetch: ${path}`)
   }, [], data)
@@ -564,27 +580,31 @@ test('lists each added, reused and removed query in one table, with unchanged qu
   const heading = await reviewRemoval()
 
   expect(heading.textContent).toBe('Review 3 changes')
-  expect(reviewNumbers()).toEqual({ Queries: '3 → 3', 'Answers per sweep': '3 → 4', 'Answers added': '+2', 'Answers removed': '−1' })
+  expect(reviewNumbers()).toEqual({ Queries: '3 → 3', 'Answers per sweep': '6 → 8', 'Answers added': '+4', 'Answers removed': '−2' })
   expect(screen.getByText('1 added · 1 reused · 1 removed')).toBeTruthy()
   const changes = screen.getByRole('table', { name: 'Changes' })
-  expect(within(changes).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Change', 'Query', 'Type', 'Locations', 'Search location and engines'])
+  expect(within(changes).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Change', 'Query', 'Type', 'Location assignments', 'Search location and engines'])
   expect([...changes.querySelectorAll('tbody tr')].map(line => line.firstElementChild?.textContent)).toEqual(['Added', 'Reused', 'Removed'])
   const added = reviewRow('Acme hours')
-  expect(added).toMatchObject({ change: 'Added', type: 'Non-brand', locations: '2', searchLocation: '2 combinations' })
+  // The server's assignment count, which passes the two locations the classifications name.
+  expect(added).toMatchObject({ change: 'Added', type: 'Non-brand', assignments: '3', searchLocation: '2 combinations' })
   const classifications = within(added.row).getByText('Classifications · 2 locations', { selector: 'summary' }).closest('details')!
   expect(classifications.open).toBe(false)
   expect([...classifications.querySelectorAll('li')].map(line => line.textContent)).toEqual([
-    'Acme · Non-brand · Groups: North East · Markets: New York · New York · openai (gpt-5)',
+    'Acme · Non-brand · Groups: North East · Markets: New York · New York · openai (gpt-5); Chicago · openai (gpt-5)',
     'Beta · Non-brand · Chicago · openai (gpt-5)',
   ])
-  expect(reviewRow('Best AEO platform')).toMatchObject({ change: 'Reused', type: 'Non-brand', locations: '1', searchLocation: 'New York · openai (gpt-5)' })
-  expect(reviewRow('Acme pricing')).toMatchObject({ change: 'Removed', type: '', locations: '−1', searchLocation: '' })
+  expect(reviewRow('Best AEO platform')).toMatchObject({ change: 'Reused', type: 'Non-brand', assignments: '1', searchLocation: 'New York · openai (gpt-5)' })
+  expect(reviewRow('Acme pricing')).toMatchObject({ change: 'Removed', type: '', assignments: '−1', searchLocation: '' })
 
   const unchanged = screen.getByText('1 unchanged query').closest('details')!
   expect(unchanged.open).toBe(false)
   const kept = reviewRow('Acme reviews', 'Unchanged queries')
   expect(unchanged.contains(kept.row)).toBe(true)
-  expect(kept).toMatchObject({ change: 'Unchanged', type: 'Branded', locations: '1', searchLocation: 'New York · openai (gpt-5)' })
+  expect(kept).toMatchObject({ change: 'Unchanged', type: 'Branded', assignments: '1', searchLocation: 'New York · openai (gpt-5)' })
+  // An unchanged query still names its location, group and market.
+  const keptIn = within(kept.row).getByText('Classifications · 1 location', { selector: 'summary' }).closest('details')!
+  expect([...keptIn.querySelectorAll('li')].map(line => line.textContent)).toEqual(['Acme · Branded · Groups: North East · Markets: New York · New York · openai (gpt-5)'])
   expect((screen.getByRole('button', { name: 'Publish 3 changes' }) as HTMLButtonElement).disabled).toBe(false)
   // The review says location and query, with no em dash.
   expect(heading.parentElement!.textContent).not.toMatch(/propert|question|—/i)
@@ -663,6 +683,8 @@ test.each([
   await waitFor(() => expect(getToasts().map(toast => [toast.title, toast.detail])).toEqual([[title, error.message]]))
   // The review stays up with the same refusal and a way to review the change again.
   expect(screen.getByRole('alert').textContent).toBe(`${title}. ${error.message}`)
+  // Focus moves to the refusal; the button that held it left with the review.
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('alert')))
   expect(screen.getByRole('button', { name: 'Review again' })).toBeTruthy()
   expect(screen.queryByRole('button', { name: /^Publish/ })).toBeNull()
 })
@@ -706,6 +728,18 @@ test.each([true, false])('pauses publishing while a sweep is queued or running (
     fireEvent.click(confirm)
     await waitFor(() => expect(commits).toHaveLength(1))
   }
+})
+
+test('shows no sweep pause on a review that changes nothing', async () => {
+  installWorkspaceApi(path => {
+    if (path.endsWith('/query-tracking/preview')) return jsonResponse(preview({ diff: { ...removalDiff, removed: [], noOp: true } }))
+    throw new Error(`Unexpected fetch: ${path}`)
+  })
+  renderWorkspace({ publishGuard: { sweepActive: true } })
+  await reviewRemoval()
+  expect(screen.getByRole('button', { name: 'Publish changes' }).hasAttribute('disabled')).toBe(true)
+  expect(screen.queryByText(sweepActiveMessage)).toBeNull()
+  expect(screen.queryByRole('status')).toBeNull()
 })
 
 test('clears the previous confirmation while a changed draft awaits a new preview', async () => {
@@ -925,7 +959,7 @@ test('sends one explicitly selected context for a new advanced group assignment'
 
   await screen.findByText('Review 1 change')
   const added = reviewRow('New group query')
-  expect(added).toMatchObject({ change: 'Added', type: 'Non-brand', locations: '1', searchLocation: 'New York · openai (gpt-5)' })
+  expect(added).toMatchObject({ change: 'Added', type: 'Non-brand', assignments: '1', searchLocation: 'New York · openai (gpt-5)' })
   expect(within(added.row).getByText('Acme · Non-brand · Groups: North East · New York · openai (gpt-5)')).toBeTruthy()
   expect(previewBody).toEqual({
     expectedWorkspaceVersion: workspaceVersion,
@@ -1043,7 +1077,7 @@ test('describes removed assignments without attributing the retained Property to
   await screen.findByText('1 removed')
   const removed = reviewRow('Acme pricing')
   // The post-change row holds only what survives (Beta), so the removal names no type or search location.
-  expect(removed).toMatchObject({ change: 'Removed', type: '', locations: '−1', searchLocation: '' })
+  expect(removed).toMatchObject({ change: 'Removed', type: '', assignments: '−1', searchLocation: '' })
   expect(removed.row.textContent).not.toContain('Beta')
 })
 
@@ -1353,6 +1387,10 @@ test.each([false, true])('keeps reused-query classifications collapsed until req
   chooseContext()
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
   await screen.findByText('1 reused')
+  // A no-op lists the query it matched and counts no change.
+  expect(screen.getByRole('heading', { name: noOp ? 'No tracking changes' : 'Review 1 change' })).toBeTruthy()
+  expect((screen.getByRole('button', { name: noOp ? 'Publish changes' : 'Publish 1 change' }) as HTMLButtonElement).disabled).toBe(noOp)
+  expect(reviewRow('Acme pricing').type).toBe('Non-brand, Branded')
   const results = reviewRow('Acme pricing').row
   const summary = within(results).getByText('Classifications · 2 locations', { selector: 'summary' })
   const disclosure = summary.closest('details')!

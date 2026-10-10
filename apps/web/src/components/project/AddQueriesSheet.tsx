@@ -145,7 +145,12 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
         reviewedAt: preview.reviewedAt,
       })
     },
-    onReviewAgain: review,
+    // A draft that still resolves is rebuilt from the refreshed workspace. One whose place is gone
+    // goes again as it was reviewed, so the server says why.
+    onReviewAgain: () => {
+      if (canReview) review()
+      else publish.requestPreview({ ...reviewed, expectedWorkspaceVersion: workspace.workspaceVersion })
+    },
     onBack: () => setReviewed(null),
   }) : null
   const refusal = publish.error ? <p role="alert" className="mt-4 text-sm leading-5 text-negative"><span className="font-medium">{publish.error.title}.</span> {publish.error.detail}</p> : null

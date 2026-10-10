@@ -37,9 +37,9 @@ The Add query form assigns one query at a time:
 
 An advanced project's review shows the same thing for every change, from the sheet, the form, **Edit** or **Remove**:
 
-- **Queries** and **Answers per sweep**, each as the count now and the count after publishing, with **Answers added** and **Answers removed** kept separate.
-- One row per added, reused, and removed query: its type, its location assignments, and its search location and engines. A removed row shows how many assignments it removes. **Classifications** lists each location.
-- Unchanged queries, behind **N unchanged queries**.
+- **Queries** and **Answers per sweep**, each as the count now and the count after publishing, with **Answers added** and **Answers removed** kept separate. **Queries** counts the queries the project asks, so a query that loses its last assignment leaves the count.
+- One row per added, reused, and removed query: its type, its location assignments, and its search location and engines. A query has one assignment per location and search location, so the count can be higher than the number of locations. A removed row shows how many assignments it removes. **Classifications** lists each location.
+- Unchanged queries, behind **N unchanged queries**, each with its own **Classifications**.
 
 Every figure comes from the preview response, the same one `canonry query preview` returns. A simple site keeps its shorter review.
 If the server refuses the review or the publish, the review shows its message and **Review again**.

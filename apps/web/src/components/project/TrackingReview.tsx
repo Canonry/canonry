@@ -33,7 +33,10 @@ export type TrackingReviewState = {
 const CHANGE_TONE = { Added: 'positive', Reused: 'neutral', Removed: 'caution', Unchanged: 'neutral' } as const
 const count = (value: number) => value.toLocaleString('en-US')
 
-/** The rows a publish changes. A no-op lists the queries it matched, and changes none of them. */
+/**
+ * The rows a publish changes. A no-op lists the queries it matched, and changes none of them.
+ * The server lists a reused query without saying whether this change alters it, so each one counts.
+ */
 function changeCount({ diff }: QueryTrackingPreviewResponse): number {
   return diff.noOp ? 0 : diff.added.length + diff.removed.length + diff.reused.length
 }
@@ -44,8 +47,8 @@ function typeLabel(queryClass: Assignment['queryClass']): string {
 
 /**
  * The review of a tracked-query change on an advanced project, before it is
- * published. Every number and row is the server's: `diff`, `workload` and the
- * post-change `tracked`. Simple projects keep `TrackingPreview`.
+ * published. Every number and row is the server's: `diff`, `workload`, `limits`
+ * and the post-change `tracked`. Simple projects keep `TrackingPreview`.
  */
 export function TrackingReview({ workspace, contextLabels, showActions = true, ...review }: TrackingReviewState & {
   workspace: QueryTrackingWorkspaceResponse
@@ -56,12 +59,14 @@ export function TrackingReview({ workspace, contextLabels, showActions = true, .
 }) {
   const { preview, error } = review
   const headingRef = useRef<HTMLHeadingElement>(null)
+  const refusalRef = useRef<HTMLParagraphElement>(null)
+  // A refusal takes focus as a new review does: the button that had it is gone with the review.
   useEffect(() => {
-    const heading = headingRef.current
-    if (!heading) return
-    if (typeof heading.scrollIntoView === 'function') heading.scrollIntoView({ block: 'start' })
-    heading.focus({ preventScroll: true })
-  }, [preview])
+    const outcome = headingRef.current ?? refusalRef.current
+    if (!outcome) return
+    if (typeof outcome.scrollIntoView === 'function') outcome.scrollIntoView({ block: 'start' })
+    outcome.focus({ preventScroll: true })
+  }, [preview, error])
   const actions = showActions ? <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-default pt-4">
     <TrackingReviewActions {...review} />
   </div> : null
@@ -69,7 +74,7 @@ export function TrackingReview({ workspace, contextLabels, showActions = true, .
   if (!preview) {
     return (
       <>
-        {error ? <p role="alert" className="text-sm leading-5 text-negative"><span className="font-medium">{error.title}.</span> {error.detail}</p> : null}
+        {error ? <p ref={refusalRef} tabIndex={-1} role="alert" className="text-sm leading-5 text-negative"><span className="font-medium">{error.title}.</span> {error.detail}</p> : null}
         {actions}
       </>
     )
@@ -78,10 +83,11 @@ export function TrackingReview({ workspace, contextLabels, showActions = true, .
   const { diff, workload } = preview
   const changed = changeCount(preview)
   const tracked = new Map(preview.tracked.map(row => [row.queryId, row]))
-  // A scoped removal lists a query that stays tracked elsewhere; only rows gone
-  // from the post-change `tracked` leave the count.
+  // The server counts the queries the plan asks, now and after. An older server sends no `limits`,
+  // and the tracked rows stand in: a scoped removal lists a query that stays tracked elsewhere,
+  // so only rows gone from the post-change `tracked` leave the count.
   const leaving = diff.removed.filter(row => !tracked.has(row.queryId)).length
-  const queriesBefore = tracked.size - diff.added.length + leaving
+  const queries = preview.limits?.queries ?? { current: tracked.size - diff.added.length + leaving, next: tracked.size }
   const rows = (change: Change, list: readonly ChangeRow[]) => list.map(row => ({ change, row }))
   const changes = [...rows('Added', diff.added), ...rows('Reused', diff.reused), ...rows('Removed', diff.removed)]
   const kinds = [[diff.added, 'added'], [diff.reused, 'reused'], [diff.removed, 'removed']] as const
@@ -92,7 +98,7 @@ export function TrackingReview({ workspace, contextLabels, showActions = true, .
         {diff.noOp ? 'No tracking changes' : changed > 0 ? `Review ${count(changed)} ${changed === 1 ? 'change' : 'changes'}` : 'Review tracking changes'}
       </h3>
       <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
-        <ReviewNumber label="Queries" value={`${count(queriesBefore)} → ${count(tracked.size)}`} />
+        <ReviewNumber label="Queries" value={`${count(queries.current)} → ${count(queries.next)}`} />
         <ReviewNumber label="Answers per sweep" value={`${count(workload.existingProviderCalls)} → ${count(workload.nextSweepProviderCalls)}`} />
         {/* One provider call is one answer; added and removed answers stay separate. */}
         <ReviewNumber label="Answers added" value={`+${count(workload.addedProviderCalls)}`} />
@@ -157,7 +163,7 @@ function ReviewTable({ label, rows, tracked, workspace, contextLabels }: {
     <div className="mt-2 overflow-x-auto">
       <table aria-label={label} className="evidence-table min-w-[640px] table-auto">
         <thead>
-          <tr><th>Change</th><th>Query</th><th>Type</th><th>Locations</th><th>Search location and engines</th></tr>
+          <tr><th>Change</th><th>Query</th><th>Type</th><th>Location assignments</th><th>Search location and engines</th></tr>
         </thead>
         <tbody>
           {rows.map(({ change, row }) => {
@@ -170,10 +176,10 @@ function ReviewTable({ label, rows, tracked, workspace, contextLabels }: {
                 <td className="whitespace-nowrap"><ToneBadge tone={CHANGE_TONE[change]}>{change}</ToneBadge></td>
                 <td className="min-w-44 break-words">
                   <span className="font-medium text-heading">{row.queryText}</span>
-                  {resolved && (change === 'Added' || change === 'Reused') ? <Classifications row={resolved} workspace={workspace} contextLabels={contextLabels} /> : null}
+                  {resolved ? <Classifications row={resolved} workspace={workspace} contextLabels={contextLabels} /> : null}
                 </td>
                 <td className="whitespace-nowrap text-secondary">{[...new Set(assignments.map(assignment => typeLabel(assignment.queryClass)))].join(', ')}</td>
-                {/* The server's assignment count: one per location and search location the query is asked for. A removal counts what it takes away. */}
+                {/* The server's assignment count: one per location and search location the query is asked for, so it can pass the number of locations. A removal counts what it takes away. */}
                 <td className="whitespace-nowrap tabular-nums text-secondary">{change === 'Removed' ? '−' : ''}{count(row.assignmentCount)}</td>
                 <td className="min-w-44 text-secondary">{searchLocations.length > 1 ? `${count(searchLocations.length)} combinations` : searchLocations[0]}</td>
               </tr>

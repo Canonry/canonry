@@ -89,7 +89,8 @@ function locationWorkspace(overrides: Record<string, unknown> = {}) {
 }
 
 function preview(added: string[], version = workspaceVersion) {
-  const calls = { existingNodes: 1, existingProviderCalls: 1, nextSweepNodes: 1 + added.length, nextSweepProviderCalls: 1 + added.length, addedNodes: added.length, addedProviderCalls: added.length, removedNodes: 0, removedProviderCalls: 0 }
+  // Each node is asked on three engines, so an answer number read from the node counts would show.
+  const calls = { existingNodes: 1, existingProviderCalls: 3, nextSweepNodes: 1 + added.length, nextSweepProviderCalls: 3 * (1 + added.length), addedNodes: added.length, addedProviderCalls: 3 * added.length, removedNodes: 0, removedProviderCalls: 0 }
   const rows = added.map((queryText, index) => ({ queryId: `query-new-${index}`, queryText, assignmentCount: 1 }))
   return {
     mode: 'advanced', workspaceVersion: version, previewToken, reviewedAt, active,
@@ -339,7 +340,7 @@ test('reviews inside the sheet, keeps the draft on Back, and publishes with the 
 
   await sheet.findByRole('heading', { name: 'Review 2 changes' })
   expect(Object.fromEntries(sheet.getAllByRole('term').map(term => [term.textContent, term.nextElementSibling?.textContent]))).toEqual({
-    Queries: '1 → 3', 'Answers per sweep': '1 → 3', 'Answers added': '+2', 'Answers removed': '−0',
+    Queries: '1 → 3', 'Answers per sweep': '3 → 9', 'Answers added': '+6', 'Answers removed': '−0',
   })
   expect(sheet.getByText('2 added')).toBeTruthy()
   expect(sheet.getByText(resetNotice)).toBeTruthy()
@@ -481,6 +482,7 @@ test.each(['preview', 'commit'] as const)('shows a refused %s in the review, rev
   // The toast sits under the open sheet, so the review shows the refusal itself, in place of the changes.
   const refusal = `Could not ${refused === 'preview' ? 'review' : 'confirm'} tracking changes. Workspace changed. Review again.`
   expect(sheet.getByRole('alert').textContent).toBe(refusal)
+  expect(document.activeElement).toBe(sheet.getByRole('alert'))
   expect(sheet.queryByRole('button', { name: /^Publish/ })).toBeNull()
   expect(sheet.queryByLabelText('Queries')).toBeNull()
   await waitFor(() => expect(queryClient.getQueryCache().getAll().some(query => (query.state.data as { workspaceVersion?: string } | undefined)?.workspaceVersion === refreshedVersion)).toBe(true))
@@ -523,6 +525,41 @@ test('reviews an expired review again from the review, then publishes it', async
   const body = { expectedWorkspaceVersion: workspaceVersion, additions: [newYorkAddition('best pizza in New York')], removals: [] }
   expect(writes.map(write => write.operation)).toEqual(['preview', 'commit', 'preview', 'commit'])
   expect(writes.slice(2)).toEqual([{ operation: 'preview', body }, { operation: 'commit', body: { ...body, previewToken, reviewedAt } }])
+})
+
+test('sends the reviewed change again when the refreshed workspace no longer holds its market, so the server says why', async () => {
+  const refreshedVersion = `qtw_${'d'.repeat(64)}`
+  let gone = false
+  const withoutNewYork = () => workspace({
+    workspaceVersion: refreshedVersion,
+    markets: workspace().markets.filter(market => market.stableKey !== 'new-york'),
+    scopeOptions: workspace().scopeOptions.filter(option => option.id !== 'new-york'),
+  })
+  const writes = installApi({
+    workspace: () => gone ? withoutNewYork() : workspace(),
+    respond: write => {
+      if (gone) return jsonResponse({ error: { code: 'VALIDATION_ERROR', message: 'Selected market "new-york" is not in the active plan.' } }, 400)
+      if (write.operation !== 'commit') return undefined
+      gone = true
+      return jsonResponse({ error: { code: 'QUERY_TRACKING_PREVIEW_STALE', message: 'Workspace changed. Review again.' } }, 409)
+    },
+  })
+  const { queryClient } = renderTracked()
+  const { sheet } = await openSheet()
+  fill(sheet, 'best pizza in New York')
+  fireEvent.click(reviewButton(sheet))
+  fireEvent.click(await sheet.findByRole('button', { name: 'Publish 1 change' }))
+  await waitFor(() => expect(queryClient.getQueryCache().getAll().some(query => (query.state.data as { workspaceVersion?: string } | undefined)?.workspaceVersion === refreshedVersion)).toBe(true))
+
+  // The draft's market is gone, so nothing can be rebuilt from it. The reviewed change goes again as it was.
+  fireEvent.click(sheet.getByRole('button', { name: 'Review again' }))
+  await waitFor(() => expect(sheet.getByRole('alert').textContent).toBe('Could not review tracking changes. Selected market "new-york" is not in the active plan.'))
+  expect(writes.map(write => write.operation)).toEqual(['preview', 'commit', 'preview'])
+  expect(writes.at(-1)!.body).toEqual({ expectedWorkspaceVersion: refreshedVersion, additions: [newYorkAddition('best pizza in New York')], removals: [] })
+  // Back still leads to the draft, where another market can be chosen.
+  fireEvent.click(sheet.getByRole('button', { name: 'Back' }))
+  expect(queriesField(sheet).value).toBe('best pizza in New York')
+  expect(sheet.getByText('Choose a market')).toBeTruthy()
 })
 
 test('keeps Back off while a publish is in flight', async () => {
@@ -684,19 +721,20 @@ test('lists groups and locations for Location, never markets, and calls them loc
 })
 
 test.each([
-  { subject: 'Location', targetKeys: ['acme'], marketKeys: ['new-york', 'remote'], markets: 'New York, Remote searches', locations: ['Acme'], classifications: 'Classifications · 1 location' },
-  { subject: 'Market', targetKeys: ['acme', 'cedar'], marketKeys: ['new-york'], markets: 'New York', locations: ['Acme', 'Cedar Court'], classifications: 'Classifications · 2 locations' },
-])('calls a location a location in the review of a $subject add', async ({ subject, targetKeys, marketKeys, markets, locations, classifications }) => {
+  // One location in two markets is asked from each market's search location: two assignments on one location.
+  { subject: 'Location', targetKeys: ['acme'], marketKeys: ['new-york', 'remote'], contexts: [context, bostonContext], markets: 'New York, Remote searches', locations: ['Acme'], classifications: 'Classifications · 1 location', asked: '2 combinations', each: 'New York · openai (gpt-5); Boston · openai (gpt-5), gemini (gemini-3)' },
+  { subject: 'Market', targetKeys: ['acme', 'cedar'], marketKeys: ['new-york'], contexts: [context], markets: 'New York', locations: ['Acme', 'Cedar Court'], classifications: 'Classifications · 2 locations', asked: 'New York · openai (gpt-5)', each: 'New York · openai (gpt-5)' },
+])('calls a location a location in the review of a $subject add', async ({ subject, targetKeys, marketKeys, contexts, markets, locations, classifications, asked, each }) => {
   // As the server answers a review: `tracked` holds the added query, on every location its markets hold.
   const held = () => locationWorkspace({ markets: locationWorkspace().markets.map(market => marketKeys.includes(market.stableKey) ? { ...market, usageEdges: targetKeys.map(key => usageEdge(key)) } : market) })
   const added = {
     queryId: 'query-new-0', queryText: 'Acme reviews', normalizedText: 'acme reviews',
     provenance: { source: 'manual', sourceId: null, capturedAt: reviewedAt },
     state: 'awaiting-sweep', lastMeasuredAt: null,
-    assignments: targetKeys.map(targetKey => ({ targetKey, groupKeys: ['north-east'], marketKeys, queryClass: 'branded', classificationSource: 'server', contexts: [context] })),
+    assignments: targetKeys.map(targetKey => ({ targetKey, groupKeys: ['north-east'], marketKeys, queryClass: 'branded', classificationSource: 'server', contexts })),
   }
   const base = preview(['Acme reviews'])
-  const reviewed = { ...base, tracked: [...tracked, added], diff: { ...base.diff, added: [{ queryId: added.queryId, queryText: added.queryText, assignmentCount: targetKeys.length }] } }
+  const reviewed = { ...base, tracked: [...tracked, added], diff: { ...base.diff, added: [{ queryId: added.queryId, queryText: added.queryText, assignmentCount: targetKeys.length * contexts.length }] } }
   expect(queryTrackingPreviewResponseSchema.safeParse(reviewed).success).toBe(true)
   installApi({ workspace: held, respond: write => write.operation === 'preview' ? jsonResponse(reviewed) : undefined })
   renderTracked()
@@ -707,12 +745,12 @@ test.each([
 
   await reviewHeading(sheet)
   const changes = sheet.getByRole('table', { name: 'Changes' })
-  expect(within(changes).getAllByRole('columnheader').map(header => header.textContent)).toContain('Locations')
+  expect(within(changes).getAllByRole('columnheader').map(header => header.textContent)).toContain('Location assignments')
   const row = within(changes).getByText('Acme reviews').closest('tr')!
-  // Type, the server's assignment count under Locations, and where the query is asked.
-  expect([...row.cells].map(cell => cell.textContent).slice(2)).toEqual(['Branded', String(targetKeys.length), 'New York · openai (gpt-5)'])
+  // Type, the server's assignment count (two either way, on one location or on two), and where the query is asked.
+  expect([...row.cells].map(cell => cell.textContent).slice(2)).toEqual(['Branded', '2', asked])
   expect(within(row).getByText(classifications, { selector: 'summary' })).toBeTruthy()
-  expect([...row.querySelectorAll('li')].map(line => line.textContent)).toEqual(locations.map(location => `${location} · Branded · Groups: North East · Markets: ${markets} · New York · openai (gpt-5)`))
+  expect([...row.querySelectorAll('li')].map(line => line.textContent)).toEqual(locations.map(location => `${location} · Branded · Groups: North East · Markets: ${markets} · ${each}`))
   expect(sheetText()).not.toMatch(/question|propert|—/i)
 })
 

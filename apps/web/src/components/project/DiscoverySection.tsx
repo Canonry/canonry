@@ -1375,6 +1375,7 @@ function ComposerActions({
   )
 }
 
+/** The review on a simple project. An advanced project draws `TrackingReview`. */
 function TrackingPreview({
   preview,
   workspace,
@@ -1396,13 +1397,9 @@ function TrackingPreview({
     heading.focus({ preventScroll: true })
   }, [preview])
   const hasChanges = !preview.diff.noOp
-  // An advanced commit writes a new revision with no continuity link, so
-  // location and competitor reads blank while AI Visibility falls back.
   const subcopy = !hasChanges
     ? 'This request leaves tracking unchanged.'
-    : preview.mode === 'advanced'
-      ? 'After you publish, AI Visibility keeps showing the last sweep until the next sweep. Location pages and competitor results show no numbers until then. Past answers are kept.'
-      : 'Changes apply to future sweeps. Earlier results stay unchanged.'
+    : 'Changes apply to future sweeps. Earlier results stay unchanged.'
   const changed = [
     { label: 'Added', rows: preview.diff.added },
     { label: 'Removed', rows: preview.diff.removed },
@@ -1473,28 +1470,9 @@ function PreviewChangeList({
             // `tracked` is the post-change state, so its scopes describe what survives.
             ? `${row.assignmentCount} ${row.assignmentCount === 1 ? 'assignment' : 'assignments'} removed`
             : previewRowDetail(row, tracked, workspace)}</p>
-          {label === 'Added' || label === 'Reused' ? <PreviewClassifications row={tracked.find(candidate => candidate.queryId === row.queryId)} workspace={workspace} /> : null}
         </li>)}
       </ul>
     </section>
-  )
-}
-
-function PreviewClassifications({ row, workspace }: { row?: QueryTrackingTrackedRow; workspace: QueryTrackingWorkspaceResponse }) {
-  if (!row?.assignments.length) return null
-  const propertyCount = new Set(row.assignments.map(assignment => assignment.targetKey)).size
-  return (
-    <details className="mt-2 text-secondary">
-      <summary className="min-h-11 cursor-pointer py-3 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500">Classifications · {propertyCount} {propertyCount === 1 ? 'property' : 'properties'}</summary>
-      <ul className="mt-1 max-h-40 space-y-1 overflow-y-auto">
-        {row.assignments.map((assignment, index) => {
-          const target = workspace.targets.find(candidate => candidate.stableKey === assignment.targetKey)?.label ?? assignment.targetKey
-          const queryClass = assignment.queryClass === 'branded' ? 'Branded' : assignment.queryClass === 'non-brand' ? 'Non-brand' : 'Unknown'
-          const contexts = assignment.contexts.map(context => contextLabel(contextInput(context))).join('; ')
-          return <li key={`${assignment.targetKey}:${index}`}>{[target, queryClass, contexts].filter(Boolean).join(' · ')}</li>
-        })}
-      </ul>
-    </details>
   )
 }
 
