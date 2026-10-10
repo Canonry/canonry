@@ -546,6 +546,10 @@ export class JobRunner {
    * handoff across a restart.
    */
   private readonly executing = new Map<string, number>()
+  private readonly executingBatchRegistrations = new Map<symbol, {
+    runId: string
+    registrations: readonly RegisteredProvider[]
+  }>()
 
   constructor(
     db: DatabaseClient,
@@ -575,6 +579,13 @@ export class JobRunner {
 
   private isExecuting(runId: string): boolean {
     return this.executing.has(runId)
+  }
+
+  /** Reload must preserve credentials captured by a batch sweep until it settles. */
+  getExecutingBatchRegistrations(): { runId: string; registration: RegisteredProvider }[] {
+    return [...this.executingBatchRegistrations.values()].flatMap(({ runId, registrations }) =>
+      registrations.map(registration => ({ runId, registration })),
+    )
   }
 
   private hasProviderBatches(runId: string): boolean {
@@ -755,6 +766,7 @@ export class JobRunner {
     // can stop them rather than leave them billing into a run that is over.
     const batchRowIds: string[] = []
     const releaseExecution = this.enterExecution(runId)
+    const batchExecution = Symbol(runId)
 
     try {
       const existingRun = this.getRunState(runId)
@@ -965,6 +977,23 @@ export class JobRunner {
       // Split providers: API providers fan out in parallel, browser providers run sequentially
       const apiProviders = calledProviders.filter(p => !isBrowserProvider(p.adapter.name))
       const browserProviders = calledProviders.filter(p => isBrowserProvider(p.adapter.name))
+      const providerKey = (provider: RegisteredProvider): string => provider.adapter.name.trim().toLocaleLowerCase('en')
+      // Capture the base registrations before yielding: a later provider may
+      // wait for a fanout slot before writing its first submitting batch row.
+      // Keep these until finally, including cancellation awaiting an upstream
+      // submit; its cancelled database row alone no longer protects the key.
+      const batchProviders = new Set<ProviderName>()
+      if (planExecution) {
+        // Queued dispatch modes stay frozen; an unsupported adapter falls back to sync.
+        const frozenModes = existingRun.providerDispatchModes ?? {}
+        for (const provider of apiProviders) {
+          if (frozenModes[providerKey(provider)] !== ProviderDispatchModes.batch) continue
+          if (adapterSupportsBatch(provider.adapter)) batchProviders.add(provider.adapter.name)
+          else log.warn('run.batch-unsupported', { runId, provider: provider.adapter.name })
+        }
+        const registrations = apiProviders.filter(provider => batchProviders.has(provider.adapter.name))
+        if (registrations.length > 0) this.executingBatchRegistrations.set(batchExecution, { runId, registrations })
+      }
 
       const processQueryForProvider = async (
         registeredProvider: RegisteredProvider,
@@ -1209,19 +1238,8 @@ export class JobRunner {
         // registry cannot serve simply leaves its slots unexecuted — visible
         // as executed below expected rather than silently swapped for another.
         const plan = planExecution
-        const providerKey = (provider: RegisteredProvider): string => provider.adapter.name.trim().toLocaleLowerCase('en')
         const unitsFor = (provider: RegisteredProvider): PlanExecutionUnit[] =>
           plan.unitsByProvider.get(providerKey(provider)) ?? []
-        // The mode was frozen when the run was queued and is never re-read
-        // from config here. An adapter that lost its batch API since (a
-        // downgrade) can only answer sync.
-        const frozenModes = existingRun.providerDispatchModes ?? {}
-        const batchProviders = new Set<ProviderName>()
-        for (const provider of apiProviders) {
-          if (frozenModes[providerKey(provider)] !== ProviderDispatchModes.batch) continue
-          if (adapterSupportsBatch(provider.adapter)) batchProviders.add(provider.adapter.name)
-          else log.warn('run.batch-unsupported', { runId, provider: provider.adapter.name })
-        }
         log.info('run.plan-dispatch', {
           runId,
           expectedSlots: plan.manifest.expectedSlots.length,
@@ -1241,9 +1259,18 @@ export class JobRunner {
           // A batch provider hands its slots to the provider's batch API. Only
           // the slots a batch cannot carry come back to be answered here, and
           // they run concurrently with every sync provider, exactly as today.
-          const units = batchProviders.has(registeredProvider.adapter.name)
-            ? await this.submitPlanBatches(submission, registeredProvider, unitsFor(registeredProvider))
-            : unitsFor(registeredProvider)
+          let units: PlanExecutionUnit[]
+          if (batchProviders.has(registeredProvider.adapter.name)) {
+            // A sibling can abort the sweep while this submit is still awaiting
+            // its provider. Keep its registration until late cancellation ends.
+            const submitExecution = Symbol(runId)
+            this.executingBatchRegistrations.set(submitExecution, { runId, registrations: [registeredProvider] })
+            try {
+              units = await this.submitPlanBatches(submission, registeredProvider, unitsFor(registeredProvider))
+            } finally {
+              this.executingBatchRegistrations.delete(submitExecution)
+            }
+          } else units = unitsFor(registeredProvider)
           await Promise.all(units.map(async (unit) => {
             await processNodeForProvider(registeredProvider, unit)
           }))
@@ -1424,6 +1451,7 @@ export class JobRunner {
       }
       await this.cancelAtProvider(abandoned)
     } finally {
+      this.executingBatchRegistrations.delete(batchExecution)
       releaseExecution()
     }
   }
@@ -2006,11 +2034,13 @@ export class JobRunner {
   }
 
   private async cancelAtProvider(rows: ReadonlyArray<{ id: string; provider: string; providerBatchId: string | null }>): Promise<void> {
-    for (const row of rows) {
+    // The rows are already cancelled, so reload can replace the registry while
+    // an earlier cancellation awaits the provider. Capture every key up front.
+    const registrations = rows.map(row => ({ row, registered: this.registry.get(row.provider) }))
+    for (const { row, registered } of registrations) {
       // A batch still being submitted has no provider id yet; its submit
       // cancels it on return.
       if (!row.providerBatchId) continue
-      const registered = this.registry.get(row.provider)
       if (!registered?.adapter.batch) {
         log.warn('batch.cancel-unavailable', { batchId: row.id, provider: row.provider })
         continue

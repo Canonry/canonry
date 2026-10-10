@@ -303,6 +303,8 @@ import type {
   ResultsExportFormat,
   IntegrationSettingsSummaryDto,
   ProviderSummaryEntryDto,
+  ProviderReloadRequest,
+  ProviderReloadResponseDto,
   TelemetryStatusDto,
 } from '@ainyc/canonry-contracts'
 import {
@@ -372,6 +374,7 @@ import {
   getApiV1Settings,
   putApiV1SettingsGoogle,
   putApiV1SettingsProvidersByName,
+  postApiV1SettingsProvidersReload,
   postApiV1Snapshot,
   getApiV1Telemetry,
   putApiV1Telemetry,
@@ -1072,6 +1075,7 @@ export class ApiClient {
           code: 'CONNECTION_ERROR',
           message: connectionFailureMessage(this.originUrl),
           exitCode: EXIT_SYSTEM_ERROR,
+          details: { connectionUnavailable: true },
         })
       }
       throw new CliError({ code: 'CONNECTION_ERROR', message: msg, exitCode: EXIT_SYSTEM_ERROR })
@@ -2514,6 +2518,12 @@ export class ApiClient {
   async updateGoogleSettings(body: { clientId: string; clientSecret: string }): Promise<IntegrationSettingsSummaryDto> {
     return this.invoke<IntegrationSettingsSummaryDto>(() =>
       putApiV1SettingsGoogle({ client: this.heyClient, body }),
+    )
+  }
+
+  async reloadProviders(body: ProviderReloadRequest = {}, signal?: AbortSignal): Promise<ProviderReloadResponseDto> {
+    return this.invoke<ProviderReloadResponseDto>(() =>
+      postApiV1SettingsProvidersReload({ client: this.heyClient, body, signal }),
     )
   }
 

@@ -93,11 +93,27 @@ export interface ProviderEnvConfig {
   vertexCredentials?: string
 }
 
+/**
+ * A provider entry as `bootstrap` / `init` read it from the environment.
+ * `model` is set only by its env var, and `quota` never is: an unset field
+ * stays undefined so a saved value survives a rerun. A new entry gets the
+ * setup defaults from `withBootstrapProviderDefaults`.
+ */
+export interface BootstrapProviderEnvConfig {
+  apiKey: string
+  model?: string
+  baseUrl?: string
+  quota?: ProviderQuotaPolicy
+  vertexProject?: string
+  vertexRegion?: string
+  vertexCredentials?: string
+}
+
 export interface LocalBootstrapProviderConfig {
   apiKey?: string
   baseUrl: string
   model?: string
-  quota: ProviderQuotaPolicy
+  quota?: ProviderQuotaPolicy
 }
 
 export interface BootstrapEnv {
@@ -107,12 +123,47 @@ export interface BootstrapEnv {
   googleClientId?: string
   googleClientSecret?: string
   providers: {
-    gemini?: ProviderEnvConfig
-    openai?: ProviderEnvConfig
-    claude?: ProviderEnvConfig
-    perplexity?: ProviderEnvConfig
-    muse?: ProviderEnvConfig
+    gemini?: BootstrapProviderEnvConfig
+    openai?: BootstrapProviderEnvConfig
+    claude?: BootstrapProviderEnvConfig
+    perplexity?: BootstrapProviderEnvConfig
+    muse?: BootstrapProviderEnvConfig
     local?: LocalBootstrapProviderConfig
+  }
+}
+
+export type BootstrapProviderName = keyof BootstrapEnv['providers']
+
+/** The model a provider entry starts with when setup creates it and no model env var is set. */
+export const BOOTSTRAP_PROVIDER_DEFAULT_MODELS: Readonly<Record<BootstrapProviderName, string>> = {
+  gemini: 'gemini-flash-latest',
+  openai: 'gpt-5.4',
+  claude: 'claude-sonnet-4-6',
+  perplexity: resolveProviderModel('perplexity', 'fast'),
+  muse: 'muse-spark-1.3',
+  local: 'llama3',
+}
+
+/** The quota a provider entry starts with when setup creates it. Bootstrap reads no quota env vars. */
+export const BOOTSTRAP_PROVIDER_DEFAULT_QUOTA: Readonly<ProviderQuotaPolicy> = {
+  maxConcurrency: 2,
+  maxRequestsPerMinute: 10,
+  maxRequestsPerDay: 500,
+}
+
+/**
+ * Fill the setup defaults into a provider entry's gaps: a missing (or blank
+ * YAML) model or quota. Any value already present, from the environment or
+ * from a saved entry, is kept.
+ */
+export function withBootstrapProviderDefaults<T extends { model?: string | null; quota?: ProviderQuotaPolicy | null }>(
+  name: BootstrapProviderName,
+  entry: T,
+): T & { model: string; quota: ProviderQuotaPolicy } {
+  return {
+    ...entry,
+    model: entry.model ?? BOOTSTRAP_PROVIDER_DEFAULT_MODELS[name],
+    quota: entry.quota ?? { ...BOOTSTRAP_PROVIDER_DEFAULT_QUOTA },
   }
 }
 
@@ -277,16 +328,15 @@ export function getBootstrapEnv(
   const parsed = bootstrapEnvSchema.parse({ ...source, ...filtered })
   const providers: BootstrapEnv['providers'] = {}
 
+  // `model` comes only from its env var and `quota` from none: both stay
+  // undefined here (in the key positions a written entry keeps) so a rerun
+  // never replaces a saved value with a default.
   if (parsed.GEMINI_API_KEY || parsed.GEMINI_VERTEX_PROJECT) {
     providers.gemini = {
       apiKey: parsed.GEMINI_API_KEY ?? '',
-      model: parsed.GEMINI_MODEL || 'gemini-flash-latest',
+      model: parsed.GEMINI_MODEL || undefined,
       baseUrl: parsed.GEMINI_BASE_URL,
-      quota: providerQuotaPolicySchema.parse({
-        maxConcurrency: 2,
-        maxRequestsPerMinute: 10,
-        maxRequestsPerDay: 500,
-      }),
+      quota: undefined,
       vertexProject: parsed.GEMINI_VERTEX_PROJECT,
       vertexRegion: parsed.GEMINI_VERTEX_REGION,
       vertexCredentials: parsed.GEMINI_VERTEX_CREDENTIALS,
@@ -296,37 +346,26 @@ export function getBootstrapEnv(
   if (parsed.OPENAI_API_KEY) {
     providers.openai = {
       apiKey: parsed.OPENAI_API_KEY,
-      model: parsed.OPENAI_MODEL || 'gpt-5.4',
+      model: parsed.OPENAI_MODEL || undefined,
       baseUrl: parsed.OPENAI_BASE_URL,
-      quota: providerQuotaPolicySchema.parse({
-        maxConcurrency: 2,
-        maxRequestsPerMinute: 10,
-        maxRequestsPerDay: 500,
-      }),
+      quota: undefined,
     }
   }
 
   if (parsed.ANTHROPIC_API_KEY) {
     providers.claude = {
       apiKey: parsed.ANTHROPIC_API_KEY,
-      model: parsed.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
-      quota: providerQuotaPolicySchema.parse({
-        maxConcurrency: 2,
-        maxRequestsPerMinute: 10,
-        maxRequestsPerDay: 500,
-      }),
+      model: parsed.ANTHROPIC_MODEL || undefined,
+      quota: undefined,
     }
   }
 
   if (parsed.PERPLEXITY_API_KEY) {
     providers.perplexity = {
       apiKey: parsed.PERPLEXITY_API_KEY,
-      model: resolveProviderModel('perplexity', parsed.PERPLEXITY_MODEL || 'fast'),
-      quota: providerQuotaPolicySchema.parse({
-        maxConcurrency: 2,
-        maxRequestsPerMinute: 10,
-        maxRequestsPerDay: 500,
-      }),
+      // A retired Sonar name resolves to the Agent API preset that now answers.
+      model: parsed.PERPLEXITY_MODEL ? resolveProviderModel('perplexity', parsed.PERPLEXITY_MODEL) : undefined,
+      quota: undefined,
     }
   }
 
@@ -334,13 +373,9 @@ export function getBootstrapEnv(
   if (museKey) {
     providers.muse = {
       apiKey: museKey,
-      model: parsed.MUSE_MODEL?.trim() || 'muse-spark-1.3',
+      model: parsed.MUSE_MODEL?.trim() || undefined,
       baseUrl: parsed.MUSE_BASE_URL?.trim() || undefined,
-      quota: providerQuotaPolicySchema.parse({
-        maxConcurrency: 2,
-        maxRequestsPerMinute: 10,
-        maxRequestsPerDay: 500,
-      }),
+      quota: undefined,
     }
   }
 
@@ -348,12 +383,8 @@ export function getBootstrapEnv(
     providers.local = {
       baseUrl: parsed.LOCAL_BASE_URL,
       apiKey: parsed.LOCAL_API_KEY,
-      model: parsed.LOCAL_MODEL || 'llama3',
-      quota: providerQuotaPolicySchema.parse({
-        maxConcurrency: 2,
-        maxRequestsPerMinute: 10,
-        maxRequestsPerDay: 500,
-      }),
+      model: parsed.LOCAL_MODEL || undefined,
+      quota: undefined,
     }
   }
 

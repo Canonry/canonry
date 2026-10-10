@@ -16,6 +16,8 @@ export interface ResearchRoutesOptions {
   getEffectiveProviderModels?: () => Readonly<Record<string, string>>
   providerAdapters?: ProviderAdapterInfo[]
   configuredProviderNames?: readonly string[]
+  /** Live registration state; reloads must affect new work without changing saved receipts. */
+  getConfiguredProviderNames?: () => readonly string[]
   onResearchRunRequested?: (runId: string, projectId: string) => void
   allowViewers?: boolean
   viewerDailyRunLimit?: number
@@ -54,7 +56,7 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     }
     if (!opts.onResearchRunRequested) throw missingDependency('Research execution is not available on this deployment.', { reason: 'no-research-handler' })
     const adapters = opts.providerAdapters ?? []
-    const configured = new Set(opts.configuredProviderNames ?? [])
+    const configured = new Set(opts.getConfiguredProviderNames?.() ?? opts.configuredProviderNames ?? [])
     const providerName = input.provider ?? project.providers.find(name => configured.has(name) && adapters.some(adapter => adapter.name === name && adapter.mode === 'api')) ?? adapters.find(adapter => adapter.mode === 'api' && configured.has(adapter.name))?.name
     const adapter = adapters.find(candidate => candidate.name === providerName)
     if (!providerName || !adapter || adapter.mode !== 'api' || isBrowserProvider(providerName) || !configured.has(providerName)) throw validationError('Research requires a configured API provider.', { provider: input.provider, validProviders: adapters.filter(a => a.mode === 'api' && configured.has(a.name)).map(a => a.name) })
@@ -194,7 +196,7 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     const nextCursor = rows.length > limit && last
       ? Buffer.from(JSON.stringify({ projectId: project.id, createdAt: last.createdAt, id: last.id })).toString('base64url')
       : null
-    const configured = new Set(opts.configuredProviderNames ?? [])
+    const configured = new Set(opts.getConfiguredProviderNames?.() ?? opts.configuredProviderNames ?? [])
     const effectiveModels = opts.getEffectiveProviderModels?.() ?? {}
     const providers = (opts.providerAdapters ?? [])
       .filter(adapter => adapter.mode === 'api' && !isBrowserProvider(adapter.name) && configured.has(adapter.name))
@@ -306,7 +308,7 @@ function prepareBatchRun(
   input: ResearchBatchCreate['runs'][number],
 ): PreparedBatchRun {
   const adapters = opts.providerAdapters ?? []
-  const configured = new Set(opts.configuredProviderNames ?? [])
+  const configured = new Set(opts.getConfiguredProviderNames?.() ?? opts.configuredProviderNames ?? [])
   const providerName = input.provider
   const adapter = adapters.find(candidate => candidate.name === providerName)
   if (!adapter || adapter.mode !== 'api' || isBrowserProvider(providerName) || !configured.has(providerName)) {

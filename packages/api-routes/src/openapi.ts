@@ -2850,6 +2850,21 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'post',
+    path: '/api/v1/settings/providers/reload',
+    summary: 'Reload saved provider configuration',
+    description: 'Requires settings.write and install administrator authority. Reloads only the execution host\'s own saved provider configuration, including credentials, models, quotas and batch settings. Returns credential-free provider status. Optional configPath and databasePath are an identity pair: supply both or neither. They must match the host\'s captured paths and never select an arbitrary file; a pair naming another install returns VALIDATION_ERROR with error.details.reason install-identity-mismatch. A config the host boots with also reloads, with the same registrations. No provider calls are made. Unsupported hosts return NOT_IMPLEMENTED.',
+    tags: ['settings'],
+    requestBody: { required: false, content: { 'application/json': { schema: { $ref: '#/components/schemas/ProviderReloadRequest' } } } },
+    responses: {
+      200: jsonResponse('Saved provider configuration is active.', 'ProviderReloadResponseDto'),
+      400: errorResponse('Invalid reload request, unloadable config, or install identity mismatch (error.details.reason install-identity-mismatch).'),
+      403: errorResponse('Install administrator authority is required.'),
+      409: errorResponse('Outstanding provider batch work requires the current registration. Quota-only changes remain available.'),
+      501: errorResponse('Provider reload is not supported.'),
+    },
+  },
+  {
     method: 'put',
     path: '/api/v1/settings/google',
     summary: 'Update Google OAuth settings',

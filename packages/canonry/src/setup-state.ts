@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import { createClient, projects, queries as queriesTable } from '@ainyc/canonry-db'
 import { loadConfigRaw, configExists } from './config.js'
+import { registeredProviderNames } from './provider-registration.js'
 
 /**
  * Lightweight snapshot of the user's setup at CLI command time. Lets the
@@ -43,11 +44,9 @@ export function buildSetupState(): SetupState | undefined {
     const raw = loadConfigRaw()
     if (raw) {
       is_first_run = !raw.anonymousId
-      if (raw.providers) {
-        provider_count = Object.values(raw.providers).filter(
-          p => Boolean(p?.apiKey) || Boolean(p?.baseUrl),
-        ).length
-      }
+      // The server's own registration rule: a Vertex-only Gemini or a CDP
+      // browser provider is a provider, and a key-less entry is not.
+      provider_count = registeredProviderNames(raw).length
       if (typeof raw.database === 'string' && raw.database.length > 0) {
         dbPath = raw.database
       }

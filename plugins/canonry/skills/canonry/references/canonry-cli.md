@@ -17,9 +17,29 @@ cnry --version
 
 `cnry bootstrap` is the provider-free Page Health path. It stores state under
 `$CANONRY_CONFIG_DIR` when set, otherwise `~/.canonry`, and prints a new API key
-once. `cnry init` is the optional interactive path when provider/OAuth setup is
+once. With no provider, its `--format json` output lists `nextSteps` for adding
+one, and `technical-aeo run|score|crawl` / `site-health overview` print a
+`NO_PROVIDER` notice on stderr (one `{"notice":{...}}` line for JSON): AI
+Visibility is the next step after Page Health. The operator adds the key in the
+dashboard or in their own terminal; never ask for it in chat. `cnry settings
+provider` registers a provider on the running server immediately. `cnry init` is the optional interactive path when provider/OAuth setup is
 wanted at the same time. An agent must ask the operator to run either
 secret-bearing command in a private terminal without pasting the output back.
+
+Rerunning `cnry bootstrap` saves provider settings and, when they changed,
+reloads a running local server whose config and database match. A provider key
+from the environment replaces that provider's saved credentials as a unit
+(`GEMINI_API_KEY` drops a saved Vertex project, and `GEMINI_VERTEX_PROJECT`
+drops a saved key); saved models, quotas, and batch settings stay unless their
+environment variables are set. `serverReload` reports `reloaded` with the active
+provider names, `unchanged` when the saved providers did not change (no request
+is sent), `unavailable` when startup is needed, `not-local` for a remote API
+URL, or `not-matching` when the server on that URL belongs to another install
+(`reason: other-install`) or cannot reload (`reason: reload-unsupported`).
+`not-matching` exits 0: run `cnry settings reload-providers` against this
+install's server, or restart it, to apply the saved providers. Any other
+rejected reload reports `failed` and exits nonzero; the saved config remains
+available. Bootstrap never reloads a remote server automatically.
 
 ### Read-only embed mode (#716)
 
@@ -543,6 +563,7 @@ Available events: `citation.lost`, `citation.gained`, `run.completed`, `run.fail
 ```bash
 cnry settings                                  # show config: providers, apiUrl, db path
 cnry settings --format json
+cnry settings reload-providers --format json   # apply the server's saved provider config
 cnry settings provider gemini --api-key <KEY> --model gemini-flash-latest
 cnry settings provider openai --max-per-day 1000 --max-per-minute 20
 cnry settings provider perplexity --api-key <KEY> --model fast
@@ -552,6 +573,17 @@ cnry settings provider muse --api-key <KEY> --model muse-spark-1.3
 Perplexity runs on its Agent API. `--model` takes a preset (`fast` default, `low`, `medium`, `high`, `xhigh`) or a `vendor/model` slug such as `perplexity/sonar`. Retired Sonar names still work and run as their replacement (`sonar` → `fast`, `sonar-pro` → `low`).
 
 Quota flags: `--max-concurrent`, `--max-per-minute`, `--max-per-day`
+
+`reload-providers` rereads the connected server's config file: provider keys,
+models, Vertex AI settings, batch settings, pricing, quotas, and CDP. Any config
+the server starts with also reloads, with the same result: a partial `quota:`
+block keeps its saved limits and takes the defaults for the rest. It returns
+active provider summaries without credentials. It requires install administrator
+authority and `settings.write`. Current requests keep their provider settings;
+quota changes preserve active requests and the rolling request history. Ports,
+database paths, authentication, and other server settings still need a restart.
+Changing or removing a provider with an outstanding batch is refused until the
+batch settles; quota-only updates remain available.
 
 Available providers: `gemini`, `openai`, `claude`, `perplexity`, `muse`, `local`, `cdp`
 

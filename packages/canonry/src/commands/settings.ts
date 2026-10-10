@@ -68,6 +68,18 @@ export async function showSettings(format?: string): Promise<void> {
   console.log(`  ${settings.google.configured ? 'configured' : 'not configured'}`)
 }
 
+export async function reloadProviders(format?: string): Promise<void> {
+  const result = await getClient().reloadProviders()
+  if (isMachineFormat(format)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  console.log('Saved provider configuration is now active on the server.')
+  for (const provider of result.providers) {
+    console.log(`  ${provider.name}: ${provider.configured ? 'configured' : 'not configured'}`)
+  }
+}
+
 type GoogleSettingsTarget = 'local' | 'server'
 
 export async function setGoogleAuth(opts: {

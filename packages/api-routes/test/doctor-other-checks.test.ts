@@ -309,6 +309,7 @@ describe('config.providers', () => {
     expect(result.code).toBe('providers.none-configured')
     expect(result.summary).toContain('Page Health remains available')
     expect(result.remediation).toContain('canonry bootstrap')
+    expect(result.remediation).toContain('canonry settings provider <name> --api-key <key>')
   })
 
   it('skips when summary is unavailable', () => {

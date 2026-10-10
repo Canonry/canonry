@@ -1,22 +1,39 @@
 import type { ProviderAdapter, ProviderConfig, ProviderName, ProviderHealthcheckResult } from '@ainyc/canonry-contracts'
 import { isBrowserProvider, resolveProviderModel } from '@ainyc/canonry-contracts'
+import { updateSharedProviderExecutionGate } from './provider-execution-gate.js'
 
 export interface RegisteredProvider {
   adapter: ProviderAdapter
   config: ProviderConfig
 }
 
+export function resolveRegistration(adapter: ProviderAdapter, config: ProviderConfig): RegisteredProvider {
+  // Store the model that actually answers when a configured id was retired.
+  return {
+    adapter,
+    config: config.model === undefined ? config : { ...config, model: resolveProviderModel(adapter.name, config.model) },
+  }
+}
+
 export class ProviderRegistry {
   private providers = new Map<ProviderName, RegisteredProvider>()
 
   register(adapter: ProviderAdapter, config: ProviderConfig): void {
-    // A retired model id in config.yaml (Perplexity's `sonar`) is stored as the
-    // id that now answers, so settings, run manifests, and snapshots all name
-    // the engine that actually ran.
-    const resolved = config.model === undefined
-      ? config
-      : { ...config, model: resolveProviderModel(adapter.name, config.model) }
-    this.providers.set(adapter.name, { adapter, config: resolved })
+    const provider = resolveRegistration(adapter, config)
+    this.providers.set(adapter.name, provider)
+    updateSharedProviderExecutionGate(adapter.name, provider.config.quotaPolicy.maxConcurrency, provider.config.quotaPolicy.maxRequestsPerMinute)
+  }
+
+  /** Publish a complete registration set without mutating configs captured by active runs. */
+  replace(providers: readonly RegisteredProvider[]): void {
+    const next = new Map<ProviderName, RegisteredProvider>()
+    for (const { adapter, config } of providers) {
+      next.set(adapter.name, resolveRegistration(adapter, config))
+    }
+    this.providers = next
+    for (const { adapter, config } of next.values()) {
+      updateSharedProviderExecutionGate(adapter.name, config.quotaPolicy.maxConcurrency, config.quotaPolicy.maxRequestsPerMinute)
+    }
   }
 
   get(name: ProviderName): RegisteredProvider | undefined {

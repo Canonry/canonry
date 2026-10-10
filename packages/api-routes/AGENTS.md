@@ -81,7 +81,8 @@ that entry with its real outcome). It is a backoff, not a block:
 (`finishedAt`, else `createdAt`) it is called again, so out-of-band fixes
 (console top-ups, config.yaml edits) recover on their own; a refusal's
 `retryAfter` is the earliest provider's. A `provider.created` audit row, or a
-`provider.updated` one whose diff shows a new key (`apiKeyRotated`), model,
+`provider.updated` one whose diff shows a new key (`apiKeyRotated`), Vertex
+project/region or changed credentials (`credentialsChanged`), model,
 endpoint or configured state, after the oldest run of that provider's streak
 releases it at once; a quota-only edit does not. Probes are never held back.
 `force: true` skips the check and calls every provider; it is admission only,
@@ -366,6 +367,7 @@ Every read-time competitor reader scores stored answers with the names the proje
 - `google_connections` and `bing_connections` are uniquely keyed on `(domain, connectionType)`, not on `(project_id, connectionType)`. Two projects on the same instance that track the same `canonicalDomain` share an OAuth connection by design — operators sharing infra get this for free, malicious tenants do not.
 - `GET /api/v1/projects` returns every project on the instance.
 - `PUT /api/v1/settings/providers/:name` and the other `/settings/*` routes rewrite the instance's global provider keys + OAuth client credentials. Default API keys have `scopes: ['*']` and there is no `admin` scope yet.
+- `POST /settings/providers/reload` requires `settings.write` and `requireInstanceAdministrator`: project, narrow, read-only and viewer credentials cannot reload the install. The host hook reloads only its captured provider configuration and returns credential-free summaries; an unsupported host returns `NOT_IMPLEMENTED`. Optional `configPath` + `databasePath` are a paired install identity check, never paths to read or execution tuning. A pair naming another install is `VALIDATION_ERROR` with `details.reason: install-identity-mismatch` (`ProviderReloadErrorReasons`), which callers branch on instead of the message.
 
 #### Operational guidance
 

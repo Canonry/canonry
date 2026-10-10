@@ -758,7 +758,7 @@ const PROVIDER_ACCOUNT_LOOKBACK = PROVIDER_ACCOUNT_FAILURE_STREAK * 5
 
 /**
  * Whether a settings save can have fixed an account failure: a new key
- * (`apiKeyRotated`), model or endpoint, or a provider configured for the
+ * (`apiKeyRotated`), Vertex identity, model or endpoint, or a provider configured for the
  * first time. A quota-only edit cannot, so it does not restart the count.
  */
 function providerSettingsChangeCouldFix(action: string, diff: string | null): boolean {
@@ -766,14 +766,16 @@ function providerSettingsChangeCouldFix(action: string, diff: string | null): bo
   try {
     const parsed = JSON.parse(diff ?? 'null') as {
       apiKeyRotated?: boolean
-      before?: { configured?: boolean; model?: string | null; baseUrl?: string | null } | null
-      after?: { configured?: boolean; model?: string | null; baseUrl?: string | null } | null
+      credentialsChanged?: boolean
+      before?: { configured?: boolean; model?: string | null; baseUrl?: string | null; vertexProject?: string | null; vertexRegion?: string | null } | null
+      after?: { configured?: boolean; model?: string | null; baseUrl?: string | null; vertexProject?: string | null; vertexRegion?: string | null } | null
     } | null
     if (!parsed) return false
-    if (parsed.apiKeyRotated) return true
+    if (parsed.apiKeyRotated || parsed.credentialsChanged) return true
     const before = parsed.before ?? {}
     const after = parsed.after ?? {}
     return before.configured !== after.configured || before.model !== after.model || before.baseUrl !== after.baseUrl
+      || before.vertexProject !== after.vertexProject || before.vertexRegion !== after.vertexRegion
   } catch {
     return false
   }

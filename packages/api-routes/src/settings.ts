@@ -1,11 +1,13 @@
 import type { FastifyInstance } from 'fastify'
-import type { ProviderModelRegistry, ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
+import type { ProviderModelRegistry, ProviderQuotaPolicy, ProviderReloadRequest } from '@ainyc/canonry-contracts'
 import {
   validationError,
   notImplemented,
   internalError,
+  providerReloadRequestSchema,
+  providerReloadResponseDtoSchema,
 } from '@ainyc/canonry-contracts'
-import { requireAdminSession, requireScope } from './auth.js'
+import { requireAdminSession, requireInstanceAdministrator, requireScope } from './auth.js'
 import { auditFromRequest, type AuditEntry } from './helpers.js'
 
 /**
@@ -62,6 +64,8 @@ export interface SettingsRoutesOptions {
   /** Adapter metadata for validation — keyed by provider name */
   providerAdapters?: ProviderAdapterInfo[]
   onProviderUpdate?: (provider: string, apiKey: string, model?: string, baseUrl?: string, quota?: Partial<ProviderQuotaPolicy>, auditContext?: Pick<AuditEntry, 'actor' | 'userAgent' | 'actorSession' | 'requestId' | 'credentialId'>) => ProviderSummaryEntry | null
+  /** Reload only this host's captured provider configuration; never select caller paths. */
+  onProviderReload?: (input: ProviderReloadRequest, auditContext?: Pick<AuditEntry, 'actor' | 'userAgent' | 'actorSession' | 'requestId' | 'credentialId'>) => ProviderSummaryEntry[] | Promise<ProviderSummaryEntry[]>
   google?: GoogleSettingsSummary
   onGoogleUpdate?: (clientId: string, clientSecret: string) => GoogleSettingsSummary | null
   bing?: BingSettingsSummary
@@ -191,6 +195,23 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     }
 
     return result
+  })
+
+  app.post('/settings/providers/reload', async (request) => {
+    requireScope(request, SETTINGS_WRITE_SCOPE)
+    requireInstanceAdministrator(request)
+    const parsed = providerReloadRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) {
+      throw validationError('Invalid provider reload request', parsed.error.flatten())
+    }
+    if (!opts.onProviderReload) {
+      throw notImplemented('Provider configuration reload is not supported in this deployment')
+    }
+    const { actor, userAgent, actorSession, requestId, credentialId } = auditFromRequest(request, {
+      actor: 'api', action: 'providers.reloaded', entityType: 'provider',
+    })
+    const providers = await opts.onProviderReload(parsed.data, { actor, userAgent, actorSession, requestId, credentialId })
+    return providerReloadResponseDtoSchema.parse({ reloaded: true, providers })
   })
 
   app.put<{
