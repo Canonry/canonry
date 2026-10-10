@@ -2,6 +2,7 @@ import React from 'react'
 import { afterEach, expect, onTestFinished, test } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { queryTrackingPreviewRequestSchema } from '@ainyc/canonry-contracts'
 
 import { QueriesSection } from '../src/components/project/DiscoverySection.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
@@ -53,6 +54,38 @@ function workspace(overrides: Record<string, unknown> = {}) {
     savedSources: { research: [], discovery: [] },
     ...overrides,
   }
+}
+
+const usageEdge = (targetKey: string, queryId = 'query-acme') => ({ executionNodeKey: `node-${queryId}-${targetKey}`, targetKey, queryId })
+const bostonContext = {
+  providers: ['openai', 'gemini'],
+  models: { openai: 'gpt-5', gemini: 'gemini-3' },
+  location: { label: 'Boston', city: 'Boston', region: 'MA', country: 'US' },
+}
+
+/** Acme has queries in two markets (two in one of them), Cedar Court only in a third, and Birch House in none. */
+function locationWorkspace(overrides: Record<string, unknown> = {}) {
+  const location = (id: string, label: string) => ({ id, label, kind: 'property', targetCount: 1, parentGroupIds: ['north-east'] })
+  return workspace({
+    targets: [{ stableKey: 'acme', label: 'Acme' }, { stableKey: 'birch', label: 'Birch House' }, { stableKey: 'cedar', label: 'Cedar Court' }],
+    groups: [{ stableKey: 'north-east', label: 'North East', targetKeys: ['acme', 'birch', 'cedar'] }],
+    markets: [
+      { stableKey: 'new-york', label: 'New York', groupKey: 'north-east', usageEdges: [usageEdge('acme')] },
+      { stableKey: 'remote', label: 'Remote searches', usageEdges: [usageEdge('acme'), usageEdge('acme', 'query-remote')] },
+      { stableKey: 'boston', label: 'Boston', usageEdges: [usageEdge('cedar')] },
+    ],
+    scopeOptions: [
+      { id: 'project', label: 'Project', kind: 'project', targetCount: 3 },
+      { id: 'north-east', label: 'North East', kind: 'group', targetCount: 3 },
+      { id: 'new-york', label: 'New York', kind: 'market', targetCount: 1, parentGroupIds: ['north-east'] },
+      { id: 'remote', label: 'Remote searches', kind: 'market', targetCount: 1 },
+      { id: 'boston', label: 'Boston', kind: 'market', targetCount: 1 },
+      location('acme', 'Acme'),
+      location('birch', 'Birch House'),
+      location('cedar', 'Cedar Court'),
+    ],
+    ...overrides,
+  })
 }
 
 function preview(added: string[], version = workspaceVersion) {
@@ -131,6 +164,24 @@ function fill(sheet: Sheet, text: string) {
 
 const newYorkAddition = (text: string) => ({ input: { source: 'manual', text }, audience: { marketKeys: ['new-york'] } })
 
+// As for a market, a group row only browses; the location inside it is the choice.
+function chooseLocation(sheet: Sheet, label: string) {
+  fireEvent.click(sheet.getByText('Choose a location'))
+  fireEvent.click(sheet.getByRole('button', { name: 'Browse North East' }))
+  fireEvent.click(sheet.getByRole('button', { name: `Select ${label}` }))
+}
+
+function fillLocation(sheet: Sheet, label: string, text: string) {
+  fireEvent.click(sheet.getByRole('radio', { name: 'Location' }))
+  chooseLocation(sheet, label)
+  fireEvent.change(queriesField(sheet), { target: { value: text } })
+}
+
+/** Acme sits in New York and Remote searches, so its queries name both and no contexts. */
+const acmeAddition = (text: string) => ({ input: { source: 'manual', text }, audience: { targetKeys: ['acme'], marketKeys: ['new-york', 'remote'] } })
+/** Birch House is in no market, so its queries name it alone and one search location and engines. */
+const birchAddition = (text: string, chosen: Record<string, unknown>) => ({ input: { source: 'manual', text }, audience: { targetKeys: ['birch'] }, contexts: [chosen] })
+
 /** After a hand-off the sheet is gone, the form holds the first line, and focus stays on the form. */
 async function expectAddQueryForm(firstLine: string) {
   const heading = await screen.findByRole('heading', { name: 'Add query' })
@@ -152,7 +203,8 @@ test('opens from Tracked on an advanced project and keeps Review off until a mar
   expect(screen.queryByRole('heading', { name: 'Add query', hidden: true })).toBeNull()
   expect(within(sheet.getByRole('radiogroup', { name: 'Subject' })).getByRole('radio', { name: 'Market' }).getAttribute('aria-checked')).toBe('true')
   expect(sheet.getByText('More options', { selector: 'summary' })).toBeTruthy()
-  expect(sheetText()).not.toMatch(/question/i)
+  // The market list is in the sheet too, group rows and their location counts included.
+  expect(sheetText()).not.toMatch(/question|propert/i)
   expect(reviewButton(sheet).disabled).toBe(true)
 
   fireEvent.change(queriesField(sheet), { target: { value: 'best pizza in New York' } })
@@ -229,15 +281,18 @@ test.each([
   ])
 })
 
-test('keeps a Type choice in view after a Subject change closes More options', async () => {
+test('keeps a Type choice across a Subject change, in view while More options is closed', async () => {
   const writes = installApi()
   renderTracked()
   const { sheet } = await openSheet()
   fill(sheet, 'Acme reviews')
   fireEvent.click(within(sheet.getByRole('radiogroup', { name: 'Type' })).getByRole('radio', { name: 'Branded' }))
   fireEvent.click(sheet.getByRole('radio', { name: 'Location' }))
+  expect(sheet.getByText('More options · Type: Branded', { selector: 'summary' }).closest('details')!.open).toBe(false)
   fireEvent.click(sheet.getByRole('radio', { name: 'Market' }))
   expect(sheet.getByText('More options · Type: Branded', { selector: 'summary' }).closest('details')!.open).toBe(false)
+  // The Subject change dropped the market, so it is chosen again.
+  chooseNewYork(sheet)
   fireEvent.click(reviewButton(sheet))
 
   await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
@@ -401,28 +456,179 @@ test('opens the Add query form from the hand-picked link with the first line typ
   await expectAddQueryForm('best pizza in New York')
 })
 
-test('offers the Add query form from Location and keeps a filled market draft out of Review meanwhile', async () => {
-  const writes = installApi()
+test('adds a location query to every market that location is in, with no contexts', async () => {
+  const writes = installApi({ workspace: locationWorkspace })
   renderTracked()
   const { sheet } = await openSheet()
-  fill(sheet, 'best pizza in New York')
-  expect(reviewButton(sheet).disabled).toBe(false)
-  fireEvent.click(sheet.getByRole('radio', { name: 'Location' }))
-  // Choosing Location only offers the form, so arrow keys on Subject never leave the sheet.
-  expect(sheetIsOpen()).toBe(true)
-  expect(sheet.queryByLabelText('Queries')).toBeNull()
+  fillLocation(sheet, 'Acme', 'Acme reviews\n\nAcme parking\nacme  reviews')
+  expect(sheet.getByText('Acme · Location')).toBeTruthy()
+  // Boston holds only Cedar Court, and Remote searches is listed once for its two Acme queries.
+  expect(sheet.getByText('Counts in: New York, Remote searches')).toBeTruthy()
+  expect(sheet.getByText('Engines and search locations come from: New York, Remote searches')).toBeTruthy()
+  expect(sheet.queryByText('This location is in no market.')).toBeNull()
+  expect(sheet.queryByText(/^Search location and engines/)).toBeNull()
+  fireEvent.click(reviewButton(sheet))
+
+  await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
+  expect(writes).toEqual([{
+    operation: 'preview',
+    body: { expectedWorkspaceVersion: workspaceVersion, additions: [acmeAddition('Acme reviews'), acmeAddition('Acme parking')], removals: [] },
+  }])
+  // The API contract is strict, so this is a request the server reads as sent, with nothing to drop.
+  expect(queryTrackingPreviewRequestSchema.safeParse(writes[0]!.body).success).toBe(true)
+})
+
+test('sends a Type choice on every location addition', async () => {
+  const writes = installApi({ workspace: locationWorkspace })
+  renderTracked()
+  const { sheet } = await openSheet()
+  fillLocation(sheet, 'Acme', 'Acme reviews\nAcme parking')
+  fireEvent.click(within(sheet.getByRole('radiogroup', { name: 'Type' })).getByRole('radio', { name: 'Branded' }))
+  fireEvent.click(reviewButton(sheet))
+
+  await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
+  expect(writes[0]!.body.additions).toEqual([
+    { ...acmeAddition('Acme reviews'), queryClass: 'branded' },
+    { ...acmeAddition('Acme parking'), queryClass: 'branded' },
+  ])
+})
+
+test('gives a location in no market the one search location and engines the project has', async () => {
+  const writes = installApi({ workspace: locationWorkspace })
+  renderTracked()
+  const { sheet } = await openSheet()
+  fillLocation(sheet, 'Birch House', 'Birch House reviews')
+  expect(sheet.getByText('This location is in no market.')).toBeTruthy()
+  expect(sheet.getByText('Search location and engines: New York · openai (gpt-5)')).toBeTruthy()
+  expect(sheet.queryByRole('combobox')).toBeNull()
+  expect(sheet.queryByText(/^Counts in:/)).toBeNull()
+  fireEvent.click(reviewButton(sheet))
+
+  await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
+  expect(writes[0]!.body.additions).toEqual([
+    birchAddition('Birch House reviews', { providers: ['openai'], models: { openai: 'gpt-5' }, location: 'New York' }),
+  ])
+  expect(queryTrackingPreviewRequestSchema.safeParse(writes[0]!.body).success).toBe(true)
+})
+
+test('asks for one search location and engines when a location is in no market and the project has several', async () => {
+  const writes = installApi({ workspace: () => locationWorkspace({ defaultContexts: [context, bostonContext] }) })
+  renderTracked()
+  const { sheet } = await openSheet()
+  fillLocation(sheet, 'Birch House', 'Birch House reviews')
+  const choice = sheet.getByRole('combobox', { name: 'Search location and engines' }) as HTMLSelectElement
+  expect(choice.required).toBe(true)
+  expect(choice.value).toBe('')
+  // The same choices, in the same words, as the Add query form.
+  expect([...choice.options].map(option => option.text)).toEqual([
+    'Choose a search location and engines',
+    'New York · openai (gpt-5)',
+    'Boston · openai (gpt-5), gemini (gemini-3)',
+  ])
   expect(reviewButton(sheet).disabled).toBe(true)
   fireEvent.click(reviewButton(sheet))
   await act(() => new Promise(resolve => setTimeout(resolve, 0)))
   expect(writes).toEqual([])
 
+  fireEvent.change(choice, { target: { value: 'Boston · openai (gpt-5), gemini (gemini-3)' } })
+  expect(reviewButton(sheet).disabled).toBe(false)
+  fireEvent.click(reviewButton(sheet))
+  await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
+  expect(writes[0]!.body.additions).toEqual([
+    birchAddition('Birch House reviews', { providers: ['openai', 'gemini'], models: { openai: 'gpt-5', gemini: 'gemini-3' }, location: 'Boston' }),
+  ])
+
+  // A location in a market takes that market's engines and search locations, never the one chosen above.
+  fireEvent.click(sheet.getByRole('button', { name: 'Back' }))
+  fireEvent.click(sheet.getByText('Birch House · Location'))
+  fireEvent.click(sheet.getByRole('button', { name: 'Select Cedar Court' }))
+  expect(sheet.getByText('Counts in: Boston')).toBeTruthy()
+  expect(sheet.queryByRole('combobox')).toBeNull()
+  fireEvent.click(reviewButton(sheet))
+  await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
+  expect(writes[1]!.body.additions).toEqual([
+    { input: { source: 'manual', text: 'Birch House reviews' }, audience: { targetKeys: ['cedar'], marketKeys: ['boston'] } },
+  ])
+})
+
+test('keeps Review off for a location in no market when the project has no engines set up', async () => {
+  const writes = installApi({ workspace: () => locationWorkspace({ defaultContexts: [] }) })
+  renderTracked()
+  const { sheet } = await openSheet()
+  fillLocation(sheet, 'Birch House', 'Birch House reviews')
+  expect(sheet.getByText('No search location and engines are set up for this project.')).toBeTruthy()
+  expect(sheet.queryByRole('combobox')).toBeNull()
+  expect(reviewButton(sheet).disabled).toBe(true)
+  fireEvent.click(reviewButton(sheet))
+  await act(() => new Promise(resolve => setTimeout(resolve, 0)))
+  expect(writes).toEqual([])
+})
+
+test('lists groups and locations for Location, never markets, and calls them locations', async () => {
+  installApi({ workspace: locationWorkspace })
+  renderTracked()
+  const { sheet } = await openSheet()
+  fireEvent.click(sheet.getByRole('radio', { name: 'Location' }))
+  fireEvent.click(sheet.getByText('Choose a location'))
+  const search = sheet.getByPlaceholderText('Search groups or locations')
+  fireEvent.change(search, { target: { value: 'Remote' } })
+  expect(sheet.getByText('No matching scopes.')).toBeTruthy()
+  fireEvent.change(search, { target: { value: '' } })
+  // A group row only browses, as it does for a market.
+  expect(sheet.queryByRole('button', { name: 'Select North East' })).toBeNull()
+  expect(sheet.getByRole('button', { name: 'Browse North East' }).textContent).toBe('North East3 locations')
+  fireEvent.click(sheet.getByRole('button', { name: 'Browse North East' }))
+  expect(sheet.getAllByRole('button', { name: /^Select / }).map(button => button.textContent)).toEqual(['AcmeLocation', 'Birch HouseLocation', 'Cedar CourtLocation'])
+  expect(sheetText()).not.toMatch(/question|propert|—/i)
+})
+
+test('drops the chosen place when Subject changes, and keeps the lines', async () => {
+  const writes = installApi({ workspace: locationWorkspace })
+  renderTracked()
+  const { sheet } = await openSheet()
+  fill(sheet, 'best pizza in New York')
+  // Choosing the current Subject again changes nothing.
   fireEvent.click(sheet.getByRole('radio', { name: 'Market' }))
-  expect(queriesField(sheet).value).toBe('best pizza in New York')
   expect(sheet.getByText('New York · Market')).toBeTruthy()
   expect(reviewButton(sheet).disabled).toBe(false)
 
   fireEvent.click(sheet.getByRole('radio', { name: 'Location' }))
-  fireEvent.click(sheet.getByRole('button', { name: 'Open the Add query form' }))
+  // Location is handled here: the sheet stays open and the market does not follow.
+  expect(sheetIsOpen()).toBe(true)
+  expect(sheet.queryByText('New York · Market')).toBeNull()
+  expect(queriesField(sheet).value).toBe('best pizza in New York')
+  expect(reviewButton(sheet).disabled).toBe(true)
+  fireEvent.click(reviewButton(sheet))
+  await act(() => new Promise(resolve => setTimeout(resolve, 0)))
+  expect(writes).toEqual([])
+  // Coming straight back does not bring the market back either.
+  fireEvent.click(sheet.getByRole('radio', { name: 'Market' }))
+  expect(sheet.getByText('Choose a market')).toBeTruthy()
+  expect(reviewButton(sheet).disabled).toBe(true)
+
+  // A list left open on one Subject is not the other Subject's list.
+  fireEvent.click(sheet.getByText('Choose a market'))
+  fireEvent.click(sheet.getByRole('button', { name: 'Browse North East' }))
+  fireEvent.click(sheet.getByRole('radio', { name: 'Location' }))
+  expect(sheet.getByText('Choose a location').closest('details')!.open).toBe(false)
+  chooseLocation(sheet, 'Acme')
+  expect(reviewButton(sheet).disabled).toBe(false)
+  fireEvent.click(sheet.getByRole('radio', { name: 'Market' }))
+  expect(sheet.getByText('Choose a market')).toBeTruthy()
+  expect(sheet.queryByText(/^Counts in:/)).toBeNull()
+  expect(queriesField(sheet).value).toBe('best pizza in New York')
+  expect(reviewButton(sheet).disabled).toBe(true)
+})
+
+test('keeps the Add query form one link away from Location, with no button of its own', async () => {
+  installApi()
+  renderTracked()
+  const { sheet } = await openSheet()
+  fireEvent.click(sheet.getByRole('radio', { name: 'Location' }))
+  expect(sheet.queryByRole('button', { name: 'Open the Add query form' })).toBeNull()
+  fireEvent.change(queriesField(sheet), { target: { value: 'best pizza in New York\nbest bagels in New York' } })
+  expect(sheet.getByText(firstLineOnly)).toBeTruthy()
+  fireEvent.click(sheet.getByRole('button', { name: handPickedLink }))
   await expectAddQueryForm('best pizza in New York')
 })
 

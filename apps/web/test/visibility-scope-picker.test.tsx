@@ -275,6 +275,28 @@ describe('trigger label and naming', () => {
     expect(screen.getByText(text, { selector: 'summary' })).toBeTruthy()
   })
 
+  it('calls a property by the supplied noun in every label, count and placeholder', () => {
+    const view = render(<VisibilityScopePicker options={scopes} selected={scopes[6]!} propertyNoun={['location', 'locations']} onSelect={vi.fn()} />)
+    const trigger = view.container.querySelector('summary')!
+    expect(trigger.textContent).toBe('Lake House · Location')
+    // Opens inside Lake House's group.
+    fireEvent.click(trigger)
+    expect(screen.getByText('All locations in this group').closest('button')!.textContent).toContain('2 locations')
+    expect(screen.getByText('All locations (2)')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Select Lake House' }).textContent).toBe('Lake HouseLocation')
+    fireEvent.click(screen.getByRole('button', { name: 'Back to all groups' }))
+    expect(screen.getByPlaceholderText('Search groups or locations')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Select South Region' }).textContent).toBe('South Region1 location')
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'House' } })
+    expect(screen.getByRole('region', { name: 'Locations' })).toBeTruthy()
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Browse all locations' }))
+    expect(screen.getByPlaceholderText('Search locations')).toBeTruthy()
+    expect(screen.getByText('All locations', { selector: 'p' })).toBeTruthy()
+    expect(screen.getByText('Locations (3)')).toBeTruthy()
+    expect(view.container.textContent).not.toMatch(/propert/i)
+  })
+
   it.each(['visible', 'sr-only'] as const)('keeps a %s label naming the trigger and returns focus when search closes', labelVisibility => {
     const view = render(<VisibilityScopePicker options={scopes} selected={scopes[0]!} onSelect={vi.fn()} labelVisibility={labelVisibility} />)
     const label = screen.getByText('Measurement scope')

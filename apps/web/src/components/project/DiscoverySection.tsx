@@ -535,6 +535,7 @@ function TrackedQueriesWorkspace({
         <AddQueriesSheet
           projectName={projectName}
           workspace={workspace}
+          contextChoices={uniqueContextInputs(workspace.defaultContexts.map(contextInput)).map(input => ({ label: contextLabel(input), input }))}
           defaultMarketKey={selection.measurementScope === 'market' ? selection.measurementScopeKey : undefined}
           onOpenComposer={({ text }) => { setAddSheetOpen(false); openAdd('manual', text) }}
           onClose={() => setAddSheetOpen(false)}
