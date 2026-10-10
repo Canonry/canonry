@@ -1,4 +1,5 @@
 import { bootstrapCommand } from '../commands/bootstrap.js'
+import { supportCommand } from '../commands/support.js'
 import { startDaemon, stopDaemon } from '../commands/daemon.js'
 import { initCommand } from '../commands/init.js'
 import { serveCommand } from '../commands/serve.js'
@@ -46,10 +47,11 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['init'],
-    usage: 'canonry init [--force] [--gemini-key <key>] [--openai-key <key>] [--claude-key <key>] [--perplexity-key <key>] [--muse-key <key>] [--local-url <url>] [--local-model <name>] [--local-key <key>] [--google-client-id <id>] [--google-client-secret <key>] [--skip-skills] [--skip-mcp] [--skills-dir <path>] [--format json]',
+    usage: 'canonry init [--force] [--ref <tag>] [--gemini-key <key>] [--openai-key <key>] [--claude-key <key>] [--perplexity-key <key>] [--muse-key <key>] [--local-url <url>] [--local-model <name>] [--local-key <key>] [--google-client-id <id>] [--google-client-secret <key>] [--skip-skills] [--skip-mcp] [--skills-dir <path>] [--format json]',
     help: 'Optional interactive provider and OAuth setup. First-run Page Health does not need this: use "canonry bootstrap", then "canonry serve". At least one provider is required here. --format json needs provider flags or environment variables.',
     options: {
       force: { type: 'boolean', short: 'f', default: false },
+      ref: stringOption(),
       'gemini-key': stringOption(),
       'openai-key': stringOption(),
       'claude-key': stringOption(),
@@ -68,6 +70,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
     run: async (input) => {
       await initCommand({
         force: getBoolean(input.values, 'force'),
+        ref: getString(input.values, 'ref'),
         geminiKey: getString(input.values, 'gemini-key'),
         openaiKey: getString(input.values, 'openai-key'),
         claudeKey: getString(input.values, 'claude-key'),
@@ -87,17 +90,19 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['bootstrap'],
-    usage: 'canonry bootstrap [--format json]',
+    usage: 'canonry bootstrap [--ref <tag>] [--format json]',
     help: 'Create or reconcile the local config, SQLite database, and default API key from supported environment variables. Provider credentials are optional. Safe to rerun: existing settings are preserved and the result reports created, updated, or unchanged. The legacy --force/-f flag is accepted but has no effect.',
     options: {
       // Compatibility for scripts written before bootstrap became idempotent.
       // Keep this out of usage: the flag is unnecessary and has no behavior.
       force: { type: 'boolean', short: 'f', default: false },
+      ref: stringOption(),
     },
     allowPositionals: false,
     run: async (input) => {
       await bootstrapCommand({
         format: input.format,
+        ref: getString(input.values, 'ref'),
       })
     },
   },
@@ -151,6 +156,15 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
     allowPositionals: false,
     run: (input) => {
       stopDaemon(input.format)
+    },
+  },
+  {
+    path: ['support'],
+    usage: 'canonry support [--format json]',
+    help: 'Where to get help: the Canonry Discord, the issue tracker, and canonry feedback.',
+    allowPositionals: false,
+    run: async (input) => {
+      supportCommand(input.format)
     },
   },
   {

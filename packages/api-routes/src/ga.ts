@@ -3,10 +3,11 @@ import { eq, desc, and, sql } from 'drizzle-orm'
 import type { SQL, SQLWrapper } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, runs } from '@ainyc/canonry-db'
-import { breakdownShares, classifyAiReferralTrafficClass, deltaPercent, formatPercent, gaSyncOnlySchema, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, RunKinds, RunStatuses, RunTriggers, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount } from '@ainyc/canonry-contracts'
+import { breakdownShares, classifyAiReferralTrafficClass, classifyOutcomeError, deltaPercent, formatPercent, gaSyncOnlySchema, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunKinds, RunStatuses, RunTriggers, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount } from '@ainyc/canonry-contracts'
 import type { GA4ChannelBreakdownDto, GaAttributionTrendResponse, GaSearchLandingSyncResult, GaSocialReferralTrendResponse, ResolvedDateRange } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { assertNotProjectScoped } from './auth.js'
+import { credentialFailure, startRouteOutcome } from './feature-outcome.js'
 import { buildSessionHistory } from './ga-session-history.js'
 import { findBiggestMover } from './ga-source-mover.js'
 import { buildAiReferralDailySeries, normalizeAiTrafficClass, pickWinningAttributionDimension, summarizeAiReferralCounts } from './ga-ai-referral-aggregation.js'
@@ -30,6 +31,7 @@ import {
   GA4ApiError,
 } from '@ainyc/canonry-integration-google-analytics'
 import type { GoogleConnectionStore } from './google.js'
+import { connectionRoute } from './connection-telemetry.js'
 import { refreshAccessToken } from '@ainyc/canonry-integration-google'
 
 function gaLog(level: 'info' | 'warn' | 'error', action: string, ctx?: Record<string, unknown>): void {
@@ -470,6 +472,27 @@ async function resolveGa4AccessToken(
 }
 
 /**
+ * Why a GA4 sync failed. Before credentials resolve: no connection, no selected property, or a
+ * rejected token. After: a 404 is a property that is gone.
+ */
+function ga4SyncFailure(
+  err: unknown,
+  credentialsResolved: boolean,
+  opts: GA4RoutesOptions,
+  project: { name: string; canonicalDomain: string },
+): ReturnType<typeof classifyOutcomeError> {
+  const classified = classifyOutcomeError(err)
+  if (credentialsResolved) {
+    return err instanceof GA4ApiError && err.status === 404 ? { ...classified, reasonCode: OutcomeReasonCodes.PROPERTY_NOT_FOUND } : classified
+  }
+  if (!(err instanceof AppError)) return credentialFailure(err)
+  const oauth = opts.googleConnectionStore?.getConnection(project.canonicalDomain, 'ga4')
+  const serviceAccount = opts.ga4CredentialStore?.getConnection(project.name)
+  const unselected = Boolean(oauth?.refreshToken && !oauth.propertyId) || Boolean(serviceAccount?.clientEmail && !serviceAccount.propertyId)
+  return { ...classified, reasonCode: unselected ? OutcomeReasonCodes.PROPERTY_NOT_FOUND : OutcomeReasonCodes.NOT_CONNECTED }
+}
+
+/**
  * Check that a GA4 connection (service account or OAuth) exists for a project.
  * Throws if no connection is found.
  */
@@ -488,7 +511,11 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
   app.post<{
     Params: { name: string }
     Body: { propertyId: string; keyJson?: string }
-  }>('/projects/:name/ga/connect', async (request, _reply) => {
+  }>('/projects/:name/ga/connect', connectionRoute(app, (request) => {
+    const body = request.body as { keyJson?: unknown } | undefined
+    // A key file connects; without one this picks the property for an OAuth connection.
+    return { integration: 'ga4', action: typeof body?.keyJson === 'string' && body.keyJson ? 'connect' : 'select' }
+  }, async (request, _reply, attempt) => {
     const project = resolveProject(app.db, request.params.name)
     const { propertyId, keyJson } = request.body ?? {}
 
@@ -521,11 +548,13 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       } catch (e) {
         const msg = describeError(e)
         gaLog('error', 'connect.verify-failed', { projectId: project.id, propertyId, error: msg })
+        attempt.failed(e)
         throw validationError(`Failed to verify GA4 credentials: ${msg}`)
       }
 
       const now = new Date().toISOString()
       const existing = opts.ga4CredentialStore.getConnection(project.name)
+      if (existing) attempt.update({ action: 'reauth' })
       const previousPropertyId = resolveCurrentGa4PropertyId(opts, project.name, project.canonicalDomain)
       opts.ga4CredentialStore.upsertConnection({
         projectName: project.name,
@@ -565,6 +594,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
 
     const oauthConn = googleStore.getConnection(project.canonicalDomain, 'ga4')
     if (!oauthConn?.accessToken || !oauthConn?.refreshToken) {
+      attempt.failed(undefined, 'NOT_CONNECTED')
       throw validationError(
         'No GA4 OAuth token found. Run "canonry google connect <project> --type ga4" first, ' +
         'or pass --key-file to use a service account.',
@@ -585,6 +615,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     } catch (e) {
       const msg = describeError(e)
       gaLog('error', 'connect.verify-failed.oauth', { projectId: project.id, propertyId, error: msg })
+      attempt.failed(e)
       throw validationError(`Failed to verify GA4 access: ${msg}`)
     }
 
@@ -612,16 +643,17 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     })
 
     return { connected: true, propertyId, authMethod: 'oauth' }
-  })
+  }))
 
   // DELETE /projects/:name/ga/disconnect
-  app.delete<{ Params: { name: string } }>('/projects/:name/ga/disconnect', async (request, reply) => {
+  app.delete<{ Params: { name: string } }>('/projects/:name/ga/disconnect', connectionRoute(app, () => ({ integration: 'ga4', action: 'disconnect' }), async (request, reply, attempt) => {
     const project = resolveProject(app.db, request.params.name)
 
     const saConn = opts.ga4CredentialStore?.getConnection(project.name)
     const oauthConn = opts.googleConnectionStore?.getConnection(project.canonicalDomain, 'ga4')
 
     if (!saConn && !oauthConn) {
+      attempt.failed(undefined, 'NOT_CONNECTED')
       throw notFound('GA4 connection', project.name)
     }
 
@@ -658,7 +690,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     })
 
     return reply.status(204).send()
-  })
+  }))
 
   // GET /projects/:name/ga/status
   // GET /projects/:name/ga/properties
@@ -792,8 +824,13 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       createdAt: startedAt,
     }).run()
 
+    const outcome = startRouteOutcome(app, FeatureNames.ga4, 'sync')
+    let credentialsResolved = false
+    // The first measurement component that failed outright; the sync still completes.
+    let componentFailure: { error: unknown } | undefined
     try {
       const { accessToken, propertyId } = await resolveGa4AccessToken(opts, project.name, project.canonicalDomain)
+      credentialsResolved = true
 
       let rows: Awaited<ReturnType<typeof fetchTrafficByLandingPage>> = []
       let aiReferrals: Awaited<ReturnType<typeof fetchAiReferrals>> = []
@@ -1015,6 +1052,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         component: 'acquisition' | 'leads',
         reason: unknown,
       ) => {
+        componentFailure ??= { error: reason }
         const message = describeError(reason)
         gaLog('warn', 'measurement.component-failed', {
           projectId: project.id,
@@ -1090,6 +1128,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         status: 'unavailable' | 'error',
         reason: unknown,
       ): GaSearchLandingSyncResult => {
+        if (status === 'error') componentFailure ??= { error: reason }
         const message = describeError(reason)
         gaLog('warn', 'search-landing.component-failed', {
           projectId: project.id,
@@ -1162,6 +1201,14 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         totalUsers: summary.totalUsers,
         ...(only ? { only } : {}),
       })
+      const counts = { rows: rows.length + dailyTotals.length + aiReferrals.length + socialReferrals.length }
+      if (componentFailure) {
+        outcome.report({ status: OutcomeStatuses.partial, ...classifyOutcomeError(componentFailure.error), counts })
+      } else if (rows.length === 0 && dailyTotals.length === 0) {
+        outcome.report({ status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.NO_DATA, counts })
+      } else {
+        outcome.report({ status: OutcomeStatuses.succeeded, counts })
+      }
 
       return {
         synced: true,
@@ -1186,6 +1233,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         .set({ status: RunStatuses.failed, error: msg, finishedAt: new Date().toISOString() })
         .where(eq(runs.id, runId))
         .run()
+      outcome.report({ status: OutcomeStatuses.failed, ...ga4SyncFailure(e, credentialsResolved, opts, project) })
       throw e
     }
   })

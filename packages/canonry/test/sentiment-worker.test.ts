@@ -6,6 +6,9 @@ import { SentimentService, selectSentimentSources, sentimentHash } from '@ainyc/
 import { resolveSentimentInstallConfig, type SentimentInstallConfig } from '@ainyc/canonry-config'
 import { SentimentWorker, createSentimentPoller, sentimentRateLimitDelayMs } from '../src/sentiment-worker.js'
 
+const trackEvent = vi.hoisted(() => vi.fn())
+vi.mock('../src/telemetry.js', () => ({ trackEvent }))
+
 // Pass-through spy: counts the worker's source selections without changing them.
 vi.mock('@ainyc/canonry-api-routes', async importOriginal => {
   const actual = await importOriginal<typeof import('@ainyc/canonry-api-routes')>()
@@ -24,6 +27,7 @@ const classified = (input: SentimentClassifierInput): SentimentClassifierOutput 
 const refused = (code: 'provider-rate-limit' | 'provider-authorization', retryAfterMs: number | null = null): SentimentClassifierOutput => ({ kind: 'failed', outcome: 'failed', returnedModel: null, usage: { kind: 'unknown', inputTokens: null, outputTokens: null }, error: { code, message: 'Safe refusal', retryable: code === 'provider-rate-limit', retryAfterMs } })
 const later = (ms: number) => new Date(Date.parse(time) + ms).toISOString()
 beforeEach(() => {
+  trackEvent.mockReset()
   enabled = true; apiKey = 'private-test-key'; maxAttempts = 3; time = '2026-09-28T00:00:00.000Z'
   vi.mocked(selectSentimentSources).mockClear()
   db = createClient(':memory:'); migrate(db)
@@ -403,6 +407,85 @@ describe('durable sentiment worker', () => {
     await runtime.tick()
     expect(service.jobList('p').jobs[0]).toMatchObject({ state: 'canceled', counts: { canceled: 1 } })
     expect(db.select().from(llmUsageEvents).all()).toHaveLength(1)
+  })
+})
+
+describe('sentiment run outcome telemetry', () => {
+  const run = { feature: 'sentiment', operation: 'run', durationBucket: expect.any(String) }
+  const automatic = { ...run, trigger: 'scheduled', surface: 'system' }
+  const failedOnce = (input: SentimentClassifierInput, attempt: number): SentimentClassifierOutput => attempt === 1
+    ? { kind: 'failed', outcome: 'failed', returnedModel: null, usage: { kind: 'unknown', inputTokens: null, outputTokens: null }, error: { code: 'provider-unavailable', message: 'TypeSafe returned HTTP 503.', retryable: true, retryAfterMs: null } }
+    : classified(input)
+
+  it('reports each answer once it is saved: automatic work as scheduled, its retry as a retry, with attempts and reported tokens', async () => {
+    service.configure('p', { enabled: true }); source('r')
+    let attempt = 0
+    const { runtime } = worker(vi.fn(async (input: SentimentClassifierInput) => failedOnce(input, ++attempt)))
+    await runtime.tick()
+    time = later(10 * 60_000)
+    await runtime.tick()
+    expect(trackEvent.mock.calls).toEqual([
+      ['feature.completed', { ...automatic, status: 'failed', reasonCode: 'HTTP_5XX', counts: { attempts: 1 } }, { errorCode: 'HTTP_5XX' }],
+      ['feature.completed', { ...run, trigger: 'retry', surface: 'system', status: 'succeeded', counts: { attempts: 2, inputTokens: 1000, outputTokens: 10 } }, undefined],
+    ])
+  })
+
+  it('reports answers it never sends: a preflight abstention as skipped, and a project disabled after the claim as cancelled', async () => {
+    service.configure('p', { enabled: true }); source('abstains')
+    const abstaining = new SentimentWorker(db, {
+      configuration, classifier: () => ({ classify: vi.fn() }), now,
+      prepare: () => ({ ok: false, outcome: 'subject-not-mentioned', reason: 'Frozen subject absent from this answer.' }),
+    })
+    await abstaining.tick()
+    source('canceled')
+    const disabling = new SentimentWorker(db, {
+      configuration, classifier: () => ({ classify: vi.fn() }), now,
+      prepare: () => { service.configure('p', { enabled: false }); return { ok: true, estimatedInputTokens: 1000 } },
+    })
+    await disabling.tick()
+    expect(trackEvent.mock.calls).toEqual([
+      ['feature.completed', { ...automatic, status: 'skipped', reasonCode: 'NO_DATA' }, { errorCode: 'NO_DATA' }],
+      ['feature.completed', { ...automatic, status: 'cancelled', reasonCode: 'CANCELLED_BY_USER' }, { errorCode: 'CANCELLED_BY_USER' }],
+    ])
+  })
+
+  it('reports a refused credential and a transport failure by reason and class, never the provider text', async () => {
+    maxAttempts = 1
+    service.configure('p', { enabled: true }); source('r')
+    const { runtime } = worker(vi.fn(async (): Promise<SentimentClassifierOutput> => refused('provider-authorization')))
+    await runtime.tick()
+    // A rotated key lifts the authorization pause: the refused answer is retried beside a new one.
+    apiKey = 'rotated-key'; source('next')
+    const unreachable = worker(vi.fn(async () => { throw Object.assign(new TypeError('fetch failed for https://typesafe.example/v1 with key private-test-key'), { code: 'ECONNRESET' }) }))
+    await unreachable.runtime.tick()
+    const network = { status: 'failed', reasonCode: 'NETWORK', errorName: 'TypeError' }
+    expect(trackEvent.mock.calls[0]).toEqual(
+      ['feature.completed', { ...automatic, status: 'failed', reasonCode: 'INVALID_CREDENTIALS', counts: { attempts: 1 } }, { errorCode: 'INVALID_CREDENTIALS' }],
+    )
+    expect(trackEvent.mock.calls.slice(1)).toHaveLength(2)
+    expect(trackEvent.mock.calls.slice(1)).toEqual(expect.arrayContaining([
+      ['feature.completed', { ...automatic, ...network, counts: { attempts: 1 } }, { errorCode: 'NETWORK' }],
+      ['feature.completed', { ...run, trigger: 'retry', surface: 'system', ...network, counts: { attempts: 2 } }, { errorCode: 'NETWORK' }],
+    ]))
+    expect(JSON.stringify(trackEvent.mock.calls)).not.toMatch(/typesafe\.example|private-test-key/)
+  })
+
+  it('samples a long stream of answers per status and reason, carrying the count it dropped', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      service.configure('p', { enabled: true })
+      for (const id of ['a', 'b', 'c', 'd', 'e', 'f', 'g']) source(id)
+      const { runtime } = worker()
+      while (await runtime.tick() > 0) { /* drain */ }
+      expect(trackEvent).toHaveBeenCalledTimes(5)
+      vi.setSystemTime(Date.now() + 120_000)
+      source('h')
+      await runtime.tick()
+      expect(trackEvent).toHaveBeenCalledTimes(6)
+      expect(trackEvent.mock.calls[5]![1]).toEqual({ ...automatic, status: 'succeeded', counts: { attempts: 1, inputTokens: 1000, outputTokens: 10 }, droppedBefore: 2 })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

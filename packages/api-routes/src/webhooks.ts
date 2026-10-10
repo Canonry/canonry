@@ -21,8 +21,11 @@ export interface SafeWebhookTarget {
 
 export type ResolveWebhookTargetResult =
   | { ok: true; target: SafeWebhookTarget }
-  /** `unresolved` marks a name with no address: nothing was refused, the target could not be found. */
-  | { ok: false; message: string; unresolved?: true }
+  /**
+   * `unresolved` marks a name with no address: nothing was refused, the target
+   * could not be found. `blocked` marks an address the egress policy refused.
+   */
+  | { ok: false; message: string; unresolved?: true; blocked?: true }
 
 export interface ResolveWebhookTargetOptions {
   /**
@@ -68,7 +71,7 @@ export async function resolveWebhookTarget(
 
   const blocked = addresses.find((entry) => isBlockedAddress(entry.address, options))
   if (blocked) {
-    return { ok: false, message: '"url" must not resolve to a private or loopback address' }
+    return { ok: false, message: '"url" must not resolve to a private or loopback address', blocked: true }
   }
 
   return {
@@ -86,7 +89,7 @@ export async function deliverWebhook(
   target: SafeWebhookTarget,
   payload: unknown,
   webhookSecret: string | null,
-): Promise<{ status: number; error: string | null }> {
+): Promise<{ status: number; error: string | null; timedOut?: true }> {
   const body = JSON.stringify(payload)
   const isHttps = target.url.protocol === 'https:'
   const port = target.url.port ? Number(target.url.port) : (isHttps ? 443 : 80)
@@ -132,12 +135,14 @@ export async function deliverWebhook(
       })
     })
 
+    let timedOut = false
     request.on('timeout', () => {
+      timedOut = true
       request.destroy(new Error(`Request timed out after ${REQUEST_TIMEOUT_MS}ms`))
     })
 
     request.on('error', (error) => {
-      resolve({ status: 0, error: error.message })
+      resolve({ status: 0, error: error.message, ...(timedOut ? { timedOut: true as const } : {}) })
     })
 
     request.end(body)

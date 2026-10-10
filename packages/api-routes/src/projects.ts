@@ -14,6 +14,7 @@ import {
   locationContextSchema,
   normalizeProjectAliases,
   normalizeProjectName,
+  OutcomeStatuses,
   projectCreateRequestSchema,
   projectUpsertRequestSchema,
   resolveProjectQualifiedAliases,
@@ -27,6 +28,7 @@ import {
 import type { CompetitorAliasRejection, CompetitorAutoAliasDrop, CompetitorAutoAliasMode, ConfigNotification, LocationContext, MeasurementConfig, ProjectConfigExport, ProjectCreateRequest, ProviderDispatchModesMap, ProviderModels } from '@ainyc/canonry-contracts'
 import { requireAdminSession, requireScope } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import { withFeatureOutcome } from './feature-outcome.js'
 import { competitorIdentityChanged, competitorIdentityColumns, competitorNames, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
 import { readMarketCompetitorPins } from './plan-competitors.js'
 import { marketNameChanges, readMarketCompetitorNames, type MarketNameChange } from './market-competitor-names.js'
@@ -700,7 +702,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
   })
 
   // GET /projects/:name/export — export as canonry.yaml format
-  app.get<{ Params: { name: string } }>('/projects/:name/export', async (request, reply) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/export', async (request, reply) => withFeatureOutcome(app, { feature: 'exports', operation: 'export' }, async (settle) => {
     const project = resolveProject(app.db, request.params.name)
     const negativeReviewMaxStars = readNegativeReviewMaxStars(app.db, project.id)
 
@@ -770,8 +772,9 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       },
     }
 
+    settle({ status: OutcomeStatuses.succeeded, counts: { queries: qs.length } })
     return reply.send(config)
-  })
+  }))
 }
 
 /**

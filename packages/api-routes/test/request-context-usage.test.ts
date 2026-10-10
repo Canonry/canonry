@@ -73,3 +73,45 @@ describe('request completion usage hook', () => {
     expect(response.json()).toEqual({ ok: true })
   })
 })
+
+describe('request error codes', () => {
+  it('reports the stable code of a thrown error, never its message', async () => {
+    const seen: ApiRequestCompletedInfo[] = []
+    const app = Fastify()
+    apps.push(app)
+    registerRequestContext(app, { onRequestCompleted: info => seen.push(info) })
+    app.get('/projects/:name/backlinks', async () => {
+      throw Object.assign(new Error('backlinks for acme.example are not installed'), { code: 'NOT_FOUND', statusCode: 404 })
+    })
+    app.get('/projects/:name', async () => ({ ok: true }))
+    await app.inject({ method: 'GET', url: '/projects/acme/backlinks' })
+    await app.inject({ method: 'GET', url: '/projects/acme' })
+    expect(seen[0]).toMatchObject({ statusCode: 404, errorCode: 'NOT_FOUND' })
+    expect(JSON.stringify(seen[0])).not.toContain('acme')
+    expect(seen[1]).not.toHaveProperty('errorCode')
+  })
+
+  it('reads the code from an error body sent without throwing, and from the error handler', async () => {
+    const seen: ApiRequestCompletedInfo[] = []
+    const app = Fastify()
+    apps.push(app)
+    registerRequestContext(app, { onRequestCompleted: info => seen.push(info) })
+    app.setErrorHandler((_error, _request, reply) => reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } }))
+    app.get('/a', async (_request, reply) => reply.status(501).send({ error: { code: 'NOT_IMPLEMENTED', message: 'not here' } }))
+    app.get('/b', async (_request, reply) => reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'no project acme' } }))
+    app.get('/c', async () => { throw new Error('plain failure with no code') })
+    app.get('/d', async (_request, reply) => reply.status(400).send('not json'))
+    for (const url of ['/a', '/b', '/c', '/d']) await app.inject({ method: 'GET', url })
+    expect(seen.map(s => s.errorCode)).toEqual(['NOT_IMPLEMENTED', 'NOT_FOUND', 'INTERNAL_ERROR', undefined])
+  })
+
+  it('ignores codes that are not stable identifiers', async () => {
+    const seen: ApiRequestCompletedInfo[] = []
+    const app = Fastify()
+    apps.push(app)
+    registerRequestContext(app, { onRequestCompleted: info => seen.push(info) })
+    app.get('/x', async () => { throw Object.assign(new Error('x'), { code: 'not a code', statusCode: 500 }) })
+    await app.inject({ method: 'GET', url: '/x' })
+    expect(seen[0]).not.toHaveProperty('errorCode')
+  })
+})

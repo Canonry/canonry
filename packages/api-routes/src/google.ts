@@ -23,6 +23,10 @@ import {
   inclusiveDayCount,
   percentOf,
   shiftIsoCalendarDate,
+  classifyOutcomeError,
+  FeatureNames,
+  OutcomeReasonCodes,
+  OutcomeStatuses,
 } from '@ainyc/canonry-contracts'
 import { extractPlaceAmenities, type PlaceDetails } from '@ainyc/canonry-integration-google-places'
 import { computeGscPeriodComparison, type GscComparisonBasis } from './gsc-period-comparison.js'
@@ -35,10 +39,29 @@ import {
 } from './gsc-totals.js'
 import { assertNotProjectScoped } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import { startRouteOutcome } from './feature-outcome.js'
 import {
   buildSignedGoogleOAuthState,
   verifySignedGoogleOAuthState,
 } from './google-oauth-state.js'
+import {
+  connectionRoute,
+  oauthStartAttribution,
+  oauthStateAttribution,
+  startConnectionAttempt,
+  telemetryRead,
+  unverifiedOAuthStateField,
+  type ConnectionAttempt,
+} from './connection-telemetry.js'
+
+const GOOGLE_INTEGRATIONS = { gsc: 'gsc', ga4: 'ga4', gbp: 'gbp' } as const
+
+/** The outcome integration a Google connection type names, or undefined for anything else. */
+function googleIntegration(type: unknown): (typeof GOOGLE_INTEGRATIONS)[keyof typeof GOOGLE_INTEGRATIONS] | undefined {
+  return typeof type === 'string' && Object.hasOwn(GOOGLE_INTEGRATIONS, type)
+    ? GOOGLE_INTEGRATIONS[type as keyof typeof GOOGLE_INTEGRATIONS]
+    : undefined
+}
 
 /**
  * The window to REPORT, given what the caller actually asked for.
@@ -337,6 +360,23 @@ function googleAuthErrorStatus(err: GoogleAuthError): number | null {
   return match ? Number(match[1]) : null
 }
 
+/** Why a Search Console call failed, read from the error before it becomes an API error. */
+function gscOutcomeFailure(err: unknown): ReturnType<typeof classifyOutcomeError> {
+  const classified = classifyOutcomeError(err)
+  if (err instanceof AppError && (err.code === 'NOT_FOUND' || err.code === 'VALIDATION_ERROR')) {
+    return { ...classified, reasonCode: OutcomeReasonCodes.NOT_CONNECTED }
+  }
+  if (err instanceof GoogleAuthError) {
+    const status = googleAuthErrorStatus(err)
+    const reasonCode = status === 429
+      ? OutcomeReasonCodes.RATE_LIMITED
+      : status !== null && status >= 500 ? OutcomeReasonCodes.HTTP_5XX : OutcomeReasonCodes.INVALID_CREDENTIALS
+    return { ...classified, reasonCode }
+  }
+  if (err instanceof GoogleApiError && err.status === 404) return { ...classified, reasonCode: OutcomeReasonCodes.PROPERTY_NOT_FOUND }
+  return classified
+}
+
 /**
  * Map a failure from a LIVE Google Search Console call into a canonry AppError.
  *
@@ -476,7 +516,10 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.post<{
     Params: { name: string }
     Body: { type: string; propertyId?: string; publicUrl?: string }
-  }>('/projects/:name/google/connect', async (request) => {
+  }>('/projects/:name/google/connect', connectionRoute(app, (request) => {
+    const integration = googleIntegration((request.body as { type?: unknown } | undefined)?.type)
+    return integration ? { integration, action: 'connect' } : undefined
+  }, async (request, _reply, attempt) => {
     const { clientId: googleClientId, clientSecret: googleClientSecret } = getAuthConfig()
     if (!googleClientId || !googleClientSecret) {
       throw validationError('Google OAuth is not configured. Set Google OAuth credentials in the local Canonry config.')
@@ -488,6 +531,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     }
 
     const project = resolveProject(app.db, request.params.name)
+    if (telemetryRead(() => opts.googleConnectionStore?.getConnection(project.canonicalDomain, type), undefined)) attempt.update({ action: 'reauth' })
 
     let redirectUri: string
     if (publicUrl) {
@@ -518,21 +562,42 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         type,
         propertyId,
         redirectUri,
+        // The browser finishes the flow, so the callback reports the surface that started it.
+        ...oauthStartAttribution(),
       },
       stateSecret,
     )
 
     const authUrl = getAuthUrl(googleClientId, redirectUri, scopes, stateEncoded)
+    attempt.started()
     return { authUrl, redirectUri }
-  })
+  }))
+
+  type OAuthCallbackRequest = { query: { code?: string; state?: string; error?: string } }
+  type OAuthCallbackReply = { status: (code: number) => { send: (body: unknown) => unknown }; type: (t: string) => { send: (body: string) => unknown } }
 
   // Shared OAuth callback handler — used by both legacy per-project and new shared routes
-  async function handleOAuthCallback(
-    request: { query: { code?: string; state?: string; error?: string } },
-    reply: { status: (code: number) => { send: (body: unknown) => unknown }; type: (t: string) => { send: (body: string) => unknown } },
-  ) {
+  async function handleOAuthCallback(request: OAuthCallbackRequest, reply: OAuthCallbackReply) {
+    // An invalid or expired state still names its integration, read unverified for telemetry only.
+    const verifiedState = request.query.state ? verifySignedGoogleOAuthState(request.query.state, stateSecret) : null
+    const integration = googleIntegration(verifiedState?.type ?? unverifiedOAuthStateField(request.query.state, 'type'))
+    const replacesConnection = integration && typeof verifiedState?.domain === 'string'
+      && telemetryRead(() => opts.googleConnectionStore?.getConnection(verifiedState.domain as string, integration), undefined)
+    const attempt = startConnectionAttempt(app, integration
+      ? { integration, action: replacesConnection ? 'reauth' : 'connect', ...oauthStateAttribution(verifiedState) }
+      : undefined)
+    try {
+      return await completeOAuthCallback(request, reply, attempt)
+    } catch (err) {
+      attempt.failed(err)
+      throw err
+    }
+  }
+
+  async function completeOAuthCallback(request: OAuthCallbackRequest, reply: OAuthCallbackReply, attempt: ConnectionAttempt) {
     const { clientId: googleClientId, clientSecret: googleClientSecret } = getAuthConfig()
     if (!googleClientId || !googleClientSecret) {
+      attempt.failed(undefined, 'UNSUPPORTED')
       return reply.status(500).send('Google OAuth not configured')
     }
 
@@ -542,6 +607,8 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
 
     const { code, state, error } = request.query
     if (error) {
+      if (error === 'access_denied') attempt.cancelled('OAUTH_CANCELLED')
+      else attempt.failed(undefined, 'AUTH_DENIED')
       const safeError = escapeHtml(String(error))
       const errorHtml = error === 'redirect_uri_mismatch'
         ? `<html><body style="font-family:system-ui;padding:40px;max-width:600px;margin:0 auto">
@@ -563,11 +630,13 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     }
 
     if (!code || !state) {
+      attempt.failed(undefined, state ? 'VALIDATION' : 'OAUTH_STATE_INVALID')
       return reply.status(400).send('Missing code or state parameter')
     }
 
     const stateData = verifySignedGoogleOAuthState(state, stateSecret)
     if (!stateData) {
+      attempt.failed(undefined, 'OAUTH_STATE_INVALID')
       return reply.status(400).send('Invalid or tampered state parameter')
     }
 
@@ -588,6 +657,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     // also enforces a short TTL, but a captured pre-upgrade state carries no
     // owner or issued-at binding. Reject it and force a fresh `/google/connect`.
     if (!projectId) {
+      attempt.failed(undefined, 'OAUTH_STATE_INVALID')
       return reply.status(400).send('Stale OAuth state — restart the connect flow.')
     }
 
@@ -604,9 +674,11 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       .where(eq(projects.id, projectId))
       .get()
     if (!project) {
+      attempt.failed(undefined, 'NOT_FOUND')
       return reply.status(400).send('Project no longer exists. Restart the connect flow.')
     }
     if (project.canonicalDomain.toLowerCase() !== domain.toLowerCase()) {
+      attempt.failed(undefined, 'OAUTH_STATE_INVALID')
       return reply
         .status(400)
         .send(
@@ -619,6 +691,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     try {
       tokens = await exchangeCode(googleClientId, googleClientSecret, code, redirectUri)
     } catch (err) {
+      attempt.failed(err)
       const msg = describeError(err)
       return reply.type('text/html').send(
         `<html><body style="font-family:system-ui;padding:40px;max-width:600px;margin:0 auto">
@@ -641,6 +714,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     // rows without an owner (NULL `createdByProjectId`) are claimable; the
     // first connect to land on them sets the owner and locks future writes.
     if (existing && existing.createdByProjectId && existing.createdByProjectId !== projectId) {
+      attempt.failed(undefined, 'ALREADY_CONNECTED')
       return reply
         .status(403)
         .send(
@@ -675,6 +749,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       diff: { domain, type, propertyId },
     })
 
+    attempt.succeeded()
     return reply.type('text/html').send(googleOAuthSuccessHtml(type as GoogleConnectionType))
   }
 
@@ -694,7 +769,10 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   })
 
   // DELETE /projects/:name/google/connections/:type
-  app.delete<{ Params: { name: string; type: string } }>('/projects/:name/google/connections/:type', async (request, reply) => {
+  app.delete<{ Params: { name: string; type: string } }>('/projects/:name/google/connections/:type', connectionRoute(app, (request) => {
+    const integration = googleIntegration(request.params.type)
+    return integration ? { integration, action: 'disconnect' } : undefined
+  }, async (request, reply, attempt) => {
     const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
@@ -706,6 +784,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     // legitimate connection and re-OAuth into the freed slot.
     const existing = store.getConnection(project.canonicalDomain, type)
     if (!existing) {
+      attempt.failed(undefined, 'NOT_CONNECTED')
       throw notFound('Google connection', type)
     }
     if (existing.createdByProjectId && existing.createdByProjectId !== project.id) {
@@ -716,6 +795,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
 
     const deleted = store.deleteConnection(project.canonicalDomain, type)
     if (!deleted) {
+      attempt.failed(undefined, 'NOT_CONNECTED')
       throw notFound('Google connection', type)
     }
 
@@ -728,7 +808,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     })
 
     return reply.status(204).send()
-  })
+  }))
 
   // GET /projects/:name/google/properties
   app.get<{ Params: { name: string } }>('/projects/:name/google/properties', async (request) => {
@@ -1314,14 +1394,16 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       throw validationError('url is required')
     }
 
+    const outcome = startRouteOutcome(app, FeatureNames.search_console, 'inspect')
     let result
     try {
       const { accessToken, propertyId } = await getValidToken(store, project.canonicalDomain, 'gsc', googleClientId, googleClientSecret)
       if (!propertyId) {
-        throw validationError('No GSC property configured for this connection')
+        throw outcome.refuse(OutcomeReasonCodes.PROPERTY_NOT_FOUND, validationError('No GSC property configured for this connection'))
       }
       result = await gscInspectUrl(accessToken, url, propertyId)
     } catch (err) {
+      outcome.report({ status: OutcomeStatuses.failed, ...gscOutcomeFailure(err) })
       throw gscErrorToAppError(err, 'Failed to inspect URL in Search Console')
     }
     const ir = result.inspectionResult
@@ -1350,6 +1432,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       inspectedAt: now,
       createdAt: now,
     }).run()
+    outcome.report({ status: OutcomeStatuses.succeeded, counts: { urls: 1 } })
 
     return {
       id,
@@ -1686,33 +1769,45 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const sitemapUrls = [...new Set(parsed.data.sitemapUrls)]
     const project = resolveProject(app.db, request.params.name)
     const store = requireConnectionStore()
+    const outcome = startRouteOutcome(app, FeatureNames.search_console, 'sitemap_submit')
     const conn = store.getConnection(project.canonicalDomain, 'gsc')
     if (!conn) {
-      throw validationError('No GSC connection found for this domain. Run "canonry google connect" first.')
+      throw outcome.refuse(OutcomeReasonCodes.NOT_CONNECTED, validationError('No GSC connection found for this domain. Run "canonry google connect" first.'))
     }
     if (!conn.propertyId) {
-      throw validationError('No GSC property configured for this connection. Set one with "canonry google set-property".')
+      throw outcome.refuse(
+        OutcomeReasonCodes.PROPERTY_NOT_FOUND,
+        validationError('No GSC property configured for this connection. Set one with "canonry google set-property".'),
+      )
     }
     const invalidUrls = sitemapUrls.filter((url) => !isSitemapOwnedByProperty(url, conn.propertyId!, project.canonicalDomain))
     if (invalidUrls.length > 0) {
-      throw validationError(`Sitemap URLs must belong to the configured GSC property "${conn.propertyId}". Invalid: ${invalidUrls.slice(0, 5).join(', ')}`)
+      throw outcome.refuse(
+        OutcomeReasonCodes.VALIDATION,
+        validationError(`Sitemap URLs must belong to the configured GSC property "${conn.propertyId}". Invalid: ${invalidUrls.slice(0, 5).join(', ')}`),
+      )
     }
     if (!(conn.scopes ?? []).includes(GSC_SCOPE)) {
-      throw validationError('This GSC connection has the read-only webmasters scope and cannot submit sitemaps. Reconnect with "canonry google connect" to grant the full webmasters scope.')
+      throw outcome.refuse(
+        OutcomeReasonCodes.PERMISSION_MISSING,
+        validationError('This GSC connection has the read-only webmasters scope and cannot submit sitemaps. Reconnect with "canonry google connect" to grant the full webmasters scope.'),
+      )
     }
 
     const { clientId: googleClientId, clientSecret: googleClientSecret } = getAuthConfig()
     if (!googleClientId || !googleClientSecret) {
-      throw validationError('Google OAuth is not configured')
+      throw outcome.refuse(OutcomeReasonCodes.NOT_CONNECTED, validationError('Google OAuth is not configured'))
     }
     let accessToken: string
     try {
       ({ accessToken } = await getValidToken(store, project.canonicalDomain, 'gsc', googleClientId, googleClientSecret))
     } catch (err) {
+      outcome.report({ status: OutcomeStatuses.failed, ...gscOutcomeFailure(err) })
       throw gscErrorToAppError(err, 'Failed to authorize Search Console sitemap submission')
     }
 
     const results: Array<{ sitemapUrl: string; status: 'accepted' | 'error'; submittedAt?: string; error?: string }> = []
+    let lastSubmitError: unknown
     for (const sitemapUrl of sitemapUrls) {
       try {
         await submitSitemap(accessToken, conn.propertyId, sitemapUrl)
@@ -1726,11 +1821,17 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         })
         results.push({ sitemapUrl, status: 'accepted', submittedAt })
       } catch (err) {
+        lastSubmitError = err
         results.push({ sitemapUrl, status: 'error', error: describeError(err) })
       }
     }
     const accepted = results.filter((result) => result.status === 'accepted').length
-    return { summary: { total: results.length, accepted, failed: results.length - accepted }, results }
+    const failed = results.length - accepted
+    const counts = { urls: accepted, failures: failed }
+    outcome.report(failed === 0
+      ? { status: OutcomeStatuses.succeeded, counts }
+      : { status: accepted > 0 ? OutcomeStatuses.partial : OutcomeStatuses.failed, ...gscOutcomeFailure(lastSubmitError), counts })
+    return { summary: { total: results.length, accepted, failed }, results }
   })
 
   // POST /projects/:name/google/gsc/discover-sitemaps
@@ -1863,7 +1964,10 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.put<{
     Params: { name: string; type: string }
     Body: { propertyId: string }
-  }>('/projects/:name/google/connections/:type/property', async (request) => {
+  }>('/projects/:name/google/connections/:type/property', connectionRoute(app, (request) => {
+    const integration = googleIntegration(request.params.type)
+    return integration ? { integration, action: 'select' } : undefined
+  }, async (request, _reply, attempt) => {
     const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
@@ -1878,11 +1982,12 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       { propertyId, updatedAt: new Date().toISOString() },
     )
     if (!conn) {
+      attempt.failed(undefined, 'NOT_CONNECTED')
       throw notFound('Google connection', request.params.type)
     }
 
     return { propertyId }
-  })
+  }))
 
   // POST /projects/:name/google/indexing/request
   app.post<{
@@ -2315,7 +2420,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.put<{
     Params: { name: string; locationName: string }
     Body: { selected?: boolean }
-  }>('/projects/:name/gbp/locations/:locationName/selection', async (request) => {
+  }>('/projects/:name/gbp/locations/:locationName/selection', connectionRoute(app, () => ({ integration: 'gbp', action: 'select' }), async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const locationName = decodeURIComponent(request.params.locationName)
 
@@ -2344,7 +2449,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
 
     const refreshed = app.db.select().from(gbpLocations).where(eq(gbpLocations.id, existing.id)).get()!
     return rowToDto(refreshed)
-  })
+  }))
 
   // DELETE /projects/:name/gbp/connection
   // Removes the OAuth connection + every GBP row for the project: locations and
@@ -2353,7 +2458,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   // (metrics / keywords / place-actions / lodging / summary) keep returning
   // stale data after a disconnect, and reconnecting a different account mixes
   // the old account's rows into the project-scoped aggregates.
-  app.delete<{ Params: { name: string } }>('/projects/:name/gbp/connection', async (request, reply) => {
+  app.delete<{ Params: { name: string } }>('/projects/:name/gbp/connection', connectionRoute(app, () => ({ integration: 'gbp', action: 'disconnect' }), async (request, reply, attempt) => {
     const project = resolveProject(app.db, request.params.name)
     const store = requireConnectionStore()
 
@@ -2366,10 +2471,10 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         entityType: 'gbp_connection',
       })
     })
-    store.deleteConnection(project.canonicalDomain, 'gbp')
+    if (!store.deleteConnection(project.canonicalDomain, 'gbp')) attempt.cancelled('NOT_CONNECTED')
 
     return reply.status(204).send()
-  })
+  }))
 
   // POST /projects/:name/gbp/sync — trigger a gbp-sync run (performance data).
   app.post<{

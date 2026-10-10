@@ -17,8 +17,20 @@ import {
   queryBacklinks,
   type BacklinkRow,
 } from '@ainyc/canonry-integration-commoncrawl'
-import { BacklinkSources, CcReleaseSyncStatuses, computeBacklinkSummaryMetrics, describeError } from '@ainyc/canonry-contracts'
+import {
+  BacklinkSources,
+  CcReleaseSyncStatuses,
+  computeBacklinkSummaryMetrics,
+  describeError,
+  OutcomeReasonCodes,
+  OutcomeStatuses,
+  OutcomeSurfaces,
+  OutcomeTriggers,
+  type FeatureCompletedProperties,
+  type OutcomeTrigger,
+} from '@ainyc/canonry-contracts'
 import { createLogger } from './logger.js'
+import { currentOutcomeOrigin, outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 
 const log = createLogger('CommonCrawlSync')
 
@@ -33,6 +45,8 @@ export interface ReleaseSyncDeps {
 
 export interface ExecuteReleaseSyncOptions {
   release: string
+  /** What asked for the sync, for its outcome event. Defaults to `manual`. */
+  trigger?: OutcomeTrigger
   deps?: Partial<ReleaseSyncDeps>
 }
 
@@ -55,9 +69,19 @@ export async function executeReleaseSync(
 ): Promise<void> {
   const deps = { ...defaultDeps(), ...opts.deps }
   const release = opts.release
+  const outcome = {
+    feature: 'backlinks',
+    operation: 'sync',
+    ...(opts.trigger && opts.trigger !== OutcomeTriggers.manual
+      ? { trigger: opts.trigger, surface: OutcomeSurfaces.system }
+      : currentOutcomeOrigin() ?? { trigger: OutcomeTriggers.manual }),
+  } as const
+  const elapsed = startOutcomeTimer()
+  let invalidRelease = false
 
   try {
     if (!isValidReleaseId(release)) {
+      invalidRelease = true
       throw new Error(`Invalid release id: ${release}`)
     }
 
@@ -198,6 +222,12 @@ export async function executeReleaseSync(
       projectsProcessed: allProjects.length,
       domainsDiscovered: rows.length,
     })
+    trackFeatureCompleted({
+      ...outcome,
+      status: OutcomeStatuses.succeeded,
+      durationBucket: elapsed(),
+      counts: { domains: rows.length, links: computeBacklinkSummaryMetrics(rows).totalHosts },
+    })
 
     if (deps.enqueueAutoExtract) {
       const autoExtractProjects = allProjects.filter((p) => p.autoExtractBacklinks)
@@ -222,7 +252,82 @@ export async function executeReleaseSync(
       updatedAt: finishedAt,
     }).where(eq(ccReleaseSyncs.id, syncId)).run()
     log.error('sync.failed', { syncId, release, error: errorMsg })
+    trackFeatureCompleted({
+      ...outcome,
+      status: OutcomeStatuses.failed,
+      durationBucket: elapsed(),
+      ...outcomeFailure(err, invalidRelease ? OutcomeReasonCodes.VALIDATION : undefined),
+    })
     throw err
+  }
+}
+
+export interface ScheduledReleaseSyncDeps {
+  db: DatabaseClient
+  /** The newest published release, or null when no candidate answers. */
+  probe: () => Promise<{ release: string } | null>
+  /** POST /backlinks/syncs, which owns insert/dedupe (UNIQUE release + non-terminal check) and the per-project auto-extract fan-out. */
+  requestSync: (release: string) => Promise<unknown>
+  /** Releases a scheduled request is in flight for, so the release sync it starts reports a scheduled trigger. */
+  scheduledReleases: Set<string>
+  log: {
+    info: (fields: object, message: string) => void
+    warn: (fields: object, message: string) => void
+    error: (fields: object, message: string) => void
+  }
+}
+
+/**
+ * One backlinks-sync schedule tick. Re-probe Common Crawl for the newest
+ * rolling window. The release sync is workspace-GLOBAL, so we gate on
+ * freshness: skip when the latest published release is already synced READY
+ * (avoids re-downloading a ~4 GB/~13 GB near-identical window every tick). We
+ * match on (release, status) directly rather than the most-recently-updated
+ * ready row, so re-syncing an older release out of band doesn't make us
+ * re-trigger an already-synced latest. Outcomes that never reach the release
+ * sync are reported here; a triggered sync reports its own.
+ */
+export async function syncLatestReleaseOnSchedule(projectName: string, deps: ScheduledReleaseSyncDeps): Promise<void> {
+  const elapsed = startOutcomeTimer()
+  const report = (outcome: Pick<FeatureCompletedProperties, 'status' | 'reasonCode' | 'errorName'>) => trackFeatureCompleted({
+    feature: 'backlinks',
+    operation: 'sync',
+    trigger: OutcomeTriggers.scheduled,
+    surface: OutcomeSurfaces.system,
+    durationBucket: elapsed(),
+    ...outcome,
+  })
+  const probed = await deps.probe().catch((err: unknown) => {
+    deps.log.warn({ projectName, err }, 'Scheduled backlinks sync: latest-release probe failed')
+    report({ status: OutcomeStatuses.failed, ...outcomeFailure(err) })
+    return undefined
+  })
+  if (!probed) {
+    // null: the probe ran and no published release answered it.
+    if (probed === null) report({ status: OutcomeStatuses.failed, reasonCode: OutcomeReasonCodes.NOT_FOUND })
+    return
+  }
+  const alreadySynced = deps.db
+    .select()
+    .from(ccReleaseSyncs)
+    .where(and(eq(ccReleaseSyncs.release, probed.release), eq(ccReleaseSyncs.status, CcReleaseSyncStatuses.ready)))
+    .limit(1)
+    .get()
+  if (alreadySynced) {
+    deps.log.info({ projectName, release: probed.release }, 'Scheduled backlinks sync: already up to date, skipping')
+    report({ status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.NOT_DUE })
+    return
+  }
+  deps.scheduledReleases.add(probed.release)
+  try {
+    await deps.requestSync(probed.release)
+  } catch (err: unknown) {
+    deps.log.error({ projectName, release: probed.release, err: describeError(err) }, 'Scheduled backlinks sync failed')
+    // MISSING_DEPENDENCY: the backlinks DuckDB plugin is not installed.
+    const missingPlugin = typeof err === 'object' && err !== null && 'code' in err && err.code === 'MISSING_DEPENDENCY'
+    report({ status: OutcomeStatuses.failed, ...outcomeFailure(err, missingPlugin ? OutcomeReasonCodes.NOT_CONNECTED : undefined) })
+  } finally {
+    deps.scheduledReleases.delete(probed.release)
   }
 }
 

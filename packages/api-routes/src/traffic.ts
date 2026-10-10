@@ -51,9 +51,13 @@ import {
   segmentCrawlerHits,
   sumInfraHits,
   describeError,
+  bucketDuration,
+  OutcomeReasonCodes,
+  OutcomeStatuses,
 } from '@ainyc/canonry-contracts'
 import type {
   NormalizedTrafficRequest,
+  OutcomeReasonCode,
   RunStatus,
   SchedulableRunKind,
   TrafficSourceDto,
@@ -124,8 +128,11 @@ import {
   authRequired,
 } from '@ainyc/canonry-contracts'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
-import { createGuardedFetch, EgressRefusedError } from './guarded-fetch.js'
+import { connectionRoute, routeOutcomeFailure, webhookTargetRefusalReason, type ConnectionAttempt, type ConnectionSubject } from './connection-telemetry.js'
+import { createGuardedFetch, EgressFailedError, EgressRefusedError } from './guarded-fetch.js'
 import { resolveWebhookTarget } from './webhooks.js'
+import { failedOutcome, reportFeatureOutcome, withFeatureOutcome, type FeatureOutcome } from './feature-outcome.js'
+import { currentOutcomeAttribution } from './request-context.js'
 import {
   DIRECT_PUSH_RECEIPT_TTL_MS,
   writeTrafficEventBatch,
@@ -268,6 +275,22 @@ export interface TrafficSyncedEvent {
   errorCode?: 'NO_CREDENTIAL' | 'PROVIDER_AUTH' | 'PROVIDER_PULL' | 'INTERNAL'
 }
 
+/** One authenticated push of traffic events into the server (the Cloudflare Worker's direct push). */
+export interface TrafficIngestedEvent {
+  /** Stable enum value mirroring `traffic_sources.source_type`. */
+  sourceType: string
+  status: 'succeeded' | 'failed'
+  /** Accepted events after dedupe; 0 when failed. */
+  events: number
+  crawlerHits: number
+  aiReferralHits: number
+  aiUserFetchHits: number
+  durationMs: number
+  /** Why the push was refused; present only when failed. */
+  reasonCode?: OutcomeReasonCode
+  errorName?: string
+}
+
 export interface TrafficRoutesOptions {
   cloudRunCredentialStore?: CloudRunCredentialStore
   /** Override the Cloud Run pull function (for tests). Defaults to `listCloudRunTrafficEvents`. */
@@ -356,6 +379,8 @@ export interface TrafficRoutesOptions {
   vercelSyncDeadlineMs?: number
   /** Fire-and-forget hook called after every sync completes (success OR failure). Used by canonry to emit telemetry. */
   onTrafficSynced?: (event: TrafficSyncedEvent) => void
+  /** Fire-and-forget hook called after every authenticated ingest push (success OR failure). Used by canonry to emit telemetry. */
+  onTrafficIngested?: (event: TrafficIngestedEvent) => void
   /**
    * Register/deregister a project schedule with the live scheduler. Connect
    * uses this to register the `traffic-sync` schedule it auto-creates, so the
@@ -1066,6 +1091,12 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
     pullForBackfill,
     pullErrorPrefix,
   } = options
+  const backfillStartedAt = Date.now()
+  // Reported after the request that started it, so who asked is read now, before the first await.
+  const target = { feature: 'server_traffic', operation: 'backfill', attribution: currentOutcomeAttribution() } as const
+  const reportBackfill = (outcome: FeatureOutcome) => reportFeatureOutcome(app, target, {
+    ...outcome, durationBucket: bucketDuration(Date.now() - backfillStartedAt),
+  })
 
   const markFailed = (msg: string, preserveSourceState = false) => {
     const failedAt = new Date().toISOString()
@@ -1102,6 +1133,7 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
   // and record any unrecoverable span before it can replace WordPress data.
   if (sourceRow.sourceType === TrafficSourceTypes.wordpress) {
     markFailed('Generic WordPress replace backfill is unavailable because retained coverage is unproven. Use a retention-aware repair that declares the unrecoverable span.')
+    reportBackfill({ status: OutcomeStatuses.failed, reasonCode: OutcomeReasonCodes.UNSUPPORTED })
     return
   }
 
@@ -1117,6 +1149,7 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
       `${pullErrorPrefix}: ${describeError(e)}`,
       e instanceof VercelRetentionClampError,
     )
+    reportBackfill(failedOutcome(e, e instanceof VercelRetentionClampError ? OutcomeReasonCodes.NO_DATA : undefined))
     return
   }
 
@@ -1126,8 +1159,9 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
   // rollup data isn't silently wiped, and just close out the run row.
   if (allEvents.length === 0) {
     const finishedAt = new Date().toISOString()
+    let emptyOutcome: FeatureOutcome
     try {
-      app.db.transaction((tx) => {
+      const completed = app.db.transaction((tx) => {
         const latestSource = tx.select().from(trafficSources)
           .where(eq(trafficSources.id, sourceRow.id)).get()
         const stillAuthoritative = latestSource
@@ -1144,10 +1178,16 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
               finishedAt,
             })
           .where(eq(runs.id, runId)).run()
+        return Boolean(stillAuthoritative)
       })
-    } catch {
+      emptyOutcome = completed
+        ? { status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.NO_DATA }
+        : { status: OutcomeStatuses.failed, reasonCode: OutcomeReasonCodes.NOT_CONNECTED }
+    } catch (e) {
       // swallow — same last-ditch behavior as markFailed
+      emptyOutcome = failedOutcome(e)
     }
+    reportBackfill(emptyOutcome)
     return
   }
 
@@ -1504,10 +1544,32 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
         .run()
       return 'committed' as const
     })
+    reportBackfill(commitOutcome === 'committed'
+      ? {
+          status: OutcomeStatuses.succeeded,
+          counts: {
+            events: report.totals.normalizedEvents,
+            crawlerHits: report.totals.crawlerHits,
+            aiReferralHits: report.totals.aiReferralHits,
+            aiUserFetchHits: report.totals.aiUserFetchHits,
+          },
+        }
+      : {
+          status: OutcomeStatuses.failed,
+          reasonCode: commitOutcome === 'source-inactive' ? OutcomeReasonCodes.NOT_CONNECTED : OutcomeReasonCodes.UNSUPPORTED,
+        })
     if (commitOutcome === 'source-inactive' || commitOutcome === 'wordpress-backfill-unsupported') return
   } catch (e) {
     markFailed(`Backfill rollup write failed: ${describeError(e)}`)
+    reportBackfill(failedOutcome(e))
   }
+}
+
+const TRAFFIC_SOURCE_INTEGRATIONS: Readonly<Partial<Record<string, ConnectionSubject['integration']>>> = {
+  [TrafficSourceTypes.cloudflare]: 'traffic_cloudflare',
+  [TrafficSourceTypes['cloud-run']]: 'traffic_cloud_run',
+  [TrafficSourceTypes.vercel]: 'traffic_vercel',
+  [TrafficSourceTypes.wordpress]: 'traffic_wordpress',
 }
 
 export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOptions) {
@@ -1554,9 +1616,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
    * shipping that capability to cloud. Re-checked on every sync, not just at
    * connect, so a public name that later resolves to private space is refused.
    */
-  async function assertWordpressTargetAllowed(baseUrl: string): Promise<void> {
+  async function assertWordpressTargetAllowed(baseUrl: string, attempt?: ConnectionAttempt): Promise<void> {
     const check = await resolveWebhookTarget(baseUrl, { allowLoopback })
     if (!check.ok) {
+      attempt?.failed(undefined, webhookTargetRefusalReason(check))
       throw validationError(`WordPress baseUrl rejected: ${check.message}`)
     }
   }
@@ -1658,7 +1721,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       displayName?: string
       keyJson?: string
     }
-  }>('/projects/:name/traffic/connect/cloud-run', async (request) => {
+  }>('/projects/:name/traffic/connect/cloud-run', connectionRoute(app, () => ({ integration: 'traffic_cloud_run', action: 'connect' }), async (request, _reply, attempt) => {
     const project = resolveProject(app.db, request.params.name)
     const body = request.body ?? {}
     const { gcpProjectId, serviceName, location, displayName, keyJson } = body
@@ -1687,6 +1750,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
 
     const now = new Date().toISOString()
     const existing = opts.cloudRunCredentialStore.getConnection(project.name)
+    if (existing) attempt.update({ action: 'reauth' })
     opts.cloudRunCredentialStore.upsertConnection({
       projectName: project.name,
       gcpProjectId,
@@ -1761,7 +1825,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     }
 
     return rowToDto(sourceRow)
-  })
+  }))
 
   // POST /projects/:name/traffic/connect/wordpress
   //
@@ -1777,7 +1841,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       applicationPassword?: string
       displayName?: string
     }
-  }>('/projects/:name/traffic/connect/wordpress', async (request) => {
+  }>('/projects/:name/traffic/connect/wordpress', connectionRoute(app, () => ({ integration: 'traffic_wordpress', action: 'connect' }), async (request, _reply, attempt) => {
     const project = resolveProject(app.db, request.params.name)
     if (!opts.wordpressTrafficCredentialStore) {
       throw validationError('WordPress traffic credential storage is not configured for this deployment')
@@ -1797,7 +1861,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     // RFC1918 ranges, or sidecar admin endpoints — and the error body
     // bubbles back through providerError below. The probe itself goes through
     // the guarded fetch, so DNS rebinding and redirects are checked as well.
-    await assertWordpressTargetAllowed(baseUrl)
+    await assertWordpressTargetAllowed(baseUrl, attempt)
     // Probe the plugin endpoint up-front so the caller learns about a bad
     // URL / wrong credential before we touch any persistent state.
     try {
@@ -1810,6 +1874,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         fetchImpl: wordpressTrafficFetch,
       })
     } catch (e) {
+      attempt.failed(e, e instanceof EgressRefusedError ? 'BLOCKED_UNSAFE_URL' : e instanceof EgressFailedError ? 'NETWORK' : undefined)
       if (e instanceof WordpressTrafficApiError) {
         throw providerError(
           `WordPress traffic probe failed (HTTP ${e.status}): ${e.message}${e.body ? ` — ${e.body}` : ''}`,
@@ -1823,6 +1888,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
 
     const now = new Date().toISOString()
     const existing = credentialStore.getConnection(project.name)
+    if (existing) attempt.update({ action: 'reauth' })
     credentialStore.upsertConnection({
       projectName: project.name,
       baseUrl,
@@ -1903,7 +1969,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     }
 
     return rowToDto(sourceRow)
-  })
+  }))
 
   // POST /projects/:name/traffic/connect/vercel
   //
@@ -1920,7 +1986,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       environment?: string
       displayName?: string
     }
-  }>('/projects/:name/traffic/connect/vercel', async (request) => {
+  }>('/projects/:name/traffic/connect/vercel', connectionRoute(app, () => ({ integration: 'traffic_vercel', action: 'connect' }), async (request, _reply, attempt) => {
     const project = resolveProject(app.db, request.params.name)
     if (!opts.vercelTrafficCredentialStore) {
       throw validationError('Vercel traffic credential storage is not configured for this deployment')
@@ -1949,6 +2015,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         maxPages: 1,
       })
     } catch (e) {
+      attempt.failed(e)
       if (e instanceof VercelLogsApiError) {
         throw providerError(
           `Vercel traffic probe failed (HTTP ${e.status}): ${e.message}${e.body ? ` — ${e.body}` : ''}`,
@@ -1960,6 +2027,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
 
     const now = new Date().toISOString()
     const existing = credentialStore.getConnection(project.name)
+    if (existing) attempt.update({ action: 'reauth' })
     credentialStore.upsertConnection({
       projectName: project.name,
       projectId,
@@ -2079,7 +2147,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     }
 
     return rowToDto(sourceRow)
-  })
+  }))
 
   // POST /projects/:name/traffic/connect/cloudflare
   //
@@ -2089,7 +2157,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   app.post<{
     Params: { name: string }
     Body: TrafficConnectCloudflareRequest
-  }>('/projects/:name/traffic/connect/cloudflare', async (request) => {
+  }>('/projects/:name/traffic/connect/cloudflare', connectionRoute(app, () => ({ integration: 'traffic_cloudflare', action: 'connect' }), async (request, _reply, attempt) => {
     const project = resolveProject(app.db, request.params.name)
     if (!opts.cloudflareTrafficCredentialStore) {
       throw validationError('Cloudflare traffic credential storage is not configured for this deployment')
@@ -2108,6 +2176,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         .where(eq(trafficSources.projectId, project.id)).all()
         .filter(row => row.sourceType === TrafficSourceTypes.cloudflare && row.status !== TrafficSourceStatuses.archived)
       const sameModeSource = cloudflareSources.find(row => parseQueuePullCloudflareSourceConfig(row.configJson))
+      if (sameModeSource) attempt.update({ action: 'reauth' })
       const sourceId = sameModeSource?.id ?? crypto.randomUUID()
       const previousCredential = credentialStore.getConnectionBySourceId(sourceId)
       const workerVersion = CURRENT_CLOUDFLARE_WORKER_VERSION
@@ -2223,6 +2292,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         && row.status !== TrafficSourceStatuses.archived
         && parseDirectPushCloudflareSourceConfig(row.configJson) !== null)
 
+    if (activeSource) attempt.update({ action: 'reauth' })
     const sourceId = activeSource?.id ?? crypto.randomUUID()
     const parsedActiveConfig = activeSource
       ? parseDirectPushCloudflareSourceConfig(activeSource.configJson)
@@ -2434,7 +2504,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       workerVersion,
       instructions,
     }
-  })
+  }))
 
   // POST /projects/:name/traffic/sources/:id/activate
   //
@@ -2444,7 +2514,13 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   // pull adapter (or remove it for direct push) atomically.
   app.post<{
     Params: { name: string; id: string }
-  }>('/projects/:name/traffic/sources/:id/activate', async (request) => {
+  }>('/projects/:name/traffic/sources/:id/activate', connectionRoute(app, (request) => {
+    // Activation picks which source is the project's traffic authority.
+    const source = app.db.select({ sourceType: trafficSources.sourceType }).from(trafficSources)
+      .where(eq(trafficSources.id, request.params.id)).get()
+    const integration = source ? TRAFFIC_SOURCE_INTEGRATIONS[source.sourceType] : undefined
+    return integration ? { integration, action: 'select' } : undefined
+  }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const now = new Date().toISOString()
     const result = app.db.transaction((tx) => {
@@ -2489,7 +2565,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       opts.onScheduleUpdated?.(result.scheduleAction, project.id, SchedulableRunKinds['traffic-sync'])
     }
     return rowToDto(result.source)
-  })
+  }))
 
   // POST /projects/:name/traffic/cloudflare/ingest
   //
@@ -2536,6 +2612,20 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       },
     },
   }, async (request, reply) => {
+    const ingestStartedMs = Date.now()
+    // Telemetry only after authentication: an unauthenticated caller never reaches it.
+    const reportIngest = (outcome: Pick<TrafficIngestedEvent, 'events' | 'crawlerHits' | 'aiReferralHits' | 'aiUserFetchHits'> | { failure: unknown; reasonCode?: OutcomeReasonCode }) => {
+      try {
+        opts.onTrafficIngested?.('failure' in outcome
+          ? {
+              sourceType: TrafficSourceTypes.cloudflare, status: 'failed', events: 0, crawlerHits: 0, aiReferralHits: 0,
+              aiUserFetchHits: 0, durationMs: Date.now() - ingestStartedMs, ...routeOutcomeFailure(outcome.failure, outcome.reasonCode),
+            }
+          : { sourceType: TrafficSourceTypes.cloudflare, status: 'succeeded', ...outcome, durationMs: Date.now() - ingestStartedMs })
+      } catch {
+        // Telemetry never fails an ingest.
+      }
+    }
     // Authenticate the transport before resolving the path's project. Invalid
     // source, bearer, timestamp, signature, mode, and path all share one 401.
     const authenticated = authenticateCloudflareIngest(
@@ -2574,6 +2664,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
 
     const parsed = cloudflareWorkerIngestRequestSchema.safeParse(request.body)
     if (!parsed.success) {
+      reportIngest({ failure: undefined, reasonCode: 'VALIDATION' })
       throw validationError(parsed.error.issues.map((i) => i.message).join('; '))
     }
     const { workerVersion, events } = parsed.data
@@ -2583,6 +2674,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       normalizeCloudflareEventHost(event.host) !== canonicalHost,
     )
     if (wrongHostIndex !== -1) {
+      reportIngest({ failure: undefined, reasonCode: 'VALIDATION' })
       throw validationError(
         `Cloudflare event at index ${wrongHostIndex} does not belong to project domain "${project.canonicalDomain}"`,
       )
@@ -2597,32 +2689,44 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     }
 
     const receivedAt = new Date().toISOString()
-    const writeResult = writeTrafficEventBatch({
-      db: app.db,
-      projectId: project.id,
-      sourceId,
-      events: normalized,
-      receivedAt,
-      receiptTtlMs: DIRECT_PUSH_RECEIPT_TTL_MS,
-      sampleLimit,
-      validateSource: (latestRow) => {
-        if (
-          !latestRow
-          || latestRow.projectId !== project.id
-          || latestRow.sourceType !== TrafficSourceTypes.cloudflare
-          || latestRow.status !== TrafficSourceStatuses.connected
-          || !parseDirectPushCloudflareSourceConfig(latestRow.configJson)
-          || !timingSafeEqualHex(bearerHash, latestRow.ingestTokenHash)
-        ) {
-          throw authRequired()
-        }
-      },
-      sourceUpdate: {
-        lastWorkerVersion: workerVersion,
-        lastSyncedAt: receivedAt,
-        lastError: null,
-        updatedAt: receivedAt,
-      },
+    let writeResult: ReturnType<typeof writeTrafficEventBatch>
+    try {
+      writeResult = writeTrafficEventBatch({
+        db: app.db,
+        projectId: project.id,
+        sourceId,
+        events: normalized,
+        receivedAt,
+        receiptTtlMs: DIRECT_PUSH_RECEIPT_TTL_MS,
+        sampleLimit,
+        validateSource: (latestRow) => {
+          if (
+            !latestRow
+            || latestRow.projectId !== project.id
+            || latestRow.sourceType !== TrafficSourceTypes.cloudflare
+            || latestRow.status !== TrafficSourceStatuses.connected
+            || !parseDirectPushCloudflareSourceConfig(latestRow.configJson)
+            || !timingSafeEqualHex(bearerHash, latestRow.ingestTokenHash)
+          ) {
+            throw authRequired()
+          }
+        },
+        sourceUpdate: {
+          lastWorkerVersion: workerVersion,
+          lastSyncedAt: receivedAt,
+          lastError: null,
+          updatedAt: receivedAt,
+        },
+      })
+    } catch (err) {
+      reportIngest({ failure: err })
+      throw err
+    }
+    reportIngest({
+      events: writeResult.acceptedEvents,
+      crawlerHits: writeResult.crawlerHits,
+      aiReferralHits: writeResult.aiReferralHits,
+      aiUserFetchHits: writeResult.aiUserFetchHits,
     })
 
     return reply.status(200).send({
@@ -2852,6 +2956,17 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         const safeError = error instanceof CloudflareQueueApiError
           ? error.message
           : 'Cloudflare Queue sync failed; retry the active source.'
+        try {
+          opts.onTrafficSynced?.({
+            status: 'failed', sourceType: sourceRow.sourceType, sourceId: sourceRow.id,
+            pulledEvents: 0, selfTrafficExcluded: 0, crawlerHits: 0, aiUserFetchHits: 0, aiReferralHits: 0,
+            durationMs: Date.now() - startedMs,
+            // A 401/403 is the stored API token; any other Queue API answer is the pull.
+            errorCode: error instanceof CloudflareQueueApiError
+              ? (error.status === 401 || error.status === 403 ? 'PROVIDER_AUTH' : 'PROVIDER_PULL')
+              : 'INTERNAL',
+          })
+        } catch { /* telemetry never blocks the failure path */ }
         app.db.transaction((tx) => {
           tx.update(runs).set({ status: RunStatuses.failed, error: safeError, finishedAt: failedAt })
             .where(eq(runs.id, runId)).run()
@@ -3889,7 +4004,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   app.post<{
     Params: { name: string; id: string }
     Body: { days?: number }
-  }>('/projects/:name/traffic/sources/:id/backfill', async (request) => {
+  }>('/projects/:name/traffic/sources/:id/backfill', async (request) => withFeatureOutcome(app, { feature: 'server_traffic', operation: 'backfill' }, async (recordOutcome) => {
     const project = resolveProject(app.db, request.params.name)
     const sourceRow = app.db
       .select()
@@ -4085,6 +4200,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       // exists only so an unhandled rejection cannot crash the process if
       // an internal bug bypasses the task's own try/catch.
     })
+    // The background task reports the backfill's outcome when it finishes.
+    recordOutcome(null)
 
     const response: TrafficBackfillResponse = {
       sourceId: sourceRow.id,
@@ -4096,7 +4213,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       daysApplied: appliedDays,
     }
     return response
-  })
+  }))
 
   function buildSourceDetail(
     projectId: string,
@@ -4228,7 +4345,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   app.post<{
     Params: { name: string; id: string }
     Body: { advanceToNow?: unknown }
-  }>('/projects/:name/traffic/sources/:id/reset', async (request) => {
+  }>('/projects/:name/traffic/sources/:id/reset', async (request) => withFeatureOutcome(app, { feature: 'server_traffic', operation: 'reset' }, async () => {
     const project = resolveProject(app.db, request.params.name)
     const parsed = trafficResetRequestSchema.safeParse(request.body ?? {})
     if (!parsed.success) {
@@ -4300,7 +4417,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         .get()!
     })
     return buildSourceDetail(project.id, updatedRow, new Date(Date.now() - 24 * 60 * 60_000).toISOString())
-  })
+  }))
 
   // GET /projects/:name/traffic/sources
   app.get<{ Params: { name: string } }>('/projects/:name/traffic/sources', async (request) => {

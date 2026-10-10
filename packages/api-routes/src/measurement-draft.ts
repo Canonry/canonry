@@ -31,6 +31,8 @@ import {
   measurementQueryTemplateApplyRequestSchema,
   measurementQueryTemplateUpsertRequestSchema,
   notFound,
+  OutcomeReasonCodes,
+  OutcomeStatuses,
   parseStoredMeasurementPlanAnyVersion,
   RunStatuses,
   validationError,
@@ -67,6 +69,7 @@ import { requireScope } from './auth.js'
 import { findStoredCompetitor, readStoredCompetitors, requireMarketPinsClearOfCompetitorAliases } from './competitor-writes.js'
 import { beginMarketPinWrite, marketPinWriteAuditFields, notifyMarketPinWrite, type MarketPinWriteEffect, type MarketPinWriteHooks } from './market-pin-writes.js'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
+import { withFeatureOutcome } from './feature-outcome.js'
 import { MEASUREMENT_PLAN_WRITE_SCOPE } from './measurement-plan.js'
 import { storedPlanPinGroups } from './plan-competitors.js'
 import { assertNoActiveSweep } from './query-replace.js'
@@ -1113,9 +1116,13 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     }
   })
 
-  app.post<{ Params: { name: string } }>('/projects/:name/measurement-plan/draft/actions/publish', async (request, reply) => {
+  app.post<{ Params: { name: string } }>('/projects/:name/measurement-plan/draft/actions/publish', async (request, reply) => withFeatureOutcome(app, { feature: 'measurement', operation: 'publish' }, async (recordOutcome) => {
     const gate = beginMutation(request, reply, 'publish')
-    if (gate.replay !== null) return gate.replay
+    if (gate.replay !== null) {
+      // The publish this key first made already reported its outcome.
+      recordOutcome(null)
+      return gate.replay
+    }
     const parsed = measurementDraftPublishRequestSchema.safeParse(request.body)
     if (!parsed.success) throw validationError('Invalid "publish" payload', { issues: parsed.error.issues })
     const ifMatch = requireIfMatch(request)
@@ -1295,9 +1302,14 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
       const created = tx.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.id, versionId)).get()!
       return settle(true, created, compiled.plan)
     })
+    const { plan } = settled.active
+    // A draft identical to the active revision publishes nothing.
+    recordOutcome(settled.published
+      ? { status: OutcomeStatuses.succeeded, counts: { items: plan.groups.length, targets: plan.targets.length, queries: plan.querySnapshots.length } }
+      : { status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.NO_DATA })
     notifyMarketPinWrite(opts, gate.project, pinEffect)
     return settled
-  })
+  }))
 
   app.post<{ Params: { name: string } }>('/projects/:name/measurement-plan/draft/actions/discard', async (request, reply) => {
     const gate = beginMutation(request, reply, 'discard')

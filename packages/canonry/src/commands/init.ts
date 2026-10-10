@@ -14,12 +14,14 @@ import type { CanonryConfig } from '../config.js'
 import { trackEvent, showFirstRunNotice, isTelemetryEnabled } from '../telemetry.js'
 import { buildSetupState } from '../setup-state.js'
 import { cliRuntimeContext } from '../runtime-context.js'
+import { trackCliConnection } from '../cli-connection-telemetry.js'
 import { createClient, migrate } from '@ainyc/canonry-db'
 import { apiKeys } from '@ainyc/canonry-db'
 import { CliError, type CliFormat, isMachineFormat } from '../cli-error.js'
 import { installSkills, type SkillsInstallSummary } from './skills.js'
 import { installMcp, type McpInstallResult } from './mcp.js'
 import { describeError } from '@ainyc/canonry-contracts'
+import { installAttribution, recordInstallRef } from '../telemetry-environment.js'
 
 /**
  * Hand control to `canonry serve` after init finishes.
@@ -90,6 +92,8 @@ function cwdLooksLikeProject(dir: string): boolean {
 
 export interface InitOptions {
   force?: boolean
+  /** First-touch campaign tag; see `recordInstallRef`. */
+  ref?: string
   geminiKey?: string
   openaiKey?: string
   claudeKey?: string
@@ -458,6 +462,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
 
   if (isTelemetryEnabled()) {
     const postInitSetupState = buildSetupState()
+    recordInstallRef(opts?.ref)
     trackEvent('cli.init', {
       providerCount: providerNames.length,
       providers: providerNames,
@@ -482,8 +487,13 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
         hasAgent: !!agentLLM,
       }),
       skillsInstalled: !!skillsSummary,
+      ...installAttribution(),
       ...cliRuntimeContext(),
     })
+    // Init writes a fresh config, so every provider it stored is a new connection.
+    for (const provider of Object.keys(providers) as BootstrapProviderName[]) {
+      trackCliConnection({ integration: 'provider', provider, action: 'connect', status: 'succeeded' })
+    }
   }
 
   // End inside the product, not at a printout. Half of new installs run init

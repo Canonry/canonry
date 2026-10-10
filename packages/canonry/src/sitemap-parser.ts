@@ -1,6 +1,7 @@
 import { createGuardedFetch, EgressFailedError, EgressRefusedError } from '@ainyc/canonry-api-routes'
 import { createLogger } from './logger.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { classifyOutcomeError, describeError, OutcomeReasonCodes } from '@ainyc/canonry-contracts'
+import { withOutcomeReason } from './sync-outcome.js'
 
 const log = createLogger('SitemapParser')
 
@@ -29,8 +30,12 @@ async function fetchSitemap(url: string): Promise<Response> {
   } catch (err) {
     // The refusal names the hop it refused, which a redirect makes different
     // from the sitemap that was asked for, so the message names both.
-    if (err instanceof EgressRefusedError) throw new Error(`Sitemap ${url} rejected: ${err.message}`)
-    if (err instanceof EgressFailedError) throw new Error(`Failed to fetch sitemap at ${url}: ${err.message}`)
+    if (err instanceof EgressRefusedError) {
+      throw withOutcomeReason(new Error(`Sitemap ${url} rejected: ${err.message}`), OutcomeReasonCodes.BLOCKED_UNSAFE_URL)
+    }
+    if (err instanceof EgressFailedError) {
+      throw withOutcomeReason(new Error(`Failed to fetch sitemap at ${url}: ${err.message}`), OutcomeReasonCodes.NETWORK)
+    }
     throw err
   }
 }
@@ -88,7 +93,10 @@ async function parseSitemapRecursive(
 
   if (!res.ok) {
     if (!isChild) {
-      throw new Error(`Failed to fetch sitemap at ${url}: ${res.status} ${res.statusText}`)
+      throw withOutcomeReason(
+        new Error(`Failed to fetch sitemap at ${url}: ${res.status} ${res.statusText}`),
+        classifyOutcomeError({ status: res.status }).reasonCode,
+      )
     }
     log.warn('child-sitemap.http-error', { url, status: res.status, statusText: res.statusText })
     return

@@ -8,6 +8,7 @@ import {
 import { loadConfig, saveConfigPatch, configExists, loadConfigRaw, getConfigPath } from './config.js'
 import type { SetupState } from './setup-state.js'
 import { cliRuntimeContext } from './runtime-context.js'
+import { telemetryEnvironment } from './telemetry-environment.js'
 
 import { createRequire } from 'node:module'
 const _require = createRequire(import.meta.url)
@@ -68,6 +69,8 @@ export interface TelemetryEvent {
   arch: string
   /** Stable error classifier when the event represents a failure. */
   errorCode?: string
+  /** Automation or development markers (container, temp_config, dev_build, ...); absent for an ordinary install. */
+  environment?: string[]
   /** Free-shape per-event payload. */
   properties?: TelemetryProperties
 }
@@ -443,6 +446,12 @@ export function recordDashboardEvent(event: { event: string; eventId: string } &
 
 export type TelemetryPreferenceMethod = 'cli' | 'api'
 
+/** Who turned telemetry off: the interface, and the coding agent when one is known. */
+export interface TelemetryPreferenceAttribution {
+  surface: string
+  agent?: string
+}
+
 /**
  * Persist the telemetry preference, announcing an opt-out first.
  *
@@ -462,16 +471,36 @@ export type TelemetryPreferenceMethod = 'cli' | 'api'
  * server ignores it, and the CLI awaits it so process exit cannot drop the one
  * event that can never be retried.
  */
-export function setTelemetryPreference(enabled: boolean, method: TelemetryPreferenceMethod): Promise<void> {
+export function setTelemetryPreference(
+  enabled: boolean,
+  method: TelemetryPreferenceMethod,
+  attribution?: TelemetryPreferenceAttribution,
+): Promise<void> {
   // Validate the whole config before touching it. A bare patch succeeds on a
   // config that fails validation, which turned `telemetry enable` into a silent
   // write to an invalid file instead of a path-qualified CONFIG_INVALID error.
   loadConfig()
   const announce = !enabled && isTelemetryEnabled()
   saveConfigPatch({ telemetry: enabled })
+  // From the CLI the agent comes from this process's environment; an API caller is attributed by the server.
+  const who = attribution ?? (method === 'cli' ? { surface: 'cli', agent: cliRuntimeContext().agent } : { surface: 'system' })
+  const properties = {
+    method,
+    surface: who.surface,
+    ...(who.agent ? { agent: who.agent } : {}),
+  }
   return announce
-    ? deliverEvent('telemetry.disabled', { method }, undefined, { preferenceChecked: true })
+    ? deliverEvent('telemetry.disabled', properties, undefined, { preferenceChecked: true })
     : Promise.resolve()
+}
+
+function environmentField(): { environment?: string[] } {
+  try {
+    const flags = telemetryEnvironment()
+    return flags.length > 0 ? { environment: flags } : {}
+  } catch {
+    return {}
+  }
 }
 
 /** Compose and send one event. Settles when the collector answers or the timeout aborts; never rejects. */
@@ -502,6 +531,7 @@ function deliverEvent(
     arch: process.arch,
     ...(options?.sourceContext ? { sourceContext: options.sourceContext } : {}),
     ...(options?.errorCode ? { errorCode: options.errorCode } : {}),
+    ...environmentField(),
     ...(properties ? { properties } : {}),
   }
 

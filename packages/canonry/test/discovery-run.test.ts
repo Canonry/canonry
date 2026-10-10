@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { describe, expect, it, onTestFinished } from 'vitest'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   competitors,
   createClient,
@@ -15,6 +15,11 @@ import { ProviderRegistry } from '../src/provider-registry.js'
 import {
   executeDiscoveryRun,
 } from '../src/discovery-run.js'
+import { nativeDiscoveryFixture } from './discovery-native-fixture.js'
+
+const trackEvent = vi.hoisted(() => vi.fn())
+vi.mock('../src/telemetry.js', () => ({ trackEvent }))
+beforeEach(() => trackEvent.mockReset())
 
 function setup(): { db: ReturnType<typeof createClient>; projectId: string; sessionId: string; runId: string } {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-disc-run-'))
@@ -87,4 +92,35 @@ describe('executeDiscoveryRun', () => {
     expect(runRow.status).toBe('failed')
   })
 
+})
+
+describe('discovery run outcome telemetry', () => {
+  const discovered = { feature: 'discovery', operation: 'run', trigger: 'manual', durationBucket: expect.any(String) }
+
+  it('reports a finished session with the queries it seeded, the probes it saved and the competitor domains it found', async () => {
+    const cited = { answerText: 'Acme IQ is a strong option.', citedDomains: ['acme-iq.example.com'] }
+    const wasted = { answerText: 'Compare the market.', citedDomains: ['sunplanner.test'] }
+    const h = nativeDiscoveryFixture({ providers: { gemini: {
+      seed: { answerText: 'a q\nb q\nc q', citedDomains: [] },
+      probes: { 'a q': cited, 'b q': wasted, 'c q': { answerText: 'Compare the market.', citedDomains: ['random.com'] } },
+      classification: 'sunplanner.test => direct-competitor\nrandom.com => other',
+    } } })
+    await executeDiscoveryRun(h.runOptions)
+    expect(trackEvent.mock.calls).toEqual([
+      ['feature.completed', { ...discovered, status: 'succeeded', counts: { queries: 3, snapshots: 3, domains: 2 } }, undefined],
+    ])
+  })
+
+  it('reports a failed session by the provider failure, and an unconfigured Gemini as not connected', async () => {
+    const h = nativeDiscoveryFixture({ providers: { gemini: { seed: new Error('[provider-gemini] 429 RESOURCE_EXHAUSTED for project acme-prod') } } })
+    await executeDiscoveryRun(h.runOptions)
+    const { db, projectId, sessionId, runId } = setup()
+    await executeDiscoveryRun({ db, registry: new ProviderRegistry(), runId, sessionId, projectId, icpDescription: 'AEO test' })
+
+    expect(trackEvent.mock.calls).toEqual([
+      ['feature.completed', { ...discovered, status: 'failed', reasonCode: 'RATE_LIMITED', errorName: 'Error' }, { errorCode: 'RATE_LIMITED' }],
+      ['feature.completed', { ...discovered, status: 'failed', reasonCode: 'NOT_CONNECTED', errorName: 'Error' }, { errorCode: 'NOT_CONNECTED' }],
+    ])
+    expect(JSON.stringify(trackEvent.mock.calls)).not.toContain('acme-prod')
+  })
 })
