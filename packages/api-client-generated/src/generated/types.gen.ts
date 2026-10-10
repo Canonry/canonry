@@ -1609,6 +1609,19 @@ export type QueryTrackingWorkspaceResponse = {
                 } | null;
             }>;
         }>;
+        focus?: {
+            kind: 'market';
+            key: string;
+        } | {
+            kind: 'property';
+            key: string;
+        } | {
+            kind: 'company';
+        } | {
+            kind: 'custom';
+        } | {
+            kind: 'not-asked';
+        };
     }>;
     savedSources: {
         research: Array<{
@@ -1728,6 +1741,19 @@ export type QueryTrackingPreviewResponse = {
                 } | null;
             }>;
         }>;
+        focus?: {
+            kind: 'market';
+            key: string;
+        } | {
+            kind: 'property';
+            key: string;
+        } | {
+            kind: 'company';
+        } | {
+            kind: 'custom';
+        } | {
+            kind: 'not-asked';
+        };
     }>;
     diff: {
         added: Array<{

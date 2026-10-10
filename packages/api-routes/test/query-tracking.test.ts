@@ -1451,3 +1451,74 @@ describe('query tracking guards: query limit', () => {
     expect(new Set(activeV2Plan().plan.assignments.map(row => row.queryId)).size).toBe(1_001)
   })
 })
+
+describe('query tracking workspace: subject', () => {
+  it('reports a simple site question as the Company', async () => {
+    const current = await workspace()
+
+    expect(current.mode).toBe('simple')
+    expect(current.tracked.map(row => row.focus)).toEqual([{ kind: 'company' }])
+  })
+
+  it('derives each advanced row from its pairings, including a catalog-only row', async () => {
+    seedAdvancedPlan()
+    db.insert(queries).values({ id: 'q-catalog-only', projectId: 'project-northwind', query: 'northwind parking', createdAt: NOW }).run()
+    const response = await request('GET', '/query-tracking')
+    expect(response.statusCode, response.body).toBe(200)
+    const current = queryTrackingWorkspaceResponseSchema.parse(response.json())
+
+    // A Non-brand question in a market of one location is that market.
+    expect(current.tracked.map(row => [row.queryId, row.focus])).toEqual([
+      ['q-existing', { kind: 'market', key: 'alpha-market' }],
+      ['q-catalog-only', { kind: 'not-asked' }],
+    ])
+    expect(response.json().tracked.map((row: { focus: unknown }) => row.focus)).toEqual(current.tracked.map(row => row.focus))
+  })
+
+  it('reports a question in two markets as Custom', async () => {
+    seedMultiMarketPlan()
+
+    expect((await workspace()).tracked.find(row => row.queryId === 'q-existing')?.focus).toEqual({ kind: 'custom' })
+  })
+
+  it('shows the after-change Subject in a preview: a market add is the Market, a location-only add is Custom', async () => {
+    seedMultiMarketPlan()
+    const current = await workspace()
+    const marketAdd = await preview({
+      expectedWorkspaceVersion: current.workspaceVersion,
+      additions: [{ input: { source: 'manual', text: 'apartments with a rooftop terrace' }, audience: { marketKeys: ['alpha-market'] } }],
+      removals: [],
+    })
+    const locationAdd = await preview({
+      expectedWorkspaceVersion: current.workspaceVersion,
+      additions: [{
+        input: { source: 'manual', text: 'apartments with a rooftop terrace' }, audience: { targetKeys: ['harbor-point'] },
+        contexts: [{ providers: ['openai'], models: { openai: 'gpt-test' }, location: 'alpha' }],
+      }],
+      removals: [],
+    })
+
+    const added = (review: typeof marketAdd) => review.tracked.find(row => row.queryId === review.diff.added[0]!.queryId)?.focus
+    expect(added(marketAdd)).toEqual({ kind: 'market', key: 'alpha-market' })
+    expect(added(locationAdd)).toEqual({ kind: 'custom' })
+  })
+
+  it('refuses a Subject sent on an addition', async () => {
+    seedAdvancedPlan()
+    const current = await workspace()
+    for (const field of ['focus', 'subject']) {
+      const response = await request('POST', '/query-tracking/preview', {
+        expectedWorkspaceVersion: current.workspaceVersion,
+        additions: [{
+          input: { source: 'manual', text: 'apartments with a rooftop terrace' }, audience: { marketKeys: ['alpha-market'] },
+          [field]: { kind: 'market', key: 'alpha-market' },
+        }],
+        removals: [],
+      })
+      expect(response.statusCode, response.body).toBe(400)
+      expect(response.json().error.details.issues).toEqual([
+        expect.objectContaining({ code: 'unrecognized_keys', keys: [field], path: ['additions', 0] }),
+      ])
+    }
+  })
+})

@@ -91,6 +91,24 @@ A simple site returns only the project choice.
 A report scope or market that is not in the frozen definition returns `400 VALIDATION_ERROR` with typed `details`.
 The `reason` is `retired-scope` for a group, market, or property scope, and `retired-market` for a market refinement. `kind` and `key` name the missing selection.
 
+## Query subject
+
+Each tracked row in the workspace and preview responses carries `focus`, its Subject.
+The server derives it from the active plan's pairings on every read. Nothing stores it, and no request can set it.
+
+| `focus.kind` | Shown as | When |
+| --- | --- | --- |
+| `market` (with `key`) | Market | The query sits in exactly one market and covers every location in it, with no pairing outside it. |
+| `property` (with `key`) | Location | The query has exactly one location and sits in every market that location belongs to. A location in no market counts. |
+| `company` | Company | Every query on a simple site. |
+| `custom` | Hand-picked | Any other advanced placement. |
+| `not-asked` | Not asked | The query has no pairings. |
+
+Both rules can hold only for a market with one location. Then Type decides: a query that is Branded at every assignment is the Location, otherwise the Market. Type decides nothing else, so a Branded query that covers a market is that Market.
+A pairing sits in a market when any of its search locations does.
+The Subject can change when a market's locations change. After a location joins a market, that market's existing queries stop being the Market until they cover it.
+A location-only add at a location that belongs to a market is Hand-picked until the query joins that location's markets.
+
 Templates expand before publication. Each result retains its template version, bindings, and resolved query text.
 Duplicate matching prefers the query ID that the active plan already uses.
 Otherwise, matching uses normalized query text.

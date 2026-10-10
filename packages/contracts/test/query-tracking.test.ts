@@ -161,6 +161,51 @@ describe('query tracking contract', () => {
       expect(queryTrackingPreviewResponseSchema.safeParse({ ...previewResponse(), limits }).success).toBe(false)
     }
   })
+
+  it('carries each tracked row\'s Subject exactly as sent, and tolerates a server without one', () => {
+    const focuses = [
+      { kind: 'market', key: 'alpha' },
+      { kind: 'property', key: 'harbor-point' },
+      { kind: 'company' },
+      { kind: 'custom' },
+      { kind: 'not-asked' },
+    ]
+    for (const focus of focuses) {
+      const workspace = advancedWorkspace()
+      const parsed = queryTrackingWorkspaceResponseSchema.parse({ ...workspace, tracked: [{ ...workspace.tracked[0]!, focus }] })
+      expect(parsed.tracked[0]?.focus).toEqual(focus)
+    }
+
+    expect('focus' in queryTrackingWorkspaceResponseSchema.parse(advancedWorkspace()).tracked[0]!).toBe(false)
+  })
+
+  it('rejects an unknown Subject kind, a missing market or location key, and a key on any other kind', () => {
+    for (const focus of [
+      { kind: 'hand-picked' },
+      { kind: 'market' },
+      { kind: 'property' },
+      { kind: 'company', key: 'northwind' },
+      { kind: 'custom', key: 'alpha' },
+    ]) {
+      const workspace = advancedWorkspace()
+      expect(queryTrackingWorkspaceResponseSchema.safeParse({ ...workspace, tracked: [{ ...workspace.tracked[0]!, focus }] }).success, JSON.stringify(focus))
+        .toBe(false)
+    }
+  })
+
+  it('never accepts a Subject on an addition', () => {
+    for (const field of ['focus', 'subject']) {
+      const result = queryTrackingPreviewRequestSchema.safeParse({
+        expectedWorkspaceVersion: WORKSPACE_VERSION,
+        additions: [{ input: { source: 'manual', text: 'best apartments in northbridge' }, [field]: { kind: 'market', key: 'alpha' } }],
+        removals: [],
+      })
+      expect(result.success).toBe(false)
+      expect(result.error?.issues).toEqual([
+        expect.objectContaining({ code: 'unrecognized_keys', keys: [field], path: ['additions', 0] }),
+      ])
+    }
+  })
 })
 
 function previewResponse() {

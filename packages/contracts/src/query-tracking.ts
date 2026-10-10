@@ -193,6 +193,20 @@ export const queryTrackingAssignmentSchema = z.object({
 }).strict()
 export type QueryTrackingAssignment = z.output<typeof queryTrackingAssignmentSchema>
 
+/**
+ * A tracked question's Subject, derived from the plan's pairings when the
+ * workspace is read and never stored. `property` is shown as Location and
+ * `custom` as Hand-picked. `company` is a simple site's whole project.
+ */
+export const queryTrackingFocusSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('market'), key: measurementV2StableKeySchema }).strict(),
+  z.object({ kind: z.literal('property'), key: measurementV2StableKeySchema }).strict(),
+  z.object({ kind: z.literal('company') }).strict(),
+  z.object({ kind: z.literal('custom') }).strict(),
+  z.object({ kind: z.literal('not-asked') }).strict(),
+])
+export type QueryTrackingFocus = z.output<typeof queryTrackingFocusSchema>
+
 export const queryTrackingTrackedRowSchema = z.object({
   queryId: queryTrackingIdSchema,
   queryText: queryTrackingTextSchema,
@@ -202,6 +216,8 @@ export const queryTrackingTrackedRowSchema = z.object({
   state: z.enum(['tracked', 'awaiting-sweep']),
   lastMeasuredAt: z.string().datetime().nullable(),
   assignments: z.array(queryTrackingAssignmentSchema),
+  /** Optional so a client tolerates a server that predates it. This server always sets it. */
+  focus: queryTrackingFocusSchema.optional(),
 }).strict()
 export type QueryTrackingTrackedRow = z.output<typeof queryTrackingTrackedRowSchema>
 
