@@ -26,6 +26,8 @@ All provider packages follow the same 4-file structure and implement the same `P
 
 The adapter object in `adapter.ts` wires these functions together with metadata (`name`, `displayName`, `mode`, `keyUrl`).
 
+Retrieval status comes from the first candidate's nonempty search queries or web chunks (`used`). A completed nonempty answer without search evidence is `not-used`; empty or unfinished responses remain `unknown`. The request contract remains `native-auto-v1`. `test/tracked-query-request.test.ts` covers sync, batch parsing, and historical response reconstruction.
+
 - **Answer anchors for competitor auto-aliases.** `extractAnchoredSpans` (`src/anchored-spans.ts`) pairs each grounding support's `segment.text` with the site of every chunk it cites: `web.title` (the source domain), since `web.uri` is a Vertex redirect that is never resolved. Segment offsets are UTF-8 bytes and `startIndex` is omitted when 0, so they are never used to slice. Stored data only.
 
 ## Common Mistakes

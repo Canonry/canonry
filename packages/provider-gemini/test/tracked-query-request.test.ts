@@ -59,7 +59,7 @@ const EXPECTED_STORED_RESPONSE = {
 const EXPECTED_TRACKED_RESULT = {
   provider: 'gemini', rawResponse: EXPECTED_STORED_RESPONSE, model: 'gemini-2.5-flash', servedModel: 'gemini-2.5-flash-preview-09-2025',
   groundingSources: [{ uri: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbC123', title: 'example.com' }],
-  searchQueries: ['best crm for agencies 2026', 'agency crm comparison'], retrievalStatus: 'unknown', retrievalContract: 'native-auto-v1',
+  searchQueries: ['best crm for agencies 2026', 'agency crm comparison'], retrievalStatus: 'used', retrievalContract: 'native-auto-v1',
   usage: { inputTokens: 556, cachedInputTokens: 256, cacheWriteTokens: 0, outputTokens: 530, searchCount: 2 }, stopReason: 'STOP',
 } satisfies RawQueryResult
 
@@ -78,7 +78,7 @@ const EXPECTED_CAPTURED_ID_RESULT = {
       groundingSupports: [{ segment: { startIndex: 0, endIndex: 46 }, groundingChunkIndices: [0] }] } }],
     usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 34, totalTokenCount: 46 }, modelVersion: 'gemini-3.5-flash', responseId: 'hY1dasuhNuSf-8YP0Jfm8QM' },
   groundingSources: [{ uri: 'https://harborline.example.com/', title: 'harborline.example.com' }], searchQueries: ['"Harborline Hotel" harbor-side'],
-  retrievalStatus: 'unknown', retrievalContract: 'native-auto-v1', usage: { inputTokens: 12, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 34, searchCount: 1 }, stopReason: 'STOP',
+  retrievalStatus: 'used', retrievalContract: 'native-auto-v1', usage: { inputTokens: 12, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 34, searchCount: 1 }, stopReason: 'STOP',
 } satisfies RawQueryResult
 
 interface CapturedRequest {
@@ -100,6 +100,36 @@ function stubGenerateContent(response: Record<string, unknown>): CapturedRequest
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
+})
+
+test.each([
+  { name: 'executed search without citations', candidate: { finishReason: 'STOP', groundingMetadata: { webSearchQueries: ['crm'] } }, expected: 'used' },
+  { name: 'retrieved web source without query disclosure', candidate: { finishReason: 'STOP', groundingMetadata: { groundingChunks: [{ web: { uri: 'https://example.com' } }] } }, expected: 'used' },
+  { name: 'completed answer without search', candidate: { finishReason: 'STOP' }, expected: 'not-used' },
+  { name: 'completed answer with empty search arrays', candidate: { finishReason: 'STOP', groundingMetadata: { webSearchQueries: [], groundingChunks: [] } }, expected: 'not-used' },
+  { name: 'unfinished answer', candidate: { finishReason: 'MAX_TOKENS' }, expected: 'unknown' },
+  { name: 'missing completion marker', candidate: {}, expected: 'unknown' },
+])('retrieval distinguishes $name in sync, batch and stored responses', async ({ candidate, expected }) => {
+  const response = { candidates: [{ content: { parts: [{ text: 'Example CRM.' }], role: 'model' }, ...candidate }] }
+  stubGenerateContent(response)
+  const raw = await geminiAdapter.executeTrackedQuery(QUERY, CONFIG)
+  expect(raw.retrievalStatus).toBe(expected)
+  expect(raw.retrievalContract).toBe('native-auto-v1')
+  expect(geminiAdapter.parseTrackedQueryResponse!(response, CONFIG.model).retrievalStatus).toBe(expected)
+  // Historical rows have no derived status. Reconstruct from provider evidence,
+  // including when an older writer stored an incorrect status.
+  expect(geminiAdapter.normalizeResult({ ...raw, retrievalStatus: 'unknown' }).retrievalStatus).toBe(expected)
+})
+
+test.each([
+  {},
+  { candidates: [] },
+  { candidates: [{ finishReason: 'STOP', content: { parts: [] } }] },
+  { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '   ' }] } }] },
+])('missing answer evidence stays unknown: %j', (response) => {
+  const raw = geminiAdapter.parseTrackedQueryResponse!(response, CONFIG.model)
+  expect(raw.retrievalStatus).toBe('unknown')
+  expect(geminiAdapter.normalizeResult(raw).retrievalStatus).toBe('unknown')
 })
 
 test('buildTrackedQueryRequest returns the exact body the sync path sends', async () => {
@@ -159,8 +189,8 @@ test('the sync result is exactly parseTrackedQueryResponse of the response recei
     expect(await geminiAdapter.executeTrackedQuery(QUERY, { ...CONFIG, model: row.model }), row.label).toEqual(row.expected)
     expect(geminiAdapter.parseTrackedQueryResponse!(structuredClone(row.response), row.model), row.label).toEqual(row.expected)
     expect(geminiAdapter.normalizeResult(row.expected), row.label).toEqual(row.model === 'gemini-3.5-flash'
-      ? { provider: 'gemini', answerText: 'Harborline Hotel is a harbor-side boutique inn.', citedDomains: ['harborline.example.com'], groundingSources: [{ uri: 'https://harborline.example.com/', title: 'harborline.example.com' }], searchQueries: ['"Harborline Hotel" harbor-side'], retrievalStatus: 'unknown' }
-      : { provider: 'gemini', answerText: 'Example CRM is popular with agencies.', citedDomains: ['example.com'], groundingSources: [{ uri: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbC123', title: 'example.com' }], searchQueries: ['best crm for agencies 2026', 'agency crm comparison'], retrievalStatus: 'unknown' })
+      ? { provider: 'gemini', answerText: 'Harborline Hotel is a harbor-side boutique inn.', citedDomains: ['harborline.example.com'], groundingSources: [{ uri: 'https://harborline.example.com/', title: 'harborline.example.com' }], searchQueries: ['"Harborline Hotel" harbor-side'], retrievalStatus: 'used' }
+      : { provider: 'gemini', answerText: 'Example CRM is popular with agencies.', citedDomains: ['example.com'], groundingSources: [{ uri: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbC123', title: 'example.com' }], searchQueries: ['best crm for agencies 2026', 'agency crm comparison'], retrievalStatus: 'used' })
     expect(sent, row.label).toHaveLength(1)
   }
   // These identities are constructed, not captured. Missing, blank and null
@@ -177,7 +207,7 @@ test('the sync result is exactly parseTrackedQueryResponse of the response recei
     const expected = { provider: 'gemini', model: 'gemini-2.5-flash', servedModel: row.served,
       rawResponse: { candidates: [{ content: { role: 'model', parts: [{ text: 'stub answer' }] }, finishReason: 'STOP', groundingMetadata: undefined }],
         usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 }, responseId: 'resp_stub', modelVersion: row.stored },
-      groundingSources: [], searchQueries: [], retrievalStatus: 'unknown', retrievalContract: 'native-auto-v1',
+      groundingSources: [], searchQueries: [], retrievalStatus: 'not-used', retrievalContract: 'native-auto-v1',
       usage: { inputTokens: 1, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 1, searchCount: 0 }, stopReason: 'STOP' }
     expect(await geminiAdapter.executeTrackedQuery(QUERY, CONFIG), row.label).toEqual(expected)
     expect(geminiAdapter.parseTrackedQueryResponse!(structuredClone(row.response), 'gemini-2.5-flash'), row.label).toEqual(expected)
