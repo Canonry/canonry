@@ -5,6 +5,8 @@ export interface SegmentedRadioOption<T extends string> {
   label: string
   /** Read after the label by assistive tech, for a choice its label alone does not explain. */
   description?: string
+  /** Shown but not selectable; arrow keys pass over it. */
+  disabled?: boolean
 }
 
 /**
@@ -30,13 +32,22 @@ export function SegmentedRadioGroup<T extends string>({
 }) {
   const descriptionBaseId = useId()
 
+  /** The first selectable option at `start` or beyond it in the `step` direction, wrapping once. */
+  function selectableFrom(start: number, step: 1 | -1): number | null {
+    for (let offset = 0; offset < options.length; offset += 1) {
+      const index = (start + step * offset + options.length) % options.length
+      if (!options[index]!.disabled) return index
+    }
+    return null
+  }
+
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     const index = options.findIndex(option => option.value === value)
     let next: number | null = null
-    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % options.length
-    else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + options.length) % options.length
-    else if (event.key === 'Home') next = 0
-    else if (event.key === 'End') next = options.length - 1
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = selectableFrom((index + 1) % options.length, 1)
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = selectableFrom((index - 1 + options.length) % options.length, -1)
+    else if (event.key === 'Home') next = selectableFrom(0, 1)
+    else if (event.key === 'End') next = selectableFrom(options.length - 1, -1)
     if (next === null) return
     event.preventDefault()
     onChange(options[next]!.value)
@@ -55,9 +66,10 @@ export function SegmentedRadioGroup<T extends string>({
               role="radio"
               aria-checked={checked}
               aria-describedby={descriptionId}
+              aria-disabled={option.disabled || undefined}
               tabIndex={checked ? 0 : -1}
-              onClick={() => onChange(option.value)}
-              className={`segmented-option pointer-coarse:min-h-11 ${checked ? 'segmented-option-active' : ''}`}
+              onClick={() => { if (!option.disabled) onChange(option.value) }}
+              className={`segmented-option pointer-coarse:min-h-11 ${checked ? 'segmented-option-active' : ''}${option.disabled ? ' cursor-not-allowed opacity-50 hover:text-secondary' : ''}`}
             >
               {option.label}
             </button>

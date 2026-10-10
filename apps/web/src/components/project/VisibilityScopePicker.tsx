@@ -15,9 +15,11 @@ const marketForGroup = (scope?: VisibilityReportScopeOption) => scope?.kind === 
 const countFor = (count: number) => `${count} ${count === 1 ? 'property' : 'properties'}`
 
 /** Navigation uses explicit frozen memberships, never labels or inferred containment. */
-export function VisibilityScopePicker({ options: suppliedOptions, selected, onSelect, marketKey, label = 'Measurement scope', labelVisibility = 'visible', allowGroupSelect = true }: {
+export function VisibilityScopePicker({ options: suppliedOptions, selected, placeholder = 'Choose a scope', onSelect, marketKey, label = 'Measurement scope', labelVisibility = 'visible', allowGroupSelect = true }: {
   options: VisibilityReportScopeOption[]
-  selected: VisibilityReportScopeOption
+  /** Omit while nothing is chosen yet; the trigger then shows `placeholder`. */
+  selected?: VisibilityReportScopeOption
+  placeholder?: string
   onSelect: (scope: VisibilityReportScopeOption, marketKey?: string) => void
   marketKey?: string
   label?: string
@@ -56,14 +58,13 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, onSe
   const visibleGroups = (allProperties ? [] : current
     ? groups.filter(group => query ? isDescendant(group) : group.parentGroupIds?.includes(current.id))
     : query ? groups : roots).filter(matches)
-  const selectedMarket = options.find(option => option.kind === 'market' && option.id === (marketKey ?? (selected.kind === 'market' ? selected.id : undefined)))
+  const selectedMarket = options.find(option => option.kind === 'market' && option.id === (marketKey ?? (selected?.kind === 'market' ? selected.id : undefined)))
   const explicitCurrentMarketKey = current && selectedMarket && (current.marketKeys?.includes(selectedMarket.id) || selectedMarket.parentGroupIds?.includes(current.id)) ? selectedMarket.id : undefined
   const currentMarketKey = allowGroupSelect ? explicitCurrentMarketKey ?? marketForGroup(current) : undefined
   const visibleProperties = (current ? properties.filter(property => property.parentGroupIds?.includes(current.id) && (!currentMarketKey || property.marketKeys?.includes(currentMarketKey)))
     : query || allProperties || groups.length === 0 ? properties : []).filter(matches)
   const markets = options.filter(scope => {
     if (scope.kind !== 'market' || allProperties) return false
-    if (!allowGroupSelect && !current && !query && groups.length > 0) return false
     if (allowGroupSelect && current?.marketKeys?.length === 1 && !query) return false
     const withinSearch = current
       ? query ? isDescendant(scope) : scope.parentGroupIds?.includes(current.id)
@@ -96,17 +97,17 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, onSe
     return [...ancestors, scope.id]
   }
   const restoreSelection = () => {
-    const selectedGroup = selected.kind === 'group' ? groupById.get(selected.id) : undefined
+    const selectedGroup = selected?.kind === 'group' ? groupById.get(selected.id) : undefined
     const marketGroup = groupById.get(selectedMarket?.parentGroupIds?.[0] ?? '')
-    const memberPaths = (selected.parentGroupIds ?? []).flatMap(key => {
+    const memberPaths = (selected?.parentGroupIds ?? []).flatMap(key => {
       const group = groupById.get(key)
       return group ? [groupPath(group)] : []
     })
     const legacyPath = memberPaths.find(value => value.at(-1) === current?.id)
       ?? memberPaths.sort((left, right) => right.length - left.length)[0] ?? []
-    const propertyPath = marketGroup ? groupPath(marketGroup) : selected.marketKeys?.length ? [] : legacyPath
+    const propertyPath = marketGroup ? groupPath(marketGroup) : selected?.marketKeys?.length ? [] : legacyPath
     setPath(selectedGroup ? groupPath(selectedGroup) : propertyPath)
-    setAllProperties(selected.kind === 'property' && propertyPath.length === 0 && groups.length > 0)
+    setAllProperties(selected?.kind === 'property' && propertyPath.length === 0 && groups.length > 0)
     setSearch('')
   }
   const browse = (scope: VisibilityReportScopeOption) => {
@@ -117,7 +118,7 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, onSe
       type="button"
       className={ROW}
       aria-label={scope.kind === 'group' && !allowGroupSelect ? MARKET_SCOPE_COPY.browse(labelFor(scope)) : MARKET_SCOPE_COPY.select(labelFor(scope))}
-      aria-current={selected.kind === scope.kind && selected.id === scope.id ? 'true' : undefined}
+      aria-current={selected?.kind === scope.kind && selected.id === scope.id ? 'true' : undefined}
       onClick={() => scope.kind === 'group' && !allowGroupSelect ? browse(scope) : choose(scope)}
     >
       <span className="min-w-0 break-words">{displayLabel}{query && parentLabels(scope) ? <span className="block text-[13px] text-secondary">{parentLabels(scope)}</span> : null}</span>
@@ -141,7 +142,7 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, onSe
       if (event.key === 'Escape') { event.preventDefault(); event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus() }
     }}>
       <summary id={`${id}-value`} aria-labelledby={`${id}-label ${id}-value`} className={`${CONTROL} visibility-scope-trigger`} onClick={() => { if (!picker.current?.open) restoreSelection() }}>
-        {`${labelFor(selected)}${selected.kind === 'group' ? ` · ${countFor(selected.targetCount)}` : selected.kind === 'property' ? ` · ${options.find(option => option.kind === 'market' && option.id === marketKey)?.label ?? (selected.marketKeys?.length ? MARKET_SCOPE_COPY.allMarkets : 'Property')}` : selected.kind === 'market' ? ' · Market' : ''}`}<ChevronDown size={16} aria-hidden="true" className="shrink-0 text-secondary" />
+        {selected ? `${labelFor(selected)}${selected.kind === 'group' ? ` · ${countFor(selected.targetCount)}` : selected.kind === 'property' ? ` · ${options.find(option => option.kind === 'market' && option.id === marketKey)?.label ?? (selected.marketKeys?.length ? MARKET_SCOPE_COPY.allMarkets : 'Property')}` : selected.kind === 'market' ? ' · Market' : ''}` : <span className="text-secondary">{placeholder}</span>}<ChevronDown size={16} aria-hidden="true" className="shrink-0 text-secondary" />
       </summary>
       <div className="visibility-scope-menu">
         {current || allProperties ? <div className="mb-2 border-b border-default pb-2">
