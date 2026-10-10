@@ -20,7 +20,7 @@ import type { AgentConversation, AgentConversationList, AgentConversationDelete 
 import type { RunCompletenessDto, RunFillRequest, RunFillResponseDto } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@ainyc/canonry-api-client'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { detectAgentRuntime, normalizeAgentSlug, USAGE_TELEMETRY_HEADERS, type UsageSurface } from '@ainyc/canonry-contracts'
+import { detectAgentRuntime, normalizeAgentSlug, USAGE_TELEMETRY_HEADERS, type OutcomeSurface } from '@ainyc/canonry-contracts'
 import { CliError, EXIT_SYSTEM_ERROR, EXIT_USER_ERROR } from './cli-error.js'
 import { loadConfig } from './config.js'
 import { connectionFailureMessage, httpErrorDetails, isConnectionFailure, redactRequestTarget } from './client-reliability.js'
@@ -838,8 +838,8 @@ export interface ApiClientOptions {
   clientName?: string
   /** A bounded opaque operator/session correlation value. */
   actorSession?: string
-  /** Usage-telemetry label for the interface this client serves. Defaults to `cli`. Never identity. */
-  surface?: UsageSurface
+  /** Usage-telemetry label for the interface this client serves. Defaults to `cli`; `system` is the server's scheduler. Never identity. */
+  surface?: OutcomeSurface
 }
 
 /** Per-call usage labels, e.g. the MCP tool that issued the requests. */

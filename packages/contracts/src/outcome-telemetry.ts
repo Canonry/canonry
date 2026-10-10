@@ -365,8 +365,8 @@ export function statusClassOf(status: number | undefined | null): StatusClass {
   return '2xx'
 }
 
-const NETWORK_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH', 'EPIPE', 'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT'])
-const TIMEOUT_CODES = new Set(['ETIMEDOUT', 'ESOCKETTIMEDOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT'])
+const NETWORK_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH', 'EPIPE', 'UND_ERR_SOCKET'])
+const TIMEOUT_CODES = new Set(['ETIMEDOUT', 'ESOCKETTIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT'])
 
 function httpStatusOf(err: Record<string, unknown>): number | undefined {
   for (const value of [err.status, err.statusCode, (err.response as Record<string, unknown> | undefined)?.status, (err.details as Record<string, unknown> | undefined)?.httpStatus]) {
@@ -388,8 +388,14 @@ export function classifyOutcomeError(err: unknown): { reasonCode: OutcomeReasonC
   const code = typeof e.code === 'string' ? e.code : undefined
   const known = code && (OUTCOME_REASON_CODES as readonly string[]).includes(code) ? (code as OutcomeReasonCode) : undefined
   if (known) return { reasonCode: known, errorName }
-  if (errorName === 'AbortError' || errorName === 'TimeoutError' || (code && TIMEOUT_CODES.has(code))) return { reasonCode: 'TIMEOUT', errorName }
-  if (code && NETWORK_CODES.has(code)) return { reasonCode: 'NETWORK', errorName }
+  // Node's fetch (undici) throws `TypeError: fetch failed` and puts the socket error on `cause`.
+  const cause = e.cause && typeof e.cause === 'object' ? (e.cause as Record<string, unknown>) : undefined
+  const causeCode = typeof cause?.code === 'string' ? cause.code : undefined
+  const causeName = typeof cause?.name === 'string' ? cause.name : undefined
+  if (errorName === 'AbortError' || errorName === 'TimeoutError' || causeName === 'TimeoutError'
+    || (code && TIMEOUT_CODES.has(code)) || (causeCode && TIMEOUT_CODES.has(causeCode))) return { reasonCode: 'TIMEOUT', errorName }
+  if ((code && NETWORK_CODES.has(code)) || (causeCode && NETWORK_CODES.has(causeCode))) return { reasonCode: 'NETWORK', errorName }
+  if (errorName === 'TypeError' && e.message === 'fetch failed') return { reasonCode: 'NETWORK', errorName }
   if (code === 'PROVIDER_AUTH' || code === 'AUTH_INVALID' || code === 'AUTH_REQUIRED') return { reasonCode: 'INVALID_CREDENTIALS', errorName }
   if (code === 'FORBIDDEN') return { reasonCode: 'PERMISSION_MISSING', errorName }
   if (code === 'PROVIDER_BILLING') return { reasonCode: 'BILLING', errorName }

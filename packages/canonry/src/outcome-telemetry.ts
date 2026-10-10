@@ -47,9 +47,9 @@ function send(
   trackEvent(event, parsed.data as Record<string, unknown>, errorCode ? { errorCode } : undefined)
 }
 
-/** Classify a request's raw labels with the same rules as `api.request`; no request means the server acted alone. */
+/** Classify a request's raw labels with the same rules as `api.request`; no request, or the scheduler client's `system` label, means the server acted alone. */
 export function outcomeAttribution(attribution: OutcomeAttribution | undefined): { surface: OutcomeSurface; agent?: string } {
-  if (!attribution) return { surface: OutcomeSurfaces.system }
+  if (!attribution || attribution.surfaceLabel === OutcomeSurfaces.system) return { surface: OutcomeSurfaces.system }
   const surface = classifyUsageSurface({ userAgent: attribution.userAgent, usageLabels: { surface: attribution.surfaceLabel } })
   const agent = normalizeAgentSlug(attribution.agentLabel) ?? undefined
   return agent ? { surface, agent } : { surface }
@@ -111,8 +111,17 @@ export function handleRouteOutcome(event: OutcomeTelemetryEvent): void {
   if (event.event === 'integration.connection') {
     trackIntegrationConnection(properties as IntegrationConnectionProperties, { errorCode: event.errorCode })
   } else {
-    trackFeatureCompleted(properties as FeatureCompletedProperties, { errorCode: event.errorCode })
+    const trigger = event.properties.trigger ?? (event.attribution ? outcomeTriggerFor(event.attribution) : undefined)
+    trackFeatureCompleted({ ...properties, ...(trigger ? { trigger } : {}) } as FeatureCompletedProperties, { errorCode: event.errorCode })
   }
+}
+
+/** What started work a request asked for: the server's scheduler, an agent surface, or a person. */
+export function outcomeTriggerFor(attribution: OutcomeAttribution): NonNullable<FeatureCompletedProperties['trigger']> {
+  if (attribution.surfaceLabel === OutcomeSurfaces.system) return 'scheduled'
+  const { surface } = outcomeAttribution(attribution)
+  const agentSurface = surface === OutcomeSurfaces['mcp-stdio'] || surface === OutcomeSurfaces['mcp-http'] || surface === OutcomeSurfaces.aero
+  return agentSurface ? 'agent' : 'manual'
 }
 
 /**

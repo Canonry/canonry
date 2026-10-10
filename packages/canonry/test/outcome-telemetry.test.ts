@@ -57,7 +57,7 @@ describe('sending outcomes', () => {
     })
     expect(trackEvent).toHaveBeenLastCalledWith(
       'feature.completed',
-      { feature: 'backlinks', operation: 'install', status: 'succeeded', surface: 'mcp-stdio', agent: 'codex' },
+      { feature: 'backlinks', operation: 'install', status: 'succeeded', surface: 'mcp-stdio', agent: 'codex', trigger: 'agent' },
       undefined,
     )
     handleRouteOutcome({

@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
-import { expect, onTestFinished, test } from 'vitest'
+import { beforeEach, expect, onTestFinished, test, vi } from 'vitest'
 import {
   createClient,
   googleAdsConnections,
@@ -20,11 +20,23 @@ import {
   type GoogleAdsRawSnapshotDto,
   type GtmRawSnapshotDto,
 } from '@ainyc/canonry-contracts'
-import type { GoogleMarketingRuntime } from '../src/google-marketing-runtime.js'
+import { GoogleMarketingRuntimeError, type GoogleMarketingRuntime } from '../src/google-marketing-runtime.js'
 import {
   executeGoogleAdsMarketingSync,
   executeGtmMarketingSync,
 } from '../src/google-marketing-sync.js'
+
+const trackEvent = vi.hoisted(() => vi.fn())
+vi.mock('../src/telemetry.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/telemetry.js')>()),
+  trackEvent,
+}))
+
+beforeEach(() => trackEvent.mockReset())
+
+function outcomes() {
+  return trackEvent.mock.calls.filter((call) => call[0] === 'feature.completed').map((call) => call.slice(1))
+}
 
 const NOW = '2026-08-14T12:00:00.000Z'
 const SHA = 'a'.repeat(64)
@@ -484,4 +496,160 @@ test('reselection during a sync rolls back stale evidence and preserves the new 
     .toMatchObject({ selectedContainerId: 'container_2', lastSnapshotAt: null })
   expect(db.select().from(runs).where(eq(runs.id, 'gtm_run')).get())
     .toMatchObject({ status: RunStatuses.failed })
+})
+
+function seedGoogleAds(db: ReturnType<typeof createTempDb>, run: { status?: string; selectedCustomerId?: string | null } = {}) {
+  seedProject(db)
+  db.insert(googleAdsConnections).values({
+    id: 'ads_connection', projectId: 'project_1',
+    selectedCustomerId: run.selectedCustomerId === undefined ? '1234567890' : run.selectedCustomerId,
+    selectionGeneration: 7, scopes: [], createdAt: NOW, updatedAt: NOW,
+  }).run()
+  db.insert(runs).values({
+    id: 'ads_run', projectId: 'project_1', kind: RunKinds['google-ads-sync'],
+    status: run.status ?? RunStatuses.queued, trigger: RunTriggers.manual, createdAt: NOW,
+  }).run()
+}
+
+test('reports a Google Ads sync with its campaigns and metric rows after the evidence is saved', async () => {
+  const db = createTempDb()
+  seedGoogleAds(db)
+  const result = googleAdsSyncResult()
+  if (result.inventory.payload.kind === 'inventory') {
+    result.inventory.payload.data.campaigns = [
+      { id: '111', resourceName: 'customers/1234567890/campaigns/111', name: 'Brand', status: 'enabled', advertisingChannelType: 'SEARCH', biddingStrategyType: null },
+      { id: '222', resourceName: 'customers/1234567890/campaigns/222', name: 'Rooms', status: 'paused', advertisingChannelType: 'SEARCH', biddingStrategyType: null },
+    ]
+  }
+  const runtime = { syncGoogleAds: async () => result } as unknown as GoogleMarketingRuntime
+
+  await executeGoogleAdsMarketingSync(db, runtime, 'ads_run', 'project_1')
+
+  expect(outcomes()).toEqual([[
+    {
+      feature: 'google_ads', operation: 'sync', trigger: 'manual', status: 'succeeded',
+      durationBucket: 'under_1s', counts: { campaigns: 2, rows: 0 },
+    },
+    undefined,
+  ]])
+})
+
+test('reports a Google Ads sync by reason: no selected customer, an expired grant, a run already running, a selection change', async () => {
+  const cases: Array<{ arrange: (db: ReturnType<typeof createTempDb>) => GoogleMarketingRuntime; outcome: Record<string, unknown> }> = [
+    {
+      arrange: (db) => {
+        seedGoogleAds(db, { selectedCustomerId: null })
+        return {} as GoogleMarketingRuntime
+      },
+      outcome: { status: 'failed', reasonCode: 'ACCOUNT_NOT_FOUND', errorName: 'Error' },
+    },
+    {
+      arrange: (db) => {
+        seedGoogleAds(db)
+        return {
+          syncGoogleAds: async () => { throw new GoogleMarketingRuntimeError('Google OAuth access has expired', 'TOKEN_REFRESH_REQUIRED') },
+        } as unknown as GoogleMarketingRuntime
+      },
+      outcome: { status: 'failed', reasonCode: 'INVALID_CREDENTIALS', errorName: 'GoogleMarketingRuntimeError' },
+    },
+    {
+      arrange: (db) => {
+        seedGoogleAds(db, { status: RunStatuses.running })
+        return {} as GoogleMarketingRuntime
+      },
+      outcome: { status: 'skipped', reasonCode: 'OPERATION_IN_PROGRESS', errorName: 'Error' },
+    },
+    {
+      arrange: (db) => {
+        seedGoogleAds(db)
+        const result = googleAdsSyncResult()
+        return {
+          syncGoogleAds: async () => {
+            db.update(googleAdsConnections).set({ selectionGeneration: 8 }).where(eq(googleAdsConnections.id, 'ads_connection')).run()
+            return result
+          },
+        } as unknown as GoogleMarketingRuntime
+      },
+      outcome: { status: 'cancelled', reasonCode: 'CANCELLED_BY_USER', errorName: 'Error' },
+    },
+  ]
+  for (const testCase of cases) {
+    trackEvent.mockReset()
+    const db = createTempDb()
+    const runtime = testCase.arrange(db)
+    await expect(executeGoogleAdsMarketingSync(db, runtime, 'ads_run', 'project_1')).rejects.toThrow()
+    expect(outcomes()).toEqual([[
+      { feature: 'google_ads', operation: 'sync', trigger: 'manual', ...testCase.outcome, durationBucket: 'under_1s' },
+      { errorCode: testCase.outcome.reasonCode },
+    ]])
+  }
+})
+
+test('reports a GTM sync with the tags in the published container', async () => {
+  const db = createTempDb()
+  seedProject(db)
+  db.insert(gtmConnections).values({
+    id: 'gtm_connection', projectId: 'project_1', selectedAccountId: 'account_1',
+    selectedContainerId: 'container_1', selectedWorkspaceId: 'workspace_1',
+    scopes: [], createdAt: NOW, updatedAt: NOW,
+  }).run()
+  db.insert(runs).values({
+    id: 'gtm_run', projectId: 'project_1', kind: RunKinds['gtm-sync'],
+    status: RunStatuses.queued, trigger: RunTriggers.scheduled, createdAt: NOW,
+  }).run()
+  const snapshot = gtmSnapshot()
+  if (snapshot.payload.kind === 'container') {
+    const tag = (id: string) => ({
+      id, name: `Tag ${id}`, type: 'awct', paused: false, firingTriggerIds: [], blockingTriggerIds: [],
+      referencedVariableIds: [], parameterKeys: [], fingerprint: null,
+    })
+    snapshot.payload.data.live = {
+      source: 'live',
+      version: {
+        accountId: 'account_1', containerId: 'container_1', id: '12', path: 'accounts/account_1/containers/container_1/versions/12',
+        name: 'Live', description: null, fingerprint: null, deleted: false,
+      },
+      graph: {
+        accountId: 'account_1', containerId: 'container_1', workspaceId: null,
+        tags: [tag('1'), tag('2'), tag('3')], triggers: [], variables: [], googleAdsTagAssessments: [],
+      },
+      fetchedAt: NOW,
+    }
+  }
+  const runtime = { syncGtm: async () => snapshot } as unknown as GoogleMarketingRuntime
+
+  await executeGtmMarketingSync(db, runtime, 'gtm_run', 'project_1')
+
+  expect(outcomes()).toEqual([[
+    {
+      feature: 'gtm', operation: 'sync', trigger: 'scheduled', surface: 'system', status: 'succeeded',
+      durationBucket: 'under_1s', counts: { items: 3 },
+    },
+    undefined,
+  ]])
+})
+
+test('reports GTM evidence that failed our own consistency check as internal', async () => {
+  const db = createTempDb()
+  seedProject(db)
+  db.insert(gtmConnections).values({
+    id: 'gtm_connection', projectId: 'project_1', selectedAccountId: 'account_1',
+    selectedContainerId: 'container_1', selectedWorkspaceId: 'workspace_2',
+    scopes: [], createdAt: NOW, updatedAt: NOW,
+  }).run()
+  db.insert(runs).values({
+    id: 'gtm_run', projectId: 'project_1', kind: RunKinds['gtm-sync'],
+    status: RunStatuses.queued, trigger: RunTriggers.manual, createdAt: NOW,
+  }).run()
+  const runtime = { syncGtm: async () => gtmSnapshot() } as unknown as GoogleMarketingRuntime
+
+  await expect(executeGtmMarketingSync(db, runtime, 'gtm_run', 'project_1')).rejects.toThrow('different account, container, or workspace')
+
+  expect(outcomes()).toEqual([[
+    {
+      feature: 'gtm', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'INTERNAL',
+      errorName: 'Error', durationBucket: 'under_1s',
+    },
+    { errorCode: 'INTERNAL' },
+  ]])
 })

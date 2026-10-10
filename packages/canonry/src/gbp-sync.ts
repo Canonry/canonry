@@ -2,7 +2,18 @@ import crypto from 'node:crypto'
 import { eq, and, desc, inArray, lt } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { runs, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpPlaceDetails, gbpAttributesSnapshots, readNegativeReviewMaxStars } from '@ainyc/canonry-db'
-import { buildRunErrorFromMessages, serializeRunError, describeError, GBP_NO_SELECTED_LOCATIONS_ERROR, resolveNegativeReviewMaxStars } from '@ainyc/canonry-contracts'
+import {
+  buildRunErrorFromMessages,
+  serializeRunError,
+  describeError,
+  FeatureNames,
+  GBP_NO_SELECTED_LOCATIONS_ERROR,
+  OutcomeReasonCodes,
+  OutcomeStatuses,
+  resolveNegativeReviewMaxStars,
+  type GbpReviewsAccess,
+  type OutcomeReasonCode,
+} from '@ainyc/canonry-contracts'
 import { refreshAccessToken } from '@ainyc/canonry-integration-google'
 import {
   listLocations,
@@ -17,6 +28,7 @@ import {
   getAttributes,
   countAttributes,
   hashAttributes,
+  GbpApiError,
   GBP_DAILY_METRICS,
 } from '@ainyc/canonry-integration-google-business-profile'
 import { getPlaceDetails, hashPlaceDetails } from '@ainyc/canonry-integration-google-places'
@@ -27,6 +39,7 @@ import { getPlacesConfig } from './places-config.js'
 import { fetchLocationReviews, persistReviewObservation } from './gbp-reviews.js'
 import type { ReviewFetchContext } from './gbp-reviews.js'
 import { createLogger } from './logger.js'
+import { googleRunFailure, startRunOutcome, withOutcomeReason, type RunOutcome } from './sync-outcome.js'
 
 const MS_PER_DAY = 86_400_000
 
@@ -77,6 +90,36 @@ interface GbpSyncOptions {
   config: CanonryConfig
 }
 
+/** A zero quota is the API access gate on the Cloud project; a 404 is a location that is gone. */
+function gbpRunFailure(err: unknown): ReturnType<typeof googleRunFailure> {
+  if (err instanceof GbpApiError && err.status === 429 && err.quotaLimitValue === 0) {
+    return { ...googleRunFailure(err), reasonCode: OutcomeReasonCodes.QUOTA_EXCEEDED }
+  }
+  if (err instanceof GbpApiError && err.status === 404) {
+    return { ...googleRunFailure(err), reasonCode: OutcomeReasonCodes.PROPERTY_NOT_FOUND }
+  }
+  return googleRunFailure(err)
+}
+
+/** The stored reviews-access reason (a stable code, never free text) as an outcome reason. */
+function reviewsAccessReason(status: Exclude<GbpReviewsAccess, 'ok'>, reason: string | null): OutcomeReasonCode {
+  if (status === 'unavailable') return reason === 'NOT_FOUND' ? OutcomeReasonCodes.NOT_FOUND : OutcomeReasonCodes.PERMISSION_MISSING
+  if (reason === 'NETWORK') return OutcomeReasonCodes.NETWORK
+  if (reason?.startsWith('HTTP_5')) return OutcomeReasonCodes.HTTP_5XX
+  if (reason?.startsWith('HTTP_4')) return OutcomeReasonCodes.HTTP_4XX
+  return OutcomeReasonCodes.UNKNOWN
+}
+
+/** One run's Business Profile reviews access across the locations it synced. */
+function reviewsOutcome(access: { ok: number; unavailable: number; error: number }, reviews: number, reason: OutcomeReasonCode | undefined): RunOutcome | null {
+  const checked = access.ok + access.unavailable + access.error
+  if (checked === 0) return null
+  const counts = { items: checked, reviews, skipped: access.unavailable, failures: access.error }
+  if (access.ok === checked) return { status: OutcomeStatuses.succeeded, counts }
+  const status = access.ok > 0 ? OutcomeStatuses.partial : access.error > 0 ? OutcomeStatuses.failed : OutcomeStatuses.skipped
+  return { status, reasonCode: reason ?? OutcomeReasonCodes.UNKNOWN, counts }
+}
+
 /**
  * Sync GBP performance data (daily metrics + monthly keyword impressions) for
  * a project's selected locations. Each location is range-replaced so re-runs
@@ -94,21 +137,26 @@ export async function executeGbpSync(
   projectId: string,
   opts: GbpSyncOptions,
 ): Promise<void> {
+  const reportOutcome = startRunOutcome(db, runId, FeatureNames.gbp, 'sync')
+  const reportReviews = startRunOutcome(db, runId, FeatureNames.gbp, 'reviews')
   const now = new Date().toISOString()
   db.update(runs).set({ status: 'running', startedAt: now }).where(eq(runs.id, runId)).run()
 
   try {
     const { clientId, clientSecret } = getGoogleAuthConfig(opts.config)
     if (!clientId || !clientSecret) {
-      throw new Error('Google OAuth is not configured in the local Canonry config')
+      throw withOutcomeReason(new Error('Google OAuth is not configured in the local Canonry config'), OutcomeReasonCodes.NOT_CONNECTED)
     }
 
     const project = db.select().from(projects).where(eq(projects.id, projectId)).get()
-    if (!project) throw new Error(`Project not found: ${projectId}`)
+    if (!project) throw withOutcomeReason(new Error(`Project not found: ${projectId}`), OutcomeReasonCodes.NOT_FOUND)
 
     const conn = getGoogleConnection(opts.config, project.canonicalDomain, 'gbp')
     if (!conn || !conn.refreshToken) {
-      throw new Error('No GBP connection found or connection is incomplete. Run "canonry gbp connect" first.')
+      throw withOutcomeReason(
+        new Error('No GBP connection found or connection is incomplete. Run "canonry gbp connect" first.'),
+        OutcomeReasonCodes.NOT_CONNECTED,
+      )
     }
 
     // Refresh the access token if it's within 5 minutes of expiry.
@@ -136,7 +184,7 @@ export async function executeGbpSync(
     }
 
     if (locationRows.length === 0) {
-      throw new Error(GBP_NO_SELECTED_LOCATIONS_ERROR)
+      throw withOutcomeReason(new Error(GBP_NO_SELECTED_LOCATIONS_ERROR), OutcomeReasonCodes.PROPERTY_NOT_FOUND)
     }
     locationRows = await refreshSelectedLocationProfiles(db, projectId, accessToken, locationRows)
 
@@ -169,6 +217,12 @@ export async function executeGbpSync(
 
     const errors = new Map<string, string>()
     let okCount = 0
+    let rowsWritten = 0
+    let lastLocationError: unknown
+    const reviewAccess = { ok: 0, unavailable: 0, error: 0 }
+    let reviewsObserved = 0
+    let reviewsUnavailableReason: OutcomeReasonCode | undefined
+    let reviewsErrorReason: OutcomeReasonCode | undefined
 
     // Process locations in bounded-concurrency batches.
     for (let i = 0; i < locationRows.length; i += LOCATION_CONCURRENCY) {
@@ -448,7 +502,15 @@ export async function executeGbpSync(
               .run()
           })
           okCount++
+          rowsWritten += metricRows.length + keywordRows.length + placeActionRows.length
+            + monthlyKeywordResults.reduce((total, month) => total + month.rows.length, 0)
+          const access = reviewFetch.access
+          reviewAccess[access.status]++
+          reviewsObserved += reviewFetch.observations.reduce((total, observation) => total + observation.reviews.length, 0)
+          if (access.status === 'unavailable') reviewsUnavailableReason = reviewsAccessReason(access.status, access.reason)
+          if (access.status === 'error') reviewsErrorReason = reviewsAccessReason(access.status, access.reason)
         } catch (err) {
+          lastLocationError = err
           errors.set(loc.locationName, describeError(err))
           log.error('location.failed', { runId, location: loc.locationName, error: describeError(err) })
         }
@@ -473,6 +535,12 @@ export async function executeGbpSync(
     }
 
     log.info('sync.done', { runId, projectId, ok: okCount, failed: errors.size })
+    const counts = { rows: rowsWritten, items: okCount, failures: errors.size }
+    reportOutcome(errors.size === 0
+      ? { status: OutcomeStatuses.succeeded, counts }
+      : { status: okCount > 0 ? OutcomeStatuses.partial : OutcomeStatuses.failed, ...gbpRunFailure(lastLocationError), counts })
+    const reviews = reviewsOutcome(reviewAccess, reviewsObserved, reviewsErrorReason ?? reviewsUnavailableReason)
+    if (reviews) reportReviews(reviews)
   } catch (err) {
     const errorMsg = describeError(err)
     db.update(runs)
@@ -480,6 +548,7 @@ export async function executeGbpSync(
       .where(eq(runs.id, runId))
       .run()
     log.error('sync.failed', { runId, projectId, error: errorMsg })
+    reportOutcome({ status: OutcomeStatuses.failed, ...gbpRunFailure(err) })
     throw err
   }
 }
@@ -510,7 +579,10 @@ async function refreshSelectedLocationProfiles(
     const remoteByName = new Map(remoteLocations.map((loc) => [loc.name, loc]))
     const missing = accountRows.filter((row) => !remoteByName.has(row.locationName))
     if (missing.length > 0) {
-      throw new Error(`Selected GBP location(s) no longer appear under ${accountName}: ${missing.map((row) => row.locationName).join(', ')}. Run "canonry gbp locations discover" to refresh the selection.`)
+      throw withOutcomeReason(
+        new Error(`Selected GBP location(s) no longer appear under ${accountName}: ${missing.map((row) => row.locationName).join(', ')}. Run "canonry gbp locations discover" to refresh the selection.`),
+        OutcomeReasonCodes.PROPERTY_NOT_FOUND,
+      )
     }
 
     const updatedAt = new Date().toISOString()

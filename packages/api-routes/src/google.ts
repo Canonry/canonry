@@ -23,6 +23,10 @@ import {
   inclusiveDayCount,
   percentOf,
   shiftIsoCalendarDate,
+  classifyOutcomeError,
+  FeatureNames,
+  OutcomeReasonCodes,
+  OutcomeStatuses,
 } from '@ainyc/canonry-contracts'
 import { extractPlaceAmenities, type PlaceDetails } from '@ainyc/canonry-integration-google-places'
 import { computeGscPeriodComparison, type GscComparisonBasis } from './gsc-period-comparison.js'
@@ -35,6 +39,7 @@ import {
 } from './gsc-totals.js'
 import { assertNotProjectScoped } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import { startRouteOutcome } from './route-outcome.js'
 import {
   buildSignedGoogleOAuthState,
   verifySignedGoogleOAuthState,
@@ -353,6 +358,23 @@ function googleAuthErrorStatus(err: GoogleAuthError): number | null {
   if (err.statusCode != null) return err.statusCode
   const match = err.message.match(/failed \((\d{3})\)/)
   return match ? Number(match[1]) : null
+}
+
+/** Why a Search Console call failed, read from the error before it becomes an API error. */
+function gscOutcomeFailure(err: unknown): ReturnType<typeof classifyOutcomeError> {
+  const classified = classifyOutcomeError(err)
+  if (err instanceof AppError && (err.code === 'NOT_FOUND' || err.code === 'VALIDATION_ERROR')) {
+    return { ...classified, reasonCode: OutcomeReasonCodes.NOT_CONNECTED }
+  }
+  if (err instanceof GoogleAuthError) {
+    const status = googleAuthErrorStatus(err)
+    const reasonCode = status === 429
+      ? OutcomeReasonCodes.RATE_LIMITED
+      : status !== null && status >= 500 ? OutcomeReasonCodes.HTTP_5XX : OutcomeReasonCodes.INVALID_CREDENTIALS
+    return { ...classified, reasonCode }
+  }
+  if (err instanceof GoogleApiError && err.status === 404) return { ...classified, reasonCode: OutcomeReasonCodes.PROPERTY_NOT_FOUND }
+  return classified
 }
 
 /**
@@ -1372,14 +1394,16 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       throw validationError('url is required')
     }
 
+    const outcome = startRouteOutcome(app, FeatureNames.search_console, 'inspect')
     let result
     try {
       const { accessToken, propertyId } = await getValidToken(store, project.canonicalDomain, 'gsc', googleClientId, googleClientSecret)
       if (!propertyId) {
-        throw validationError('No GSC property configured for this connection')
+        throw outcome.refuse(OutcomeReasonCodes.PROPERTY_NOT_FOUND, validationError('No GSC property configured for this connection'))
       }
       result = await gscInspectUrl(accessToken, url, propertyId)
     } catch (err) {
+      outcome.report({ status: OutcomeStatuses.failed, ...gscOutcomeFailure(err) })
       throw gscErrorToAppError(err, 'Failed to inspect URL in Search Console')
     }
     const ir = result.inspectionResult
@@ -1408,6 +1432,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       inspectedAt: now,
       createdAt: now,
     }).run()
+    outcome.report({ status: OutcomeStatuses.succeeded, counts: { urls: 1 } })
 
     return {
       id,
@@ -1744,33 +1769,45 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const sitemapUrls = [...new Set(parsed.data.sitemapUrls)]
     const project = resolveProject(app.db, request.params.name)
     const store = requireConnectionStore()
+    const outcome = startRouteOutcome(app, FeatureNames.search_console, 'sitemap_submit')
     const conn = store.getConnection(project.canonicalDomain, 'gsc')
     if (!conn) {
-      throw validationError('No GSC connection found for this domain. Run "canonry google connect" first.')
+      throw outcome.refuse(OutcomeReasonCodes.NOT_CONNECTED, validationError('No GSC connection found for this domain. Run "canonry google connect" first.'))
     }
     if (!conn.propertyId) {
-      throw validationError('No GSC property configured for this connection. Set one with "canonry google set-property".')
+      throw outcome.refuse(
+        OutcomeReasonCodes.PROPERTY_NOT_FOUND,
+        validationError('No GSC property configured for this connection. Set one with "canonry google set-property".'),
+      )
     }
     const invalidUrls = sitemapUrls.filter((url) => !isSitemapOwnedByProperty(url, conn.propertyId!, project.canonicalDomain))
     if (invalidUrls.length > 0) {
-      throw validationError(`Sitemap URLs must belong to the configured GSC property "${conn.propertyId}". Invalid: ${invalidUrls.slice(0, 5).join(', ')}`)
+      throw outcome.refuse(
+        OutcomeReasonCodes.VALIDATION,
+        validationError(`Sitemap URLs must belong to the configured GSC property "${conn.propertyId}". Invalid: ${invalidUrls.slice(0, 5).join(', ')}`),
+      )
     }
     if (!(conn.scopes ?? []).includes(GSC_SCOPE)) {
-      throw validationError('This GSC connection has the read-only webmasters scope and cannot submit sitemaps. Reconnect with "canonry google connect" to grant the full webmasters scope.')
+      throw outcome.refuse(
+        OutcomeReasonCodes.PERMISSION_MISSING,
+        validationError('This GSC connection has the read-only webmasters scope and cannot submit sitemaps. Reconnect with "canonry google connect" to grant the full webmasters scope.'),
+      )
     }
 
     const { clientId: googleClientId, clientSecret: googleClientSecret } = getAuthConfig()
     if (!googleClientId || !googleClientSecret) {
-      throw validationError('Google OAuth is not configured')
+      throw outcome.refuse(OutcomeReasonCodes.NOT_CONNECTED, validationError('Google OAuth is not configured'))
     }
     let accessToken: string
     try {
       ({ accessToken } = await getValidToken(store, project.canonicalDomain, 'gsc', googleClientId, googleClientSecret))
     } catch (err) {
+      outcome.report({ status: OutcomeStatuses.failed, ...gscOutcomeFailure(err) })
       throw gscErrorToAppError(err, 'Failed to authorize Search Console sitemap submission')
     }
 
     const results: Array<{ sitemapUrl: string; status: 'accepted' | 'error'; submittedAt?: string; error?: string }> = []
+    let lastSubmitError: unknown
     for (const sitemapUrl of sitemapUrls) {
       try {
         await submitSitemap(accessToken, conn.propertyId, sitemapUrl)
@@ -1784,11 +1821,17 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         })
         results.push({ sitemapUrl, status: 'accepted', submittedAt })
       } catch (err) {
+        lastSubmitError = err
         results.push({ sitemapUrl, status: 'error', error: describeError(err) })
       }
     }
     const accepted = results.filter((result) => result.status === 'accepted').length
-    return { summary: { total: results.length, accepted, failed: results.length - accepted }, results }
+    const failed = results.length - accepted
+    const counts = { urls: accepted, failures: failed }
+    outcome.report(failed === 0
+      ? { status: OutcomeStatuses.succeeded, counts }
+      : { status: accepted > 0 ? OutcomeStatuses.partial : OutcomeStatuses.failed, ...gscOutcomeFailure(lastSubmitError), counts })
+    return { summary: { total: results.length, accepted, failed }, results }
   })
 
   // POST /projects/:name/google/gsc/discover-sitemaps

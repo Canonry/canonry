@@ -21,16 +21,22 @@ import {
   adsActivationGrantRevokeRequestSchema,
   adsOperationStepDtoSchema,
   alreadyExists,
+  classifyOutcomeError,
   countAdsActivationManifestEntities,
   forbidden,
   internalError,
   notFound,
   providerError,
   validationError,
+  FeatureNames,
+  OutcomeReasonCodes,
+  OutcomeStatuses,
+  OutcomeTriggers,
   type AdsActivateTreeResponse,
   type AdsActivationGrantDto,
   type AdsOperationDto,
   type AdsOperationStepDto,
+  type OutcomeReasonCode,
 } from '@ainyc/canonry-contracts'
 import {
   adsActivationGrants,
@@ -42,6 +48,7 @@ import {
 } from '@ainyc/canonry-db'
 import { requireScope } from './auth.js'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
+import { startRouteOutcome, upstreamFailure, type RouteOutcome } from './route-outcome.js'
 import {
   AdsActivationError,
   AdsActivationErrorCodes,
@@ -54,6 +61,7 @@ import {
   refreshSemanticallyUnchangedAdsActivationManifest,
   serializeAdsActivationManifest,
   type AdsActivationEntitySnapshot,
+  type AdsActivationErrorCode,
   type AdsActivationClaimInput,
   type AdsActivationClaimResult,
   type AdsActivationResult,
@@ -682,6 +690,36 @@ function enforceAdsActivationOperationalCap(
   }
 }
 
+const ACTIVATION_FAILURE_REASONS: Partial<Record<AdsActivationErrorCode, OutcomeReasonCode>> = {
+  [AdsActivationErrorCodes.invalidManifest]: OutcomeReasonCodes.VALIDATION,
+  [AdsActivationErrorCodes.grantNotFound]: OutcomeReasonCodes.NOT_FOUND,
+  [AdsActivationErrorCodes.grantProjectMismatch]: OutcomeReasonCodes.GATE_REFUSED,
+  [AdsActivationErrorCodes.grantAccountMismatch]: OutcomeReasonCodes.GATE_REFUSED,
+  [AdsActivationErrorCodes.grantHashMismatch]: OutcomeReasonCodes.GATE_REFUSED,
+  [AdsActivationErrorCodes.grantExecutorMismatch]: OutcomeReasonCodes.GATE_REFUSED,
+  [AdsActivationErrorCodes.grantExpired]: OutcomeReasonCodes.GATE_REFUSED,
+  [AdsActivationErrorCodes.grantRevoked]: OutcomeReasonCodes.CANCELLED_BY_USER,
+  [AdsActivationErrorCodes.grantUsed]: OutcomeReasonCodes.GATE_REFUSED,
+  [AdsActivationErrorCodes.operationConflict]: OutcomeReasonCodes.VALIDATION,
+  [AdsActivationErrorCodes.accountNotApproved]: OutcomeReasonCodes.GATE_REFUSED,
+  [AdsActivationErrorCodes.entityMismatch]: OutcomeReasonCodes.VALIDATION,
+  [AdsActivationErrorCodes.entityNotPaused]: OutcomeReasonCodes.VALIDATION,
+  [AdsActivationErrorCodes.entityStale]: OutcomeReasonCodes.VALIDATION,
+  [AdsActivationErrorCodes.adNotApproved]: OutcomeReasonCodes.GATE_REFUSED,
+  [AdsActivationErrorCodes.manualRemediationRequired]: OutcomeReasonCodes.QUARANTINED,
+  [AdsActivationErrorCodes.persistenceFailed]: OutcomeReasonCodes.INTERNAL,
+}
+
+/** A failed activation: an unverified rollback is partial and QUARANTINED, a revoked grant a cancellation. */
+function activationFailure(error: unknown): RouteOutcome {
+  const known = error instanceof AdsActivationError ? ACTIVATION_FAILURE_REASONS[error.code] : undefined
+  const failure = known ? { ...classifyOutcomeError(error), reasonCode: known } : upstreamFailure(error)
+  const status = failure.reasonCode === OutcomeReasonCodes.QUARANTINED
+    ? OutcomeStatuses.partial
+    : failure.reasonCode === OutcomeReasonCodes.CANCELLED_BY_USER ? OutcomeStatuses.cancelled : OutcomeStatuses.failed
+  return { status, ...failure }
+}
+
 function requireAuthenticatedKey(request: FastifyRequest): NonNullable<FastifyRequest['apiKey']> {
   if (!request.apiKey) {
     throw forbidden('Ads activation approval and execution require an authenticated API key')
@@ -795,21 +833,41 @@ async function executeActivationGrant(
   grant: ActivationGrantRow,
   operationKey: string,
 ): Promise<AdsActivateTreeResponse> {
-  const runtime = await opts.resolveRuntime(project)
-  const result: AdsActivationResult = await executeApprovedAdsActivation({
-    store: createActivationStore(app, request),
-    provider: runtime.provider,
-    leaseMs: opts.leaseMs ?? ACTIVATION_LEASE_MS,
-  }, {
-    projectId: project.id,
-    adAccountId: runtime.adAccountId,
-    operationKey,
-    grantId: grant.id,
-    manifestHash: grant.manifestHash,
-    executorApiKeyId,
-    manifest: grant.manifest,
-  })
-  return activationResponse(opts, result.grant, result.operation)
+  // Without a request this is the watchdog resuming an activation released for retry.
+  const outcome = startRouteOutcome(app, FeatureNames.openai_ads, 'activation', request ? {} : { trigger: OutcomeTriggers.retry })
+  const store = createActivationStore(app, request)
+  // Only a claimed or resumed receipt runs here; a replay or a lease another executor holds reports nothing.
+  let claimKind: AdsActivationClaimResult['kind'] | undefined
+  try {
+    const runtime = await opts.resolveRuntime(project)
+    const result: AdsActivationResult = await executeApprovedAdsActivation({
+      store: {
+        ...store,
+        claimGrantAndOperation: async (input) => {
+          const claim = await store.claimGrantAndOperation(input)
+          claimKind = claim.kind
+          return claim
+        },
+      },
+      provider: runtime.provider,
+      leaseMs: opts.leaseMs ?? ACTIVATION_LEASE_MS,
+    }, {
+      projectId: project.id,
+      adAccountId: runtime.adAccountId,
+      operationKey,
+      grantId: grant.id,
+      manifestHash: grant.manifestHash,
+      executorApiKeyId,
+      manifest: grant.manifest,
+    })
+    if (claimKind === 'claimed' || claimKind === 'resumed') {
+      outcome.report({ status: OutcomeStatuses.succeeded, counts: { campaigns: 1, operations: result.steps.length } })
+    }
+    return activationResponse(opts, result.grant, result.operation)
+  } catch (error) {
+    outcome.report(activationFailure(error))
+    throw error
+  }
 }
 
 function selectWatchdogOperations(
@@ -1285,7 +1343,9 @@ export function registerAdsActivationRoutes(
       const approver = requireAuthenticatedKey(request)
       const project = resolveProject(app.db, request.params.name)
       const body = parseBody(adsActivationGrantCreateRequestSchema, request.body)
-      enforceAdsActivationOperationalCap(body.manifest)
+      // An approval reports only a refusal: the activation's outcome comes from its execution.
+      const outcome = startRouteOutcome(app, FeatureNames.openai_ads, 'activation')
+      outcome.guard(OutcomeReasonCodes.GATE_REFUSED, () => enforceAdsActivationOperationalCap(body.manifest))
       const now = new Date()
       const expiresAt = Date.parse(body.expiresAt)
       if (
@@ -1311,7 +1371,13 @@ export function registerAdsActivationRoutes(
         throw forbidden(`The executor API key requires the "${ADS_ACTIVATE_SCOPE}" scope`)
       }
 
-      const runtime = await opts.resolveRuntime(project)
+      let runtime: AdsActivationRuntime
+      try {
+        runtime = await opts.resolveRuntime(project)
+      } catch (error) {
+        outcome.report(activationFailure(error))
+        throw error
+      }
       let preflight: Awaited<ReturnType<typeof preflightAdsActivationApproval>>
       try {
         preflight = body.versionPolicy === AdsActivationVersionPolicies.refreshSemanticallyUnchanged
@@ -1327,6 +1393,7 @@ export function registerAdsActivationRoutes(
               manifest: body.manifest,
             })
       } catch (error) {
+        outcome.report(activationFailure(error))
         if (error instanceof AdsActivationError) throw mapApprovalPreflightError(error)
         throw error
       }
@@ -1461,6 +1528,12 @@ export function registerAdsActivationRoutes(
         )
       ) {
         startWatchdogSweep?.()
+      }
+      // Revoking an approval that never ran cancels the activation. A running
+      // one reports its own outcome when it stops.
+      if (existing.state === AdsActivationGrantStates.approved && grant.state === AdsActivationGrantStates.revoked) {
+        startRouteOutcome(app, FeatureNames.openai_ads, 'activation')
+          .report({ status: OutcomeStatuses.cancelled, reasonCode: OutcomeReasonCodes.CANCELLED_BY_USER })
       }
       return adsActivationGrantResponseSchema.parse({ grant })
     },

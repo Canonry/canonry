@@ -2,8 +2,8 @@ import crypto from 'node:crypto'
 import { eq, desc } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { runs, projects, bingUrlInspections, bingCoverageSnapshots } from '@ainyc/canonry-db'
-import { RunStatuses, describeError } from '@ainyc/canonry-contracts'
-import { getUrlInfo, getCrawlIssues } from '@ainyc/canonry-integration-bing'
+import { RunStatuses, describeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses } from '@ainyc/canonry-contracts'
+import { BingApiError, getUrlInfo, getCrawlIssues } from '@ainyc/canonry-integration-bing'
 import type { CanonryConfig } from './config.js'
 import { fetchAndParseSitemap } from './sitemap-parser.js'
 import { inspectUrlsPaced, INSPECT_SWEEP_MAX_URLS, INSPECT_DAILY_QUOTA } from './gsc-inspect-paced.js'
@@ -11,8 +11,14 @@ import type { PacedInspectDeps } from './gsc-inspect-paced.js'
 import { credentialGateKey } from './inspect-rate-gate.js'
 import { isRetryableHttpError } from '@ainyc/canonry-contracts'
 import { createLogger } from './logger.js'
+import { runFailure, startRunOutcome, withOutcomeReason } from './sync-outcome.js'
 
 const log = createLogger('BingInspectSitemap')
+
+/** Bing reports throttling as a 400 with its own error code, which the generic classifier reads as a client error. */
+function bingRunFailure(err: unknown): ReturnType<typeof runFailure> {
+  return runFailure(err, err instanceof BingApiError && err.isThrottle ? OutcomeReasonCodes.RATE_LIMITED : undefined)
+}
 
 /**
  * Minimum spacing between Bing inspection request starts, across every sweep
@@ -60,21 +66,31 @@ export async function executeBingInspectSitemap(
   projectId: string,
   opts: BingInspectSitemapOptions,
 ): Promise<void> {
+  // Bing's coverage sweep is its only sync, so it reports as `bing` `sync`.
+  const reportOutcome = startRunOutcome(db, runId, FeatureNames.bing, 'sync')
+  // The error an all-failed sweep wraps, so the outcome reports its cause.
+  let abortCause: unknown
   const startedAt = new Date().toISOString()
   db.update(runs).set({ status: RunStatuses.running, startedAt }).where(eq(runs.id, runId)).run()
 
   try {
     const project = db.select().from(projects).where(eq(projects.id, projectId)).get()
     if (!project) {
-      throw new Error(`Project not found: ${projectId}`)
+      throw withOutcomeReason(new Error(`Project not found: ${projectId}`), OutcomeReasonCodes.NOT_FOUND)
     }
 
     const conn = opts.config.bing?.connections?.find((c) => c.domain === project.canonicalDomain)
     if (!conn) {
-      throw new Error('No Bing connection found for this project. Run "canonry bing connect <project>" first.')
+      throw withOutcomeReason(
+        new Error('No Bing connection found for this project. Run "canonry bing connect <project>" first.'),
+        OutcomeReasonCodes.NOT_CONNECTED,
+      )
     }
     if (!conn.siteUrl) {
-      throw new Error('No Bing site configured. Run "canonry bing set-site <project> <url>" first.')
+      throw withOutcomeReason(
+        new Error('No Bing site configured. Run "canonry bing set-site <project> <url>" first.'),
+        OutcomeReasonCodes.PROPERTY_NOT_FOUND,
+      )
     }
 
     const sitemapUrl = opts.sitemapUrl ?? `https://${project.canonicalDomain}/sitemap.xml`
@@ -84,7 +100,7 @@ export async function executeBingInspectSitemap(
     log.info('sitemap.parsed', { runId, projectId, urlCount: sitemapUrls.length, sitemapUrl })
 
     if (sitemapUrls.length === 0) {
-      throw new Error('No URLs found in sitemap')
+      throw withOutcomeReason(new Error('No URLs found in sitemap'), OutcomeReasonCodes.NO_DATA)
     }
 
     // Diff vs already-tracked URLs so the log clearly distinguishes new
@@ -148,6 +164,7 @@ export async function executeBingInspectSitemap(
 
     let inspected = 0
     let errors = 0
+    let lastInspectError: unknown
 
     // Paced through the shared driver rather than a bare setTimeout loop: it
     // adds jitter (so two overlapping sweeps don't phase-lock), per-URL retry,
@@ -206,6 +223,7 @@ export async function executeBingInspectSitemap(
         },
         onError: (pageUrl, err) => {
           errors++
+          lastInspectError = err
           log.error('inspect.url-failed', {
             runId,
             projectId,
@@ -253,6 +271,7 @@ export async function executeBingInspectSitemap(
     // mostly-successful one. The GSC sweep already throws in this situation;
     // this brings Bing in line.
     if (outcome.aborted && inspected === 0) {
+      abortCause = outcome.abortError
       // `abortError` is `unknown`; stringifying it blind renders a plain object
       // as "[object Object]", which is exactly the useless error text this
       // branch exists to replace.
@@ -354,6 +373,16 @@ export async function executeBingInspectSitemap(
       notIndexed: snapNotIndexed,
       unknown: snapUnknown,
     })
+    const counts = { urls: inspected, failures: errors, skipped }
+    if (status === RunStatuses.completed) {
+      reportOutcome({ status: OutcomeStatuses.succeeded, counts })
+    } else {
+      reportOutcome({
+        status: status === RunStatuses.partial ? OutcomeStatuses.partial : OutcomeStatuses.failed,
+        ...bingRunFailure(lastInspectError ?? outcome.abortError),
+        counts,
+      })
+    }
   } catch (err) {
     const errorMsg = describeError(err)
     db.update(runs)
@@ -362,6 +391,11 @@ export async function executeBingInspectSitemap(
       .run()
 
     log.error('inspect.failed', { runId, projectId, error: errorMsg })
+    const failure = bingRunFailure(abortCause ?? err)
+    reportOutcome({
+      status: failure.reasonCode === OutcomeReasonCodes.NO_DATA ? OutcomeStatuses.skipped : OutcomeStatuses.failed,
+      ...failure,
+    })
     throw err
   }
 }
