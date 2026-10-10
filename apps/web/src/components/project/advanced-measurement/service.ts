@@ -159,6 +159,14 @@ export function isDraftConflict(error: unknown): boolean {
   return error instanceof ApiError && (error.statusCode === 404 || error.statusCode === 409 || error.statusCode === 412)
 }
 
+/**
+ * A queued or running sweep refused the publish. This 409 is not a draft
+ * conflict: the reviewed draft is still current, and the message names the run.
+ */
+export function isRunInProgress(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.code === 'RUN_IN_PROGRESS'
+}
+
 export function setupErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiError) return fallback
   const message = error instanceof Error ? error.message.trim() : ''

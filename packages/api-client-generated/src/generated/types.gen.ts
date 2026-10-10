@@ -1762,6 +1762,13 @@ export type QueryTrackingPreviewResponse = {
         removedNodes: number;
         removedProviderCalls: number;
     };
+    limits?: {
+        queries: {
+            current: number;
+            next: number;
+            max: number;
+        };
+    };
 };
 
 export type QueryTrackingCommitRequest = {
@@ -17443,7 +17450,7 @@ export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsPublishErrors = {
      */
     404: ErrorEnvelope;
     /**
-     * The idempotency key was already used with a different request body.
+     * The idempotency key was already used with a different request body, or a sweep is queued or running.
      */
     409: ErrorEnvelope;
     /**
@@ -19392,7 +19399,7 @@ export type PostApiV1ProjectsByNameQueryTrackingCommitData = {
 
 export type PostApiV1ProjectsByNameQueryTrackingCommitErrors = {
     /**
-     * Invalid mutation or review token.
+     * Invalid mutation or review token, or the change exceeds the query limit.
      */
     400: ErrorEnvelope;
     /**
@@ -19404,7 +19411,7 @@ export type PostApiV1ProjectsByNameQueryTrackingCommitErrors = {
      */
     404: ErrorEnvelope;
     /**
-     * Workspace changed or a sweep is using the live query catalog.
+     * Workspace changed, or a sweep is queued or running.
      */
     409: ErrorEnvelope;
 };

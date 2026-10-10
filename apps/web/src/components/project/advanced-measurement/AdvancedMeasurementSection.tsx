@@ -31,6 +31,7 @@ import {
   advancedMeasurementService,
   assignmentPreviewErrorMessage,
   isDraftConflict,
+  isRunInProgress,
   setupErrorMessage,
   type AdvancedMeasurementService,
   type GroupMembershipPreview,
@@ -1449,7 +1450,9 @@ export function AdvancedMeasurementSection({
       setReviewed(null)
       onPublished?.()
     } catch (error) {
-      if (isDraftConflict(error)) await recoverConflict('The setup changed before it could be published. Review the latest draft and publish again.')
+      // Checked first: a sweep refusal keeps the review, so Publish works again once the run ends.
+      if (isRunInProgress(error)) setActionError(error.message)
+      else if (isDraftConflict(error)) await recoverConflict('The setup changed before it could be published. Review the latest draft and publish again.')
       else setActionError(setupErrorMessage(error, 'Could not publish this setup.'))
     } finally {
       setBusyAction(null)

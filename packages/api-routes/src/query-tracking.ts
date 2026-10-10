@@ -42,6 +42,7 @@ import {
   type QueryTrackingChangeRow,
   type QueryTrackingDiff,
   type QueryTrackingEdit,
+  type QueryTrackingLimits,
   type QueryTrackingMode,
   type QueryTrackingMutation,
   type QueryTrackingProvenance,
@@ -70,6 +71,7 @@ import {
 import { requireScope } from './auth.js'
 import {
   compileMeasurementDraftAssignmentExecution,
+  MEASUREMENT_DRAFT_MAX_QUERIES,
   plansAreLabelOnlyVariants,
   proposeQueryClassForTarget,
 } from './measurement-draft-compile.js'
@@ -90,7 +92,7 @@ import {
 } from './measurement-report-adapter.js'
 import { MEASUREMENT_PLAN_WRITE_SCOPE } from './measurement-plan.js'
 import { planScopeOptions, simpleScopeOptions } from './measurement-scope-options.js'
-import { assertNoActivePlanlessSweep, preserveSnapshotQueryText, replaceProjectQueries } from './query-replace.js'
+import { assertNoActivePlanlessSweep, assertNoActiveSweep, preserveSnapshotQueryText, replaceProjectQueries } from './query-replace.js'
 import { resolveRunProviderSelection } from './run-queue.js'
 import type { ProviderSummaryEntry } from './settings.js'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
@@ -1937,6 +1939,36 @@ function buildAdvancedCandidate(
   }
 }
 
+function assignedQueryCount(plan: MeasurementPlanV2): number {
+  return new Set(plan.assignments.map(assignment => assignment.queryId)).size
+}
+
+/**
+ * The compiler's count (`usedQueryIds`): distinct queries the plan assigns.
+ * A simple basket has no plan, so it reports no limit.
+ */
+function queryLimits(candidate: Candidate): QueryTrackingLimits | undefined {
+  if (!candidate.state.active || !candidate.plan) return undefined
+  return {
+    queries: {
+      current: assignedQueryCount(candidate.state.active.plan),
+      next: assignedQueryCount(candidate.plan),
+      max: MEASUREMENT_DRAFT_MAX_QUERIES,
+    },
+  }
+}
+
+/** A plan already over the limit may still shrink, but no change may grow it past the limit. */
+function assertQueryLimit(limits: QueryTrackingLimits | undefined): void {
+  if (!limits) return
+  const { current, next, max } = limits.queries
+  if (next <= max || next <= current) return
+  throw validationError(
+    `This change would track ${next.toLocaleString('en-US')} queries, over the ${max.toLocaleString('en-US')}-query limit. Remove queries or add fewer, then preview the change again.`,
+    { check: 'query-limit-exceeded', current, next, max, displayToOperator: true },
+  )
+}
+
 function buildCandidate(
   db: DbLike,
   state: WorkspaceState,
@@ -2059,6 +2091,7 @@ export async function queryTrackingRoutes(app: FastifyInstance, opts: QueryTrack
     }
     const reviewedAt = new Date().toISOString()
     const candidate = buildCandidate(app.db, state, parsed.data, opts, reviewedAt)
+    const limits = queryLimits(candidate)
     return queryTrackingPreviewResponseSchema.parse({
       mode: state.mode,
       workspaceVersion: state.workspaceVersion,
@@ -2068,6 +2101,7 @@ export async function queryTrackingRoutes(app: FastifyInstance, opts: QueryTrack
       tracked: trackedRows(app.db, state, candidate.queryRows, candidate.plan, opts),
       diff: candidate.diff,
       workload: candidate.workload,
+      ...(limits ? { limits } : {}),
     })
   })
 
@@ -2096,7 +2130,13 @@ export async function queryTrackingRoutes(app: FastifyInstance, opts: QueryTrack
       if (parsed.data.previewToken !== mutationPreviewToken(candidate, parsed.data, reviewedAt)) {
         throw queryTrackingPreviewStale(parsed.data.expectedWorkspaceVersion, state.workspaceVersion)
       }
-      if (!candidate.diff.noOp && !rowsEqual(new Map(state.queryRows.map(row => [row.id, row])), candidate.queryRows)) {
+      // Both guards sit after the receipt replay, so a retried commit still
+      // returns its result. A simple basket only waits when its rows change
+      // under a planless sweep.
+      assertQueryLimit(queryLimits(candidate))
+      if (!candidate.diff.noOp && candidate.state.mode === 'advanced') {
+        assertNoActiveSweep(tx, { projectId: project.id, projectName: project.name })
+      } else if (!candidate.diff.noOp && !rowsEqual(new Map(state.queryRows.map(row => [row.id, row])), candidate.queryRows)) {
         assertNoActivePlanlessSweep(tx, { projectId: project.id, projectName: project.name })
       }
       const now = new Date()

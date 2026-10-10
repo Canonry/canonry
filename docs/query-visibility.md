@@ -176,8 +176,14 @@ The server retains the exact execution contexts. An edit cannot replace those co
 Commit input adds the returned `previewToken` and `reviewedAt` to that exact request.
 The server binds the review time to the token and refuses expired reviews.
 The API returns the actual active revision after publication.
-A catalog change returns `409 RUN_IN_PROGRESS` while a queued or running sweep still uses the live query catalog.
-Retry the reviewed change after that sweep finishes. No-op confirmations and plan-only edits remain available.
+On an advanced portfolio, a commit that changes anything returns `409 RUN_IN_PROGRESS` with `details.reason: sweep-in-progress` while a sweep is queued or running, including a long provider-batch sweep.
+A simple basket returns the same code only when a catalog change meets a planless sweep.
+The message names the run. Preview and commit the change again after it finishes (a review expires after 15 minutes), or stop it with `canonry run cancel <project> <run-id>`.
+An all-locations sweep is several runs: the message then gives their count, `details.activeRunIds` lists them, and each one must finish or be cancelled.
+Previews and no-op confirmations remain available during a sweep.
+A setup publish (`draft-action` with `publish`) is refused the same way, unless it is identical to the active revision.
+An advanced preview also returns `limits.queries`: distinct assigned queries now (`current`), after the change (`next`), and the limit (`max`, 1,000).
+A commit that grows the plan past the limit returns `400` with `details.check: query-limit-exceeded`. A plan already over the limit may still shrink.
 Preview and commit require write access. Stored workspace and visibility reads do not.
 
 The project API prefix is `/api/v1/projects/:name`.

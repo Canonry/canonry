@@ -160,6 +160,38 @@ export function runInProgress(projectName: string, kind = 'answer-visibility', a
   )
 }
 
+/**
+ * A queued or running sweep holds the project's tracked queries and plan, so a
+ * tracking commit or setup publish waits for it. Same code as
+ * `runInProgress`; `details.reason` tells the refusals apart. A location
+ * fan-out is several sibling runs and every one must finish or be cancelled,
+ * so with more than one the message gives the count and
+ * `details.activeRunIds` lists them.
+ */
+export function sweepInProgress(
+  projectName: string,
+  activeRunId: string,
+  status: string,
+  otherActiveRunIds: readonly string[] = [],
+): AppError {
+  const details = { projectName, kind: 'answer-visibility', activeRunId, reason: 'sweep-in-progress' }
+  if (otherActiveRunIds.length === 0) {
+    return new AppError(
+      'RUN_IN_PROGRESS',
+      `Sweep run ${activeRunId} is ${status} for '${projectName}'. Publish tracked query and setup changes after it finishes, or cancel it first: canonry run cancel ${projectName} ${activeRunId}`,
+      409,
+      details,
+    )
+  }
+  const activeRunIds = [activeRunId, ...otherActiveRunIds]
+  return new AppError(
+    'RUN_IN_PROGRESS',
+    `${activeRunIds.length} sweep runs are queued or running for '${projectName}'. Publish tracked query and setup changes after they all finish, or cancel each one first: canonry run cancel ${projectName} <run-id>`,
+    409,
+    { ...details, activeRunIds },
+  )
+}
+
 export function operationInProgress(
   message: string,
   details?: Record<string, unknown>,

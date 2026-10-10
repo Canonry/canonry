@@ -288,6 +288,8 @@ describe('query-tracking edits', () => {
     })
     expect(response.statusCode, response.body).toBe(409)
     expect(response.json().error.code).toBe('RUN_IN_PROGRESS')
+    // A simple basket keeps its original planless refusal.
+    expect(response.json().error.details.reason).toBe(mode === 'advanced' ? 'sweep-in-progress' : undefined)
     expect(db.select().from(queries).where(eq(queries.projectId, PROJECT_ID)).all().map(row => [row.id, row.query]))
       .toEqual([['q-existing', OLD_TEXT]])
     if (mode === 'advanced') expect(activePlan().version.revision).toBe(1)
@@ -297,7 +299,7 @@ describe('query-tracking edits', () => {
     expect((await publish({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })).committed).toBe(true)
   })
 
-  it('allows a plan-only classification edit while a planless sweep is running', async () => {
+  it('refuses a plan-only classification edit while a planless sweep is running, then allows it after', async () => {
     seedTwoPropertiesTwoContextsTwoMarkets()
     const current = await workspace()
     const mutation = {
@@ -309,7 +311,14 @@ describe('query-tracking edits', () => {
       id: 'in-flight', projectId: PROJECT_ID, kind: 'answer-visibility', status: 'running',
       trigger: 'manual', createdAt: NOW,
     }).run()
-    expect((await publish({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })).committed).toBe(true)
+    const payload = { ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt }
+    const refused = await request('POST', '/query-tracking/commit', payload)
+    expect(refused.statusCode, refused.body).toBe(409)
+    expect(refused.json().error).toMatchObject({ code: 'RUN_IN_PROGRESS', details: { activeRunId: 'in-flight', reason: 'sweep-in-progress' } })
+    expect(activePlan().version.revision).toBe(1)
+
+    db.update(runs).set({ status: 'completed', finishedAt: NOW }).where(eq(runs.id, 'in-flight')).run()
+    expect((await publish(payload)).committed).toBe(true)
     expect(activePlan().plan.assignments.filter(row => row.targetKey === 'harbor-point').every(row => row.queryClass === 'branded')).toBe(true)
     expect(db.select().from(queries).where(eq(queries.id, 'q-existing')).get()?.query).toBe(OLD_TEXT)
   })

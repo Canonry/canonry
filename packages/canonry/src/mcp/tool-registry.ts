@@ -1398,7 +1398,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_query_tracking_preview',
     title: 'Preview query assignments',
-    description: 'Preview manual, template or saved research additions and assignment removals against the exact workspace version. Returns a review token, deduplicated change and next-sweep workload. Does not publish or start provider work. This POST requires write access.',
+    description: 'Preview manual, template or saved research additions and assignment removals against the exact workspace version. Returns a review token, deduplicated change and next-sweep workload; an advanced portfolio also gets limits.queries (current, next, max distinct assigned queries). Does not publish or start provider work and is allowed during a sweep. This POST requires write access.',
     access: 'write', tier: 'setup',
     inputSchema: z.object({ project: projectNameSchema, request: queryTrackingPreviewRequestSchema }).strict(),
     annotations: readAnnotations(),
@@ -1408,7 +1408,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_query_tracking_commit',
     title: 'Publish reviewed query assignments',
-    description: 'Commit the exact reviewed mutation using its workspace version and preview token. No-op changes do not publish a revision. A successful publication starts zero provider calls; new assignments await the next project-wide sweep. Use the returned revision rather than predicting one.',
+    description: 'Commit the exact reviewed mutation using its workspace version and preview token. No-op changes do not publish a revision. A successful publication starts zero provider calls; new assignments await the next project-wide sweep. Use the returned revision rather than predicting one. Refused with 400 query-limit-exceeded when the change would grow the plan past limits.queries.max, and on an advanced portfolio with 409 RUN_IN_PROGRESS (reason sweep-in-progress) while a sweep is queued or running; that message names the run and the canonry run cancel command.',
     access: 'write', tier: 'setup',
     inputSchema: z.object({ project: projectNameSchema, request: queryTrackingCommitRequestSchema }).strict(),
     annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
@@ -3041,7 +3041,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_measurement_draft_action',
     title: 'Act on an Advanced Measurement draft',
-    description: 'Create, edit, inspect, publish, or discard one v2 draft. Pass project plus exactly one typed operation branch; each operation correlates its action with the required request, ETag, and idempotency key so the live schema is self-describing. Requires measurement-plan write authority. Every mutating action needs idempotencyKey: reuse it only for an identical retry; a changed request with the same key is refused. Create has no ETag. Draft edits, publish, and discard should pass the latest ETag from canonry_measurement_draft_get; a missing ETag reaches the API as actionable 428, while a stale ETag returns 412. Compile-preview and diff-preview never mutate or start provider work and require neither header. Import-sitemap performs a bounded public sitemap fetch but does not publish or run measurement; publish replaces the active plan after validation, and discard permanently removes the draft.',
+    description: 'Create, edit, inspect, publish, or discard one v2 draft. Pass project plus exactly one typed operation branch; each operation correlates its action with the required request, ETag, and idempotency key so the live schema is self-describing. Requires measurement-plan write authority. Every mutating action needs idempotencyKey: reuse it only for an identical retry; a changed request with the same key is refused. Create has no ETag. Draft edits, publish, and discard should pass the latest ETag from canonry_measurement_draft_get; a missing ETag reaches the API as actionable 428, while a stale ETag returns 412. Compile-preview and diff-preview never mutate or start provider work and require neither header. Import-sitemap performs a bounded public sitemap fetch but does not publish or run measurement; publish replaces the active plan after validation and returns 409 RUN_IN_PROGRESS (reason sweep-in-progress) while a sweep is queued or running, and discard permanently removes the draft.',
     access: 'write',
     tier: 'setup',
     inputSchema: measurementDraftActionInputSchema,

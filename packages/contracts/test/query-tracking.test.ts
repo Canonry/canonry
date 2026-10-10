@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   queryTrackingCommitRequestSchema,
   queryTrackingPreviewRequestSchema,
+  queryTrackingPreviewResponseSchema,
   queryTrackingProvenanceSchema,
   queryTrackingWorkspaceResponseSchema,
 } from '../src/query-tracking.js'
@@ -139,7 +140,45 @@ describe('query tracking contract', () => {
       expect.objectContaining({ code: 'invalid_value', path: ['scopeOptions', 0, 'kind'] }),
     ])
   })
+
+  it('carries the query limit on a preview exactly as sent', () => {
+    const limits = { queries: { current: 1_000, next: 1_001, max: 1_000 } }
+
+    expect(queryTrackingPreviewResponseSchema.parse({ ...previewResponse(), limits }).limits).toEqual(limits)
+  })
+
+  it('still parses a preview without limits from an older server or a simple basket', () => {
+    expect('limits' in queryTrackingPreviewResponseSchema.parse(previewResponse())).toBe(false)
+  })
+
+  it('rejects a partial, negative or zero-limit query count', () => {
+    for (const limits of [
+      { queries: { current: 1, next: 2 } },
+      { queries: { current: -1, next: 2, max: 1_000 } },
+      { queries: { current: 1, next: 2, max: 0 } },
+      { queries: { current: 1, next: 2, max: 1_000, remaining: 998 } },
+    ]) {
+      expect(queryTrackingPreviewResponseSchema.safeParse({ ...previewResponse(), limits }).success).toBe(false)
+    }
+  })
 })
+
+function previewResponse() {
+  const workload = {
+    existingNodes: 1, existingProviderCalls: 1, nextSweepNodes: 1, nextSweepProviderCalls: 1,
+    addedNodes: 0, addedProviderCalls: 0, removedNodes: 0, removedProviderCalls: 0,
+  }
+  return {
+    mode: 'advanced',
+    workspaceVersion: WORKSPACE_VERSION,
+    previewToken: PREVIEW_TOKEN,
+    reviewedAt: REVIEWED_AT,
+    active: { revision: 4, compiledChecksum: 'c'.repeat(64) },
+    tracked: advancedWorkspace().tracked,
+    diff: { added: [], removed: [], reused: [], unchanged: [], noOp: true },
+    workload,
+  }
+}
 
 function advancedWorkspace() {
   return {

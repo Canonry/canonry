@@ -33,6 +33,7 @@ import {
   postApiV1ProjectsByNameQueryTrackingCommitMutation,
   postApiV1ProjectsByNameQueryTrackingPreviewMutation,
 } from '@ainyc/canonry-api-client/react-query'
+import { extractApiErrorInfo } from '../../lib/extract-error-message.js'
 import { addToast } from '../../lib/toast-store.js'
 import { invalidateProjectQueryDomain, invalidateQueryTrackingPublication } from '../../queries/query-invalidation.js'
 import { Button } from '../ui/button.js'
@@ -1400,6 +1401,16 @@ function previewRowDetail(
   return [assignmentScopeLabel(resolved, workspace), context].filter((value): value is string => value !== null).join(' · ')
 }
 
+/**
+ * The generated SDK throws the API's error envelope, not an Error. Show its
+ * message (a sweep refusal names the run, a limit refusal gives the counts)
+ * and keep the fallback for a body that is not a Canonry error.
+ */
+function trackingErrorDetail(error: unknown, fallback: string): string {
+  const info = extractApiErrorInfo(error)
+  return error instanceof Error || info.code ? info.message : fallback
+}
+
 function TrackedQueriesSection({
   projectName,
   selection = { measurementScope: 'project', queryClass: 'all' },
@@ -1424,6 +1435,7 @@ function TrackedQueriesSection({
   })
   const previewMutation = useMutation({
     ...postApiV1ProjectsByNameQueryTrackingPreviewMutation(),
+    meta: { skipGlobalErrorToast: true },
     onSuccess: (result) => setPreview(result),
     onError: async (error) => {
       setPreview(null)
@@ -1433,13 +1445,14 @@ function TrackedQueriesSection({
       })
       addToast({
         title: 'Could not review tracking changes',
-        detail: error instanceof Error ? error.message : 'Update the draft and review it again.',
+        detail: trackingErrorDetail(error, 'Update the draft and review it again.'),
         tone: 'negative',
       })
     },
   })
   const commitMutation = useMutation({
     ...postApiV1ProjectsByNameQueryTrackingCommitMutation(),
+    meta: { skipGlobalErrorToast: true },
     onSuccess: async (result) => {
       setPreview(null)
       onTrackingQueryIdChange?.(undefined)
@@ -1458,7 +1471,7 @@ function TrackedQueriesSection({
       await invalidateQueryTrackingPublication(queryClient, projectName)
       addToast({
         title: 'Could not confirm tracking changes',
-        detail: error instanceof Error ? error.message : 'The review may be stale. Review the changes again.',
+        detail: trackingErrorDetail(error, 'The review may be stale. Review the changes again.'),
         tone: 'negative',
       })
     },

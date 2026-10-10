@@ -1252,3 +1252,174 @@ describe('query tracking workspace: advanced portfolios', () => {
       .toMatchObject({ state: 'awaiting-sweep', lastMeasuredAt: null })
   })
 })
+
+/** Grows the seeded plan to `count` distinct assigned queries, each with its own catalog row. */
+function seedAssignedQueries(count: number) {
+  seedAdvancedPlan()
+  const fillers = Array.from({ length: count - 1 }, (_, index) => ({ id: `q-fill-${index}`, text: `filler query ${index}` }))
+  db.insert(queries).values(fillers.map(filler => ({
+    id: filler.id, projectId: 'project-northwind', query: filler.text, provenance: null, createdAt: NOW,
+  }))).run()
+  rewriteActivePlan(plan => {
+    for (const filler of fillers) {
+      const edge = { executionNodeKey: `exec-${filler.id}`, targetKey: 'harbor-point', queryId: filler.id }
+      ;(plan.querySnapshots as unknown[]).push({ queryId: filler.id, queryText: filler.text, provenance: { source: 'manual', sourceId: null, capturedAt: NOW } })
+      ;(plan.executionNodes as unknown[]).push({
+        stableKey: edge.executionNodeKey, queryId: filler.id, queryText: filler.text, expectedSnapshots: 1,
+        context: { providers: ['openai'], models: { openai: 'gpt-test' }, location: { label: 'alpha', city: 'Alpha', region: 'AA', country: 'US' } },
+      })
+      ;(plan.assignments as unknown[]).push({ ...edge, queryClass: 'non-brand', classificationSource: 'server' })
+      ;(plan.usageEdges as unknown[]).push(edge)
+    }
+  })
+}
+
+function marketAddition(text: string) {
+  return { input: { source: 'manual', text }, audience: { marketKeys: ['alpha-market'] } }
+}
+
+async function reviewed(mutation: Record<string, unknown>) {
+  const review = await preview(mutation)
+  return { review, payload: { ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt } }
+}
+
+function insertSweep(status: 'queued' | 'running', measurementPlanVersionId: string | null = 'plan-v1') {
+  db.insert(runs).values({
+    id: 'sweep-1', projectId: 'project-northwind', kind: 'answer-visibility', status, trigger: 'scheduled',
+    measurementPlanVersionId, createdAt: NOW,
+  }).run()
+}
+
+describe('query tracking guards: sweep in progress', () => {
+  it.each(['queued', 'running'] as const)('previews but refuses an advanced commit while a plan-bound sweep is %s, then commits after it', async status => {
+    seedAdvancedPlan()
+    insertSweep(status)
+    const current = await workspace()
+    const { review, payload } = await reviewed({
+      expectedWorkspaceVersion: current.workspaceVersion, additions: [marketAddition('apartments near a park')], removals: [],
+    })
+    expect(review.diff.added.map(row => row.queryText)).toEqual(['apartments near a park'])
+
+    const refused = await commit(payload)
+    expect(refused.statusCode, refused.body).toBe(409)
+    expect(refused.json()).toEqual({
+      error: {
+        code: 'RUN_IN_PROGRESS',
+        message: `Sweep run sweep-1 is ${status} for 'northwind'. Publish tracked query and setup changes after it finishes, or cancel it first: canonry run cancel northwind sweep-1`,
+        details: { projectName: 'northwind', kind: 'answer-visibility', activeRunId: 'sweep-1', reason: 'sweep-in-progress' },
+      },
+    })
+    expect(activeV2Plan().version.id).toBe('plan-v1')
+    expect(db.select().from(measurementPlanVersions).all()).toHaveLength(1)
+    expect(db.select().from(measurementOperationReceipts).all()).toEqual([])
+    expect(db.select().from(auditLog).all()).toEqual([])
+    expect(db.select({ id: queries.id }).from(queries).all()).toEqual([{ id: 'q-existing' }])
+
+    db.update(runs).set({ status: 'completed', finishedAt: NOW }).where(eq(runs.id, 'sweep-1')).run()
+    const committed = await commit(payload)
+    expect(committed.statusCode, committed.body).toBe(200)
+    expect(committed.json()).toMatchObject({ committed: true, active: { revision: 2 } })
+  })
+
+  it('keeps a no-op confirmation and a replayed commit available during a sweep', async () => {
+    seedAdvancedPlan()
+    const current = await workspace()
+    const { payload } = await reviewed({
+      expectedWorkspaceVersion: current.workspaceVersion, additions: [marketAddition('apartments near a park')], removals: [],
+    })
+    const first = await commit(payload)
+    expect(first.statusCode, first.body).toBe(200)
+    insertSweep('running', activeV2Plan().version.id)
+
+    const replay = await commit(payload)
+    expect(replay.statusCode, replay.body).toBe(200)
+    expect(replay.json()).toEqual(first.json())
+
+    const after = await workspace()
+    const noOp = await reviewed({ expectedWorkspaceVersion: after.workspaceVersion, additions: [], removals: [] })
+    const confirmed = await commit(noOp.payload)
+    expect(confirmed.statusCode, confirmed.body).toBe(200)
+    expect(confirmed.json()).toMatchObject({ committed: false, active: { revision: 2 } })
+    expect(db.select().from(measurementPlanVersions).all()).toHaveLength(2)
+  })
+
+  it('does not refuse for finished sweeps, other run kinds, or another project\'s sweep', async () => {
+    seedAdvancedPlan()
+    seedOtherProject()
+    db.insert(runs).values([
+      ...(['completed', 'partial', 'failed', 'cancelled'] as const).map(status => ({
+        id: `finished-${status}`, projectId: 'project-northwind', kind: 'answer-visibility', status, trigger: 'manual',
+        measurementPlanVersionId: 'plan-v1', createdAt: NOW,
+      })),
+      { id: 'audit-running', projectId: 'project-northwind', kind: 'site-audit', status: 'running', trigger: 'manual', createdAt: NOW },
+      { id: 'other-sweep', projectId: 'project-other', kind: 'answer-visibility', status: 'running', trigger: 'manual', createdAt: NOW },
+    ]).run()
+    const current = await workspace()
+    const { payload } = await reviewed({
+      expectedWorkspaceVersion: current.workspaceVersion, additions: [marketAddition('apartments near a park')], removals: [],
+    })
+    const committed = await commit(payload)
+    expect(committed.statusCode, committed.body).toBe(200)
+    expect(committed.json()).toMatchObject({ committed: true, active: { revision: 2 } })
+  })
+})
+
+describe('query tracking guards: query limit', () => {
+  it('reports the limit on an advanced preview and leaves it off a simple one', async () => {
+    const simple = await workspace()
+    const simplePreview = await request('POST', '/query-tracking/preview', {
+      expectedWorkspaceVersion: simple.workspaceVersion, additions: [{ input: { source: 'manual', text: 'apartments near a park' } }], removals: [],
+    })
+    expect(simplePreview.statusCode, simplePreview.body).toBe(200)
+    expect(simplePreview.json()).not.toHaveProperty('limits')
+
+    seedAdvancedPlan()
+    const advanced = await workspace()
+    const added = await preview({
+      expectedWorkspaceVersion: advanced.workspaceVersion,
+      additions: [marketAddition('apartments near a park'), marketAddition('apartments near a library')], removals: [],
+    })
+    expect(added.limits).toEqual({ queries: { current: 1, next: 3, max: 1_000 } })
+    const removed = await preview({ expectedWorkspaceVersion: advanced.workspaceVersion, additions: [], removals: [{ queryId: 'q-existing' }] })
+    expect(removed.limits).toEqual({ queries: { current: 1, next: 0, max: 1_000 } })
+  })
+
+  it('commits a change that reaches exactly 1,000 queries and refuses one more', async () => {
+    seedAssignedQueries(999)
+    const atLimit = await reviewed({
+      expectedWorkspaceVersion: (await workspace()).workspaceVersion, additions: [marketAddition('apartments near a park')], removals: [],
+    })
+    expect(atLimit.review.limits).toEqual({ queries: { current: 999, next: 1_000, max: 1_000 } })
+    const committed = await commit(atLimit.payload)
+    expect(committed.statusCode, committed.body).toBe(200)
+    expect(committed.json()).toMatchObject({ committed: true, active: { revision: 2 } })
+
+    const overLimit = await reviewed({
+      expectedWorkspaceVersion: (await workspace()).workspaceVersion, additions: [marketAddition('apartments near a library')], removals: [],
+    })
+    expect(overLimit.review.limits).toEqual({ queries: { current: 1_000, next: 1_001, max: 1_000 } })
+    const refused = await commit(overLimit.payload)
+    expect(refused.statusCode, refused.body).toBe(400)
+    expect(refused.json()).toEqual({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'This change would track 1,001 queries, over the 1,000-query limit. Remove queries or add fewer, then preview the change again.',
+        details: { check: 'query-limit-exceeded', current: 1_000, next: 1_001, max: 1_000, displayToOperator: true },
+      },
+    })
+    expect(activeV2Plan().version.revision).toBe(2)
+    expect(db.select().from(measurementOperationReceipts).all()).toHaveLength(1)
+    expect(db.select().from(queries).where(eq(queries.query, 'apartments near a library')).all()).toEqual([])
+  })
+
+  it('lets a plan already over the limit shrink while it stays over', async () => {
+    seedAssignedQueries(1_002)
+    const shrink = await reviewed({
+      expectedWorkspaceVersion: (await workspace()).workspaceVersion, additions: [], removals: [{ queryId: 'q-fill-0' }],
+    })
+    expect(shrink.review.limits).toEqual({ queries: { current: 1_002, next: 1_001, max: 1_000 } })
+    const committed = await commit(shrink.payload)
+    expect(committed.statusCode, committed.body).toBe(200)
+    expect(new Set(activeV2Plan().plan.assignments.map(row => row.queryId)).size).toBe(1_001)
+  })
+})

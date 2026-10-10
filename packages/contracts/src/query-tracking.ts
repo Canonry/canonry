@@ -274,6 +274,16 @@ export const queryTrackingWorkloadSchema = z.object({
 }).strict()
 export type QueryTrackingWorkload = z.output<typeof queryTrackingWorkloadSchema>
 
+/** Distinct queries the plan assigns now and after the change, against the server limit. */
+export const queryTrackingLimitsSchema = z.object({
+  queries: z.object({
+    current: z.number().int().nonnegative(),
+    next: z.number().int().nonnegative(),
+    max: z.number().int().positive(),
+  }).strict(),
+}).strict()
+export type QueryTrackingLimits = z.output<typeof queryTrackingLimitsSchema>
+
 export const queryTrackingPreviewResponseSchema = z.object({
   mode: queryTrackingModeSchema,
   workspaceVersion: queryTrackingWorkspaceVersionSchema,
@@ -287,6 +297,11 @@ export const queryTrackingPreviewResponseSchema = z.object({
   tracked: z.array(queryTrackingTrackedRowSchema),
   diff: queryTrackingDiffSchema,
   workload: queryTrackingWorkloadSchema,
+  /**
+   * Advanced portfolios only. Optional so a client tolerates a server that
+   * predates it.
+   */
+  limits: queryTrackingLimitsSchema.optional(),
 }).strict()
 export type QueryTrackingPreviewResponse = z.output<typeof queryTrackingPreviewResponseSchema>
 

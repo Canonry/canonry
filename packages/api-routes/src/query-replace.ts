@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { and, eq, inArray, isNull } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { measurementPlanDrafts, measurementPlans, measurementPlanVersions, queries, querySnapshots, runs } from '@ainyc/canonry-db'
-import { RunKinds, RunStatuses, normalizeQueryText, parseStoredMeasurementPlanAnyVersion, runInProgress, validationError } from '@ainyc/canonry-contracts'
+import { RunKinds, RunStatuses, normalizeQueryText, parseStoredMeasurementPlanAnyVersion, runInProgress, sweepInProgress, validationError } from '@ainyc/canonry-contracts'
 import { parseStoredAuthoring } from './measurement-draft-repo.js'
 
 /**
@@ -151,6 +151,25 @@ export function assertNoActivePlanlessSweep(
     isNull(runs.measurementPlanVersionId),
   )).get()
   if (activeRun) throw runInProgress(scope.projectName, RunKinds['answer-visibility'], activeRun.id)
+}
+
+/**
+ * Advanced tracking commits and setup publishes wait for every queued or
+ * running sweep, plan-bound or planless, long provider batches included. The
+ * predicate matches `queueRunIfProjectIdle`. A location fan-out is several
+ * sibling runs, so the refusal carries all of them, oldest first. Call it
+ * inside the write transaction.
+ */
+export function assertNoActiveSweep(
+  tx: Pick<DatabaseClient, 'select'>,
+  scope: QueryCatalogMutationScope,
+): void {
+  const [activeRun, ...siblings] = tx.select({ id: runs.id, status: runs.status }).from(runs).where(and(
+    eq(runs.projectId, scope.projectId),
+    eq(runs.kind, RunKinds['answer-visibility']),
+    inArray(runs.status, [RunStatuses.queued, RunStatuses.running]),
+  )).orderBy(runs.createdAt, runs.id).all()
+  if (activeRun) throw sweepInProgress(scope.projectName, activeRun.id, activeRun.status, siblings.map(run => run.id))
 }
 
 /** Check the legacy replacement inside the same transaction as its writes. */
