@@ -10,6 +10,7 @@ import type {
 
 import { useQueryTrackingPublish } from '../../queries/use-query-tracking-publish.js'
 import { WriteButton } from '../shared/AccessControls.js'
+import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { SegmentedRadioGroup, type SegmentedRadioOption } from '../shared/SegmentedRadioGroup.js'
 import { Button } from '../ui/button.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet.js'
@@ -35,7 +36,8 @@ const PLACES = {
   market: { kind: 'market', label: 'Market', placeholder: 'Choose a market', none: 'This project has no markets yet.' },
   location: { kind: 'property', label: 'Location', placeholder: 'Choose a location', none: 'This project has no locations yet.' },
 } as const
-const FIELD_LABEL = 'mb-1 block text-sm font-medium text-heading'
+const FIELD_LABEL_TEXT = 'text-sm font-medium text-heading'
+const FIELD_LABEL = `mb-1 block ${FIELD_LABEL_TEXT}`
 const FIELD_HINT = 'mt-2 text-[13px] leading-5 text-secondary'
 const FIELD_NOTE = 'text-[13px] leading-5 text-secondary'
 const FIELD_CONTROL = 'block w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500'
@@ -183,9 +185,11 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
     if (!openingComposer.current && opener instanceof HTMLElement) opener.focus()
   }
 
-  // Escape closes an open place picker first, not the whole sheet.
-  function keepOpenForPicker(event: KeyboardEvent) {
-    if (event.target instanceof Node && picker.current?.querySelector('details[open]')?.contains(event.target)) event.preventDefault()
+  // Escape closes an open place picker or an open help bubble first, not the whole sheet.
+  function keepOpenForInner(event: KeyboardEvent) {
+    const target = event.target
+    if (!(target instanceof Element)) return
+    if (picker.current?.querySelector('details[open]')?.contains(target) || target.closest('.info-tooltip-trigger[aria-expanded="true"]')) event.preventDefault()
   }
 
   function review() {
@@ -204,10 +208,10 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
 
   return (
     <Sheet open onOpenChange={open => { if (!open) onClose() }}>
-      <SheetContent onCloseAutoFocus={restoreFocus} onEscapeKeyDown={keepOpenForPicker}>
+      <SheetContent onCloseAutoFocus={restoreFocus} onEscapeKeyDown={keepOpenForInner}>
         <SheetHeader>
           <SheetTitle>Add queries</SheetTitle>
-          <SheetDescription>Each query is tracked for one market or one location.</SheetDescription>
+          <SheetDescription className="sr-only">Each query is tracked for one market or one location.</SheetDescription>
         </SheetHeader>
         {reviewStep ? <>
           <div className="mt-4 min-h-0 flex-1 overflow-y-auto">{reviewStep.changes}</div>
@@ -216,17 +220,22 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
           <div className="-mx-1 mt-4 min-h-0 flex-1 space-y-5 overflow-y-auto px-1">
             <div>
               <span aria-hidden="true" className={FIELD_LABEL}>Subject</span>
-              <SegmentedRadioGroup label="Subject" options={SUBJECTS} value={subject} onChange={changeSubject} />
-              <p className={FIELD_HINT}>Company is not available yet.</p>
+              {/* A hover title shows on neither a tap nor keyboard focus, so the help says why Company is off. After the control, so the sheet opens with focus on the Subject, not on the help. */}
+              <div className="flex items-center">
+                <SegmentedRadioGroup label="Subject" options={SUBJECTS} value={subject} onChange={changeSubject} />
+                <InfoTooltip text="Company is not available yet." placement="bottom" />
+              </div>
             </div>
             <div ref={picker}>
               {places.some(option => option.kind === placing.kind)
                 ? <VisibilityScopePicker key={subject} label={placing.label} placeholder={placing.placeholder} options={places} selected={place} allowGroupSelect={false} propertyNoun={LOCATION_NOUN} onSelect={scope => edit(setPlaceKey)(scope.id)} />
                 : <p className="text-sm leading-6 text-secondary">{placing.none}{subject !== 'location' && onOpenComposer ? ' Use hand-picked locations below.' : ''}</p>}
-              {subject !== 'location' || !place ? null : locationMarkets.length > 0 ? <>
-                <p className={FIELD_HINT}>Counts in: {marketNames}</p>
-                <p className={FIELD_NOTE}>Engines and search locations come from: {marketNames}</p>
-              </> : <>
+              {subject !== 'location' || !place ? null : locationMarkets.length > 0 ? (
+                <div className={`${FIELD_HINT} flex items-center`}>
+                  <p>Counts in: {marketNames}</p>
+                  <InfoTooltip text="Asked with these markets' engines and search locations." placement="bottom" />
+                </div>
+              ) : <>
                 <p className={FIELD_HINT}>This location is in no market.</p>
                 {contextChoices.length === 1 ? <p className={FIELD_NOTE}>Search location and engines: {contextChoices[0]!.label}</p>
                   : contextChoices.length === 0 ? <p className={FIELD_NOTE}>No search location and engines are set up for this project.</p>
@@ -240,17 +249,21 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
               </>}
             </div>
             <div>
-              <label className={FIELD_LABEL} htmlFor={`${id}-queries`}>Queries</label>
+              {/* The help is a sibling of the label, so its text stays out of the field's name. */}
+              <div className="mb-1 flex items-center">
+                <label className={FIELD_LABEL_TEXT} htmlFor={`${id}-queries`}>Queries</label>
+                <InfoTooltip text="Blank and repeated lines are skipped." placement="bottom" />
+              </div>
               <textarea
                 id={`${id}-queries`}
-                aria-describedby={`${id}-queries-hint`}
-                className={`${FIELD_CONTROL} min-h-40`}
+                aria-describedby={lines.length > 0 ? `${id}-queries-count` : undefined}
+                placeholder="One query per line"
+                className={`${FIELD_CONTROL} min-h-40 placeholder-mono-500`}
                 value={text}
                 onChange={event => edit(setText)(event.target.value)}
               />
-              <p id={`${id}-queries-hint`} className={FIELD_HINT}>
-                One per line. Blank and repeated lines are skipped.{lines.length > 0 ? ` ${lines.length.toLocaleString('en-US')} ${lines.length === 1 ? 'query' : 'queries'} to add.` : ''}
-              </p>
+              {/* Stays in place, empty until there are lines, so the first line typed does not push the form down. */}
+              <p id={`${id}-queries-count`} className={`${FIELD_HINT} min-h-5`}>{lines.length > 0 ? `${lines.length.toLocaleString('en-US')} ${lines.length === 1 ? 'query' : 'queries'}` : null}</p>
             </div>
             <details className="border-t border-default text-sm text-secondary">
               {/* A Type other than Automatic is sent on every line, so it shows while this is closed. */}
@@ -273,7 +286,6 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
               {publish.isPreviewing ? 'Reviewing…' : 'Review'}
             </WriteButton>
             <Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-            <p className="text-sm leading-5 text-secondary">Publishing does not run a sweep.</p>
           </div>
         </>}
       </SheetContent>

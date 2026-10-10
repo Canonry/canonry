@@ -457,7 +457,8 @@ test('shows only in-group properties and relationships for a shared query', asyn
   expect(within(row).queryByText(/Downtown/)).toBeNull()
 })
 
-const advancedResetNotice = 'After you publish, AI Visibility keeps showing the last sweep until the next sweep. Location pages and competitor results show no numbers until then. Past answers are kept.'
+const advancedResetLine = 'New numbers after the next sweep'
+const advancedResetNotice = 'After you publish, AI Visibility keeps showing the last sweep until the next sweep. Location pages and competitor results show no numbers until then. Past answers are kept. Publishing does not run a sweep.'
 const sweepActiveMessage = 'A sweep is queued or running. Publish after it finishes.'
 const removalDiff = { added: [], removed: [{ queryId: 'query-acme', queryText: 'Acme pricing', assignmentCount: 1 }], reused: [], unchanged: [], noOp: false }
 // One node asked on three engines is three provider calls, so an answer number read from the node counts would show.
@@ -511,8 +512,12 @@ test('focuses the preview outcome and shows the before and after numbers under t
   expect(heading.textContent).toBe('Review 1 change')
   expect(reviewNumbers()).toEqual({ Queries: '2 → 1', 'Answers per sweep': '6 → 3', 'Answers added': '0', 'Answers removed': '−3' })
   expect(screen.getByText('Queries', { selector: 'dt' }).closest('details')).toBeNull()
-  expect(screen.getByText(advancedResetNotice)).toBeTruthy()
-  expect(within(heading.parentElement!).getByText('Publishing does not run a sweep.')).toBeTruthy()
+  // One short caution line; the full notice, sweep sentence included, is the help right after it and not visible text.
+  const line = within(heading.parentElement!).getByText(advancedResetLine)
+  expect(line.classList.contains('text-caution')).toBe(true)
+  expect(within(line.nextElementSibling as HTMLElement).getByRole('button', { name: advancedResetNotice })).toBeTruthy()
+  expect(screen.queryByText(/AI Visibility keeps showing the last sweep/)).toBeNull()
+  expect(within(heading.parentElement!).queryByText('Publishing does not run a sweep.')).toBeNull()
 })
 
 test('keeps added and removed queries and answers separate in the review numbers', async () => {
@@ -627,17 +632,21 @@ test('lists each added, reused and removed query in one table, with unchanged qu
 })
 
 test.each([
-  { name: 'a simple preview', mode: 'simple', noOp: false, subcopy: 'Changes apply to future sweeps. Earlier results stay unchanged.' },
-  { name: 'an advanced no-op preview', mode: 'advanced', noOp: true, subcopy: 'This request leaves tracking unchanged.' },
-])('shows no reset notice for $name', async ({ mode, noOp, subcopy }) => {
+  { name: 'a simple preview', mode: 'simple', noOp: false, heading: 'Confirm tracked query changes', subcopy: 'Changes apply to future sweeps. Earlier results stay unchanged.' },
+  // The advanced heading already says it, so a no-op adds no sentence under the numbers.
+  { name: 'an advanced no-op preview', mode: 'advanced', noOp: true, heading: 'No tracking changes', subcopy: null },
+])('shows no reset notice for $name', async ({ mode, noOp, heading, subcopy }) => {
   installWorkspaceApi(path => {
     if (path.endsWith('/query-tracking/preview')) return jsonResponse(preview({ mode, diff: noOp ? { ...removalDiff, removed: [], noOp } : removalDiff }))
     throw new Error(`Unexpected fetch: ${path}`)
   }, [], { ...workspace(), mode })
   renderWorkspace()
-  await reviewRemoval()
-  expect(screen.getByText(subcopy)).toBeTruthy()
-  expect(screen.queryByText(advancedResetNotice)).toBeNull()
+  expect((await reviewRemoval()).textContent).toBe(heading)
+  if (subcopy) expect(screen.getByText(subcopy)).toBeTruthy()
+  else expect(screen.queryByText('This request leaves tracking unchanged.')).toBeNull()
+  expect(screen.queryByText(/AI Visibility keeps showing the last sweep/)).toBeNull()
+  expect(screen.queryByText(advancedResetLine)).toBeNull()
+  expect(screen.queryByRole('button', { name: advancedResetNotice })).toBeNull()
 })
 
 test.each([

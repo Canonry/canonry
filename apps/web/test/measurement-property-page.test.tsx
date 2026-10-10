@@ -2086,8 +2086,10 @@ describe('Add query about this location', () => {
     const sheet = await openSheet(section)
     expect(sheet.getByRole('radio', { name: 'Location' }).getAttribute('aria-checked')).toBe('true')
     expect(sheet.getByText('Harbor House · Location')).toBeTruthy()
-    expect(sheet.getByText('Counts in: North coast')).toBeTruthy()
-    expect(sheet.getByText('Engines and search locations come from: North coast')).toBeTruthy()
+    // One line names the markets; how the query is asked is the help right after it.
+    const countsIn = sheet.getByText('Counts in: North coast')
+    expect(within(countsIn.nextElementSibling as HTMLElement).getByRole('button', { name: "Asked with these markets' engines and search locations." })).toBeTruthy()
+    expect(sheet.queryByText(/^Engines and search locations come from/)).toBeNull()
     // This page has no Add query form to hand off to.
     expect(sheet.queryByRole('button', { name: 'Hand-picked locations, templates or saved research' })).toBeNull()
     expect(screen.getByRole('dialog', { name: 'Add queries' }).textContent).not.toMatch(/propert|—/i)

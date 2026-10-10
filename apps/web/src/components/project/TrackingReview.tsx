@@ -7,6 +7,7 @@ import type {
 } from '@ainyc/canonry-contracts'
 
 import { WriteButton } from '../shared/AccessControls.js'
+import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { Button } from '../ui/button.js'
 
@@ -108,10 +109,11 @@ export function TrackingReview({ workspace, contextLabels, showActions = true, .
         <ReviewNumber label="Answers removed" value={signed('−', workload.removedProviderCalls)} />
       </dl>
       {/* A publish writes a new revision with no continuity link, so location and competitor reads blank while AI Visibility falls back. */}
-      <p className="mt-3 text-sm leading-6 text-secondary">{diff.noOp
-        ? 'This request leaves tracking unchanged.'
-        : 'After you publish, AI Visibility keeps showing the last sweep until the next sweep. Location pages and competitor results show no numbers until then. Past answers are kept.'}</p>
-      {diff.noOp ? null : <p className="text-sm leading-6 text-secondary">Publishing does not run a sweep.</p>}
+      {diff.noOp ? null : <div className="mt-3 flex items-center">
+        <p className="text-sm leading-6 text-caution">New numbers after the next sweep</p>
+        {/* Opens downward: the heading scrolls to the top, which leaves no room above this line. */}
+        <InfoTooltip text="After you publish, AI Visibility keeps showing the last sweep until the next sweep. Location pages and competitor results show no numbers until then. Past answers are kept. Publishing does not run a sweep." placement="bottom" />
+      </div>}
       {changes.length > 0 ? <>
         <p className="mt-4 text-[13px] font-medium leading-5 text-secondary">{kinds.filter(([list]) => list.length > 0).map(([list, kind]) => `${count(list.length)} ${kind}`).join(' · ')}</p>
         <ReviewTable label="Changes" rows={changes} {...table} />
