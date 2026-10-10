@@ -28,14 +28,11 @@ import {
   getApiV1ProjectsByNameDiscoverSessionsOptions,
   getApiV1ProjectsByNameMeasurementQueryTemplatesOptions,
   getApiV1ProjectsByNameQueryTrackingOptions,
-  getApiV1ProjectsByNameQueryTrackingQueryKey,
   getApiV1RunsQueryKey,
-  postApiV1ProjectsByNameQueryTrackingCommitMutation,
-  postApiV1ProjectsByNameQueryTrackingPreviewMutation,
 } from '@ainyc/canonry-api-client/react-query'
-import { extractApiErrorInfo } from '../../lib/extract-error-message.js'
 import { addToast } from '../../lib/toast-store.js'
-import { invalidateProjectQueryDomain, invalidateQueryTrackingPublication } from '../../queries/query-invalidation.js'
+import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
+import { useQueryTrackingPublish } from '../../queries/use-query-tracking-publish.js'
 import { Button } from '../ui/button.js'
 import { WriteButton } from '../shared/AccessControls.js'
 import { Card } from '../ui/card.js'
@@ -1401,16 +1398,6 @@ function previewRowDetail(
   return [assignmentScopeLabel(resolved, workspace), context].filter((value): value is string => value !== null).join(' · ')
 }
 
-/**
- * The generated SDK throws the API's error envelope, not an Error. Show its
- * message (a sweep refusal names the run, a limit refusal gives the counts)
- * and keep the fallback for a body that is not a Canonry error.
- */
-function trackingErrorDetail(error: unknown, fallback: string): string {
-  const info = extractApiErrorInfo(error)
-  return error instanceof Error || info.code ? info.message : fallback
-}
-
 function TrackedQueriesSection({
   projectName,
   selection = { measurementScope: 'project', queryClass: 'all' },
@@ -1424,57 +1411,13 @@ function TrackedQueriesSection({
   pendingTrackingSource: PendingTrackingSource | null
   onPendingTrackingSourceHandled: () => void
 }) {
-  const queryClient = useQueryClient()
-  const [preview, setPreview] = useState<QueryTrackingPreviewResponse | null>(null)
+  const publish = useQueryTrackingPublish(projectName, { onCommitted: () => onTrackingQueryIdChange?.(undefined) })
   const workspaceQuery = useQuery({
     ...getApiV1ProjectsByNameQueryTrackingOptions({ client: heyClient, path: { name: projectName } }),
   })
   const templatesQuery = useQuery({
     ...getApiV1ProjectsByNameMeasurementQueryTemplatesOptions({ client: heyClient, path: { name: projectName } }),
     staleTime: 60_000,
-  })
-  const previewMutation = useMutation({
-    ...postApiV1ProjectsByNameQueryTrackingPreviewMutation(),
-    meta: { skipGlobalErrorToast: true },
-    onSuccess: (result) => setPreview(result),
-    onError: async (error) => {
-      setPreview(null)
-      // Refresh the optimistic version while keeping the user's draft intact.
-      await queryClient.invalidateQueries({
-        queryKey: getApiV1ProjectsByNameQueryTrackingQueryKey({ client: heyClient, path: { name: projectName } }),
-      })
-      addToast({
-        title: 'Could not review tracking changes',
-        detail: trackingErrorDetail(error, 'Update the draft and review it again.'),
-        tone: 'negative',
-      })
-    },
-  })
-  const commitMutation = useMutation({
-    ...postApiV1ProjectsByNameQueryTrackingCommitMutation(),
-    meta: { skipGlobalErrorToast: true },
-    onSuccess: async (result) => {
-      setPreview(null)
-      onTrackingQueryIdChange?.(undefined)
-      await invalidateQueryTrackingPublication(queryClient, projectName)
-      addToast({
-        title: result.committed ? 'Tracked queries updated' : 'No tracked-query change',
-        detail: result.committed && result.mode === 'advanced' ? 'New numbers after the next sweep.' : undefined,
-        tone: result.committed ? 'positive' : 'neutral',
-        dedupeKey: `query-tracking:commit:${projectName}`,
-        dedupeMode: 'replace',
-      })
-    },
-    onError: async (error) => {
-      setPreview(null)
-      // A concurrent publication can make both the review and the report stale.
-      await invalidateQueryTrackingPublication(queryClient, projectName)
-      addToast({
-        title: 'Could not confirm tracking changes',
-        detail: trackingErrorDetail(error, 'The review may be stale. Review the changes again.'),
-        tone: 'negative',
-      })
-    },
   })
 
   if (workspaceQuery.isLoading) {
@@ -1502,22 +1445,11 @@ function TrackedQueriesSection({
       onPendingTrackingSourceHandled={onPendingTrackingSourceHandled}
       publishGuard={publishGuard}
       templates={templatesQuery.data?.templates ?? []}
-      preview={preview}
-      isPreviewing={previewMutation.isPending}
-      isCommitting={commitMutation.isPending}
-      onPreview={(mutation) => {
-        setPreview(null)
-        previewMutation.mutate({
-          client: heyClient,
-          path: { name: projectName },
-          body: { ...mutation, expectedWorkspaceVersion: workspaceQuery.data.workspaceVersion },
-        })
-      }}
-      onCommit={(request) => commitMutation.mutate({
-        client: heyClient,
-        path: { name: projectName },
-        body: request,
-      })}
+      preview={publish.preview}
+      isPreviewing={publish.isPreviewing}
+      isCommitting={publish.isCommitting}
+      onPreview={(mutation) => publish.requestPreview({ ...mutation, expectedWorkspaceVersion: workspaceQuery.data.workspaceVersion })}
+      onCommit={publish.commit}
     />
   )
 }

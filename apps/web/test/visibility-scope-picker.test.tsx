@@ -316,3 +316,73 @@ describe('trigger label and naming', () => {
     expect(within(screen.getByRole('region', { name: 'Markets', exact: true })).getByRole('button', { name: 'Select Metro Alpha', exact: true }).textContent).toContain('Query context')
   })
 })
+
+describe('an empty choice', () => {
+  it('shows the placeholder until something is selected, then the selection', () => {
+    const onSelect = vi.fn()
+    const view = render(<VisibilityScopePicker options={scopes} placeholder="Choose a market" onSelect={onSelect} />)
+    const trigger = view.container.querySelector('summary')!
+    expect(trigger.textContent).toBe('Choose a market')
+    expect(trigger.getAttribute('aria-labelledby')).toBe(`${screen.getByText('Measurement scope').id} ${trigger.id}`)
+
+    fireEvent.click(trigger)
+    expect(screen.getByRole('button', { name: 'Select North Region' })).toBeTruthy()
+    expect(view.container.querySelector('[aria-current]')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Select Remote searches' }))
+    expect(onSelect).toHaveBeenCalledWith(scopes[8])
+
+    view.rerender(<VisibilityScopePicker options={scopes} selected={scopes[8]!} placeholder="Choose a market" onSelect={onSelect} />)
+    expect(trigger.textContent).toBe('Remote searches · Market')
+    expect(screen.queryByText('Choose a market')).toBeNull()
+  })
+
+  it('falls back to a default placeholder', () => {
+    const view = render(<VisibilityScopePicker options={scopes} onSelect={vi.fn()} />)
+    expect(view.container.querySelector('summary')!.textContent).toBe('Choose a scope')
+  })
+})
+
+describe('browsing with group selection off', () => {
+  const options: VisibilityReportScopeOption[] = [
+    ...scopes,
+    { id: 'north-market', kind: 'market', label: 'North searches', targetCount: 2, parentGroupIds: ['north'] },
+  ]
+  const openBrowseOnly = () => {
+    const onSelect = vi.fn()
+    const view = render(<VisibilityScopePicker options={options} placeholder="Choose a market" allowGroupSelect={false} onSelect={onSelect} />)
+    fireEvent.click(view.container.querySelector('summary')!)
+    return { ...view, onSelect }
+  }
+
+  it('keeps a market with no parent group reachable from the top level', () => {
+    const { onSelect } = openBrowseOnly()
+    const markets = within(screen.getByRole('region', { name: 'Markets', exact: true }))
+    expect(markets.getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual(['Select Remote searches'])
+    expect(markets.getByRole('button', { name: 'Select Remote searches' }).textContent).toContain('Market')
+    fireEvent.click(markets.getByRole('button', { name: 'Select Remote searches' }))
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith(scopes[8])
+  })
+
+  it('keeps a grouped market inside its group', () => {
+    const { onSelect } = openBrowseOnly()
+    expect(screen.queryByRole('button', { name: 'Select North searches' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Browse North Region' }))
+    expect(screen.queryByRole('button', { name: 'Select Remote searches' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Select North searches' }))
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith(options.at(-1))
+  })
+
+  it('makes a group row browse, never select', () => {
+    const { onSelect, container } = openBrowseOnly()
+    expect(screen.queryByRole('button', { name: 'Select North Region' })).toBeNull()
+    expect(screen.getAllByRole('button', { name: 'Browse North Region' })).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Browse North Region' }))
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(container.querySelector('details')!.open).toBe(true)
+    expect(screen.getByRole('button', { name: 'Back to all groups' })).toBeTruthy()
+    expect(screen.queryByText('All properties in this group')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Browse City Center' }))
+    expect(screen.getByRole('button', { name: 'Back to North Region' })).toBeTruthy()
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+})
