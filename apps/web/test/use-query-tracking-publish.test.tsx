@@ -44,6 +44,7 @@ test('reports a failed commit without running onCommitted', async () => {
   })
   act(() => result.current.commit(commitRequest))
   await waitFor(() => expect(toasts()).toEqual([{ title: 'Could not confirm tracking changes', tone: 'negative' }]))
+  expect(result.current.error).toEqual({ title: 'Could not confirm tracking changes', detail: 'Tracking changed since this review.' })
   expect(onCommitted).not.toHaveBeenCalled()
 })
 
@@ -55,5 +56,10 @@ test('reports a failed review and keeps no pending review', async () => {
   act(() => result.current.requestPreview(mutation))
   await waitFor(() => expect(toasts()).toEqual([{ title: 'Could not review tracking changes', tone: 'negative' }]))
   expect(result.current.preview).toBeNull()
+  expect(result.current.error).toEqual({ title: 'Could not review tracking changes', detail: 'Tracking changed since this review.' })
   expect(onCommitted).not.toHaveBeenCalled()
+  // The next request clears the last refusal, so a surface that shows it never shows a stale one.
+  act(() => result.current.requestPreview(mutation))
+  expect(result.current.error).toBeNull()
+  await waitFor(() => expect(toasts()).toHaveLength(2))
 })

@@ -149,7 +149,7 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, plac
           <button type="button" className={ROW} aria-label={`Back to ${parent?.label ?? 'all groups'}`} onClick={() => { setPath(path.slice(0, -1)); setAllProperties(false); setSearch(''); searchInput.current?.focus() }}><span className="flex items-center gap-1"><ChevronLeft size={16} aria-hidden="true" />{parent?.label ?? 'All groups'}</span></button>
           <p className="px-2 py-1 text-sm font-medium text-heading" aria-live="polite">{current?.label ?? 'All properties'}</p>
         </div> : null}
-        <input ref={searchInput} type="search" aria-label="Search scopes" className={CONTROL} placeholder={current ? 'Search within this group' : allProperties ? 'Search properties' : 'Search groups or properties'} value={search} onChange={event => setSearch(event.target.value)} />
+        <input ref={searchInput} type="search" aria-label="Search scopes" className={CONTROL} placeholder={current ? 'Search within this group' : allProperties ? 'Search properties' : properties.length > 0 ? 'Search groups or properties' : 'Search groups or markets'} value={search} onChange={event => setSearch(event.target.value)} />
         <div className="mt-2 max-h-80 overflow-y-auto">
           {allowGroupSelect && current && !query ? row(current, 'All properties in this group') : null}
           {projects.map(scope => row(scope))}

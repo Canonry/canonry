@@ -5,8 +5,24 @@ Both surfaces use the same API contracts as the CLI and MCP.
 
 ## Assign queries
 
+An advanced project adds market queries in the **Add queries** sheet:
+
+1. Open the project's **Queries** tab and select **Add queries**.
+2. Keep **Subject** on **Market** and choose one market. A group row only opens the group, and only groups that hold a market are listed.
+3. Enter the queries, one per line. Blank and repeated lines are skipped.
+4. Optional: under **More options**, set **Type** to **Branded** or **Non-brand**. **Automatic** leaves the class to the server. Any other choice applies to every line and stays visible beside **More options**.
+5. Select **Review**, then check the resolved queries and next-sweep workload.
+6. Select **Confirm changes**, which stays at the bottom of the sheet with the sweep pause notice.
+
+Each line becomes one addition for that market with no contexts, so it takes the market's frozen engines, models, and search locations.
+If the server refuses a review or a publish, for example over the 1,000-query limit, the sheet shows the reason and keeps the draft.
+**Location** and the link **Hand-picked locations, templates or saved research** lead to the Add query form. That form adds one query at a time, so it opens with the first line only. **Company** is not available yet.
+A simple site has no sheet: **Add query** opens the Add query form directly.
+
+The Add query form assigns one query at a time:
+
 1. Open the project's **Queries** tab.
-2. Select **Add query** or open an existing query's assignments.
+2. Open the Add query form or an existing query's assignments.
 3. Enter a query, select a template, or select a saved research result.
 4. Select the properties, groups, or markets for the query.
 5. For new group or property assignments, select a search location and engines. A market uses its frozen context.
@@ -36,7 +52,7 @@ An unchanged edit publishes no revision. Editing a resolved template question do
 
 The editor preserves existing classifications by default. **Automatic** asks the server to classify the selected assignments again.
 An exact assignment can belong to several markets. The API refuses a classification change that also changes an unselected market.
-New assignments use **Add query**, not **Edit**.
+New assignments use **Add queries** (**Add query** on a simple site), not **Edit**.
 
 ## Scope definitions
 
