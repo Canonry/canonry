@@ -1238,13 +1238,16 @@ export async function removeNotification(project: string, id: string): Promise<v
   )
 }
 
-export function sendTestNotification(project: string, id: string): Promise<{ status: number; ok: boolean }> {
-  return invokeWeb<{ status: number; ok: boolean }>(() =>
+export async function sendTestNotification(project: string, id: string): Promise<{ status: number; ok: boolean }> {
+  const result = await invokeWeb<{ status: number; ok: boolean }>(() =>
     postApiV1ProjectsByNameNotificationsByIdTest({
       client: heyClient,
       path: { name: project, id },
     }),
   )
+  // The route answers 200 even when the destination refused, so only a real delivery counts.
+  if (result.ok) trackUiAction('notification.test')
+  return result
 }
 
 export function generateQueries(projectName: string, provider: string, count?: number): Promise<{ queries: string[]; provider: string }> {
