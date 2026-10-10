@@ -91,7 +91,8 @@ export function toTrackedRows(workspace: QueryTrackingWorkspaceResponse, templat
       status,
       source: sourceOf(row, templateNames),
       lastMeasuredAt: row.lastMeasuredAt,
-      addedAt: row.provenance?.capturedAt ?? null,
+      // Only a hand-written row records when it was added. A pattern row carries its pattern's last edit, and a research row when its research ran.
+      addedAt: row.provenance?.source === 'manual' ? row.provenance.capturedAt : null,
       tracked: row,
     }
   })
@@ -128,7 +129,16 @@ export function sourceLabel(source: TrackedSource): string {
   return source.kind === 'pattern' && source.name ? `Pattern: ${source.name}` : SOURCE_LABEL[source.kind]
 }
 
-/** `nextSweepDate` is the date as shown ("Oct 21"). Without one, a waiting row names no date. */
+/**
+ * The row detail's Source: the cell's label, with a query found by Find
+ * queries told from saved research. The cell says Research for both.
+ */
+export function sourceDetailLabel(row: Pick<TrackedRowVm, 'source' | 'tracked'>): string {
+  const label = sourceLabel(row.source)
+  return row.tracked.provenance?.source === 'discovery' ? `${label} · Find queries` : label
+}
+
+/** `nextSweepDate` is the date as shown, month and day ("Oct 21"). Without one, a waiting row names no date. */
 export function statusLabel(status: TrackedStatus, nextSweepDate?: string): string {
   switch (status) {
     case 'measured': return 'Measured'
@@ -261,10 +271,18 @@ export function sortTrackedRows(rows: readonly TrackedRowVm[], sort: TrackedSort
 export const TRACKED_COLUMNS = ['query', 'subject', 'type', 'engines', 'lastMeasured', 'status', 'source', 'menu'] as const
 export type TrackedColumn = (typeof TRACKED_COLUMNS)[number]
 
-/** Column widths in px. Query takes what is left, and at the 1152px content column with three engines that is its floor. */
-export const TRACKED_COLUMN_WIDTH = { select: 32, subject: 180, type: 80, engine: 62, lastMeasured: 108, status: 146, source: 100, menu: 32 } as const
-/** Under this, Query gives up Source and then Last measured. Both stay in the row detail. */
-const TRACKED_QUERY_FLOOR = 288
+/**
+ * Column widths in px. Query takes what is left: 288px in the 1152px content
+ * column with three engines. Status holds its widest label, "First answers"
+ * and a month and day.
+ */
+export const TRACKED_COLUMN_WIDTH = { select: 32, subject: 180, type: 80, engine: 62, lastMeasured: 108, status: 148, source: 98, menu: 32 } as const
+/**
+ * Under this, Query gives up Source and then Last measured. Both stay in the
+ * row detail. 16px under Query's width in the full content column, so a
+ * scrollbar or a little padding around the table does not fold Source away.
+ */
+const TRACKED_QUERY_FLOOR = 272
 /** Under this with both folded away, or in a frame under 40rem, each row stacks. */
 const TRACKED_QUERY_STACK_FLOOR = 224
 /** 40rem, the width the stylesheet's phone rules for a stacked row also turn on. */

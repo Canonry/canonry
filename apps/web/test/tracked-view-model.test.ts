@@ -9,6 +9,7 @@ import {
   nextTrackedSort,
   resultClasses,
   sortTrackedRows,
+  sourceDetailLabel,
   sourceLabel,
   statusLabel,
   subjectLabel,
@@ -129,20 +130,22 @@ describe('toTrackedRows', () => {
   })
 
   const frozen = { templateId: 'template-best', templateVersion: '1', template: 'best apartments in {market}', bindings: { market: 'Uptown' }, output: 'best apartments in Uptown' }
-  it.each<{ name: string; provenance: Row['provenance']; source: unknown; label: string }>([
+  // Every recorded source carries the same timestamp. Only a hand-written row's is the moment the query was added.
+  it.each<{ name: string; provenance: Row['provenance']; source: unknown; label: string; detail?: string; addedAt?: string }>([
     { name: 'a saved pattern', provenance: provenance('template', frozen), source: { kind: 'pattern', name: 'Best', pattern: 'best apartments in {market}' }, label: 'Pattern: Best' },
     { name: 'a deleted pattern, which keeps its own text', provenance: provenance('template', { ...frozen, templateId: 'template-deleted' }), source: { kind: 'pattern', name: null, pattern: 'best apartments in {market}' }, label: 'Pattern' },
     { name: 'a pattern row with no saved record', provenance: provenance('template'), source: { kind: 'pattern', name: null, pattern: null }, label: 'Pattern' },
-    { name: 'a hand-written query', provenance: provenance('manual'), source: { kind: 'manual' }, label: 'Manual' },
+    { name: 'a hand-written query', provenance: provenance('manual'), source: { kind: 'manual' }, label: 'Manual', addedAt: '2026-09-04T12:00:00.000Z' },
     { name: 'saved research', provenance: provenance('research'), source: { kind: 'research' }, label: 'Research' },
-    { name: 'a found idea', provenance: provenance('discovery'), source: { kind: 'research' }, label: 'Research' },
+    { name: 'a found idea, which the row detail tells from saved research', provenance: provenance('discovery'), source: { kind: 'research' }, label: 'Research', detail: 'Research · Find queries' },
     { name: 'a query set from setup', provenance: provenance('query-set'), source: { kind: 'setup' }, label: 'Setup' },
     { name: 'no recorded source', provenance: null, source: { kind: 'older-list' }, label: 'Older list' },
-  ])('reads the Source of $name', ({ provenance: recorded, source, label }) => {
+  ])('reads the Source of $name', ({ provenance: recorded, source, label, detail = label, addedAt = null }) => {
     const vm = only(row('query', { provenance: recorded }), [{ id: 'template-best', name: 'Best' }])
     expect(vm.source).toEqual(source)
     expect(sourceLabel(vm.source)).toBe(label)
-    expect(vm.addedAt).toBe(recorded ? '2026-09-04T12:00:00.000Z' : null)
+    expect(sourceDetailLabel(vm)).toBe(detail)
+    expect(vm.addedAt).toBe(addedAt)
   })
 
   it('carries the query, its last sweep and the workspace row behind it', () => {
@@ -277,8 +280,9 @@ describe('visibleTrackedColumns', () => {
 
   it('shows every column in the 1152px content column with three engines', () => {
     expect(visibleTrackedColumns(1152, 3)).toEqual([...TRACKED_COLUMNS])
-    // One pixel less and Query would drop under its floor.
-    expect(visibleTrackedColumns(1151, 3)).toEqual(without('source'))
+    // Query is 288px there and may lose 16px, to a scrollbar or to padding around the table, before Source folds away.
+    expect(visibleTrackedColumns(1136, 3)).toEqual([...TRACKED_COLUMNS])
+    expect(visibleTrackedColumns(1135, 3)).toEqual(without('source'))
   })
 
   it('folds Source away for a fourth engine', () => {
@@ -301,9 +305,9 @@ describe('trackedLayout', () => {
   it('stacks each row under a 40rem frame, and wider when Query would be too narrow to read', () => {
     expect(trackedLayout(639, [62], { columns: ['query', 'engines'] }).stacked).toBe(true)
     expect(trackedLayout(640, [62], { columns: ['query', 'engines'] }).stacked).toBe(false)
-    // Three engines with checkboxes: the columns that never fold take 656px, and Query needs 224px beside them.
-    expect(trackedLayout(880, engines, full).stacked).toBe(false)
-    expect(trackedLayout(879, engines, full).stacked).toBe(true)
+    // Three engines with checkboxes: the columns that never fold take 658px, and Query needs 224px beside them.
+    expect(trackedLayout(882, engines, full).stacked).toBe(false)
+    expect(trackedLayout(881, engines, full).stacked).toBe(true)
   })
 
   it('leaves Source and Last measured to the row detail when stacked', () => {

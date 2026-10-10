@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, ChevronsUpDown } from 'lucide-react'
 import type { QueryClass, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
 
 import { formatSweepDay } from '../../../../lib/format-helpers.js'
 import { providerDisplayName } from '../../../../lib/visibility-trend-helpers.js'
 import { SignalPair } from '../../../shared/SignalCells.js'
 import { ToneBadge } from '../../../shared/ToneBadge.js'
+import { Button } from '../../../ui/button.js'
 import { TrackedRowDetail, type TrackedContextLabels } from './TrackedRowDetail.js'
 import type { TrackedRowVm, TrackedSubject, TrackedType } from './tracked-types.js'
 import {
@@ -30,13 +31,18 @@ import {
 
 type Engine = { key: string; label: string; width: number }
 
-/** The frame's width, fed by a `ResizeObserver`. Undefined where there is none, and before the first measure. */
+/**
+ * The frame's width. Measured before the first paint, so the rows are never
+ * drawn in a layout the frame cannot hold; a `ResizeObserver` follows it from
+ * there. Undefined where there is no observer.
+ */
 function useFrameWidth() {
   const ref = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState<number>()
   useLayoutEffect(() => {
     const frame = ref.current
     if (!frame || typeof ResizeObserver === 'undefined') return
+    setWidth(frame.getBoundingClientRect().width)
     const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width))
     observer.observe(frame)
     return () => observer.disconnect()
@@ -60,12 +66,15 @@ const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:rin
  * The query text and the Subject count open the row detail, for every role.
  * The checkbox column shows only when `onSelectedIdsChange` is given, and a
  * shift-click selects the range from the last row clicked. `highlightedId` is
- * the row a link points at: it is marked, scrolled into view and opened.
+ * the row a link points at: it is marked, opened and, once the frame is
+ * measured and the rows are in their layout, scrolled into view.
  *
  * The frame's width decides the layout (`trackedLayout`): Source and then Last
  * measured fold into the row detail before Query gets narrow, and a frame too
  * narrow for a table stacks each row. Nothing scrolls sideways, so the header
- * can stick under the topbar.
+ * can stick under the topbar. Stacked rows have no header, so while there are
+ * rows a line above them holds what the header did: Select this page and the
+ * sort.
  */
 export function TrackedTable({
   rows, engines, coverage, sort, onSortChange, selectedIds, onSelectedIdsChange, highlightedId, renderRowMenu, nextSweepDate, workspace, contextLabels,
@@ -74,7 +83,11 @@ export function TrackedTable({
   rows: readonly TrackedRowVm[]
   /** Engine keys, one column each, in this order. */
   engines: readonly string[]
-  /** Results by query and type. Undefined while they load; a result that is missing draws Not checked. */
+  /**
+   * Results by query and type. Undefined while they load; a result that is
+   * missing draws Not checked. After a failed read pass undefined too, and say
+   * so beside the table: an empty map would name every chip Not checked.
+   */
   coverage: TrackedCoverage | undefined
   sort?: TrackedSort
   /** Headers sort only when given. */
@@ -83,9 +96,9 @@ export function TrackedTable({
   onSelectedIdsChange?: (ids: ReadonlySet<string>) => void
   highlightedId?: string
   renderRowMenu?: (row: TrackedRowVm) => ReactNode
-  /** The next sweep's date as shown ("Oct 21"). Absent when none is coming or one is running. */
+  /** The next sweep's date as shown, month and day only ("Oct 21"): the Status column is sized for that, and a longer label is cut short. Absent when none is coming or one is running. */
   nextSweepDate?: string
-  workspace: Pick<QueryTrackingWorkspaceResponse, 'targets' | 'markets'>
+  workspace: Pick<QueryTrackingWorkspaceResponse, 'targets' | 'groups' | 'markets'>
   contextLabels: TrackedContextLabels
   /** The columns the caller wants, all of them by default. A narrow frame can still fold Source and Last measured away. */
   columns?: readonly TrackedColumn[]
@@ -96,6 +109,8 @@ export function TrackedTable({
 }) {
   const tableId = useId()
   const [frameRef, frameWidth] = useFrameWidth()
+  // Where there is an observer the width arrives one render late, and until then the rows are not in their layout.
+  const measured = frameWidth !== undefined || typeof ResizeObserver === 'undefined'
   const selectable = onSelectedIdsChange !== undefined
   const engineColumns: Engine[] = engines.map(key => {
     const name = providerDisplayName(key)
@@ -106,6 +121,19 @@ export function TrackedTable({
   const layout = trackedLayout(frameWidth, engineColumns.map(engine => engine.width), { columns: wanted, selectable })
   const shown = new Set(layout.columns)
   const columnCount = (selectable ? 1 : 0) + [...shown].reduce((count, column) => count + (column === 'engines' ? engineColumns.length : 1), 0)
+  // What a header sorts by, in header order. Stacked rows have no header, so their Sort select lists the same.
+  const sortChoices = wanted.flatMap((column): [TrackedSortKey, string][] => {
+    switch (column) {
+      case 'query': return [['query', 'Query']]
+      case 'subject': return [['subject', 'Subject']]
+      case 'engines': return engineColumns.map(engine => [engineSortKey(engine.key), engine.label])
+      case 'lastMeasured': return [['lastMeasured', 'Last measured']]
+      case 'status': return [['status', 'Status']]
+      case 'type':
+      case 'source':
+      case 'menu': return []
+    }
+  })
 
   const [openIds, setOpenIds] = useState<ReadonlySet<string>>(new Set<string>())
   const toggleOpen = (queryId: string) => setOpenIds(previous => {
@@ -116,21 +144,23 @@ export function TrackedTable({
   const highlightedRow = useRef<HTMLTableRowElement>(null)
   const onPage = highlightedId !== undefined && rows.some(row => row.queryId === highlightedId)
   // A linked row opens and comes into view when it arrives, and again when the link changes. Closing it by hand sticks.
+  // It waits for the measure: a row scrolled to before the rows stack is somewhere else once they have.
   useEffect(() => {
-    if (!onPage) return
+    if (!onPage || !measured) return
     setOpenIds(previous => previous.has(highlightedId) ? previous : new Set(previous).add(highlightedId))
     // Typed as optional: a DOM without layout has no such method.
     const row: { scrollIntoView?: (options: ScrollIntoViewOptions) => void } | null = highlightedRow.current
     row?.scrollIntoView?.({ block: 'center' })
-  }, [highlightedId, onPage])
+  }, [highlightedId, onPage, measured])
 
   const selected = selectedIds ?? new Set<string>()
   const selectedOnPage = rows.filter(row => selected.has(row.queryId)).length
   const anchorId = useRef<string | null>(null)
   const selectAllRef = useRef<HTMLInputElement>(null)
+  // The box is drawn anew when the rows stack or unstack.
   useEffect(() => {
     if (selectAllRef.current) selectAllRef.current.indeterminate = selectedOnPage > 0 && selectedOnPage < rows.length
-  }, [selectedOnPage, rows.length])
+  }, [selectedOnPage, rows.length, layout.stacked])
   const toggleRow = (row: TrackedRowVm, index: number, shiftKey: boolean) => {
     if (!onSelectedIdsChange) return
     const checked = !selected.has(row.queryId)
@@ -162,15 +192,48 @@ export function TrackedTable({
         {onSortChange ? (
           <button type="button" className={`tracked-sort ${FOCUS}`} onClick={() => onSortChange(nextTrackedSort(sort, column))}>
             {text}
-            {active ? <ChevronDown aria-hidden="true" className={`tracked-sort-mark ${sort.direction === 'asc' ? 'rotate-180' : ''}`} /> : null}
+            {active
+              ? <ChevronDown aria-hidden="true" className={`tracked-sort-mark ${sort.direction === 'asc' ? 'rotate-180' : ''}`} />
+              : <ChevronsUpDown aria-hidden="true" className="tracked-sort-mark tracked-sort-hint" />}
           </button>
         ) : text}
       </th>
     )
   }
+  const pageBox = (
+    <input
+      ref={selectAllRef}
+      type="checkbox"
+      className={FOCUS}
+      // Stacked, its label is on the page.
+      aria-label={layout.stacked ? undefined : 'Select this page'}
+      disabled={rows.length === 0}
+      checked={rows.length > 0 && selectedOnPage === rows.length}
+      onChange={togglePage}
+    />
+  )
 
   return (
     <div ref={frameRef} className="tracked-table-frame">
+      {layout.stacked && rows.length > 0 && (selectable || onSortChange) ? (
+        <div className="tracked-stack-controls">
+          {selectable ? <label className="tracked-check-all"><span className="tracked-check">{pageBox}</span>Select this page</label> : null}
+          {onSortChange ? (
+            <div className="tracked-stack-sort">
+              <label htmlFor={`${tableId}-sort`}>Sort</label>
+              <select id={`${tableId}-sort`} className={FOCUS} value={sort?.key ?? ''} onChange={event => onSortChange(nextTrackedSort(sort, event.target.value as TrackedSortKey))}>
+                {sort ? null : <option value="" disabled hidden />}
+                {sortChoices.map(([key, text]) => <option key={key} value={key}>{text}</option>)}
+              </select>
+              {sort ? (
+                <Button type="button" variant="outline" size="icon" className="pointer-coarse:size-11 max-md:size-11" aria-label={sort.direction === 'asc' ? 'Ascending' : 'Descending'} onClick={() => onSortChange(nextTrackedSort(sort, sort.key))}>
+                  {sort.direction === 'asc' ? <ArrowUp aria-hidden="true" className="size-4" /> : <ArrowDown aria-hidden="true" className="size-4" />}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <table aria-label={label} className="tracked-table" data-layout={layout.stacked ? 'stacked' : 'table'} data-selectable={selectable ? '' : undefined}>
         {layout.stacked ? null : (
           <colgroup>
@@ -185,25 +248,21 @@ export function TrackedTable({
             {shown.has('menu') ? <col style={{ width: TRACKED_COLUMN_WIDTH.menu }} /> : null}
           </colgroup>
         )}
-        <thead>
-          <tr>
-            {selectable ? (
-              <th scope="col" className="tracked-cell-select">
-                <label className="tracked-check">
-                  <input ref={selectAllRef} type="checkbox" className={FOCUS} aria-label="Select this page" disabled={rows.length === 0} checked={rows.length > 0 && selectedOnPage === rows.length} onChange={togglePage} />
-                </label>
-              </th>
-            ) : null}
-            {header('query', 'Query')}
-            {shown.has('subject') ? header('subject', 'Subject') : null}
-            {shown.has('type') ? <th scope="col">Type</th> : null}
-            {shown.has('engines') ? engineColumns.map(engine => <Fragment key={engine.key}>{header(engineSortKey(engine.key), engine.label, 'tracked-cell-engine')}</Fragment>) : null}
-            {shown.has('lastMeasured') ? header('lastMeasured', 'Last measured') : null}
-            {shown.has('status') ? header('status', 'Status') : null}
-            {shown.has('source') ? <th scope="col">Source</th> : null}
-            {shown.has('menu') ? <th scope="col" className="tracked-cell-menu"><span className="sr-only">Actions</span></th> : null}
-          </tr>
-        </thead>
+        {layout.stacked ? null : (
+          <thead>
+            <tr>
+              {selectable ? <th scope="col" className="tracked-cell-select"><label className="tracked-check">{pageBox}</label></th> : null}
+              {header('query', 'Query')}
+              {shown.has('subject') ? header('subject', 'Subject') : null}
+              {shown.has('type') ? <th scope="col">Type</th> : null}
+              {shown.has('engines') ? engineColumns.map(engine => <Fragment key={engine.key}>{header(engineSortKey(engine.key), engine.label, 'tracked-cell-engine')}</Fragment>) : null}
+              {shown.has('lastMeasured') ? header('lastMeasured', 'Last measured') : null}
+              {shown.has('status') ? header('status', 'Status') : null}
+              {shown.has('source') ? <th scope="col">Source</th> : null}
+              {shown.has('menu') ? <th scope="col" className="tracked-cell-menu"><span className="sr-only">Actions</span></th> : null}
+            </tr>
+          </thead>
+        )}
         <tbody>
           {rows.length === 0 && emptyState ? <tr><td colSpan={columnCount} className="tracked-empty">{emptyState}</td></tr> : null}
           {rows.map((row, index) => {
@@ -212,6 +271,7 @@ export function TrackedTable({
             const detailId = `${tableId}-detail-${index}`
             const discloses = { 'aria-expanded': open, 'aria-controls': open ? detailId : undefined, onClick: () => toggleOpen(row.queryId) }
             const mixed = row.type === 'mixed'
+            const menuCell = shown.has('menu') ? <td className="tracked-cell-menu">{renderRowMenu?.(row)}</td> : null
             return (
               <Fragment key={row.queryId}>
                 <tr
@@ -236,25 +296,27 @@ export function TrackedTable({
                     </td>
                   ) : null}
                   <td className="tracked-cell-query">
-                    <button type="button" className={`tracked-query ${FOCUS}`} title={row.queryText} {...discloses}><span>{row.queryText}</span></button>
+                    <button type="button" className={`tracked-query ${FOCUS}`} title={row.queryText} {...discloses}>
+                      <span><ChevronRight aria-hidden="true" className="tracked-query-mark" />{row.queryText}</span>
+                    </button>
                   </td>
+                  {/* Stacked, the menu is on the first line beside the query, so it is the next stop after it. */}
+                  {layout.stacked ? menuCell : null}
                   {shown.has('subject') ? <td className="tracked-cell-subject"><SubjectCell subject={row.subject} discloses={discloses} /></td> : null}
-                  {shown.has('type') ? <td className="tracked-cell-type"><TypeCell type={row.type} classes={row.queryClasses} stacked={layout.stacked} /></td> : null}
+                  {shown.has('type') ? <td className="tracked-cell-type"><TypeCell type={row.type} classes={row.queryClasses} /></td> : null}
                   {shown.has('engines') ? engineColumns.map(engine => (
                     <td key={engine.key} className="tracked-cell-engine">
-                      {/* A stacked row has no header to read the engine from, and no Type cell beside its pairs. Each pair's own name says both. */}
-                      {layout.stacked ? <span className="tracked-engine-name" aria-hidden="true">{engine.label}</span> : null}
-                      <PairStack mixed={mixed} lead={!layout.stacked}>
+                      {/* A stacked row has no header to read the engine from, so each cell names its own. */}
+                      {layout.stacked && !mixed ? <span className="tracked-engine-name" aria-hidden="true">{engine.label}</span> : null}
+                      <PairStack mixed={mixed} engineLabel={engine.label} named={layout.stacked}>
                         {resultClasses(row).map(queryClass => (
-                          <span key={queryClass} className="tracked-pair">
-                            {mixed && layout.stacked ? <span className="tracked-pair-type" aria-hidden="true">{typeLabel(queryClass as QueryClass)}</span> : null}
-                            <SignalPair
-                              // A row that is not asked has no result to wait for.
-                              signal={row.status === 'not-asked' ? null : engineSignal(coverage, row.queryId, queryClass, engine.key)}
-                              engineLabel={engine.label}
-                              classLabel={mixed ? typeLabel(queryClass as QueryClass) : undefined}
-                            />
-                          </span>
+                          <SignalPair
+                            key={queryClass}
+                            // A row that is not asked has no result to wait for.
+                            signal={row.status === 'not-asked' ? null : engineSignal(coverage, row.queryId, queryClass, engine.key)}
+                            engineLabel={engine.label}
+                            classLabel={mixed ? typeLabel(queryClass as QueryClass) : undefined}
+                          />
                         ))}
                       </PairStack>
                     </td>
@@ -268,14 +330,15 @@ export function TrackedTable({
                     <td className="tracked-cell-status">
                       <ToneBadge
                         tone={row.status === 'measured' ? 'positive' : 'neutral'}
-                        className={`whitespace-nowrap ${row.status === 'first-answers' ? 'border-info-500/30 bg-info-500/10 text-info-300' : ''}`}
+                        // One line of 16px, so a one-line row is as tall as its text. A label too long for the column is cut short, never drawn over Source.
+                        className={`block w-fit max-w-full truncate leading-4 ${row.status === 'first-answers' ? 'border-info-500/30 bg-info-500/10 text-info-300' : ''}`}
                       >
                         {statusLabel(row.status, nextSweepDate)}
                       </ToneBadge>
                     </td>
                   ) : null}
-                  {shown.has('source') ? <td className="tracked-cell-source" title={sourceLabel(row.source)}>{sourceLabel(row.source)}</td> : null}
-                  {shown.has('menu') ? <td className="tracked-cell-menu">{renderRowMenu?.(row)}</td> : null}
+                  {shown.has('source') ? <td className="tracked-cell-source"><span>{sourceLabel(row.source)}</span></td> : null}
+                  {layout.stacked ? null : menuCell}
                 </tr>
                 {open ? (
                   <tr id={detailId} className="tracked-detail-row" data-highlighted={row.queryId === highlightedId ? '' : undefined}>
@@ -323,9 +386,9 @@ function SubjectCell({ subject, discloses }: { subject: TrackedSubject; disclose
   }
 }
 
-/** A row asked both ways names its two types on the lines of the two pairs beside it. Stacked, each pair carries its own. */
-function TypeCell({ type, classes, stacked }: { type: TrackedType; classes: readonly TrackedType[]; stacked: boolean }) {
-  if (type !== 'mixed' || stacked) return typeLabel(type)
+/** A row asked both ways names its two types on the lines of the two pairs beside it, in every layout. */
+function TypeCell({ type, classes }: { type: TrackedType; classes: readonly TrackedType[] }) {
+  if (type !== 'mixed') return typeLabel(type)
   return (
     <span className="tracked-pair-stack">
       <span className="tracked-pair-lead">{typeLabel(type)}</span>
@@ -335,21 +398,27 @@ function TypeCell({ type, classes, stacked }: { type: TrackedType; classes: read
 }
 
 /**
- * The pairs of one engine cell. A row asked both ways has two, under a blank
- * `lead` line that keeps them level with their types in the Type cell. The
- * cell stays one tab stop: Tab reaches the first pair and the arrow keys move
- * between them.
+ * The pairs of one engine cell. A row asked both ways has two, under a first
+ * line that keeps them level with their types in the Type cell: blank under a
+ * header, the engine's name (`named`) in a stacked row. The cell stays one tab
+ * stop: Tab reaches the first pair and the arrow keys move between them, which
+ * the group's name and each pair's shortcuts say.
  */
-function PairStack({ mixed, lead, children }: { mixed: boolean; lead: boolean; children: ReactNode }) {
+function PairStack({ mixed, engineLabel, named, children }: { mixed: boolean; engineLabel: string; named: boolean; children: ReactNode }) {
   const ref = useRef<HTMLSpanElement>(null)
   useEffect(() => {
     if (!mixed) return
-    ref.current?.querySelectorAll('button').forEach((button, index) => { button.tabIndex = index === 0 ? 0 : -1 })
+    ref.current?.querySelectorAll('button').forEach((button, index) => {
+      button.tabIndex = index === 0 ? 0 : -1
+      button.setAttribute('aria-keyshortcuts', 'ArrowDown ArrowUp')
+    })
   })
   if (!mixed) return <>{children}</>
   return (
     <span
       ref={ref}
+      role="group"
+      aria-label={`${engineLabel} by type`}
       className="tracked-pair-stack"
       onKeyDown={event => {
         if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
@@ -360,7 +429,7 @@ function PairStack({ mixed, lead, children }: { mixed: boolean; lead: boolean; c
         pairs[next].focus()
       }}
     >
-      {lead ? <span className="tracked-pair-lead" aria-hidden="true" /> : null}
+      <span className="tracked-pair-lead" aria-hidden="true">{named ? engineLabel : null}</span>
       {children}
     </span>
   )

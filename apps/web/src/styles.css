@@ -3225,11 +3225,27 @@
   }
 
   .tracked-sort {
-    @apply inline-flex items-center gap-px rounded-sm text-inherit hover:text-heading pointer-coarse:min-h-11;
+    position: relative;
+    @apply inline-flex cursor-pointer items-center rounded-sm text-inherit hover:text-heading pointer-coarse:min-h-11;
   }
 
+  /* After the header's text and out of its flow, so a sorted column is no wider than an unsorted one. */
   .tracked-sort-mark {
-    @apply size-3 shrink-0 text-heading;
+    position: absolute;
+    top: 50%;
+    left: calc(100% + 1px);
+    translate: 0 -50%;
+    @apply size-3 text-heading;
+  }
+
+  /* A header that sorts says so under the pointer and under focus. */
+  .tracked-sort-hint {
+    opacity: 0;
+  }
+
+  .tracked-sort:hover > .tracked-sort-hint,
+  .tracked-sort:focus-visible > .tracked-sort-hint {
+    opacity: 0.4;
   }
 
   .tracked-row > td {
@@ -3238,6 +3254,16 @@
 
   .tracked-row:hover > td {
     @apply bg-surface;
+  }
+
+  /* The header sticks over the rows, so a control that takes focus scrolls
+     clear of it and of the topbar. 4rem covers the header where a finger is
+     the pointer and its buttons are 44px tall. */
+  .tracked-row button,
+  .tracked-row input,
+  .tracked-detail-row button,
+  .tracked-detail-row a {
+    scroll-margin-top: calc(var(--topbar-h) + 4rem);
   }
 
   /* A ticked row and the row a link points at: a tint and a 2px marker on the
@@ -3268,7 +3294,7 @@
   }
 
   .tracked-check {
-    @apply inline-grid size-8 cursor-pointer select-none place-items-center align-middle pointer-coarse:size-11;
+    @apply inline-grid size-8 cursor-pointer select-none place-items-center align-middle pointer-coarse:size-11 max-md:size-11;
   }
 
   /* A quiet outlined box, filled when ticked. A dash is some of the page's rows. */
@@ -3299,12 +3325,26 @@
   }
 
   .tracked-query {
-    @apply block w-full rounded-sm text-left font-medium text-heading hover:text-primary hover:underline pointer-coarse:min-h-11;
+    @apply block w-full cursor-pointer rounded-sm text-left font-medium text-heading hover:text-primary hover:underline pointer-coarse:min-h-11 max-md:min-h-11;
     text-underline-offset: 3px;
   }
 
+  /* The mark hangs in the first line's indent, so a second line starts under the text. */
   .tracked-query > span {
+    padding-left: 1rem;
+    text-indent: -1rem;
     @apply line-clamp-2 break-words;
+  }
+
+  /* Says the row opens: it points right, and down while the row is open. */
+  .tracked-query-mark {
+    margin-right: 0.25rem;
+    vertical-align: -1px;
+    @apply inline-block size-3 text-muted transition-transform;
+  }
+
+  .tracked-query[aria-expanded='true'] .tracked-query-mark {
+    rotate: 90deg;
   }
 
   .tracked-cell-subject {
@@ -3314,7 +3354,7 @@
   /* A count is a few characters wide. Where a finger is the pointer it takes taps 14px past its box on every side. */
   .tracked-count {
     position: relative;
-    @apply rounded-sm tabular-nums text-secondary underline decoration-current/40 decoration-dotted underline-offset-4 hover:text-heading;
+    @apply cursor-pointer rounded-sm tabular-nums text-secondary underline decoration-current/40 decoration-dotted underline-offset-4 hover:text-heading;
     @apply pointer-coarse:before:absolute pointer-coarse:before:-inset-3.5 pointer-coarse:before:content-[''] max-md:before:absolute max-md:before:-inset-3.5 max-md:before:content-[''];
   }
 
@@ -3326,19 +3366,16 @@
     @apply px-1 text-center;
   }
 
-  /* Drawn in a stacked row only: an engine's name beside its chips, and a type beside each of two pairs. */
+  /* Drawn in a stacked row only: an engine's name beside its chips, or over the two pairs of a row asked both ways. */
   .tracked-engine-name,
-  .tracked-pair-type {
-    @apply text-[13px] text-secondary;
-  }
-
-  .tracked-pair {
-    @apply inline-flex items-center gap-1.5 align-middle;
+  .tracked-cell-engine .tracked-pair-lead {
+    @apply whitespace-nowrap text-[13px] text-secondary;
   }
 
   /* A row asked both ways: the Type cell names it and then its two types, and
-     each engine cell leaves the first line blank, so every type sits level
-     with its own pair. A line is as tall as a pair. */
+     each engine cell gives its first line to the engine's name, or leaves it
+     blank under a header, so every type sits level with its own pair. A line
+     is as tall as a pair. */
   .tracked-pair-stack {
     @apply inline-flex flex-col items-center gap-1 align-middle;
   }
@@ -3359,8 +3396,20 @@
     @apply whitespace-nowrap tabular-nums text-secondary;
   }
 
+  /* The widest label, "First answers" and a month and day, fills the cell to
+     its right edge. A longer one is cut short there. */
+  .tracked-table .tracked-cell-status {
+    overflow: hidden;
+    padding-right: 0;
+  }
+
   .tracked-cell-source {
-    @apply truncate text-[13px] text-secondary;
+    @apply text-[13px] leading-[1.35] text-secondary;
+  }
+
+  /* A pattern's name goes to a second line before it is cut. */
+  .tracked-cell-source > span {
+    @apply line-clamp-2 break-words;
   }
 
   /* No padding above or below: a menu button is taller than a line of text and must not set the row's height. */
@@ -3404,6 +3453,24 @@
     }
   }
 
+  /* Stacked rows have no header. This line holds what it did: Select this
+     page, its box over the boxes of the rows, and the sort. */
+  .tracked-stack-controls {
+    @apply flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-default pb-2 text-[13px] leading-5 text-secondary;
+  }
+
+  .tracked-check-all {
+    @apply -ml-1.5 inline-flex cursor-pointer select-none items-center gap-2.5 text-secondary hover:text-heading pointer-coarse:gap-0 max-md:gap-0;
+  }
+
+  .tracked-stack-sort {
+    @apply ml-auto inline-flex items-center gap-1.5;
+  }
+
+  .tracked-stack-sort > select {
+    @apply h-9 min-w-0 cursor-pointer rounded-md border border-base bg-bg px-2 text-[13px] text-heading pointer-coarse:h-11 max-md:h-11;
+  }
+
   /* Stacked: each row is a block. The query, Status and the menu share the
      first line; Subject, Type and each engine by name follow, Subject and Type
      at their table widths so the engines line up down the list. Source and
@@ -3411,13 +3478,9 @@
   .tracked-table[data-layout='stacked'] {
     display: block;
 
-    & > thead {
-      display: none;
-    }
-
     & > tbody,
-    & .tracked-detail-row,
-    & .tracked-detail-row > td {
+    & > tbody > tr,
+    & > tbody > tr > td {
       display: block;
     }
 
@@ -3456,8 +3519,10 @@
     & .tracked-row > .tracked-cell-status {
       order: 1;
       margin-top: 0;
+      overflow: visible;
     }
 
+    /* Drawn last on the first line, and next after the query in the markup, so it is the next tab stop. */
     & .tracked-row > .tracked-cell-menu {
       order: 2;
       margin-top: 0;
@@ -3474,6 +3539,11 @@
     /* The checkbox hangs in the left margin, so every line starts under the query text. */
     &[data-selectable] .tracked-row {
       padding-left: 2.25rem;
+    }
+
+    /* With no checkbox the row starts where its detail does, clear of a linked row's marker. */
+    &:not([data-selectable]) .tracked-row {
+      padding-left: 0.625rem;
     }
 
     & .tracked-row > .tracked-cell-select {
@@ -3503,19 +3573,9 @@
       text-align: left;
     }
 
-    /* A row asked both ways: each engine's name over its two pairs, each pair after its type. */
-    & .tracked-row[data-mixed] > .tracked-cell-engine {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 0;
-    }
-
+    /* A row asked both ways: Mixed over its two types, then each engine's name over its two pairs. */
     & .tracked-pair-stack {
-      @apply items-start gap-0;
-    }
-
-    & .tracked-pair-type {
-      min-width: 4.25rem;
+      @apply items-start;
     }
 
     &[data-selectable] .tracked-detail-row > td {
@@ -3545,8 +3605,14 @@
         order: 6;
       }
 
+      /* A row asked both ways: its types lead the engines' line, each beside its pairs. */
+      & .tracked-row[data-mixed] > .tracked-cell-type {
+        order: 6;
+      }
+
       & .tracked-row > .tracked-cell-status {
         order: 7;
+        flex: 0 0 100%;
         margin-top: 0.375rem;
       }
     }
