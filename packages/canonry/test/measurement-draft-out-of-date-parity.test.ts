@@ -120,7 +120,7 @@ describe('out-of-date setup draft CLI/REST/MCP parity', () => {
     const stale = await draftLeftBehindByTracking()
     const refusal = {
       code: 'MEASUREMENT_PLAN_REVISION_CONFLICT',
-      message: 'The published setup changed after this draft was started. Discard the draft, start a new one, and publish again.',
+      message: 'This draft is based on an older published setup. Discard it, start a new draft, make your changes again, then publish.',
       details: { expectedActiveRevision: 2, actualActiveRevision: 2, check: 'draft-out-of-date', draftBase: 1, active: 2, httpStatus: 409 },
     }
 

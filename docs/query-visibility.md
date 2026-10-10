@@ -236,15 +236,25 @@ A material assignment change retains the previous measured revision until the ne
 That result uses its own frozen assignment graph, classes, and identities.
 The interface identifies the measured revision and pending assignments.
 It never applies the new graph to old answers.
-A monthly comparison (`canonry visibility-compare`) pairs the by-type rates, and every figure for a location, a group or a market, only between sweeps of one comparable-revision chain.
-A material publish, a one-query tracking change included, starts a new chain. A month swept only before it and a month swept only after it then share no pair there, for the queries the publish did not touch as well, and those figures read `insufficient-data`.
-The four project metrics (named and cited share of voice, named rate, cited rate) pair by query and engine and keep the untouched queries.
 
 Trend points identify definition or model changes.
 The trend includes up to 100 recent measured runs within the selected date range.
 Historical evidence without enough provenance does not claim comparability.
 The measurement run selection uses `measurementRunId` in the browser URL.
 It does not open the global `runId` drawer.
+
+### Out-of-date setup draft
+
+A setup draft is a copy of the revision that was active when the draft was started, so a tracking publish made after that is not in it.
+Publishing such a draft returns `409 MEASUREMENT_PLAN_REVISION_CONFLICT` with `details.check: draft-out-of-date`.
+`details.draftBase` is the draft's `baseActiveRevision`, the revision it was started from, and is `null` for a draft started when no plan was active.
+`details.active` is the active revision number, the same value as `details.actualActiveRevision`, and is `null` after a deactivation.
+The API, `canonry measurement-plan advanced <project> draft-action` and the MCP tool `canonry_measurement_draft_action` all return it, whichever `expectedActiveRevision` the request names.
+To publish, run the `discard` action, run `create` with the active revision, make the edits again, then run `publish`. The dashboard already asks for this.
+After a deactivation no plan is active, so the new draft starts empty.
+Every other draft action, a competitor pin included, still works on an out-of-date draft, but that draft cannot be published.
+`canonry apply` and the legacy `canonry measurement-plan publish <project> <yaml|json>` use no draft and are not refused.
+A legacy publish is accepted only when no plan or a schema v1 plan is active. It moves the active revision, so it also puts an open draft out of date.
 
 ## Research and operator controls
 
@@ -335,13 +345,7 @@ The message names the run. Preview and commit the change again after it finishes
 An all-locations sweep is several runs: the message then gives their count, `details.activeRunIds` lists them, and each one must finish or be cancelled.
 Previews and no-op confirmations remain available during a sweep.
 A setup publish (`draft-action` with `publish`) is refused the same way, unless it is identical to the active revision.
-A setup draft is a copy of the revision that was active when the draft was started, so a tracking publish made after that is not in it.
-Publishing such a draft returns `409 MEASUREMENT_PLAN_REVISION_CONFLICT` with `details.check: draft-out-of-date`, `details.draftBase` (the revision the draft was started from) and `details.active` (the active revision, or `null` after a deactivation).
-The API, `canonry measurement-plan advanced <project> draft-action` and the MCP tool `canonry_measurement_draft_action` all return it, whichever `expectedActiveRevision` the request names.
-Before this check, a caller that named the current revision published the older copy and undid every tracking change made since the draft was started.
-To publish, discard the draft, start a new one from the active revision, make the edits again and publish. The dashboard already asks for this.
-Every other draft action, a competitor pin included, still works on an out-of-date draft, but that draft cannot be published.
-`canonry apply` and the legacy `canonry measurement-plan publish <project> <yaml|json>` use no draft and are not refused. A legacy publish moves the active revision, so it also puts an open draft out of date.
+It is also refused with `409 MEASUREMENT_PLAN_REVISION_CONFLICT` (`details.check: draft-out-of-date`) when the active revision moved after the draft was started: see [Out-of-date setup draft](#out-of-date-setup-draft).
 An advanced preview also returns `limits.queries`: distinct assigned queries now (`current`), after the change (`next`), and the limit (`max`, 1,000).
 `limits.queries.left` is the room under the limit now and after the change (`max` minus each count), and is 0, never negative, for a plan over the limit.
 A commit that grows the plan past the limit returns `400` with `details.check: query-limit-exceeded`. A plan already over the limit may still shrink.

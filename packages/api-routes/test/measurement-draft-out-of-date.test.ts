@@ -21,14 +21,14 @@ const ROOT_KEY = 'cnry_draft_out_of_date_root'
 const NOW = '2026-10-09T00:00:00.000Z'
 const PROJECT = 'northwind'
 const TRACKED_SINCE = 'widget warranty terms'
-const OUT_OF_DATE_MESSAGE = 'The published setup changed after this draft was started. Discard the draft, start a new one, and publish again.'
+const OUT_OF_DATE_MESSAGE = 'This draft is based on an older published setup. Discard it, start a new draft, make your changes again, then publish.'
 
 let directory: string
 let db: DatabaseClient
 let app: ReturnType<typeof Fastify>
 let idempotencyCounter = 0
 
-function request(method: 'GET' | 'POST', url: string, options: { payload?: unknown; ifMatch?: string } = {}) {
+function request(method: 'GET' | 'POST' | 'PUT', url: string, options: { payload?: unknown; ifMatch?: string } = {}) {
   return app.inject({
     method,
     url: `/api/v1/projects/${PROJECT}${url}`,
@@ -58,8 +58,8 @@ async function publishDraft(etag: string, expectedActiveRevision: number | null)
   })
 }
 
-/** Revision 1: one location in one group, asked one query. */
-async function publishFirstRevision(): Promise<void> {
+/** A first setup draft, started with no active plan: one location in one group, asked one query. */
+async function firstSetupDraft(): Promise<string> {
   let { etag } = await draftAction('create', { expectedActiveRevision: null })
   ;({ etag } = await draftAction('upsert-target', {
     target: {
@@ -69,7 +69,12 @@ async function publishFirstRevision(): Promise<void> {
   }, etag))
   ;({ etag } = await draftAction('upsert-group', { group: { stableKey: 'catalog', label: 'Catalog', targetKeys: ['widgets'], competitors: [] } }, etag))
   ;({ etag } = await draftAction('apply-assignments', { targetKey: 'widgets', queryIds: ['q-supplier'] }, etag))
-  const published = await publishDraft(etag, null)
+  return etag
+}
+
+/** Revision 1: that first setup draft, published. */
+async function publishFirstRevision(): Promise<void> {
+  const published = await publishDraft(await firstSetupDraft(), null)
   expect(published.json(), published.body).toMatchObject({ published: true, active: { revision: 1 } })
 }
 
@@ -215,6 +220,37 @@ describe('measurement draft publish: an out-of-date draft', () => {
       details: { expectedActiveRevision: null, actualActiveRevision: null, check: 'draft-out-of-date', draftBase: 1, active: null },
     })
     expect((await request('GET', '/measurement-plan')).json().active).toBeNull()
+  })
+
+  it('refuses a first setup draft once a legacy publish made a schema v1 plan active', async () => {
+    const etag = await firstSetupDraft()
+    expect(db.select().from(measurementPlanDrafts).get()!.baseActiveRevision).toBeNull()
+    const legacy = await request('PUT', '/measurement-plan', {
+      payload: {
+        expectedActiveRevision: null,
+        plan: {
+          schemaVersion: 1,
+          targets: [{
+            stableKey: 'widgets', label: 'Widgets', aliases: [],
+            urls: [{ kind: 'prefix', host: 'northwind.example', pathPrefix: '/widgets', pathCase: 'insensitive' }],
+          }],
+          groups: [{ stableKey: 'catalog', label: 'Catalog', targetKeys: ['widgets'], competitors: [] }],
+          targetQuerySelections: [{ targetKey: 'widgets', queryIds: ['q-delivery'] }],
+        },
+      },
+    })
+    expect(legacy.statusCode, legacy.body).toBe(201)
+
+    // The caller names the revision that is active now. The draft was started when none was.
+    const refused = await publishDraft(etag, 1)
+    expect(refused.statusCode, refused.body).toBe(409)
+    expect(refused.json().error).toMatchObject({
+      code: 'MEASUREMENT_PLAN_REVISION_CONFLICT',
+      message: OUT_OF_DATE_MESSAGE,
+      details: { expectedActiveRevision: 1, actualActiveRevision: 1, check: 'draft-out-of-date', draftBase: null, active: 1 },
+    })
+    expect((await request('GET', '/measurement-plan')).json().active).toMatchObject({ revision: 1, plan: { schemaVersion: 1 } })
+    expect(db.select().from(measurementPlanVersions).all().map(version => version.revision)).toEqual([1])
   })
 
   it('keeps the plain revision conflict for a current draft when the caller names another revision', async () => {

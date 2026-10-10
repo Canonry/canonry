@@ -193,7 +193,7 @@ function assertDraftBaseIsActive(
   const conflict = measurementPlanRevisionConflict(expectedActiveRevision, activeRevision)
   throw new AppError(
     conflict.code,
-    'The published setup changed after this draft was started. Discard the draft, start a new one, and publish again.',
+    'This draft is based on an older published setup. Discard it, start a new draft, make your changes again, then publish.',
     conflict.statusCode,
     { ...conflict.details, check: 'draft-out-of-date', draftBase: draft.baseActiveRevision, active: activeRevision },
   )
