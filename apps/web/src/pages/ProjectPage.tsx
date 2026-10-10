@@ -2602,6 +2602,10 @@ function ProjectPageContent({
             Property details
           </Link>
         ) : undefined}
+        // Embeds and managed dashboards name neither date. A sweep already under way brings
+        // new numbers before the scheduled one, so it names no date either.
+        trackingChangedAt={isEmbed() || isDashboardManagedSweeps() ? undefined : activeMeasurementPlan?.createdAt}
+        nextSweepDate={isEmbed() || isDashboardManagedSweeps() || hasActiveVisibilitySweep ? undefined : nextSweepDate ?? undefined}
         fallback={overview}
       />
     )

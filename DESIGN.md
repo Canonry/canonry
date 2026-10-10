@@ -35,7 +35,7 @@ each choice.
 - Empty and error states may contain the minimum copy needed to recover.
 - Avoid acronyms until the expanded product name has established the context.
 - Do not use em dashes in UI copy.
-- Measured-report headers describe the displayed run and its date. Keep future assignment counts and revision mechanics out of the results header; configuration changes do not make saved results incomplete.
+- Measured-report headers describe the displayed run and its date. Keep future assignment counts and revision mechanics out of the results header; configuration changes do not make saved results incomplete. When tracking changed after the displayed run, one status line below the header, on the default latest view only, may say when it changed, which results show, and when new numbers arrive.
 - Status headers show only decision-relevant state. Next-run headers use the schedule-local calendar date; keep time, weekday, year, team ownership, and explanatory prose out of the header.
 
 ## Typography and contrast

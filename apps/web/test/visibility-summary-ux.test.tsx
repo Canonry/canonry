@@ -161,12 +161,18 @@ test('keeps the dated measured report unchanged when future assignments are pend
   cleanup()
 
   // The results toolbar is the dated header, and pending assignments leave it unchanged too.
+  // The only addition is the tracking-changed strip, below the header rather than inside it.
   const selection = parseVisibilitySelection({ queryClass: 'non-brand' })
   const toolbar = render(<VisibilityResultsToolbar report={current} selection={selection} {...props} />)
   const measuredToolbar = toolbar.container.innerHTML
   expect(within(toolbar.container).getByText(formatObservedInstantLabel(observedInstant(current.selection.measurement.completedAt!)), { selector: 'span' })).toBeTruthy()
+  expect(within(toolbar.container).queryByRole('status')).toBeNull()
   toolbar.rerender(<VisibilityResultsToolbar report={report} selection={selection} {...props} />)
-  expect(toolbar.container.innerHTML).toBe(measuredToolbar)
+  const strip = within(toolbar.container).getByRole('status')
+  expect(toolbar.container.querySelector('.visibility-results-toolbar')!.contains(strip)).toBe(false)
+  const withoutStrip = toolbar.container.cloneNode(true) as HTMLElement
+  withoutStrip.querySelector('[role="status"]')!.remove()
+  expect(withoutStrip.innerHTML).toBe(measuredToolbar)
 })
 
 test.each(['simple', 'advanced'] as const)('keeps %s comparison warnings beside the chart with accessible history', mode => {
