@@ -58,6 +58,10 @@ const GUARD_COVERAGE: Array<{ file: string, rules: string[] }> = [
     rules: ['canonry-vocabulary/no-question-ui-copy'],
   },
   {
+    file: 'apps/web/src/components/project/queries/advanced/AdvancedTrackedPage.tsx',
+    rules: ['canonry-vocabulary/no-question-ui-copy'],
+  },
+  {
     file: 'packages/api-routes/src/traffic-analytics.ts',
     rules: [
       'canonry-guards/no-inline-percent',

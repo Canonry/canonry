@@ -13,6 +13,7 @@ import { Card } from '../ui/card.js'
 import { QueryResearchWorkspace } from './queries/QueryResearchWorkspace.js'
 import { SimpleTrackedQueries } from './queries/SimpleTrackedQueries.js'
 import { AdvancedTrackedPage } from './queries/advanced/AdvancedTrackedPage.js'
+import { useTrackingComposer, type TrackedQueriesPageProps } from './queries/use-tracking-composer.js'
 import { canUseResearchWorkspace, effectiveQueryWorkspace, type QueryWorkspace } from '../../lib/project-scope.js'
 import { useAccount } from '../../contexts/account-context.js'
 
@@ -186,10 +187,8 @@ function TrackedQueriesSection({
     )
   }
 
-  // The mode gate: each mode has its own page over the same props.
-  const TrackedPage = workspaceQuery.data.mode === 'advanced' ? AdvancedTrackedPage : SimpleTrackedQueries
   return (
-    <TrackedPage
+    <TrackedQueriesGate
       projectName={projectName}
       workspace={workspaceQuery.data}
       selection={selection}
@@ -208,4 +207,11 @@ function TrackedQueriesSection({
       onCommit={publish.commit}
     />
   )
+}
+
+/** The mode gate: each mode has its own page. One composer sits above both, so a mode change keeps the open form, its draft and the search. */
+function TrackedQueriesGate(props: TrackedQueriesPageProps) {
+  const composer = useTrackingComposer(props)
+  const TrackedPage = props.workspace.mode === 'advanced' ? AdvancedTrackedPage : SimpleTrackedQueries
+  return <TrackedPage {...props} composer={composer} />
 }

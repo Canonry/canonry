@@ -12,15 +12,15 @@ import { AssignmentScopeDisclosure, MeasurementStateBadge } from './TrackedCells
 import { TrackingComposer } from './TrackingComposer.js'
 import { assignmentScopeLabel, provenanceLabel } from './tracked-rows.js'
 import { contextInput, contextLabel, uniqueContextInputs } from './tracking-contexts.js'
-import { useTrackingComposer, type TrackedQueriesPageProps } from './use-tracking-composer.js'
+import type { TrackedQueriesPageProps, TrackingComposerState } from './use-tracking-composer.js'
 
 /** Tracked queries on a simple project: the list, the Add query form and its review. */
-export function SimpleTrackedQueries(props: TrackedQueriesPageProps) {
+export function SimpleTrackedQueries(props: TrackedQueriesPageProps & { composer: TrackingComposerState }) {
   const { workspace, selection, onSelectionChange, templates, preview, isPreviewing, isCommitting, onPreview } = props
   const {
     action, draft, setDraft, reviewedMutation, setReviewedMutation, editorHeadingRef, unavailableScope, table,
     openAdd, openEdit, openRemoval, closeAction, mutation, canReview, sweepActive, commitReviewed,
-  } = useTrackingComposer(props)
+  } = props.composer
 
   if (unavailableScope) {
     return <div className="query-tracking-workspace space-y-4"><section aria-label="Tracked queries" className="py-4 text-sm text-secondary">

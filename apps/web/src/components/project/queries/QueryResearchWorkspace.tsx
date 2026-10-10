@@ -9,6 +9,7 @@ import {
 import { heyClient } from '../../../api.js'
 import type { ViewerResearchConfig } from '../../../api.js'
 import { useAccount } from '../../../contexts/account-context.js'
+// The host imports this file too. Take only types and function declarations from it: those need no load order.
 import { WorkspaceTab } from '../DiscoverySection.js'
 import type { QueriesSectionProps, ResearchWorkspaceMode, SavedTrackingSource } from '../DiscoverySection.js'
 import { ResearchQueriesSection, type ResearchTemplateOption } from '../ResearchQueriesSection.js'

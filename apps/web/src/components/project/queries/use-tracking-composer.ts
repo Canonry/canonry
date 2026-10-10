@@ -57,6 +57,8 @@ export type TrackedQueriesPageProps = {
  * The tracked list and the Add, Edit and Remove query forms behind it: which
  * form is open, its draft, the change under review and the rows in view. The
  * simple and the advanced page draw different markup over the same state.
+ * `TrackedQueriesGate` calls it once, above both pages, so a mode change
+ * keeps the open form, its draft and the search.
  */
 export function useTrackingComposer({
   workspace,
@@ -201,3 +203,5 @@ export function useTrackingComposer({
     commitReviewed,
   }
 }
+
+export type TrackingComposerState = ReturnType<typeof useTrackingComposer>
