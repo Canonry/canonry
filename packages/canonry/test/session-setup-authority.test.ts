@@ -8,7 +8,7 @@ import path from 'node:path'
 import { eq } from 'drizzle-orm'
 import { parse } from 'yaml'
 import { apiKeys, createClient, dashboardSessions, migrate, type DatabaseClient } from '@ainyc/canonry-db'
-import type { CanonryConfig } from '../src/config.js'
+import { clearDashboardPassword, loadConfig, type CanonryConfig } from '../src/config.js'
 import { createServer } from '../src/server.js'
 
 // The first dashboard password is a standing credential for the install's
@@ -513,6 +513,52 @@ describe('first-run POST /session/setup authority', () => {
 
       const refused = await setup({ host: '127.0.0.1:4100' })
       expectRefusedWithoutWrites(refused, config, SERVER_KEY_MISSING)
+    })
+  })
+
+  // `canonry dashboard reset-password` edits config.yaml without a request, so
+  // the first start that finds the password gone records it, once.
+  describe('after the password is cleared from config.yaml', () => {
+    async function restartFromDisk() {
+      await app!.close()
+      app = await createServer({
+        config: loadConfig(), db: db!, host: '0.0.0.0', logger: false, assetsDir: path.join(tmpDir, 'assets'),
+      })
+    }
+
+    async function passwordAuditTrail(rootKey: string) {
+      const history = await app!.inject({
+        method: 'GET', url: '/api/v1/history', headers: { ...LAN, authorization: `Bearer ${rootKey}` },
+      })
+      expect(history.statusCode).toBe(200)
+      return (history.json() as Array<{ entityType: string; action: string; actor: string; diff: unknown; createdAt: string }>)
+        .filter(entry => entry.entityType === 'dashboard-password')
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        .map(({ action, actor, diff }) => ({ action, actor, diff }))
+    }
+
+    it('reopens setup and adds one cleared row to the audit trail', async () => {
+      const { rootKey } = await buildServer('0.0.0.0')
+      const root = { ...LAN, authorization: `Bearer ${rootKey}` }
+      expect((await setup(root)).statusCode).toBe(200)
+      const created = {
+        action: 'dashboard-password.created', actor: `api-key:${DEFAULT_KEY_ID}`, diff: { authorizedBy: 'root-api-key' },
+      }
+
+      // A restart with the password still on disk records nothing.
+      await restartFromDisk()
+      expect(await passwordAuditTrail(rootKey)).toEqual([created])
+
+      expect(clearDashboardPassword().cleared).toBe(true)
+      await restartFromDisk()
+      await restartFromDisk()
+      const cleared = { action: 'dashboard-password.cleared', actor: 'system', diff: { detectedAt: 'startup' } }
+      expect(await passwordAuditTrail(rootKey)).toEqual([created, cleared])
+
+      const status = await app!.inject({ method: 'GET', url: '/api/v1/session', headers: LAN })
+      expect(status.json()).toEqual({ authenticated: false, setupRequired: true })
+      expect((await setup(root)).statusCode).toBe(200)
+      expect(await passwordAuditTrail(rootKey)).toEqual([created, cleared, created])
     })
   })
 })
