@@ -9,19 +9,20 @@ import type {
 import { useAccount } from '../../contexts/account-context.js'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 import { WriteButton } from '../shared/AccessControls.js'
-import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { useTooltipBubble } from '../shared/InfoTooltip.js'
 import { StatusNote } from '../shared/StatusNote.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { Button } from '../ui/button.js'
-import { subjectLabel, trackedSubject } from './queries/advanced/tracked-view-model.js'
+import { subjectLabel, trackedSubject, typeLabel as queryTypeLabel } from './queries/advanced/tracked-view-model.js'
 
 type ChangeRow = QueryTrackingPreviewResponse['diff']['added'][number]
 type Assignment = QueryTrackingTrackedRow['assignments'][number]
+type Context = Assignment['contexts'][number]
 type MarketChange = NonNullable<QueryTrackingPreviewResponse['marketChanges']>[number]
 type Change = 'Added' | 'Reused' | 'Removed' | 'Unchanged'
 /** The distinct search location and engines among some stored contexts, in the caller's words for them. */
 type ContextLabels = (contexts: Assignment['contexts']) => string[]
-/** One search location and its engines by display name. `detail` is the caller's own label for it, model ids included. */
+/** One search location and its engines as a table shows it. `detail` is the caller's own label for it, model ids included. */
 type SearchLocation = { label: string; detail: string }
 
 /**
@@ -59,8 +60,15 @@ function changeCount({ diff }: QueryTrackingPreviewResponse): number {
   return diff.noOp ? 0 : diff.added.length + diff.removed.length + diff.reused.length
 }
 
+/** The type one location asks a query under. */
 function typeLabel(queryClass: Assignment['queryClass']): string {
-  return queryClass === 'branded' ? 'Branded' : queryClass === 'non-brand' ? 'Non-brand' : 'Not set'
+  return queryTypeLabel(queryClass ?? 'not-set')
+}
+
+/** A query's Type as the Tracked table words it: one type by its name, two as Mixed, none as Not set. Each location's own type is in the row's location list. */
+function rowTypeLabel(row: QueryTrackingTrackedRow): string {
+  const classes = row.queryClasses ?? [...new Set(row.assignments.flatMap(assignment => assignment.queryClass ?? []))]
+  return queryTypeLabel(classes.length === 0 ? 'not-set' : classes.length === 1 ? classes[0]! : 'mixed')
 }
 
 /**
@@ -73,18 +81,26 @@ function shrunkMarkets(preview: QueryTrackingPreviewResponse | null): MarketChan
 }
 
 /**
- * Each distinct search location and engines among some contexts. Two that read alike by display
- * name (one engine on two models) keep the caller's full label, so they stay apart.
+ * Reads the distinct search location and engines among some of one table's contexts. Each reads by
+ * engine display name. Two that read alike that way (one engine on two models) keep the caller's
+ * full label wherever they are in the table: in one cell, in two rows, or on two locations of a row.
  */
-function searchLocationsOf(contexts: Assignment['contexts'], contextLabels: ContextLabels): SearchLocation[] {
-  const labels = new Map<string, string>()
-  for (const context of contexts) {
-    for (const detail of contextLabels([context])) {
-      if (!labels.has(detail)) labels.set(detail, `${context.location?.label ?? 'No search location'} · ${context.providers.map(providerDisplayName).join(', ')}`)
+function searchLocationReader(all: readonly Context[], contextLabels: ContextLabels): (contexts: readonly Context[]) => SearchLocation[] {
+  const details = new Map<Context, string[]>()
+  const names = new Map<string, string>()
+  for (const context of all) {
+    const own = contextLabels([context])
+    details.set(context, own)
+    for (const detail of own) {
+      if (!names.has(detail)) names.set(detail, `${context.location?.label ?? 'No search location'} · ${context.providers.map(providerDisplayName).join(', ')}`)
     }
   }
-  const distinct = new Set(labels.values()).size === labels.size
-  return [...labels].map(([detail, label]) => ({ label: distinct ? label : detail, detail }))
+  const uses = new Map<string, number>()
+  for (const name of names.values()) uses.set(name, (uses.get(name) ?? 0) + 1)
+  return contexts => [...new Set(contexts.flatMap(context => details.get(context) ?? []))].map(detail => {
+    const name = names.get(detail)!
+    return { label: uses.get(name) === 1 ? name : detail, detail }
+  })
 }
 
 /** A few names, then a count of the rest. */
@@ -160,10 +176,7 @@ export function TrackingReview({ workspace, contextLabels, showActions = true, .
         <p className="mt-4 text-[13px] font-medium leading-5 text-secondary">{kinds.filter(([list]) => list.length > 0).map(([list, kind]) => `${count(list.length)} ${kind}`).join(' · ')}</p>
         <ReviewTable label="Changes" rows={changes} {...table} />
       </> : null}
-      {diff.unchanged.length > 0 ? <details className="mt-4 border-t border-default pt-2 text-sm text-secondary">
-        <summary className="min-h-11 cursor-pointer py-3">{count(diff.unchanged.length)} unchanged {diff.unchanged.length === 1 ? 'query' : 'queries'}</summary>
-        <ReviewTable label="Unchanged queries" rows={rows('Unchanged', diff.unchanged)} {...table} />
-      </details> : null}
+      {diff.unchanged.length > 0 ? <UnchangedQueries rows={rows('Unchanged', diff.unchanged)} {...table} /> : null}
       {actions}
     </>
   )
@@ -217,8 +230,9 @@ export function TrackingReviewActions({ preview, isCommitting, sweepActive, next
 /** Each market the publish takes locations from: how many it holds now and after, and what it loses. Every number is the length of a list the server sent. */
 function MarketChanges({ changes, workspace }: { changes: readonly MarketChange[]; workspace: QueryTrackingWorkspaceResponse }) {
   return (
-    <div className="mt-4 overflow-x-auto">
-      <table aria-label="Market changes" className="evidence-table table-auto">
+    // Three short facts read as one line: in a wide card the table stops short of the full width, and on a phone its cells close up so it fits.
+    <div className="mt-4 max-w-3xl overflow-x-auto">
+      <table aria-label="Market changes" className="evidence-table table-auto max-sm:[&_td]:px-2 max-sm:[&_th]:px-2">
         <thead>
           <tr><th>Market</th><th>Locations</th><th>Change</th></tr>
         </thead>
@@ -233,7 +247,8 @@ function MarketChanges({ changes, workspace }: { changes: readonly MarketChange[
                 <td>
                   {change.emptied
                     ? <StatusNote icon={Ban} tone="negative" label="Market emptied" detail={`Leaves this market: ${names}. A market with no locations takes no new queries.`} />
-                    : <StatusNote icon={AlertTriangle} tone="caution" label={`Loses ${count(lost)} ${lost === 1 ? 'location' : 'locations'}`} detail={`Leaves this market: ${names}. No query is asked there for ${lost === 1 ? 'it' : 'them'} after you publish.`} />}
+                    // The count stays on the line of its noun (a no-break space) where the column is narrow.
+                    : <StatusNote icon={AlertTriangle} tone="caution" label={`Loses ${count(lost)}\u00a0${lost === 1 ? 'location' : 'locations'}`} detail={`Leaves this market: ${names}. After you publish, this market's queries are no longer asked for ${lost === 1 ? 'it' : 'them'}.`} />}
                 </td>
               </tr>
             )
@@ -253,14 +268,29 @@ function ReviewNumber({ label, value }: { label: string; value: string }) {
   )
 }
 
-function ReviewTable({ label, rows, tracked, workspace, marketChanges, contextLabels }: {
-  label: string
+type ReviewTableProps = {
   rows: readonly { change: Change; row: ChangeRow }[]
   tracked: ReadonlyMap<string, QueryTrackingTrackedRow>
   workspace: QueryTrackingWorkspaceResponse
   marketChanges: QueryTrackingPreviewResponse['marketChanges']
   contextLabels: ContextLabels
-}) {
+}
+
+/**
+ * The queries a publish leaves alone, behind a disclosure. Their table is drawn once the disclosure
+ * is opened: it is every other tracked query, about a thousand rows on a large project, and most reviews never open it.
+ */
+function UnchangedQueries(table: ReviewTableProps) {
+  const [opened, setOpened] = useState(false)
+  return (
+    <details className="mt-4 border-t border-default pt-2 text-sm text-secondary" onToggle={event => { if (event.currentTarget.open) setOpened(true) }}>
+      <summary className="min-h-11 cursor-pointer py-3">{count(table.rows.length)} unchanged {table.rows.length === 1 ? 'query' : 'queries'}</summary>
+      {opened ? <ReviewTable label="Unchanged queries" {...table} /> : null}
+    </details>
+  )
+}
+
+function ReviewTable({ label, rows, tracked, workspace, marketChanges, contextLabels }: ReviewTableProps & { label: string }) {
   const listId = useId()
   // The rows whose locations are listed. Each list is a row of its own under the query, the table's full width.
   const [listed, setListed] = useState<ReadonlySet<string>>(new Set<string>())
@@ -269,39 +299,46 @@ function ReviewTable({ label, rows, tracked, workspace, marketChanges, contextLa
     if (!next.delete(key)) next.add(key)
     return next
   })
-  const lines = useMemo(() => {
+  const { lines, searchLocations } = useMemo(() => {
     const current = new Map(workspace.tracked.map(row => [row.queryId, row]))
     // A market the publish changes holds the locations the server says it will, not the ones it has now.
     const after = new Map(marketChanges?.map(change => [change.marketKey, change.after.targetKeys]))
     const placesAfter = { targets: workspace.targets, markets: workspace.markets.map(market => after.has(market.stableKey) ? { ...market, targetKeys: after.get(market.stableKey) } : market) }
-    return rows.map(({ change, row }) => {
-      // `tracked` is the post-change state: for a removed query it holds what survives, so that row names no type or search location.
-      const resolved = change === 'Removed' ? undefined : tracked.get(row.queryId)
-      const assignments = resolved?.assignments ?? []
-      // A removed query shows the Subject it has now. A server that predates `focus` sends none.
-      const subject = change === 'Removed' ? current.get(row.queryId) : resolved
-      const searchLocations = searchLocationsOf(assignments.flatMap(assignment => assignment.contexts), contextLabels)
-      return {
-        key: `${change}:${row.queryId}`,
-        change,
-        row,
-        assignments,
-        subject: subject?.focus ? subjectLabel(trackedSubject(subject, change === 'Removed' ? workspace : placesAfter)) : null,
-        searchLocations,
-        searchKey: searchLocations.map(searchLocation => searchLocation.detail).sort().join('\n'),
-        locations: new Set(assignments.map(assignment => assignment.targetKey)).size,
-      }
-    })
+    // `tracked` is the post-change state: for a removed query it holds what survives, so that row lists no location and names no search location.
+    const resolved = rows.map(({ change, row }) => change === 'Removed' ? undefined : tracked.get(row.queryId))
+    const searchLocations = searchLocationReader(resolved.flatMap(asked => asked?.assignments.flatMap(assignment => assignment.contexts) ?? []), contextLabels)
+    return {
+      searchLocations,
+      lines: rows.map(({ change, row }, index) => {
+        const assignments = resolved[index]?.assignments ?? []
+        // A removed query shows the Subject and Type it has now. A server that predates `focus` sends no Subject.
+        const shown = change === 'Removed' ? current.get(row.queryId) : resolved[index]
+        const search = searchLocations(assignments.flatMap(assignment => assignment.contexts))
+        return {
+          key: `${change}:${row.queryId}`,
+          change,
+          row,
+          assignments,
+          subject: shown?.focus ? subjectLabel(trackedSubject(shown, change === 'Removed' ? workspace : placesAfter)) : null,
+          type: shown ? rowTypeLabel(shown) : '',
+          search,
+          searchKey: search.map(searchLocation => searchLocation.detail).sort().join('\n'),
+          locations: new Set(assignments.map(assignment => assignment.targetKey)).size,
+        }
+      }),
+    }
   }, [rows, tracked, workspace, marketChanges, contextLabels])
   const showSubject = lines.some(line => line.subject !== null)
   // One value for every row that names one is said once, above the table. A column is for rows that differ.
-  const named = lines.filter(line => line.searchLocations.length > 0)
-  const sharedSearch = named.length > 0 && named.every(line => line.searchKey === named[0]!.searchKey) ? named[0]!.searchLocations : null
+  const named = lines.filter(line => line.search.length > 0)
+  const sharedSearch = named.length > 0 && named.every(line => line.searchKey === named[0]!.searchKey) ? named[0]!.search : null
   const showSearch = named.length > 0 && sharedSearch === null
+  // Six columns pass the width of a sheet, so beside a search location column the Type sits under its Subject.
+  const stackType = showSubject && showSearch
   return (
     <>
       {sharedSearch ? (
-        <dl className="mt-2 flex flex-wrap gap-x-2 text-[13px] leading-5">
+        <dl className="mt-2 flex flex-wrap items-center gap-x-2 text-[13px] leading-5">
           <dt className="shrink-0 text-secondary">Search location and engines</dt>
           <dd className="min-w-0 text-strong"><SearchLocations searchLocations={sharedSearch} list /></dd>
         </dl>
@@ -312,14 +349,14 @@ function ReviewTable({ label, rows, tracked, workspace, marketChanges, contextLa
             <tr>
               <th>Change</th>
               <th>Query</th>
-              {showSubject ? <th>Subject</th> : null}
-              <th>Type</th>
+              {showSubject ? <th>{stackType ? 'Subject and type' : 'Subject'}</th> : null}
+              {stackType ? null : <th>Type</th>}
               <th>Location links</th>
               {showSearch ? <th>Search location and engines</th> : null}
             </tr>
           </thead>
           <tbody>
-            {lines.map(({ key, change, row, assignments, subject, searchLocations, locations }) => {
+            {lines.map(({ key, change, row, assignments, subject, type, search, locations }) => {
               const open = listed.has(key)
               return (
                 <Fragment key={key}>
@@ -340,17 +377,23 @@ function ReviewTable({ label, rows, tracked, workspace, marketChanges, contextLa
                         </button>
                       ) : null}
                     </td>
-                    {showSubject ? <td className="min-w-40 break-words text-secondary">{subject ? <SubjectLabel label={subject} /> : null}</td> : null}
-                    <td className="whitespace-nowrap text-secondary">{[...new Set(assignments.map(assignment => typeLabel(assignment.queryClass)))].join(', ')}</td>
+                    {showSubject ? (
+                      <td className={`${stackType ? 'min-w-32' : 'min-w-40'} break-words text-secondary`}>
+                        {stackType
+                          ? <><span className="block">{subject ? <SubjectLabel label={subject} /> : null}</span><span className="block">{type}</span></>
+                          : subject ? <SubjectLabel label={subject} /> : null}
+                      </td>
+                    ) : null}
+                    {stackType ? null : <td className="whitespace-nowrap text-secondary">{type}</td>}
                     {/* The server's `assignmentCount`: one link per location and search location the query is asked for, so it can pass the number of locations. A removal counts what it takes away. */}
                     <td className="whitespace-nowrap tabular-nums text-secondary">{change === 'Removed' ? '−' : ''}{count(row.assignmentCount)}</td>
-                    {showSearch ? <td className="min-w-44 text-secondary">{searchLocations.length > 0 ? <SearchLocations searchLocations={searchLocations} /> : null}</td> : null}
+                    {showSearch ? <td className="min-w-36 text-secondary">{search.length > 0 ? <SearchLocations searchLocations={search} /> : null}</td> : null}
                   </tr>
                   {open ? (
                     <tr id={`${listId}-${key}`}>
-                      <td colSpan={4 + Number(showSubject) + Number(showSearch)} className="text-secondary">
+                      <td colSpan={3 + Number(showSubject) + Number(!stackType) + Number(showSearch)} className="text-secondary">
                         {/* One search location and engines for the whole table is on the line above it, so no location repeats it. */}
-                        <RowLocations assignments={assignments} workspace={workspace} contextLabels={sharedSearch?.length === 1 ? null : contextLabels} />
+                        <RowLocations assignments={assignments} workspace={workspace} searchLocations={sharedSearch?.length === 1 ? null : searchLocations} />
                       </td>
                     </tr>
                   ) : null}
@@ -370,22 +413,45 @@ function SubjectLabel({ label }: { label: string }) {
   return counted ? <>{label.slice(0, counted.index)}<span className="whitespace-nowrap">{counted[0]}</span></> : label
 }
 
-/**
- * Where a query is asked: one search location and its engines, or how many combinations. `list` names
- * each one. The engines read by display name; the model ids are the help beside them.
- */
+/** Where a query is asked: one search location and its engines, or how many combinations. `list` names each one. */
 function SearchLocations({ searchLocations, list = false }: { searchLocations: readonly SearchLocation[]; list?: boolean }) {
   return (
-    <>
-      {list || searchLocations.length === 1 ? searchLocations.map(searchLocation => searchLocation.label).join('; ') : `${count(searchLocations.length)} combinations`}
-      {/* Opens downward: the heading scrolls to the top, which leaves no room above the first lines. */}
-      <InfoTooltip text={searchLocations.map(searchLocation => searchLocation.detail).join('; ')} placement="bottom" />
-    </>
+    <SearchLocationText
+      label={list || searchLocations.length === 1 ? searchLocations.map(searchLocation => searchLocation.label).join('; ') : `${count(searchLocations.length)} combinations`}
+      detail={searchLocations.map(searchLocation => searchLocation.detail).join('; ')}
+    />
   )
 }
 
-/** Each location a query is asked for, with its type, groups and markets, and with `contextLabels` its search locations and engines. */
-function RowLocations({ assignments, workspace, contextLabels }: { assignments: readonly Assignment[]; workspace: QueryTrackingWorkspaceResponse; contextLabels: ContextLabels | null }) {
+/**
+ * A search location and its engines in short, by engine display name. The caller's own words for it
+ * (`detail`, model ids included) are behind the value itself: it is the help button, with a dotted
+ * underline, read as "{label}. {detail}", and a 44px row where a finger is the pointer. A value that
+ * already is the caller's label has nothing to open, so it is plain text.
+ */
+export function SearchLocationText({ label, detail }: { label: string; detail: string }) {
+  return label === detail ? label : <SearchLocationButton label={label} detail={detail} />
+}
+
+function SearchLocationButton({ label, detail }: { label: string; detail: string }) {
+  // Opens downward: the review's heading scrolls to the top, which leaves no room above the first lines.
+  const bubble = useTooltipBubble(detail, { placement: 'bottom', align: 'start' })
+  return <>
+    <button
+      type="button"
+      className="max-w-full cursor-help rounded-sm text-left underline decoration-current/40 decoration-dotted underline-offset-4 transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 pointer-coarse:min-h-11 max-md:min-h-11"
+      aria-label={`${label}. ${detail}`}
+      {...bubble.wrapper}
+      {...bubble.trigger}
+    >
+      {label}
+    </button>
+    {bubble.bubble}
+  </>
+}
+
+/** Each location a query is asked for, with its type, groups and markets, and with `searchLocations` where it is asked, in the table's words. */
+function RowLocations({ assignments, workspace, searchLocations }: { assignments: readonly Assignment[]; workspace: QueryTrackingWorkspaceResponse; searchLocations: ((contexts: readonly Context[]) => SearchLocation[]) | null }) {
   const named = (prefix: string, scopes: readonly { stableKey: string; label: string }[], keys: readonly string[]) =>
     keys.length > 0 ? `${prefix}: ${keys.map(key => scopes.find(scope => scope.stableKey === key)?.label ?? key).join(', ')}` : null
   return (
@@ -395,7 +461,7 @@ function RowLocations({ assignments, workspace, contextLabels }: { assignments: 
         typeLabel(assignment.queryClass),
         named('Groups', workspace.groups, assignment.groupKeys),
         named('Markets', workspace.markets, assignment.marketKeys),
-        contextLabels ? searchLocationsOf(assignment.contexts, contextLabels).map(searchLocation => searchLocation.label).join('; ') : null,
+        searchLocations ? searchLocations(assignment.contexts).map(searchLocation => searchLocation.label).join('; ') : null,
       ].filter(Boolean).join(' · ')}</li>)}
     </ul>
   )

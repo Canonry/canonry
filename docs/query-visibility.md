@@ -38,12 +38,12 @@ The Add query form assigns one query at a time:
 An advanced project's review shows the same thing for every change, from the sheet, the form, **Edit** or **Remove**:
 
 - **Queries** and **Answers per sweep**, each as the count now and the count after publishing, with **Answers added** and **Answers removed** kept separate. **Queries** counts the queries the project asks, so a query that loses its last location leaves the count.
-- One row per added, reused, and removed query: its Subject, its type, and its location links. A query has one link per location and search location, so the count can be higher than the number of locations. A removed row shows how many links it removes and the Subject it has now. **N locations** under the query lists each location.
-- **Search location and engines**, once above the table when every query is asked the same way, or as a column when queries differ. Engines read by name; the info button beside them gives the model ids.
+- One row per added, reused, and removed query: its Subject, its type, and its location links. A query has one link per location and search location, so the count can be higher than the number of locations. A removed row shows how many links it removes, with the Subject and type it has now. A query asked as Branded for some locations and as Non-brand for others reads **Mixed**. **N locations** under the query lists each location with its own type.
+- **Search location and engines**, once above the table when every query is asked the same way, or as a column when queries differ (the type then sits under the Subject). Engines read by name, and the value opens the model ids. Two that differ only by model show their model ids.
 - Unchanged queries, behind **N unchanged queries**, each with its own list of locations.
 - **New numbers next sweep**, under the counts. Its help says what stays on screen until then: location pages and competitor results show no numbers, AI Visibility keeps showing the last sweep, past answers are kept, and publishing does not run a sweep. A review with no changes shows no such note.
 - **Market changes**, when the publish takes a location out of a market: each market with its locations now and after, and **Loses N locations** or **Market emptied**. **Publish** stays off until **Confirm market changes** is ticked. This check is the dashboard's: the CLI, MCP and the API report the same `marketChanges` and publish without it.
-- **First answers** with the next scheduled sweep date, beside **Publish**, when the publish adds answers. While a sweep is queued or running, **Sweep running** shows there and **Publish** is off.
+- **First answers** with the next scheduled sweep date, beside **Publish**, when the publish adds answers and the page passes that date to the review. While a sweep is queued or running, **Sweep running** shows there and **Publish** is off.
 
 Every figure comes from the preview response, the same one `canonry query preview` returns. A simple site keeps its shorter review.
 If the server refuses the review or the publish, the review shows its message and **Review again**.

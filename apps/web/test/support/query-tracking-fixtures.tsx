@@ -165,13 +165,14 @@ export function noteButton(label: string, detail: string, container: HTMLElement
 }
 /**
  * No sentence in what a surface shows: its sentences sit behind help buttons, in their names. Text a
- * person typed is not copy, and a server refusal keeps its sentence.
+ * person typed is not copy, a server refusal keeps its sentence, and screen-reader-only text is not shown.
  */
 export function expectNoSentence(container: HTMLElement) {
   const shown = container.cloneNode(true) as HTMLElement
-  for (const own of shown.querySelectorAll('textarea, [role="alert"]')) own.remove()
-  // A word, then a full stop that ends it: "kept." and "kept.Next", never "example.com".
-  expect(shown.textContent).not.toMatch(/[a-z]{2}\.(?![a-z0-9])/i)
+  for (const own of shown.querySelectorAll('textarea, [role="alert"], .sr-only')) own.remove()
+  // A word, then a full stop that ends it: "kept." at the end, and "kept.Next", where the next element's
+  // text follows with no space. Never "example.com": a lowercase letter or a digit after the stop is one word.
+  expect(shown.textContent).not.toMatch(/[a-z]{2}\.(?![a-z0-9])/)
 }
 
 export const removalDiff = { added: [], removed: [{ queryId: 'query-acme', queryText: 'Acme pricing', assignmentCount: 1 }], reused: [], unchanged: [], noOp: false }
@@ -197,27 +198,43 @@ export function reviewNumbers() {
 /**
  * One row of an advanced review table, by its query, read by column header. `subject` is undefined when
  * the table has no Subject column, and `searchLocation` when every row shares one value, which
- * `sharedSearchLocation` reads. `row` holds the button that lists the query's locations in the row under it.
+ * `sharedSearchLocation` reads. A table with both a Subject and a search location column has one
+ * "Subject and type" column: the Subject on its first line and the Type on its second.
+ * `row` holds the button that lists the query's locations in the row under it.
  */
 export function reviewRow(queryText: string, table = 'Changes') {
   const element = screen.getByRole('table', { name: table })
   const row = within(element).getByText(queryText).closest('tr')!
   const headers = within(element).getAllByRole('columnheader').map(header => header.textContent)
   const cell = (header: string) => headers.includes(header) ? row.cells[headers.indexOf(header)]!.textContent : undefined
-  return { row, change: cell('Change'), subject: cell('Subject'), type: cell('Type'), assignments: cell('Location links'), searchLocation: cell('Search location and engines') }
+  const stacked = headers.includes('Subject and type') ? [...row.cells[headers.indexOf('Subject and type')]!.children].map(line => line.textContent) : null
+  if (stacked) expect(stacked).toHaveLength(2)
+  return { row, change: cell('Change'), subject: stacked ? stacked[0] : cell('Subject'), type: stacked ? stacked[1] : cell('Type'), assignments: cell('Location links'), searchLocation: cell('Search location and engines') }
+}
+
+/**
+ * A search location and engines value that is its own help button: it shows `label`, the engines by
+ * display name, and its name ends with the caller's words for it, model ids included. Returns those words.
+ */
+export function searchLocationModels(container: HTMLElement, label: string) {
+  const value = within(container).getByRole('button', { name: name => name.startsWith(`${label}. `) })
+  expect(value.textContent).toBe(label)
+  return value.getAttribute('aria-label')!.slice(label.length + 2)
 }
 
 /**
  * The search location and engines every row of a review table shares, said once on the line above the
- * table: the engines by display name, and the model ids as the help beside them. Null when the table
- * keeps the column, or no row names one.
+ * table: the engines by display name, with the model ids behind the value (`models`). A value that
+ * already carries the model ids is plain text, and `models` is null. Null when the table keeps the
+ * column, or no row names one.
  */
 export function sharedSearchLocation(table = 'Changes') {
   const line = screen.getByRole('table', { name: table }).parentElement!.previousElementSibling
   if (!(line instanceof HTMLElement) || line.tagName !== 'DL') return null
   expect(within(line).getByRole('term').textContent).toBe('Search location and engines')
   const value = within(line).getByRole('definition')
-  return { label: value.textContent, models: within(value).getByRole('button').getAttribute('aria-label') }
+  const label = value.textContent
+  return { label, models: within(value).queryByRole('button') ? searchLocationModels(value, label) : null }
 }
 
 /** Open a review row's location list, closed until asked for, and read its lines from the row under it. */

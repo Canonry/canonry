@@ -62,7 +62,7 @@ export function TrackingComposer({
         <ChangeFacts action={action} advanced={workspace.mode === 'advanced'} detail="Changes apply to future sweeps. Earlier results stay unchanged." />
         <div className="mt-4 max-w-2xl space-y-4">
           <label className="block" htmlFor="tracking-query-text">
-            <span className="text-xs font-medium text-secondary">Query text</span>
+            <span className="text-xs font-medium text-secondary">Query</span>
             <textarea
               id="tracking-query-text"
               className="mt-1 min-h-28 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
@@ -386,20 +386,22 @@ function AssignmentSelector({
       {!draft.wholeSite && !hasAudience ? <div role="status" className="mt-2 px-1"><StatusNote icon={AlertTriangle} tone="caution" label="Choose a place" detail="Choose at least one location, group, or market." /></div> : null}
       {/* What a group and a market are is the help beside the search, outside the legend, so it stays out of the group's name. */}
       <div className="mt-3 flex items-center">
-        <DataTableSearch value={filter} onChange={setFilter} label="Filter places" placeholder="Search locations, groups, markets" className="min-w-0 flex-1" />
+        <DataTableSearch value={filter} onChange={setFilter} label="Filter places" placeholder="Search places" className="min-w-0 flex-1" />
         <InfoTooltip text="A group is a set of locations. A market asks its queries with its own search location and engines." />
       </div>
       <div className="mt-3 max-h-64 space-y-1 overflow-y-auto pr-1">
         {visible.length === 0 ? <p className="px-1 py-2 text-sm text-muted">No matches</p> : visible.map(option => (
-          <label key={`${option.kind}:${option.key}`} className="flex min-h-9 items-center gap-2 rounded px-1 py-1 text-sm text-strong hover:bg-surface-hover">
+          // A long name is cut to one line from md. Below it the name wraps, with the box and the kind on its first line.
+          <label key={`${option.kind}:${option.key}`} className="flex min-h-9 items-start gap-2 rounded px-1 py-2 text-sm text-strong hover:bg-surface-hover">
             <input
               type="checkbox"
+              className="mt-[3px]"
               aria-label={`${option.label}, ${option.detail}`}
               checked={isChecked(option.kind, option.key)}
               onChange={(event) => toggle(option.kind, option.key, event.target.checked)}
             />
-            <span className="min-w-0 flex-1 truncate">{option.label}</span>
-            <span className="text-xs text-muted">{option.detail}</span>
+            <span className="min-w-0 flex-1 break-words md:truncate">{option.label}</span>
+            <span className="mt-0.5 text-xs text-muted">{option.detail}</span>
           </label>
         ))}
       </div>
@@ -424,7 +426,7 @@ function ComposerActions({
         {isPreviewing ? 'Reviewing…' : 'Review changes'}
       </WriteButton>
       <Button type="button" variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
-      <StatusNote icon={Info} label="Publish runs no sweep" />
+      <StatusNote icon={Info} label="No sweep on publish" detail="Publishing does not run a sweep." />
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import { useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { AlertTriangle, Info } from 'lucide-react'
+import { AlertTriangle, CornerDownRight, MapPinOff } from 'lucide-react'
 import { normalizeIdentityText } from '@ainyc/canonry-contracts'
 import type {
   QueryTrackingCommitResponse,
@@ -9,6 +9,7 @@ import type {
   QueryTrackingWorkspaceResponse,
 } from '@ainyc/canonry-contracts'
 
+import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 import { useQueryTrackingPublish } from '../../queries/use-query-tracking-publish.js'
 import { WriteButton } from '../shared/AccessControls.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
@@ -16,7 +17,7 @@ import { SegmentedRadioGroup, type SegmentedRadioOption } from '../shared/Segmen
 import { StatusNote } from '../shared/StatusNote.js'
 import { Button } from '../ui/button.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet.js'
-import type { TrackingReviewState } from './TrackingReview.js'
+import { SearchLocationText, type TrackingReviewState } from './TrackingReview.js'
 import { VisibilityScopePicker } from './VisibilityScopePicker.js'
 
 type Subject = 'market' | 'location' | 'company'
@@ -234,7 +235,7 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
                 : <>
                   <span className={FIELD_LABEL}>{placing.label}</span>
                   {/* With the Add query form one link away, the note says where hand-picked locations are. */}
-                  <StatusNote icon={Info} label={placing.none} detail={subject !== 'location' && onOpenComposer ? 'Use More ways to add for hand-picked locations.' : undefined} />
+                  <StatusNote icon={MapPinOff} label={placing.none} detail={subject !== 'location' && onOpenComposer ? 'Use More ways to add for hand-picked locations.' : undefined} />
                 </>}
               {subject !== 'location' || !place ? null : locationMarkets.length > 0 ? (
                 <div className={`${FIELD_HINT} flex items-center`}>
@@ -245,7 +246,18 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
                 <div className="mt-2">
                   <StatusNote icon={AlertTriangle} tone="caution" label="In no market" detail="A query for a location in no market needs its own search location and engines." />
                   {contextChoices.length === 0 ? <div><StatusNote icon={AlertTriangle} tone="caution" label="No search location" detail="No search location and engines are set up for this project, so this location cannot take the query." /></div>
-                    : contextChoices.length === 1 ? <p className={FIELD_HINT}>Search location and engines: {contextChoices[0]!.label}</p>
+                    : contextChoices.length === 1 ? (
+                      // The one choice, as the review names it: engines by display name, with the form's own label, model ids included, behind the value.
+                      <dl className={`${FIELD_HINT} flex flex-wrap items-center gap-x-2`}>
+                        <dt className="shrink-0">Search location and engines</dt>
+                        <dd className="min-w-0 text-strong">
+                          <SearchLocationText
+                            label={`${contextChoices[0]!.input.location ?? 'No search location'} · ${contextChoices[0]!.input.providers.map(providerDisplayName).join(', ')}`}
+                            detail={contextChoices[0]!.label}
+                          />
+                        </dd>
+                      </dl>
+                    )
                       : <>
                         <label className={`${FIELD_LABEL} mt-3`} htmlFor={`${id}-context`}>Search location and engines</label>
                         <select id={`${id}-context`} required className={`${FIELD_CONTROL} min-h-11`} value={context?.label ?? ''} onChange={event => edit(setContextLabel)(event.target.value)}>
@@ -287,9 +299,10 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
                 <button type="button" className="min-h-11 text-left text-sm text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={openComposer}>
                   More ways to add
                 </button>
-                <InfoTooltip text="Hand-picked locations, patterns or saved research, in the Add query form. It opens with your first line only." />
+                <InfoTooltip text="Hand-picked locations, patterns or saved research, in the Add query form." />
               </span>
-              {lines.length > 1 ? <StatusNote icon={Info} label="First line only" detail="The Add query form adds one query at a time. It opens with your first line only." /> : null}
+              {/* Not the info glyph: the help beside the link is one, and two a few pixels apart read as one control. */}
+              {lines.length > 1 ? <StatusNote icon={CornerDownRight} label="First line only" detail="The Add query form adds one query at a time. It opens with your first line only." /> : null}
             </div> : null}
           </div>
           {refusal}

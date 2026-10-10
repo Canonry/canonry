@@ -15,7 +15,7 @@ import { createQueryClient } from '../src/queries/query-client.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 import {
   active, advancedResetLine, advancedResetNotice, context, installScrollSpy, installWorkspaceApi, listLocations, noteButton, preview, previewToken,
-  removalDiff, removalWorkload, renderWorkspace, reviewNumbers, reviewRemoval, reviewRow, sharedSearchLocation, sweepActiveLabel, sweepActiveMessage,
+  removalDiff, removalWorkload, renderWorkspace, reviewNumbers, reviewRemoval, reviewRow, searchLocationModels, sharedSearchLocation, sweepActiveLabel, sweepActiveMessage,
   trackedAfterRemoval, workspace, workspaceVersion,
 } from './support/query-tracking-fixtures.js'
 
@@ -132,12 +132,13 @@ test('lists each added, reused and removed query in one table, with unchanged qu
   const added = reviewRow('Acme hours')
   // The server's link count, which passes the two locations the row lists.
   expect(added).toMatchObject({ change: 'Added', type: 'Non-brand', assignments: '3', searchLocation: '2 combinations' })
-  // The rows differ, so each names its own: the engine by its display name, with the model id as the help beside it.
+  // The rows differ, so each names its own: the engine by its display name, with the model id behind the value.
   expect(sharedSearchLocation()).toBeNull()
   expect(reviewRow('Best AEO platform')).toMatchObject({ change: 'Reused', type: 'Non-brand', assignments: '1', searchLocation: 'New York · OpenAI' })
-  expect(within(reviewRow('Best AEO platform').row).getByRole('button', { name: 'New York · openai (gpt-5)' })).toBeTruthy()
-  expect(within(added.row).getByRole('button', { name: 'New York · openai (gpt-5); Chicago · openai (gpt-5)' })).toBeTruthy()
-  expect(reviewRow('Acme pricing')).toMatchObject({ change: 'Removed', type: '', assignments: '−1', searchLocation: '' })
+  expect(searchLocationModels(reviewRow('Best AEO platform').row, 'New York · OpenAI')).toBe('New York · openai (gpt-5)')
+  expect(searchLocationModels(added.row, '2 combinations')).toBe('New York · openai (gpt-5); Chicago · openai (gpt-5)')
+  // A removed row reads the type the query has now, as its Subject does.
+  expect(reviewRow('Acme pricing')).toMatchObject({ change: 'Removed', type: 'Branded', assignments: '−1', searchLocation: '' })
   // A removed row lists no locations: the post-change state holds only what survives.
   expect(within(reviewRow('Acme pricing').row).queryByRole('button')).toBeNull()
   expect(listLocations(added.row, '2 locations')).toEqual([
@@ -151,6 +152,11 @@ test('lists each added, reused and removed query in one table, with unchanged qu
 
   const unchanged = screen.getByText('1 unchanged query').closest('details')!
   expect(unchanged.open).toBe(false)
+  // Every other tracked query is in this list, so its table is drawn only once it is opened.
+  expect(screen.queryByRole('table', { name: 'Unchanged queries' })).toBeNull()
+  expect(unchanged.textContent).toBe('1 unchanged query')
+  fireEvent.click(screen.getByText('1 unchanged query'))
+  await screen.findByRole('table', { name: 'Unchanged queries' })
   const kept = reviewRow('Acme reviews', 'Unchanged queries')
   expect(unchanged.contains(kept.row)).toBe(true)
   // Every unchanged row is asked the same way, so that is said once above the table, in place of a column.
@@ -358,8 +364,8 @@ test('describes removed assignments without attributing the retained Property to
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
   await screen.findByText('1 removed')
   const removed = reviewRow('Acme pricing')
-  // The post-change row holds only what survives (Beta), so the removal names no type or search location.
-  expect(removed).toMatchObject({ change: 'Removed', type: '', assignments: '−1', searchLocation: undefined })
+  // The post-change row holds only what survives (Beta), so the removal names no search location. Its type is the query's own, now.
+  expect(removed).toMatchObject({ change: 'Removed', type: 'Branded', assignments: '−1', searchLocation: undefined })
   expect(sharedSearchLocation()).toBeNull()
   expect(removed.row.textContent).not.toContain('Beta')
 })

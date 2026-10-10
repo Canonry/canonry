@@ -95,6 +95,20 @@ test.each([
   expect(screen.queryByRole('button', { name: `${advancedResetLine}. ${advancedResetNotice}` })).toBeNull()
 })
 
+test('names no place on the Remove form of a simple project', async () => {
+  installWorkspaceApi(undefined, [], { ...workspace(), mode: 'simple' })
+  renderWorkspace()
+  await screen.findByText('Acme pricing')
+  fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
+  const form = screen.getByRole('heading', { name: 'Remove query' }).closest('.surface-card') as HTMLElement
+  // A simple project has one place, so the form names the query and what the removal keeps, and no place.
+  expect(within(form).getByText('Acme pricing')).toBeTruthy()
+  expect(within(form).queryByText('Applies to')).toBeNull()
+  expect(within(form).queryByRole('term')).toBeNull()
+  noteButton('Past answers kept', 'Removal applies to future sweeps. Earlier results stay unchanged.', form)
+  expectNoSentence(form)
+})
+
 test.each([
   { name: 'a simple commit', mode: 'simple', committed: true, title: 'Tracked queries updated', detail: undefined },
 ])('names when new numbers arrive only after $name', async ({ mode, committed, title, detail }) => {
@@ -133,7 +147,7 @@ test.each(['simple'])('commits a resolved template query edit in %s mode without
   renderWorkspace()
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Edit Acme pricing' }))
-  expect((screen.getByLabelText('Query text') as HTMLTextAreaElement).value).toBe('Acme pricing')
+  expect((screen.getByLabelText('Query') as HTMLTextAreaElement).value).toBe('Acme pricing')
   // The note's help names the button this project has: a simple project keeps Add query.
   const form = screen.getByRole('heading', { name: 'Edit query' }).closest('.surface-card') as HTMLElement
   noteButton('Locations and engines kept', `An edit keeps the query's locations and engines. Use ${mode === 'simple' ? 'Add query' : 'Add queries'} to track it somewhere else.`, form)
@@ -141,7 +155,7 @@ test.each(['simple'])('commits a resolved template query edit in %s mode without
   expect(within(form).queryByText('Applies to')).toBeNull()
   expect(within(form).queryByLabelText('Type')).toBeNull()
   expectNoSentence(form)
-  fireEvent.change(screen.getByLabelText('Query text'), { target: { value: 'Acme fees' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Acme fees' } })
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
   await screen.findByText(mode === 'simple' ? 'Confirm tracked query changes' : 'Review tracking changes')
   fireEvent.click(screen.getByRole('button', { name: mode === 'simple' ? 'Confirm changes' : 'Publish changes' }))
@@ -165,8 +179,9 @@ test.each(['non-brand', 'branded'] as const)('keeps all Simple tracked rows visi
 
   expect(await screen.findByText('Acme pricing')).toBeTruthy()
   expect(screen.getByText('Best AEO platform')).toBeTruthy()
-  // The count line is the count alone.
-  expect(screen.getByText('2 saved query records in this view.')).toBeTruthy()
+  // The count line is the count alone: a number and its noun, with no sentence.
+  expect(screen.getByText('2 queries')).toBeTruthy()
+  expect(screen.queryByText(/saved query record/)).toBeNull()
   expect(screen.queryByText(/property, group, or market/)).toBeNull()
   expect(screen.queryByRole('combobox', { name: 'Query type' })).toBeNull()
   expect(screen.queryByRole('columnheader', { name: 'Class' })).toBeNull()

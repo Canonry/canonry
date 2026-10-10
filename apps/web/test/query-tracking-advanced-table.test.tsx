@@ -218,7 +218,7 @@ test.each([
 
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Edit Acme pricing' }))
-  fireEvent.change(screen.getByLabelText('Query text'), { target: { value: 'Acme fees' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Acme fees' } })
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
   await screen.findByText('Review tracking changes')
   expect(previewBody).toEqual({
@@ -304,10 +304,10 @@ test.each(['advanced'])('commits a resolved template query edit in %s mode witho
   renderWorkspace()
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Edit Acme pricing' }))
-  expect((screen.getByLabelText('Query text') as HTMLTextAreaElement).value).toBe('Acme pricing')
+  expect((screen.getByLabelText('Query') as HTMLTextAreaElement).value).toBe('Acme pricing')
   // The note's help names the button this project has: a simple project keeps Add query.
   noteButton('Locations and engines kept', `An edit keeps the query's locations and engines. Use ${mode === 'simple' ? 'Add query' : 'Add queries'} to track it somewhere else.`)
-  fireEvent.change(screen.getByLabelText('Query text'), { target: { value: 'Acme fees' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Acme fees' } })
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
   await screen.findByText(mode === 'simple' ? 'Confirm tracked query changes' : 'Review tracking changes')
   fireEvent.click(screen.getByRole('button', { name: mode === 'simple' ? 'Confirm changes' : 'Publish changes' }))

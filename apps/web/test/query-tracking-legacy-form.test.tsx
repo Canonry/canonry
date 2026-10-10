@@ -1,6 +1,8 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
+import { TrackingComposer } from '../src/components/project/queries/TrackingComposer.js'
+import { defaultTrackingDraft } from '../src/components/project/queries/tracking-draft.js'
 import { jsonResponse } from './mock-fetch.js'
 import {
   active, chooseContext, context, expectNoSentence, installScrollSpy, installWorkspaceApi, listLocations, noteButton, openLegacyAdd, preview, previewToken,
@@ -173,7 +175,7 @@ test('starts with the question, preserves written text, and keeps required measu
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(false)
   // The form shows labels only. Every sentence is behind a help button.
   const form = screen.getByRole('heading', { name: 'Add query' }).closest('.surface-card') as HTMLElement
-  expect(within(form).getByText('Publish runs no sweep')).toBeTruthy()
+  noteButton('No sweep on publish', 'Publishing does not run a sweep.', form)
   expect(form.textContent).not.toMatch(/question|propert|classif|template|assign|context/i)
   expectNoSentence(form)
 })
@@ -195,6 +197,19 @@ test.each([
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
 })
 
+test('offers to keep the combinations a draft already holds', () => {
+  const chicago = { ...selectedContext, location: 'Chicago' }
+  const draft = { ...defaultTrackingDraft({ measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' }), text: 'Acme hours', contexts: [selectedContext, chicago] }
+  const onDraftChange = vi.fn()
+  render(<TrackingComposer workspace={workspace() as never} templates={[]} action={{ kind: 'add' }} draft={draft} onDraftChange={onDraftChange} onClose={vi.fn()} canReview isPreviewing={false} editorHeadingRef={{ current: null }} onReview={vi.fn()} />)
+  const control = screen.getByLabelText('Search location and engines') as HTMLSelectElement
+  // The draft's own two stay one choice, ahead of the single ones.
+  expect([...control.options].map(option => option.text)).toEqual(['Choose a search location and engines', 'Keep 2 current combinations', 'New York · openai (gpt-5)', 'Chicago · openai (gpt-5)'])
+  expect(control.selectedOptions[0]!.text).toBe('Keep 2 current combinations')
+  fireEvent.change(control, { target: { value: control.options[3]!.value } })
+  expect(onDraftChange).toHaveBeenLastCalledWith({ ...draft, contexts: [chicago] })
+})
+
 test('opens Property Add with a compact destination and expands assignments only on Change', async () => {
   const data = workspace()
   data.targets.push(...Array.from({ length: 224 }, (_, index) => ({ stableKey: `property-${index}`, label: `Property ${index}` })))
@@ -209,7 +224,7 @@ test('opens Property Add with a compact destination and expands assignments only
   fireEvent.click(screen.getByRole('button', { name: 'Change tracking destination' }))
   expect(screen.getByRole('checkbox', { name: 'Acme, Location' })).toBeTruthy()
   const search = screen.getByRole('searchbox', { name: 'Filter places' }) as HTMLInputElement
-  expect(search.placeholder).toBe('Search locations, groups, markets')
+  expect(search.placeholder).toBe('Search places')
   fireEvent.change(search, { target: { value: 'Property 223' } })
   expect(screen.getByRole('checkbox', { name: 'Property 223, Location' })).toBeTruthy()
   fireEvent.change(search, { target: { value: 'no such place' } })
@@ -373,7 +388,7 @@ test('requires an explicit context when a market is combined with a group', asyn
   openLegacyAdd()
   fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Mixed scope query' } })
   fireEvent.click(screen.getByRole('checkbox', { name: 'New York, Market' }))
-  expect(screen.queryByLabelText('Location and engines')).toBeNull()
+  expect(screen.queryByLabelText('Search location and engines')).toBeNull()
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(false)
 
   fireEvent.click(screen.getByRole('checkbox', { name: 'North East, Group' }))
@@ -501,7 +516,7 @@ test.each(['research', 'discovery'] as const)('tracks a selected saved %s result
   expect((screen.getByLabelText(source === 'research' ? 'Saved research query' : 'Discovery query') as HTMLSelectElement).value).toBe(source === 'research' ? 'research-query-1' : 'discovery-probe-1')
   if (source === 'research') {
     expect(onSelectionChange).toHaveBeenCalledWith({ measurementScope: 'market', measurementScopeKey: 'new-york' })
-    expect(screen.queryByLabelText('Location and engines')).toBeNull()
+    expect(screen.queryByLabelText('Search location and engines')).toBeNull()
     expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(false)
   } else {
     expect(onSelectionChange).not.toHaveBeenCalled()
@@ -554,7 +569,8 @@ test.each([false, true])('keeps reused-query classifications collapsed until req
   // A no-op lists the query it matched and counts no change.
   expect(screen.getByRole('heading', { name: noOp ? 'No tracking changes' : 'Review 1 change' })).toBeTruthy()
   expect((screen.getByRole('button', { name: noOp ? 'Publish changes' : 'Publish 1 change' }) as HTMLButtonElement).disabled).toBe(noOp)
-  expect(reviewRow('Acme pricing').type).toBe('Non-brand, Branded')
+  // Asked under both types, the row reads as the Tracked table reads it. Each location's own type is in its list.
+  expect(reviewRow('Acme pricing').type).toBe('Mixed')
   expect(screen.queryByText(/^Acme · Non-brand ·/)).toBeNull()
   const lines = listLocations(reviewRow('Acme pricing').row, '2 locations')
   expect(lines[0]).toMatch(/^Acme · Non-brand ·/)

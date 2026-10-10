@@ -9,7 +9,7 @@ import { TrackingAddQueriesSheet } from '../src/components/project/queries/AddQu
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
-import { expectNoSentence, noteButton } from './support/query-tracking-fixtures.js'
+import { expectNoSentence, noteButton, searchLocationModels } from './support/query-tracking-fixtures.js'
 
 afterEach(() => {
   cleanup()
@@ -37,7 +37,7 @@ const marketsHelp = "Asked with these markets' engines and search locations."
 const queriesHelp = 'Blank and repeated lines are skipped.'
 const companyHelp = 'Company is not available yet.'
 const handPickedLink = 'More ways to add'
-const handPickedHelp = 'Hand-picked locations, patterns or saved research, in the Add query form. It opens with your first line only.'
+const handPickedHelp = 'Hand-picked locations, patterns or saved research, in the Add query form.'
 const firstLineOnly = 'The Add query form adds one query at a time. It opens with your first line only.'
 const noMarketHelp = 'A query for a location in no market needs its own search location and engines.'
 
@@ -680,7 +680,10 @@ test('gives a location in no market the one search location and engines the proj
   fillLocation(sheet, 'Birch House', 'Birch House reviews')
   // A short caution; why it matters is its help.
   expect(noteButton('In no market', noMarketHelp, screen.getByRole('dialog', { name: 'Add queries' })).classList.contains('text-caution')).toBe(true)
-  expect(sheet.getByText('Search location and engines: New York · openai (gpt-5)')).toBeTruthy()
+  // The one choice reads as the review names it: the engine by display name, with the model id behind the value.
+  const only = sheet.getByText('Search location and engines', { selector: 'dt' }).parentElement!
+  expect(only.textContent).toBe('Search location and enginesNew York · OpenAI')
+  expect(searchLocationModels(only, 'New York · OpenAI')).toBe('New York · openai (gpt-5)')
   expectNoSentence(screen.getByRole('dialog', { name: 'Add queries' }))
   expect(sheet.queryByRole('combobox')).toBeNull()
   expect(sheet.queryByText(/^Counts in:/)).toBeNull()
@@ -798,9 +801,9 @@ test.each([
   expect(within(changes).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Change', 'Query', 'Type', 'Location links'])
   const where = changes.parentElement!.previousElementSibling as HTMLElement
   expect(within(where).getByRole('term').textContent).toBe('Search location and engines')
-  // Engines by display name; the model ids are the help beside them.
+  // Engines by display name; the model ids are behind the value, which is its own help button.
   expect(within(where).getByRole('definition').textContent).toBe(asked)
-  expect(within(where).getByRole('button', { name: models })).toBeTruthy()
+  expect(searchLocationModels(where, asked)).toBe(models)
   const row = within(changes).getByText('Acme reviews').closest('tr')!
   // Type and the server's assignment count (two either way, on one location or on two).
   expect([...row.cells].map(cell => cell.textContent).slice(2)).toEqual(['Branded', '2'])
