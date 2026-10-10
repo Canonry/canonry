@@ -342,6 +342,11 @@ function simpleSweepComparer(
  * without one froze another dispatch, as every member but one of an
  * all-locations run did, so it never hides the full sweep before it.
  *
+ * A run of only some queries (`runs.queries` set) is the engine's own idea of
+ * a scoped run, so among the sweeps sent as the project sends now, one of the
+ * whole list is preferred over a newer run of part of it. It is a preference,
+ * not a filter: some stores stamp the list on every sweep.
+ *
  * The newest sweep's definition is read alone, because on most reads it is
  * the answer. Only when it is not are the older candidates' definitions read,
  * all in one read. `candidates` is the look-back: the newest
@@ -350,24 +355,31 @@ function simpleSweepComparer(
 function simpleSweepChoice(
   db: DatabaseClient,
   projectId: string,
-  candidates: ReadonlyArray<{ id: string }>,
+  candidates: ReadonlyArray<{ id: string; queries?: string[] | null }>,
   sameDispatch: (definition: SimpleMeasurementDefinition) => boolean,
 ): { id: string; definition: SimpleMeasurementDefinition | undefined } | undefined {
-  const [newest, ...older] = candidates
+  const newest = candidates.at(0)
   if (!newest) return undefined
+  const older = candidates.slice(1)
+  const wholeList = (candidate: { queries?: string[] | null }) => candidate.queries == null
   const definition = frozenSimpleDefinitions(db, projectId, [newest.id]).get(newest.id)
-  if (older.length === 0 || (definition !== undefined && sameDispatch(definition))) return { id: newest.id, definition }
+  const newestMatches = definition !== undefined && sameDispatch(definition)
+  if (older.length === 0 || (newestMatches && wholeList(newest))) return { id: newest.id, definition }
   const definitions = frozenSimpleDefinitions(db, projectId, older.map(candidate => candidate.id))
-  for (const candidate of older) {
-    const frozen = definitions.get(candidate.id)
-    if (frozen !== undefined && sameDispatch(frozen)) return { id: candidate.id, definition: frozen }
-  }
-  return { id: newest.id, definition }
+  const matching = [
+    ...(newestMatches ? [{ candidate: newest, frozen: definition }] : []),
+    ...older.flatMap(candidate => {
+      const frozen = definitions.get(candidate.id)
+      return frozen !== undefined && sameDispatch(frozen) ? [{ candidate, frozen }] : []
+    }),
+  ]
+  const chosen = matching.find(match => wholeList(match.candidate)) ?? matching.at(0)
+  return chosen ? { id: chosen.candidate.id, definition: chosen.frozen } : { id: newest.id, definition }
 }
 
 /** Whole-project sweeps, newest first, without their stored slot lists. */
 function sweepCandidates(db: DatabaseClient, projectId: string, planless: boolean, runId: string | undefined) {
-  return db.select({ id: runs.id, versionId: runs.measurementPlanVersionId }).from(runs).where(and(
+  return db.select({ id: runs.id, versionId: runs.measurementPlanVersionId, queries: runs.queries }).from(runs).where(and(
     storedSweepFilter(projectId, planless),
     // A scoped spot check measured a slice, so it is never read here, even by id.
     isNull(runs.measurementScope),

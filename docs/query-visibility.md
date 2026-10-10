@@ -195,7 +195,7 @@ It reads stored evidence only and never starts a sweep.
 
 The default sweep is the newest completed or partial whole-project sweep comparable to the active plan, else the newest of any plan. This is the sweep AI Visibility shows by default.
 A simple project has no plan. Its default sweep is the newest of its last 100 sweeps that was sent with the engines, models, search location, country and language the project uses now, else the newest.
-So a newer run of one engine, at another search location or with none never hides the full sweep before it. An all-locations run is one run per search location, and only the one at the project's default search location counts as sent that way. AI Visibility still opens on the newest sweep of a simple project.
+So a newer run of one engine, at another search location or with none never hides the full sweep before it. Among the sweeps sent that way, a sweep of the whole query list is preferred over a newer run of only some queries (`canonry run --query`). An all-locations run is one run per search location, and only the one at the project's default search location counts as sent that way. AI Visibility still opens on the newest sweep of a simple project.
 `run` names it: `id`, `createdAt`, `completedAt`, `status`, `revision` (null on a simple project) and `matchesCurrentTracking`.
 `matchesCurrentTracking` is false when tracking changed after that sweep. A label-only republish keeps it true.
 On a simple project, tracking is the tracked queries and the project's names, sites, engines, models, search location, country and language. An older sweep that recorded none of them is never a match.

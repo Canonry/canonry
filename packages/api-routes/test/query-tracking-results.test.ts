@@ -706,12 +706,14 @@ describe('query tracking results: a simple project', () => {
     frozen?: ReadonlyArray<readonly [id: string, text: string]>
     engines?: readonly Engine[]
     location?: SearchLocation | null
+    /** The query texts a run of only some queries was asked for; a sweep of the whole list stores none. */
+    only?: readonly string[]
     answers: ReadonlyArray<{ queryId: string; text: string; provider: Engine; answer: string; cited?: boolean; mentioned?: boolean | null }>
   }): string {
     const id = crypto.randomUUID()
     db.insert(runs).values({
       id, projectId: PROJECT_ID, kind: RunKinds['answer-visibility'], status: RunStatuses.completed, trigger: RunTriggers.manual,
-      finishedAt: input.createdAt, createdAt: input.createdAt,
+      finishedAt: input.createdAt, createdAt: input.createdAt, queries: input.only ? [...input.only] : null,
     }).run()
     if (input.frozen) {
       const definition = buildSimpleMeasurementDefinition({
@@ -884,6 +886,43 @@ describe('query tracking results: a simple project', () => {
     const oneEngine = await results(`runId=${newer[0]}`)
     expect(oneEngine.run).toMatchObject({ id: newer[0], matchesCurrentTracking: false })
     expect(oneEngine).toMatchObject({ engines: ['openai'], rows: [], pendingRows: 2 })
+  })
+
+  it('reads the sweep of the whole list, never a newer run of only some of the queries', async () => {
+    const tracked = [BRAND_QUERY, CATEGORY_QUERY]
+    seedSimpleQueries(tracked)
+    const full = seedSimpleSweep({ createdAt: FIRST_SWEEP, frozen: tracked, answers: everyEngine(tracked) })
+    const swept = await results()
+    expect(swept.run).toMatchObject({ id: full, matchesCurrentTracking: true })
+
+    // Same engines and search location, one query only: the engine's own idea of a scoped run.
+    const some = seedSimpleSweep({
+      createdAt: LAST_SWEEP, frozen: [BRAND_QUERY], only: [BRAND_QUERY[1]],
+      answers: everyEngine([BRAND_QUERY], ENGINES, 'Several builders stand out.'),
+    })
+    expect(await results()).toStrictEqual(swept)
+    expect(await states()).toEqual(['tracked', 'tracked'])
+
+    // Named by id it is still read as it ran.
+    expect((await results(`runId=${some}`)).run).toMatchObject({ id: some })
+
+    // A store that stamps the list on every sweep has no whole-list sweep to prefer: the newest one sent as the project sends now is read.
+    db.update(runs).set({ queries: tracked.map(([, text]) => text) }).where(eq(runs.id, full)).run()
+    expect((await results()).run).toMatchObject({ id: some })
+  })
+
+  it('keeps the rows after a new name, even with a newer run of one engine', async () => {
+    const tracked = [BRAND_QUERY, CATEGORY_QUERY]
+    seedSimpleQueries(tracked)
+    const full = seedSimpleSweep({ createdAt: FIRST_SWEEP, frozen: tracked, answers: everyEngine(tracked) })
+    seedSimpleSweep({ createdAt: LAST_SWEEP, frozen: tracked, engines: ['openai'], answers: everyEngine(tracked, ['openai'], 'Several builders stand out.') })
+    // The choice of sweep looks at what was sent to the engines, not at the project's names.
+    db.update(projects).set({ displayName: 'Northbridge Homes' }).where(eq(projects.id, PROJECT_ID)).run()
+
+    const renamed = await results()
+    expect(renamed.run).toMatchObject({ id: full, matchesCurrentTracking: false })
+    expect(rowKeys(renamed)).toEqual(['q-brand branded', 'q-category non-brand'])
+    expect(renamed.pendingRows).toBe(0)
   })
 
   it('reads the default member of an all-locations run, and the newest sweep when none was sent as the project sends now', async () => {
