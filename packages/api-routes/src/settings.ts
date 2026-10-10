@@ -1,15 +1,19 @@
 import type { FastifyInstance } from 'fastify'
 import type { ProviderModelRegistry, ProviderQuotaPolicy, ProviderReloadRequest } from '@ainyc/canonry-contracts'
 import {
+  AppError,
   validationError,
   notImplemented,
   internalError,
+  OutcomeReasonCodes,
+  OutcomeStatuses,
   providerReloadRequestSchema,
   providerReloadResponseDtoSchema,
 } from '@ainyc/canonry-contracts'
 import { requireAdminSession, requireInstanceAdministrator, requireScope } from './auth.js'
 import { auditFromRequest, type AuditEntry } from './helpers.js'
 import { connectionRoute, outcomeProviderName } from './connection-telemetry.js'
+import { withFeatureOutcome } from './feature-outcome.js'
 
 /**
  * Scope required to mutate any global setting — provider API keys,
@@ -205,7 +209,7 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     return result
   }))
 
-  app.post('/settings/providers/reload', async (request) => {
+  app.post('/settings/providers/reload', async (request) => withFeatureOutcome(app, { feature: 'providers', operation: 'reload' }, async (settle) => {
     requireScope(request, SETTINGS_WRITE_SCOPE)
     requireInstanceAdministrator(request)
     const parsed = providerReloadRequestSchema.safeParse(request.body ?? {})
@@ -219,8 +223,9 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
       actor: 'api', action: 'providers.reloaded', entityType: 'provider',
     })
     const providers = await opts.onProviderReload(parsed.data, { actor, userAgent, actorSession, requestId, credentialId })
+    settle({ status: OutcomeStatuses.succeeded, counts: { providers: providers.filter(provider => provider.configured).length } })
     return providerReloadResponseDtoSchema.parse({ reloaded: true, providers })
-  })
+  }, err => (err instanceof AppError && err.code === 'NOT_IMPLEMENTED' ? OutcomeReasonCodes.UNSUPPORTED : undefined)))
 
   app.put<{
     Body: { clientId?: string; clientSecret?: string }

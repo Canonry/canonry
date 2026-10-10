@@ -1,6 +1,11 @@
 import type { FastifyInstance } from 'fastify'
-import { AppError, notFound, providerError, validationError, describeError } from '@ainyc/canonry-contracts'
-import type { OutcomeReasonCode, WordpressEnv } from '@ainyc/canonry-contracts'
+import { AppError, bucketDuration, notFound, OutcomeReasonCodes, OutcomeStatuses, providerError, validationError, describeError } from '@ainyc/canonry-contracts'
+import type {
+  OutcomeReasonCode,
+  WordpressBulkMetaEntryResultDto,
+  WordpressEnv,
+  WordpressSchemaDeployEntryResultDto,
+} from '@ainyc/canonry-contracts'
 import {
   buildManualLlmsTxtUpdate,
   buildManualSchemaUpdate,
@@ -26,6 +31,7 @@ import {
 } from '@ainyc/canonry-integration-wordpress'
 import type { SchemaProfileFile, WordpressClientConnection, WordpressConnectionRecord } from '@ainyc/canonry-integration-wordpress'
 import { createGuardedFetch, EgressFailedError, EgressRefusedError } from './guarded-fetch.js'
+import { failedOutcome, reportFeatureOutcome, withFeatureOutcome, type FeatureOutcome } from './feature-outcome.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { resolveWebhookTarget } from './webhooks.js'
 import { connectionRoute, startConnectionAttempt, webhookTargetRefusalReason, type ConnectionAttempt } from './connection-telemetry.js'
@@ -112,6 +118,35 @@ async function withWordpressErrorHandling<T>(handler: () => Promise<T>, attempt?
   }
 }
 
+/** Canonry hands back manual steps instead of writing: the site cannot take this write through REST. */
+const MANUAL_ASSIST_OUTCOME: FeatureOutcome = { status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.UNSUPPORTED }
+
+/** Bulk SEO meta: applied entries, manual-assist entries (no writable meta fields) and entries that errored. */
+function metaWriteOutcome(results: WordpressBulkMetaEntryResultDto[]): FeatureOutcome {
+  const applied = results.filter(r => r.status === 'applied').length
+  const manual = results.filter(r => r.status === 'manual').length
+  const errored = results.filter(r => r.status === 'skipped').length
+  const counts = { items: applied, skipped: manual, failures: errored }
+  if (manual === 0 && errored === 0) return { status: OutcomeStatuses.succeeded, counts }
+  const reasonCode = manual > 0 ? OutcomeReasonCodes.UNSUPPORTED : OutcomeReasonCodes.UNKNOWN
+  if (applied > 0) return { status: OutcomeStatuses.partial, reasonCode, counts }
+  return { status: errored > 0 ? OutcomeStatuses.failed : OutcomeStatuses.skipped, reasonCode, counts }
+}
+
+/** Schema deploy: pages deployed, stripped by WordPress (the user lacks unfiltered_html), not found, or failed. */
+function schemaDeployOutcome(results: WordpressSchemaDeployEntryResultDto[]): FeatureOutcome {
+  const deployed = results.filter(r => r.status === 'deployed').length
+  const stripped = results.filter(r => r.status === 'stripped').length
+  const missing = results.filter(r => r.status === 'skipped').length
+  const failed = results.filter(r => r.status === 'failed').length
+  const counts = { items: deployed, skipped: stripped + missing, failures: failed }
+  if (deployed === results.length) return { status: OutcomeStatuses.succeeded, counts }
+  const reasonCode = stripped > 0
+    ? OutcomeReasonCodes.PERMISSION_MISSING
+    : failed > 0 ? OutcomeReasonCodes.UNKNOWN : OutcomeReasonCodes.NOT_FOUND
+  return { status: deployed > 0 ? OutcomeStatuses.partial : OutcomeStatuses.failed, reasonCode, counts }
+}
+
 export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoutesOptions) {
   const allowLoopback = opts.allowLoopbackWebhooks === true
 
@@ -142,9 +177,14 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
     }
   }
 
-  function requireConnection(store: WordpressConnectionStore, projectName: string): WordpressClientConnection {
+  function requireConnection(
+    store: WordpressConnectionStore,
+    projectName: string,
+    settle?: (outcome: FeatureOutcome) => void,
+  ): WordpressClientConnection {
     const connection = store.getConnection(projectName)
     if (!connection) {
+      settle?.({ status: OutcomeStatuses.failed, reasonCode: OutcomeReasonCodes.NOT_CONNECTED })
       throw validationError(`No WordPress connection found for project "${projectName}". Run "canonry wordpress connect ${projectName}" first.`)
     }
     return guarded(connection)
@@ -303,10 +343,10 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
     Params: { name: string }
     Body: { title: string; slug: string; content: string; status?: string; env?: WordpressEnv }
   }>('/projects/:name/wordpress/pages', async (request) => {
-    return withWordpressErrorHandling(async () => {
+    return withWordpressErrorHandling(async () => withFeatureOutcome(app, { feature: 'wordpress', operation: 'publish' }, async (settle) => {
       const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name)
+      const connection = requireConnection(store, project.name, settle)
       const { title, slug, content, status } = request.body ?? {}
       const env = parseEnvInput(request.body?.env)
       if (!title || !slug || !content) {
@@ -320,18 +360,19 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
         entityType: 'wordpress_page',
         entityId: created.slug,
       })
+      settle({ status: OutcomeStatuses.succeeded, counts: { items: 1 } })
       return created
-    })
+    }, wordpressFailureReason))
   })
 
   app.put<{
     Params: { name: string }
     Body: { currentSlug: string; title?: string; slug?: string; content?: string; status?: string; env?: WordpressEnv }
   }>('/projects/:name/wordpress/page', async (request) => {
-    return withWordpressErrorHandling(async () => {
+    return withWordpressErrorHandling(async () => withFeatureOutcome(app, { feature: 'wordpress', operation: 'publish' }, async (settle) => {
       const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name)
+      const connection = requireConnection(store, project.name, settle)
       const currentSlug = request.body?.currentSlug?.trim()
       if (!currentSlug) {
         throw validationError('currentSlug is required')
@@ -350,18 +391,19 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
         entityType: 'wordpress_page',
         entityId: currentSlug,
       })
+      settle({ status: OutcomeStatuses.succeeded, counts: { items: 1 } })
       return updated
-    })
+    }, wordpressFailureReason))
   })
 
   app.post<{
     Params: { name: string }
     Body: { slug: string; title?: string; description?: string; noindex?: boolean; env?: WordpressEnv }
   }>('/projects/:name/wordpress/page/meta', async (request) => {
-    return withWordpressErrorHandling(async () => {
+    return withWordpressErrorHandling(async () => withFeatureOutcome(app, { feature: 'wordpress', operation: 'meta_write' }, async (settle) => {
       const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name)
+      const connection = requireConnection(store, project.name, settle)
       const slug = request.body?.slug?.trim()
       if (!slug) {
         throw validationError('slug is required')
@@ -379,8 +421,9 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
         entityType: 'wordpress_page',
         entityId: slug,
       })
+      settle({ status: OutcomeStatuses.succeeded, counts: { items: 1 } })
       return updated
-    })
+    }, wordpressFailureReason))
   })
 
   app.post<{
@@ -390,10 +433,10 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
       env?: WordpressEnv
     }
   }>('/projects/:name/wordpress/pages/meta/bulk', async (request) => {
-    return withWordpressErrorHandling(async () => {
+    return withWordpressErrorHandling(async () => withFeatureOutcome(app, { feature: 'wordpress', operation: 'meta_write' }, async (settle) => {
       const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name)
+      const connection = requireConnection(store, project.name, settle)
       const entries = request.body?.entries
       if (!Array.isArray(entries) || entries.length === 0) {
         throw validationError('entries array is required and must not be empty')
@@ -415,8 +458,9 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
           entityId: `bulk(${applied.map((r) => r.slug).join(',')})`,
         })
       }
+      settle(metaWriteOutcome(result.results))
       return result
-    })
+    }, wordpressFailureReason))
   })
 
   app.get<{
@@ -440,35 +484,39 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
     Params: { name: string }
     Body: { slug: string; type?: string; json: string; env?: WordpressEnv }
   }>('/projects/:name/wordpress/schema/manual', async (request) => {
-    return withWordpressErrorHandling(async () => {
+    return withWordpressErrorHandling(async () => withFeatureOutcome(app, { feature: 'wordpress', operation: 'schema_deploy' }, async (settle) => {
       const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name)
+      const connection = requireConnection(store, project.name, settle)
       const slug = request.body?.slug?.trim()
       const json = request.body?.json
       if (!slug || !json) {
         throw validationError('slug and json are required')
       }
       const env = parseEnvInput(request.body?.env)
-      return buildManualSchemaUpdate(connection, slug, { type: request.body?.type, json }, env)
-    })
+      const manual = await buildManualSchemaUpdate(connection, slug, { type: request.body?.type, json }, env)
+      settle(MANUAL_ASSIST_OUTCOME)
+      return manual
+    }, wordpressFailureReason))
   })
 
   app.post<{
     Params: { name: string }
     Body: { profile: SchemaProfileFile; env?: WordpressEnv }
   }>('/projects/:name/wordpress/schema/deploy', async (request) => {
-    return withWordpressErrorHandling(async () => {
+    return withWordpressErrorHandling(async () => withFeatureOutcome(app, { feature: 'wordpress', operation: 'schema_deploy' }, async (settle) => {
       const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name)
+      const connection = requireConnection(store, project.name, settle)
       const profile = request.body?.profile
       if (!profile?.business?.name || !profile?.pages || Object.keys(profile.pages).length === 0) {
         throw validationError('profile with business.name and non-empty pages is required')
       }
       const env = parseEnvInput(request.body?.env)
-      return deploySchemaFromProfile(connection, profile, env)
-    })
+      const deployed = await deploySchemaFromProfile(connection, profile, env)
+      settle(schemaDeployOutcome(deployed.results))
+      return deployed
+    }, wordpressFailureReason))
   })
 
   app.get<{
@@ -501,17 +549,19 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
     Params: { name: string }
     Body: { content: string; env?: WordpressEnv }
   }>('/projects/:name/wordpress/llms-txt/manual', async (request) => {
-    return withWordpressErrorHandling(async () => {
+    return withWordpressErrorHandling(async () => withFeatureOutcome(app, { feature: 'wordpress', operation: 'llms_txt' }, async (settle) => {
       const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name)
+      const connection = requireConnection(store, project.name, settle)
       const content = request.body?.content
       if (!content) {
         throw validationError('content is required')
       }
       const env = parseEnvInput(request.body?.env)
-      return buildManualLlmsTxtUpdate(connection, content, env)
-    })
+      const manual = await buildManualLlmsTxtUpdate(connection, content, env)
+      settle(MANUAL_ASSIST_OUTCOME)
+      return manual
+    }, wordpressFailureReason))
   })
 
   app.get<{
@@ -557,15 +607,17 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
   })
 
   app.post<{ Params: { name: string } }>('/projects/:name/wordpress/staging/push', async (request) => {
-    return withWordpressErrorHandling(async () => {
+    return withWordpressErrorHandling(async () => withFeatureOutcome(app, { feature: 'wordpress', operation: 'publish' }, async (settle) => {
       const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name)
+      const connection = requireConnection(store, project.name, settle)
       if (!connection.stagingUrl) {
         throw validationError('No staging URL configured for this project. Reconnect with --staging-url before using staging push.')
       }
-      return buildManualStagingPush(connection)
-    })
+      const manual = await buildManualStagingPush(connection)
+      settle(MANUAL_ASSIST_OUTCOME)
+      return manual
+    }, wordpressFailureReason))
   })
 
   // POST /projects/:name/wordpress/onboard — compound onboarding command
@@ -669,6 +721,10 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
 
     // Step 3: Set meta (bulk, for pages missing title/description)
     // Build entries with the page title as a fallback value for missing SEO fields
+    const metaStartedAt = Date.now()
+    const reportMetaStep = (outcome: FeatureOutcome) => reportFeatureOutcome(app, { feature: 'wordpress', operation: 'meta_write' }, {
+      ...outcome, durationBucket: bucketDuration(Date.now() - metaStartedAt),
+    })
     try {
       const metaEntries: Array<{ slug: string; title?: string; description?: string }> = []
       for (const issue of auditIssues) {
@@ -693,8 +749,10 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
       }
       if (metaEntries.length === 0) {
         steps.push({ name: 'set-meta', status: 'skipped', summary: 'No pages with missing meta found' })
+        reportMetaStep({ status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.NO_DATA })
       } else {
         const result = await bulkSetSeoMeta(connection, metaEntries)
+        reportMetaStep(metaWriteOutcome(result.results))
         const applied = result.results.filter((r) => r.status === 'applied').length
         const manual = result.results.filter((r) => r.status === 'manual').length
         const skipped = result.results.filter((r) => r.status === 'skipped').length
@@ -707,6 +765,7 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
     } catch (err) {
       const msg = describeError(err)
       steps.push({ name: 'set-meta', status: 'failed', error: msg })
+      reportMetaStep(failedOutcome(err, wordpressFailureReason(err)))
       return { projectName: project.name, steps }
     }
 
@@ -718,11 +777,17 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
         summary: skipSchema ? 'Skipped via --skip-schema' : 'No --profile provided',
       })
     } else {
+      const schemaStartedAt = Date.now()
+      const reportSchemaStep = (outcome: FeatureOutcome) => reportFeatureOutcome(app, { feature: 'wordpress', operation: 'schema_deploy' }, {
+        ...outcome, durationBucket: bucketDuration(Date.now() - schemaStartedAt),
+      })
       try {
         if (!profile.business?.name || !profile.pages || Object.keys(profile.pages).length === 0) {
           steps.push({ name: 'schema-deploy', status: 'skipped', summary: 'Profile missing business.name or pages' })
+          reportSchemaStep({ status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.VALIDATION })
         } else {
           const result = await deploySchemaFromProfile(connection, profile)
+          reportSchemaStep(schemaDeployOutcome(result.results))
           const deployed = result.results.filter((r) => r.status === 'deployed').length
           const stripped = result.results.filter((r) => r.status === 'stripped').length
           const skipped = result.results.filter((r) => r.status === 'skipped').length
@@ -735,6 +800,7 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
       } catch (err) {
         const msg = describeError(err)
         steps.push({ name: 'schema-deploy', status: 'failed', error: msg })
+        reportSchemaStep(failedOutcome(err, wordpressFailureReason(err)))
         return { projectName: project.name, steps }
       }
     }

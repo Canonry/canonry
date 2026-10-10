@@ -2,6 +2,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import { competitorIdentityColumns } from '@ainyc/canonry-api-routes'
 import { competitors, projects, researchRunQueries, researchRuns, type DatabaseClient } from '@ainyc/canonry-db'
 import {
+  classifyProviderOutcomeError,
   competitorIdentityAliases,
   determineAnswerMentioned,
   effectiveBrandNames,
@@ -9,14 +10,23 @@ import {
   extractRecommendedCompetitors,
   isBrowserProvider,
   mapWithConcurrency,
+  OutcomeReasonCodes,
+  OutcomeStatuses,
+  OutcomeSurfaces,
+  OutcomeTriggers,
+  PROVIDER_NAMES,
   ResearchQueryStatuses,
   ResearchRunStatuses,
   describeError,
+  type FeatureCompletedProperties,
+  type OutcomeReasonCode,
+  type OutcomeTrigger,
 } from '@ainyc/canonry-contracts'
 import { computeCitedCompetitorDomains, determineCitationState } from './citation-utils.js'
 import type { ProviderRegistry } from './provider-registry.js'
 import { getSharedProviderExecutionGate } from './provider-execution-gate.js'
 import { getCurrentUsageDay, releaseDailyQueryQuota, reserveDailyQueryQuota } from './usage-quota.js'
+import { outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 
 const unfinishedResearchQueryStatuses = [ResearchQueryStatuses.queued, ResearchQueryStatuses.running] as const
 
@@ -25,8 +35,17 @@ function finalResearchRunStatus(completed: number, failed: number) {
   return completed > 0 ? ResearchRunStatuses.partial : ResearchRunStatuses.failed
 }
 
-/** Execute a saved ad-hoc research batch. Deliberately does not depend on JobRunner or RunCoordinator. */
-export async function executeResearchRun(db: DatabaseClient, registry: ProviderRegistry, runId: string, projectId: string): Promise<void> {
+/**
+ * Execute a saved ad-hoc research batch. Deliberately does not depend on JobRunner or RunCoordinator.
+ * `trigger` is what dispatched it: a request, or startup recovery of a batch a restart left queued.
+ */
+export async function executeResearchRun(
+  db: DatabaseClient,
+  registry: ProviderRegistry,
+  runId: string,
+  projectId: string,
+  options: { trigger?: OutcomeTrigger } = {},
+): Promise<void> {
   const run = db.select().from(researchRuns).where(and(eq(researchRuns.id, runId), eq(researchRuns.projectId, projectId))).get()
   if (!run || run.status !== ResearchRunStatuses.queued) return
   const project = db.select().from(projects).where(eq(projects.id, projectId)).get()
@@ -39,13 +58,17 @@ export async function executeResearchRun(db: DatabaseClient, registry: ProviderR
     .run()
   if (claim.changes !== 1) return
 
+  const elapsed = startOutcomeTimer()
   let reserved = 0
   let dispatched = 0
   let reservation: { scope: string; period: string } | undefined
   let fatalError: string | undefined
+  let fatalReason: { reasonCode: OutcomeReasonCode; errorName?: string } | undefined
+  let queryFailure: unknown
   const workerPersistenceErrors: string[] = []
   try {
     if (!provider || isBrowserProvider(run.provider)) {
+      fatalReason = { reasonCode: OutcomeReasonCodes.NOT_CONNECTED }
       throw new Error('Configured API provider is unavailable.')
     }
     const period = getCurrentUsageDay()
@@ -54,6 +77,7 @@ export async function executeResearchRun(db: DatabaseClient, registry: ProviderR
       scope, period, count: run.totalQueries, limit: provider.config.quotaPolicy.maxRequestsPerDay,
     })
     if (!quota.reserved) {
+      fatalReason = { reasonCode: OutcomeReasonCodes.QUOTA_EXCEEDED }
       throw new Error(`Daily quota exceeded for ${run.provider}: ${quota.used} queries used today, limit is ${provider.config.quotaPolicy.maxRequestsPerDay}. This batch needs ${run.totalQueries} more.`)
     }
     reserved = run.totalQueries
@@ -108,6 +132,7 @@ export async function executeResearchRun(db: DatabaseClient, registry: ProviderR
         }).where(and(eq(researchRunQueries.id, row.id), eq(researchRunQueries.status, ResearchQueryStatuses.running))).run()
         if (completed.changes === 1) incrementResearchProgress(db, runId, 'completedQueries')
       } catch (error) {
+        queryFailure ??= error
         // A DB write can fail independently of the provider call. Never let
         // that make mapWithConcurrency fail-fast; after every worker settles,
         // the finally block terminalizes anything left unfinished.
@@ -120,18 +145,37 @@ export async function executeResearchRun(db: DatabaseClient, registry: ProviderR
     })
     if (workerPersistenceErrors.length > 0) {
       fatalError = `Failed to persist one or more research query results: ${workerPersistenceErrors[0]}`
+      fatalReason = { reasonCode: OutcomeReasonCodes.INTERNAL }
     }
   } catch (error) {
     fatalError = describeError(error)
+    fatalReason ??= outcomeFailure(error)
   } finally {
     // A failure before or between worker writes must still leave this batch in a
     // terminal state. Mark only unfinished children so completed evidence stays intact.
     if (fatalError) markUnfinishedResearchQueriesFailed(db, runId, fatalError)
-    finalizeResearchRun(db, runId, fatalError)
+    const final = finalizeResearchRun(db, runId, fatalError)
     if (reservation && reserved > dispatched) {
       releaseDailyQueryQuota(db, { ...reservation, count: reserved - dispatched })
     }
+    const trigger = options.trigger ?? OutcomeTriggers.manual
+    trackFeatureCompleted({
+      feature: 'research',
+      operation: 'run',
+      status: researchOutcomeStatus(final.status),
+      trigger,
+      ...(trigger === OutcomeTriggers.startup ? { surface: OutcomeSurfaces.system } : {}),
+      ...((PROVIDER_NAMES as readonly string[]).includes(run.provider) ? { provider: run.provider as FeatureCompletedProperties['provider'] } : {}),
+      ...(final.status === ResearchRunStatuses.completed ? {} : fatalReason ?? classifyProviderOutcomeError(queryFailure)),
+      durationBucket: elapsed(),
+      counts: { queries: final.total, snapshots: final.completed, failures: final.failed },
+    })
   }
+}
+
+function researchOutcomeStatus(status: ReturnType<typeof finalResearchRunStatus>): FeatureCompletedProperties['status'] {
+  if (status === ResearchRunStatuses.completed) return OutcomeStatuses.succeeded
+  return status === ResearchRunStatuses.partial ? OutcomeStatuses.partial : OutcomeStatuses.failed
 }
 
 function incrementResearchProgress(db: DatabaseClient, runId: string, column: 'completedQueries' | 'failedQueries'): void {
@@ -151,14 +195,16 @@ function markUnfinishedResearchQueriesFailed(db: DatabaseClient, runId: string, 
     .where(and(eq(researchRunQueries.researchRunId, runId), inArray(researchRunQueries.status, unfinishedResearchQueryStatuses))).run()
 }
 
-function finalizeResearchRun(db: DatabaseClient, runId: string, fatalError?: string): void {
+function finalizeResearchRun(db: DatabaseClient, runId: string, fatalError?: string) {
   const rows = db.select({ status: researchRunQueries.status }).from(researchRunQueries)
     .where(eq(researchRunQueries.researchRunId, runId)).all()
   const completed = rows.filter(row => row.status === ResearchQueryStatuses.completed).length
   const failed = rows.filter(row => row.status === ResearchQueryStatuses.failed).length
+  const status = finalResearchRunStatus(completed, failed)
   db.update(researchRuns).set({
-    status: finalResearchRunStatus(completed, failed), completedQueries: completed, failedQueries: failed,
+    status, completedQueries: completed, failedQueries: failed,
     error: fatalError ?? (failed === rows.length ? 'Every research query failed.' : null),
     finishedAt: new Date().toISOString(),
   }).where(eq(researchRuns.id, runId)).run()
+  return { status, total: rows.length, completed, failed }
 }

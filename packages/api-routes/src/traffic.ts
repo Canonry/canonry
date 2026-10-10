@@ -51,6 +51,10 @@ import {
   segmentCrawlerHits,
   sumInfraHits,
   describeError,
+  bucketDuration,
+  OutcomeReasonCodes,
+  OutcomeStatuses,
+  OutcomeSurfaces,
 } from '@ainyc/canonry-contracts'
 import type {
   NormalizedTrafficRequest,
@@ -128,6 +132,7 @@ import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
 import { connectionRoute, routeOutcomeFailure, webhookTargetRefusalReason, type ConnectionAttempt, type ConnectionSubject } from './connection-telemetry.js'
 import { createGuardedFetch, EgressFailedError, EgressRefusedError } from './guarded-fetch.js'
 import { resolveWebhookTarget } from './webhooks.js'
+import { failedOutcome, reportFeatureOutcome, withFeatureOutcome, type FeatureOutcome } from './feature-outcome.js'
 import {
   DIRECT_PUSH_RECEIPT_TTL_MS,
   writeTrafficEventBatch,
@@ -1086,6 +1091,12 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
     pullForBackfill,
     pullErrorPrefix,
   } = options
+  const backfillStartedAt = Date.now()
+  // Reported after the request that started it, whether or not its response has gone.
+  const target = { feature: 'server_traffic', operation: 'backfill', surface: OutcomeSurfaces.system } as const
+  const reportBackfill = (outcome: FeatureOutcome) => reportFeatureOutcome(app, target, {
+    ...outcome, durationBucket: bucketDuration(Date.now() - backfillStartedAt),
+  })
 
   const markFailed = (msg: string, preserveSourceState = false) => {
     const failedAt = new Date().toISOString()
@@ -1122,6 +1133,7 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
   // and record any unrecoverable span before it can replace WordPress data.
   if (sourceRow.sourceType === TrafficSourceTypes.wordpress) {
     markFailed('Generic WordPress replace backfill is unavailable because retained coverage is unproven. Use a retention-aware repair that declares the unrecoverable span.')
+    reportBackfill({ status: OutcomeStatuses.failed, reasonCode: OutcomeReasonCodes.UNSUPPORTED })
     return
   }
 
@@ -1137,6 +1149,7 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
       `${pullErrorPrefix}: ${describeError(e)}`,
       e instanceof VercelRetentionClampError,
     )
+    reportBackfill(failedOutcome(e, e instanceof VercelRetentionClampError ? OutcomeReasonCodes.NO_DATA : undefined))
     return
   }
 
@@ -1146,8 +1159,9 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
   // rollup data isn't silently wiped, and just close out the run row.
   if (allEvents.length === 0) {
     const finishedAt = new Date().toISOString()
+    let emptyOutcome: FeatureOutcome
     try {
-      app.db.transaction((tx) => {
+      const completed = app.db.transaction((tx) => {
         const latestSource = tx.select().from(trafficSources)
           .where(eq(trafficSources.id, sourceRow.id)).get()
         const stillAuthoritative = latestSource
@@ -1164,10 +1178,16 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
               finishedAt,
             })
           .where(eq(runs.id, runId)).run()
+        return Boolean(stillAuthoritative)
       })
-    } catch {
+      emptyOutcome = completed
+        ? { status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.NO_DATA }
+        : { status: OutcomeStatuses.failed, reasonCode: OutcomeReasonCodes.NOT_CONNECTED }
+    } catch (e) {
       // swallow — same last-ditch behavior as markFailed
+      emptyOutcome = failedOutcome(e)
     }
+    reportBackfill(emptyOutcome)
     return
   }
 
@@ -1524,9 +1544,24 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
         .run()
       return 'committed' as const
     })
+    reportBackfill(commitOutcome === 'committed'
+      ? {
+          status: OutcomeStatuses.succeeded,
+          counts: {
+            events: report.totals.normalizedEvents,
+            crawlerHits: report.totals.crawlerHits,
+            aiReferralHits: report.totals.aiReferralHits,
+            aiUserFetchHits: report.totals.aiUserFetchHits,
+          },
+        }
+      : {
+          status: OutcomeStatuses.failed,
+          reasonCode: commitOutcome === 'source-inactive' ? OutcomeReasonCodes.NOT_CONNECTED : OutcomeReasonCodes.UNSUPPORTED,
+        })
     if (commitOutcome === 'source-inactive' || commitOutcome === 'wordpress-backfill-unsupported') return
   } catch (e) {
     markFailed(`Backfill rollup write failed: ${describeError(e)}`)
+    reportBackfill(failedOutcome(e))
   }
 }
 
@@ -3969,7 +4004,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   app.post<{
     Params: { name: string; id: string }
     Body: { days?: number }
-  }>('/projects/:name/traffic/sources/:id/backfill', async (request) => {
+  }>('/projects/:name/traffic/sources/:id/backfill', async (request) => withFeatureOutcome(app, { feature: 'server_traffic', operation: 'backfill' }, async (recordOutcome) => {
     const project = resolveProject(app.db, request.params.name)
     const sourceRow = app.db
       .select()
@@ -4165,6 +4200,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       // exists only so an unhandled rejection cannot crash the process if
       // an internal bug bypasses the task's own try/catch.
     })
+    // The background task reports the backfill's outcome when it finishes.
+    recordOutcome(null)
 
     const response: TrafficBackfillResponse = {
       sourceId: sourceRow.id,
@@ -4176,7 +4213,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       daysApplied: appliedDays,
     }
     return response
-  })
+  }))
 
   function buildSourceDetail(
     projectId: string,
@@ -4308,7 +4345,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   app.post<{
     Params: { name: string; id: string }
     Body: { advanceToNow?: unknown }
-  }>('/projects/:name/traffic/sources/:id/reset', async (request) => {
+  }>('/projects/:name/traffic/sources/:id/reset', async (request) => withFeatureOutcome(app, { feature: 'server_traffic', operation: 'reset' }, async () => {
     const project = resolveProject(app.db, request.params.name)
     const parsed = trafficResetRequestSchema.safeParse(request.body ?? {})
     if (!parsed.success) {
@@ -4380,7 +4417,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         .get()!
     })
     return buildSourceDetail(project.id, updatedRow, new Date(Date.now() - 24 * 60 * 60_000).toISOString())
-  })
+  }))
 
   // GET /projects/:name/traffic/sources
   app.get<{ Params: { name: string } }>('/projects/:name/traffic/sources', async (request) => {
