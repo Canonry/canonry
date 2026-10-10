@@ -1,6 +1,8 @@
 import { z } from 'zod'
+import { describeError } from './errors.js'
 import { notificationEventSchema } from './notification.js'
 import { PROVIDER_NAMES } from './provider.js'
+import { classifyProviderErrorMessage, type ProviderErrorCode } from './provider-errors.js'
 
 /**
  * Outcome telemetry: what happened when a feature ran, not just that a
@@ -377,4 +379,30 @@ export function classifyOutcomeError(err: unknown): { reasonCode: OutcomeReasonC
   if (status !== undefined && status >= 500) return { reasonCode: 'HTTP_5XX', errorName }
   if (status !== undefined && status >= 400) return { reasonCode: 'HTTP_4XX', errorName }
   return { reasonCode: 'UNKNOWN', errorName }
+}
+
+/** A provider failure bucket (`classifyProviderErrorMessage`) as an outcome reason. */
+export function providerErrorOutcomeReason(code: ProviderErrorCode): OutcomeReasonCode {
+  switch (code) {
+    case 'PROVIDER_AUTH': return 'INVALID_CREDENTIALS'
+    case 'PROVIDER_BILLING': return 'BILLING'
+    case 'RATE_LIMITED': return 'RATE_LIMITED'
+    case 'PROVIDER_UNAVAILABLE': return 'HTTP_5XX'
+    case 'TIMEOUT': return 'TIMEOUT'
+    case 'NETWORK': return 'NETWORK'
+    case 'PARSE_ERROR': return 'UNKNOWN'
+    case 'UNKNOWN': return 'UNKNOWN'
+  }
+}
+
+/**
+ * Classify a failed answer-engine call. Provider adapters throw plain errors
+ * whose text is the only signal, so after the code and status checks this
+ * falls back to the same text buckets `run.completed` uses. The text is read
+ * here and never sent.
+ */
+export function classifyProviderOutcomeError(err: unknown): { reasonCode: OutcomeReasonCode; errorName?: string } {
+  const classified = classifyOutcomeError(err)
+  if (classified.reasonCode !== 'UNKNOWN') return classified
+  return { ...classified, reasonCode: providerErrorOutcomeReason(classifyProviderErrorMessage(describeError(err))) }
 }
