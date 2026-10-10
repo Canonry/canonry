@@ -1398,7 +1398,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_query_tracking_preview',
     title: 'Preview query assignments',
-    description: 'Preview manual, template or saved research additions and assignment removals against the exact workspace version. Returns a review token, deduplicated change and next-sweep workload; an advanced portfolio also gets limits.queries (current, next, max distinct assigned queries). Does not publish or start provider work and is allowed during a sweep. This POST requires write access.',
+    description: 'Preview manual, template or saved research additions and assignment removals against the exact workspace version. Returns a review token, per-query locations and markets before and after (`changes`), deduplicated change and next-sweep workload; an advanced portfolio also gets limits.queries (current, next, max distinct assigned queries). Does not publish or start provider work and is allowed during a sweep. This POST requires write access.',
     access: 'write', tier: 'setup',
     inputSchema: z.object({ project: projectNameSchema, request: queryTrackingPreviewRequestSchema }).strict(),
     annotations: readAnnotations(),

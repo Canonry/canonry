@@ -277,6 +277,25 @@ export const queryTrackingDiffSchema = z.object({
 }).strict()
 export type QueryTrackingDiff = z.output<typeof queryTrackingDiffSchema>
 
+/** Where one query is tracked: its Properties and the markets that report it. */
+export const queryTrackingPlacementSchema = z.object({
+  targetKeys: z.array(measurementV2StableKeySchema),
+  marketKeys: z.array(measurementV2StableKeySchema),
+}).strict()
+export type QueryTrackingPlacement = z.output<typeof queryTrackingPlacementSchema>
+
+/** One row per query in diff.added, diff.reused or diff.removed; none when diff.noOp is true. */
+export const queryTrackingQueryChangeSchema = z.object({
+  queryId: queryTrackingIdSchema,
+  queryText: queryTrackingTextSchema,
+  change: z.enum(['added', 'reused', 'removed']),
+  /** Placement in the active plan. */
+  before: queryTrackingPlacementSchema,
+  /** Placement in the reviewed candidate; a scoped removal keeps what remains. */
+  after: queryTrackingPlacementSchema,
+}).strict()
+export type QueryTrackingQueryChange = z.output<typeof queryTrackingQueryChangeSchema>
+
 /** Provider work is a deduplicated execution-node count, not an assignment count. */
 export const queryTrackingWorkloadSchema = z.object({
   existingNodes: z.number().int().nonnegative(),
@@ -312,6 +331,11 @@ export const queryTrackingPreviewResponseSchema = z.object({
   }).strict().nullable(),
   tracked: z.array(queryTrackingTrackedRowSchema),
   diff: queryTrackingDiffSchema,
+  /**
+   * Per-query placement before and after, empty for a no-op. Optional so a
+   * client tolerates a server that predates it.
+   */
+  changes: z.array(queryTrackingQueryChangeSchema).optional(),
   workload: queryTrackingWorkloadSchema,
   /**
    * Advanced portfolios only. Optional so a client tolerates a server that

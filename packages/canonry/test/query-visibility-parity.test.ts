@@ -38,6 +38,16 @@ const REPORT_WITH_COMPARISON = {
   ],
 }
 
+/** A preview that places one added query in one market. */
+const PREVIEW_WITH_CHANGES = {
+  diff: { added: [{ queryId: 'q-new', queryText: 'apartments near transit', assignmentCount: 1 }], removed: [], reused: [], unchanged: [], noOp: false },
+  changes: [{
+    queryId: 'q-new', queryText: 'apartments near transit', change: 'added',
+    before: { targetKeys: [], marketKeys: [] },
+    after: { targetKeys: ['harbor-point'], marketKeys: ['beta'] },
+  }],
+}
+
 describe('query and visibility CLI parity', () => {
   it('keeps each population comparison unchanged in JSON output', async () => {
     client.getVisibilityReport.mockResolvedValue(REPORT_WITH_COMPARISON)
@@ -64,6 +74,15 @@ describe('query and visibility CLI parity', () => {
     await runAdvancedMeasurementOperation('demo', 'query-workspace', undefined, 'jsonl')
     expect(client.getQueryTrackingWorkspace).toHaveBeenCalledWith('demo')
     expect(JSON.parse(output.mock.calls[0]![0] as string)).toEqual(result)
+  })
+
+  it('prints per-query placement changes from a preview unchanged', async () => {
+    const request = { expectedWorkspaceVersion: `qtw_${'b'.repeat(64)}`, additions: [{ input: { source: 'manual', text: 'apartments near transit' }, audience: { marketKeys: ['beta'] } }], removals: [] }
+    client.previewQueryTracking.mockResolvedValue(PREVIEW_WITH_CHANGES)
+    const output = vi.spyOn(console, 'log').mockImplementation(() => {})
+    await runAdvancedMeasurementOperation('demo', 'query-preview', inputFile(request), 'json')
+    expect(client.previewQueryTracking).toHaveBeenCalledWith('demo', request)
+    expect(JSON.parse(output.mock.calls[0]![0] as string)).toEqual(PREVIEW_WITH_CHANGES)
   })
 
   it('passes exact reviewed mutation and token to commit without requesting a sweep', async () => {
@@ -95,6 +114,16 @@ describe('query and visibility MCP parity', () => {
     const output = await tool!.handler(client as unknown as ApiClient, tool!.inputSchema.parse({ project: 'demo', queryClass: 'all' }))
     expect(output).toBe(REPORT_WITH_COMPARISON)
     expect(output).toEqual(REPORT_WITH_COMPARISON)
+  })
+
+  it('returns the client preview, including per-query placement changes, unchanged', async () => {
+    const tool = canonryMcpTools.find(tool => tool.name === 'canonry_query_tracking_preview')
+    expect(tool).toBeDefined()
+    client.previewQueryTracking.mockResolvedValue(PREVIEW_WITH_CHANGES)
+    const request = { expectedWorkspaceVersion: `qtw_${'a'.repeat(64)}`, additions: [], removals: [{ queryText: 'old question' }] }
+    const output = await tool!.handler(client as unknown as ApiClient, tool!.inputSchema.parse({ project: 'demo', request }))
+    expect(client.previewQueryTracking).toHaveBeenCalledWith('demo', request)
+    expect(output).toBe(PREVIEW_WITH_CHANGES)
   })
 
   it('requires the same preview token and workspace version for an agent commit', async () => {

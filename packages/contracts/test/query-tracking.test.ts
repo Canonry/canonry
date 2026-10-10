@@ -129,6 +129,32 @@ describe('query tracking contract', () => {
     expect(workspace.scopeOptions).toEqual(scopeOptions)
   })
 
+  it('still parses a preview without per-query changes from an older server', () => {
+    const preview = queryTrackingPreviewResponseSchema.parse(advancedPreview())
+
+    expect('changes' in preview).toBe(false)
+  })
+
+  it('carries per-query placement before and after on a preview exactly as sent', () => {
+    const changes = [
+      {
+        queryId: 'q-1', queryText: 'best apartments in northbridge', change: 'removed',
+        before: { targetKeys: ['harbor-point'], marketKeys: ['alpha', 'beta'] },
+        after: { targetKeys: ['harbor-point'], marketKeys: ['beta'] },
+      },
+      {
+        queryId: 'q-2', queryText: 'apartments near transit', change: 'added',
+        before: { targetKeys: [], marketKeys: [] },
+        after: { targetKeys: ['harbor-point'], marketKeys: ['beta'] },
+      },
+    ]
+
+    expect(queryTrackingPreviewResponseSchema.parse({ ...advancedPreview(), changes }).changes).toEqual(changes)
+    expect(queryTrackingPreviewResponseSchema.safeParse({
+      ...advancedPreview(), changes: [{ ...changes[0], change: 'moved' }],
+    }).success).toBe(false)
+  })
+
   it('validates workspace scope options with the visibility report option contract', () => {
     const result = queryTrackingWorkspaceResponseSchema.safeParse({
       ...advancedWorkspace(),
@@ -222,6 +248,19 @@ function previewResponse() {
     tracked: advancedWorkspace().tracked,
     diff: { added: [], removed: [], reused: [], unchanged: [], noOp: true },
     workload,
+  }
+}
+
+function advancedPreview() {
+  const { mode, workspaceVersion, active, tracked } = advancedWorkspace()
+  const unchanged = [{ queryId: 'q-1', queryText: 'best apartments in northbridge', assignmentCount: 1 }]
+  return {
+    mode, workspaceVersion, previewToken: PREVIEW_TOKEN, reviewedAt: REVIEWED_AT, active, tracked,
+    diff: { added: [], removed: [], reused: [], unchanged, noOp: true },
+    workload: {
+      existingNodes: 1, existingProviderCalls: 1, nextSweepNodes: 1, nextSweepProviderCalls: 1,
+      addedNodes: 0, addedProviderCalls: 0, removedNodes: 0, removedProviderCalls: 0,
+    },
   }
 }
 

@@ -404,6 +404,18 @@ describe('query-tracking edits', () => {
     }
     const review = await preview(mutation)
     const editedId = review.tracked.find(row => row.queryText === MARKET_TEXT)!.queryId
+    expect(review.changes).toEqual([
+      {
+        queryId: editedId, queryText: MARKET_TEXT, change: 'added',
+        before: { targetKeys: [], marketKeys: [] },
+        after: { targetKeys: ['harbor-point', 'river-point'], marketKeys: ['alpha-market'] },
+      },
+      {
+        queryId: 'q-existing', queryText: OLD_TEXT, change: 'removed',
+        before: { targetKeys: ['harbor-point', 'river-point'], marketKeys: ['alpha-market', 'beta-market'] },
+        after: { targetKeys: ['harbor-point'], marketKeys: ['beta-market'] },
+      },
+    ])
     await publish({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
     const after = activePlan().plan
     expect(marketShapes(after, 'alpha-market').map(edge => edge.queryId)).toEqual([editedId, editedId])

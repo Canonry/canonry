@@ -140,6 +140,7 @@ Historical runs receive no inferred definition. `visibility-report` reads this s
 
 `query-tracking` owns workspace, preview, and commit for simple sites and v2 portfolios.
 Commit requires the exact workspace version and preview token. A no-op must not publish a revision.
+Preview `changes` mirrors `diff` added/reused/removed: before = active plan, after = candidate (after pruning); a no-op returns none. The route self-parses with the strict schema, so a field mismatch fails every preview.
 On an advanced portfolio, commit calls `assertNoActiveSweep` inside its write transaction for any change that is not a no-op, plan-only edits included, so a plan never moves under a queued or running sweep. Setup publish (`measurement-draft.ts`) calls it too, before writing a new revision.
 A simple basket keeps `assertNoActivePlanlessSweep`, and only when catalog rows change.
 Previews, no-ops, a publish identical to the active revision and receipt replays stay available during a sweep.
