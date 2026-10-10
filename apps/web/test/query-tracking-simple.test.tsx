@@ -6,7 +6,7 @@ import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 import {
   active, advancedResetLine, advancedResetNotice, installWorkspaceApi, preview, previewToken, removalDiff, removalWorkload,
-  renderViewerWorkspace, renderWorkspace, reviewRemoval, workspace, workspaceVersion,
+  renderViewerWorkspace, renderWorkspace, workspace, workspaceVersion,
 } from './support/query-tracking-fixtures.js'
 
 // Simple projects: the Add query form, the earlier review, and the tracked list with no Query type control.
@@ -15,6 +15,14 @@ afterEach(() => {
   cleanup()
   delete window.__CANONRY_CONFIG__
 })
+
+// A simple project keeps its Remove row button, so this file holds its own steps: the shared `reviewRemoval` follows the advanced entry point.
+async function reviewRemoval() {
+  await screen.findByText('Acme pricing')
+  fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+  return screen.findByRole('heading', { name: /^(Confirm tracked query changes|Review \d+ changes?|No tracking changes)$/ })
+}
 
 test('gives an opted-in viewer the direct query test without exposing discovery or settings', async () => {
   ;(window as unknown as { __CANONRY_CONFIG__: unknown }).__CANONRY_CONFIG__ = {

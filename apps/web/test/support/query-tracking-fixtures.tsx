@@ -161,6 +161,7 @@ export const removalWorkload = { existingNodes: 2, existingProviderCalls: 6, nex
 // The preview's `tracked` is the post-change state, so a whole-query removal drops the row.
 export const trackedAfterRemoval = workspace().tracked.filter(row => row.queryId !== 'query-acme')
 
+/** Opens the review of a removal on an Advanced project. query-tracking-simple keeps its own steps. */
 export async function reviewRemoval() {
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
