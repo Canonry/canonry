@@ -109,7 +109,7 @@ const MAX_REVIEW_FUTURE_SKEW_MS = 60 * 1_000
 type ProjectRow = typeof projects.$inferSelect
 type QueryRow = typeof queries.$inferSelect
 type DbLike = Pick<DatabaseClient, 'select' | 'insert' | 'update' | 'delete'>
-/** The readiness check needs frozen slot provenance, never raw provider payloads. */
+/** The readiness check needs frozen slot provenance, never an answer's text, sources or raw payload. */
 type ReadinessSnapshot = Pick<typeof querySnapshots.$inferSelect,
   | 'id'
   | 'runId'
@@ -117,9 +117,6 @@ type ReadinessSnapshot = Pick<typeof querySnapshots.$inferSelect,
   | 'queryText'
   | 'provider'
   | 'model'
-  | 'answerText'
-  | 'citedUrls'
-  | 'captureStatus'
   | 'location'
   | 'measurementExecutionId'
   | 'requestedContext'
@@ -484,48 +481,56 @@ function simpleMeasuredAtByQuery(
   return measured
 }
 
-function frozenAssignmentSignature(
-  plan: MeasurementPlanV2,
-  assignment: MeasurementPlanV2['assignments'][number],
-): string {
-  const node = plan.executionNodes.find(candidate => candidate.stableKey === assignment.executionNodeKey)
-  const target = plan.targets.find(candidate => candidate.stableKey === assignment.targetKey)
-  if (!node || !target) throw validationError('A frozen measurement assignment is missing its execution or target identity.')
-  // This is comparison only: no current aliases/classes/contexts are applied to
-  // an old snapshot. A material target, query, class, or context edit yields a
-  // different signature and therefore awaits a fresh sweep.
-  return canonicalJson({
-    target: {
+/**
+ * Signs the frozen assignments of one plan. A target's identity and an
+ * execution's text and context are serialized once per plan, not once per
+ * assignment: a large plan pairs each of them many times.
+ */
+function frozenAssignmentSigner(plan: MeasurementPlanV2): (assignment: MeasurementPlanV2['assignments'][number]) => string {
+  const targets = new Map<string, string>()
+  for (const target of plan.targets) {
+    if (targets.has(target.stableKey)) continue
+    targets.set(target.stableKey, canonicalJson({
       stableKey: target.stableKey,
       aliases: target.aliases,
       ...(target.identityAliases === undefined ? {} : { identityAliases: target.identityAliases }),
       urlMatchers: target.urlMatchers,
       mentionNotApplicable: target.mentionNotApplicable,
       discoveryIdentity: target.discoveryIdentity,
-    },
-    queryId: assignment.queryId,
-    queryText: node.queryText,
-    queryClass: assignment.queryClass,
-    classificationSource: assignment.classificationSource,
-    context: node.context,
-  })
+    }))
+  }
+  const nodes = new Map<string, string>()
+  for (const node of plan.executionNodes) {
+    if (!nodes.has(node.stableKey)) nodes.set(node.stableKey, canonicalJson({ queryText: node.queryText, context: node.context }))
+  }
+  return assignment => {
+    const node = nodes.get(assignment.executionNodeKey)
+    const target = targets.get(assignment.targetKey)
+    if (node === undefined || target === undefined) throw validationError('A frozen measurement assignment is missing its execution or target identity.')
+    // This is comparison only: no current aliases/classes/contexts are applied to
+    // an old snapshot. A material target, query, class, or context edit yields a
+    // different signature and therefore awaits a fresh sweep.
+    return JSON.stringify([target, assignment.queryId, node, assignment.queryClass, assignment.classificationSource ?? null])
+  }
 }
 
 function assignmentSignaturesByQuery(plan: MeasurementPlanV2): Map<string, Set<string>> {
+  const sign = frozenAssignmentSigner(plan)
   const result = new Map<string, Set<string>>()
   for (const assignment of plan.assignments) {
     const signatures = result.get(assignment.queryId) ?? new Set<string>()
-    signatures.add(frozenAssignmentSignature(plan, assignment))
+    signatures.add(sign(assignment))
     result.set(assignment.queryId, signatures)
   }
   return result
 }
 
 function assignmentSignaturesByExecution(plan: MeasurementPlanV2): Map<string, Array<{ queryId: string; signature: string }>> {
+  const sign = frozenAssignmentSigner(plan)
   const result = new Map<string, Array<{ queryId: string; signature: string }>>()
   for (const assignment of plan.assignments) {
     const entries = result.get(assignment.executionNodeKey) ?? []
-    entries.push({ queryId: assignment.queryId, signature: frozenAssignmentSignature(plan, assignment) })
+    entries.push({ queryId: assignment.queryId, signature: sign(assignment) })
     result.set(assignment.executionNodeKey, entries)
   }
   return result
@@ -559,18 +564,45 @@ function manifestMatchesFrozenV2Execution(plan: MeasurementPlanV2, manifest: Ret
   return slotsByExecution.size === plan.executionNodes.length
 }
 
-/** The report adapter only consults the selected fields below; disable its historical raw fallback for readiness. */
-function readinessAdapterSnapshots(snapshots: readonly ReadinessSnapshot[]): readonly (typeof querySnapshots.$inferSelect)[] {
-  return snapshots.map(snapshot => ({ ...snapshot, rawResponse: null }) as unknown as typeof querySnapshots.$inferSelect)
+/** One plan a stored sweep ran with, signed for comparison with the active plan. */
+interface SweptPlan {
+  revision: number
+  plan: MeasurementPlanV2
+  signaturesByExecution: Map<string, Array<{ queryId: string; signature: string }>>
 }
 
+/**
+ * Readiness counts which expected slots were answered. It never reads an
+ * answer's text or sources, so they are not loaded and the report adapter sees
+ * them as absent, with its historical raw fallback off.
+ */
+function readinessAdapterSnapshots(snapshots: readonly ReadinessSnapshot[]): readonly (typeof querySnapshots.$inferSelect)[] {
+  return snapshots.map(snapshot => ({
+    ...snapshot, answerText: null, citedUrls: null, rawResponse: null,
+  }) as unknown as typeof querySnapshots.$inferSelect)
+}
+
+/**
+ * When each tracked query was last measured as the active plan asks it.
+ *
+ * Sweeps are walked newest-finished first, so the first sweep that measured a
+ * pairing holds its latest time. A sweep's manifest and snapshots are loaded
+ * only when the plan it ran with holds a pairing that is still unmeasured,
+ * which the stored plans alone decide, and the walk ends once none is left.
+ */
 function measuredAtByQuery(db: DbLike, state: WorkspaceState, opts: QueryTrackingRoutesOptions): Map<string, string> {
   const { project, active } = state
   if (active === null) return simpleMeasuredAtByQuery(db, project, state.queryRows, opts)
 
   const activeSignatures = assignmentSignaturesByQuery(active.plan)
   if (activeSignatures.size === 0) return new Map()
-  const eligibleRuns = db.select().from(runs).where(and(
+  // The sweep list carries no manifest: one is read only for a sweep worth opening.
+  const eligibleRuns = db.select({
+    id: runs.id,
+    measurementPlanVersionId: runs.measurementPlanVersionId,
+    finishedAt: runs.finishedAt,
+    createdAt: runs.createdAt,
+  }).from(runs).where(and(
     eq(runs.projectId, project.id),
     eq(runs.kind, RunKinds['answer-visibility']),
     inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
@@ -580,55 +612,50 @@ function measuredAtByQuery(db: DbLike, state: WorkspaceState, opts: QueryTrackin
   )).orderBy(desc(runs.createdAt), desc(runs.id)).limit(SOURCE_LIMIT).all()
   if (eligibleRuns.length === 0) return new Map()
 
-  const versionIds = unique(eligibleRuns.flatMap(run => run.measurementPlanVersionId ? [run.measurementPlanVersionId] : []))
-  const versionPlans = new Map(db.select({
-    id: measurementPlanVersions.id,
-    revision: measurementPlanVersions.revision,
-    canonicalJson: measurementPlanVersions.canonicalJson,
-  }).from(measurementPlanVersions).where(and(
-    eq(measurementPlanVersions.projectId, project.id),
-    inArray(measurementPlanVersions.id, versionIds),
-  )).all().flatMap(row => {
-    const parsed = parseStoredMeasurementPlanAnyVersion(row.canonicalJson)
-    return parsed.schemaVersion === 2 ? [[row.id, { revision: row.revision, plan: parsed }] as const] : []
-  }))
-  const signaturesByVersionExecution = new Map<string, Map<string, Array<{ queryId: string; signature: string }>>>()
-  for (const [versionId, version] of versionPlans) {
-    signaturesByVersionExecution.set(versionId, assignmentSignaturesByExecution(version.plan))
+  // Each plan a sweep ran with is parsed at most once, and only when the walk reaches it.
+  const sweptPlans = new Map<string, SweptPlan | null>()
+  const sweptPlan = (versionId: string): SweptPlan | null => {
+    const known = sweptPlans.get(versionId)
+    if (known !== undefined) return known
+    let swept: SweptPlan | null = null
+    if (versionId === active.version.id) {
+      swept = { revision: active.version.revision, plan: active.plan, signaturesByExecution: assignmentSignaturesByExecution(active.plan) }
+    } else {
+      const row = db.select({
+        revision: measurementPlanVersions.revision,
+        canonicalJson: measurementPlanVersions.canonicalJson,
+      }).from(measurementPlanVersions).where(and(
+        eq(measurementPlanVersions.projectId, project.id),
+        eq(measurementPlanVersions.id, versionId),
+      )).get()
+      const parsed = row ? parseStoredMeasurementPlanAnyVersion(row.canonicalJson) : null
+      if (row && parsed?.schemaVersion === 2) {
+        swept = { revision: row.revision, plan: parsed, signaturesByExecution: assignmentSignaturesByExecution(parsed) }
+      }
+    }
+    sweptPlans.set(versionId, swept)
+    return swept
   }
-  const measurements = new Map<string, Map<string, string>>()
-  const mark = (queryId: string, signature: string, stamp: string) => {
-    const signatures = activeSignatures.get(queryId)
-    if (!signatures?.has(signature)) return
-    const measured = measurements.get(queryId) ?? new Map<string, string>()
-    if ((measured.get(signature) ?? '') < stamp) measured.set(signature, stamp)
-    measurements.set(queryId, measured)
+
+  // A signature holds its query id, so one set covers every active pairing.
+  const unmeasured = new Set<string>()
+  for (const signatures of activeSignatures.values()) {
+    for (const signature of signatures) unmeasured.add(signature)
   }
-  const snapshotsByRun = new Map<string, ReadinessSnapshot[]>()
-  const snapshotRows = db.select({
-    id: querySnapshots.id,
-    runId: querySnapshots.runId,
-    queryId: querySnapshots.queryId,
-    queryText: querySnapshots.queryText,
-    provider: querySnapshots.provider,
-    model: querySnapshots.model,
-    answerText: querySnapshots.answerText,
-    citedUrls: querySnapshots.citedUrls,
-    captureStatus: querySnapshots.captureStatus,
-    location: querySnapshots.location,
-    measurementExecutionId: querySnapshots.measurementExecutionId,
-    requestedContext: querySnapshots.requestedContext,
-    supportedContext: querySnapshots.supportedContext,
-  }).from(querySnapshots).where(inArray(querySnapshots.runId, eligibleRuns.map(run => run.id))).all()
-  for (const snapshot of snapshotRows) {
-    const snapshots = snapshotsByRun.get(snapshot.runId) ?? []
-    snapshots.push(snapshot)
-    snapshotsByRun.set(snapshot.runId, snapshots)
-  }
-  for (const run of eligibleRuns) {
-    const versionId = run.measurementPlanVersionId
-    const version = versionId ? versionPlans.get(versionId) : undefined
+  const measuredAt = new Map<string, string>()
+  const stampOf = (run: (typeof eligibleRuns)[number]) => run.finishedAt ?? run.createdAt
+  const newestFirst = [...eligibleRuns].sort((left, right) => compareText(stampOf(right), stampOf(left)))
+  for (const candidate of newestFirst) {
+    if (unmeasured.size === 0) break
+    const versionId = candidate.measurementPlanVersionId
+    const version = versionId ? sweptPlan(versionId) : null
     if (!version) continue
+    const open = [...version.signaturesByExecution]
+      .filter(([, entries]) => entries.some(entry => unmeasured.has(entry.signature)))
+    if (open.length === 0) continue
+
+    const run = db.select().from(runs).where(eq(runs.id, candidate.id)).get()
+    if (!run) continue
     let manifest: ReturnType<typeof measurementRunExpectedSlots>
     try {
       manifest = measurementRunExpectedSlots(run, version.plan)
@@ -637,6 +664,18 @@ function measuredAtByQuery(db: DbLike, state: WorkspaceState, opts: QueryTrackin
     }
     if (!manifestMatchesFrozenV2Execution(version.plan, manifest)) continue
 
+    const snapshots: ReadinessSnapshot[] = db.select({
+      id: querySnapshots.id,
+      runId: querySnapshots.runId,
+      queryId: querySnapshots.queryId,
+      queryText: querySnapshots.queryText,
+      provider: querySnapshots.provider,
+      model: querySnapshots.model,
+      location: querySnapshots.location,
+      measurementExecutionId: querySnapshots.measurementExecutionId,
+      requestedContext: querySnapshots.requestedContext,
+      supportedContext: querySnapshots.supportedContext,
+    }).from(querySnapshots).where(eq(querySnapshots.runId, run.id)).all()
     // Use the exact same canonical reconstruction as reporting. It rejects a
     // stale execution id, query text, requested model, or location; ignored
     // contexts do not count as observations. A corrupt run simply supplies no
@@ -647,7 +686,7 @@ function measuredAtByQuery(db: DbLike, state: WorkspaceState, opts: QueryTrackin
         version.revision,
         version.plan,
         manifest,
-        readinessAdapterSnapshots(snapshotsByRun.get(run.id) ?? []),
+        readinessAdapterSnapshots(snapshots),
       ).input
     } catch {
       continue
@@ -664,19 +703,21 @@ function measuredAtByQuery(db: DbLike, state: WorkspaceState, opts: QueryTrackin
       slots.push(slot)
       slotsByExecution.set(slot.executionId, slots)
     }
-    const stamp = run.finishedAt ?? run.createdAt
-    if (!versionId) continue
-    for (const [executionId, entries] of signaturesByVersionExecution.get(versionId) ?? []) {
+    const stamp = stampOf(candidate)
+    for (const [executionId, entries] of open) {
       const slots = slotsByExecution.get(executionId) ?? []
       if (slots.length === 0 || slots.some(slot => observedBySlot.get(slot.id) !== 1)) continue
-      for (const entry of entries) mark(entry.queryId, entry.signature, stamp)
+      for (const entry of entries) {
+        // A pairing a newer sweep measured keeps that sweep's time.
+        if (unmeasured.delete(entry.signature)) measuredAt.set(entry.signature, stamp)
+      }
     }
   }
   const result = new Map<string, string>()
   for (const [queryId, signatures] of activeSignatures) {
-    const measured = measurements.get(queryId)
-    if (!measured || [...signatures].some(signature => !measured.has(signature))) continue
-    const latest = [...measured.values()].sort(compareText).at(-1)
+    const stamps = [...signatures].flatMap(signature => measuredAt.get(signature) ?? [])
+    if (stamps.length !== signatures.size) continue
+    const latest = stamps.sort(compareText).at(-1)
     if (latest) result.set(queryId, latest)
   }
   return result

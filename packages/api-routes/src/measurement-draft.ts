@@ -111,6 +111,7 @@ import {
   sha256Hex,
   sweepExpiredMeasurementReceipts,
   writeReceipt,
+  type DraftRow,
   type PlanVersionRow,
   type ReceiptLookup,
 } from './measurement-draft-repo.js'
@@ -173,6 +174,29 @@ function rethrowGroupMembershipError(error: unknown): never {
     })
   }
   throw error
+}
+
+/**
+ * A draft is a copy of the revision that was active when it was started. Once
+ * another publish moves the active revision (a tracking change is one),
+ * publishing the draft would put that older copy back over it, so the publish
+ * is refused whatever revision the caller named. Only publish asks: an edit,
+ * a pin included, never changes the published plan.
+ */
+function assertDraftBaseIsActive(
+  draft: DraftRow,
+  active: PlanVersionRow | null,
+  expectedActiveRevision: number | null,
+): void {
+  const activeRevision = active?.revision ?? null
+  if (draft.baseActiveRevision === activeRevision) return
+  const conflict = measurementPlanRevisionConflict(expectedActiveRevision, activeRevision)
+  throw new AppError(
+    conflict.code,
+    'This draft is based on an older published setup. Discard it, start a new draft, make your changes again, then publish.',
+    conflict.statusCode,
+    { ...conflict.details, check: 'draft-out-of-date', draftBase: draft.baseActiveRevision, active: activeRevision },
+  )
 }
 
 /**
@@ -1157,6 +1181,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
       assertDraftEtag(row, ifMatch)
 
       const active = activePlanVersionRow(tx, gate.project.id)
+      assertDraftBaseIsActive(row, active, parsed.data.expectedActiveRevision)
       if ((active?.revision ?? null) !== parsed.data.expectedActiveRevision) {
         throw measurementPlanRevisionConflict(parsed.data.expectedActiveRevision, active?.revision ?? null)
       }
