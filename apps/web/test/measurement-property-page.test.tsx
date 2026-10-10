@@ -2066,12 +2066,12 @@ describe('Add query about this location', () => {
     return within(await screen.findByRole('dialog', { name: 'Add queries' }))
   }
 
-  /** Type one query in the open sheet, review it and confirm. Resolves once the sheet has closed. */
+  /** Type one query in the open sheet, review it and publish. Resolves once the sheet has closed. */
   async function publish(sheet: Awaited<ReturnType<typeof openSheet>>, text: string) {
     fireEvent.change(sheet.getByLabelText('Queries'), { target: { value: text } })
     fireEvent.click(sheet.getByRole('button', { name: 'Review' }))
-    await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
-    fireEvent.click(sheet.getByRole('button', { name: 'Confirm changes' }))
+    await sheet.findByRole('heading', { name: 'Review 1 change' })
+    fireEvent.click(sheet.getByRole('button', { name: 'Publish 1 change' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   }
 
@@ -2147,7 +2147,7 @@ describe('Add query about this location', () => {
     fireEvent.change(sheet.getByLabelText('Queries'), { target: { value: MARKET_QUERY.text } })
     fireEvent.click(sheet.getByRole('button', { name: 'Review' }))
 
-    await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
+    await sheet.findByRole('heading', { name: 'Review 1 change' })
     // Type stays on Automatic, so the server classes the query: no `queryClass` is sent.
     const mutation = {
       additions: [{ input: { source: 'manual', text: MARKET_QUERY.text }, audience: { targetKeys: [TARGET_KEY], marketKeys: ['north-coast'] } }],
@@ -2155,10 +2155,10 @@ describe('Add query about this location', () => {
     }
     expect(writes).toEqual([{ operation: 'preview', body: { ...mutation, expectedWorkspaceVersion: WORKSPACE_VERSION } }])
     expect(queryTrackingPreviewRequestSchema.safeParse(writes[0]!.body).success).toBe(true)
-    // Nothing is published until Confirm, so the list is still the one the page loaded with.
+    // Nothing is published until Publish, so the list is still the one the page loaded with.
     expect(within(section).queryByText(MARKET_QUERY.text)).toBeNull()
 
-    fireEvent.click(sheet.getByRole('button', { name: 'Confirm changes' }))
+    fireEvent.click(sheet.getByRole('button', { name: 'Publish 1 change' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(writes[1]).toEqual({ operation: 'commit', body: { ...mutation, expectedWorkspaceVersion: WORKSPACE_VERSION, previewToken: PREVIEW_TOKEN, reviewedAt: REVIEWED_AT } })
     const questions = within(section).getByRole('table', { name: 'Queries assigned to this Property' })

@@ -37,7 +37,8 @@ import { Button } from '../ui/button.js'
 import { WriteButton } from '../shared/AccessControls.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
-import { AddQueriesSheet, LOCATION_NOUN } from './AddQueriesSheet.js'
+import { AddQueriesSheet } from './AddQueriesSheet.js'
+import { TrackingReview, TrackingReviewActions, type TrackingReviewState } from './TrackingReview.js'
 import { ResearchQueriesSection, type ResearchTemplateOption } from './ResearchQueriesSection.js'
 import { DataTablePagination, DataTableSearch, useClientTable } from '../shared/DataTableControls.js'
 import { canUseResearchWorkspace, effectiveQueryWorkspace, unavailableTrackingScope, type QueryWorkspace } from '../../lib/project-scope.js'
@@ -298,6 +299,7 @@ function TrackedQueriesWorkspace({
   onPendingTrackingSourceHandled,
   templates,
   preview,
+  publishError,
   isPreviewing,
   isCommitting,
   onPreview,
@@ -314,6 +316,8 @@ function TrackedQueriesWorkspace({
   onPendingTrackingSourceHandled: () => void
   templates: readonly MeasurementQueryTemplate[]
   preview: QueryTrackingPreviewResponse | null
+  /** The server's last refusal of a review or a publish, until the next request. */
+  publishError: TrackingReviewState['error']
   isPreviewing: boolean
   isCommitting: boolean
   onPreview: (mutation: QueryTrackingMutation) => void
@@ -417,6 +421,17 @@ function TrackedQueriesWorkspace({
     && workspace.mode === 'advanced'
     && !hasMarketOnlyAudience(draft)
   const canReview = mutation !== null && (!needsExplicitContext || draft.contexts.length > 0) && !isPreviewing
+  const sweepActive = publishGuard?.sweepActive ?? false
+
+  function commitReviewed(reviewed: QueryTrackingMutation) {
+    if (!preview) return
+    onCommit({
+      ...reviewed,
+      expectedWorkspaceVersion: preview.workspaceVersion,
+      previewToken: preview.previewToken,
+      reviewedAt: preview.reviewedAt,
+    })
+  }
 
   if (unavailableScope) {
     return <div className="query-tracking-workspace space-y-4"><section aria-label="Tracked queries" className="py-4 text-sm text-secondary">
@@ -514,20 +529,27 @@ function TrackedQueriesWorkspace({
         />
       )}
 
-      {preview && reviewedMutation && action && (
+      {/* An advanced review stays up after a refusal, to show the server's message and offer another review. */}
+      {reviewedMutation && action && workspace.mode === 'advanced' ? (preview || publishError) && (
+        <Card className="surface-card">
+          <TrackingReview
+            preview={preview}
+            error={publishError}
+            workspace={workspace}
+            contextLabels={contextLabels}
+            isCommitting={isCommitting}
+            sweepActive={sweepActive}
+            onPublish={() => commitReviewed(reviewedMutation)}
+            onReviewAgain={() => onPreview(reviewedMutation)}
+          />
+        </Card>
+      ) : preview && reviewedMutation && action && (
         <TrackingPreview
           preview={preview}
           workspace={workspace}
           isCommitting={isCommitting}
-          sweepActive={publishGuard?.sweepActive ?? false}
-          onConfirm={() => {
-            onCommit({
-              ...reviewedMutation,
-              expectedWorkspaceVersion: preview.workspaceVersion,
-              previewToken: preview.previewToken,
-              reviewedAt: preview.reviewedAt,
-            })
-          }}
+          sweepActive={sweepActive}
+          onConfirm={() => commitReviewed(reviewedMutation)}
         />
       )}
 
@@ -535,7 +557,7 @@ function TrackedQueriesWorkspace({
         <TrackingAddQueriesSheet
           projectName={projectName}
           workspace={workspace}
-          sweepActive={publishGuard?.sweepActive ?? false}
+          sweepActive={sweepActive}
           defaultMarketKey={selection.measurementScope === 'market' ? selection.measurementScopeKey : undefined}
           defaultLocationKey={selection.measurementScope === 'property' ? selection.measurementScopeKey : undefined}
           onOpenComposer={({ text }) => { setAddSheetOpen(false); openAdd('manual', text) }}
@@ -554,8 +576,8 @@ function TrackingAddQueriesSheet({ workspace, sweepActive, ...sheet }: Omit<Comp
       workspace={workspace}
       contextChoices={uniqueContextInputs(workspace.defaultContexts.map(contextInput)).map(input => ({ label: contextLabel(input), input }))}
       renderReview={review => ({
-        changes: <TrackingPreview {...review} workspace={workspace} sweepActive={sweepActive} showActions={false} propertyNoun={LOCATION_NOUN} />,
-        actions: <TrackingPreviewActions {...review} sweepActive={sweepActive} />,
+        changes: <TrackingReview {...review} workspace={workspace} contextLabels={contextLabels} sweepActive={sweepActive} showActions={false} />,
+        actions: <TrackingReviewActions {...review} sweepActive={sweepActive} />,
       })}
     />
   )
@@ -569,7 +591,7 @@ function TrackingAddQueriesSheet({ workspace, sweepActive, ...sheet }: Omit<Comp
  * comes back holding this location. A failed read, or a workspace the page's
  * setup is behind, shows a line instead, and a later refresh of the read never
  * opens the sheet without a press. That page has no Add query form, so the
- * sheet links to none. It reads no runs either, so Confirm is not paused here:
+ * sheet links to none. It reads no runs either, so Publish is not paused here:
  * the server refuses a publish during a sweep and the sheet shows the reason.
  */
 export function AddLocationQueryButton({ projectName, locationKey, className, onPublished }: {
@@ -804,7 +826,6 @@ function assignmentScopeLabel(
   row: QueryTrackingTrackedRow,
   workspace: QueryTrackingWorkspaceResponse,
   selection?: NonNullable<QueriesSectionProps['selection']>,
-  properties = 'properties',
 ): string {
   const targetLabels = new Map(workspace.targets.map(target => [target.stableKey, target.label]))
   const groupLabels = new Map(workspace.groups.map(group => [group.stableKey, group.label]))
@@ -834,7 +855,7 @@ function assignmentScopeLabel(
   const propertyScope = selection?.measurementScope === 'property' && allTargetKeys.has(selection.measurementScopeKey ?? '')
   const parts = propertyScope
     ? allTargetKeys.size === 1 ? ['This property only'] : ['This property', `Shared with ${allTargetKeys.size - 1} other ${allTargetKeys.size === 2 ? 'property' : 'properties'}`]
-    : relevantTargetKeys.size === 1 ? [targetLabels.get([...relevantTargetKeys][0]!) ?? [...relevantTargetKeys][0]!] : [`${relevantTargetKeys.size} ${properties}`]
+    : relevantTargetKeys.size === 1 ? [targetLabels.get([...relevantTargetKeys][0]!) ?? [...relevantTargetKeys][0]!] : [`${relevantTargetKeys.size} properties`]
   const group = groupKeys.size === 1 ? groupLabels.get([...groupKeys][0]!) ?? [...groupKeys][0]! : null
   const market = marketKeys.size === 1 ? marketLabels.get([...marketKeys][0]!) ?? [...marketKeys][0]! : null
   if (group && market && group === market) parts.push(`${group} (group and market)`)
@@ -1204,6 +1225,11 @@ function contextLabel(context: QueryTrackingContextInput): string {
   return `${context.location ?? 'No location'} · ${engines}`
 }
 
+/** The distinct search location and engines among stored contexts, named as the Add query form names them. */
+function contextLabels(contexts: QueryTrackingWorkspaceResponse['defaultContexts']): string[] {
+  return uniqueContextInputs(contexts.map(contextInput)).map(contextLabel)
+}
+
 function TrackingContextSelector({
   workspace,
   draft,
@@ -1349,24 +1375,19 @@ function ComposerActions({
   )
 }
 
+/** The review on a simple project. An advanced project draws `TrackingReview`. */
 function TrackingPreview({
   preview,
   workspace,
   isCommitting,
   sweepActive,
   onConfirm,
-  showActions = true,
-  propertyNoun = ['property', 'properties'],
 }: {
   preview: QueryTrackingPreviewResponse
   workspace: QueryTrackingWorkspaceResponse
   isCommitting: boolean
   sweepActive: boolean
   onConfirm: () => void
-  /** False when the caller draws `TrackingPreviewActions` itself, outside the scrolling list. */
-  showActions?: boolean
-  /** What a Property is called in this review, singular then plural. The Add queries sheet says location. */
-  propertyNoun?: readonly [singular: string, plural: string]
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
   useEffect(() => {
@@ -1376,13 +1397,9 @@ function TrackingPreview({
     heading.focus({ preventScroll: true })
   }, [preview])
   const hasChanges = !preview.diff.noOp
-  // An advanced commit writes a new revision with no continuity link, so
-  // location and competitor reads blank while AI Visibility falls back.
   const subcopy = !hasChanges
     ? 'This request leaves tracking unchanged.'
-    : preview.mode === 'advanced'
-      ? 'After you publish, AI Visibility keeps showing the last sweep until the next sweep. Location pages and competitor results show no numbers until then. Past answers are kept.'
-      : 'Changes apply to future sweeps. Earlier results stay unchanged.'
+    : 'Changes apply to future sweeps. Earlier results stay unchanged.'
   const changed = [
     { label: 'Added', rows: preview.diff.added },
     { label: 'Removed', rows: preview.diff.removed },
@@ -1399,40 +1416,19 @@ function TrackingPreview({
         <ToneBadge tone={hasChanges ? 'caution' : 'neutral'} className="sm:shrink-0 sm:whitespace-nowrap">{hasChanges ? 'Ready to confirm' : 'No-op'}</ToneBadge>
       </div>
       {changed.length > 0 ? <div className="mt-4 space-y-4">
-        {changed.map(group => <PreviewChangeList key={group.label} label={group.label} rows={group.rows} workspace={workspace} tracked={preview.tracked} propertyNoun={propertyNoun} />)}
+        {changed.map(group => <PreviewChangeList key={group.label} label={group.label} rows={group.rows} workspace={workspace} tracked={preview.tracked} />)}
       </div> : null}
       {preview.diff.unchanged.length > 0 ? <details className="mt-4 border-t border-default pt-2 text-sm text-secondary">
         <summary className="min-h-11 cursor-pointer py-3">{preview.diff.unchanged.length} unchanged {preview.diff.unchanged.length === 1 ? 'query' : 'queries'}</summary>
-        <PreviewChangeList label="Unchanged" rows={preview.diff.unchanged} workspace={workspace} tracked={preview.tracked} propertyNoun={propertyNoun} />
+        <PreviewChangeList label="Unchanged" rows={preview.diff.unchanged} workspace={workspace} tracked={preview.tracked} />
       </details> : null}
-      {showActions ? <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-default pt-4">
-        <TrackingPreviewActions preview={preview} isCommitting={isCommitting} sweepActive={sweepActive} onConfirm={onConfirm} />
-      </div> : null}
+      <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-default pt-4">
+        <WriteButton type="button" size="sm" disabled={!hasChanges || isCommitting || sweepActive} onClick={onConfirm}>
+          {isCommitting ? 'Confirming…' : 'Confirm changes'}
+        </WriteButton>
+        {hasChanges && sweepActive ? <p role="status" className="text-sm leading-5 text-caution">A sweep is queued or running. Publish after it finishes.</p> : null}
+      </div>
     </Card>
-  )
-}
-
-/** Confirm and the sweep pause: under the review, or pinned in the Add queries sheet's footer. */
-function TrackingPreviewActions({
-  preview,
-  isCommitting,
-  sweepActive,
-  onConfirm,
-}: {
-  preview: QueryTrackingPreviewResponse
-  isCommitting: boolean
-  sweepActive: boolean
-  onConfirm: () => void
-}) {
-  const hasChanges = !preview.diff.noOp
-  return (
-    <>
-      <WriteButton type="button" size="sm" disabled={!hasChanges || isCommitting || sweepActive} onClick={onConfirm}>
-        {isCommitting ? 'Confirming…' : 'Confirm changes'}
-      </WriteButton>
-      {/* Last in its row, so a caller's own button stays beside Confirm. */}
-      {hasChanges && sweepActive ? <p role="status" className="order-last text-sm leading-5 text-caution">A sweep is queued or running. Publish after it finishes.</p> : null}
-    </>
   )
 }
 
@@ -1458,13 +1454,11 @@ function PreviewChangeList({
   rows,
   workspace,
   tracked,
-  propertyNoun,
 }: {
   label: string
   rows: QueryTrackingPreviewResponse['diff']['added']
   workspace: QueryTrackingWorkspaceResponse
   tracked: readonly QueryTrackingTrackedRow[]
-  propertyNoun: readonly [singular: string, plural: string]
 }) {
   return (
     <section aria-label={`${label} queries`}>
@@ -1475,29 +1469,10 @@ function PreviewChangeList({
           <p className="mt-1 text-secondary">{label === 'Removed'
             // `tracked` is the post-change state, so its scopes describe what survives.
             ? `${row.assignmentCount} ${row.assignmentCount === 1 ? 'assignment' : 'assignments'} removed`
-            : previewRowDetail(row, tracked, workspace, propertyNoun[1])}</p>
-          {label === 'Added' || label === 'Reused' ? <PreviewClassifications row={tracked.find(candidate => candidate.queryId === row.queryId)} workspace={workspace} propertyNoun={propertyNoun} /> : null}
+            : previewRowDetail(row, tracked, workspace)}</p>
         </li>)}
       </ul>
     </section>
-  )
-}
-
-function PreviewClassifications({ row, workspace, propertyNoun: [noun, nouns] }: { row?: QueryTrackingTrackedRow; workspace: QueryTrackingWorkspaceResponse; propertyNoun: readonly [singular: string, plural: string] }) {
-  if (!row?.assignments.length) return null
-  const propertyCount = new Set(row.assignments.map(assignment => assignment.targetKey)).size
-  return (
-    <details className="mt-2 text-secondary">
-      <summary className="min-h-11 cursor-pointer py-3 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500">Classifications · {propertyCount} {propertyCount === 1 ? noun : nouns}</summary>
-      <ul className="mt-1 max-h-40 space-y-1 overflow-y-auto">
-        {row.assignments.map((assignment, index) => {
-          const target = workspace.targets.find(candidate => candidate.stableKey === assignment.targetKey)?.label ?? assignment.targetKey
-          const queryClass = assignment.queryClass === 'branded' ? 'Branded' : assignment.queryClass === 'non-brand' ? 'Non-brand' : 'Unknown'
-          const contexts = assignment.contexts.map(context => contextLabel(contextInput(context))).join('; ')
-          return <li key={`${assignment.targetKey}:${index}`}>{[target, queryClass, contexts].filter(Boolean).join(' · ')}</li>
-        })}
-      </ul>
-    </details>
   )
 }
 
@@ -1505,7 +1480,6 @@ function previewRowDetail(
   row: QueryTrackingPreviewResponse['diff']['added'][number],
   tracked: readonly QueryTrackingTrackedRow[],
   workspace: QueryTrackingWorkspaceResponse,
-  properties: string,
 ): string {
   const resolved = tracked.find(candidate => candidate.queryId === row.queryId)
   if (!resolved) return `${row.assignmentCount} ${row.assignmentCount === 1 ? 'assignment' : 'assignments'}`
@@ -1513,7 +1487,7 @@ function previewRowDetail(
   const context = contexts.length === 1
     ? contextLabel(contexts[0]!)
     : contexts.length > 1 ? `${contexts.length} contexts` : null
-  return [assignmentScopeLabel(resolved, workspace, undefined, properties), context].filter((value): value is string => value !== null).join(' · ')
+  return [assignmentScopeLabel(resolved, workspace), context].filter((value): value is string => value !== null).join(' · ')
 }
 
 function TrackedQueriesSection({
@@ -1565,6 +1539,7 @@ function TrackedQueriesSection({
       publishGuard={publishGuard}
       templates={templatesQuery.data?.templates ?? []}
       preview={publish.preview}
+      publishError={publish.error}
       isPreviewing={publish.isPreviewing}
       isCommitting={publish.isCommitting}
       onPreview={(mutation) => publish.requestPreview({ ...mutation, expectedWorkspaceVersion: workspaceQuery.data.workspaceVersion })}

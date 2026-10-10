@@ -5,7 +5,6 @@ import type {
   QueryTrackingCommitResponse,
   QueryTrackingContextInput,
   QueryTrackingMutation,
-  QueryTrackingPreviewResponse,
   QueryTrackingWorkspaceResponse,
 } from '@ainyc/canonry-contracts'
 
@@ -14,6 +13,7 @@ import { WriteButton } from '../shared/AccessControls.js'
 import { SegmentedRadioGroup, type SegmentedRadioOption } from '../shared/SegmentedRadioGroup.js'
 import { Button } from '../ui/button.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet.js'
+import type { TrackingReviewState } from './TrackingReview.js'
 import { VisibilityScopePicker } from './VisibilityScopePicker.js'
 
 type Subject = 'market' | 'location' | 'company'
@@ -29,8 +29,8 @@ const TYPES: readonly SegmentedRadioOption<QueryType>[] = [
   { value: 'branded', label: 'Branded' },
   { value: 'non-brand', label: 'Non-brand' },
 ]
-/** The wire calls a location a property; this sheet never does, nor does the review its caller draws in it. */
-export const LOCATION_NOUN = ['location', 'locations'] as const
+/** The wire calls a location a property; this sheet never does. */
+const LOCATION_NOUN = ['location', 'locations'] as const
 const PLACES = {
   market: { kind: 'market', label: 'Market', placeholder: 'Choose a market', none: 'This project has no markets yet.' },
   location: { kind: 'property', label: 'Location', placeholder: 'Choose a location', none: 'This project has no locations yet.' },
@@ -98,10 +98,10 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
   onPublished?: (result: QueryTrackingCommitResponse) => void
   onClose: () => void
   /**
-   * The caller draws the review, so this sheet shows the same one as every other tracking change.
-   * `actions` (confirm and the sweep pause) go in the footer, in reach however long the list is.
+   * The caller draws the review, so this sheet shows the same one as every other advanced tracking change.
+   * `actions` (publish or review again, Back and the sweep pause) go in the footer, in reach however long the list is.
    */
-  renderReview: (review: { preview: QueryTrackingPreviewResponse; isCommitting: boolean; onConfirm: () => void }) => { changes: ReactNode; actions: ReactNode }
+  renderReview: (review: TrackingReviewState) => { changes: ReactNode; actions: ReactNode }
 }) {
   const publish = useQueryTrackingPublish(projectName, { onCommitted: result => { onPublished?.(result); onClose() } })
   const [subject, setSubject] = useState<Subject>(defaultLocationKey ? 'location' : 'market')
@@ -131,17 +131,28 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
   const lines = queryLines(text)
   const preview = reviewed ? publish.preview : null
   const canReview = placement !== null && lines.length > 0 && !publish.isPreviewing
-  const reviewStep = reviewed && preview ? renderReview({
+  // The toast for a refused review or publish sits under this sheet, so the review stays up to show the
+  // refusal and offer another review. Back keeps showing it beside the draft, until the next request.
+  const reviewStep = reviewed && (preview || publish.error) ? renderReview({
     preview,
+    error: publish.error,
     isCommitting: publish.isCommitting,
-    onConfirm: () => publish.commit({
-      ...reviewed,
-      expectedWorkspaceVersion: preview.workspaceVersion,
-      previewToken: preview.previewToken,
-      reviewedAt: preview.reviewedAt,
-    }),
+    onPublish: () => {
+      if (preview) publish.commit({
+        ...reviewed,
+        expectedWorkspaceVersion: preview.workspaceVersion,
+        previewToken: preview.previewToken,
+        reviewedAt: preview.reviewedAt,
+      })
+    },
+    // A draft that still resolves is rebuilt from the refreshed workspace. One whose place is gone
+    // goes again as it was reviewed, so the server says why.
+    onReviewAgain: () => {
+      if (canReview) review()
+      else publish.requestPreview({ ...reviewed, expectedWorkspaceVersion: workspace.workspaceVersion })
+    },
+    onBack: () => setReviewed(null),
   }) : null
-  // The toast for a refused review or publish sits under this sheet, so the refusal is repeated here.
   const refusal = publish.error ? <p role="alert" className="mt-4 text-sm leading-5 text-negative"><span className="font-medium">{publish.error.title}.</span> {publish.error.detail}</p> : null
   const firstLineOnly = lines.length > 1 ? 'The Add query form adds one query at a time. It opens with your first line only.' : null
 
@@ -200,12 +211,7 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
         </SheetHeader>
         {reviewStep ? <>
           <div className="mt-4 min-h-0 flex-1 overflow-y-auto">{reviewStep.changes}</div>
-          {refusal}
-          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-default pt-4">
-            {reviewStep.actions}
-            {/* A publish in flight closes the sheet when it lands, so the draft stays out of reach until then. */}
-            <Button type="button" variant="ghost" size="sm" disabled={publish.isCommitting} onClick={() => setReviewed(null)}>Back</Button>
-          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-default pt-4">{reviewStep.actions}</div>
         </> : <>
           <div className="-mx-1 mt-4 min-h-0 flex-1 space-y-5 overflow-y-auto px-1">
             <div>
