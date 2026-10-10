@@ -1852,6 +1852,17 @@ export type QueryTrackingPreviewResponse = {
             marketKeys: Array<string>;
         };
     }>;
+    marketChanges?: Array<{
+        marketKey: string;
+        before: {
+            targetKeys: Array<string>;
+        };
+        after: {
+            targetKeys: Array<string>;
+        };
+        removedTargetKeys: Array<string>;
+        emptied: boolean;
+    }>;
     workload: {
         existingNodes: number;
         existingProviderCalls: number;

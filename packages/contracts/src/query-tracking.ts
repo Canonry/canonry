@@ -411,6 +411,25 @@ export const queryTrackingQueryChangeSchema = z.object({
 }).strict()
 export type QueryTrackingQueryChange = z.output<typeof queryTrackingQueryChangeSchema>
 
+/**
+ * One market whose locations change in the reviewed candidate. A market keeps
+ * no member list: its locations are the ones its usage edges name, so a
+ * removal can drop one. An emptied market stays in the plan and takes no
+ * later addition.
+ */
+export const queryTrackingMarketChangeSchema = z.object({
+  marketKey: measurementV2StableKeySchema,
+  /** The market's locations in the active plan. */
+  before: z.object({ targetKeys: z.array(measurementV2StableKeySchema) }).strict(),
+  /** Its locations in the reviewed candidate. */
+  after: z.object({ targetKeys: z.array(measurementV2StableKeySchema) }).strict(),
+  /** In `before` and not in `after`. */
+  removedTargetKeys: z.array(measurementV2StableKeySchema),
+  /** True when `after` has no location left. */
+  emptied: z.boolean(),
+}).strict()
+export type QueryTrackingMarketChange = z.output<typeof queryTrackingMarketChangeSchema>
+
 /** Provider work is a deduplicated execution-node count, not an assignment count. */
 export const queryTrackingWorkloadSchema = z.object({
   existingNodes: z.number().int().nonnegative(),
@@ -441,6 +460,11 @@ export const queryTrackingPreviewResponseSchema = z.object({
    * client tolerates a server that predates it.
    */
   changes: z.array(queryTrackingQueryChangeSchema).optional(),
+  /**
+   * Advanced portfolios only: one row per market whose locations change, empty
+   * when none does. Optional so a client tolerates a server that predates it.
+   */
+  marketChanges: z.array(queryTrackingMarketChangeSchema).optional(),
   workload: queryTrackingWorkloadSchema,
   /**
    * Advanced portfolios only. Optional so a client tolerates a server that

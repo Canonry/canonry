@@ -155,6 +155,46 @@ describe('query tracking contract', () => {
     }).success).toBe(false)
   })
 
+  it('still parses a preview without market changes from an older server or a simple basket', () => {
+    expect('marketChanges' in queryTrackingPreviewResponseSchema.parse(advancedPreview())).toBe(false)
+  })
+
+  it('carries each market\'s locations before and after on a preview exactly as sent', () => {
+    const marketChanges = [
+      {
+        marketKey: 'alpha', before: { targetKeys: ['harbor-point', 'river-point'] }, after: { targetKeys: ['harbor-point'] },
+        removedTargetKeys: ['river-point'], emptied: false,
+      },
+      {
+        marketKey: 'beta', before: { targetKeys: ['harbor-point'] }, after: { targetKeys: [] },
+        removedTargetKeys: ['harbor-point'], emptied: true,
+      },
+    ]
+
+    expect(queryTrackingPreviewResponseSchema.parse({ ...advancedPreview(), marketChanges }).marketChanges).toEqual(marketChanges)
+    expect(queryTrackingPreviewResponseSchema.parse({ ...advancedPreview(), marketChanges: [] }).marketChanges).toEqual([])
+  })
+
+  it('rejects a market change that is partial, mistyped or carries an unknown key', () => {
+    const change = {
+      marketKey: 'alpha', before: { targetKeys: ['harbor-point'] }, after: { targetKeys: [] },
+      removedTargetKeys: ['harbor-point'], emptied: true,
+    }
+    const { marketKey, before, after, removedTargetKeys, emptied } = change
+    for (const invalid of [
+      { marketKey, before, after, removedTargetKeys },
+      { marketKey, before, after, emptied },
+      { ...change, emptied: 'yes' },
+      { ...change, after: { targetKeys: [], marketKeys: [] } },
+      { ...change, before: ['harbor-point'] },
+      { ...change, addedTargetKeys: [] },
+    ]) {
+      expect(queryTrackingPreviewResponseSchema.safeParse({
+        ...advancedPreview(), marketChanges: [invalid],
+      }).success, JSON.stringify(invalid)).toBe(false)
+    }
+  })
+
   it('validates workspace scope options with the visibility report option contract', () => {
     const result = queryTrackingWorkspaceResponseSchema.safeParse({
       ...advancedWorkspace(),

@@ -72,6 +72,12 @@ async function preview(payload: Record<string, unknown>) {
   const listed = review.diff.noOp ? [] : (['added', 'reused', 'removed'] as const)
     .flatMap(change => review.diff[change].map(row => ({ queryId: row.queryId, queryText: row.queryText, change })))
   expect(review.changes?.map(({ queryId, queryText, change }) => ({ queryId, queryText, change }))).toEqual(listed)
+  // Only an advanced review reports market changes, and each row agrees with its own before and after.
+  expect(review.marketChanges === undefined).toBe(review.mode === 'simple')
+  for (const market of review.marketChanges ?? []) {
+    expect(market.removedTargetKeys).toEqual(market.before.targetKeys.filter(key => !market.after.targetKeys.includes(key)))
+    expect(market.emptied).toBe(market.after.targetKeys.length === 0)
+  }
   return review
 }
 
@@ -718,7 +724,15 @@ describe('query tracking workspace: advanced portfolios', () => {
       additions: [{ input: { source: 'manual', text: 'best apartments in northbridge' }, audience: { marketKeys: ['alpha-market'] }, queryClass: 'branded' }], removals: [],
     })
     expect(response.statusCode).toBe(400)
-    expect(response.json()).toMatchObject({ error: { message: expect.stringContaining('shared with another market') } })
+    const refusal = { error: { code: 'VALIDATION_ERROR', message: 'This query is shared with another market. Change its type for every location instead.' } }
+    expect(response.json()).toEqual(refusal)
+    // A type edit scoped to that one market is refused in the same words.
+    const edit = await request('POST', '/query-tracking/preview', {
+      expectedWorkspaceVersion: current.workspaceVersion, additions: [], removals: [],
+      edits: [{ queryId: 'q-existing', audience: { marketKeys: ['alpha-market'] }, queryClass: 'branded' }],
+    })
+    expect(edit.statusCode).toBe(400)
+    expect(edit.json()).toEqual(refusal)
     expect(activeV2Plan()).toEqual(before)
   })
 
@@ -924,11 +938,11 @@ describe('query tracking workspace: advanced portfolios', () => {
     expect(db.select().from(runs).all()).toHaveLength(0)
   })
 
-  it.each([
-    { targetKeys: ['river-point'], marketKeys: ['beta-market'] },
-    { targetKeys: ['harbor-point', 'river-point'], marketKeys: ['beta-market'] },
-    { groupKeys: ['southbridge'], marketKeys: ['alpha-market', 'beta-market'] },
-  ])('rejects an explicit audience that cannot belong to the selected markets: %j', async audience => {
+  it.each<[Record<string, string[]>, string]>([
+    [{ targetKeys: ['river-point'], marketKeys: ['beta-market'] }, 'Market "beta-market" has no selected location.'],
+    [{ targetKeys: ['harbor-point', 'river-point'], marketKeys: ['beta-market'] }, 'Selected location "river-point" does not belong to any selected market.'],
+    [{ groupKeys: ['southbridge'], marketKeys: ['alpha-market', 'beta-market'] }, 'Market "beta-market" has no selected location.'],
+  ])('rejects an explicit audience that cannot belong to the selected markets: %j', async (audience, message) => {
     seedMultiMarketPlan()
     const current = await workspace()
     const response = await request('POST', '/query-tracking/preview', {
@@ -936,6 +950,27 @@ describe('query tracking workspace: advanced portfolios', () => {
       additions: [{ input: additionSource(null), audience }], removals: [],
     })
     expect(response.statusCode, response.body).toBe(400)
+    expect(response.json()).toEqual({ error: { code: 'VALIDATION_ERROR', message } })
+    expect(db.select().from(measurementPlanVersions).all()).toHaveLength(1)
+  })
+
+  it.each<[Record<string, string[]>, string]>([
+    [{ targetKeys: ['harbor-point', 'ghost-point'] }, 'Selected location "ghost-point" is not in the active plan.'],
+    [{}, 'Select at least one location, group or market.'],
+    [{ targetKeys: [], groupKeys: [], marketKeys: [] }, 'Select at least one location, group or market.'],
+  ])('refuses an unknown location and an empty selection in plain words, for an addition, a removal and an edit: %j', async (audience, message) => {
+    seedMultiMarketPlan()
+    const current = await workspace()
+    const refusal = { error: { code: 'VALIDATION_ERROR', message } }
+    for (const mutation of [
+      { additions: [{ input: additionSource(null), audience }], removals: [] },
+      { additions: [], removals: [{ queryId: 'q-existing', audience }] },
+      { additions: [], removals: [], edits: [{ queryId: 'q-existing', audience, queryClass: 'branded' }] },
+    ]) {
+      const response = await request('POST', '/query-tracking/preview', { expectedWorkspaceVersion: current.workspaceVersion, ...mutation })
+      expect(response.statusCode, response.body).toBe(400)
+      expect(response.json()).toEqual(refusal)
+    }
     expect(db.select().from(measurementPlanVersions).all()).toHaveLength(1)
   })
 
@@ -1011,6 +1046,8 @@ describe('query tracking workspace: advanced portfolios', () => {
     }
     const review = await preview(mutation)
     expect(review.workload).toMatchObject({ addedProviderCalls: 3, removedProviderCalls: 3, nextSweepProviderCalls: 3 })
+    // The replacement asks the same locations, so neither market's membership changes.
+    expect(review.marketChanges).toEqual([])
     const response = await commit({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
     expect(response.statusCode, response.body).toBe(200)
     expect(activeV2Plan().plan.reportingScopes?.map(scope => scope.usageEdges.length)).toEqual([2, 1])
@@ -1105,6 +1142,10 @@ describe('query tracking workspace: advanced portfolios', () => {
       queryId: 'q-existing', queryText: 'best apartments in northbridge', change: 'removed',
       before: placement(['harbor-point'], ['alpha-market']), after: placement(['harbor-point']),
     }])
+    expect(review.marketChanges).toEqual([{
+      marketKey: 'alpha-market', before: { targetKeys: ['harbor-point'] }, after: { targetKeys: [] },
+      removedTargetKeys: ['harbor-point'], emptied: true,
+    }])
     expect(review.workload).toMatchObject({
       existingProviderCalls: 3,
       nextSweepProviderCalls: 2,
@@ -1145,6 +1186,8 @@ describe('query tracking workspace: advanced portfolios', () => {
       before: placement(['harbor-point'], ['alpha-market', 'beta-market']),
       after: placement(['harbor-point'], ['beta-market']),
     })])
+    // Beta keeps the same execution, so only Alpha loses its location.
+    expect(review.marketChanges?.map(market => [market.marketKey, market.emptied])).toEqual([['alpha-market', true]])
     expect(review.workload).toMatchObject({ removedNodes: 0, removedProviderCalls: 0, nextSweepProviderCalls: 3 })
 
     const response = await commit({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
